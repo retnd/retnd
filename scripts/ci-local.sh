@@ -118,6 +118,12 @@
 
 set -e
 
+# Homebrew goes first so the gate finds brew's tools on a machine whose shell
+# profile did not run, but not ahead of a golangci-lint the caller put on PATH
+# on purpose: brew's is whatever version is current, and the one this gate
+# means is the one ci.yml pins (see gate_golangci_pin_note), which is usually
+# built by hand and lives somewhere else.
+_caller_golangci=$(command -v golangci-lint 2>/dev/null || true)
 export PATH="/opt/homebrew/bin:$PATH"
 # The line above puts Homebrew's tools ahead of whatever the caller set, so a
 # golangci-lint built for the pinned toolchain (see gate_golangci_pin_note
@@ -125,6 +131,10 @@ export PATH="/opt/homebrew/bin:$PATH"
 # "this directory first".
 if [ -n "${GOLANGCI_LINT_DIR:-}" ]; then
   export PATH="$GOLANGCI_LINT_DIR:$PATH"
+fi
+if [ -n "$_caller_golangci" ]; then
+  PATH="$(dirname "$_caller_golangci"):$PATH"
+  export PATH
 fi
 
 # The marker every process this gate starts can read: "you are running inside
