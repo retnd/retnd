@@ -178,6 +178,19 @@ func TestFields1253_EveryRequestFieldReachesTheLineOrIsExplained(t *testing.T) {
 		t.Fatal("no builder printed a command from its own schema's canary body, so this test checked nothing")
 	}
 
+	// Per route. A builder its own schema's body never got a line out of
+	// is a builder whose fields nothing here looked at, and the total
+	// above would stay large while it happened.
+	for route, schema := range requestSchemaByRoute() {
+		if e, ok := routes[route]; !ok || e.build == nil || seen[route] != nil {
+			continue
+		}
+		if len(stringFieldPaths(t, schema)) == 0 {
+			continue
+		}
+		t.Errorf("%s takes %s and has a builder, and no canary body of that schema made it print a command, so nothing here checks which of its fields reach the line. Give the corpus a body it accepts (canary_test.go's bodySelectors).", route, schema)
+	}
+
 	for _, dropped := range droppedFields(seen, fieldsNotEchoed) {
 		// A route has a space in it and a field path doesn't.
 		at := strings.LastIndex(dropped, " ")
@@ -252,4 +265,113 @@ func containsString(list []string, want string) bool {
 // purpose, by route and by the field's path inside that route's schema,
 // with the reason. An entry is a decision a reviewer can read and argue
 // with; a field missing from both the line and this table fails.
-var fieldsNotEchoed = map[string]map[string]string{}
+//
+// Most of them fall into four kinds, and the reasons say which:
+//
+//   - material: a password, a key, a token or a value a credential can be
+//     typed into. The verb reads it on stdin or the line names it with a
+//     placeholder (credentials_test.go is the other half of that rule).
+//   - a selector: a field whose value picks the verb or the flag's form
+//     (action, target.kind), so the line says it by being that verb.
+//   - a field that only matters to an arm that refuses (run_backup_set),
+//     or to a mode the request isn't in.
+//   - a browser handshake with no terminal counterpart: a revision token,
+//     a plan id, a hash of a script the browser already holds.
+var fieldsNotEchoed = map[string]map[string]string{
+	"PATCH /auth/recovery": {
+		"currentPassword": "material: the verb reads it on stdin (--current-password-stdin)",
+		"smtp.password":   "material: the verb reads it on stdin",
+		"recoveryEmail":   "printed as a placeholder: a recovery address is personal and the line is exportable (the routes.go comment on this builder)",
+		"smtp.host":       "printed as a placeholder, for the same reason as the recovery address",
+		"smtp.username":   "printed as a placeholder, for the same reason as the recovery address",
+		"smtp.from":       "printed as a placeholder, for the same reason as the recovery address",
+		"smtp.security":   "printed as a placeholder naming the three choices, with the rest of the SMTP block",
+	},
+	"POST /auth/password": {
+		"currentPassword": "material: `auth password --password-stdin` reads both passwords on stdin",
+		"newPassword":     "material: `auth password --password-stdin` reads both passwords on stdin",
+	},
+	"POST /auth/verify-email": {
+		"token": "material: the emailed token is read on stdin (--token-stdin)",
+	},
+	"POST /ssh-keys": {
+		"private_key_pem": "material: `ssh-key import --file` names the key file with a placeholder, never its contents",
+		"passphrase":      "material: the verb reads it on stdin (--passphrase-stdin)",
+	},
+	"POST /storage-credentials": {
+		"access_key_id":     "material: `medium import-credentials --stdin` reads the pair on stdin",
+		"secret_access_key": "material: read on stdin",
+		"session_token":     "material: read on stdin",
+	},
+	"POST /repositories": {
+		"passphrase.command[0]": "the caller's own words, which can print a secret: named with a placeholder, never printed",
+	},
+	"POST /storage-mediums": {
+		"credentials.command[0]": "the caller's own words, which can print a secret: named with a placeholder, never printed (#1252)",
+	},
+	"POST /storage-mediums/preflight": {
+		"credentials.command[0]": "the caller's own words, which can print a secret: named with a placeholder, never printed (#1252)",
+	},
+	"PUT /storage-mediums/{id}": {
+		"credentials.command[0]": "the caller's own words, which can print a secret: named with a placeholder, never printed (#1252)",
+		"id":                     "the path's id is the one printed; a body naming a different destination is refused, so the two agree by the time anything is written",
+	},
+	"POST /storage-mediums/{id}/configuration/preflight": {
+		"credentials.command[0]": "the caller's own words, which can print a secret: named with a placeholder, never printed (#1252)",
+	},
+	"PUT /storage-mediums/{id}/configuration": {
+		"credentials.command[0]": "the caller's own words, which can print a secret: named with a placeholder, never printed (#1252)",
+	},
+	"PUT /settings/workflow/environment/{name}": {
+		"value":             "nothing tells `--value production` from `--value hunter2`, so it is a placeholder (workflowEnvSetFlags)",
+		"secret.command[0]": "the caller's own words, which can print a secret: named with a placeholder, never printed",
+	},
+	"PUT /backup-sets/{source}/{set}/workflow/environment/{name}": {
+		"value":             "nothing tells `--value production` from `--value hunter2`, so it is a placeholder (workflowEnvSetFlags)",
+		"secret.command[0]": "the caller's own words, which can print a secret: named with a placeholder, never printed",
+	},
+	"POST /assurance/validators": {
+		"script": "the file the operator uploaded: --script is a placeholder naming its size and sha256, never its contents",
+		"env":    "a closed set: minimal or workflow is printed as --env and anything else is refused by the engine, which is all a canary can be (validators_env_1221_test.go checks the echo)",
+	},
+	"PUT /assurance/validators/{name}": {
+		"script":        "the file the operator uploaded: --script is a placeholder naming its size and sha256, never its contents",
+		"script_sha256": "the browser's way of saying keep the stored script; on a terminal that is leaving --script off",
+		"env":           "a closed set: minimal or workflow is printed as --env and anything else is refused by the engine, which is all a canary can be (validators_env_1221_test.go checks the echo)",
+	},
+	"PATCH /settings": {
+		"retention.tiers[0].name":        "a tier chain is printed as --policy-file, a placeholder for the file holding the whole retention block, because the CLI refuses that flag beside the scalars",
+		"retention.tiers[0].granularity": "part of the tier chain, which --policy-file carries",
+		"retention.tiers[0].window_unit": "part of the tier chain, which --policy-file carries",
+		"retention.tiers[0].medium":      "part of the tier chain, which --policy-file carries",
+	},
+	"PUT /backup-sets/{source}/{set}/retention": {
+		"tiers[0].name":        "a tier chain is printed as --policy-file, a placeholder for the file holding the whole retention block, because the CLI refuses that flag beside the scalars",
+		"tiers[0].granularity": "part of the tier chain, which --policy-file carries",
+		"tiers[0].window_unit": "part of the tier chain, which --policy-file carries",
+		"tiers[0].medium":      "part of the tier chain, which --policy-file carries",
+	},
+	"POST /backup-sets/{source}/{set}/retention/apply": {
+		"plan_id": "over HTTP a plan is issued, shown and applied by id; on a terminal preview and apply are one invocation, so there is no plan to name (the routes.go comment on this builder)",
+	},
+	"POST /backup-sets/test-connection": {
+		"host":             "candidate mode, which refuses (gapCandidateConnection); a request naming backup_set_id may not carry it, since the contract allows exactly one mode",
+		"user":             "candidate mode, as host",
+		"ssh_key_id":       "candidate mode, as host",
+		"known_hosts_line": "candidate mode, as host",
+		"remote_path":      "candidate mode, as host",
+	},
+	"POST /operations": {
+		"action":          "a selector: it picks the verb, so the line says it by being `restore` or `snapshot ...`",
+		"backup_set_id":   "read only by run_backup_set, which refuses (gapRunBackupSet); every other action names its set inside its own parameters",
+		"config_revision": "the browser's guard against a stale form; a terminal reads the current configuration itself",
+	},
+	"POST /backups/{source}/{set}/{name}/recovery": {
+		"target.kind":                     "a selector: it picks the form of --to (-, a name, medium:ID, source:FOLDER)",
+		"target.acknowledged_destination": "the engine's description of the source host echoed back as a yes; a terminal says yes with --acknowledge-source-write",
+	},
+	"POST /recoveries": {
+		"target.kind":                     "a selector: it picks the form of --to (a name, medium:ID, source:FOLDER)",
+		"target.acknowledged_destination": "the engine's description of the source host echoed back as a yes; a terminal says yes with --acknowledge-source-write",
+	},
+}

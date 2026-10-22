@@ -1,0 +1,128 @@
+# Every sentence core/cliecho prints in place of a command (#1253).
+#
+# A change here is a change to what the terminal can't do. Read it as
+# one: a new route under "no command" is a UI action with no CLI twin,
+# and a new unmarked sentence under "refuses some requests" is a
+# request the browser sends that the terminal has no line for.
+#
+# Re-pin with: UPDATE_GOLDEN=1 go test ./common/webhost -run TestRouteVerbGuard1253_EveryGapSentenceIsInTheGolden (from apps/)
+
+GET /auth/session  (no command)
+	a session read answers a browser's question about its own cookie, and a terminal holds no session to ask about
+
+GET /backup-sets/{source}/{set}/source-host  (no command)
+	describing where a source-host recovery would write has no verb of its own, because the terminal never describes without checking: `retnd recover --set <source/backup-set> --to source: --preflight` prints the same description and then runs the write check, which writes and removes one probe file on that host
+
+GET /recoveries/{grant}  (no command)
+	a grant is minted and redeemed in one step by `retnd recover`, in your own shell, so there is no verb that redeems a grant somebody else minted: the token belongs to the browser session that asked for it
+
+PATCH /auth/recovery  (refuses some requests)
+	(malformed body) the request body would not decode, so there is no command that says what it changed
+
+PATCH /backup-sets/{source}/{set}  (refuses some requests)
+	(malformed body) there is no verb that edits a backup set from a request body
+
+PATCH /backup-sets/{source}/{set}/assurance  (refuses some requests)
+	(malformed body) there is no verb that patches a backup set's assurance policy from a request body
+
+PATCH /backup-sets/{source}/{set}/workflow  (refuses some requests)
+	(malformed body) there is no verb that patches a backup set's workflow configuration from a request body
+
+PATCH /settings  (refuses some requests)
+	(malformed body) there is no verb that patches the deployment's settings from a request body
+
+PATCH /settings/assurance  (refuses some requests)
+	(malformed body) there is no verb that patches the deployment's assurance policy from a request body
+
+PATCH /settings/workflow  (refuses some requests)
+	(malformed body) there is no verb that patches the deployment's workflow configuration from a request body
+
+POST /assurance/validator-preview  (refuses some requests)
+	(malformed body) there is no verb that previews a pattern from a request body
+
+POST /assurance/validators  (refuses some requests)
+	(malformed body) there is no verb that uploads a validator from a request body
+
+POST /auth/enroll  (no command)
+	the first administrator is made by `retnd-web auth create-admin --username U --password-stdin`, offline, against the store, and it refuses while a server holds the store or once an administrator exists; there is no routed verb for it, because there is no engine account to sign in as yet
+
+POST /auth/forgot-password  (no command)
+	there is no verb that asks for a password-reset email from a terminal; it is the browser's path for an account with a working mail server, and a terminal that can reach the engine at all can change the password with `retnd auth password`
+
+POST /auth/login  (no command)
+	a login opens a browser session, and a terminal holds no session: a routed command signs in with $RETND_API_USERNAME and $RETND_API_PASSWORD for the one invocation, so there is nothing to type
+
+POST /auth/logout  (no command)
+	a logout ends a browser session, and a terminal holds none
+
+POST /auth/reset-password  (no command)
+	there is no verb that redeems a password-reset token from a terminal. An administrator locked out with no mail configured does have a way back in: `retnd-web auth set-password --username U --password-stdin`, offline, with the server stopped
+
+POST /backup-sets  (refuses some requests)
+	(malformed body) there is no verb that creates a backup set from a request body
+
+POST /backup-sets/test-connection  (refuses some requests)
+	(malformed body) there is no verb that checks a source that has not been saved yet
+	there is no verb that checks a source that is not saved yet: `retnd backup-set create` proves the connection before it writes, and `retnd backup-set test-connection <source/backup-set>` re-checks one that exists
+
+POST /backup-sets/{source}/{set}/edit-hold  (no command)
+	`backup-set edit-hold` reports a hold and releases one, and no verb TAKES one and leaves it held: a hold outliving the command that took it is exactly what a browser needs and a terminal does not
+
+POST /backup-sets/{source}/{set}/enabled  (refuses some requests)
+	(malformed body) there is no verb that enables or disables a set from a request body
+
+POST /backup-sets/{source}/{set}/read-only  (refuses some requests)
+	(malformed body) there is no verb that changes a set's read-only posture from a request body
+
+POST /operations  (refuses some requests)
+	`retnd fetch --backup-set <source/backup-set>` runs that set's cycle in your own shell, not in this engine, so it is a different act against a different process
+	`retnd run` starts a cycle in your own shell, not in this engine, so it is a different act against a different process
+	(malformed body) there is no verb that submits an operation from a request body
+
+POST /repositories  (refuses some requests)
+	(malformed body) there is no verb that declares a repository domain from a request body
+
+POST /ssh-keys  (refuses some requests)
+	(malformed body) the request body would not decode, so there is no command that says what it imported
+
+POST /ssh-keys/from-candidate  (refuses some requests)
+	(malformed body) the request body would not decode, so there is no command that says which candidate it selected
+
+POST /ssh/host-key-probe  (refuses some requests)
+	(malformed body) the request names no host, so there is nothing to probe and no command that says what was probed
+
+POST /storage-mediums  (refuses some requests)
+	(malformed body) there is no verb that declares a storage destination from a request body
+
+POST /storage-mediums/preflight  (refuses some requests)
+	(malformed body) there is no verb that proves an undeclared storage destination from a request body
+
+POST /storage-mediums/{id}/configuration/preflight  (refuses some requests)
+	(malformed body) there is no verb that checks a destination's configuration from a request body
+
+POST /system/first-run  (refuses some requests)
+	(malformed body) there is no verb that writes a first configuration from a request body
+
+POST /system/first-run/skip  (no command)
+	skipping a step of the first-run guide is a choice about what the web interface shows next; a terminal has no guide to leave a step of
+
+POST /workflow-recovery/{run}/acknowledge  (refuses some requests)
+	(malformed body) there is no verb that acknowledges an interrupted workflow run from a request body
+
+PUT /assurance/validators/{name}  (refuses some requests)
+	(malformed body) there is no verb that replaces a validator from a request body
+
+PUT /backup-sets/{source}/{set}/retention  (refuses some requests)
+	(malformed body) there is no verb that sets a backup set's retention policy from a request body
+
+PUT /backup-sets/{source}/{set}/workflow/environment/{name}  (refuses some requests)
+	(malformed body) there is no verb that configures a backup set's workflow environment variable from a request body
+
+PUT /settings/workflow/environment/{name}  (refuses some requests)
+	(malformed body) there is no verb that configures a workflow environment variable from a request body
+
+PUT /storage-mediums/{id}  (refuses some requests)
+	(malformed body) there is no verb that edits a storage destination from a request body
+
+PUT /storage-mediums/{id}/configuration  (refuses some requests)
+	(malformed body) there is no verb that configures a storage destination from a request body

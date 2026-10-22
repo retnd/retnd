@@ -169,9 +169,7 @@ func refusedTwins(t *testing.T, twins []uiTwin, configPath string) []string {
 }
 
 func TestEveryUITwinParses1253(t *testing.T) {
-	for _, name := range []string{"RETND_API_URL", "RETND_API_USERNAME", "RETND_API_PASSWORD", "BACKUP_MANAGER_API_URL", "BACKUP_MANAGER_API_USERNAME", "BACKUP_MANAGER_API_PASSWORD"} {
-		t.Setenv(name, "")
-	}
+	clearTheRoute(t)
 	raw, err := os.ReadFile(uiTwins1253)
 	if err != nil {
 		t.Fatalf("reading %s: %v\nIt is written by ui/shared's vitest suite. Re-pin with: %s", uiTwins1253, err, uiTwinsRepin1253)

@@ -55,15 +55,22 @@ const gapRepin1253 = "UPDATE_GOLDEN=1 go test ./common/webhost -run TestRouteVer
 // than left to be inferred. "no command" is a route with no builder at
 // all, which is a whole UI action the terminal can't do. "refuses some
 // requests" is a builder that declines for some bodies (a run_cycle on
-// POST /operations, say) or for a body that won't decode, which is a
-// narrower claim. A route moving from the second to the first is exactly
-// the change this file exists to make loud.
-func renderGaps(gaps []cliecho.Gap, built map[string]bool) string {
+// POST /operations, say). A route moving from the second to the first is
+// exactly the change this file exists to make loud.
+//
+// Most builders also carry a sentence for a body they can't read, and
+// that one is marked "(malformed body)", because it says nothing about
+// what the terminal can do with a request the browser would really send.
+// Without the mark, the two deliberate refusals the issue counted were
+// lost among thirty sentences that only cover bad input.
+func renderGaps(gaps []cliecho.Gap, built map[string]bool, malformed map[string]string) string {
 	var b strings.Builder
 	b.WriteString("# Every sentence core/cliecho prints in place of a command (#1253).\n")
 	b.WriteString("#\n")
 	b.WriteString("# A change here is a change to what the terminal can't do. Read it as\n")
-	b.WriteString("# one: a new route under \"no command\" is a UI action with no CLI twin.\n")
+	b.WriteString("# one: a new route under \"no command\" is a UI action with no CLI twin,\n")
+	b.WriteString("# and a new unmarked sentence under \"refuses some requests\" is a\n")
+	b.WriteString("# request the browser sends that the terminal has no line for.\n")
 	b.WriteString("#\n")
 	b.WriteString("# Re-pin with: " + gapRepin1253 + "\n")
 	last := ""
@@ -75,6 +82,10 @@ func renderGaps(gaps []cliecho.Gap, built map[string]bool) string {
 			}
 			b.WriteString("\n" + g.Route + "  (" + kind + ")\n")
 			last = g.Route
+		}
+		if built[g.Route] && malformed[g.Route] == g.Why {
+			b.WriteString("\t(malformed body) " + g.Why + "\n")
+			continue
 		}
 		b.WriteString("\t" + g.Why + "\n")
 	}
@@ -90,6 +101,26 @@ func routesWithABuilder() map[string]bool {
 		out[ex.Method+" "+ex.Route] = true
 	}
 	return out
+}
+
+// malformedBodySentences is, for each route with a builder, the sentence
+// it prints for a body that isn't JSON at all.
+func malformedBodySentences(built map[string]bool) map[string]string {
+	out := map[string]string{}
+	for route := range built {
+		method, path, _ := strings.Cut(route, " ")
+		line := cliecho.Echo(cliecho.Action{Method: method, Route: path, Body: []byte("not json")})
+		if line.GapDetail != "" {
+			out[route] = line.GapDetail
+		}
+	}
+	return out
+}
+
+// currentGaps renders what cliecho says now, in the golden's format.
+func currentGaps(gaps []cliecho.Gap) string {
+	built := routesWithABuilder()
+	return renderGaps(gaps, built, malformedBodySentences(built))
 }
 
 // gapDrift reports the lines that differ between the golden and what
@@ -136,7 +167,7 @@ func TestRouteVerbGuard1253_EveryGapSentenceIsInTheGolden(t *testing.T) {
 	if len(gaps) == 0 {
 		t.Fatal("cliecho reports no gap sentences at all, so the golden would pin nothing")
 	}
-	current := renderGaps(gaps, routesWithABuilder())
+	current := currentGaps(gaps)
 
 	if os.Getenv("UPDATE_GOLDEN") == "1" {
 		if err := os.MkdirAll(filepath.Dir(gapGolden1253), 0o755); err != nil {
@@ -163,15 +194,14 @@ func TestRouteVerbGuard1253_EveryGapSentenceIsInTheGolden(t *testing.T) {
 // builder, and the guard above stays green because a `why` counts as an
 // answer. Here it has to show up as drift.
 func TestRouteVerbGuard1253_MutationANewWhyOnlyRouteIsCaught(t *testing.T) {
-	built := routesWithABuilder()
-	before := renderGaps(cliecho.Gaps(), built)
+	before := currentGaps(cliecho.Gaps())
 
 	gaps := append(cliecho.Gaps(), cliecho.Gap{
 		Route: "POST /a-route-with-only-a-why",
 		Why:   "there is no verb that does what this button does",
 	})
 	sort.Slice(gaps, func(i, j int) bool { return gaps[i].Route < gaps[j].Route })
-	after := renderGaps(gaps, built)
+	after := currentGaps(gaps)
 
 	drift := gapDrift(before, after)
 	if !contains(drift, "+ POST /a-route-with-only-a-why  (no command)") {
@@ -182,7 +212,7 @@ func TestRouteVerbGuard1253_MutationANewWhyOnlyRouteIsCaught(t *testing.T) {
 	// drift too, under the route that already had a builder.
 	gaps = append(cliecho.Gaps(), cliecho.Gap{Route: "POST /backup-sets", Why: "a new refusal"})
 	sort.Slice(gaps, func(i, j int) bool { return gaps[i].Route < gaps[j].Route })
-	drift = gapDrift(before, renderGaps(gaps, built))
+	drift = gapDrift(before, currentGaps(gaps))
 	if !contains(drift, "+ POST /backup-sets  (refuses some requests)\ta new refusal") {
 		t.Errorf("a new refusal on a route with a builder did not show up as drift; got %v", drift)
 	}
@@ -390,4 +420,19 @@ func compose(api, finish http.Handler, pattern string) *http.ServeMux {
 // a serve mux, keyed "file pattern", and which of the routers
 // everyRegisteredRoute walks answers it. Adding a line is a claim that the guard already sees every
 // route behind the pattern.
-var muxPatternsTheGuardWalks = map[string]string{}
+//
+// serve/firstrun.go is the engine's own composition (newEngineHandler), so
+// each of its lines names the router directly. serve/ui.go is the UI
+// container's, and everything it mounts under /api or /health is a
+// reverse proxy to that engine: it adds no route of its own, so each line
+// there says which engine mount the request lands on.
+var muxPatternsTheGuardWalks = map[string]string{
+	"serve/firstrun.go /api/v1/auth/": "the auth router (cfg.AuthRoutes, apps/common/auth/local), walked at /api/v1/auth the way this line strips it",
+	"serve/firstrun.go /health/":      "webhost.NewRouter, walked configured and unconfigured; the health probes are its /health/live and /health/ready",
+	"serve/firstrun.go /api/v1/":      "webhost.NewRouter, walked configured and unconfigured (the first-run surface is the unconfigured one)",
+
+	"serve/ui.go /health/":            "the reverse proxy to the engine, which answers it with serve/firstrun.go's /health/ mount",
+	"serve/ui.go /api/v1/":            "the reverse proxy to the engine, which answers it with serve/firstrun.go's /api/v1/ and /api/v1/auth/ mounts",
+	"serve/ui.go /api/v1/recoveries/": "the same reverse proxy with a rolling write deadline for downloads; the engine answers it with webhost.NewRouter",
+	"serve/ui.go /api/v1/recoveries":  "the same proxy for the exact path (POST /api/v1/recoveries); the engine answers it with webhost.NewRouter",
+}
