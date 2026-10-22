@@ -2,6 +2,7 @@ package cliecho
 
 import (
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 	"testing"
@@ -39,63 +40,11 @@ import (
 // in writing, that this flag carries something a request said out loud and
 // an operator has to be able to retype.
 func TestNoRequestFieldReachesTheArgvUnlessItIsEchoedOnPurpose(t *testing.T) {
-	const marker = "cliechoCANARY"
-	canary := func(path string) string {
-		var b strings.Builder
-		b.WriteString(marker)
-		for _, r := range path {
-			if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
-				b.WriteRune(r)
-			}
-		}
-		return b.String()
+	f := credentialFindings(t)
+	for _, v := range f.violations {
+		t.Error(v)
 	}
-	bodies := canaryBodies(t, canary)
-
-	// Realistic path parameters, because a path parameter is not a field
-	// of the request body and the question here is what the BODY can put
-	// on a line. Quoting of a hostile path parameter is quoting_test.go's.
-	params := map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar", "id": "offsite_s3"}
-
-	usedFlag := map[string]bool{}
-	usedOperand := map[string]bool{}
-	builtFor := map[string]bool{}
-	built := 0
-	for _, route := range Routes() {
-		method, path, _ := strings.Cut(route, " ")
-		for _, body := range bodies {
-			line := Echo(Action{Method: method, Route: path, Params: params, Body: body.body})
-			if len(line.Command) > 0 {
-				built++
-				builtFor[route] = true
-			}
-			for i, arg := range line.Command {
-				if !strings.Contains(arg, marker) {
-					continue
-				}
-				flag := ""
-				if i > 0 && strings.HasPrefix(line.Command[i-1], "--") {
-					flag = line.Command[i-1]
-				}
-				if flag == "" {
-					if _, ok := operandsThatNameTheSubject[route]; ok {
-						usedOperand[route] = true
-						continue
-					}
-					t.Errorf("%s puts a %s field on the command line as an OPERAND:\n  %s\nAdd an entry to operandsThatNameTheSubject saying which id this is, or stop printing it.",
-						route, body.schema, line.Shell())
-					continue
-				}
-				if _, ok := flagsThatEchoWhatTheRequestSaid[flag]; ok {
-					usedFlag[flag] = true
-					continue
-				}
-				t.Errorf("%s prints a %s field after %s:\n  %s\nThis panel is exportable and copy-to-clipboard, so a value that reaches it reaches whatever issue tracker the export lands in. Either name the flag with a placeholder instead, or add %s to flagsThatEchoWhatTheRequestSaid with a sentence saying why an operator has to be able to retype it.",
-					route, body.schema, flag, line.Shell(), flag)
-			}
-		}
-	}
-	if built == 0 {
+	if f.built == 0 {
 		t.Fatal("no route built a command from any canary body, so this test proves nothing")
 	}
 
@@ -106,7 +55,7 @@ func TestNoRequestFieldReachesTheArgvUnlessItIsEchoedOnPurpose(t *testing.T) {
 	// slice with a canary switched the retention SCALAR branch off
 	// everywhere at once.
 	for route, e := range routes {
-		if e.build == nil || builtFor[route] {
+		if e.build == nil || f.builtFor[route] {
 			continue
 		}
 		t.Errorf("%s has a builder and not one canary body made it print a command, so nothing here checks what that builder puts on a line. Give the corpus a body it accepts (canary_test.go's bodyVariants) rather than leaving the route unchecked.", route)
@@ -116,14 +65,118 @@ func TestNoRequestFieldReachesTheArgvUnlessItIsEchoedOnPurpose(t *testing.T) {
 	// decision about a line nothing prints any more, and it is what the
 	// next person adds to.
 	for flag := range flagsThatEchoWhatTheRequestSaid {
-		if !usedFlag[flag] {
+		if !f.usedFlag[flag] {
 			t.Errorf("%s is exempt and no builder prints a request field after it any more. Delete the entry rather than leaving a standing permission nothing needs.", flag)
 		}
 	}
 	for route := range operandsThatNameTheSubject {
-		if !usedOperand[route] {
+		if !f.usedOperand[route] {
 			t.Errorf("%s is exempt from the operand rule and no longer puts a request field in an operand. Delete the entry.", route)
 		}
+	}
+}
+
+// credentialMarker is what every string field of the corpus carries for
+// this test.
+const credentialMarker = "cliechoCANARY"
+
+func credentialCanary(path string) string {
+	var b strings.Builder
+	b.WriteString(credentialMarker)
+	for _, r := range path {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// credentialFinding is what one pass over every route and every corpus
+// body found.
+type credentialFinding struct {
+	violations  []string
+	usedFlag    map[string]bool
+	usedOperand map[string]bool
+	builtFor    map[string]bool
+	built       int
+}
+
+func credentialFindings(t *testing.T) credentialFinding {
+	t.Helper()
+	bodies := canaryBodies(t, credentialCanary)
+
+	// Realistic path parameters, because a path parameter is not a field
+	// of the request body and the question here is what the BODY can put
+	// on a line. Quoting of a hostile path parameter is quoting_test.go's.
+	params := map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar", "id": "offsite_s3"}
+
+	f := credentialFinding{usedFlag: map[string]bool{}, usedOperand: map[string]bool{}, builtFor: map[string]bool{}}
+	for _, route := range Routes() {
+		method, path, _ := strings.Cut(route, " ")
+		for _, body := range bodies {
+			line := Echo(Action{Method: method, Route: path, Params: params, Body: body.body})
+			if len(line.Command) > 0 {
+				f.built++
+				f.builtFor[route] = true
+			}
+			for i, arg := range line.Command {
+				if !strings.Contains(arg, credentialMarker) {
+					continue
+				}
+				flag := ""
+				if i > 0 && strings.HasPrefix(line.Command[i-1], "--") {
+					flag = line.Command[i-1]
+				}
+				if flag == "" {
+					if _, ok := operandsThatNameTheSubject[route]; ok {
+						f.usedOperand[route] = true
+						continue
+					}
+					f.violations = append(f.violations, fmt.Sprintf("%s puts a %s field on the command line as an OPERAND:\n  %s\nAdd an entry to operandsThatNameTheSubject saying which id this is, or stop printing it.",
+						route, body.schema, line.Shell()))
+					continue
+				}
+				if _, ok := flagsThatEchoWhatTheRequestSaid[flag]; ok {
+					f.usedFlag[flag] = true
+					continue
+				}
+				f.violations = append(f.violations, fmt.Sprintf("%s prints a %s field after %s:\n  %s\nThis panel is exportable and copy-to-clipboard, so a value that reaches it reaches whatever issue tracker the export lands in. Either name the flag with a placeholder instead, or add %s to flagsThatEchoWhatTheRequestSaid with a sentence saying why an operator has to be able to retype it.",
+					route, body.schema, flag, line.Shell(), flag))
+			}
+		}
+	}
+	return f
+}
+
+// The review's point about this table (#1253): an exemption keyed by
+// flag name alone lets any route print anything after that flag. A new
+// route printing a request field after --reason, which is exempt for the
+// workflow acknowledgement, has to make its own claim.
+func TestNoRequestFieldReachesTheArgv_MutationANewRouteReusingAnExemptFlagIsCaught(t *testing.T) {
+	const route = "POST /a-new-route-with-a-reason"
+	swapRoute(t, route, entry{
+		build: func(a Action) *cmd {
+			var body map[string]any
+			if !decode(a.Body, &body) {
+				return nil
+			}
+			for _, k := range sortedKeys(body) {
+				if s, ok := body[k].(string); ok && strings.HasPrefix(s, credentialMarker) {
+					return newCmd("something").flag("reason", s)
+				}
+			}
+			return newCmd("something")
+		},
+		examples: []Action{{}},
+	})
+	found := false
+	for _, v := range credentialFindings(t).violations {
+		if strings.HasPrefix(v, route+" ") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("a new route printing a request field after --reason was waved through by the exemption another route's --reason has")
 	}
 }
 
