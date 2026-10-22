@@ -119,6 +119,13 @@
 set -e
 
 export PATH="/opt/homebrew/bin:$PATH"
+# The line above puts Homebrew's tools ahead of whatever the caller set, so a
+# golangci-lint built for the pinned toolchain (see gate_golangci_pin_note
+# below) could never win from PATH alone. GOLANGCI_LINT_DIR is how to say
+# "this directory first".
+if [ -n "${GOLANGCI_LINT_DIR:-}" ]; then
+  export PATH="$GOLANGCI_LINT_DIR:$PATH"
+fi
 
 # The marker every process this gate starts can read: "you are running inside
 # the local gate", as opposed to a developer running one suite by hand. The
@@ -192,9 +199,9 @@ gate_golangci_pin_note() {
       echo "    A different build can report other findings, and one that predates the Go running it"
       echo "    fails every package with 'export data version N is greater than maximum supported"
       echo "    version M'. To run the pinned one, build it with the pinned toolchain,"
-      echo "    put it first on PATH, and run this gate with that toolchain too:"
+      echo "    have this gate put it first on PATH, and run it with that toolchain too:"
       echo "      GOTOOLCHAIN=go${_go:-<ci go>} GOBIN=<dir> go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v${_pin}"
-      echo "      PATH=<dir>:\$PATH GOTOOLCHAIN=go${_go:-<ci go>} sh scripts/ci-local.sh"
+      echo "      GOLANGCI_LINT_DIR=<dir> GOTOOLCHAIN=go${_go:-<ci go>} sh scripts/ci-local.sh"
     } >&2
   fi
 }
