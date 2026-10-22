@@ -1,7 +1,10 @@
 package cliecho
 
 import (
+	"encoding/json"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -378,3 +381,224 @@ var fieldsNotEchoed = map[string]map[string]string{
 		"target.acknowledged_destination": "the engine's description of the source host echoed back as a yes; a terminal says yes with --acknowledge-source-write",
 	},
 }
+
+// ------------------------------------------- booleans and numbers ---
+
+// The other 77 fields (#1253's review). A boolean or a number has no
+// canary to look for, since a true or a 7 in the argv could have come from
+// anywhere, so it is checked by difference instead: echo the body, echo
+// it again with that one field changed (a boolean flipped, a number set to
+// 0 and to 4321), and the field reaches the line if the line changes.
+// That covers a builder that prints a flag only when a value is set, and
+// one that switches a branch on it.
+//
+// This is what found PATCH /settings/workflow dropping {"disabled":true}
+// and skip_connection_check never becoming --no-verify: three requests
+// whose lines did less than the click, all of them booleans.
+
+// leafPaths lists the paths of every non-string leaf in a decoded body,
+// in the wire's own names.
+func leafPaths(node any, prefix string, out *[]string) {
+	switch x := node.(type) {
+	case map[string]any:
+		for _, k := range sortedKeys(x) {
+			p := k
+			if prefix != "" {
+				p = prefix + "." + k
+			}
+			leafPaths(x[k], p, out)
+		}
+	case []any:
+		for i, e := range x {
+			leafPaths(e, prefix+"["+strconv.Itoa(i)+"]", out)
+		}
+	case bool, float64:
+		*out = append(*out, prefix)
+	}
+}
+
+// withLeaf returns a copy of a decoded body with the leaf at path set to v.
+func withLeaf(node any, path string, v any) any {
+	out := deepCopy(node)
+	cur := out
+	steps := strings.Split(path, ".")
+	for i, step := range steps {
+		name, index, indexed := strings.Cut(step, "[")
+		obj := cur.(map[string]any)
+		last := i == len(steps)-1
+		if !indexed {
+			if last {
+				obj[name] = v
+				return out
+			}
+			cur = obj[name]
+			continue
+		}
+		n, _ := strconv.Atoi(strings.TrimSuffix(index, "]"))
+		arr := obj[name].([]any)
+		if last {
+			arr[n] = v
+			return out
+		}
+		cur = arr[n]
+	}
+	return out
+}
+
+// booleansOff is a copy of a decoded body with every boolean false, so a
+// branch that only runs when a flag is off is reached too. The corpus
+// sets every boolean true, which is how the --all branch of a set
+// recovery onto the source host was never walked by anything.
+func booleansOff(node any) any {
+	switch x := node.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, e := range x {
+			out[k] = booleansOff(e)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = booleansOff(e)
+		}
+		return out
+	case bool:
+		return false
+	default:
+		return x
+	}
+}
+
+// outcome is what one echo comes to, for comparing two of them.
+func outcome(line Line) string {
+	if len(line.Command) > 0 {
+		return strings.Join(line.Command, "\x00")
+	}
+	return "gap: " + line.GapDetail
+}
+
+// observeNonStringEchoes drives every builder with its own schema's
+// bodies, both as the corpus builds them and with every boolean off, and
+// records for each non-string leaf whether changing it changes the line.
+func observeNonStringEchoes(t *testing.T) fieldEchoes {
+	t.Helper()
+	params := map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar", "id": "offsite_s3", "op": "op-1", "grant": "g-1", "run": "r-1", "domain": "d-1"}
+	bySchema := map[string][]canaryBody{}
+	for _, b := range canaryBodies(t, fieldCanaryFor) {
+		bySchema[b.schema] = append(bySchema[b.schema], b)
+	}
+	out := fieldEchoes{}
+	for route, schema := range requestSchemaByRoute() {
+		e, ok := routes[route]
+		if !ok || e.build == nil {
+			continue
+		}
+		method, path, _ := strings.Cut(route, " ")
+		echo := func(body any) Line {
+			raw, err := json.Marshal(body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return Echo(Action{Method: method, Route: path, Params: params, Body: raw})
+		}
+		for _, b := range bySchema[schema] {
+			var decoded any
+			if err := json.Unmarshal(b.body, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			for _, base := range []any{decoded, booleansOff(decoded)} {
+				baseLine := echo(base)
+				var leaves []string
+				leafPaths(base, "", &leaves)
+				for _, leaf := range leaves {
+					var alternatives []any
+					switch v := leafValue(base, leaf).(type) {
+					case bool:
+						alternatives = []any{!v}
+					case float64:
+						alternatives = []any{float64(0), float64(4321)}
+					}
+					changed, anyLine := false, len(baseLine.Command) > 0
+					for _, alt := range alternatives {
+						line := echo(withLeaf(base, leaf, alt))
+						anyLine = anyLine || len(line.Command) > 0
+						if outcome(line) != outcome(baseLine) {
+							changed = true
+						}
+					}
+					if !anyLine {
+						// Refused either way: nothing here to have dropped.
+						continue
+					}
+					if out[route] == nil {
+						out[route] = map[string]bool{}
+					}
+					out[route][leaf] = out[route][leaf] || changed
+				}
+			}
+		}
+	}
+	return out
+}
+
+// leafValue reads the leaf at path, which leafPaths produced.
+func leafValue(node any, path string) any {
+	cur := node
+	for _, step := range strings.Split(path, ".") {
+		name, index, indexed := strings.Cut(step, "[")
+		cur = cur.(map[string]any)[name]
+		if indexed {
+			n, _ := strconv.Atoi(strings.TrimSuffix(index, "]"))
+			cur = cur.([]any)[n]
+		}
+	}
+	return cur
+}
+
+func TestEveryNonStringFieldReachesTheLineOrIsExplained(t *testing.T) {
+	seen := observeNonStringEchoes(t)
+	if len(seen) == 0 {
+		t.Fatal("no builder took a body with a boolean or a number in it, so this checked nothing")
+	}
+	for _, dropped := range droppedFields(seen, nonStringFieldsNotEchoed) {
+		at := strings.LastIndex(dropped, " ")
+		t.Errorf("%s is a field of the request %s takes, and changing it doesn't change the line. An operator copying that line gets the same command whatever the click said. Print it, or add it to nonStringFieldsNotEchoed under %q with the reason.",
+			dropped[at+1:], dropped[:at], dropped[:at])
+	}
+	for _, stale := range staleFieldReasons(seen, nonStringFieldsNotEchoed) {
+		t.Errorf("nonStringFieldsNotEchoed explains %s. Delete the line.", stale)
+	}
+}
+
+// The mutation, against a real builder: --sample-percent is dropped from
+// snapshot verify, the exact one the review showed going unnoticed.
+func TestEveryNonStringField_MutationADroppedNumberIsCaught(t *testing.T) {
+	const route = "POST /operations"
+	saved := routes[route]
+	t.Cleanup(func() { routes[route] = saved })
+	mutated := saved
+	mutated.build = func(a Action) *cmd {
+		c := saved.build(a)
+		if c == nil {
+			return nil
+		}
+		for i, arg := range c.argv {
+			if arg == "--sample-percent" {
+				c.argv = append(c.argv[:i:i], c.argv[i+2:]...)
+				break
+			}
+		}
+		return c
+	}
+	routes[route] = mutated
+
+	got := droppedFields(observeNonStringEchoes(t), nonStringFieldsNotEchoed)
+	if !slices.Contains(got, route+" snapshot_verify.sample_percent") {
+		t.Errorf("a builder that stopped printing --sample-percent was not reported; got %v", got)
+	}
+}
+
+// nonStringFieldsNotEchoed is the boolean and number half of
+// fieldsNotEchoed, with the same rule.
+var nonStringFieldsNotEchoed = map[string]map[string]string{}
