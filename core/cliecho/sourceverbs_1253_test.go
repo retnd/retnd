@@ -39,9 +39,11 @@ func TestEcho1253_CandidateConnectionTestIsACommand(t *testing.T) {
 		t.Errorf("the by-id mode changed: %s", byID)
 	}
 
+	// The one sentence left on the route is the malformed-body one every
+	// builder has; the refusal of the candidate mode is gone.
 	for _, gap := range Gaps() {
-		if gap.Route == "POST /backup-sets/test-connection" {
-			t.Errorf("the route still declares a gap sentence: %s", gap.Why)
+		if gap.Route == "POST /backup-sets/test-connection" && strings.Contains(gap.Why, "not saved yet") {
+			t.Errorf("the route still refuses the candidate mode: %s", gap.Why)
 		}
 	}
 }
