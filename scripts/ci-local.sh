@@ -173,7 +173,13 @@ FAST="${CI_LOCAL_FAST:-0}"
 gate_install_traps
 
 if ! command -v golangci-lint >/dev/null 2>&1; then
-  echo "==> golangci-lint not found. Install it (brew install golangci-lint) and re-run." >&2
+  _pin=$(sed -n 's/.*golangci-lint@v\([0-9][0-9.]*\).*/\1/p' .github/workflows/ci.yml 2>/dev/null | head -n 1)
+  _go=$(sed -n 's/.*go-version: *"\([0-9][0-9.]*\)".*/\1/p' .github/workflows/ci.yml 2>/dev/null | head -n 1)
+  {
+    echo "==> golangci-lint not found. Build the one CI pins, with the toolchain CI pins, and re-run:"
+    echo "      GOTOOLCHAIN=go${_go:-<ci go>} GOBIN=<dir> go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v${_pin:-<ci pin>}"
+    echo "      PATH=<dir>:\$PATH sh scripts/ci-local.sh"
+  } >&2
   exit 1
 fi
 
@@ -206,6 +212,23 @@ gate_golangci_pin_note() {
   fi
 }
 gate_golangci_pin_note
+
+# Then act on it, so the gate does not depend on the caller having exported
+# the right toolchain: a golangci-lint built with the Go that CI pins is only
+# able to read export data that Go (or an older one) wrote, so when this
+# machine's default Go is newer, every package "fails to typecheck". If the
+# binary on PATH says which Go built it and the caller has not chosen a
+# toolchain, run the whole gate with that one, which is also what CI does.
+# An explicit GOTOOLCHAIN always wins, and a binary that says nothing parseable
+# (a test stub) changes nothing.
+if [ -z "${GOTOOLCHAIN:-}" ]; then
+  _built=$(golangci-lint --version 2>/dev/null | sed -n 's/.*built with go\([0-9][0-9.]*\).*/\1/p' | head -n 1)
+  if [ -n "$_built" ]; then
+    GOTOOLCHAIN="go$_built"
+    export GOTOOLCHAIN
+    echo "==> note: GOTOOLCHAIN=$GOTOOLCHAIN for this run, the Go the golangci-lint on PATH was built with." >&2
+  fi
+fi
 
 # Captured once, from repo root (where this script is always invoked from,
 # per .husky/pre-commit), so every module below can reference the one

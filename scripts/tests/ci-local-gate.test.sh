@@ -301,7 +301,7 @@ make_full_tree() {
   # throwaway git repositories; a synthetic tree has neither and no reason
   # to have either.
   mkdir -p "$tree/scripts/rename"
-  for rename in check-brand-drift selftest; do
+  for rename in check-brand-drift selftest check-no-former-name selftest-former-name; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/rename/$rename.sh"
   done
 
@@ -341,6 +341,20 @@ make_full_tree() {
   # drift check it protects, stubbed for the same reason.
   mkdir -p "$tree/scripts/tests"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/api-generator-is-deterministic.test.sh"
+
+  # The rest of the scripts/tests/*.test.sh suites the gate runs by name
+  # (first-run report #1049, pin-on-main #1074, the release and publish
+  # guards, ...), and the published-provenance check (#895), stubbed for the
+  # same reason as everything above: each one drives its own fixture git
+  # repositories, rig or Docker, none of which a synthetic tree has.
+  for t in first-run-report pin-on-main every-module-builds-on-its-own \
+    release-gate-covers-every-job release-refuses-an-ungated-publish \
+    release-moves-latest two-machine-ci-verdict record-published-release \
+    publish-image-guards published-provenance-guards; do
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$t.test.sh"
+  done
+  mkdir -p "$tree/scripts/release"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/release/check-published-provenance.sh"
 
   # EPIC E's FR-35 compatibility mutation self-test (#242), stubbed for the
   # third time for the third identical reason. The real one copies the tree
