@@ -137,8 +137,7 @@ func TestRun_Status_JSONIsTheHealthWireObject_1146(t *testing.T) {
 // CLI's encoding is a key a script reading either surface would miss.
 func TestRun_Status_JSONCarriesEveryAlwaysPresentWireField_1146(t *testing.T) {
 	configPath := writeTestConfig(t)
-	var out string
-	out = captureStdout(t, func() { run([]string{"status", "--json", "--config", configPath}) })
+	out := captureStdout(t, func() { run([]string{"status", "--json", "--config", configPath}) })
 
 	var raw struct {
 		BackupSets []map[string]json.RawMessage `json:"backup_sets"`

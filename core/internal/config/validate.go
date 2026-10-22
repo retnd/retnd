@@ -602,8 +602,8 @@ func (v *validator) resolveBackupSetEngine(path string, bs *BackupSet) bool {
 
 	bs.Repository = model.RepositoryRef{}
 
-	switch {
-	case bs.RepositoryDomainConfig == "":
+	switch bs.RepositoryDomainConfig {
+	case "":
 		v.addf("%s: repository_domain is required for engine %q; a set whose repository nobody named would share an encryption key, a credential, a maintenance window, a deduplication span and a corruption fate with whatever else happened to be there",
 			path, engine)
 	default:

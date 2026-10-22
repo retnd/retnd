@@ -764,9 +764,7 @@ var routes = map[string]entry{
 			if req.Set != "" {
 				c.flag("set", req.Set)
 			}
-			for _, id := range req.Artifacts {
-				c.argv = append(c.argv, id)
-			}
+			c.argv = append(c.argv, req.Artifacts...)
 			if req.NewestOnly {
 				c.bare("newest-only")
 			}
