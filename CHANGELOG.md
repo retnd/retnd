@@ -24,6 +24,18 @@
   command (a validator upload or a routed create used to exit 1 for it), 51 is "stopped watching, the operation may
   still be running", and 52 is plain http refused. 10 to 49 stay reserved for `recover`.
 
+- **`retnd artifacts --since DATE --until DATE --assurance BUCKET`, and `--until` on `recover --set` and
+  `POST /recoveries`** (#1251). The Backups page's "Received on or after", "Received on or before" and
+  assurance bucket filters had no terminal twin: `artifacts` took no date bounds or bucket, and `recover
+  --set` only took `--since`. Both verbs now take the date pair, with both ends inclusive on when a backup
+  arrived (`discovered_at`). A bare `YYYY-MM-DD` is that whole day in UTC, so `--until 2026-10-07` keeps a
+  backup from 23:30 that day, and an RFC 3339 time is that moment. `--until` before `--since` is refused with
+  exit 2 (and with 400 on the API). On `artifacts` the range narrows the list, `--json` and `--count`; on
+  `recover --set` it narrows the set and `--newest-only` then picks the newest inside it. `artifacts
+  --assurance due|overdue|degraded|untested` keeps the backups in that bucket, classified exactly as
+  `assurance list --bucket` classifies them. `POST /api/v1/recoveries` takes `until` beside `since`, and
+  `all`, the API's spelling of `--all`; the action log prints them as `--until` and `--all`.
+
 ### Changed
 
 - **`workflows.disabled` is a new key, and an older retnd refuses it** (#1246). Clearing the workflow root
@@ -37,6 +49,28 @@
   settings workflow`, `retnd check` and the health report say workflows are on, with the default root. No hook
   runs because of it, since a hook directory still needs a root named in the file. If you meant it to stay
   off, run `retnd settings workflow patch --disable`.
+
+- **A date range, and `--newest-only`, are about when a backup arrived** (#1251). `recover --set --since`,
+  `POST /recoveries` `since`, `--newest-only` and the Backups page's date filter used to read `updated_at`,
+  which moves on every transition, so a March backup whose set went read-only and back in October counted as
+  October's and could become the "newest" restore point. They read `discovered_at` now, which nothing
+  changes after arrival, and the Backups list's Time column shows it too, so the time you see on a row is the
+  time the range filters on.
+- **A range that keeps every retained backup of a set onto its source host needs `--all`, and so does the
+  API** (#1251). A range counts as saying which backups you meant, but `--until 2099-01-01` or `--since
+  1970-01-01` is the whole set by another name, so `recover --set` refuses it with exit 2 and the count,
+  before any network call, and asks for `--all`. `POST /api/v1/recoveries` holds a whole set onto its
+  source host to the same rule: without `newest_only` it needs `"all": true`, or a range that leaves
+  something out, and is refused with 400 and the same sentence otherwise (`preflight` is not held to it).
+  The web console sends `all` when you pick "Every retained restore point" for the source host, so its
+  terminal line and its request say the same thing.
+
+  **This is a behaviour change for API callers.** A `POST /api/v1/recoveries` request that sends a whole set
+  to its source host (`target.kind` `source`) with no `newest_only`, `since` or `until`, or with a range
+  that keeps every retained backup, used to run and is now refused with 400 `INVALID_REQUEST`. Adding
+  `"all": true` to the request restores the old behaviour exactly: the same backups go to the same place.
+  The guard is there because that request overwrites nothing but does put every retained backup onto a
+  production host, and an accidental one should have to say so.
 
 ### Fixed
 
@@ -115,6 +149,12 @@
   temporary file a crashed upload left behind is removed. The validator list now carries `scripts_dir`, the
   absolute directory an upload lands in. When there really is nowhere to write, the card and the error say
   which directory was tried and what fixes it.
+
+- **Every Backups filter has a "Same list from the terminal" line** (#1251). With a set filter and a
+  received-date range, the line printed `retnd artifacts --backup-set S` alone, which lists more than the
+  screen shows, and a bucket filter or a range with no set filter had no line at all. The line now carries
+  `--since`, `--until` and `--assurance`, and shows on its own when there's no set filter. An inverted range
+  (which the CLI refuses) prints no line.
 
 ## [0.7.1] - 2026-10-17
 
