@@ -846,7 +846,7 @@ MUTATIONS = [
     (
         "a named validator that is missing, run as another script",
         APP_RT_GO,
-        "\tif v.scriptFile != \"\" && !(res.Configured && len(res.Scripts) == 1 && res.Scripts[0].Name == v.scriptFile) {",
+        "\tif c.req.Only != \"\" && (!res.Configured || len(res.Scripts) != 1 || res.Scripts[0].Name != c.req.Only) {",
         "\t" + PLANT + "an absent named script reads as not configured.\n\tif false {",
         "no directory but a declared validator",
         APP_PKG,
@@ -1199,8 +1199,8 @@ MUTATIONS = [
     (
         "activity retention that never prunes by age",
         "core/internal/state/activity_events.go",
-        "`DELETE FROM activity_events WHERE at < ?`",
-        "`DELETE FROM activity_events WHERE 0 AND at < ?`",
+        "(SELECT seq FROM activity_events WHERE at < ? ORDER BY at LIMIT ?)",
+        "(SELECT seq FROM activity_events WHERE 0 AND at < ? ORDER BY at LIMIT ?)",
         "want 20 by age",
         SERVICE_PKG,
         "TestRetentionDropsWhatIsOldAndWhatIsOverTheRowBound",
@@ -1349,7 +1349,7 @@ MUTATIONS = [
     (
         "a cancel that tells the operator it is cancelling and stops nothing",
         ASSURANCE_OPS_GO,
-        "\top.cancel()\n\treturn AssuranceOperationCancelled",
+        "\top.cancel(app.ErrOperationCancelled)\n\treturn AssuranceOperationCancelled",
         "\t" + PLANT + "the operation is never told.\n\treturn AssuranceOperationCancelled",
         "background work did not finish",
         SERVICE_PKG,
