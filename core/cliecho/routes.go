@@ -51,6 +51,12 @@ const (
 	// values exist nowhere, so the command would have to carry all of
 	// them, and the moment they are worth carrying is the create, which
 	// proves the connection before it writes anything.
+	// #1253's review. Without --to, `recover` writes back where the
+	// backup came from, which is the production source host, so a
+	// recovery whose target this table can't spell gets no line at all
+	// rather than one that silently means something else.
+	gapRecoveryTarget = "there is no terminal destination for this recovery's target, and a recovery line without --to would write onto the source host, so none is printed"
+
 	gapCandidateConnection = "there is no verb that checks a source that is not saved yet: `" + Binary + " backup-set create` proves the connection before it writes, and `" + Binary + " backup-set test-connection <source/backup-set>` re-checks one that exists"
 )
 
@@ -292,6 +298,8 @@ var routes = map[string]entry{
 		why: "there is no verb that creates a backup set from a request body",
 		examples: []Action{
 			{Body: []byte(`{"source_name":"api-server","name":"var-backups","host":"10.0.0.14","user":"backups","remote_path":"/var/backups","local_path":"/data/backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","completion_strategy":"stable","stable_for_seconds":300,"run_immediately":true,"acknowledge_repoint":true}`)},
+			// Written without the connection proven (#1253's review).
+			{Body: []byte(`{"source_name":"api-server","name":"var-backups","host":"10.0.0.14","user":"backups","remote_path":"/var/backups","local_path":"/data/backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","skip_connection_check":true}`)},
 			// The incremental shape (#788), which is the one the line
 			// used to get WRONG rather than incomplete: every flag below
 			// was dropped, so a kopia set into a declared repository
@@ -415,12 +423,17 @@ var routes = map[string]entry{
 			if req.AcknowledgeHostKeyChange {
 				c.bare("acknowledge-host-key-change")
 			}
+			if req.SkipConnectionCheck {
+				c.bare("no-verify")
+			}
 			return c
 		},
 		why: "there is no verb that edits a backup set from a request body",
 		examples: []Action{
 			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
 				Body: []byte(`{"stale_after_seconds":172800}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
+				Body: []byte(`{"host":"10.0.0.15","skip_connection_check":true}`)},
 			// The duration shapes, and they are examples rather than a
 			// unit test's table because this is the corpus the dispatcher
 			// is driven with in core/cmd/retnd: a shape no
@@ -717,7 +730,9 @@ var routes = map[string]entry{
 			var req apicontract.RecoveryMintRequest
 			c := newCmd("recover", artifactID(a))
 			if !decode(a.Body, &req) {
-				return c
+				// Not a bare `recover <id>`: without --to that line
+				// recovers onto the source host (#1253's review).
+				return nil
 			}
 			if req.Copy != "" && req.Copy != "best-available" {
 				c.flag("copy", req.Copy)
@@ -735,12 +750,20 @@ var routes = map[string]entry{
 				c.flag("to", to)
 			case "source":
 				sourceTarget(c, req.Target.Path, req.Target.AcknowledgedDestination)
+			default:
+				// A kind the contract doesn't have, a case variant or
+				// none at all. The engine refuses the request; the line
+				// it would have printed is the one place that refusal
+				// could turn into a write onto production.
+				return newCmd().refuse(gapRecoveryTarget)
 			}
 			if req.Acknowledged {
 				c.bare("acknowledge-cost")
 			}
 			return c
 		},
+		why:      "the request body would not decode, so there is no recovery to name a destination for",
+		refusals: []string{gapRecoveryTarget},
 		examples: []Action{
 			{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"},
 				Body: []byte(`{"target":{"kind":"download"}}`)},
@@ -759,7 +782,8 @@ var routes = map[string]entry{
 			var req apicontract.RecoveryManyRequest
 			c := newCmd("recover")
 			if !decode(a.Body, &req) {
-				return c
+				// For the single recovery's reason: no bare `recover`.
+				return nil
 			}
 			if req.Set != "" {
 				c.flag("set", req.Set)
@@ -786,6 +810,11 @@ var routes = map[string]entry{
 				c.flag("to", to)
 			case "source":
 				sourceTarget(c, req.Target.Path, req.Target.AcknowledgedDestination)
+			default:
+				// Not download either: several backups have no single
+				// stream to write to, and the engine refuses that kind
+				// here.
+				return newCmd().refuse(gapRecoveryTarget)
 			}
 			// --all is what the request said (the review of #1256): the
 			// service refuses a whole set onto the source host without it, as
@@ -802,6 +831,8 @@ var routes = map[string]entry{
 			}
 			return c
 		},
+		why:      "the request body would not decode, so there is no recovery to name a destination for",
+		refusals: []string{gapRecoveryTarget},
 		examples: []Action{
 			{Body: []byte(`{"set":"api-server/var-backups","target":{"kind":"staging","path":"restore/var-backups"}}`)},
 			{Body: []byte(`{"set":"api-server/var-backups","newest_only":true,"acknowledged":true,"target":{"kind":"storage","medium":"offsite_s3","key":"recovered"}}`)},
@@ -1381,6 +1412,18 @@ var routes = map[string]entry{
 			if req.MaxScriptSizeBytes != nil {
 				c.flag("max-script-size-bytes", itoa64(*req.MaxScriptSizeBytes))
 			}
+			// The switch itself (#1246), on nil-ness like the rest: true
+			// turns workflows off and false turns them back on, and both
+			// are requests. This was missing until #1253's review, so a
+			// patch that disabled workflows echoed a line that changed
+			// nothing.
+			if req.Disabled != nil {
+				if *req.Disabled {
+					c.bare("disable")
+				} else {
+					c.bare("enable")
+				}
+			}
 			return c
 		},
 		why: "there is no verb that patches the deployment's workflow configuration from a request body",
@@ -1395,6 +1438,8 @@ var routes = map[string]entry{
 			// end, and a shape no example carries is a shape nothing
 			// proves the binary takes.
 			{Body: []byte(`{"before_dir":"","after_dir":"","script_timeout_seconds":0}`)},
+			{Body: []byte(`{"disabled":true}`)},
+			{Body: []byte(`{"disabled":false}`)},
 		},
 	},
 	key("GET", "/settings/workflow/environment"): {
@@ -2119,6 +2164,13 @@ func backupSetCreateCommand(spec apicontract.BackupSetSpec, runNow, acknowledgeR
 	}
 	if acknowledgeRepoint {
 		c.bare("acknowledge-repoint")
+	}
+	// The request to write the set without proving the connection, for
+	// mediumSkipFlag's reason: a line without it runs a check the click
+	// skipped, and on a host this machine can't reach it fails where the
+	// click worked (#1253's review).
+	if spec.SkipConnectionCheck {
+		c.bare("no-verify")
 	}
 	return c
 }

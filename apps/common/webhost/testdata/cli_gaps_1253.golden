@@ -74,10 +74,18 @@ POST /backup-sets/{source}/{set}/enabled  (refuses some requests)
 POST /backup-sets/{source}/{set}/read-only  (refuses some requests)
 	(malformed body) there is no verb that changes a set's read-only posture from a request body
 
+POST /backups/{source}/{set}/{name}/recovery  (refuses some requests)
+	(malformed body) the request body would not decode, so there is no recovery to name a destination for
+	there is no terminal destination for this recovery's target, and a recovery line without --to would write onto the source host, so none is printed
+
 POST /operations  (refuses some requests)
 	`retnd fetch --backup-set <source/backup-set>` runs that set's cycle in your own shell, not in this engine, so it is a different act against a different process
 	`retnd run` starts a cycle in your own shell, not in this engine, so it is a different act against a different process
 	(malformed body) there is no verb that submits an operation from a request body
+
+POST /recoveries  (refuses some requests)
+	(malformed body) the request body would not decode, so there is no recovery to name a destination for
+	there is no terminal destination for this recovery's target, and a recovery line without --to would write onto the source host, so none is printed
 
 POST /repositories  (refuses some requests)
 	(malformed body) there is no verb that declares a repository domain from a request body
