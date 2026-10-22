@@ -461,7 +461,8 @@ def body(root: Path, dry_run: bool) -> int:
             "\treturn checkResult{checked: true, passed: anyPassed, class: want, reason: detail, copies: copies}, nil",
             "\t// PLANTED VIOLATION (scripts/conformance/selftest.sh): a HEAD,\n"
             "\t// reported as content verification.\n"
-            "\treturn checkResult{checked: true, passed: anyPassed, class: placement.Content, reason: detail, copies: copies}, nil",
+            "\treturn checkResult{checked: true, passed: anyPassed, class: placement.Content, reason: detail, copies: "
+                "copies}, nil",
         )
         expect_unit_check_fails(
             tracker,

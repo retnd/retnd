@@ -126,7 +126,8 @@ CONTROLS = [
     (
         "a Validation column restored on the Backups table",
         "src/pages/BackupsPage.tsx",
-        """                  <th scope="col"><InfoTooltip id="backups.col.retention"><span>Retention</span></InfoTooltip></th>""",
+        """                  <th scope="col"><InfoTooltip id="backups.col.retention">"""
+        """<span>Retention</span></InfoTooltip></th>""",
         """                  <th scope="col">Validation</th>{/* """ + PLANT + """ */}
                   <th scope="col"><InfoTooltip id="backups.col.retention"><span>Retention</span></InfoTooltip></th>""",
         ["src/test/validation-column-retired.test.tsx"],
@@ -157,7 +158,8 @@ CONTROLS = [
     (
         "a download dialog that describes the retired staged download",
         "src/assurance/RecoverArtifact.tsx",
-        "It then sends the copy straight from where it lives, 4 MiB at a time, checking each piece against that digest, and nothing is copied to the host&apos;s disk.",
+        "It then sends the copy straight from where it lives, 4 MiB at a time, checking each piece against that "
+            "digest, and nothing is copied to the host&apos;s disk.",
         "It then sends the copy once it has been staged on the host&apos;s disk. /* " + PLANT + " */",
         [],
         ["985-recover"],
@@ -210,7 +212,10 @@ def body(root: Path) -> int:
         if code != 0:
             print(out[-3000:], file=sys.stderr)
             print(f"exit status {code}; the first failing line of the run is:", file=sys.stderr)
-            print(next((l for l in out.splitlines() if "failed" in l.lower() or "error" in l.lower()), "(none)"), file=sys.stderr)
+            first_failing = next(
+                (line for line in out.splitlines() if "failed" in line.lower() or "error" in line.lower()), "(none)"
+            )
+            print(first_failing, file=sys.stderr)
             harness.die("the narrowed suites FAILED against an unmutated tree, so their failures would mean nothing.")
         print("  ok:   (clean): the narrowed unit tests and specs on an unmutated tree")
 

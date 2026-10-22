@@ -84,7 +84,15 @@ def gate(root: Path, where: tuple[str, tuple[str, ...]], pattern: str) -> tuple[
     return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
 
 
-def expect_fails(tracker, tally, label, directory, needle, where, pattern) -> None:
+def expect_fails(
+    tracker: selftest_swap.AnchorTracker,
+    tally: selftest_swap.Tally,
+    label: str,
+    directory: Path,
+    needle: str,
+    where: tuple[str, tuple[str, ...]],
+    pattern: str,
+) -> None:
     if tracker.stale_verdict(label):
         return
     if tracker.anchors_only(label):
@@ -103,7 +111,14 @@ def expect_fails(tracker, tally, label, directory, needle, where, pattern) -> No
     tally.ok(f"(caught): {label}", matched)
 
 
-def expect_passes(tracker, tally, label, directory, where, pattern) -> None:
+def expect_passes(
+    tracker: selftest_swap.AnchorTracker,
+    tally: selftest_swap.Tally,
+    label: str,
+    directory: Path,
+    where: tuple[str, tuple[str, ...]],
+    pattern: str,
+) -> None:
     if tracker.stale_verdict(label):
         return
     if tracker.anchors_only(label):
@@ -121,7 +136,8 @@ MUTATIONS = [
         "an existence check recorded as content verification",
         SCRUB_GO,
         "\t\tif c.Class == VerificationContent {\n\t\t\tcontentAt = at\n\t\t}",
-        "\t\t" + PLANT + "any achieved class sets the content age.\n\t\tif c.Class != \"\" {\n\t\t\tcontentAt = at\n\t\t}",
+        "\t\t" + PLANT + "any achieved class sets the content age.\n\t\tif c.Class != \"\" {\n\t\t\tcontentAt = "
+            "at\n\t\t}",
         "--- FAIL: TestRecordCopyScrub_AnExistencePassCannotMoveTheContentAge",
         STATE_PKG,
         "TestRecordCopyScrub_AnExistencePass",
@@ -129,7 +145,8 @@ MUTATIONS = [
     (
         "a failed scrub that leaves the content claim standing",
         SCRUB_GO,
-        "\t\t\t\tconsecutive_failures = consecutive_failures + 1,\n\t\t\t\tcontent_verified_at = NULL,\n\t\t\t\tlast_bytes_read = ?, last_duration_ms = ?,",
+        "\t\t\t\tconsecutive_failures = consecutive_failures + 1,\n\t\t\t\tcontent_verified_at = "
+            "NULL,\n\t\t\t\tlast_bytes_read = ?, last_duration_ms = ?,",
         "\t\t\t\tconsecutive_failures = consecutive_failures + 1,\n\t\t\t\tlast_bytes_read = ?, last_duration_ms = ?,",
         "--- FAIL: TestRecordCopyScrub_AFailureClearsTheClaimItContradicts",
         STATE_PKG,
@@ -139,7 +156,8 @@ MUTATIONS = [
         "a copy nobody has scheduled read as not due",
         SCRUB_GO,
         "\tif a.NextDueAt == nil {\n\t\treturn time.Time{}, true\n\t}\n\tat := *a.NextDueAt",
-        "\tif a.NextDueAt == nil {\n\t\t" + PLANT + "no schedule means nothing is owed.\n\t\treturn time.Time{}, false\n\t}\n\tat := *a.NextDueAt",
+        "\tif a.NextDueAt == nil {\n\t\t" + PLANT + "no schedule means nothing is owed.\n\t\treturn time.Time{}, "
+            "false\n\t}\n\tat := *a.NextDueAt",
         "--- FAIL: TestDueness_ACopyNobodyScheduledIsDueAndSortsFirst",
         REVAL_PKG,
         "TestDueness_ACopyNobodyScheduledIsDueAndSortsFirst",
@@ -147,8 +165,10 @@ MUTATIONS = [
     (
         "a recovery test stored as a pass without the digest having matched",
         RTSTATE_GO,
-        "\t\tcase r.DigestMatched == nil || !*r.DigestMatched:\n\t\t\treturn errors.New(\"state: a recovery test passes only",
-        "\t\t" + PLANT + "a pass needs no digest match.\n\t\tcase false:\n\t\t\treturn errors.New(\"state: a recovery test passes only",
+        "\t\tcase r.DigestMatched == nil || !*r.DigestMatched:\n\t\t\treturn errors.New(\"state: a recovery test "
+            "passes only",
+        "\t\t" + PLANT + "a pass needs no digest match.\n\t\tcase false:\n\t\t\treturn errors.New(\"state: a recovery "
+            "test passes only",
         "--- FAIL: TestRecordRecoveryTest_APassWithoutADigestMatchIsRefused",
         STATE_PKG,
         "TestRecordRecoveryTest_APassWithoutADigestMatchIsRefused",
@@ -156,8 +176,10 @@ MUTATIONS = [
     (
         "a validator that never ended on its own counted as a pass",
         RTSTATE_GO,
-        "\t\tcase r.Termination != RecoveryTerminationExited:\n\t\t\treturn fmt.Errorf(\"state: a validator that did not end on its own",
-        "\t\t" + PLANT + "any termination is a verdict.\n\t\tcase false:\n\t\t\treturn fmt.Errorf(\"state: a validator that did not end on its own",
+        "\t\tcase r.Termination != RecoveryTerminationExited:\n\t\t\treturn fmt.Errorf(\"state: a validator that did "
+            "not end on its own",
+        "\t\t" + PLANT + "any termination is a verdict.\n\t\tcase false:\n\t\t\treturn fmt.Errorf(\"state: a validator "
+            "that did not end on its own",
         "--- FAIL: TestRecordRecoveryTest_APassWithoutADigestMatchIsRefused/validator_was_killed",
         STATE_PKG,
         "TestRecordRecoveryTest_APassWithoutADigestMatchIsRefused",
@@ -184,7 +206,8 @@ MUTATIONS = [
         "a per-set override that forgets the deployment's policy",
         CONFIG_GO,
         "\tout := global\n\tif o == nil {\n\t\treturn out\n\t}",
-        "\t" + PLANT + "an override starts from nothing.\n\tout := global\n\tif o == nil {\n\t\treturn out\n\t}\n\tout = Assurance{}",
+        "\t" + PLANT + "an override starts from nothing.\n\tout := global\n\tif o == nil {\n\t\treturn out\n\t}\n\tout "
+            "= Assurance{}",
         "--- FAIL: TestAssurance_AScrubOverrideInheritsEveryFieldItDoesNotName",
         CONFIG_PKG,
         "TestAssurance_AScrubOverrideInheritsEveryFieldItDoesNotName",
@@ -192,8 +215,11 @@ MUTATIONS = [
     (
         "a global assurance change written nowhere",
         SERVICE_GO,
-        "\tif err := b.persistConfig(cfg); err != nil {\n\t\treturn AssuranceSettings{}, err\n\t}\n\treturn b.withRecoveryCeilings(assuranceSettingsOf(b.state.Load().inner.Config)), nil\n}",
-        "\t" + PLANT + "the patch is never persisted or reloaded.\n\tif err := error(nil); err != nil {\n\t\treturn AssuranceSettings{}, err\n\t}\n\treturn b.withRecoveryCeilings(assuranceSettingsOf(b.state.Load().inner.Config)), nil\n}",
+        "\tif err := b.persistConfig(cfg); err != nil {\n\t\treturn AssuranceSettings{}, err\n\t}\n\treturn "
+            "b.withRecoveryCeilings(assuranceSettingsOf(b.state.Load().inner.Config)), nil\n}",
+        "\t" + PLANT + "the patch is never persisted or reloaded.\n\tif err := error(nil); err != nil {\n\t\treturn "
+            "AssuranceSettings{}, err\n\t}\n\treturn "
+                "b.withRecoveryCeilings(assuranceSettingsOf(b.state.Load().inner.Config)), nil\n}",
         "--- FAIL: TestUpdateAssuranceSettings_MovesAnInheritingSetAndNotAPinnedOne",
         SERVICE_PKG,
         "TestUpdateAssuranceSettings_MovesAnInheritingSetAndNotAPinnedOne",
@@ -202,7 +228,8 @@ MUTATIONS = [
         "a scrub pass that writes a pass row for every set",
         APP_SCRUB_GO,
         "\t\ts.tally(ctx, &sum, bs.ID, report)\n\t\tif runErr != nil && ctx.Err() != nil {",
-        "\t\ts.tally(ctx, &sum, bs.ID, report)\n\t\t" + PLANT + "a pass row per set, not one per pass.\n\t\t_ = s.finishScrub(ctx, journal, sum, started)\n\t\tif runErr != nil && ctx.Err() != nil {",
+        "\t\ts.tally(ctx, &sum, bs.ID, report)\n\t\t" + PLANT + "a pass row per set, not one per pass.\n\t\t_ = "
+            "s.finishScrub(ctx, journal, sum, started)\n\t\tif runErr != nil && ctx.Err() != nil {",
         "--- FAIL: TestScrub_AThousandDueCopiesAcrossFiftySetsIsOnePassRowAndNoFeedRows",
         APP_PKG,
         "TestScrub_AThousandDueCopiesAcrossFiftySetsIsOnePassRowAndNoFeedRows",
@@ -229,7 +256,8 @@ MUTATIONS = [
         "a kopia set whose weaker verification level is read as a recovery test",
         CLAIM_GO,
         "r.VerificationLevelAchieved != string(model.LevelRestoreDrill) ||",
-        "r.VerificationLevelAchieved != string(model.LevelRestoreDrill) && false || " + PLANT + "any achieved level is a drill.\n\t\t\t",
+        "r.VerificationLevelAchieved != string(model.LevelRestoreDrill) && false ||"
+            " " + PLANT + "any achieved level is a drill.\n\t\t\t",
         "--- FAIL: TestAKopiaSetsClaimIsReadFromItsAchievedLevelAndRunsNothing",
         RTRUN_PKG,
         "TestAKopiaSetsClaimIsReadFromItsAchievedLevelAndRunsNothing",
@@ -237,8 +265,10 @@ MUTATIONS = [
     (
         "the no-download promise made again in the recovery document",
         RECOVERY_MD,
-        "**This product recovers and exports the retained artifact; restoring it into an\napplication remains the operator's responsibility.**",
-        "**Restoring an artifact is not an automated command; restoring it into an\napplication remains the operator's responsibility.**",
+        "**This product recovers and exports the retained artifact; restoring it into an\napplication remains the "
+            "operator's responsibility.**",
+        "**Restoring an artifact is not an automated command; restoring it into an\napplication remains the operator's "
+            "responsibility.**",
         "--- FAIL: TestTheBoundarySentenceIsEverywhereTheOldPromiseWasMadeAndThePromiseIsGone",
         GATE_PKG,
         "TestTheBoundarySentenceIsEverywhereTheOldPromiseWasMadeAndThePromiseIsGone",
@@ -265,7 +295,8 @@ MUTATIONS = [
         "due-ness read from the artifact row's clock again",
         SELECT_GO,
         "\t\tat, ok := p.DueUnder(interval, now)\n\t\tif !ok {\n\t\t\tcontinue\n\t\t}",
-        "\t\t" + PLANT + "the artifact row's clock decides.\n\t\t_ = p\n\t\tat, ok := rec.UpdatedAt.Add(interval), now.Sub(rec.UpdatedAt) >= interval\n\t\tif !ok {\n\t\t\tcontinue\n\t\t}",
+        "\t\t" + PLANT + "the artifact row's clock decides.\n\t\t_ = p\n\t\tat, ok := rec.UpdatedAt.Add(interval), "
+            "now.Sub(rec.UpdatedAt) >= interval\n\t\tif !ok {\n\t\t\tcontinue\n\t\t}",
         "--- FAIL: TestDueness_RewritingTheArtifactRowsClockChangesNothingAboutWhatIsDue",
         REVAL_PKG,
         "TestDueness_RewritingTheArtifactRowsClockChangesNothingAboutWhatIsDue",
@@ -273,8 +304,10 @@ MUTATIONS = [
     (
         "a failed validator that clears the content claim",
         RTSTATE_GO,
-        "recovery_cleanup_state = ?, recovery_bytes_read = ?, recovery_duration_ms = ?\n\t\t\t WHERE placement_id = ?`,\n\t\t\tr.State, at, next, reason,",
-        "recovery_cleanup_state = ?, recovery_bytes_read = ?, recovery_duration_ms = ?,\n\t\t\t\tcontent_verified_at = NULL\n\t\t\t WHERE placement_id = ?`,\n\t\t\tr.State, at, next, reason,",
+        "recovery_cleanup_state = ?, recovery_bytes_read = ?, recovery_duration_ms = ?\n\t\t\t WHERE placement_id = "
+            "?`,\n\t\t\tr.State, at, next, reason,",
+        "recovery_cleanup_state = ?, recovery_bytes_read = ?, recovery_duration_ms = ?,\n\t\t\t\tcontent_verified_at = "
+            "NULL\n\t\t\t WHERE placement_id = ?`,\n\t\t\tr.State, at, next, reason,",
         "--- FAIL: TestRecordRecoveryTest_AFailedValidatorLeavesTheContentClaimStanding",
         STATE_PKG,
         "TestRecordRecoveryTest_AFailedValidatorLeavesTheContentClaimStanding",
@@ -310,7 +343,8 @@ MUTATIONS = [
         "a host-scoped knob accepted under a backup set",
         CLI_ASSURANCE_GO,
         '"config", "json", "reset")...); len(named) > 0 {',
-        '"config", "json", "reset")...); len(named) < 0 { ' + "// PLANTED VIOLATION: the global-only refusal never fires.",
+        '"config", "json", "reset")...); len(named) < 0 { ' + "// PLANTED VIOLATION: the global-only refusal never "
+            "fires.",
         "--- FAIL: TestBackupSetAssurance_PatchResetAndTheGlobalOnlyRefusal",
         CLI_PKG,
         "TestBackupSetAssurance_PatchResetAndTheGlobalOnlyRefusal",
@@ -328,7 +362,10 @@ MUTATIONS = [
         "two of the five not-a-pass reasons collapsed into one",
         CLAIM_GO,
         "\tcase c.State == \"\" || c.State == state.RecoveryUnknown || c.State == state.RecoveryNotConfigured:",
-        "\tcase c.State == state.RecoveryRefusedForCost: // " + "PLANTED VIOLATION (scripts/bdtools/assurance/selftest.py): a refusal for cost reads as could not complete.\n\t\tc.State = state.RecoveryCouldNotComplete\n\tcase c.State == \"\" || c.State == state.RecoveryUnknown || c.State == state.RecoveryNotConfigured:",
+        "\tcase c.State == state.RecoveryRefusedForCost: // " + "PLANTED VIOLATION "
+            "(scripts/bdtools/assurance/selftest.py): a refusal for cost reads as could not complete.\n\t\tc.State = "
+                "state.RecoveryCouldNotComplete\n\tcase c.State == \"\" || c.State == state.RecoveryUnknown || c.State "
+                    "== state.RecoveryNotConfigured:",
         "--- FAIL: TestTheFiveNotAPassReasonsAreFiveValues",
         RTRUN_PKG,
         "TestTheFiveNotAPassReasonsAreFiveValues",
@@ -337,12 +374,16 @@ MUTATIONS = [
 
 CLEAN_CONTROLS = [
     ("the per-copy record guards", STATE_PKG, "TestRecordCopyScrub_|TestRecordRecoveryTest_"),
-    ("the due-ness and archive guards", REVAL_PKG, "TestDueness_|TestAnArchiveClassCopyIsRecordedRequiresRestoreAndNothingIsRead"),
-    ("the lease, migration and recovery-record guards", STATE_PKG, "TestClaimCopyScrub_OnlyOneHolderAtATime|TestMigration0016_TheZeroValueCannotLookGood|TestRecordRecoveryCleanup_|TestRecordRecoveryTest_AFailedValidator"),
+    ("the due-ness and archive guards", REVAL_PKG, "TestDueness_|"
+        "TestAnArchiveClassCopyIsRecordedRequiresRestoreAndNothingIsRead"),
+    ("the lease, migration and recovery-record guards", STATE_PKG, "TestClaimCopyScrub_OnlyOneHolderAtATime|"
+        "TestMigration0016_TheZeroValueCannotLookGood|TestRecordRecoveryCleanup_|"
+            "TestRecordRecoveryTest_AFailedValidator"),
     ("the five-reasons guard", RTRUN_PKG, "TestTheFiveNotAPassReasonsAreFiveValues"),
     ("the unknown-key guard", CONFIG_PKG, "TestAssurance_UnknownKeyIsRefusedByLoad"),
     ("the global-only refusal guard", CLI_PKG, "TestBackupSetAssurance_PatchResetAndTheGlobalOnlyRefusal"),
-    ("the recovery-test runner guards", RTRUN_PKG, "TestADigestMismatch|TestAValidatorThatExits|TestBytesThatDecrypt|TestHostileOutput"),
+    ("the recovery-test runner guards", RTRUN_PKG, "TestADigestMismatch|TestAValidatorThatExits|TestBytesThatDecrypt|"
+        "TestHostileOutput"),
     ("the per-set resolution guard", CONFIG_PKG, "TestAssurance_AScrubOverrideInheritsEveryFieldItDoesNotName"),
     ("the assurance settings and feed guards", SERVICE_PKG, "TestUpdateAssuranceSettings_|TestScrubFeed_"),
     ("the boundary and link guards", GATE_PKG, "TestTheBoundary|TestEveryLink"),
