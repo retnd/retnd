@@ -352,6 +352,8 @@ func (e *fakeEngine) api(w http.ResponseWriter, r *http.Request, path, token str
 		e.getEditHold(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/backup-sets/"), "/edit-hold"))
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/edit-hold/release"):
 		e.releaseEditHold(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/backup-sets/"), "/edit-hold/release"))
+	case r.Method == http.MethodPost && strings.HasSuffix(path, "/edit-hold"):
+		e.takeEditHold(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/backup-sets/"), "/edit-hold"))
 	case r.Method == http.MethodGet && path == "/activity":
 		e.listActivity(w, r)
 	case r.Method == http.MethodGet && path == "/activity/live":
@@ -1015,6 +1017,24 @@ func (e *fakeEngine) getEditHold(w http.ResponseWriter, r *http.Request, id stri
 	}
 	if state.Running != nil {
 		resp.Running = &apicontract.RunningWork{Artifact: state.Running.Artifact, Stage: state.Running.Stage}
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// takeEditHold is #1253's --take, off the same registry.
+func (e *fakeEngine) takeEditHold(w http.ResponseWriter, r *http.Request, id string) {
+	hold, err := e.svc.BeginBackupSetEdit(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, service.ErrBackupSetNotFound) {
+			refuse(w, http.StatusNotFound, apicontract.ErrorCodeBackupSetNotFound, "no such backup set")
+			return
+		}
+		refuse(w, http.StatusInternalServerError, apicontract.ErrorCodeInternal, "failed to take this backup set's edit hold")
+		return
+	}
+	resp := apicontract.BackupSetEditHold{BackupSetID: id, ExpiresAt: hold.ExpiresAt.Format(time.RFC3339Nano)}
+	if hold.Stopped != nil {
+		resp.Stopped = &apicontract.RunningWork{Artifact: hold.Stopped.Artifact, Stage: hold.Stopped.Stage}
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

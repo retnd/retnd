@@ -88,6 +88,15 @@ var backupSetSharedFlagVerbs = []string{"create", "patch", "remove", "test-conne
 // name" is supposed to buy, and nothing anybody scripted stops working.
 var backupSetVerbAliases = map[string]string{"preflight": "test-connection"}
 
+// canonicalBackupSetVerb is the verb an operand names once an alias is
+// resolved.
+func canonicalBackupSetVerb(operand string) string {
+	if canonical, ok := backupSetVerbAliases[operand]; ok {
+		return canonical
+	}
+	return operand
+}
+
 // backupSetVerbNames is every verb `backup-set` dispatches, sorted: the
 // shared-flag ones above and the ones with a flag set of their own.
 func backupSetVerbNames() []string {
@@ -249,6 +258,22 @@ func cmdBackupSet(args []string) int {
 	if err != nil {
 		return 2
 	}
+	// The candidate check (#1253) is the one shape here that names no
+	// set, because the source it checks is not saved: it is described by
+	// flags, the way `medium test-connection --candidate` describes a
+	// destination. It is dispatched before the id is demanded, and it
+	// takes the allow-list the by-id check takes plus the six fields the
+	// request carries, so a create or patch flag passed here is refused
+	// rather than checking something other than what was asked.
+	if *f.candidate && len(operands) >= 1 && canonicalBackupSetVerb(operands[0]) == "test-connection" {
+		if len(operands) != 1 {
+			return usageError("backup-set test-connection --candidate: names no backup set id, because the source it checks is not saved yet; describe it with --host, --port, --user, --ssh-key-id, --known-hosts-line and --remote-path")
+		}
+		if code := f.refuseEveryFlagBut("test-connection --candidate", append([]string{"config", "json", "candidate"}, backupSetCandidateFlags...)...); code != 0 {
+			return code
+		}
+		return backupSetTestCandidateConnection(f)
+	}
 	if len(operands) != 2 {
 		return usageError(`backup-set: expected "create <source/backup-set>", "patch <source/backup-set>", "remove <source/backup-set>" or "retention <source/backup-set>", a verb and exactly one backup set id`)
 	}
@@ -257,10 +282,7 @@ func cmdBackupSet(args []string) int {
 		return usageError("backup-set: %q is not a backup set id; a backup set id is exactly source/name", operands[1])
 	}
 
-	verb := operands[0]
-	if canonical, ok := backupSetVerbAliases[verb]; ok {
-		verb = canonical
-	}
+	verb := canonicalBackupSetVerb(operands[0])
 
 	switch verb {
 	case "create":
@@ -312,10 +334,11 @@ type backupSetFlags struct {
 	cfgPath *string
 
 	// Shared by create and patch. Each is a field of the backup set itself.
-	// json is test-connection's alone (#1152); create, patch and remove
-	// refuse it, because a flag they accepted and ignored is the failure
-	// every list here exists to prevent.
-	json *bool
+	// json and candidate are test-connection's alone (#1152, #1253); create,
+	// patch and remove refuse them, because a flag they accepted and
+	// ignored is the failure every list here exists to prevent.
+	json      *bool
+	candidate *bool
 
 	host               *string
 	port               *int
@@ -425,9 +448,16 @@ var (
 	backupSetPatchOnlyFlags = []string{"acknowledge-host-key-change", "poll-interval"}
 
 	// test-connection's own, which create and patch refuse the same way
-	// (#1152). remove and test-connection are allow-lists, so they need no
-	// list of the flags they do not take.
-	backupSetTestConnectionOnlyFlags = []string{"json"}
+	// (#1152, #1253). remove and test-connection are allow-lists, so they
+	// need no list of the flags they do not take.
+	backupSetTestConnectionOnlyFlags = []string{"json", "candidate"}
+
+	// The six fields POST /backup-sets/test-connection carries in its
+	// candidate mode (#1253), as the flags `test-connection --candidate`
+	// takes beside the shared ones. --ssh-key-file is deliberately not
+	// among them: importing a key is a write, and a candidate check
+	// writes nothing. Import first with `ssh-key import` and name the id.
+	backupSetCandidateFlags = []string{"host", "port", "user", "ssh-key-id", "known-hosts-line", "remote-path"}
 )
 
 func declareBackupSetFlags() *backupSetFlags {
@@ -435,6 +465,7 @@ func declareBackupSetFlags() *backupSetFlags {
 	f := &backupSetFlags{fs: fs, cfgPath: cfgPath}
 
 	f.json = fs.Bool("json", false, "test-connection: print the API's TestConnectionResponse instead of text; the exit code is still the verdict")
+	f.candidate = fs.Bool("candidate", false, "test-connection: prove a source described by --host, --port, --user, --ssh-key-id, --known-hosts-line and --remote-path, which is NOT saved, and write nothing whatever the report says")
 	f.host = fs.String("host", "", "create, patch: remote.host, the machine being backed up")
 	f.port = fs.Int("port", 0, "create, patch: remote.port; 0 leaves it unset, which is the default SSH port. On patch that 0 is a real value rather than an unset one")
 	f.user = fs.String("user", "", "create, patch: remote.user")

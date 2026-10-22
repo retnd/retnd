@@ -39,20 +39,6 @@ import (
 // read by string keys, deliberately. That is what makes a field renamed in
 // the contract a compile error here instead of a builder that quietly
 // stops emitting a flag.
-// The sentences a builder prints in place of a command, as constants
-// because each of them is written in two places: the builder that refuses
-// with it, and the entry that declares it so Gaps can report it. A
-// sentence that could differ between those two would be a sentence the
-// guard in core/cmd/retnd checks a copy of.
-const (
-	// Issue #624. The candidate half of the connection check has no verb
-	// and deliberately gets none, which is a decision rather than the next
-	// gap to close. A candidate is a form somebody is still typing: its
-	// values exist nowhere, so the command would have to carry all of
-	// them, and the moment they are worth carrying is the create, which
-	// proves the connection before it writes anything.
-	gapCandidateConnection = "there is no verb that checks a source that is not saved yet: `" + Binary + " backup-set create` proves the connection before it writes, and `" + Binary + " backup-set test-connection <source/backup-set>` re-checks one that exists"
-)
 
 // positiveQuery reads a query parameter that is a count, and reports 0
 // for anything the route itself would treat as absent.
@@ -310,30 +296,36 @@ var routes = map[string]entry{
 		// "no equivalent", which is what makes a gap actionable. #624
 		// shipped that verb, so this is a builder now.
 		//
-		// Only the PERSISTED mode has one. A candidate check is the step
-		// the wizard runs while an operator is still filling a form in,
-		// against values that exist nowhere yet: the equivalent command
-		// would have to carry the whole unsaved form, and what a terminal
-		// can do with it is run the create, which verifies before it
-		// writes. So the candidate mode refuses with the reason rather
-		// than printing a command that checks something else.
+		// Both modes have one since #1253. The candidate check is the
+		// step the wizard runs while an operator is still filling a form
+		// in, and for a long time it refused here on the reasoning that
+		// the values exist nowhere and the create proves the connection
+		// anyway. That left a terminal user unable to ask the one
+		// question the wizard answers before anything is written, so
+		// `backup-set test-connection --candidate` carries the form the
+		// way `medium test-connection --candidate` carries a destination.
+		// The key is a reference and the trusted line is public, so
+		// nothing on the line is a credential.
 		build: func(a Action) *cmd {
 			var req apicontract.TestConnectionRequest
 			if !decode(a.Body, &req) {
 				return nil
 			}
-			if req.BackupSetID == "" {
-				return newCmd().refuse(gapCandidateConnection)
+			if req.BackupSetID != "" {
+				return newCmd("backup-set", "test-connection", req.BackupSetID)
 			}
-			return newCmd("backup-set", "test-connection", req.BackupSetID)
+			c := newCmd("backup-set", "test-connection").bare("candidate")
+			c.flagIfSet("host", req.Host)
+			if req.Port != 0 {
+				c.flag("port", itoa(req.Port))
+			}
+			c.flagIfSet("user", req.User)
+			c.flagIfSet("ssh-key-id", req.SSHKeyID)
+			c.flagIfSet("known-hosts-line", req.KnownHostsLine)
+			c.flagIfSet("remote-path", req.RemotePath)
+			return c
 		},
-		why:      "there is no verb that checks a source that has not been saved yet",
-		refusals: []string{gapCandidateConnection},
-		// `backup-set` is named as the counterexample rather than as the
-		// gap: the refusal's whole point is that the thing to run instead
-		// is `backup-set create`, which proves the connection before it
-		// writes, or `backup-set test-connection` once the set exists.
-		namesShippedVerbs: []string{"backup-set"},
+		why: "there is no verb that checks a source connection from a request body",
 		examples: []Action{
 			{Body: []byte(`{"backup_set_id":"api-server/var-backups"}`)},
 			{Body: []byte(`{"host":"10.0.0.14","user":"backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","remote_path":"/var/backups"}`)},
@@ -667,22 +659,20 @@ var routes = map[string]entry{
 		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"},
 			Body: []byte(`{"plan_id":"plan_01HX"}`)}},
 	},
-	// Two of these three are commands now. #600 built `backup-set
-	// edit-hold <source/backup-set> [--release]`, which reports a hold
-	// and gives one back, so the entries saying no verb read or released
-	// one were describing a tree that had one open in the next file.
+	// All three are commands now. #600 built `backup-set edit-hold
+	// <source/backup-set> [--release]`, which reports a hold and gives one
+	// back, and #1253 added --take, so a scripted multi-step edit can pause
+	// the set the way the browser's edit form does. A hold is a lease, so
+	// the line that takes one is also the line that renews it.
 	key("GET", "/backup-sets/{source}/{set}/edit-hold"): {
 		build:    func(a Action) *cmd { return newCmd("backup-set", "edit-hold", setID(a)) },
 		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
 	},
 	key("POST", "/backup-sets/{source}/{set}/edit-hold"): {
-		// The one that is still a gap, and usage() says the same thing in
-		// as many words: "There is no verb that TAKES a hold". A hold
-		// protects an editing session, a browser has one and a terminal
-		// does not, and a CLI edit is one `backup-set patch` that either
-		// runs or does not.
-		why:               "`backup-set edit-hold` reports a hold and releases one, and no verb TAKES one and leaves it held: a hold outliving the command that took it is exactly what a browser needs and a terminal does not",
-		namesShippedVerbs: []string{"backup-set"},
+		build: func(a Action) *cmd {
+			return newCmd("backup-set", "edit-hold", setID(a)).bare("take")
+		},
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
 	},
 	key("POST", "/backup-sets/{source}/{set}/edit-hold/release"): {
 		build: func(a Action) *cmd {
@@ -811,17 +801,24 @@ var routes = map[string]entry{
 			{Body: []byte(`{"artifacts":["api-server/var-backups/a.tar"],"target":{"kind":"staging","path":"medium:x"}}`)},
 		},
 	},
+	// The description and the write check are one line apart (#1253).
+	// The browser describes on open, from configuration alone, and probes
+	// only on a button, because the probe writes a file on a production
+	// host; the terminal's preflight used to do both at once, so the
+	// description had no line of its own. It is the read-only preflight
+	// now, and --write-check is the button.
 	key("GET", "/backup-sets/{source}/{set}/source-host"): {
-		why:               "describing where a source-host recovery would write has no verb of its own, because the terminal never describes without checking: `" + Binary + " recover --set <source/backup-set> --to source: --preflight` prints the same description and then runs the write check, which writes and removes one probe file on that host",
-		namesShippedVerbs: []string{"recover"},
+		build: func(a Action) *cmd {
+			return sourceHostPreflight(a)
+		},
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Query: mustQuery("folder=retnd-recovered-20261015-101500-a1b2")},
+		},
 	},
 	key("POST", "/backup-sets/{source}/{set}/source-host/write-check"): {
 		build: func(a Action) *cmd {
-			c := newCmd("recover")
-			c.flag("set", a.Params["source"]+"/"+a.Params["set"])
-			c.flag("to", "source:"+a.Query.Get("folder"))
-			c.bare("preflight")
-			return c
+			return sourceHostPreflight(a).bare("write-check")
 		},
 		examples: []Action{
 			{Params: map[string]string{"source": "api-server", "set": "var-backups"}},
@@ -2331,6 +2328,16 @@ func sourceTarget(c *cmd, folder, acknowledged string) {
 	if acknowledged != "" {
 		c.bare("acknowledge-source-write")
 	}
+}
+
+// sourceHostPreflight is `recover --set S --to source:FOLDER --preflight`,
+// the read-only description of where a source-host recovery would write,
+// for the route's set and its optional folder (#1253).
+func sourceHostPreflight(a Action) *cmd {
+	c := newCmd("recover")
+	c.flag("set", setID(a))
+	c.flag("to", "source:"+a.Query.Get("folder"))
+	return c.bare("preflight")
 }
 
 // stagingName spells a staging name so the terminal cannot read it as

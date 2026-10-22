@@ -20,12 +20,33 @@
   that has a deployment never goes remote, so a stopped local engine with an address exported still refuses. Plain
   http to anything but loopback needs `RETND_API_INSECURE_TRANSPORT=acknowledged`, and `RETND_API_CA_FILE` trusts a
   self-signed reverse proxy on any route.
+- **`retnd backup-set test-connection --candidate`, the wizard's "Test connection" from a terminal** (#1253). The
+  backup set wizard proves a source before it saves it, with `POST /api/v1/backup-sets/test-connection` in its
+  candidate mode, and a terminal could only prove one as a side effect of `backup-set create`, which writes.
+  `retnd backup-set test-connection --candidate --host H --user U --ssh-key-id K --known-hosts-line L --remote-path P
+  [--port N] [--json]` runs the same six checks against the source those flags describe, names no set and writes
+  nothing, the way `medium test-connection --candidate` does for a destination. The key is an id `ssh-key import`
+  printed, never a file, so the check imports nothing either. The terminal panel echoes this line for the button
+  instead of saying there's no equivalent.
+- **`retnd backup-set edit-hold --take`** (#1253). The web UI takes an edit hold when its edit form opens, so no
+  cycle runs against the set while it's half changed, and a terminal could report and release a hold but not take
+  one. `--take` takes it, or renews one already held, and says what that stopped; a scripted edit of several
+  patches can now run under the same hold, and gives it back with `--release`. The terminal panel echoes it.
 - **Exit codes 50 to 52 for the engine's side of a route** (#1250). 50 is the destructive gate refusing any routed
   command (a validator upload or a routed create used to exit 1 for it), 51 is "stopped watching, the operation may
   still be running", and 52 is plain http refused. 10 to 49 stay reserved for `recover`.
 
 ### Changed
 
+- **`retnd recover --to source: --preflight` no longer writes a probe file on the source host** (#1253). It used
+  to describe where a source-host recovery would write and then run the write check, which writes one probe file
+  on the production host the backup came from and removes it. The recovery dialog in the web UI reads that
+  description on open from configuration alone and probes only when you press "Check write access", and the
+  terminal now draws the same line: `--preflight` prints the destination, its id and the last write check's
+  answer (or `not_checked`) without touching the host, and `--preflight --write-check` runs the probe as well. A
+  script that relied on `--preflight` to prove write access adds `--write-check`. The terminal panel now prints
+  the read-only line for the dialog's description instead of saying there's no equivalent, and the line with
+  `--write-check` for the button.
 - **`workflows.disabled` is a new key, and an older retnd refuses it** (#1246). Clearing the workflow root
   (`retnd settings workflow patch --disable`, or the older `--root ""`) now writes `workflows.disabled: true`
   into `config.yaml`, because an absent root now means "use the mounted default". A retnd older than this

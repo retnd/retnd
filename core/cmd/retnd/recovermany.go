@@ -35,6 +35,7 @@ type manyArgs struct {
 	newestOnly bool
 	since      string
 	preflight  bool
+	writeCheck bool
 	ackSource  bool
 	all        bool
 }
@@ -87,6 +88,9 @@ func cmdRecoverMany(a manyArgs) int {
 			return usageError("recover: %v", err)
 		}
 	}
+	if err := checkWriteCheckFlag(target, a.to, a.preflight, a.writeCheck); err != nil {
+		return usageError("recover: %v", err)
+	}
 	if target.Kind == "download" {
 		return usageError("recover: several backups cannot go to standard output; use a name under the recovery staging root or medium:ID[/PREFIX]")
 	}
@@ -129,7 +133,7 @@ func cmdRecoverMany(a manyArgs) int {
 			return usageError("recover: a whole backup set onto its source host is said explicitly: add --newest-only (the newest restore point, which the dialog defaults to), --since DATE, or --all for every retained restore point")
 		}
 		if a.preflight {
-			return sourcePreflight(ctx, svc, of, req.Target.Path, a.asJSON, func() int { return manyPreflight(ctx, svc, req, a.asJSON) })
+			return sourcePreflight(ctx, svc, of, req.Target.Path, a.writeCheck, a.asJSON, func() int { return manyPreflight(ctx, svc, req, a.asJSON) })
 		}
 		acked, code := acknowledgeSourceDestination(svc, of, req.Target.Path, a.ackSource, a.asJSON)
 		if code != exitOK {

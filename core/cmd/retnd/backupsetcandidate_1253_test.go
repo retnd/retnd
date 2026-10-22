@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -126,5 +127,31 @@ func TestRun1253_CandidateConnectionTestIsInUsage(t *testing.T) {
 	text := captureStderr(t, usage)
 	if !strings.Contains(text, "backup-set test-connection --candidate") {
 		t.Errorf("usage() does not list `backup-set test-connection --candidate`")
+	}
+}
+
+// On a host with no configuration yet, the check runs against this host's
+// own first-run surface, which is where the wizard's button sends it in
+// that process (#1254's shape), and still writes nothing: no config.yaml
+// appears because somebody asked whether a source works.
+func TestRun1253_CandidateConnectionTestRunsOnAFirstRunHost(t *testing.T) {
+	clearInheritedRouteSettings()
+	dir := t.TempDir()
+	t.Setenv("STATE_DATABASE", filepath.Join(dir, "state.db"))
+	configPath := filepath.Join(dir, "config.yaml")
+	aStoredKey(t, configPath, "key_cand")
+
+	var code int
+	stdout := captureStdout(t, func() {
+		code = run(candidateArgs(t, configPath))
+	})
+	if code != 1 {
+		t.Fatalf("test-connection --candidate with no configuration = %d, want 1 (a closed port, reported):\n%s", code, stdout)
+	}
+	if !strings.Contains(stdout, "connect") || !strings.Contains(stdout, "nothing was written") {
+		t.Errorf("the first-run check does not report its steps and say it saved nothing:\n%s", stdout)
+	}
+	if _, err := os.Stat(configPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a candidate check on a first-run host created %s (stat: %v)", configPath, err)
 	}
 }

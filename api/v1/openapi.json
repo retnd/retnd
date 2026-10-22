@@ -21676,7 +21676,7 @@
       "get": {
         "operationId": "describeSourceHost",
         "summary": "Where a recovery onto this backup set's own source host would write, from configuration alone.",
-        "description": "Issue #1191. Reads the set's configuration and the cached answer of the last write check (five minutes); it never touches the network, so a dialog can call it on open. folder names the new folder to describe; without it a fresh name is suggested. The terminal equivalent is `retnd recover --set <source/backup-set> --to source: --preflight`.",
+        "description": "Issue #1191. Reads the set's configuration and the cached answer of the last write check (five minutes); it never touches the network, so a dialog can call it on open. folder names the new folder to describe; without it a fresh name is suggested. The terminal equivalent is `retnd recover --set <source/backup-set> --to source: --preflight`, which since #1253 reads the same description and runs no probe; `--write-check` beside it is the POST.",
         "tags": [
           "assurance"
         ],
@@ -21802,7 +21802,7 @@
       "post": {
         "operationId": "checkSourceHostWrite",
         "summary": "Check whether retnd may write on this backup set's source host, by writing and removing one probe file.",
-        "description": "Issue #1191. Runs the write probe the connection test runs (#852) on the operator's say-so: one probe file is written under the set's remote path, removed, and its absence confirmed, and the free space is asked for. The answer is cached per set for five minutes and shared with the recovery that follows, concurrent checks of one set share one probe, and every probe writes an audit row. A set declared read_only is answered without a probe. The destructive gate is open on a local-account profile (issue #1163) and shut on a gateway profile until #92 ships a verified gate, and a shut gate refuses this check with 403 DESTRUCTIVE_OPERATIONS_DISABLED before anything is written. The terminal equivalent, with no gate, is `retnd recover --set <source/backup-set> --to source: --preflight`.",
+        "description": "Issue #1191. Runs the write probe the connection test runs (#852) on the operator's say-so: one probe file is written under the set's remote path, removed, and its absence confirmed, and the free space is asked for. The answer is cached per set for five minutes and shared with the recovery that follows, concurrent checks of one set share one probe, and every probe writes an audit row. A set declared read_only is answered without a probe. The destructive gate is open on a local-account profile (issue #1163) and shut on a gateway profile until #92 ships a verified gate, and a shut gate refuses this check with 403 DESTRUCTIVE_OPERATIONS_DISABLED before anything is written. The terminal equivalent, with no gate, is `retnd recover --set <source/backup-set> --to source: --preflight --write-check`; without --write-check the preflight is this route's GET, the description alone.",
         "tags": [
           "assurance"
         ],

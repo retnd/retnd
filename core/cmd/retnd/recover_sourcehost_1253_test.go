@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // Issue #1253: `recover --to source: --preflight` describes where a
@@ -42,17 +43,28 @@ func aCountingHost(t *testing.T) (port int, connections *atomic.Int32) {
 	return ln.Addr().(*net.TCPAddr).Port, &n
 }
 
+// connectionsSeen is the count once the accept loop has had its turn: a
+// dial completes in the kernel before Accept returns it, so a count read
+// the instant the command returns can miss a connection that did happen.
+func connectionsSeen(connections *atomic.Int32, atLeast int32) int32 {
+	deadline := time.Now().Add(2 * time.Second)
+	for connections.Load() < atLeast && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	return connections.Load()
+}
+
 // writeSFTPTestConfigReaching is writeSFTPTestConfig with the source host
-// pointed at a port on this machine, so a connection can be noticed.
+// pointed at a port on this machine, so a connection can be noticed, and
+// with a key and a trusted line the probe can parse, so it gets as far as
+// dialling rather than failing on its own files first.
 func writeSFTPTestConfigReaching(t *testing.T, port int) string {
 	t.Helper()
 	dir := t.TempDir()
-	key := filepath.Join(dir, "id_ed25519")
+	key := writeTestPrivateKey(t)
 	known := filepath.Join(dir, "known_hosts")
-	for _, f := range []string{key, known} {
-		if err := os.WriteFile(f, []byte("unused by these tests\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.WriteFile(known, []byte(aKnownHostsLine+"\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	configPath := filepath.Join(dir, "config.yaml")
 	content := "poll_interval: 15m\n" +
@@ -115,7 +127,7 @@ func TestRecover1253_PreflightDescribesWithoutTouchingTheHost(t *testing.T) {
 	if !got.Available || got.WriteAccess != "not_checked" || !strings.HasPrefix(got.URL, "sftp://") || !strings.HasPrefix(got.Destination, "sh1-") {
 		t.Errorf("preflight = %+v, want the description with write_access not_checked", got)
 	}
-	if n := connections.Load(); n != 0 {
+	if n := connectionsSeen(connections, 1); n != 0 {
 		t.Errorf("the preflight connected to the source host %d time(s); a description is read from configuration and must not", n)
 	}
 }
@@ -137,7 +149,7 @@ func TestRecover1253_PreflightOfASetDescribesWithoutTouchingTheHost(t *testing.T
 	if !strings.Contains(stdout, "not_checked") {
 		t.Errorf("the set preflight does not say the write access is unchecked:\n%s", stdout)
 	}
-	if n := connections.Load(); n != 0 {
+	if n := connectionsSeen(connections, 1); n != 0 {
 		t.Errorf("the set preflight connected to the source host %d time(s)", n)
 	}
 }
@@ -155,7 +167,7 @@ func TestRecover1253_WriteCheckIsTheProbeAndIsExplicit(t *testing.T) {
 	if got.WriteAccess != "unreachable" {
 		t.Errorf("write check = %+v, want write_access unreachable from a host that is not an SSH server", got)
 	}
-	if n := connections.Load(); n == 0 {
+	if n := connectionsSeen(connections, 1); n == 0 {
 		t.Error("--write-check never connected to the source host, so it ran no probe")
 	}
 }

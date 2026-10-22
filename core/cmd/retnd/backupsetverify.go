@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -308,4 +311,117 @@ func backupSetTestConnection(f *backupSetFlags, id string) int {
 		return 1
 	}
 	return 0
+}
+
+// backupSetTestCandidateConnection is `test-connection --candidate`: the
+// same six-step check against a source that is NOT saved, described by
+// flags (#1253).
+//
+// It is the terminal twin of the wizard's "Test connection" button, which
+// runs this check before the set exists, and it is what `backup-set
+// create` runs in front of its write, asked for on its own. The
+// destination side has had this shape since #443 (`medium test-connection
+// --candidate`), and until this verb a terminal could only prove a source
+// as a side effect of creating it, which writes.
+//
+// The key is named by id, never by file: a candidate check writes nothing,
+// and importing a key is a write. `ssh-key import` does that first and
+// prints the id. The trusted line is passed as `ssh-keyscan` prints it,
+// so no trust decision is made here either; `ssh host-key-probe` is the
+// verb that finds one.
+//
+// Where it runs is where a create's own check would run, which is the
+// point of asking the question on its own: beside a serving engine the
+// check is made BY that engine, over its own API, so it proves that
+// deployment's route to the host and its six steps reach the live feed;
+// with nothing serving it runs here against the key store a create here
+// would use; and on a host with no configuration yet it goes to the engine
+// still on its first-run setup flow when one is serving (#1254), which is
+// where the wizard's own button sends it, or to this host's first-run
+// surface otherwise.
+func backupSetTestCandidateConnection(f *backupSetFlags) int {
+	for _, missing := range []struct {
+		value *string
+		flag  string
+	}{{f.host, "host"}, {f.user, "user"}, {f.keyID, "ssh-key-id"}, {f.knownHostsLine, "known-hosts-line"}, {f.remotePath, "remote-path"}} {
+		if *missing.value == "" {
+			return usageError("backup-set test-connection --candidate: --%s is required; a candidate is described entirely by its flags, and the check needs the host, the account, the key id, the trusted host line and the remote folder", missing.flag)
+		}
+	}
+
+	ctx := context.Background()
+	asJSON := *f.json
+	out, log := io.Writer(os.Stdout), logger()
+	if asJSON {
+		out, log = os.Stderr, jsonLogger()
+	}
+	route, cleanup, err := openCandidateCheckRoute(ctx, *f.cfgPath, out)
+	if err != nil {
+		return fail(err)
+	}
+	defer cleanup()
+
+	logStartup(ctx, log, app.BuildVersionInfo(version, commit))
+
+	result, err := route.TestConnection(ctx, service.ConnectionTestRequest{
+		Host:           *f.host,
+		Port:           *f.port,
+		User:           *f.user,
+		SSHKeyID:       *f.keyID,
+		KnownHostsLine: *f.knownHostsLine,
+		RemotePath:     *f.remotePath,
+	})
+	if err != nil {
+		return fail(err)
+	}
+	if asJSON {
+		if code := emitWireJSON(service.ConnectionTestWire(result)); code != exitOK {
+			return code
+		}
+		if !result.OK {
+			return 1
+		}
+		return 0
+	}
+	printConnectionReport("connection to "+*f.host, result)
+	// Said every time, for the reason the destination side says it: a
+	// report that reads like a create's would leave somebody believing
+	// the set exists.
+	fmt.Println("nothing was written: a candidate check saves no backup set whatever the report says")
+	if !result.OK {
+		return 1
+	}
+	return 0
+}
+
+// openCandidateCheckRoute settles where a candidate check runs, in
+// openSSHKeyRoute's shape: a host with no config.yaml is a first run, and
+// the check goes to the engine still on its first-run setup flow when one
+// is serving and this command has an address for it, or to this host's own
+// first-run surface, which is the TestConnection the wizard's button calls
+// in that process. Everything else is the door every configuration write
+// goes through, which is what routes it to a serving engine.
+func openCandidateCheckRoute(ctx context.Context, cfgPath string, out io.Writer) (sourceConnectionTester, func(), error) {
+	configFile := config.ResolvePath(cfgPath)
+	if _, err := os.Stat(configFile); errors.Is(err, os.ErrNotExist) {
+		route, _, err := sshKeyFirstRunRoute(ctx, "so the check is made by it, against the key store it holds, at %s")
+		if err != nil {
+			return nil, func() {}, err
+		}
+		if route != nil {
+			return route, func() {}, nil
+		}
+		abs, err := filepath.Abs(configFile)
+		if err != nil {
+			return nil, func() {}, err
+		}
+		// The journal a first create would name with --state-database.
+		// The surface insists on one; a check never opens it.
+		firstRun, err := service.NewFirstRun(service.FirstRunDefaults{ConfigPath: abs, StateDatabase: service.StateDatabaseDefault()})
+		if err != nil {
+			return nil, func() {}, err
+		}
+		return firstRun, func() {}, nil
+	}
+	return openConfigWriteRouteTo(ctx, cfgPath, out)
 }
