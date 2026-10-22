@@ -76,6 +76,13 @@ type fakeEngine struct {
 	// answer is still an answer to a client that signed in properly.
 	handlers map[string]http.HandlerFunc
 
+	// unauthenticated answers the /auth routes the real service serves
+	// to nobody in particular (enroll, forgot-password, reset-password,
+	// #1253): behind the double-submit check, because the contract marks
+	// them CSRFRequired, and in front of the session check, because the
+	// whole point of each is that the caller has no session to show.
+	unauthenticated map[string]http.HandlerFunc
+
 	// The live feed this engine hands out, one reading per request, and
 	// every cursor it was asked with. See liveActivity below for why this
 	// one answer is stated rather than produced.
@@ -206,6 +213,21 @@ func (e *fakeEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// double-submit scheme means: the client can only echo a value the
 	// server gave it.
 	token := e.issueCSRF(w, r)
+
+	e.mu.Lock()
+	open := e.unauthenticated[r.Method+" "+path]
+	e.mu.Unlock()
+	if open != nil {
+		if got := r.Header.Get("X-CSRF-Token"); got == "" {
+			refuse(w, http.StatusForbidden, apicontract.ErrorCodeCSRFTokenMissing, "no double-submit token")
+			return
+		} else if got != token {
+			refuse(w, http.StatusForbidden, apicontract.ErrorCodeCSRFTokenMismatch, "the double-submit token does not match the cookie")
+			return
+		}
+		open(w, r)
+		return
+	}
 
 	switch {
 	case r.Method == http.MethodGet && path == "/auth/session":
@@ -1290,4 +1312,15 @@ func (e *fakeEngine) handle(route string, h http.HandlerFunc) {
 		e.handlers = map[string]http.HandlerFunc{}
 	}
 	e.handlers[route] = h
+}
+
+// handleUnauthenticated scripts one of the routes the engine serves with
+// no session (see the unauthenticated field).
+func (e *fakeEngine) handleUnauthenticated(route string, h http.HandlerFunc) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.unauthenticated == nil {
+		e.unauthenticated = map[string]http.HandlerFunc{}
+	}
+	e.unauthenticated[route] = h
 }
