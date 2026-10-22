@@ -66,8 +66,6 @@ func (e *fakeEngine) scriptOperation(id string, readings ...apicontract.Operatio
 	e.opReads[id] = readings
 }
 
-func i64(v int64) *int64 { return &v }
-
 // fullOperation fills every optional field the contract's Operation has, so
 // a CLI that prints a subset of the wire object cannot pass a field-for-field
 // diff by luck.

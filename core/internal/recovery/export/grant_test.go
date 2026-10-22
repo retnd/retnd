@@ -252,7 +252,6 @@ func TestFindInMemoryActuallyFindsATokenWhereverItIsKept(t *testing.T) {
 	type holder struct {
 		m map[string]int
 		s []string
-		a [4]byte
 		b []byte
 	}
 	const tok = "secrettoken-abcdefghijklmnopqrstuvwxyz"

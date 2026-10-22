@@ -265,34 +265,6 @@ func retentionOverrideToWire(o service.RetentionOverride) apicontract.RetentionO
 	return w
 }
 
-func retentionSettingsToWire(s service.RetentionSettings) apicontract.RetentionSettings {
-	tiers := make([]apicontract.RetentionTier, 0, len(s.Tiers))
-	for _, t := range s.Tiers {
-		tiers = append(tiers, retentionTierToWire(t))
-	}
-	return apicontract.RetentionSettings{
-		Timezone: s.Timezone, WeekStartsOn: s.WeekStartsOn,
-		ProtectLastKnownGood: s.ProtectLastKnownGood, Tiers: tiers,
-	}
-}
-
-func backupSetRetentionToWire(r service.BackupSetRetention) apicontract.BackupSetRetention {
-	out := apicontract.BackupSetRetention{
-		BackupSetID: r.BackupSetID,
-		IsOverride:  r.IsOverride,
-		Effective:   retentionSettingsToWire(r.Effective),
-		Deployment:  retentionSettingsToWire(r.Deployment),
-	}
-	if r.Override != nil {
-		// The consent is request-only: the response's override never
-		// carries it, exactly as the handler's projection leaves it.
-		o := retentionOverrideToWire(*r.Override)
-		o.AcknowledgeMediumDisclosure = false
-		out.Override = &o
-	}
-	return out
-}
-
 func workflowEnvToWire(in []service.WorkflowEnvVar) []apicontract.WorkflowEnvironmentVariable {
 	out := make([]apicontract.WorkflowEnvironmentVariable, 0, len(in))
 	for _, v := range in {

@@ -87,7 +87,6 @@ type fakeEngine struct {
 	opsMu   sync.Mutex
 	ops     []apicontract.Operation
 	opReads map[string][]apicontract.Operation
-	opQuery []string
 
 	// What GET /system/capabilities answers (#1165), see
 	// system_capabilities_1165_test.go. A raw document rather than the typed

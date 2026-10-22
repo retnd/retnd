@@ -5,7 +5,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 )
@@ -50,9 +49,7 @@ const (
 type quietRunner struct {
 	path string
 
-	mu     sync.Mutex
-	closed []time.Time // when the stand-in saw a connection end
-	ended  chan struct{}
+	ended chan struct{}
 }
 
 func startQuietRunner(t *testing.T, mode quietMode) *quietRunner {

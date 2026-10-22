@@ -217,10 +217,7 @@ func kindOf(name string) (k struct {
 	return k, false
 }
 
-var (
-	errCeiling = errors.New("decoded-bytes ceiling reached")
-	errNotTar  = errors.New("not a tar")
-)
+var errCeiling = errors.New("decoded-bytes ceiling reached")
 
 // posReader stops a read once the context is done and counts what it passed.
 type posReader struct {

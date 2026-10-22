@@ -278,28 +278,6 @@ func containerRecords(t *testing.T, state string) []string {
 	return names
 }
 
-// runningContainerRecords is containerRecords narrowed to the containers
-// whose process the stand-in daemon has not seen exit.
-//
-// The distinction exists because a stopped container and a running one
-// are different faults: the first is a leftover, the second is the
-// RUNAWAY this package exists to prevent, and a test that could not tell
-// them apart would pass on either.
-func runningContainerRecords(t *testing.T, state string) []string {
-	t.Helper()
-	var running []string
-	for _, name := range containerRecords(t, state) {
-		status, err := os.ReadFile(filepath.Join(state, "c-"+name, "status"))
-		if err != nil {
-			continue
-		}
-		if strings.TrimSpace(string(status)) == "running" {
-			running = append(running, name)
-		}
-	}
-	return running
-}
-
 // hostBashForFake finds a bash for the stand-in client to be written in
 // and to exec.
 //
