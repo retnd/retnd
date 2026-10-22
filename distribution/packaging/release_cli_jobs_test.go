@@ -298,7 +298,7 @@ func TestReadmeOpensWithTheTourGif(t *testing.T) {
 	if img < 0 {
 		t.Fatalf("README does not show %s", tour)
 	}
-	if badges < 0 || first < 0 || !(badges < img && img < first) {
+	if badges < 0 || first < 0 || badges >= img || img >= first {
 		t.Errorf("the tour must come after the badge row and before the first paragraph (badges %d, tour %d, first paragraph %d)", badges, img, first)
 	}
 	tag := s[strings.LastIndex(s[:img], "<img"):]
