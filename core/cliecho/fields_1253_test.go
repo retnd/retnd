@@ -601,4 +601,20 @@ func TestEveryNonStringField_MutationADroppedNumberIsCaught(t *testing.T) {
 
 // nonStringFieldsNotEchoed is the boolean and number half of
 // fieldsNotEchoed, with the same rule.
-var nonStringFieldsNotEchoed = map[string]map[string]string{}
+var nonStringFieldsNotEchoed = map[string]map[string]string{
+	"PATCH /settings": {
+		"retention.tiers[0].keep":        "part of the tier chain, which --policy-file carries",
+		"retention.tiers[0].period_days": "part of the tier chain, which --policy-file carries",
+	},
+	"PUT /backup-sets/{source}/{set}/retention": {
+		"tiers[0].keep":        "part of the tier chain, which --policy-file carries",
+		"tiers[0].period_days": "part of the tier chain, which --policy-file carries",
+	},
+	"POST /operations": {
+		"snapshot_restore.acknowledged":      "the HTTP destructive gate's yes to writing into target_path; `snapshot restore` runs in the operator's own process and takes no acknowledgement, so the pasted line writes there without one",
+		"snapshot_hold_release.acknowledged": "the HTTP route's yes to letting retention prune the snapshot; `snapshot unhold` takes no acknowledgement, so the pasted line releases the hold without one",
+	},
+	"POST /storage-mediums/preflight": {
+		"skip_connection_check": "a preflight IS the connection check, so there is nothing to skip; the field is on this body because it shares StorageMediumRequest with add and edit, which do echo it as --no-verify",
+	},
+}
