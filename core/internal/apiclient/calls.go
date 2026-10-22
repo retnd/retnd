@@ -869,6 +869,66 @@ func (c *Client) ResendRecoveryEmailVerification(ctx context.Context) error {
 	return c.call(ctx, "resendRecoveryEmailVerification", nil, nil, nil)
 }
 
+// The three account acts a browser performs with no session (#1253).
+//
+// Each is declared unauthenticated and CSRF-required, so none goes through
+// call(): there is no account to sign in as before enrollment, and the
+// reset flow exists precisely because the password is not known. The
+// cookie the double-submit check wants is seeded with one read first
+// (seedCSRF), and the request goes out through do() as a stranger.
+
+// Enroll is POST /auth/enroll: the first administrator, authorised by the
+// single-use bootstrap token out of the enrollment link. The token is used
+// for this one request and kept nowhere.
+//
+// The engine opens a session for the account it just made, the way the
+// enrollment page is signed in afterwards, and this client does not
+// remember it: the caller has no credentials for it, and a session this
+// process holds without being able to re-establish it is the belief
+// ensureSession exists to avoid.
+func (c *Client) Enroll(ctx context.Context, req apicontract.EnrollRequest, bootstrapToken string) error {
+	if err := c.seedCSRF(ctx); err != nil {
+		return err
+	}
+	ep, err := endpoint("enrollAdministrator")
+	if err != nil {
+		return err
+	}
+	return c.do(withBootstrapToken(ctx, bootstrapToken), ep, nil, nil, req, nil)
+}
+
+// RequestPasswordReset is POST /auth/forgot-password. It answers 204 for
+// every username by design, so a nil error says the engine took the
+// request and nothing about whether a message was sent.
+func (c *Client) RequestPasswordReset(ctx context.Context, req apicontract.ForgotPasswordRequest) error {
+	if err := c.seedCSRF(ctx); err != nil {
+		return err
+	}
+	ep, err := endpoint("requestPasswordReset")
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, ep, nil, nil, req, nil)
+}
+
+// ResetPassword is POST /auth/reset-password: the token out of the emailed
+// link and the password to set. Redeeming it revokes every session and
+// opens none, so whatever this client believed about a session is dropped.
+func (c *Client) ResetPassword(ctx context.Context, req apicontract.ResetPasswordRequest) error {
+	if err := c.seedCSRF(ctx); err != nil {
+		return err
+	}
+	ep, err := endpoint("resetPassword")
+	if err != nil {
+		return err
+	}
+	err = c.do(ctx, ep, nil, nil, req, nil)
+	if err == nil {
+		c.remember(false)
+	}
+	return err
+}
+
 // The SSH key store (issue #1153). The store belongs to the process serving
 // the deployment, which is why a terminal reaches it through here.
 

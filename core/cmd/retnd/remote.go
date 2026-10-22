@@ -128,6 +128,17 @@ func (e *transportRefusal) Error() string {
 		e.address, apiCAFileEnv, apiInsecureTransportEnv, apiInsecureTransportOptInWord)
 }
 
+// plainHTTPRefusal is the transport rule as every route without a
+// deployment of its own applies it (the remote mode, and the three auth
+// verbs that reach the engine as nobody): plain http to a host that is not
+// this machine, with no opt-in, is refused with nothing sent.
+func plainHTTPRefusal(base string) error {
+	if u, err := url.Parse(base); err == nil && u.Scheme == "http" && !isLoopbackHost(u.Hostname()) && !insecureTransportAcknowledged() {
+		return &transportRefusal{address: u.Scheme + "://" + u.Host}
+	}
+	return nil
+}
+
 // remoteRoute is a route this command took with no deployment of its own.
 type remoteRoute struct {
 	client     *apiclient.Client
@@ -167,8 +178,8 @@ func engineOnlyRemote(ctx context.Context, cfgPath string, starts bool) (*remote
 	if base == "" {
 		return nil, fmt.Errorf("this host has no deployment of its own (no configuration at %s) and %s is not set, so there is no engine to ask. Set %s and the two credential variables beside it to the engine you mean", config.ResolvePath(cfgPath), apiURLEnv, apiURLEnv)
 	}
-	if u, err := url.Parse(base); err == nil && u.Scheme == "http" && !isLoopbackHost(u.Hostname()) && !insecureTransportAcknowledged() {
-		return nil, &transportRefusal{address: u.Scheme + "://" + u.Host}
+	if err := plainHTTPRefusal(base); err != nil {
+		return nil, err
 	}
 	client, err := newRouteClient(urlEnv, base)
 	if err != nil {
