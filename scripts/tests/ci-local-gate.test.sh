@@ -139,6 +139,17 @@ make_tree() { # -> path of a synthetic checkout carrying only the gate scripts
   # catch, and it did catch it.
   tree="$(mktemp -d "$SANDBOX/tree.XXXXXX")"
   mkdir -p "$tree/scripts/lib" "$tree/bin"
+  # Every synthetic checkout is a git repository of its own (#1260). The
+  # sandbox sits INSIDE the real checkout, so before this a hook driven
+  # from a fixture resolved `git write-tree`, `git diff --cached` and
+  # `git rev-parse --git-path` against the real repository's index and
+  # git directory: the red-commit rule would have read the developer's
+  # own staged files, and the gate marker would have been written into
+  # the real worktree's git dir by a self-test. A nested repository is
+  # invisible to the outer one (it is an untracked directory, and the
+  # sandbox is gitignored anyway), and every git question a fixture asks
+  # now has the fixture's own answer.
+  (cd "$tree" && git init -q -b feature && git config user.email t@example.invalid && git config user.name t) >/dev/null 2>&1
   cp "$SCRIPTS_DIR/ci-local.sh" "$tree/scripts/ci-local.sh"
   if [ -f "$GATE_LIB" ]; then cp "$GATE_LIB" "$tree/scripts/lib/"; fi
   # The Docker probe is a property of the machine, not of the tree, so every
@@ -262,8 +273,18 @@ make_full_tree() {
 
   # .husky/pre-commit is the one caller that has to act on the exit status
   # rather than read the prose, so Group F drives the real hook in this tree.
+  # prepare-commit-msg is the one that stamps the message afterwards
+  # (#1260), and Group P drives it the same way. The hook is INSTALLED in
+  # the fixture's own config, because a complete checkout has it installed
+  # and the gate warns about one that does not (Group N measures the
+  # warning both ways).
   mkdir -p "$tree/.husky"
   cp "$REPO_ROOT/.husky/pre-commit" "$tree/.husky/pre-commit"
+  if [ -f "$REPO_ROOT/.husky/prepare-commit-msg" ]; then
+    cp "$REPO_ROOT/.husky/prepare-commit-msg" "$tree/.husky/prepare-commit-msg"
+  fi
+  chmod +x "$tree/.husky/"*
+  (cd "$tree" && git config core.hooksPath .husky)
 
   # The three-layer checks and their mutation self-test (#165) join the four
   # structure proofs here: static ones run even under CI_LOCAL_FAST, so every
@@ -300,8 +321,16 @@ make_full_tree() {
   # repository against an allowlist, and the real self-test builds a dozen
   # throwaway git repositories; a synthetic tree has neither and no reason
   # to have either.
+  #
+  # The former-name guard and its self-test (#1109) share that step, and
+  # they landed in the gate without landing here, which is the lesson the
+  # paragraph above records and the thing it says will happen: every
+  # full-tree case below, D1's control included, went red at once on a 127
+  # that had nothing to do with what any of them measured, and the gate's
+  # own self-test step had been red on main since e7f9f9a7 before #1260
+  # found it.
   mkdir -p "$tree/scripts/rename"
-  for rename in check-brand-drift selftest; do
+  for rename in check-brand-drift selftest check-no-former-name selftest-former-name; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/rename/$rename.sh"
   done
 
@@ -441,19 +470,35 @@ make_full_tree() {
   # gate's INCOMPLETE.
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/two-machine-exit-status.test.sh"
 
-  # The release gate's own three guards (#575), stubbed for the ninth,
+  # The release gate's own guards (#575, #1260), stubbed for the ninth,
   # tenth and eleventh times and for the same reason as everything above.
   # They are static steps, so a tree without them dies before Group D can
   # measure anything, and the failure reads as this suite being broken
   # rather than as a missing fixture. The real ones prove that a proof CI
-  # could not perform comes out red under the word INCOMPLETE, that the
-  # `release gate` job still waits on every job in ci.yml, and that
-  # release.yml refuses to publish a commit that gate never passed. None
-  # of the three has anything to say about a synthetic tree with no
-  # .github in it.
-  for guard in two-machine-ci-verdict release-gate-covers-every-job release-refuses-an-ungated-publish release-moves-latest every-module-builds-on-its-own; do
+  # could not perform comes out red under the word INCOMPLETE, that
+  # release.yml refuses to publish a commit the local gate never recorded,
+  # that the recorder refuses to write a record for anything short of a
+  # full green run on a clean tree, that the latest tag only moves
+  # forward, and that every module builds on its own. None of them has
+  # anything to say about a synthetic tree with no .github in it.
+  for guard in two-machine-ci-verdict release-gate-covers-every-job release-refuses-an-ungated-publish local-gate-record release-moves-latest every-module-builds-on-its-own; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$guard.test.sh"
   done
+
+  # Five more steps that landed in the gate without landing here, found
+  # together by #1260: the first-run report (#1049), the tests pin (#1074),
+  # the post-publish recorder, the published-provenance guard and its
+  # mutation self-test (#895). Each is a `bash` on a path this fixture did
+  # not have, each exits 127 under `set -e`, and between them every
+  # full-tree case in this suite had been red on main for weeks while the
+  # gate's own self-test step reported that. Same stubs, same reason as
+  # every block above: this fixture measures which steps the gate runs,
+  # not what they do.
+  for guard in first-run-report pin-on-main published-provenance-guards record-published-release; do
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$guard.test.sh"
+  done
+  mkdir -p "$tree/scripts/release"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/release/check-published-provenance.sh"
 
   # The installer's unit tests (#262), which the gate runs by `cd`-ing into
   # scripts/install. Same reason as every stub above, and the same failure
@@ -544,14 +589,23 @@ out=""
 status=0
 
 # run_hook drives .husky/pre-commit; run_gate drives scripts/ci-local.sh.
-# Both share $out/$status, and both scrub the four CI_LOCAL_* variables so
-# the caller's own environment cannot decide what a case measures.
+# Both share $out/$status, and both scrub every CI_LOCAL_* variable so the
+# caller's own environment cannot decide what a case measures. Both also
+# give the run a lock directory of its own (#1260): the real gate takes a
+# lock under the shared git dir around its Docker-backed steps so parallel
+# lanes queue, and a fixture that took the REAL lock would wait on whatever
+# lane happens to be in its crash matrix.
+scrub_env() {
+  env -u CI_LOCAL_FAST -u CI_LOCAL_SKIP_JS -u CI_LOCAL_SKIP_DOCKER \
+    -u CI_LOCAL_SELFTEST -u CI_LOCAL_SKIP_E2E -u CI_LOCAL_SKIP_TWO_MACHINE \
+    -u CI_LOCAL_RED -u CI -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
+    -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_PREFIX "$@"
+}
+
 run_hook() { # <tree> [VAR=VAL ...]
   hook_tree="$1"
   shift
-  out="$(cd "$hook_tree" && env -u CI_LOCAL_FAST -u CI_LOCAL_SKIP_JS \
-    -u CI_LOCAL_SKIP_DOCKER -u CI_LOCAL_SELFTEST -u CI_LOCAL_SKIP_E2E \
-    -u CI_LOCAL_SKIP_TWO_MACHINE \
+  out="$(cd "$hook_tree" && scrub_env CI_LOCAL_LOCK_DIR="$hook_tree/.gate-lock" \
     PATH="$hook_tree/bin:$PATH" "$@" sh .husky/pre-commit 2>&1)"
   status=$?
 }
@@ -563,10 +617,28 @@ run_gate() { # <tree> [VAR=VAL ...]
   # silently turn every fail-closed case into a pass, and the gate exports
   # CI_LOCAL_SELFTEST=1 around this very script, which would otherwise reach
   # every synthetic run as an inherited skip.
-  out="$(cd "$gate_tree" && env -u CI_LOCAL_FAST -u CI_LOCAL_SKIP_JS \
-    -u CI_LOCAL_SKIP_DOCKER -u CI_LOCAL_SELFTEST -u CI_LOCAL_SKIP_E2E \
-    -u CI_LOCAL_SKIP_TWO_MACHINE \
+  out="$(cd "$gate_tree" && scrub_env CI_LOCAL_LOCK_DIR="$gate_tree/.gate-lock" \
     PATH="$gate_tree/bin:$PATH" "$@" bash scripts/ci-local.sh 2>&1)"
+  status=$?
+}
+
+# run_git_commit drives a REAL `git commit` in a fixture, hooks and all,
+# which is the only way to measure what prepare-commit-msg does under
+# --no-verify: git skips pre-commit and commit-msg for that flag and runs
+# prepare-commit-msg anyway, and no amount of invoking the hook by hand
+# proves that git calls it.
+run_git_commit() { # <tree> [VAR=VAL ...] -- <git commit args...>
+  commit_tree="$1"
+  shift
+  commit_vars=""
+  while [ $# -gt 0 ] && [ "$1" != "--" ]; do
+    commit_vars="$commit_vars $1"
+    shift
+  done
+  [ "${1:-}" = "--" ] && shift
+  # shellcheck disable=SC2086
+  out="$(cd "$commit_tree" && scrub_env CI_LOCAL_LOCK_DIR="$commit_tree/.gate-lock" \
+    PATH="$commit_tree/bin:$PATH" $commit_vars git commit "$@" 2>&1)"
   status=$?
 }
 
@@ -853,6 +925,38 @@ assert_nonzero "D8 a broken step fails the run" "$status"
 assert_contains "D8 a failed run prints a verdict line naming the step" \
   'ci-local: FAILED (core/ go build)' "$out"
 assert_not_contains "D8 a failed run does not report success" 'ci-local: ok' "$out"
+
+# D9: a vitest suite that is not there at all (#1260, item 7). The ui/shared
+# and apps/common/tests dispatches had arms for installed and uninstalled
+# and none for absent, so a tree without either workspace ran no vitest and
+# still said ok. "Absent is not a hole" is true of an OPTIONAL component
+# (apps/ugos/frontend/upk-proof, which is not in this tree today), and it is
+# false of the product's own UI and its cross-provider conformance suite:
+# the only thing that catches a stale CLI-twin fixture is the ui/shared
+# vitest run (#1259), so a run that never started it is not merge
+# evidence. D1 is the control: with both present the same run says ok.
+tree="$(make_full_tree)"
+rm -rf "$tree/ui/shared"
+run_gate "$tree"
+assert_not_contains "D9 a tree with no ui/shared cannot report success" 'ci-local: ok' "$out"
+assert_contains "D9 a tree with no ui/shared ends INCOMPLETE" 'ci-local: INCOMPLETE' "$out"
+assert_contains "D9 the summary names the vitest suite that did not run" 'ui/shared' "$out"
+assert_eq "D9 a tree with no ui/shared exits $INCOMPLETE" "$INCOMPLETE" "$status"
+
+tree="$(make_full_tree)"
+rm -rf "$tree/apps/common/tests"
+run_gate "$tree"
+assert_not_contains "D10 a tree with no apps/common/tests cannot report success" 'ci-local: ok' "$out"
+assert_contains "D10 the summary names the conformance suite that did not run" \
+  'cross-provider conformance suite' "$out"
+assert_eq "D10 a tree with no apps/common/tests exits $INCOMPLETE" "$INCOMPLETE" "$status"
+
+# D11 is D9's control in the other direction: an optional component that
+# is not here is still nothing to check, and the run still says ok.
+tree="$(make_full_tree)"
+rm -rf "$tree/apps/ugos"
+run_gate "$tree"
+assert_contains "D11 an absent optional component still leaves the run ok" 'ci-local: ok' "$out"
 
 # ------------- Group E: the mutations that stayed green during code review
 
@@ -1394,6 +1498,21 @@ for rs_case in on off nokey missing; do
   fi
 done
 
+# J10: CI=1 reaches the processes the gate starts (#1260, item 7). vitest
+# reads CI to pick its non-interactive reporter, Playwright reads it to
+# refuse a `.only` and to stop retrying, and more than one Go test in this
+# tree keys a refusal on it; the gate set none of it, so a comment claiming
+# "a failure under CI" described a run nobody ever made. Measured through
+# a child process rather than in this shell, like J7, because being
+# exported is the whole point, and scrubbed from the caller's environment
+# by run_gate so a developer's own CI=1 cannot make this pass.
+tree="$(make_full_tree)"
+printf '#!/usr/bin/env bash\necho "CI-ENV=[${CI:-unset}]"\nexit 0\n' \
+  >"$tree/scripts/perf/selftest.sh"
+run_gate "$tree"
+assert_contains "J10 the gate exports CI=1 to the steps it runs" \
+  'CI-ENV=[1]' "$out"
+
 # ------------- Group K: every Go suite in the gate runs under -race (#417)
 
 echo "==> K. the race detector is on, and on everything"
@@ -1696,6 +1815,345 @@ run_gate "$tree"
 assert_eq "M2 a real failure in that package still fails the run" 1 "$status"
 assert_not_contains "M2 a real failure is not ledgered as a skip"   "gotestwatch's own controls" "$out"
 assert_contains "M2 the verdict names the step that failed" 'cmd/gotestwatch' "$out"
+
+# ------------- Group N: the hook has to be installed, and says so (#1260)
+
+echo "==> N. the hook is installed, or the run says it is not"
+
+# The hook was not installed anywhere when #1260 was opened: core.hooksPath
+# was unset in the main checkout and in every worktree, nothing in the
+# tree set it, and the gate the repository says it relies on had not been
+# running on commits at all. A hook cannot detect its own absence, so the
+# two things that can say so are the gate, when somebody runs it by hand,
+# and the release recorder, which refuses outright. This group is the
+# gate's half: a warning (never a refusal, so a run by hand still works),
+# naming the cause and then the fix.
+HOOK_WARNING='pre-commit hook is not installed'
+
+# N1: the control. A checkout with the hook installed gets no warning.
+tree="$(make_full_tree)"
+run_gate "$tree"
+assert_not_contains "N1 an installed hook draws no warning" "$HOOK_WARNING" "$out"
+assert_eq "N1 and the run is ok" 0 "$status"
+
+# N2: the same checkout with core.hooksPath unset.
+tree="$(make_full_tree)"
+(cd "$tree" && git config --unset core.hooksPath)
+run_gate "$tree"
+assert_contains "N2 a missing hook is warned about" "$HOOK_WARNING" "$out"
+assert_contains "N2 the warning names the setting" 'core.hooksPath' "$out"
+assert_contains "N2 the warning names the fix" 'scripts/install-hooks.sh' "$out"
+assert_contains "N2 the warning says why it matters" 'not gated' "$out"
+assert_eq "N2 a missing hook is a warning, not a refusal: the run still ends ok" 0 "$status"
+assert_contains "N2 and the run really did finish" 'ci-local: ok' "$out"
+
+# N3: a hooksPath that names somewhere else is a missing hook too.
+tree="$(make_full_tree)"
+(cd "$tree" && git config core.hooksPath /somewhere/else)
+run_gate "$tree"
+assert_contains "N3 a hooksPath pointing elsewhere is warned about" "$HOOK_WARNING" "$out"
+
+# N4: the installer. One command, the shared config, every worktree.
+installer="$SCRIPTS_DIR/install-hooks.sh"
+if [ ! -f "$installer" ]; then
+  fail "N4 scripts/install-hooks.sh exists"
+else
+  pass "N4 scripts/install-hooks.sh exists"
+  tree="$(make_full_tree)"
+  (cd "$tree" && git config --unset core.hooksPath && git add -A >/dev/null 2>&1 && git -c core.hooksPath=/dev/null commit -qm base)
+  install_out="$(cd "$tree" && scrub_env bash "$installer" 2>&1)"
+  install_status=$?
+  assert_eq "N4 the installer exits 0" 0 "$install_status"
+  assert_eq "N4 the installer sets core.hooksPath to .husky" \
+    '.husky' "$(cd "$tree" && git config --get core.hooksPath)"
+  assert_contains "N4 the installer says what it set" 'core.hooksPath' "$install_out"
+  assert_contains "N4 and that it covers every worktree" 'worktree' "$install_out"
+  install_again="$(cd "$tree" && scrub_env bash "$installer" 2>&1)"
+  assert_eq "N4 the installer is idempotent" 0 $?
+  # The relative path is read from the SHARED config and resolves against
+  # each worktree's own root, which is what makes one install cover every
+  # lane: a worktree added afterwards sees it with no install of its own.
+  (cd "$tree" && git worktree add -q "$tree/.lane" -b lane >/dev/null 2>&1)
+  assert_eq "N4 a worktree added afterwards sees the same setting" \
+    '.husky' "$(cd "$tree/.lane" && git config --get core.hooksPath)"
+  lane_out="$(cd "$tree/.lane" && scrub_env CI_LOCAL_LOCK_DIR="$tree/.gate-lock" \
+    PATH="$tree/bin:$PATH" bash scripts/ci-local.sh 2>&1)"
+  assert_not_contains "N4 and the gate in that worktree draws no warning" "$HOOK_WARNING" "$lane_out"
+  (cd "$tree" && git worktree remove --force "$tree/.lane" >/dev/null 2>&1)
+
+  # N5: the installer refuses a tree whose hook is not there to install.
+  tree="$(make_full_tree)"
+  rm -f "$tree/.husky/pre-commit"
+  refuse_out="$(cd "$tree" && scrub_env bash "$installer" 2>&1)"
+  assert_nonzero "N5 the installer refuses a tree with no .husky/pre-commit" $?
+  assert_contains "N5 and names what is missing" '.husky/pre-commit' "$refuse_out"
+fi
+
+# ------------- Group O: red-first commits, out loud (#1260, item 5)
+
+echo "==> O. CI_LOCAL_RED commits the red tests and nothing else"
+
+# Tests go in red, ahead of their fix, and the hook blocks a failing
+# commit. The documented way through used to be --no-verify, which leaves
+# nothing in history and skips every check, not only the one that was
+# meant to be red. CI_LOCAL_RED="<reason>" is the replacement: the hook
+# skips the gate, and only when every staged file is a test file, never on
+# main or release, and only with a reason long enough to mean something
+# (twelve characters, the same rule as Release-Gate-Override). The reason
+# is stamped on the commit by prepare-commit-msg (Group P).
+RED_REASON='#1260: red tests for the recorder'
+
+# red_tree -> a complete checkout, as a repository with one base commit and
+# a staged test file, which is the honest red-first shape.
+red_tree() {
+  tree="$(make_full_tree)"
+  (cd "$tree" && git add -A >/dev/null 2>&1 && git -c core.hooksPath=/dev/null commit -qm base) >/dev/null 2>&1
+  printf 'package stub\n\nimport "testing"\n\nfunc TestRed(t *testing.T) { t.Fatal("red first") }\n' \
+    >"$tree/core/red_test.go"
+  (cd "$tree" && git add core/red_test.go)
+  printf '%s\n' "$tree"
+}
+
+# O1: the headline. Only test files staged, a feature branch, a real
+# reason: the commit is allowed and the gate did not run.
+tree="$(red_tree)"
+run_hook "$tree" CI_LOCAL_RED="$RED_REASON"
+assert_eq "O1 a red commit of test files on a feature branch is allowed" 0 "$status"
+assert_contains "O1 the hook says it is a red commit" 'red' "$out"
+assert_contains "O1 and repeats the reason" "$RED_REASON" "$out"
+assert_not_contains "O1 the gate did not run" 'core/ go build' "$out"
+assert_not_contains "O1 and nothing claimed ok" 'ci-local: ok' "$out"
+marker="$(cd "$tree" && git rev-parse --git-path local-gate-marker)"
+if [ -f "$marker" ]; then
+  pass "O1 the hook left a marker for prepare-commit-msg"
+  assert_contains "O1 the marker says red" 'red' "$(cat "$marker")"
+  assert_contains "O1 the marker names the tree being committed" \
+    "$(cd "$tree" && git write-tree)" "$(cat "$marker")"
+else
+  fail "O1 the hook left a marker for prepare-commit-msg" "no file at $marker"
+fi
+
+# O2: a product file in the staging area. That is a fix riding in with the
+# red tests, and the gate exists to run on fixes.
+tree="$(red_tree)"
+printf 'package stub\n\nfunc Fixed() int { return 2 }\n' >"$tree/core/fix.go"
+(cd "$tree" && git add core/fix.go)
+run_hook "$tree" CI_LOCAL_RED="$RED_REASON"
+assert_nonzero "O2 a red commit with a non-test file staged is refused" "$status"
+assert_contains "O2 the refusal names the file" 'core/fix.go' "$out"
+assert_not_contains "O2 and does not name the test file as the problem" 'core/red_test.go' "$out"
+assert_not_contains "O2 the gate did not run either" 'core/ go build' "$out"
+
+# O3: main and release. A red commit is a branch-only thing.
+for protected in main release; do
+  tree="$(red_tree)"
+  (cd "$tree" && git checkout -q -b "$protected")
+  run_hook "$tree" CI_LOCAL_RED="$RED_REASON"
+  assert_nonzero "O3 a red commit on $protected is refused" "$status"
+  assert_contains "O3 the refusal names the branch" "$protected" "$out"
+done
+
+# O4: the reason is the audit trail, so a reason that says nothing is no
+# reason. Same floor as Release-Gate-Override.
+tree="$(red_tree)"
+run_hook "$tree" CI_LOCAL_RED="wip"
+assert_nonzero "O4 a red commit with a short reason is refused" "$status"
+assert_contains "O4 the refusal names the floor" '12' "$out"
+
+# O5: nothing staged is not a red commit of anything.
+tree="$(red_tree)"
+(cd "$tree" && git reset -q core/red_test.go)
+run_hook "$tree" CI_LOCAL_RED="$RED_REASON"
+assert_nonzero "O5 a red commit with nothing staged is refused" "$status"
+
+# O6: every test-file shape the rule accepts, each on its own, because the
+# rule is a list and a list is what rots. Shell, Go, TypeScript, Python
+# and a fixture directory.
+for red_path in scripts/tests/new-guard.test.sh core/thing_test.go ui/shared/src/x/y.test.ts \
+                ui/shared/src/x/y.spec.tsx scripts/bdtools/tests/new_guard.py scripts/deploy/test_thing.py \
+                core/internal/x/testdata/fixture.json; do
+  tree="$(red_tree)"
+  (cd "$tree" && git reset -q core/red_test.go && mkdir -p "$(dirname "$red_path")" \
+    && printf 'red\n' >"$red_path" && git add "$red_path")
+  run_hook "$tree" CI_LOCAL_RED="$RED_REASON"
+  assert_eq "O6 $red_path counts as a test file" 0 "$status"
+done
+
+# O7: the control for O6, from the other side: shapes that look like
+# tests and are not.
+for not_red in core/testing.go core/test_helpers.go scripts/tests.sh ui/shared/src/test.ts; do
+  tree="$(red_tree)"
+  (cd "$tree" && git reset -q core/red_test.go && mkdir -p "$(dirname "$not_red")" \
+    && printf 'not a test\n' >"$not_red" && git add "$not_red")
+  run_hook "$tree" CI_LOCAL_RED="$RED_REASON"
+  assert_nonzero "O7 $not_red does not count as a test file" "$status"
+done
+
+# O8: without the variable the hook is exactly what it was (F1 to F3 own
+# the three outcomes); a staged test file changes nothing about that.
+tree="$(red_tree)"
+run_hook "$tree"
+assert_contains "O8 without CI_LOCAL_RED the gate runs as before" 'core/ go build' "$out"
+
+# ------------- Group P: what the commit message says afterwards (#1260, item 4)
+
+echo "==> P. prepare-commit-msg stamps what the hook did not check"
+
+# git runs prepare-commit-msg under --no-verify (it skips pre-commit and
+# commit-msg only), so it is the one hook a bypass cannot bypass. It reads
+# the marker pre-commit left for this tree and stamps the message when the
+# marker is not there: `Local-Gate: unverified` for a bypass,
+# `Local-Gate: red <reason>` for a red commit. A commit the gate checked
+# gets no trailer at all, on purpose: a rebase runs no hooks and keeps
+# every trailer, so an `ok` would outlive the tree it described.
+#
+# Driven through a REAL `git commit` in each fixture, because the claim is
+# about what git does with the hook, not about what the hook does when
+# somebody runs it by hand.
+stamped_tree() {
+  tree="$(make_full_tree)"
+  (cd "$tree" && git add -A >/dev/null 2>&1 && git -c core.hooksPath=/dev/null commit -qm base) >/dev/null 2>&1
+  printf 'package stub\n\nimport "testing"\n\nfunc TestRed(t *testing.T) { t.Fatal("red first") }\n' \
+    >"$tree/core/red_test.go"
+  (cd "$tree" && git add core/red_test.go)
+  printf '%s\n' "$tree"
+}
+last_message() { (cd "$1" && git log -1 --format=%B); }
+
+# P1: the bypass shows up in history.
+tree="$(stamped_tree)"
+run_git_commit "$tree" -- --no-verify -qm "Bypass the gate"
+assert_eq "P1 a --no-verify commit still commits" 0 "$status"
+assert_contains "P1 a --no-verify commit is stamped unverified" 'Local-Gate: unverified' "$(last_message "$tree")"
+assert_not_contains "P1 the gate did not run under --no-verify" 'core/ go build' "$out"
+
+# P2: the red commit carries its reason.
+tree="$(stamped_tree)"
+run_git_commit "$tree" CI_LOCAL_RED="$RED_REASON" -- -qm "Add red tests for the recorder"
+assert_eq "P2 a red commit commits" 0 "$status"
+assert_contains "P2 a red commit is stamped red, with the reason" "Local-Gate: red $RED_REASON" "$(last_message "$tree")"
+assert_not_contains "P2 and not unverified" 'Local-Gate: unverified' "$(last_message "$tree")"
+
+# P3: a commit the gate checked carries nothing.
+tree="$(stamped_tree)"
+printf 'package stub\n\nimport "testing"\n\nfunc TestGreen(t *testing.T) {}\n' >"$tree/core/red_test.go"
+(cd "$tree" && git add core/red_test.go)
+run_git_commit "$tree" -- -qm "A commit the gate ran on"
+assert_eq "P3 a gated commit commits" 0 "$status"
+assert_contains "P3 the gate ran" 'ci-local: ok' "$out"
+assert_not_contains "P3 a gated commit carries no Local-Gate trailer" 'Local-Gate:' "$(last_message "$tree")"
+
+# P4: --no-verify with the red variable set is still a bypass, because the
+# hook that checks the red rule never ran.
+tree="$(stamped_tree)"
+printf 'package stub\n\nfunc Fixed() int { return 2 }\n' >"$tree/core/fix.go"
+(cd "$tree" && git add core/fix.go)
+run_git_commit "$tree" CI_LOCAL_RED="$RED_REASON" -- --no-verify -qm "Bypass with the variable set"
+assert_contains "P4 --no-verify with CI_LOCAL_RED is stamped unverified" 'Local-Gate: unverified' "$(last_message "$tree")"
+assert_not_contains "P4 and not red" 'Local-Gate: red' "$(last_message "$tree")"
+
+# P5: the stamp is a trailer, after the body, where git tooling reads it.
+tree="$(stamped_tree)"
+run_git_commit "$tree" -- --no-verify -qm "Subject line" -m "A body paragraph."
+trailers="$(cd "$tree" && git log -1 --format=%B | git interpret-trailers --parse)"
+assert_contains "P5 the stamp parses as a trailer" 'Local-Gate: unverified' "$trailers"
+assert_contains "P5 the body survives above it" 'A body paragraph.' "$(last_message "$tree")"
+
+# P6: an amend re-stamps rather than stacking. The second message must
+# carry one Local-Gate line, not two.
+tree="$(stamped_tree)"
+run_git_commit "$tree" -- --no-verify -qm "First"
+run_git_commit "$tree" -- --no-verify -q --amend --no-edit
+stamp_count="$(last_message "$tree" | grep -c '^Local-Gate:' | tr -d ' ')"
+assert_eq "P6 an amended bypass carries exactly one stamp" 1 "$stamp_count"
+
+# ------------- Group Q: parallel lanes queue on the Docker-backed steps (#1260, item 6)
+
+echo "==> Q. the gate lock"
+
+# About thirty worktrees share one Docker daemon on this machine, and the
+# full gate runs -race suites plus the crash matrix in every one of them.
+# Several at once is the load #256 and #533 exist for, and it produces red
+# runs that mean nothing. So the Docker-backed steps run under a lock in
+# the shared git dir: a second run waits, says who it is waiting for, and
+# goes when the first lets go. A lock left by a run that was killed is
+# reclaimed, by the same kill -0 rule the sentinel sweep uses.
+lock_dir="$SANDBOX/lock"
+
+# Q1: acquire and release, driven against the library.
+lock_out="$(CI_LOCAL_LOCK_DIR="$lock_dir" sh -c ". '$GATE_LIB' && gate_lock_acquire && test -d '$lock_dir' && test -s '$lock_dir/pid' && echo HELD && gate_lock_release && test ! -e '$lock_dir' && echo RELEASED" 2>&1)"
+assert_contains "Q1 acquire creates the lock with the holder's pid in it" 'HELD' "$lock_out"
+assert_contains "Q1 release removes it" 'RELEASED' "$lock_out"
+
+# Q2: a second run waits, and goes when the first is done.
+rm -rf "$lock_dir"
+(CI_LOCAL_LOCK_DIR="$lock_dir" sh -c ". '$GATE_LIB' && gate_lock_acquire && sleep 3 && gate_lock_release" >/dev/null 2>&1) &
+first_pid=$!
+sleep 1
+q2_start="$(date +%s)"
+q2_out="$(CI_LOCAL_LOCK_DIR="$lock_dir" GATE_LOCK_POLL=1 sh -c ". '$GATE_LIB' && gate_lock_acquire && echo SECOND-GOT-LOCK && gate_lock_release" 2>&1)"
+q2_elapsed=$(( $(date +%s) - q2_start ))
+wait "$first_pid" 2>/dev/null
+assert_contains "Q2 the second run gets the lock in the end" 'SECOND-GOT-LOCK' "$q2_out"
+assert_contains "Q2 and says it waited" 'waiting' "$q2_out"
+if [ "$q2_elapsed" -ge 1 ]; then
+  pass "Q2 and it really did wait (${q2_elapsed}s)"
+else
+  fail "Q2 and it really did wait" "the second acquire returned in ${q2_elapsed}s while the first still held the lock"
+fi
+
+# Q3: a lock left by a dead run is reclaimed, not waited on forever.
+rm -rf "$lock_dir"
+mkdir -p "$lock_dir"
+# A pid no process on this machine has: pid_max is far below this on both
+# macOS and Linux.
+printf '2147483646\n' >"$lock_dir/pid"
+printf '%s\n' "$SANDBOX/gone" >"$lock_dir/where"
+q3_out="$(CI_LOCAL_LOCK_DIR="$lock_dir" GATE_LOCK_POLL=1 sh -c ". '$GATE_LIB' && gate_lock_acquire && echo RECLAIMED-AND-HELD && gate_lock_release" 2>&1)"
+assert_contains "Q3 a lock whose holder is gone is reclaimed" 'RECLAIMED-AND-HELD' "$q3_out"
+assert_contains "Q3 and the run says so" 'no longer exists' "$q3_out"
+
+# Q4: end to end. A full run takes the lock around its Docker-backed
+# steps, releases it between them, and leaves nothing behind, whether it
+# ends ok or fails.
+tree="$(make_full_tree)"
+run_gate "$tree"
+assert_contains "Q4 a full run takes the lock" 'gate lock' "$out"
+assert_eq "Q4 a full run still ends ok" 0 "$status"
+if [ -e "$tree/.gate-lock" ]; then
+  fail "Q4 a finished run leaves no lock behind" "$(ls "$tree/.gate-lock")"
+else
+  pass "Q4 a finished run leaves no lock behind"
+fi
+tree="$(make_full_tree)"
+printf 'package stub\n\nthis is not go\n' >"$tree/core/stub.go"
+run_gate "$tree"
+assert_nonzero "Q4 the broken tree fails" "$status"
+if [ -e "$tree/.gate-lock" ]; then
+  fail "Q4 a failed run leaves no lock behind" "$(ls "$tree/.gate-lock")"
+else
+  pass "Q4 a failed run leaves no lock behind"
+fi
+
+# Q5: the lock lives under the shared git dir by default, so every
+# worktree of one repository shares it, and a fixture only avoids that
+# because run_gate overrides the path.
+tree="$(make_full_tree)"
+want_lock="$(cd "$tree" && git rev-parse --path-format=absolute --git-common-dir)/ci-local.lock"
+got_lock="$(cd "$tree" && scrub_env sh -c ". '$GATE_LIB' && gate_lock_path")"
+assert_eq "Q5 the default lock path is under the shared git dir" "$want_lock" "$got_lock"
+
+# Q6: the lock is held while a Docker-backed step runs and not while a
+# plain one does, measured through the steps themselves: a stub that
+# reports whether the lock directory exists at the moment it runs.
+tree="$(make_full_tree)"
+printf '#!/usr/bin/env bash\nif [ -d "%s" ]; then echo "CONTRAST-STEP: lock held"; else echo "CONTRAST-STEP: lock free"; fi\nexit 0\n' "$tree/.gate-lock" \
+  >"$tree/scripts/contrast/run-browser-check.sh"
+printf '#!/usr/bin/env bash\nif [ -d "%s" ]; then echo "PERF-STEP: lock held"; else echo "PERF-STEP: lock free"; fi\nexit 0\n' "$tree/.gate-lock" \
+  >"$tree/scripts/perf/selftest.sh"
+run_gate "$tree"
+assert_contains "Q6 a Docker-backed step runs with the lock held" 'CONTRAST-STEP: lock held' "$out"
+assert_contains "Q6 a plain step runs with the lock free" 'PERF-STEP: lock free' "$out"
 
 # ------------------------------------------------------------------ result
 
