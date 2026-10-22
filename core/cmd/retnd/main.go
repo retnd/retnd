@@ -436,6 +436,28 @@ commands:
                                                    environment a validator gets, what its exit status means, what becomes
                                                    of its output and where it runs. Reads no configuration.
                                                    GET /api/v1/assurance/default-validator-script
+  auth enroll --username U --token-stdin --password-stdin
+                          [--recovery-email ADDR --smtp-host H [--smtp-port N] [--smtp-security starttls|tls|none]
+                          [--smtp-username U] [--smtp-from ADDR] [--smtp-password-stdin]]
+                                                  make the first administrator through the serving engine, the request the
+                                                  enrollment page sends. The enrollment token (or the whole enrollment
+                                                  link the container log prints) is the first stdin line, the password
+                                                  the second and the SMTP password, if any, the third; none is ever a
+                                                  flag. Needs only RETND_API_URL, since there is no account to sign in as
+                                                  yet, so it works inside a headless container where `+cliecho.WebBinary+`
+                                                  auth create-admin refuses (the serving process holds the store). The
+                                                  same as POST /api/v1/auth/enroll (#1253)
+  auth forgot-password --username U
+                                                  ask the engine to mail a single-use reset link to the account's recovery
+                                                  address. Needs only RETND_API_URL. The engine answers the same way for
+                                                  every username, so the command cannot say whether a message was sent,
+                                                  and says that. The same as POST /api/v1/auth/forgot-password
+  auth reset-password --token-stdin --password-stdin
+                                                  redeem the reset token out of the emailed link (first stdin line) and set
+                                                  the new password (second); neither is ever a flag. Needs only
+                                                  RETND_API_URL. Every session is signed out and none opened, so sign in
+                                                  with the new password afterwards. The same as
+                                                  POST /api/v1/auth/reset-password
   auth password --password-stdin
                                                   change the administrator's password. The current password and then the
                                                   new one come from stdin, one per line, and never from a flag, so neither
@@ -464,6 +486,9 @@ commands:
                                                   redeem the verification token out of the emailed link (from stdin, never
                                                   a flag), or ask for the message to be sent again. The same as
                                                   POST /api/v1/auth/verify-email and /resend
+  auth whoami [--json]
+                                                  who the credentials this terminal carries sign in as, from the engine.
+                                                  Routed, as above. The same as GET /api/v1/auth/session
   ssh-key list [--json]
                                                   the keys in this deployment's key store: id, algorithm, fingerprint,
                                                   when it was imported and which backup sets use it. The id is the one

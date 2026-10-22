@@ -1862,7 +1862,32 @@ var routes = map[string]entry{
 		why: "a login opens a browser session, and a terminal holds no session: a routed command signs in with $RETND_API_USERNAME and $RETND_API_PASSWORD for the one invocation, so there is nothing to type",
 	},
 	key("POST", "/auth/enroll"): {
-		why: "the first administrator is made by `" + WebBinary + " auth create-admin --username U --password-stdin`, offline, against the store, and it refuses while a server holds the store or once an administrator exists; there is no routed verb for it, because there is no engine account to sign in as yet",
+		why: "the request body would not decode, so there is no command that says who it enrolled",
+		build: func(a Action) *cmd {
+			// The password is in the body and stays there: the verb reads
+			// the bootstrap token and then the password from stdin, and
+			// the token is a header the browser sends, which this line
+			// never sees. The recovery section is shown the way PATCH
+			// /auth/recovery shows it below, as stand-ins.
+			var req struct {
+				Username      string    `json:"username"`
+				RecoveryEmail string    `json:"recoveryEmail"`
+				Smtp          *smtpBody `json:"smtp"`
+			}
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("auth", "enroll").flag("username", req.Username).bare("token-stdin").bare("password-stdin")
+			if req.RecoveryEmail != "" {
+				c.placeholderFlag("recovery-email", "the recovery address")
+			}
+			smtpFlagsOnto(c, req.Smtp)
+			return c
+		},
+		examples: []Action{
+			{Body: []byte(`{"username":"admin","password":"x"}`)},
+			{Body: []byte(`{"username":"admin","password":"x","recoveryEmail":"ops@example.org","smtp":{"host":"smtp.example.org","port":2525,"security":"tls","username":"mailer","from":"retnd@example.org","password":"y"}}`)},
+		},
 	},
 	key("POST", "/auth/password"): {
 		build: func(Action) *cmd {
@@ -1876,14 +1901,30 @@ var routes = map[string]entry{
 		why: "a logout ends a browser session, and a terminal holds none",
 	},
 	key("GET", "/auth/session"): {
-		why: "a session read answers a browser's question about its own cookie, and a terminal holds no session to ask about",
+		build:    func(Action) *cmd { return newCmd("auth", "whoami") },
+		examples: []Action{{}},
 	},
 	key("POST", "/auth/forgot-password"): {
-		why:               "there is no verb that asks for a password-reset email from a terminal; it is the browser's path for an account with a working mail server, and a terminal that can reach the engine at all can change the password with `" + Binary + " auth password`",
-		namesShippedVerbs: []string{"auth"},
+		why: "the request body would not decode, so there is no command that says which account it asked about",
+		build: func(a Action) *cmd {
+			var req struct {
+				Username string `json:"username"`
+			}
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			return newCmd("auth", "forgot-password").flag("username", req.Username)
+		},
+		examples: []Action{{Body: []byte(`{"username":"admin"}`)}},
 	},
 	key("POST", "/auth/reset-password"): {
-		why: "there is no verb that redeems a password-reset token from a terminal. An administrator locked out with no mail configured does have a way back in: `" + WebBinary + " auth set-password --username U --password-stdin`, offline, with the server stopped",
+		build: func(Action) *cmd {
+			// The token and the new password are both in the body and
+			// neither goes on the line: the verb reads one and then the
+			// other from stdin.
+			return newCmd("auth", "reset-password").bare("token-stdin").bare("password-stdin")
+		},
+		examples: []Action{{}},
 	},
 	key("POST", "/auth/verify-email"): {
 		build: func(Action) *cmd {
@@ -1911,15 +1952,8 @@ var routes = map[string]entry{
 			// the line is exportable and a recovery address is the one
 			// thing an account's owner may not want in a pasted log.
 			var req struct {
-				RecoveryEmail *string `json:"recoveryEmail"`
-				Smtp          *struct {
-					Host     string `json:"host"`
-					Port     int    `json:"port"`
-					Security string `json:"security"`
-					Username string `json:"username"`
-					From     string `json:"from"`
-					Password string `json:"password"`
-				} `json:"smtp"`
+				RecoveryEmail *string   `json:"recoveryEmail"`
+				Smtp          *smtpBody `json:"smtp"`
 			}
 			if !decode(a.Body, &req) {
 				return nil
@@ -1928,24 +1962,7 @@ var routes = map[string]entry{
 			if req.RecoveryEmail != nil {
 				c.placeholderFlag("recovery-email", "the recovery address")
 			}
-			if s := req.Smtp; s != nil {
-				c.placeholderFlag("smtp-host", "the SMTP host")
-				if s.Port > 0 {
-					c.flag("smtp-port", itoa(s.Port))
-				}
-				if s.Security != "" {
-					c.placeholderFlag("smtp-security", "starttls, tls or none")
-				}
-				if s.Username != "" {
-					c.placeholderFlag("smtp-username", "the SMTP username")
-				}
-				if s.From != "" {
-					c.placeholderFlag("smtp-from", "the sender address")
-				}
-				if s.Password != "" {
-					c.bare("smtp-password-stdin")
-				}
-			}
+			smtpFlagsOnto(c, req.Smtp)
 			return c
 		},
 		examples: []Action{
@@ -1957,6 +1974,42 @@ var routes = map[string]entry{
 		build:    func(Action) *cmd { return newCmd("auth", "recovery", "test") },
 		examples: []Action{{}},
 	},
+}
+
+// smtpBody is the SMTP section as POST /auth/enroll and PATCH
+// /auth/recovery both carry it.
+type smtpBody struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Security string `json:"security"`
+	Username string `json:"username"`
+	From     string `json:"from"`
+	Password string `json:"password"`
+}
+
+// smtpFlagsOnto puts an SMTP section onto an `auth` line the way both
+// verbs take it: the endpoint as stand-ins, the port as itself, and the
+// password as the stdin flag. A nil section adds nothing.
+func smtpFlagsOnto(c *cmd, s *smtpBody) {
+	if s == nil {
+		return
+	}
+	c.placeholderFlag("smtp-host", "the SMTP host")
+	if s.Port > 0 {
+		c.flag("smtp-port", itoa(s.Port))
+	}
+	if s.Security != "" {
+		c.placeholderFlag("smtp-security", "starttls, tls or none")
+	}
+	if s.Username != "" {
+		c.placeholderFlag("smtp-username", "the SMTP username")
+	}
+	if s.From != "" {
+		c.placeholderFlag("smtp-from", "the sender address")
+	}
+	if s.Password != "" {
+		c.bare("smtp-password-stdin")
+	}
 }
 
 // workflowEnvSetFlags puts one environment entry's value onto an `env

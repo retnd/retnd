@@ -150,6 +150,12 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	// connection detail an operator types when they create the set by
 	// hand, and none of them is a secret: the key is named by id and the
 	// host key is public.
+	// The administrator's login name on the two unauthenticated account
+	// acts (#1253). The enrollment page and the reset page both ask for it
+	// by name, an operator retyping the command has to say it, and the
+	// credential beside it (the password, the enrollment token) is on
+	// stdin and never on the line.
+	"--username":            "the administrator's login name; the token and the password beside it are stdin only",
 	"--host":                "the source host, which is what the set connects to",
 	"--user":                "the login name on that host; the key behind it is named by id and never printed",
 	"--remote-path":         "the directory on the source being collected",

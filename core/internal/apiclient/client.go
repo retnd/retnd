@@ -513,6 +513,11 @@ func (c *Client) newRequest(ctx context.Context, ep apicontract.Endpoint, target
 	if c.ackInsecure && ep.DestructiveGate {
 		req.Header.Set(insecureTransportHeaderName, insecureTransportAcknowledged)
 	}
+	// Only the one operation that is authorised by it: a token left on a
+	// context some other call inherits must not ride along.
+	if token := bootstrapTokenFrom(ctx); token != "" && ep.ID == "enrollAdministrator" {
+		req.Header.Set(bootstrapTokenHeaderName, token)
+	}
 	return req, nil
 }
 
@@ -543,6 +548,24 @@ func withIdempotencyKey(ctx context.Context, key string) context.Context {
 func idempotencyKeyFrom(ctx context.Context) string {
 	key, _ := ctx.Value(idempotencyKeyCtx{}).(string)
 	return key
+}
+
+// bootstrapTokenHeaderName is apps/common/auth/local's BootstrapTokenHeader,
+// spelled here for the step-up header's reason. The enrollment token
+// travels on the context the way the idempotency key does (#1253): one
+// operation carries it, and it is the authority for that one request
+// rather than a credential this client holds.
+const bootstrapTokenHeaderName = "X-Bootstrap-Token"
+
+type bootstrapTokenCtx struct{}
+
+func withBootstrapToken(ctx context.Context, token string) context.Context {
+	return context.WithValue(ctx, bootstrapTokenCtx{}, token)
+}
+
+func bootstrapTokenFrom(ctx context.Context) string {
+	token, _ := ctx.Value(bootstrapTokenCtx{}).(string)
+	return token
 }
 
 // stepUpHeaderName is webhost.StepUpHeader, spelled here because this

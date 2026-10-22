@@ -4,6 +4,17 @@
 
 ### Added
 
+- **Enrolment, the reset flow and `whoami` from a terminal** (#1253). The enrollment page, the two
+  reset pages and the session read a browser makes on load had no terminal twin. `retnd auth enroll
+  --username U --token-stdin --password-stdin` makes the first administrator through the serving engine
+  with the token (or the whole enrollment link) on the first stdin line and the password on the second,
+  optionally `--recovery-email` with the `--smtp-*` flags; it needs only `RETND_API_URL`, so a headless
+  container can enrol where `retnd-web auth create-admin` refuses because the serving process holds the
+  store. `retnd auth forgot-password --username U` asks for the single-use reset link and says that the
+  engine answers the same way for every username, and `retnd auth reset-password --token-stdin
+  --password-stdin` redeems it. `retnd auth whoami [--json]` prints who the credentials sign in as. The
+  terminal panel echoes all four instead of saying there's no equivalent, and no token or password ever
+  goes on a line.
 - **`retnd operation run`, the terminal twin of the run buttons** (#1250). "Run all enabled sets" and "Run this
   backup set" ask the engine to start a run with `POST /api/v1/operations`, and a terminal couldn't: `retnd run` and
   `retnd fetch --backup-set` run the cycle in the CLI's own process, so a run started that way never showed in
