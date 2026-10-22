@@ -345,4 +345,3 @@ func TestOutcomes_MutationAnOldSentenceOnANewRefusalIsCaught(t *testing.T) {
 		t.Errorf("staging recoveries starting to refuse, with a sentence the golden already holds, was not drift; got %v", drift)
 	}
 }
-

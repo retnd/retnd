@@ -5,223 +5,23 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
-	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/retnd/retnd/core/cliecho"
 )
 
-// Two of the blind spots issue #1253 found in the #1150 guard above.
+// One of the blind spots issue #1253 found in the #1150 guard above. (The
+// other one this file used to hold, the golden of every sentence cliecho
+// prints in place of a command, lives beside cliecho now, as the outcome
+// golden in core/cliecho/outcomes_test.go, since cliecho is all it reads.)
 //
-// The guard counts a route as answered when it has a cliecho entry, and an
-// entry with nothing but a `why` is an entry. So a new route could land
-// saying "there is no verb that ..." and stay green, and the only thing
-// between that sentence and main was whether a reviewer happened to read
-// routes.go. Most of those sentences are deliberate (a browser session
-// has no terminal spelling, a first-run guide has no step to skip on a
-// shell), which is why they can't simply be made failures: that would
-// push people into writing builders that print something wrong. What
-// they can be made is VISIBLE. The golden below is every sentence cliecho
-// prints in place of a command, and a sentence added, removed or reworded
-// changes a checked-in file that review has to look at.
-//
-// The second spot is the serve mux. The guard walks the chi routers, and
-// serve composes those routers onto an http.ServeMux by pattern. A
-// handler mounted on that mux directly under /api/v1 is a route no chi
-// walk will ever see, and nothing today stops one landing. The mux has no
-// way to list its own patterns, so this reads them out of the source,
-// the way a reviewer would, and holds each against a table saying which
-// walked router answers it.
-
-// ------------------------------------------------- the gap golden ---
-
-// gapGolden1253 is the checked-in list of every sentence cliecho can
-// print in place of a command.
-const gapGolden1253 = "testdata/cli_gaps_1253.golden"
-
-// gapRepin1253 is the one command that rewrites the golden from what
-// cliecho says now. It is in every failure message, because the person
-// reading the failure is the person who has to run it.
-const gapRepin1253 = "UPDATE_GOLDEN=1 go test ./common/webhost -run TestRouteVerbGuard1253_EveryGapSentenceIsInTheGolden (from apps/)"
-
-// renderGaps writes gaps in the golden's format: a route per line, its
-// kind beside it, and each sentence it can print indented under it.
-//
-// The kind is the part a reviewer most needs, so it is spelled out rather
-// than left to be inferred. "no command" is a route with no builder at
-// all, which is a whole UI action the terminal can't do. "refuses some
-// requests" is a builder that declines for some bodies (a run_cycle on
-// POST /operations, say). A route moving from the second to the first is
-// exactly the change this file exists to make loud.
-//
-// Most builders also carry a sentence for a body they can't read, and
-// that one is marked "(malformed body)", because it says nothing about
-// what the terminal can do with a request the browser would really send.
-// Without the mark, the two deliberate refusals the issue counted were
-// lost among thirty sentences that only cover bad input.
-func renderGaps(gaps []cliecho.Gap, built map[string]bool, malformed map[string]string) string {
-	var b strings.Builder
-	b.WriteString("# Every sentence core/cliecho prints in place of a command (#1253).\n")
-	b.WriteString("#\n")
-	b.WriteString("# A change here is a change to what the terminal can't do. Read it as\n")
-	b.WriteString("# one: a new route under \"no command\" is a UI action with no CLI twin,\n")
-	b.WriteString("# and a new unmarked sentence under \"refuses some requests\" is a\n")
-	b.WriteString("# request the browser sends that the terminal has no line for.\n")
-	b.WriteString("#\n")
-	b.WriteString("# Re-pin with: " + gapRepin1253 + "\n")
-	last := ""
-	for _, g := range gaps {
-		if g.Route != last {
-			kind := "no command"
-			if built[g.Route] {
-				kind = "refuses some requests"
-			}
-			b.WriteString("\n" + g.Route + "  (" + kind + ")\n")
-			last = g.Route
-		}
-		if built[g.Route] && malformed[g.Route] == g.Why {
-			b.WriteString("\t(malformed body) " + g.Why + "\n")
-			continue
-		}
-		b.WriteString("\t" + g.Why + "\n")
-	}
-	return b.String()
-}
-
-// routesWithABuilder is every route cliecho can build a command for at
-// all, read off Examples, which carries one action per builder shape and
-// none for a route whose entry is only a `why`.
-func routesWithABuilder() map[string]bool {
-	out := map[string]bool{}
-	for _, ex := range cliecho.Examples() {
-		out[ex.Method+" "+ex.Route] = true
-	}
-	return out
-}
-
-// malformedBodySentences is, for each route with a builder, the sentence
-// it prints for a body that isn't JSON at all.
-func malformedBodySentences(built map[string]bool) map[string]string {
-	out := map[string]string{}
-	for route := range built {
-		method, path, _ := strings.Cut(route, " ")
-		line := cliecho.Echo(cliecho.Action{Method: method, Route: path, Body: []byte("not json")})
-		if line.GapDetail != "" {
-			out[route] = line.GapDetail
-		}
-	}
-	return out
-}
-
-// currentGaps renders what cliecho says now, in the golden's format.
-func currentGaps(gaps []cliecho.Gap) string {
-	built := routesWithABuilder()
-	return renderGaps(gaps, built, malformedBodySentences(built))
-}
-
-// gapDrift reports the lines that differ between the golden and what
-// cliecho says now, as "+ line" for one the golden lacks and "- line" for
-// one it still has and cliecho no longer prints. Comments and blank lines
-// are not compared, so rewording the header is not drift.
-func gapDrift(golden, current string) []string {
-	set := func(s string) map[string]bool {
-		out := map[string]bool{}
-		route := ""
-		for _, line := range strings.Split(s, "\n") {
-			if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
-			if strings.HasPrefix(line, "\t") {
-				// A sentence is keyed by its route, so the same sentence
-				// moving from one route to another is two lines of drift.
-				out[route+"\t"+strings.TrimPrefix(line, "\t")] = true
-				continue
-			}
-			route = line
-			out[line] = true
-		}
-		return out
-	}
-	want, got := set(golden), set(current)
-	var out []string
-	for line := range got {
-		if !want[line] {
-			out = append(out, "+ "+line)
-		}
-	}
-	for line := range want {
-		if !got[line] {
-			out = append(out, "- "+line)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-func TestRouteVerbGuard1253_EveryGapSentenceIsInTheGolden(t *testing.T) {
-	gaps := cliecho.Gaps()
-	if len(gaps) == 0 {
-		t.Fatal("cliecho reports no gap sentences at all, so the golden would pin nothing")
-	}
-	current := currentGaps(gaps)
-
-	if os.Getenv("UPDATE_GOLDEN") == "1" {
-		if err := os.MkdirAll(filepath.Dir(gapGolden1253), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(gapGolden1253, []byte(current), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		t.Logf("rewrote %s; read the diff before committing it", gapGolden1253)
-		return
-	}
-
-	golden, err := os.ReadFile(gapGolden1253)
-	if err != nil {
-		t.Fatalf("reading %s: %v\nRe-pin with: %s", gapGolden1253, err, gapRepin1253)
-	}
-	if drift := gapDrift(string(golden), current); len(drift) > 0 {
-		t.Errorf("what core/cliecho prints in place of a command has changed, and %s has not:\n  %s\n\nEvery line marked + is a UI action the terminal now can't do, or a new reason it can't. That may be the right call, but it has to be made in review, so re-pin with:\n  %s\nand let the diff of the golden say it.",
-			gapGolden1253, strings.Join(drift, "\n  "), gapRepin1253)
-	}
-}
-
-// The mutation the golden exists for: a route lands with a `why` and no
-// builder, and the guard above stays green because a `why` counts as an
-// answer. Here it has to show up as drift.
-func TestRouteVerbGuard1253_MutationANewWhyOnlyRouteIsCaught(t *testing.T) {
-	before := currentGaps(cliecho.Gaps())
-
-	gaps := append(cliecho.Gaps(), cliecho.Gap{
-		Route: "POST /a-route-with-only-a-why",
-		Why:   "there is no verb that does what this button does",
-	})
-	sort.Slice(gaps, func(i, j int) bool { return gaps[i].Route < gaps[j].Route })
-	after := currentGaps(gaps)
-
-	drift := gapDrift(before, after)
-	if !contains(drift, "+ POST /a-route-with-only-a-why  (no command)") {
-		t.Errorf("a new route answered only by a `why` did not show up as drift; got %v", drift)
-	}
-
-	// And a builder that starts refusing a request it used to answer is
-	// drift too, under the route that already had a builder.
-	gaps = append(cliecho.Gaps(), cliecho.Gap{Route: "POST /backup-sets", Why: "a new refusal"})
-	sort.Slice(gaps, func(i, j int) bool { return gaps[i].Route < gaps[j].Route })
-	drift = gapDrift(before, currentGaps(gaps))
-	if !contains(drift, "+ POST /backup-sets  (refuses some requests)\ta new refusal") {
-		t.Errorf("a new refusal on a route with a builder did not show up as drift; got %v", drift)
-	}
-
-	// The control: the same list twice is not drift.
-	if drift := gapDrift(before, before); len(drift) != 0 {
-		t.Errorf("the golden compared with itself drifted: %v", drift)
-	}
-}
+// The guard walks the chi routers, and serve composes those routers onto
+// an http.ServeMux by pattern. A handler mounted on that mux directly
+// under /api/v1 is a route no chi walk will ever see, and nothing stopped
+// one landing. The mux has no way to list its own patterns, so this reads
+// them out of the source, the way a reviewer would, and holds each
+// against a table saying which walked router answers it.
 
 // ---------------------------------------------- the serve mux walk ---
 

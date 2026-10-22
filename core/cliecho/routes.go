@@ -45,6 +45,10 @@ import (
 // sentence that could differ between those two would be a sentence the
 // guard in core/cmd/retnd checks a copy of.
 const (
+	// #1253's review. An action apicontract doesn't define used to get
+	// run_cycle's sentence, which is an answer about a different act.
+	gapUnknownAction = "there is no verb for an operation action this binary doesn't define, and the engine refuses the request too"
+
 	// Issue #624. The candidate half of the connection check has no verb
 	// and deliberately gets none, which is a decision rather than the next
 	// gap to close. A candidate is a form somebody is still typing: its
@@ -244,16 +248,19 @@ var routes = map[string]entry{
 				}
 				return newCmd("snapshot", "unhold", req.SnapshotHoldRelease.BackupSetID, req.SnapshotHoldRelease.HoldID)
 			default:
-				// An action this table does not know is a request
-				// nothing here can name a verb for, so it gets the
-				// route-level sentence below.
-				return nil
+				// An action apicontract doesn't define. It used to fall
+				// into run_cycle's arm and print that sentence, and a
+				// nil here would print the route's "won't decode"
+				// sentence instead; both are answers about something
+				// else (#1253's review).
+				return newCmd().refuse(gapUnknownAction)
 			}
 		},
-		// A body that will not decode, or that names an action none of
-		// the arms above knows, gets the route-level sentence every other
-		// builder here gives for that case.
-		why: "there is no verb that submits an operation from a request body",
+		// A body that will not decode names no action at all, so the
+		// route-level sentence is the one every other builder here gives
+		// for that case.
+		why:      "there is no verb that submits an operation from a request body",
+		refusals: []string{gapUnknownAction},
 		examples: []Action{
 			{Body: []byte(`{"action":"` + apicontract.ActionRestorePlacement + `","config_revision":"r1","restore":{"artifact_id":"api-server/var-backups/dump.tar","medium":"offsite_s3","window_days":7,"acknowledged":true}}`)},
 			{Body: []byte(`{"action":"` + apicontract.ActionRunBackupSet + `","config_revision":"r1","backup_set_id":"api-server/var-backups"}`)},
