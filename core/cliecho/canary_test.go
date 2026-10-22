@@ -43,7 +43,7 @@ type canaryBody struct {
 // flag is set would otherwise be walked with every one of those branches
 // switched off, and a body that reaches no flag proves nothing about the
 // flags. The other side of each boolean is the field check's job
-// (fields_1253_test.go flips every one).
+// (fields_test.go flips every one).
 func canaryBodies(t *testing.T, value func(path string) string) []canaryBody {
 	t.Helper()
 	names := make([]string, 0, len(apicontract.SchemaTypes))

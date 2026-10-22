@@ -186,7 +186,7 @@ func staleFieldReasons(seen fieldEchoes, table map[string]map[string]string) []s
 	return out
 }
 
-func TestFields1253_EveryRequestFieldReachesTheLineOrIsExplained(t *testing.T) {
+func TestEveryRequestFieldReachesTheLineOrIsExplained(t *testing.T) {
 	seen := observeFieldEchoes(t)
 	if len(seen) == 0 {
 		t.Fatal("no builder printed a command from its own schema's canary body, so this test checked nothing")
@@ -217,43 +217,38 @@ func TestFields1253_EveryRequestFieldReachesTheLineOrIsExplained(t *testing.T) {
 	}
 }
 
-// The mutation this exists for: a builder stops printing a field it used
-// to print. Here that is done to the observation rather than to a
-// builder, by flipping one field that does reach the line to one that
-// doesn't, and it has to be reported.
-func TestFields1253_MutationADroppedFieldIsCaught(t *testing.T) {
-	seen := observeFieldEchoes(t)
-
-	route, field := "", ""
-	for _, r := range sortedKeys(seen) {
-		for _, f := range sortedKeys(seen[r]) {
-			if seen[r][f] {
-				route, field = r, f
+// The mutation this exists for, against a real builder: snapshot restore
+// stops printing --conflict. The builder is swapped for the length of the
+// test and the whole observation runs, so this proves the pipeline sees
+// it, not just that the comparison works.
+func TestEveryRequestField_MutationADroppedFieldIsCaught(t *testing.T) {
+	const route = "POST /operations"
+	saved := routes[route]
+	mutated := saved
+	mutated.build = func(a Action) *cmd {
+		c := saved.build(a)
+		if c == nil {
+			return nil
+		}
+		for i, arg := range c.argv {
+			if arg == "--conflict" {
+				c.argv = append(c.argv[:i:i], c.argv[i+2:]...)
 				break
 			}
 		}
-		if route != "" {
-			break
-		}
+		return c
 	}
-	if route == "" {
-		t.Fatal("no route echoes any field at all, so there is nothing to drop")
-	}
-	seen[route][field] = false
-	if got := droppedFields(seen, fieldsNotEchoed); !containsString(got, route+" "+field) {
-		t.Errorf("%s stopped printing %s and nothing was reported; got %v", route, field, got)
+	swapRoute(t, route, mutated)
+
+	if got := droppedFields(observeFieldEchoes(t), fieldsNotEchoed); !containsString(got, route+" snapshot_restore.conflict") {
+		t.Errorf("a builder that stopped printing --conflict was not reported; got %v", got)
 	}
 
 	// And a reason saying nothing is not a reason.
-	blank := map[string]map[string]string{route: {field: "   "}}
-	if got := droppedFields(seen, blank); !containsString(got, route+" "+field) {
+	seen := fieldEchoes{route: {"snapshot_restore.conflict": false}}
+	blank := map[string]map[string]string{route: {"snapshot_restore.conflict": "   "}}
+	if got := droppedFields(seen, blank); !containsString(got, route+" snapshot_restore.conflict") {
 		t.Errorf("a blank reason excused a dropped field; got %v", got)
-	}
-
-	// The control: a field that is on the line is not reported.
-	seen[route][field] = true
-	if got := droppedFields(seen, fieldsNotEchoed); containsString(got, route+" "+field) {
-		t.Errorf("a field that reaches the line was reported as dropped")
 	}
 }
 
@@ -576,7 +571,6 @@ func TestEveryNonStringFieldReachesTheLineOrIsExplained(t *testing.T) {
 func TestEveryNonStringField_MutationADroppedNumberIsCaught(t *testing.T) {
 	const route = "POST /operations"
 	saved := routes[route]
-	t.Cleanup(func() { routes[route] = saved })
 	mutated := saved
 	mutated.build = func(a Action) *cmd {
 		c := saved.build(a)
@@ -591,7 +585,7 @@ func TestEveryNonStringField_MutationADroppedNumberIsCaught(t *testing.T) {
 		}
 		return c
 	}
-	routes[route] = mutated
+	swapRoute(t, route, mutated)
 
 	got := droppedFields(observeNonStringEchoes(t), nonStringFieldsNotEchoed)
 	if !slices.Contains(got, route+" snapshot_verify.sample_percent") {
