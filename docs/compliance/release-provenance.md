@@ -78,8 +78,8 @@ bash scripts/release/check-published-provenance.sh
 ```
 
 refuses a change to any of them, naming the field, the value it was published
-as and the value the tree now claims. It runs in `scripts/ci-local.sh` and in
-`.github/workflows/ci.yml`'s `gate-guards` job, and
+as and the value the tree now claims. It runs in `scripts/ci-local.sh`, which
+the pre-commit hook runs on every commit, and
 `scripts/tests/published-provenance-guards.test.sh` is the proof it can still
 go red — four refusals and five controls, in throwaway repositories.
 

@@ -69,9 +69,9 @@ which `two-machine-backup.sh` builds too. One definition of "the simulated
 VPS", read by both, rather than two that agree until they do not.
 
 A missing daemon is a SKIP on a laptop and a FAILURE in a gate, and the
-gate is both the local one (`scripts/ci-local.sh`, `CI_LOCAL=1`) and any
-automated CI run (`CI=true`, which `.github/workflows/ci.yml` sets and
-whose `core-build-vet-test` job probes `docker info` before the tests).
+gate is both the local one (`scripts/ci-local.sh`, `CI_LOCAL=1`, which since
+#1260 also sets `CI=1`) and any automated CI run (`CI=true`, which every
+hosted provider sets; this repository no longer runs one, since #1260).
 The refusal says `INFRA:` and `machines.dockerIsRequired` is the rule.
 Keying that only on `CI_LOCAL` was a hole for exactly as long as it
 existed: the remote job runs `go test -race ./...` without it, so this

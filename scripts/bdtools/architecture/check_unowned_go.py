@@ -350,7 +350,7 @@ def check_directory(directory: str, files: list[str], *, tmp: Path, toplevel: Pa
 
     env = dict(os.environ, GOFLAGS="-mod=mod", GOPROXY="off")
     status, lint_out = _combined(
-        ["golangci-lint", "run", "--config", str(toplevel / ".golangci.yml"), "./..."],
+        ["golangci-lint", "run", "--allow-parallel-runners", "--config", str(toplevel / ".golangci.yml"), "./..."],
         cwd=mod,
         env=env,
     )

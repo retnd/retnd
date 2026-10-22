@@ -1,12 +1,17 @@
 #!/usr/bin/env sh
-# Full local mirror of .github/workflows/ci.yml and rclone-upgrade-gate.yml,
-# run entirely on this machine, and the gate for everything bound for
-# `main`. GitHub Actions runs ci.yml on a pull request into `release` and
-# on nothing else (#575), so on every other branch there is no GitHub-side
-# check at all. The pre-commit hook runs this script on every commit, and
-# `--admin` merges rely on it having been green.
+# The gate. The only one (#1260).
 #
-# Comprehensive on purpose, job-for-job with ci.yml, which means it is NOT
+# This script, run entirely on this machine, is what stands in front of
+# `main` and in front of a release. GitHub Actions gates nothing here any
+# more: ci.yml, which used to mirror this file job for job and run on a
+# pull request into `release`, is gone, and nothing on that side produces
+# a check that could be mistaken for one. The pre-commit hook
+# (.husky/pre-commit, installed by scripts/install-hooks.sh) runs this on
+# every commit, and a release is refused unless a full green run of it is
+# recorded on the tree being published (scripts/release/record-local-gate.sh
+# writes that record, require-release-gate in release.yml reads it).
+#
+# Comprehensive on purpose, which means it is NOT
 # fast: the full core/ test suite (including the Docker-backed crash matrix,
 # SFTP integration and MinIO integration tests), two cross-compiles, three separate frontend
 # installs/builds, and the dependency-rules worktree-deletion proofs. Needs
@@ -108,7 +113,14 @@
 #
 # Three outcomes, three exit statuses, so a wrapper does not have to parse
 # prose: 0 for "ci-local: ok", 3 for "ci-local: INCOMPLETE", and whatever
-# failed for "ci-local: FAILED".
+# failed for "ci-local: FAILED". Nothing this script runs may leave as 3
+# for any other reason: golangci-lint does (see gate_lint), so its
+# invocations are wrapped.
+#
+# Parallel lanes (#1260): about thirty worktrees share this machine and one
+# Docker daemon. The Docker-backed steps run under a lock in the shared
+# git dir (gate_lock_acquire), so concurrent full runs queue rather than
+# collide, and golangci-lint is told to allow parallel runners.
 #
 # A workspace that is not in the tree at all is a different thing from an
 # uninstalled one, and is never a failure. apps/ugos/backend and
@@ -143,6 +155,14 @@ fi
 # The name is load-bearing in core/tests; do not rename it here alone.
 export CI_LOCAL=1
 
+# And CI, which this gate had never set (#1259, #1260). vitest reads it to
+# pick its non-interactive reporter, Playwright reads it to refuse a
+# `.only` and to stop retrying, and more than one Go test in this tree
+# keys a refusal on it, so a comment claiming "a failure under CI"
+# described a run nobody ever made. The recorder sets it too; both, so
+# neither depends on the other being the version in the worktree.
+export CI=1
+
 # Running as a git hook (pre-commit) means git has GIT_INDEX_FILE (a path
 # relative to the repo root, e.g. ".git/index"), GIT_DIR, GIT_WORK_TREE, etc.
 # set in the environment for the in-progress commit. The dependency-rules
@@ -171,6 +191,11 @@ FAST="${CI_LOCAL_FAST:-0}"
 # second EXIT trap later in this file would silently replace this one. See
 # gate_install_traps.
 gate_install_traps
+
+# The hook cannot report its own absence, so the gate does, first thing
+# and every run (#1260). A warning rather than a refusal: a run by hand in
+# a clone without the hook is still a run. The recorder refuses.
+gate_warn_hook_missing
 
 if ! command -v golangci-lint >/dev/null 2>&1; then
   echo "==> golangci-lint not found. Install it (brew install golangci-lint) and re-run." >&2
@@ -487,27 +512,17 @@ fi
 gate_step "the two-machine proof's verdict is still its own number (#551)"
 bash scripts/tests/two-machine-exit-status.test.sh
 
-# The same verdict, one layer out (#575). A pull request into `release`
-# now runs .github/workflows/ci.yml, and that workflow calls the proof
-# through scripts/e2e/two-machine-ci.sh, because the proof has three
-# outcomes and a workflow step has two. A runner that cannot start
-# docker-in-docker has to come out red under the word INCOMPLETE, not
-# green under no word at all: green there is a signed image on a public
-# registry standing on a proof nobody performed.
+# The same verdict, one layer out (#575). scripts/e2e/two-machine-ci.sh
+# wraps the proof for a workflow step, which has two outcomes where the
+# proof has three: a runner that cannot start docker-in-docker has to come
+# out red under the word INCOMPLETE, not green under no word at all. The
+# workflow that called it is gone (#1260), and the wrapper stays proven for
+# whoever runs the proof under a hosted runner of their own.
 #
 # Same cost and same reasoning as the step above: stand-in proofs, no
 # containers, about a second.
 gate_step "a proof CI could not perform still reads as incomplete, not as a pass (#575)"
 bash scripts/tests/two-machine-ci-verdict.test.sh
-
-# The gate on `release` is one check with a hand-written list of jobs
-# behind it, because Actions cannot say "every job in this workflow". An
-# enumeration in that position goes stale the first time somebody adds a
-# job without thinking about this one, and it goes stale in the dangerous
-# direction: the new job runs, goes red, and the required check is green
-# because nobody asked it. This reads the workflow and refuses that.
-gate_step "the release gate still covers every job in ci.yml (#575)"
-bash scripts/tests/release-gate-covers-every-job.test.sh
 
 # Every Go module resolves its own dependencies without go.work (#1064). The
 # workspace builds the whole tree on the highest version of every requirement,
@@ -517,20 +532,21 @@ bash scripts/tests/release-gate-covers-every-job.test.sh
 gate_step "every Go module resolves its own dependencies without go.work (#1064)"
 bash scripts/tests/every-module-builds-on-its-own.test.sh
 
-# The other half of the same gate, and the half that does not need a
-# settings page to be true (#575). A required check gates while branch
-# protection says it does, and a direct push, an administrator merging
-# past a red check or an edited ruleset all still land a commit on
-# `release`, which is what publishes. release.yml now asks GitHub whether
-# `release gate` actually passed on the commit it is about to publish and
-# refuses if it did not. This pulls that job's script out of the workflow
-# and runs it against a stand-in `gh`, once per outcome: green, red,
-# skipped, absent, forged, unreachable, overridden, and overridden with no
+# The release's own check that this gate ran (#575, #1260). A commit on
+# `release` publishes a signed image, and the only gate in front of it is
+# this script, run on a machine GitHub cannot see. So release prep records
+# a full green run (provenance/local-gate.json, written by
+# scripts/release/record-local-gate.sh) and require-release-gate in
+# release.yml refuses to publish a tree that record does not describe.
+# This pulls that job's script out of the workflow and runs it in
+# throwaway repositories, once per outcome: a matching record, no record,
+# a different tree, an INCOMPLETE ledger, the wrong Go, an unknown schema,
+# not JSON, a log that does not match, overridden, and overridden with no
 # reason given.
 #
 # Same cost and same reasoning as the step above: no containers, no
-# network, about a second.
-gate_step "a publish the release gate never passed is still refused (#575)"
+# network, a few seconds.
+gate_step "a publish the local gate never recorded is still refused (#575, #1260)"
 bash scripts/tests/release-refuses-an-ungated-publish.test.sh
 
 # The image's `latest` tag (#1168). scripts/release/latest.sh decides whether
@@ -548,7 +564,7 @@ gate_step "core/ go vet"
 (cd core && GOWORK=off go vet ./...)
 
 gate_step "core/ golangci-lint"
-(cd core && GOWORK=off golangci-lint run --config "$REPO_ROOT/.golangci.yml" ./...)
+gate_lint core
 
 if [ "$FAST" = "1" ]; then
   gate_docker_step "core/ go test -race ./internal/... (CI_LOCAL_FAST=1: skipping ./tests/... Docker suites)"
@@ -614,7 +630,7 @@ gate_step "apps/common go build, vet, test -race"
 (cd apps/common && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test -race ./...)
 
 gate_step "apps/common golangci-lint"
-(cd apps/common && GOWORK=off golangci-lint run --config "$REPO_ROOT/.golangci.yml" ./...)
+gate_lint apps/common
 
 # The rendered half of the same rule (#1054): every page, light and dark,
 # every visible text node against its composited background, in the Playwright
@@ -657,14 +673,14 @@ gate_step "distribution/packaging (the static-analysis suite, no -race: see abov
 (cd distribution && GOWORK=off go test ./packaging/) # no -race: no goroutine of its own, so nothing here to detect, and 44s becomes 521s
 
 gate_step "distribution golangci-lint"
-(cd distribution && GOWORK=off golangci-lint run --config "$REPO_ROOT/.golangci.yml" ./...)
+gate_lint distribution
 
 if [ -f apps/generic/go.mod ]; then
   gate_docker_step "apps/generic go build, vet, test -race"
   (cd apps/generic && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test -race ./...)
 
   gate_step "apps/generic golangci-lint"
-  (cd apps/generic && GOWORK=off golangci-lint run --config "$REPO_ROOT/.golangci.yml" ./...)
+  gate_lint apps/generic
 fi
 
 if [ -f apps/synology/go.mod ]; then
@@ -672,7 +688,7 @@ if [ -f apps/synology/go.mod ]; then
   (cd apps/synology && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test -race ./...)
 
   gate_step "apps/synology golangci-lint"
-  (cd apps/synology && GOWORK=off golangci-lint run --config "$REPO_ROOT/.golangci.yml" ./...)
+  gate_lint apps/synology
 fi
 
 if [ -f apps/ugos/backend/go.mod ]; then
@@ -680,7 +696,7 @@ if [ -f apps/ugos/backend/go.mod ]; then
   (cd apps/ugos/backend && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test -race ./...)
 
   gate_step "apps/ugos/backend golangci-lint"
-  (cd apps/ugos/backend && GOWORK=off golangci-lint run --config "$REPO_ROOT/.golangci.yml" ./...)
+  gate_lint apps/ugos/backend
 
   if [ "$FAST" != "1" ]; then
     gate_step "apps/ugos/backend cross-compile linux/amd64"
@@ -733,6 +749,13 @@ case "$(gate_workspace_state ui/shared)" in
     # Reachable under CI_LOCAL_FAST=1 or CI_LOCAL_SKIP_JS=1 only.
     gate_note_skip "ui/shared lint, typecheck:providers, eslint, the vitest suite and the production build ($(gate_install_hint ui/shared))"
     ;;
+  absent)
+    # Not an optional component (#1260, item 7). ui/shared is the product's
+    # UI, and its vitest run is the only thing that catches a stale
+    # CLI-twin fixture (#1259); a tree without it has skipped that suite,
+    # whatever else it has, and the run may not say ok.
+    gate_note_skip "ui/shared lint, typecheck:providers, eslint, the vitest suite and the production build: ui/shared is not in this tree at all"
+    ;;
 esac
 
 if [ "$FAST" != "1" ]; then
@@ -752,13 +775,17 @@ if [ "$FAST" != "1" ]; then
       # suite, and it was skipped on every Phase 3 gate run.
       gate_note_skip "apps/common/tests lint, eslint and the cross-provider conformance suite ($(gate_install_hint apps/common/tests))"
       ;;
+    absent)
+      # Same rule as ui/shared above: the conformance suite is not
+      # optional, so a tree without it did not run it and may not say ok.
+      gate_note_skip "apps/common/tests lint, eslint and the cross-provider conformance suite: apps/common/tests is not in this tree at all"
+      ;;
   esac
 fi
 
 # The browser e2e signal (#158, #197). Until this step existed, the
 # Playwright suite had no automated execution anywhere: nightly-e2e.yml's
-# schedule is commented out, ci.yml runs on nothing bound for main, and
-# this script never invoked it. So it ran when somebody remembered to,
+# schedule is commented out, and this script never invoked it. So it ran when somebody remembered to,
 # which is how a deterministically red spec sat on main through four merges
 # and was dismissed twice as an ordering flake.
 #
@@ -899,9 +926,8 @@ gate_step "performance baseline present, its gate can fail, and the image size i
 bash scripts/perf/check-baseline.sh
 bash scripts/perf/selftest.sh
 
-# ci.yml's api-contract job, mirrored here because ci.yml runs only on a
-# pull request into `release` and therefore on nothing bound for main:
-# without these two
+# The /api/v1 contract gate (#166). Until it was wired in here, nothing
+# bound for main ran it: without these two
 # lines the byte-for-byte binding comparison, the implementation-type leak
 # scan and all 15 of their mutation controls had never executed on a commit
 # at all (#166, PR #194 review M1). Unconditional, FAST included: together
@@ -962,6 +988,17 @@ if [ "$FAST" != "1" ]; then
 
   gate_step "post-publish registry metadata recorder"
   bash scripts/tests/record-published-release.test.sh
+
+  # The local-gate recorder's refusals, and the record it writes (#1260).
+  # It is the one step of release prep that turns "the gate was green"
+  # into something require-release-gate can check, so a recorder that
+  # could be talked into writing a record for a run that was not full, or
+  # not on this tree, would be the chain's weakest link. Driven against
+  # the real script in throwaway repositories with a stub gate committed
+  # into each, then the real require-release-gate script is run over what
+  # it wrote. No Docker, a few seconds.
+  gate_step "the local-gate recorder refuses everything short of a full green run on a clean tree, and the release accepts what it writes (#1260)"
+  bash scripts/tests/local-gate-record.test.sh
 
   # The publish script is the one step in this repository that does
   # something irreversible, and it runs once, on the day it matters. Its

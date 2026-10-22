@@ -77,14 +77,11 @@ import (
 // run").
 //
 // The cost is real and worth naming, because it lands on somebody else's
-// environment: .github/workflows/ci.yml's core-build-vet-test job used to
-// check out with actions/checkout's default single-commit shallow clone,
-// which has no origin/release and no tags at all. This test is what put that
-// requirement on the core module, so the same change adds fetch-depth: 0
-// there, the way apps-common-build-vet-test already carries it for
-// packaging's release-manifest checks. Anything else that runs this suite
-// needs a real checkout too: not a shallow clone, and not an unpacked
-// archive.
+// environment: a hosted runner's default single-commit shallow clone has no
+// origin/release and no tags at all, which is how this test first failed in
+// the ci.yml job that ran it (that workflow is gone since #1260; the local
+// gate runs this in a full clone). Anything that runs this suite needs a
+// real checkout: not a shallow clone, and not an unpacked archive.
 //
 // There is deliberately no override. The case that would need one, withdrawing
 // a migration that has not shipped, needs nothing: an unreleased migration is

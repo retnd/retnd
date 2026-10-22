@@ -175,3 +175,19 @@ go.work.sum
 # custody walk, and it deliberately stops the process mid-run, so an
 # interrupted run leaves one behind more often than most.
 /core/internal/workflowrun/.wfrun-*
+
+# scripts/tests/release-refuses-an-ungated-publish.test.sh's and
+# scripts/tests/local-gate-record.test.sh's sandboxes (#575, #1260): the
+# throwaway repositories they drive the release gate's script and the
+# local-gate recorder against. Same reasoning as the sandboxes above, and
+# both remove theirs at the end of the run. The first of these had no
+# entry for as long as it existed, so an interrupted run left an untracked
+# directory for `git add -A` to find.
+/.release-gate-test/
+/.local-gate-record-test/
+
+# scripts/release/record-local-gate.sh runs the full gate in a detached
+# worktree here, inside the checkout for the same reason as every sandbox
+# above, and removes it on every exit. Ignored so that an interrupted run
+# does not make the checkout it was recording look dirty.
+/.local-gate-worktree/

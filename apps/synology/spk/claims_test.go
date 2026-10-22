@@ -24,8 +24,10 @@ func repoText(t *testing.T, rel string) string {
 }
 
 // TestParityClaims_SayWhatTheyActuallyProve pins the correction to the
-// two places that described the SPK suite as checking real release
-// binaries against container/release-manifest.json.
+// place that described the SPK suite as checking real release binaries
+// against container/release-manifest.json. There were two: the other was
+// a comment in .github/workflows/ci.yml, which #1260 deleted along with
+// the workflow.
 //
 // Nothing does. Every test in this package builds its package from
 // binaries it synthesised and checks them against a manifest hashed from
@@ -40,7 +42,6 @@ func TestParityClaims_SayWhatTheyActuallyProve(t *testing.T) {
 		window int
 	}{
 		{"docs/acceptance/synology-dsm-package-lifecycle.md", "## What is already proven without hardware", 0},
-		{".github/workflows/ci.yml", "SPK conformance suite", 1200},
 	} {
 		t.Run(tc.rel, func(t *testing.T) {
 			body := repoText(t, tc.rel)

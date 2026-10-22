@@ -481,7 +481,7 @@ make_full_tree() {
   # full green run on a clean tree, that the latest tag only moves
   # forward, and that every module builds on its own. None of them has
   # anything to say about a synthetic tree with no .github in it.
-  for guard in two-machine-ci-verdict release-gate-covers-every-job release-refuses-an-ungated-publish local-gate-record release-moves-latest every-module-builds-on-its-own; do
+  for guard in two-machine-ci-verdict release-refuses-an-ungated-publish local-gate-record release-moves-latest every-module-builds-on-its-own; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$guard.test.sh"
   done
 
@@ -630,15 +630,16 @@ run_gate() { # <tree> [VAR=VAL ...]
 run_git_commit() { # <tree> [VAR=VAL ...] -- <git commit args...>
   commit_tree="$1"
   shift
-  commit_vars=""
+  # An array, not a string: a CI_LOCAL_RED reason has spaces in it, and a
+  # string would split it into a command that is not there.
+  commit_vars=()
   while [ $# -gt 0 ] && [ "$1" != "--" ]; do
-    commit_vars="$commit_vars $1"
+    commit_vars+=("$1")
     shift
   done
   [ "${1:-}" = "--" ] && shift
-  # shellcheck disable=SC2086
   out="$(cd "$commit_tree" && scrub_env CI_LOCAL_LOCK_DIR="$commit_tree/.gate-lock" \
-    PATH="$commit_tree/bin:$PATH" $commit_vars git commit "$@" 2>&1)"
+    PATH="$commit_tree/bin:$PATH" "${commit_vars[@]}" git commit "$@" 2>&1)"
   status=$?
 }
 
@@ -986,13 +987,16 @@ assert_contains "E1 without the ledger the same run reports success, so D2 has t
 # gate_note_skip intact and change only the case subject, so each frontend
 # and conformance block vanishes with no ledger entry. A static scan for
 # "every uninstalled) arm calls gate_note_skip" does not catch this one,
-# which is why Group D exists in the end-to-end form.
+# which is why Group D exists in the end-to-end form. The subject is a
+# value NO arm matches: the review's original mutation used "absent", and
+# since #1260 the ui/shared and apps/common/tests dispatches ledger that
+# one (D9, D10), so it no longer makes the blocks vanish.
 tree="$(make_full_tree)"
 script="$tree/scripts/ci-local.sh"
 before="$(count_matches "$script" 'case "\$\(gate_workspace_state ')"
-sed -i.bak 's/case "\$(gate_workspace_state [^)]*)" in/case "absent" in/' "$script"
+sed -i.bak 's/case "\$(gate_workspace_state [^)]*)" in/case "nothing-matches-this" in/' "$script"
 rm -f "$script.bak"
-after="$(count_matches "$script" '^[[:space:]]*case "absent" in')"
+after="$(count_matches "$script" '^[[:space:]]*case "nothing-matches-this" in')"
 assert_eq "E2 the mutation rewrote every workspace-state dispatch" "$before" "$after"
 rm -rf "$tree/ui/shared/node_modules"
 run_gate "$tree" CI_LOCAL_SKIP_JS=1
@@ -1923,7 +1927,7 @@ assert_contains "O1 the hook says it is a red commit" 'red' "$out"
 assert_contains "O1 and repeats the reason" "$RED_REASON" "$out"
 assert_not_contains "O1 the gate did not run" 'core/ go build' "$out"
 assert_not_contains "O1 and nothing claimed ok" 'ci-local: ok' "$out"
-marker="$(cd "$tree" && git rev-parse --git-path local-gate-marker)"
+marker="$(cd "$tree" && git rev-parse --path-format=absolute --git-path local-gate-marker)"
 if [ -f "$marker" ]; then
   pass "O1 the hook left a marker for prepare-commit-msg"
   assert_contains "O1 the marker says red" 'red' "$(cat "$marker")"

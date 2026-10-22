@@ -14,14 +14,11 @@
 # afterwards, including the seven-provider matrix the local gate
 # deliberately leaves out.
 #
-# ci.yml is no longer dispatch-only, and this file is deliberately not
-# following it. Issue #575 gave that workflow a pull_request trigger on
-# `release`, because merging there publishes. Suite B is not in it: this
-# workflow's own history is an argument about flake noise, and the release
-# gate already carries the two-machine proof, which is a stronger claim
-# about the same product than a browser suite makes. Putting Suite B in
-# front of a release is the owner's call, and it belongs in ci.yml at the
-# pin rather than as a required check on this file.
+# ci.yml is gone (#1260): the pre-commit gate is the only gate, and the
+# release is refused unless a full run of it is recorded on the tree being
+# published. Suite B is in that run already, against the working tree, so
+# this file stays what it was: a run on a clean machine with a trace, on
+# demand, and not a gate.
 #
 # The schedule stays commented. Re-enabling it would reintroduce the flake
 # noise this workflow's own history argues against, and it is no longer the

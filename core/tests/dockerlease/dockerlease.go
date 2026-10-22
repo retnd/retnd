@@ -21,6 +21,9 @@ package dockerlease
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -32,8 +35,6 @@ const (
 	// Sweep only ever removes containers carrying it, so it is the whole
 	// safety boundary: an unlabelled container is never touched.
 	LabelKey = "retnd-test"
-	// LabelValue is fixed; the key alone carries the meaning.
-	LabelValue = "1"
 
 	// StaleAfter is how old a labelled container must be before Sweep will
 	// remove it. It has to clear the slowest legitimate test comfortably,
@@ -49,7 +50,7 @@ const (
 )
 
 // LabelFlag and LabelSpec are the `docker run` flag pair that marks a
-// container sweepable. They are two separate constants, rather than one
+// container sweepable. They are two separate names, rather than one
 // []string, so they splice straight into an argument literal without
 // restructuring it, and so they land BEFORE the image name where docker
 // requires its flags:
@@ -60,15 +61,69 @@ const (
 //		"-p", "127.0.0.1::22",
 //		"some/image",
 //	}
-const (
-	LabelFlag = "--label"
-	LabelSpec = LabelKey + "=" + LabelValue
-)
+//
+// LabelSpec is a variable rather than a constant since #1260, because the
+// label's VALUE is now the owner (below), and the owner is only known at
+// run time. Every call site reads the same; what changed is what Sweep
+// lists.
+const LabelFlag = "--label"
 
+var LabelSpec = LabelKey + "=" + ownerID()
+
+// The owner is the worktree this test binary runs in, and it is the
+// whole of #1260's item 6. Sweep used to remove any labelled container
+// older than StaleAfter whoever started it, which was right when one
+// developer ran one gate at a time and wrong once thirty worktrees shared
+// one daemon: a sibling lane's fixture still in use after fifteen minutes
+// was removed out from under its test, and that looked like a flaky
+// crash-matrix failure in a lane that had done nothing wrong.
+//
+// So the label carries an owner, and Sweep lists only containers carrying
+// THIS owner. The owner is derived from the worktree rather than from the
+// process or the run, on purpose: a run id would make every leak
+// permanent, because the next run would never match it, and the point of
+// the sweep is that a run started after a killed one cleans up what the
+// killed one left. Per worktree, a lane reclaims its own leftovers and
+// nobody else's.
+//
+// Resolved once per process. RETND_TEST_OWNER wins when set, which is how
+// a test drives two owners from one worktree; otherwise it is the git
+// toplevel of the working directory (every test binary in this tree runs
+// inside the repository), and failing that the hostname, which is the
+// pre-#1260 behaviour for one machine.
 var (
 	once         sync.Once
 	networksOnce sync.Once
+	ownerOnce    sync.Once
+	owner        string
 )
+
+func ownerID() string {
+	ownerOnce.Do(func() {
+		if v := os.Getenv("RETND_TEST_OWNER"); v != "" {
+			owner = ownerFor(v)
+			return
+		}
+		if out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output(); err == nil {
+			if top := strings.TrimSpace(string(out)); top != "" {
+				owner = ownerFor(top)
+				return
+			}
+		}
+		host, _ := os.Hostname()
+		owner = ownerFor("host:" + host)
+	})
+	return owner
+}
+
+// ownerFor turns a worktree path into a label value: a short hash, so the
+// label is the same length whatever the path is and carries no path into
+// `docker ps` output. Stable for the same input, different for different
+// inputs, which is all a label value needs to be.
+func ownerFor(worktree string) string {
+	sum := sha256.Sum256([]byte(worktree))
+	return hex.EncodeToString(sum[:6])
+}
 
 // SweepNetworks is Sweep for the networks core/tests/machines creates
 // (issue #447): labelled the same way, swept on the way in for the same
@@ -81,7 +136,7 @@ func SweepNetworks() {
 }
 
 func sweepNetworksOlderThan(cutoff time.Time) {
-	out, err := run("network", "ls", "-q", "--filter", "label="+LabelKey+"="+LabelValue)
+	out, err := run("network", "ls", "-q", "--filter", "label="+LabelSpec)
 	if err != nil {
 		return
 	}
@@ -110,9 +165,11 @@ func sweepNetworksOlderThan(cutoff time.Time) {
 	}
 }
 
-// Sweep removes labelled containers older than StaleAfter, at most once per
-// test binary however many times it is called. Call it before creating a
-// container.
+// Sweep removes this worktree's labelled containers older than StaleAfter,
+// at most once per test binary however many times it is called. Call it
+// before creating a container. A container another worktree labelled, or
+// one carrying the fixed value every lane shared before #1260, is never a
+// candidate (see LabelSpec).
 //
 // It is best-effort by design and reports nothing: every error is swallowed,
 // a missing or unreachable docker is a no-op, and it never fails a test. A
@@ -143,7 +200,7 @@ func sweepIDs(ids []string, cutoff time.Time) {
 }
 
 func listLabelled() []string {
-	out, err := run("ps", "-aq", "--filter", "label="+LabelKey+"="+LabelValue)
+	out, err := run("ps", "-aq", "--filter", "label="+LabelSpec)
 	if err != nil {
 		return nil
 	}

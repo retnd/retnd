@@ -84,8 +84,8 @@ change there and the pin bump in the same PR.
   the same pin and runs the full Suite B including the seven-provider
   matrix, still `workflow_dispatch`-only. It exists for a run on a clean
   machine with a downloadable trace, not as a gate: nothing triggers it.
-  `ci.yml` is the one workflow here that does trigger on its own, on a
-  pull request into `release` (#575), and Suite B is not in it.
+  No workflow here triggers on its own any more: #1260 deleted `ci.yml`,
+  and the pre-commit gate is the only gate.
 - **`retnd-tests` pins a build of this repository**, in its own
   `build-under-test.json`. The two pins point opposite ways on purpose. A
   new test cannot break in-flight work here until someone bumps this one,
@@ -142,10 +142,13 @@ opt-out, and it ledgers too.
 
 ### Where it runs besides here
 
-All four cases run on every pull request into `release`, as the
-`two-machine-e2e` job in `.github/workflows/ci.yml` (issue #575). Merging
-into that branch publishes a signed image to a public registry, and this
-is the only test in the tree that says the thing being published works.
+All four cases ran on every pull request into `release`, as the
+`two-machine-e2e` job in `.github/workflows/ci.yml` (issue #575), until #1260
+deleted that workflow. They run in every full local gate run now, and the
+release is refused unless such a run is recorded on the tree it publishes
+(`scripts/release/record-local-gate.sh`). Merging into that branch publishes a
+signed image to a public registry, and this is the only test in the tree that
+says the thing being published works.
 
 CI calls it through `two-machine-ci.sh` rather than directly, because the
 three outcomes above have to survive a workflow step, which has two. A
