@@ -153,71 +153,13 @@ func (r *engineRoute) ProbeHostKey(ctx context.Context, host string, port int) (
 
 // CreateBackupSet is POST /backup-sets.
 func (r *engineRoute) CreateBackupSet(ctx context.Context, req service.CreateBackupSetRequest) (service.CreateBackupSetResult, error) {
-	stableFor, err := wireSeconds(req.StableFor, "--stable-for")
-	if err != nil {
-		return service.CreateBackupSetResult{}, err
-	}
-	staleAfter, err := wireSeconds(req.StaleAfter, "--stale-after")
-	if err != nil {
-		return service.CreateBackupSetResult{}, err
-	}
-	verificationFullEvery, err := wireSeconds(req.VerificationFullEvery, "--verification-full-every")
-	if err != nil {
-		return service.CreateBackupSetResult{}, err
-	}
-	verificationRestoreDrill, err := wireSeconds(req.VerificationRestoreDrillEvery, "--verification-restore-drill-every")
+	spec, err := backupSetSpecToWire(req)
 	if err != nil {
 		return service.CreateBackupSetResult{}, err
 	}
 
 	resp, err := r.client.CreateBackupSet(ctx, apicontract.CreateBackupSetRequest{
-		BackupSetSpec: apicontract.BackupSetSpec{
-			SourceName:         req.SourceName,
-			Name:               req.Name,
-			Host:               req.Host,
-			Port:               req.Port,
-			User:               req.User,
-			SSHKeyID:           req.SSHKeyID,
-			KnownHostsLine:     req.KnownHostsLine,
-			RemotePath:         req.RemotePath,
-			LocalPath:          req.LocalPath,
-			Include:            req.Include,
-			CompletionStrategy: req.CompletionStrategy,
-			StableForSeconds:   stableFor,
-			StaleAfterSeconds:  staleAfter,
-			ValidatorID:        string(req.ValidatorID),
-			Disabled:           req.Disabled,
-			ReadOnly:           req.ReadOnly,
-			// Issue #624's opt-out, carried across for the reason the
-			// patch route carries its own: the engine runs the check in
-			// front of the write and marks the set when told not to, so a
-			// routed --no-verify that dropped this flag would be refused
-			// where the direct one writes.
-			SkipConnectionCheck: req.SkipConnectionCheck,
-
-			// EPIC K's engine seam (#788), carried across for the reason
-			// every other field here is: a routed create that dropped
-			// these would write an ARTIFACT set on the engine while the
-			// operator's command line asked for snapshots, which is the
-			// one divergence between the two routes that nothing
-			// downstream could ever notice. The two cadences are whole
-			// SECONDS on the wire, refused rather than truncated,
-			// exactly as the two completion windows above are.
-			Engine: req.Engine,
-			// Issue #1151: the lineage key and the mount prefix. A routed
-			// create that dropped them would let the ENGINE mint a fresh
-			// key for a set the operator asked to re-declare under their
-			// old one, which is the fork --uuid exists to prevent, and
-			// nothing on the command line's own exit code would show it.
-			Uuid:                                 req.UUID,
-			SourceMountPrefix:                    req.SourceMountPrefix,
-			RepositoryDomain:                     req.RepositoryDomain,
-			SourceConsistency:                    req.SourceConsistency,
-			VerificationLevel:                    req.VerificationLevel,
-			VerificationSamplePercent:            req.VerificationSamplePercent,
-			VerificationFullEverySeconds:         int64(verificationFullEvery),
-			VerificationRestoreDrillEverySeconds: int64(verificationRestoreDrill),
-		},
+		BackupSetSpec:      spec,
 		RunImmediately:     req.RunImmediately,
 		AcknowledgeRepoint: req.AcknowledgeRepoint,
 		// req.Actor is NOT sent. See this file's own doc: the engine
@@ -249,6 +191,103 @@ func (r *engineRoute) CreateBackupSet(ctx context.Context, req service.CreateBac
 		fmt.Fprintf(os.Stderr, cliecho.Binary+": the set was created and the run it asked for did not start: %s\n", resp.RunError)
 	}
 	return result, nil
+}
+
+// CompleteFirstRun is POST /system/first-run: the first configuration,
+// handed to an engine still serving its setup flow (#1254).
+//
+// The body is the same spec CreateBackupSet sends, through the same
+// conversion, because it is the same set: the wizard answers one form for
+// both routes and so does this command. It carries no run_immediately and
+// no acknowledge_repoint, because the contract's BackupSetSpec has neither
+// (createFirstConfig refuses --run before anything is sent, for the reason
+// it gives there).
+//
+// restartRequired is the engine saying the configuration is durably
+// written and this process could not start serving it in place. That is a
+// first run that happened, not one that failed, so it comes back beside
+// the set rather than as an error.
+func (r *engineRoute) CompleteFirstRun(ctx context.Context, req service.CreateBackupSetRequest) (set service.BackupSet, restartRequired bool, err error) {
+	spec, err := backupSetSpecToWire(req)
+	if err != nil {
+		return service.BackupSet{}, false, err
+	}
+	resp, err := r.client.CompleteFirstRun(ctx, spec)
+	if err != nil {
+		return service.BackupSet{}, false, err
+	}
+	return backupSetFromWire(resp.BackupSet), resp.RestartRequired, nil
+}
+
+// backupSetSpecToWire is a create request's set, in the contract's
+// BackupSetSpec. Both creates send it (POST /backup-sets wrapped in
+// CreateBackupSetRequest, POST /system/first-run bare), and one conversion
+// is what keeps a field from crossing on one of them and not the other.
+func backupSetSpecToWire(req service.CreateBackupSetRequest) (apicontract.BackupSetSpec, error) {
+	stableFor, err := wireSeconds(req.StableFor, "--stable-for")
+	if err != nil {
+		return apicontract.BackupSetSpec{}, err
+	}
+	staleAfter, err := wireSeconds(req.StaleAfter, "--stale-after")
+	if err != nil {
+		return apicontract.BackupSetSpec{}, err
+	}
+	verificationFullEvery, err := wireSeconds(req.VerificationFullEvery, "--verification-full-every")
+	if err != nil {
+		return apicontract.BackupSetSpec{}, err
+	}
+	verificationRestoreDrill, err := wireSeconds(req.VerificationRestoreDrillEvery, "--verification-restore-drill-every")
+	if err != nil {
+		return apicontract.BackupSetSpec{}, err
+	}
+
+	return apicontract.BackupSetSpec{
+		SourceName:         req.SourceName,
+		Name:               req.Name,
+		Host:               req.Host,
+		Port:               req.Port,
+		User:               req.User,
+		SSHKeyID:           req.SSHKeyID,
+		KnownHostsLine:     req.KnownHostsLine,
+		RemotePath:         req.RemotePath,
+		LocalPath:          req.LocalPath,
+		Include:            req.Include,
+		CompletionStrategy: req.CompletionStrategy,
+		StableForSeconds:   stableFor,
+		StaleAfterSeconds:  staleAfter,
+		ValidatorID:        string(req.ValidatorID),
+		Disabled:           req.Disabled,
+		ReadOnly:           req.ReadOnly,
+		// Issue #624's opt-out, carried across for the reason the
+		// patch route carries its own: the engine runs the check in
+		// front of the write and marks the set when told not to, so a
+		// routed --no-verify that dropped this flag would be refused
+		// where the direct one writes.
+		SkipConnectionCheck: req.SkipConnectionCheck,
+
+		// EPIC K's engine seam (#788), carried across for the reason
+		// every other field here is: a routed create that dropped
+		// these would write an ARTIFACT set on the engine while the
+		// operator's command line asked for snapshots, which is the
+		// one divergence between the two routes that nothing
+		// downstream could ever notice. The two cadences are whole
+		// SECONDS on the wire, refused rather than truncated,
+		// exactly as the two completion windows above are.
+		Engine: req.Engine,
+		// Issue #1151: the lineage key and the mount prefix. A routed
+		// create that dropped them would let the ENGINE mint a fresh
+		// key for a set the operator asked to re-declare under their
+		// old one, which is the fork --uuid exists to prevent, and
+		// nothing on the command line's own exit code would show it.
+		Uuid:                                 req.UUID,
+		SourceMountPrefix:                    req.SourceMountPrefix,
+		RepositoryDomain:                     req.RepositoryDomain,
+		SourceConsistency:                    req.SourceConsistency,
+		VerificationLevel:                    req.VerificationLevel,
+		VerificationSamplePercent:            req.VerificationSamplePercent,
+		VerificationFullEverySeconds:         int64(verificationFullEvery),
+		VerificationRestoreDrillEverySeconds: int64(verificationRestoreDrill),
+	}, nil
 }
 
 // UpdateBackupSet is PATCH /backup-sets/{source}/{set}.

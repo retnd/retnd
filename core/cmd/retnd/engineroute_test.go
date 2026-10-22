@@ -405,28 +405,28 @@ func TestAnUnusableRouteIsRefusedAndNeverPrinted(t *testing.T) {
 	}
 }
 
-// TestAFirstConfigurationIsNotRouted keeps the one write that must not
-// acquire a route by accident.
+// TestAFirstConfigurationIsNotRoutedToAConfiguredEngine keeps the
+// configured half of the one write whose route depends on what it finds.
 //
 // `backup-set create` against a path with no config.yaml writes a whole
 // FIRST configuration, and the only request that could carry it is POST
 // /system/first-run, which an engine accepts once and only while it is
-// still unconfigured. A process found serving the journal it names is
-// either past that moment (this test's arrangement, and the mistyped
-// --config it stands for) or is the setup flow an operator can finish
-// themselves (#571). Neither is a request to send, so naming a route must
-// change nothing here.
-func TestAFirstConfigurationIsNotRouted(t *testing.T) {
+// still unconfigured. Since #1254 a first-run engine gets that request
+// (firstrunroute_1254_test.go). An engine past that moment (this test's
+// arrangement, and the mistyped --config it stands for) never does: the
+// command asks it what it is, reads "configured", and refuses exactly as
+// it did before, having sent nothing that changes anything.
+func TestAFirstConfigurationIsNotRoutedToAConfiguredEngine(t *testing.T) {
 	cliConfig := writeTestConfig(t)
 	keyPath := writeTestPrivateKey(t)
 	dbPath := filepath.Join(filepath.Dir(cliConfig), "state.db")
 
-	// A separate deployment, unlike every other engine in this file. This
-	// write is never routed at all (enterFirstConfigWriteMode passes no
-	// attachFunc), so the assertion below is that nothing reaches this
-	// engine even though it is reachable, and an engine that is a
-	// different deployment makes that a stronger statement rather than a
-	// weaker one.
+	// A separate deployment, unlike every other engine in this file. The
+	// command reads whether this engine is configured before anything
+	// else, and refuses on "configured" without ever asking which
+	// deployment it is, so the assertion below is that nothing but that
+	// read reaches it. An engine that is a different deployment makes
+	// that a stronger statement rather than a weaker one.
 	engine := startFakeEngine(t, writeTestConfig(t))
 	engine.attach(t)
 	attachEngineTo(t, cliConfig)
@@ -446,8 +446,10 @@ func TestAFirstConfigurationIsNotRouted(t *testing.T) {
 	if _, err := os.Stat(mistyped); !os.IsNotExist(err) {
 		t.Errorf("a first configuration was written at %s (stat err = %v)", mistyped, err)
 	}
-	if seen := engine.requests(); len(seen) != 0 {
-		t.Errorf("the first-run write reached the engine: %v", seen)
+	for _, seen := range engine.requests() {
+		if !strings.HasPrefix(seen, "GET ") && seen != "POST /auth/login" {
+			t.Errorf("a first configuration beside a configured engine sent %q to it: %v", seen, engine.requests())
+		}
 	}
 }
 

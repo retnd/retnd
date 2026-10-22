@@ -70,6 +70,47 @@ reactions:
   Its own exit code because retrying will never change the answer, where retrying
   a 30 is reasonable.
 
+### Finishing the first run from a terminal
+
+A fresh install normally writes its own default `config.yaml` on first start, so it's a
+configured engine from its first second and `retnd backup-set create` beside it is an
+ordinary routed create. When it can't (the configuration directory isn't writable yet, or
+the state it found is ambiguous enough that it won't decide on its own), the engine serves
+the first-run setup flow instead and waits for its first configuration.
+
+On a headless install nobody is looking at that wizard, and stopping the engine to let the
+command line write `config.yaml` stops the container you typed it in. So `backup-set
+create` hands the first configuration to the engine instead, as `POST
+/api/v1/system/first-run`, which is the same request the wizard sends (#1254). It needs a
+route to the engine, the same three variables every routed write uses:
+
+```
+export RETND_API_URL=http://127.0.0.1:8080
+export RETND_API_USERNAME=admin
+read -rs RETND_API_PASSWORD && export RETND_API_PASSWORD
+retnd backup-set create api/postgres --host ... --ssh-key-file ... --known-hosts-line ...
+```
+
+`http://127.0.0.1:8080` is the engine's own listener from inside its container; from the
+host it's the published Web UI port. `retnd ssh-key import`, `list` and `discover` and `retnd
+ssh host-key-probe` go to the same engine with the same variables, so the key step works the
+same way (they find the engine through `$STATE_DATABASE` or the packaged journal path, since
+they take no `--state-database` of their own). The administrator has to exist first, so enroll it
+with the link the install printed (or `enroll-link` above) before you run this. Without the
+variables the command refuses with exit 3 and says how to give it a route, and nothing is
+written. The engine writes the configuration and starts serving it in place, and the
+command prints the set exactly as the engine wrote it. If the engine couldn't start serving
+it in place, the command says so and still exits 0, because the configuration is written:
+restart the engine and it picks it up. The engine can take a few minutes over this on a slow
+NAS (it proves the connection and opens its journal), so the command waits up to twelve
+minutes for the reply; if the reply still doesn't come, it asks the engine whether it's
+configured now and tells you which it is. If the wizard or another terminal finished first,
+it says nothing of yours was written, and `retnd sources` shows what the engine has.
+
+Beside an engine that's already configured, a create aimed at a path with no `config.yaml`
+(a mistyped `--config`, say) is still refused with exit 3 and nothing sent. That engine
+won't take a first configuration, so the fix is pointing `--config` at the right file.
+
 ### `--cli-only`: the command line, and no web host at all
 
 ```

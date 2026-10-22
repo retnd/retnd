@@ -24,6 +24,9 @@
 # because the comment above it still reads as if the hole were covered.
 /core/retnd
 /apps/generic/retnd-web
+# `go build` run inside core/cmd/retnd drops the binary next to its sources,
+# and it reached a branch that way too (#1254).
+/core/cmd/retnd/retnd
 
 # Scratch directories tests make inside the repository because the hook
 # custody walk refuses a fixture under a world-writable /tmp (#1247).

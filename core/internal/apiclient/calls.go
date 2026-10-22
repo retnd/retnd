@@ -313,6 +313,16 @@ func (c *Client) FirstRunStatus(ctx context.Context) (apicontract.FirstRunStatus
 	return out, err
 }
 
+// CompleteFirstRun is POST /system/first-run: the first configuration a
+// fresh install is given, written by the engine still serving its setup
+// flow. It is how `backup-set create` finishes a first run from a terminal
+// (#1254), with the same spec the wizard sends.
+func (c *Client) CompleteFirstRun(ctx context.Context, spec apicontract.BackupSetSpec) (apicontract.CompleteFirstRunResponse, error) {
+	var out apicontract.CompleteFirstRunResponse
+	err := c.call(ctx, "completeFirstRun", nil, spec, &out)
+	return out, err
+}
+
 // StorageStatus is GET /system/storage, the other half of `status`.
 func (c *Client) StorageStatus(ctx context.Context) (apicontract.ListStorageStatusResponse, error) {
 	var out apicontract.ListStorageStatusResponse

@@ -18,6 +18,23 @@
 
 ### Fixed
 
+- **A headless install can finish its first run from a terminal** (#1254). When the engine is serving its
+  first-run setup flow (it could not write its own default `config.yaml`), `retnd backup-set create` used to
+  refuse with exit 3, on the reasoning that the operator was standing in front of the wizard. On a headless
+  install nobody is, and stopping the engine to let the command write the file stops the container it was
+  typed in. With `RETND_API_URL` and the two credential variables set, the create now hands the first
+  configuration to that engine as `POST /api/v1/system/first-run`, the request the wizard sends, and prints
+  the set the engine wrote; the line the Web UI's terminal echoes for that request does the same when pasted.
+  A first-run engine now names its deployment on `GET /api/v1/system/version`, which a routed write checks
+  before it sends anything. Beside an engine that is already configured, a first configuration is still
+  refused with exit 3 and nothing sent, and the refusal now also says how to reach a first-run engine.
+  `retnd ssh-key import|list|discover` and `retnd ssh host-key-probe` go to the same first-run engine, and
+  that engine now serves `GET /api/v1/ssh-keys` and `GET /api/v1/ssh/key-candidates`, which it used to answer
+  503 `NOT_CONFIGURED` although the wizard's key step reads them. The command waits up to twelve minutes for
+  the engine's reply, because bringing its service up can take that long on a slow NAS, and a reply that still
+  doesn't come is followed by asking whether the engine is configured now, so it reports what actually
+  happened.
+
 - **The hourly activity events prune no longer fails on a busy host or fills the terminal with errors**
   (#1247). The prune ran its age delete and its row-bound delete under one 10 second deadline, and the row
   bound found its cut-off by walking up to 50,000 rows of the table on every run. On a NAS whose page cache a

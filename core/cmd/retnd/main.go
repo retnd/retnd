@@ -171,8 +171,10 @@ commands:
                                                   (#543); with nothing serving, it is the same service layer that
                                                   route is built on, called here. On an instance with no config.yaml
                                                   yet this writes the first one instead (#176), and --state-database
-                                                  names the journal it points at; that create has no route, so it is
-                                                  refused while something serves that deployment (#536)
+                                                  names the journal it points at. Beside an engine still serving its
+                                                  first-run setup flow, that create is POST /api/v1/system/first-run
+                                                  against the engine when this command has a route to it (#1254);
+                                                  beside one that is already configured it is refused (#536)
                                                   The connection is proven before anything is written, and the create is
                                                   refused when it cannot be: --no-verify writes it anyway, says in so many
                                                   words that nothing was proven, and leaves the set marked as unverified
@@ -466,7 +468,10 @@ commands:
                                                   when it was imported and which backup sets use it. The id is the one
                                                   backup-set create|patch --ssh-key-id takes. Public halves only; a
                                                   key's bytes are never printed. Beside a serving engine this is its
-                                                  store (GET /api/v1/ssh-keys); with nothing serving, this host's
+                                                  store (GET /api/v1/ssh-keys); with nothing serving, this host's.
+                                                  Before the first config.yaml, the ssh-key verbs and the probe go to
+                                                  an engine still serving its first-run setup flow when RETND_API_URL
+                                                  names it, and use this host's own store otherwise (#1254)
   ssh-key import --file F [--passphrase-stdin] | --candidate ID [--json]
                                                   add a key to the store and print its fingerprint and id. --file is a
                                                   private key file, read once and copied; the original is left alone. A
@@ -1024,9 +1029,10 @@ process over its API, so it takes effect at once and there is nothing to restart
 preflight --candidate goes the same way, because it is the check medium add runs before it
 writes and has to happen where the write will. With something serving and no route, the
 write is refused and nothing is written: there is still no config watcher and no SIGHUP reload in this build, so a
-change left in the file is one the serving process would never read. One write has no route
-at all and is refused beside a serving engine either way: the first config.yaml a create
-writes on an instance that has none yet (#535, #543, #1148)
+change left in the file is one the serving process would never read. The first config.yaml
+a create writes on an instance that has none yet is routed only to an engine still on its
+first run, as POST /api/v1/system/first-run, and refused beside a configured one (#535,
+#543, #1148, #1254)
 
 the route is three environment variables. RETND_API_URL is the engine's address,
 either its own listener from inside its container (http://127.0.0.1:8080) or the published
