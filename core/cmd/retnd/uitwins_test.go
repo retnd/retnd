@@ -88,6 +88,7 @@ var placeholderStandIns = map[string]string{
 	"directory":   "/srv/restored",
 	"destination": "restore",
 	"id":          "offsite_s3",
+	"source/set":  "api-server/var-backups",
 	"name":        "restore",
 	"the command that prints these credentials":                        "credential-helper",
 	"the value, left out because it looks like it carries credentials": "https://s3.example.test",

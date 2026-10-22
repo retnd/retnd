@@ -58,24 +58,13 @@ import { setsNode, versionNode } from "@shared/state/appNodes";
 import { browserNoticesNode, emitBrowserNotice } from "@shared/state/browserNotices";
 import type { BrowserNotice } from "@shared/state/browserNotices";
 
-/** What an operator asked for: every enabled set, or exactly one. */
-export type RunScope = { kind: "all" } | { kind: "set"; id: string };
-
-/** The command line each scope is equivalent to, copy-pasteable exactly
- *  as written and naming the set by its full source/backup-set id.
- *
- *  Neither form can carry a credential: the connection details live in
- *  the configuration, and the browser holds a session cookie rather than
- *  the administrator's password.
- *
- *  Neither carries `--config` either, and that is a gap rather than a
- *  decision: nothing on the wire tells this build where the deployment's
- *  configuration actually is, so the line shown is the packaged-default
- *  form. On an install that moved it, the command still names the right
- *  work and would need the flag added by hand. */
-export function commandFor(scope: RunScope): string {
-  return scope.kind === "all" ? "retnd run" : "retnd fetch --backup-set " + scope.id;
-}
+// The scope type and its terminal line live in runCommands.ts with the other
+// twins (#1253), and are re-exported here for the callers that read them
+// from this hook.
+import { runCommand } from "./runCommands";
+import type { RunScope } from "./runCommands";
+export type { RunScope } from "./runCommands";
+export const commandFor = runCommand;
 
 /** How a refusal reads to an operator, chosen by the service's own typed
  *  code rather than by a status. */

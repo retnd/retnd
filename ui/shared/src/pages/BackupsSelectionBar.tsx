@@ -33,7 +33,7 @@ import { recoverToFileCommand } from "@shared/assurance/assuranceCommands";
 import { downloadable } from "@shared/assurance/bulkDownload";
 import { bytes } from "@shared/utilities/format";
 import { planOf } from "@shared/assurance/copyPlan";
-import { recoverManyCommand } from "@shared/assurance/assuranceCommands";
+import { recoverManyCommand, recoverManyNoTargetCommand } from "@shared/assurance/assuranceCommands";
 import type { RunTarget } from "@shared/assurance/recoverMany";
 import type { BackupArtifact } from "@shared/types/backup";
 import type { StepUpOptions } from "@shared/api/contracts";
@@ -106,7 +106,7 @@ export function BackupsSelectionBar({
   const ready = download ? !readOnly && !downloading && files.length > 0 : placed && (!needsAck || accepted) && !readOnly;
   const command = download
     ? files.map((a) => recoverToFileCommand(a.id, a.filename)).join("\n")
-    : kind === null ? "retnd recover " + selected.map((a) => a.id).join(" ") + " --to <destination>"
+    : kind === null ? recoverManyNoTargetCommand(selected.map((a) => a.id))
     : recoverManyCommand(selected.map((a) => a.id), kind, kind === "source" ? sourceFolder : where.trim(), needsAck && accepted, source.acknowledged);
 
   return (

