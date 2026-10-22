@@ -481,11 +481,25 @@ func newRouteClient(urlEnv, base string) (*apiclient.Client, error) {
 // default (the first-run route's POST /system/first-run). Zero is that
 // default. A caller that raises it bounds every other call itself.
 func newRouteClientWithin(urlEnv, base string, timeout time.Duration) (*apiclient.Client, error) {
+	// The CA file and the transport opt-in are route settings like the
+	// address (remote.go), so every route reads them here rather than only
+	// the remote one: a reverse proxy with its own certificate sits in front
+	// of a host's own engine just as often.
+	transport, err := routeHTTPClient()
+	if err != nil {
+		return nil, &routeRefusal{
+			reason: fmt.Sprintf("$%s could not be used", apiCAFileEnv),
+			detail: err.Error() + ", so nothing was sent",
+			cause:  err,
+		}
+	}
 	client, err := apiclient.New(apiclient.Config{
-		BaseURL:  base,
-		Timeout:  timeout,
-		Username: strings.TrimSpace(envcompat.Value(apiUsernameRoute)),
-		Password: envcompat.Value(apiPasswordRoute),
+		BaseURL:                      base,
+		Timeout:                      timeout,
+		HTTPClient:                   transport,
+		AcknowledgeInsecureTransport: insecureTransportAcknowledged(),
+		Username:                     strings.TrimSpace(envcompat.Value(apiUsernameRoute)),
+		Password:                     envcompat.Value(apiPasswordRoute),
 		// The product and the build, so a request from this command is one
 		// an operator can pick out of an access log. #543's claim is that a
 		// routed command leaves the same audit trail as the Web UI, and
@@ -530,6 +544,7 @@ func clearInheritedRouteSettings() {
 	for _, name := range []string{
 		apiURLEnv, apiUsernameEnv, apiPasswordEnv,
 		legacyAPIURLEnv, legacyAPIUsernameEnv, legacyAPIPasswordEnv,
+		apiDeploymentIDEnv, apiInsecureTransportEnv, apiCAFileEnv,
 	} {
 		_ = os.Unsetenv(name)
 	}

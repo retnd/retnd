@@ -64,11 +64,23 @@ func cmdAuth(args []string) int {
 // route over a fact that has nothing to do with it. What does matter is
 // that the engine reached is THIS deployment's, and attachToEngine settles
 // exactly that, the way every routed write does.
+//
+// From a terminal with no deployment of its own the verbs go remote
+// (remote.go), unpinned like the other reads: the engine has to be told the
+// current password before it changes anything, which is a check of its own.
 func authClient(ctx context.Context, cfgPath, verb string) (*apiclient.Client, int) {
+	remote, err := engineOnlyRemote(ctx, cfgPath, false)
+	if err != nil {
+		return nil, fail(fmt.Errorf("%s: %w", verb, err))
+	}
+	if remote != nil {
+		return remote.client, exitOK
+	}
 	if _, err := config.LoadAndValidate(cfgPath); err != nil {
 		return nil, fail(fmt.Errorf("config: %w", err))
 	}
-	noRoute := fmt.Errorf("%s changes the administrator's account, which belongs to the process serving this deployment, and this command has no route to one. Set %s and the two credential variables beside it to reach that process. If the account is locked out and nothing is serving, `%s auth set-password --username U --password-stdin` resets it offline", verb, apiURLEnv, cliecho.WebBinary)
+	noRoute := fmt.Errorf("%w. If the account is locked out and nothing is serving, `%s auth set-password --username U --password-stdin` resets it offline",
+		noEngineRefusal(verb+" acts on the administrator's account, which belongs to the process serving this deployment"), cliecho.WebBinary)
 
 	engine, err := detectRunningEngine(cfgPath)
 	if err != nil {

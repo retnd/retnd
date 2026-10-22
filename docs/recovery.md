@@ -996,7 +996,8 @@ a running one can be stopped.
   recorded as a failed copy, because nobody saw the validator answer. An id that nothing is
   running under (never started, already finished, or another process's) is not found, never
   a success. Operations live in the memory of the process serving the deployment, so the CLI
-  needs `RETND_API_URL` and the two credential variables. The route is deliberately not
+  needs `RETND_API_URL` and the two credential variables, and from a terminal with no
+  deployment of its own `RETND_API_DEPLOYMENT_ID` as well. The route is deliberately not
   under `/operations`, so it answers on a deployment whose destructive gate is shut.
 
 ### What the validator printed

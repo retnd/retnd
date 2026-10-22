@@ -70,26 +70,10 @@ func cmdBackupSetEditHold(args []string) int {
 		return usageError("backup-set edit-hold: %q is not a backup set id; a backup set id is exactly source/name", id)
 	}
 
-	cfg, err := config.LoadAndValidate(*cfgPath)
-	if err != nil {
-		return fail(fmt.Errorf("config: %w", err))
-	}
-
 	ctx := context.Background()
-	// The same door every read goes through: it announces which world this
-	// answer is about and refuses the three disagreements before anything
-	// is printed. It takes no claim, which is right here: an edit hold is
-	// not configuration, so there is nothing on disk for a claim to
-	// protect.
-	mode, err := enterReadMode(ctx, *cfgPath, cfg, os.Stderr)
-	if err != nil {
-		return fail(err)
-	}
-	if !mode.attached() {
-		// The variable is named from the constant rather than spelled out
-		// here, so a sentence telling an operator what to set cannot come
-		// to disagree with what this build reads (route.go).
-		return fail(fmt.Errorf("an edit hold is held in memory by the process serving this deployment, and this command has no route to one, so there is nothing to report and nothing to release. Set %s and the two credential variables beside it to reach that process; with nothing serving at all there is no hold, because a hold does not survive the process that took it", apiURLEnv))
+	mode, code := editHoldRoute(ctx, *cfgPath)
+	if code >= 0 {
+		return code
 	}
 
 	if *release {
@@ -132,4 +116,32 @@ func printEditHold(state apicontract.BackupSetEditHoldState, released bool) {
 		return
 	}
 	fmt.Printf("  running: %s (%s)\n", state.Running.Artifact, state.Running.Stage)
+}
+
+// editHoldRoute is the engine an edit hold is read from: remote from a
+// terminal with no deployment of its own (remote.go), otherwise the same
+// door every read goes through, which announces which world this answer is
+// about and refuses the three disagreements before anything is printed. It
+// takes no claim, which is right here: an edit hold is not configuration, so
+// there is nothing on disk for a claim to protect.
+func editHoldRoute(ctx context.Context, cfgPath string) (readDecision, int) {
+	remote, err := engineOnlyRemote(ctx, cfgPath, false)
+	if err != nil {
+		return readDecision{}, fail(err)
+	}
+	if remote != nil {
+		return remote.decision(), -1
+	}
+	cfg, err := config.LoadAndValidate(cfgPath)
+	if err != nil {
+		return readDecision{}, fail(fmt.Errorf("config: %w", err))
+	}
+	mode, err := enterReadMode(ctx, cfgPath, cfg, os.Stderr)
+	if err != nil {
+		return readDecision{}, fail(err)
+	}
+	if !mode.attached() {
+		return readDecision{}, fail(noEngineRefusal("an edit hold is held in memory by the process serving this deployment, so there is nothing to report and nothing to release without a route to it (with nothing serving at all there is no hold, because a hold does not survive the process that took it)"))
+	}
+	return mode, -1
 }

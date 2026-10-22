@@ -145,6 +145,15 @@ type Config struct {
 	// caller that knows its own build (cmd/retnd does, from
 	// -ldflags) should say so here.
 	UserAgent string
+
+	// AcknowledgeInsecureTransport sends the insecure-transport
+	// acknowledgement on every operation behind the destructive gate
+	// (#1250's review). The engine refuses a gated act over plain http to
+	// anything but loopback unless the request carries it, and this is the
+	// operator saying, once and on purpose, that they know. Nothing sets it
+	// on their behalf: cmd/retnd sets it only when RETND_API_INSECURE_TRANSPORT
+	// says so.
+	AcknowledgeInsecureTransport bool
 }
 
 // Client talks to one engine. Safe for concurrent use: the sign-in is
@@ -158,6 +167,9 @@ type Client struct {
 	password string
 
 	userAgent string
+
+	// ackInsecure is Config.AcknowledgeInsecureTransport.
+	ackInsecure bool
 
 	// sleep waits between attempts. It is a field so the suite can prove
 	// this client sits out a full rate-limit window without spending a
@@ -201,7 +213,12 @@ func New(cfg Config) (*Client, error) {
 	}
 	base, err := url.Parse(strings.TrimSpace(cfg.BaseURL))
 	if err != nil {
-		return nil, &ConfigError{Field: "BaseURL", Value: cfg.BaseURL, Reason: "this is not a URL: " + err.Error(), Err: err}
+		// A fixed sentence and no parse error, on purpose (#1250's
+		// review). url.Parse quotes what it was given, and an address it
+		// cannot parse is very often one with a password in it whose "/"
+		// or "?" it read as the end of the host. Value goes through
+		// redactURL, which hides the userinfo of exactly that shape.
+		return nil, &ConfigError{Field: "BaseURL", Value: redactURL(cfg.BaseURL), Reason: "this is not a URL this client can parse"}
 	}
 	if base.Scheme != "http" && base.Scheme != "https" {
 		return nil, &ConfigError{Field: "BaseURL", Value: cfg.BaseURL, Reason: fmt.Sprintf("it has scheme %q, and /api/v1 is served over http or https", base.Scheme)}
@@ -272,12 +289,13 @@ func New(cfg Config) (*Client, error) {
 	}
 
 	return &Client{
-		base:      base,
-		username:  cfg.Username,
-		password:  cfg.Password,
-		userAgent: userAgent,
-		sleep:     waitFor,
-		http:      &transport,
+		base:        base,
+		username:    cfg.Username,
+		password:    cfg.Password,
+		userAgent:   userAgent,
+		ackInsecure: cfg.AcknowledgeInsecureTransport,
+		sleep:       waitFor,
+		http:        &transport,
 	}, nil
 }
 
@@ -486,7 +504,45 @@ func (c *Client) newRequest(ctx context.Context, ep apicontract.Endpoint, target
 	if stepUpOperations[ep.ID] && c.password != "" {
 		req.Header.Set(stepUpHeaderName, c.password)
 	}
+	// An allowlist rather than "anything but none" (#1250's review): the
+	// key rides on a context the sign-in shares, so a value the generator
+	// emitted empty or new must not be read as permission to send it.
+	if key := idempotencyKeyFrom(ctx); key != "" && (ep.IdempotencyKey == "required" || ep.IdempotencyKey == "optional") {
+		req.Header.Set(idempotencyKeyHeaderName, key)
+	}
+	if c.ackInsecure && ep.DestructiveGate {
+		req.Header.Set(insecureTransportHeaderName, insecureTransportAcknowledged)
+	}
 	return req, nil
+}
+
+// idempotencyKeyHeaderName is the header POST /operations reads its key from
+// (apps/common/webhost's submitOperation), spelled here because this package
+// does not import the web host.
+const idempotencyKeyHeaderName = "Idempotency-Key"
+
+// insecureTransportHeaderName and insecureTransportAcknowledged are
+// webhost.InsecureTransportHeader and its one accepted value, spelled here
+// for the step-up header's reason.
+const (
+	insecureTransportHeaderName   = "X-Retnd-Insecure-Transport-Ack"
+	insecureTransportAcknowledged = "acknowledged"
+)
+
+// The key travels on the context rather than as another parameter through
+// call, callQuery and do, because one operation takes it and the sign-in and
+// every read share those paths (#1250). It is still per request: the key is
+// set by the one method that was handed it, and the 401 retry in callQuery
+// resends the same submission with the same key, which is what the key is for.
+type idempotencyKeyCtx struct{}
+
+func withIdempotencyKey(ctx context.Context, key string) context.Context {
+	return context.WithValue(ctx, idempotencyKeyCtx{}, key)
+}
+
+func idempotencyKeyFrom(ctx context.Context) string {
+	key, _ := ctx.Value(idempotencyKeyCtx{}).(string)
+	return key
 }
 
 // stepUpHeaderName is webhost.StepUpHeader, spelled here because this

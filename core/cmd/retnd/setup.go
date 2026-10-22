@@ -8,7 +8,9 @@ import (
 	"io"
 	"os"
 
+	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/cliecho"
+	"github.com/retnd/retnd/core/internal/apiclient"
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/backend"
 	"github.com/retnd/retnd/core/internal/config"
@@ -674,6 +676,32 @@ const (
 	// operator reads now says to read the sentence beside it before
 	// putting the retry in a loop.
 	exitEngineHoldsDeployment = 3
+
+	// 10 to 49 belong to recover (recover.go's table), and 50 onwards to
+	// refusals and outcomes that come from the engine on the other end of
+	// a route. Written down once here so the next code knows where to go.
+
+	// exitEngineGateShut: the engine's destructive gate refused the request
+	// (DESTRUCTIVE_OPERATIONS_DISABLED), so nothing was done. Any routed
+	// call, not one verb: the same refusal comes back from a validator
+	// upload, a routed create, a recovery and a run, and a script that
+	// learned 50 from one of them should be able to rely on it for all.
+	// Retrying does not change it; the sentence beside it says what does.
+	exitEngineGateShut = 50
+
+	// exitLostTrack: this command stopped watching an operation before it
+	// finished and cannot say how it ended. The operation may still be
+	// running in the engine. A submit whose reply never came, a follow
+	// whose engine stopped answering for longer than it waits, an
+	// operation the engine no longer has, and Ctrl-C on a follow all end
+	// here, because "the run failed" would be the wrong thing to alert on.
+	exitLostTrack = 51
+
+	// exitInsecureTransport: plain http to a host that is not this machine
+	// was refused, by this command before anything was sent or by the
+	// engine as INSECURE_TRANSPORT_ACK_REQUIRED. Either way the remedy is
+	// https, or RETND_API_INSECURE_TRANSPORT=acknowledged.
+	exitInsecureTransport = 52
 )
 
 // fail prints err to stderr in a consistent shape and returns the exit
@@ -698,7 +726,35 @@ func fail(err error) int {
 	if errors.Is(err, errEngineHoldsDeployment) {
 		return exitEngineHoldsDeployment
 	}
+	if code, hint := engineRefusalExit(err); code != exitFailure {
+		if hint != "" {
+			fmt.Fprintln(os.Stderr, hint)
+		}
+		return code
+	}
 	return exitFailure
+}
+
+// engineRefusalExit is the one place a refusal from the engine is turned into
+// an exit code of its own (#1250's review), so every routed call that ends in
+// fail() answers the same way: a validator upload, a routed create and a run
+// all exit 50 on a shut gate, and nothing has to remember to map it.
+func engineRefusalExit(err error) (int, string) {
+	var transport *transportRefusal
+	if errors.As(err, &transport) {
+		return exitInsecureTransport, ""
+	}
+	var refused *apiclient.Error
+	if !errors.As(err, &refused) {
+		return exitFailure, ""
+	}
+	switch refused.Code {
+	case apicontract.ErrorCodeDestructiveOperationsDisabled:
+		return exitEngineGateShut, "The engine's destructive gate refused this, so nothing was done, and asking again will not change that."
+	case apicontract.ErrorCodeInsecureTransportAckRequired:
+		return exitInsecureTransport, fmt.Sprintf("The engine refuses this over plain http without an acknowledgement. Use https, or set %s=%s to send one.", apiInsecureTransportEnv, apiInsecureTransportOptInWord)
+	}
+	return exitFailure, ""
 }
 
 // usageError prints a usage complaint straight to stderr (flag.Parse

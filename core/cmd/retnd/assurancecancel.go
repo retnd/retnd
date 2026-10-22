@@ -64,17 +64,27 @@ func cmdAssuranceCancel(args []string) int {
 	}
 	opID := operands[0]
 
-	cfg, err := config.LoadAndValidate(*cfgPath)
-	if err != nil {
-		return fail(fmt.Errorf("config: %w", err))
-	}
 	ctx := context.Background()
-	mode, err := enterReadMode(ctx, *cfgPath, cfg, os.Stderr)
+	// Stopping work, so a remote route wants the deployment pinned
+	// (remote.go).
+	remote, err := engineOnlyRemote(ctx, *cfgPath, true)
 	if err != nil {
 		return fail(err)
 	}
-	if !mode.attached() {
-		return fail(fmt.Errorf("a running scrub or recovery test belongs to the process serving this deployment, and this command has no route to one, so there is nothing to cancel. Set %s and the two credential variables beside it to reach that process", apiURLEnv))
+	var mode readDecision
+	if remote != nil {
+		mode = remote.decision()
+	} else {
+		cfg, err := config.LoadAndValidate(*cfgPath)
+		if err != nil {
+			return fail(fmt.Errorf("config: %w", err))
+		}
+		if mode, err = enterReadMode(ctx, *cfgPath, cfg, os.Stderr); err != nil {
+			return fail(err)
+		}
+		if !mode.attached() {
+			return fail(noEngineRefusal("a running scrub or recovery test belongs to the process serving this deployment, so there is nothing to cancel without a route to it"))
+		}
 	}
 
 	got, err := mode.client.CancelAssuranceOperation(ctx, opID)

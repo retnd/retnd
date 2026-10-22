@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/retnd/retnd/core/apicontract"
 )
@@ -193,7 +194,20 @@ func (e *NoCredentials) Is(target error) bool { return target == ErrUnauthentica
 // a support ticket before anybody notices.
 func redactURL(raw string) string {
 	parsed, err := url.Parse(raw)
-	if err != nil || parsed.User == nil {
+	if err != nil {
+		// Unparseable, and an "@" in it may be the end of a userinfo whose
+		// password held a "/" or "?" that url.Parse read as the end of the
+		// host (#1250's review). There is no telling where the secret
+		// stops, so nothing after the scheme is printed rather than a guess.
+		if strings.Contains(raw, "@") {
+			if scheme, _, found := strings.Cut(raw, "://"); found && !strings.ContainsAny(scheme, "@/:") {
+				return scheme + "://<redacted>"
+			}
+			return "<redacted>"
+		}
+		return raw
+	}
+	if parsed.User == nil {
 		return raw
 	}
 	return parsed.Redacted()

@@ -45,10 +45,6 @@ import (
 // sentence that could differ between those two would be a sentence the
 // guard in core/cmd/retnd checks a copy of.
 const (
-	gapRunCycle = "`" + Binary + " run` starts a cycle in your own shell, not in this engine, so it is a different act against a different process"
-
-	gapRunBackupSet = "`" + Binary + " fetch --backup-set <source/backup-set>` runs that set's cycle in your own shell, not in this engine, so it is a different act against a different process"
-
 	// Issue #624. The candidate half of the connection check has no verb
 	// and deliberately gets none, which is a decision rather than the next
 	// gap to close. A candidate is a form somebody is still typing: its
@@ -151,10 +147,10 @@ var routes = map[string]entry{
 
 	// ------------------------------------------------------ operations ---
 	key("POST", "/operations"): {
-		// Three actions arrive here and they are three different acts, so
+		// Seven actions arrive here and they are seven different acts, so
 		// this switch is on apicontract's own constants rather than on
 		// string literals. It used to be on "restore", which is not one
-		// of the three and never was: the client sends restore_placement
+		// of them and never was: the client sends restore_placement
 		// and run_backup_set, so NO real request matched that arm. Every
 		// restore and every per-set run fell through to a default whose
 		// sentence is about `retnd run`, a different verb for a
@@ -180,19 +176,27 @@ var routes = map[string]entry{
 					c.bare("acknowledge")
 				}
 				return c
+			case apicontract.ActionRunCycle:
+				// `operation run` (#1250), and deliberately not `run`.
+				// usage() puts `run` among the commands that are
+				// "ordinary beside a running engine": it opens the service
+				// in the operator's own process and runs a cycle THERE,
+				// while this asked the serving engine to run one. Until
+				// #1250 there was no verb that did, and this arm printed a
+				// gap saying so.
+				return newCmd("operation", "run")
 			case apicontract.ActionRunBackupSet:
-				// Its own sentence, because it is its own act. `fetch`
-				// runs one backup set's cycle and is the verb an operator
-				// reaches for, and it is not this for the same reason
-				// `run` is not a run_cycle: usage() puts both among the
-				// commands that are "ordinary beside a running engine",
-				// so it opens the service in the operator's own process
-				// and runs the set THERE, while this asks the serving
-				// engine to run it. Answering with run_cycle's sentence,
-				// which is what happened until #599's review, sends
-				// somebody asking about one set to a verb about all of
-				// them.
-				return newCmd().refuse(gapRunBackupSet)
+				// The same verb with --backup-set, and not `fetch
+				// --backup-set` for the reason above: fetch runs the set
+				// in the operator's own process.
+				if req.BackupSetID == "" {
+					return nil
+				}
+				c := newCmd("operation", "run").flag("backup-set", req.BackupSetID)
+				if req.SkipWorkflowScripts {
+					c.bare("skip-workflow-scripts")
+				}
+				return c
 			case apicontract.ActionRestoreSnapshot:
 				// The gap this arm used to print is closed (#788):
 				// `snapshot restore` is the verb, and it is deliberately
@@ -234,25 +238,16 @@ var routes = map[string]entry{
 				}
 				return newCmd("snapshot", "unhold", req.SnapshotHoldRelease.BackupSetID, req.SnapshotHoldRelease.HoldID)
 			default:
-				// The gap the issue names, and the one a lazier
-				// implementation gets wrong. `retnd run`
-				// exists and is NOT this: usage() puts it among the
-				// commands that are "ordinary beside a running engine",
-				// so it opens the service in the operator's own process
-				// and runs a cycle there. This asks the SERVING engine
-				// to run one. Printing `retnd run` would print
-				// a command that does something different to a
-				// different process.
-				return newCmd().refuse(gapRunCycle)
+				// An action this table does not know is a request
+				// nothing here can name a verb for, so it gets the
+				// route-level sentence below.
+				return nil
 			}
 		},
-		// A body that will not decode names no action at all, so the
-		// route-level sentence is the one every other builder here gives
-		// for that case rather than one of the two below, which are
-		// answers about a specific act.
-		why:               "there is no verb that submits an operation from a request body",
-		refusals:          []string{gapRunCycle, gapRunBackupSet},
-		namesShippedVerbs: []string{"run", "fetch"},
+		// A body that will not decode, or that names an action none of
+		// the arms above knows, gets the route-level sentence every other
+		// builder here gives for that case.
+		why: "there is no verb that submits an operation from a request body",
 		examples: []Action{
 			{Body: []byte(`{"action":"` + apicontract.ActionRestorePlacement + `","config_revision":"r1","restore":{"artifact_id":"api-server/var-backups/dump.tar","medium":"offsite_s3","window_days":7,"acknowledged":true}}`)},
 			{Body: []byte(`{"action":"` + apicontract.ActionRunBackupSet + `","config_revision":"r1","backup_set_id":"api-server/var-backups"}`)},
@@ -1158,15 +1153,11 @@ var routes = map[string]entry{
 	},
 
 	// ------------------------------------------------------- backends ---
-	// EPIC I (#664). A gap entry rather than a command, and the gap is
-	// real: there is no verb that lists the registered backends at all.
-	// `medium add --backend <id>` takes one and refuses an id no manifest
-	// declares, so a terminal operator learns the set from a refusal
-	// rather than from a listing. Naming the missing verb here is the
-	// point of this table: a parity gap that is written down is a
-	// decision, and inventing a `medium backends` verb to satisfy this
-	// test would invert the rule, which exists so a missing verb is
-	// VISIBLE rather than absent.
+	// EPIC I (#664). The registered storage backends, which the Add
+	// destination dialog lists: `medium backends` prints the same set, so a
+	// terminal operator learns which ids `medium add --backend <id>` takes
+	// from a listing rather than from a refusal. It was a gap until that
+	// verb shipped (#1154).
 	key("GET", "/backends"): {
 		build:    func(Action) *cmd { return newCmd("medium", "backends") },
 		examples: []Action{{}},
