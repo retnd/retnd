@@ -738,17 +738,17 @@ var routes = map[string]entry{
 				c.flag("copy", req.Copy)
 			}
 			switch req.Target.Kind {
-			case "download":
+			case apicontract.RecoveryTargetDownload:
 				c.flag("to", "-")
-			case "staging":
+			case apicontract.RecoveryTargetStaging:
 				c.flag("to", stagingName(req.Target.Path))
-			case "storage":
+			case apicontract.RecoveryTargetStorage:
 				to := "medium:" + req.Target.Medium
 				if req.Target.Key != "" {
 					to += "/" + req.Target.Key
 				}
 				c.flag("to", to)
-			case "source":
+			case apicontract.RecoveryTargetSource:
 				sourceTarget(c, req.Target.Path, req.Target.AcknowledgedDestination)
 			default:
 				// A kind the contract doesn't have, a case variant or
@@ -800,15 +800,15 @@ var routes = map[string]entry{
 				c.flag("copy", req.Copy)
 			}
 			switch req.Target.Kind {
-			case "staging":
+			case apicontract.RecoveryTargetStaging:
 				c.flag("to", stagingName(req.Target.Path))
-			case "storage":
+			case apicontract.RecoveryTargetStorage:
 				to := "medium:" + req.Target.Medium
 				if req.Target.Key != "" {
 					to += "/" + req.Target.Key
 				}
 				c.flag("to", to)
-			case "source":
+			case apicontract.RecoveryTargetSource:
 				sourceTarget(c, req.Target.Path, req.Target.AcknowledgedDestination)
 			default:
 				// Not download either: several backups have no single

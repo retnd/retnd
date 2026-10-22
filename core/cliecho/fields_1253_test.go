@@ -40,6 +40,10 @@ import (
 // path folded into it so a hit says which field it was.
 const fieldCanary = "fieldCANARY"
 
+// It ends in "_" so no canary is a prefix of another: "script" and
+// "script_sha256" fold to fieldCANARYscript_ and fieldCANARYscriptsha256_,
+// where without the terminator echoing the second would count as echoing
+// the first.
 func fieldCanaryFor(path string) string {
 	var b strings.Builder
 	b.WriteString(fieldCanary)
@@ -48,6 +52,7 @@ func fieldCanaryFor(path string) string {
 			b.WriteRune(r)
 		}
 	}
+	b.WriteByte('_')
 	return b.String()
 }
 
@@ -121,14 +126,20 @@ func observeFieldEchoes(t *testing.T) fieldEchoes {
 			}
 			if out[route] == nil {
 				out[route] = map[string]bool{}
-				for _, p := range paths {
-					out[route][p] = false
-				}
 			}
+			// Only the fields this variant carries: a mode or an action
+			// leaves the others out, and a field that wasn't sent can't
+			// have been dropped.
 			argv := strings.Join(line.Command, "\x00")
 			for _, p := range paths {
-				if strings.Contains(argv, fieldCanaryFor(schema+"."+p)) {
+				canary := fieldCanaryFor(schema + "." + p)
+				if !strings.Contains(string(body.body), canary) {
+					continue
+				}
+				if strings.Contains(argv, canary) {
 					out[route][p] = true
+				} else if _, ok := out[route][p]; !ok {
+					out[route][p] = false
 				}
 			}
 		}
@@ -162,7 +173,7 @@ func staleFieldReasons(seen fieldEchoes, table map[string]map[string]string) []s
 			echoed, known := seen[route][field]
 			switch {
 			case !known:
-				out = append(out, route+" "+field+" (no builder for this route reads a field by that path)")
+				out = append(out, route+" "+field+" (no body the corpus sends that route carries it and gets a line back; a refused mode is pinned in the outcome golden instead)")
 			case echoed:
 				out = append(out, route+" "+field+" (it is on the line now)")
 			}
@@ -266,17 +277,20 @@ func containsString(list []string, want string) bool {
 // with the reason. An entry is a decision a reviewer can read and argue
 // with; a field missing from both the line and this table fails.
 //
-// Most of them fall into four kinds, and the reasons say which:
+// Most of them fall into three kinds, and the reasons say which:
 //
 //   - material: a password, a key, a token or a value a credential can be
 //     typed into. The verb reads it on stdin or the line names it with a
 //     placeholder (credentials_test.go is the other half of that rule).
-//   - a selector: a field whose value picks the verb or the flag's form
-//     (action, target.kind), so the line says it by being that verb.
-//   - a field that only matters to an arm that refuses (run_backup_set),
-//     or to a mode the request isn't in.
+//   - carried another way: a placeholder for a file the operator holds
+//     (a script, a tier chain's policy file) or a path parameter.
 //   - a browser handshake with no terminal counterpart: a revision token,
-//     a plan id, a hash of a script the browser already holds.
+//     a plan id, a destination fingerprint. Each of those reasons says
+//     what the pasted line acknowledges instead.
+//
+// A field that only goes with another mode of the request (a candidate's
+// connection details beside a saved set's id) is never here: the corpus
+// sends each mode on its own (canary_test.go's bodyModes).
 var fieldsNotEchoed = map[string]map[string]string{
 	"PATCH /auth/recovery": {
 		"currentPassword": "material: the verb reads it on stdin (--current-password-stdin)",
@@ -354,24 +368,13 @@ var fieldsNotEchoed = map[string]map[string]string{
 	"POST /backup-sets/{source}/{set}/retention/apply": {
 		"plan_id": "over HTTP a plan is issued, shown and applied by id; on a terminal preview and apply are one invocation, so there is no plan to name (the routes.go comment on this builder)",
 	},
-	"POST /backup-sets/test-connection": {
-		"host":             "candidate mode, which refuses (gapCandidateConnection); a request naming backup_set_id may not carry it, since the contract allows exactly one mode",
-		"user":             "candidate mode, as host",
-		"ssh_key_id":       "candidate mode, as host",
-		"known_hosts_line": "candidate mode, as host",
-		"remote_path":      "candidate mode, as host",
-	},
 	"POST /operations": {
-		"action":          "a selector: it picks the verb, so the line says it by being `restore` or `snapshot ...`",
-		"backup_set_id":   "read only by run_backup_set, which refuses (gapRunBackupSet); every other action names its set inside its own parameters",
 		"config_revision": "the browser's guard against a stale form; a terminal reads the current configuration itself",
 	},
 	"POST /backups/{source}/{set}/{name}/recovery": {
-		"target.kind":                     "a selector: it picks the form of --to (-, a name, medium:ID, source:FOLDER)",
 		"target.acknowledged_destination": "the engine's description of the source host echoed back as a yes; a terminal says yes with --acknowledge-source-write",
 	},
 	"POST /recoveries": {
-		"target.kind":                     "a selector: it picks the form of --to (a name, medium:ID, source:FOLDER)",
 		"target.acknowledged_destination": "the engine's description of the source host echoed back as a yes; a terminal says yes with --acknowledge-source-write",
 	},
 }

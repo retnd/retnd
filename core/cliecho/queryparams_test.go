@@ -83,6 +83,9 @@ func declaredQueryParams(t *testing.T) map[string][]queryParam {
 					values = []string{fieldCanaryFor("query." + p.Name)}
 				}
 				k := key(strings.ToUpper(method), path)
+				if override, ok := queryValues[k+" "+p.Name]; ok {
+					values = override
+				}
 				out[k] = append(out[k], queryParam{name: p.Name, values: values})
 			}
 		}
@@ -146,6 +149,26 @@ func TestEveryQueryParameterReachesTheLine_MutationADroppedFilterIsCaught(t *tes
 	}
 }
 
+// queryValues is where the contract types a parameter more loosely than
+// the route reads it, so the value of the right kind has to be written
+// down: a string the route only honours when it is one of a few words, or
+// a numeric token.
+var queryValues = map[string][]string{
+	// "all (the default), due or overdue", as prose rather than an enum.
+	"GET /assurance/due status": {"all", "due", "overdue"},
+	// A row-position token, typed as a string; the feed issues positive
+	// row ids, and those are what the route reads.
+	"GET /activity before": {"120"},
+}
+
 // queryParamsNotEchoed is every declared query parameter a builder leaves
 // off its line on purpose, with the reason.
-var queryParamsNotEchoed = map[string]map[string]string{}
+var queryParamsNotEchoed = map[string]map[string]string{
+	"GET /activity/live": {
+		"since":  "the browser's resume cursor into a feed it is already reading; a follow started at a terminal starts from now, and the verb has no flag for it",
+		"before": "a page backwards through the record while the live feed is open; the terminal reads older events with `activity --before`, which is GET /activity's line, and this route's line stays the follow",
+	},
+	"GET /workflow-runs/{run}/steps/{step}/logs": {
+		"after": "the browser's resume cursor into a log it is partway through; printing it would hand an operator a line that silently skips everything before it (the routes.go comment on this builder)",
+	},
+}
