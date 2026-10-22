@@ -38,12 +38,14 @@ func TestEcho1193_SourceAndStagingSpellings(t *testing.T) {
 			t.Errorf("%s %s\n  got  %s\n  want %s", tc.route, tc.body, got, tc.want)
 		}
 	}
+	// Since #1253 the preflight is the read-only description and the probe
+	// is behind --write-check, so the write check's line carries the flag.
 	check := Echo(Action{Method: "POST", Route: "/backup-sets/{source}/{set}/source-host/write-check", Params: map[string]string{"source": "api-server", "set": "var-backups"}}).Shell()
-	if check != "retnd recover --set api-server/var-backups --to source: --preflight" {
+	if check != "retnd recover --set api-server/var-backups --to source: --preflight --write-check" {
 		t.Errorf("write check echo = %s", check)
 	}
-	describe := Echo(Action{Method: "GET", Route: "/backup-sets/{source}/{set}/source-host"})
-	if describe.Gap == "" || !strings.Contains(describe.GapDetail, "--preflight") {
-		t.Errorf("describe = %+v, want a gap that names the preflight", describe)
+	describe := Echo(Action{Method: "GET", Route: "/backup-sets/{source}/{set}/source-host", Params: map[string]string{"source": "api-server", "set": "var-backups"}})
+	if describe.Gap != "" || !strings.Contains(describe.Shell(), "--preflight") || strings.Contains(describe.Shell(), "--write-check") {
+		t.Errorf("describe = %+v, want the read-only preflight", describe)
 	}
 }
