@@ -369,16 +369,16 @@ var fieldsNotEchoed = map[string]map[string]string{
 		"tiers[0].medium":      "part of the tier chain, which --policy-file carries",
 	},
 	"POST /backup-sets/{source}/{set}/retention/apply": {
-		"plan_id": "over HTTP a plan is issued, shown and applied by id; on a terminal preview and apply are one invocation, so there is no plan to name (the routes.go comment on this builder)",
+		"plan_id": "binds the deletion to the plan the operator was shown. The terminal has no flag for it: `retention apply --acknowledge` previews and deletes in one go, so the pasted line deletes whatever the plan is at paste time, which may not be what was on screen (the routes.go comment on this builder)",
 	},
 	"POST /operations": {
-		"config_revision": "the browser's guard against a stale form; a terminal reads the current configuration itself",
+		"config_revision": "binds the act to the configuration the form was drawn from, and a stale one is refused. The in-process verbs read the current revision themselves, so the pasted line acts on whatever the configuration is at paste time, not on what the operator saw",
 	},
 	"POST /backups/{source}/{set}/{name}/recovery": {
-		"target.acknowledged_destination": "the engine's description of the source host echoed back as a yes; a terminal says yes with --acknowledge-source-write",
+		"target.acknowledged_destination": "a fingerprint of the exact host, account, path and folder the operator was shown, and the engine refuses it if anything changed. The twin's --acknowledge-source-write isn't tied to it: it acknowledges whatever the set resolves to when the line is run (recovery only ever writes into a new folder, so nothing there is replaced)",
 	},
 	"POST /recoveries": {
-		"target.acknowledged_destination": "the engine's description of the source host echoed back as a yes; a terminal says yes with --acknowledge-source-write",
+		"target.acknowledged_destination": "a fingerprint of the exact host, account, path and folder the operator was shown, and the engine refuses it if anything changed. The twin's --acknowledge-source-write isn't tied to it: it acknowledges whatever the set resolves to when the line is run (recovery only ever writes into a new folder, so nothing there is replaced)",
 	},
 }
 
