@@ -143,15 +143,15 @@ func writeAssuranceOperation(w io.Writer, r apicontract.AssuranceOperationRecord
 	if r.BackupSetID != "" {
 		head += ": " + r.BackupSetID
 	}
-	fmt.Fprintf(w, "%s (%s)\n", head, r.OperationID)
+	_, _ = fmt.Fprintf(w, "%s (%s)\n", head, r.OperationID)
 	if r.Stage != "" && r.Stage != "complete" {
-		fmt.Fprintf(w, "stage:  %s\n", stageWithLabel(r.Stage))
+		_, _ = fmt.Fprintf(w, "stage:  %s\n", stageWithLabel(r.Stage))
 	}
 	if r.Reason != "" {
 		fmt.Fprintf(w, "reason: %s\n", r.Reason)
 	}
 	for _, e := range r.Events {
-		fmt.Fprintln(w, formatFollowEvent(e))
+		_, _ = fmt.Fprintln(w, formatFollowEvent(e))
 	}
 	// The Operation page shows the validator's output under a recovery
 	// test; the record doesn't carry it (it is the newest test's, kept per

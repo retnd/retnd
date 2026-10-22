@@ -74,7 +74,7 @@ type session struct {
 // runner that answers the hello and then goes quiet must not be able to
 // hold a status check or a cancel past its caller's deadline either.
 func (s *session) endWith(ctx context.Context) (stop func()) {
-	cancel := context.AfterFunc(ctx, func() { s.conn.Close() })
+	cancel := context.AfterFunc(ctx, func() { _ = s.conn.Close() })
 
 	return func() { cancel() }
 }
@@ -97,12 +97,12 @@ func (c Client) open(ctx context.Context) (*session, error) {
 	// deadline of its own for a caller with no deadline. Both are lifted
 	// once the welcome arrives, because from then on the operation
 	// itself owns the connection's lifetime.
-	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	_ = conn.SetDeadline(time.Now().Add(HandshakeTimeout))
 
 	fail := func(err error) (*session, error) {
 		stop()
-		conn.Close()
+		_ = conn.Close()
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("hostrunner: the workflow runner at %s did not complete its handshake before the caller's deadline (%w): %v", c.SocketPath, ctxErr, err)
 		}
@@ -150,7 +150,7 @@ func (c Client) Status(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	defer s.conn.Close()
+	defer s.conn.Close() //nolint:errcheck // tearing down a connection that is done; a failed close has nothing to add to the result
 	defer s.endWith(ctx)()
 
 	if err := WriteMessage(s.conn, Message{Kind: KindRequest, Request: &Request{Op: OpStatus}}); err != nil {
@@ -172,7 +172,7 @@ func (c Client) SyntaxCheck(ctx context.Context, runID, stepID string, script []
 	if err != nil {
 		return err
 	}
-	defer s.conn.Close()
+	defer s.conn.Close() //nolint:errcheck // tearing down a connection that is done; a failed close has nothing to add to the result
 	defer s.endWith(ctx)()
 
 	req := newScriptRequest(OpSyntaxCheck, runID, stepID, script)

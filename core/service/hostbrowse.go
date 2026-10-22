@@ -198,7 +198,7 @@ func listStagingDirectory(ctx context.Context, rootPath, rel string) (StagingDir
 		}
 		return StagingDirectory{}, fmt.Errorf("opening the browsable root: %w", err)
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck // read-only handle, closed after the lookups are done
 
 	// Every component must be a real folder. Lstat does not follow, so a
 	// link is seen as a link and refused, and a missing one is not found.

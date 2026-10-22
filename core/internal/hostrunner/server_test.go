@@ -410,7 +410,7 @@ func TestServer_AStepThatHasFinishedIsNotRunningWhileItsResultIsWritten(t *testi
 	}
 
 	engine, runner := net.Pipe()
-	t.Cleanup(func() { engine.Close(); runner.Close() })
+	t.Cleanup(func() { _ = engine.Close(); _ = runner.Close() })
 
 	held := &holdFirstWrite{Conn: runner, reached: make(chan struct{}), proceed: make(chan struct{})}
 	finished := make(chan struct{})
@@ -430,7 +430,7 @@ func TestServer_AStepThatHasFinishedIsNotRunningWhileItsResultIsWritten(t *testi
 	// The step is over and its result is mid-write. Cancel it from a second
 	// connection, which is how an engine does.
 	cancelEngine, cancelRunner := net.Pipe()
-	t.Cleanup(func() { cancelEngine.Close(); cancelRunner.Close() })
+	t.Cleanup(func() { _ = cancelEngine.Close(); _ = cancelRunner.Close() })
 
 	go server.handleCancel(cancelRunner, Request{Op: OpCancel, RunID: "run-held", StepID: "step-held"})
 
@@ -696,7 +696,7 @@ func TestServe_ACancelledContextStopsTheRunnerAndTheHooksItOwns(t *testing.T) {
 	// And a connection that says nothing at all, which is where the
 	// handshake read blocks forever.
 	silent := rawConn(t, client.SocketPath)
-	defer silent.Close()
+	defer silent.Close() //nolint:errcheck // test teardown
 
 	cancel()
 	select {

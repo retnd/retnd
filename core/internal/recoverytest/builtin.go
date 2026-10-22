@@ -590,7 +590,7 @@ func (c StructureCheck) check(parent context.Context, in BuiltinInput, st *check
 		zr.Multistream(false)
 		mr = &memberReader{zr: zr, src: base}
 		decoded = mr
-		closeDecoder = func() { zr.Close() }
+		closeDecoder = func() { _ = zr.Close() }
 		st.note = "CRC-32 and length verified in every member"
 	case "zstd":
 		tap = &frameTap{r: base}

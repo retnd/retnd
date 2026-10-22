@@ -335,7 +335,7 @@ func (l Layout) openWorkflowRoot() (*os.Root, error) {
 	if err != nil {
 		return nil, fmt.Errorf("hostrunner: this runner cannot open its workspace %s: %w", l.WorkspaceDir, err)
 	}
-	defer base.Close()
+	defer base.Close() //nolint:errcheck // read-only handle, closed after the lookups are done
 
 	if err := ensureDirAt(base, WorkflowDirName); err != nil {
 		return nil, err
@@ -411,7 +411,7 @@ func (l Layout) prepareStep(runID, stepID string, script []byte) (workDir, scrip
 	if err != nil {
 		return "", "", err
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck // read-only handle, closed after the lookups are done
 
 	if err := ensureDirAt(root, runID); err != nil {
 		return "", "", err
@@ -420,7 +420,7 @@ func (l Layout) prepareStep(runID, stepID string, script []byte) (workDir, scrip
 	if err != nil {
 		return "", "", fmt.Errorf("hostrunner: this runner cannot open the run directory %s: %w", runID, err)
 	}
-	defer run.Close()
+	defer run.Close() //nolint:errcheck // read-only handle, closed after the lookups are done
 
 	if err := ensureDirAt(run, stepID); err != nil {
 		return "", "", err
@@ -451,7 +451,7 @@ func (l Layout) removeStep(runID, stepID string) {
 	if err != nil {
 		return
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck // read-only handle, closed after the lookups are done
 
 	run, err := openDirAt(root, runID)
 	if err != nil {
@@ -459,7 +459,7 @@ func (l Layout) removeStep(runID, stepID string) {
 	}
 	_ = run.Remove(stepID + ScriptFileSuffix)
 	_ = run.RemoveAll(stepID)
-	run.Close()
+	_ = run.Close()
 
 	// Remove, not RemoveAll: it succeeds only when this was the run's
 	// last step, and leaves another step's directory alone.

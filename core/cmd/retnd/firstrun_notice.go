@@ -65,7 +65,7 @@ func printFirstRunNotice(out io.Writer, cfgPath, verb string) int {
 			fmt.Fprintf(os.Stderr, "Reason: %v\nRun check again once it is fixed.\n", writable)
 			return exitFailure
 		}
-		fmt.Fprintln(out, "config directory writable: yes")
+		_, _ = fmt.Fprintln(out, "config directory writable: yes")
 	} else {
 		fmt.Fprintf(out, cliecho.Binary+" is installed and not configured yet (first run, fresh install). Nothing is being backed up.\n")
 		fmt.Fprintf(out, "The engine writes a default configuration to %s on its first start.\n", path)

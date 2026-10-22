@@ -168,7 +168,7 @@ func cmdOperationList(args []string) int {
 		return exitOK
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "OPERATION\tACTION\tSTATUS\tBACKUP SET\tCREATED")
+	_, _ = fmt.Fprintln(tw, "OPERATION\tACTION\tSTATUS\tBACKUP SET\tCREATED")
 	for _, op := range kept {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", op.OperationID, dash(op.Action), op.Status, dash(op.BackupSetID), dash(op.CreatedAt))
 	}

@@ -178,7 +178,7 @@ func rleZeros(t *testing.T, blocks int) string {
 		t.Fatal(err)
 	}
 	w := bufio.NewWriterSize(f, 1<<20)
-	w.Write([]byte{0x28, 0xb5, 0x2f, 0xfd, 0x00, 7 << 3}) // no checksum, 128 KiB window
+	_, _ = w.Write([]byte{0x28, 0xb5, 0x2f, 0xfd, 0x00, 7 << 3}) // no checksum, 128 KiB window; a bufio.Writer reports the first failure at Flush
 	const size = 128 << 10
 	for i := 0; i < blocks; i++ {
 		h := uint32(size<<3) | 1<<1
@@ -187,8 +187,8 @@ func rleZeros(t *testing.T, blocks int) string {
 		}
 		var b [4]byte
 		binary.LittleEndian.PutUint32(b[:], h)
-		w.Write(b[:3])
-		w.WriteByte(0)
+		_, _ = w.Write(b[:3])
+		_ = w.WriteByte(0)
 	}
 	if err := w.Flush(); err != nil {
 		t.Fatal(err)
