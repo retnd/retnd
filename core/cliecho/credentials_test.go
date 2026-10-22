@@ -226,6 +226,11 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	"--snapshot": "the engine's opaque manifest id, which is neither a path nor a secret",
 	"--path":     "one path INSIDE the snapshot, which is a path in the operator's own source tree and is what they asked to get back",
 	"--conflict": "one of three words deciding what happens to a file already at the destination",
+	// The other two snapshot actions' flags. They were printed from #788
+	// on and this test never saw them, because the corpus only ever sent
+	// four of the seven operation actions (#1253; see bodyVariants).
+	"--run":   "the id of the run whose snapshot is verified or held, an identifier the engine minted",
+	"--level": "how deep a snapshot verify reads, one word from a closed set",
 
 	// EPIC K's incremental sets (#788). Each of these is a word from a
 	// closed vocabulary or a name the operator declared themselves, and

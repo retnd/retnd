@@ -71,26 +71,58 @@ func canaryBodies(t *testing.T, value func(path string) string) []canaryBody {
 // bodyVariants is where a field whose VALUE selects a code path gets real
 // values rather than a canary.
 //
-// SubmitOperationRequest.action is the only one: it names which of the
-// parameter objects the request carries, and a body whose action is a
-// canary string reaches no arm of that switch at all. A test driven only
-// by such a body would report that no builder printed a canary, which is
-// true and worthless. So this expands that one schema into one body per
-// action the contract actually defines.
+// A body whose selector is a canary string reaches no arm of the switch
+// behind it, and a test driven only by such a body reports that no
+// builder printed a canary, which is true and worthless. So each selector
+// below expands its schema into one body per value the builder switches
+// on.
+//
+// SubmitOperationRequest.action used to be the only one, and it listed
+// four of the seven actions. The three snapshot actions (verify, hold,
+// release) arrived with #788 and were never added, so neither this
+// corpus nor the credential test driven from it had ever reached their
+// arms: `snapshot hold --reason` prints the operator's own sentence, and
+// nothing checked that it was allowed to. RecoveryTarget.kind had the
+// same hole for every recovery target, `--to source:` included. Both were
+// found by #1253's field-completeness test, which reported every field
+// behind those arms as dropped.
+var bodySelectors = map[string]struct {
+	path   []string
+	values []string
+}{
+	"SubmitOperationRequest": {[]string{"action"}, []string{
+		apicontract.ActionRunCycle,
+		apicontract.ActionRunBackupSet,
+		apicontract.ActionRestorePlacement,
+		apicontract.ActionRestoreSnapshot,
+		apicontract.ActionVerifySnapshot,
+		apicontract.ActionHoldSnapshot,
+		apicontract.ActionReleaseSnapshotHold,
+	}},
+	// The kinds RecoveryMintRequest's and RecoveryManyRequest's builders
+	// switch on (routes.go). The contract types the field as a string, so
+	// these are the builder's own literals.
+	"RecoveryMintRequest": {[]string{"target", "kind"}, []string{"download", "staging", "storage", "source"}},
+	"RecoveryManyRequest": {[]string{"target", "kind"}, []string{"download", "staging", "storage", "source"}},
+}
+
 func bodyVariants(schema string, body []byte) [][]byte {
-	if schema == "SubmitOperationRequest" {
+	if sel, ok := bodySelectors[schema]; ok {
 		var decoded map[string]any
 		if err := json.Unmarshal(body, &decoded); err != nil {
 			return [][]byte{body}
 		}
-		out := make([][]byte, 0, 4)
-		for _, action := range []string{
-			apicontract.ActionRunCycle,
-			apicontract.ActionRunBackupSet,
-			apicontract.ActionRestorePlacement,
-			apicontract.ActionRestoreSnapshot,
-		} {
-			decoded["action"] = action
+		holder := decoded
+		for _, step := range sel.path[:len(sel.path)-1] {
+			next, ok := holder[step].(map[string]any)
+			if !ok {
+				return [][]byte{body}
+			}
+			holder = next
+		}
+		out := make([][]byte, 0, len(sel.values))
+		for _, value := range sel.values {
+			holder[sel.path[len(sel.path)-1]] = value
 			encoded, err := json.Marshal(decoded)
 			if err != nil {
 				continue
