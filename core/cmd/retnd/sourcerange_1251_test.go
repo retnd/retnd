@@ -28,7 +28,11 @@ func seedSourceSet(t *testing.T, configPath string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer j.Close()
+	t.Cleanup(func() {
+		if err := j.Close(); err != nil {
+			t.Errorf("closing the journal: %v", err)
+		}
+	})
 	set, _ := model.NewBackupSetID("production", "postgres-primary")
 	for name, at := range map[string]time.Time{
 		"march.dump": time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC),

@@ -343,7 +343,9 @@ func TestIssue1251_ATransitionAfterArrivalDoesNotMoveABackupInTheRange(t *testin
 			t.Fatal(err)
 		}
 	}
-	j.Close()
+	if err := j.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	out := artifactsOut(t, 0, "artifacts", "--config", configPath, "--since", "2026-03-15", "--until", "2026-03-15")
 	sameNames(t, "listed for its arrival day", listedNames(out), []string{rangeMiddle})
