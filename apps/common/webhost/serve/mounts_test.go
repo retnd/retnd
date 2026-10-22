@@ -5,7 +5,9 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"net/http"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -120,5 +122,66 @@ func compose(h http.Handler) http.Handler {
 	got := muxBuilders(fset, file, "apps/x/compose.go")
 	if len(got) != 2 {
 		t.Errorf("want the NewServeMux and the default-mux HandleFunc reported, got %q", got)
+	}
+}
+
+// sentinel is a handler that is only ever equal to itself.
+type sentinel struct{ name string }
+
+func (*sentinel) ServeHTTP(http.ResponseWriter, *http.Request) {}
+
+func TestEveryAPIMountIsARouterTheGuardWalks(t *testing.T) {
+	api, auth := &sentinel{"api"}, &sentinel{"auth"}
+	proxy, downloads, static := &sentinel{"proxy"}, &sentinel{"downloads"}, &sentinel{"static"}
+	for _, withAuth := range []http.Handler{auth, nil} {
+		engine := engineMounts(api, withAuth)
+		ui := uiMounts(proxy, downloads, static)
+		for _, p := range mountProblems(engine, ui, api, withAuth) {
+			t.Errorf("%s. The route-to-verb guard (apps/common/webhost) walks webhost.NewRouter and the auth router at %s, so anything else mounted under /api or /health is routes it never sees.", p, authPrefix)
+		}
+	}
+
+	// Vacuity: the patterns the guard depends on are in view.
+	var patterns []string
+	for _, m := range append(engineMounts(api, auth), uiMounts(proxy, downloads, static)...) {
+		patterns = append(patterns, m.pattern)
+	}
+	for _, must := range []string{"/api/v1/", "/api/v1/auth/", "/health/", "/api/v1/recoveries", "/"} {
+		if !slices.Contains(patterns, must) {
+			t.Fatalf("no composition mounts %s, so this test would pass without covering it", must)
+		}
+	}
+}
+
+// The mutations the source scan could not see, each against the real
+// lists with one thing wrong.
+func TestEveryAPIMountIsARouterTheGuardWalks_MutationsAreCaught(t *testing.T) {
+	api, auth := &sentinel{"api"}, &sentinel{"auth"}
+	proxy, downloads, static := &sentinel{"proxy"}, &sentinel{"downloads"}, &sentinel{"static"}
+	engine := engineMounts(api, auth)
+	ui := uiMounts(proxy, downloads, static)
+	other := &sentinel{"other"}
+	for _, tc := range []struct {
+		name       string
+		engine, ui []mount
+	}{
+		{"a handler beside the router under /api/v1",
+			append(slices.Clone(engine), mount{pattern: "POST /api/v1/first-run/finish", handler: other, kind: mountAPIRouter}), ui},
+		{"the API router mounted as a catch-all",
+			append(slices.Clone(engine), mount{pattern: "/", handler: api, kind: mountAPIRouter}), ui},
+		{"a second mount of /api/v1/ on another handler",
+			append(slices.Clone(engine), mount{pattern: "/api/v1/", handler: other, kind: mountAPIRouter}), ui},
+		{"the auth router at a prefix the guard doesn't walk",
+			[]mount{{pattern: "/api/v2/auth/", handler: auth, kind: mountAuthRouter, strip: "/api/v2/auth"}, engine[1], engine[2]}, ui},
+		{"the UI forwarding a path no engine mount answers",
+			engine, append(slices.Clone(ui), mount{pattern: "/api/v2/", handler: proxy, kind: mountEngineProxy})},
+		{"the UI's catch-all serving something other than the bundle",
+			engine, append(slices.Clone(ui[:4]), mount{pattern: "/", handler: proxy, kind: mountEngineProxy})},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := mountProblems(tc.engine, tc.ui, api, auth); len(got) == 0 {
+				t.Error("not reported")
+			}
+		})
 	}
 }

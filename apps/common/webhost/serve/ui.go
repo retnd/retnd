@@ -358,15 +358,9 @@ func NewUI(cfg UIConfig) http.Handler {
 	downloads := *proxy
 	downloads.Transport = &debugTransport{base: downloadTransport, logger: logger, debug: debug}
 
-	mux := http.NewServeMux()
-	mux.Handle("/health/", proxy)
-	mux.Handle("/api/v1/", proxy)
-	mux.Handle("/api/v1/recoveries/", rollingWriteDeadline(&downloads))
-	// #1106: POST /api/v1/recoveries, the exact path. Registered apart
-	// because the subtree pattern above would otherwise answer it with a
-	// redirect, which turns the POST into a GET.
-	mux.Handle("/api/v1/recoveries", rollingWriteDeadline(&downloads))
-	mux.Handle("/", staticHandler(cfg.StaticFS))
+	// The mounts are a list (mounts.go) so the route-to-verb guard's rule
+	// can be held against this exact composition (#1253).
+	mux := newMux(uiMounts(proxy, rollingWriteDeadline(&downloads), staticHandler(cfg.StaticFS)))
 
 	// false: this container is the actual internet-facing edge (the only
 	// one with a published port) and already observes its own real TLS
