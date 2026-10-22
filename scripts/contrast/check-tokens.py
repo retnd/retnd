@@ -52,9 +52,9 @@ SURFACES_TINT = ("ok-bg", "warn-bg", "danger-bg", "hl-bg")
 
 TEXT_ON: dict[str, tuple[float, tuple[str, ...]]] = {
     "text": (NORMAL, SURFACES_PAGE + SURFACES_TINT),
-    "text-light": (NORMAL, SURFACES_PAGE + ("ok-bg", "warn-bg", "danger-bg")),
+    "text-light": (NORMAL, (*SURFACES_PAGE, "ok-bg", "warn-bg", "danger-bg")),
     "text-faint": (NORMAL, SURFACES_PAGE),
-    "primary": (NORMAL, SURFACES_PAGE + ("ok-bg", "warn-bg", "danger-bg")),
+    "primary": (NORMAL, (*SURFACES_PAGE, "ok-bg", "warn-bg", "danger-bg")),
     "primary-dark": (NORMAL, ("bg", "surface", "table-header-bg")),
     "accent": (NORMAL, SURFACES_PAGE),
     "ok": (NORMAL, ("bg", "surface", "code-bg", "ok-bg")),
