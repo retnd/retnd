@@ -27,7 +27,11 @@ def sha256(path: Path) -> str:
 
 class RecorderTest(unittest.TestCase):
     def fixture(self, *, include_arm64: bool = True) -> tuple[Path, Path]:
-        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        # addCleanup rather than enterContext, which only exists from 3.11
+        # and the typed subset is checked as 3.10.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
         (root / "distribution/packaging").mkdir(parents=True)
         (root / "container").mkdir()
         (root / "scripts/install").mkdir(parents=True)
@@ -129,6 +133,7 @@ class MergeBackTest(unittest.TestCase):
         tripwire = re.search(r"go test \./tests/deploymentdiff", job)
         push = job.find("git push origin HEAD:main")
         self.assertIsNotNone(tripwire, "merge-back-to-main never runs core/tests/deploymentdiff")
+        assert tripwire is not None
         self.assertLess(tripwire.start(), push, "core/tests/deploymentdiff has to run before the push")
 
 

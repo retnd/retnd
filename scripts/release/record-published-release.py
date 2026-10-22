@@ -139,7 +139,8 @@ def record(root: Path, index_digest: str, index_path: Path) -> None:
     missing = expected - registry_digests.keys()
     extra = registry_digests.keys() - expected
     if missing or extra:
-        fail(f"registry architectures differ from the release manifest (missing={sorted(missing)}, extra={sorted(extra)})")
+        fail(f"registry architectures differ from the release manifest "
+             f"(missing={sorted(missing)}, extra={sorted(extra)})")
 
     for item in release["architectures"]:
         item["registry_digest"] = registry_digests[item["architecture"]]
@@ -147,9 +148,12 @@ def record(root: Path, index_digest: str, index_path: Path) -> None:
 
     image["published"] = True
     image["note"] = [
-        f"published:true. {version} was published by .github/workflows/release.yml from the append-only release branch.",
-        "container/release-manifest.json records the index digest and each linux architecture digest read back from GHCR after the push.",
-        "The installer carries the same immutable index digest; distribution/packaging tests refuse any disagreement among these three records.",
+        f"published:true. {version} was published by .github/workflows/release.yml "
+        "from the append-only release branch.",
+        "container/release-manifest.json records the index digest and each linux architecture digest read back from "
+            "GHCR after the push.",
+        "The installer carries the same immutable index digest; distribution/packaging tests refuse any disagreement "
+            "among these three records.",
     ]
 
     try:

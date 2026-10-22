@@ -33,6 +33,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from typing import cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -123,7 +124,8 @@ def gate(root: Path, where: tuple[str, tuple[str, ...]], pattern: str) -> tuple[
     return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
 
 
-def expect_fails(tracker, tally, label, directory, needle, where, pattern) -> None:
+def expect_fails(tracker: selftest_swap.AnchorTracker, tally: selftest_swap.Tally, label: str, directory: Path,
+                 needle: str, where: tuple[str, tuple[str, ...]], pattern: str) -> None:
     if tracker.stale_verdict(label):
         return
     if tracker.anchors_only(label):
@@ -142,7 +144,8 @@ def expect_fails(tracker, tally, label, directory, needle, where, pattern) -> No
     tally.ok(f"(caught): {label}", matched)
 
 
-def expect_passes(tracker, tally, label, directory, where, pattern) -> None:
+def expect_passes(tracker: selftest_swap.AnchorTracker, tally: selftest_swap.Tally, label: str, directory: Path,
+                  where: tuple[str, tuple[str, ...]], pattern: str) -> None:
     if tracker.stale_verdict(label):
         return
     if tracker.anchors_only(label):
@@ -169,7 +172,8 @@ MUTATIONS = [
         "an archive copy thawed without the cost acknowledgement",
         RESOLVE_GO,
         "\t\tif c.Access == archive.RequiresRestore {\n\t\t\tif !req.AcknowledgeCost {",
-        "\t\tif c.Access == archive.RequiresRestore {\n\t\t\t" + PLANT + "a provider restore needs no yes.\n\t\t\tif false {",
+        "\t\tif c.Access == archive.RequiresRestore "
+            "{\n\t\t\t" + PLANT + "a provider restore needs no yes.\n\t\t\tif false {",
         "want a cost refusal",
         EXPORT_PKG,
         "TestResolveArchiveOnlyIsRefusedForCostAndSaysSo",
@@ -196,7 +200,8 @@ MUTATIONS = [
         "a failed recovery that leaves its partial file behind",
         ENGINE_GO,
         "\t\tif rmErr := e.Staging.remove(f.Name()); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {",
-        "\t\t" + PLANT + "the partial is never removed.\n\t\tif rmErr := error(nil); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {",
+        "\t\t" + PLANT + "the partial is never removed.\n\t\tif rmErr := error(nil); rmErr != nil && !errors.Is(rmErr, "
+            "os.ErrNotExist) {",
         "left staging entries",
         EXPORT_PKG,
         "TestStageBytesFlippedMidFile",
@@ -214,7 +219,8 @@ MUTATIONS = [
         "a grant redeemable from another session",
         GRANT_GO,
         "\t\tsubtle.ConstantTimeCompare([]byte(e.session.key()), []byte(caller.key())) != 1 {",
-        "\t\t// " + PLANT + "the caller's session is never compared.\n\t\tsubtle.ConstantTimeCompare([]byte(e.session.key()), []byte(e.session.key())) != 1 {",
+        "\t\t// " + PLANT + "the caller's session is never "
+            "compared.\n\t\tsubtle.ConstantTimeCompare([]byte(e.session.key()), []byte(e.session.key())) != 1 {",
         "a different session of the same actor",
         EXPORT_PKG,
         "TestGrantRefusesAnotherSessionAndAnotherActor",
@@ -260,7 +266,8 @@ MUTATIONS = [
         "a target that passes through a symlink",
         STAGE_GO,
         "\t\tif fi.Mode()&fs.ModeSymlink != 0 {\n\t\t\treturn ErrTargetOutsideRoot\n\t\t}",
-        "\t\t" + PLANT + "a symlink is followed.\n\t\tif false && fi.Mode()&fs.ModeSymlink != 0 {\n\t\t\treturn ErrTargetOutsideRoot\n\t\t}",
+        "\t\t" + PLANT + "a symlink is followed.\n\t\tif false && fi.Mode()&fs.ModeSymlink != 0 {\n\t\t\treturn "
+            "ErrTargetOutsideRoot\n\t\t}",
         "want ErrTargetOutsideRoot",
         EXPORT_PKG,
         "TestStagingPublishRefusesEscapes",
@@ -277,8 +284,10 @@ MUTATIONS = [
     (
         "a publish of a file the staging area never created",
         STAGE_GO,
-        "func (s *Staging) Publish(from, rel string) (string, error) {\n\tif filepath.Dir(from) != filepath.Clean(s.Root) || !isPartial(filepath.Base(from)) {",
-        "func (s *Staging) Publish(from, rel string) (string, error) {\n\t" + PLANT + "any path may be moved into place.\n\tif false {",
+        "func (s *Staging) Publish(from, rel string) (string, error) {\n\tif filepath.Dir(from) != "
+            "filepath.Clean(s.Root) || !isPartial(filepath.Base(from)) {",
+        "func (s *Staging) Publish(from, rel string) (string, error) "
+            "{\n\t" + PLANT + "any path may be moved into place.\n\tif false {",
         "Publish must only move files this staging area created",
         EXPORT_PKG,
         "TestStagingPublishRefusesToPublishAForeignFile",
@@ -304,8 +313,10 @@ MUTATIONS = [
     (
         "a served range that writes no action-log row",
         RECOVER_RUN_GO,
-        "\td.b.auditRecovery(context.Background(), &ev, err)\n\tif err != nil {\n\t\td.endTrace(err)\n\t\td.b.finishRecoveryDownload(d.token)\n\t\treturn\n\t}",
-        "\t" + PLANT + "a served range is not audited.\n\t_ = &ev\n\tif err != nil {\n\t\td.endTrace(err)\n\t\td.b.finishRecoveryDownload(d.token)\n\t\treturn\n\t}",
+        "\td.b.auditRecovery(context.Background(), &ev, err)\n\tif err != nil "
+            "{\n\t\td.endTrace(err)\n\t\td.b.finishRecoveryDownload(d.token)\n\t\treturn\n\t}",
+        "\t" + PLANT + "a served range is not audited.\n\t_ = &ev\n\tif err != nil "
+            "{\n\t\td.endTrace(err)\n\t\td.b.finishRecoveryDownload(d.token)\n\t\treturn\n\t}",
         "should write 52 rows",
         SERVICE_PKG,
         "TestEveryMintAndEveryServedRange",
@@ -313,8 +324,10 @@ MUTATIONS = [
     (
         "a download whose grant is not spent when the client goes away",
         RECOVER_RUN_GO,
-        "\tif err != nil {\n\t\td.endTrace(err)\n\t\td.b.finishRecoveryDownload(d.token)\n\t\treturn\n\t}\n\tif d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
-        "\t" + PLANT + "only a complete download spends the grant.\n\tif d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
+        "\tif err != nil {\n\t\td.endTrace(err)\n\t\td.b.finishRecoveryDownload(d.token)\n\t\treturn\n\t}\n\tif "
+            "d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
+        "\t" + PLANT + "only a complete download spends the grant.\n\tif d.b.recoveryHost().grants.Served(d.token, "
+            "start, end, d.size) {",
         "still redeemable",
         SERVICE_PKG,
         "TestAFailedRangeWritesARowSayingSo|TestAFailedTailRangeStillSpendsTheGrant",
@@ -341,7 +354,8 @@ MUTATIONS = [
         "a gap in the served ranges counted as covered",
         GRANT_GO,
         "\treturn len(e.served) == 1 && e.served[0].from == 0 && e.served[0].to >= size",
-        "\t" + PLANT + "one span that does not start at zero counts.\n\treturn len(e.served) == 1 && e.served[0].to >= size",
+        "\t" + PLANT + "one span that does not start at zero counts.\n\treturn len(e.served) == 1 && e.served[0].to >= "
+            "size",
         "the grant is spent",
         SERVICE_PKG,
         "TestATailRangeDoesNotSpendTheGrant|TestRangesThatCoverTheArtifact",
@@ -350,7 +364,8 @@ MUTATIONS = [
         "a chunk that does not match its digest, sent anyway",
         f"{EXPORT}/verifyreader.go",
         "\tif sum := sha256.Sum256(r.buf[:n]); sum != r.ix.Chunks[i] {",
-        "\t" + PLANT + "a chunk is never compared with the index.\n\tif sum := sha256.Sum256(r.buf[:n]); false && sum != r.ix.Chunks[i] {",
+        "\t" + PLANT + "a chunk is never compared with the index.\n\tif sum := sha256.Sum256(r.buf[:n]); false && sum "
+            "!= r.ix.Chunks[i] {",
         "went out; exactly the 3 chunks",
         SERVICE_PKG,
         "TestACopyThatRotsAfterPreparationStopsAtTheBadChunk",
@@ -359,7 +374,8 @@ MUTATIONS = [
         "a whole-content digest that is never checked before the last chunk is released",
         f"{EXPORT}/verifyreader.go",
         "\t\t\tif !strings.EqualFold(hex.EncodeToString(r.whole.Sum(nil)), r.ix.SHA256) {",
-        "\t\t\t" + PLANT + "the whole digest is never compared.\n\t\t\tif false && !strings.EqualFold(hex.EncodeToString(r.whole.Sum(nil)), r.ix.SHA256) {",
+        "\t\t\t" + PLANT + "the whole digest is never compared.\n\t\t\tif false && "
+            "!strings.EqualFold(hex.EncodeToString(r.whole.Sum(nil)), r.ix.SHA256) {",
         "want an integrity failure",
         EXPORT_PKG,
         "TestTheWholeDigestIsCheckedBeforeTheLastChunkIsReleased",
@@ -413,7 +429,9 @@ MUTATIONS = [
         "a partial download that claims it verified",
         RECOVER_RUN_GO,
         "\tif d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {\n\t\td.recordVerified()",
-        "\t" + PLANT + "any served range claims the whole download verified.\n\td.b.recoveryHost().grants.Served(d.token, start, end, d.size)\n\tif true {\n\t\td.recordVerified()",
+        "\t" + PLANT + "any served range claims the whole download "
+            "verified.\n\td.b.recoveryHost().grants.Served(d.token, start, end, d.size)\n"
+            "\tif true {\n\t\td.recordVerified()",
         "the trail says the download verified",
         SERVICE_PKG,
         "TestAPartialDownloadClaimsNoVerification",
@@ -458,7 +476,8 @@ MUTATIONS = [
         "a password rotation that leaves the dropped sessions' grants alive",
         SESSION_GO,
         "\tfn := m.onEnd\n\tm.mu.Unlock()\n\tm.ended(fn, dropped...)\n\treturn token, expiresAt, nil",
-        "\tfn := m.onEnd\n\tm.mu.Unlock()\n\t" + PLANT + "dropped sessions are not reported.\n\t_, _ = fn, dropped\n\treturn token, expiresAt, nil",
+        "\tfn := m.onEnd\n\tm.mu.Unlock()\n\t" + PLANT + "dropped sessions are not reported.\n\t_, _ = fn, "
+            "dropped\n\treturn token, expiresAt, nil",
         "told the hook about 0",
         AUTH_PKG,
         "TestRotatingThePassword",
@@ -600,7 +619,8 @@ MUTATIONS = [
         "a bearer grant written to the engine's refusal log",
         REFUSAL_GO,
         "\tif strings.HasPrefix(r.URL.Path, recoveryGrantPathPrefix) {",
-        "\t" + PLANT + "the path is logged whole.\n\tif false && strings.HasPrefix(r.URL.Path, recoveryGrantPathPrefix) {",
+        "\t" + PLANT + "the path is logged whole.\n\tif false && strings.HasPrefix(r.URL.Path, "
+            "recoveryGrantPathPrefix) {",
         "a bearer grant reached the log",
         WEB_PKG,
         "TestAGrantIsNeverWrittenToTheLog",
@@ -609,7 +629,8 @@ MUTATIONS = [
         "a grant reaped from under a download that is still being served",
         GRANT_GO,
         "\t\tif e.redeemed && (e.session.endedAt(now) || (e.open == 0 && !now.Before(e.grant.ExpiresAt))) {",
-        "\t\t// " + PLANT.rstrip() + "\n\t\tif e.redeemed && (e.session.endedAt(now) || !now.Before(e.grant.ExpiresAt)) {",
+        "\t\t// " + PLANT.rstrip() + "\n\t\tif e.redeemed && (e.session.endedAt(now) || "
+            "!now.Before(e.grant.ExpiresAt)) {",
         "from under a request that is still streaming it",
         EXPORT_PKG,
         "TestAnOpenRequestKeepsItsGrantAlive",
@@ -618,7 +639,8 @@ MUTATIONS = [
         "a local copy that is a symlink or a fifo, opened anyway",
         RECOVER_GO,
         "\t\tf, err := fsopen.OpenRegular(s.local)\n\t\tif errors.Is(err, fsopen.ErrNotRegular) {",
-        "\t\tf, err := fsopen.OpenRegular(s.local)\n\t\t" + PLANT + "a refusal is not recognised.\n\t\tif false && errors.Is(err, fsopen.ErrNotRegular) {",
+        "\t\tf, err := fsopen.OpenRegular(s.local)\n\t\t" + PLANT + "a refusal is not recognised.\n\t\tif false && "
+            "errors.Is(err, fsopen.ErrNotRegular) {",
         "must be refused as not readable",
         SERVICE_PKG,
         "TestALocalCopyThatIsASymlink",
@@ -654,7 +676,8 @@ MUTATIONS = [
         "a per-destination budget that is not applied",
         BUDGET_GO,
         "\treleaseDest, err := dg.Acquire()",
-        "\t" + PLANT + "one destination may take every slot.\n\treleaseDest, err := func() (func(), error) { _ = dg; return func() {}, nil }()",
+        "\t" + PLANT + "one destination may take every slot.\n\treleaseDest, err := func() (func(), error) { _ = dg; "
+            "return func() {}, nil }()",
         "a third read of one destination",
         BUDGET_PKG,
         "TestReadsRefusesPerDestination",
@@ -663,7 +686,8 @@ MUTATIONS = [
         "a budget the product never reads",
         BUDGET_GO,
         '\tDownloadStreams Name = "download_streams"\n',
-        '\tDownloadStreams Name = "download_streams"\n\n\t' + PLANT + 'a budget with a name, a default and an exit code and no reader.\n\tUnreadBudget Name = "unread_budget"\n',
+        '\tDownloadStreams Name = "download_streams"\n\n\t' + PLANT + 'a budget with a name, a default and an exit '
+            'code and no reader.\n\tUnreadBudget Name = "unread_budget"\n',
         "UnreadBudget is declared",
         BUDGET_PKG,
         "TestEveryBudgetIsReadByAProductCodePath",
@@ -928,7 +952,8 @@ MUTATIONS = [
         "a free local volume priced as a download",
         RT_GO,
         "\t\t\tif m.Type == transport.MediumTypeLocalDir {",
-        "\t\t\t" + PLANT + "a directory costs money to read.\n\t\t\tif false && m.Type == transport.MediumTypeLocalDir {",
+        "\t\t\t" + PLANT + "a directory costs money to read.\n\t\t\tif false && m.Type == transport.MediumTypeLocalDir "
+            "{",
         "nothing is charged for reading it",
         SERVICE_PKG,
         "TestAScheduledRecoveryTestOfAFreeLocalDirMediumRuns",
@@ -964,7 +989,8 @@ MUTATIONS = [
         "a failed recovery that still says Complete",
         RECOVER_RUN_GO,
         "\t\tt.b.logger.RecoveryEnd(ctx, t.opID, t.set, t.artifact, 0, now().Sub(t.started), result, reason)",
-        "\t\tt.b.logger.RecoveryStage(ctx, t.opID, t.set, \"complete\") // " + PLANT.rstrip() + "\n\t\tt.b.logger.RecoveryEnd(ctx, t.opID, t.set, t.artifact, 0, now().Sub(t.started), result, reason)",
+        "\t\tt.b.logger.RecoveryStage(ctx, t.opID, t.set, \"complete\") // " + PLANT.rstrip()
+        + "\n\t\tt.b.logger.RecoveryEnd(ctx, t.opID, t.set, t.artifact, 0, now().Sub(t.started), result, reason)",
         "reported the Complete stage",
         SERVICE_PKG,
         "TestAFailedRecoveryEndsWithAnErrorAndNeverSaysComplete",
@@ -981,7 +1007,8 @@ MUTATIONS = [
     (
         "a configured read ceiling nothing reads",
         RECOVER_GO,
-        "\tlim.MaxConcurrentReads = smallerPositive(lim.MaxConcurrentReads, explicit(a.MaxConcurrentFullReads, a.MaxConcurrentFullReadsWritten, config.DefaultMaxConcurrentReads))",
+        "\tlim.MaxConcurrentReads = smallerPositive(lim.MaxConcurrentReads, explicit(a.MaxConcurrentFullReads, "
+            "a.MaxConcurrentFullReadsWritten, config.DefaultMaxConcurrentReads))",
         "\t_ = explicit // " + PLANT.rstrip(),
         "effective read ceilings",
         SERVICE_PKG,
@@ -1018,7 +1045,8 @@ MUTATIONS = [
         "a scheduled pass that neither scheduler can reach",
         APP_SCRUB_GO,
         "// AssuranceTick is one scheduled assurance pass:",
-        "// " + PLANT.rstrip() + "\n// NewPassTick is a pass nobody schedules.\nfunc (s *Service) NewPassTick(ctx context.Context) {}\n\n// AssuranceTick is one scheduled assurance pass:",
+        "// " + PLANT.rstrip() + "\n// NewPassTick is a pass nobody schedules.\nfunc (s *Service) NewPassTick(ctx "
+            "context.Context) {}\n\n// AssuranceTick is one scheduled assurance pass:",
         "is a scheduled pass that AssuranceTick does not call",
         APP_PKG,
         "TestEveryEntryPointInAssuranceTickIsCalledByBothSchedulers",
@@ -1027,7 +1055,8 @@ MUTATIONS = [
         "an alert kind nothing ever raises",
         ALERT_GO,
         '\tRecoveryTestFailing Kind = "RECOVERY_TEST_FAILING"\n',
-        '\tRecoveryTestFailing Kind = "RECOVERY_TEST_FAILING"\n\n\t' + PLANT + 'a kind with a name, a title and no producer.\n\tUnraised Kind = "UNRAISED"\n',
+        '\tRecoveryTestFailing Kind = "RECOVERY_TEST_FAILING"\n\n\t' + PLANT + 'a kind with a name, a title and no '
+            'producer.\n\tUnraised Kind = "UNRAISED"\n',
         "the kind Unraised is produced by no function",
         ALERT_PKG,
         "TestEveryAlertKindHasAProducerAndEveryProducerHasACaller",
@@ -1036,7 +1065,8 @@ MUTATIONS = [
         "an assurance event nothing emits",
         OBS_ASSURANCE_GO,
         "// validatorRef renders a validator reference for the feed.",
-        "// " + PLANT.rstrip() + "\n// Dormant is an event with an emitter and no caller.\nfunc (l *Logger) Dormant() {}\n\n// validatorRef renders a validator reference for the feed.",
+        "// " + PLANT.rstrip() + "\n// Dormant is an event with an emitter and no caller.\nfunc (l *Logger) Dormant() "
+            "{}\n\n// validatorRef renders a validator reference for the feed.",
         "events nothing emits",
         OBS_PKG,
         "TestEveryAssuranceEventHasAProductionEmitter",
@@ -1045,7 +1075,8 @@ MUTATIONS = [
         "a second recovery test of one set started while the first runs",
         SVC_RT_GO,
         "\tif cur := b.ops.running(opKindRecoveryTest, set.String()); cur != nil {",
-        "\t" + PLANT + "any number at once.\n\tif cur := b.ops.running(opKindRecoveryTest, set.String()); cur != nil && false {",
+        "\t" + PLANT + "any number at once.\n\tif cur := b.ops.running(opKindRecoveryTest, set.String()); cur != nil "
+            "&& false {",
         "already running",
         SERVICE_PKG,
         "TestStartRecoveryTestRunsOneAtATimePerSet",
@@ -1104,7 +1135,8 @@ MUTATIONS = [
         "a placement upsert that lets any class move the content age",
         PLACEMENTS_GO,
         "\tif p.VerificationClass == VerificationContent && p.VerifiedAt != nil && status == PlacementActive {\n",
-        "\t" + PLANT + "an existence write moves the content age.\n\tif p.VerificationClass != \"\" && p.VerifiedAt != nil && status == PlacementActive {\n",
+        "\t" + PLANT + "an existence write moves the content age.\n\tif p.VerificationClass != \"\" && p.VerifiedAt != "
+            "nil && status == PlacementActive {\n",
         "an existence write moved the content age",
         STATE_PKG,
         "TestUpsertOfAnExistenceClassCannotMoveTheContentAge",
@@ -1126,7 +1158,8 @@ MUTATIONS = [
         "a periodic sample written to the journal",
         "core/service/liveactivity_durable.go",
         "\tif d == nil || activityNotStored[e.Event] {",
-        "\t" + PLANT + "samples are stored like everything else.\n\tif d == nil || (false && activityNotStored[e.Event]) {",
+        "\t" + PLANT + "samples are stored like everything else.\n\tif d == nil || (false && "
+            "activityNotStored[e.Event]) {",
         "rows stored for 150 samples",
         SERVICE_PKG,
         "TestPeriodicSamplesAndPerRangeDownloadLinesAreNotStored",
@@ -1135,7 +1168,8 @@ MUTATIONS = [
         "a per-range download line written for every range",
         "core/service/liveactivity_durable.go",
         '\t\tif f.Key == "operation" && f.Value == "recovery range" {',
-        "\t\t" + PLANT + "every range is stored.\n\t\tif false && f.Key == \"operation\" && f.Value == \"recovery range\" {",
+        "\t\t" + PLANT + "every range is stored.\n\t\tif false && f.Key == \"operation\" && f.Value == \"recovery "
+            "range\" {",
         "rows stored for 150 samples",
         SERVICE_PKG,
         "TestPeriodicSamplesAndPerRangeDownloadLinesAreNotStored",
@@ -1152,7 +1186,8 @@ MUTATIONS = [
             (
                 "core/service/liveactivity_durable.go",
                 '\t\tif it.e.Event == obs.EventRecoveryStage && it.e.ActionID != "" && lastStage[it.e.ActionID] != i {',
-                "\t\t" + PLANT + "every stage in a batch is written.\n\t\tif false && it.e.Event == obs.EventRecoveryStage && it.e.ActionID != \"\" && lastStage[it.e.ActionID] != i {",
+                "\t\t" + PLANT + "every stage in a batch is written.\n\t\tif false && it.e.Event == "
+                    "obs.EventRecoveryStage && it.e.ActionID != \"\" && lastStage[it.e.ActionID] != i {",
             )
         ],
     ),
@@ -1172,7 +1207,8 @@ MUTATIONS = [
         "\treader := export.NewVerifiedReader(ctx, pf.src, pf.index, pf.plan.expect.Origin, pf.plan.expect.Medium)\n",
         "\t" + PLANT + "the copy is read in full again, into a temp file nobody checks.\n"
         "\tif tmp, terr := os.CreateTemp(\"\", \"retnd-planted-\"); terr == nil {\n"
-        "\t\tif rc, oerr := pf.src.OpenAt(ctx, 0); oerr == nil {\n\t\t\t_, _ = io.Copy(tmp, rc)\n\t\t\t_ = rc.Close()\n\t\t}\n"
+        "\t\tif rc, oerr := pf.src.OpenAt(ctx, 0); oerr == nil {\n\t\t\t_, _ = io.Copy(tmp, rc)\n\t\t\t_ = "
+            "rc.Close()\n\t\t}\n"
         "\t\t_ = tmp.Close()\n\t\t_ = os.Remove(tmp.Name())\n\t}\n"
         "\treader := export.NewVerifiedReader(ctx, pf.src, pf.index, pf.plan.expect.Origin, pf.plan.expect.Medium)\n",
         "read the copy again before sending a byte",
@@ -1209,7 +1245,8 @@ MUTATIONS = [
         "a durable writer that blocks the feed when it falls behind",
         "core/service/liveactivity_durable.go",
         "\tdefault:\n\t\td.dropped.Add(1)\n\t}",
-        "\tdefault:\n\t\t" + PLANT + "the feed waits for the writer.\n\t\td.queue <- durableItem{e: e, setID: setID}\n\t}",
+        "\tdefault:\n\t\t" + PLANT + "the feed waits for the writer.\n\t\td.queue <- durableItem{e: e, setID: "
+            "setID}\n\t}",
         "blocked on a full durable queue",
         SERVICE_PKG,
         "TestTheWriterFallingBehindDropsFromTheRecordAndNeverBlocksTheFeed",
@@ -1279,7 +1316,8 @@ MUTATIONS = [
                 "\t\tModifyResponse: func(res *http.Response) error {\n",
                 "\t\tModifyResponse: func(res *http.Response) error {\n"
                 "\t\t\t" + PLANT + "the upstream body is never closed.\n"
-                "\t\t\tres.Body = struct {\n\t\t\t\tio.Reader\n\t\t\t\tio.Closer\n\t\t\t}{res.Body, io.NopCloser(nil)}\n",
+                "\t\t\tres.Body = struct {\n\t\t\t\tio.Reader\n\t\t\t\tio.Closer\n\t\t\t}{res.Body, "
+                    "io.NopCloser(nil)}\n",
             ),
         ],
     ),
@@ -1305,7 +1343,8 @@ MUTATIONS = [
         "validator output kept without its bound, so no runner-only truncation record",
         RT_OUTPUT_GO,
         "\t\tif len(out) >= maxRecords || total+len(text) > maxBytes {",
-        "\t\t" + PLANT + "output is never cut.\n\t\tif false && (len(out) >= maxRecords || total+len(text) > maxBytes) {",
+        "\t\t" + PLANT + "output is never cut.\n\t\tif false && (len(out) >= maxRecords || total+len(text) > maxBytes) "
+            "{",
         "records, the bound is",
         RT_PKG,
         "TestBoundOutputFitsWhatTheJournalWillStore",
@@ -1367,8 +1406,11 @@ MUTATIONS = [
 ]
 
 CLEAN_CONTROLS = [
-    ("the budget proofs on the real drivers (#983)", REVALIDATE_PKG, "TestAThousandDueCopiesDefer|TestTheBacklogHarness"),
-    ("the budget proofs on the service (#983)", SERVICE_PKG, "TestAProviderChecksumMismatch|TestTwoConcurrentFirstDownloads|TestADefaultDeployment|TestCancellingARecoveryTest|TestTwoOperatorsOnTheSameRecoveryTest"),
+    ("the budget proofs on the real drivers (#983)", REVALIDATE_PKG,
+     "TestAThousandDueCopiesDefer|TestTheBacklogHarness"),
+    ("the budget proofs on the service (#983)", SERVICE_PKG,
+     "TestAProviderChecksumMismatch|TestTwoConcurrentFirstDownloads|TestADefaultDeployment|"
+     "TestCancellingARecoveryTest|TestTwoOperatorsOnTheSameRecoveryTest"),
     ("the failing-copy reconcile finding (#983)", RECONCILE_PKG, "TestReconcile_AMediumCopy"),
     ("the recovery domain's own suite", EXPORT_PKG, "."),
     (
@@ -1406,9 +1448,11 @@ CLEAN_CONTROLS = [
     ("the recovery-test journal suite", STATE_PKG, "TestRecordRecovery|TestMarkRecoveryOverdue"),
     ("the copy opener", FSOPEN_PKG, "."),
     ("the alert vocabulary guard", ALERT_PKG, "TestEveryAlertKind|TestTheAlertProducerGuard"),
-    ("the assurance event guard", OBS_PKG, "TestEveryAssuranceEvent|TestTheAssuranceEmitterGuard|TestTheScrubAndRecoveryTestEvents"),
+    ("the assurance event guard", OBS_PKG,
+     "TestEveryAssuranceEvent|TestTheAssuranceEmitterGuard|TestTheScrubAndRecoveryTestEvents"),
     ("the default-deployment wiring suite", SERVICE_PKG, "TestRunOnSchedule"),
-    ("the serve command's scheduler guard", SERVE_PKG, "TestServeHandsTheEngineAScheduler|TestTheServeSchedulerGuardCanFail"),
+    ("the serve command's scheduler guard", SERVE_PKG,
+     "TestServeHandsTheEngineAScheduler|TestTheServeSchedulerGuardCanFail"),
     ("the forced-pass contract", REVALIDATE_PKG, "TestRunWith_"),
     (
         "the recovery-test service suite",
@@ -1447,14 +1491,17 @@ def body(root: Path, dry_run: bool) -> int:
         only = os.environ.get("RECOVERY_SELFTEST_ONLY", "")
 
         print("==> negative controls: each slice is clean on the real tree")
-        for label, where, pattern in ([] if only else CLEAN_CONTROLS):
-            expect_passes(tracker, tally, f"{label} on an unmutated tree", root, where, pattern)
+        for clean_label, clean_where, clean_pattern in ([] if only else CLEAN_CONTROLS):
+            expect_passes(tracker, tally, f"{clean_label} on an unmutated tree", root, clean_where, clean_pattern)
 
         for i, entry in enumerate(MUTATIONS):
-            label, rel, old, new, needle, where, pattern = entry[:7]
+            # The table holds seven-field and eight-field rows, so the row's
+            # static type is a union of both; the casts say which it is.
+            row = cast("tuple[str, str, str, str, str, tuple[str, tuple[str, ...]], str]", entry[:7])
+            label, rel, old, new, needle, where, pattern = row
             if only and only not in label:
                 continue
-            extras = entry[7] if len(entry) > 7 else []
+            extras = cast("list[tuple[str, str, str]]", entry[7]) if len(entry) > 7 else []
             print()
             print(f"==> {label}")
             d = selftest_swap.mutant(root, tmp, f"recovery-{i:02d}", dry_run=dry_run)
