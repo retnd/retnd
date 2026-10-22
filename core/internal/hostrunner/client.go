@@ -128,12 +128,12 @@ func (c Client) open(ctx context.Context) (*session, error) {
 	_ = conn.SetDeadline(time.Time{})
 	switch {
 	case msg.Kind == KindFailure && msg.Failure != nil:
-		conn.Close()
+		_ = conn.Close()
 		return nil, msg.Failure
 	case msg.Kind == KindWelcome && msg.Welcome != nil:
 		return &session{conn: conn, welcome: *msg.Welcome}, nil
 	default:
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("%w: the runner answered a hello with %q", ErrProtocol, msg.Kind)
 	}
 }
@@ -208,7 +208,7 @@ func (c Client) Execute(ctx context.Context, req ExecuteRequest, sink Sink) (Res
 	if err != nil {
 		return Result{}, err
 	}
-	defer s.conn.Close()
+	defer s.conn.Close() //nolint:errcheck // tearing down a connection that is done; a failed close has nothing to add to the result
 
 	defer s.endWith(ctx)()
 
@@ -227,7 +227,7 @@ func (c Client) Cancel(ctx context.Context, runID, stepID string) error {
 	if err != nil {
 		return err
 	}
-	defer s.conn.Close()
+	defer s.conn.Close() //nolint:errcheck // tearing down a connection that is done; a failed close has nothing to add to the result
 	defer s.endWith(ctx)()
 
 	req := Request{Op: OpCancel, RunID: runID, StepID: stepID}

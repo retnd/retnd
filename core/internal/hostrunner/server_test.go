@@ -286,7 +286,7 @@ sleep 60
 
 	// The engine dies. No cancel, no goodbye: the socket simply closes,
 	// which is what a killed process leaves behind.
-	conn.Close()
+	_ = conn.Close()
 
 	// The hook's own sleep is 60s and its timeout is 60s, so anything
 	// that happens inside the next few seconds happened because the
@@ -712,10 +712,7 @@ func TestServe_ACancelledContextStopsTheRunnerAndTheHooksItOwns(t *testing.T) {
 	// behind. This is the lease guarantee at the process level: a runner
 	// that stopped is a runner whose hooks stopped.
 	deadline := time.Now().Add(15 * time.Second)
-	for {
-		if len(containerRecords(t, state)) == 0 {
-			break
-		}
+	for len(containerRecords(t, state)) != 0 {
 		if !time.Now().Before(deadline) {
 			t.Fatalf("a hook container is still there after the runner stopped: %v. It is now an orphan nothing on this host can account for", containerRecords(t, state))
 		}

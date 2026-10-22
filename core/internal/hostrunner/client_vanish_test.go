@@ -82,7 +82,7 @@ func startQuietRunner(t *testing.T, mode quietMode) *quietRunner {
 }
 
 func (q *quietRunner) serve(conn net.Conn, mode quietMode) {
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck // test teardown
 	defer func() { q.ended <- struct{}{} }()
 
 	if _, err := ReadMessage(conn); err != nil { // the hello

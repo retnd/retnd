@@ -170,7 +170,7 @@ func cmdOperationList(args []string) int {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	_, _ = fmt.Fprintln(tw, "OPERATION\tACTION\tSTATUS\tBACKUP SET\tCREATED")
 	for _, op := range kept {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", op.OperationID, dash(op.Action), op.Status, dash(op.BackupSetID), dash(op.CreatedAt))
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", op.OperationID, dash(op.Action), op.Status, dash(op.BackupSetID), dash(op.CreatedAt))
 	}
 	if err := tw.Flush(); err != nil {
 		return fail(err)
@@ -424,7 +424,7 @@ func submitWithSameKey(ctx context.Context, client *apiclient.Client, key string
 func writeOperation(w io.Writer, op apicontract.Operation) {
 	row := func(k, v string) {
 		if v != "" {
-			fmt.Fprintf(w, "%-12s %s\n", k+":", v)
+			_, _ = fmt.Fprintf(w, "%-12s %s\n", k+":", v)
 		}
 	}
 	row("operation", op.OperationID)

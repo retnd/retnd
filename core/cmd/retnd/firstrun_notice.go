@@ -57,7 +57,7 @@ func printFirstRunNotice(out io.Writer, cfgPath, verb string) int {
 	writable := service.ConfigDirWritable(path)
 
 	if verb == "check" {
-		fmt.Fprintf(out, "config: none yet at %s (fresh install; the engine writes a default configuration on its first start)\n", path)
+		_, _ = fmt.Fprintf(out, "config: none yet at %s (fresh install; the engine writes a default configuration on its first start)\n", path)
 		if writable != nil {
 			// The same sentence the web interface's first-run guide shows
 			// (service.ConfigDirUnwritableMessage), so the two agree.
@@ -67,13 +67,13 @@ func printFirstRunNotice(out io.Writer, cfgPath, verb string) int {
 		}
 		_, _ = fmt.Fprintln(out, "config directory writable: yes")
 	} else {
-		fmt.Fprintf(out, cliecho.Binary+" is installed and not configured yet (first run, fresh install). Nothing is being backed up.\n")
-		fmt.Fprintf(out, "The engine writes a default configuration to %s on its first start.\n", path)
+		_, _ = fmt.Fprintf(out, cliecho.Binary+" is installed and not configured yet (first run, fresh install). Nothing is being backed up.\n")
+		_, _ = fmt.Fprintf(out, "The engine writes a default configuration to %s on its first start.\n", path)
 		if writable != nil {
-			fmt.Fprintf(out, "Note: %s (%v)\n", service.ConfigDirUnwritableMessage(filepath.Dir(path)), writable)
+			_, _ = fmt.Fprintf(out, "Note: %s (%v)\n", service.ConfigDirUnwritableMessage(filepath.Dir(path)), writable)
 		}
 	}
-	fmt.Fprintf(out, "Next step: add the first backup set in the web interface, or with `%s backup-set create ...`.\n", cliecho.Binary)
+	_, _ = fmt.Fprintf(out, "Next step: add the first backup set in the web interface, or with `%s backup-set create ...`.\n", cliecho.Binary)
 	if verb == "status" {
 		printEngineFirstRunSteps(out)
 	}
@@ -102,9 +102,9 @@ func printEngineFirstRunSteps(out io.Writer) {
 		var got apicontract.FirstRunStatusResponse
 		if got, err = client.FirstRunStatus(context.Background()); err == nil {
 			_, base := routeAddress()
-			fmt.Fprintf(out, "first-run steps (as reported by the engine at %s):\n", base)
-			fmt.Fprintf(out, "  administrator: %s\n  email: %s\n  backup_set: %s\n", got.Steps.Administrator, got.Steps.Email, got.Steps.BackupSet)
-			fmt.Fprintf(out, "  next step: %s\n", got.NextStep)
+			_, _ = fmt.Fprintf(out, "first-run steps (as reported by the engine at %s):\n", base)
+			_, _ = fmt.Fprintf(out, "  administrator: %s\n  email: %s\n  backup_set: %s\n", got.Steps.Administrator, got.Steps.Email, got.Steps.BackupSet)
+			_, _ = fmt.Fprintf(out, "  next step: %s\n", got.NextStep)
 			return
 		}
 	}

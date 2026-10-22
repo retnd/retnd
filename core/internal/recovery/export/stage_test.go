@@ -236,7 +236,9 @@ func TestStagingPublishRefusesToPublishAForeignFile(t *testing.T) {
 	c := newClock()
 	s := newStaging(t, c)
 	foreign := filepath.Join(t.TempDir(), "secret")
-	os.WriteFile(foreign, []byte("x"), 0o600)
+	if err := os.WriteFile(foreign, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.Publish(foreign, "x"); err == nil {
 		t.Fatal("Publish must only move files this staging area created")
 	}

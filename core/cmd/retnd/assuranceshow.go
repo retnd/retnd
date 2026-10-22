@@ -148,7 +148,7 @@ func writeAssuranceOperation(w io.Writer, r apicontract.AssuranceOperationRecord
 		_, _ = fmt.Fprintf(w, "stage:  %s\n", stageWithLabel(r.Stage))
 	}
 	if r.Reason != "" {
-		fmt.Fprintf(w, "reason: %s\n", r.Reason)
+		_, _ = fmt.Fprintf(w, "reason: %s\n", r.Reason)
 	}
 	for _, e := range r.Events {
 		_, _ = fmt.Fprintln(w, formatFollowEvent(e))
@@ -158,7 +158,7 @@ func writeAssuranceOperation(w io.Writer, r apicontract.AssuranceOperationRecord
 	// set), so say where it is rather than leave it looking absent. A test
 	// that never ended has none.
 	if r.Kind == "recovery_test" && r.BackupSetID != "" && r.State != service.AssuranceOpRunning && r.State != service.AssuranceOpUnfinished {
-		fmt.Fprintf(w, "validator output: retnd recovery-test %s --show-output\n", r.BackupSetID)
+		_, _ = fmt.Fprintf(w, "validator output: retnd recovery-test %s --show-output\n", r.BackupSetID)
 	}
 }
 
