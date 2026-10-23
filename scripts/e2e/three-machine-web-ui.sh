@@ -2481,6 +2481,21 @@ client_env=(
 # never carries an empty RETND_BACKUP_SET that a suite would read as set.
 if [ "$fresh" != 1 ]; then
   client_env+=(-e "RETND_BACKUP_SET=$backup_set")
+  # The source machine the suite may prove through the wizard (#1260):
+  # the same VPS, user and path e2e/vps was created from above, on the
+  # backhaul network the engine's own probe and connection test reach.
+  # Without these the suite's `deployment.source` is null and every case
+  # guarded on it skips, which is how the post-commit safety invariant
+  # went unrun once retnd#864 locked the wizard's rail behind the
+  # connection test. The key the wizard's "Use managed key" panel picks is
+  # the one the set above was created with, which the engine holds and
+  # which the VPS's sshd really accepts.
+  client_env+=(
+    -e "RETND_VPS_HOST=vps"
+    -e "RETND_VPS_PORT=22"
+    -e "RETND_VPS_USER=$sftp_user"
+    -e "RETND_VPS_PATH=/upload"
+  )
 fi
 # Over the self-signed front proxy the browser and any node fetch in the
 # suite must accept the leaf; RETND_IGNORE_HTTPS switches on Playwright's
