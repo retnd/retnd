@@ -80,8 +80,8 @@ target-version = "py38"
 select = ["E", "F", "B", "I", "UP", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
-# The only two exemptions in this file, and both are about bytes nobody is
-# allowed to reflow rather than about lines nobody got round to wrapping.
+# Every exemption in this file is about bytes nobody is allowed to reflow
+# rather than about lines nobody got round to wrapping.
 #
 # install_docker_host.py carries EMBEDDED_COMPOSE_YAML, a byte-for-byte copy
 # of container/compose.yaml written by embed_compose.py and held to a sha256
@@ -102,6 +102,19 @@ select = ["E", "F", "B", "I", "UP", "RUF"]
 # doubted.
 "install_docker_host.py" = ["E501"]
 "test_install_docker_host.py" = ["E501"]
+#
+# The mutation selftests (scripts/bdtools/*/selftest.py and
+# assurance/ui_selftest.py) quote product source VERBATIM. Each control names
+# a line of Go or TypeScript, and the anchor check
+# (scripts/bdtools/selftest/check_anchors.py, and the "STALE ANCHOR" stop in
+# scripts/ci-local.sh) finds that line in the tree by exact text. Wrapping a
+# quoted line makes it stop matching the code it names, so the control would
+# plant nothing, which is the failure the anchor check exists to catch. Most
+# of the lines over 120 columns are those quotes, inside string literals where
+# a `# noqa` cannot reach. This exempts E501 only: a selftest's own code is
+# still held to every other rule, and its own long lines should be wrapped.
+"*/selftest.py" = ["E501"]
+"ui_selftest.py" = ["E501"]
 
 [tool.mypy]
 strict = true

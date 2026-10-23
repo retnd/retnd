@@ -68,7 +68,7 @@ import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
 import type { AssuranceApi } from "@shared/assurance/types";
 import type { BackupFacts } from "@shared/assurance/verificationModel";
 import { MenuRuns } from "./BackupRowActions";
-import { rowMenuGroups, setFilterEcho } from "./backupRowMenu";
+import { filterEcho, rowMenuGroups } from "./backupRowMenu";
 import type { MenuRun } from "./backupRowMenu";
 import { useBatchedSearchParams } from "./useBatchedSearchParams";
 import { useRowMenuRuns } from "./useRowMenuRuns";
@@ -207,8 +207,11 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // other.
   const previewSet = previewFor ? (sets.data ?? []).find((s) => s.id === previewFor) : null;
   const filteredSet = setFilter ? (sets.data ?? []).find((s) => s.id === setFilter) ?? null : null;
-  // The `set` value comes from the address, so what is echoed is checked first.
-  const setEcho = setFilterEcho(setFilter, sets.data);
+  // The terminal line for every filter on the page (#1251): the set (checked
+  // first, since it comes from the address), the bucket once it narrows the
+  // list, and the date range. Under the set chip when there is a set filter,
+  // on its own line otherwise.
+  const listEcho = filterEcho({ set: setFilter, known: sets.data, after, before, bucket: bucket && tally.known ? bucket : null });
 
   // #275: nothing to list, and nothing wrong either.
   if (isNotConfigured(artifacts.error))
@@ -377,6 +380,11 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
           </button>
         </div>
       ) : null}
+      {!setFilter && listEcho && artifacts.data && !artifacts.loading ? (
+        <div data-testid="list-filter-echo" data-assurance="" style={{ margin: "0 0 10px" }}>
+          <CommandEcho label="Same list from the terminal" commands={[listEcho]} />
+        </div>
+      ) : null}
       {setFilter && artifacts.data && !artifacts.loading ? (
         <div data-testid="set-filter-status" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", margin: "0 0 10px", fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
           <span role="status">
@@ -391,8 +399,8 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
           {filteredSet ? (
             <Link className="setchip__back" to={backupSetPath(filteredSet.source, filteredSet.set)}>{"Back to the " + filteredSet.name + " set"}</Link>
           ) : null}
-          {setEcho ? <span style={{ flexBasis: "100%" }} data-assurance="">
-            <CommandEcho label="Same list from the terminal" commands={[setEcho]} />
+          {listEcho ? <span style={{ flexBasis: "100%" }} data-assurance="">
+            <CommandEcho label="Same list from the terminal" commands={[listEcho]} />
           </span> : null}
         </div>
       ) : null}
@@ -625,8 +633,10 @@ const BackupRow = memo(function BackupRow({
           <SelectBox artifact={a} on={ticked} onChange={(v) => onToggle(a.id, v)} />
         </td>
       ) : null}
+      {/* When the backup arrived, the time the date range filters on (#1251).
+          receivedAt is when it last changed, which a later transition moves. */}
       <td className="mono" style={{ whiteSpace: "nowrap", color: "var(--text-2)" }}>
-        {stamp(a.receivedAt)}
+        {stamp(a.producedAt)}
       </td>
       <td>{a.setName}</td>
       <td className="mono" style={{ fontSize: "var(--text-sm)" }}>

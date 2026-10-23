@@ -146,6 +146,7 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	// the command has to say them.
 	"--set":   "the backup set to recover, by its own id (source/set)",
 	"--since": "the date a set recovery starts from; a date, not material",
+	"--until": "the date a set recovery ends at (#1251); a date, not material",
 	// A backup set's own description. Every one of these is a
 	// connection detail an operator types when they create the set by
 	// hand, and none of them is a secret: the key is named by id and the

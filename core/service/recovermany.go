@@ -33,11 +33,18 @@ type RecoverManyRequest struct {
 	Artifacts []string
 
 	// Set is a "source/set" id: every retained, known-good backup of the
-	// set. NewestOnly narrows it to the newest restore point and Since to
-	// those updated at or after that moment. Both only apply with Set.
+	// set. NewestOnly narrows it to the newest restore point, Since to those
+	// that arrived (DiscoveredAt) at or after that moment and Until to those
+	// that arrived at or before it (#1251). All three only apply with Set.
 	Set        string
 	NewestOnly bool
 	Since      time.Time
+	Until      time.Time
+	// All says every retained restore point of Set, explicitly. A whole set
+	// onto its source host is refused without it, and so is a range that
+	// keeps every one of them (#1193, the review of #1256): the API's
+	// spelling of the terminal's --all. It goes with none of the narrowings.
+	All bool
 
 	// Copy is a medium id, or "" / "best-available", applied to every file.
 	Copy string
@@ -217,8 +224,12 @@ func (b *BackupService) scopeRecoverMany(ctx context.Context, h *recoveryHost, r
 	switch {
 	case req.Set != "" && len(req.Artifacts) > 0, req.Set == "" && len(req.Artifacts) == 0:
 		return sc, ErrRecoverManyInvalid
-	case req.Set == "" && (req.NewestOnly || !req.Since.IsZero()):
-		return sc, fmt.Errorf("%w: newest-only and since narrow a backup set, so they need one", ErrRecoverManyInvalid)
+	case req.Set == "" && (req.NewestOnly || !req.Since.IsZero() || !req.Until.IsZero()):
+		return sc, fmt.Errorf("%w: newest-only, since and until narrow a backup set, so they need one", ErrRecoverManyInvalid)
+	case req.All && req.Set == "":
+		return sc, fmt.Errorf("%w: all is every restore point of a backup set, so it needs one", ErrRecoverManyInvalid)
+	case req.All && (req.NewestOnly || !req.Since.IsZero() || !req.Until.IsZero()):
+		return sc, fmt.Errorf("%w: all is every restore point, so it does not go with newest-only, since or until", ErrRecoverManyInvalid)
 	}
 
 	t := req.Target
@@ -272,9 +283,11 @@ func (b *BackupService) scopeRecoverMany(ctx context.Context, h *recoveryHost, r
 			sc.arts = append(sc.arts, a)
 		}
 	}
+	// Oldest arrival first. DiscoveredAt, not UpdatedAt: a later transition
+	// (a set flipped read-only and back) must not reorder a backup (#1251).
 	sort.SliceStable(sc.arts, func(i, j int) bool {
-		if !sc.arts[i].UpdatedAt.Equal(sc.arts[j].UpdatedAt) {
-			return sc.arts[i].UpdatedAt.Before(sc.arts[j].UpdatedAt)
+		if !sc.arts[i].DiscoveredAt.Equal(sc.arts[j].DiscoveredAt) {
+			return sc.arts[i].DiscoveredAt.Before(sc.arts[j].DiscoveredAt)
 		}
 		return sc.arts[i].ID < sc.arts[j].ID
 	})
@@ -320,14 +333,83 @@ func distinctSets(arts []Artifact) map[string]bool {
 	return out
 }
 
-// narrowSet applies since and newest-only to a whole set's rows. Rows that
-// are not restore points are kept (they are listed in the summary, never
-// silently dropped) unless since rules them out by age, or newest-only has
-// already chosen a restore point newer than they are.
+// RangeKeepsWholeSet reports how many of req.Set's retained restore points
+// req's since and until keep, and how many there are. Newest-only is not
+// applied: the question is whether the range on its own narrowed anything.
+// The terminal asks it before a whole set goes onto its source host, where
+// #1193 wants "every retained backup" said as --all, so a range that keeps all
+// of them (--until 2099-01-01, --since 1970-01-01) is refused rather than
+// taken as a narrowing (the review of #1256). It reads the journal only.
+func (b *BackupService) RangeKeepsWholeSet(ctx context.Context, req RecoverManyRequest) (kept, total int, err error) {
+	all, err := b.ListArtifacts(ctx, ArtifactFilter{BackupSetID: req.Set})
+	if err != nil {
+		return 0, 0, err
+	}
+	ranged := req
+	ranged.NewestOnly = false
+	for _, a := range all {
+		if restorePointStates[a.State] {
+			total++
+		}
+	}
+	for _, a := range narrowSet(all, ranged) {
+		if restorePointStates[a.State] {
+			kept++
+		}
+	}
+	return kept, total, nil
+}
+
+// WholeSetOntoSourceRefusal is the one sentence the terminal and the API give
+// when a whole set would go onto its source host without being asked for as
+// all, so the two read the same (the review of #1256).
+func WholeSetOntoSourceRefusal(set string, total int) string {
+	return fmt.Sprintf("that keeps all %d retained restore points of %s, which is the whole set onto its source host: ask for all of them explicitly (--all, or \"all\": true on the API), or narrow it so it leaves something out", total, set)
+}
+
+// refuseWholeSetOntoSource holds a run to #1193's rule: every retained backup
+// of a set onto its production host is asked for as All. No narrowing, or a
+// range that keeps every restore point, is that act by another name. A plan
+// is not held to it, as `recover --preflight` is not: it writes nothing. It
+// reads the journal only, so the refusal comes before the host is touched.
+func (b *BackupService) refuseWholeSetOntoSource(ctx context.Context, req RecoverManyRequest) error {
+	if req.Set == "" || req.NewestOnly || req.All || !RecoveryTargetWritesToSourceHost(req.Target) {
+		return nil
+	}
+	kept, total, err := b.RangeKeepsWholeSet(ctx, req)
+	if err != nil {
+		return err
+	}
+	if total > 0 && kept == total {
+		return wholeSetOntoSourceError(WholeSetOntoSourceRefusal(req.Set, total))
+	}
+	return nil
+}
+
+// wholeSetOntoSourceError is ErrRecoverManyInvalid (a 400 on the route) whose
+// text is the refusal sentence alone, without the sentinel's own sentence,
+// which is about naming a set or a list and would read as the wrong reason.
+type wholeSetOntoSourceError string
+
+func (e wholeSetOntoSourceError) Error() string { return string(e) }
+func (e wholeSetOntoSourceError) Unwrap() error { return ErrRecoverManyInvalid }
+
+// narrowSet applies since, until and newest-only to a whole set's rows. Rows
+// that are not restore points are kept (they are listed in the summary, never
+// silently dropped) unless since or until rules them out by age, or
+// newest-only has already chosen a restore point newer than they are.
+//
+// Age is DiscoveredAt, when the backup arrived, which nothing changes after.
+// UpdatedAt moves on every transition, so reading it put a March backup whose
+// set went read-only and back in October into October's range and made it the
+// newest restore point (the review of #1256).
 func narrowSet(all []Artifact, req RecoverManyRequest) []Artifact {
 	var rows []Artifact
 	for _, a := range all {
-		if !req.Since.IsZero() && a.UpdatedAt.Before(req.Since) {
+		if !req.Since.IsZero() && a.DiscoveredAt.Before(req.Since) {
+			continue
+		}
+		if !req.Until.IsZero() && a.DiscoveredAt.After(req.Until) {
 			continue
 		}
 		rows = append(rows, a)
@@ -341,7 +423,7 @@ func narrowSet(all []Artifact, req RecoverManyRequest) []Artifact {
 		if !restorePointStates[a.State] {
 			continue
 		}
-		if newest == nil || a.UpdatedAt.After(newest.UpdatedAt) || (a.UpdatedAt.Equal(newest.UpdatedAt) && a.ID > newest.ID) {
+		if newest == nil || a.DiscoveredAt.After(newest.DiscoveredAt) || (a.DiscoveredAt.Equal(newest.DiscoveredAt) && a.ID > newest.ID) {
 			newest = a
 		}
 	}
@@ -352,7 +434,7 @@ func narrowSet(all []Artifact, req RecoverManyRequest) []Artifact {
 			if newest != nil && a.ID == newest.ID {
 				out = append(out, a)
 			}
-		case newest == nil || a.UpdatedAt.After(newest.UpdatedAt):
+		case newest == nil || a.DiscoveredAt.After(newest.DiscoveredAt):
 			out = append(out, a)
 		}
 	}
@@ -594,6 +676,9 @@ func (b *BackupService) RecoverMany(ctx context.Context, sess RecoverySession, r
 
 	h, err := b.recoveryReady()
 	if err != nil {
+		return RecoverManyResult{}, err
+	}
+	if err := b.refuseWholeSetOntoSource(ctx, req); err != nil {
 		return RecoverManyResult{}, err
 	}
 	b.sweepRecoveryIfDue(ctx)

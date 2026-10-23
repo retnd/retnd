@@ -17,10 +17,15 @@ export function unselectableReason(a: BackupArtifact): string | null {
   return null;
 }
 
-/** The calendar day a backup was received, read in the offset the record
- *  carries, so a filter by day means the same day on every machine. */
+/** The calendar day a backup arrived, read in the offset the record carries,
+ *  so a filter by day means the same day on every machine. It is producedAt,
+ *  the wire's discovered_at, which is set once when the backup arrives:
+ *  receivedAt is updated_at, and that moves on every later transition (a set
+ *  going read-only and back), which put a March backup into October's range
+ *  (the review of #1256). The engine serves it in UTC, so this is the UTC day,
+ *  the day `retnd artifacts --since/--until` reads a bare date as (#1251). */
 export function receivedDay(a: BackupArtifact): string {
-  return a.receivedAt.slice(0, 10);
+  return a.producedAt.slice(0, 10);
 }
 
 /** Inclusive on both ends; an empty bound is no bound. */

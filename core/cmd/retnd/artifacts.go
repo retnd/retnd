@@ -48,6 +48,9 @@ func cmdArtifacts(args []string) int {
 	setFlag := fs.String("backup-set", "", "only artifacts from this backup set, named <source/backup-set> or by set name alone where that is unambiguous")
 	stateFlag := fs.String("state", "", "only artifacts in this lifecycle state, e.g. COMMITTED or QUARANTINED_LOST (a list only)")
 	asJSON := fs.Bool("json", false, "emit JSON, the same body the API serves (Artifact for one, ListArtifactsResponse for a list), instead of text")
+	sinceFlag := fs.String("since", "", "only backups that arrived (discovered_at) on or after this date: YYYY-MM-DD (from the start of that day, UTC) or an RFC 3339 time (a list only)")
+	untilFlag := fs.String("until", "", "only backups that arrived (discovered_at) on or before this date: YYYY-MM-DD (to the end of that day, UTC) or an RFC 3339 time (a list only)")
+	assuranceFlag := fs.String("assurance", "", "only backups in this assurance bucket, due, overdue, degraded or untested (or a comma list), classified the way `assurance list --bucket` and the Backups page's filter classify them (a list only)")
 	countFlag := fs.Bool("count", false, "print how many backups this deployment holds outside quarantine, the number the web console's Backups badge reads (the badge itself shows >100 past a hundred); with --state, how many are in that state; with --json, {\"count\": N} (a list only)")
 	// Flags may come before or after the operand, exactly like validate's
 	// own operand (see parseFlagsAroundOperands in setup.go for why).
@@ -67,6 +70,24 @@ func cmdArtifacts(args []string) int {
 	}
 	if *countFlag && len(operands) == 1 {
 		return usageError("artifacts: --count counts a list and cannot be combined with an artifact argument")
+	}
+	// #1251: the Backups page's received-date range, read by the parser
+	// `recover --since` uses, so the two verbs agree about what a date means.
+	rng, err := parseReceivedRange(*sinceFlag, *untilFlag)
+	if err != nil {
+		return usageError("artifacts: %v", err)
+	}
+	if rng.set() && len(operands) == 1 {
+		return usageError("artifacts: --since/--until narrow a list and cannot be combined with an artifact argument")
+	}
+	// The review of #1256: the page's ?assurance= filter, so it has a
+	// terminal line like every other filter on that page.
+	buckets, err := parseAssuranceFlag(*assuranceFlag)
+	if err != nil {
+		return usageError("artifacts: %v", err)
+	}
+	if buckets != nil && len(operands) == 1 {
+		return usageError("artifacts: --assurance narrows a list and cannot be combined with an artifact argument")
 	}
 	// Issue #569. --backup-set takes the whole "source/backup-set" id now,
 	// so it can carry a source of its own. Two things about that pair are
@@ -98,7 +119,7 @@ func cmdArtifacts(args []string) int {
 
 	ctx := context.Background()
 	if *asJSON && !*countFlag {
-		return artifactsJSON(ctx, *cfgPath, operands, *sourceFlag, *setFlag, wantState)
+		return artifactsJSON(ctx, *cfgPath, operands, *sourceFlag, *setFlag, wantState, rng, buckets)
 	}
 	svc, cfg, cleanup, err := openService(ctx, *cfgPath, false)
 	if err != nil {
@@ -191,13 +212,30 @@ func cmdArtifacts(args []string) int {
 	if wantState != "" {
 		records = withState(records, wantState)
 	}
+	if rng.set() {
+		records = receivedIn(records, rng)
+	}
+	if buckets != nil {
+		inBucket, err := bucketIDsFor(ctx, *cfgPath, filterID, buckets)
+		if err != nil {
+			return fail(err)
+		}
+		kept := records[:0:0]
+		for _, r := range records {
+			if inBucket[r.Artifact.String()] {
+				kept = append(kept, r)
+			}
+		}
+		records = kept
+	}
 
 	// #1186: the number the web console's Backups badge reads, from the rows
 	// just listed and checked against a serving engine, so it says the mode
 	// like the list does. Without --state it is every backup outside
 	// quarantine, by the one rule GET /system/health's retained_count uses
 	// (health.CountRetained), so a quarantined backup is never in both
-	// badges. With --state it is how many are in that state. Always the
+	// badges. With --state it is how many are in that state. --since and
+	// --until narrow it the same way they narrow the list (#1251). Always the
 	// exact number: the sidebar's ">100" is a width decision of the sidebar.
 	if *countFlag {
 		n := len(records)

@@ -119,6 +119,13 @@
 set -e
 
 export PATH="/opt/homebrew/bin:$PATH"
+# The line above puts Homebrew's tools ahead of whatever the caller set, so a
+# golangci-lint built for the pinned toolchain (see gate_golangci_pin_note
+# below) could never win from PATH alone. GOLANGCI_LINT_DIR is how to say
+# "this directory first".
+if [ -n "${GOLANGCI_LINT_DIR:-}" ]; then
+  export PATH="$GOLANGCI_LINT_DIR:$PATH"
+fi
 
 # The marker every process this gate starts can read: "you are running inside
 # the local gate", as opposed to a developer running one suite by hand. The
@@ -169,6 +176,36 @@ if ! command -v golangci-lint >/dev/null 2>&1; then
   echo "==> golangci-lint not found. Install it (brew install golangci-lint) and re-run." >&2
   exit 1
 fi
+
+# The golangci-lint this gate means is the one .github/workflows/ci.yml pins,
+# built and run with the Go toolchain it pins. A different one is not wrong to
+# run, but its findings are not CI's, and the usual way to meet that is not a
+# lint finding at all: a golangci-lint whose bundled x/tools predates the Go
+# running it cannot read the export data that Go writes (`export data version
+# 5 is greater than maximum supported version 4`), so every package "fails to
+# typecheck". That bit a machine on Go 1.27.2 against the 1.27.0 the workflow
+# pins, even with v2.13.2 built locally, which is why the line below names
+# GOTOOLCHAIN for both the build and the run. Only a note, never a refusal: a machine
+# whose binary says nothing parseable (a test stub, say) gets none.
+gate_golangci_pin_note() {
+  _pin=$(sed -n 's/.*golangci-lint@v\([0-9][0-9.]*\).*/\1/p' .github/workflows/ci.yml 2>/dev/null | head -n 1)
+  _go=$(sed -n 's/.*go-version: *"\([0-9][0-9.]*\)".*/\1/p' .github/workflows/ci.yml 2>/dev/null | head -n 1)
+  _have=$(golangci-lint --version 2>/dev/null | sed -n 's/.*has version v\{0,1\}\([0-9][0-9.]*\).*/\1/p' | head -n 1)
+  [ -n "$_pin" ] && [ -n "$_have" ] || return 0
+  _built=$(golangci-lint --version 2>/dev/null | sed -n 's/.*built with go\([0-9][0-9.]*\).*/\1/p' | head -n 1)
+  if [ "$_have" != "$_pin" ] || { [ -n "$_go" ] && [ -n "$_built" ] && [ "$_built" != "$_go" ]; }; then
+    {
+      echo "==> note: golangci-lint on PATH is ${_have} built with go${_built:-?}; CI runs v${_pin} built with go${_go:-?}."
+      echo "    A different build can report other findings, and one that predates the Go running it"
+      echo "    fails every package with 'export data version N is greater than maximum supported"
+      echo "    version M'. To run the pinned one, build it with the pinned toolchain,"
+      echo "    have this gate put it first on PATH, and run it with that toolchain too:"
+      echo "      GOTOOLCHAIN=go${_go:-<ci go>} GOBIN=<dir> go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v${_pin}"
+      echo "      GOLANGCI_LINT_DIR=<dir> GOTOOLCHAIN=go${_go:-<ci go>} sh scripts/ci-local.sh"
+    } >&2
+  fi
+}
+gate_golangci_pin_note
 
 # Captured once, from repo root (where this script is always invoked from,
 # per .husky/pre-commit), so every module below can reference the one

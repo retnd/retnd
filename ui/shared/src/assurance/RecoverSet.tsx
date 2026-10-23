@@ -152,9 +152,14 @@ export function RecoverSetDialog({
     set: setId,
     ...(narrow === "newest" ? { newestOnly: true } : {}),
     ...(sinceIso ? { since: sinceIso } : {}),
+    // Every restore point onto the source host is asked for in so many words,
+    // the way the terminal line says --all: the engine refuses it otherwise
+    // (#1193, the review of #1256). Anywhere else "all" is the default and
+    // nothing is sent, matching the line, which has no --all there either.
+    ...(narrow === "all" && target === "source" ? { all: true } : {}),
     ...(accepted ? { acknowledged: true } : {}),
     target: planTarget
-  }), [setId, narrow, sinceIso, accepted, planTarget]);
+  }), [setId, narrow, sinceIso, accepted, planTarget, target]);
   const runTarget = target === "source" ? source.targetSpec : planTarget;
 
   // The pre-flight, redrawn when a choice changes. A stale answer never

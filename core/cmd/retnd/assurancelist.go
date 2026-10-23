@@ -112,25 +112,7 @@ func cmdAssuranceList(args []string) int {
 	if err != nil {
 		return fail(err)
 	}
-	// Each set's recovery-test policy, read once. A read that fails is said
-	// on stderr and makes that set's recovery claims unknown rather than
-	// "tests on", which would count its backups due on no evidence.
-	policies := map[string]service.SetRecoveryPolicy{}
-	for _, a := range artifacts {
-		if _, seen := policies[a.BackupSetID]; seen {
-			continue
-		}
-		p, perr := svc.BackupSetAssurance(ctx, a.BackupSetID)
-		switch {
-		case perr != nil:
-			fmt.Fprintf(os.Stderr, "assurance list: could not read %s's recovery-test policy, so its backups' recovery claims are unknown: %v\n", a.BackupSetID, perr)
-			policies[a.BackupSetID] = service.SetRecoveryPolicy{Basis: service.PolicyUnavailable}
-		case p.Override:
-			policies[a.BackupSetID] = service.SetRecoveryPolicy{Off: p.Policy.RecoveryTest.Mode == "off", Basis: service.PolicyOwn}
-		default:
-			policies[a.BackupSetID] = service.SetRecoveryPolicy{Off: p.Policy.RecoveryTest.Mode == "off", Basis: service.PolicyDefault}
-		}
-	}
+	policies := setRecoveryPolicies(ctx, svc, artifacts, "assurance list")
 	now := time.Now()
 	rows := service.ListAssurance(artifacts, due, policies, now)
 
@@ -161,4 +143,75 @@ func cmdAssuranceList(args []string) int {
 		fmt.Printf("%-9s %s\n          %s\n          run it: retnd recovery-test %s --artifact %s\n", strings.Join(out.Items[i].Buckets, ","), r.ArtifactID, r.Reason, r.BackupSetID, r.ArtifactID)
 	}
 	return exitOK
+}
+
+// setRecoveryPolicies reads each listed set's recovery-test policy once. A
+// read that fails is said on stderr and makes that set's recovery claims
+// unknown rather than "tests on", which would count its backups due on no
+// evidence. who names the verb in that sentence.
+func setRecoveryPolicies(ctx context.Context, svc *service.BackupService, artifacts []service.Artifact, who string) map[string]service.SetRecoveryPolicy {
+	policies := map[string]service.SetRecoveryPolicy{}
+	for _, a := range artifacts {
+		if _, seen := policies[a.BackupSetID]; seen {
+			continue
+		}
+		p, perr := svc.BackupSetAssurance(ctx, a.BackupSetID)
+		switch {
+		case perr != nil:
+			fmt.Fprintf(os.Stderr, "%s: could not read %s's recovery-test policy, so its backups' recovery claims are unknown: %v\n", who, a.BackupSetID, perr)
+			policies[a.BackupSetID] = service.SetRecoveryPolicy{Basis: service.PolicyUnavailable}
+		case p.Override:
+			policies[a.BackupSetID] = service.SetRecoveryPolicy{Off: p.Policy.RecoveryTest.Mode == "off", Basis: service.PolicyOwn}
+		default:
+			policies[a.BackupSetID] = service.SetRecoveryPolicy{Off: p.Policy.RecoveryTest.Mode == "off", Basis: service.PolicyDefault}
+		}
+	}
+	return policies
+}
+
+// parseAssuranceFlag reads `artifacts --assurance`: one bucket, or a comma
+// list of them, each a name `assurance list --bucket` takes. Empty is no
+// narrowing.
+func parseAssuranceFlag(v string) (map[service.Bucket]bool, error) {
+	if strings.TrimSpace(v) == "" {
+		return nil, nil
+	}
+	known := service.AssuranceBuckets()
+	names := make([]string, len(known))
+	for i, b := range known {
+		names[i] = string(b)
+	}
+	want := map[service.Bucket]bool{}
+	for _, part := range strings.Split(v, ",") {
+		b := service.Bucket(strings.TrimSpace(part))
+		if !slices.Contains(known, b) {
+			return nil, fmt.Errorf("--assurance %q is not one of %s (untested is the tile's \"No recovery test\")", part, strings.Join(names, ", "))
+		}
+		want[b] = true
+	}
+	return want, nil
+}
+
+// assuranceBucketIDs is the ids of the backups in any of want, classified by
+// service.ListAssurance exactly as `assurance list --bucket` classifies them
+// (#1251, the review of #1256): the Backups page's ?assurance= filter as a
+// set of ids `artifacts --assurance` keeps. set narrows the read to one
+// backup set, or is empty for all of them.
+func assuranceBucketIDs(ctx context.Context, svc *service.BackupService, set string, want map[service.Bucket]bool) (map[string]bool, error) {
+	artifacts, err := svc.ListArtifacts(ctx, service.ArtifactFilter{BackupSetID: set})
+	if err != nil {
+		return nil, err
+	}
+	due, err := svc.AssuranceDue(ctx, service.AssuranceDueFilter{BackupSetID: set})
+	if err != nil {
+		return nil, err
+	}
+	policies := setRecoveryPolicies(ctx, svc, artifacts, "artifacts --assurance")
+	ids := map[string]bool{}
+	for _, r := range service.ListAssurance(artifacts, due, policies, time.Now()) {
+		if slices.ContainsFunc(r.Buckets, func(b service.Bucket) bool { return want[b] }) {
+			ids[r.ArtifactID] = true
+		}
+	}
+	return ids, nil
 }

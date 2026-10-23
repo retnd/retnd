@@ -34,20 +34,68 @@ type manyArgs struct {
 	follow     bool
 	newestOnly bool
 	since      string
+	until      string
 	preflight  bool
 	ackSource  bool
 	all        bool
 }
 
-// parseSince reads --since as a date or an RFC 3339 time.
-func parseSince(s string) (time.Time, error) {
+// receivedRange is --since and --until, the received-date range `artifacts`
+// and `recover --set` share with the Backups page's "Received on or after" and
+// "Received on or before" (#1251). Both bounds are inclusive and either may be
+// absent (the zero time). The time compared is when a backup arrived, the
+// journal's discovered_at, which is what the page filters on and what
+// service.narrowSet reads. Not updated_at: that moves on every transition, so
+// a backup whose set went read-only and back would change days (the review of
+// #1256).
+type receivedRange struct {
+	since, until time.Time
+}
+
+// parseReceivedRange reads the two flags. A DATE is YYYY-MM-DD or an RFC 3339
+// time. A bare date is the whole of that day in UTC, the zone the journal
+// stores times in and the API serves them in: --since is its first moment and
+// --until its last, so --until 2026-03-15 keeps a backup received at 23:30
+// that day, the way the page's date input does. An RFC 3339 time is that
+// moment exactly. An --until before the --since is refused rather than
+// answered with nothing, since it is a typo and not a question.
+func parseReceivedRange(since, until string) (receivedRange, error) {
+	var r receivedRange
+	var err error
+	if since != "" {
+		if r.since, err = parseDateBound("--since", since, false); err != nil {
+			return r, err
+		}
+	}
+	if until != "" {
+		if r.until, err = parseDateBound("--until", until, true); err != nil {
+			return r, err
+		}
+	}
+	if !r.since.IsZero() && !r.until.IsZero() && r.until.Before(r.since) {
+		return r, fmt.Errorf("--until %s is before --since %s, so nothing can be in that range", until, since)
+	}
+	return r, nil
+}
+
+func parseDateBound(flag, s string, endOfDay bool) (time.Time, error) {
 	if t, err := time.Parse(time.RFC3339, s); err == nil {
 		return t, nil
 	}
 	if t, err := time.Parse("2006-01-02", s); err == nil {
+		if endOfDay {
+			t = t.AddDate(0, 0, 1).Add(-time.Nanosecond)
+		}
 		return t, nil
 	}
-	return time.Time{}, fmt.Errorf("--since %q is not a date (YYYY-MM-DD) or an RFC 3339 time", s)
+	return time.Time{}, fmt.Errorf("%s %q is not a date (YYYY-MM-DD) or an RFC 3339 time", flag, s)
+}
+
+func (r receivedRange) set() bool { return !r.since.IsZero() || !r.until.IsZero() }
+
+// holds reports whether t is inside the range, both ends included.
+func (r receivedRange) holds(t time.Time) bool {
+	return (r.since.IsZero() || !t.Before(r.since)) && (r.until.IsZero() || !t.After(r.until))
 }
 
 func cmdRecoverMany(a manyArgs) int {
@@ -62,8 +110,8 @@ func cmdRecoverMany(a manyArgs) int {
 			return usageError("recover: --set takes source/backup-set, got %q", a.set)
 		}
 	} else {
-		if a.newestOnly || a.since != "" {
-			return usageError("recover: --newest-only and --since need --set")
+		if a.newestOnly || a.since != "" || a.until != "" {
+			return usageError("recover: --newest-only, --since and --until need --set")
 		}
 		for _, id := range a.ids {
 			if _, err := app.ParseArtifactID(id); err != nil {
@@ -74,8 +122,12 @@ func cmdRecoverMany(a manyArgs) int {
 	if a.all && a.set == "" {
 		return usageError("recover: --all needs --set")
 	}
-	if a.all && (a.newestOnly || a.since != "") {
-		return usageError("recover: --all is every restore point, so it does not go with --newest-only or --since")
+	if a.all && (a.newestOnly || a.since != "" || a.until != "") {
+		return usageError("recover: --all is every restore point, so it does not go with --newest-only, --since or --until")
+	}
+	rng, rerr := parseReceivedRange(a.since, a.until)
+	if rerr != nil {
+		return usageError("recover: %v", rerr)
 	}
 	var target service.RecoveryTarget
 	if a.to != "" {
@@ -91,14 +143,8 @@ func cmdRecoverMany(a manyArgs) int {
 		return usageError("recover: several backups cannot go to standard output; use a name under the recovery staging root or medium:ID[/PREFIX]")
 	}
 	req := service.RecoverManyRequest{
-		Artifacts: a.ids, Set: a.set, NewestOnly: a.newestOnly, Copy: a.copySel, Target: target, AcknowledgeCost: a.ack,
-	}
-	if a.since != "" {
-		t, perr := parseSince(a.since)
-		if perr != nil {
-			return usageError("recover: %v", perr)
-		}
-		req.Since = t
+		Artifacts: a.ids, Set: a.set, NewestOnly: a.newestOnly, Since: rng.since, Until: rng.until, All: a.all,
+		Copy: a.copySel, Target: target, AcknowledgeCost: a.ack,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -125,8 +171,20 @@ func cmdRecoverMany(a manyArgs) int {
 	}
 	if service.RecoveryTargetWritesToSourceHost(req.Target) {
 		// A whole set onto a production host is spelled out (#1193).
-		if a.set != "" && !a.newestOnly && a.since == "" && !a.all && !a.preflight {
-			return usageError("recover: a whole backup set onto its source host is said explicitly: add --newest-only (the newest restore point, which the dialog defaults to), --since DATE, or --all for every retained restore point")
+		if a.set != "" && !a.newestOnly && !rng.set() && !a.all && !a.preflight {
+			return usageError("recover: a whole backup set onto its source host is said explicitly: add --newest-only (the newest restore point, which the dialog defaults to), --since DATE and/or --until DATE, or --all for every retained restore point")
+		}
+		// A range that keeps every retained restore point is the whole set
+		// under another name (the review of #1256), so it is said as --all
+		// too. This reads the journal only, never the host.
+		if a.set != "" && !a.newestOnly && rng.set() && !a.all && !a.preflight {
+			kept, total, kerr := svc.RangeKeepsWholeSet(ctx, req)
+			if kerr != nil {
+				return fail(kerr)
+			}
+			if total > 0 && kept == total {
+				return usageError("recover: %s", service.WholeSetOntoSourceRefusal(a.set, total))
+			}
 		}
 		if a.preflight {
 			return sourcePreflight(ctx, svc, of, req.Target.Path, a.asJSON, func() int { return manyPreflight(ctx, svc, req, a.asJSON) })

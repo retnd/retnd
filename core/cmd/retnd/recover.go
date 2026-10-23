@@ -114,7 +114,8 @@ func cmdRecover(args []string) int {
 	follow := fs.Bool("follow", false, "print the recovery's stages on standard error as it passes through them; the exit status is the recovery's")
 	set := fs.String("set", "", "recover every retained restore point of this backup set (source/backup-set) into the one destination")
 	newestOnly := fs.Bool("newest-only", false, "with --set: only the newest restore point")
-	since := fs.String("since", "", "with --set: only restore points updated at or after this date (YYYY-MM-DD or RFC 3339)")
+	since := fs.String("since", "", "with --set: only restore points that arrived (discovered_at) at or after this date (YYYY-MM-DD or RFC 3339)")
+	until := fs.String("until", "", "with --set: only restore points that arrived (discovered_at) at or before this date (YYYY-MM-DD for the whole of that day, or RFC 3339)")
 	preflight := fs.Bool("preflight", false, "with --set or several ids: print what would be recovered, what would not and why, and whether it fits; copy nothing. With --to source: it also says where on the source host it would write and runs the write check (one probe file written and removed)")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
@@ -123,11 +124,11 @@ func cmdRecover(args []string) int {
 	if *set != "" || len(operands) > 1 {
 		return cmdRecoverMany(manyArgs{
 			cfgPath: *cfgPath, set: *set, ids: operands, to: *to, copySel: *copySel, ack: *ack, asJSON: *asJSON,
-			follow: *follow, newestOnly: *newestOnly, since: *since, preflight: *preflight, ackSource: *ackSource, all: *all,
+			follow: *follow, newestOnly: *newestOnly, since: *since, until: *until, preflight: *preflight, ackSource: *ackSource, all: *all,
 		})
 	}
-	if *newestOnly || *since != "" || *all {
-		return usageError("recover: --newest-only and --since need --set, and so does --all")
+	if *newestOnly || *since != "" || *until != "" || *all {
+		return usageError("recover: --newest-only, --since and --until need --set, and so does --all")
 	}
 	if len(operands) != 1 {
 		return usageError("recover: expected <source/backup-set/artifact>")

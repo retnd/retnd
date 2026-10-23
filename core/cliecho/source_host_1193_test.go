@@ -26,7 +26,7 @@ func TestEcho1193_SourceAndStagingSpellings(t *testing.T) {
 			"retnd recover api-server/var-backups/dump.tar --to ./medium:x"},
 		{"/backups/{source}/{set}/{name}/recovery", `{"target":{"kind":"staging","path":"-rf"}}`,
 			"retnd recover api-server/var-backups/dump.tar --to ./-rf"},
-		{"/recoveries", `{"set":"api-server/var-backups","target":{"kind":"source","path":"retnd-recovered-x","acknowledged_destination":"sh1-1"}}`,
+		{"/recoveries", `{"set":"api-server/var-backups","all":true,"target":{"kind":"source","path":"retnd-recovered-x","acknowledged_destination":"sh1-1"}}`,
 			"retnd recover --set api-server/var-backups --to source:retnd-recovered-x --acknowledge-source-write --all"},
 		{"/recoveries", `{"set":"api-server/var-backups","newest_only":true,"target":{"kind":"source","path":"retnd-recovered-x","acknowledged_destination":"sh1-1"}}`,
 			"retnd recover --set api-server/var-backups --newest-only --to source:retnd-recovered-x --acknowledge-source-write"},

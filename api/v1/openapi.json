@@ -7032,7 +7032,18 @@
             "type": "string",
             "format": "date-time",
             "x-go-omitempty": true,
-            "description": "With `set`: only backups updated at or after this moment."
+            "description": "With `set`: only backups that arrived (`discovered_at`) at or after this moment. A later transition, such as the set going read-only and back, does not move a backup."
+          },
+          "until": {
+            "type": "string",
+            "format": "date-time",
+            "x-go-omitempty": true,
+            "description": "With `set`: only backups that arrived (`discovered_at`) at or before this moment. Before `since` is refused with 400 (#1251)."
+          },
+          "all": {
+            "type": "boolean",
+            "x-go-omitempty": true,
+            "description": "With `set`: every retained restore point, asked for explicitly. A whole set onto its source host (`target.kind` `source`) is refused without it, and so is a range that keeps every retained restore point, unless `newest_only` narrows it; `preflight` is not held to this. It goes with none of `newest_only`, `since` and `until` (#1193, #1251)."
           },
           "copy": {
             "type": "string",

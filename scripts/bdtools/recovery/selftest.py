@@ -33,6 +33,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -123,7 +124,9 @@ def gate(root: Path, where: tuple[str, tuple[str, ...]], pattern: str) -> tuple[
     return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
 
 
-def expect_fails(tracker, tally, label, directory, needle, where, pattern) -> None:
+def expect_fails(
+    tracker: Any, tally: Any, label: str, directory: Path, needle: str, where: tuple[str, tuple[str, ...]], pattern: str
+) -> None:
     if tracker.stale_verdict(label):
         return
     if tracker.anchors_only(label):
@@ -142,7 +145,9 @@ def expect_fails(tracker, tally, label, directory, needle, where, pattern) -> No
     tally.ok(f"(caught): {label}", matched)
 
 
-def expect_passes(tracker, tally, label, directory, where, pattern) -> None:
+def expect_passes(
+    tracker: Any, tally: Any, label: str, directory: Path, where: tuple[str, tuple[str, ...]], pattern: str
+) -> None:
     if tracker.stale_verdict(label):
         return
     if tracker.anchors_only(label):
@@ -155,7 +160,7 @@ def expect_passes(tracker, tally, label, directory, where, pattern) -> None:
 
 
 # Each entry: label, file, old, new, needle, where, pattern
-MUTATIONS = [
+MUTATIONS: list[tuple[Any, ...]] = [
     (
         "a chargeable copy chosen without the cost acknowledgement",
         RESOLVE_GO,
@@ -846,7 +851,7 @@ MUTATIONS = [
     (
         "a named validator that is missing, run as another script",
         APP_RT_GO,
-        "\tif v.scriptFile != \"\" && !(res.Configured && len(res.Scripts) == 1 && res.Scripts[0].Name == v.scriptFile) {",
+        "\tif c.req.Only != \"\" && (!res.Configured || len(res.Scripts) != 1 || res.Scripts[0].Name != c.req.Only) {",
         "\t" + PLANT + "an absent named script reads as not configured.\n\tif false {",
         "no directory but a declared validator",
         APP_PKG,
@@ -1199,8 +1204,8 @@ MUTATIONS = [
     (
         "activity retention that never prunes by age",
         "core/internal/state/activity_events.go",
-        "`DELETE FROM activity_events WHERE at < ?`",
-        "`DELETE FROM activity_events WHERE 0 AND at < ?`",
+        "WHERE seq IN (SELECT seq FROM activity_events WHERE at < ? ORDER BY at LIMIT ?)`,",
+        "WHERE 0 AND seq IN (SELECT seq FROM activity_events WHERE at < ? ORDER BY at LIMIT ?)`,",
         "want 20 by age",
         SERVICE_PKG,
         "TestRetentionDropsWhatIsOldAndWhatIsOverTheRowBound",
@@ -1349,7 +1354,7 @@ MUTATIONS = [
     (
         "a cancel that tells the operator it is cancelling and stops nothing",
         ASSURANCE_OPS_GO,
-        "\top.cancel()\n\treturn AssuranceOperationCancelled",
+        "\top.cancel(app.ErrOperationCancelled)\n\treturn AssuranceOperationCancelled",
         "\t" + PLANT + "the operation is never told.\n\treturn AssuranceOperationCancelled",
         "background work did not finish",
         SERVICE_PKG,

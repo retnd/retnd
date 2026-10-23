@@ -46,7 +46,21 @@ export function artifactCommand(artifactId: string): string {
 /** The Backups list narrowed to one set (#1202), the same narrowing the
  *  page's `?set=` filter makes. */
 export function artifactsInSetCommand(setId: string): string {
-  return "retnd artifacts --backup-set " + shellQuote(setId);
+  return artifactsListCommand({ set: setId });
+}
+
+/** The Backups list with every filter the page has (#1251): the set, the
+ *  assurance bucket (`--assurance`, classified the way `assurance list
+ *  --bucket` classifies it) and the received-date range (`--since` and
+ *  `--until`, the date inputs' YYYY-MM-DD values, inclusive like the inputs).
+ *  An empty filter is left out. */
+export function artifactsListCommand(f: { set?: string; bucket?: string; since?: string; until?: string }): string {
+  const parts = ["retnd artifacts"];
+  if (f.set) parts.push("--backup-set " + shellQuote(f.set));
+  if (f.bucket) parts.push("--assurance " + shellQuote(f.bucket));
+  if (f.since) parts.push("--since " + shellQuote(f.since));
+  if (f.until) parts.push("--until " + shellQuote(f.until));
+  return parts.join(" ");
 }
 
 /** The progress bar and its step count, in a terminal: `--follow` prints each
