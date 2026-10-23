@@ -130,8 +130,12 @@ func TestStagingReconcileRemovesEveryPartialAndReportsThem(t *testing.T) {
 	}
 	output := filepath.Join(s.Root, "rcv-ffff-done.tar")
 	foreign := filepath.Join(s.Root, "not-ours.partial")
-	os.WriteFile(output, []byte("complete"), 0o600)
-	os.WriteFile(foreign, []byte("x"), 0o600)
+	if err := os.WriteFile(output, []byte("complete"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(foreign, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	rep, err := s.Reconcile()
 	if err != nil {
@@ -151,7 +155,9 @@ func TestStagingCleanupFailureIsReportedSeparatelyFromSuccess(t *testing.T) {
 	c := newClock()
 	s := newStaging(t, c)
 	p := filepath.Join(s.Root, ".rcv-stuck.partial")
-	os.WriteFile(p, []byte("x"), 0o600)
+	if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	s.Remove = func(string) error { return errors.New("device busy") }
 	rep, err := s.Reconcile()
 	if err != nil {
@@ -166,7 +172,9 @@ func TestStagingPublishPlacesAtomicallyUnderTheRootWithoutClobbering(t *testing.
 	c := newClock()
 	s := newStaging(t, c)
 	f, _ := s.Begin(5)
-	f.Write([]byte("hello"))
+	if _, err := f.Write([]byte("hello")); err != nil {
+		t.Fatal(err)
+	}
 	f.Close()
 
 	final, err := s.Publish(f.Name(), "restored/backup.tar")
@@ -188,7 +196,9 @@ func TestStagingPublishPlacesAtomicallyUnderTheRootWithoutClobbering(t *testing.
 	}
 
 	g, _ := s.Begin(5)
-	g.Write([]byte("again"))
+	if _, err := g.Write([]byte("again")); err != nil {
+		t.Fatal(err)
+	}
 	g.Close()
 	second, err := s.Publish(g.Name(), "restored/backup.tar")
 	if err != nil {
@@ -209,7 +219,9 @@ func TestStagingPublishRefusesEscapes(t *testing.T) {
 	}
 	for _, rel := range []string{"../x", "/etc/passwd", "a/../../x", "link/x", "", ".", "a\x00b"} {
 		f, _ := s.Begin(1)
-		f.Write([]byte("x"))
+		if _, err := f.Write([]byte("x")); err != nil {
+			t.Fatal(err)
+		}
 		f.Close()
 		if _, err := s.Publish(f.Name(), rel); !errors.Is(err, ErrTargetOutsideRoot) {
 			t.Fatalf("rel %q: want ErrTargetOutsideRoot, got %v", rel, err)
@@ -224,7 +236,9 @@ func TestStagingPublishRefusesToPublishAForeignFile(t *testing.T) {
 	c := newClock()
 	s := newStaging(t, c)
 	foreign := filepath.Join(t.TempDir(), "secret")
-	os.WriteFile(foreign, []byte("x"), 0o600)
+	if err := os.WriteFile(foreign, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.Publish(foreign, "x"); err == nil {
 		t.Fatal("Publish must only move files this staging area created")
 	}

@@ -140,14 +140,16 @@ func TestReadsRefusesPerDestinationBeforeGlobalAndNamesTheDifference(t *testing.
 		}
 		return err
 	}
-	if take("a") != nil || take("a") != nil {
+	first, second := take("a"), take("a")
+	if first != nil || second != nil {
 		t.Fatal("the first two reads of a destination should be admitted")
 	}
 	var ref *Refusal
 	if err := take("a"); !errors.As(err, &ref) || ref.Budget != DestinationReads || ref.Destination != "a" {
 		t.Fatalf("a third read of one destination: %v", err)
 	}
-	if take("b") != nil || take("b") != nil {
+	first, second = take("b"), take("b")
+	if first != nil || second != nil {
 		t.Fatal("another destination must not be starved by the first")
 	}
 	if err := take("c"); !errors.As(err, &ref) || ref.Budget != ConcurrentReads {

@@ -31,7 +31,7 @@ func populatedJournal(t *testing.T, path string) {
 	if err != nil {
 		t.Fatalf("state.Open: %v", err)
 	}
-	defer j.Close()
+	defer j.Close() //nolint:errcheck // test teardown, nothing reads the journal after this
 	set, err := model.NewBackupSetID("production", "postgres-primary")
 	if err != nil {
 		t.Fatal(err)

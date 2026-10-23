@@ -259,19 +259,6 @@ func (b *BackupService) probeExecConnection(ctx context.Context, ref string) hea
 	return out
 }
 
-// suspendedBackupSetIDs is SuspendedBackupSets as the strings every
-// surface above this one uses.
-func (b *BackupService) suspendedBackupSetIDs() []string {
-	sets := b.SuspendedBackupSets()
-
-	out := make([]string, 0, len(sets))
-	for _, s := range sets {
-		out = append(out, s.String())
-	}
-
-	return out
-}
-
 // assert that the health package's hold carries a parsed set id, so a
 // change to either side is a compile error here rather than a surface
 // that silently starts printing an empty backup set.

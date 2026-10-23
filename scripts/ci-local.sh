@@ -130,7 +130,17 @@
 
 set -e
 
+# Homebrew goes first so the gate finds brew's tools on a machine whose shell
+# profile did not run, but not ahead of a golangci-lint the caller put on PATH
+# on purpose: brew's is whatever version is current, and the one this gate
+# means is the one ci.yml pins (see gate_golangci_pin_note), which is usually
+# built by hand and lives somewhere else.
+_caller_golangci=$(command -v golangci-lint 2>/dev/null || true)
 export PATH="/opt/homebrew/bin:$PATH"
+if [ -n "$_caller_golangci" ]; then
+  PATH="$(dirname "$_caller_golangci"):$PATH"
+  export PATH
+fi
 # The line above puts Homebrew's tools ahead of whatever the caller set, so a
 # golangci-lint built for the pinned toolchain (see gate_golangci_pin_note
 # below) could never win from PATH alone. GOLANGCI_LINT_DIR is how to say
@@ -198,7 +208,13 @@ gate_install_traps
 gate_warn_hook_missing
 
 if ! command -v golangci-lint >/dev/null 2>&1; then
-  echo "==> golangci-lint not found. Install it (brew install golangci-lint) and re-run." >&2
+  _pin=$(sed -n 's/.*golangci-lint@v\([0-9][0-9.]*\).*/\1/p' .github/workflows/ci.yml 2>/dev/null | head -n 1)
+  _go=$(sed -n 's/.*go-version: *"\([0-9][0-9.]*\)".*/\1/p' .github/workflows/ci.yml 2>/dev/null | head -n 1)
+  {
+    echo "==> golangci-lint not found. Build the one CI pins, with the toolchain CI pins, and re-run:"
+    echo "      GOTOOLCHAIN=go${_go:-<ci go>} GOBIN=<dir> go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v${_pin:-<ci pin>}"
+    echo "      PATH=<dir>:\$PATH sh scripts/ci-local.sh"
+  } >&2
   exit 1
 fi
 
@@ -231,6 +247,23 @@ gate_golangci_pin_note() {
   fi
 }
 gate_golangci_pin_note
+
+# Then act on it, so the gate does not depend on the caller having exported
+# the right toolchain: a golangci-lint built with the Go that CI pins is only
+# able to read export data that Go (or an older one) wrote, so when this
+# machine's default Go is newer, every package "fails to typecheck". If the
+# binary on PATH says which Go built it and the caller has not chosen a
+# toolchain, run the whole gate with that one, which is also what CI does.
+# An explicit GOTOOLCHAIN always wins, and a binary that says nothing parseable
+# (a test stub) changes nothing.
+if [ -z "${GOTOOLCHAIN:-}" ]; then
+  _built=$(golangci-lint --version 2>/dev/null | sed -n 's/.*built with go\([0-9][0-9.]*\).*/\1/p' | head -n 1)
+  if [ -n "$_built" ]; then
+    GOTOOLCHAIN="go$_built"
+    export GOTOOLCHAIN
+    echo "==> note: GOTOOLCHAIN=$GOTOOLCHAIN for this run, the Go the golangci-lint on PATH was built with." >&2
+  fi
+fi
 
 # Captured once, from repo root (where this script is always invoked from,
 # per .husky/pre-commit), so every module below can reference the one
@@ -622,8 +655,14 @@ else
       ;;
   esac
 
+  # The 4m default of -overall-floor is the cap on a run that keeps reporting
+  # progress and never finishes, and it is a fixed number: these seven
+  # packages take about 150s on an idle machine, and sftpintegration alone
+  # took 223s with the Docker VM shared with other worktrees' gates, which
+  # killed a healthy run at 4m0s three times running (#1260). The no-progress
+  # window (45s here) still catches a stall; only the overall backstop moves.
   gate_docker_step "core/ tests/crashmatrix + tests/sftpintegration + tests/sshexecintegration + tests/miniointegration + tests/conformance + tests/machinegate + tests/containerhooks under gotestwatch, -race (issue #256: no fixed go test -timeout)"
-  (cd core && GOWORK=off go run ./cmd/gotestwatch -race -count=1 ./tests/crashmatrix/... ./tests/sftpintegration/... ./tests/sshexecintegration/... ./tests/miniointegration/... ./tests/conformance/... ./tests/machinegate/... ./tests/containerhooks/...)
+  (cd core && GOWORK=off go run ./cmd/gotestwatch -overall-floor 12m -- -race -count=1 ./tests/crashmatrix/... ./tests/sftpintegration/... ./tests/sshexecintegration/... ./tests/miniointegration/... ./tests/conformance/... ./tests/machinegate/... ./tests/containerhooks/...)
 fi
 
 gate_step "apps/common go build, vet, test -race"

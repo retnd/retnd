@@ -834,5 +834,5 @@ func (s *Service) logf(format string, args ...any) {
 	if s.log == nil {
 		return
 	}
-	fmt.Fprintf(s.log, format+"\n", args...)
+	_, _ = fmt.Fprintf(s.log, format+"\n", args...)
 }

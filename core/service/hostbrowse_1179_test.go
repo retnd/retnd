@@ -381,7 +381,7 @@ func TestListStagingDirectory_1179_AFolderNamedWithTheReplacementCharacterIsList
 // separator the host does not mean, nothing that is not text, and splits back
 // into exactly the name it was given.
 func FuzzStagingBrowseSegments(f *testing.F) {
-	for _, s := range []string{"", "a", "a/b", "..", "../x", "a/../b", "/etc", "a//b", "a/", "./a", "a\\b", "a\x00", "caf�", "caf\xff", "‮..", "a/./b", strings.Repeat("a/", 3000)} {
+	for _, s := range []string{"", "a", "a/b", "..", "../x", "a/../b", "/etc", "a//b", "a/", "./a", "a\\b", "a\x00", "caf�", "caf\xff", "\u202e..", "a/./b", strings.Repeat("a/", 3000)} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, rel string) {

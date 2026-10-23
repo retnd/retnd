@@ -227,15 +227,6 @@ func decodeSubmitOperation(body []byte) (submitOperationRequest, error) {
 	return req, err
 }
 
-// action is what the body asked for, or nothing when it could not be read,
-// which is gated and never a restore.
-func (p *parsedOperation) action() OperationAction {
-	if p.err != nil {
-		return ""
-	}
-	return p.req.Action
-}
-
 func (p *parsedOperation) exempt() bool {
 	return p.err == nil && p.plain && p.req.Action.gateExempt()
 }

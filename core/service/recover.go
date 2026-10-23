@@ -448,7 +448,6 @@ type recoveryPlan struct {
 	resolved export.Resolution
 	medium   transport.Medium
 	expect   export.Expect
-	set      string
 }
 
 // planRecovery resolves a request against the journal and the

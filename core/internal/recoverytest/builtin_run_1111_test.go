@@ -71,7 +71,7 @@ func TestIssue1111_TheIdentityIsReservedAndHashedFromItsDescriptor(t *testing.T)
 		t.Errorf("hash = %s", BuiltinValidatorHash())
 	}
 	for _, c := range BuiltinValidatorID {
-		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' {
 			t.Errorf("the id uses %q, outside [a-z0-9-]", c)
 		}
 	}

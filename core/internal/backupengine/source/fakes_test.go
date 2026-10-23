@@ -351,8 +351,7 @@ func (s *recordingSink) discardCount() int {
 // none of it. It is what a bounded-memory measurement needs: a sink that
 // consumes the whole object without being the thing that allocates.
 type countingSink struct {
-	bytes atomic.Int64
-	next  atomic.Int64
+	next atomic.Int64
 }
 
 func (s *countingSink) Store(ctx context.Context, obj source.Object) (source.Stored, error) {

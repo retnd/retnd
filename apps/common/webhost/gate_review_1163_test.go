@@ -130,7 +130,7 @@ func (e stepUpLimitErr) Error() string             { return "too many step-up at
 func (e stepUpLimitErr) RetryAfter() time.Duration { return e.wait }
 
 func (s rateLimitedStepUp) VerifyStepUp(context.Context, string, string) error {
-	return stepUpLimitErr{s.wait}
+	return stepUpLimitErr(s)
 }
 
 // A tripped limiter is not a wrong password. Telling the operator to "check it

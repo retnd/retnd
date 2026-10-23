@@ -347,8 +347,8 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 			checker = StructureCheck{}
 		}
 		refuse := ""
-		switch {
-		case cfg.BuiltinCheck == config.BuiltinCheckOff:
+		switch cfg.BuiltinCheck {
+		case config.BuiltinCheckOff:
 			refuse = BuiltinOffReason
 		default:
 			if _, ok := checker.Applies(rec.Artifact.Name); !ok {

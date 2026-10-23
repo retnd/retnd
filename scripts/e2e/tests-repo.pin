@@ -274,7 +274,7 @@ TESTS_REPO_URL=https://github.com/retnd/retnd-tests.git
 # `git cat-file -p` on both: tree 24832df8), so no suite sees a difference.
 # bump_tests_pin.py and the gate now both refuse a sha that is not an
 # ancestor of their main, so this cannot happen again.
-TESTS_REPO_SHA=f2a3be05ed86d67f2698b194ef0db4d7c9ea1376
+TESTS_REPO_SHA=9699ec5118a0d7748e988346192be37c7bbb5ec7
 #
 # Moved to bccd71c, retnd-tests#65, off their merged main and not
 # off the branch, for the reason the paragraph about a794c38 above already

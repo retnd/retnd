@@ -816,7 +816,7 @@ func TestS3SecretsNeverReachACapturedLogAcrossAWholeLifecycle(t *testing.T) {
 
 	// The canary, written through all three taps before the work starts.
 	fmt.Fprintln(os.Stderr, canaryMarker, "stderr")
-	fmt.Fprintln(os.Stdout, canaryMarker, "stdout")
+	_, _ = fmt.Fprintln(os.Stdout, canaryMarker, "stdout")
 	log.Println(canaryMarker, "stdlib logger")
 	slog.Default().Info(canaryMarker + " slog default")
 
