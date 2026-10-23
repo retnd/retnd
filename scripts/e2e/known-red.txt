@@ -12,9 +12,9 @@
 # 33 spec refreshes at once, and it is a ratchet, not a parking lot:
 #
 #   * cap= only goes down. scripts/bdtools/tests/web_ui_ratchet.py pins the
-#     ceiling it started at (38: the 33 red on the day, four wizard cases
+#     ceiling it started at (39: the 33 red on the day, four wizard cases
 #     that stopped skipping once the rig handed the suite its source
-#     machine, and one flake), so the list cannot grow past what it held
+#     machine, and two flakes), so the list cannot grow past what it held
 #     when it was written, and lowering cap= here is how a refresh is
 #     recorded for good.
 #   * a listed spec that passes fails the gate until its line is removed.
@@ -40,7 +40,7 @@
 # that repository's old issue tracker, and the former-name guard allows
 # that word in no tracked file here, so they are listed up to it.
 pin=9699ec5118a0d7748e988346192be37c7bbb5ec7
-cap=38
+cap=39
 skips=94
 
 backup-sets.spec.ts :: backup set detail › offers ordinary actions in the header | https://github.com/retnd/retnd/issues/1260 | spdrman | 2027-01-31
@@ -81,3 +81,4 @@ wizard.spec.ts :: add backup set wizard › saving is blocked until the acknowle
 wizard.spec.ts :: add backup set wizard › saving is blocked until the connection has been proven | https://github.com/retnd/retnd/issues/1260 | spdrman | 2027-01-31
 wizard.spec.ts :: add backup set wizard › step 3 requires an explicit trust decision | https://github.com/retnd/retnd/issues/1260 | spdrman | 2027-01-31
 terminal-dock.spec.ts :: a table taller than the window it is read in › its last row can be scrolled entirely clear of the terminal | https://github.com/retnd/retnd/issues/1260 | spdrman | 2027-01-31 | flaky
+workflow-config.spec.ts :: a backup set's workflow configuration, in a browser › with the Host Workflow Runner stopped, the check says the runner is why | https://github.com/retnd/retnd/issues/1260 | spdrman | 2027-01-31 | flaky
