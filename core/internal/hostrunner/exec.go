@@ -649,7 +649,13 @@ func (e *Executor) run(ctx context.Context, spec runSpec, sink Sink) (Result, er
 		neverRan  bool
 	)
 	select {
-	case <-waited:
+	case clientErr := <-waited:
+		// The client's own error is not the answer: a non-zero exit from
+		// the docker client says the container's process ended, and what
+		// it ended with is asked of the daemon below, never read off the
+		// client. Bound and discarded by name so that is a decision and not
+		// an oversight.
+		_ = clientErr
 		// # 3. What the container's process did, asked of the daemon.
 		exitCode, certainty, neverRan = e.observeExit(spec.id)
 	case <-timer.C:
@@ -855,11 +861,13 @@ func (e *Executor) terminate(id containerIdentity, waited chan error, client *ex
 	_ = e.Container.signal(e.controlTimeout(), id.name, "TERM")
 
 	select {
-	case <-waited:
+	case clientErr := <-waited:
 		// The client returned inside the grace period, which is what a
 		// container whose process handled the signal looks like. The
 		// removal and its proof are still the reconciliation's job: a
-		// client that exited proves only that a client exited.
+		// client that exited proves only that a client exited, so its
+		// error is not read.
+		_ = clientErr
 		return e.reconcile(id, reconcileKnown)
 	case <-time.After(e.grace()):
 	}
@@ -867,11 +875,13 @@ func (e *Executor) terminate(id containerIdentity, waited chan error, client *ex
 	_ = e.Container.signal(e.controlTimeout(), id.name, "KILL")
 
 	select {
-	case <-waited:
+	case clientErr := <-waited:
 		// The client let go after the kill, which means it was reaped
 		// while talking to a daemon that answered: the container it
 		// was attached to is a container that certainly exists, so the
-		// ordinary question is the right one.
+		// ordinary question is the right one, and the client's own error
+		// is not it.
+		_ = clientErr
 		return e.reconcile(id, reconcileKnown)
 	case <-time.After(e.clientBound()):
 	}
