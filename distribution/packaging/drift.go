@@ -373,7 +373,9 @@ var apiContractAnchors = []struct {
 	re   *regexp.Regexp
 }{
 	{filepath.Join("apps", "common", "webhost", "router.go"), regexp.MustCompile(`r\.Route\("(/api/v\d+)"`)},
-	{filepath.Join("apps", "common", "webhost", "serve", "ui.go"), regexp.MustCompile(`mux\.Handle\("(/api/v\d+)/"`)},
+	// The UI host's mounts are a list in mounts.go since #1253, so its
+	// proxy to the engine is the entry whose handler is `proxy`.
+	{filepath.Join("apps", "common", "webhost", "serve", "mounts.go"), regexp.MustCompile(`pattern: "(/api/v\d+)/", handler: proxy,`)},
 	{filepath.Join("ui", "shared", "src", "api", "client.ts"), regexp.MustCompile(`const BASE = "(/api/v\d+)"`)},
 }
 

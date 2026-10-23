@@ -210,12 +210,9 @@ func newEngineHandler(cfg EngineConfig, backend webhost.BackupServiceClient, onC
 		AdoptedPaths:          cfg.AdoptedPaths,
 	})
 
-	mux := http.NewServeMux()
-	if cfg.AuthRoutes != nil {
-		mux.Handle("/api/v1/auth/", http.StripPrefix("/api/v1/auth", cfg.AuthRoutes))
-	}
-	mux.Handle("/health/", apiRouter)
-	mux.Handle("/api/v1/", apiRouter)
+	// The mounts are a list (mounts.go) so the route-to-verb guard's rule
+	// can be held against this exact composition (#1253).
+	mux := newMux(engineMounts(apiRouter, cfg.AuthRoutes))
 
 	// Order matters and is the whole point of doing this here rather than
 	// inside the router. StripUntrustedIdentity is outermost, so a forged

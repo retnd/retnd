@@ -10,7 +10,7 @@ import (
 )
 
 // cmdBackupSetEditHold is `retnd backup-set edit-hold
-// <source/backup-set> [--release]`.
+// <source/backup-set> [--take | --release]`.
 //
 // # The gap this closes
 //
@@ -34,23 +34,29 @@ import (
 // `activity --follow` refuses: an answer from the wrong place is worse
 // than no answer, because it looks like an answer.
 //
-// # Report by default, release on a flag
+// # Report by default, take or release on a flag
 //
 // The default is a read, so an operator can see whether a set is held and
 // what taking the hold interrupted before deciding to do anything about
-// it. --release is the write, and it is a flag rather than a second verb
-// because the two are the same question asked with and without an action:
-// releasing prints the resulting state as well, so one invocation both
-// acts and reports what it left behind.
+// it. --take and --release are the writes, and they are flags rather than
+// verbs because the three are the same question asked with and without an
+// action: taking and releasing print the resulting state as well, so one
+// invocation both acts and reports what it left behind.
 //
-// TAKING a hold has no command, and that is a decision rather than an
-// omission. A hold protects an edit SESSION from a cycle running
-// underneath it, and a CLI edit is one `backup-set patch` that either runs
-// or does not, so there is no session to protect; a verb that could take
-// one would only be able to pause a backup set with nothing to notice it
-// had meant to.
+// TAKING a hold had no command until #1253, on the reasoning that a hold
+// protects an edit SESSION and a CLI edit is one `backup-set patch` that
+// either runs or does not. A scripted edit of several patches is a
+// session, and without a hold a cycle can run between two of them against
+// a set that is half changed. --take is what the browser's edit form does
+// when it opens: it takes the lease, or renews one already held, and
+// reports what that stopped. The lease is short and is not renewed by
+// anything here, so a script that edits for longer than it runs --take
+// again, and gives the hold back with --release when it is done rather
+// than leaving the set paused until the lease lapses.
 func cmdBackupSetEditHold(args []string) int {
 	fs, cfgPath := newFlagSet("backup-set edit-hold")
+	take := fs.Bool("take", false,
+		"take the hold, or renew one already held: the cycle inside this backup set stops at its next safe boundary and the scheduler starts no new pass for it until the hold is released or its lease lapses")
 	release := fs.Bool("release", false,
 		"give the hold back, so the scheduler may run this backup set again rather than waiting for the lease to lapse")
 
@@ -69,6 +75,12 @@ func cmdBackupSetEditHold(args []string) int {
 	if !ok {
 		return usageError("backup-set edit-hold: %q is not a backup set id; a backup set id is exactly source/name", id)
 	}
+	// Opposites, so neither is picked: a command that took and then
+	// released, or the other way round, would do half of what was asked
+	// and report the other half.
+	if *take && *release {
+		return usageError("backup-set edit-hold: --take and --release are opposites; pass one")
+	}
 
 	ctx := context.Background()
 	mode, code := editHoldRoute(ctx, *cfgPath)
@@ -76,6 +88,13 @@ func cmdBackupSetEditHold(args []string) int {
 		return code
 	}
 
+	if *take {
+		hold, err := mode.client.TakeBackupSetEditHold(ctx, source, set)
+		if err != nil {
+			return fail(fmt.Errorf("taking the edit hold on %s: %w", id, err))
+		}
+		printEditHoldTaken(hold)
+	}
 	if *release {
 		if err := mode.client.ReleaseBackupSetEditHold(ctx, source, set); err != nil {
 			return fail(fmt.Errorf("releasing the edit hold on %s: %w", id, err))
@@ -88,6 +107,19 @@ func cmdBackupSetEditHold(args []string) int {
 	}
 	printEditHold(state, *release)
 	return 0
+}
+
+// printEditHoldTaken says what taking the hold did: the lease it placed,
+// and what it stopped. "nothing" rather than nothing at all, for the
+// contract's own reason: a client never claims to have stopped something
+// it did not, and a line that is simply absent reads as either.
+func printEditHoldTaken(hold apicontract.BackupSetEditHold) {
+	fmt.Printf("taken until %s\n", hold.ExpiresAt)
+	if hold.Stopped == nil {
+		fmt.Printf("  stopped: nothing\n")
+		return
+	}
+	fmt.Printf("  stopped: %s (%s)\n", hold.Stopped.Artifact, hold.Stopped.Stage)
 }
 
 // printEditHold is the report, and it says what is true rather than what

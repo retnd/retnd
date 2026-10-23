@@ -2,6 +2,8 @@ package cliecho
 
 import (
 	"encoding/json"
+	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -39,63 +41,11 @@ import (
 // in writing, that this flag carries something a request said out loud and
 // an operator has to be able to retype.
 func TestNoRequestFieldReachesTheArgvUnlessItIsEchoedOnPurpose(t *testing.T) {
-	const marker = "cliechoCANARY"
-	canary := func(path string) string {
-		var b strings.Builder
-		b.WriteString(marker)
-		for _, r := range path {
-			if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
-				b.WriteRune(r)
-			}
-		}
-		return b.String()
+	f := credentialFindings(t)
+	for _, v := range f.violations {
+		t.Error(v)
 	}
-	bodies := canaryBodies(t, canary)
-
-	// Realistic path parameters, because a path parameter is not a field
-	// of the request body and the question here is what the BODY can put
-	// on a line. Quoting of a hostile path parameter is quoting_test.go's.
-	params := map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar", "id": "offsite_s3"}
-
-	usedFlag := map[string]bool{}
-	usedOperand := map[string]bool{}
-	builtFor := map[string]bool{}
-	built := 0
-	for _, route := range Routes() {
-		method, path, _ := strings.Cut(route, " ")
-		for _, body := range bodies {
-			line := Echo(Action{Method: method, Route: path, Params: params, Body: body.body})
-			if len(line.Command) > 0 {
-				built++
-				builtFor[route] = true
-			}
-			for i, arg := range line.Command {
-				if !strings.Contains(arg, marker) {
-					continue
-				}
-				flag := ""
-				if i > 0 && strings.HasPrefix(line.Command[i-1], "--") {
-					flag = line.Command[i-1]
-				}
-				if flag == "" {
-					if _, ok := operandsThatNameTheSubject[route]; ok {
-						usedOperand[route] = true
-						continue
-					}
-					t.Errorf("%s puts a %s field on the command line as an OPERAND:\n  %s\nAdd an entry to operandsThatNameTheSubject saying which id this is, or stop printing it.",
-						route, body.schema, line.Shell())
-					continue
-				}
-				if _, ok := flagsThatEchoWhatTheRequestSaid[flag]; ok {
-					usedFlag[flag] = true
-					continue
-				}
-				t.Errorf("%s prints a %s field after %s:\n  %s\nThis panel is exportable and copy-to-clipboard, so a value that reaches it reaches whatever issue tracker the export lands in. Either name the flag with a placeholder instead, or add %s to flagsThatEchoWhatTheRequestSaid with a sentence saying why an operator has to be able to retype it.",
-					route, body.schema, flag, line.Shell(), flag)
-			}
-		}
-	}
-	if built == 0 {
+	if f.built == 0 {
 		t.Fatal("no route built a command from any canary body, so this test proves nothing")
 	}
 
@@ -106,7 +56,7 @@ func TestNoRequestFieldReachesTheArgvUnlessItIsEchoedOnPurpose(t *testing.T) {
 	// slice with a canary switched the retention SCALAR branch off
 	// everywhere at once.
 	for route, e := range routes {
-		if e.build == nil || builtFor[route] {
+		if e.build == nil || f.builtFor[route] {
 			continue
 		}
 		t.Errorf("%s has a builder and not one canary body made it print a command, so nothing here checks what that builder puts on a line. Give the corpus a body it accepts (canary_test.go's bodyVariants) rather than leaving the route unchecked.", route)
@@ -116,14 +66,135 @@ func TestNoRequestFieldReachesTheArgvUnlessItIsEchoedOnPurpose(t *testing.T) {
 	// decision about a line nothing prints any more, and it is what the
 	// next person adds to.
 	for flag := range flagsThatEchoWhatTheRequestSaid {
-		if !usedFlag[flag] {
+		if !f.usedFlag[flag] {
 			t.Errorf("%s is exempt and no builder prints a request field after it any more. Delete the entry rather than leaving a standing permission nothing needs.", flag)
 		}
 	}
+	for flag, routes := range flagRoutes {
+		if _, ok := flagsThatEchoWhatTheRequestSaid[flag]; !ok {
+			t.Errorf("flagRoutes scopes %s, which has no exemption", flag)
+		}
+		for _, route := range routes {
+			if !f.usedFlagOn[flag+" "+route] {
+				t.Errorf("%s is exempt on %s and that route no longer prints a request field after it. Take the route out of flagRoutes[%q].", flag, route, flag)
+			}
+		}
+	}
 	for route := range operandsThatNameTheSubject {
-		if !usedOperand[route] {
+		if !f.usedOperand[route] {
 			t.Errorf("%s is exempt from the operand rule and no longer puts a request field in an operand. Delete the entry.", route)
 		}
+	}
+}
+
+// credentialMarker is what every string field of the corpus carries for
+// this test.
+const credentialMarker = "cliechoCANARY"
+
+func credentialCanary(path string) string {
+	var b strings.Builder
+	b.WriteString(credentialMarker)
+	for _, r := range path {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// credentialFinding is what one pass over every route and every corpus
+// body found.
+type credentialFinding struct {
+	violations  []string
+	usedFlag    map[string]bool
+	usedFlagOn  map[string]bool
+	usedOperand map[string]bool
+	builtFor    map[string]bool
+	built       int
+}
+
+func credentialFindings(t *testing.T) credentialFinding {
+	t.Helper()
+	bodies := canaryBodies(t, credentialCanary)
+
+	// Realistic path parameters, because a path parameter is not a field
+	// of the request body and the question here is what the BODY can put
+	// on a line. Quoting of a hostile path parameter is quoting_test.go's.
+	params := map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar", "id": "offsite_s3"}
+
+	f := credentialFinding{usedFlag: map[string]bool{}, usedFlagOn: map[string]bool{}, usedOperand: map[string]bool{}, builtFor: map[string]bool{}}
+	for _, route := range Routes() {
+		method, path, _ := strings.Cut(route, " ")
+		for _, body := range bodies {
+			line := Echo(Action{Method: method, Route: path, Params: params, Body: body.body})
+			if len(line.Command) > 0 {
+				f.built++
+				f.builtFor[route] = true
+			}
+			for i, arg := range line.Command {
+				if !strings.Contains(arg, credentialMarker) {
+					continue
+				}
+				flag := ""
+				if i > 0 && strings.HasPrefix(line.Command[i-1], "--") {
+					flag = line.Command[i-1]
+				}
+				if flag == "" {
+					if _, ok := operandsThatNameTheSubject[route]; ok {
+						f.usedOperand[route] = true
+						continue
+					}
+					f.violations = append(f.violations, fmt.Sprintf("%s puts a %s field on the command line as an OPERAND:\n  %s\nAdd an entry to operandsThatNameTheSubject saying which id this is, or stop printing it.",
+						route, body.schema, line.Shell()))
+					continue
+				}
+				if _, ok := flagsThatEchoWhatTheRequestSaid[flag]; ok && slices.Contains(flagRoutes[flag], route) {
+					f.usedFlag[flag] = true
+					f.usedFlagOn[flag+" "+route] = true
+					continue
+				}
+				if _, ok := flagsThatEchoWhatTheRequestSaid[flag]; ok {
+					f.violations = append(f.violations, fmt.Sprintf("%s prints a %s field after %s, which is exempt on %v and not on this route:\n  %s\nRead the reason flagsThatEchoWhatTheRequestSaid gives for %s. If it is true of this route too, add the route to flagRoutes[%q] (rewording the reason if it only described the others); if it isn't, print a placeholder.",
+						route, body.schema, flag, flagRoutes[flag], line.Shell(), flag, flag))
+					continue
+				}
+				f.violations = append(f.violations, fmt.Sprintf("%s prints a %s field after %s:\n  %s\nThis panel is exportable and copy-to-clipboard, so a value that reaches it reaches whatever issue tracker the export lands in. Either name the flag with a placeholder instead, or add %s to flagsThatEchoWhatTheRequestSaid with a sentence saying why an operator has to be able to retype it.",
+					route, body.schema, flag, line.Shell(), flag))
+			}
+		}
+	}
+	return f
+}
+
+// The review's point about this table (#1253): an exemption keyed by
+// flag name alone lets any route print anything after that flag. A new
+// route printing a request field after --reason, which is exempt for the
+// workflow acknowledgement, has to make its own claim.
+func TestNoRequestFieldReachesTheArgv_MutationANewRouteReusingAnExemptFlagIsCaught(t *testing.T) {
+	const route = "POST /a-new-route-with-a-reason"
+	swapRoute(t, route, entry{
+		build: func(a Action) *cmd {
+			var body map[string]any
+			if !decode(a.Body, &body) {
+				return nil
+			}
+			for _, k := range sortedKeys(body) {
+				if s, ok := body[k].(string); ok && strings.HasPrefix(s, credentialMarker) {
+					return newCmd("something").flag("reason", s)
+				}
+			}
+			return newCmd("something")
+		},
+		examples: []Action{{}},
+	})
+	found := false
+	for _, v := range credentialFindings(t).violations {
+		if strings.HasPrefix(v, route+" ") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("a new route printing a request field after --reason was waved through by the exemption another route's --reason has")
 	}
 }
 
@@ -151,6 +222,12 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	// connection detail an operator types when they create the set by
 	// hand, and none of them is a secret: the key is named by id and the
 	// host key is public.
+	// The administrator's login name on the two unauthenticated account
+	// acts (#1253). The enrollment page and the reset page both ask for it
+	// by name, an operator retyping the command has to say it, and the
+	// credential beside it (the password, the enrollment token) is on
+	// stdin and never on the line.
+	"--username":            "the administrator's login name; the token and the password beside it are stdin only",
 	"--host":                "the source host, which is what the set connects to",
 	"--user":                "the login name on that host; the key behind it is named by id and never printed",
 	"--remote-path":         "the directory on the source being collected",
@@ -199,7 +276,7 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	// by its own id. The script itself never reaches the line: it is a
 	// placeholder for the file the operator uploaded.
 	"--pattern":    "the artifact-name regular expression the operator chose for a custom validator",
-	"--backup-set": "the backup set a custom validator is scoped to, by its own id (source/set)",
+	"--backup-set": "the backup set a custom validator is scoped to, or the one an operation run is for (operation run), by its own id (source/set)",
 
 	// Retention and settings scalars.
 	"--timezone":       "the IANA zone retention decisions are made in",
@@ -225,7 +302,12 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	"--to":       "where a restore or a recovery writes, which the operator named and has to be able to find afterwards: a directory, a name under the staging root, or a destination id and key",
 	"--snapshot": "the engine's opaque manifest id, which is neither a path nor a secret",
 	"--path":     "one path INSIDE the snapshot, which is a path in the operator's own source tree and is what they asked to get back",
-	"--conflict": "one of three words deciding what happens to a file already at the destination",
+	"--conflict": "what happens to a file already at the destination. The UI sends one of three words, but the builder prints whatever the request said and the engine refuses anything else",
+	// The other two snapshot actions' flags. They were printed from #788
+	// on and this test never saw them, because the corpus only ever sent
+	// four of the seven operation actions (#1253; see bodyVariants).
+	"--run":   "the id of the run whose snapshot is verified or held, an identifier the engine minted",
+	"--level": "how deep a snapshot verify reads. The UI sends one word from a closed set, but the builder prints whatever the request said and the engine refuses anything else",
 
 	// EPIC K's incremental sets (#788). Each of these is a word from a
 	// closed vocabulary or a name the operator declared themselves, and
@@ -286,7 +368,80 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	"--exec-connection": "the NAME of a declared remote execution connection, never its host, user or credentials -- the declaration those live in is not on this surface at all",
 	"--secret-file":     "a PATH to a file holding a workflow variable's value, never its contents",
 	"--secret-env":      "the NAME of an environment variable the value is read from, never its value",
-	"--reason":          "the operator's own sentence about how they dealt with an interrupted workflow run; it is the whole point of the record, and it reaches a durable audit row either way",
+	"--reason":          "the operator's own sentence: why they dealt with an interrupted workflow run the way they did, or why a snapshot is held (snapshot hold, on POST /operations). Either way it is the whole point of the record, it reaches a durable audit row, and it is free text the operator wrote",
+}
+
+// flagRoutes scopes each exemption above to the routes it was written
+// for (#1253's review). The reason in flagsThatEchoWhatTheRequestSaid is
+// a claim about what the flag carries on THESE routes, so a route that
+// starts printing a request field after one of these flags fails until it
+// is added here, which is where a reviewer reads whether the reason still
+// holds for it.
+var flagRoutes = map[string][]string{
+	"--username":                    {"POST /auth/enroll", "POST /auth/forgot-password"},
+	"--until":                       {"POST /recoveries"},
+	"--after-dir":                   {"PATCH /backup-sets/{source}/{set}/workflow", "PATCH /settings/workflow"},
+	"--artifact":                    {"POST /backup-sets/{source}/{set}/recovery-test"},
+	"--backend":                     {"POST /storage-mediums/{id}/configuration/preflight", "PUT /storage-mediums/{id}/configuration"},
+	"--backup-set":                  {"POST /assurance/validator-preview", "POST /assurance/validators", "POST /operations", "PUT /assurance/validators/{name}"},
+	"--before-dir":                  {"PATCH /backup-sets/{source}/{set}/workflow", "PATCH /settings/workflow"},
+	"--bucket":                      {"POST /storage-mediums", "POST /storage-mediums/preflight", "PUT /storage-mediums/{id}"},
+	"--candidate":                   {"POST /ssh-keys/from-candidate"},
+	"--completion-strategy":         {"PATCH /backup-sets/{source}/{set}", "POST /backup-sets", "POST /system/first-run"},
+	"--conflict":                    {"POST /operations"},
+	"--copy":                        {"POST /backups/{source}/{set}/{name}/recovery", "POST /recoveries"},
+	"--credentials-env":             {"POST /storage-mediums", "POST /storage-mediums/preflight", "POST /storage-mediums/{id}/configuration/preflight", "PUT /storage-mediums/{id}", "PUT /storage-mediums/{id}/configuration"},
+	"--credentials-file":            {"POST /storage-mediums", "POST /storage-mediums/preflight", "POST /storage-mediums/{id}/configuration/preflight", "PUT /storage-mediums/{id}", "PUT /storage-mediums/{id}/configuration"},
+	"--credentials-id":              {"POST /storage-mediums", "POST /storage-mediums/preflight", "POST /storage-mediums/{id}/configuration/preflight", "PUT /storage-mediums/{id}", "PUT /storage-mediums/{id}/configuration"},
+	"--description":                 {"POST /repositories"},
+	"--endpoint":                    {"POST /storage-mediums", "POST /storage-mediums/preflight", "PUT /storage-mediums/{id}"},
+	"--engine":                      {"POST /backup-sets", "POST /system/first-run"},
+	"--exec-connection":             {"PATCH /backup-sets/{source}/{set}/workflow"},
+	"--field":                       {"POST /storage-mediums/{id}/configuration/preflight", "PUT /storage-mediums/{id}/configuration"},
+	"--host":                        {"PATCH /backup-sets/{source}/{set}", "POST /backup-sets", "POST /backup-sets/test-connection", "POST /system/first-run"},
+	"--include":                     {"PATCH /backup-sets/{source}/{set}", "POST /backup-sets", "POST /system/first-run"},
+	"--isolation":                   {"POST /repositories"},
+	"--known-hosts-line":            {"PATCH /backup-sets/{source}/{set}", "POST /backup-sets", "POST /backup-sets/test-connection", "POST /system/first-run"},
+	"--level":                       {"POST /operations"},
+	"--local-path":                  {"PATCH /backup-sets/{source}/{set}", "POST /backup-sets", "POST /system/first-run"},
+	"--location":                    {"POST /repositories"},
+	"--medium":                      {"POST /operations"},
+	"--note":                        {"POST /backups/{source}/{set}/{name}/retry"},
+	"--owner":                       {"POST /repositories"},
+	"--passphrase-env":              {"POST /repositories"},
+	"--passphrase-file":             {"POST /repositories"},
+	"--path":                        {"POST /operations"},
+	"--pattern":                     {"POST /assurance/validator-preview", "POST /assurance/validators", "PUT /assurance/validators/{name}"},
+	"--prefix":                      {"POST /storage-mediums", "POST /storage-mediums/preflight", "PUT /storage-mediums/{id}"},
+	"--reason":                      {"POST /operations", "POST /workflow-recovery/{run}/acknowledge"},
+	"--recovery-test-builtin-check": {"PATCH /backup-sets/{source}/{set}/assurance", "PATCH /settings/assurance"},
+	"--recovery-test-mode":          {"PATCH /backup-sets/{source}/{set}/assurance", "PATCH /settings/assurance"},
+	"--recovery-test-validator":     {"PATCH /backup-sets/{source}/{set}/assurance", "PATCH /settings/assurance"},
+	"--region":                      {"POST /storage-mediums", "POST /storage-mediums/preflight", "PUT /storage-mediums/{id}"},
+	"--remote-path":                 {"PATCH /backup-sets/{source}/{set}", "POST /backup-sets", "POST /backup-sets/test-connection", "POST /system/first-run"},
+	"--repository-domain":           {"POST /backup-sets", "POST /system/first-run"},
+	"--root":                        {"PATCH /settings/workflow"},
+	"--run":                         {"POST /operations"},
+	"--scrub-strategy":              {"PATCH /backup-sets/{source}/{set}/assurance", "PATCH /settings/assurance"},
+	"--secret-env":                  {"PUT /backup-sets/{source}/{set}/workflow/environment/{name}", "PUT /settings/workflow/environment/{name}"},
+	"--secret-file":                 {"PUT /backup-sets/{source}/{set}/workflow/environment/{name}", "PUT /settings/workflow/environment/{name}"},
+	"--set":                         {"POST /recoveries"},
+	"--since":                       {"POST /recoveries"},
+	"--snapshot":                    {"POST /operations"},
+	"--source-consistency":          {"PATCH /backup-sets/{source}/{set}", "POST /backup-sets", "POST /system/first-run"},
+	"--source-mount-prefix":         {"POST /backup-sets", "POST /system/first-run"},
+	"--ssh-key-id":                  {"PATCH /backup-sets/{source}/{set}", "POST /backup-sets", "POST /backup-sets/test-connection", "POST /system/first-run"},
+	"--staging-root":                {"PATCH /settings/assurance"},
+	"--storage-class":               {"POST /storage-mediums", "POST /storage-mediums/preflight", "PUT /storage-mediums/{id}"},
+	"--timezone":                    {"PATCH /settings", "PUT /backup-sets/{source}/{set}/retention"},
+	"--to":                          {"POST /backups/{source}/{set}/{name}/recovery", "POST /operations", "POST /recoveries"},
+	"--type":                        {"POST /storage-mediums", "POST /storage-mediums/preflight", "PUT /storage-mediums/{id}"},
+	"--upload-verification":         {"POST /storage-mediums", "POST /storage-mediums/preflight", "PUT /storage-mediums/{id}"},
+	"--user":                        {"PATCH /backup-sets/{source}/{set}", "POST /backup-sets", "POST /backup-sets/test-connection", "POST /system/first-run"},
+	"--uuid":                        {"POST /backup-sets", "POST /system/first-run"},
+	"--validator-id":                {"PATCH /backup-sets/{source}/{set}", "POST /backup-sets", "POST /system/first-run"},
+	"--verification-level":          {"PATCH /backup-sets/{source}/{set}", "POST /backup-sets", "POST /system/first-run"},
+	"--week-starts-on":              {"PATCH /settings", "PUT /backup-sets/{source}/{set}/retention"},
 }
 
 // operandsThatNameTheSubject is the same list for the positional argument
@@ -300,7 +455,7 @@ var operandsThatNameTheSubject = map[string]string{
 	"POST /system/first-run":            "source/name, the backup set being created",
 	"POST /backup-sets":                 "source/name, the backup set being created",
 	"POST /backup-sets/test-connection": "source/name, the backup set being checked (issue #624)",
-	"POST /operations":                  "the artifact id a restore names",
+	"POST /operations":                  "the artifact id a restore names, and the source/set id that snapshot verify, hold and unhold take, plus the hold id unhold takes",
 	"POST /storage-mediums":             "the destination's own id",
 	"POST /storage-mediums/preflight":   "the candidate destination's id",
 	"POST /repositories":                "the repository domain's own id",

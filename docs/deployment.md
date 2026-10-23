@@ -630,7 +630,22 @@ the session revocation, because sessions live in the server's memory and stoppin
 everybody out. The other direction, while the server is up and you can still sign in, is
 `retnd auth password --password-stdin` (current password on the first line, new on the
 second), with `retnd auth recovery show|set|test` and `retnd auth verify-email` for the
-recovery address and the SMTP endpoint behind it. None of them takes a secret as a flag.
+recovery address and the SMTP endpoint behind it, and `retnd auth whoami` to check who the
+credentials sign in as. The reset flow the sign-in page offers works from a terminal too,
+with nothing but `RETND_API_URL`: `retnd auth forgot-password --username U` asks for the
+single-use link and `retnd auth reset-password --token-stdin --password-stdin` redeems it
+(token on the first stdin line, new password on the second). None of them takes a secret as
+a flag.
+
+**Enrolling from a terminal (`retnd auth enroll`).** The enrollment link is a browser's way
+in. A terminal beside the serving engine has the same one: `retnd auth enroll --username U
+--token-stdin --password-stdin`, with the enrollment token (or the whole link the container
+log printed) on the first stdin line and the password on the second, sends `POST
+/api/v1/auth/enroll` exactly as the page does and needs only `RETND_API_URL`, since there is
+no account to sign in as yet. That is the way in for a headless install, where
+`create-admin` refuses because the serving container holds the store. `--recovery-email`
+with the `--smtp-*` flags (and the SMTP password as a third stdin line) enrols with recovery
+in one go; left out, `retnd auth recovery set` finishes it later.
 
 **Trusting `web-ui`'s reverse proxy (`TRUST_FORWARDED_HEADERS`).** `retnd`
 only ever sees requests from `web-ui`'s own reverse proxy, over the `internal` network -

@@ -327,11 +327,14 @@ describe("the per-set run control", () => {
 
     await screen.findByText("This backup set is being edited.");
     expect(screen.queryByText("A backup run is already in progress.")).toBeNull();
-    // The command an operator can still run, naming the set by the full
+    // The command that is this press's twin, naming the set by the full
     // id `--backup-set` has taken since #569, so it pastes into a shell
-    // without being split by hand.
+    // without being split by hand. It is `operation run` and not `fetch`
+    // (#1253's review): that is the verb core/cliecho echoes for a served
+    // run, and a held set is no reason to leave it. Only the destructive
+    // gate's refusal, above, falls back to the local verbs.
     const command = document.querySelector("pre");
-    expect(command?.textContent).toContain("retnd fetch --backup-set " + target.id);
+    expect(command?.textContent).toContain("retnd operation run --backup-set " + target.id);
   });
 
   // The owner's rule, explicitly: when a deployment-wide run is refused,

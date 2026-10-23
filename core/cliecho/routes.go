@@ -45,13 +45,21 @@ import (
 // sentence that could differ between those two would be a sentence the
 // guard in core/cmd/retnd checks a copy of.
 const (
-	// Issue #624. The candidate half of the connection check has no verb
-	// and deliberately gets none, which is a decision rather than the next
-	// gap to close. A candidate is a form somebody is still typing: its
-	// values exist nowhere, so the command would have to carry all of
-	// them, and the moment they are worth carrying is the create, which
-	// proves the connection before it writes anything.
-	gapCandidateConnection = "there is no verb that checks a source that is not saved yet: `" + Binary + " backup-set create` proves the connection before it writes, and `" + Binary + " backup-set test-connection <source/backup-set>` re-checks one that exists"
+	// #1253's review. An action apicontract doesn't define used to get
+	// run_cycle's sentence, which is an answer about a different act.
+	gapUnknownAction = "there is no verb for an operation action this binary doesn't define, and the engine refuses the request too"
+
+	// #1253's review. A request naming an action and leaving out the
+	// parameters that action reads is refused by the engine, and a nil
+	// here would print the route's "this body won't decode" sentence,
+	// which says something else.
+	gapMissingParameters = "there is no command for an operation request that leaves out the parameters its action reads, and the engine refuses it too"
+
+	// #1253's review. Without --to, `recover` writes back where the
+	// backup came from, which is the production source host, so a
+	// recovery whose target this table can't spell gets no line at all
+	// rather than one that silently means something else.
+	gapRecoveryTarget = "there is no terminal destination for this recovery's target, and a recovery line without --to would write onto the source host, so none is printed"
 )
 
 // positiveQuery reads a query parameter that is a count, and reports 0
@@ -166,7 +174,7 @@ var routes = map[string]entry{
 			switch req.Action {
 			case apicontract.ActionRestorePlacement:
 				if req.Restore == nil {
-					return nil
+					return newCmd().refuse(gapMissingParameters)
 				}
 				c := newCmd("restore", req.Restore.ArtifactID).flag("medium", req.Restore.Medium)
 				if req.Restore.WindowDays > 0 {
@@ -190,7 +198,7 @@ var routes = map[string]entry{
 				// --backup-set` for the reason above: fetch runs the set
 				// in the operator's own process.
 				if req.BackupSetID == "" {
-					return nil
+					return newCmd().refuse(gapMissingParameters)
 				}
 				c := newCmd("operation", "run").flag("backup-set", req.BackupSetID)
 				if req.SkipWorkflowScripts {
@@ -205,7 +213,7 @@ var routes = map[string]entry{
 				// "get this file back out of last night's restore point"
 				// with a billed provider retrieval of a different object.
 				if req.SnapshotRestore == nil {
-					return nil
+					return newCmd().refuse(gapMissingParameters)
 				}
 				c := newCmd("snapshot", "restore", req.SnapshotRestore.BackupSetID).
 					flag("to", req.SnapshotRestore.TargetPath)
@@ -215,7 +223,7 @@ var routes = map[string]entry{
 				return c
 			case apicontract.ActionVerifySnapshot:
 				if req.SnapshotVerify == nil {
-					return nil
+					return newCmd().refuse(gapMissingParameters)
 				}
 				c := newCmd("snapshot", "verify", req.SnapshotVerify.BackupSetID)
 				c.flagIfSet("run", req.SnapshotVerify.RunID)
@@ -226,7 +234,7 @@ var routes = map[string]entry{
 				return c
 			case apicontract.ActionHoldSnapshot:
 				if req.SnapshotHold == nil {
-					return nil
+					return newCmd().refuse(gapMissingParameters)
 				}
 				c := newCmd("snapshot", "hold", req.SnapshotHold.BackupSetID).
 					flag("reason", req.SnapshotHold.Reason)
@@ -234,20 +242,23 @@ var routes = map[string]entry{
 				return c
 			case apicontract.ActionReleaseSnapshotHold:
 				if req.SnapshotHoldRelease == nil {
-					return nil
+					return newCmd().refuse(gapMissingParameters)
 				}
 				return newCmd("snapshot", "unhold", req.SnapshotHoldRelease.BackupSetID, req.SnapshotHoldRelease.HoldID)
 			default:
-				// An action this table does not know is a request
-				// nothing here can name a verb for, so it gets the
-				// route-level sentence below.
-				return nil
+				// An action apicontract doesn't define. It used to fall
+				// into run_cycle's arm and print that sentence, and a
+				// nil here would print the route's "won't decode"
+				// sentence instead; both are answers about something
+				// else (#1253's review).
+				return newCmd().refuse(gapUnknownAction)
 			}
 		},
-		// A body that will not decode, or that names an action none of
-		// the arms above knows, gets the route-level sentence every other
-		// builder here gives for that case.
-		why: "there is no verb that submits an operation from a request body",
+		// A body that will not decode names no action at all, so the
+		// route-level sentence is the one every other builder here gives
+		// for that case.
+		why:      "there is no verb that submits an operation from a request body",
+		refusals: []string{gapUnknownAction, gapMissingParameters},
 		examples: []Action{
 			{Body: []byte(`{"action":"` + apicontract.ActionRestorePlacement + `","config_revision":"r1","restore":{"artifact_id":"api-server/var-backups/dump.tar","medium":"offsite_s3","window_days":7,"acknowledged":true}}`)},
 			{Body: []byte(`{"action":"` + apicontract.ActionRunBackupSet + `","config_revision":"r1","backup_set_id":"api-server/var-backups"}`)},
@@ -292,6 +303,8 @@ var routes = map[string]entry{
 		why: "there is no verb that creates a backup set from a request body",
 		examples: []Action{
 			{Body: []byte(`{"source_name":"api-server","name":"var-backups","host":"10.0.0.14","user":"backups","remote_path":"/var/backups","local_path":"/data/backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","completion_strategy":"stable","stable_for_seconds":300,"run_immediately":true,"acknowledge_repoint":true}`)},
+			// Written without the connection proven (#1253's review).
+			{Body: []byte(`{"source_name":"api-server","name":"var-backups","host":"10.0.0.14","user":"backups","remote_path":"/var/backups","local_path":"/data/backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","skip_connection_check":true}`)},
 			// The incremental shape (#788), which is the one the line
 			// used to get WRONG rather than incomplete: every flag below
 			// was dropped, so a kopia set into a declared repository
@@ -310,30 +323,36 @@ var routes = map[string]entry{
 		// "no equivalent", which is what makes a gap actionable. #624
 		// shipped that verb, so this is a builder now.
 		//
-		// Only the PERSISTED mode has one. A candidate check is the step
-		// the wizard runs while an operator is still filling a form in,
-		// against values that exist nowhere yet: the equivalent command
-		// would have to carry the whole unsaved form, and what a terminal
-		// can do with it is run the create, which verifies before it
-		// writes. So the candidate mode refuses with the reason rather
-		// than printing a command that checks something else.
+		// Both modes have one since #1253. The candidate check is the
+		// step the wizard runs while an operator is still filling a form
+		// in, and for a long time it refused here on the reasoning that
+		// the values exist nowhere and the create proves the connection
+		// anyway. That left a terminal user unable to ask the one
+		// question the wizard answers before anything is written, so
+		// `backup-set test-connection --candidate` carries the form the
+		// way `medium test-connection --candidate` carries a destination.
+		// The key is a reference and the trusted line is public, so
+		// nothing on the line is a credential.
 		build: func(a Action) *cmd {
 			var req apicontract.TestConnectionRequest
 			if !decode(a.Body, &req) {
 				return nil
 			}
-			if req.BackupSetID == "" {
-				return newCmd().refuse(gapCandidateConnection)
+			if req.BackupSetID != "" {
+				return newCmd("backup-set", "test-connection", req.BackupSetID)
 			}
-			return newCmd("backup-set", "test-connection", req.BackupSetID)
+			c := newCmd("backup-set", "test-connection").bare("candidate")
+			c.flagIfSet("host", req.Host)
+			if req.Port != 0 {
+				c.flag("port", itoa(req.Port))
+			}
+			c.flagIfSet("user", req.User)
+			c.flagIfSet("ssh-key-id", req.SSHKeyID)
+			c.flagIfSet("known-hosts-line", req.KnownHostsLine)
+			c.flagIfSet("remote-path", req.RemotePath)
+			return c
 		},
-		why:      "there is no verb that checks a source that has not been saved yet",
-		refusals: []string{gapCandidateConnection},
-		// `backup-set` is named as the counterexample rather than as the
-		// gap: the refusal's whole point is that the thing to run instead
-		// is `backup-set create`, which proves the connection before it
-		// writes, or `backup-set test-connection` once the set exists.
-		namesShippedVerbs: []string{"backup-set"},
+		why: "there is no verb that checks a source connection from a request body",
 		examples: []Action{
 			{Body: []byte(`{"backup_set_id":"api-server/var-backups"}`)},
 			{Body: []byte(`{"host":"10.0.0.14","user":"backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","remote_path":"/var/backups"}`)},
@@ -415,12 +434,17 @@ var routes = map[string]entry{
 			if req.AcknowledgeHostKeyChange {
 				c.bare("acknowledge-host-key-change")
 			}
+			if req.SkipConnectionCheck {
+				c.bare("no-verify")
+			}
 			return c
 		},
 		why: "there is no verb that edits a backup set from a request body",
 		examples: []Action{
 			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
 				Body: []byte(`{"stale_after_seconds":172800}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
+				Body: []byte(`{"host":"10.0.0.15","skip_connection_check":true}`)},
 			// The duration shapes, and they are examples rather than a
 			// unit test's table because this is the corpus the dispatcher
 			// is driven with in core/cmd/retnd: a shape no
@@ -667,22 +691,20 @@ var routes = map[string]entry{
 		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"},
 			Body: []byte(`{"plan_id":"plan_01HX"}`)}},
 	},
-	// Two of these three are commands now. #600 built `backup-set
-	// edit-hold <source/backup-set> [--release]`, which reports a hold
-	// and gives one back, so the entries saying no verb read or released
-	// one were describing a tree that had one open in the next file.
+	// All three are commands now. #600 built `backup-set edit-hold
+	// <source/backup-set> [--release]`, which reports a hold and gives one
+	// back, and #1253 added --take, so a scripted multi-step edit can pause
+	// the set the way the browser's edit form does. A hold is a lease, so
+	// the line that takes one is also the line that renews it.
 	key("GET", "/backup-sets/{source}/{set}/edit-hold"): {
 		build:    func(a Action) *cmd { return newCmd("backup-set", "edit-hold", setID(a)) },
 		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
 	},
 	key("POST", "/backup-sets/{source}/{set}/edit-hold"): {
-		// The one that is still a gap, and usage() says the same thing in
-		// as many words: "There is no verb that TAKES a hold". A hold
-		// protects an editing session, a browser has one and a terminal
-		// does not, and a CLI edit is one `backup-set patch` that either
-		// runs or does not.
-		why:               "`backup-set edit-hold` reports a hold and releases one, and no verb TAKES one and leaves it held: a hold outliving the command that took it is exactly what a browser needs and a terminal does not",
-		namesShippedVerbs: []string{"backup-set"},
+		build: func(a Action) *cmd {
+			return newCmd("backup-set", "edit-hold", setID(a)).bare("take")
+		},
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
 	},
 	key("POST", "/backup-sets/{source}/{set}/edit-hold/release"): {
 		build: func(a Action) *cmd {
@@ -717,30 +739,40 @@ var routes = map[string]entry{
 			var req apicontract.RecoveryMintRequest
 			c := newCmd("recover", artifactID(a))
 			if !decode(a.Body, &req) {
-				return c
+				// Not a bare `recover <id>`: without --to that line
+				// recovers onto the source host (#1253's review).
+				return nil
 			}
 			if req.Copy != "" && req.Copy != "best-available" {
 				c.flag("copy", req.Copy)
 			}
 			switch req.Target.Kind {
-			case "download":
+			case apicontract.RecoveryTargetDownload:
 				c.flag("to", "-")
-			case "staging":
+			case apicontract.RecoveryTargetStaging:
 				c.flag("to", stagingName(req.Target.Path))
-			case "storage":
+			case apicontract.RecoveryTargetStorage:
 				to := "medium:" + req.Target.Medium
 				if req.Target.Key != "" {
 					to += "/" + req.Target.Key
 				}
 				c.flag("to", to)
-			case "source":
+			case apicontract.RecoveryTargetSource:
 				sourceTarget(c, req.Target.Path, req.Target.AcknowledgedDestination)
+			default:
+				// A kind the contract doesn't have, a case variant or
+				// none at all. The engine refuses the request; the line
+				// it would have printed is the one place that refusal
+				// could turn into a write onto production.
+				return newCmd().refuse(gapRecoveryTarget)
 			}
 			if req.Acknowledged {
 				c.bare("acknowledge-cost")
 			}
 			return c
 		},
+		why:      "the request body would not decode, so there is no recovery to name a destination for",
+		refusals: []string{gapRecoveryTarget},
 		examples: []Action{
 			{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"},
 				Body: []byte(`{"target":{"kind":"download"}}`)},
@@ -759,7 +791,8 @@ var routes = map[string]entry{
 			var req apicontract.RecoveryManyRequest
 			c := newCmd("recover")
 			if !decode(a.Body, &req) {
-				return c
+				// For the single recovery's reason: no bare `recover`.
+				return nil
 			}
 			if req.Set != "" {
 				c.flag("set", req.Set)
@@ -776,16 +809,21 @@ var routes = map[string]entry{
 				c.flag("copy", req.Copy)
 			}
 			switch req.Target.Kind {
-			case "staging":
+			case apicontract.RecoveryTargetStaging:
 				c.flag("to", stagingName(req.Target.Path))
-			case "storage":
+			case apicontract.RecoveryTargetStorage:
 				to := "medium:" + req.Target.Medium
 				if req.Target.Key != "" {
 					to += "/" + req.Target.Key
 				}
 				c.flag("to", to)
-			case "source":
+			case apicontract.RecoveryTargetSource:
 				sourceTarget(c, req.Target.Path, req.Target.AcknowledgedDestination)
+			default:
+				// Not download either: several backups have no single
+				// stream to write to, and the engine refuses that kind
+				// here.
+				return newCmd().refuse(gapRecoveryTarget)
 			}
 			// --all is what the request said (the review of #1256): the
 			// service refuses a whole set onto the source host without it, as
@@ -802,6 +840,8 @@ var routes = map[string]entry{
 			}
 			return c
 		},
+		why:      "the request body would not decode, so there is no recovery to name a destination for",
+		refusals: []string{gapRecoveryTarget},
 		examples: []Action{
 			{Body: []byte(`{"set":"api-server/var-backups","target":{"kind":"staging","path":"restore/var-backups"}}`)},
 			{Body: []byte(`{"set":"api-server/var-backups","newest_only":true,"acknowledged":true,"target":{"kind":"storage","medium":"offsite_s3","key":"recovered"}}`)},
@@ -815,17 +855,24 @@ var routes = map[string]entry{
 			{Body: []byte(`{"artifacts":["api-server/var-backups/a.tar"],"target":{"kind":"staging","path":"medium:x"}}`)},
 		},
 	},
+	// The description and the write check are one line apart (#1253).
+	// The browser describes on open, from configuration alone, and probes
+	// only on a button, because the probe writes a file on a production
+	// host; the terminal's preflight used to do both at once, so the
+	// description had no line of its own. It is the read-only preflight
+	// now, and --write-check is the button.
 	key("GET", "/backup-sets/{source}/{set}/source-host"): {
-		why:               "describing where a source-host recovery would write has no verb of its own, because the terminal never describes without checking: `" + Binary + " recover --set <source/backup-set> --to source: --preflight` prints the same description and then runs the write check, which writes and removes one probe file on that host",
-		namesShippedVerbs: []string{"recover"},
+		build: func(a Action) *cmd {
+			return sourceHostPreflight(a)
+		},
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Query: mustQuery("folder=retnd-recovered-20261015-101500-a1b2")},
+		},
 	},
 	key("POST", "/backup-sets/{source}/{set}/source-host/write-check"): {
 		build: func(a Action) *cmd {
-			c := newCmd("recover")
-			c.flag("set", a.Params["source"]+"/"+a.Params["set"])
-			c.flag("to", "source:"+a.Query.Get("folder"))
-			c.bare("preflight")
-			return c
+			return sourceHostPreflight(a).bare("write-check")
 		},
 		examples: []Action{
 			{Params: map[string]string{"source": "api-server", "set": "var-backups"}},
@@ -1381,6 +1428,18 @@ var routes = map[string]entry{
 			if req.MaxScriptSizeBytes != nil {
 				c.flag("max-script-size-bytes", itoa64(*req.MaxScriptSizeBytes))
 			}
+			// The switch itself (#1246), on nil-ness like the rest: true
+			// turns workflows off and false turns them back on, and both
+			// are requests. This was missing until #1253's review, so a
+			// patch that disabled workflows echoed a line that changed
+			// nothing.
+			if req.Disabled != nil {
+				if *req.Disabled {
+					c.bare("disable")
+				} else {
+					c.bare("enable")
+				}
+			}
 			return c
 		},
 		why: "there is no verb that patches the deployment's workflow configuration from a request body",
@@ -1395,6 +1454,8 @@ var routes = map[string]entry{
 			// end, and a shape no example carries is a shape nothing
 			// proves the binary takes.
 			{Body: []byte(`{"before_dir":"","after_dir":"","script_timeout_seconds":0}`)},
+			{Body: []byte(`{"disabled":true}`)},
+			{Body: []byte(`{"disabled":false}`)},
 		},
 	},
 	key("GET", "/settings/workflow/environment"): {
@@ -1866,7 +1927,32 @@ var routes = map[string]entry{
 		why: "a login opens a browser session, and a terminal holds no session: a routed command signs in with $RETND_API_USERNAME and $RETND_API_PASSWORD for the one invocation, so there is nothing to type",
 	},
 	key("POST", "/auth/enroll"): {
-		why: "the first administrator is made by `" + WebBinary + " auth create-admin --username U --password-stdin`, offline, against the store, and it refuses while a server holds the store or once an administrator exists; there is no routed verb for it, because there is no engine account to sign in as yet",
+		why: "the request body would not decode, so there is no command that says who it enrolled",
+		build: func(a Action) *cmd {
+			// The password is in the body and stays there: the verb reads
+			// the bootstrap token and then the password from stdin, and
+			// the token is a header the browser sends, which this line
+			// never sees. The recovery section is shown the way PATCH
+			// /auth/recovery shows it below, as stand-ins.
+			var req struct {
+				Username      string    `json:"username"`
+				RecoveryEmail string    `json:"recoveryEmail"`
+				Smtp          *smtpBody `json:"smtp"`
+			}
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("auth", "enroll").flag("username", req.Username).bare("token-stdin").bare("password-stdin")
+			if req.RecoveryEmail != "" {
+				c.placeholderFlag("recovery-email", "the recovery address")
+			}
+			smtpFlagsOnto(c, req.Smtp)
+			return c
+		},
+		examples: []Action{
+			{Body: []byte(`{"username":"admin","password":"x"}`)},
+			{Body: []byte(`{"username":"admin","password":"x","recoveryEmail":"ops@example.org","smtp":{"host":"smtp.example.org","port":2525,"security":"tls","username":"mailer","from":"retnd@example.org","password":"y"}}`)},
+		},
 	},
 	key("POST", "/auth/password"): {
 		build: func(Action) *cmd {
@@ -1880,14 +1966,30 @@ var routes = map[string]entry{
 		why: "a logout ends a browser session, and a terminal holds none",
 	},
 	key("GET", "/auth/session"): {
-		why: "a session read answers a browser's question about its own cookie, and a terminal holds no session to ask about",
+		build:    func(Action) *cmd { return newCmd("auth", "whoami") },
+		examples: []Action{{}},
 	},
 	key("POST", "/auth/forgot-password"): {
-		why:               "there is no verb that asks for a password-reset email from a terminal; it is the browser's path for an account with a working mail server, and a terminal that can reach the engine at all can change the password with `" + Binary + " auth password`",
-		namesShippedVerbs: []string{"auth"},
+		why: "the request body would not decode, so there is no command that says which account it asked about",
+		build: func(a Action) *cmd {
+			var req struct {
+				Username string `json:"username"`
+			}
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			return newCmd("auth", "forgot-password").flag("username", req.Username)
+		},
+		examples: []Action{{Body: []byte(`{"username":"admin"}`)}},
 	},
 	key("POST", "/auth/reset-password"): {
-		why: "there is no verb that redeems a password-reset token from a terminal. An administrator locked out with no mail configured does have a way back in: `" + WebBinary + " auth set-password --username U --password-stdin`, offline, with the server stopped",
+		build: func(Action) *cmd {
+			// The token and the new password are both in the body and
+			// neither goes on the line: the verb reads one and then the
+			// other from stdin.
+			return newCmd("auth", "reset-password").bare("token-stdin").bare("password-stdin")
+		},
+		examples: []Action{{}},
 	},
 	key("POST", "/auth/verify-email"): {
 		build: func(Action) *cmd {
@@ -1915,15 +2017,8 @@ var routes = map[string]entry{
 			// the line is exportable and a recovery address is the one
 			// thing an account's owner may not want in a pasted log.
 			var req struct {
-				RecoveryEmail *string `json:"recoveryEmail"`
-				Smtp          *struct {
-					Host     string `json:"host"`
-					Port     int    `json:"port"`
-					Security string `json:"security"`
-					Username string `json:"username"`
-					From     string `json:"from"`
-					Password string `json:"password"`
-				} `json:"smtp"`
+				RecoveryEmail *string   `json:"recoveryEmail"`
+				Smtp          *smtpBody `json:"smtp"`
 			}
 			if !decode(a.Body, &req) {
 				return nil
@@ -1932,24 +2027,7 @@ var routes = map[string]entry{
 			if req.RecoveryEmail != nil {
 				c.placeholderFlag("recovery-email", "the recovery address")
 			}
-			if s := req.Smtp; s != nil {
-				c.placeholderFlag("smtp-host", "the SMTP host")
-				if s.Port > 0 {
-					c.flag("smtp-port", itoa(s.Port))
-				}
-				if s.Security != "" {
-					c.placeholderFlag("smtp-security", "starttls, tls or none")
-				}
-				if s.Username != "" {
-					c.placeholderFlag("smtp-username", "the SMTP username")
-				}
-				if s.From != "" {
-					c.placeholderFlag("smtp-from", "the sender address")
-				}
-				if s.Password != "" {
-					c.bare("smtp-password-stdin")
-				}
-			}
+			smtpFlagsOnto(c, req.Smtp)
 			return c
 		},
 		examples: []Action{
@@ -1961,6 +2039,42 @@ var routes = map[string]entry{
 		build:    func(Action) *cmd { return newCmd("auth", "recovery", "test") },
 		examples: []Action{{}},
 	},
+}
+
+// smtpBody is the SMTP section as POST /auth/enroll and PATCH
+// /auth/recovery both carry it.
+type smtpBody struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Security string `json:"security"`
+	Username string `json:"username"`
+	From     string `json:"from"`
+	Password string `json:"password"`
+}
+
+// smtpFlagsOnto puts an SMTP section onto an `auth` line the way both
+// verbs take it: the endpoint as stand-ins, the port as itself, and the
+// password as the stdin flag. A nil section adds nothing.
+func smtpFlagsOnto(c *cmd, s *smtpBody) {
+	if s == nil {
+		return
+	}
+	c.placeholderFlag("smtp-host", "the SMTP host")
+	if s.Port > 0 {
+		c.flag("smtp-port", itoa(s.Port))
+	}
+	if s.Security != "" {
+		c.placeholderFlag("smtp-security", "starttls, tls or none")
+	}
+	if s.Username != "" {
+		c.placeholderFlag("smtp-username", "the SMTP username")
+	}
+	if s.From != "" {
+		c.placeholderFlag("smtp-from", "the sender address")
+	}
+	if s.Password != "" {
+		c.bare("smtp-password-stdin")
+	}
 }
 
 // workflowEnvSetFlags puts one environment entry's value onto an `env
@@ -2119,6 +2233,13 @@ func backupSetCreateCommand(spec apicontract.BackupSetSpec, runNow, acknowledgeR
 	}
 	if acknowledgeRepoint {
 		c.bare("acknowledge-repoint")
+	}
+	// The request to write the set without proving the connection, for
+	// mediumSkipFlag's reason: a line without it runs a check the click
+	// skipped, and on a host this machine can't reach it fails where the
+	// click worked (#1253's review).
+	if spec.SkipConnectionCheck {
+		c.bare("no-verify")
 	}
 	return c
 }
@@ -2335,6 +2456,16 @@ func sourceTarget(c *cmd, folder, acknowledged string) {
 	if acknowledged != "" {
 		c.bare("acknowledge-source-write")
 	}
+}
+
+// sourceHostPreflight is `recover --set S --to source:FOLDER --preflight`,
+// the read-only description of where a source-host recovery would write,
+// for the route's set and its optional folder (#1253).
+func sourceHostPreflight(a Action) *cmd {
+	c := newCmd("recover")
+	c.flag("set", setID(a))
+	c.flag("to", "source:"+a.Query.Get("folder"))
+	return c.bare("preflight")
 }
 
 // stagingName spells a staging name so the terminal cannot read it as

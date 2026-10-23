@@ -67,23 +67,30 @@ func dispatch(t *testing.T, argv []string, configPath string) int {
 	return run(args)
 }
 
-func TestEveryEchoedCommandParses(t *testing.T) {
-	// The route is only consulted when it is present, and it is absent
-	// here on purpose: a command echoed by a browser that happens to have
-	// these set must be identical to one echoed by a browser that does
-	// not.
-	//
-	// Every name each setting answers to, not only the current three. A
-	// deprecated spelling left set in the environment this binary
-	// inherited is one this build still reads (route.go), so clearing
-	// three of six would leave the route present on exactly the machine
-	// the compatibility window exists for.
+// clearTheRoute unsets every variable that would send a command to a
+// serving engine rather than run it here.
+//
+// The route is only consulted when it is present, and it is absent here
+// on purpose: a command echoed by a browser that happens to have these set
+// must be identical to one echoed by a browser that does not.
+//
+// Every name each setting answers to, not only the current three. A
+// deprecated spelling left set in the environment this binary inherited
+// is one this build still reads (route.go), so clearing three of six
+// would leave the route present on exactly the machine the compatibility
+// window exists for.
+func clearTheRoute(t *testing.T) {
+	t.Helper()
 	t.Setenv("RETND_API_URL", "")
 	t.Setenv("RETND_API_USERNAME", "")
 	t.Setenv("RETND_API_PASSWORD", "")
 	t.Setenv("BACKUP_MANAGER_API_URL", "")
 	t.Setenv("BACKUP_MANAGER_API_USERNAME", "")
 	t.Setenv("BACKUP_MANAGER_API_PASSWORD", "")
+}
+
+func TestEveryEchoedCommandParses(t *testing.T) {
+	clearTheRoute(t)
 	configPath := unparseableConfig(t)
 
 	examples := cliecho.Examples()

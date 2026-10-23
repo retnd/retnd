@@ -4,6 +4,17 @@
 
 ### Added
 
+- **Enrolment, the reset flow and `whoami` from a terminal** (#1253). The enrollment page, the two
+  reset pages and the session read a browser makes on load had no terminal twin. `retnd auth enroll
+  --username U --token-stdin --password-stdin` makes the first administrator through the serving engine
+  with the token (or the whole enrollment link) on the first stdin line and the password on the second,
+  optionally `--recovery-email` with the `--smtp-*` flags; it needs only `RETND_API_URL`, so a headless
+  container can enrol where `retnd-web auth create-admin` refuses because the serving process holds the
+  store. `retnd auth forgot-password --username U` asks for the single-use reset link and says that the
+  engine answers the same way for every username, and `retnd auth reset-password --token-stdin
+  --password-stdin` redeems it. `retnd auth whoami [--json]` prints who the credentials sign in as. The
+  terminal panel echoes all four instead of saying there's no equivalent, and no token or password ever
+  goes on a line.
 - **`retnd operation run`, the terminal twin of the run buttons** (#1250). "Run all enabled sets" and "Run this
   backup set" ask the engine to start a run with `POST /api/v1/operations`, and a terminal couldn't: `retnd run` and
   `retnd fetch --backup-set` run the cycle in the CLI's own process, so a run started that way never showed in
@@ -20,6 +31,18 @@
   that has a deployment never goes remote, so a stopped local engine with an address exported still refuses. Plain
   http to anything but loopback needs `RETND_API_INSECURE_TRANSPORT=acknowledged`, and `RETND_API_CA_FILE` trusts a
   self-signed reverse proxy on any route.
+- **`retnd backup-set test-connection --candidate`, the wizard's "Test connection" from a terminal** (#1253). The
+  backup set wizard proves a source before it saves it, with `POST /api/v1/backup-sets/test-connection` in its
+  candidate mode, and a terminal could only prove one as a side effect of `backup-set create`, which writes.
+  `retnd backup-set test-connection --candidate --host H --user U --ssh-key-id K --known-hosts-line L --remote-path P
+  [--port N] [--json]` runs the same six checks against the source those flags describe, names no set and writes
+  nothing, the way `medium test-connection --candidate` does for a destination. The key is an id `ssh-key import`
+  printed, never a file, so the check imports nothing either. The terminal panel echoes this line for the button
+  instead of saying there's no equivalent.
+- **`retnd backup-set edit-hold --take`** (#1253). The web UI takes an edit hold when its edit form opens, so no
+  cycle runs against the set while it's half changed, and a terminal could report and release a hold but not take
+  one. `--take` takes it, or renews one already held, and says what that stopped; a scripted edit of several
+  patches can now run under the same hold, and gives it back with `--release`. The terminal panel echoes it.
 - **Exit codes 50 to 52 for the engine's side of a route** (#1250). 50 is the destructive gate refusing any routed
   command (a validator upload or a routed create used to exit 1 for it), 51 is "stopped watching, the operation may
   still be running", and 52 is plain http refused. 10 to 49 stay reserved for `recover`.
@@ -38,6 +61,15 @@
 
 ### Changed
 
+- **`retnd recover --to source: --preflight` no longer writes a probe file on the source host** (#1253). It used
+  to describe where a source-host recovery would write and then run the write check, which writes one probe file
+  on the production host the backup came from and removes it. The recovery dialog in the web UI reads that
+  description on open from configuration alone and probes only when you press "Check write access", and the
+  terminal now draws the same line: `--preflight` prints the destination, its id and the last write check's
+  answer (or `not_checked`) without touching the host, and `--preflight --write-check` runs the probe as well. A
+  script that relied on `--preflight` to prove write access adds `--write-check`. The terminal panel now prints
+  the read-only line for the dialog's description instead of saying there's no equivalent, and the line with
+  `--write-check` for the button.
 - **`workflows.disabled` is a new key, and an older retnd refuses it** (#1246). Clearing the workflow root
   (`retnd settings workflow patch --disable`, or the older `--root ""`) now writes `workflows.disabled: true`
   into `config.yaml`, because an absent root now means "use the mounted default". A retnd older than this
@@ -92,7 +124,20 @@
   the engine's reply, because bringing its service up can take that long on a slow NAS, and a reply that still
   doesn't come is followed by asking whether the engine is configured now, so it reports what actually
   happened.
-
+- **Terminal lines that did less than the click, or that a shell would split** (#1253). The line the terminal
+  records for an action and the lines printed beside the controls were checked again, and these were wrong:
+  disabling or enabling workflows in Settings echoed a bare `retnd settings workflow patch`, which changes
+  nothing (it now ends in `--disable` or `--enable`). Saving a backup set without proving the connection
+  echoed a line without `--no-verify`, on create, edit and the first-run write. A recovery whose target the
+  engine refused echoed `retnd recover <id>` with no `--to`, which on a terminal means the source host; it now
+  prints no line and says why, and so does an operation request that leaves out the parameters its action
+  reads. The run buttons logged `retnd run` for a run the engine served, where the engine's own echo says
+  `retnd operation run`; they print the engine's line now, and keep `retnd run` and `retnd fetch` only for the
+  refusal where the destructive gate shuts the HTTP route and those are the commands that still work. The
+  Operation page put the id from its address on the copyable line unquoted, so a crafted link could show
+  `retnd assurance show x; curl ...|sh` there; the Backups selection bar, the due list and the snapshot
+  restore notice printed ids unquoted too, and the storage destination lines now quote theirs. Every one of
+  those lines is quoted now.
 - **The hourly activity events prune no longer fails on a busy host or fills the terminal with errors**
   (#1247). The prune ran its age delete and its row-bound delete under one 10 second deadline, and the row
   bound found its cut-off by walking up to 50,000 rows of the table on every run. On a NAS whose page cache a

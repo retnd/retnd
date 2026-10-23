@@ -12,7 +12,6 @@
  */
 
 import type { ValidatorEnv, ValidatorScriptState } from "@shared/api/contracts";
-import { shellQuote } from "./assuranceCommands";
 
 /** The pattern an artifact's own name gives: every run of digits becomes
  *  \d{n}, everything else is matched literally, anchored at both ends. The
@@ -73,16 +72,9 @@ export function lastResultWords(r: { state: string; at: string } | undefined): s
   return word.charAt(0).toUpperCase() + word.slice(1) + " " + r.at.slice(0, 10);
 }
 
-/** The command that does the same upload from a shell on the host, for the
- *  notice a shut gate gets. Every operand a person typed goes through
- *  shellQuote, so the line can be pasted as it stands. */
-export function addCommand(name: string, pattern: string, backupSetId: string, env: ValidatorEnv = "minimal"): string {
-  return (
-    "retnd assurance validators add " + shellQuote(name || "NAME") + " --pattern " + shellQuote(pattern || "PATTERN") +
-    (backupSetId ? " --backup-set " + shellQuote(backupSetId) : "") + " --script FILE" +
-    (env === "workflow" ? " --env workflow" : "")
-  );
-}
+/** The upload's terminal line lives in validatorCommands.ts with the other
+ *  twins (#1253), and is re-exported here for the dialog that prints it. */
+export { addCommand } from "./validatorCommands";
 
 export type ScriptFileRead = { ok: true; text: string; normalised: boolean } | { ok: false; problem: string };
 
