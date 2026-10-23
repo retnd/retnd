@@ -15,7 +15,10 @@ The judge reads the report, never the exit status. It refuses:
 
   * a failure that is not listed, or any failure in a blocking spec file;
   * a listed spec that now passes (the list only shrinks, and a pass is
-    the moment to shrink it);
+    the moment to shrink it), unless the entry is marked `flaky`: a spec
+    seen to pass and fail on the same tree in two baselines is allowed
+    either answer until its expiry, because refusing it both ways would
+    make the lane red on a coin toss;
   * an entry whose expiry has passed, or whose pin is not the pin the
     gate ran at (a pin bump has to touch the list in the same diff);
   * more skips than the list's own skip budget (a skip is the same colour
@@ -62,6 +65,7 @@ class Entry:
     owner: str
     expiry: _dt.date
     line: int
+    flaky: bool = False
 
 
 @dataclass(frozen=True)
@@ -85,7 +89,7 @@ def parse_known_red(text: str) -> KnownRed:
     """The list, or a ValueError naming the line that is wrong. Lines are
     `key=value` headers, `#` comments, blanks, or entries of the form
 
-        <file> :: <title path> | <issue> | <owner> | <YYYY-MM-DD>
+        <file> :: <title path> | <issue> | <owner> | <YYYY-MM-DD>[ | flaky]
     """
     headers: dict[str, str] = {}
     entries: list[Entry] = []
@@ -100,8 +104,14 @@ def parse_known_red(text: str) -> KnownRed:
                 continue
             raise ValueError(f"line {number} is neither a header ({', '.join(HEADERS)}) nor an entry: {raw}")
         parts = [p.strip() for p in line.split("|")]
+        flaky = False
+        if len(parts) == 5 and parts[4] == "flaky":
+            flaky = True
+            parts = parts[:4]
         if len(parts) != 4 or not all(parts):
-            raise ValueError(f"line {number} needs `<file> :: <title> | <issue> | <owner> | <YYYY-MM-DD>`: {raw}")
+            raise ValueError(
+                f"line {number} needs `<file> :: <title> | <issue> | <owner> | <YYYY-MM-DD>[ | flaky]`: {raw}"
+            )
         spec, issue, owner, expiry_text = parts
         if " :: " not in spec:
             raise ValueError(f"line {number} names no spec (`<file> :: <title>`): {raw}")
@@ -109,7 +119,7 @@ def parse_known_red(text: str) -> KnownRed:
             expiry = _dt.date.fromisoformat(expiry_text)
         except ValueError as exc:
             raise ValueError(f"line {number} has an expiry that is not a date: {expiry_text}") from exc
-        entries.append(Entry(spec, issue, owner, expiry, number))
+        entries.append(Entry(spec, issue, owner, expiry, number, flaky))
     for key in HEADERS:
         if key not in headers:
             raise ValueError(f"the list has no `{key}=` header")
@@ -217,7 +227,7 @@ def judge(report: object, known: KnownRed, pin: str, today: _dt.date) -> Verdict
         else:
             problems.append(f"NEW FAILURE: {spec} [{where}]; not in {KNOWN_RED}")
     for spec, entry in listed.items():
-        if spec in seen_passing and spec not in failed_specs:
+        if spec in seen_passing and spec not in failed_specs and not entry.flaky:
             problems.append(f"LISTED SPEC PASSES: {spec} (line {entry.line}); take it off the list")
 
     stats = report.get("stats") if isinstance(report, dict) else None

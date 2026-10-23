@@ -12,7 +12,8 @@ became the only gate. These cases pin its answers without Docker:
   C  a listed failure is accepted, and counted as a listed failure
   D  a listed spec that passes is refused: the list only shrinks
   E  a failure in a blocking file is refused even when listed, and a
-     blocking file on the list is refused on its own
+     blocking file on the list is refused on its own; a `flaky` entry is
+     accepted whether it passes or fails, and still expires
   F  an expired entry is refused; one that expires tomorrow is not
   G  a list judged at another pin is refused
   H  more skips than the budget is refused; the summary's own count is a
@@ -154,6 +155,14 @@ def main() -> int:
     suite.check(any(p.startswith("BLOCKING FAILURE") for p in recovery.problems),
                 "E workflow-recovery is blocking too", "E a workflow-recovery failure was not blocking", str(recovery.problems))
 
+    flaky_list = web_ui_ratchet.parse_known_red(listing([]) + f"{wizard} | https://github.com/retnd/retnd/issues/1260 | spdrman | 2027-01-31 | flaky\n")
+    suite.check(judged([OK_SHELL, OK_WIZARD], flaky_list).ok and judged([OK_SHELL, RED_WIZARD], flaky_list).ok,
+                "E a flaky entry is accepted whether it passes or fails", "E a flaky entry was refused on one answer",
+                str(judged([OK_SHELL, OK_WIZARD], flaky_list).problems) + str(judged([OK_SHELL, RED_WIZARD], flaky_list).problems))
+    stale_flaky = web_ui_ratchet.parse_known_red(listing([]) + f"{wizard} | https://github.com/retnd/retnd/issues/1260 | spdrman | 2026-10-23 | flaky\n")
+    suite.check(any(p.startswith("EXPIRED") for p in judged([OK_SHELL, OK_WIZARD], stale_flaky).problems),
+                "E a flaky entry still expires", "E an expired flaky entry was accepted")
+
     # F
     expired = judged([OK_SHELL, RED_WIZARD], web_ui_ratchet.parse_known_red(listing([wizard], expiry="2026-10-23")))
     suite.check(any(p.startswith("EXPIRED") for p in expired.problems),
@@ -197,6 +206,8 @@ def main() -> int:
                 "K an expiry that is not a date is refused", "K a non-date expiry parsed")
     suite.check(refuses(listing([]) + "a.spec.ts d t | #1260 | spdrman | 2027-01-01\n"),
                 "K an entry that names no spec is refused", "K a spec-less entry parsed")
+    suite.check(refuses(listing([]) + "a.spec.ts :: d › t | #1260 | spdrman | 2027-01-01 | sometimes\n"),
+                "K a fifth field that is not `flaky` is refused", "K an unknown fifth field parsed")
 
     # L
     suite.check(clean.problems != new.problems,
@@ -206,9 +217,9 @@ def main() -> int:
     if real is not None:
         real_pin = tests_pin.read_pin(REAL_PIN)["TESTS_REPO_SHA"]
         suite.check(real.pin == real_pin, "L the real list is judged at the real pin", f"L the list is at {real.pin[:12]} and the pin is {real_pin[:12]}")
-        suite.check(len(real.entries) <= real.cap <= 33,
-                    f"L the real list holds {len(real.entries)} entries under a cap of {real.cap}, at most the 33 it started with",
-                    f"L the real list breaks its cap ({len(real.entries)} entries, cap {real.cap}, ceiling 33)")
+        suite.check(len(real.entries) <= real.cap <= 38,
+                    f"L the real list holds {len(real.entries)} entries under a cap of {real.cap}, at most the 38 it started with",
+                    f"L the real list breaks its cap ({len(real.entries)} entries, cap {real.cap}, ceiling 38)")
         suite.check(not any(any(e.spec.startswith(f + " :: ") for f in web_ui_ratchet.BLOCKING_FILES) for e in real.entries),
                     "L the real list holds no blocking spec", "L a blocking spec is on the real list")
         suite.check(all(e.owner and e.issue.startswith("https://github.com/") for e in real.entries),
