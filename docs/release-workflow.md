@@ -42,6 +42,7 @@ registry is immutable by policy. A correction gets a new version.
 | `provenance/checksums.txt` | Digests of the distributed artifacts |
 | `provenance/local-gate.json` | The full local gate run this tree passed: its gate tree, tool versions and log hash |
 | `provenance/local-gate.log` | The output of that run, attached to the GitHub Release |
+| `scripts/e2e/known-red.txt` | The browser specs allowed to fail at the pinned retnd-tests sha, with issue, owner and expiry; the record carries the lane's counts |
 | `scripts/install/install_docker_host.py` | Installer-carried release version and immutable index digest |
 | `CHANGELOG.md` | Operator-visible release notes and upgrade effects |
 

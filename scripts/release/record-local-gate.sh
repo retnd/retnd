@@ -245,13 +245,26 @@ mkdir -p provenance
 cp "$log" provenance/local-gate.log
 log_sha256="$(sha256_of provenance/local-gate.log)"
 
+# The browser lane's result, as evidence (#1260). The e2e gate writes
+# .e2e-gate/web-ui-lane.json in the worktree it ran in: how many passed,
+# failed, were listed on scripts/e2e/known-red.txt and skipped, at which
+# retnd-tests pin. It is carried into the record so a release says what
+# its browser lane looked like, and absent (null) when the gate in the
+# recorded tree predates the lane.
+lane_file="$worktree/.e2e-gate/web-ui-lane.json"
+[ -f "$lane_file" ] || lane_file=""
+
 python3 - provenance/local-gate.json "$RECORD_SCHEMA" "$gate_tree" "$head" "$started_at" "$duration_s" \
-  "$go_version" "$node_version" "$golangci_version" "$docker_version" "$log_sha256" <<'PY'
+  "$go_version" "$node_version" "$golangci_version" "$docker_version" "$log_sha256" "$lane_file" <<'PY'
 import json
 import sys
 
 (path, schema, gate_tree, head, started_at, duration_s,
- go, node, golangci, docker, log_sha256) = sys.argv[1:]
+ go, node, golangci, docker, log_sha256, lane_file) = sys.argv[1:]
+lane = None
+if lane_file:
+    with open(lane_file, encoding="utf-8") as fh:
+        lane = json.load(fh)
 record = {
     "schema": schema,
     "gate_tree": gate_tree,
@@ -267,6 +280,7 @@ record = {
         "docker": docker,
     },
     "log_sha256": log_sha256,
+    "web_ui_lane": lane,
     "env": {"CI": "1"},
     "note": "Written by scripts/release/record-local-gate.sh. gate_tree is scripts/release/gate-tree.sh over the recorded commit: its tree with this file and local-gate.log left out. require-release-gate in .github/workflows/release.yml recomputes it on the commit it publishes and refuses a mismatch.",
 }

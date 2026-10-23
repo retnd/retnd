@@ -85,7 +85,14 @@ change there and the pin bump in the same PR.
   matrix, still `workflow_dispatch`-only. It exists for a run on a clean
   machine with a downloadable trace, not as a gate: nothing triggers it.
   No workflow here triggers on its own any more: #1260 deleted `ci.yml`,
-  and the pre-commit gate is the only gate.
+  and the pre-commit gate is the only gate. Suite B runs in it as a lane
+  judged by its Playwright JSON report against `known-red.txt` in this
+  directory (`scripts/bdtools/e2e/web_ui_ratchet.py`): a failure in
+  `safety-invariants` or `workflow-recovery` blocks whatever the list says,
+  any other failure has to be listed with an issue, an owner and an expiry
+  at the current pin, a listed spec that passes has to come off, the list's
+  cap only goes down, and a lane that left no report ends the gate
+  INCOMPLETE rather than ok.
 - **`retnd-tests` pins a build of this repository**, in its own
   `build-under-test.json`. The two pins point opposite ways on purpose. A
   new test cannot break in-flight work here until someone bumps this one,

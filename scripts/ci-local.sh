@@ -473,6 +473,16 @@ bash scripts/tests/first-run-report.test.sh
 gate_step "a tests pin must be on retnd-tests main (#1074)"
 bash scripts/tests/pin-on-main.test.sh
 
+# The web-ui ratchet's judge (#1260). The browser lane is judged by its
+# Playwright report against scripts/e2e/known-red.txt rather than by its
+# exit status, so the judge is the whole gate for the specs on that list.
+# This drives it over synthetic reports: a failure not listed, a listed
+# spec that passes, an expired or other-pin entry, a grown skip count, a
+# list over its cap, and the two blocking files. It also holds the real
+# list to the real pin and to its ceiling. No Docker, under a second.
+gate_step "the web-ui ratchet refuses a new failure, a listed pass, an expired or other-pin entry and a grown skip count (#1260)"
+bash scripts/tests/web-ui-ratchet.test.sh
+
 # Every Python file under scripts/, held to a linter, and the subset that is
 # clean under a type checker held to that too (EPIC I / I1.6, #672).
 #
@@ -840,12 +850,36 @@ fi
 # never-merge-on-FAST rule. CI_LOCAL_SKIP_E2E=1 is the separate out-loud
 # opt-out for a machine with no browser, and it ledgers, so that run ends
 # INCOMPLETE and says which check it left out.
+#
+# Three outcomes since #1260, like the two-machine proof below. The browser
+# suite runs as a lane judged against scripts/e2e/known-red.txt (a failure
+# in a blocking spec, a failure not on the list, a listed spec that now
+# passes, an expired or other-pin entry, a grown skip count: all FAILED),
+# and a lane that produced no report to judge, because the rig could not
+# run or the runner crashed, exits 3. That is ledgered here, so the run
+# ends INCOMPLETE and the release recorder writes nothing for it: a lane
+# nobody could judge is not a lane that passed. The judge's own cases are
+# scripts/tests/web-ui-ratchet.test.sh, up with the static checks.
 if [ "$FAST" != "1" ]; then
   if [ "${CI_LOCAL_SKIP_E2E:-0}" = "1" ]; then
     gate_note_skip "the browser e2e suite and the CLI smoke slice from retnd-tests, which are the only automated execution either of them gets (CI_LOCAL_SKIP_E2E=1)"
   else
-    gate_step "browser e2e + CLI smoke, from retnd-tests at the pinned sha (#197)"
+    gate_step "browser e2e + CLI smoke, from retnd-tests at the pinned sha (#197), the browser suite judged against the known-red ratchet (#1260)"
+    # Not under `set -e`: exit 3 is a verdict this script has to READ, and
+    # `set -e` would end the run on it before the ledger ever saw it.
+    set +e
     bash scripts/e2e/run-tests-repo-gate.sh
+    e2e_status=$?
+    set -e
+    case "$e2e_status" in
+      0) ;;
+      3)
+        gate_note_skip "the browser suite lane (#1260): it produced no report to judge, because the rig could not run on this machine or the runner crashed, and said why above"
+        ;;
+      *)
+        exit "$e2e_status"
+        ;;
+    esac
   fi
 fi
 
