@@ -49,6 +49,12 @@ const (
 	// run_cycle's sentence, which is an answer about a different act.
 	gapUnknownAction = "there is no verb for an operation action this binary doesn't define, and the engine refuses the request too"
 
+	// #1253's review. A request naming an action and leaving out the
+	// parameters that action reads is refused by the engine, and a nil
+	// here would print the route's "this body won't decode" sentence,
+	// which says something else.
+	gapMissingParameters = "there is no command for an operation request that leaves out the parameters its action reads, and the engine refuses it too"
+
 	// #1253's review. Without --to, `recover` writes back where the
 	// backup came from, which is the production source host, so a
 	// recovery whose target this table can't spell gets no line at all
@@ -168,7 +174,7 @@ var routes = map[string]entry{
 			switch req.Action {
 			case apicontract.ActionRestorePlacement:
 				if req.Restore == nil {
-					return nil
+					return newCmd().refuse(gapMissingParameters)
 				}
 				c := newCmd("restore", req.Restore.ArtifactID).flag("medium", req.Restore.Medium)
 				if req.Restore.WindowDays > 0 {
@@ -192,7 +198,7 @@ var routes = map[string]entry{
 				// --backup-set` for the reason above: fetch runs the set
 				// in the operator's own process.
 				if req.BackupSetID == "" {
-					return nil
+					return newCmd().refuse(gapMissingParameters)
 				}
 				c := newCmd("operation", "run").flag("backup-set", req.BackupSetID)
 				if req.SkipWorkflowScripts {
@@ -207,7 +213,7 @@ var routes = map[string]entry{
 				// "get this file back out of last night's restore point"
 				// with a billed provider retrieval of a different object.
 				if req.SnapshotRestore == nil {
-					return nil
+					return newCmd().refuse(gapMissingParameters)
 				}
 				c := newCmd("snapshot", "restore", req.SnapshotRestore.BackupSetID).
 					flag("to", req.SnapshotRestore.TargetPath)
@@ -217,7 +223,7 @@ var routes = map[string]entry{
 				return c
 			case apicontract.ActionVerifySnapshot:
 				if req.SnapshotVerify == nil {
-					return nil
+					return newCmd().refuse(gapMissingParameters)
 				}
 				c := newCmd("snapshot", "verify", req.SnapshotVerify.BackupSetID)
 				c.flagIfSet("run", req.SnapshotVerify.RunID)
@@ -228,7 +234,7 @@ var routes = map[string]entry{
 				return c
 			case apicontract.ActionHoldSnapshot:
 				if req.SnapshotHold == nil {
-					return nil
+					return newCmd().refuse(gapMissingParameters)
 				}
 				c := newCmd("snapshot", "hold", req.SnapshotHold.BackupSetID).
 					flag("reason", req.SnapshotHold.Reason)
@@ -236,7 +242,7 @@ var routes = map[string]entry{
 				return c
 			case apicontract.ActionReleaseSnapshotHold:
 				if req.SnapshotHoldRelease == nil {
-					return nil
+					return newCmd().refuse(gapMissingParameters)
 				}
 				return newCmd("snapshot", "unhold", req.SnapshotHoldRelease.BackupSetID, req.SnapshotHoldRelease.HoldID)
 			default:
@@ -252,7 +258,7 @@ var routes = map[string]entry{
 		// route-level sentence is the one every other builder here gives
 		// for that case.
 		why:      "there is no verb that submits an operation from a request body",
-		refusals: []string{gapUnknownAction},
+		refusals: []string{gapUnknownAction, gapMissingParameters},
 		examples: []Action{
 			{Body: []byte(`{"action":"` + apicontract.ActionRestorePlacement + `","config_revision":"r1","restore":{"artifact_id":"api-server/var-backups/dump.tar","medium":"offsite_s3","window_days":7,"acknowledged":true}}`)},
 			{Body: []byte(`{"action":"` + apicontract.ActionRunBackupSet + `","config_revision":"r1","backup_set_id":"api-server/var-backups"}`)},

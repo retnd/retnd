@@ -223,6 +223,17 @@ func bodyVariants(schema string, body []byte) ([]labelledBody, error) {
 					label string
 					obj   map[string]any
 				}{strings.TrimPrefix(v.label+" "+label, " "), obj})
+				// The same action with the parameters it reads left out,
+				// which the engine refuses and a builder has to decline
+				// by saying so (#1253's review).
+				if sel.modes != nil && value != unknownSelector && len(sel.modes[value]) > 0 {
+					bare := deepCopy(obj).(map[string]any)
+					keepMode(bare, sel.modeKeys, nil)
+					expanded = append(expanded, struct {
+						label string
+						obj   map[string]any
+					}{strings.TrimPrefix(v.label+" "+label+" without its parameters", " "), bare})
+				}
 			}
 		}
 		variants = expanded

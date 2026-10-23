@@ -72,7 +72,7 @@ GET /auth/recovery
 	example: command
 
 GET /auth/session
-	no command: a session read answers a browser's question about its own cookie, and a terminal holds no session to ask about
+	example: command
 
 GET /backends
 	example: command
@@ -111,7 +111,8 @@ GET /backup-sets/{source}/{set}/snapshots/{run}
 	example: command
 
 GET /backup-sets/{source}/{set}/source-host
-	no command: describing where a source-host recovery would write has no verb of its own, because the terminal never describes without checking: `retnd recover --set <source/backup-set> --to source: --preflight` prints the same description and then runs the write check, which writes and removes one probe file on that host
+	example: command
+	example ?folder=retnd-recovered-20261015-101500-a1b2: command
 
 GET /backup-sets/{source}/{set}/workflow
 	example: command
@@ -293,10 +294,15 @@ POST /assurance/validators
 	body that isn't JSON: malformed: there is no verb that uploads a validator from a request body
 
 POST /auth/enroll
-	no command: the first administrator is made by `retnd-web auth create-admin --username U --password-stdin`, offline, against the store, and it refuses while a server holds the store or once an administrator exists; there is no routed verb for it, because there is no engine account to sign in as yet
+	corpus: command
+	example {"username":"admin","password":"x"}: command
+	example {"username":"admin","password":"x","recoveryEmail":"ops@example.org","smtp":{"host":"smtp.example.org","port":2525,"security":"tls","username":"mailer","from":"retnd@example.org","password":"y"}}: command
+	body that isn't JSON: malformed: the request body would not decode, so there is no command that says who it enrolled
 
 POST /auth/forgot-password
-	no command: there is no verb that asks for a password-reset email from a terminal; it is the browser's path for an account with a working mail server, and a terminal that can reach the engine at all can change the password with `retnd auth password`
+	corpus: command
+	example {"username":"admin"}: command
+	body that isn't JSON: malformed: the request body would not decode, so there is no command that says which account it asked about
 
 POST /auth/login
 	no command: a login opens a browser session, and a terminal holds no session: a routed command signs in with $RETND_API_USERNAME and $RETND_API_PASSWORD for the one invocation, so there is nothing to type
@@ -314,7 +320,9 @@ POST /auth/recovery/test
 	body that isn't JSON: command
 
 POST /auth/reset-password
-	no command: there is no verb that redeems a password-reset token from a terminal. An administrator locked out with no mail configured does have a way back in: `retnd-web auth set-password --username U --password-stdin`, offline, with the server stopped
+	corpus: command
+	example: command
+	body that isn't JSON: command
 
 POST /auth/verify-email
 	corpus: command
@@ -334,14 +342,15 @@ POST /backup-sets
 	body that isn't JSON: malformed: there is no verb that creates a backup set from a request body
 
 POST /backup-sets/test-connection
-	corpus mode=candidate: refused: there is no verb that checks a source that is not saved yet: `retnd backup-set create` proves the connection before it writes, and `retnd backup-set test-connection <source/backup-set>` re-checks one that exists
+	corpus mode=candidate: command
 	corpus mode=persisted: command
 	example {"backup_set_id":"api-server/var-backups"}: command
-	example {"host":"10.0.0.14","user":"backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","remote_path":"/var/backups"}: refused: there is no verb that checks a source that is not saved yet: `retnd backup-set create` proves the connection before it writes, and `retnd backup-set test-connection <source/backup-set>` re-checks one that exists
-	body that isn't JSON: malformed: there is no verb that checks a source that has not been saved yet
+	example {"host":"10.0.0.14","user":"backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","remote_path":"/var/backups"}: command
+	body that isn't JSON: malformed: there is no verb that checks a source connection from a request body
 
 POST /backup-sets/{source}/{set}/edit-hold
-	no command: `backup-set edit-hold` reports a hold and releases one, and no verb TAKES one and leaves it held: a hold outliving the command that took it is exactly what a browser needs and a terminal does not
+	example: command
+	body that isn't JSON: command
 
 POST /backup-sets/{source}/{set}/edit-hold/release
 	example: command
@@ -410,11 +419,17 @@ POST /catalog/scan
 POST /operations
 	corpus action=run_cycle: command
 	corpus action=run_backup_set: command
+	corpus action=run_backup_set without its parameters: refused: there is no command for an operation request that leaves out the parameters its action reads, and the engine refuses it too
 	corpus action=restore_placement: command
+	corpus action=restore_placement without its parameters: refused: there is no command for an operation request that leaves out the parameters its action reads, and the engine refuses it too
 	corpus action=restore_snapshot: command
+	corpus action=restore_snapshot without its parameters: refused: there is no command for an operation request that leaves out the parameters its action reads, and the engine refuses it too
 	corpus action=verify_snapshot: command
+	corpus action=verify_snapshot without its parameters: refused: there is no command for an operation request that leaves out the parameters its action reads, and the engine refuses it too
 	corpus action=hold_snapshot: command
+	corpus action=hold_snapshot without its parameters: refused: there is no command for an operation request that leaves out the parameters its action reads, and the engine refuses it too
 	corpus action=release_snapshot_hold: command
+	corpus action=release_snapshot_hold without its parameters: refused: there is no command for an operation request that leaves out the parameters its action reads, and the engine refuses it too
 	corpus action=<unknown>: refused: there is no verb for an operation action this binary doesn't define, and the engine refuses the request too
 	example {"action":"restore_placement","config_revision":"r1","restore":{"artifact_id":"api-server/var-backups/dump.tar","medium":"offsite_s3","window_days":7,"acknowledged":true}}: command
 	example {"action":"run_backup_set","config_revision":"r1","backup_set_id":"api-server/var-backups"}: command
