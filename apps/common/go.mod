@@ -3,7 +3,7 @@ module github.com/retnd/retnd/apps/common
 go 1.27.0
 
 require (
-	github.com/go-chi/chi/v5 v5.4.0
+	github.com/go-chi/chi/v5 v5.5.0
 	github.com/retnd/retnd/core v0.0.0-00010101000000-000000000000
 	golang.org/x/crypto v0.58.0
 	golang.org/x/sys v0.49.0
