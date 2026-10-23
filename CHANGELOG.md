@@ -124,18 +124,20 @@
   the engine's reply, because bringing its service up can take that long on a slow NAS, and a reply that still
   doesn't come is followed by asking whether the engine is configured now, so it reports what actually
   happened.
-
 - **Terminal lines that did less than the click, or that a shell would split** (#1253). The line the terminal
   records for an action and the lines printed beside the controls were checked again, and these were wrong:
   disabling or enabling workflows in Settings echoed a bare `retnd settings workflow patch`, which changes
   nothing (it now ends in `--disable` or `--enable`). Saving a backup set without proving the connection
   echoed a line without `--no-verify`, on create, edit and the first-run write. A recovery whose target the
   engine refused echoed `retnd recover <id>` with no `--to`, which on a terminal means the source host; it now
-  prints no line and says why. An operation action this build doesn't know got the run-all sentence instead of
-  its own. The Operation page put the id from its address on the copyable line unquoted, so a crafted link
-  could show `retnd assurance show x; curl ...|sh` there; the Backups selection bar, the due list and the
-  snapshot restore notice printed ids unquoted too, and the storage destination lines now quote theirs. Every
-  one of those lines is quoted now.
+  prints no line and says why, and so does an operation request that leaves out the parameters its action
+  reads. The run buttons logged `retnd run` for a run the engine served, where the engine's own echo says
+  `retnd operation run`; they print the engine's line now, and keep `retnd run` and `retnd fetch` only for the
+  refusal where the destructive gate shuts the HTTP route and those are the commands that still work. The
+  Operation page put the id from its address on the copyable line unquoted, so a crafted link could show
+  `retnd assurance show x; curl ...|sh` there; the Backups selection bar, the due list and the snapshot
+  restore notice printed ids unquoted too, and the storage destination lines now quote theirs. Every one of
+  those lines is quoted now.
 - **The hourly activity events prune no longer fails on a busy host or fills the terminal with errors**
   (#1247). The prune ran its age delete and its row-bound delete under one 10 second deadline, and the row
   bound found its cut-off by walking up to 50,000 rows of the table on every run. On a NAS whose page cache a
