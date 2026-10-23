@@ -85,6 +85,18 @@ def spec_id(file: str, titles: list[str]) -> str:
     return file + " :: " + " \u203a ".join(titles)
 
 
+def matches(entry_spec: str, spec: str) -> bool:
+    """Whether a listed id names a report id. An id ending in ` *` is a
+    prefix, for a title that cannot be written out in full here: six
+    retnd-tests titles end in a parenthesis naming that repository's old
+    issue tracker, and this repository's former-name guard allows that
+    word in no tracked file. The prefix has to reach the parenthesis, so it
+    still names one spec."""
+    if entry_spec.endswith(" *"):
+        return spec.startswith(entry_spec[:-2])
+    return entry_spec == spec
+
+
 def parse_known_red(text: str) -> KnownRed:
     """The list, or a ValueError naming the line that is wrong. Lines are
     `key=value` headers, `#` comments, blanks, or entries of the form
@@ -190,6 +202,12 @@ def judge(report: object, known: KnownRed, pin: str, today: _dt.date) -> Verdict
             f"the known-red list holds {len(known.entries)} entries and its cap is {known.cap}; the cap only goes down"
         )
     listed = {e.spec: e for e in known.entries}
+
+    def listing_for(spec: str) -> Entry | None:
+        for e in known.entries:
+            if matches(e.spec, spec):
+                return e
+        return None
     for entry in known.entries:
         if entry.expiry <= today:
             problems.append(
@@ -222,13 +240,14 @@ def judge(report: object, known: KnownRed, pin: str, today: _dt.date) -> Verdict
         where = ", ".join(p for p in projects if p) or "?"
         if any(spec.startswith(f + " :: ") for f in BLOCKING_FILES):
             problems.append(f"BLOCKING FAILURE: {spec} [{where}]")
-        elif spec in listed:
+        elif listing_for(spec) is not None:
             listed_failures += 1
         else:
             problems.append(f"NEW FAILURE: {spec} [{where}]; not in {KNOWN_RED}")
-    for spec, entry in listed.items():
-        if spec in seen_passing and spec not in failed_specs and not entry.flaky:
-            problems.append(f"LISTED SPEC PASSES: {spec} (line {entry.line}); take it off the list")
+    for entry in listed.values():
+        passing = [s for s in seen_passing if matches(entry.spec, s) and s not in failed_specs]
+        if passing and not entry.flaky:
+            problems.append(f"LISTED SPEC PASSES: {passing[0]} (line {entry.line}); take it off the list")
 
     stats = report.get("stats") if isinstance(report, dict) else None
     counted = stats.get("skipped") if isinstance(stats, dict) else None

@@ -163,6 +163,12 @@ def main() -> int:
     suite.check(any(p.startswith("EXPIRED") for p in judged([OK_SHELL, OK_WIZARD], stale_flaky).problems),
                 "E a flaky entry still expires", "E an expired flaky entry was accepted")
 
+    prefixed = web_ui_ratchet.parse_known_red(listing(["wizard.spec.ts :: d › six *"]))
+    suite.check(judged([OK_SHELL, RED_WIZARD], prefixed).ok and not judged([OK_SHELL, OK_WIZARD], prefixed).ok,
+                "E an entry ending in ` *` lists every spec it is a prefix of, and a pass under it is still refused",
+                "E a prefix entry did not match, or let a pass through",
+                str(judged([OK_SHELL, RED_WIZARD], prefixed).problems))
+
     # F
     expired = judged([OK_SHELL, RED_WIZARD], web_ui_ratchet.parse_known_red(listing([wizard], expiry="2026-10-23")))
     suite.check(any(p.startswith("EXPIRED") for p in expired.problems),
