@@ -3,7 +3,7 @@
   "sources": [
     {
       "path": "ui/shared/src/assurance/assuranceCommands.ts",
-      "sha256": "7eb3496f6f563e4e4a148b3b1394a7013156a4bcd9ee8d176a14597eee4f6d65"
+      "sha256": "6427846445035d39e5c8569016d86e56151e224bb5b734fad2a6fa2b6a1927c2"
     },
     {
       "path": "ui/shared/src/assurance/validatorCommands.ts",
@@ -27,7 +27,7 @@
     },
     {
       "path": "ui/shared/src/test/cliTwins.test.ts",
-      "sha256": "fe702b86882fde0f26db8f9dd6b85159f06747fda423bd2d8a7685f72836297b"
+      "sha256": "3cab31fcb7f44e8d0375349668841d20527f77a88bb996f58cfd39ee4e16282e"
     }
   ],
   "twins": [
@@ -90,6 +90,36 @@
       "fn": "artifactsInSetCommand",
       "case": "a set",
       "line": "retnd artifacts --backup-set api-server/var-backups"
+    },
+    {
+      "module": "assurance/assuranceCommands",
+      "fn": "artifactsListCommand",
+      "case": "no filter",
+      "line": "retnd artifacts"
+    },
+    {
+      "module": "assurance/assuranceCommands",
+      "fn": "artifactsListCommand",
+      "case": "every filter",
+      "line": "retnd artifacts --backup-set api-server/var-backups --assurance overdue --since 2026-10-01 --until 2026-10-07"
+    },
+    {
+      "module": "assurance/assuranceCommands",
+      "fn": "artifactsListCommand",
+      "case": "a bucket list",
+      "line": "retnd artifacts --assurance due,overdue"
+    },
+    {
+      "module": "assurance/assuranceCommands",
+      "fn": "artifactsListCommand",
+      "case": "only a received-date range",
+      "line": "retnd artifacts --since 2026-10-01 --until 2026-10-07"
+    },
+    {
+      "module": "assurance/assuranceCommands",
+      "fn": "artifactsListCommand",
+      "case": "a hostile set id",
+      "line": "retnd artifacts --backup-set 'api-server/x; id|sh'"
     },
     {
       "module": "assurance/assuranceCommands",

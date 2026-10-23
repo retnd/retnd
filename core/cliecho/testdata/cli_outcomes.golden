@@ -408,8 +408,8 @@ POST /catalog/scan
 	body that isn't JSON: command
 
 POST /operations
-	corpus action=run_cycle: refused: `retnd run` starts a cycle in your own shell, not in this engine, so it is a different act against a different process
-	corpus action=run_backup_set: refused: `retnd fetch --backup-set <source/backup-set>` runs that set's cycle in your own shell, not in this engine, so it is a different act against a different process
+	corpus action=run_cycle: command
+	corpus action=run_backup_set: command
 	corpus action=restore_placement: command
 	corpus action=restore_snapshot: command
 	corpus action=verify_snapshot: command
@@ -417,8 +417,8 @@ POST /operations
 	corpus action=release_snapshot_hold: command
 	corpus action=<unknown>: refused: there is no verb for an operation action this binary doesn't define, and the engine refuses the request too
 	example {"action":"restore_placement","config_revision":"r1","restore":{"artifact_id":"api-server/var-backups/dump.tar","medium":"offsite_s3","window_days":7,"acknowledged":true}}: command
-	example {"action":"run_backup_set","config_revision":"r1","backup_set_id":"api-server/var-backups"}: refused: `retnd fetch --backup-set <source/backup-set>` runs that set's cycle in your own shell, not in this engine, so it is a different act against a different process
-	example {"action":"run_cycle","config_revision":"r1"}: refused: `retnd run` starts a cycle in your own shell, not in this engine, so it is a different act against a different process
+	example {"action":"run_backup_set","config_revision":"r1","backup_set_id":"api-server/var-backups"}: command
+	example {"action":"run_cycle","config_revision":"r1"}: command
 	example {"action":"restore_snapshot","config_revision":"r1","snapshot_restore":{"backup_set_id":"api-server/var-backups","target_path":"/srv/restored","snapshot_id":"k1234","source_path":"var/lib/pg","conflict":"skip"}}: command
 	example {"action":"verify_snapshot","config_revision":"r1","snapshot_verify":{"backup_set_id":"api-server/var-backups","run_id":"run_1","level":"content_sample","sample_percent":10}}: command
 	example {"action":"hold_snapshot","config_revision":"r1","snapshot_hold":{"backup_set_id":"api-server/var-backups","run_id":"run_1","reason":"kept for the incident review"}}: command
@@ -451,6 +451,7 @@ POST /recoveries
 	example {"set":"api-server/var-backups","target":{"kind":"staging","path":"restore/var-backups"}}: command
 	example {"set":"api-server/var-backups","newest_only":true,"acknowledged":true,"target":{"kind":"storage","medium":"offsite_s3","key":"recovered"}}: command
 	example {"set":"api-server/var-backups","since":"2026-10-01T00:00:00Z","preflight":true,"target":{"kind":"staging","path":"restore/var-backups"}}: command
+	example {"set":"api-server/var-backups","since":"2026-10-01T00:00:00Z","until":"2026-10-07T23:59:59Z","target":{"kind":"staging","path":"restore/var-backups"}}: command
 	example {"artifacts":["api-server/var-backups/a.tar","api-server/var-backups/b.tar"],"target":{"kind":"staging","path":"restore/picked"}}: command
 	example {"set":"api-server/var-backups","target":{"kind":"source","path":"retnd-recovered-20261015-101500-a1b2","acknowledged_destination":"sh1-0123456789abcdef0123456789abcdef"}}: command
 	example {"set":"api-server/var-backups","newest_only":true,"target":{"kind":"source","path":"retnd-recovered-20261015-101500-a1b2","acknowledged_destination":"sh1-0123456789abcdef0123456789abcdef"}}: command

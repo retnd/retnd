@@ -270,7 +270,7 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	// by its own id. The script itself never reaches the line: it is a
 	// placeholder for the file the operator uploaded.
 	"--pattern":    "the artifact-name regular expression the operator chose for a custom validator",
-	"--backup-set": "the backup set a custom validator is scoped to, by its own id (source/set)",
+	"--backup-set": "the backup set a custom validator is scoped to, or the one an operation run is for (operation run), by its own id (source/set)",
 
 	// Retention and settings scalars.
 	"--timezone":       "the IANA zone retention decisions are made in",
@@ -372,10 +372,11 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 // is added here, which is where a reviewer reads whether the reason still
 // holds for it.
 var flagRoutes = map[string][]string{
+	"--until":                       {"POST /recoveries"},
 	"--after-dir":                   {"PATCH /backup-sets/{source}/{set}/workflow", "PATCH /settings/workflow"},
 	"--artifact":                    {"POST /backup-sets/{source}/{set}/recovery-test"},
 	"--backend":                     {"POST /storage-mediums/{id}/configuration/preflight", "PUT /storage-mediums/{id}/configuration"},
-	"--backup-set":                  {"POST /assurance/validator-preview", "POST /assurance/validators", "PUT /assurance/validators/{name}"},
+	"--backup-set":                  {"POST /assurance/validator-preview", "POST /assurance/validators", "POST /operations", "PUT /assurance/validators/{name}"},
 	"--before-dir":                  {"PATCH /backup-sets/{source}/{set}/workflow", "PATCH /settings/workflow"},
 	"--bucket":                      {"POST /storage-mediums", "POST /storage-mediums/preflight", "PUT /storage-mediums/{id}"},
 	"--candidate":                   {"POST /ssh-keys/from-candidate"},
