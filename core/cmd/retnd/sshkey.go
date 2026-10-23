@@ -86,7 +86,7 @@ func cmdSSH(args []string) int {
 func openSSHKeyRoute(ctx context.Context, cfgPath string, importing bool) (sshKeyRoute, func(), error) {
 	configFile := config.ResolvePath(cfgPath)
 	if _, err := os.Stat(configFile); errors.Is(err, os.ErrNotExist) {
-		route, firstRunServing, err := sshKeyFirstRunRoute(ctx)
+		route, firstRunServing, err := sshKeyFirstRunRoute(ctx, "so this command uses its key store at %s")
 		if err != nil {
 			return nil, func() {}, err
 		}
@@ -130,7 +130,12 @@ func openSSHKeyRoute(ctx context.Context, cfgPath string, importing bool) (sshKe
 // before. A route that was named and is refused is reported, never
 // downgraded, and it is said on stderr, so a --json document on stdout
 // stays the only thing there.
-func sshKeyFirstRunRoute(ctx context.Context) (*firstRunEngineRoute, bool, error) {
+//
+// uses is the end of the mode line, with a %s for the address: what this
+// command does with the engine it found, in the caller's words, since the
+// candidate connection check (#1253) takes the same route for a different
+// reason than a key verb.
+func sshKeyFirstRunRoute(ctx context.Context, uses string) (*firstRunEngineRoute, bool, error) {
 	stateDatabase := service.StateDatabaseDefault()
 	engine, err := detectRunningEngineForJournal(stateDatabase)
 	if err != nil {
@@ -146,7 +151,7 @@ func sshKeyFirstRunRoute(ctx context.Context) (*firstRunEngineRoute, bool, error
 		return nil, true, err
 	}
 	if route != nil {
-		fmt.Fprintf(os.Stderr, "%s%s. A process is serving this deployment's first-run setup flow (state database %s), so this command uses its key store at %s.\n",
+		fmt.Fprintf(os.Stderr, "%s%s. A process is serving this deployment's first-run setup flow (state database %s), "+uses+".\n",
 			modeLinePrefix, engineAttachedMode, engine.StateDatabase, address)
 	}
 	return route, true, nil
