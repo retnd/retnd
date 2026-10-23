@@ -35,7 +35,6 @@ for the gate record, and calls this.
 from __future__ import annotations
 
 import datetime as _dt
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -79,7 +78,7 @@ def spec_id(file: str, titles: list[str]) -> str:
     its full title path, describe blocks included, joined the way Playwright
     prints them. No line numbers, so an edit above a spec does not move its
     id."""
-    return file + " :: " + " › ".join(titles)
+    return file + " :: " + " \u203a ".join(titles)
 
 
 def parse_known_red(text: str) -> KnownRed:
@@ -125,12 +124,12 @@ def parse_known_red(text: str) -> KnownRed:
 def _walk(suite: dict[str, Any], titles: list[str], out: list[tuple[str, str, str, str]]) -> None:
     for spec in suite.get("specs", []):
         file = str(spec.get("file", "?"))
-        path = titles + [str(spec.get("title", "?"))]
+        path = [*titles, str(spec.get("title", "?"))]
         for test in spec.get("tests", []):
             out.append((file, spec_id(file, path), str(test.get("projectName", "")), str(test.get("status", "?"))))
     for child in suite.get("suites", []):
         if isinstance(child, dict):
-            _walk(child, titles + [str(child.get("title", ""))], out)
+            _walk(child, [*titles, str(child.get("title", ""))], out)
 
 
 def cases(report: object) -> list[tuple[str, str, str, str]] | None:
@@ -195,7 +194,7 @@ def judge(report: object, known: KnownRed, pin: str, today: _dt.date) -> Verdict
     passed = failed = skipped = 0
     failed_specs: dict[str, list[str]] = {}
     seen_passing: set[str] = set()
-    for file, spec, project, status in found:
+    for _file, spec, project, status in found:
         if status == "skipped":
             skipped += 1
         elif status == "unexpected":
