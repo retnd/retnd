@@ -125,16 +125,16 @@ set -e
 # built by hand and lives somewhere else.
 _caller_golangci=$(command -v golangci-lint 2>/dev/null || true)
 export PATH="/opt/homebrew/bin:$PATH"
+if [ -n "$_caller_golangci" ]; then
+  PATH="$(dirname "$_caller_golangci"):$PATH"
+  export PATH
+fi
 # The line above puts Homebrew's tools ahead of whatever the caller set, so a
 # golangci-lint built for the pinned toolchain (see gate_golangci_pin_note
 # below) could never win from PATH alone. GOLANGCI_LINT_DIR is how to say
 # "this directory first".
 if [ -n "${GOLANGCI_LINT_DIR:-}" ]; then
   export PATH="$GOLANGCI_LINT_DIR:$PATH"
-fi
-if [ -n "$_caller_golangci" ]; then
-  PATH="$(dirname "$_caller_golangci"):$PATH"
-  export PATH
 fi
 
 # The marker every process this gate starts can read: "you are running inside
