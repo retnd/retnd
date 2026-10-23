@@ -120,3 +120,35 @@ func TestReview1253_RecoverNeverEchoesALineWithoutTo(t *testing.T) {
 		}
 	}
 }
+
+// An operation request that names an action and leaves out the parameter
+// object that action reads is a request the engine refuses, and the
+// builder answered it with a nil, which Echo prints as the route's "this
+// body won't decode" sentence. That sentence is about something else, and
+// the outcome golden labels it malformed, so a deliberate decline looked
+// like a bad body (#1253's review, after #1255 made the default arm a
+// nil). Each of these declines on purpose and says why.
+func TestReview1253_AnOperationMissingItsParametersIsRefusedNotMalformed(t *testing.T) {
+	for _, tc := range []struct{ name, body string }{
+		{"restore_placement with no restore", `{"action":"restore_placement","config_revision":"r1"}`},
+		{"restore_snapshot with no snapshot_restore", `{"action":"restore_snapshot","config_revision":"r1"}`},
+		{"verify_snapshot with no snapshot_verify", `{"action":"verify_snapshot","config_revision":"r1"}`},
+		{"hold_snapshot with no snapshot_hold", `{"action":"hold_snapshot","config_revision":"r1"}`},
+		{"release_snapshot_hold with no snapshot_hold_release", `{"action":"release_snapshot_hold","config_revision":"r1"}`},
+		{"run_backup_set with no backup_set_id", `{"action":"run_backup_set","config_revision":"r1"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := Action{Method: "POST", Route: "/operations", Body: []byte(tc.body)}
+			if c := routes["POST /operations"].build(a); c == nil {
+				t.Fatalf("the builder returns nil, which prints %q, a sentence about a body that won't decode", routes["POST /operations"].why)
+			}
+			line := Echo(a)
+			if len(line.Command) > 0 || strings.TrimSpace(line.GapDetail) == "" {
+				t.Fatalf("want a refusal with a sentence, got %v / %q", line.Command, line.GapDetail)
+			}
+			if line.GapDetail == routes["POST /operations"].why {
+				t.Errorf("the sentence is the route's \"won't decode\" one: %s", line.GapDetail)
+			}
+		})
+	}
+}
