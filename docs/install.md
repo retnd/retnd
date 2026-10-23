@@ -96,9 +96,13 @@ host it's the published Web UI port. `retnd ssh-key import`, `list` and `discove
 ssh host-key-probe` go to the same engine with the same variables, so the key step works the
 same way (they find the engine through `$STATE_DATABASE` or the packaged journal path, since
 they take no `--state-database` of their own). The administrator has to exist first, so enroll it
-with the link the install printed (or `enroll-link` above) before you run this. Without the
-variables the command refuses with exit 3 and says how to give it a route, and nothing is
-written. The engine writes the configuration and starts serving it in place, and the
+before you run this: with the link the install printed (or `enroll-link` above) in a browser,
+or from the same terminal with `retnd auth enroll --username admin --token-stdin
+--password-stdin`, piping the link (or its token) and then the password in as two lines. That
+one needs only `RETND_API_URL`, since there is no account to sign in as yet, and it is the way
+in when nobody can open the link, because `retnd-web auth create-admin` refuses while the
+serving container holds the store. Without the variables the command refuses with exit 3 and
+says how to give it a route, and nothing is written. The engine writes the configuration and starts serving it in place, and the
 command prints the set exactly as the engine wrote it. If the engine couldn't start serving
 it in place, the command says so and still exits 0, because the configuration is written:
 restart the engine and it picks it up. The engine can take a few minutes over this on a slow

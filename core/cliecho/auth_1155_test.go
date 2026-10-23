@@ -63,21 +63,14 @@ func TestAuth1155_AnUpdateEchoesWhatItChangesAndNoSecret(t *testing.T) {
 	}
 }
 
+// Login and logout are the two left (#1253 gave enroll, the session read
+// and the reset flow verbs of their own; auth_1253_test.go has them).
 func TestAuth1155_TheRoutesWithoutAVerbStillSayWhy(t *testing.T) {
-	for _, route := range []string{
-		"POST /auth/login", "POST /auth/enroll", "POST /auth/logout", "GET /auth/session",
-		"POST /auth/forgot-password", "POST /auth/reset-password",
-	} {
+	for _, route := range []string{"POST /auth/login", "POST /auth/logout"} {
 		method, path, _ := strings.Cut(route, " ")
 		line := Echo(Action{Method: method, Route: path})
 		if len(line.Command) != 0 || strings.TrimSpace(line.GapDetail) == "" {
 			t.Errorf("%s: command %v, reason %q; want no command and a written reason", route, line.Command, line.GapDetail)
 		}
-	}
-	// The way back in for a locked-out administrator is named where the
-	// reset route says there is no verb.
-	line := Echo(Action{Method: "POST", Route: "/auth/reset-password"})
-	if !strings.Contains(line.GapDetail, "set-password") {
-		t.Errorf("the reset route's reason does not name `%s auth set-password`: %s", WebBinary, line.GapDetail)
 	}
 }
