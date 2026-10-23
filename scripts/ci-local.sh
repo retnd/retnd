@@ -639,8 +639,14 @@ else
       ;;
   esac
 
+  # The 4m default of -overall-floor is the cap on a run that keeps reporting
+  # progress and never finishes, and it is a fixed number: these seven
+  # packages take about 150s on an idle machine, and sftpintegration alone
+  # took 223s with the Docker VM shared with other worktrees' gates, which
+  # killed a healthy run at 4m0s three times running (#1260). The no-progress
+  # window (45s here) still catches a stall; only the overall backstop moves.
   gate_docker_step "core/ tests/crashmatrix + tests/sftpintegration + tests/sshexecintegration + tests/miniointegration + tests/conformance + tests/machinegate + tests/containerhooks under gotestwatch, -race (issue #256: no fixed go test -timeout)"
-  (cd core && GOWORK=off go run ./cmd/gotestwatch -race -count=1 ./tests/crashmatrix/... ./tests/sftpintegration/... ./tests/sshexecintegration/... ./tests/miniointegration/... ./tests/conformance/... ./tests/machinegate/... ./tests/containerhooks/...)
+  (cd core && GOWORK=off go run ./cmd/gotestwatch -overall-floor 12m -- -race -count=1 ./tests/crashmatrix/... ./tests/sftpintegration/... ./tests/sshexecintegration/... ./tests/miniointegration/... ./tests/conformance/... ./tests/machinegate/... ./tests/containerhooks/...)
 fi
 
 gate_step "apps/common go build, vet, test -race"
