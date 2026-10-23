@@ -46,7 +46,7 @@ from bdtools.e2e import first_run_report
 # panel's "pinned known-green subset": the invariants a release stands on
 # and the recovery of an interrupted workflow run, which is the one test
 # anywhere that a crashed run is held and can be let go.
-BLOCKING_FILES = ("e2e/safety-invariants.spec.ts", "e2e/workflow-recovery.spec.ts")
+BLOCKING_FILES = ("safety-invariants.spec.ts", "workflow-recovery.spec.ts")
 
 # Where the list lives, relative to the repository root, and the headers
 # it has to carry. `pin` is the retnd-tests sha the entries were judged
@@ -74,9 +74,11 @@ class KnownRed:
 
 
 def spec_id(file: str, titles: list[str]) -> str:
-    """The id a spec is listed by: its file and its full title path,
-    describe blocks included, joined the way Playwright prints them. No
-    line numbers, so an edit above a spec does not move its id."""
+    """The id a spec is listed by: its file as the report names it (relative
+    to the suite's test directory, so `wizard.spec.ts`, not `e2e/...`) and
+    its full title path, describe blocks included, joined the way Playwright
+    prints them. No line numbers, so an edit above a spec does not move its
+    id."""
     return file + " :: " + " › ".join(titles)
 
 

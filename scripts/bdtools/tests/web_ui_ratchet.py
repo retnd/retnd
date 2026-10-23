@@ -2,7 +2,7 @@
 """The web-ui ratchet refuses what it has to, and only that (#1260).
 
 The full browser suite runs as a lane judged against
-scripts/e2e/known-red.txt rather than by its exit status, so the judge is
+scripts/known-red.txt rather than by its exit status, so the judge is
 the whole gate for 33 specs that were red on main the day the local gate
 became the only gate. These cases pin its answers without Docker:
 
@@ -98,9 +98,9 @@ def listing(entries: list[str], *, pin: str = PIN, cap: int = 5, skips: int = 2,
     return "\n".join(lines) + "\n"
 
 
-OK_SHELL = ("e2e/shell.spec.ts", "renders", "expected")
-RED_WIZARD = ("e2e/wizard.spec.ts", "six steps", "unexpected")
-OK_WIZARD = ("e2e/wizard.spec.ts", "six steps", "expected")
+OK_SHELL = ("shell.spec.ts", "renders", "expected")
+RED_WIZARD = ("wizard.spec.ts", "six steps", "unexpected")
+OK_WIZARD = ("wizard.spec.ts", "six steps", "expected")
 
 
 def judged(
@@ -116,7 +116,7 @@ def judged(
 def main() -> int:
     suite = testkit.Suite("web-ui ratchet")
     empty = web_ui_ratchet.parse_known_red(listing([]))
-    wizard = "e2e/wizard.spec.ts :: d › six steps"
+    wizard = "wizard.spec.ts :: d › six steps"
 
     # A
     clean = judged([OK_SHELL, OK_WIZARD], empty)
@@ -141,16 +141,16 @@ def main() -> int:
                 "D a listed spec that passes is refused", "D a listed spec that passes was accepted", str(passing.problems))
 
     # E
-    blocking_spec = "e2e/safety-invariants.spec.ts :: d › post-commit"
+    blocking_spec = "safety-invariants.spec.ts :: d › post-commit"
     blocked = judged(
-        [OK_SHELL, ("e2e/safety-invariants.spec.ts", "post-commit", "unexpected")],
+        [OK_SHELL, ("safety-invariants.spec.ts", "post-commit", "unexpected")],
         web_ui_ratchet.parse_known_red(listing([blocking_spec])),
     )
     suite.check(any(p.startswith("BLOCKING FAILURE") for p in blocked.problems)
                 and any(p.startswith("BLOCKING SPEC LISTED") for p in blocked.problems),
                 "E a blocking spec's failure is refused even when listed, and the listing is refused too",
                 "E a blocking failure got through the list", str(blocked.problems))
-    recovery = judged([OK_SHELL, ("e2e/workflow-recovery.spec.ts", "held", "unexpected")], empty)
+    recovery = judged([OK_SHELL, ("workflow-recovery.spec.ts", "held", "unexpected")], empty)
     suite.check(any(p.startswith("BLOCKING FAILURE") for p in recovery.problems),
                 "E workflow-recovery is blocking too", "E a workflow-recovery failure was not blocking", str(recovery.problems))
 
@@ -167,7 +167,7 @@ def main() -> int:
                 "G a list judged at another pin is refused", "G an other-pin list was accepted", str(other.problems))
 
     # H
-    skipped = judged([OK_SHELL] + [("e2e/x.spec.ts", f"s{i}", "skipped") for i in range(3)], empty)
+    skipped = judged([OK_SHELL] + [("x.spec.ts", f"s{i}", "skipped") for i in range(3)], empty)
     suite.check(any("skipped 3 cases" in p for p in skipped.problems),
                 "H more skips than the budget is refused", "H a grown skip count was accepted", str(skipped.problems))
     hidden = judged([OK_SHELL], empty, skipped_stat=9)
@@ -175,7 +175,7 @@ def main() -> int:
                 "H the summary's own skip count is a second witness", "H a summary-only skip count was ignored", str(hidden.problems))
 
     # I
-    over = judged([OK_SHELL], web_ui_ratchet.parse_known_red(listing([f"e2e/a.spec.ts :: d › t{i}" for i in range(3)], cap=2)))
+    over = judged([OK_SHELL], web_ui_ratchet.parse_known_red(listing([f"a.spec.ts :: d › t{i}" for i in range(3)], cap=2)))
     suite.check(any("cap only goes down" in p for p in over.problems),
                 "I more entries than the cap is refused", "I an over-cap list was accepted", str(over.problems))
 
@@ -192,10 +192,10 @@ def main() -> int:
             return True
         return False
     suite.check(refuses("cap=1\nskips=1\n"), "K a list with no pin header is refused", "K a list with no pin parsed")
-    suite.check(refuses(listing([]) + "e2e/a.spec.ts :: d › t | #1260 | spdrman\n"), "K an entry short a field is refused", "K a short entry parsed")
-    suite.check(refuses(listing([]) + "e2e/a.spec.ts :: d › t | #1260 | spdrman | soon\n"),
+    suite.check(refuses(listing([]) + "a.spec.ts :: d › t | #1260 | spdrman\n"), "K an entry short a field is refused", "K a short entry parsed")
+    suite.check(refuses(listing([]) + "a.spec.ts :: d › t | #1260 | spdrman | soon\n"),
                 "K an expiry that is not a date is refused", "K a non-date expiry parsed")
-    suite.check(refuses(listing([]) + "e2e/a.spec.ts d t | #1260 | spdrman | 2027-01-01\n"),
+    suite.check(refuses(listing([]) + "a.spec.ts d t | #1260 | spdrman | 2027-01-01\n"),
                 "K an entry that names no spec is refused", "K a spec-less entry parsed")
 
     # L
