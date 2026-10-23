@@ -130,7 +130,9 @@ func serveAndFetch(t *testing.T, bin string, args ...string) string {
 		if reaped {
 			return
 		}
-		<-exited
+		// Only that the process exited is waited for here.
+		exitErr := <-exited
+		_ = exitErr
 	})
 
 	client := &http.Client{Timeout: 2 * time.Second}

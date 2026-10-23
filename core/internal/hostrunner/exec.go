@@ -894,7 +894,9 @@ func (e *Executor) terminate(id containerIdentity, waited chan error, client *ex
 	// blocked on a sink is not a reason to stop reconciling the
 	// container.
 	select {
-	case <-waited:
+	case clientErr := <-waited:
+		// The client's error is not read here either; see the two cases above.
+		_ = clientErr
 	case <-time.After(e.controlTimeout()):
 	}
 	// SETTLED, because a client that had to be killed is a client whose
