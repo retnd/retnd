@@ -971,7 +971,10 @@ func TestACancelledRunUnblocksAReadThatIsStuck(t *testing.T) {
 	cancel()
 
 	select {
-	case <-done:
+	case runErr := <-done:
+		// Returning is the assertion; which error it returned with is the
+		// subject of the cases above, not this one.
+		_ = runErr
 	case <-time.After(5 * time.Second):
 		t.Fatal("the run did not return after cancellation: a read blocked on a source is only reachable by closing it from the outside")
 	}
