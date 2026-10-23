@@ -61,10 +61,9 @@ import type { BrowserNotice } from "@shared/state/browserNotices";
 // The scope type and its terminal line live in runCommands.ts with the other
 // twins (#1253), and are re-exported here for the callers that read them
 // from this hook.
-import { runCommand } from "./runCommands";
+import { localRunCommand, noticeCommand, runCommand } from "./runCommands";
 import type { RunScope } from "./runCommands";
 export type { RunScope } from "./runCommands";
-export const commandFor = runCommand;
 
 /** How a refusal reads to an operator, chosen by the service's own typed
  *  code rather than by a status. */
@@ -89,7 +88,7 @@ export function describeRunRefusal(code: ApiErrorCode | "unknown", serviceMessag
         message: "This deployment will not start a backup run.",
         remediation:
           "Nothing was submitted and nothing is queued. Destructive operations are disabled until the trusted-proxy authentication gate has been verified for this deployment, so retrying will not help. Run " +
-          commandFor(scope) +
+          localRunCommand(scope) +
           " from a shell on this host instead."
       };
     case "OPERATION_ALREADY_RUNNING":
@@ -191,7 +190,7 @@ export function useRunControls(scope: RunScope = { kind: "all" }): RunControls {
 
   const submit = useCallback(
     (target: RunScope) => {
-      const command = commandFor(target);
+      const command = runCommand(target);
       const backupSetIds = target.kind === "set" ? [target.id] : enabledSetIds;
       const keyFor = target.kind === "set" ? "set:" + target.id : "all";
 
@@ -256,7 +255,7 @@ export function useRunControls(scope: RunScope = { kind: "all" }): RunControls {
                 : refusal.remediation,
             correlationId: failure?.correlationId,
             backupSetIds,
-            command
+            command: noticeCommand(code, target)
           });
         }
       );

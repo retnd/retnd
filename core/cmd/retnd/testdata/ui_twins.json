@@ -11,7 +11,7 @@
     },
     {
       "path": "ui/shared/src/hooks/runCommands.ts",
-      "sha256": "c2091e80669bdaf8e563bdb46c8e9caa78e0152ce5e8fa03ac9311a576bda69d"
+      "sha256": "5c277b88a537cdfc2f2c63aaf47b66f6487e29c42dcc5641d5c658c1d3376048"
     },
     {
       "path": "ui/shared/src/pages/destinationConfigureCommands.ts",
@@ -27,7 +27,7 @@
     },
     {
       "path": "ui/shared/src/test/cliTwins.test.ts",
-      "sha256": "3cab31fcb7f44e8d0375349668841d20527f77a88bb996f58cfd39ee4e16282e"
+      "sha256": "49982eaf48b7833fef3cf8427e384798c34d1c96907e8c0bf8075507786ef3f9"
     }
   ],
   "twins": [
@@ -371,19 +371,55 @@
       "module": "hooks/runCommands",
       "fn": "runCommand",
       "case": "every set",
-      "line": "retnd run"
+      "line": "retnd operation run"
     },
     {
       "module": "hooks/runCommands",
       "fn": "runCommand",
       "case": "one set",
-      "line": "retnd fetch --backup-set api-server/var-backups"
+      "line": "retnd operation run --backup-set api-server/var-backups"
     },
     {
       "module": "hooks/runCommands",
       "fn": "runCommand",
       "case": "a hostile set id",
+      "line": "retnd operation run --backup-set 'api-server/x; id|sh'"
+    },
+    {
+      "module": "hooks/runCommands",
+      "fn": "localRunCommand",
+      "case": "every set",
+      "line": "retnd run"
+    },
+    {
+      "module": "hooks/runCommands",
+      "fn": "localRunCommand",
+      "case": "one set",
+      "line": "retnd fetch --backup-set api-server/var-backups"
+    },
+    {
+      "module": "hooks/runCommands",
+      "fn": "localRunCommand",
+      "case": "a hostile set id",
       "line": "retnd fetch --backup-set 'api-server/x; id|sh'"
+    },
+    {
+      "module": "hooks/runCommands",
+      "fn": "noticeCommand",
+      "case": "the gate's refusal, one set",
+      "line": "retnd fetch --backup-set api-server/var-backups"
+    },
+    {
+      "module": "hooks/runCommands",
+      "fn": "noticeCommand",
+      "case": "any other outcome, one set",
+      "line": "retnd operation run --backup-set api-server/var-backups"
+    },
+    {
+      "module": "hooks/runCommands",
+      "fn": "noticeCommand",
+      "case": "any other outcome, every set",
+      "line": "retnd operation run"
     },
     {
       "module": "pages/destinationConfigureCommands",

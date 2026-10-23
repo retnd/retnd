@@ -221,7 +221,13 @@ cases("assurance/validatorCommands", [
 cases("hooks/runCommands", [
   ["runCommand", "every set", { kind: "all" }],
   ["runCommand", "one set", { kind: "set", id: SET }],
-  ["runCommand", "a hostile set id", { kind: "set", id: HOSTILE_SET }]
+  ["runCommand", "a hostile set id", { kind: "set", id: HOSTILE_SET }],
+  ["localRunCommand", "every set", { kind: "all" }],
+  ["localRunCommand", "one set", { kind: "set", id: SET }],
+  ["localRunCommand", "a hostile set id", { kind: "set", id: HOSTILE_SET }],
+  ["noticeCommand", "the gate's refusal, one set", "DESTRUCTIVE_OPERATIONS_DISABLED", { kind: "set", id: SET }],
+  ["noticeCommand", "any other outcome, one set", "OPERATION_ALREADY_RUNNING", { kind: "set", id: SET }],
+  ["noticeCommand", "any other outcome, every set", "unknown", { kind: "all" }]
 ]);
 
 cases("pages/snapshotCommands", [
@@ -313,6 +319,8 @@ const INLINE_ALLOWED: Record<string, string> = {
   "assurance/mockAssurance.ts: retnd recovery-test ": "the mock's copy of an action-log row, as above",
   "pages/RepositoryDomainNewPage.tsx: retnd repository create --passphrase-command":
     "the name of a flag, shown as a field label, and not a line to paste",
+  "hooks/useRunControls.ts: localRunCommand(...) + ...":
+    "the gate refusal's sentence, which names the command and then goes on in words (\" from a shell on this host instead.\"); no flag is glued to the line",
   "assurance/mockRecoverMany.ts: retnd snapshot restore ": "a verb named inside the mock's copy of an engine refusal, which is prose",
   "components/fieldHelpCopy.ts: retnd recovery-test <set> --show-output": "a verb named inside a help sentence, with a placeholder, not a line built from data",
   "components/stepterminal/transcript.ts: retnd workflow run log --cursor 0": "a verb named inside a sentence in a saved transcript, not a line built from data"
