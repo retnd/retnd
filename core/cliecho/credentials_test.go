@@ -378,6 +378,7 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 // is added here, which is where a reviewer reads whether the reason still
 // holds for it.
 var flagRoutes = map[string][]string{
+	"--username":                    {"POST /auth/enroll", "POST /auth/forgot-password"},
 	"--until":                       {"POST /recoveries"},
 	"--after-dir":                   {"PATCH /backup-sets/{source}/{set}/workflow", "PATCH /settings/workflow"},
 	"--artifact":                    {"POST /backup-sets/{source}/{set}/recovery-test"},

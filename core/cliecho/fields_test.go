@@ -299,6 +299,19 @@ var fieldsNotEchoed = map[string]map[string]string{
 		"smtp.from":       "printed as a placeholder, for the same reason as the recovery address",
 		"smtp.security":   "printed as a placeholder naming the three choices, with the rest of the SMTP block",
 	},
+	"POST /auth/enroll": {
+		"password":      "material: the verb reads it on stdin (--password-stdin)",
+		"recoveryEmail": "printed as a placeholder: a recovery address is personal and the line is exportable",
+		"smtp.host":     "printed as a placeholder, for the same reason as the recovery address",
+		"smtp.username": "printed as a placeholder, for the same reason as the recovery address",
+		"smtp.from":     "printed as a placeholder, for the same reason as the recovery address",
+		"smtp.security": "printed as a placeholder naming the three choices, with the rest of the SMTP block",
+		"smtp.password": "material: the verb reads it on stdin",
+	},
+	"POST /auth/reset-password": {
+		"token":       "material: the emailed reset token is read on stdin (--token-stdin)",
+		"newPassword": "material: the verb reads it on stdin (--password-stdin)",
+	},
 	"POST /auth/password": {
 		"currentPassword": "material: `auth password --password-stdin` reads both passwords on stdin",
 		"newPassword":     "material: `auth password --password-stdin` reads both passwords on stdin",
