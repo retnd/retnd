@@ -238,6 +238,12 @@ def main() -> int:
                 "L control: the gate writes .e2e-gate/web-ui-lane.json and the recorder reads it into the record",
                 "L control: the lane result does not travel from the gate to the record")
     half = gate.split("def browser_half")[1].split("\ndef ")[0] if "def browser_half" in gate else ""
+    # read_the_pin hands the gate {"url", "sha"}, not the file's own keys. A
+    # KeyError here is found after the suite's 27 minutes, which is how it
+    # was found once.
+    suite.check('pin["sha"]' in half and "TESTS_REPO_SHA" not in half,
+                "L control: the lane reads the pin by the key read_the_pin hands it",
+                "L control: the lane reads the pin by a key read_the_pin does not hand it (KeyError after the suite ran)")
     suite.check("harness.cannot_run(" in half,
                 "L control: a lane that produced no report is INCOMPLETE, never ok",
                 "L control: browser_half never says cannot_run, so a crashed lane cannot end INCOMPLETE")

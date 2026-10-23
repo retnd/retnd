@@ -393,11 +393,11 @@ def browser_half(root: Path, checkout: Path, pin: dict[str, str]) -> None:
     except ValueError as bad:
         parsed = None
         harness.note(f"the report at {report_path} is not JSON: {bad}")
-    verdict = web_ui_ratchet.judge(parsed, known, pin["TESTS_REPO_SHA"], datetime.date.today())
+    verdict = web_ui_ratchet.judge(parsed, known, pin["sha"], datetime.date.today())
     lane_path.write_text(
         json.dumps(
             {
-                "pin": pin["TESTS_REPO_SHA"],
+                "pin": pin["sha"],
                 "passed": verdict.passed,
                 "failed": verdict.failed,
                 "skipped": verdict.skipped,
@@ -415,7 +415,7 @@ def browser_half(root: Path, checkout: Path, pin: dict[str, str]) -> None:
     harness.note(
         f"browser lane: {verdict.passed} passed, {verdict.failed} failed "
         f"({verdict.listed_failures} listed in {web_ui_ratchet.KNOWN_RED}), "
-        f"{verdict.skipped} skipped, at retnd-tests {pin['TESTS_REPO_SHA'][:12]}"
+        f"{verdict.skipped} skipped, at retnd-tests {pin['sha'][:12]}"
     )
     if not verdict.ok:
         refuse("the browser lane does not hold against the known-red ratchet.", *verdict.problems)
