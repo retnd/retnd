@@ -508,7 +508,7 @@ make_full_tree() {
   # gate's own self-test step reported that. Same stubs, same reason as
   # every block above: this fixture measures which steps the gate runs,
   # not what they do.
-  for guard in first-run-report pin-on-main published-provenance-guards record-published-release; do
+  for guard in first-run-report pin-on-main published-provenance-guards record-published-release web-ui-ratchet; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$guard.test.sh"
   done
   mkdir -p "$tree/scripts/release"
@@ -1104,6 +1104,29 @@ assert_nonzero "G4 a red browser suite fails the run" "$status"
 assert_not_contains "G4 a red browser suite cannot report success" 'ci-local: ok' "$out"
 assert_contains "G4 the verdict line names the step that failed" \
   'ci-local: FAILED (browser e2e + CLI smoke' "$out"
+
+# G7: the third outcome (#1260). The browser suite is a lane judged by its
+# report, and a lane that produced no report (the rig could not run, or
+# the runner crashed) exits 3. That has to be LEDGERED, the way the
+# two-machine proof's 3 is: neither ok nor FAILED, and the summary names
+# the lane. G4 is the control for the failure half, G1 for the ok half.
+tree="$(make_full_tree)"
+printf '#!/usr/bin/env bash\necho "==> e2e gate: CANNOT RUN. the browser lane left no report" >&2\nexit 3\n' \
+  >"$tree/scripts/e2e/run-tests-repo-gate.sh"
+run_gate "$tree"
+assert_not_contains "G7 a lane that could not be judged cannot report success" 'ci-local: ok' "$out"
+assert_contains "G7 it ends INCOMPLETE rather than FAILED" 'ci-local: INCOMPLETE' "$out"
+assert_contains "G7 the summary names the lane" 'browser suite lane' "$out"
+assert_eq "G7 it exits $INCOMPLETE" "$INCOMPLETE" "$status"
+
+# G8: G7's control, the same shape as I6: exit 3 and exit 1 from the
+# e2e gate are told apart, or a real red suite would be ledgered and
+# committed.
+tree="$(make_full_tree)"
+printf '#!/usr/bin/env bash\nexit 1\n' >"$tree/scripts/e2e/run-tests-repo-gate.sh"
+run_gate "$tree"
+assert_nonzero "G8 a failed lane still fails the run" "$status"
+assert_not_contains "G8 a failed lane is not ledgered as a skip" 'browser suite lane' "$out"
 
 # G5: the pin is a full sha, checked statically. A branch name or a short
 # sha there would let the tests under this gate change without the pin

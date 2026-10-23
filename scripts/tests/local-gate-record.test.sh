@@ -119,6 +119,10 @@ git_in() { # <repo> <args...>
 STUB_GATE='#!/usr/bin/env sh
 echo "==> stub gate: CI-ENV=[${CI:-unset}] FAST=[${CI_LOCAL_FAST:-unset}]"
 echo "==> stub gate: running in $(pwd)"
+# What the real e2e gate leaves behind for the record (#1260): the browser
+# lane result, in the worktree the gate ran in.
+mkdir -p .e2e-gate
+printf '"'"'{"pin": "9699ec5118a0d7748e988346192be37c7bbb5ec7", "passed": 213, "failed": 33, "skipped": 95, "listed_failures": 33, "judged": "ok"}\n'"'"' >.e2e-gate/web-ui-lane.json
 verdict="$(cat "$LOCAL_GATE_STUB_VERDICT" 2>/dev/null || echo ok)"
 case "$verdict" in
   ok)
@@ -254,6 +258,9 @@ if [ -f "$record" ]; then
   done
   [ "$(json_field "$record" 'int(d["duration_s"]) >= 0')" = "True" ] \
     && pass "the record carries the run's duration" || fail "the record carries the run's duration" "$(cat "$record")"
+  [ "$(json_field "$record" 'd["web_ui_lane"]["listed_failures"]')" = "33" ] \
+    && pass "the record carries the browser lane's result from the worktree the gate ran in" \
+    || fail "the record carries the browser lane's result from the worktree the gate ran in" "$(cat "$record")"
   if [ -f "$log" ]; then
     pass "provenance/local-gate.log exists"
     [ "$(json_field "$record" 'd["log_sha256"]')" = "$(sha256_of "$log")" ] \
