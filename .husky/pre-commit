@@ -90,7 +90,9 @@ tree="$(git write-tree)"
 marker="$(git rev-parse --git-path local-gate-marker)"
 
 if [ -n "${CI_LOCAL_RED+set}" ]; then
-  reason="$CI_LOCAL_RED"
+  # One line: the reason becomes a trailer, and a trailer with a newline in
+  # it is two lines of which the second is not a trailer.
+  reason="$(printf '%s' "$CI_LOCAL_RED" | tr '\n\r' '  ')"
   if [ "${#reason}" -lt 12 ]; then
     echo "==> pre-commit: refusing a red commit with a reason of ${#reason} characters: [$reason]." >&2
     echo "    CI_LOCAL_RED needs at least 12 characters, the same floor as Release-Gate-Override, because" >&2
@@ -104,13 +106,19 @@ if [ -n "${CI_LOCAL_RED+set}" ]; then
       exit 1
       ;;
   esac
-  staged="$(git diff --cached --name-only --diff-filter=ACMRD)"
+  # -z, so a name with a space in it is one path and not two; --no-renames,
+  # so a product file renamed to a test name shows up as the deletion it
+  # is and gets judged under its OLD name as well as its new one. (A name
+  # with a newline in it still splits here, since sh cannot read NULs; that
+  # can only refuse a commit, never let one through.)
+  staged="$(git diff --cached --name-only -z --no-renames --diff-filter=ACMD | tr '\0' '\n')"
   if [ -z "$staged" ]; then
     echo "==> pre-commit: refusing a red commit with nothing staged." >&2
     exit 1
   fi
   offenders=""
-  for path in $staged; do
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
     case "$path" in
       *_test.go|*.test.ts|*.test.tsx|*.test.js|*.test.mjs|*.spec.ts|*.spec.tsx|*.test.sh) ;;
       scripts/tests/*|scripts/bdtools/tests/*) ;;
@@ -119,7 +127,9 @@ if [ -n "${CI_LOCAL_RED+set}" ]; then
       *) offenders="$offenders
         $path" ;;
     esac
-  done
+  done <<EOF
+$staged
+EOF
   if [ -n "$offenders" ]; then
     echo "==> pre-commit: refusing a red commit: these staged files are not test files, so this is a fix and the gate has to run on it:" >&2
     echo "$offenders" >&2
@@ -132,8 +142,32 @@ if [ -n "${CI_LOCAL_RED+set}" ]; then
   exit 0
 fi
 
-gate_status=0
-bash scripts/ci-local.sh || gate_status=$?
+# The gate's output is kept beside the marker, so an INCOMPLETE run's
+# ledger can be read back and the first thing it names stamped on the
+# commit. A pipe would lose the exit status in sh, so the status goes
+# through a file of its own.
+gate_log="$(git rev-parse --git-path local-gate-last.log)"
+gate_status_file="$(git rev-parse --git-path local-gate-last.status)"
+# set +e inside the group, or `set -e` above ends the group on the gate's
+# own non-zero status before the echo runs (the group is a subshell of the
+# pipe, so the setting does not leak out).
+{ set +e; bash scripts/ci-local.sh 2>&1; echo "$?" >"$gate_status_file"; } | tee "$gate_log"
+gate_status="$(cat "$gate_status_file" 2>/dev/null || echo 1)"
+
+# The gate ran on the working tree; the commit is the index. When the two
+# differ the gate checked something other than what is being committed,
+# and the commit is stamped unverified rather than carrying a claim about
+# a tree nobody ran the gate on (#1261 review, item 8).
+if [ "$gate_status" -eq 0 ] || [ "$gate_status" -eq 3 ]; then
+  if ! git diff --quiet; then
+    printf 'unverified %s\n' "$tree" >"$marker"
+    echo "" >&2
+    echo "==> pre-commit: the working tree differs from the index (unstaged changes), so the gate" >&2
+    echo "    ran on a tree other than the one being committed. The commit is allowed and stamped" >&2
+    echo "    Local-Gate: unverified. Stage everything, or stash the rest, for a commit the gate vouches for." >&2
+    exit 0
+  fi
+fi
 
 if [ "$gate_status" -eq 0 ]; then
   printf 'verified %s\n' "$tree" >"$marker"
@@ -141,7 +175,8 @@ if [ "$gate_status" -eq 0 ]; then
 fi
 
 if [ "$gate_status" -eq 3 ]; then
-  printf 'incomplete %s\n' "$tree" >"$marker"
+  skipped="$(sed -n 's/^        - //p' "$gate_log" 2>/dev/null | head -1 | tr -d '\r')"
+  printf 'incomplete %s %s\n' "$tree" "$skipped" >"$marker"
   echo "" >&2
   echo "==> pre-commit: allowing this commit on an INCOMPLETE gate run." >&2
   echo "    The checks listed above did not run, so this commit is not backed by" >&2

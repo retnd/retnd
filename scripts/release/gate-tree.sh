@@ -53,6 +53,9 @@ trap 'rm -f "$index"' EXIT
 
 export GIT_INDEX_FILE="$index"
 git read-tree "$tree"
+# update-index --force-remove takes exact paths, where `git rm --cached`
+# takes pathspecs and would also drop a DIRECTORY carrying one of these
+# names, which is content and must stay in the hash (#1261 review, item 8).
 # shellcheck disable=SC2086
-git rm -r -q --cached --ignore-unmatch -- $EXCLUDED >/dev/null
+git update-index --force-remove -- $EXCLUDED
 git write-tree

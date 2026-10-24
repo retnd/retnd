@@ -796,6 +796,13 @@ gate_exit_marker() {
     return 0
   fi
   echo "==> ci-local: FAILED ($gate_last_step)" >&2
+  # A 3 that gate_summary did not produce is a command that happened to
+  # exit 3 (golangci-lint's parallel-runner refusal did, before gate_lint),
+  # and 3 is the one number .husky/pre-commit commits on. It leaves as 1
+  # (#1261 review, item 8). `exit` inside an EXIT trap sets the status.
+  if [ "$1" -eq "$GATE_INCOMPLETE" ]; then
+    exit 1
+  fi
 }
 
 # gate_on_exit <status>

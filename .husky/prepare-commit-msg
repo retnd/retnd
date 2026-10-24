@@ -13,8 +13,11 @@
 #                                 when the tree was staged)
 #   Local-Gate: red <why>         pre-commit accepted a CI_LOCAL_RED commit of
 #                                 test files, with the reason it was given
+#   Local-Gate: incomplete <what> the gate ran and ended INCOMPLETE; <what>
+#                                 is the first thing its ledger says did not
+#                                 run (#1261 review, item 8)
 #
-# A commit the gate ran on, ok or INCOMPLETE, gets no trailer. On purpose:
+# A commit the gate ran on and said ok to gets no trailer. On purpose:
 # a rebase runs no hooks and keeps every trailer on the replayed commits,
 # so an `ok` would outlive the tree it described and read as true when it
 # is not. The absence of a stamp is a claim that ages well; the two stamps
@@ -37,7 +40,13 @@ line="$(cat "$marker" 2>/dev/null || true)"
 
 stamp=""
 case "$line" in
-  "verified $tree"|"incomplete $tree") ;;
+  "verified $tree") ;;
+  "incomplete $tree "*)
+    stamp="incomplete ${line#incomplete "$tree" }"
+    ;;
+  "incomplete $tree")
+    stamp="incomplete"
+    ;;
   "red $tree "*)
     stamp="red ${line#red "$tree" }"
     ;;
