@@ -2291,6 +2291,83 @@ run_gate "$tree"
 assert_contains "Q11 the browser e2e step runs with the lock held" 'E2E-STEP: lock held' "$out"
 assert_contains "Q11 the apps/common step is announced as a Docker-backed step" 'apps/common go build, vet, test -race (Docker' "$out"
 
+# ------------- Group S: the hooks and the verdict, hardened (#1261 review, item 8)
+
+echo "==> S. the stamps, the red rule and the stray 3"
+
+# S1: a stray exit 3. Only gate_summary may end a run at 3; a command that
+# happens to exit 3 under `set -e` (golangci-lint's "parallel runner",
+# go's own 3 in places, any tool at all) used to leave as 3 too, which
+# .husky/pre-commit reads as INCOMPLETE and commits on. The trap turns it
+# into 1 with a FAILED verdict.
+s1_out="$(sh -c ". '$GATE_LIB' && gate_install_traps && gate_announce 'a step that exits 3' && exit 3" 2>&1)"
+s1_status=$?
+assert_eq "S1 a stray exit 3 leaves the gate as 1" 1 "$s1_status"
+assert_contains "S1 and the verdict is FAILED" 'ci-local: FAILED' "$s1_out"
+assert_contains "S1 naming the step" 'a step that exits 3' "$s1_out"
+assert_not_contains "S1 and never INCOMPLETE" 'INCOMPLETE' "$s1_out"
+# The control: a 3 that gate_summary itself produced is still a 3.
+s1b_out="$(sh -c ". '$GATE_LIB' && gate_install_traps && gate_note_skip 'something' && gate_summary" 2>&1)"
+assert_eq "S1 a ledgered INCOMPLETE still exits 3" 3 "$?"
+assert_contains "S1 and says so" 'ci-local: INCOMPLETE' "$s1b_out"
+
+# S2: the red rule reads names NUL-separated. A test file with a space in
+# its name is one path, not two non-test paths.
+tree="$(make_full_tree)"
+(cd "$tree" && git add -A >/dev/null 2>&1 && git -c core.hooksPath=/dev/null commit -qm base) >/dev/null 2>&1
+printf 'package stub\n\nimport "testing"\n\nfunc TestRed(t *testing.T) { t.Fatal("red first") }\n' >"$tree/core/a b_test.go"
+(cd "$tree" && git add "core/a b_test.go")
+run_hook "$tree" CI_LOCAL_RED="$RED_REASON"
+assert_eq "S2 a red commit of one test file with a space in its name is allowed" 0 "$status"
+assert_not_contains "S2 and the name is not split into two offenders" 'core/a$' "$out"
+
+# S3: a rename is a delete and an add. Renaming a product file to a test
+# name hides the deletion behind rename detection; the hook looks at both
+# names, so the deleted product file is refused.
+tree="$(red_tree)"
+(cd "$tree" && git mv core/cmd/gotestwatch/main.go core/cmd/gotestwatch/moved_test.go)
+run_hook "$tree" CI_LOCAL_RED="$RED_REASON"
+assert_nonzero "S3 a product file renamed to a test name is refused" "$status"
+assert_contains "S3 and the refusal names the product file that went" 'core/cmd/gotestwatch/main.go' "$out"
+
+# S4: a reason with a newline is one trailer line, because a trailer with a
+# newline in it is two lines, and the second is not a trailer.
+tree="$(stamped_tree)"
+run_git_commit "$tree" CI_LOCAL_RED="$(printf 'first line of why\nsecond line')" -- -qm "Red, with a two-line reason"
+assert_eq "S4 a red commit with a two-line reason commits" 0 "$status"
+assert_contains "S4 the stamp carries both halves on one line" 'Local-Gate: red first line of why second line' "$(last_message "$tree")"
+assert_eq "S4 and exactly one Local-Gate line" 1 "$(last_message "$tree" | grep -c '^Local-Gate:' | tr -d ' ')"
+
+# S5: an INCOMPLETE run stamps what did not run. The record a release
+# needs is written by the recorder, not by a commit, so this stamp is
+# for the reader of the history: it says the gate ran and what it left out.
+tree="$(stamped_tree)"
+printf 'package stub\n\nimport "testing"\n\nfunc TestGreen(t *testing.T) {}\n' >"$tree/core/red_test.go"
+(cd "$tree" && git add core/red_test.go)
+set_docker "$tree" unavailable
+# The docker stub is a tracked file in the fixture; stage it, or S6's rule
+# (working tree differs from the index) fires first and stamps unverified.
+(cd "$tree" && git add -A)
+run_git_commit "$tree" CI_LOCAL_SKIP_DOCKER=1 -- -qm "A commit on an INCOMPLETE run"
+assert_eq "S5 an INCOMPLETE run still commits" 0 "$status"
+assert_contains "S5 the gate ended INCOMPLETE" 'ci-local: INCOMPLETE' "$out"
+assert_contains "S5 and the commit is stamped incomplete" 'Local-Gate: incomplete' "$(last_message "$tree")"
+assert_contains "S5 with what did not run" 'crash matrix' "$(last_message "$tree")"
+assert_not_contains "S5 and not unverified" 'Local-Gate: unverified' "$(last_message "$tree")"
+
+# S6: the gate runs on the working tree, the commit is the index. When the
+# two differ, the gate checked something other than what is being
+# committed, and the commit says so.
+tree="$(stamped_tree)"
+printf 'package stub\n\nimport "testing"\n\nfunc TestGreen(t *testing.T) {}\n' >"$tree/core/red_test.go"
+(cd "$tree" && git add core/red_test.go)
+printf '\n// unstaged, so the working tree is not the index\n' >>"$tree/core/red_test.go"
+run_git_commit "$tree" -- -qm "Committed with unstaged changes beside it"
+assert_eq "S6 a commit with unstaged changes beside it commits" 0 "$status"
+assert_contains "S6 the gate ran" 'ci-local: ok' "$out"
+assert_contains "S6 but the commit is stamped unverified, because the gate saw a different tree" 'Local-Gate: unverified' "$(last_message "$tree")"
+assert_contains "S6 and the hook says why" 'working tree' "$out"
+
 # ------------- Group R: the toolchain pins live in one tracked file (#1260)
 
 echo "==> R. the pins"

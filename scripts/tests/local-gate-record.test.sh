@@ -483,6 +483,16 @@ if [ -f "$GATE_TREE" ]; then
   t3="$(cd "$repo" && bash "$GATE_TREE" HEAD 2>&1)"
   [ "$t2" != "$t3" ] && pass "a change to another provenance file moves the gate tree: only the record is left out" \
     || fail "a change to another provenance file moves the gate tree: only the record is left out" "$t2 vs $t3"
+  # Exact paths, not prefixes (#1261 review, item 8): a directory that
+  # happens to carry the record's name is content, and must move the hash.
+  git_in "$repo" rm -q provenance/local-gate.log
+  mkdir -p "$repo/provenance/local-gate.log"
+  printf 'content hiding under the record name\n' >"$repo/provenance/local-gate.log/nested.txt"
+  git_in "$repo" add -A
+  git_in "$repo" commit -qm "a directory named like the log"
+  t4="$(cd "$repo" && bash "$GATE_TREE" HEAD 2>&1)"
+  [ "$t3" != "$t4" ] && pass "a directory named like the excluded log is not excluded with it" \
+    || fail "a directory named like the excluded log is not excluded with it" "$t3 vs $t4"
   index_leftovers="$(ls "$(git_in "$repo" rev-parse --git-dir)" | grep -c 'gate-tree' || true)"
   [ "$index_leftovers" = 0 ] && pass "gate-tree.sh leaves no temporary index behind" \
     || fail "gate-tree.sh leaves no temporary index behind" "$(ls "$(git_in "$repo" rev-parse --git-dir)")"
