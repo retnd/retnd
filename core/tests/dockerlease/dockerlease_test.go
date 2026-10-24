@@ -243,6 +243,37 @@ func TestSweepSparesAContainerAnotherOwnerCreated(t *testing.T) {
 	}
 }
 
+// TestSweepNetworksSparesANetworkAnotherOwnerCreated is the network half
+// of the owner boundary. The container half is held by the test above;
+// changing sweepNetworksOlderThan's filter back to the bare key stayed
+// green until this existed (#1261 review).
+func TestSweepNetworksSparesANetworkAnotherOwnerCreated(t *testing.T) {
+	requireDocker(t)
+	theirs := createNetwork(t, LabelKey+"=1")
+	ours := createNetwork(t, LabelSpec)
+
+	listed := listLabelledNetworks()
+
+	if !containsID(listed, ours) {
+		t.Fatal("listLabelledNetworks did not offer up this lane's own network, so the absence of the other lane's below would prove nothing")
+	}
+	if containsID(listed, theirs) {
+		t.Fatalf("listLabelledNetworks offered up a network another owner created (label %s=1); SweepNetworks removes whatever it lists", LabelKey)
+	}
+}
+
+func createNetwork(t *testing.T, label string) string {
+	t.Helper()
+	name := fmt.Sprintf("dockerlease-test-%d-%s", os.Getpid(), strings.ReplaceAll(label, "=", "-"))
+	out, err := exec.Command("docker", "network", "create", LabelFlag, label, name).Output()
+	if err != nil {
+		t.Fatalf("docker network create: %v", err)
+	}
+	id := strings.TrimSpace(string(out))
+	t.Cleanup(func() { _ = exec.Command("docker", "network", "rm", id).Run() })
+	return id
+}
+
 // TestTheOwnerIsThisWorktree pins what the owner is made of. It has to be
 // the same for every test binary in one worktree, or a lane could not
 // reclaim its own killed run's leftovers, and different between two

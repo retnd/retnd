@@ -2201,6 +2201,96 @@ run_gate "$tree"
 assert_contains "Q6 a Docker-backed step runs with the lock held" 'CONTRAST-STEP: lock held' "$out"
 assert_contains "Q6 a plain step runs with the lock free" 'PERF-STEP: lock free' "$out"
 
+# Q7: mutual exclusion survives a stale lock with many waiters (#1261
+# review). The reclaim used to be check-then-act: every waiter read the
+# same dead pid, one reclaimed and took the lock, and a late one then
+# removed the fresh lock's files and took it too. Twelve racers against a
+# planted dead-pid lock, each appending its pid to a canary while it holds
+# the lock and checking nobody else is inside; any overlap is a line in
+# the violations file.
+rm -rf "$lock_dir"
+mkdir -p "$lock_dir"
+printf '2147483646\n' >"$lock_dir/pid"
+canary="$SANDBOX/lock-canary"
+violations="$SANDBOX/lock-violations"
+: >"$canary"; : >"$violations"
+cat >"$SANDBOX/racer.sh" <<'RACER'
+set -e
+. "$1"
+gate_lock_acquire >/dev/null 2>&1
+echo "$$" >>"$2"
+sleep 0.2
+others="$(grep -c . "$2")"
+if [ "$others" -ne 1 ]; then echo "$$ saw $others inside" >>"$3"; fi
+: >"$2"
+gate_lock_release
+RACER
+for i in $(seq 1 12); do
+  CI_LOCAL_LOCK_DIR="$lock_dir" GATE_LOCK_POLL=0.05 sh "$SANDBOX/racer.sh" "$GATE_LIB" "$canary" "$violations" &
+done
+wait
+if [ -s "$violations" ]; then
+  fail "Q7 twelve waiters on a stale lock never overlap" "$(cat "$violations")"
+else
+  pass "Q7 twelve waiters on a stale lock never overlap"
+fi
+
+# Q8: a lock with no pid file (a holder killed between mkdir and the
+# write, a full disk) or a garbage pid is reclaimed once it is old enough,
+# instead of waited on forever.
+rm -rf "$lock_dir"
+mkdir -p "$lock_dir"
+touch -t 202001010000 "$lock_dir"
+q8_out="$(CI_LOCAL_LOCK_DIR="$lock_dir" GATE_LOCK_POLL=0.1 sh -c ". '$GATE_LIB' && gate_lock_acquire && echo HELD-AFTER-PIDLESS && gate_lock_release" 2>&1)"
+assert_contains "Q8 a pid-less lock older than the age limit is reclaimed" 'HELD-AFTER-PIDLESS' "$q8_out"
+rm -rf "$lock_dir"
+mkdir -p "$lock_dir"
+printf 'garbage\n' >"$lock_dir/pid"
+touch -t 202001010000 "$lock_dir"
+q8b_out="$(CI_LOCAL_LOCK_DIR="$lock_dir" GATE_LOCK_POLL=0.1 sh -c ". '$GATE_LIB' && gate_lock_acquire && echo HELD-AFTER-GARBAGE && gate_lock_release" 2>&1)"
+assert_contains "Q8 a garbage-pid lock older than the age limit is reclaimed" 'HELD-AFTER-GARBAGE' "$q8b_out"
+
+# Q9: a wait that outlasts GATE_LOCK_TIMEOUT refuses with a message that
+# says which lock, who holds it, and how to break it, rather than waiting
+# forever on a holder nothing will ever release.
+rm -rf "$lock_dir"
+mkdir -p "$lock_dir"
+printf '%s\n' "$$" >"$lock_dir/pid"
+printf '%s\n' "$SANDBOX" >"$lock_dir/where"
+q9_out="$(CI_LOCAL_LOCK_DIR="$lock_dir" GATE_LOCK_POLL=0.2 GATE_LOCK_TIMEOUT=1 sh -c ". '$GATE_LIB' && gate_lock_acquire && echo SHOULD-NOT-HOLD" 2>&1)"
+q9_status=$?
+assert_nonzero "Q9 a wait past the timeout refuses" "$q9_status"
+assert_not_contains "Q9 and does not hold the lock" 'SHOULD-NOT-HOLD' "$q9_out"
+assert_contains "Q9 the refusal names the lock" "$lock_dir" "$q9_out"
+assert_contains "Q9 and says how to break it" 'rm -r' "$q9_out"
+rm -rf "$lock_dir"
+
+# Q10: the holder's identity is more than a pid, because pids mean nothing
+# across container namespaces and are reused: host and boot id sit beside
+# it, and a pid from another host is never read as dead.
+q10_out="$(CI_LOCAL_LOCK_DIR="$lock_dir" sh -c ". '$GATE_LIB' && gate_lock_acquire >/dev/null && cat '$lock_dir/host' '$lock_dir/boot' && gate_lock_release" 2>&1)"
+assert_contains "Q10 the lock records the holder's host" "$(hostname)" "$q10_out"
+assert_eq "Q10 and a boot id" 2 "$(printf '%s\n' "$q10_out" | grep -c .)"
+rm -rf "$lock_dir"
+mkdir -p "$lock_dir"
+printf '2147483646\n' >"$lock_dir/pid"
+printf 'some-other-host\n' >"$lock_dir/host"
+printf 'other-boot\n' >"$lock_dir/boot"
+q10b_out="$(CI_LOCAL_LOCK_DIR="$lock_dir" GATE_LOCK_POLL=0.2 GATE_LOCK_TIMEOUT=1 sh -c ". '$GATE_LIB' && gate_lock_acquire && echo RECLAIMED-FOREIGN" 2>&1)"
+assert_not_contains "Q10 a holder on another host is not read as dead by this host's kill -0" 'RECLAIMED-FOREIGN' "$q10b_out"
+rm -rf "$lock_dir"
+
+# Q11: the two steps the review found running outside the lock, the
+# browser rig and apps/common (its tests start a container), run with the
+# lock held. Same shape as Q6: a stub that reports whether the lock
+# directory exists when it runs.
+tree="$(make_full_tree)"
+printf '#!/usr/bin/env bash\nif [ -d "%s" ]; then echo "E2E-STEP: lock held"; else echo "E2E-STEP: lock free"; fi\nexit 0\n' "$tree/.gate-lock" \
+  >"$tree/scripts/e2e/run-tests-repo-gate.sh"
+run_gate "$tree"
+assert_contains "Q11 the browser e2e step runs with the lock held" 'E2E-STEP: lock held' "$out"
+assert_contains "Q11 the apps/common step is announced as a Docker-backed step" 'apps/common go build, vet, test -race (Docker' "$out"
+
 # ------------- Group R: the toolchain pins live in one tracked file (#1260)
 
 echo "==> R. the pins"
