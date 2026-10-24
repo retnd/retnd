@@ -95,14 +95,33 @@ toplevel="$(git rev-parse --show-toplevel 2>/dev/null)" \
   || refuse "this is not inside a git checkout." "Run it from the checkout whose HEAD is the release candidate."
 cd "$toplevel"
 
-for var in CI_LOCAL_FAST CI_LOCAL_SKIP_JS CI_LOCAL_SKIP_DOCKER CI_LOCAL_SKIP_E2E CI_LOCAL_SKIP_TWO_MACHINE; do
-  if [ -n "${!var+set}" ]; then
-    refuse "$var is set (to '${!var}'), and the record claims a full run." \
-      "A run with any CI_LOCAL_FAST or CI_LOCAL_SKIP_* variable present is not merge evidence, and this" \
-      "refuses it now rather than after the gate has run. Fix: unset $var and re-run." \
-      "    unset $var"
-  fi
-done
+# Anything that could narrow the run is refused before it starts, and the
+# list is not hard-coded (#1261 review): ANY CI_LOCAL_* name, because the
+# five that existed were a list a sixth knob would have slipped past, and
+# a GOFLAGS that selects, skips, shortens or zeroes tests, because
+# GOFLAGS=-run=XXX makes every Go suite print "ok [no tests to run]" with
+# the gate none the wiser. The environment the gate does run under is
+# written into the record (below), so a reader can see what it was.
+while IFS='=' read -r name _; do
+  case "$name" in
+    CI_LOCAL_*)
+      refuse "$name is set (to '${!name}'), and the record claims a full, unmodified run." \
+        "Every CI_LOCAL_* variable changes what the gate does, so none may be present when the record is made." \
+        "Fix: unset $name and re-run." \
+        "    unset $name"
+      ;;
+  esac
+done < <(env)
+if [ -n "${GOFLAGS+set}" ]; then
+  case " $GOFLAGS " in
+    *" -run"*|*" -run="*|*" -skip"*|*" -skip="*|*" -short"*|*" -count=0"*|*" -failfast"*|*" -test.run"*|*" -test.short"*|*" -bench"*|*" -fuzz"*)
+      refuse "GOFLAGS is set to '$GOFLAGS', which narrows what go test runs." \
+        "A Go suite under a -run, -skip, -short, -count=0 or -failfast flag prints ok having run less than it was" \
+        "asked to, and the gate cannot see that. Fix: unset GOFLAGS (or set only flags that select nothing) and re-run." \
+        "    unset GOFLAGS"
+      ;;
+  esac
+fi
 
 hooks_path="$(git config --get core.hooksPath || true)"
 if [ "$hooks_path" != ".husky" ]; then
@@ -245,8 +264,44 @@ sha256_of() {
   python3 "$SCRIPT_DIR/../bdtools/release/verify_local_gate.py" --log-sha256 "$1"
 }
 
+# The ledger, read off the log rather than assumed empty: the lines gate_summary
+# prints under an INCOMPLETE verdict. On exit 0 with an ok verdict it is empty
+# by construction, and the record says it read the log to know that.
+ledger_json="$(sed -n '/^==> ci-local: INCOMPLETE/,/^==> For a run/p' "$log" | sed -n 's/^        - //p' | python3 -c 'import json,sys; print(json.dumps([l.rstrip("\n") for l in sys.stdin if l.strip()]))')"
+
+# The log goes into a public repository and onto the GitHub Release
+# verbatim (#1261 review, item 9), so before it is copied: every home
+# path becomes `~`, and anything secret-shaped left afterwards (a bearer
+# token, a GitHub or AWS key, a private key block, an Authorization
+# header) means no record at all rather than a scrubbed one, because a
+# scrubber that half-worked is how a secret gets published with a clean
+# conscience.
 mkdir -p provenance
-cp "$log" provenance/local-gate.log
+python3 - "$log" provenance/local-gate.log <<'PY'
+import re
+import sys
+
+src, dst = sys.argv[1], sys.argv[2]
+data = open(src, "rb").read()
+# Home paths: this user's, and anybody's under /Users or /home.
+data = re.sub(rb"/Users/[^/\s\"']+", b"~", data)
+data = re.sub(rb"/home/[^/\s\"']+", b"~", data)
+secret_shapes = [
+    (rb"ghp_[A-Za-z0-9]{20,}", "a GitHub personal access token"),
+    (rb"github_pat_[A-Za-z0-9_]{20,}", "a GitHub fine-grained token"),
+    (rb"gho_[A-Za-z0-9]{20,}", "a GitHub OAuth token"),
+    (rb"AKIA[0-9A-Z]{16}", "an AWS access key id"),
+    (rb"-----BEGIN [A-Z ]*PRIVATE KEY-----", "a private key block"),
+    (rb"(?i)authorization:\s*(bearer|basic)\s+\S+", "an Authorization header"),
+    (rb"(?i)x-api-key:\s*\S+", "an API key header"),
+]
+found = [what for shape, what in secret_shapes if re.search(shape, data)]
+if found:
+    print("local-gate: NOT RECORDED. The gate log still matches a secret shape after scrubbing: " + ", ".join(found) + ".", file=sys.stderr)
+    print("    A log that may carry a secret is not published. Find the line in " + src + ", stop whatever printed it, and re-run.", file=sys.stderr)
+    sys.exit(1)
+open(dst, "wb").write(data)
+PY
 log_sha256="$(sha256_of provenance/local-gate.log)"
 
 # The browser lane's result, as evidence (#1260). The e2e gate writes
@@ -258,23 +313,46 @@ log_sha256="$(sha256_of provenance/local-gate.log)"
 lane_file="$worktree/.e2e-gate/web-ui-lane.json"
 [ -f "$lane_file" ] || lane_file=""
 
+# The environment the gate ran under, as the record's `env`: the gate's
+# own exports (CI, CI_LOCAL) and whatever Go, Node and Docker variables
+# were present, which is what a reader needs to tell this run from one
+# made elsewhere. Values, not just names, because GOFLAGS=-mod=mod and
+# GOFLAGS=-run=X are different runs.
+env_json="$(env | python3 -c '
+import json, os, sys
+keep = {}
+for line in sys.stdin:
+    name, sep, value = line.rstrip("\n").partition("=")
+    if not sep:
+        continue
+    if name in ("CI", "CI_LOCAL") or name.startswith(("GO", "NODE_", "DOCKER_", "PLAYWRIGHT_", "VITEST_", "GATE_", "CI_LOCAL_")):
+        keep[name] = value
+keep["CI"] = "1"
+keep["CI_LOCAL"] = "1"
+print(json.dumps(keep, sort_keys=True))
+')"
+
 python3 - provenance/local-gate.json "$RECORD_SCHEMA" "$gate_tree" "$head" "$started_at" "$duration_s" \
-  "$go_version" "$node_version" "$golangci_version" "$docker_version" "$log_sha256" "$lane_file" <<'PY'
+  "$go_version" "$node_version" "$golangci_version" "$docker_version" "$log_sha256" "$lane_file" \
+  "$ledger_json" "$env_json" <<'PY'
 import json
 import sys
 
 (path, schema, gate_tree, head, started_at, duration_s,
- go, node, golangci, docker, log_sha256, lane_file) = sys.argv[1:]
+ go, node, golangci, docker, log_sha256, lane_file, ledger_json, env_json) = sys.argv[1:]
 lane = None
 if lane_file:
     with open(lane_file, encoding="utf-8") as fh:
         lane = json.load(fh)
+ledger = json.loads(ledger_json)
+env = json.loads(env_json)
 record = {
     "schema": schema,
     "gate_tree": gate_tree,
     "head": head,
     "result": "ok",
-    "ledger": [],
+    "ledger": ledger,
+    "ledger_source": "log",
     "started_at": started_at,
     "duration_s": int(duration_s),
     "tools": {
@@ -285,7 +363,7 @@ record = {
     },
     "log_sha256": log_sha256,
     "web_ui_lane": lane,
-    "env": {"CI": "1"},
+    "env": env,
     "note": "Written by scripts/release/record-local-gate.sh. gate_tree is scripts/release/gate-tree.sh over the recorded commit: its tree with this file and local-gate.log left out. require-release-gate in .github/workflows/release.yml recomputes it on the commit it publishes and refuses a mismatch.",
 }
 with open(path, "w", encoding="utf-8") as fh:
