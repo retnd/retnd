@@ -233,6 +233,16 @@ commands:
                                                   result whether or not the connection works, and the exit code stays the
                                                   verdict (1 when it fails). The mode line and the startup log go to stderr,
                                                   so the document is all of stdout (#1152)
+  backup-set test-connection --candidate --host H --user U --ssh-key-id K
+                             --known-hosts-line L --remote-path P [--port N] [--json]
+                                                  the same six checks against a source that is NOT saved, described by
+                                                  these flags, so a set can be proven before it is written down: the
+                                                  wizard's "Test connection" button, and what create runs before its
+                                                  write, asked for on its own. It names no set and writes nothing
+                                                  whatever the report says. The key is an id ssh-key import printed,
+                                                  never a file, and the trusted line is the one ssh-keyscan or ssh
+                                                  host-key-probe prints, so no key is imported and no trust decision is
+                                                  made here. --json prints the TestConnectionResponse (#1253)
   artifacts [--source S] [--backup-set B]        list journal artifacts
                                                   --backup-set takes the source/backup-set id sources, status and
                                                   retention name a backup set by, and a plain set name where one
@@ -446,6 +456,28 @@ commands:
                                                    environment a validator gets, what its exit status means, what becomes
                                                    of its output and where it runs. Reads no configuration.
                                                    GET /api/v1/assurance/default-validator-script
+  auth enroll --username U --token-stdin --password-stdin
+                          [--recovery-email ADDR --smtp-host H [--smtp-port N] [--smtp-security starttls|tls|none]
+                          [--smtp-username U] [--smtp-from ADDR] [--smtp-password-stdin]]
+                                                  make the first administrator through the serving engine, the request the
+                                                  enrollment page sends. The enrollment token (or the whole enrollment
+                                                  link the container log prints) is the first stdin line, the password
+                                                  the second and the SMTP password, if any, the third; none is ever a
+                                                  flag. Needs only RETND_API_URL, since there is no account to sign in as
+                                                  yet, so it works inside a headless container where `+cliecho.WebBinary+`
+                                                  auth create-admin refuses (the serving process holds the store). The
+                                                  same as POST /api/v1/auth/enroll (#1253)
+  auth forgot-password --username U
+                                                  ask the engine to mail a single-use reset link to the account's recovery
+                                                  address. Needs only RETND_API_URL. The engine answers the same way for
+                                                  every username, so the command cannot say whether a message was sent,
+                                                  and says that. The same as POST /api/v1/auth/forgot-password
+  auth reset-password --token-stdin --password-stdin
+                                                  redeem the reset token out of the emailed link (first stdin line) and set
+                                                  the new password (second); neither is ever a flag. Needs only
+                                                  RETND_API_URL. Every session is signed out and none opened, so sign in
+                                                  with the new password afterwards. The same as
+                                                  POST /api/v1/auth/reset-password
   auth password --password-stdin
                                                   change the administrator's password. The current password and then the
                                                   new one come from stdin, one per line, and never from a flag, so neither
@@ -474,6 +506,9 @@ commands:
                                                   redeem the verification token out of the emailed link (from stdin, never
                                                   a flag), or ask for the message to be sent again. The same as
                                                   POST /api/v1/auth/verify-email and /resend
+  auth whoami [--json]
+                                                  who the credentials this terminal carries sign in as, from the engine.
+                                                  Routed, as above. The same as GET /api/v1/auth/session
   ssh-key list [--json]
                                                   the keys in this deployment's key store: id, algorithm, fingerprint,
                                                   when it was imported and which backup sets use it. The id is the one
@@ -663,9 +698,9 @@ commands:
                                                   to skip, because a restore is billed and takes hours; --days
                                                   defaults to 7 and is bounded to 1..30. artifacts <id> lists
                                                   which medium each copy is on
-  recover <source/backup-set/artifact> [--to source:[FOLDER] | - | NAME | medium:ID[/KEY]] [--acknowledge-source-write] [--preflight] [--copy M] [--acknowledge-cost] [--json]
-  recover --set <source/backup-set> [--newest-only] [--since DATE] [--until DATE] [--all] [--to source:[FOLDER] | NAME | medium:ID[/PREFIX]] [--acknowledge-source-write] [--preflight] [--acknowledge-cost] [--json]
-  recover <id> <id> ... [--to source:[FOLDER] | NAME | medium:ID[/PREFIX]] [--acknowledge-source-write] [--preflight] [--acknowledge-cost] [--json]
+  recover <source/backup-set/artifact> [--to source:[FOLDER] | - | NAME | medium:ID[/KEY]] [--acknowledge-source-write] [--preflight [--write-check]] [--copy M] [--acknowledge-cost] [--json]
+  recover --set <source/backup-set> [--newest-only] [--since DATE] [--until DATE] [--all] [--to source:[FOLDER] | NAME | medium:ID[/PREFIX]] [--acknowledge-source-write] [--preflight [--write-check]] [--acknowledge-cost] [--json]
+  recover <id> <id> ... [--to source:[FOLDER] | NAME | medium:ID[/PREFIX]] [--acknowledge-source-write] [--preflight [--write-check]] [--acknowledge-cost] [--json]
                                                   get the retained bytes of one artifact back (EPIC Q, FR-67). It
                                                   reads one copy, checks all of it against the SHA-256 recorded when
                                                   the backup was ingested, and only then writes it: to standard
@@ -716,9 +751,12 @@ commands:
                                                   needs --to. A whole set onto the source host also needs
                                                   --newest-only, --since, --until or --all, and a range that keeps
                                                   every retained restore point still needs --all. --to source:
-                                                  --preflight prints where it would write and runs the write check,
-                                                  which writes and removes one probe file. The source host's refusals
-                                                  exit 38 to 43.
+                                                  --preflight prints where it would write, from configuration and the
+                                                  last write check, and touches the host not at all, which is what
+                                                  the web UI's recovery dialog shows when it opens; --write-check
+                                                  beside it runs the write check too, which writes one probe file
+                                                  there and removes it, the dialog's "Check write access" button
+                                                  (#1253). The source host's refusals exit 38 to 43.
                                                   A staging folder called source is still --to source; one whose
                                                   name starts with source:, medium: or - is written ./NAME.
   backup-set enabled <source/backup-set> <on|off>
@@ -823,16 +861,18 @@ commands:
                                                   resolved retention, capacity and service settings, the declared
                                                   destinations, the schema they are validated against and first_run. A read
                                                   only: settings patch refuses --json (#1152)
-  backup-set edit-hold <source/backup-set> [--release]
+  backup-set edit-hold <source/backup-set> [--take | --release]
                                                   report whether a backup set is held for editing, what taking the
-                                                  hold stopped, and when the lease expires; --release gives it back
-                                                  so the scheduler may run the set again rather than waiting for it
-                                                  to lapse. A hold lives in the memory of the process serving this
-                                                  deployment and does not survive it, so this needs a route to that
-                                                  process (a remote terminal works too) and refuses without one. There
-                                                  is no verb that TAKES a
-                                                  hold: a hold protects an editing session and a CLI edit is one
-                                                  backup-set patch that either runs or does not (#350, #600)
+                                                  hold stopped, and when the lease expires. --take takes the hold the
+                                                  web UI's edit form takes, or renews one already held: the cycle
+                                                  inside the set stops at its next safe boundary and the scheduler
+                                                  starts no new pass for it until the hold is released or its lease
+                                                  lapses, which is what lets a scripted edit of several patches run
+                                                  with nothing underneath it. --release gives it back so the scheduler
+                                                  may run the set again rather than waiting for the lease to lapse.
+                                                  A hold lives in the memory of the process serving this deployment
+                                                  and does not survive it, so this needs a route to that process (a
+                                                  remote terminal works too) and refuses without one (#350, #600, #1253)
   backup-set retention <source/backup-set> [--inherit] [--policy-file F]
                        [--timezone T] [--week-starts-on D]
                        [--daily-days N] [--weekly-months N] [--monthly-months N]

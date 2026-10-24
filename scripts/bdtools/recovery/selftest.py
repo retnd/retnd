@@ -577,8 +577,8 @@ MUTATIONS: list[tuple[Any, ...]] = [
     (
         "a recovery download cut by the UI proxy's header timeout",
         UI_GO,
-        '\tmux.Handle("/api/v1/recoveries/", rollingWriteDeadline(&downloads))\n',
-        "\t// " + PLANT.rstrip() + "\n",
+        "\tmux := newMux(uiMounts(proxy, rollingWriteDeadline(&downloads), staticHandler(cfg.StaticFS)))\n",
+        "\tmux := newMux(uiMounts(proxy, proxy, staticHandler(cfg.StaticFS))) // " + PLANT.rstrip() + "\n",
         "cut by the proxy",
         UI_PKG,
         "TestUI_ARecoveryMayTakeLonger",

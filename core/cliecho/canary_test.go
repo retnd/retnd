@@ -2,7 +2,9 @@ package cliecho
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -23,22 +25,25 @@ import (
 // list said what it was missing. A schema added to the contract cannot go
 // unvisited here, because the map this walks is the generator's own.
 
-// canaryBody is one request body, plus the schema it was built from, so a
-// failure says which shape produced it.
+// canaryBody is one request body, plus the schema it was built from and
+// which variant of it this is, so a failure says which shape produced it.
 type canaryBody struct {
 	schema string
+	label  string
 	body   []byte
 }
 
-// canaryBodies builds one body per contract schema. value is given the
-// field's path ("StorageMediumRequest.credentials.command[0]") and returns
-// what that string field should carry.
+// canaryBodies builds one body per contract schema, or one per variant
+// where a field's value picks a code path (bodyVariants). value is given
+// the field's path ("StorageMediumRequest.credentials.command[0]") and
+// returns what that string field should carry.
 //
 // Numbers are filled with a small positive value and booleans with true,
 // because a builder that only emits a flag when a number is positive or a
 // flag is set would otherwise be walked with every one of those branches
 // switched off, and a body that reaches no flag proves nothing about the
-// flags.
+// flags. The other side of each boolean is the field check's job
+// (fields_test.go flips every one).
 func canaryBodies(t *testing.T, value func(path string) string) []canaryBody {
 	t.Helper()
 	names := make([]string, 0, len(apicontract.SchemaTypes))
@@ -58,8 +63,12 @@ func canaryBodies(t *testing.T, value func(path string) string) []canaryBody {
 		if err != nil {
 			t.Fatalf("marshalling a canary %s: %v", name, err)
 		}
-		for _, variant := range bodyVariants(name, body) {
-			out = append(out, canaryBody{schema: name, body: variant})
+		variants, err := bodyVariants(name, body)
+		if err != nil {
+			t.Fatalf("building the variants of %s: %v", name, err)
+		}
+		for _, v := range variants {
+			out = append(out, canaryBody{schema: name, label: v.label, body: v.body})
 		}
 	}
 	if len(out) == 0 {
@@ -68,36 +77,166 @@ func canaryBodies(t *testing.T, value func(path string) string) []canaryBody {
 	return out
 }
 
-// bodyVariants is where a field whose VALUE selects a code path gets real
-// values rather than a canary.
+// labelledBody is one variant of a schema's canary body.
+type labelledBody struct {
+	label string
+	body  []byte
+}
+
+// A selector is a field whose VALUE selects a code path, and it gets real
+// values rather than a canary. A body whose selector is a canary string
+// reaches no arm of the switch behind it, and a test driven only by such
+// a body reports that no builder printed a canary, which is true and
+// worthless.
 //
-// SubmitOperationRequest.action is the only one: it names which of the
-// parameter objects the request carries, and a body whose action is a
-// canary string reaches no arm of that switch at all. A test driven only
-// by such a body would report that no builder printed a canary, which is
-// true and worthless. So this expands that one schema into one body per
-// action the contract actually defines.
-func bodyVariants(schema string, body []byte) [][]byte {
-	if schema == "SubmitOperationRequest" {
-		var decoded map[string]any
-		if err := json.Unmarshal(body, &decoded); err != nil {
-			return [][]byte{body}
+// The values come from apicontract, never from a list kept here. This
+// used to be a hand-written list of four of the seven operation actions:
+// the three snapshot actions from #788 were never added, so neither this
+// corpus nor the credential test driven from it had ever reached their
+// arms, and `snapshot hold --reason` printed the operator's own sentence
+// with nothing checking it was allowed to (#1253's review).
+//
+// Each selector also sends one value no arm knows, which is how a builder
+// that falls through to a silent nil for a new action gets seen: the
+// outcome golden pins what that value gets, and it has to be a refusal.
+type selector struct {
+	path   []string
+	values []string
+	// modes is, for a selector value, the request's own fields that go
+	// with it. Every other key in modeKeys is removed from that variant,
+	// because the contract refuses a body naming another value's
+	// parameters, and a field from another mode showing up as "dropped"
+	// is an artefact of the corpus rather than a decision.
+	modes    map[string][]string
+	modeKeys []string
+}
+
+// unknownSelector is the value no arm of any switch knows.
+const unknownSelector = "not_a_value_the_contract_has"
+
+var bodySelectors = map[string]selector{
+	"SubmitOperationRequest": {
+		path:   []string{"action"},
+		values: apicontract.Actions,
+		// The contract's own description: "restore_placement reads
+		// restore, run_backup_set reads backup_set_id, ...". A new
+		// action with no line here fails TestTheCorpusKnowsEveryAction.
+		modes: map[string][]string{
+			apicontract.ActionRunCycle:            {},
+			apicontract.ActionRunBackupSet:        {"backup_set_id", "skip_workflow_scripts"},
+			apicontract.ActionRestorePlacement:    {"restore"},
+			apicontract.ActionRestoreSnapshot:     {"snapshot_restore"},
+			apicontract.ActionVerifySnapshot:      {"snapshot_verify"},
+			apicontract.ActionHoldSnapshot:        {"snapshot_hold"},
+			apicontract.ActionReleaseSnapshotHold: {"snapshot_hold_release"},
+		},
+		modeKeys: []string{"backup_set_id", "skip_workflow_scripts", "restore", "snapshot_restore", "snapshot_verify", "snapshot_hold", "snapshot_hold_release"},
+	},
+	"RecoveryMintRequest": {path: []string{"target", "kind"}, values: apicontract.RecoveryTargetKinds},
+	"RecoveryManyRequest": {path: []string{"target", "kind"}, values: apicontract.RecoveryTargetKinds},
+}
+
+// bodyModes are the schemas whose fields come in mutually exclusive
+// groups that no single value selects. Each mode keeps its own keys and
+// drops the rest of modeKeys, for the reason selector.modes does.
+var bodyModes = map[string]struct {
+	modes    map[string][]string
+	modeKeys []string
+}{
+	// "Exactly one mode per request": a saved set by id, or a candidate's
+	// connection details.
+	"TestConnectionRequest": {
+		modes: map[string][]string{
+			"persisted": {"backup_set_id"},
+			"candidate": {"host", "port", "user", "ssh_key_id", "known_hosts_line", "remote_path"},
+		},
+		modeKeys: []string{"backup_set_id", "host", "port", "user", "ssh_key_id", "known_hosts_line", "remote_path"},
+	},
+	// "Name exactly one of set and artifacts", and the narrowings go with
+	// a set.
+	"RecoveryManyRequest": {
+		modes: map[string][]string{
+			"set":       {"set", "newest_only", "since", "until", "all"},
+			"artifacts": {"artifacts"},
+		},
+		modeKeys: []string{"set", "artifacts", "newest_only", "since", "until", "all"},
+	},
+}
+
+// keepMode removes every key in modeKeys from object except keep.
+func keepMode(object map[string]any, modeKeys, keep []string) {
+	for _, k := range modeKeys {
+		if !slices.Contains(keep, k) {
+			delete(object, k)
 		}
-		out := make([][]byte, 0, 4)
-		for _, action := range []string{
-			apicontract.ActionRunCycle,
-			apicontract.ActionRunBackupSet,
-			apicontract.ActionRestorePlacement,
-			apicontract.ActionRestoreSnapshot,
-		} {
-			decoded["action"] = action
-			encoded, err := json.Marshal(decoded)
-			if err != nil {
-				continue
+	}
+}
+
+func bodyVariants(schema string, body []byte) ([]labelledBody, error) {
+	var decoded map[string]any
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return nil, err
+	}
+	variants := []struct {
+		label string
+		obj   map[string]any
+	}{{"", decoded}}
+
+	// Modes first, so a selector's variants are taken in every mode.
+	if m, ok := bodyModes[schema]; ok {
+		variants = variants[:0]
+		for _, mode := range sortedKeys(m.modes) {
+			obj := deepCopy(decoded).(map[string]any)
+			keepMode(obj, m.modeKeys, m.modes[mode])
+			variants = append(variants, struct {
+				label string
+				obj   map[string]any
+			}{"mode=" + mode, obj})
+		}
+	}
+
+	if sel, ok := bodySelectors[schema]; ok {
+		var expanded []struct {
+			label string
+			obj   map[string]any
+		}
+		for _, v := range variants {
+			for _, value := range append(slices.Clone(sel.values), unknownSelector) {
+				obj := deepCopy(v.obj).(map[string]any)
+				holder := obj
+				for _, step := range sel.path[:len(sel.path)-1] {
+					next, ok := holder[step].(map[string]any)
+					if !ok {
+						return nil, fmt.Errorf("%s has no object at %s", schema, step)
+					}
+					holder = next
+				}
+				holder[sel.path[len(sel.path)-1]] = value
+				if sel.modes != nil {
+					keepMode(obj, sel.modeKeys, sel.modes[value])
+				}
+				label := strings.Join(sel.path, ".") + "=" + value
+				if value == unknownSelector {
+					label = strings.Join(sel.path, ".") + "=<unknown>"
+				}
+				expanded = append(expanded, struct {
+					label string
+					obj   map[string]any
+				}{strings.TrimPrefix(v.label+" "+label, " "), obj})
+				// The same action with the parameters it reads left out,
+				// which the engine refuses and a builder has to decline
+				// by saying so (#1253's review).
+				if sel.modes != nil && value != unknownSelector && len(sel.modes[value]) > 0 {
+					bare := deepCopy(obj).(map[string]any)
+					keepMode(bare, sel.modeKeys, nil)
+					expanded = append(expanded, struct {
+						label string
+						obj   map[string]any
+					}{strings.TrimPrefix(v.label+" "+label+" without its parameters", " "), bare})
+				}
 			}
-			out = append(out, encoded)
 		}
-		return out
+		variants = expanded
 	}
 
 	// The other branch a VALUE selects, and the reason it is here rather
@@ -108,18 +247,63 @@ func bodyVariants(schema string, body []byte) [][]byte {
 	// all, therefore switches the scalar branch off everywhere. A corpus
 	// that only ever walks one side of a branch is a corpus that checks
 	// half the builders.
-	var decoded map[string]any
-	if err := json.Unmarshal(body, &decoded); err != nil {
-		return [][]byte{body}
+	var out []labelledBody
+	for _, v := range variants {
+		encoded, err := json.Marshal(v.obj)
+		if err != nil {
+			return nil, err
+		}
+		without := deepCopy(v.obj)
+		if !dropTiers(without) {
+			out = append(out, labelledBody{v.label, encoded})
+			continue
+		}
+		encodedWithout, err := json.Marshal(without)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out,
+			labelledBody{strings.TrimPrefix(v.label+" with tiers", " "), encoded},
+			labelledBody{strings.TrimPrefix(v.label+" without tiers", " "), encodedWithout})
 	}
-	if !dropTiers(decoded) {
-		return [][]byte{body}
+	return out, nil
+}
+
+// deepCopy copies a decoded JSON value.
+func deepCopy(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, e := range x {
+			out[k] = deepCopy(e)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = deepCopy(e)
+		}
+		return out
+	default:
+		return v
 	}
-	without, err := json.Marshal(decoded)
-	if err != nil {
-		return [][]byte{body}
+}
+
+// TestTheCorpusKnowsEveryAction: the action vocabulary comes from
+// apicontract, and which parameters each action reads has to be written
+// down here, so a new action fails until somebody says which.
+func TestTheCorpusKnowsEveryAction(t *testing.T) {
+	sel := bodySelectors["SubmitOperationRequest"]
+	for _, action := range apicontract.Actions {
+		if _, ok := sel.modes[action]; !ok {
+			t.Errorf("the corpus doesn't know which parameters %s reads, so its body would carry every other action's too. Add it to bodySelectors' modes.", action)
+		}
 	}
-	return [][]byte{body, without}
+	for action := range sel.modes {
+		if !slices.Contains(apicontract.Actions, action) {
+			t.Errorf("bodySelectors names %s and apicontract.Actions doesn't", action)
+		}
+	}
 }
 
 // dropTiers removes every "tiers" key in a decoded body and reports
@@ -176,11 +360,18 @@ func fillCanaries(typ reflect.Type, path string, value func(string) string, dept
 				continue
 			}
 			name := strings.Split(field.Tag.Get("json"), ",")[0]
-			if name == "" {
-				name = field.Name
-			}
 			if name == "-" {
 				continue
+			}
+			// An embedded struct with no name of its own is flattened on
+			// the wire (CreateBackupSetRequest embeds BackupSetSpec), so
+			// its fields' paths are the parent's, not "BackupSetSpec.x".
+			if name == "" && field.Anonymous {
+				v.Field(i).Set(fillCanaries(field.Type, path, value, depth+1))
+				continue
+			}
+			if name == "" {
+				name = field.Name
 			}
 			v.Field(i).Set(fillCanaries(field.Type, path+"."+name, value, depth+1))
 		}

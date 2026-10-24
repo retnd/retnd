@@ -100,6 +100,12 @@ export const SCENARIOS = [
   "backups-many",
   "backups-many-corrupt",
   "backups-many-nospace",
+  // Issue #1253: one backup whose file name, collected from the source
+  // host, is something a shell would act on, so a terminal line that names
+  // it unquoted shows up on the screen that prints it. The source host is
+  // slow to describe itself here, so the selection bar stays on its
+  // nothing-chosen-yet line.
+  "backups-hostile-filename",
   // Issue #1180: a deployment that holds exactly 999 backups (the largest that
   // still offers "All" on the Backups page) and one that holds exactly 1000.
   "backups-999",
@@ -4306,6 +4312,12 @@ export function createMockApi(
     ? [BUILTIN_ARTIFACT_FIXTURE, ...ARTIFACTS]
     : followsDefault(scenario)
     ? defaultPolicyArtifacts(untestedScenario(scenario), scenario === INGEST_FAILED_SCENARIO)
+    : scenario === "backups-hostile-filename"
+    ? ARTIFACTS.map((a) =>
+        a.id === "production/postgres-primary/postgres-prod-20260828.dump.zst"
+          ? { ...a, id: "production/postgres-primary/prod $(id).dump.zst", filename: "prod $(id).dump.zst" }
+          : a
+      )
     : scenario === "backups-ingest-failed"
     ? ARTIFACTS.map((a) => (a.id === "media/weekly-archive/media-week34.tar" ? { ...a, state: "FAILED", validation: "pending" as const } : a))
     : ARTIFACTS;
@@ -6014,7 +6026,10 @@ export function createMockApi(
       const setId = source + "/" + set;
       sourceProbe.describes[setId] = (sourceProbe.describes[setId] ?? 0) + 1;
       const d = describeSource(setId, opts?.folder);
-      return d ? delay(d, 150) : sourceNotFound();
+      // #1253: under backups-hostile-filename the source host takes its time,
+      // so the selection bar stays on the line it prints before any
+      // destination is chosen, which is the line under test.
+      return d ? delay(d, scenario === "backups-hostile-filename" ? 600_000 : 150) : sourceNotFound();
     },
     checkSourceHostWrite: (source, set, opts) => {
       const setId = source + "/" + set;

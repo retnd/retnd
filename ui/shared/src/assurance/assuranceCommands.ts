@@ -88,7 +88,20 @@ export function assuranceCancelCommand(operationId: string): string {
  *  id, `retnd assurance show <operation-id>`, the same read as
  *  GET /assurance/operations/{op} (#1200). */
 export function assuranceShowCommand(operationId: string): string {
-  return "retnd assurance show " + operationId;
+  // Quoted: the Operation page takes this id from its address, so a crafted
+  // link would otherwise put `x; curl ...|sh` on a line people copy (#1253).
+  return "retnd assurance show " + shellQuote(operationId);
+}
+
+/** The due list's own two lines (#1253, moved here from AssuranceDueList so
+ *  they're parsed with the rest): the test of one named backup, as a shape,
+ *  and the list itself. */
+export function recoveryTestArtifactShapeCommand(): string {
+  return "retnd recovery-test <source/set> --artifact <id>";
+}
+
+export function assuranceListCommand(): string {
+  return "retnd assurance list";
 }
 
 /** What Show validator output does: print the newest test's stored output,
@@ -157,6 +170,13 @@ export function recoverSetCommand(setId: string, narrow: "all" | "newest" | "sin
 export function recoverManyCommand(artifactIds: string[], target: "staging" | "storage" | "source", where: string, acknowledgeCost: boolean, acknowledgeSource = false): string {
   const to = target === "staging" ? "--to " + stagingTo(where) : target === "source" ? sourceTo(where, acknowledgeSource) : "--to " + mediumTo(where);
   return "retnd recover " + artifactIds.map(shellQuote).join(" ") + " " + to + (acknowledgeCost ? " --acknowledge-cost" : "");
+}
+
+/** The Backups selection bar's line before a destination is chosen
+ *  (#1253, moved here from BackupsSelectionBar). Every id is quoted, since an
+ *  artifact id ends in a file name collected from the source host. */
+export function recoverManyNoTargetCommand(artifactIds: string[]): string {
+  return "retnd recover " + artifactIds.map(shellQuote).join(" ") + " --to <destination>";
 }
 
 /** Issue #1191: the source host, into the named new folder. The colon is

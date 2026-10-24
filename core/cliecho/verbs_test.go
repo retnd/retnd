@@ -117,15 +117,9 @@ func TestTheRoutesWhoseVerbsNowExistNameThem(t *testing.T) {
 		})
 	}
 
-	// Taking a hold is the one gap on this surface that is still true, and
-	// usage() says so in as many words: "There is no verb that TAKES a
-	// hold". A fix that turned every neighbouring gap into a command and
-	// took this one with it would be inventing a verb.
-	take := Echo(Action{Method: "POST", Route: "/backup-sets/{source}/{set}/edit-hold",
-		Params: map[string]string{"source": "api-server", "set": "var-backups"}})
-	if len(take.Command) != 0 {
-		t.Errorf("taking an edit hold printed the command %v, and no verb takes one", take.Command)
-	}
+	// Taking a hold was the one gap on this surface that stayed true until
+	// #1253 gave `backup-set edit-hold` a --take; sourceverbs_1253_test.go
+	// pins that line.
 }
 
 // The /operations builder switched on `action == "restore"`, which is not

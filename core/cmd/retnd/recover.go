@@ -116,7 +116,8 @@ func cmdRecover(args []string) int {
 	newestOnly := fs.Bool("newest-only", false, "with --set: only the newest restore point")
 	since := fs.String("since", "", "with --set: only restore points that arrived (discovered_at) at or after this date (YYYY-MM-DD or RFC 3339)")
 	until := fs.String("until", "", "with --set: only restore points that arrived (discovered_at) at or before this date (YYYY-MM-DD for the whole of that day, or RFC 3339)")
-	preflight := fs.Bool("preflight", false, "with --set or several ids: print what would be recovered, what would not and why, and whether it fits; copy nothing. With --to source: it also says where on the source host it would write and runs the write check (one probe file written and removed)")
+	preflight := fs.Bool("preflight", false, "with --set or several ids: print what would be recovered, what would not and why, and whether it fits; copy nothing. With --to source: it also says where on the source host it would write, from configuration and the last write check, and touches the host not at all")
+	writeCheck := fs.Bool("write-check", false, "with --to source: --preflight: also run the write check, which writes one probe file under the set's remote path on the source host and removes it, and asks how much space is free there")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return exitUsage
@@ -124,7 +125,7 @@ func cmdRecover(args []string) int {
 	if *set != "" || len(operands) > 1 {
 		return cmdRecoverMany(manyArgs{
 			cfgPath: *cfgPath, set: *set, ids: operands, to: *to, copySel: *copySel, ack: *ack, asJSON: *asJSON,
-			follow: *follow, newestOnly: *newestOnly, since: *since, until: *until, preflight: *preflight, ackSource: *ackSource, all: *all,
+			follow: *follow, newestOnly: *newestOnly, since: *since, until: *until, preflight: *preflight, writeCheck: *writeCheck, ackSource: *ackSource, all: *all,
 		})
 	}
 	if *newestOnly || *since != "" || *until != "" || *all {
@@ -149,6 +150,9 @@ func cmdRecover(args []string) int {
 	if *preflight && *to != "" && !service.RecoveryTargetWritesToSourceHost(target) {
 		return usageError("recover: --preflight is for --set, several backup ids, or --to source:")
 	}
+	if err := checkWriteCheckFlag(target, *to, *preflight, *writeCheck); err != nil {
+		return usageError("recover: %v", err)
+	}
 	if *asJSON && target.Kind == "download" {
 		return usageError("recover: --json cannot be combined with --to -, because standard output carries the bytes")
 	}
@@ -172,7 +176,7 @@ func cmdRecover(args []string) int {
 		target = def
 	}
 	if *preflight {
-		return sourcePreflight(ctx, svc, operands[0], target.Path, *asJSON, nil)
+		return sourcePreflight(ctx, svc, operands[0], target.Path, *writeCheck, *asJSON, nil)
 	}
 	if service.RecoveryTargetWritesToSourceHost(target) {
 		acked, code := acknowledgeSourceDestination(svc, operands[0], target.Path, *ackSource, *asJSON)
@@ -352,11 +356,36 @@ func acknowledgeSourceDestination(svc *service.BackupService, id, folder string,
 	return service.RecoveryTarget{Kind: "source", Path: d.Folder, AcknowledgedDestination: d.DestinationID()}, exitOK
 }
 
-// sourcePreflight is `--to source: --preflight` (#1193): where it would
-// write, from configuration, then the write check, which writes and removes
-// one probe file. plan, when not nil, prints a set's plan after it.
-func sourcePreflight(ctx context.Context, svc *service.BackupService, id, folder string, asJSON bool, plan func() int) int {
-	d, err := svc.CheckSourceHostWrite(ctx, "cli", id, folder)
+// checkWriteCheckFlag refuses --write-check anywhere but beside `--to
+// source: --preflight` (#1253): a probe flag that did nothing is one a
+// script author believes wrote and removed a file.
+func checkWriteCheckFlag(target service.RecoveryTarget, to string, preflight, writeCheck bool) error {
+	if !writeCheck {
+		return nil
+	}
+	if !preflight || (to != "" && !service.RecoveryTargetWritesToSourceHost(target)) {
+		return errors.New("--write-check is for --to source: --preflight, the read-only description of where a source-host recovery would write, and adds the probe to it")
+	}
+	return nil
+}
+
+// sourcePreflight is `--to source: --preflight` (#1193, #1253): where it
+// would write, from configuration and the cached answer of the last write
+// check, which is what the browser's recovery dialog shows on open and
+// touches the host not at all. With --write-check it runs the check too,
+// which writes and removes one probe file on the source host, the way the
+// dialog's "Check write access" button does. plan, when not nil, prints a
+// set's plan after it.
+func sourcePreflight(ctx context.Context, svc *service.BackupService, id, folder string, writeCheck, asJSON bool, plan func() int) int {
+	var (
+		d   service.SourceHostDescription
+		err error
+	)
+	if writeCheck {
+		d, err = svc.CheckSourceHostWrite(ctx, "cli", id, folder)
+	} else {
+		d, err = svc.DescribeSourceHost(id, folder)
+	}
 	if err != nil {
 		if re, ok := service.AsRecoveryError(err); ok {
 			return reportRecoverError(re, asJSON)
@@ -384,10 +413,15 @@ func sourcePreflight(ctx context.Context, svc *service.BackupService, id, folder
 		if d.Detail != "" {
 			_, _ = fmt.Fprintf(os.Stdout, "                     %s\n", d.Detail)
 		}
+		if d.WriteAccess == service.SourceWriteNotChecked {
+			fmt.Fprintf(os.Stdout, "                     nothing has been written to %s; --write-check writes one probe file there and removes it\n", d.Host)
+		}
 		if d.FreeBytes != nil {
 			_, _ = fmt.Fprintf(os.Stdout, "free on the host:    %d bytes\n", *d.FreeBytes)
-		} else {
+		} else if writeCheck {
 			_, _ = fmt.Fprintf(os.Stdout, "free on the host:    unknown (the host did not say)\n")
+		} else {
+			_, _ = fmt.Fprintf(os.Stdout, "free on the host:    unknown (nobody asked; --write-check asks)\n")
 		}
 	}
 	if plan != nil && d.WriteAccess != service.SourceWriteReadOnly {
