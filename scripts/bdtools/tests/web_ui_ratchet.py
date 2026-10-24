@@ -215,6 +215,62 @@ def main() -> int:
     suite.check(refuses(listing([]) + "a.spec.ts :: d › t | #1260 | spdrman | 2027-01-01 | sometimes\n"),
                 "K a fifth field that is not `flaky` is refused", "K an unknown fifth field parsed")
 
+    # M: the hygiene the review of #1261 asked for (item 5).
+    # M1 duplicates and duplicate headers are parse errors, with the line.
+    suite.check(refuses(listing([wizard, wizard])), "M1 a duplicate entry is refused", "M1 a duplicate entry parsed")
+    suite.check(refuses(listing([]) + "cap=1\n"), "M1 a duplicate header is refused", "M1 a duplicate header parsed")
+    # M2 an entry that matches no spec in the report is refused: a renamed
+    # or deleted spec would otherwise hold its cap slot forever.
+    ghost = judged([OK_SHELL], web_ui_ratchet.parse_known_red(listing(["ghost.spec.ts :: d › gone"])))
+    suite.check(any(p.startswith("UNMATCHED ENTRY") and "ghost.spec.ts" in p for p in ghost.problems),
+                "M2 an entry that matches no spec in the report is refused and named", "M2 an unmatched entry was accepted", str(ghost.problems))
+    # M3 the prefix form is a TITLE prefix: `file :: *` and a prefix shorter
+    # than the describe block are refused by the parser.
+    suite.check(refuses(listing(["wizard.spec.ts :: *"])), "M3 `file :: *` is refused", "M3 a whole-file prefix parsed")
+    suite.check(refuses(listing(["wizard.spec.ts :: d *"])), "M3 a prefix that ends inside the describe title is refused", "M3 a describe-only prefix parsed")
+    # M4 the report's own channels: a non-empty `errors` list refuses, and
+    # stats that disagree with the walked cases refuse.
+    errored = report([OK_SHELL]); errored["errors"] = [{"message": "globalSetup boom"}]
+    suite.check(not web_ui_ratchet.judge(errored, empty, PIN, TODAY).ok, "M4 a report with errors is refused", "M4 a report with errors was accepted")
+    skewed = report([OK_SHELL]); skewed["stats"] = {"expected": 1, "unexpected": 3, "skipped": 0, "flaky": 0}
+    suite.check(any("summary counts 3 unexpected" in p for p in web_ui_ratchet.judge(skewed, empty, PIN, TODAY).problems),
+                "M4 a summary that counts failures the cases do not show is refused", "M4 a skewed summary was accepted")
+    # M5 a floor on what ran: fewer cases than the list's `floor=` refuses.
+    few = web_ui_ratchet.judge(report([OK_SHELL]), web_ui_ratchet.parse_known_red(listing([]).replace("skips=2", "skips=2\nfloor=5")), PIN, TODAY)
+    suite.check(any("ran 1 case" in p and "floor" in p for p in few.problems), "M5 fewer cases than the floor is refused", "M5 a run under the floor was accepted", str(few.problems))
+    # M6 a blocking file that is absent from the report fails rather than
+    # vanishing from the blocking set.
+    no_blocking = judged([("shell.spec.ts", "renders", "expected")] * 1, empty)
+    suite.check(any(p.startswith("BLOCKING FILE MISSING") for p in no_blocking.problems),
+                "M6 a blocking file with no case in the report is refused", "M6 a missing blocking file vanished silently", str(no_blocking.problems))
+    both_blocking = [OK_SHELL, ("safety-invariants.spec.ts", "s", "expected"), ("workflow-recovery.spec.ts", "w", "expected")]
+    suite.check(judged(both_blocking, empty).ok, "M6 with both blocking files present the run is accepted", "M6 a run with both blocking files was refused", str(judged(both_blocking, empty).problems))
+    # M7 expiry: inclusive of the date (an entry is good THROUGH its expiry),
+    # judged in UTC.
+    on_the_day = judged([OK_SHELL, RED_WIZARD] + both_blocking[1:], web_ui_ratchet.parse_known_red(listing([wizard], expiry="2026-10-23")))
+    suite.check(on_the_day.ok, "M7 an entry is good through its expiry date", "M7 an entry expired on its own date", str(on_the_day.problems))
+    day_after = judged([OK_SHELL, RED_WIZARD] + both_blocking[1:], web_ui_ratchet.parse_known_red(listing([wizard], expiry="2026-10-22")))
+    suite.check(any(p.startswith("EXPIRED") for p in day_after.problems), "M7 the day after, it is expired", "M7 a past expiry was accepted")
+    suite.check("timezone.utc" in (SCRIPTS / "bdtools" / "e2e" / "run_tests_repo_gate.py").read_text(encoding="utf-8"),
+                "M7 the gate judges with today's date in UTC", "M7 the gate judges with a local date")
+    # M8 the baseline: against main's copy, cap and skip budget cannot grow,
+    # an entry cannot be added, and an expiry cannot move later.
+    base = web_ui_ratchet.parse_known_red(listing([wizard], cap=1, skips=2))
+    grown_cap = web_ui_ratchet.parse_known_red(listing([wizard], cap=2, skips=2))
+    suite.check(any("cap grew" in p for p in web_ui_ratchet.against_baseline(grown_cap, base)), "M8 a cap larger than main's is refused", "M8 a grown cap passed the baseline")
+    grown_skips = web_ui_ratchet.parse_known_red(listing([wizard], cap=1, skips=3))
+    suite.check(any("skip budget grew" in p for p in web_ui_ratchet.against_baseline(grown_skips, base)), "M8 a skip budget larger than main's is refused", "M8 a grown skip budget passed")
+    added = web_ui_ratchet.parse_known_red(listing([wizard, "a.spec.ts :: d › t"], cap=2, skips=2))
+    suite.check(any("entry added" in p for p in web_ui_ratchet.against_baseline(added, base)), "M8 an entry main does not have is refused", "M8 an added entry passed the baseline")
+    later = web_ui_ratchet.parse_known_red(listing([wizard], cap=1, skips=2, expiry="2027-06-30"))
+    suite.check(any("expiry moved later" in p for p in web_ui_ratchet.against_baseline(later, base)), "M8 an expiry later than main's is refused", "M8 a later expiry passed")
+    suite.check(web_ui_ratchet.against_baseline(base, base) == [], "M8 the same list as main passes the baseline", "M8 an unchanged list failed its own baseline")
+    shrunk = web_ui_ratchet.parse_known_red(listing([], cap=0, skips=1))
+    suite.check(web_ui_ratchet.against_baseline(shrunk, base) == [], "M8 a list that only shrank passes the baseline", "M8 a shrunk list failed the baseline")
+    # M9 refusal messages say what to do next.
+    suite.check(any("known-red.txt" in p and "| spdrman |" in p for p in new.problems), "M9 a new failure's refusal shows the line to add", "M9 a new failure's refusal does not say what to add", str(new.problems))
+    suite.check(any("renew" in p.lower() or "refresh" in p.lower() for p in day_after.problems), "M9 an expiry's refusal says to renew or refresh", "M9 an expiry's refusal says nothing about next steps", str(day_after.problems))
+
     # L
     suite.check(clean.problems != new.problems,
                 "L control: the judge answers differently for a clean and a failing report", "L control: the judge cannot tell them apart")
@@ -230,6 +286,14 @@ def main() -> int:
                     "L the real list holds no blocking spec", "L a blocking spec is on the real list")
         suite.check(all(e.owner and e.issue.startswith("https://github.com/") for e in real.entries),
                     "L every real entry has an owner and an issue link", "L a real entry lacks an owner or an issue link")
+        suite.check(all("/issues/1260" not in e.issue for e in real.entries),
+                    "L no real entry cites #1260, which the PR that wrote the list closes", "L a real entry cites #1260")
+        suite.check(len({e.expiry for e in real.entries}) >= 3 and max(e.expiry for e in real.entries) < dt.date(2027, 1, 31),
+                    "L the real expiries are staggered and all before 2027-01-31", "L the real expiries are one date, or reach 2027-01-31")
+        header = REAL_LIST.read_text(encoding="utf-8")
+        suite.check("scripts/bdtools/e2e/web_ui_ratchet.py" in header and "scripts/e2e/tests-repo.pin" in header
+                    and "scripts/bdtools/web_ui_ratchet.py" not in header and "scripts/tests-repo.pin" not in header,
+                    "L the header names the judge and the pin by their real paths", "L the header names a path that does not exist")
     gate = GATE.read_text(encoding="utf-8")
     suite.check("web_ui_ratchet.judge(" in gate and '"--reporter=list,json"' in gate,
                 "L control: the gate judges the lane's report, and asks the rig for the JSON reporter",
