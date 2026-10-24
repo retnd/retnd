@@ -75,11 +75,19 @@ PIN = "9699ec5118a0d7748e988346192be37c7bbb5ec7"
 TODAY = dt.date(2026, 10, 23)
 
 
-def report(cases: list[tuple[str, str, str]], *, skipped_stat: int | None = None) -> dict[str, object]:
+BLOCKING_OK = [("safety-invariants.spec.ts", "s", "expected"), ("workflow-recovery.spec.ts", "w", "expected")]
+
+
+def report(cases: list[tuple[str, str, str]], *, skipped_stat: int | None = None, blocking: bool = True) -> dict[str, object]:
     """A Playwright JSON report shaped as the real one is: a file suite per
     file, a describe suite inside it, and the specs under that. Each case
-    is (file, title, status); the describe title is "d"."""
+    is (file, title, status); the describe title is "d". The two blocking
+    files are present and passing unless a case says otherwise, because a
+    report without them is refused for that alone (M6)."""
     files: dict[str, list[dict[str, object]]] = {}
+    present = {file for file, _, _ in cases}
+    if blocking:
+        cases = cases + [c for c in BLOCKING_OK if c[0] not in present]
     for file, title, status in cases:
         files.setdefault(file, []).append(
             {"title": title, "file": file, "tests": [{"projectName": "generic", "status": status}]}
@@ -93,15 +101,16 @@ def report(cases: list[tuple[str, str, str]], *, skipped_stat: int | None = None
     }
 
 
-def listing(entries: list[str], *, pin: str = PIN, cap: int = 5, skips: int = 2, expiry: str = "2027-01-31") -> str:
-    lines = [f"pin={pin}", f"cap={cap}", f"skips={skips}", "# a comment"]
+def listing(entries: list[str], *, pin: str = PIN, cap: int = 5, skips: int = 2, expiry: str = "2027-01-31",
+            floor: int = 0) -> str:
+    lines = [f"pin={pin}", f"cap={cap}", f"skips={skips}", f"floor={floor}", "# a comment"]
     lines += [f"{spec} | https://github.com/retnd/retnd/issues/1260 | spdrman | {expiry}" for spec in entries]
     return "\n".join(lines) + "\n"
 
 
 OK_SHELL = ("shell.spec.ts", "renders", "expected")
-RED_WIZARD = ("wizard.spec.ts", "six steps", "unexpected")
-OK_WIZARD = ("wizard.spec.ts", "six steps", "expected")
+RED_WIZARD = ("wizard.spec.ts", "groups the flow into six steps", "unexpected")
+OK_WIZARD = ("wizard.spec.ts", "groups the flow into six steps", "expected")
 
 
 def judged(
@@ -117,12 +126,12 @@ def judged(
 def main() -> int:
     suite = testkit.Suite("web-ui ratchet")
     empty = web_ui_ratchet.parse_known_red(listing([]))
-    wizard = "wizard.spec.ts :: d › six steps"
+    wizard = "wizard.spec.ts :: d › groups the flow into six steps"
 
     # A
     clean = judged([OK_SHELL, OK_WIZARD], empty)
     suite.check(clean.ok, "A a clean report against an empty list is accepted", "A a clean report was refused", str(clean.problems))
-    suite.check((clean.passed, clean.failed, clean.skipped, clean.listed_failures) == (2, 0, 0, 0),
+    suite.check((clean.passed, clean.failed, clean.skipped, clean.listed_failures) == (4, 0, 0, 0),
                 "A the verdict carries the report's counts", "A the counts are wrong", str(clean))
 
     # B
@@ -159,20 +168,20 @@ def main() -> int:
     suite.check(judged([OK_SHELL, OK_WIZARD], flaky_list).ok and judged([OK_SHELL, RED_WIZARD], flaky_list).ok,
                 "E a flaky entry is accepted whether it passes or fails", "E a flaky entry was refused on one answer",
                 str(judged([OK_SHELL, OK_WIZARD], flaky_list).problems) + str(judged([OK_SHELL, RED_WIZARD], flaky_list).problems))
-    stale_flaky = web_ui_ratchet.parse_known_red(listing([]) + f"{wizard} | https://github.com/retnd/retnd/issues/1260 | spdrman | 2026-10-23 | flaky\n")
+    stale_flaky = web_ui_ratchet.parse_known_red(listing([]) + f"{wizard} | https://github.com/retnd/retnd/issues/1260 | spdrman | 2026-10-22 | flaky\n")
     suite.check(any(p.startswith("EXPIRED") for p in judged([OK_SHELL, OK_WIZARD], stale_flaky).problems),
                 "E a flaky entry still expires", "E an expired flaky entry was accepted")
 
-    prefixed = web_ui_ratchet.parse_known_red(listing(["wizard.spec.ts :: d › six *"]))
+    prefixed = web_ui_ratchet.parse_known_red(listing(["wizard.spec.ts :: d › groups the flow *"]))
     suite.check(judged([OK_SHELL, RED_WIZARD], prefixed).ok and not judged([OK_SHELL, OK_WIZARD], prefixed).ok,
                 "E an entry ending in ` *` lists every spec it is a prefix of, and a pass under it is still refused",
                 "E a prefix entry did not match, or let a pass through",
                 str(judged([OK_SHELL, RED_WIZARD], prefixed).problems))
 
     # F
-    expired = judged([OK_SHELL, RED_WIZARD], web_ui_ratchet.parse_known_red(listing([wizard], expiry="2026-10-23")))
+    expired = judged([OK_SHELL, RED_WIZARD], web_ui_ratchet.parse_known_red(listing([wizard], expiry="2026-10-22")))
     suite.check(any(p.startswith("EXPIRED") for p in expired.problems),
-                "F an entry whose expiry is today is refused", "F an expired entry was accepted", str(expired.problems))
+                "F an entry whose expiry was yesterday is refused", "F an expired entry was accepted", str(expired.problems))
     tomorrow = judged([OK_SHELL, RED_WIZARD], web_ui_ratchet.parse_known_red(listing([wizard], expiry="2026-10-24")))
     suite.check(tomorrow.ok, "F an entry that expires tomorrow is still accepted", "F an unexpired entry was refused", str(tomorrow.problems))
 
@@ -195,7 +204,8 @@ def main() -> int:
                 "I more entries than the cap is refused", "I an over-cap list was accepted", str(over.problems))
 
     # J
-    suite.check(not judged([], empty).ok, "J a report with no cases is refused", "J an empty report was accepted")
+    suite.check(not web_ui_ratchet.judge(report([], blocking=False), empty, PIN, TODAY).ok,
+                "J a report with no cases is refused", "J an empty report was accepted")
     suite.check(not web_ui_ratchet.judge({"hello": 1}, empty, PIN, TODAY).ok and not web_ui_ratchet.judge(None, empty, PIN, TODAY).ok,
                 "J a file that is not a report is refused", "J a non-report was accepted")
 
@@ -230,26 +240,29 @@ def main() -> int:
     suite.check(refuses(listing(["wizard.spec.ts :: d *"])), "M3 a prefix that ends inside the describe title is refused", "M3 a describe-only prefix parsed")
     # M4 the report's own channels: a non-empty `errors` list refuses, and
     # stats that disagree with the walked cases refuse.
-    errored = report([OK_SHELL]); errored["errors"] = [{"message": "globalSetup boom"}]
+    errored = report([OK_SHELL])
+    errored["errors"] = [{"message": "globalSetup boom"}]
     suite.check(not web_ui_ratchet.judge(errored, empty, PIN, TODAY).ok, "M4 a report with errors is refused", "M4 a report with errors was accepted")
-    skewed = report([OK_SHELL]); skewed["stats"] = {"expected": 1, "unexpected": 3, "skipped": 0, "flaky": 0}
+    skewed = report([OK_SHELL])
+    skewed["stats"] = {"expected": 1, "unexpected": 3, "skipped": 0, "flaky": 0}
     suite.check(any("summary counts 3 unexpected" in p for p in web_ui_ratchet.judge(skewed, empty, PIN, TODAY).problems),
                 "M4 a summary that counts failures the cases do not show is refused", "M4 a skewed summary was accepted")
     # M5 a floor on what ran: fewer cases than the list's `floor=` refuses.
-    few = web_ui_ratchet.judge(report([OK_SHELL]), web_ui_ratchet.parse_known_red(listing([]).replace("skips=2", "skips=2\nfloor=5")), PIN, TODAY)
-    suite.check(any("ran 1 case" in p and "floor" in p for p in few.problems), "M5 fewer cases than the floor is refused", "M5 a run under the floor was accepted", str(few.problems))
+    few = judged([OK_SHELL], web_ui_ratchet.parse_known_red(listing([], floor=5)))
+    suite.check(any("ran 3 case(s)" in p and "floor" in p for p in few.problems),
+                "M5 fewer cases than the floor is refused", "M5 a run under the floor was accepted", str(few.problems))
     # M6 a blocking file that is absent from the report fails rather than
     # vanishing from the blocking set.
-    no_blocking = judged([("shell.spec.ts", "renders", "expected")] * 1, empty)
+    no_blocking = web_ui_ratchet.judge(report([OK_SHELL], blocking=False), empty, PIN, TODAY)
     suite.check(any(p.startswith("BLOCKING FILE MISSING") for p in no_blocking.problems),
                 "M6 a blocking file with no case in the report is refused", "M6 a missing blocking file vanished silently", str(no_blocking.problems))
-    both_blocking = [OK_SHELL, ("safety-invariants.spec.ts", "s", "expected"), ("workflow-recovery.spec.ts", "w", "expected")]
+    both_blocking = [OK_SHELL, *BLOCKING_OK]
     suite.check(judged(both_blocking, empty).ok, "M6 with both blocking files present the run is accepted", "M6 a run with both blocking files was refused", str(judged(both_blocking, empty).problems))
     # M7 expiry: inclusive of the date (an entry is good THROUGH its expiry),
     # judged in UTC.
-    on_the_day = judged([OK_SHELL, RED_WIZARD] + both_blocking[1:], web_ui_ratchet.parse_known_red(listing([wizard], expiry="2026-10-23")))
+    on_the_day = judged([OK_SHELL, RED_WIZARD, *both_blocking[1:]], web_ui_ratchet.parse_known_red(listing([wizard], expiry="2026-10-23")))
     suite.check(on_the_day.ok, "M7 an entry is good through its expiry date", "M7 an entry expired on its own date", str(on_the_day.problems))
-    day_after = judged([OK_SHELL, RED_WIZARD] + both_blocking[1:], web_ui_ratchet.parse_known_red(listing([wizard], expiry="2026-10-22")))
+    day_after = judged([OK_SHELL, RED_WIZARD, *both_blocking[1:]], web_ui_ratchet.parse_known_red(listing([wizard], expiry="2026-10-22")))
     suite.check(any(p.startswith("EXPIRED") for p in day_after.problems), "M7 the day after, it is expired", "M7 a past expiry was accepted")
     suite.check("timezone.utc" in (SCRIPTS / "bdtools" / "e2e" / "run_tests_repo_gate.py").read_text(encoding="utf-8"),
                 "M7 the gate judges with today's date in UTC", "M7 the gate judges with a local date")

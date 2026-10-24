@@ -393,7 +393,30 @@ def browser_half(root: Path, checkout: Path, pin: dict[str, str]) -> None:
     except ValueError as bad:
         parsed = None
         harness.note(f"the report at {report_path} is not JSON: {bad}")
-    verdict = web_ui_ratchet.judge(parsed, known, pin["sha"], datetime.date.today())
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    verdict = web_ui_ratchet.judge(parsed, known, pin["sha"], today)
+    # The ratchet against main's copy of the list: the cap and the skip
+    # budget cannot grow, an entry cannot be added, an expiry cannot move
+    # later, without the diff saying so, because the one commit that edits
+    # the list is also the one that would pass it. origin/main is the
+    # anchor; a checkout with no origin/main (a fresh clone of a fork, a
+    # fixture) has nothing to ratchet against and says so.
+    base_text = harness.sh_out(["git", "show", f"origin/main:{web_ui_ratchet.KNOWN_RED}"], check=False)
+    baseline_problems: list[str] = []
+    if base_text.strip():
+        try:
+            baseline_problems = web_ui_ratchet.against_baseline(known, web_ui_ratchet.parse_known_red(base_text))
+        except ValueError as bad:
+            harness.note(
+                f"main's copy of {web_ui_ratchet.KNOWN_RED} does not parse ({bad}); nothing to ratchet against"
+            )
+    else:
+        harness.note(f"no origin/main copy of {web_ui_ratchet.KNOWN_RED} to ratchet against in this checkout")
+    if baseline_problems:
+        verdict = web_ui_ratchet.Verdict(
+            (*verdict.problems, *baseline_problems),
+            verdict.passed, verdict.failed, verdict.skipped, verdict.listed_failures,
+        )
     lane_path.write_text(
         json.dumps(
             {
