@@ -368,6 +368,32 @@ Release-Gate-Override: yes"
 run_gate true
 expect "an override with no reason behind it refuses" 1 "release gate override carries no reason"
 
+# 10b. The trailer is a TRAILER (#1261 review). GitHub's squash message
+#      carries the pull request's description and every commit's body, so
+#      a line that merely starts with the key, in a body paragraph, must
+#      not be an override: only the last paragraph counts, as git itself
+#      reads trailers. The reason has to reach the summary too.
+new_case body-line-is-not-an-override "Cut 0.7.6
+
+A body paragraph that quotes the mechanism:
+Release-Gate-Override: because I said so, quoted in a body
+
+And a last paragraph that is not a trailer block either."
+run_gate true
+expect "a body line that starts with the trailer key is not an override" 1 "nothing checked the commit this run would publish"
+refute_text "and the run is not marked overridden" "OVERRIDDEN"
+
+new_case override-in-summary "Cut 0.7.7
+
+Release-Gate-Override: the recorder's host lost Docker for the day"
+run_gate true
+expect "a real trailer overrides" 0 "release gate: OVERRIDDEN"
+if grep -q "the recorder's host lost Docker for the day" "$SUMMARY" 2>/dev/null; then
+  pass "and the reason is written into the run summary"
+else
+  fail "the override's reason never reached GITHUB_STEP_SUMMARY" "$(cat "$SUMMARY" 2>/dev/null)"
+fi
+
 # 11. A run that publishes nothing still CHECKS, and only reports (#1261
 #     review). The runbook's dry run dispatches with publish=false, and a
 #     dry run that skipped this check left the first real check to the
