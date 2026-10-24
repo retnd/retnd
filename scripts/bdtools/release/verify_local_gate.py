@@ -346,7 +346,8 @@ def main(argv: list[str]) -> int:
         if override:
             out.emit([
                 "",
-                f"(A `{TRAILER}:` trailer is on this commit too; it is noise, the record is what allowed this release.)",
+                f"(A `{TRAILER}:` trailer is on this commit too; it is noise, the record is what allowed this "
+                "release.)",
             ])
         return 0
 
@@ -357,9 +358,9 @@ def main(argv: list[str]) -> int:
                 f"The commit being published has a `{TRAILER}:` trailer with nothing usable after it, and the "
                 "local-gate record does not pass.",
                 "",
-                f"An override needs a reason of at least {MIN_REASON} characters, because the reason is the whole audit "
-                "trail. `release` is append-only, so what is written there is what somebody reads a year from now when "
-                "they ask why this release skipped its own gate.",
+                f"An override needs a reason of at least {MIN_REASON} characters, because the reason is the whole "
+                "audit trail. `release` is append-only, so what is written there is what somebody reads a year from "
+                "now when they ask why this release skipped its own gate.",
                 "",
                 *trouble,
             ],
