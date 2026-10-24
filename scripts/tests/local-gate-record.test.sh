@@ -145,6 +145,16 @@ case "$verdict" in
     echo "==> ci-local: ok"
     exit 1
     ;;
+  ok-with-paths)
+    echo "==> building in $HOME/workspace/retnd-lanes/x-wt and /Users/somebody/workspace/retnd"
+    echo "==> ci-local: ok"
+    exit 0
+    ;;
+  ok-with-secret)
+    echo "Authorization: Bearer ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkl"
+    echo "==> ci-local: ok"
+    exit 0
+    ;;
   *)
     echo "==> ci-local: FAILED (core/ go build)" >&2
     exit 1
@@ -336,6 +346,64 @@ done
 repo="$(new_repo skip-zero)"
 run_recorder "$repo" CI_LOCAL_FAST=0
 expect "CI_LOCAL_FAST=0 is refused too: the variable has to be unset, not false" 2 "unset"
+
+# --- 4b: anything that narrows the run (#1261 review, item 4) --------------------
+#
+# The five names above were a hard-coded list, and GOFLAGS=-run=XXX turned
+# every Go suite into "ok [no tests to run]" with the gate still printing
+# ok. So: any CI_LOCAL_* at all, and a GOFLAGS that narrows (-run, -skip,
+# -short, -count=0, -failfast and the like), are refused.
+for var in GOFLAGS=-run=XXX GOFLAGS=-short "GOFLAGS=-count=0" GOFLAGS=-skip=Test CI_LOCAL_SELFTEST=1 CI_LOCAL_LOCK=0 CI_LOCAL_SOMETHING_NEW=1; do
+  repo="$(new_repo "env-$(printf '%s' "$var" | tr -c 'A-Za-z0-9' '_')")"
+  run_recorder "$repo" "$var"
+  expect "$var is refused" 2 "${var%%=*}"
+  no_record "and no record is written under $var" "$repo"
+done
+repo="$(new_repo env-goflags-harmless)"
+run_recorder "$repo" "GOFLAGS=-mod=mod"
+expect "a GOFLAGS that narrows nothing is allowed" 0 "local-gate: recorded"
+
+# The record carries the environment the gate ran under, and the REAL
+# ledger read off the log, not a hard-coded empty list.
+repo="$(new_repo env-recorded)"
+run_recorder "$repo" "GOFLAGS=-mod=mod"
+record="$repo/provenance/local-gate.json"
+[ "$(json_field "$record" 'd["env"]["GOFLAGS"]')" = "-mod=mod" ] \
+  && pass "the record carries the environment the gate ran under" \
+  || fail "the record carries the environment the gate ran under" "$(cat "$record" 2>/dev/null)"
+[ "$(json_field "$record" 'd["env"]["CI"]')" = "1" ] \
+  && pass "including CI=1" || fail "including CI=1" "$(cat "$record" 2>/dev/null)"
+[ "$(json_field "$record" 'd["ledger_source"]')" = "log" ] \
+  && pass "the ledger is read off the log, not assumed" \
+  || fail "the ledger is read off the log, not assumed" "$(cat "$record" 2>/dev/null)"
+
+# --- 9: the published log is scrubbed (#1261 review, item 9) -------------------------
+#
+# The log goes verbatim into a public repository and onto the GitHub
+# Release. Home paths and anything secret-shaped are scrubbed before it is
+# written, and a run whose log still matches a secret shape afterwards is
+# not recorded at all.
+repo="$(new_repo scrubbed)"
+printf 'ok-with-paths\n' >"$SANDBOX/scrubbed.verdict"
+run_recorder "$repo"
+expect "a log with home paths is still recorded" 0 "local-gate: recorded"
+log="$repo/provenance/local-gate.log"
+case "$(cat "$log" 2>/dev/null)" in
+  *"$HOME"*) fail "the published log carries no home path" "$(grep -n "$HOME" "$log" | head -3)" ;;
+  *) pass "the published log carries no home path" ;;
+esac
+assert_scrubbed() { case "$(cat "$log" 2>/dev/null)" in *"$1"*) fail "the published log does not carry $2" ;; *) pass "the published log does not carry $2" ;; esac; }
+assert_scrubbed "/Users/somebody" "another user's home path"
+case "$(cat "$log" 2>/dev/null)" in
+  *'~/'*) pass "and the scrubbed path reads as a home" ;;
+  *) fail "and the scrubbed path reads as a home" "$(head -5 "$log")" ;;
+esac
+
+repo="$(new_repo secret)"
+printf 'ok-with-secret\n' >"$SANDBOX/secret.verdict"
+run_recorder "$repo"
+expect "a log that still matches a secret shape is not recorded" 1 "secret"
+no_record "and no record is written for it" "$repo"
 
 # --- 5: the hook is not installed --------------------------------------------
 repo="$(new_repo no-hook)"
