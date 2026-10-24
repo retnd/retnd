@@ -116,7 +116,7 @@ a missing `golangci-lint` is a FAILURE, not a skip
                       the subshell exit 127, `if !` took the failure
                       branch, and the "command not found" the shell wrote
                       to the redirected stream was quoted under the FAIL
-                      line. `.github/workflows/ci.yml` installs the
+                      line. The Docker gate image installs the
                       binary precisely so this reports "the linter says
                       no" rather than "the binary is missing" (#575).
   hazard in python:  STILL EXISTS and points the other way -- Python's
@@ -224,7 +224,7 @@ def _combined(argv: list[str], *, cwd: Path | None = None, env: dict[str, str] |
 
     A missing binary comes back as status 127 with the diagnostic as its
     output, which is what the shell did with it, and NOT as an exception:
-    `.github/workflows/ci.yml` installs golangci-lint so this check can
+    The Docker gate image installs golangci-lint so this check can
     say "the linter says no" (#575), and a check that skipped itself when
     its tool was missing would be #160 again.
     """

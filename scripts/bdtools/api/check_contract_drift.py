@@ -17,7 +17,7 @@ things can drift away from it, and this script catches all of them:
      If a public shape leaks one, the contract is wrong, not this check.
 
   3. THE GATE ITSELF NOT RUNNING. Both rules above were wired only into
-     `.github/workflows/ci.yml`, which runs only on a pull request into
+     `.github/workflows/ci.yml` (deleted by #1260), which ran only on a pull request into
      `release` (#575), so `scripts/ci-local.sh` has to run them too or they
      run on nothing bound for `main` (PR #194 review, M1). A check nothing
      invokes is indistinguishable from a check that does not exist, so the
@@ -316,7 +316,7 @@ def body() -> int:
                 print(f"  ok: {gate} runs {invoked}")
             else:
                 msg = (
-                    f"FAIL: {gate} does not run {invoked}. .github/workflows/ci.yml runs only on a pull "
+                    f"FAIL: {gate} does not run {invoked}. .github/workflows/ci.yml (gone since #1260) ran only on a pull "
                     "request into `release` (#575), so a check that lives only there runs on nothing bound "
                     f"for main. Add `bash {invoked}` to {gate}."
                 )

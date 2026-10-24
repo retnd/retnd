@@ -3,8 +3,7 @@ known-red ratchet (#1260).
 
 The browser suite from retnd-tests runs in every full gate, and when
 #1260 made that gate the only gate it had 37 failures that were already
-on main, mostly UI drift in the specs, over a 27-minute run. A four-expert
-panel chose this shape over refreshing all 37 first or releasing over the
+on main, mostly UI drift in the specs, over a 27-minute run. The decision on #1260 chose this shape over refreshing all 37 first or releasing over the
 gate: a pinned blocking subset (the safety-invariants and
 workflow-recovery specs, whose failures block however they are listed),
 plus the full suite as a ratcheted lane judged against
@@ -54,7 +53,7 @@ from typing import Any
 from bdtools.e2e import first_run_report
 
 # Failures in these files block whatever the list says. They are the
-# panel's "pinned known-green subset": the invariants a release stands on
+# #1260 decision's "pinned known-green subset": the invariants a release stands on
 # and the recovery of an interrupted workflow run, which is the one test
 # anywhere that a crashed run is held and can be let go.
 BLOCKING_FILES = ("safety-invariants.spec.ts", "workflow-recovery.spec.ts")

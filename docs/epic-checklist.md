@@ -8,7 +8,7 @@ could set and the terminal could not.
 
 Each item below says **who catches it**. That split is the point of the file:
 
-- **Gated** means a check fails if I skip it. `scripts/ci-local.sh` or CI goes
+- **Gated** means a check fails if I skip it. `scripts/ci-local.sh` (the only gate since #1260) goes
   red and the epic cannot merge. I do not need to remember these, I need to not
   fight them.
 - **Ungated** means nothing checks it and the only thing standing between the

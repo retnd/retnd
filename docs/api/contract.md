@@ -239,7 +239,7 @@ on the unmutated tree. A gate nobody has watched fail is a gate that might not
 be able to.
 
 Three of them plant the removal of a single line from `scripts/ci-local.sh`.
-That script is what `.husky/pre-commit` runs, and `.github/workflows/ci.yml`
+That script is what `.husky/pre-commit` runs, the only gate since #1260 (`.github/workflows/ci.yml`
 runs only on a pull request into `release`, so a check wired only into that
 file runs on nothing bound for `main` at all: `check-contract-drift.sh`
 therefore also asserts that `ci-local.sh` invokes all three of itself,

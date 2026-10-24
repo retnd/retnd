@@ -38,6 +38,20 @@
 
 ### Changed
 
+- **The local pre-commit gate is the only gate** (#1260). `.github/workflows/ci.yml` is gone; nothing on GitHub
+  runs the tests any more. `scripts/install-hooks.sh` installs `.husky/pre-commit`, which runs `scripts/ci-local.sh`
+  on every commit, and a release publishes only a commit the gate has vouched for: `scripts/release/record-local-gate.sh`
+  runs the full gate on a clean worktree and writes `provenance/local-gate.json` (schema `retnd.local-gate/1`, with
+  the gate tree, the toolchain, the ledger and the log's hash) plus `provenance/local-gate.log`, and the `require-release-gate`
+  job in `release.yml` runs `scripts/release/verify-local-gate.sh` against that record and refuses anything short of
+  `==> ci-local: ok` on the exact tree being published. Red tests go in with `CI_LOCAL_RED="<why>"` (test files only,
+  never on `main` or `release`), stamped `Local-Gate: red <why>`; a `--no-verify` commit is stamped `Local-Gate:
+  unverified`. The gate now exports `CI=1`, pins golangci-lint through `scripts/ci/pins.env`, serialises its
+  Docker-backed steps across worktrees under a lock in the shared git dir, and sweeps only its own worktree's test
+  containers (`retnd-test=<owner>`). The browser e2e suite from retnd-tests is blocking for `safety-invariants` and
+  `workflow-recovery` and a ratchet for the rest (`scripts/e2e/known-red.txt`, every entry with an issue, an owner and an
+  expiry). `docs/reference/local-gate.md` lists every knob.
+
 - **`workflows.disabled` is a new key, and an older retnd refuses it** (#1246). Clearing the workflow root
   (`retnd settings workflow patch --disable`, or the older `--root ""`) now writes `workflows.disabled: true`
   into `config.yaml`, because an absent root now means "use the mounted default". A retnd older than this

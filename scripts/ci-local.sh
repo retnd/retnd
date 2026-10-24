@@ -133,7 +133,7 @@ set -e
 # Homebrew goes first so the gate finds brew's tools on a machine whose shell
 # profile did not run, but not ahead of a golangci-lint the caller put on PATH
 # on purpose: brew's is whatever version is current, and the one this gate
-# means is the one ci.yml pins (see gate_golangci_pin_note), which is usually
+# means is the one scripts/ci/pins.env pins (see gate_golangci_pin_note), which is usually
 # built by hand and lives somewhere else.
 _caller_golangci=$(command -v golangci-lint 2>/dev/null || true)
 export PATH="/opt/homebrew/bin:$PATH"
@@ -167,9 +167,9 @@ export CI_LOCAL=1
 
 # And CI, which this gate had never set (#1259, #1260). vitest reads it to
 # pick its non-interactive reporter, Playwright reads it to refuse a
-# `.only` and to stop retrying, and more than one Go test in this tree
-# keys a refusal on it, so a comment claiming "a failure under CI"
-# described a run nobody ever made. The recorder sets it too; both, so
+# `.only` and to stop retrying, and core/tests/machines keys a refusal
+# on it, so its comment about "a failure under CI" described a run nobody
+# ever made. The recorder sets it too; both, so
 # neither depends on the other being the version in the worktree.
 export CI=1
 
@@ -502,6 +502,12 @@ bash scripts/tests/pin-on-main.test.sh
 # list to the real pin and to its ceiling. No Docker, under a second.
 gate_step "the web-ui ratchet refuses a new failure, a listed pass, an expired or other-pin entry and a grown skip count (#1260)"
 bash scripts/tests/web-ui-ratchet.test.sh
+
+# docs/reference/local-gate.md names every variable, trailer and exit
+# status this gate reads or writes; this reads the names out of the gate's
+# sources and refuses when the page is missing one. No Docker, instant.
+gate_step "docs/reference/local-gate.md documents every knob the gate reads (#1260)"
+bash scripts/tests/local-gate-reference.test.sh
 
 # Every Python file under scripts/, held to a linter, and the subset that is
 # clean under a type checker held to that too (EPIC I / I1.6, #672).

@@ -2705,7 +2705,7 @@ class Proof:
         #     complete; no unresolved findings" under `if exitCode == 0`,
         #     and no finding moves exitCode -- only r.Err and Report.Errors
         #     do. So the exit status IS that sentence, and it is the half of
-        #     it scripts/ci-local.sh and .github/workflows/ci.yml read.
+        #     it scripts/ci-local.sh reads (and .github/workflows/ci.yml did, until #1260).
         #
         #     The status is asserted and the sentence deliberately is not.
         #     In this scenario that summary line is FALSE: there is a fault,

@@ -3,7 +3,7 @@ spec §7.1 "Dependency enforcement"), under EPIC I (#672 / #697).
 
 Ported from `scripts/architecture/lib.sh`, which every check in that
 directory sourced. The bash paths all remain as `exec` shims: they are
-named by `scripts/ci-local.sh`, by `.github/workflows/ci.yml`, and --
+named by `scripts/ci-local.sh` (and, until #1260, by `.github/workflows/ci.yml`), and --
 load-bearingly -- FABRICATED at their literal paths by
 `scripts/tests/ci-local-gate.test.sh`, which stubs all ten of them in its
 synthetic-tree fixture. Deleting any of those paths turns that fixture

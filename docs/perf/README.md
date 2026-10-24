@@ -519,7 +519,7 @@ runner is not that environment.
 
 Plainly, so nobody reads "gated" as "enforced on every change": **no gate
 anywhere runs `--compare`,** and for six of the seven metrics that is still the
-whole story. `scripts/ci-local.sh` and `.github/workflows/ci.yml` wire presence
+whole story. `scripts/ci-local.sh` (the only gate since #1260) wires presence
 mode and the mutation self-test. Every timing number in a Phase 6 pull request
 is therefore an author self-report taken by hand on the host named above, and a
 reviewer who wants to reproduce one has to capture on that host.
@@ -540,7 +540,7 @@ of the tree AND the target architecture.
 
 That one condition is the whole limit on this arm, and it is worth stating
 precisely rather than as "it only runs locally". GitHub CI **does** run this
-package: `.github/workflows/ci.yml`'s `apps/generic build, vet, test` job runs
+package: `scripts/ci-local.sh`'s `apps/generic go build, vet, test -race` step runs
 `go test -race ./...` in `apps/generic` on `ubuntu-latest`, `tests/dockercli` is
 in that package list, there are no build tags or env guards on it, and Docker is
 present on the runner. So CI builds the image and then takes the skip, because

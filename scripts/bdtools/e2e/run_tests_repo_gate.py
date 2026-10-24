@@ -333,7 +333,7 @@ def browser_half(root: Path, checkout: Path, pin: dict[str, str]) -> None:
     #
     # #1260: the run is judged by its REPORT, not by its exit status. The
     # suite had 37 failures on main the day the local gate became the only
-    # gate, so the panel's ratchet applies: a failure in a blocking file
+    # gate, so the ratchet #1260 decided on applies: a failure in a blocking file
     # (web_ui_ratchet.BLOCKING_FILES) fails the gate whatever the list
     # says, any other failure has to be on scripts/e2e/known-red.txt, a
     # listed spec that passes fails the gate until it is taken off, and the
