@@ -180,3 +180,27 @@ func TestTheRetentionScanActuallyVisitsRetention(t *testing.T) {
 		t.Fatalf("the retention scan visited %d files; internal/retention has more than that, so the filter is wrong and the scan proves nothing", visited)
 	}
 }
+
+// TestTheProductionWalkToleratesAnEntryThatVanishes pins the one error
+// the walk above may swallow. `go test ./...` runs every package at once,
+// and cmd/retnd's tests create and remove a temporary directory under
+// their own package (.cli-validators-*) while this package is walking the
+// module; an entry that readdir listed and that is gone by the time it is
+// opened is not a production file, and failing the ETag scan on it made
+// the gate's architecture check red for a reason that had nothing to do
+// with ETags (#1260). Anything else, a permission refusal included, still
+// fails the walk, because a walk that visits less than it should is the
+// exact shape these absence scans must not take.
+func TestTheProductionWalkToleratesAnEntryThatVanishes(t *testing.T) {
+	gone := &os.PathError{Op: "open", Path: "core/cmd/retnd/.cli-validators-1", Err: os.ErrNotExist}
+	if err := tolerateVanished(gone); err != nil {
+		t.Fatalf("an entry that vanished mid-walk failed the walk: %v", err)
+	}
+	denied := &os.PathError{Op: "open", Path: "core/service/x.go", Err: os.ErrPermission}
+	if err := tolerateVanished(denied); err == nil {
+		t.Fatal("a permission refusal was swallowed; only a vanished entry may be")
+	}
+	if err := tolerateVanished(nil); err != nil {
+		t.Fatalf("nil in, %v out", err)
+	}
+}
