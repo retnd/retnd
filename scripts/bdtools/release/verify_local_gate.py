@@ -69,6 +69,7 @@ RECORD = "provenance/local-gate.json"
 LOG = "provenance/local-gate.log"
 GATE_TREE = "scripts/release/gate-tree.sh"
 GO_MOD = "core/go.mod"
+PINS = "scripts/ci/pins.env"
 SCHEMA = "retnd.local-gate/1"
 TRAILER = "Release-Gate-Override"
 MIN_REASON = 12
@@ -106,6 +107,17 @@ def go_pin() -> str | None:
     except OSError:
         return None
     m = re.search(r"^go\s+(\d+\.\d+(?:\.\d+)?)\s*$", text, re.MULTILINE)
+    return m.group(1) if m else None
+
+
+def lint_pin() -> str | None:
+    """GOLANGCI_LINT_VERSION from scripts/ci/pins.env, the one source the
+    gate, the Docker image and this check share."""
+    try:
+        text = Path(PINS).read_text(encoding="utf-8")
+    except OSError:
+        return None
+    m = re.search(r"^GOLANGCI_LINT_VERSION=v?(\S+)\s*$", text, re.MULTILINE)
     return m.group(1) if m else None
 
 
@@ -252,6 +264,21 @@ def check(sha: str, *, uncommitted: bool) -> tuple[list[str], list[str]]:
                 )
             else:
                 report.append(f"- Go `{recorded_go}` matches `{GO_MOD}`'s go {pin} at major.minor")
+
+        recorded_lint = str(tools.get("golangci_lint", "")) if isinstance(tools, dict) else ""
+        lint = lint_pin()
+        if lint is None:
+            findings.append(
+                f"`{PINS}` names no GOLANGCI_LINT_VERSION, so this check cannot tell which linter the gate means."
+            )
+        elif recorded_lint.removeprefix("v") != lint:
+            findings.append(
+                f"the record was made with golangci-lint `{recorded_lint or '(missing)'}` and `{PINS}` pins {lint}. "
+                "Another linter's findings are not the pinned linter's, so the lint that passed is not the lint "
+                "that gates."
+            )
+        else:
+            report.append(f"- golangci-lint `{recorded_lint}` is the pinned one")
 
     return findings, report
 

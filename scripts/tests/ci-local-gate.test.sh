@@ -152,6 +152,11 @@ make_tree() { # -> path of a synthetic checkout carrying only the gate scripts
   (cd "$tree" && git init -q -b feature && git config user.email t@example.invalid && git config user.name t) >/dev/null 2>&1
   cp "$SCRIPTS_DIR/ci-local.sh" "$tree/scripts/ci-local.sh"
   if [ -f "$GATE_LIB" ]; then cp "$GATE_LIB" "$tree/scripts/lib/"; fi
+  # The toolchain pins (#1260): the gate refuses to start without them,
+  # the same way it refuses without a linter, so every synthetic checkout
+  # carries the real file. Group R is where the pin itself is measured.
+  mkdir -p "$tree/scripts/ci"
+  if [ -f "$SCRIPTS_DIR/ci/pins.env" ]; then cp "$SCRIPTS_DIR/ci/pins.env" "$tree/scripts/ci/pins.env"; fi
   # The Docker probe is a property of the machine, not of the tree, so every
   # synthetic run gets a stub daemon it controls. run_gate puts $tree/bin
   # first on PATH. If a real docker ever shadowed this stub the docker cases
@@ -2248,14 +2253,14 @@ assert_contains "R2 and the pinned one" "${pinned_lint:-0.0.0}" "$out"
 assert_eq "R2 it exits $INCOMPLETE" "$INCOMPLETE" "$status"
 
 # R3: no linter at all is still a refusal, and the hint names the real pin
-# rather than a placeholder.
-tree="$(make_full_tree)"
-rm -f "$tree/bin/golangci-lint"
-no_lint_out="$(cd "$tree" && scrub_env CI_LOCAL_LOCK_DIR="$tree/.gate-lock" PATH="$tree/bin:/usr/bin:/bin" bash scripts/ci-local.sh 2>&1)"
-no_lint_status=$?
-assert_nonzero "R3 a missing golangci-lint refuses the run" "$no_lint_status"
-assert_contains "R3 the hint names the pinned version" "${pinned_lint:-0.0.0}" "$no_lint_out"
-assert_not_contains "R3 and no placeholder" '<ci' "$no_lint_out"
+# rather than a placeholder. Checked in the script's text, because the
+# gate puts Homebrew's bin first on PATH unconditionally, so a fixture
+# cannot hide a linter this machine has installed; what can be held is
+# that the hint is built from the pin and that the placeholders are gone.
+not_found="$(sed -n '/^if ! command -v golangci-lint/,/^fi$/p' "$SCRIPTS_DIR/ci-local.sh")"
+assert_contains "R3 the missing-linter hint is built from the pin" 'GATE_LINT_PIN' "$not_found"
+assert_not_contains "R3 and carries no placeholder" '<ci' "$not_found"
+assert_contains "R3 and it still refuses (exit 1)" 'exit 1' "$not_found"
 
 # R4: the gate prints the toolchain it used, as lines the recorder reads.
 tree="$(make_full_tree)"

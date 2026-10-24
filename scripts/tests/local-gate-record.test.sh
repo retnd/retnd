@@ -174,6 +174,9 @@ new_repo() {
   # recorded Go against at major.minor: the real one, so the round trip
   # below is about a real record.
   cp "$REPO_ROOT/core/go.mod" "$repo/core/go.mod"
+  # And the pinned linter the reader compares the recorded one against.
+  mkdir -p "$repo/scripts/ci"
+  cp "$REPO_ROOT/scripts/ci/pins.env" "$repo/scripts/ci/pins.env"
   printf '{"not": "the record"}\n' >"$repo/provenance/release-provenance.json"
   git_in "$repo" add -A
   git_in "$repo" commit -qm base

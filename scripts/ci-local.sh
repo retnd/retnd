@@ -207,55 +207,65 @@ gate_install_traps
 # a clone without the hook is still a run. The recorder refuses.
 gate_warn_hook_missing
 
+# The pinned golangci-lint, from scripts/ci/pins.env (#1260). That file is
+# the one source: this gate, scripts/ci-docker.sh, the recorder and the
+# release check all read it. It used to be read out of ci.yml with a
+# silenced sed, which went on returning nothing after that file was
+# deleted, so the note below could never fire and the hint printed a
+# placeholder.
+GATE_LINT_PIN="$(sed -n 's/^GOLANGCI_LINT_VERSION=//p' scripts/ci/pins.env 2>/dev/null | head -n 1)"
+if [ -z "$GATE_LINT_PIN" ]; then
+  echo "==> scripts/ci/pins.env carries no GOLANGCI_LINT_VERSION, so this gate does not know which linter it means." >&2
+  exit 1
+fi
+_go_floor="$(sed -n 's/^go[[:space:]]*\([0-9][0-9.]*\)[[:space:]]*$/\1/p' core/go.mod 2>/dev/null | head -n 1)"
+
 if ! command -v golangci-lint >/dev/null 2>&1; then
-  _pin=$(sed -n 's/.*golangci-lint@v\([0-9][0-9.]*\).*/\1/p' .github/workflows/ci.yml 2>/dev/null | head -n 1)
-  _go=$(sed -n 's/.*go-version: *"\([0-9][0-9.]*\)".*/\1/p' .github/workflows/ci.yml 2>/dev/null | head -n 1)
   {
-    echo "==> golangci-lint not found. Build the one CI pins, with the toolchain CI pins, and re-run:"
-    echo "      GOTOOLCHAIN=go${_go:-<ci go>} GOBIN=<dir> go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v${_pin:-<ci pin>}"
-    echo "      PATH=<dir>:\$PATH sh scripts/ci-local.sh"
+    echo "==> golangci-lint not found. Build the pinned one (scripts/ci/pins.env), with the Go core/go.mod names, and re-run:"
+    echo "      GOTOOLCHAIN=go${_go_floor:-1.27.0} GOBIN=<dir> go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v${GATE_LINT_PIN}"
+    echo "      GOLANGCI_LINT_DIR=<dir> sh scripts/ci-local.sh"
   } >&2
   exit 1
 fi
 
-# The golangci-lint this gate means is the one .github/workflows/ci.yml pins,
-# built and run with the Go toolchain it pins. A different one is not wrong to
-# run, but its findings are not CI's, and the usual way to meet that is not a
-# lint finding at all: a golangci-lint whose bundled x/tools predates the Go
-# running it cannot read the export data that Go writes (`export data version
-# 5 is greater than maximum supported version 4`), so every package "fails to
-# typecheck". That bit a machine on Go 1.27.2 against the 1.27.0 the workflow
-# pins, even with v2.13.2 built locally, which is why the line below names
-# GOTOOLCHAIN for both the build and the run. Only a note, never a refusal: a machine
-# whose binary says nothing parseable (a test stub, say) gets none.
+# The golangci-lint this gate means is the pinned one, run with the Go
+# toolchain it was built with. A different one is not wrong to run, but
+# its findings are not the pinned one's: a newer errcheck reports things
+# an older one did not (#1260 found eleven that way), and a linter whose
+# bundled x/tools predates the Go running it cannot read the export data
+# that Go writes (`export data version 5 is greater than maximum supported
+# version 4`), so every package "fails to typecheck". So a mismatch is
+# LEDGERED: the run ends INCOMPLETE naming both versions, which is the
+# same answer every other "this run performed less than it was asked to"
+# gets, and the recorder refuses an INCOMPLETE run, so a release record
+# is always a run of the pinned linter. A binary that says nothing
+# parseable (a test stub) changes nothing.
 gate_golangci_pin_note() {
-  _pin=$(sed -n 's/.*golangci-lint@v\([0-9][0-9.]*\).*/\1/p' .github/workflows/ci.yml 2>/dev/null | head -n 1)
-  _go=$(sed -n 's/.*go-version: *"\([0-9][0-9.]*\)".*/\1/p' .github/workflows/ci.yml 2>/dev/null | head -n 1)
   _have=$(golangci-lint --version 2>/dev/null | sed -n 's/.*has version v\{0,1\}\([0-9][0-9.]*\).*/\1/p' | head -n 1)
-  [ -n "$_pin" ] && [ -n "$_have" ] || return 0
-  _built=$(golangci-lint --version 2>/dev/null | sed -n 's/.*built with go\([0-9][0-9.]*\).*/\1/p' | head -n 1)
-  if [ "$_have" != "$_pin" ] || { [ -n "$_go" ] && [ -n "$_built" ] && [ "$_built" != "$_go" ]; }; then
+  [ -n "$_have" ] || return 0
+  if [ "$_have" != "$GATE_LINT_PIN" ]; then
+    _built=$(golangci-lint --version 2>/dev/null | sed -n 's/.*built with go\([0-9][0-9.]*\).*/\1/p' | head -n 1)
     {
-      echo "==> note: golangci-lint on PATH is ${_have} built with go${_built:-?}; CI runs v${_pin} built with go${_go:-?}."
-      echo "    A different build can report other findings, and one that predates the Go running it"
-      echo "    fails every package with 'export data version N is greater than maximum supported"
-      echo "    version M'. To run the pinned one, build it with the pinned toolchain,"
-      echo "    have this gate put it first on PATH, and run it with that toolchain too:"
-      echo "      GOTOOLCHAIN=go${_go:-<ci go>} GOBIN=<dir> go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v${_pin}"
-      echo "      GOLANGCI_LINT_DIR=<dir> GOTOOLCHAIN=go${_go:-<ci go>} sh scripts/ci-local.sh"
+      echo "==> note: golangci-lint on PATH is ${_have} built with go${_built:-?}; scripts/ci/pins.env pins ${GATE_LINT_PIN}."
+      echo "    Its findings are not the pinned linter's, so this run is ledgered and ends INCOMPLETE."
+      echo "    To run the pinned one, build it with the Go core/go.mod names and have this gate put it first on PATH:"
+      echo "      GOTOOLCHAIN=go${_go_floor:-1.27.0} GOBIN=<dir> go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v${GATE_LINT_PIN}"
+      echo "      GOLANGCI_LINT_DIR=<dir> sh scripts/ci-local.sh"
     } >&2
+    gate_note_skip "the lint steps ran golangci-lint ${_have}, not the pinned ${GATE_LINT_PIN} (scripts/ci/pins.env); its findings are not the pinned linter's"
   fi
 }
 gate_golangci_pin_note
 
 # Then act on it, so the gate does not depend on the caller having exported
-# the right toolchain: a golangci-lint built with the Go that CI pins is only
-# able to read export data that Go (or an older one) wrote, so when this
+# the right toolchain: a golangci-lint built with a given Go is only able
+# to read export data that Go (or an older one) wrote, so when this
 # machine's default Go is newer, every package "fails to typecheck". If the
 # binary on PATH says which Go built it and the caller has not chosen a
-# toolchain, run the whole gate with that one, which is also what CI does.
-# An explicit GOTOOLCHAIN always wins, and a binary that says nothing parseable
-# (a test stub) changes nothing.
+# toolchain, run the whole gate with that one. An explicit GOTOOLCHAIN
+# always wins, and a binary that says nothing parseable (a test stub)
+# changes nothing.
 if [ -z "${GOTOOLCHAIN:-}" ]; then
   _built=$(golangci-lint --version 2>/dev/null | sed -n 's/.*built with go\([0-9][0-9.]*\).*/\1/p' | head -n 1)
   if [ -n "$_built" ]; then
@@ -264,6 +274,16 @@ if [ -z "${GOTOOLCHAIN:-}" ]; then
     echo "==> note: GOTOOLCHAIN=$GOTOOLCHAIN for this run, the Go the golangci-lint on PATH was built with." >&2
   fi
 fi
+
+# What this run is made of, as four lines the recorder reads into the
+# release record (#1260): the Go that ran (under the GOTOOLCHAIN above, so
+# `go version` here is the run's and not the shell's), the linter, node
+# and the Docker daemon. Printed rather than looked up again afterwards,
+# because the record is about the run.
+echo "==> toolchain: go $(go version 2>/dev/null | sed 's/^go version //' || echo unknown)"
+echo "==> toolchain: golangci-lint $(golangci-lint --version 2>/dev/null | sed -n 's/.*has version v\{0,1\}\([0-9][0-9.]*\).*built with \(go[0-9][0-9.]*\).*/\1 built with \2/p' | head -n 1)"
+echo "==> toolchain: node $(node --version 2>/dev/null || echo unknown)"
+echo "==> toolchain: docker $(docker version --format '{{.Server.Version}}' 2>/dev/null || docker --version 2>/dev/null | sed -n 's/^Docker version \([^,]*\),.*/\1/p' || echo unknown)"
 
 # Captured once, from repo root (where this script is always invoked from,
 # per .husky/pre-commit), so every module below can reference the one

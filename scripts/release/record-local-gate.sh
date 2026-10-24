@@ -225,16 +225,18 @@ fi
 
 # --- the record --------------------------------------------------------------------
 
-tool_version() { # <command> <args...> -> first line, or empty when absent
-  if command -v "$1" >/dev/null 2>&1; then
-    "$@" 2>/dev/null | head -1 | tr -d '\r'
-  fi
+# The tools are what the GATE said it used, read off its own log (the
+# `==> toolchain:` lines ci-local.sh prints at its start), not whatever
+# this shell finds: the gate runs under a GOTOOLCHAIN of its own, and the
+# record is about the run. A gate too old to print them leaves the fields
+# empty, and the release check refuses an empty Go.
+toolchain_line() { # <tool> -> the rest of the gate's line, or empty
+  sed -n "s/^==> toolchain: $1 //p" "$log" | head -n 1 | tr -d '\r'
 }
-go_version="$(tool_version go version | sed -n 's/^go version \(go[^ ]*\).*/\1/p')"
-node_version="$(tool_version node --version)"
-golangci_version="$(tool_version golangci-lint --version | sed -n 's/.*version \(v\{0,1\}[0-9][^ ]*\).*/\1/p')"
-docker_version="$(tool_version docker version --format '{{.Server.Version}}')"
-[ -n "$docker_version" ] || docker_version="$(tool_version docker --version | sed -n 's/^Docker version \([^,]*\),.*/\1/p')"
+go_version="$(toolchain_line go | awk '{print $1}')"
+node_version="$(toolchain_line node)"
+golangci_version="$(toolchain_line golangci-lint | awk '{print $1}')"
+docker_version="$(toolchain_line docker)"
 
 # The one hash both ends compute: the reader's own helper over the file's
 # bytes, so a carriage return or a byte that is not UTF-8 in the log
