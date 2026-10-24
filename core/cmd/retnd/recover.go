@@ -414,7 +414,7 @@ func sourcePreflight(ctx context.Context, svc *service.BackupService, id, folder
 			_, _ = fmt.Fprintf(os.Stdout, "                     %s\n", d.Detail)
 		}
 		if d.WriteAccess == service.SourceWriteNotChecked {
-			fmt.Fprintf(os.Stdout, "                     nothing has been written to %s; --write-check writes one probe file there and removes it\n", d.Host)
+			_, _ = fmt.Fprintf(os.Stdout, "                     nothing has been written to %s; --write-check writes one probe file there and removes it\n", d.Host)
 		}
 		if d.FreeBytes != nil {
 			_, _ = fmt.Fprintf(os.Stdout, "free on the host:    %d bytes\n", *d.FreeBytes)
