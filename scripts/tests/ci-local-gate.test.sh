@@ -382,7 +382,7 @@ make_full_tree() {
   # same reason as everything above: each one drives its own fixture git
   # repositories, rig or Docker, none of which a synthetic tree has.
   for t in first-run-report pin-on-main every-module-builds-on-its-own \
-    release-gate-covers-every-job release-refuses-an-ungated-publish \
+    release-refuses-an-ungated-publish local-gate-reference \
     release-moves-latest two-machine-ci-verdict record-published-release \
     publish-image-guards published-provenance-guards; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$t.test.sh"
