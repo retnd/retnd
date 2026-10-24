@@ -119,8 +119,8 @@ in one file rather than four scripts drifting apart.
 | `verify-ugos-removable.sh` | removing one provider breaks neither core nor the shared UI | actual deletion |
 | `selftest.sh` | **every rule above can actually fail** | plants one real violation per rule in a copy of the tree and requires the named failure |
 
-All of them run in CI (`.github/workflows/ci.yml`, job
-`repository-structure dependency rules`) and locally (`scripts/ci-local.sh`).
+All of them run in `scripts/ci-local.sh` (step
+`repository-structure dependency rules`), which is the only gate since #1260.
 The static ones run even under `CI_LOCAL_FAST=1`, because together they cost
 seconds and they are what a mid-refactor edit is most likely to break.
 

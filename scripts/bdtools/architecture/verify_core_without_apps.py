@@ -20,7 +20,7 @@ alone.
 
 Ported from `scripts/architecture/verify-core-without-apps.sh` under
 EPIC I (I1.6 / #672 / #697). That path stays as a real, runnable `exec`
-shim: `scripts/ci-local.sh` and `.github/workflows/ci.yml` both name it,
+shim: `scripts/ci-local.sh` (and, until #1260, `.github/workflows/ci.yml`) both name it,
 and `scripts/tests/ci-local-gate.test.sh` FABRICATES a file at that
 literal path in its synthetic-tree fixture.
 

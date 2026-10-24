@@ -63,6 +63,8 @@ between.
 
 from __future__ import annotations
 
+import datetime
+import json
 import os
 import sys
 import time
@@ -75,7 +77,7 @@ from typing import NoReturn
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from bdtools import harness
-from bdtools.e2e import tests_pin
+from bdtools.e2e import tests_pin, web_ui_ratchet
 
 PROGRAM = "e2e gate"
 
@@ -308,7 +310,7 @@ def smoke_slice(root: Path, checkout: Path, build: dict[str, str]) -> None:
     )
 
 
-def browser_half(root: Path, checkout: Path) -> None:
+def browser_half(root: Path, checkout: Path, pin: dict[str, str]) -> None:
     web_ui = checkout / "suites" / "web-ui"
 
     # The suite's own unit test comes with it, and needs nothing this
@@ -327,34 +329,119 @@ def browser_half(root: Path, checkout: Path) -> None:
     # private Docker networks, the product's own two containers built
     # from this working tree, a real sshd standing in for the machine
     # being backed up, and a client container carrying the browser and
-    # the Playwright runner together. #197's host-Chromium probe and the
-    # free-port picking above it are both gone with the Vite server they
-    # served: the browser now lives inside a container this step builds,
-    # not on this machine, and RETND_BASE_URL is a container name the rig
-    # hands the suite rather than a port this process has to pick.
+    # the Playwright runner together.
     #
-    # The rig's own exit code carries the same three-outcome vocabulary
-    # this harness uses: 0 passed, 3 is CANNOT RUN (a capability this
-    # machine does not have, most often no reachable Docker daemon),
-    # anything else failed. harness.finish's rule is that an unguarded 3
-    # is reported as a failure rather than borrowed as this gate's own
-    # verdict (see the PORTED-CHECK HAZARD NOTE below), so it is caught
-    # here and turned into a named refusal instead of the generic
-    # "exited 3" message, which would have been true but would not have
-    # said what to fix.
+    # #1260: the run is judged by its REPORT, not by its exit status. The
+    # suite had 37 failures on main the day the local gate became the only
+    # gate, so the ratchet #1260 decided on applies: a failure in a blocking file
+    # (web_ui_ratchet.BLOCKING_FILES) fails the gate whatever the list
+    # says, any other failure has to be on scripts/e2e/known-red.txt, a
+    # listed spec that passes fails the gate until it is taken off, and the
+    # list is keyed to the pin, capped and dated. The Playwright exit status
+    # is therefore read for exactly two things: 3 is the rig's CANNOT RUN,
+    # and any status with no report behind it is a crash. Both end this
+    # gate INCOMPLETE (harness.cannot_run, exit 3, which ci-local.sh
+    # ledgers), never ok: a lane that produced nothing to judge is a lane
+    # that did not run. A status of 1 with a report is the ordinary shape
+    # of a run with listed failures, and the judge decides.
+    #
+    # What the lane found is written to .e2e-gate/web-ui-lane.json, which
+    # scripts/release/record-local-gate.sh copies into
+    # provenance/local-gate.json as evidence: how many passed, failed,
+    # skipped and were listed, at which pin.
+    artifacts = root / ".e2e-gate" / "web-ui-artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    report_path = artifacts / "playwright-report.json"
+    report_path.unlink(missing_ok=True)
+    lane_path = root / ".e2e-gate" / "web-ui-lane.json"
+    lane_path.unlink(missing_ok=True)
+
+    list_path = root / web_ui_ratchet.KNOWN_RED
+    if not list_path.is_file():
+        refuse(f"{web_ui_ratchet.KNOWN_RED} is missing, so the browser lane has nothing to judge against.")
+    try:
+        known = web_ui_ratchet.parse_known_red(list_path.read_text(encoding="utf-8"))
+    except ValueError as bad:
+        refuse(f"{web_ui_ratchet.KNOWN_RED} does not parse: {bad}")
+
     harness.step(
-        "Suite B browser suite, against a real deployment built from this working tree, over the wire"
+        "Suite B browser suite, against a real deployment built from this working tree, over the wire, "
+        "judged against the known-red ratchet"
     )
     rig = root / "scripts" / "e2e" / "three-machine-web-ui.sh"
+    rig_status = 0
     try:
-        harness.sh(["bash", str(rig), "--suite", str(web_ui)], capture=False)
+        harness.sh(
+            ["bash", str(rig), "--suite", str(web_ui), "--artifacts", str(artifacts), "--", "--reporter=list,json"],
+            capture=False,
+        )
     except harness.CommandFailed as failed:
+        rig_status = failed.status
         if failed.status == 3:
-            refuse(
+            harness.cannot_run(
                 "three-machine-web-ui.sh could not perform the proof on this machine (exit 3).",
                 "Its own output above names the missing capability, most likely Docker.",
             )
-        raise
+    if not report_path.is_file():
+        harness.cannot_run(
+            f"the browser lane left no Playwright report at {report_path} (the rig exited {rig_status}).",
+            "A run with nothing to judge is a run that did not happen, so this gate ends INCOMPLETE "
+            "rather than ok or failed.",
+        )
+    try:
+        parsed = web_ui_ratchet.load_report(report_path)
+    except ValueError as bad:
+        parsed = None
+        harness.note(f"the report at {report_path} is not JSON: {bad}")
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    verdict = web_ui_ratchet.judge(parsed, known, pin["sha"], today)
+    # The ratchet against main's copy of the list: the cap and the skip
+    # budget cannot grow, an entry cannot be added, an expiry cannot move
+    # later, without the diff saying so, because the one commit that edits
+    # the list is also the one that would pass it. origin/main is the
+    # anchor; a checkout with no origin/main (a fresh clone of a fork, a
+    # fixture) has nothing to ratchet against and says so.
+    base_text = harness.sh_out(["git", "show", f"origin/main:{web_ui_ratchet.KNOWN_RED}"], check=False)
+    baseline_problems: list[str] = []
+    if base_text.strip():
+        try:
+            baseline_problems = web_ui_ratchet.against_baseline(known, web_ui_ratchet.parse_known_red(base_text))
+        except ValueError as bad:
+            harness.note(
+                f"main's copy of {web_ui_ratchet.KNOWN_RED} does not parse ({bad}); nothing to ratchet against"
+            )
+    else:
+        harness.note(f"no origin/main copy of {web_ui_ratchet.KNOWN_RED} to ratchet against in this checkout")
+    if baseline_problems:
+        verdict = web_ui_ratchet.Verdict(
+            (*verdict.problems, *baseline_problems),
+            verdict.passed, verdict.failed, verdict.skipped, verdict.listed_failures,
+        )
+    lane_path.write_text(
+        json.dumps(
+            {
+                "pin": pin["sha"],
+                "passed": verdict.passed,
+                "failed": verdict.failed,
+                "skipped": verdict.skipped,
+                "listed_failures": verdict.listed_failures,
+                "known_red_entries": len(known.entries),
+                "known_red_cap": known.cap,
+                "judged": "ok" if verdict.ok else "refused",
+                "problems": list(verdict.problems),
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    harness.note(
+        f"browser lane: {verdict.passed} passed, {verdict.failed} failed "
+        f"({verdict.listed_failures} listed in {web_ui_ratchet.KNOWN_RED}), "
+        f"{verdict.skipped} skipped, at retnd-tests {pin['sha'][:12]}"
+    )
+    if not verdict.ok:
+        refuse("the browser lane does not hold against the known-red ratchet.", *verdict.problems)
 
 
 def fresh_first_run_half(root: Path, checkout: Path) -> None:
@@ -409,7 +496,7 @@ def body(root: Path) -> int:
     checkout = pinned_checkout(pin)
     build = build_under_test(root)
     smoke_slice(root, checkout, build)
-    browser_half(root, checkout)
+    browser_half(root, checkout, pin)
     fresh_first_run_half(root, checkout)
     return harness.EXIT_OK
 

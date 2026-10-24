@@ -98,7 +98,8 @@ func runSourceHelper(t *testing.T, name string, window time.Duration, extraEnv .
 		return buf.String(), true, code
 	case <-time.After(window):
 		_ = cmd.Process.Kill()
-		<-done
+		waitErr := <-done
+		_ = waitErr // the kill's own outcome; the window elapsing is the answer
 		return buf.String(), false, 0
 	}
 }

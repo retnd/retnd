@@ -296,26 +296,26 @@ func printRecoverResult(res service.RecoveryResult, asJSON bool) {
 	if res.Target.Kind == "download" {
 		dst = os.Stderr
 	}
-	fmt.Fprintf(dst, "recovered:           %s\n", res.ArtifactID)
-	fmt.Fprintf(dst, "copy:                %s\n", res.Copy)
+	_, _ = fmt.Fprintf(dst, "recovered:           %s\n", res.ArtifactID)
+	_, _ = fmt.Fprintf(dst, "copy:                %s\n", res.Copy)
 	switch {
 	case res.Path != "":
-		fmt.Fprintf(dst, "path:                %s\n", res.Path)
+		_, _ = fmt.Fprintf(dst, "path:                %s\n", res.Path)
 	case res.Key != "":
-		fmt.Fprintf(dst, "key:                 %s on %s\n", res.Key, res.Target.Medium)
+		_, _ = fmt.Fprintf(dst, "key:                 %s on %s\n", res.Key, res.Target.Medium)
 	}
 	if res.Target.Kind == "source" {
-		fmt.Fprintf(dst, "on:                  %s\n", res.URL)
+		_, _ = fmt.Fprintf(dst, "on:                  %s\n", res.URL)
 	}
-	fmt.Fprintf(dst, "bytes:               %d\n", res.Bytes)
+	_, _ = fmt.Fprintf(dst, "bytes:               %d\n", res.Bytes)
 	if res.SHA256 != "" {
-		fmt.Fprintf(dst, "sha256:              %s\n", res.SHA256)
+		_, _ = fmt.Fprintf(dst, "sha256:              %s\n", res.SHA256)
 	}
 	switch res.Verified {
 	case "sha256":
-		fmt.Fprintf(dst, "verified:            by the host's own SHA-256 of the placed file\n")
+		_, _ = fmt.Fprintf(dst, "verified:            by the host's own SHA-256 of the placed file\n")
 	case "size":
-		fmt.Fprintf(dst, "verified:            by size only: the host cannot compute a digest\n")
+		_, _ = fmt.Fprintf(dst, "verified:            by size only: the host cannot compute a digest\n")
 	}
 }
 
@@ -407,21 +407,21 @@ func sourcePreflight(ctx context.Context, svc *service.BackupService, id, folder
 		}
 		_ = json.NewEncoder(os.Stdout).Encode(body)
 	} else {
-		fmt.Fprintf(os.Stdout, "destination:         %s\n", d.URL())
-		fmt.Fprintf(os.Stdout, "destination id:      %s\n", d.DestinationID())
-		fmt.Fprintf(os.Stdout, "write access:        %s\n", d.WriteAccess)
+		_, _ = fmt.Fprintf(os.Stdout, "destination:         %s\n", d.URL())
+		_, _ = fmt.Fprintf(os.Stdout, "destination id:      %s\n", d.DestinationID())
+		_, _ = fmt.Fprintf(os.Stdout, "write access:        %s\n", d.WriteAccess)
 		if d.Detail != "" {
-			fmt.Fprintf(os.Stdout, "                     %s\n", d.Detail)
+			_, _ = fmt.Fprintf(os.Stdout, "                     %s\n", d.Detail)
 		}
 		if d.WriteAccess == service.SourceWriteNotChecked {
-			fmt.Fprintf(os.Stdout, "                     nothing has been written to %s; --write-check writes one probe file there and removes it\n", d.Host)
+			_, _ = fmt.Fprintf(os.Stdout, "                     nothing has been written to %s; --write-check writes one probe file there and removes it\n", d.Host)
 		}
 		if d.FreeBytes != nil {
-			fmt.Fprintf(os.Stdout, "free on the host:    %d bytes\n", *d.FreeBytes)
+			_, _ = fmt.Fprintf(os.Stdout, "free on the host:    %d bytes\n", *d.FreeBytes)
 		} else if writeCheck {
-			fmt.Fprintf(os.Stdout, "free on the host:    unknown (the host did not say)\n")
+			_, _ = fmt.Fprintf(os.Stdout, "free on the host:    unknown (the host did not say)\n")
 		} else {
-			fmt.Fprintf(os.Stdout, "free on the host:    unknown (nobody asked; --write-check asks)\n")
+			_, _ = fmt.Fprintf(os.Stdout, "free on the host:    unknown (nobody asked; --write-check asks)\n")
 		}
 	}
 	if plan != nil && d.WriteAccess != service.SourceWriteReadOnly {

@@ -25,27 +25,6 @@ func (s *countingSink) Chunk(c workflowexec.Chunk) error {
 	return nil
 }
 
-func (s *countingSink) text(stream workflowexec.StreamID) string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var b strings.Builder
-	for _, c := range s.chunks {
-		if c.Stream == stream {
-			b.Write(c.Data)
-		}
-	}
-
-	return b.String()
-}
-
-func (s *countingSink) all() []workflowexec.Chunk {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return append([]workflowexec.Chunk(nil), s.chunks...)
-}
-
 // TestAuditCarriesEveryFactAndNoCredential is #810's audit requirement read
 // as two halves. The first is a list of facts, and a missing one makes the
 // line useless months later. The second is what must never be there, and it

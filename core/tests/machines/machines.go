@@ -177,11 +177,13 @@ func capabilityUnavailable(t *testing.T, reason string, args ...any) {
 // (CI=true, which GitHub Actions and every other provider set).
 //
 // Automated CI is here because keying only on CI_LOCAL left the hole open
-// in the run that actually gates merging: .github/workflows/ci.yml's
-// core-build-vet-test job runs `go test -race ./...` with no CI_LOCAL, so
+// in the run that used to gate merging: .github/workflows/ci.yml's
+// core-build-vet-test job ran `go test -race ./...` with no CI_LOCAL, so
 // every suite reached through this package could skip there while the job
 // reported success. A skip in an automated run is a claim nobody makes and
-// nobody reads.
+// nobody reads. That workflow is gone (#1260) and the local gate is the
+// only gate, but CI=true stays honoured for anybody who runs these suites
+// under a hosted runner of their own.
 //
 // CI_LOCAL_SKIP_DOCKER=1 is honoured in both, because it is how a run says
 // out loud that it is proceeding without a daemon and it already ends that

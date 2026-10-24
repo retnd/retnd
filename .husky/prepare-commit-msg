@@ -1,0 +1,60 @@
+#!/usr/bin/env sh
+# Stamp a commit the gate did not check (#1260).
+#
+# git runs this hook for every commit, --no-verify included: that flag
+# skips pre-commit and commit-msg and nothing else, which makes this the
+# one hook a bypass cannot bypass. pre-commit leaves a marker naming the
+# tree it was asked about and what it did (see its header); this reads
+# the marker for the tree about to be committed and writes a trailer when
+# the gate did not run:
+#
+#   Local-Gate: unverified        pre-commit never saw this tree (--no-verify,
+#                                 a local merge, a hook that was not installed
+#                                 when the tree was staged)
+#   Local-Gate: red <why>         pre-commit accepted a CI_LOCAL_RED commit of
+#                                 test files, with the reason it was given
+#   Local-Gate: incomplete <what> the gate ran and ended INCOMPLETE; <what>
+#                                 is the first thing its ledger says did not
+#                                 run (#1261 review, item 8)
+#
+# A commit the gate ran on and said ok to gets no trailer. On purpose:
+# a rebase runs no hooks and keeps every trailer on the replayed commits,
+# so an `ok` would outlive the tree it described and read as true when it
+# is not. The absence of a stamp is a claim that ages well; the two stamps
+# above are facts about how the commit was made, and those do not age.
+#
+# The trailer goes in through `git interpret-trailers`, which puts it after
+# the body and ahead of the editor's comment block, and replaces an
+# existing Local-Gate trailer rather than stacking a second one on an
+# amend.
+#
+# $1 is the message file, $2 the source (message, template, merge, squash,
+# commit, or empty for an editor session), $3 the commit being amended.
+
+set -e
+
+msg="$1"
+tree="$(git write-tree)"
+marker="$(git rev-parse --git-path local-gate-marker)"
+line="$(cat "$marker" 2>/dev/null || true)"
+
+stamp=""
+case "$line" in
+  "verified $tree") ;;
+  "incomplete $tree "*)
+    stamp="incomplete ${line#incomplete "$tree" }"
+    ;;
+  "incomplete $tree")
+    stamp="incomplete"
+    ;;
+  "red $tree "*)
+    stamp="red ${line#red "$tree" }"
+    ;;
+  *)
+    stamp="unverified"
+    ;;
+esac
+
+if [ -n "$stamp" ]; then
+  git interpret-trailers --in-place --if-exists replace --trailer "Local-Gate: $stamp" "$msg"
+fi

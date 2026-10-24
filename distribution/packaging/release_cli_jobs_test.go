@@ -262,7 +262,6 @@ func TestReadmeKeepsItsStatusBadgeRow(t *testing.T) {
 		t.Errorf("the badge row must be a centred block directly under the logo")
 	}
 	for _, want := range []string{
-		"actions/workflows/ci.yml/badge.svg",
 		"actions/workflows/release.yml/badge.svg",
 		"actions/workflows/nightly-e2e.yml/badge.svg",
 		"actions/workflows/pages.yml/badge.svg",
@@ -274,11 +273,17 @@ func TestReadmeKeepsItsStatusBadgeRow(t *testing.T) {
 			t.Errorf("badge row is missing %q", want)
 		}
 	}
-	if n, m := strings.Count(rest, "<img "), strings.Count(rest, ` alt="`); n < 7 || n != m {
-		t.Errorf("want at least 7 badges each with alt text, got %d images and %d alts", n, m)
+	if n, m := strings.Count(rest, "<img "), strings.Count(rest, ` alt="`); n < 6 || n != m {
+		t.Errorf("want at least 6 badges each with alt text, got %d images and %d alts", n, m)
 	}
 	if strings.Contains(strings.ToLower(rest), "homebrew") {
 		t.Errorf("no Homebrew badge")
+	}
+	// ci.yml is gone (#1260): the pre-commit gate is the only gate, and a
+	// badge for a workflow that no longer exists renders as "no status",
+	// which reads as a CI that is broken rather than one that was retired.
+	if strings.Contains(rest, "actions/workflows/ci.yml") {
+		t.Errorf("the badge row still links the ci.yml workflow, which #1260 deleted")
 	}
 }
 
@@ -293,12 +298,12 @@ func TestReadmeOpensWithTheTourGif(t *testing.T) {
 	s := string(b)
 	const tour = "docs/assets/readme-tour.gif"
 	img := strings.Index(s, tour)
-	badges := strings.Index(s, "actions/workflows/ci.yml/badge.svg")
+	badges := strings.Index(s, "actions/workflows/release.yml/badge.svg")
 	first := strings.Index(s, "A backup producer somewhere writes a dump")
 	if img < 0 {
 		t.Fatalf("README does not show %s", tour)
 	}
-	if badges < 0 || first < 0 || !(badges < img && img < first) {
+	if badges < 0 || first < 0 || badges >= img || img >= first {
 		t.Errorf("the tour must come after the badge row and before the first paragraph (badges %d, tour %d, first paragraph %d)", badges, img, first)
 	}
 	tag := s[strings.LastIndex(s[:img], "<img"):]

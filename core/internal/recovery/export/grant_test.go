@@ -225,11 +225,11 @@ func findInMemory(v reflect.Value, tok string, seen map[uintptr]bool) string {
 				return p
 			}
 		}
-	case reflect.Ptr, reflect.Interface:
+	case reflect.Pointer, reflect.Interface:
 		if v.IsNil() {
 			return ""
 		}
-		if v.Kind() == reflect.Ptr {
+		if v.Kind() == reflect.Pointer {
 			if seen[v.Pointer()] {
 				return ""
 			}
@@ -252,7 +252,6 @@ func TestFindInMemoryActuallyFindsATokenWhereverItIsKept(t *testing.T) {
 	type holder struct {
 		m map[string]int
 		s []string
-		a [4]byte
 		b []byte
 	}
 	const tok = "secrettoken-abcdefghijklmnopqrstuvwxyz"

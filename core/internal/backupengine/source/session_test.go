@@ -55,13 +55,13 @@ type fakeSession struct {
 func (f *fakeSession) OpenStream(ctx context.Context, remotePath string) (io.ReadCloser, error) {
 	f.use()
 
-	return f.owner.fakeSource.OpenSourceStream(ctx, f.src, remotePath)
+	return f.owner.OpenSourceStream(ctx, f.src, remotePath)
 }
 
 func (f *fakeSession) StatSource(ctx context.Context, remotePath string) (transport.RemoteArtifact, error) {
 	f.use()
 
-	return f.owner.fakeSource.StatSource(ctx, f.src, remotePath)
+	return f.owner.StatSource(ctx, f.src, remotePath)
 }
 
 func (f *fakeSession) Close() error {

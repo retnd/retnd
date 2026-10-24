@@ -362,7 +362,7 @@ func TestSourceUpload1191_AgainstARealServer(t *testing.T) {
 		ctx, cancel := context.WithTimeout(fx.src.Context(), 300*time.Millisecond)
 		defer cancel()
 		if second, err := fx.up.BeginSourceUpload(ctx, ts); err == nil {
-			second.Close()
+			_ = second.Close()
 			t.Fatal("a second session opened on a host whose slot was held")
 		}
 		if err := first.Close(); err != nil {

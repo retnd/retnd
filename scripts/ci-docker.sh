@@ -125,6 +125,7 @@ if ! docker image inspect "$image" >/dev/null 2>&1; then
   say "building the toolchain image ($image, $platform)"
   docker build --platform "$platform" \
     --build-arg "CI_UID=$ci_uid" --build-arg "CI_GID=$ci_gid" \
+    --build-arg "GOLANGCI_LINT_VERSION=v$(sed -n 's/^GOLANGCI_LINT_VERSION=//p' "$repo/scripts/ci/pins.env" | head -n 1)" \
     -t "$image" "$here/ci"
 else
   say "toolchain image $image is already built"

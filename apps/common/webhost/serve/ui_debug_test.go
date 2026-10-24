@@ -578,8 +578,6 @@ func TestUI_DefaultLoggerIsTheSharedSeam(t *testing.T) {
 	if cfg.Logger != nil {
 		t.Fatal("the zero UIConfig names a logger; this test is checking the nil-means-default path")
 	}
-	var _ webhost.Logger = webhost.NewStdoutLogger()
-
 	handler := serve.NewUI(serve.UIConfig{Upstream: deadUpstream(t), StaticFS: uiShell()})
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/activity", nil))

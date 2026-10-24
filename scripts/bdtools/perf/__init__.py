@@ -6,7 +6,7 @@ Two entry points, both driven by `docs/perf/gate.json`:
   * `check_baseline`  -- the gate itself, in presence mode (is a complete
     baseline checked in for the designated host?) and compare mode (does a
     freshly captured record beat it?). This is the one `scripts/ci-local.sh`
-    and `.github/workflows/ci.yml` run.
+    (and, until #1260, `.github/workflows/ci.yml`) run.
   * `selftest`        -- positive controls, mutating a real baseline record
     one property at a time and requiring the gate to refuse each mutation.
 

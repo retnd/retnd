@@ -255,7 +255,7 @@ func workflowRunnerServe(args []string) int {
 	if err := server.Listen(); err != nil {
 		return fail(err)
 	}
-	defer server.Close()
+	defer server.Close() //nolint:errcheck // shutdown on the way out, the exit status already says how the run went
 
 	// Printed before serving, and to stdout, because a supervisor's log
 	// is where an operator looks first when a hook did not run: the

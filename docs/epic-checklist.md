@@ -8,7 +8,7 @@ could set and the terminal could not.
 
 Each item below says **who catches it**. That split is the point of the file:
 
-- **Gated** means a check fails if I skip it. `scripts/ci-local.sh` or CI goes
+- **Gated** means a check fails if I skip it. `scripts/ci-local.sh` (the only gate since #1260) goes
   red and the epic cannot merge. I do not need to remember these, I need to not
   fight them.
 - **Ungated** means nothing checks it and the only thing standing between the
@@ -319,14 +319,18 @@ synology, truenas, ugos, unraid, zimaos.
 ## 12. Gates
 
 - [ ] **`scripts/ci-local.sh` green.** *(Gated.)* About 45 minutes. It is also the
-  pre-commit hook, so committing with `--no-verify` and running it deliberately is
-  the normal pattern.
+  pre-commit hook, and the only gate there is (#1260). Red tests go in with
+  `CI_LOCAL_RED="<why>" git commit`, which is accepted only for test files on a
+  branch; `--no-verify` is stamped `Local-Gate: unverified` on the commit.
 - [ ] **Every new guard has a mutation self-test.** *(Gated for the existing ones,
   ungated for a new one until I write it.)* A guard whose only evidence is that it
   passes on the tree it ships with has proven nothing. Three checks here were found
   in one day that could not fail.
-- [ ] **A new CI job goes in the release gate's needs list.** *(Gated:*
-  `scripts/tests/release-gate-covers-every-job.test.sh`.*)*
+- [ ] **A new check goes in `scripts/ci-local.sh`.** *(Ungated, since #1260: there
+  is no CI workflow and no needs list any more; the pre-commit gate is the only
+  gate, and a check that is not in it runs nowhere. `scripts/tests/ci-local-gate.test.sh`
+  needs a stub for every script the gate runs, or every full-tree case in it goes
+  red at once.)*
 - [ ] **No new `RM_` / `BM_` / `bm_` / `rbm_` identifier.** *(Gated.)*
 - [ ] **Tests are red before they are green**, and pushed in that order where
   practical. *(Ungated.)*

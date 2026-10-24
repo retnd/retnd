@@ -5,7 +5,7 @@
 #
 #   * scripts/ci-local.sh runs `bash scripts/tests/record-release-hashes-guards.test.sh`
 #     in a non-FAST run, before the gate self-test;
-#   * .github/workflows/ci.yml runs it again;
+#   * .github/workflows/ci.yml ran it again, until #1260 deleted that workflow;
 #   * scripts/tests/ci-local-gate.test.sh FABRICATES a file at this literal
 #     path (`printf '#!/usr/bin/env bash\nexit 0\n' > .../record-release-hashes-guards.test.sh`)
 #     to drive the gate step it stubs -- arriving with #182 without one made

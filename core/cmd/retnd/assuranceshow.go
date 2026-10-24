@@ -143,22 +143,22 @@ func writeAssuranceOperation(w io.Writer, r apicontract.AssuranceOperationRecord
 	if r.BackupSetID != "" {
 		head += ": " + r.BackupSetID
 	}
-	fmt.Fprintf(w, "%s (%s)\n", head, r.OperationID)
+	_, _ = fmt.Fprintf(w, "%s (%s)\n", head, r.OperationID)
 	if r.Stage != "" && r.Stage != "complete" {
-		fmt.Fprintf(w, "stage:  %s\n", stageWithLabel(r.Stage))
+		_, _ = fmt.Fprintf(w, "stage:  %s\n", stageWithLabel(r.Stage))
 	}
 	if r.Reason != "" {
-		fmt.Fprintf(w, "reason: %s\n", r.Reason)
+		_, _ = fmt.Fprintf(w, "reason: %s\n", r.Reason)
 	}
 	for _, e := range r.Events {
-		fmt.Fprintln(w, formatFollowEvent(e))
+		_, _ = fmt.Fprintln(w, formatFollowEvent(e))
 	}
 	// The Operation page shows the validator's output under a recovery
 	// test; the record doesn't carry it (it is the newest test's, kept per
 	// set), so say where it is rather than leave it looking absent. A test
 	// that never ended has none.
 	if r.Kind == "recovery_test" && r.BackupSetID != "" && r.State != service.AssuranceOpRunning && r.State != service.AssuranceOpUnfinished {
-		fmt.Fprintf(w, "validator output: retnd recovery-test %s --show-output\n", r.BackupSetID)
+		_, _ = fmt.Fprintf(w, "validator output: retnd recovery-test %s --show-output\n", r.BackupSetID)
 	}
 }
 

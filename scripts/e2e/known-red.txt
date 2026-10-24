@@ -1,0 +1,99 @@
+# The web-ui ratchet (#1260): the browser specs from retnd-tests that are
+# allowed to fail at this pin, one per line, judged by
+# scripts/bdtools/e2e/web_ui_ratchet.py against the Playwright JSON report of
+# every full gate run.
+#
+# Every one of these was red on main on 2026-10-21, the day the local gate
+# became the only gate, and every one is UI drift in the spec rather than a
+# product defect somebody has confirmed: the add-backup-set wizard grew from
+# six steps to eight with a locked rail (#864), the shell, backups table,
+# dashboard and activity pages moved on, and the specs still describe the
+# old shapes. The list is the price of not holding every commit hostage to
+# 33 spec refreshes at once, and it is a ratchet, not a parking lot:
+#
+#   * cap= only goes down. scripts/bdtools/tests/web_ui_ratchet.py pins the
+#     ceiling it started at (39: the 33 red on the day, four wizard cases
+#     that stopped skipping once the rig handed the suite its source
+#     machine, and two flakes), so the list cannot grow past what it held
+#     when it was written, and lowering cap= here is how a refresh is
+#     recorded for good.
+#   * a listed spec that passes fails the gate until its line is removed.
+#   * an entry is good through its expiry date (UTC) and fails the gate the
+#     day after; the date is a promise, not a decoration. They are
+#     staggered by page so the list cannot go red all at once, and every
+#     refusal says which date to renew to if a refresh is not ready.
+#   * floor= is the fewest cases a run may report and still count; a
+#     report far shorter than the suite did not run the suite.
+#   * the cap, the skip budget, the entry set and every expiry are also
+#     held against main's copy of this file (web_ui_ratchet.against_baseline)
+#     so none of them can grow in the same commit that would pass it.
+#   * every entry cites retnd-tests#43, the suite's own open issue, rather
+#     than the pull request that wrote this list, which closes.
+#   * pin= has to be the sha in scripts/e2e/tests-repo.pin, so a pin bump
+#     revisits this list in the same change.
+#   * skips= is the most skipped cases a run may report (a skip is the same
+#     colour as a pass in an exit status, #1049): 92 skipped and 3 that did
+#     not run, which the report's own summary counts together, once the
+#     suite had its source machine. The 92nd arrived with retnd-tests#95:
+#     workflow-recovery's "names the run, its spool and both ways out"
+#     skips itself when no run is held, and the crash case ahead of it
+#     now releases its hold instead of failing and leaving two behind.
+#     A blocking case that skips itself proves nothing; it needs a hold
+#     of its own in retnd-tests, and this budget comes back down with it.
+#   * `| flaky` on an entry means the spec was seen to pass and to fail on
+#     the same tree in two baselines, so it is allowed either answer until
+#     its expiry. The expiry is the whole point of the marker: a flake
+#     nobody chases is a spec that tests nothing.
+#   * the two blocking files (safety-invariants, workflow-recovery) can
+#     never be listed; their specs are refreshed instead.
+#
+# Entry: <file> :: <describe › title> | <issue> | <owner> | <expiry>[ | flaky]
+# The file is as the Playwright report names it, relative to the suite's
+# test directory (wizard.spec.ts, not e2e/wizard.spec.ts). A title ending
+# in ` *` is a prefix: six retnd-tests titles end in a parenthesis naming
+# that repository's old issue tracker, and the former-name guard allows
+# that word in no tracked file here, so they are listed up to it.
+pin=a17f40b657383a8bf9ee1c624ff9d5d291460816
+cap=39
+skips=95
+floor=200
+
+backup-sets.spec.ts :: backup set detail › offers ordinary actions in the header | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-15
+backup-sets.spec.ts :: backup sets › summarises the fleet in the subtitle | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-15
+backup-sets.spec.ts :: backup set detail › shows the trusted host fingerprint | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-15
+backup-sets.spec.ts :: backup sets › the run control belongs to the page, not to a card, and says how far it reaches | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-15
+backups.spec.ts :: a deployment that never heard of storage mediums › has no Medium column, and exactly seven columns, Assurance in the place Validation held | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-15
+backups.spec.ts :: backups table › uses column headers, not styled divs | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-15
+dashboard.spec.ts :: dashboard › reports freshness figures | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-15
+provider-treatment.spec.ts :: provider: generic › offers a native storage picker only when supported | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2027-01-15
+provider-treatment.spec.ts :: provider: generic › keeps the shared information architecture | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2027-01-15
+quarantine-activity.spec.ts :: activity › offers the two real filters, and no longer the decorative Time range select * | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2027-01-15
+quarantine-activity.spec.ts :: activity › severity filter narrows the list | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2027-01-15
+quarantine-activity.spec.ts :: activity › over-filtering shows an empty state, not a blank panel | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2027-01-15
+recovery-and-assurance.986.spec.ts :: recovery on a deployment whose destructive gate is shut › a download in the browser completes, and the gate that refuses operations is still shut | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2027-01-15
+recovery-test-no-validator.1108.spec.ts :: retnd#1108 a recovery test on a set with no validator › 1108: the stage list of a run that tested nothing has no Complete stage, in the feed or in the terminal | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2027-01-15
+shell.spec.ts :: application shell › renders the lockup, service chip and every section link | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-15
+shell.spec.ts :: application shell › navigates to every section and marks the active link | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-15
+shell.spec.ts :: application shell › shows counts on sets, backups and quarantine | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-15
+wizard.spec.ts :: add backup set wizard › marks the current step and advances with Continue | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-31
+wizard.spec.ts :: add backup set wizard › Back is disabled on the first step and Continue on the last | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-31
+wizard.spec.ts :: add backup set wizard › step 2 offers three key sources, and Generate says plainly it can't be saved yet * | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-31
+wizard.spec.ts :: add backup set wizard › step 2's Use managed key panel lists the keys this deployment holds and lets one be picked, still with no fabricated in-use count * | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-31
+wizard.spec.ts :: add backup set wizard › step 3 warns what a future host-key change will do | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-31
+wizard.spec.ts :: add backup set wizard › step 4 separates recommended from advanced completion methods | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-31
+wizard.spec.ts :: add backup set wizard › step 4 warns when completion is inferred | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-31
+wizard.spec.ts :: add backup set wizard › step 5 no longer draws its own per-set retention fields * | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-31
+wizard.spec.ts :: add backup set wizard › step 5 lists the two validation layers that still exist, and no longer the fake Checksum toggle * | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-31
+wizard.spec.ts :: add backup set wizard › step 6 summarises source, destination and validation, and no longer a hardcoded retention card * | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-31
+wizard.spec.ts :: add backup set wizard › step 6 discloses remote-source handling in full | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-31
+wizard.spec.ts :: add backup set wizard › offers a save-disabled escape hatch that needs no acknowledgement | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-31
+wizard.spec.ts :: add backup set wizard › a hostname typed in step 1 shows up in the review step, not the built-in example | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-31
+wizard.spec.ts :: add backup set wizard › importing a key never leaves the pasted material on screen | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-31
+wizard.spec.ts :: add backup set wizard › Save stays disabled without an imported key or a trusted host, even after acknowledging | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-31
+wizard.spec.ts :: add backup set wizard › groups the flow into exactly six steps | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-31
+wizard.spec.ts :: add backup set wizard › completing the wizard and clicking Save & enable persists a new backup set, visible on the sets list | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-31
+wizard.spec.ts :: add backup set wizard › saving is blocked until the acknowledgement is checked | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-31
+wizard.spec.ts :: add backup set wizard › saving is blocked until the connection has been proven | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-31
+wizard.spec.ts :: add backup set wizard › step 3 requires an explicit trust decision | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-31
+terminal-dock.spec.ts :: a table taller than the window it is read in › its last row can be scrolled entirely clear of the terminal | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-11-30 | flaky
+workflow-config.spec.ts :: a backup set's workflow configuration, in a browser › with the Host Workflow Runner stopped, the check says the runner is why | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-11-30 | flaky

@@ -25,10 +25,19 @@ somebody disagree with the fix without relitigating the problem.
 never been red is a test nobody has checked. Where practical, push the failing
 test, then the fix, so the history shows the test catching the thing.
 
-**Run the gate.** `scripts/ci-local.sh` is the same gate CI runs and it takes
-about 45 minutes, so start it and go and do something else. It is also the
-pre-commit hook, which is why committing with `--no-verify` and running the
-gate deliberately is the normal working pattern rather than a shortcut.
+**Install the hook first.** `scripts/install-hooks.sh` points the checkout at
+`.husky/`, and from then on every commit runs `scripts/ci-local.sh`. That is
+the only gate there is: since #1260 nothing on GitHub runs the tests, and a
+release publishes only a commit the gate has vouched for. It takes a while, so
+start the commit and go and do something else.
+
+**Red tests go in with `CI_LOCAL_RED`, not `--no-verify`.** A commit made of
+test files only, on a branch, goes through without the gate when you say why:
+`CI_LOCAL_RED="<reason, 12 characters or more>" git commit ...`. The commit is
+stamped `Local-Gate: red <reason>` so the history shows the gate was skipped
+on purpose. `--no-verify` still works, but it stamps `Local-Gate: unverified`
+on the commit and the release refuses to publish it; it is not the working
+pattern any more. `docs/reference/local-gate.md` lists every knob.
 
 ## Things this project cares about more than most
 

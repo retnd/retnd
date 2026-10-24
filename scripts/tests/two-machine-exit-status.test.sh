@@ -5,7 +5,7 @@
 #
 #   * scripts/ci-local.sh runs `bash scripts/tests/two-machine-exit-status.test.sh`
 #     in every run;
-#   * .github/workflows/ci.yml runs it again in two-machine-e2e;
+#   * .github/workflows/ci.yml ran it again in two-machine-e2e, until #1260 deleted that workflow;
 #   * scripts/tests/ci-local-gate.test.sh FABRICATES a file at this literal
 #     path (`printf '#!/usr/bin/env bash\nexit 0\n' > .../two-machine-exit-status.test.sh`)
 #     to drive the gate step it stubs.

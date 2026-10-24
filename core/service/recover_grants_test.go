@@ -176,7 +176,10 @@ func TestRunOnScheduleStartsTheRecoveryReaper(t *testing.T) {
 			timer.fire()
 		case <-time.After(time.Second):
 		}
-		<-stopped
+		// Only that the loop stopped is waited for; its error, if any, is
+		// not this test's subject.
+		stopErr := <-stopped
+		_ = stopErr
 	})
 
 	deadline := time.Now().Add(5 * time.Second)

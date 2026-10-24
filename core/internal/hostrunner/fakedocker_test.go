@@ -1,9 +1,12 @@
 package hostrunner
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -278,28 +281,6 @@ func containerRecords(t *testing.T, state string) []string {
 	return names
 }
 
-// runningContainerRecords is containerRecords narrowed to the containers
-// whose process the stand-in daemon has not seen exit.
-//
-// The distinction exists because a stopped container and a running one
-// are different faults: the first is a leftover, the second is the
-// RUNAWAY this package exists to prevent, and a test that could not tell
-// them apart would pass on either.
-func runningContainerRecords(t *testing.T, state string) []string {
-	t.Helper()
-	var running []string
-	for _, name := range containerRecords(t, state) {
-		status, err := os.ReadFile(filepath.Join(state, "c-"+name, "status"))
-		if err != nil {
-			continue
-		}
-		if strings.TrimSpace(string(status)) == "running" {
-			running = append(running, name)
-		}
-	}
-	return running
-}
-
 // hostBashForFake finds a bash for the stand-in client to be written in
 // and to exec.
 //
@@ -353,7 +334,15 @@ done
 
 verb="${1:-}"
 shift || true
-printf '%s %s\n' "$verb" "$*" >> "$STATE/calls"
+# One record, one write. bash flushes a long printf in buffer-sized
+# pieces, and two clients appending at once interleave those pieces, so
+# a reader sees one line carrying two records and the other halves on the
+# lines after it (#1260, seen as "there were not two creations" with both
+# hooks having run). The record is written whole to a file of this
+# process's own and appended with one dd block, which is one write.
+printf '%s %s\n' "$verb" "$*" > "$STATE/calls.$$"
+dd if="$STATE/calls.$$" bs=4m 2>/dev/null >> "$STATE/calls"
+rm -f "$STATE/calls.$$"
 
 # wedged is the daemon that has stopped answering. Every control call goes
 # through it, so a runner with one unbounded call on the termination path
@@ -673,4 +662,60 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// TestTheFakeClientLogsOneRecordPerLineUnderConcurrentCalls pins the
+// call log's shape when many stand-in clients write at once. A record
+// here is a `create` with two long names and a hook body, close to 2KB,
+// and the shell's printf flushes a line that long in more than one write;
+// two clients appending at once then interleave, and two creations read
+// back as ONE line that happens to start with "create". That is what
+// TestExecute_TwoConcurrentStepsWithLongSharedIdsNeitherCollideNorKillEachOther
+// saw under the gate's full `go test ./...` load (#1260): both hooks ran,
+// both markers were written, and the log said there was one creation.
+// Forty clients at once, each a one-line record, and the log has forty
+// lines each starting with its verb.
+func TestTheFakeClientLogsOneRecordPerLineUnderConcurrentCalls(t *testing.T) {
+	state := fakeDockerState(t)
+	client := writeFakeDockerIn(t, state, fakeDocker{})
+	// Eighty clients and a record of some 20KB: a record that long left
+	// the shell in several writes, which is the window two clients
+	// interleaved in. On an idle machine the window is microseconds and
+	// this passes before the fix too; under the gate's full-module load
+	// it is what tore the log. It stays as the regression's shape and as
+	// the proof that the fix did not break the log's ordinary form.
+	const clients = 80
+	long := strings.Repeat("s", MaxIDLength-8)
+	body := "touch started\nsleep 0\nprintf ok > done\n" + strings.Repeat("# padding to push the record past the shell's stdio buffer\n", 360)
+	var wg sync.WaitGroup
+	errs := make(chan error, clients)
+	for i := 0; i < clients; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			name := fmt.Sprintf("retnd-hook-%s-run-%s-%08x", long, long[:40], i)
+			cmd := exec.Command(client, "create", "--name", name, "--label", "x=y", "alpine", "sh", "-c", body)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				errs <- fmt.Errorf("client %d: %v: %s", i, err, out)
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+	// The hook body's own newlines are in the log too (the record is the
+	// whole argv), so the shape to hold is: as many lines START with the
+	// verb as there were clients, and each carries one --name. A torn
+	// record is one of those lines carrying two.
+	created := dockerCallsWithVerb(t, state, "create")
+	if len(created) != clients {
+		t.Fatalf("%d concurrent creations left %d line(s) starting with create; two records interleaved into one line", clients, len(created))
+	}
+	for i, call := range created {
+		if n := strings.Count(call, "--name "); n != 1 {
+			t.Fatalf("create line %d carries %d --name flags, so two records share it: %.120q", i, n, call)
+		}
+	}
 }

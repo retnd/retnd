@@ -99,6 +99,25 @@ def rewrite(pin_file: Path, sha: str) -> None:
     os.replace(str(tmp), str(pin_file))
 
 
+KNOWN_RED_RELATIVE = "scripts/e2e/known-red.txt"
+
+
+def rewrite_known_red_pin(list_file: Path, sha: str) -> None:
+    """Move the `pin=` header of scripts/e2e/known-red.txt with the pin
+    (#1260). The web-ui ratchet refuses a list judged at another pin, so a
+    bump that left the header behind failed its own first gate run until a
+    hand edit; the two move together now, and the gate run that gates the
+    bump judges the suite at the new pin, which is when a listed spec that
+    now passes comes off."""
+    if not list_file.is_file():
+        return
+    text = list_file.read_text(encoding="utf-8")
+    new_text, count = re.subn(r"^pin=[0-9a-f]+\s*$", f"pin={sha}", text, flags=re.MULTILINE)
+    if count != 1:
+        harness.die(f"{KNOWN_RED_RELATIVE} has {count} `pin=` header line(s); exactly one is expected.")
+    list_file.write_text(new_text, encoding="utf-8")
+
+
 def body(root: Path, target: str) -> int:
     pin_file = root / tests_pin.PIN_RELATIVE
     pin = tests_pin.read_pin(pin_file)
@@ -115,6 +134,8 @@ def body(root: Path, target: str) -> int:
         return harness.EXIT_OK
 
     rewrite(pin_file, sha)
+    rewrite_known_red_pin(root / KNOWN_RED_RELATIVE, sha)
+    harness.note(KNOWN_RED_RELATIVE + " pin= moved with it")
 
     print(f"==> {current}", flush=True)
     print(f"==> {sha}", flush=True)

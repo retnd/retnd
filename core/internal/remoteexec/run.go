@@ -474,7 +474,10 @@ func waitFor(done <-chan error, d time.Duration) bool {
 	defer timer.Stop()
 
 	select {
-	case <-done:
+	case waitErr := <-done:
+		// Returning is what is being waited for; the error travelled to
+		// its reader on the other side of this channel already.
+		_ = waitErr
 		return true
 	case <-timer.C:
 		return false

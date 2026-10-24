@@ -197,7 +197,7 @@ func warnOnce(current, legacy string, shadowed bool) {
 			" is being IGNORED; remove it."
 	}
 
-	fmt.Fprintf(warnState.out,
+	_, _ = fmt.Fprintf(warnState.out,
 		"deprecated environment variable: %s has been renamed %s and will stop being read in %s. %s\n",
 		legacy, current, RemovalRelease, honoured)
 }

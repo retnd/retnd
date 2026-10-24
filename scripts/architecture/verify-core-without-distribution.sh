@@ -11,7 +11,7 @@
 # (EPIC I, I1.6 / #672 / #697). This file stays because the path is load
 # bearing:
 #
-#   * scripts/ci-local.sh and .github/workflows/ci.yml run
+#   * scripts/ci-local.sh (the only gate since #1260) runs
 #     `bash scripts/architecture/verify-core-without-distribution.sh`;
 #   * scripts/tests/ci-local-gate.test.sh FABRICATES a file at this literal
 #     path to drive the gate step it stubs;

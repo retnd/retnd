@@ -220,13 +220,13 @@ func printSSHKeys(wire apicontract.ListSSHKeysResponse) {
 		return
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tALGORITHM\tFINGERPRINT\tIMPORTED\tUSED BY")
+	_, _ = fmt.Fprintln(w, "ID\tALGORITHM\tFINGERPRINT\tIMPORTED\tUSED BY")
 	for _, k := range wire.Keys {
 		used := "nothing"
 		if len(k.UsedBy) > 0 {
 			used = strings.Join(k.UsedBy, ", ")
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", k.ID, orDash(k.Algorithm), orDash(k.Fingerprint), orDash(k.ImportedAt), used)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", k.ID, orDash(k.Algorithm), orDash(k.Fingerprint), orDash(k.ImportedAt), used)
 	}
 	_ = w.Flush()
 	for _, k := range wire.Keys {
@@ -288,7 +288,7 @@ func printSSHDiscovery(wire apicontract.ListSSHKeyCandidatesResponse) {
 	}
 	fmt.Println("keys:")
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "  ID\tPATH\tALGORITHM\tFINGERPRINT\tSTATE")
+	_, _ = fmt.Fprintln(w, "  ID\tPATH\tALGORITHM\tFINGERPRINT\tSTATE")
 	for _, c := range wire.Candidates {
 		state := "importable with `ssh-key import --candidate " + c.ID + "`"
 		switch {
@@ -297,7 +297,7 @@ func printSSHDiscovery(wire apicontract.ListSSHKeyCandidatesResponse) {
 		case !c.Selectable:
 			state = "not importable: " + orDash(c.Reason)
 		}
-		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n", c.ID, c.Path, orDash(c.Algorithm), orDash(c.Fingerprint), state)
+		_, _ = fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n", c.ID, c.Path, orDash(c.Algorithm), orDash(c.Fingerprint), state)
 	}
 	_ = w.Flush()
 }

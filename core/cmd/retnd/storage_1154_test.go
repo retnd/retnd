@@ -100,7 +100,7 @@ func TestIssue1154_StorageJSONIsTheContractsListStorageStatusResponse(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeFn()
+	defer closeFn() //nolint:errcheck // test teardown
 	manager, err := svc.ManagerStorage(t.Context())
 	if err != nil {
 		t.Fatal(err)
