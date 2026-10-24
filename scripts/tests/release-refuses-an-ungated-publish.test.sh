@@ -81,66 +81,19 @@ rm -rf "$SANDBOX"
 mkdir -p "$SANDBOX"
 trap 'rm -rf "$SANDBOX"' EXIT
 
-# --- the script, pulled out of the workflow ------------------------------
+# --- the script -----------------------------------------------------------
 #
-# Parsed with the standard library rather than a YAML module, so this runs
-# on any machine with python3 and needs nothing installed. The positive
-# control below is what makes that safe: an extractor that quietly stopped
-# matching would hand every case an empty script, and an empty script
-# exits 0, which would report a clean sweep of refusals that never
-# happened.
-SCRIPT="$SANDBOX/require-release-gate.sh"
-python3 - "$WORKFLOW" "$JOB" "$SCRIPT" <<'PY'
-import re
-import sys
-
-workflow, job, out = sys.argv[1], sys.argv[2], sys.argv[3]
-lines = open(workflow, encoding="utf-8").read().splitlines()
-
-# Only inside the `jobs:` mapping. `on:` has two-space keys of its own
-# (`push:`, `workflow_dispatch:`), and a parser that counts those as jobs
-# is a parser whose answers about jobs are not about jobs.
-in_jobs = False
-in_job = False
-body = []
-run_indent = None
-for line in lines:
-    if re.match(r"^jobs:\s*$", line):
-        in_jobs = True
-        continue
-    if in_jobs and line and not line.startswith(" ") and not line.startswith("#"):
-        in_jobs = False
-        continue
-    if not in_jobs:
-        continue
-    m = re.match(r"^  ([A-Za-z0-9_.-]+):\s*$", line)
-    if m:
-        in_job = m.group(1) == job
-        continue
-    if not in_job:
-        continue
-    if run_indent is None:
-        if re.match(r"^\s+run:\s*\|\s*$", line):
-            run_indent = len(line) - len(line.lstrip(" "))
-        continue
-    if line.strip() == "":
-        body.append("")
-        continue
-    indent = len(line) - len(line.lstrip(" "))
-    if indent <= run_indent:
-        break
-    body.append(line[run_indent + 2:])
-
-open(out, "w", encoding="utf-8").write("\n".join(body) + "\n")
-print(len(body))
-PY
-extracted_lines="$(wc -l < "$SCRIPT" 2>/dev/null | tr -d ' ')"
-if [ "${extracted_lines:-0}" -lt 80 ]; then
-  fail "the extractor pulled ${extracted_lines:-0} lines out of ${JOB} in release.yml, which is far less than that job has ever been: it has stopped matching, and every case below would run an empty script and pass" "$(head -5 "$SCRIPT" 2>/dev/null)"
-  echo "==> release publish gate: FAILED (the script under test could not be read)" >&2
+# scripts/release/verify-local-gate.sh is what the job runs, so it is what
+# this runs: the same bytes, from the checkout, pointed at a throwaway
+# repository through the working directory. The wiring check at the bottom
+# is what holds the job to calling it.
+SCRIPT="$REPO_ROOT/scripts/release/verify-local-gate.sh"
+if [ ! -f "$SCRIPT" ]; then
+  fail "the check script exists at scripts/release/verify-local-gate.sh" "every case below runs it"
+  echo "==> release publish gate: FAILED (the script under test does not exist)" >&2
   exit 1
 fi
-pass "the ${JOB} script came out of release.yml (${extracted_lines} lines)"
+pass "the check script is at scripts/release/verify-local-gate.sh"
 
 # --- the throwaway repositories ------------------------------------------
 #
@@ -163,13 +116,13 @@ REPO=""
 # commit. The message is what the override cases read.
 new_case() {
   REPO="$SANDBOX/repo-$1"
-  mkdir -p "$REPO/core" "$REPO/scripts/release" "$REPO/.github/workflows" "$REPO/provenance"
+  mkdir -p "$REPO/core" "$REPO/scripts/release" "$REPO/provenance"
   git_in "$REPO" init -q -b release
   git_in "$REPO" config user.email t@example.invalid
   git_in "$REPO" config user.name t
   printf 'package main\n' >"$REPO/core/main.go"
   cp "$GATE_TREE" "$REPO/scripts/release/gate-tree.sh" 2>/dev/null || printf '#!/usr/bin/env bash\nexit 1\n' >"$REPO/scripts/release/gate-tree.sh"
-  cp "$WORKFLOW" "$REPO/.github/workflows/release.yml"
+  cp "$REPO_ROOT/core/go.mod" "$REPO/core/go.mod"
   git_in "$REPO" add -A
   git_in "$REPO" commit -qm "${2:-Release 0.7.2}"
 }
@@ -179,10 +132,10 @@ sha256_of() {
   else shasum -a 256 "$1" | cut -d' ' -f1; fi
 }
 
-# release_go reads the Go release.yml builds with, so the green record is
+# release_go reads the Go core/go.mod builds with, so the green record is
 # right whatever the pin is, and the wrong-Go case is wrong whatever it is.
 release_go() {
-  sed -n 's/^[[:space:]]*go-version:[[:space:]]*"\([^"]*\)".*/\1/p' "$WORKFLOW" | head -1
+  sed -n 's/^go[[:space:]]*\([0-9][0-9.]*\)[[:space:]]*$/\1/p' "$REPO_ROOT/core/go.mod" | head -1
 }
 
 # write_record [field=value ...] writes a record for HEAD's gate tree and
@@ -257,7 +210,7 @@ run_gate() {
       GITHUB_REPOSITORY="retnd/retnd" \
       GITHUB_SHA="$sha" \
       GITHUB_STEP_SUMMARY="$SUMMARY" \
-      bash "$SCRIPT" 2>&1
+      bash "$SCRIPT" "$sha" 2>&1
   )"
   STATUS=$?
 }
@@ -335,7 +288,7 @@ new_case wrong-go
 write_record go=go1.25.4
 run_gate true
 expect "a record from a different Go does not publish" 1 "go1.25.4"
-expect "and the refusal names the Go release.yml builds with" 1 "$(release_go)"
+expect "and the refusal names the Go core/go.mod builds with" 1 "$(release_go)"
 
 new_case patch-go
 write_record "go=go$(release_go | cut -d. -f1,2).99"
@@ -566,7 +519,7 @@ check(
 # gate-tree.sh over it. Both names are literals in the script, and the
 # recorder writes the same path, so a rename on either side is a refused
 # release on the day of the release.
-script_text = open(script, encoding="utf-8").read()
+script_text = open(os.path.join(os.path.dirname(workflow), "..", "..", "scripts", "bdtools", "release", "verify_local_gate.py"), encoding="utf-8").read()
 shim = "scripts/release/verify-local-gate.sh"
 job_body = "\n".join(bodies.get(job, []))
 check(
@@ -576,18 +529,18 @@ check(
 )
 check(
     "provenance/local-gate.json" in script_text,
-    "the job reads provenance/local-gate.json, the path the recorder writes",
-    "the extracted script never names provenance/local-gate.json, so it is not reading the recorder's record",
+    "the check reads provenance/local-gate.json, the path the recorder writes",
+    "the check never names provenance/local-gate.json, so it is not reading the recorder's record",
 )
 check(
     "scripts/release/gate-tree.sh" in script_text,
-    "the job recomputes the tree with scripts/release/gate-tree.sh, the same script the recorder used",
-    "the extracted script never runs scripts/release/gate-tree.sh, so the writer and the reader compute the tree hash two different ways and will drift",
+    "the check recomputes the tree with scripts/release/gate-tree.sh, the same script the recorder used",
+    "the check never runs scripts/release/gate-tree.sh, so the writer and the reader compute the tree hash two different ways and will drift",
 )
 check(
     '"gh"' not in script_text and "gh api" not in script_text,
     "the job asks GitHub nothing: the record is in the commit",
-    "the extracted script still runs `gh`, which means it is still reading a check run that nothing produces any more",
+    "the check still runs `gh`, which means it is still reading a check run that nothing produces any more",
 )
 
 # The log travels with the release. github-release attaches it, so the

@@ -205,52 +205,25 @@ jobs:
   # (the gate's own output), and this job reads them off the commit it is
   # about to publish.
   #
-  # WHAT IT COMPARES. The record names `gate_tree`: the tree hash of the
-  # commit the gate ran on, with exactly those two files left out, worked
-  # out by scripts/release/gate-tree.sh with git alone. This job runs the
-  # SAME script over GITHUB_SHA and refuses unless the hashes agree. Trees,
-  # not commits, on purpose: the release pull request lands as GitHub's
-  # own merge commit, which no hook ever ran on, and its tree is main's
-  # tree whenever release is an ancestor of main (which merge-back-to-main
-  # keeps true). If anything landed on main after the record was written,
-  # the hashes differ and the refusal names both, and the fix is to re-run
-  # the recorder on the current tip. Only the record and its log are left
-  # out of the hash. release.yml's paths-ignore list is wider (the manifest,
-  # canonical.json, the installer, all of provenance/), and leaving THOSE
-  # out would let installer code and release data change after the gate
-  # ran, so release prep writes the record last and everything before it is
-  # inside the hash.
-  #
-  # WHAT ELSE IT REFUSES. A record of an INCOMPLETE run (a ledger that is
-  # not empty, or a result that is not ok), which the recorder never
-  # writes, so one here was written by hand. A schema it does not read,
-  # by name, so a format change is a refusal and not a misreading. A log
-  # whose hash is not the record's. And a recorded Go whose major.minor is
-  # not the `go-version` this file installs: a patch release of the same
-  # Go is the same language and the same standard library, and refusing on
-  # it would hold every release for a toolchain upgrade to match a pin to the
-  # digit, but a different minor is a different compiler and the run that
-  # was green is not the run that ships.
-  #
-  # WHAT IT PROVES, PRECISELY: that somebody with push rights ran the full
-  # suite on these bytes, on their machine, and it passed. Not that
-  # anybody reviewed it, and not that the record is true. It is
-  # self-asserted, and the header of this file says what stands against a
-  # forged one: review of the prep pull request, and the log. Whether a
-  # second person looked is the pull request rule's question, and the
-  # ruleset is what answers it.
+  # The check is scripts/release/verify-local-gate.sh, a script rather
+  # than a run block, so that the hosted dry run (publish=false) runs the
+  # same check in report-only mode and the recorder runs it over its own
+  # output before it says "recorded". Its header has what it compares
+  # (the tree with the record left out, the ledger, the schema, the log's
+  # bytes, the Go of core/go.mod at major.minor) and what it proves,
+  # precisely: that somebody with push rights ran the full suite on these
+  # bytes and it passed. Self-asserted, and the header of this file says
+  # what stands against a forged one.
   #
   # THE ESCAPE HATCH IS A COMMIT TRAILER: `Release-Gate-Override: <why>`
-  # on the commit being published, with a reason of at least twelve
-  # characters. A release process with no override is a release process
-  # people route around, and the route around this one is deleting the
-  # job. A trailer beats a dispatch input here for the same reason a merge
-  # beats a typed string: `release` is append-only, so the override and
-  # its reason sit in the published history for good, next to the commit
-  # they excused, while a dispatch input lives in a run log that ages out.
-  # It also cannot be added after the fact, and that is the point rather
-  # than a limitation. Overriding is a decision made while cutting, not a
-  # button found afterwards.
+  # as a real trailer of the commit being published (the last paragraph,
+  # as git reads trailers, so a line quoted in a squash body is not one),
+  # with a reason of at least twelve characters. A release process with
+  # no override is a release process people route around, and the route
+  # around this one is deleting the job. `release` is append-only, so the
+  # override and its reason sit in the published history for good, next
+  # to the commit they excused; the job writes them to its summary and
+  # annotations too.
   #
   # It changes nothing about signing. This job holds no id-token and no
   # packages scope and pushes nothing; `publish` below is still the only
@@ -259,14 +232,10 @@ jobs:
   # .github/workflows/release.yml@refs/heads/release and the documented
   # `cosign verify` command is untouched.
   #
-  # scripts/tests/release-refuses-an-ungated-publish.test.sh pulls the
-  # script below out of this file and runs it in throwaway repositories,
-  # once per outcome worth having: green, missing, a different tree, an
-  # INCOMPLETE ledger, the wrong Go, an unknown schema, not JSON, a log
-  # that does not match, overridden, and overridden with no reason given.
+  # scripts/tests/release-refuses-an-ungated-publish.test.sh runs the
+  # script in throwaway repositories, once per outcome worth having, and
   # scripts/tests/local-gate-record.test.sh runs the recorder and then
-  # this script over what it wrote, so the writer and the reader are
-  # proven to agree.
+  # this script over what it wrote.
   require-release-gate:
     name: the release gate passed on what this publishes
     needs: decide
@@ -289,250 +258,7 @@ jobs:
         # expansion is pasted into the shell source before bash parses it.
         env:
           PUBLISH: ${{ needs.decide.outputs.publish }}
-        run: |
-          python3 - <<'PY'
-          import hashlib
-          import json
-          import os
-          import re
-          import subprocess
-          import sys
-
-          RECORD = "provenance/local-gate.json"
-          LOG = "provenance/local-gate.log"
-          GATE_TREE = "scripts/release/gate-tree.sh"
-          WORKFLOW = ".github/workflows/release.yml"
-          SCHEMA = "retnd.local-gate/1"
-          TRAILER = "Release-Gate-Override:"
-          MIN_REASON = 12
-
-          sha = os.environ.get("GITHUB_SHA", "")
-          publish = os.environ.get("PUBLISH", "")
-          summary_path = os.environ.get("GITHUB_STEP_SUMMARY", "")
-
-
-          def emit(lines):
-              text = "\n".join(lines)
-              print(text)
-              if summary_path:
-                  with open(summary_path, "a", encoding="utf-8") as fh:
-                      fh.write(text + "\n")
-
-
-          def refuse(title, lines):
-              emit(["## release gate: REFUSED", ""] + lines)
-              print("::error title=" + title + "::" + lines[0])
-              sys.exit(1)
-
-
-          def allow(heading, lines):
-              emit(["## " + heading, ""] + lines)
-              sys.exit(0)
-
-
-          # The inputs first, and an unrecognised one refuses. Reading
-          # anything that is not "true" as "this run does not publish"
-          # would turn a renamed output into a gate that waves everything
-          # through while still reporting green, which is the failure this
-          # job exists to stop wearing this job's own uniform.
-          if publish not in ("true", "false"):
-              refuse(
-                  "release gate cannot tell whether this run publishes",
-                  [
-                      "`decide` handed this job publish=" + repr(publish) + ", which is neither `true` nor `false`.",
-                      "",
-                      "Every publishing step reads that output. If it has been renamed or dropped, this job cannot tell a dry run from a release, so it refuses rather than guess the answer that happens to look safe.",
-                  ],
-              )
-
-          if publish == "false":
-              allow(
-                  "release gate: nothing to gate",
-                  [
-                      "`decide` says this run publishes nothing, so there is no image and no signature at the end of it. Everything below runs on the publishing path only.",
-                  ],
-              )
-
-          if not sha:
-              refuse(
-                  "release gate does not know what it is looking at",
-                  ["GITHUB_SHA is empty, so there is no commit to read the record off."],
-              )
-
-
-          def git(*args):
-              proc = subprocess.run(["git", *args], capture_output=True, text=True)
-              return proc.returncode, proc.stdout, proc.stderr
-
-
-          def show(path):
-              """The file at `path` IN THE PUBLISHED COMMIT, or None. Read
-              with git rather than from the working tree, so a record
-              dropped into the checkout by anything after the push is
-              not the record this job reads."""
-              code, out, _ = git("show", sha + ":" + path)
-              return out if code == 0 else None
-
-
-          # The override trailer, read off the commit being published and
-          # nothing else. A trailer in a commit this one merged in is not
-          # an override: what counts is the message written at the moment
-          # the release landed.
-          code, message, err = git("log", "-1", "--format=%B", sha)
-          if code != 0:
-              refuse(
-                  "release gate could not read the commit",
-                  ["`git log -1 " + sha + "` failed:", "", "```", err.strip() or "(no output)", "```"],
-              )
-          override = ""
-          override_without_reason = False
-          for line in message.splitlines():
-              stripped = line.strip()
-              if not stripped.startswith(TRAILER):
-                  continue
-              reason = stripped[len(TRAILER):].strip()
-              if len(reason) >= MIN_REASON:
-                  override = reason
-              else:
-                  override_without_reason = True
-
-          # The checks, in the order a reader would want them explained.
-          # Every one appends to `findings`, and the first refusal wins
-          # the title; all of them are reported, so a record that is wrong
-          # in three ways is fixed in one round.
-          findings = []
-          report = []
-
-          raw = show(RECORD)
-          record = None
-          if raw is None:
-              findings.append("`" + RECORD + "` is not in the commit being published (`" + sha[:12] + "`): nothing recorded a gate run on this tree.")
-          else:
-              try:
-                  record = json.loads(raw)
-              except ValueError as exc:
-                  findings.append("`" + RECORD + "` is not JSON (" + str(exc) + "), so there is no record in it to read.")
-                  record = None
-              if record is not None and not isinstance(record, dict):
-                  findings.append("`" + RECORD + "` is JSON but not an object, so there is no record in it to read.")
-                  record = None
-
-          if record is not None:
-              schema = str(record.get("schema", ""))
-              if schema != SCHEMA:
-                  findings.append("the record's schema is `" + (schema or "(missing)") + "` and this job reads `" + SCHEMA + "`. A format this job does not know is a refusal, not a guess.")
-              else:
-                  report.append("- schema `" + SCHEMA + "`")
-
-              result = str(record.get("result", ""))
-              ledger = record.get("ledger")
-              if result != "ok":
-                  findings.append("the record's result is `" + (result or "(missing)") + "`, not `ok`. The recorder never writes a record for a run that was not ok, so this one was written by hand.")
-              if not isinstance(ledger, list):
-                  findings.append("the record carries no ledger list at all, so nothing says the run was complete.")
-              elif ledger:
-                  findings.append("the record's ledger is not empty, so the run it describes was INCOMPLETE and is not merge evidence. It did not run:\n" + "\n".join("    - " + str(item) for item in ledger))
-              else:
-                  report.append("- result `ok`, ledger empty")
-
-              recorded_tree = str(record.get("gate_tree", ""))
-              code, out, err = git("rev-parse", "--verify", "--quiet", sha + "^{tree}")
-              if code != 0:
-                  findings.append("`" + sha + "` does not name a commit in this checkout, so there is no tree to compare the record against.")
-              else:
-                  proc = subprocess.run(["bash", GATE_TREE, sha], capture_output=True, text=True)
-                  published_tree = proc.stdout.strip()
-                  if proc.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", published_tree):
-                      findings.append("`" + GATE_TREE + "` could not compute the published commit's gate tree:\n```\n" + (proc.stderr.strip() or proc.stdout.strip() or "(no output)") + "\n```")
-                  elif recorded_tree != published_tree:
-                      findings.append(
-                          "the record describes a different tree. Recorded `" + (recorded_tree or "(missing)") + "`, and the commit being published is `" + published_tree + "` with the record and its log left out. "
-                          "Something landed between the recorder's run and this cut, or the record was written somewhere else; re-run `bash scripts/release/record-local-gate.sh` on the tip that is being released."
-                      )
-                  else:
-                      report.append("- gate_tree `" + published_tree + "` matches the published commit")
-
-              log_body = show(LOG)
-              recorded_log = str(record.get("log_sha256", ""))
-              if log_body is None:
-                  findings.append("`" + LOG + "` is not in the commit being published, so the record's log_sha256 points at nothing a reader can open.")
-              else:
-                  actual = hashlib.sha256(log_body.encode("utf-8")).hexdigest()
-                  if actual != recorded_log:
-                      findings.append("the committed log does not match the record: log_sha256 is `" + (recorded_log or "(missing)") + "` and `" + LOG + "` hashes to `" + actual + "`. One of them was edited after the run.")
-                  else:
-                      report.append("- log `" + LOG + "` hashes to the recorded `" + actual[:12] + "...`")
-
-              recorded_go = str((record.get("tools") or {}).get("go", ""))
-              pins = []
-              try:
-                  with open(WORKFLOW, encoding="utf-8") as fh:
-                      pins = re.findall(r'^\s*go-version:\s*"([^"]+)"', fh.read(), re.MULTILINE)
-              except OSError:
-                  pass
-              if not pins:
-                  findings.append("`" + WORKFLOW + "` declares no `go-version`, so this job cannot tell whether the recorded Go is the one that builds the release.")
-              elif len(set(pins)) != 1:
-                  findings.append("`" + WORKFLOW + "` declares more than one `go-version` (" + ", ".join(sorted(set(pins))) + "); they have to agree before this job can compare a record against them.")
-              else:
-                  pin = pins[0]
-                  pin_minor = ".".join(pin.split(".")[:2])
-                  got_minor = ".".join(recorded_go.removeprefix("go").split(".")[:2])
-                  if not recorded_go.startswith("go") or got_minor != pin_minor:
-                      findings.append("the record was made with Go `" + (recorded_go or "(missing)") + "` and release.yml builds with go-version `" + pin + "`. Same major.minor is required; a different compiler means the run that was green is not the run that ships.")
-                  else:
-                      report.append("- Go `" + recorded_go + "` matches release.yml's go-version `" + pin + "` at major.minor")
-
-          if not findings:
-              allow(
-                  "release gate: PASSED",
-                  ["`" + RECORD + "` on `" + sha[:12] + "` records a full green run of scripts/ci-local.sh on exactly this tree.", ""] + report,
-              )
-
-          trouble = ["I checked the local-gate record on `" + sha[:12] + "` and found:", ""] + ["- " + f for f in findings]
-          if report:
-              trouble += ["", "What did hold:", ""] + report
-
-          if override_without_reason and not override:
-              refuse(
-                  "release gate override carries no reason",
-                  [
-                      "The commit being published has a `" + TRAILER + "` trailer with nothing usable after it, and the local-gate record does not pass.",
-                      "",
-                      "An override needs a reason of at least " + str(MIN_REASON) + " characters, because the reason is the whole audit trail. `release` is append-only, so what is written there is what somebody reads a year from now when they ask why this release skipped its own gate.",
-                      "",
-                  ]
-                  + trouble,
-              )
-
-          if override:
-              print("::warning title=release gate overridden::" + override)
-              allow(
-                  "release gate: OVERRIDDEN",
-                  [
-                      "The local-gate record does not pass on this commit, and the commit carries a `" + TRAILER + "` trailer, so this run publishes anyway.",
-                      "",
-                      "> " + override,
-                      "",
-                      "This is the deliberate escape hatch, and it is not a quiet one. The trailer stays in the history of `release` for good, so this paragraph is permanent. If the reason for it has since gone away, the next cut should not carry it.",
-                      "",
-                  ]
-                  + trouble,
-              )
-
-          refuse(
-              "nothing checked the commit this run would publish",
-              [
-                  "This run publishes a signed image to a public registry, and no full green run of the local gate is recorded on what it would publish.",
-                  "",
-              ]
-              + trouble
-              + [
-                  "",
-                  "The way through is release prep: on the `main` tip being released, with a clean tree and the hook installed, run `bash scripts/release/record-local-gate.sh`, commit `" + RECORD + "` and `" + LOG + "` with the prep, and cut the release from that. If this is a real emergency, put `" + TRAILER + " <why>` in the message of the merge commit and it publishes, loudly and permanently on the record. docs/release-workflow.md has the rest.",
-              ],
-          )
-          PY
+        run: bash scripts/release/verify-local-gate.sh "$GITHUB_SHA"
 
   compliance-artifacts:
     name: compliance artifacts are what this tree generates

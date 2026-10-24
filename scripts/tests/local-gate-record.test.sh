@@ -163,6 +163,10 @@ new_repo() {
   printf '#!/usr/bin/env sh\nexit 0\n' >"$repo/.husky/prepare-commit-msg"
   chmod +x "$repo/.husky/pre-commit" "$repo/.husky/prepare-commit-msg"
   printf 'package main\n' >"$repo/core/main.go"
+  # The toolchain the release builds with, which the reader compares the
+  # recorded Go against at major.minor: the real one, so the round trip
+  # below is about a real record.
+  cp "$REPO_ROOT/core/go.mod" "$repo/core/go.mod"
   printf '{"not": "the record"}\n' >"$repo/provenance/release-provenance.json"
   git_in "$repo" add -A
   git_in "$repo" commit -qm base
@@ -402,64 +406,23 @@ fi
 
 # --- 9: the reader accepts what the writer wrote ------------------------------
 #
-# Pulled out of release.yml with the same extractor
-# release-refuses-an-ungated-publish.test.sh uses, so this is the real
-# require-release-gate script reading a real record, in a repository
-# where the record is at the published commit.
+# scripts/release/verify-local-gate.sh is what the job runs, so this is
+# the real check reading a real record, in a repository where the record
+# is at the published commit.
 repo="$(new_repo roundtrip)"
 run_recorder "$repo"
 if [ "$STATUS" -eq 0 ] && [ -f "$repo/provenance/local-gate.json" ]; then
   git_in "$repo" add provenance/local-gate.json provenance/local-gate.log
   git_in "$repo" commit -qm "Record the local gate"
-  mkdir -p "$repo/.github/workflows"
-  cp "$WORKFLOW" "$repo/.github/workflows/release.yml"
-  SCRIPT="$SANDBOX/require-release-gate.sh"
-  python3 - "$WORKFLOW" "require-release-gate" "$SCRIPT" <<'PY'
-import re
-import sys
-
-workflow, job, out = sys.argv[1], sys.argv[2], sys.argv[3]
-lines = open(workflow, encoding="utf-8").read().splitlines()
-in_jobs = False
-in_job = False
-body = []
-run_indent = None
-for line in lines:
-    if re.match(r"^jobs:\s*$", line):
-        in_jobs = True
-        continue
-    if in_jobs and line and not line.startswith(" ") and not line.startswith("#"):
-        in_jobs = False
-        continue
-    if not in_jobs:
-        continue
-    m = re.match(r"^  ([A-Za-z0-9_.-]+):\s*$", line)
-    if m:
-        in_job = m.group(1) == job
-        continue
-    if not in_job:
-        continue
-    if run_indent is None:
-        if re.match(r"^\s+run:\s*\|\s*$", line):
-            run_indent = len(line) - len(line.lstrip(" "))
-        continue
-    if line.strip() == "":
-        body.append("")
-        continue
-    indent = len(line) - len(line.lstrip(" "))
-    if indent <= run_indent:
-        break
-    body.append(line[run_indent + 2:])
-open(out, "w", encoding="utf-8").write("\n".join(body) + "\n")
-PY
+  cp "$REPO_ROOT/core/go.mod" "$repo/core/go.mod"
+  SCRIPT="$SCRIPTS_DIR/release/verify-local-gate.sh"
   summary="$SANDBOX/roundtrip.summary"
   : >"$summary"
   OUT="$(
     cd "$repo" && env -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE -u GIT_OBJECT_DIRECTORY \
       -u GIT_COMMON_DIR -u GIT_PREFIX \
-      PUBLISH=true GITHUB_SHA="$(git_in "$repo" rev-parse HEAD)" \
-      GITHUB_REPOSITORY=retnd/retnd GITHUB_STEP_SUMMARY="$summary" \
-      bash "$SCRIPT" 2>&1
+      PUBLISH=true GITHUB_STEP_SUMMARY="$summary" \
+      bash "$SCRIPT" "$(git_in "$repo" rev-parse HEAD)" 2>&1
   )"
   STATUS=$?
   expect "require-release-gate accepts the record the recorder wrote" 0 "release gate: PASSED"

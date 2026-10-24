@@ -236,9 +236,11 @@ golangci_version="$(tool_version golangci-lint --version | sed -n 's/.*version \
 docker_version="$(tool_version docker version --format '{{.Server.Version}}')"
 [ -n "$docker_version" ] || docker_version="$(tool_version docker --version | sed -n 's/^Docker version \([^,]*\),.*/\1/p')"
 
+# The one hash both ends compute: the reader's own helper over the file's
+# bytes, so a carriage return or a byte that is not UTF-8 in the log
+# hashes here exactly as it does there.
 sha256_of() {
-  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
-  else shasum -a 256 "$1" | cut -d' ' -f1; fi
+  python3 "$SCRIPT_DIR/../bdtools/release/verify_local_gate.py" --log-sha256 "$1"
 }
 
 mkdir -p provenance
@@ -289,8 +291,19 @@ with open(path, "w", encoding="utf-8") as fh:
     fh.write("\n")
 PY
 
+# The reader's own check over what was just written, before this says
+# "recorded": the record and the log from the working tree, the gate tree
+# from HEAD, which is exactly what the release job will see once they are
+# committed. A record this refuses is not one to commit.
+echo "local-gate: running the release check over the record just written"
+if ! PUBLISH=true bash "$SCRIPT_DIR/verify-local-gate.sh" --uncommitted HEAD; then
+  echo "local-gate: NOT RECORDED. The release check refuses the record this run just wrote; its output above says why." >&2
+  rm -f provenance/local-gate.json provenance/local-gate.log
+  exit 1
+fi
+
 echo ""
-echo "local-gate: recorded. The full gate passed on ${head} in ${duration_s}s, in a detached worktree."
+echo "local-gate: recorded. The full gate passed on ${head} in ${duration_s}s, in a detached worktree, and scripts/release/verify-local-gate.sh accepts the record."
 echo "    provenance/local-gate.json   gate_tree ${gate_tree}"
 echo "    provenance/local-gate.log    sha256 ${log_sha256}"
 echo "    Commit both with the release prep: they are what require-release-gate reads before publish may run."
