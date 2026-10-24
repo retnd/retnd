@@ -119,6 +119,13 @@ git_in() { # <repo> <args...>
 STUB_GATE='#!/usr/bin/env sh
 echo "==> stub gate: CI-ENV=[${CI:-unset}] FAST=[${CI_LOCAL_FAST:-unset}]"
 echo "==> stub gate: running in $(pwd)"
+# What the real gate prints at its start (#1260): the toolchain it used,
+# which is what the record carries rather than whatever the recorder'"'"'s own
+# shell happens to find.
+echo "==> toolchain: go go1.27.0 darwin/arm64"
+echo "==> toolchain: golangci-lint 2.15.0 built with go1.27.0"
+echo "==> toolchain: node v26.12.0"
+echo "==> toolchain: docker 29.0.0"
 # What the real e2e gate leaves behind for the record (#1260): the browser
 # lane result, in the worktree the gate ran in.
 mkdir -p .e2e-gate
@@ -252,14 +259,20 @@ if [ -f "$record" ]; then
     && pass "the ledger is empty" || fail "the ledger is empty" "$(cat "$record")"
   [ "$(json_field "$record" 'd["head"]')" = "$head_before" ] \
     && pass "the record names the commit it ran from" || fail "the record names the commit it ran from" "$(cat "$record")"
-  case "$(json_field "$record" 'd["tools"]["go"]')" in
-    go1.*) pass "the record carries the Go version in go's own form" ;;
-    *) fail "the record carries the Go version in go's own form" "$(cat "$record")" ;;
-  esac
-  for tool in node golangci_lint docker; do
-    [ -n "$(json_field "$record" "d['tools']['$tool']")" ] \
-      && pass "the record carries a $tool version" || fail "the record carries a $tool version" "$(cat "$record")"
-  done
+  # The versions the GATE printed, not the recorder's shell: the gate may
+  # run under a GOTOOLCHAIN of its own, and the record is about the run.
+  [ "$(json_field "$record" 'd["tools"]["go"]')" = "go1.27.0" ] \
+    && pass "the record carries the Go the gate said it used" \
+    || fail "the record carries the Go the gate said it used" "$(cat "$record")"
+  [ "$(json_field "$record" 'd["tools"]["golangci_lint"]')" = "2.15.0" ] \
+    && pass "the record carries the golangci-lint the gate said it used" \
+    || fail "the record carries the golangci-lint the gate said it used" "$(cat "$record")"
+  [ "$(json_field "$record" 'd["tools"]["node"]')" = "v26.12.0" ] \
+    && pass "the record carries the node the gate said it used" \
+    || fail "the record carries the node the gate said it used" "$(cat "$record")"
+  [ "$(json_field "$record" 'd["tools"]["docker"]')" = "29.0.0" ] \
+    && pass "the record carries the docker the gate said it used" \
+    || fail "the record carries the docker the gate said it used" "$(cat "$record")"
   [ "$(json_field "$record" 'int(d["duration_s"]) >= 0')" = "True" ] \
     && pass "the record carries the run's duration" || fail "the record carries the run's duration" "$(cat "$record")"
   [ "$(json_field "$record" 'd["web_ui_lane"]["listed_failures"]')" = "33" ] \

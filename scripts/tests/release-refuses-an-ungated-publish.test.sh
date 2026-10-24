@@ -123,6 +123,8 @@ new_case() {
   printf 'package main\n' >"$REPO/core/main.go"
   cp "$GATE_TREE" "$REPO/scripts/release/gate-tree.sh" 2>/dev/null || printf '#!/usr/bin/env bash\nexit 1\n' >"$REPO/scripts/release/gate-tree.sh"
   cp "$REPO_ROOT/core/go.mod" "$REPO/core/go.mod"
+  mkdir -p "$REPO/scripts/ci"
+  cp "$REPO_ROOT/scripts/ci/pins.env" "$REPO/scripts/ci/pins.env" 2>/dev/null || :
   git_in "$REPO" add -A
   git_in "$REPO" commit -qm "${2:-Release 0.7.2}"
 }
@@ -144,9 +146,10 @@ release_go() {
 # override the green defaults: tree=, result=, ledger=, schema=, go=,
 # log_sha256=, raw= (the literal file body, for the not-JSON case).
 write_record() {
-  local tree result ledger schema go raw log_sha log_bytes arg
+  local tree result ledger schema go raw log_sha log_bytes lint arg
   tree="$(cd "$REPO" && bash scripts/release/gate-tree.sh HEAD 2>/dev/null || echo 0000000000000000000000000000000000000000)"
   result=ok; ledger='[]'; schema='retnd.local-gate/1'; go="go$(release_go)"; raw=""; log_sha=""; log_bytes=""
+  lint="$(sed -n 's/^GOLANGCI_LINT_VERSION=//p' "$REPO_ROOT/scripts/ci/pins.env" 2>/dev/null)"
   for arg in "$@"; do
     case "$arg" in
       log_bytes=*) log_bytes="${arg#log_bytes=}" ;;
@@ -155,6 +158,7 @@ write_record() {
       ledger=*) ledger="${arg#ledger=}" ;;
       schema=*) schema="${arg#schema=}" ;;
       go=*) go="${arg#go=}" ;;
+      lint=*) lint="${arg#lint=}" ;;
       raw=*) raw="${arg#raw=}" ;;
       log_sha256=*) log_sha="${arg#log_sha256=}" ;;
     esac
@@ -171,9 +175,9 @@ write_record() {
   if [ -n "$raw" ]; then
     printf '%s' "$raw" >"$REPO/provenance/local-gate.json"
   else
-    python3 - "$REPO/provenance/local-gate.json" "$tree" "$result" "$ledger" "$schema" "$go" "$log_sha" <<'PY'
+    python3 - "$REPO/provenance/local-gate.json" "$tree" "$result" "$ledger" "$schema" "$go" "$log_sha" "$lint" <<'PY'
 import json, sys
-path, tree, result, ledger, schema, go, log_sha = sys.argv[1:]
+path, tree, result, ledger, schema, go, log_sha, lint = sys.argv[1:]
 json.dump({
     "schema": schema,
     "gate_tree": tree,
@@ -182,7 +186,7 @@ json.dump({
     "ledger": json.loads(ledger),
     "started_at": "2026-10-21T09:12:03Z",
     "duration_s": 1534,
-    "tools": {"go": go, "node": "v26.12.0", "golangci_lint": "2.0.0", "docker": "29.0.0"},
+    "tools": {"go": go, "node": "v26.12.0", "golangci_lint": lint, "docker": "29.0.0"},
     "log_sha256": log_sha,
     "env": {"CI": "1"},
 }, open(path, "w"), indent=2)
@@ -294,6 +298,15 @@ new_case patch-go
 write_record "go=go$(release_go | cut -d. -f1,2).99"
 run_gate true
 expect "a record from a patch release of the same Go publishes" 0 "release gate: PASSED"
+
+# 5b. The wrong golangci-lint (#1261 review). The pin lives in
+#     scripts/ci/pins.env, which the throwaway carries, and a record made
+#     with another linter was cleaned against another linter's findings.
+new_case wrong-lint
+write_record lint=9.9.9
+run_gate true
+expect "a record from a golangci-lint other than the pinned one does not publish" 1 "9.9.9"
+expect "and the refusal names the pin" 1 "$(sed -n 's/^GOLANGCI_LINT_VERSION=//p' "$REPO_ROOT/scripts/ci/pins.env")"
 
 # 6. A schema this job does not read.
 new_case schema

@@ -2196,6 +2196,74 @@ run_gate "$tree"
 assert_contains "Q6 a Docker-backed step runs with the lock held" 'CONTRAST-STEP: lock held' "$out"
 assert_contains "Q6 a plain step runs with the lock free" 'PERF-STEP: lock free' "$out"
 
+# ------------- Group R: the toolchain pins live in one tracked file (#1260)
+
+echo "==> R. the pins"
+
+# ci-local.sh used to read the golangci-lint and Go pins out of
+# .github/workflows/ci.yml with a silenced sed, and #1260 deleted that
+# file, so the pin note could never fire and the install hint printed a
+# literal <ci pin>. The pins live in scripts/ci/pins.env now, which the
+# gate, the Docker image, the recorder and the release check all read.
+# A linter that is not the pinned one is LEDGERED: the run ends
+# INCOMPLETE naming the pin, because a lint from another version is not
+# the lint the release is checked against, and the recorder refuses an
+# INCOMPLETE run.
+PINS="$REPO_ROOT/scripts/ci/pins.env"
+if [ ! -f "$PINS" ]; then
+  fail "R0 scripts/ci/pins.env exists"
+else
+  pass "R0 scripts/ci/pins.env exists"
+  pinned_lint="$(sed -n 's/^GOLANGCI_LINT_VERSION=//p' "$PINS")"
+  assert_contains "R0 it pins a golangci-lint version" "." "$pinned_lint"
+fi
+if grep -q "workflows/ci.yml" "$SCRIPTS_DIR/ci-local.sh"; then
+  fail "R0 ci-local.sh reads nothing from the deleted ci.yml"
+else
+  pass "R0 ci-local.sh reads nothing from the deleted ci.yml"
+fi
+
+# set_golangci <tree> <version> <go>: a stub linter on the tree's PATH
+# that answers --version the way the real one does and lints nothing.
+set_golangci() {
+  printf '#!/bin/sh\nif [ "${1:-}" = "--version" ]; then echo "golangci-lint has version %s built with go%s from abc on 2026-10-01T00:00:00Z"; exit 0; fi\nexit 0\n' "$2" "$3" >"$1/bin/golangci-lint"
+  chmod +x "$1/bin/golangci-lint"
+}
+
+# R1: the pinned linter leaves the run ok.
+tree="$(make_full_tree)"
+set_golangci "$tree" "${pinned_lint:-0.0.0}" "1.27.0"
+run_gate "$tree"
+assert_contains "R1 the pinned golangci-lint leaves the run ok" 'ci-local: ok' "$out"
+assert_eq "R1 and exits 0" 0 "$status"
+
+# R2: another linter ledgers, naming the pin and the one found.
+tree="$(make_full_tree)"
+set_golangci "$tree" "9.9.9" "1.27.0"
+run_gate "$tree"
+assert_not_contains "R2 another golangci-lint cannot report success" 'ci-local: ok' "$out"
+assert_contains "R2 it ends INCOMPLETE" 'ci-local: INCOMPLETE' "$out"
+assert_contains "R2 the ledger names the version found" '9.9.9' "$out"
+assert_contains "R2 and the pinned one" "${pinned_lint:-0.0.0}" "$out"
+assert_eq "R2 it exits $INCOMPLETE" "$INCOMPLETE" "$status"
+
+# R3: no linter at all is still a refusal, and the hint names the real pin
+# rather than a placeholder.
+tree="$(make_full_tree)"
+rm -f "$tree/bin/golangci-lint"
+no_lint_out="$(cd "$tree" && scrub_env CI_LOCAL_LOCK_DIR="$tree/.gate-lock" PATH="$tree/bin:/usr/bin:/bin" bash scripts/ci-local.sh 2>&1)"
+no_lint_status=$?
+assert_nonzero "R3 a missing golangci-lint refuses the run" "$no_lint_status"
+assert_contains "R3 the hint names the pinned version" "${pinned_lint:-0.0.0}" "$no_lint_out"
+assert_not_contains "R3 and no placeholder" '<ci' "$no_lint_out"
+
+# R4: the gate prints the toolchain it used, as lines the recorder reads.
+tree="$(make_full_tree)"
+set_golangci "$tree" "${pinned_lint:-0.0.0}" "1.27.0"
+run_gate "$tree"
+assert_contains "R4 the run says which Go it used" '==> toolchain: go ' "$out"
+assert_contains "R4 and which golangci-lint" "==> toolchain: golangci-lint ${pinned_lint:-0.0.0}" "$out"
+
 # ------------------------------------------------------------------ result
 
 echo
