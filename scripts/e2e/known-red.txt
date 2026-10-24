@@ -32,9 +32,14 @@
 #   * pin= has to be the sha in scripts/e2e/tests-repo.pin, so a pin bump
 #     revisits this list in the same change.
 #   * skips= is the most skipped cases a run may report (a skip is the same
-#     colour as a pass in an exit status, #1049): 91 skipped and 3 that did
+#     colour as a pass in an exit status, #1049): 92 skipped and 3 that did
 #     not run, which the report's own summary counts together, once the
-#     suite had its source machine.
+#     suite had its source machine. The 92nd arrived with retnd-tests#95:
+#     workflow-recovery's "names the run, its spool and both ways out"
+#     skips itself when no run is held, and the crash case ahead of it
+#     now releases its hold instead of failing and leaving two behind.
+#     A blocking case that skips itself proves nothing; it needs a hold
+#     of its own in retnd-tests, and this budget comes back down with it.
 #   * `| flaky` on an entry means the spec was seen to pass and to fail on
 #     the same tree in two baselines, so it is allowed either answer until
 #     its expiry. The expiry is the whole point of the marker: a flake
@@ -50,7 +55,7 @@
 # that word in no tracked file here, so they are listed up to it.
 pin=1f5fb96cc937e0e8f4c31537e27b4d6865b1e2fc
 cap=39
-skips=94
+skips=95
 floor=200
 
 backup-sets.spec.ts :: backup set detail › offers ordinary actions in the header | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-12-15
