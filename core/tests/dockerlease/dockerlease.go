@@ -136,11 +136,7 @@ func SweepNetworks() {
 }
 
 func sweepNetworksOlderThan(cutoff time.Time) {
-	out, err := run("network", "ls", "-q", "--filter", "label="+LabelSpec)
-	if err != nil {
-		return
-	}
-	ids := strings.Fields(out)
+	ids := listLabelledNetworks()
 	if len(ids) == 0 {
 		return
 	}
@@ -148,7 +144,7 @@ func sweepNetworksOlderThan(cutoff time.Time) {
 	// is a time.Time on docker's side, and the bare template prints Go's
 	// own String() form, which is not what time.Parse below reads. The
 	// JSON form is RFC 3339, the same shape the container sweep parses.
-	out, _ = run(append([]string{"network", "inspect", "--format", "{{.Id}} {{json .Created}}"}, ids...)...)
+	out, _ := run(append([]string{"network", "inspect", "--format", "{{.Id}} {{json .Created}}"}, ids...)...)
 	for _, line := range strings.Split(out, "\n") {
 		id, ts, ok := strings.Cut(strings.TrimSpace(line), " ")
 		if !ok {
@@ -197,6 +193,16 @@ func sweepIDs(ids []string, cutoff time.Time) {
 		return
 	}
 	_, _ = run(append([]string{"rm", "-f"}, stale...)...)
+}
+
+// listLabelledNetworks is listLabelled for networks: only this owner's,
+// which is the whole boundary SweepNetworks has (#1260).
+func listLabelledNetworks() []string {
+	out, err := run("network", "ls", "-q", "--filter", "label="+LabelSpec)
+	if err != nil {
+		return nil
+	}
+	return strings.Fields(out)
 }
 
 func listLabelled() []string {

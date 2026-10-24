@@ -347,9 +347,11 @@ gate_docker_step() {
 # and a second run waits, says who it is waiting for, and goes when the
 # first lets go. A queue is honest; thrashing is not.
 #
-# mkdir is the primitive because it is atomic on every filesystem this
-# runs on and needs no flock binary. The holder writes its pid and its
-# worktree into the directory, so a waiter can say who it waits for, and
+# A symlink made with `ln -s` is the primitive (see gate_lock_acquire for
+# the shape and why): atomic on every filesystem this runs on, needs no
+# flock binary, and carries its holder's identity from the first instant.
+# The holder writes its pid and its worktree beside it, so a waiter can
+# say who it waits for, and
 # so a lock left by a run that was SIGKILLed (which runs no trap) is
 # reclaimed on the way in by the same kill -0 rule the sentinel sweep
 # uses. #150's lesson again: the cleanup that has to work is the one on
@@ -361,6 +363,15 @@ gate_docker_step() {
 # probes, in seconds.
 
 gate_lock_held=0
+
+# How old a lock with no judgeable holder (no pid file, a pid that is not
+# a number, a pid from another host or boot) has to be before it is
+# reclaimed, in seconds. Ten minutes of a lock nobody here can vouch for
+# is a lock nobody holds. And how long a
+# waiter waits in all before it refuses: the full gate is about forty
+# minutes, so two hours is a holder that will never let go.
+GATE_LOCK_STALE_AFTER="${GATE_LOCK_STALE_AFTER:-600}"
+GATE_LOCK_TIMEOUT="${GATE_LOCK_TIMEOUT:-7200}"
 
 # gate_lock_path -> the lock directory for this checkout, or nothing when
 # this is not a git checkout and no override was given.
@@ -374,9 +385,124 @@ gate_lock_path() {
   echo "$gate_lock_common/ci-local.lock"
 }
 
+# gate_boot_id -> something that changes when this machine reboots, so a
+# pid recorded before a reboot is never mistaken for a live process after
+# one (pids are reused). The kernel's boot id on Linux, the boot time on
+# a Mac, and the hostname alone where neither answers.
+gate_boot_id() {
+  if [ -r /proc/sys/kernel/random/boot_id ]; then
+    cat /proc/sys/kernel/random/boot_id
+  elif command -v sysctl >/dev/null 2>&1 && sysctl -n kern.boottime >/dev/null 2>&1; then
+    sysctl -n kern.boottime | tr -d ' ' | cut -c1-40
+  else
+    hostname
+  fi
+}
+
+# gate_lock_age <dir> -> seconds since the lock directory was created, or
+# 0 when that cannot be read.
+gate_lock_age() {
+  gate_lock_mtime="$(stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0)"
+  echo $(( $(date +%s) - gate_lock_mtime ))
+}
+
+# gate_lock_dead <dir> -> 0 when the lock's holder is known to be gone, 1
+# when it is alive or cannot be judged. A pid is judged with kill -0 only
+# when the lock was taken on THIS host and THIS boot: a pid from another
+# host (scripts/ci-docker.sh shares the lock dir into a container, whose
+# pid namespace is not the host's) or from before a reboot means nothing
+# here, and an unjudgeable lock is only ever reclaimed by age.
+gate_lock_dead() {
+  gate_ld_pid="$(cat "$1/pid" 2>/dev/null || true)"
+  gate_ld_host="$(cat "$1/host" 2>/dev/null || true)"
+  gate_ld_boot="$(cat "$1/boot" 2>/dev/null || true)"
+  case "$gate_ld_pid" in
+    ''|*[!0-9]*) ;;
+    *)
+      if [ "$gate_ld_host" = "$(hostname)" ] && [ "$gate_ld_boot" = "$(gate_boot_id)" ]; then
+        if kill -0 "$gate_ld_pid" 2>/dev/null; then
+          return 1
+        fi
+        return 0
+      fi
+      ;;
+  esac
+  # No judgeable pid: dead once old enough, alive until then.
+  if [ "$(gate_lock_age "$1")" -ge "$GATE_LOCK_STALE_AFTER" ]; then
+    return 0
+  fi
+  return 1
+}
+
 # gate_lock_acquire
-# Take the lock, waiting for as long as it takes. Idempotent: a run that
-# already holds it returns at once.
+# Take the lock, waiting for as long as GATE_LOCK_TIMEOUT allows.
+# Idempotent: a run that already holds it returns at once.
+#
+# THE SHAPE (#1261 review, item 3). The lock is a symlink at the lock
+# path, pointing at a directory beside it that is this holder's alone:
+# <lock>.<pid>.<checksum of host and boot>. The holder writes pid, host,
+# boot and where into its own directory FIRST, then creates the symlink
+# with `ln -s`, which is atomic and fails if anything is already there.
+# So the lock is never visible without its holder's identity, and there
+# is no pid-less window for a SIGKILL to land in.
+#
+# RECLAIM. A waiter that judges the holder dead (gate_lock_dead, below)
+# renames the holder's own directory to a name only the waiter knows;
+# that directory's name carries the dead pid, so exactly one waiter wins
+# the rename and nobody can mistake a fresh holder's directory for it.
+# Only the winner then removes the dead symlink, and everybody races for
+# the next `ln -s` as equals. The two earlier shapes both overlapped under
+# load: mkdir-then-write left a window with a lock and no pid, and
+# check-then-rename of a plain directory let a late waiter rename a FRESH
+# holder's directory away, because a plain directory at one path has no
+# identity of its own. Q7 reproduces both with twelve waiters.
+#
+# A plain directory at the lock path is a lock an older gate left (or one
+# the self-test plants). It is judged by the files inside it and reclaimed
+# by first winning `mkdir <lock>/reclaiming` (atomic, exactly one winner),
+# then checking the path is still that directory and not a symlink, then
+# renaming it away. The symlink shape never recreates a plain directory,
+# so a winner that finds a symlink there has lost to a fresh holder and
+# backs off.
+gate_lock_mine=""
+
+# gate_lock_identity -> what makes this process's lock directory unique.
+gate_lock_identity() {
+  echo "$$.$(printf '%s %s' "$(hostname)" "$(gate_boot_id)" | cksum | cut -d' ' -f1)"
+}
+
+# gate_lock_sweep_orphans <lock path>
+# A holder killed between writing its directory and creating the symlink
+# leaves a directory nobody points at. Remove the ones whose holder is
+# dead by the same rule as everything else; never the current target.
+gate_lock_sweep_orphans() {
+  gate_lso_target="$(readlink "$1" 2>/dev/null || true)"
+  for gate_lso_dir in "$1".*; do
+    [ -d "$gate_lso_dir" ] || continue
+    [ "$(basename "$gate_lso_dir")" != "$gate_lso_target" ] || continue
+    [ "$gate_lso_dir" != "$gate_lock_mine" ] || continue
+    case "$gate_lso_dir" in *.reclaimed.*|*.stale.*|*.deadlink.*) rm -rf "$gate_lso_dir"; continue ;; esac
+    if gate_lock_dead "$gate_lso_dir"; then
+      rm -rf "$gate_lso_dir"
+    fi
+  done
+}
+
+# gate_lock_try <lock path> <my directory's basename>
+# One attempt at the symlink. `ln -s` into a path that is a plain
+# directory creates the link INSIDE it and reports success, so the result
+# is read back: the lock is ours only when the path itself now points at
+# our directory. A link that landed inside a plain directory is removed.
+gate_lock_try() {
+  [ ! -e "$1" ] && [ ! -L "$1" ] || return 1
+  ln -s "$2" "$1" 2>/dev/null || return 1
+  if [ "$(readlink "$1" 2>/dev/null)" = "$2" ]; then
+    return 0
+  fi
+  rm -f "$1/$2" 2>/dev/null
+  return 1
+}
+
 gate_lock_acquire() {
   [ "${CI_LOCAL_LOCK:-1}" != 0 ] || return 0
   [ "$gate_lock_held" != 1 ] || return 0
@@ -386,28 +512,73 @@ gate_lock_acquire() {
     return 0
   fi
   gate_lock_said=0
-  while ! mkdir "$gate_lock_dir" 2>/dev/null; do
-    gate_lock_holder="$(cat "$gate_lock_dir/pid" 2>/dev/null || true)"
-    gate_lock_where="$(cat "$gate_lock_dir/where" 2>/dev/null || true)"
-    case "$gate_lock_holder" in
-      ''|*[!0-9]*) ;;
-      *)
-        if ! kill -0 "$gate_lock_holder" 2>/dev/null; then
-          echo "==> gate lock: reclaiming $gate_lock_dir, left behind by pid $gate_lock_holder (${gate_lock_where:-unknown worktree}), which no longer exists"
-          rm -f "$gate_lock_dir/pid" "$gate_lock_dir/where"
-          rmdir "$gate_lock_dir" 2>/dev/null || true
-          continue
+  gate_lock_began="$(date +%s)"
+  gate_lock_mine="$gate_lock_dir.$(gate_lock_identity)"
+  rm -rf "$gate_lock_mine"
+  mkdir -p "$gate_lock_mine"
+  echo "$$" >"$gate_lock_mine/pid"
+  hostname >"$gate_lock_mine/host"
+  gate_boot_id >"$gate_lock_mine/boot"
+  pwd >"$gate_lock_mine/where"
+  gate_lock_sweep_orphans "$gate_lock_dir"
+  while ! gate_lock_try "$gate_lock_dir" "$(basename "$gate_lock_mine")"; do
+    gate_lock_holder_dir=""
+    if [ -L "$gate_lock_dir" ]; then
+      gate_lock_target="$(readlink "$gate_lock_dir" 2>/dev/null || true)"
+      case "$gate_lock_target" in
+        /*) gate_lock_holder_dir="$gate_lock_target" ;;
+        ?*) gate_lock_holder_dir="$(dirname "$gate_lock_dir")/$gate_lock_target" ;;
+      esac
+      if [ -n "$gate_lock_holder_dir" ] && [ -d "$gate_lock_holder_dir" ] && gate_lock_dead "$gate_lock_holder_dir"; then
+        gate_lock_stale="$gate_lock_holder_dir.reclaimed.$$"
+        if mv "$gate_lock_holder_dir" "$gate_lock_stale" 2>/dev/null; then
+          echo "==> gate lock: reclaiming $gate_lock_dir, left behind by pid $(cat "$gate_lock_stale/pid" 2>/dev/null || echo '?') on $(cat "$gate_lock_stale/host" 2>/dev/null || echo '?') ($(cat "$gate_lock_stale/where" 2>/dev/null || echo 'unknown worktree')), which no longer exists"
+          rm -rf "$gate_lock_stale"
+          gate_lock_deadlink="$gate_lock_dir.deadlink.$$"
+          mv "$gate_lock_dir" "$gate_lock_deadlink" 2>/dev/null && rm -f "$gate_lock_deadlink"
         fi
-        ;;
-    esac
+        continue
+      fi
+    elif [ -d "$gate_lock_dir" ]; then
+      # The plain-directory shape of an older gate.
+      gate_lock_holder_dir="$gate_lock_dir"
+      if gate_lock_dead "$gate_lock_dir" && mkdir "$gate_lock_dir/reclaiming" 2>/dev/null; then
+        if [ ! -L "$gate_lock_dir" ]; then
+          gate_lock_stale="$gate_lock_dir.stale.$$"
+          if mv "$gate_lock_dir" "$gate_lock_stale" 2>/dev/null; then
+            echo "==> gate lock: reclaiming $gate_lock_dir, left behind by pid $(cat "$gate_lock_stale/pid" 2>/dev/null || echo '?') on $(cat "$gate_lock_stale/host" 2>/dev/null || echo '?') ($(cat "$gate_lock_stale/where" 2>/dev/null || echo 'unknown worktree')), which no longer exists"
+            rm -rf "$gate_lock_stale"
+          fi
+        else
+          rmdir "$gate_lock_dir/reclaiming" 2>/dev/null || true
+        fi
+        continue
+      fi
+    else
+      # Nothing, or something mid-transition: go straight round again.
+      sleep "${GATE_LOCK_POLL:-5}"
+      continue
+    fi
+    gate_lock_holder="$(cat "$gate_lock_holder_dir/pid" 2>/dev/null || echo '?')"
+    gate_lock_where="$(cat "$gate_lock_holder_dir/where" 2>/dev/null || echo 'unknown worktree')"
     if [ "$gate_lock_said" = 0 ]; then
       gate_lock_said=1
-      echo "==> gate lock: waiting for $gate_lock_dir, held by pid ${gate_lock_holder:-unknown} (${gate_lock_where:-unknown worktree}); the Docker-backed steps run one lane at a time (#1260)"
+      echo "==> gate lock: waiting for $gate_lock_dir, held by pid $gate_lock_holder ($gate_lock_where); the Docker-backed steps run one lane at a time (#1260)"
+    fi
+    # Elapsed wall time rather than a sum of polls, so a fractional
+    # GATE_LOCK_POLL (the self-test uses 0.2) needs no float arithmetic.
+    if [ $(( $(date +%s) - gate_lock_began )) -ge "$GATE_LOCK_TIMEOUT" ]; then
+      rm -rf "$gate_lock_mine"
+      gate_lock_mine=""
+      echo "" >&2
+      echo "==> ci-local: FAILED (gate lock). Waited ${GATE_LOCK_TIMEOUT}s for $gate_lock_dir, still held by pid $gate_lock_holder on $(cat "$gate_lock_holder_dir/host" 2>/dev/null || echo '?') ($gate_lock_where)." >&2
+      echo "    A holder that long is a run that will never let go. If that process is really gone, break the lock" >&2
+      echo "    with: rm -r '$gate_lock_dir' '$gate_lock_dir'.*   and re-run. GATE_LOCK_TIMEOUT=<seconds> changes the wait." >&2
+      gate_marked=1
+      return 1
     fi
     sleep "${GATE_LOCK_POLL:-5}"
   done
-  echo "$$" >"$gate_lock_dir/pid"
-  pwd >"$gate_lock_dir/where"
   gate_lock_held=1
   if [ "$gate_lock_said" = 1 ]; then
     echo "==> gate lock: acquired after waiting"
@@ -425,8 +596,14 @@ gate_lock_release() {
   gate_lock_held=0
   gate_lock_dir="$(gate_lock_path)"
   [ -n "$gate_lock_dir" ] || return 0
-  rm -f "$gate_lock_dir/pid" "$gate_lock_dir/where"
-  rmdir "$gate_lock_dir" 2>/dev/null || true
+  # Only if it still points at us: a reclaim by age could, in principle,
+  # have taken a very old lock out from under a live holder, and that
+  # holder must not then remove the reclaimer's.
+  if [ -n "$gate_lock_mine" ] && [ "$(readlink "$gate_lock_dir" 2>/dev/null)" = "$(basename "$gate_lock_mine")" ]; then
+    rm -f "$gate_lock_dir"
+  fi
+  [ -z "$gate_lock_mine" ] || rm -rf "$gate_lock_mine"
+  gate_lock_mine=""
 }
 
 # ------------------------------------------------------------- the hook

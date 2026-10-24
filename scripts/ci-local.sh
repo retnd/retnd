@@ -695,7 +695,10 @@ else
   (cd core && GOWORK=off go run ./cmd/gotestwatch -overall-floor 12m -- -race -count=1 ./tests/crashmatrix/... ./tests/sftpintegration/... ./tests/sshexecintegration/... ./tests/miniointegration/... ./tests/conformance/... ./tests/machinegate/... ./tests/containerhooks/...)
 fi
 
-gate_step "apps/common go build, vet, test -race"
+# A Docker-backed step since #1260: apps/common/auth/local's recovery test
+# starts a mail-sink container, so it belongs under the lock with the
+# other steps that load the daemon.
+gate_docker_step "apps/common go build, vet, test -race (Docker-backed: the local-auth recovery test starts a container)"
 (cd apps/common && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test -race ./...)
 
 gate_step "apps/common golangci-lint"
@@ -884,7 +887,11 @@ if [ "$FAST" != "1" ]; then
   if [ "${CI_LOCAL_SKIP_E2E:-0}" = "1" ]; then
     gate_note_skip "the browser e2e suite and the CLI smoke slice from retnd-tests, which are the only automated execution either of them gets (CI_LOCAL_SKIP_E2E=1)"
   else
-    gate_step "browser e2e + CLI smoke, from retnd-tests at the pinned sha (#197), the browser suite judged against the known-red ratchet (#1260)"
+    # Under the lock (#1261 review): this step builds the product images
+    # and runs the three-machine rig, the most Docker-heavy stretch of
+    # the whole gate, and it used to be the one step that dropped the
+    # lock the crash matrix had just held.
+    gate_docker_step "browser e2e + CLI smoke, from retnd-tests at the pinned sha (#197), the browser suite judged against the known-red ratchet (#1260)"
     # Not under `set -e`: exit 3 is a verdict this script has to READ, and
     # `set -e` would end the run on it before the ledger ever saw it.
     set +e
