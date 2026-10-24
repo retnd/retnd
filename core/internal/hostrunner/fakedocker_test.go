@@ -334,7 +334,15 @@ done
 
 verb="${1:-}"
 shift || true
-printf '%s %s\n' "$verb" "$*" >> "$STATE/calls"
+# One record, one write. bash flushes a long printf in buffer-sized
+# pieces, and two clients appending at once interleave those pieces, so
+# a reader sees one line carrying two records and the other halves on the
+# lines after it (#1260, seen as "there were not two creations" with both
+# hooks having run). The record is written whole to a file of this
+# process's own and appended with one dd block, which is one write.
+printf '%s %s\n' "$verb" "$*" > "$STATE/calls.$$"
+dd if="$STATE/calls.$$" bs=4m 2>/dev/null >> "$STATE/calls"
+rm -f "$STATE/calls.$$"
 
 # wedged is the daemon that has stopped answering. Every control call goes
 # through it, so a runner with one unbounded call on the termination path
