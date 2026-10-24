@@ -1,6 +1,8 @@
 package placement_test
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,7 +36,7 @@ func productionGoFiles(t *testing.T) map[string]string {
 	out := map[string]string{}
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return err
+			return tolerateVanished(err)
 		}
 		if d.IsDir() {
 			if d.Name() == "testdata" || d.Name() == "node_modules" {
@@ -47,7 +49,7 @@ func productionGoFiles(t *testing.T) map[string]string {
 		}
 		content, readErr := os.ReadFile(path)
 		if readErr != nil {
-			return readErr
+			return tolerateVanished(readErr)
 		}
 		rel, relErr := filepath.Rel(root, path)
 		if relErr != nil {
@@ -63,6 +65,24 @@ func productionGoFiles(t *testing.T) map[string]string {
 		t.Fatalf("only %d production Go files were found under %s, which is too few for these scans to be checking anything", len(out), root)
 	}
 	return out
+}
+
+// tolerateVanished is the one error the walk may swallow: an entry that
+// readdir listed and that is gone by the time it is opened. Other
+// packages' tests create and remove temporary directories under the
+// module while this walk runs (cmd/retnd's .cli-validators-*, under
+// `go test ./...`), and a path that no longer exists is not a production
+// Go file. Every other error still fails the walk, because a walk that
+// silently visits less than it should is exactly the shape the absence
+// scans above must never take (#1260).
+func tolerateVanished(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 func coreModuleRoot(t *testing.T) string {
