@@ -316,8 +316,8 @@ def body() -> int:
                 print(f"  ok: {gate} runs {invoked}")
             else:
                 msg = (
-                    f"FAIL: {gate} does not run {invoked}. .github/workflows/ci.yml (gone since #1260) ran only on a pull "
-                    "request into `release` (#575), so a check that lives only there runs on nothing bound "
+                    f"FAIL: {gate} does not run {invoked}. .github/workflows/ci.yml (gone since #1260) ran only "
+                    "on a pull request into `release` (#575), so a check that lives only there runs on nothing bound "
                     f"for main. Add `bash {invoked}` to {gate}."
                 )
                 print(msg, file=sys.stderr)

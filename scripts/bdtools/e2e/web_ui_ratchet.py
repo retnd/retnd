@@ -3,8 +3,9 @@ known-red ratchet (#1260).
 
 The browser suite from retnd-tests runs in every full gate, and when
 #1260 made that gate the only gate it had 37 failures that were already
-on main, mostly UI drift in the specs, over a 27-minute run. The decision on #1260 chose this shape over refreshing all 37 first or releasing over the
-gate: a pinned blocking subset (the safety-invariants and
+on main, mostly UI drift in the specs, over a 27-minute run. The decision
+on #1260 chose this shape over refreshing all 37 first or releasing over
+the gate: a pinned blocking subset (the safety-invariants and
 workflow-recovery specs, whose failures block however they are listed),
 plus the full suite as a ratcheted lane judged against
 scripts/e2e/known-red.txt, one line per spec that is allowed to fail,
