@@ -191,11 +191,12 @@ release_go() {
 # override the green defaults: tree=, result=, ledger=, schema=, go=,
 # log_sha256=, raw= (the literal file body, for the not-JSON case).
 write_record() {
-  local tree result ledger schema go raw log_sha arg
+  local tree result ledger schema go raw log_sha log_bytes arg
   tree="$(cd "$REPO" && bash scripts/release/gate-tree.sh HEAD 2>/dev/null || echo 0000000000000000000000000000000000000000)"
-  result=ok; ledger='[]'; schema='retnd.local-gate/1'; go="go$(release_go)"; raw=""; log_sha=""
+  result=ok; ledger='[]'; schema='retnd.local-gate/1'; go="go$(release_go)"; raw=""; log_sha=""; log_bytes=""
   for arg in "$@"; do
     case "$arg" in
+      log_bytes=*) log_bytes="${arg#log_bytes=}" ;;
       tree=*) tree="${arg#tree=}" ;;
       result=*) result="${arg#result=}" ;;
       ledger=*) ledger="${arg#ledger=}" ;;
@@ -205,7 +206,14 @@ write_record() {
       log_sha256=*) log_sha="${arg#log_sha256=}" ;;
     esac
   done
-  printf '==> stub gate log\n==> ci-local: ok\n' >"$REPO/provenance/local-gate.log"
+  if [ -n "$log_bytes" ]; then
+    # Raw bytes, written by python so the shell never decodes them: the
+    # real log carries carriage returns from progress output and can
+    # carry a byte that is not UTF-8, and the hash is over bytes.
+    python3 -c 'import sys; open(sys.argv[1], "wb").write(eval(sys.argv[2]))' "$REPO/provenance/local-gate.log" "$log_bytes"
+  else
+    printf '==> stub gate log\n==> ci-local: ok\n' >"$REPO/provenance/local-gate.log"
+  fi
   [ -n "$log_sha" ] || log_sha="$(sha256_of "$REPO/provenance/local-gate.log")"
   if [ -n "$raw" ]; then
     printf '%s' "$raw" >"$REPO/provenance/local-gate.json"
@@ -347,6 +355,18 @@ write_record 'raw={"schema": "retnd.local-gate/1", "gate_tree": '
 run_gate true
 expect "a record that is not JSON does not publish" 1 "not JSON"
 
+# 8a. The log is bytes (#1261 review). Progress output from npm, docker
+#     and the Playwright list reporter writes bare carriage returns, a
+#     tool can write \r\n, and a truncated multibyte character is a byte
+#     that is not UTF-8. The recorder hashes the file's bytes; a reader
+#     that decoded the log as text would hash something else (and die on
+#     the stray byte), which is a genuine release refused on the day.
+new_case log-bytes
+write_record 'log_bytes=b"==> stub gate log\rprogress 10%\rprogress 100%\r\nline two\xff\n==> ci-local: ok\n"'
+run_gate true
+expect "a log with bare \\r, \\r\\n and a byte that is not UTF-8 still verifies" 0 "release gate: PASSED"
+refute_text "and the reader does not crash on the byte" "Traceback"
+
 # 8. The log hash. The record points at a log so a reader can see what
 #    the run did; a record whose hash does not match the committed log is
 #    a record somebody edited after the fact, or a log that is not the
@@ -382,14 +402,24 @@ Release-Gate-Override: yes"
 run_gate true
 expect "an override with no reason behind it refuses" 1 "release gate override carries no reason"
 
-# 11. A run that publishes nothing does not gate anything, and proves it by
-#     never reading: the repository has no record and no gate-tree.sh that
-#     works, so a script that looked would have refused.
+# 11. A run that publishes nothing still CHECKS, and only reports (#1261
+#     review). The runbook's dry run dispatches with publish=false, and a
+#     dry run that skipped this check left the first real check to the
+#     merge into release, which is the irreversible publish. So the dry
+#     run says what it would have refused, and exits 0 either way.
 new_case dry-run
-printf '#!/usr/bin/env bash\necho "gate-tree.sh was run on a dry run" >&2\nexit 1\n' >"$REPO/scripts/release/gate-tree.sh"
+write_record
+printf '// a change after the record\n' >>"$REPO/core/main.go"
+git_in "$REPO" commit -qam "One more change"
 run_gate false
-expect "a run that publishes nothing is not gated" 0 "release gate: nothing to gate"
-refute_text "and it read nothing to decide that" "gate-tree.sh was run"
+expect "a run that publishes nothing exits 0 whatever it finds" 0 "release gate: DRY RUN"
+expect "and still says what a publishing run would have refused" 0 "describes a different tree"
+
+new_case dry-run-clean
+write_record
+run_gate false
+expect "a dry run over a matching record says so" 0 "release gate: DRY RUN"
+expect "and says the record would have passed" 0 "would have passed"
 
 # 12. The publish decision arriving as something this job does not
 #     recognise. Reading it as "not publishing" is the shape of every
@@ -436,6 +466,7 @@ expect "a record only in the working tree does not publish the commit that lacks
 # wait for it, which is one word to delete and invisible in a diff that
 # also touches the job.
 python3 - "$WORKFLOW" "$JOB" "$SCRIPT" <<'PY'
+import os
 import re
 import sys
 
@@ -536,6 +567,13 @@ check(
 # recorder writes the same path, so a rename on either side is a refused
 # release on the day of the release.
 script_text = open(script, encoding="utf-8").read()
+shim = "scripts/release/verify-local-gate.sh"
+job_body = "\n".join(bodies.get(job, []))
+check(
+    shim in job_body and os.path.isfile(os.path.join(os.path.dirname(workflow), "..", "..", shim)),
+    f"the job runs {shim}, which exists, so the dry run and the runbook can run the same check",
+    f"the job does not run {shim} (or it does not exist); the check lives only inside release.yml and nothing but a publish can run it",
+)
 check(
     "provenance/local-gate.json" in script_text,
     "the job reads provenance/local-gate.json, the path the recorder writes",
