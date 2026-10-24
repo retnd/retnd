@@ -132,6 +132,27 @@ var matrixPairs = []matrixPair{
 		},
 		ledger: ledgerRowPerUncoveredGuard,
 	},
+	{
+		// EPIC N (#967) lands its matrix with every row BLOCKED and
+		// registers here in the same pull request (#968), red first, so
+		// the pair is held together from the day the documents exist
+		// rather than from the day somebody remembers. Its matrix promises
+		// one ledger row per guard in the spec's section 6 table, EPIC E's
+		// rule, and puts the ten key-material surfaces in that table as
+		// ten guards, so a composite "no key anywhere" row cannot hide a
+		// per-surface regression. The NC-nn consensus rows carry no outcome
+		// this parser reads; #998's dedicated checker holds those.
+		name:     "EPIC N",
+		spec:     "../../../docs/EPIC-N-encrypted-retained-copies.md",
+		matrix:   "../../../docs/conformance/epic-n-matrix.md",
+		gateID:   regexp.MustCompile(`^N[12]\.\d+$`),
+		ledgerID: regexp.MustCompile(`^NV\.\d+$`),
+		gates: []gatePhase{
+			{prefix: "N1", heading: "### Phase 1 exit gate"},
+			{prefix: "N2", heading: "### Phase 2 exit gate"},
+		},
+		ledger: ledgerRowPerGuard,
+	},
 }
 
 // matrixRepo is the repository whose issues a BLOCKED row cites. It is
