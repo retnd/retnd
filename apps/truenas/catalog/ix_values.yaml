@@ -2,7 +2,7 @@
 # fails the build if a question has no default here, or if this file
 # declares a value no question asks for.
 image:
-  reference: "ghcr.io/retnd/retnd:0.7.1"
+  reference: "ghcr.io/retnd/retnd:0.7.2"
 
 storage:
   state:
