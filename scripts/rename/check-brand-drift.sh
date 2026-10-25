@@ -160,7 +160,7 @@
 # COMPLETE` as well as in lowercase prose.
 #
 # Registered in scripts/ci-local.sh (the gate .husky/pre-commit runs) and in
-# .github/workflows/ci.yml. scripts/rename/selftest.sh is the proof it can
+# .github/workflows/ci.yml until #1260 deleted it. scripts/rename/selftest.sh is the proof it can
 # still go red; scripts/ci-local.sh runs that too.
 #
 # Exit code contract, which is all a gate step needs:

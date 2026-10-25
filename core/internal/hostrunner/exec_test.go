@@ -504,7 +504,7 @@ while :; do sleep 0.05; done
 			kill = i
 		}
 	}
-	if term < 0 || kill < 0 || !(term < kill) {
+	if term < 0 || kill < 0 || term >= kill {
 		t.Fatalf("the escalation did not happen in order (TERM at %d, KILL at %d):\n%s", term, kill, strings.Join(calls, "\n"))
 	}
 	if result.TerminationCertainty != CertaintyConfirmed {

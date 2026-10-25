@@ -177,7 +177,7 @@ func TestAScrubTickBehindACycleThatNeverEndsStopsWithItsContext(t *testing.T) {
 	// the lock takes it and gives it back, so the lock is usable again.
 	f.b.runOnce.Unlock()
 	locked := make(chan struct{})
-	go func() { f.b.runOnce.Lock(); f.b.runOnce.Unlock(); close(locked) }()
+	go func() { f.b.runOnce.Lock(); close(locked); f.b.runOnce.Unlock() }()
 	select {
 	case <-locked:
 	case <-time.After(5 * time.Second):
@@ -194,7 +194,7 @@ func TestAScrubTickBehindACycleThatNeverEndsStopsWithItsContext(t *testing.T) {
 func TestACycleThatStartsDuringAScrubPassIsNotBlockedByIt(t *testing.T) {
 	f, probe := newSlowCycleFixture(t)
 	gate := make(chan struct{})
-	probe.stubStages.gate = gate
+	probe.gate = gate
 
 	done := runTick(f, context.Background())
 	deadline := time.Now().Add(10 * time.Second)
@@ -206,7 +206,7 @@ func TestACycleThatStartsDuringAScrubPassIsNotBlockedByIt(t *testing.T) {
 	}
 
 	cycle := make(chan struct{})
-	go func() { f.b.runOnce.Lock(); f.b.runOnce.Unlock(); close(cycle) }()
+	go func() { f.b.runOnce.Lock(); close(cycle); f.b.runOnce.Unlock() }()
 	select {
 	case <-cycle:
 	case <-time.After(5 * time.Second):

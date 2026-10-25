@@ -10,7 +10,7 @@ import (
 )
 
 // cmdBackupSetEditHold is `retnd backup-set edit-hold
-// <source/backup-set> [--release]`.
+// <source/backup-set> [--take | --release]`.
 //
 // # The gap this closes
 //
@@ -34,23 +34,29 @@ import (
 // `activity --follow` refuses: an answer from the wrong place is worse
 // than no answer, because it looks like an answer.
 //
-// # Report by default, release on a flag
+// # Report by default, take or release on a flag
 //
 // The default is a read, so an operator can see whether a set is held and
 // what taking the hold interrupted before deciding to do anything about
-// it. --release is the write, and it is a flag rather than a second verb
-// because the two are the same question asked with and without an action:
-// releasing prints the resulting state as well, so one invocation both
-// acts and reports what it left behind.
+// it. --take and --release are the writes, and they are flags rather than
+// verbs because the three are the same question asked with and without an
+// action: taking and releasing print the resulting state as well, so one
+// invocation both acts and reports what it left behind.
 //
-// TAKING a hold has no command, and that is a decision rather than an
-// omission. A hold protects an edit SESSION from a cycle running
-// underneath it, and a CLI edit is one `backup-set patch` that either runs
-// or does not, so there is no session to protect; a verb that could take
-// one would only be able to pause a backup set with nothing to notice it
-// had meant to.
+// TAKING a hold had no command until #1253, on the reasoning that a hold
+// protects an edit SESSION and a CLI edit is one `backup-set patch` that
+// either runs or does not. A scripted edit of several patches is a
+// session, and without a hold a cycle can run between two of them against
+// a set that is half changed. --take is what the browser's edit form does
+// when it opens: it takes the lease, or renews one already held, and
+// reports what that stopped. The lease is short and is not renewed by
+// anything here, so a script that edits for longer than it runs --take
+// again, and gives the hold back with --release when it is done rather
+// than leaving the set paused until the lease lapses.
 func cmdBackupSetEditHold(args []string) int {
 	fs, cfgPath := newFlagSet("backup-set edit-hold")
+	take := fs.Bool("take", false,
+		"take the hold, or renew one already held: the cycle inside this backup set stops at its next safe boundary and the scheduler starts no new pass for it until the hold is released or its lease lapses")
 	release := fs.Bool("release", false,
 		"give the hold back, so the scheduler may run this backup set again rather than waiting for the lease to lapse")
 
@@ -69,29 +75,26 @@ func cmdBackupSetEditHold(args []string) int {
 	if !ok {
 		return usageError("backup-set edit-hold: %q is not a backup set id; a backup set id is exactly source/name", id)
 	}
-
-	cfg, err := config.LoadAndValidate(*cfgPath)
-	if err != nil {
-		return fail(fmt.Errorf("config: %w", err))
+	// Opposites, so neither is picked: a command that took and then
+	// released, or the other way round, would do half of what was asked
+	// and report the other half.
+	if *take && *release {
+		return usageError("backup-set edit-hold: --take and --release are opposites; pass one")
 	}
 
 	ctx := context.Background()
-	// The same door every read goes through: it announces which world this
-	// answer is about and refuses the three disagreements before anything
-	// is printed. It takes no claim, which is right here: an edit hold is
-	// not configuration, so there is nothing on disk for a claim to
-	// protect.
-	mode, err := enterReadMode(ctx, *cfgPath, cfg, os.Stderr)
-	if err != nil {
-		return fail(err)
-	}
-	if !mode.attached() {
-		// The variable is named from the constant rather than spelled out
-		// here, so a sentence telling an operator what to set cannot come
-		// to disagree with what this build reads (route.go).
-		return fail(fmt.Errorf("an edit hold is held in memory by the process serving this deployment, and this command has no route to one, so there is nothing to report and nothing to release. Set %s and the two credential variables beside it to reach that process; with nothing serving at all there is no hold, because a hold does not survive the process that took it", apiURLEnv))
+	mode, code := editHoldRoute(ctx, *cfgPath)
+	if code >= 0 {
+		return code
 	}
 
+	if *take {
+		hold, err := mode.client.TakeBackupSetEditHold(ctx, source, set)
+		if err != nil {
+			return fail(fmt.Errorf("taking the edit hold on %s: %w", id, err))
+		}
+		printEditHoldTaken(hold)
+	}
 	if *release {
 		if err := mode.client.ReleaseBackupSetEditHold(ctx, source, set); err != nil {
 			return fail(fmt.Errorf("releasing the edit hold on %s: %w", id, err))
@@ -104,6 +107,19 @@ func cmdBackupSetEditHold(args []string) int {
 	}
 	printEditHold(state, *release)
 	return 0
+}
+
+// printEditHoldTaken says what taking the hold did: the lease it placed,
+// and what it stopped. "nothing" rather than nothing at all, for the
+// contract's own reason: a client never claims to have stopped something
+// it did not, and a line that is simply absent reads as either.
+func printEditHoldTaken(hold apicontract.BackupSetEditHold) {
+	fmt.Printf("taken until %s\n", hold.ExpiresAt)
+	if hold.Stopped == nil {
+		fmt.Printf("  stopped: nothing\n")
+		return
+	}
+	fmt.Printf("  stopped: %s (%s)\n", hold.Stopped.Artifact, hold.Stopped.Stage)
 }
 
 // printEditHold is the report, and it says what is true rather than what
@@ -132,4 +148,32 @@ func printEditHold(state apicontract.BackupSetEditHoldState, released bool) {
 		return
 	}
 	fmt.Printf("  running: %s (%s)\n", state.Running.Artifact, state.Running.Stage)
+}
+
+// editHoldRoute is the engine an edit hold is read from: remote from a
+// terminal with no deployment of its own (remote.go), otherwise the same
+// door every read goes through, which announces which world this answer is
+// about and refuses the three disagreements before anything is printed. It
+// takes no claim, which is right here: an edit hold is not configuration, so
+// there is nothing on disk for a claim to protect.
+func editHoldRoute(ctx context.Context, cfgPath string) (readDecision, int) {
+	remote, err := engineOnlyRemote(ctx, cfgPath, false)
+	if err != nil {
+		return readDecision{}, fail(err)
+	}
+	if remote != nil {
+		return remote.decision(), -1
+	}
+	cfg, err := config.LoadAndValidate(cfgPath)
+	if err != nil {
+		return readDecision{}, fail(fmt.Errorf("config: %w", err))
+	}
+	mode, err := enterReadMode(ctx, cfgPath, cfg, os.Stderr)
+	if err != nil {
+		return readDecision{}, fail(err)
+	}
+	if !mode.attached() {
+		return readDecision{}, fail(noEngineRefusal("an edit hold is held in memory by the process serving this deployment, so there is nothing to report and nothing to release without a route to it (with nothing serving at all there is no hold, because a hold does not survive the process that took it)"))
+	}
+	return mode, -1
 }

@@ -427,7 +427,10 @@ func TestAnEngineThatDisconnectsLeavesNoContainerBehind(t *testing.T) {
 	go func() { served <- server.Serve(serveCtx) }()
 	t.Cleanup(func() {
 		stopServing()
-		<-served
+		// Serve's error after a stop is the stop itself; the cleanup only
+		// waits for it to return.
+		serveErr := <-served
+		_ = serveErr
 		_ = server.Close()
 	})
 
@@ -460,7 +463,10 @@ func TestAnEngineThatDisconnectsLeavesNoContainerBehind(t *testing.T) {
 	}
 
 	killEngine()
-	<-executed
+	// Only that the hook ran is waited for here; what it reported is read
+	// off the runner below.
+	executedErr := <-executed
+	_ = executedErr
 
 	// The runner terminates the container on its own timeline, so this
 	// waits for it rather than asserting the instant after the

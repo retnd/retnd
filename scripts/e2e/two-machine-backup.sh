@@ -7,7 +7,7 @@
 # the path is load bearing in four places that are not this port's to move:
 #
 #   * scripts/ci-local.sh execs it and reads its exit status;
-#   * .github/workflows/ci.yml reaches it through scripts/e2e/two-machine-ci.sh;
+#   * .github/workflows/ci.yml reached it through scripts/e2e/two-machine-ci.sh, until #1260 deleted that workflow;
 #   * scripts/tests/two-machine-exit-status.test.sh drives it with stand-in
 #     tools on PATH;
 #   * scripts/tests/ci-local-gate.test.sh FABRICATES a file at this literal

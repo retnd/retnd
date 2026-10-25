@@ -8,7 +8,7 @@
 #
 #   * scripts/ci-local.sh runs `bash scripts/architecture/selftest.sh` in a
 #     non-FAST run;
-#   * .github/workflows/ci.yml runs it again, and installs golangci-lint
+#   * .github/workflows/ci.yml ran it again until #1260 deleted that workflow, and installed golangci-lint
 #     specifically so this file's check-unowned-go controls report "the
 #     linter says no" rather than "the binary is missing" (#575);
 #   * scripts/tests/ci-local-gate.test.sh FABRICATES a file at this literal

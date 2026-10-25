@@ -14,8 +14,9 @@
 # depends on what somebody's laptop updated overnight is not a gate.
 #
 # Everything the gate shells out to is here and pinned: go, golangci-lint
-# at the version .github/workflows/ci.yml installs, node and npm at the
-# major that workflow uses, the docker CLI and the compose plugin.
+# at the version scripts/ci/pins.env names (scripts/ci-docker.sh passes it
+# in), node and npm at a fixed major, the docker CLI and the compose
+# plugin.
 #
 # The DAEMON is deliberately not here. scripts/ci-docker.sh explains why
 # this talks to the host's daemon through a mounted socket instead of
@@ -26,10 +27,11 @@
 ARG GO_VERSION=1.27
 FROM golang:${GO_VERSION}-bookworm
 
-# Restated from .github/workflows/ci.yml rather than fetched as latest.
-# A lint gate that changes underneath you is a gate that goes red for a
-# reason nobody in the repository caused.
-ARG GOLANGCI_LINT_VERSION=v2.13.2
+# From scripts/ci/pins.env, through scripts/ci-docker.sh, rather than
+# fetched as latest. A lint gate that changes underneath you is a gate that
+# goes red for a reason nobody in the repository caused. The default here
+# is the same number, for a build by hand.
+ARG GOLANGCI_LINT_VERSION=v2.15.0
 
 # node and npm copied out of the official image rather than installed
 # from a distribution repository, so this and CI are the same build and

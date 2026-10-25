@@ -695,7 +695,9 @@ func cmdServe(args []string) int {
 		fmt.Fprintf(os.Stderr, cliecho.WebBinary+": first run: wrote a default configuration to %s\n", written)
 	}
 
-	backend, cleanup, err := service.Open(ctx, *configPath)
+	// The engine is a real deployment, so it looks for the mounted default
+	// workflow root when config.yaml names none (#1246).
+	backend, cleanup, err := service.OpenWith(ctx, *configPath, service.OpenOptions{WorkflowRoot: service.ProductionWorkflowRootDefault()})
 	switch {
 	case err == nil:
 		// The shutdown counterpart of this command's startup lines, and
@@ -774,7 +776,7 @@ func cmdServe(args []string) int {
 			// the API as restart_required (FirstRunEngine.activate), with
 			// the configuration already durably written, so a restart
 			// genuinely does finish the job.
-			opened, closeFn, openErr := service.Open(ctx, *configPath)
+			opened, closeFn, openErr := service.OpenWith(ctx, *configPath, service.OpenOptions{WorkflowRoot: service.ProductionWorkflowRootDefault()})
 			if openErr != nil {
 				return nil, nil, openErr
 			}

@@ -80,7 +80,7 @@ Run standalone:
     bash scripts/release/check-published-provenance.sh
 
 Wired into `scripts/ci-local.sh` beside the other provenance guards and
-into `.github/workflows/ci.yml`.
+into `.github/workflows/ci.yml` (which #1260 deleted; the local gate is the only gate).
 `scripts/bdtools/tests/published_provenance_guards.py` is the proof it
 can still go red, and it plants both refusals.
 """

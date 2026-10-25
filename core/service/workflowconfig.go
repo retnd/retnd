@@ -143,6 +143,14 @@ type WorkflowSettings struct {
 	BeforeDir string
 	AfterDir  string
 
+	// RootDefault says Root is the default root (config.DefaultWorkflowRoot,
+	// found mounted) rather than one config.yaml names (#1246).
+	RootDefault bool
+
+	// Disabled says an operator cleared the root (workflows.disabled), so
+	// no default is looked for either.
+	Disabled bool
+
 	// ScriptTimeout is the bound a hook gets when its backup set does not
 	// say. It is RESOLVED: a deployment that configures none reports
 	// internal/workflow's default rather than a zero an operator would
@@ -175,7 +183,14 @@ type WorkflowSettings struct {
 // them. Clearing a stage directory is a real operation -- it disables
 // that stage -- so it must be expressible.
 type UpdateWorkflowSettingsRequest struct {
-	Root      *string
+	Root *string
+
+	// Disabled turns workflows off (true) or back on (false), #1246. Off
+	// clears the root and writes workflows.disabled; on clears the flag and
+	// leaves the root as the patch or the file has it, so a deployment with
+	// none goes back to the mounted default. Root "" is the older spelling
+	// of off and stays one. Off beside a non-empty Root is refused.
+	Disabled  *bool
 	BeforeDir *string
 	AfterDir  *string
 
@@ -189,7 +204,7 @@ type UpdateWorkflowSettingsRequest struct {
 }
 
 func (r UpdateWorkflowSettingsRequest) isEmpty() bool {
-	return r.Root == nil && r.BeforeDir == nil && r.AfterDir == nil &&
+	return r.Root == nil && r.Disabled == nil && r.BeforeDir == nil && r.AfterDir == nil &&
 		r.ScriptTimeout == nil && r.MaxScriptSizeBytes == nil
 }
 
@@ -257,15 +272,17 @@ func (r UpdateBackupSetWorkflowRequest) isEmpty() bool {
 func (b *BackupService) WorkflowSettings(_ context.Context) (WorkflowSettings, error) {
 	cfg := b.state.Load().inner.Config
 
-	return workflowSettingsOf(cfg), nil
+	return workflowSettingsOf(cfg, b.workflowRoot()), nil
 }
 
-func workflowSettingsOf(cfg *config.Config) WorkflowSettings {
+func workflowSettingsOf(cfg *config.Config, root WorkflowRootState) WorkflowSettings {
 	w := cfg.Workflows
 
 	s := WorkflowSettings{
-		Configured:              cfg.WorkflowsConfigured(),
-		Root:                    w.Root,
+		Configured:              root.Path != "",
+		Root:                    root.Path,
+		RootDefault:             root.Default,
+		Disabled:                root.Disabled,
 		BeforeDir:               w.Global.BeforeDir,
 		AfterDir:                w.Global.AfterDir,
 		ScriptTimeout:           cfg.EffectiveScriptTimeout(nil),
@@ -293,7 +310,10 @@ func (b *BackupService) UpdateWorkflowSettings(ctx context.Context, req UpdateWo
 		return WorkflowSettings{}, ErrConfigNotFileBacked
 	}
 	if req.isEmpty() {
-		return WorkflowSettings{}, fmt.Errorf("%w: this patch changes nothing; name at least one of root, before_dir, after_dir, script_timeout or max_script_size_bytes", ErrInvalidRequest)
+		return WorkflowSettings{}, fmt.Errorf("%w: this patch changes nothing; name at least one of root, disabled, before_dir, after_dir, script_timeout or max_script_size_bytes", ErrInvalidRequest)
+	}
+	if req.Disabled != nil && *req.Disabled && req.Root != nil && strings.TrimSpace(*req.Root) != "" {
+		return WorkflowSettings{}, fmt.Errorf("%w: disabled and a root are two answers to one question; turning workflows off clears the root, so send one of them", ErrInvalidRequest)
 	}
 
 	b.configMu.Lock()
@@ -312,6 +332,22 @@ func (b *BackupService) UpdateWorkflowSettings(ctx context.Context, req UpdateWo
 	w := &cfg.Workflows
 	if req.Root != nil {
 		w.Root = strings.TrimSpace(*req.Root)
+		// Clearing the root is written down as disabled (#1246): an
+		// absent root now means "use the mounted default", so an empty
+		// one left to omitempty would be undone by the next start. Naming
+		// a root turns workflows back on.
+		w.Disabled = w.Root == ""
+	}
+	if req.Disabled != nil {
+		w.Disabled = *req.Disabled
+		if w.Disabled {
+			w.Root = ""
+		}
+	}
+	if req.Root == nil && !w.Disabled && ((req.BeforeDir != nil && strings.TrimSpace(*req.BeforeDir) != "") || (req.AfterDir != nil && strings.TrimSpace(*req.AfterDir) != "")) {
+		// A global stage needs a root in the file; on a deployment
+		// running on the default one, that is the root it gets.
+		b.writeDefaultWorkflowRoot(cfg)
 	}
 	if req.BeforeDir != nil {
 		w.Global.BeforeDir = strings.TrimSpace(*req.BeforeDir)
@@ -339,7 +375,7 @@ func (b *BackupService) UpdateWorkflowSettings(ctx context.Context, req UpdateWo
 	// set's own block. The narrow scope is right for every other field
 	// and wrong for that one.
 	stages := globalWorkflowStages(cfg)
-	if req.Root != nil {
+	if req.Root != nil || req.Disabled != nil {
 		stages = everyWorkflowStage(cfg)
 	}
 	if err := refuseUnverifiableScripts(ctx, cfg, stages); err != nil {
@@ -355,7 +391,8 @@ func (b *BackupService) UpdateWorkflowSettings(ctx context.Context, req UpdateWo
 		return WorkflowSettings{}, err
 	}
 
-	return workflowSettingsOf(b.state.Load().inner.Config), nil
+	st := b.state.Load()
+	return workflowSettingsOf(st.inner.Config, st.workflowRoot), nil
 }
 
 // BackupSetWorkflow reports one set's workflow configuration, resolved
@@ -434,6 +471,7 @@ func (b *BackupService) UpdateBackupSetWorkflow(ctx context.Context, id string, 
 		return BackupSetWorkflow{}, err
 	}
 
+	b.writeDefaultWorkflowRoot(cfg)
 	if !cfg.WorkflowsConfigured() {
 		return BackupSetWorkflow{}, ErrWorkflowsNotConfigured
 	}
@@ -529,6 +567,7 @@ func (b *BackupService) SetWorkflowEnv(_ context.Context, backupSetID string, v 
 		return nil, fmt.Errorf("service: re-reading configuration: %w", err)
 	}
 
+	b.writeDefaultWorkflowRoot(cfg)
 	if !cfg.WorkflowsConfigured() {
 		return nil, ErrWorkflowsNotConfigured
 	}

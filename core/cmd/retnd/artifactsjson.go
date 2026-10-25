@@ -63,7 +63,31 @@ func withState(records []state.Record, want string) []state.Record {
 	return kept
 }
 
-func artifactsJSON(ctx context.Context, cfgPath string, operands []string, source, set, wantState string) int {
+// receivedIn keeps the records that arrived inside rng (#1251), by the
+// discovered_at the API serves and the Backups page filters on.
+func receivedIn(records []state.Record, rng receivedRange) []state.Record {
+	kept := make([]state.Record, 0, len(records))
+	for _, r := range records {
+		if rng.holds(r.DiscoveredAt) {
+			kept = append(kept, r)
+		}
+	}
+	return kept
+}
+
+// bucketIDsFor opens the backup service the JSON form reads through and asks
+// it which backups are in buckets, for the text form, which reads the journal
+// through internal/app.
+func bucketIDsFor(ctx context.Context, cfgPath, set string, buckets map[service.Bucket]bool) (map[string]bool, error) {
+	svc, cleanup, err := openBackupServiceLoggingTo(ctx, cfgPath, readsConfig, os.Stderr)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	return assuranceBucketIDs(ctx, svc, set, buckets)
+}
+
+func artifactsJSON(ctx context.Context, cfgPath string, operands []string, source, set, wantState string, rng receivedRange, buckets map[service.Bucket]bool) int {
 	if len(operands) == 1 && (source != "" || set != "") {
 		return usageError("artifacts: --source/--backup-set cannot be combined with an artifact argument")
 	}
@@ -96,6 +120,12 @@ func artifactsJSON(ctx context.Context, cfgPath string, operands []string, sourc
 		}
 		return fail(err)
 	}
+	var inBucket map[string]bool
+	if buckets != nil {
+		if inBucket, err = assuranceBucketIDs(ctx, svc, set, buckets); err != nil {
+			return fail(err)
+		}
+	}
 	kept := make([]service.Artifact, 0, len(all))
 	for _, a := range all {
 		// --source has no wire equivalent (GET /backups filters on a
@@ -104,6 +134,14 @@ func artifactsJSON(ctx context.Context, cfgPath string, operands []string, sourc
 			continue
 		}
 		if wantState != "" && a.State != wantState {
+			continue
+		}
+		// Nor does the received-date range (#1251): the page applies it in
+		// the browser over the same list.
+		if !rng.holds(a.DiscoveredAt) {
+			continue
+		}
+		if inBucket != nil && !inBucket[a.ID] {
 			continue
 		}
 		kept = append(kept, a)

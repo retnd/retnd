@@ -138,6 +138,18 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
             This deployment cannot keep custom validators: {list.unavailableReason || "no workflow root is configured"}.
           </p>
         ) : null}
+        {list && list.available && list.scriptsDir ? (
+          // Where an upload lands, and whether the root is one config.yaml
+          // names or the mounted default the engine found (#1246), so an
+          // operator can find the scripts and back them up.
+          <p style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--text-2)" }} data-validators-root="">
+            Scripts are kept in{" "}
+            <span className="mono" style={{ overflowWrap: "anywhere" }}>{list.scriptsDir}</span>
+            {list.workflowRootDefault
+              ? ", under the default workflow root: config.yaml names none, and this directory is mounted."
+              : "."}
+          </p>
+        ) : null}
 
         <div role="status" data-validators-status="" style={{ fontSize: "var(--text-sm)", color: "var(--text)", minHeight: status ? undefined : 0 }}>
           {status}

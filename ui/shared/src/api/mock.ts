@@ -100,6 +100,12 @@ export const SCENARIOS = [
   "backups-many",
   "backups-many-corrupt",
   "backups-many-nospace",
+  // Issue #1253: one backup whose file name, collected from the source
+  // host, is something a shell would act on, so a terminal line that names
+  // it unquoted shows up on the screen that prints it. The source host is
+  // slow to describe itself here, so the selection bar stays on its
+  // nothing-chosen-yet line.
+  "backups-hostile-filename",
   // Issue #1180: a deployment that holds exactly 999 backups (the largest that
   // still offers "All" on the Backups page) and one that holds exactly 1000.
   "backups-999",
@@ -180,6 +186,11 @@ export const SCENARIOS = [
   "validators-none",
   "validators-unavailable",
   "validators-full",
+  // #1246: "validators-default-root" runs on the mounted /workflows with no
+  // root in config.yaml; "validators-workflows-off" is a root an operator
+  // cleared (workflows.disabled).
+  "validators-default-root",
+  "validators-workflows-off",
   // #1230: the script states (#1222). "validators-states" holds one validator
   // in each of pinned, unpinned, edited_on_disk and missing; the three below
   // put billing-dump alone in that state (the default has it pinned).
@@ -4301,6 +4312,12 @@ export function createMockApi(
     ? [BUILTIN_ARTIFACT_FIXTURE, ...ARTIFACTS]
     : followsDefault(scenario)
     ? defaultPolicyArtifacts(untestedScenario(scenario), scenario === INGEST_FAILED_SCENARIO)
+    : scenario === "backups-hostile-filename"
+    ? ARTIFACTS.map((a) =>
+        a.id === "production/postgres-primary/postgres-prod-20260828.dump.zst"
+          ? { ...a, id: "production/postgres-primary/prod $(id).dump.zst", filename: "prod $(id).dump.zst" }
+          : a
+      )
     : scenario === "backups-ingest-failed"
     ? ARTIFACTS.map((a) => (a.id === "media/weekly-archive/media-week34.tar" ? { ...a, state: "FAILED", validation: "pending" as const } : a))
     : ARTIFACTS;
@@ -5670,6 +5687,9 @@ export function createMockApi(
       if (medium.prefix) fields.prefix = medium.prefix;
       if (medium.storageClass) fields.storage_class = medium.storageClass;
       if (medium.uploadVerification) fields.upload_verification = medium.uploadVerification;
+      // A local volume's directory, which the engine reads back as `path`
+      // (found reviewing #1257).
+      if (medium.path) fields.path = medium.path;
       // A local destination reads no credential, which is a fact about
       // the manifest and not about this fixture's data: a boolean here
       // is the most that may be said either way (FR-33).
@@ -6006,7 +6026,10 @@ export function createMockApi(
       const setId = source + "/" + set;
       sourceProbe.describes[setId] = (sourceProbe.describes[setId] ?? 0) + 1;
       const d = describeSource(setId, opts?.folder);
-      return d ? delay(d, 150) : sourceNotFound();
+      // #1253: under backups-hostile-filename the source host takes its time,
+      // so the selection bar stays on the line it prints before any
+      // destination is chosen, which is the line under test.
+      return d ? delay(d, scenario === "backups-hostile-filename" ? 600_000 : 150) : sourceNotFound();
     },
     checkSourceHostWrite: (source, set, opts) => {
       const setId = source + "/" + set;

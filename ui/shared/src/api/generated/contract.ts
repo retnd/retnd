@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "e2cf09fac616dc93d05c57871d9dcb0976e8efd7de370475524611573ab071a9";
+export const CONTRACT_SHA256 = "a69f995bd065524ae305e2437665008b3213a1226e53525c9d5b78e1bbf40caa";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -3572,9 +3572,11 @@ export interface WireListCustomValidatorsResponse {
   max_validators: number;
   resolution?: WireCustomValidatorResolution;
   runner_configured: boolean;
+  scripts_dir: string;
   unavailable_reason: string;
   validators: WireCustomValidator[];
   workflow_root: string;
+  workflow_root_default: boolean;
 }
 
 /** GET /operations, newest first. The list counterpart of GET
@@ -4081,6 +4083,7 @@ export interface WireRecoveryManyPlan {
  *  one browser download. */
 export interface WireRecoveryManyRequest {
   acknowledged?: boolean;
+  all?: boolean;
   artifacts?: string[];
   copy?: string;
   newest_only?: boolean;
@@ -4088,6 +4091,7 @@ export interface WireRecoveryManyRequest {
   set?: string;
   since?: string;
   target: WireRecoveryTarget;
+  until?: string;
 }
 
 /** What a run did. The summary and the manifest file written beside
@@ -5275,6 +5279,7 @@ export interface WireUpdateSettingsRequest {
 export interface WireUpdateWorkflowSettingsRequest {
   after_dir?: string;
   before_dir?: string;
+  disabled?: boolean;
   max_script_size_bytes?: number;
   root?: string;
   script_timeout_seconds?: number;
@@ -5531,10 +5536,12 @@ export interface WireWorkflowSettingsResponse {
   after_dir?: string;
   before_dir?: string;
   configured?: boolean;
+  disabled?: boolean;
   environment?: WireWorkflowEnvironmentVariable[];
   exec_connections?: string[];
   max_script_size_bytes?: number;
   root?: string;
+  root_default?: boolean;
   runner?: WireWorkflowRunnerSettings;
   script_timeout_configured?: boolean;
   script_timeout_seconds?: number;

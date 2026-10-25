@@ -266,10 +266,8 @@ func (c *Client) Login(ctx context.Context) error {
 
 	// The CSRF cookie has to exist before login can echo it, and on a cold
 	// client nothing has issued one yet. This read is what does it.
-	if c.csrfToken() == "" {
-		if _, err := c.readSession(ctx); err != nil && !isSessionRefusal(err) {
-			return err
-		}
+	if err := c.seedCSRF(ctx); err != nil {
+		return err
 	}
 
 	c.remember(false)
@@ -281,6 +279,25 @@ func (c *Client) Login(ctx context.Context) error {
 		return err
 	}
 	c.remember(true)
+	return nil
+}
+
+// seedCSRF makes sure this client holds the double-submit cookie, for a
+// mutation that is declared unauthenticated and CSRF-required at once:
+// login, and the three account acts a browser performs with no session
+// (enroll, forgot-password, reset-password; #1253).
+//
+// The cookie is issued in front of every response the runtime serves, so
+// one GET /auth/session is enough, and the 401 it answers a stranger with
+// is the expected outcome rather than a failure. Anything else it answers
+// (no engine, a body the contract does not describe) is this call's answer.
+func (c *Client) seedCSRF(ctx context.Context) error {
+	if c.csrfToken() != "" {
+		return nil
+	}
+	if _, err := c.readSession(ctx); err != nil && !isSessionRefusal(err) {
+		return err
+	}
 	return nil
 }
 

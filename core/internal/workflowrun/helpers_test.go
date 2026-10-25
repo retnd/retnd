@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -33,10 +34,20 @@ import (
 // refuses any ancestor another account can write, and t.TempDir lands
 // under a mode-1777 /tmp on Linux. A fixture built there would be refused
 // for a reason about the harness rather than about the fixture.
+//
+// It is made under the repository's ignored .testtmp/ rather than beside
+// this package's sources, which is where it used to go: every test that
+// walks the source tree could then meet one mid-removal, and
+// core/tests/brandguard did (#1247).
 func custodyTempDir(t *testing.T) string {
 	t.Helper()
 
-	dir, err := os.MkdirTemp(".", ".wfrun-")
+	_, here, _, _ := runtime.Caller(0)
+	root := filepath.Join(filepath.Dir(here), "..", "..", "..", ".testtmp")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("creating %s: %v", root, err)
+	}
+	dir, err := os.MkdirTemp(root, ".wfrun-")
 	if err != nil {
 		t.Fatalf("creating a fixture directory: %v", err)
 	}

@@ -694,6 +694,7 @@ Two optional features change what a "copy" can be, and `recover` works with both
 retnd recover --set <source/backup-set> --to <folder-under-the-staging-root>
 retnd recover --set <source/backup-set> --newest-only --to <folder>
 retnd recover --set <source/backup-set> --since 2026-10-01 --to medium:<id>/<prefix>
+retnd recover --set <source/backup-set> --since 2026-10-01 --until 2026-10-07 --to <folder>
 retnd recover <id> <id> ... --to <folder>
 retnd recover --set <source/backup-set> --to <folder> --preflight
 ```
@@ -716,7 +717,16 @@ What it does that a shell loop over single recoveries does not:
   read or thawed before that. `--preflight` stops there.
 - **Which backups.** A restore point is a backup in `COMMITTED`, `REMOTE_DELETE_PENDING`,
   `COMPLETE` or `REMOTE_RETAINED` (Step 2 above). `--newest-only` takes the newest one,
-  `--since` the ones updated at or after a date. Quarantined and lost backups are listed in
+  `--since` the ones that arrived at or after a date and `--until` the ones that arrived at
+  or before one, so the two together are the Backups page's received-date range. "Arrived"
+  is `discovered_at`, which nothing changes afterwards: a backup whose set went read-only
+  and came back keeps its day, where the time it last changed (`updated_at`) would move it.
+  `--newest-only` picks by arrival too. A bare `YYYY-MM-DD` is that whole day in UTC
+  (`--until 2026-10-07` keeps a backup from 23:30 that day) and an RFC 3339 time is that
+  moment; `--until` before `--since` is refused. With `--newest-only` it is the newest
+  restore point inside the range. `retnd artifacts --since DATE --until DATE` lists the same
+  backups first, if you want to look before you recover, and `POST /api/v1/recoveries` takes
+  the same pair as `since` and `until` (RFC 3339 times). Quarantined and lost backups are listed in
   the pre-flight and the summary and are never included, and neither is a backup that is
   not yet a restore point.
 - **A folder per set.** Files land under `<folder>/<source>/<backup-set>/`, each with the
@@ -759,11 +769,11 @@ retnd recover --set production/postgres-primary --newest-only --to source:retnd-
 retnd recover --set production/postgres-primary --to source: --preflight
 ```
 
-The colon matters. `--to source:` is a fresh folder on the source host, and `--to source:FOLDER` one you name (one segment starting with `retnd-recovered-`, then letters, digits, `.`, `_` or `-`, not ending in a dot). `--to source` with no colon is a staging folder called "source", as it always was. A whole set onto the source host needs `--newest-only`, `--since` or `--all`, because the default act should never be "every retained backup onto a production volume".
+The colon matters. `--to source:` is a fresh folder on the source host, and `--to source:FOLDER` one you name (one segment starting with `retnd-recovered-`, then letters, digits, `.`, `_` or `-`, not ending in a dot). `--to source` with no colon is a staging folder called "source", as it always was. A whole set onto the source host needs `--newest-only`, `--since`, `--until` or `--all`, because the default act should never be "every retained backup onto a production volume". A range that keeps every retained restore point (`--until 2099-01-01`, say) is that act by another name, so it is refused with the count and still needs `--all`. `POST /api/v1/recoveries` holds the request to the same rule, with `"all": true` as its spelling of `--all`, and refuses it with 400 and the same sentence; a `preflight` request is not held to it, as `--preflight` is not.
 
 **Where the default does not apply.** A set that does not pull over SFTP (or an incremental one) has no source host, and a set declared `read_only: true` is never written to, so for both `--to` stays required and the usage error says why.
 
-**What happens before a byte is read.** retnd checks the destination again from the configuration, then runs the write check (the connection test's probe: one file written, removed and confirmed gone) unless one ran in the last five minutes, then asks the host how much space is free. A read-only pull account is refused there (`RECOVERY_SOURCE_HOST_READ_ONLY`, exit 39), a probe that could not remove its own file is too (`RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE`, exit 43, naming the file to delete), an unreachable host is `RECOVERY_SOURCE_HOST_UNREACHABLE` (exit 41, worth trying again), and a run that does not fit the host's free space less the staging reserve is `RECOVERY_SOURCE_HOST_NO_SPACE` (exit 42). `--to source: --preflight` prints the destination and runs that check without recovering anything.
+**What happens before a byte is read.** retnd checks the destination again from the configuration, then runs the write check (the connection test's probe: one file written, removed and confirmed gone) unless one ran in the last five minutes, then asks the host how much space is free. A read-only pull account is refused there (`RECOVERY_SOURCE_HOST_READ_ONLY`, exit 39), a probe that could not remove its own file is too (`RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE`, exit 43, naming the file to delete), an unreachable host is `RECOVERY_SOURCE_HOST_UNREACHABLE` (exit 41, worth trying again), and a run that does not fit the host's free space less the staging reserve is `RECOVERY_SOURCE_HOST_NO_SPACE` (exit 42). `--to source: --preflight` prints the destination, from configuration and the last write check, without recovering anything and without touching the host, which is what the recovery dialog shows when it opens; `--to source: --preflight --write-check` runs that check as well, the dialog's "Check write access" button.
 
 **How each file lands.** The folder is claimed with a rename that fails when anything is already at that name, so retnd only ever writes into a folder it has just created. Each file is written as `.<name>.retnd-partial-<random>` in that folder and then renamed into place with a plain SFTP rename, which the server refuses when the name is taken, so nothing is ever replaced and a dropped connection never leaves a short file under a real name. If the temporary file cannot be removed after a failure, the error names it so you can delete it. Where the host lets retnd run `sha256sum`, the placed file's digest is checked on the host; where it does not (a chrooted SFTP-only account, for example), the result says `verified: size`. A set run writes `manifest-<operation id>.json` beside the files.
 
@@ -996,7 +1006,8 @@ a running one can be stopped.
   recorded as a failed copy, because nobody saw the validator answer. An id that nothing is
   running under (never started, already finished, or another process's) is not found, never
   a success. Operations live in the memory of the process serving the deployment, so the CLI
-  needs `RETND_API_URL` and the two credential variables. The route is deliberately not
+  needs `RETND_API_URL` and the two credential variables, and from a terminal with no
+  deployment of its own `RETND_API_DEPLOYMENT_ID` as well. The route is deliberately not
   under `/operations`, so it answers on a deployment whose destructive gate is shut.
 
 ### What the validator printed
@@ -1070,6 +1081,14 @@ it does not start following a later opt-in on the set; delete the line in `confi
 want it to. An edit replaces the validator whole, so an edit that leaves `env` out is `minimal`,
 never what the validator had before. The list shows the environment each validator really gets.
 
+The workflow root is `workflows.root` in `config.yaml`, or `/workflows` when the file names
+none and that directory is there, which is where every packaged stack mounts the workflows
+directory. The Settings card, `retnd settings workflow`, `retnd assurance validators list` and
+`retnd check` say when it is that default. `retnd settings workflow patch --disable` (or the older
+`--root ""`) writes `workflows.disabled: true`, which turns workflows off, default included, and
+`--enable` turns them back on. A retnd older than this refuses a `config.yaml` with `disabled` in
+it, so turn workflows back on, or delete the line, before you downgrade.
+
 **`name` and `validator_id` are different things.** A custom validator's `name` is NAME in its
 `NAME.local.sh` under `<workflow root>/recovery-test-validators/`, chosen by you, unique across
 the deployment (compared without regard to case, since a case-insensitive volume would make
@@ -1097,8 +1116,10 @@ What a pattern may be:
 How scripts are kept:
 
 - An upload is held to the check that gates saving a workflow, and written to a temporary file
-  and renamed in (directory `0750`, file `0640`), then the entry goes into `assurance.validators`
-  in `config.yaml`. Anything in the directory that `config.yaml` does not name is moved aside
+  in the directory and renamed in (directory `0750`, file `0640`), then the entry goes into
+  `assurance.validators` in `config.yaml`. Only `recovery-test-validators` and its `.superseded`
+  sibling have to be writable, so a read-only workflow tree with those two mounted writable over
+  it (the packaged layout) keeps validators fine. Anything in the directory that `config.yaml` does not name is moved aside
   on the next upload, and the 64 validator limit counts files.
 - Removing a validator, or a backup set that has some, **moves** the script to
   `recovery-test-validators.superseded` beside the directory, under its own name (with a

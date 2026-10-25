@@ -27,9 +27,10 @@ import (
 // the process that will use the keys and a probe is only worth running from
 // the machine the backups travel from. With nothing serving they act on this
 // deployment's own files through the same service layer. On a host with no
-// config.yaml yet the reads and the probe work against the first-run
-// surface; an import needs a configuration to put the key next to and says
-// so.
+// config.yaml yet they go to an engine still serving its first-run setup
+// flow when this command has an address for it (#1254), and otherwise the
+// reads and the probe work against this host's first-run surface and an
+// import, with no configuration to put the key next to, says so.
 //
 // # What never appears
 //
@@ -71,15 +72,32 @@ func cmdSSH(args []string) int {
 
 // openSSHKeyRoute settles where a key store verb acts.
 //
-// A host with no config.yaml has no engine to find and no store to write
-// beside, so the reads and the probe go to the first-run surface, which
-// holds a store and a scanner of its own, and an import is refused with the
-// way forward. Everything else is the door every configuration write goes
-// through, which is also what routes it to a serving engine.
+// A host with no config.yaml is a first run, and where the key goes then
+// depends on what is serving the journal --state-database would name
+// ($STATE_DATABASE or the packaged path, since these verbs take no flag
+// for it). An engine still on its first-run setup flow, with an address to
+// reach it, is where the key store that matters lives, so every verb goes
+// there (#1254): on a headless install that is the only way the key step
+// of a first run can happen from a terminal. Otherwise the reads and the
+// probe go to this host's own first-run surface, which holds a store and a
+// scanner of its own, and an import is refused with the way forward.
+// Everything else is the door every configuration write goes through,
+// which is also what routes it to a serving engine.
 func openSSHKeyRoute(ctx context.Context, cfgPath string, importing bool) (sshKeyRoute, func(), error) {
 	configFile := config.ResolvePath(cfgPath)
 	if _, err := os.Stat(configFile); errors.Is(err, os.ErrNotExist) {
+		route, firstRunServing, err := sshKeyFirstRunRoute(ctx, "so this command uses its key store at %s")
+		if err != nil {
+			return nil, func() {}, err
+		}
+		if route != nil {
+			return route, func() {}, nil
+		}
 		if importing {
+			if firstRunServing {
+				return nil, func() {}, fmt.Errorf("there is no configuration at %s yet, and a process is serving this deployment. If it is still on its first-run setup flow, the key store is its own and this command has no route to it: set $%s (with $%s and $%s) to the address it serves and run this again, or create the first backup set with `backup-set create --ssh-key-file ...`, which imports the key as part of it",
+					configFile, routeEnvName(apiURLRoute), routeEnvName(apiUsernameRoute), routeEnvName(apiPasswordRoute))
+			}
 			return nil, func() {}, fmt.Errorf("there is no configuration at %s yet, so there is no key store to put a key in. Create the first backup set with `backup-set create --ssh-key-file ...`, which imports the key as part of it, or add one in the web interface", configFile)
 		}
 		abs, absErr := filepath.Abs(configFile)
@@ -97,6 +115,46 @@ func openSSHKeyRoute(ctx context.Context, cfgPath string, importing bool) (sshKe
 		return nil, func() {}, err
 	}
 	return route, cleanup, nil
+}
+
+// sshKeyFirstRunRoute is the first-run engine's key store, when something
+// serving this deployment is still on its first run and this command has
+// an address for it, and reports whether anything is serving at all so a
+// refusal can say which way forward exists.
+//
+// It is attachFirstRun, the route a first configuration takes, with no
+// claim around it: these verbs write no configuration, so there is nothing
+// to hold one for. A configured engine beside a host with no config.yaml
+// (a mistyped --config) gets no route, as it does for a create, and these
+// verbs carry on against this host's own first-run surface exactly as
+// before. A route that was named and is refused is reported, never
+// downgraded, and it is said on stderr, so a --json document on stdout
+// stays the only thing there.
+//
+// uses is the end of the mode line, with a %s for the address: what this
+// command does with the engine it found, in the caller's words, since the
+// candidate connection check (#1253) takes the same route for a different
+// reason than a key verb.
+func sshKeyFirstRunRoute(ctx context.Context, uses string) (*firstRunEngineRoute, bool, error) {
+	stateDatabase := service.StateDatabaseDefault()
+	engine, err := detectRunningEngineForJournal(stateDatabase)
+	if err != nil {
+		return nil, false, cannotTellError(err)
+	}
+	if engine == nil {
+		return nil, false, nil
+	}
+	attachCtx, cancel := context.WithTimeout(ctx, firstRunAttachTimeout)
+	defer cancel()
+	route, address, err := attachFirstRun(attachCtx, engine)
+	if err != nil {
+		return nil, true, err
+	}
+	if route != nil {
+		fmt.Fprintf(os.Stderr, "%s%s. A process is serving this deployment's first-run setup flow (state database %s), "+uses+".\n",
+			modeLinePrefix, engineAttachedMode, engine.StateDatabase, address)
+	}
+	return route, true, nil
 }
 
 // readKeyPassphrase reads the first line of stdin when the flag says to,
@@ -162,13 +220,13 @@ func printSSHKeys(wire apicontract.ListSSHKeysResponse) {
 		return
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tALGORITHM\tFINGERPRINT\tIMPORTED\tUSED BY")
+	_, _ = fmt.Fprintln(w, "ID\tALGORITHM\tFINGERPRINT\tIMPORTED\tUSED BY")
 	for _, k := range wire.Keys {
 		used := "nothing"
 		if len(k.UsedBy) > 0 {
 			used = strings.Join(k.UsedBy, ", ")
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", k.ID, orDash(k.Algorithm), orDash(k.Fingerprint), orDash(k.ImportedAt), used)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", k.ID, orDash(k.Algorithm), orDash(k.Fingerprint), orDash(k.ImportedAt), used)
 	}
 	_ = w.Flush()
 	for _, k := range wire.Keys {
@@ -230,7 +288,7 @@ func printSSHDiscovery(wire apicontract.ListSSHKeyCandidatesResponse) {
 	}
 	fmt.Println("keys:")
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "  ID\tPATH\tALGORITHM\tFINGERPRINT\tSTATE")
+	_, _ = fmt.Fprintln(w, "  ID\tPATH\tALGORITHM\tFINGERPRINT\tSTATE")
 	for _, c := range wire.Candidates {
 		state := "importable with `ssh-key import --candidate " + c.ID + "`"
 		switch {
@@ -239,7 +297,7 @@ func printSSHDiscovery(wire apicontract.ListSSHKeyCandidatesResponse) {
 		case !c.Selectable:
 			state = "not importable: " + orDash(c.Reason)
 		}
-		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n", c.ID, c.Path, orDash(c.Algorithm), orDash(c.Fingerprint), state)
+		_, _ = fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n", c.ID, c.Path, orDash(c.Algorithm), orDash(c.Fingerprint), state)
 	}
 	_ = w.Flush()
 }

@@ -1,0 +1,590 @@
+# What core/cliecho echoes for every route, for every kind of input (#1253).
+#
+# A line that stops saying "command" is the terminal losing something a
+# click can do. "no command" is a whole UI action with no CLI twin.
+#
+# Re-pin with: UPDATE_CLI_OUTCOMES=1 go test ./cliecho -run TestEveryRouteOutcomeIsInTheGolden (from core/)
+
+DELETE /assurance/validators/{name}
+	example: command
+	body that isn't JSON: command
+
+DELETE /backup-sets/{source}/{set}
+	example: command
+	body that isn't JSON: command
+
+DELETE /backup-sets/{source}/{set}/assurance
+	example: command
+	body that isn't JSON: command
+
+DELETE /backup-sets/{source}/{set}/retention
+	example: command
+	body that isn't JSON: command
+
+DELETE /backup-sets/{source}/{set}/workflow/environment/{name}
+	example: command
+	body that isn't JSON: command
+
+DELETE /settings/workflow/environment/{name}
+	example: command
+	body that isn't JSON: command
+
+DELETE /storage-mediums/{id}
+	example: command
+	body that isn't JSON: command
+
+GET /activity
+	example: command
+	example ?limit=50: command
+	example ?before=120&limit=50: command
+
+GET /activity/live
+	example: command
+	example ?backup_set=api-server%2Fvar-backups&limit=25: command
+	example ?since=42: command
+	example ?scope=deployment: command
+	example ?backup_set=api-server%2Fvar-backups&scope=deployment: command
+
+GET /assurance/default-validator-script
+	example: command
+
+GET /assurance/due
+	example: command
+	example ?backup_set=api-server%2Fvar-backups&status=overdue: command
+	example ?status=due: command
+
+GET /assurance/operations/{op}
+	example: command
+
+GET /assurance/validator-patterns
+	example: command
+	example ?backup_set=api-server%2Fvar-backups: command
+
+GET /assurance/validators
+	example: command
+	example ?backup_set=api-server%2Fvar-backups: command
+	example ?artifact=api-server%2Fvar-backups%2FMANIFEST-20260902T153521Z.txt: command
+
+GET /assurance/validators/{name}/script
+	example: command
+
+GET /auth/recovery
+	example: command
+
+GET /auth/session
+	example: command
+
+GET /backends
+	example: command
+
+GET /backup-sets
+	example: command
+
+GET /backup-sets/*
+	example: command
+
+GET /backup-sets/{source}/{set}/assurance
+	example: command
+
+GET /backup-sets/{source}/{set}/edit-hold
+	example: command
+
+GET /backup-sets/{source}/{set}/holds
+	example: command
+
+GET /backup-sets/{source}/{set}/recovery-test/output
+	example: command
+
+GET /backup-sets/{source}/{set}/retention
+	example: command
+
+GET /backup-sets/{source}/{set}/retention/preview
+	example: command
+
+GET /backup-sets/{source}/{set}/snapshot-retention
+	example: command
+
+GET /backup-sets/{source}/{set}/snapshots
+	example: command
+
+GET /backup-sets/{source}/{set}/snapshots/{run}
+	example: command
+
+GET /backup-sets/{source}/{set}/source-host
+	example: command
+	example ?folder=retnd-recovered-20261015-101500-a1b2: command
+
+GET /backup-sets/{source}/{set}/workflow
+	example: command
+
+GET /backup-sets/{source}/{set}/workflow/environment
+	example: command
+
+GET /backup-sets/{source}/{set}/workflow/validation
+	example: command
+
+GET /backups
+	example: command
+	example ?setId=api-server%2Fvar-backups: command
+
+GET /backups/{source}/{set}/{name}
+	example: command
+
+GET /operations
+	example: command
+
+GET /operations/{id}
+	example: command
+
+GET /quarantine
+	example: command
+
+GET /recoveries/{grant}
+	no command: a grant is minted and redeemed in one step by `retnd recover`, in your own shell, so there is no verb that redeems a grant somebody else minted: the token belongs to the browser session that asked for it
+
+GET /repositories
+	example: command
+
+GET /repositories/{domain}/maintenance
+	example: command
+
+GET /settings
+	example: command
+
+GET /settings/assurance
+	example: command
+
+GET /settings/workflow
+	example: command
+
+GET /settings/workflow/environment
+	example: command
+
+GET /ssh-keys
+	example: command
+
+GET /ssh/key-candidates
+	example: command
+
+GET /storage-mediums
+	example: command
+
+GET /storage-mediums/{id}
+	example: command
+
+GET /storage-mediums/{id}/configuration
+	example: command
+
+GET /storage-mediums/{id}/usage
+	example: command
+
+GET /system/capabilities
+	example: command
+
+GET /system/first-run
+	example: command
+
+GET /system/health
+	example: command
+
+GET /system/staging-directories
+	example: command
+	example ?path=daily%2F2026-10: command
+
+GET /system/storage
+	example: command
+
+GET /system/version
+	example: command
+
+GET /validators
+	example: command
+
+GET /workflow-recovery
+	example: command
+
+GET /workflow-runs
+	example: command
+	example ?backup_set=api-server%2Fvar-backups&limit=25: command
+
+GET /workflow-runs/{run}
+	example: command
+
+GET /workflow-runs/{run}/steps
+	example: command
+
+GET /workflow-runs/{run}/steps/{step}/logs
+	example: command
+	example ?after=42&limit=500&wait=5: command
+
+PATCH /auth/recovery
+	corpus: command
+	example {"currentPassword":"x","recoveryEmail":"ops@example.org"}: command
+	example {"currentPassword":"x","smtp":{"host":"smtp.example.org","port":2525,"security":"tls","username":"mailer","from":"retnd@example.org","password":"y"}}: command
+	body that isn't JSON: malformed: the request body would not decode, so there is no command that says what it changed
+
+PATCH /backup-sets/{source}/{set}
+	corpus: command
+	example {"stale_after_seconds":172800}: command
+	example {"host":"10.0.0.15","skip_connection_check":true}: command
+	example {"stale_after_seconds":30,"stable_for_seconds":600}: command
+	example {"stale_after_seconds":3610,"stable_for_seconds":90}: command
+	example {"host":"10.0.0.15","port":2222,"user":"backups","remote_path":"/var/backups","local_path":"/data/backups","include":["*.gz","*.sql"],"completion_strategy":"stable","stable_for_seconds":300,"validator_id":"gzip","ssh_key_id":"key_2","known_hosts_line":"10.0.0.15 ssh-ed25519 AAAAC3Nz","acknowledge_repoint":true,"acknowledge_host_key_change":true}: command
+	example {"source_consistency":"quiesced","verification_level":"sample","verification_sample_percent":10,"verification_full_every_seconds":604800,"verification_restore_drill_every_seconds":2592000}: command
+	example {"poll_interval_seconds":900}: command
+	example {"poll_interval_seconds":0}: command
+	body that isn't JSON: malformed: there is no verb that edits a backup set from a request body
+
+PATCH /backup-sets/{source}/{set}/assurance
+	corpus: command
+	example {"scrub_cadence_seconds":7200}: command
+	example {"recovery_test_mode":"custom","recovery_test_cadence_seconds":172800,"recovery_test_validator_id":"pg-restore-check"}: command
+	body that isn't JSON: malformed: there is no verb that patches a backup set's assurance policy from a request body
+
+PATCH /backup-sets/{source}/{set}/workflow
+	corpus: command
+	example {"before_dir":"pg.before.d","script_timeout_seconds":90}: command
+	example {"before_dir":"","after_dir":"","script_timeout_seconds":0,"remote_exec_connection_ref":"pg-primary"}: command
+	body that isn't JSON: malformed: there is no verb that patches a backup set's workflow configuration from a request body
+
+PATCH /settings
+	corpus with tiers: command
+	corpus without tiers: command
+	example {"retention":{"timezone":"Europe/Berlin","week_starts_on":"monday","protect_last_known_good":false}}: command
+	example {"capacity":{"cap_bytes":1099511627776,"warning_free_bytes":107374182400,"critical_free_bytes":53687091200,"safety_margin_bytes":1073741824}}: command
+	example {"retention":{"tiers":[{"name":"daily","granularity":"day","keep":7}],"timezone":"Europe/Berlin"},"acknowledge_medium_disclosure":true}: command
+	example {"retention":{"tiers":[{"name":"daily","granularity":"day","keep":7}]},"capacity":{"cap_bytes":1099511627776}}: command
+	example {"service":{"poll_interval_seconds":3600}}: command
+	body that isn't JSON: malformed: there is no verb that patches the deployment's settings from a request body
+
+PATCH /settings/assurance
+	corpus: command
+	example {"scrub_cadence_seconds":43200}: command
+	example {"recovery_test_mode":"required","recovery_test_validator_id":"pg-restore-check","recovery_test_cadence_seconds":2592000}: command
+	example {"staging_ttl_seconds":3600,"max_concurrent_full_reads":4,"max_per_destination":2}: command
+	example {"scrub_cadence_seconds":0,"scrub_strategy":"","staging_root":"/var/lib/retnd/staging"}: command
+	example {"recovery_test_mode":"builtin","recovery_test_cadence_seconds":2592000}: command
+	example {"recovery_test_builtin_check":"off"}: command
+	body that isn't JSON: malformed: there is no verb that patches the deployment's assurance policy from a request body
+
+PATCH /settings/workflow
+	corpus: command
+	example {"root":"/workflows"}: command
+	example {"before_dir":"before.d","after_dir":"after.d","script_timeout_seconds":300,"max_script_size_bytes":65536}: command
+	example {"before_dir":"","after_dir":"","script_timeout_seconds":0}: command
+	example {"disabled":true}: command
+	example {"disabled":false}: command
+	body that isn't JSON: malformed: there is no verb that patches the deployment's workflow configuration from a request body
+
+POST /assurance/operations/{op}/cancel
+	example: command
+	body that isn't JSON: command
+
+POST /assurance/validator-preview
+	corpus: command
+	example {"pattern":"^MANIFEST-\\d{8}T\\d{6}Z\\.txt$"}: command
+	example {"pattern":"^MANIFEST-","backup_set_id":"api-server/var-backups","replacing":"manifest"}: command
+	body that isn't JSON: malformed: there is no verb that previews a pattern from a request body
+
+POST /assurance/validators
+	corpus: command
+	example {"name":"manifest","pattern":"^MANIFEST-\\d{8}T\\d{6}Z\\.txt$","backup_set_id":"api-server/var-backups","script":"#!/usr/bin/env bash\nexit 0\n"}: command
+	example {"name":"dumps","pattern":"\\.sql\\.gz$","script":"#!/usr/bin/env bash\nexit 0\n"}: command
+	example {"name":"dumps","pattern":"\\.sql\\.gz$","env":"workflow","script":"#!/usr/bin/env bash\nexit 0\n"}: command
+	body that isn't JSON: malformed: there is no verb that uploads a validator from a request body
+
+POST /auth/enroll
+	corpus: command
+	example {"username":"admin","password":"x"}: command
+	example {"username":"admin","password":"x","recoveryEmail":"ops@example.org","smtp":{"host":"smtp.example.org","port":2525,"security":"tls","username":"mailer","from":"retnd@example.org","password":"y"}}: command
+	body that isn't JSON: malformed: the request body would not decode, so there is no command that says who it enrolled
+
+POST /auth/forgot-password
+	corpus: command
+	example {"username":"admin"}: command
+	body that isn't JSON: malformed: the request body would not decode, so there is no command that says which account it asked about
+
+POST /auth/login
+	no command: a login opens a browser session, and a terminal holds no session: a routed command signs in with $RETND_API_USERNAME and $RETND_API_PASSWORD for the one invocation, so there is nothing to type
+
+POST /auth/logout
+	no command: a logout ends a browser session, and a terminal holds none
+
+POST /auth/password
+	corpus: command
+	example: command
+	body that isn't JSON: command
+
+POST /auth/recovery/test
+	example: command
+	body that isn't JSON: command
+
+POST /auth/reset-password
+	corpus: command
+	example: command
+	body that isn't JSON: command
+
+POST /auth/verify-email
+	corpus: command
+	example: command
+	body that isn't JSON: command
+
+POST /auth/verify-email/resend
+	example: command
+	body that isn't JSON: command
+
+POST /backup-sets
+	corpus: command
+	example {"source_name":"api-server","name":"var-backups","host":"10.0.0.14","user":"backups","remote_path":"/var/backups","local_path":"/data/backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","completion_strategy":"stable","stable_for_seconds":300,"run_immediately":true,"acknowledge_repoint":true}: command
+	example {"source_name":"api-server","name":"var-backups","host":"10.0.0.14","user":"backups","remote_path":"/var/backups","local_path":"/data/backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","skip_connection_check":true}: command
+	example {"source_name":"api-server","name":"var-backups","host":"10.0.0.14","user":"backups","remote_path":"/var/backups","local_path":"/data/backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","completion_strategy":"rename","engine":"kopia","repository_domain":"production-vault","source_consistency":"quiesced","verification_level":"sample","verification_sample_percent":10,"verification_full_every_seconds":604800,"verification_restore_drill_every_seconds":2592000}: command
+	example {"source_name":"api-server","name":"var-backups","host":"10.0.0.14","user":"backups","remote_path":"/srv/var-backups","local_path":"/data/backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","completion_strategy":"rename","engine":"kopia","repository_domain":"production-vault","uuid":"7d1c5a6e-3b8f-4c2a-9e41-0f6b2d8a5c13","source_mount_prefix":"/srv"}: command
+	body that isn't JSON: malformed: there is no verb that creates a backup set from a request body
+
+POST /backup-sets/test-connection
+	corpus mode=candidate: command
+	corpus mode=persisted: command
+	example {"backup_set_id":"api-server/var-backups"}: command
+	example {"host":"10.0.0.14","user":"backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","remote_path":"/var/backups"}: command
+	body that isn't JSON: malformed: there is no verb that checks a source connection from a request body
+
+POST /backup-sets/{source}/{set}/edit-hold
+	example: command
+	body that isn't JSON: command
+
+POST /backup-sets/{source}/{set}/edit-hold/release
+	example: command
+	body that isn't JSON: command
+
+POST /backup-sets/{source}/{set}/enabled
+	corpus: command
+	example {"enabled":true}: command
+	example {"enabled":false}: command
+	body that isn't JSON: malformed: there is no verb that enables or disables a set from a request body
+
+POST /backup-sets/{source}/{set}/read-only
+	corpus: command
+	example {"read_only":true}: command
+	example {"read_only":false}: command
+	body that isn't JSON: malformed: there is no verb that changes a set's read-only posture from a request body
+
+POST /backup-sets/{source}/{set}/recovery-test
+	corpus: command
+	example: command
+	example {}: command
+	example {"artifact_id":"api-server/var-backups/dump.tar","acknowledged":true}: command
+	body that isn't JSON: command
+
+POST /backup-sets/{source}/{set}/retention/apply
+	corpus: command
+	example {"plan_id":"plan_01HX"}: command
+	body that isn't JSON: command
+
+POST /backup-sets/{source}/{set}/scrub
+	example: command
+	body that isn't JSON: command
+
+POST /backup-sets/{source}/{set}/source-host/write-check
+	example: command
+	example ?folder=retnd-recovered-20261015-101500-a1b2: command
+	body that isn't JSON: command
+
+POST /backups/{source}/{set}/{name}/recovery
+	corpus target.kind=download: command
+	corpus target.kind=staging: command
+	corpus target.kind=storage: command
+	corpus target.kind=source: command
+	corpus target.kind=<unknown>: refused: there is no terminal destination for this recovery's target, and a recovery line without --to would write onto the source host, so none is printed
+	example {"target":{"kind":"download"}}: command
+	example {"copy":"offsite_s3","acknowledged":true,"target":{"kind":"staging","path":"restore/dump.tar"}}: command
+	example {"target":{"kind":"storage","medium":"offsite_s3","key":"recovered/dump.tar"}}: command
+	example {"target":{"kind":"source","path":"retnd-recovered-20261015-101500-a1b2","acknowledged_destination":"sh1-0123456789abcdef0123456789abcdef"}}: command
+	example {"target":{"kind":"staging","path":"source:old"}}: command
+	body that isn't JSON: malformed: the request body would not decode, so there is no recovery to name a destination for
+
+POST /backups/{source}/{set}/{name}/retry
+	corpus: command
+	example: command
+	example {"note":"the NAS came back"}: command
+	body that isn't JSON: command
+
+POST /catalog/rebuild
+	example: command
+	body that isn't JSON: command
+
+POST /catalog/scan
+	example: command
+	body that isn't JSON: command
+
+POST /operations
+	corpus action=run_cycle: command
+	corpus action=run_backup_set: command
+	corpus action=run_backup_set without its parameters: refused: there is no command for an operation request that leaves out the parameters its action reads, and the engine refuses it too
+	corpus action=restore_placement: command
+	corpus action=restore_placement without its parameters: refused: there is no command for an operation request that leaves out the parameters its action reads, and the engine refuses it too
+	corpus action=restore_snapshot: command
+	corpus action=restore_snapshot without its parameters: refused: there is no command for an operation request that leaves out the parameters its action reads, and the engine refuses it too
+	corpus action=verify_snapshot: command
+	corpus action=verify_snapshot without its parameters: refused: there is no command for an operation request that leaves out the parameters its action reads, and the engine refuses it too
+	corpus action=hold_snapshot: command
+	corpus action=hold_snapshot without its parameters: refused: there is no command for an operation request that leaves out the parameters its action reads, and the engine refuses it too
+	corpus action=release_snapshot_hold: command
+	corpus action=release_snapshot_hold without its parameters: refused: there is no command for an operation request that leaves out the parameters its action reads, and the engine refuses it too
+	corpus action=<unknown>: refused: there is no verb for an operation action this binary doesn't define, and the engine refuses the request too
+	example {"action":"restore_placement","config_revision":"r1","restore":{"artifact_id":"api-server/var-backups/dump.tar","medium":"offsite_s3","window_days":7,"acknowledged":true}}: command
+	example {"action":"run_backup_set","config_revision":"r1","backup_set_id":"api-server/var-backups"}: command
+	example {"action":"run_cycle","config_revision":"r1"}: command
+	example {"action":"restore_snapshot","config_revision":"r1","snapshot_restore":{"backup_set_id":"api-server/var-backups","target_path":"/srv/restored","snapshot_id":"k1234","source_path":"var/lib/pg","conflict":"skip"}}: command
+	example {"action":"verify_snapshot","config_revision":"r1","snapshot_verify":{"backup_set_id":"api-server/var-backups","run_id":"run_1","level":"content_sample","sample_percent":10}}: command
+	example {"action":"hold_snapshot","config_revision":"r1","snapshot_hold":{"backup_set_id":"api-server/var-backups","run_id":"run_1","reason":"kept for the incident review"}}: command
+	example {"action":"release_snapshot_hold","config_revision":"r1","snapshot_hold_release":{"backup_set_id":"api-server/var-backups","hold_id":"hold_1"}}: command
+	body that isn't JSON: malformed: there is no verb that submits an operation from a request body
+
+POST /quarantine/{source}/{set}/{name}/reinstate
+	example: command
+	body that isn't JSON: command
+
+POST /quarantine/{source}/{set}/{name}/retry
+	example: command
+	body that isn't JSON: command
+
+POST /quarantine/{source}/{set}/{name}/revalidate
+	example: command
+	body that isn't JSON: command
+
+POST /recoveries
+	corpus mode=artifacts target.kind=download: refused: there is no terminal destination for this recovery's target, and a recovery line without --to would write onto the source host, so none is printed
+	corpus mode=artifacts target.kind=staging: command
+	corpus mode=artifacts target.kind=storage: command
+	corpus mode=artifacts target.kind=source: command
+	corpus mode=artifacts target.kind=<unknown>: refused: there is no terminal destination for this recovery's target, and a recovery line without --to would write onto the source host, so none is printed
+	corpus mode=set target.kind=download: refused: there is no terminal destination for this recovery's target, and a recovery line without --to would write onto the source host, so none is printed
+	corpus mode=set target.kind=staging: command
+	corpus mode=set target.kind=storage: command
+	corpus mode=set target.kind=source: command
+	corpus mode=set target.kind=<unknown>: refused: there is no terminal destination for this recovery's target, and a recovery line without --to would write onto the source host, so none is printed
+	example {"set":"api-server/var-backups","target":{"kind":"staging","path":"restore/var-backups"}}: command
+	example {"set":"api-server/var-backups","newest_only":true,"acknowledged":true,"target":{"kind":"storage","medium":"offsite_s3","key":"recovered"}}: command
+	example {"set":"api-server/var-backups","since":"2026-10-01T00:00:00Z","preflight":true,"target":{"kind":"staging","path":"restore/var-backups"}}: command
+	example {"set":"api-server/var-backups","since":"2026-10-01T00:00:00Z","until":"2026-10-07T23:59:59Z","target":{"kind":"staging","path":"restore/var-backups"}}: command
+	example {"artifacts":["api-server/var-backups/a.tar","api-server/var-backups/b.tar"],"target":{"kind":"staging","path":"restore/picked"}}: command
+	example {"set":"api-server/var-backups","target":{"kind":"source","path":"retnd-recovered-20261015-101500-a1b2","acknowledged_destination":"sh1-0123456789abcdef0123456789abcdef"}}: command
+	example {"set":"api-server/var-backups","newest_only":true,"target":{"kind":"source","path":"retnd-recovered-20261015-101500-a1b2","acknowledged_destination":"sh1-0123456789abcdef0123456789abcdef"}}: command
+	example {"set":"api-server/var-backups","preflight":true,"target":{"kind":"source","path":"retnd-recovered-20261015-101500-a1b2"}}: command
+	example {"artifacts":["api-server/var-backups/a.tar"],"target":{"kind":"staging","path":"-odd"}}: command
+	example {"artifacts":["api-server/var-backups/a.tar"],"target":{"kind":"staging","path":"medium:x"}}: command
+	body that isn't JSON: malformed: the request body would not decode, so there is no recovery to name a destination for
+
+POST /repositories
+	corpus: command
+	example {"id":"offsite-b2","isolation":"isolated","description":"Second copy, off site","passphrase":{"file":"/etc/retnd/offsite-b2.passphrase"}}: command
+	example {"id":"production","isolation":"shared","maintenance_owner":"another-instance","passphrase":{"env":"RETND_PRODUCTION_PASSPHRASE"}}: command
+	body that isn't JSON: malformed: there is no verb that declares a repository domain from a request body
+
+POST /ssh-keys
+	corpus: command
+	example {"private_key_pem":"x"}: command
+	example {"private_key_pem":"x","passphrase":"y"}: command
+	body that isn't JSON: malformed: the request body would not decode, so there is no command that says what it imported
+
+POST /ssh-keys/from-candidate
+	corpus: command
+	example {"candidate_id":"cand_1"}: command
+	body that isn't JSON: malformed: the request body would not decode, so there is no command that says which candidate it selected
+
+POST /ssh/host-key-probe
+	corpus: command
+	example {"host":"source.example.internal","port":2222}: command
+	example {"host":"source.example.internal","port":22}: command
+	body that isn't JSON: malformed: the request names no host, so there is nothing to probe and no command that says what was probed
+
+POST /storage-credentials
+	corpus: command
+	example: command
+	body that isn't JSON: command
+
+POST /storage-mediums
+	corpus: command
+	example {"id":"offsite_s3","type":"s3","region":"eu-central-1","bucket":"acme-backups","prefix":"prod","storage_class":"STANDARD_IA","upload_verification":"readback","credentials":{"credentials_id":"cred_01HX"}}: command
+	example {"id":"offsite_s3","type":"s3","region":"eu-central-1","bucket":"acme-backups","credentials":{"command":["aws-vault","exec","backups"]}}: command
+	body that isn't JSON: malformed: there is no verb that declares a storage destination from a request body
+
+POST /storage-mediums/preflight
+	corpus: command
+	example {"id":"offsite_s3","type":"s3","region":"eu-central-1","endpoint":"https://s3.eu-central-1.example.net","bucket":"acme-backups","prefix":"prod","storage_class":"STANDARD","upload_verification":"readback","credentials":{"env":"RETND_S3_CREDENTIALS"}}: command
+	body that isn't JSON: malformed: there is no verb that proves an undeclared storage destination from a request body
+
+POST /storage-mediums/{id}/configuration/preflight
+	corpus: command
+	example {"backend":"local_volume","fields":[{"field":"path","value":"/mnt/usb"}],"credentials":{}}: command
+	body that isn't JSON: malformed: there is no verb that checks a destination's configuration from a request body
+
+POST /storage-mediums/{id}/preflight
+	example: command
+	body that isn't JSON: command
+
+POST /system/first-run
+	corpus: command
+	example {"source_name":"api-server","name":"var-backups","host":"10.0.0.14","port":22,"user":"backups","remote_path":"/var/backups","local_path":"/data/backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","completion_strategy":"rename","include":["*.gz"],"stale_after_seconds":172800,"validator_id":"gzip","read_only":true,"disabled":true}: command
+	body that isn't JSON: malformed: there is no verb that writes a first configuration from a request body
+
+POST /system/first-run/skip
+	no command: skipping a step of the first-run guide is a choice about what the web interface shows next; a terminal has no guide to leave a step of
+
+POST /workflow-recovery/{run}/acknowledge
+	corpus: command
+	example {"reason":"unmounted the snapshot by hand and checked the database is writable"}: command
+	body that isn't JSON: malformed: there is no verb that acknowledges an interrupted workflow run from a request body
+
+POST /workflow-recovery/{run}/resume-cleanup
+	example: command
+	body that isn't JSON: command
+
+PUT /assurance/validators/{name}
+	corpus: command
+	example {"pattern":"^MANIFEST-","backup_set_id":"api-server/var-backups"}: command
+	example {"pattern":"^MANIFEST-","script":"#!/usr/bin/env bash\nexit 0\n"}: command
+	example {"pattern":"^MANIFEST-","env":"workflow","script_sha256":"abababababababababababababababababababababababababababababababab"}: command
+	body that isn't JSON: malformed: there is no verb that replaces a validator from a request body
+
+PUT /backup-sets/{source}/{set}/retention
+	corpus with tiers: command
+	corpus without tiers: command
+	example {"daily_days":7,"weekly_months":3,"monthly_months":12,"timezone":"Europe/Berlin","week_starts_on":"monday","protect_last_known_good":false,"acknowledge_medium_disclosure":true}: command
+	example {"tiers":[{"name":"daily","granularity":"day","keep":7}]}: command
+	example {"tiers":[{"name":"daily","granularity":"day","keep":7}],"timezone":"Europe/Berlin","week_starts_on":"monday","acknowledge_medium_disclosure":true}: command
+	body that isn't JSON: malformed: there is no verb that sets a backup set's retention policy from a request body
+
+PUT /backup-sets/{source}/{set}/workflow/environment/{name}
+	corpus: command
+	example {"value":"UTC"}: command
+	example {"value":""}: command
+	example {"secret":{"file":"/etc/retnd/pg.passphrase"}}: command
+	example {"secret":{"env":"RETND_PG_PASSWORD"}}: command
+	example {"secret":{"command":["vault","read","-field=password","secret/pg"]}}: command
+	body that isn't JSON: malformed: there is no verb that configures a backup set's workflow environment variable from a request body
+
+PUT /settings/workflow/environment/{name}
+	corpus: command
+	example {"value":"UTC"}: command
+	example {"value":""}: command
+	example {"secret":{"file":"/etc/retnd/pg.passphrase"}}: command
+	example {"secret":{"env":"RETND_PG_PASSWORD"}}: command
+	example {"secret":{"command":["vault","read","-field=password","secret/pg"]}}: command
+	body that isn't JSON: malformed: there is no verb that configures a workflow environment variable from a request body
+
+PUT /storage-mediums/{id}
+	corpus: command
+	example {"region":"eu-west-1","storage_class":"GLACIER_IR"}: command
+	example {"type":"s3","region":"eu-west-1","endpoint":"https://s3.eu-west-1.example.net","bucket":"acme-backups","prefix":"prod","storage_class":"STANDARD","upload_verification":"attested","credentials":{"file":"/etc/retnd/aws-credentials"}}: command
+	body that isn't JSON: malformed: there is no verb that edits a storage destination from a request body
+
+PUT /storage-mediums/{id}/configuration
+	corpus: command
+	example {"backend":"local_volume","fields":[{"field":"path","value":"/mnt/usb"},{"field":"prefix","value":"retnd"}],"credentials":{}}: command
+	example {"backend":"s3","fields":[{"field":"bucket","value":"acme-backups"},{"field":"region","value":"eu-central-1"}],"credentials":{"credentials_id":"cred_01HX"}}: command
+	body that isn't JSON: malformed: there is no verb that configures a storage destination from a request body
+
+PUT /storage-mediums/{id}/default
+	example: command
+	body that isn't JSON: command

@@ -171,8 +171,10 @@ commands:
                                                   (#543); with nothing serving, it is the same service layer that
                                                   route is built on, called here. On an instance with no config.yaml
                                                   yet this writes the first one instead (#176), and --state-database
-                                                  names the journal it points at; that create has no route, so it is
-                                                  refused while something serves that deployment (#536)
+                                                  names the journal it points at. Beside an engine still serving its
+                                                  first-run setup flow, that create is POST /api/v1/system/first-run
+                                                  against the engine when this command has a route to it (#1254);
+                                                  beside one that is already configured it is refused (#536)
                                                   The connection is proven before anything is written, and the create is
                                                   refused when it cannot be: --no-verify writes it anyway, says in so many
                                                   words that nothing was proven, and leaves the set marked as unverified
@@ -231,6 +233,16 @@ commands:
                                                   result whether or not the connection works, and the exit code stays the
                                                   verdict (1 when it fails). The mode line and the startup log go to stderr,
                                                   so the document is all of stdout (#1152)
+  backup-set test-connection --candidate --host H --user U --ssh-key-id K
+                             --known-hosts-line L --remote-path P [--port N] [--json]
+                                                  the same six checks against a source that is NOT saved, described by
+                                                  these flags, so a set can be proven before it is written down: the
+                                                  wizard's "Test connection" button, and what create runs before its
+                                                  write, asked for on its own. It names no set and writes nothing
+                                                  whatever the report says. The key is an id ssh-key import printed,
+                                                  never a file, and the trusted line is the one ssh-keyscan or ssh
+                                                  host-key-probe prints, so no key is imported and no trust decision is
+                                                  made here. --json prints the TestConnectionResponse (#1253)
   artifacts [--source S] [--backup-set B]        list journal artifacts
                                                   --backup-set takes the source/backup-set id sources, status and
                                                   retention name a backup set by, and a plain set name where one
@@ -255,6 +267,16 @@ commands:
                                                   print how many backups are held outside quarantine, the number the
                                                   web console's Backups badge reads (the sidebar shows >100 past a
                                                   hundred, this always prints the number); --json prints {"count": N} (#1186)
+  artifacts [--source S] [--backup-set B] [--state S] [--assurance due|overdue|degraded|untested] [--since DATE] [--until DATE] [--count] [--json]
+                                                  list or count only the backups received in a range, the Backups
+                                                  page's "Received on or after" and "Received on or before". Both
+                                                  bounds are inclusive, on the time the backup arrived (discovered_at),
+                                                  which a later transition such as a set going read-only and back does
+                                                  not move. A DATE is YYYY-MM-DD, the whole of that day in UTC, or an
+                                                  RFC 3339 time, that moment exactly; --until before --since is
+                                                  refused. --assurance keeps the backups in one assurance bucket (or
+                                                  a comma list of them), the page's ?assurance= filter, classified
+                                                  exactly as assurance list --bucket classifies them (#1251)
   activity [--backup-set S] [--severity warn|error] [--limit N] [--json]
                                                   list recorded lifecycle events, newest first: the same durable
                                                   transition log the Web UI's Activity page draws. Beside a serving
@@ -275,8 +297,9 @@ commands:
                                                   stream the LIVE feed instead, until interrupted: the serving
                                                   process's own event stream, which is what the Web UI's docked
                                                   terminal shows. A different feed from the one above rather than a
-                                                  mode of it, so it needs a route to that process and refuses
-                                                  without one instead of quietly reading the journal. The feed
+                                                  mode of it, so it needs a route to that process (a remote terminal
+                                                  works too) and refuses without one instead of quietly reading the
+                                                  journal. The feed
                                                   starts again, and says so, if that process restarts (#573, #598).
                                                   --scope deployment narrows it to the log that names no backup
                                                   set (a cycle starting, a capacity check, what somebody just
@@ -356,8 +379,8 @@ commands:
   assurance cancel <operation-id> [--json]
                                                   stop a running scrub or recovery test by the operation id its start
                                                   returned. The operation lives in the memory of the process serving
-                                                  this deployment, so this needs RETND_API_URL and the two credential
-                                                  variables beside it and is refused without them. The same as
+                                                  this deployment, so this needs a route to it, and from a remote
+                                                  terminal RETND_API_DEPLOYMENT_ID too. The same as
                                                   POST /api/v1/assurance/operations/{op}/cancel (EPIC Q)
   assurance show <operation-id> [--json]
                                                   one scrub or recovery test by the operation id its start returned,
@@ -433,13 +456,35 @@ commands:
                                                    environment a validator gets, what its exit status means, what becomes
                                                    of its output and where it runs. Reads no configuration.
                                                    GET /api/v1/assurance/default-validator-script
+  auth enroll --username U --token-stdin --password-stdin
+                          [--recovery-email ADDR --smtp-host H [--smtp-port N] [--smtp-security starttls|tls|none]
+                          [--smtp-username U] [--smtp-from ADDR] [--smtp-password-stdin]]
+                                                  make the first administrator through the serving engine, the request the
+                                                  enrollment page sends. The enrollment token (or the whole enrollment
+                                                  link the container log prints) is the first stdin line, the password
+                                                  the second and the SMTP password, if any, the third; none is ever a
+                                                  flag. Needs only RETND_API_URL, since there is no account to sign in as
+                                                  yet, so it works inside a headless container where `+cliecho.WebBinary+`
+                                                  auth create-admin refuses (the serving process holds the store). The
+                                                  same as POST /api/v1/auth/enroll (#1253)
+  auth forgot-password --username U
+                                                  ask the engine to mail a single-use reset link to the account's recovery
+                                                  address. Needs only RETND_API_URL. The engine answers the same way for
+                                                  every username, so the command cannot say whether a message was sent,
+                                                  and says that. The same as POST /api/v1/auth/forgot-password
+  auth reset-password --token-stdin --password-stdin
+                                                  redeem the reset token out of the emailed link (first stdin line) and set
+                                                  the new password (second); neither is ever a flag. Needs only
+                                                  RETND_API_URL. Every session is signed out and none opened, so sign in
+                                                  with the new password afterwards. The same as
+                                                  POST /api/v1/auth/reset-password
   auth password --password-stdin
                                                   change the administrator's password. The current password and then the
                                                   new one come from stdin, one per line, and never from a flag, so neither
                                                   is in the process list or the shell history; nothing prints them. The
                                                   account belongs to the process serving this deployment, so this needs
-                                                  RETND_API_URL and the two credential variables beside it and is refused
-                                                  without them. Locked out with nothing serving? `+cliecho.WebBinary+` auth
+                                                  a route to it (a remote terminal works too) and is refused without
+                                                  one. Locked out with nothing serving? `+cliecho.WebBinary+` auth
                                                   set-password --username U --password-stdin resets it offline. The same
                                                   as POST /api/v1/auth/password (#1155)
   auth recovery show [--json]
@@ -461,12 +506,18 @@ commands:
                                                   redeem the verification token out of the emailed link (from stdin, never
                                                   a flag), or ask for the message to be sent again. The same as
                                                   POST /api/v1/auth/verify-email and /resend
+  auth whoami [--json]
+                                                  who the credentials this terminal carries sign in as, from the engine.
+                                                  Routed, as above. The same as GET /api/v1/auth/session
   ssh-key list [--json]
                                                   the keys in this deployment's key store: id, algorithm, fingerprint,
                                                   when it was imported and which backup sets use it. The id is the one
                                                   backup-set create|patch --ssh-key-id takes. Public halves only; a
                                                   key's bytes are never printed. Beside a serving engine this is its
-                                                  store (GET /api/v1/ssh-keys); with nothing serving, this host's
+                                                  store (GET /api/v1/ssh-keys); with nothing serving, this host's.
+                                                  Before the first config.yaml, the ssh-key verbs and the probe go to
+                                                  an engine still serving its first-run setup flow when RETND_API_URL
+                                                  names it, and use this host's own store otherwise (#1254)
   ssh-key import --file F [--passphrase-stdin] | --candidate ID [--json]
                                                   add a key to the store and print its fingerprint and id. --file is a
                                                   private key file, read once and copied; the original is left alone. A
@@ -491,15 +542,32 @@ commands:
   operation list [--backup-set S] [--action A] [--json]
                                                   list the operations the engine holds, newest first, so there is an id
                                                   to hand to assurance cancel. They live in the memory of the process
-                                                  serving this deployment, so this needs RETND_API_URL and the two
-                                                  credential variables beside it and is refused without them. The same
-                                                  body as GET /api/v1/operations; the two filters narrow it here (#1149)
+                                                  serving this deployment, so this needs a route to it (see the remote
+                                                  terminal paragraph below) and is refused without one. The same body as
+                                                  GET /api/v1/operations; the two filters narrow it here (#1149)
   operation show <operation-id> [--json] [--follow]
                                                   one operation as the engine holds it. --follow polls until it finishes,
                                                   prints each change of status on standard error, and exits 0 for
-                                                  completed and 1 for anything else. The same as
-                                                  GET /api/v1/operations/{id}. A scrub's or recovery test's lines and
-                                                  how it ended are assurance show (#1149)
+                                                  completed and 1 for any other ending. A poll that fails is asked again
+                                                  for a few minutes; past that, when the engine no longer has the
+                                                  operation, or on Ctrl-C it exits 51 naming the operation, which may
+                                                  still be running. The same as GET /api/v1/operations/{id}. A scrub's or
+                                                  recovery test's lines and how it ended are assurance show (#1149)
+  operation run [--backup-set S] [--skip-workflow-scripts] [--follow] [--json]
+                                                  ask the engine to run every enabled set (run_cycle), or one set with
+                                                  --backup-set (run_backup_set), the way the Dashboard's and the set page's
+                                                  run buttons do. Unlike run and fetch the run happens in the process
+                                                  serving this deployment and is an operation list row, so this needs a
+                                                  route to it, and from a remote terminal RETND_API_DEPLOYMENT_ID too. The
+                                                  revision is the engine's own, so the revision check cannot fire, and every
+                                                  invocation is a new submission; a reply that never comes is sent again
+                                                  with the same key, and if it still never comes the command exits 51
+                                                  because the run may have started. --skip-workflow-scripts asks the engine
+                                                  to run the set without its workflow hooks and the engine records the
+                                                  bypass; fetch has no equivalent. --json prints the Operation the engine
+                                                  answers with (success only); --follow works like operation show --follow.
+                                                  A shut destructive gate exits 50 and nothing is started. The same as
+                                                  POST /api/v1/operations (#1250)
   catalog rebuild [--dry-run]                    reconstruct a lost/corrupted state database from sidecar recovery manifests
   catalog rebuild [--dry-run] --json
                                                   print the API's CatalogReportResponse for the whole deployment instead of
@@ -630,9 +698,9 @@ commands:
                                                   to skip, because a restore is billed and takes hours; --days
                                                   defaults to 7 and is bounded to 1..30. artifacts <id> lists
                                                   which medium each copy is on
-  recover <source/backup-set/artifact> [--to source:[FOLDER] | - | NAME | medium:ID[/KEY]] [--acknowledge-source-write] [--preflight] [--copy M] [--acknowledge-cost] [--json]
-  recover --set <source/backup-set> [--newest-only | --since DATE | --all] [--to source:[FOLDER] | NAME | medium:ID[/PREFIX]] [--acknowledge-source-write] [--preflight] [--acknowledge-cost] [--json]
-  recover <id> <id> ... [--to source:[FOLDER] | NAME | medium:ID[/PREFIX]] [--acknowledge-source-write] [--preflight] [--acknowledge-cost] [--json]
+  recover <source/backup-set/artifact> [--to source:[FOLDER] | - | NAME | medium:ID[/KEY]] [--acknowledge-source-write] [--preflight [--write-check]] [--copy M] [--acknowledge-cost] [--json]
+  recover --set <source/backup-set> [--newest-only] [--since DATE] [--until DATE] [--all] [--to source:[FOLDER] | NAME | medium:ID[/PREFIX]] [--acknowledge-source-write] [--preflight [--write-check]] [--acknowledge-cost] [--json]
+  recover <id> <id> ... [--to source:[FOLDER] | NAME | medium:ID[/PREFIX]] [--acknowledge-source-write] [--preflight [--write-check]] [--acknowledge-cost] [--json]
                                                   get the retained bytes of one artifact back (EPIC Q, FR-67). It
                                                   reads one copy, checks all of it against the SHA-256 recorded when
                                                   the backup was ingested, and only then writes it: to standard
@@ -660,7 +728,9 @@ commands:
                                                   first: the number and size of the files, what is quarantined,
                                                   lost or needs a thaw, the cost of the whole set, and whether it
                                                   fits the destination (refused with the numbers if not, before a
-                                                  byte is read). --newest-only and --since narrow a set;
+                                                  byte is read). --newest-only, --since and --until narrow a set (the
+                                                  dates as artifacts takes them, both ends inclusive; --newest-only then
+                                                  picks the newest inside the range, and --all goes with none of them);
                                                   --preflight stops after that. Each file is checked like a single
                                                   recovery; one failing does not stop the rest. A progress line per
                                                   file and a running total are printed, Ctrl-C cancels the run and
@@ -679,9 +749,14 @@ commands:
                                                   it is refused before any network call (exit 40). A set whose source
                                                   is not SFTP, or one declared read_only, has no such default and
                                                   needs --to. A whole set onto the source host also needs
-                                                  --newest-only, --since or --all. --to source: --preflight prints
-                                                  where it would write and runs the write check, which writes and
-                                                  removes one probe file. The source host's refusals exit 38 to 43.
+                                                  --newest-only, --since, --until or --all, and a range that keeps
+                                                  every retained restore point still needs --all. --to source:
+                                                  --preflight prints where it would write, from configuration and the
+                                                  last write check, and touches the host not at all, which is what
+                                                  the web UI's recovery dialog shows when it opens; --write-check
+                                                  beside it runs the write check too, which writes one probe file
+                                                  there and removes it, the dialog's "Check write access" button
+                                                  (#1253). The source host's refusals exit 38 to 43.
                                                   A staging folder called source is still --to source; one whose
                                                   name starts with source:, medium: or - is written ./NAME.
   backup-set enabled <source/backup-set> <on|off>
@@ -786,15 +861,18 @@ commands:
                                                   resolved retention, capacity and service settings, the declared
                                                   destinations, the schema they are validated against and first_run. A read
                                                   only: settings patch refuses --json (#1152)
-  backup-set edit-hold <source/backup-set> [--release]
+  backup-set edit-hold <source/backup-set> [--take | --release]
                                                   report whether a backup set is held for editing, what taking the
-                                                  hold stopped, and when the lease expires; --release gives it back
-                                                  so the scheduler may run the set again rather than waiting for it
-                                                  to lapse. A hold lives in the memory of the process serving this
-                                                  deployment and does not survive it, so this needs a route to that
-                                                  process and refuses without one. There is no verb that TAKES a
-                                                  hold: a hold protects an editing session and a CLI edit is one
-                                                  backup-set patch that either runs or does not (#350, #600)
+                                                  hold stopped, and when the lease expires. --take takes the hold the
+                                                  web UI's edit form takes, or renews one already held: the cycle
+                                                  inside the set stops at its next safe boundary and the scheduler
+                                                  starts no new pass for it until the hold is released or its lease
+                                                  lapses, which is what lets a scripted edit of several patches run
+                                                  with nothing underneath it. --release gives it back so the scheduler
+                                                  may run the set again rather than waiting for the lease to lapse.
+                                                  A hold lives in the memory of the process serving this deployment
+                                                  and does not survive it, so this needs a route to that process (a
+                                                  remote terminal works too) and refuses without one (#350, #600, #1253)
   backup-set retention <source/backup-set> [--inherit] [--policy-file F]
                        [--timezone T] [--week-starts-on D]
                        [--daily-days N] [--weekly-months N] [--monthly-months N]
@@ -1024,9 +1102,10 @@ process over its API, so it takes effect at once and there is nothing to restart
 preflight --candidate goes the same way, because it is the check medium add runs before it
 writes and has to happen where the write will. With something serving and no route, the
 write is refused and nothing is written: there is still no config watcher and no SIGHUP reload in this build, so a
-change left in the file is one the serving process would never read. One write has no route
-at all and is refused beside a serving engine either way: the first config.yaml a create
-writes on an instance that has none yet (#535, #543, #1148)
+change left in the file is one the serving process would never read. The first config.yaml
+a create writes on an instance that has none yet is routed only to an engine still on its
+first run, as POST /api/v1/system/first-run, and refused beside a configured one (#535,
+#543, #1148, #1254)
 
 the route is three environment variables. RETND_API_URL is the engine's address,
 either its own listener from inside its container (http://127.0.0.1:8080) or the published
@@ -1037,6 +1116,21 @@ line is in every process listing on the host. A routed create or patch reports e
 wrote, stale_after included: the API carries stale_after_seconds now, so both routes print the
 same set (#555). Only an engine older than that field serves none, and against one of those a
 routed create prints stale_after as not reported rather than inventing a value
+
+a remote terminal is one with no deployment of its own: no config.yaml where --config points,
+and nothing serving this host's default state database. There, and only there, the verbs
+that can do nothing without the engine (operation list|show|run, assurance cancel,
+backup-set edit-hold, auth and activity --follow) reach the engine RETND_API_URL names with
+the two credential variables alone, and every one prints "mode: engine-attached (remote,
+deployment ID, ADDRESS)" on stderr. Everything else keeps the rules above, and a host that has
+a deployment of its own never goes remote: with that deployment stopped, an exported address
+is not used, because it could name somebody else's engine. operation run and assurance cancel
+start or stop work, so they also want RETND_API_DEPLOYMENT_ID set to the id the engine
+reports, and refuse without it; with it set, an engine that names a different deployment, or
+none, is refused before anything is sent. Plain http to anything but loopback is refused (exit
+52) unless RETND_API_INSECURE_TRANSPORT=acknowledged, which is also the only thing that sends
+the engine the acknowledgement it asks a gated act over plain http for. RETND_API_CA_FILE names
+a PEM file to trust for a self-signed reverse proxy, on any route; nothing skips verification
 
 status, sources, artifacts and retention read rather than write, so a missing route never
 refuses them; they announce which world the answer is about instead. "mode: engine-attached"
@@ -1087,7 +1181,7 @@ to print:
       not be performed at all, a route that was named and did not answer, and a route that
       answered for a different deployment, because none of those gets better by waiting
       (#551, #555)
-  10-36  recover only (EPIC Q), one code per reason so a script can branch without reading the
+  10-49  recover only (EPIC Q), one code per reason so a script can branch without reading the
       sentence: 10 chargeable and not acknowledged, 11 no retained copy, 12 no such copy,
       13 nothing readable right now, 14 the copy on this host's disk failed its checksum,
       15 a remote copy failed its checksum, 16 no recorded SHA-256 to verify against,
@@ -1097,6 +1191,17 @@ to print:
       28 busy, 29 interrupted, 30 any other failure, 31 an archive restore was started and
       nothing was recovered yet, 32 too many full reads running on this host, 33 too many
       on that one destination, 36 too many downloads in progress (a budget refusal: try
-      again when one finishes). In every refusal no byte was delivered anywhere
+      again when one finishes), 38 to 43 the source host (unavailable, read-only, not
+      acknowledged, unreachable, no space, a probe that left its file). 34, 35 and 37 are
+      unused and stay so. In every refusal no byte was delivered anywhere
+  50 onwards  the engine on the other end of a route, for any routed command:
+  50  the engine's destructive gate refused the request (DESTRUCTIVE_OPERATIONS_DISABLED), so
+      nothing was done. Asking again will not change it; the sentence beside it says what does
+  51  this command stopped watching an operation before it ended (a submit whose reply never
+      came, a follow whose engine stopped answering, an operation the engine no longer has,
+      Ctrl-C on a follow), so the operation may still be running. The sentence names it
+  52  plain http to a host that is not this machine was refused, by this command before
+      anything was sent or by the engine (INSECURE_TRANSPORT_ACK_REQUIRED): use https, or set
+      RETND_API_INSECURE_TRANSPORT=acknowledged (#1250)
 `)
 }

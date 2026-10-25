@@ -36,6 +36,7 @@ func (r *engineRoute) UpdateWorkflowSettings(ctx context.Context, req service.Up
 	}
 	resp, err := r.client.UpdateWorkflowSettings(ctx, apicontract.UpdateWorkflowSettingsRequest{
 		Root:                 req.Root,
+		Disabled:             req.Disabled,
 		BeforeDir:            req.BeforeDir,
 		AfterDir:             req.AfterDir,
 		ScriptTimeoutSeconds: timeout,
@@ -167,6 +168,8 @@ func workflowSettingsFromWire(w apicontract.WorkflowSettingsResponse) service.Wo
 	return service.WorkflowSettings{
 		Configured:              w.Configured,
 		Root:                    w.Root,
+		RootDefault:             w.RootDefault,
+		Disabled:                w.Disabled,
 		BeforeDir:               w.BeforeDir,
 		AfterDir:                w.AfterDir,
 		ScriptTimeout:           time.Duration(w.ScriptTimeoutSeconds) * time.Second,
@@ -262,34 +265,6 @@ func retentionOverrideToWire(o service.RetentionOverride) apicontract.RetentionO
 	return w
 }
 
-func retentionSettingsToWire(s service.RetentionSettings) apicontract.RetentionSettings {
-	tiers := make([]apicontract.RetentionTier, 0, len(s.Tiers))
-	for _, t := range s.Tiers {
-		tiers = append(tiers, retentionTierToWire(t))
-	}
-	return apicontract.RetentionSettings{
-		Timezone: s.Timezone, WeekStartsOn: s.WeekStartsOn,
-		ProtectLastKnownGood: s.ProtectLastKnownGood, Tiers: tiers,
-	}
-}
-
-func backupSetRetentionToWire(r service.BackupSetRetention) apicontract.BackupSetRetention {
-	out := apicontract.BackupSetRetention{
-		BackupSetID: r.BackupSetID,
-		IsOverride:  r.IsOverride,
-		Effective:   retentionSettingsToWire(r.Effective),
-		Deployment:  retentionSettingsToWire(r.Deployment),
-	}
-	if r.Override != nil {
-		// The consent is request-only: the response's override never
-		// carries it, exactly as the handler's projection leaves it.
-		o := retentionOverrideToWire(*r.Override)
-		o.AcknowledgeMediumDisclosure = false
-		out.Override = &o
-	}
-	return out
-}
-
 func workflowEnvToWire(in []service.WorkflowEnvVar) []apicontract.WorkflowEnvironmentVariable {
 	out := make([]apicontract.WorkflowEnvironmentVariable, 0, len(in))
 	for _, v := range in {
@@ -312,6 +287,8 @@ func workflowSettingsToWire(s service.WorkflowSettings) apicontract.WorkflowSett
 	return apicontract.WorkflowSettingsResponse{
 		Configured:              s.Configured,
 		Root:                    s.Root,
+		RootDefault:             s.RootDefault,
+		Disabled:                s.Disabled,
 		BeforeDir:               s.BeforeDir,
 		AfterDir:                s.AfterDir,
 		ScriptTimeoutSeconds:    int64(s.ScriptTimeout / time.Second),

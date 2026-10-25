@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "e2cf09fac616dc93d05c57871d9dcb0976e8efd7de370475524611573ab071a9"
+const ContractSHA256 = "a69f995bd065524ae305e2437665008b3213a1226e53525c9d5b78e1bbf40caa"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -2741,18 +2741,20 @@ type ListBackupSetsResponse struct {
 
 // ListCustomValidatorsResponse is the custom validators, and what this deployment allows.
 type ListCustomValidatorsResponse struct {
-	Ambiguities       []CustomValidatorAmbiguity `json:"ambiguities"`
-	Available         bool                       `json:"available"`
-	Directory         string                     `json:"directory"`
-	DirectoryRefused  string                     `json:"directory_refused"`
-	MaxPatternBytes   int64                      `json:"max_pattern_bytes"`
-	MaxScriptBytes    int64                      `json:"max_script_bytes"`
-	MaxValidators     int64                      `json:"max_validators"`
-	Resolution        *CustomValidatorResolution `json:"resolution,omitempty"`
-	RunnerConfigured  bool                       `json:"runner_configured"`
-	UnavailableReason string                     `json:"unavailable_reason"`
-	Validators        []CustomValidator          `json:"validators"`
-	WorkflowRoot      string                     `json:"workflow_root"`
+	Ambiguities         []CustomValidatorAmbiguity `json:"ambiguities"`
+	Available           bool                       `json:"available"`
+	Directory           string                     `json:"directory"`
+	DirectoryRefused    string                     `json:"directory_refused"`
+	MaxPatternBytes     int64                      `json:"max_pattern_bytes"`
+	MaxScriptBytes      int64                      `json:"max_script_bytes"`
+	MaxValidators       int64                      `json:"max_validators"`
+	Resolution          *CustomValidatorResolution `json:"resolution,omitempty"`
+	RunnerConfigured    bool                       `json:"runner_configured"`
+	ScriptsDir          string                     `json:"scripts_dir"`
+	UnavailableReason   string                     `json:"unavailable_reason"`
+	Validators          []CustomValidator          `json:"validators"`
+	WorkflowRoot        string                     `json:"workflow_root"`
+	WorkflowRootDefault bool                       `json:"workflow_root_default"`
 }
 
 // ListOperationsResponse is GET /operations, newest first. The list counterpart of GET
@@ -3259,6 +3261,7 @@ type RecoveryManyPlan struct {
 // one browser download.
 type RecoveryManyRequest struct {
 	Acknowledged bool           `json:"acknowledged,omitempty"`
+	All          bool           `json:"all,omitempty"`
 	Artifacts    []string       `json:"artifacts,omitempty"`
 	Copy         string         `json:"copy,omitempty"`
 	NewestOnly   bool           `json:"newest_only,omitempty"`
@@ -3266,6 +3269,7 @@ type RecoveryManyRequest struct {
 	Set          string         `json:"set,omitempty"`
 	Since        string         `json:"since,omitempty"`
 	Target       RecoveryTarget `json:"target"`
+	Until        string         `json:"until,omitempty"`
 }
 
 // RecoveryManyResult is what a run did. The summary and the manifest file written beside
@@ -4453,6 +4457,7 @@ type UpdateSettingsRequest struct {
 type UpdateWorkflowSettingsRequest struct {
 	AfterDir             *string `json:"after_dir"`
 	BeforeDir            *string `json:"before_dir"`
+	Disabled             *bool   `json:"disabled"`
 	MaxScriptSizeBytes   *int64  `json:"max_script_size_bytes"`
 	Root                 *string `json:"root"`
 	ScriptTimeoutSeconds *int64  `json:"script_timeout_seconds"`
@@ -4709,10 +4714,12 @@ type WorkflowSettingsResponse struct {
 	AfterDir                string                        `json:"after_dir"`
 	BeforeDir               string                        `json:"before_dir"`
 	Configured              bool                          `json:"configured"`
+	Disabled                bool                          `json:"disabled"`
 	Environment             []WorkflowEnvironmentVariable `json:"environment"`
 	ExecConnections         []string                      `json:"exec_connections"`
 	MaxScriptSizeBytes      int64                         `json:"max_script_size_bytes"`
 	Root                    string                        `json:"root"`
+	RootDefault             bool                          `json:"root_default"`
 	Runner                  WorkflowRunnerSettings        `json:"runner"`
 	ScriptTimeoutConfigured bool                          `json:"script_timeout_configured"`
 	ScriptTimeoutSeconds    int64                         `json:"script_timeout_seconds"`

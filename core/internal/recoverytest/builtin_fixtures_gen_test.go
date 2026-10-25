@@ -190,8 +190,12 @@ func buildBuiltinFixtures(t *testing.T) map[string][]byte {
 		if err := tw.WriteHeader(&h); err != nil {
 			t.Fatal(err)
 		}
-		tw.Write(fxText(100, 21))
-		tw.Close()
+		if _, err := tw.Write(fxText(100, 21)); err != nil {
+			t.Fatal(err)
+		}
+		if err := tw.Close(); err != nil {
+			t.Fatal(err)
+		}
 		return out.Bytes()
 	}()
 	files["tar-gnu-longname.tar"] = func() []byte {
@@ -202,8 +206,12 @@ func buildBuiltinFixtures(t *testing.T) map[string][]byte {
 		if err := tw.WriteHeader(&h); err != nil {
 			t.Fatal(err)
 		}
-		tw.Write(fxText(100, 22))
-		tw.Close()
+		if _, err := tw.Write(fxText(100, 22)); err != nil {
+			t.Fatal(err)
+		}
+		if err := tw.Close(); err != nil {
+			t.Fatal(err)
+		}
 		return out.Bytes()
 	}()
 	files["tar-truncated-mid-entry.tar"] = plain[:512+20000]

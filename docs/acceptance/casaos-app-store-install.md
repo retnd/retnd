@@ -27,7 +27,7 @@ CasaOS packaging, so nothing here is a migration from an earlier one.
 
 ### 0.2 Make the canonical image resolvable
 
-The canonical reference is `ghcr.io/retnd/retnd:0.7.1`.
+The canonical reference is `ghcr.io/retnd/retnd:0.7.2`.
 `distribution/packaging/canonical.json` and
 `container/release-manifest.json` jointly record whether it has been published:
 `image.published: true` requires an index digest and one registry digest per
@@ -366,6 +366,8 @@ runs:
 | Host path | In the container | Why |
 |---|---|---|
 | `/DATA/AppData/retnd/workflows` | `/workflows` (read-only) | the hook scripts the engine reads |
+| `/DATA/AppData/retnd/workflows/recovery-test-validators` | `/workflows/recovery-test-validators` (writable) | custom validator scripts the engine writes when one is added (#1246) |
+| `/DATA/AppData/retnd/workflows/recovery-test-validators.superseded` | `/workflows/recovery-test-validators.superseded` (writable) | where a removed validator's script is moved |
 | `/DATA/AppData/retnd/run` | `/data/run` | where the runner's socket appears |
 | `/DATA/AppData/retnd/secrets/workflow-runner.token` | `/etc/retnd/workflow-runner.token` (read-only) | the credential the engine presents |
 

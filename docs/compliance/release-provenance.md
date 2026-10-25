@@ -78,8 +78,8 @@ bash scripts/release/check-published-provenance.sh
 ```
 
 refuses a change to any of them, naming the field, the value it was published
-as and the value the tree now claims. It runs in `scripts/ci-local.sh` and in
-`.github/workflows/ci.yml`'s `gate-guards` job, and
+as and the value the tree now claims. It runs in `scripts/ci-local.sh`, which
+the pre-commit hook runs on every commit, and
 `scripts/tests/published-provenance-guards.test.sh` is the proof it can still
 go red — four refusals and five controls, in throwaway repositories.
 
@@ -317,7 +317,7 @@ ordered procedure is in
 binaries were stamped with, which is what `/retnd version` answers.
 `canonical.json`'s `image.tag` is the semantic version every provider package
 advertises. Those have to be the same string in a real release, and now they are:
-both record `0.7.1`, the tag cut for this release rather than the generator's
+both record `0.7.2`, the tag cut for this release rather than the generator's
 `git describe --tags --always` fallback that produced an abbreviated commit before
 this repository had any tags.
 

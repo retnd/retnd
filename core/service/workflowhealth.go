@@ -75,9 +75,9 @@ type workflowProbeCache struct {
 // takes a context: the probes below are network calls and a caller's
 // cancellation has to reach them.
 func (b *BackupService) WorkflowHealth(ctx context.Context) health.WorkflowHealth {
-	cfg := b.state.Load().inner.Config
-
-	out := health.WorkflowHealth{Configured: cfg.WorkflowsConfigured()}
+	// The service's root (#1246), so health and `settings workflow` agree on
+	// whether a deployment on the mounted default runs workflows.
+	out := health.WorkflowHealth{Configured: b.workflowRoot().Path != ""}
 	if !out.Configured {
 		// A deployment that runs no workflows gets the zero value, which
 		// health.WorkflowHealth's own doc says reads as exactly that.
@@ -255,19 +255,6 @@ func (b *BackupService) probeExecConnection(ctx context.Context, ref string) hea
 
 	out.Capable = true
 	out.Detail = "this connection accepted an exec channel and ran the bytes it was sent"
-
-	return out
-}
-
-// suspendedBackupSetIDs is SuspendedBackupSets as the strings every
-// surface above this one uses.
-func (b *BackupService) suspendedBackupSetIDs() []string {
-	sets := b.SuspendedBackupSets()
-
-	out := make([]string, 0, len(sets))
-	for _, s := range sets {
-		out = append(out, s.String())
-	}
 
 	return out
 }

@@ -510,9 +510,16 @@ func TestAFirstConfigurationIsRefusedWhileAnEngineServesThatJournal(t *testing.T
 	// shared sentence used to end by naming $RETND_API_URL and
 	// the four verbs an address can carry, which sends an operator to set
 	// three variables and run a command that refuses identically, because
-	// a first configuration is the one write with no route.
-	if !strings.Contains(stderr, "cannot carry this one") {
-		t.Errorf("the refusal does not say that an address cannot carry a first configuration, so an operator is sent round the loop it describes:\n%s", stderr)
+	// a first configuration only goes to an engine that is not configured
+	// yet (#1254). Beside a configured one, which this is, an address
+	// cannot carry it, and the refusal has to say so.
+	if !strings.Contains(stderr, "cannot carry this one to a process that is already configured") {
+		t.Errorf("the refusal does not say that an address cannot carry a first configuration to a configured engine, so an operator is sent round the loop it describes:\n%s", stderr)
+	}
+	// #1254: and the other process this refusal can be about, a first-run
+	// engine nobody is standing in front of, is told how to be reached.
+	if !strings.Contains(stderr, "hands it the first configuration") {
+		t.Errorf("the refusal does not say how to hand a first configuration to an engine still on its first run:\n%s", stderr)
 	}
 }
 
@@ -529,7 +536,9 @@ func TestAFirstConfigurationIsRefusedWhileAnEngineServesThatJournal(t *testing.T
 // A host running the first-run setup wizard used to be in this arm too,
 // and #571 moved it into the one above: a wizard now announces about the
 // journal --state-database names before it serves anything, so a create
-// typed at it is refused rather than written underneath it.
+// typed at it is never written underneath it. Since #1254 it is handed to
+// that wizard's engine when the command has an address for it, and
+// refused when it does not (firstrunroute_1254_test.go).
 func TestAFirstConfigurationIsWrittenWhenNothingServesThatJournal(t *testing.T) {
 	dir := t.TempDir()
 	keyPath := writeTestPrivateKey(t)

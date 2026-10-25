@@ -33,7 +33,7 @@ services:
   # scheduler, one process sharing one shutdown context. Holds the state
   # database and the credentials, and publishes no port at all.
   retnd:
-    image: ${IMAGE:-ghcr.io/retnd/retnd:0.7.1}
+    image: ${IMAGE:-ghcr.io/retnd/retnd:0.7.2}
     command: ["/retnd-web", "serve", "--profile=generic"]
 
     user: "${PUID:-1000}:${PGID:-1000}"
@@ -127,6 +127,15 @@ services:
       # The runner's credential, one FILE and read-only, exactly like the
       # SSH key and known_hosts above.
       - ${RUNNER_TOKEN_FILE:?set RUNNER_TOKEN_FILE to the workflow runner's token file}:/etc/retnd/workflow-runner.token:ro
+      # Custom recovery-test validators (#1246): the two directories under
+      # the script tree that the engine WRITES, when an operator uploads a
+      # validator and when one is removed. They are mounted writable over
+      # the read-only tree, from the same host tree, so every hook script
+      # above stays read-only and the host runner reads validators where
+      # they are. Create both, owned by the account this stack runs as,
+      # before the first start, or Docker makes them as root.
+      - ${WORKFLOWS_DIR:?set WORKFLOWS_DIR to the host directory holding the workflow hook scripts}/recovery-test-validators:/workflows/recovery-test-validators
+      - ${WORKFLOWS_DIR:?set WORKFLOWS_DIR to the host directory holding the workflow hook scripts}/recovery-test-validators.superseded:/workflows/recovery-test-validators.superseded
 
     # The start gate, and a liveness question rather than a health
     # verdict (issue #206). The Web UI below declares
@@ -169,7 +178,7 @@ services:
   # operator ever opens. Portainer's "Published ports" link on the stack
   # view points at this one.
   web-ui:
-    image: ${IMAGE:-ghcr.io/retnd/retnd:0.7.1}
+    image: ${IMAGE:-ghcr.io/retnd/retnd:0.7.2}
     command: ["/retnd-web", "serve-ui", "--profile=generic"]
 
     depends_on:

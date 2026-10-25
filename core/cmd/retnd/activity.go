@@ -6,10 +6,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/signal"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/retnd/retnd/core/apicontract"
@@ -128,6 +126,24 @@ func cmdActivity(args []string) int {
 	}
 
 	ctx := context.Background()
+	if *followFlag {
+		// The live feed is only ever the engine's, so from a terminal with
+		// no deployment of its own it goes remote (remote.go) before any
+		// local file is asked for.
+		remote, err := engineOnlyRemote(ctx, *cfgPath, false)
+		if err != nil {
+			return fail(err)
+		}
+		if remote != nil {
+			return runActivityFollow(ctx, remote.decision(), followOptions{
+				backupSetID: *setFlag,
+				scope:       *scopeFlag,
+				minSeverity: minSeverity,
+				limit:       *limitFlag,
+				asJSON:      *jsonFlag,
+			})
+		}
+	}
 	cfg, journal, releaseJournal, err := service.OpenConfigAndJournal(ctx, *cfgPath)
 	if err != nil {
 		return fail(err)
@@ -149,23 +165,13 @@ func cmdActivity(args []string) int {
 	}
 
 	if *followFlag {
-		// Its own context, and its own signal handling: this is the one
-		// invocation of this verb that does not end on its own. Ctrl-C or
-		// a SIGTERM is how an operator ends it and is not a failure, which
-		// is why followActivity returns nil on cancellation. The same
-		// shape `run` and `daemon` already use.
-		followCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-		defer stop()
-		if err := followActivity(followCtx, mode, followOptions{
+		return runActivityFollow(ctx, mode, followOptions{
 			backupSetID: *setFlag,
 			scope:       *scopeFlag,
 			minSeverity: minSeverity,
 			limit:       *limitFlag,
 			asJSON:      *jsonFlag,
-		}, os.Stdout, os.Stderr); err != nil {
-			return fail(err)
-		}
-		return 0
+		})
 	}
 
 	filtered := *setFlag != "" || minSeverity > 0
@@ -426,6 +432,20 @@ func printActivityJSON(events []apicontract.ActivityEvent, nextCursor string) in
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(apicontract.ListActivityResponse{Events: events, NextCursor: nextCursor}); err != nil {
 		return fail(fmt.Errorf("writing the activity feed: %w", err))
+	}
+	return 0
+}
+
+// runActivityFollow is the follow with its own context and its own signal
+// handling: this is the one invocation of this verb that does not end on its
+// own. Ctrl-C or a SIGTERM is how an operator ends it and is not a failure,
+// which is why followActivity returns nil on cancellation. The same shape
+// `run` and `daemon` already use.
+func runActivityFollow(ctx context.Context, mode readDecision, opts followOptions) int {
+	followCtx, stop := interruptContext(ctx)
+	defer stop()
+	if err := followActivity(followCtx, mode, opts, os.Stdout, os.Stderr); err != nil {
+		return fail(err)
 	}
 	return 0
 }

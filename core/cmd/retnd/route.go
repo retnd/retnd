@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/envcompat"
@@ -449,10 +450,56 @@ func attachToEngine(ctx context.Context, engine *service.RunningEngine) (configW
 	if base == "" {
 		return nil, "", nil
 	}
+	client, err := newRouteClient(urlEnv, base)
+	if err != nil {
+		return nil, "", err
+	}
+	// Before the route is handed back, never after. A route returned and
+	// then checked would be a route some later caller could use without
+	// checking, and there is no version of this that is safe to skip.
+	if err := confirmDeployment(ctx, client, engine); err != nil {
+		return nil, "", err
+	}
+	// BaseURL() rather than the raw environment value: it is normalised
+	// and, more to the point, redacted, and this string is printed.
+	return &engineRoute{client: client}, client.BaseURL(), nil
+}
+
+// newRouteClient is the client every route to the engine is built on, from
+// the address and credentials this invocation was given (attachToEngine
+// here, attachFirstRun in firstrunroute.go), so no two routes can sign in
+// or identify themselves differently.
+//
+// An address that cannot be made into a client is a routeRefusal, the
+// same as every other way a named route is refused.
+func newRouteClient(urlEnv, base string) (*apiclient.Client, error) {
+	return newRouteClientWithin(urlEnv, base, 0)
+}
+
+// newRouteClientWithin is newRouteClient with the per-request bound said
+// out loud, for a route that has one request slower than apiclient's
+// default (the first-run route's POST /system/first-run). Zero is that
+// default. A caller that raises it bounds every other call itself.
+func newRouteClientWithin(urlEnv, base string, timeout time.Duration) (*apiclient.Client, error) {
+	// The CA file and the transport opt-in are route settings like the
+	// address (remote.go), so every route reads them here rather than only
+	// the remote one: a reverse proxy with its own certificate sits in front
+	// of a host's own engine just as often.
+	transport, err := routeHTTPClient()
+	if err != nil {
+		return nil, &routeRefusal{
+			reason: fmt.Sprintf("$%s could not be used", apiCAFileEnv),
+			detail: err.Error() + ", so nothing was sent",
+			cause:  err,
+		}
+	}
 	client, err := apiclient.New(apiclient.Config{
-		BaseURL:  base,
-		Username: strings.TrimSpace(envcompat.Value(apiUsernameRoute)),
-		Password: envcompat.Value(apiPasswordRoute),
+		BaseURL:                      base,
+		Timeout:                      timeout,
+		HTTPClient:                   transport,
+		AcknowledgeInsecureTransport: insecureTransportAcknowledged(),
+		Username:                     strings.TrimSpace(envcompat.Value(apiUsernameRoute)),
+		Password:                     envcompat.Value(apiPasswordRoute),
 		// The product and the build, so a request from this command is one
 		// an operator can pick out of an access log. #543's claim is that a
 		// routed command leaves the same audit trail as the Web UI, and
@@ -465,21 +512,13 @@ func attachToEngine(ctx context.Context, engine *service.RunningEngine) (configW
 		// none: nothing was dialled. It carries a reason so the mode line
 		// says an address was given and could not be used, rather than
 		// saying this build has no route at all (mode.go's announce).
-		return nil, "", &routeRefusal{
+		return nil, &routeRefusal{
 			reason: fmt.Sprintf("$%s does not name an engine this command can reach", urlEnv),
 			detail: fmt.Sprintf("$%s does not name an engine this command can reach, so nothing was written: %v", urlEnv, err),
 			cause:  err,
 		}
 	}
-	// Before the route is handed back, never after. A route returned and
-	// then checked would be a route some later caller could use without
-	// checking, and there is no version of this that is safe to skip.
-	if err := confirmDeployment(ctx, client, engine); err != nil {
-		return nil, "", err
-	}
-	// BaseURL() rather than the raw environment value: it is normalised
-	// and, more to the point, redacted, and this string is printed.
-	return &engineRoute{client: client}, client.BaseURL(), nil
+	return client, nil
 }
 
 // clearInheritedRouteSettings removes the three route settings from this
@@ -505,6 +544,7 @@ func clearInheritedRouteSettings() {
 	for _, name := range []string{
 		apiURLEnv, apiUsernameEnv, apiPasswordEnv,
 		legacyAPIURLEnv, legacyAPIUsernameEnv, legacyAPIPasswordEnv,
+		apiDeploymentIDEnv, apiInsecureTransportEnv, apiCAFileEnv,
 	} {
 		_ = os.Unsetenv(name)
 	}

@@ -78,14 +78,16 @@ import (
 // createFirstConfig already asked, about the journal rather than about a
 // configuration that is not there, now has something to find.
 //
-// The refusal is the answer here rather than a route, and that is
-// deliberate rather than a limitation left standing. A route only helps a
-// command that takes one, and the first-configuration write takes none
-// (mode.go's enterFirstConfigWriteMode): the request it would carry is
-// POST /system/first-run, which two of the three shapes that reach here
-// are already past, and the third is a setup flow the operator is
-// standing in front of. Refusing leaves config.yaml untouched and leaves
-// that flow up, which is a deployment somebody can still finish.
+// Finding it is not the same as refusing it any more. The request a first
+// configuration would carry is POST /system/first-run, which two of the
+// three shapes that reach here are already past, and those two are still
+// refused: config.yaml untouched, nothing sent. The third is a setup flow,
+// and #1254 is what was wrong with treating it as one the operator is
+// standing in front of. On a headless install nobody is, and the engine
+// serving it is the container the command runs in, so with an address to
+// reach it the first configuration goes to that engine the way the wizard
+// sends it (firstrunroute.go). Without an address it is refused, and the
+// remedy below says how to give it one.
 //
 // # And why reads are left alone
 //
@@ -193,17 +195,20 @@ var routableRemedy = fmt.Sprintf(
 	"Stop that process and run this command again; if it serves this deployment's Web UI or HTTP API, the change can be made there instead, and `backup-set create`, `backup-set patch`, `backup-set remove`, `backup-set enabled`, `backup-set read-only` and `settings patch` can be handed to it directly by setting $%s (with $%s and $%s) to the address it serves",
 	apiURLEnv, apiUsernameEnv, apiPasswordEnv)
 
-// firstConfigRemedy is what an operator can do about the one configuration
-// write no address can carry.
+// firstConfigRemedy is what an operator can do about a first
+// configuration refused beside a serving process.
 //
-// It says so out loud rather than leaving the variable unmentioned. An
-// operator who has met the routable remedy once, or read it in the usage
-// block, will reach for $RETND_API_URL here, and being told
-// plainly that it is not the answer for this one write is shorter than
-// finding out by setting it.
+// Two different processes reach it and the sentence has to be true of
+// both, because without an address this command cannot tell them apart.
+// One still serving its first-run setup flow can be handed the first
+// configuration (#1254), so it says how. One that is already configured
+// cannot: POST /system/first-run is the only request that carries a first
+// configuration and only an unconfigured instance takes it, so it says
+// that out loud too, rather than sending an operator to set an address
+// that gets this same refusal.
 var firstConfigRemedy = fmt.Sprintf(
-	"Stop that process and run this command again; if it is a fresh install still serving its setup flow, that flow writes this deployment's first configuration and is the place to do it. $%s cannot carry this one: a first configuration is the one write with no route, so setting it and running this again gets this same refusal",
-	apiURLEnv)
+	"Stop that process and run this command again; if it is a fresh install still serving its setup flow, either finish that flow in its Web UI or set $%s (with $%s and $%s) to the address it serves, and this command hands it the first configuration. $%s cannot carry this one to a process that is already configured, because only an instance still waiting for its first configuration accepts one, so there it gets this same refusal: check that --config names that deployment's config.yaml",
+	apiURLEnv, apiUsernameEnv, apiPasswordEnv, apiURLEnv)
 
 // errEngineHoldsDeployment is the fact exit code 3 reports, carried on the
 // error so `fail` can recognise it (issue #551).

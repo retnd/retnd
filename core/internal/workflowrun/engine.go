@@ -1046,8 +1046,8 @@ func (r *runner) runBackup(ctx context.Context) {
 
 	err := r.req.Backup(ctx)
 
-	switch {
-	case err == nil:
+	switch err {
+	case nil:
 		r.backupStatus = workflow.StatusSuccess
 	default:
 		r.backupStatus = workflow.StatusFailed

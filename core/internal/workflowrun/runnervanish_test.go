@@ -52,7 +52,7 @@ func silentRunner(t *testing.T, welcome bool) hostrunner.Client {
 				return
 			}
 			go func() {
-				defer conn.Close()
+				defer conn.Close() //nolint:errcheck // test teardown
 				if _, err := hostrunner.ReadMessage(conn); err != nil {
 					return
 				}

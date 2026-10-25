@@ -272,7 +272,7 @@ func (b *BackupService) RemoveBackupSet(ctx context.Context, id string) error {
 	b.adoptConfig(cfg)
 
 	removed = true
-	if root, why := workflowRootFor(cfg); why == "" {
+	if root, why := workflowRootFor(b.workflowRoot()); why == "" {
 		// Moved aside, not deleted, like a validator removed on its own.
 		b.moveValidatorScriptsAside(ctx, root, droppedScripts...)
 	}

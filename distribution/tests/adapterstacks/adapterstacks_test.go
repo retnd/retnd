@@ -207,7 +207,7 @@ func freshInstall(t *testing.T, neverRun bool) string {
 	// hard permission failure at the first write; a macOS Docker Desktop
 	// daemon is lenient about it, which is exactly how a fixture like this
 	// passes locally and fails on a real runner.
-	for _, sub := range []string{"state", "backups", "config", "workflows", "run"} {
+	for _, sub := range []string{"state", "backups", "config", "workflows", "run", "workflows/recovery-test-validators", "workflows/recovery-test-validators.superseded"} {
 		if err := os.MkdirAll(filepath.Join(dir, sub), 0o777); err != nil {
 			t.Fatalf("MkdirAll %s: %v", sub, err)
 		}
@@ -272,7 +272,8 @@ func freshInstall(t *testing.T, neverRun bool) string {
 // newest mounts. They are empty and unconfigured on purpose: no
 // config.yaml names a runner, so nothing connects to the socket
 // directory, and an empty read-only script tree is what a fresh install
-// really has.
+// really has. The two validator directories under it (#1246) are here for
+// the same reason as the rest.
 func freshInstallHostPaths(t *testing.T, dir string) map[string]string {
 	t.Helper()
 	keyFile := filepath.Join(dir, "id_ed25519")
@@ -292,6 +293,10 @@ func freshInstallHostPaths(t *testing.T, dir string) map[string]string {
 		"/workflows":                       filepath.Join(dir, "workflows"),
 		"/data/run":                        filepath.Join(dir, "run"),
 		"/etc/retnd/workflow-runner.token": runnerToken,
+		// The custom validator directories (#1246), writable and inside
+		// the same script tree, which is how every adapter mounts them.
+		"/workflows/recovery-test-validators":            filepath.Join(dir, "workflows", "recovery-test-validators"),
+		"/workflows/recovery-test-validators.superseded": filepath.Join(dir, "workflows", "recovery-test-validators.superseded"),
 	}
 }
 

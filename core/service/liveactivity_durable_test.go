@@ -177,6 +177,14 @@ func TestACoalescedStageReplacesTheOneAnEarlierBatchStored(t *testing.T) {
 func TestRetentionDropsWhatIsOldAndWhatIsOverTheRowBound(t *testing.T) {
 	j := openTestJournal(t)
 	ctx := context.Background()
+	prune := func(olderThan time.Time, maxRows int) (int64, error) {
+		age, err := j.PruneActivityEventsByAge(ctx, olderThan, activityPruneBatch)
+		if err != nil {
+			return age, err
+		}
+		count, err := j.PruneActivityEventsOverCount(ctx, maxRows, activityPruneBatch)
+		return age + count, err
+	}
 	now := time.Now().UTC()
 	var rows []state.ActivityEventRow
 	for i := 1; i <= 120; i++ {
@@ -191,7 +199,7 @@ func TestRetentionDropsWhatIsOldAndWhatIsOverTheRowBound(t *testing.T) {
 	if err := j.AppendActivityEvents(ctx, rows); err != nil {
 		t.Fatal(err)
 	}
-	n, err := j.PruneActivityEvents(ctx, now.Add(-activityRetention), 50)
+	n, err := prune(now.Add(-activityRetention), 50)
 	if err != nil {
 		t.Fatal(err)
 	}

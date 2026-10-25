@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { inReceivedRange, receivedDay, unselectableReason } from "./backupSelection";
 import type { BackupArtifact } from "@shared/types/backup";
 
-const base = { receivedAt: "2026-08-28T23:30:00-04:00", placements: [] } as unknown as BackupArtifact;
+const base = { producedAt: "2026-08-28T23:30:00-04:00", receivedAt: "2026-08-28T23:30:00-04:00", placements: [] } as unknown as BackupArtifact;
 const copy = (access: string) => ({ ...base, placements: [{ access, status: "ACTIVE" }] }) as unknown as BackupArtifact;
 
 describe("what the Backups list lets you select", () => {

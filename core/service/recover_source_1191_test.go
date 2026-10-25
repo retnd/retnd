@@ -635,7 +635,7 @@ func TestSourceHost1193_ASetGoesBackInOneSessionIntoOneNewFolder(t *testing.T) {
 		manyFile{name: "b.zst", data: manyData(2, 30_000), age: 24 * time.Hour},
 	)
 	tg := ackedSource(t, f, "")
-	unacked := RecoverManyRequest{Set: "production/postgres", Target: RecoveryTarget{Kind: "source", Path: tg.Path}}
+	unacked := RecoverManyRequest{Set: "production/postgres", All: true, Target: RecoveryTarget{Kind: "source", Path: tg.Path}}
 	if _, err := f.b.RecoverMany(context.Background(), f.session(), unacked, nil); codeOf(t, err) != RecoverySourceHostNotAcknowledged {
 		t.Fatalf("a set run onto the source without the acknowledgement = %v", err)
 	}
@@ -643,7 +643,7 @@ func TestSourceHost1193_ASetGoesBackInOneSessionIntoOneNewFolder(t *testing.T) {
 		t.Fatalf("an unacknowledged set run touched the source")
 	}
 
-	res, err := f.b.RecoverMany(context.Background(), f.session(), RecoverManyRequest{Set: "production/postgres", Target: tg}, nil)
+	res, err := f.b.RecoverMany(context.Background(), f.session(), RecoverManyRequest{Set: "production/postgres", All: true, Target: tg}, nil)
 	if err != nil {
 		t.Fatalf("RecoverMany to the source: %v", err)
 	}
@@ -675,7 +675,7 @@ func TestSourceHost1193_AConfigChangeMidRunStopsTheRestOfTheRun(t *testing.T) {
 		// A change freeze declared while the run is going.
 		once.Do(func() { f.reconfigure(t, func(bs *config.BackupSet) { bs.ReadOnly = true }) })
 	}
-	res, _ := f.b.RecoverMany(context.Background(), f.session(), RecoverManyRequest{Set: "production/postgres", Target: ackedSource(t, f, "")}, nil)
+	res, _ := f.b.RecoverMany(context.Background(), f.session(), RecoverManyRequest{Set: "production/postgres", All: true, Target: ackedSource(t, f, "")}, nil)
 	if host.puts.Load() > 1 {
 		t.Errorf("%d files went onto a set declared read_only mid-run", host.puts.Load())
 	}

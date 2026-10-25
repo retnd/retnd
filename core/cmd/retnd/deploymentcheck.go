@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/internal/apiclient"
 	"github.com/retnd/retnd/core/service"
 )
@@ -152,14 +153,8 @@ func misaimedRoute(address, stateDatabase, local, served string) *routeRefusal {
 // here had already minted one.
 func confirmDeployment(ctx context.Context, client *apiclient.Client, engine *service.RunningEngine) error {
 	address := client.BaseURL()
-	local, err := service.DeploymentIdentity(engine.StateDatabase)
-	if err != nil {
-		return &routeRefusal{
-			address: address,
-			reason:  "this command could not read which deployment it is standing in",
-			detail:  fmt.Sprintf("this command could not read which deployment it is standing in (state database %s), so it cannot confirm that the engine at %s is the one serving it and nothing was written: %v", engine.StateDatabase, address, err),
-			cause:   err,
-		}
+	if _, err := service.DeploymentIdentity(engine.StateDatabase); err != nil {
+		return localIdentityUnreadable(address, engine, err)
 	}
 
 	served, err := client.SystemVersion(ctx)
@@ -170,6 +165,30 @@ func confirmDeployment(ctx context.Context, client *apiclient.Client, engine *se
 			detail:  fmt.Sprintf("$%s names an engine that did not answer when this command asked which deployment it serves, so nothing was written: %v", routeEnvName(apiURLRoute), err),
 			cause:   err,
 		}
+	}
+	return confirmServedDeployment(address, served, engine)
+}
+
+// localIdentityUnreadable is the refusal for a deployment whose own
+// identity file could not be read.
+func localIdentityUnreadable(address string, engine *service.RunningEngine, err error) *routeRefusal {
+	return &routeRefusal{
+		address: address,
+		reason:  "this command could not read which deployment it is standing in",
+		detail:  fmt.Sprintf("this command could not read which deployment it is standing in (state database %s), so it cannot confirm that the engine at %s is the one serving it and nothing was written: %v", engine.StateDatabase, address, err),
+		cause:   err,
+	}
+}
+
+// confirmServedDeployment is confirmDeployment for a caller that already
+// holds the engine's answer to GET /system/version (#1254's first-run
+// attach, which reads "configured" off the same answer), so one request
+// settles both questions and the two cannot come from different replies.
+// Every refusal is the one confirmDeployment gives.
+func confirmServedDeployment(address string, served apicontract.VersionResponse, engine *service.RunningEngine) error {
+	local, err := service.DeploymentIdentity(engine.StateDatabase)
+	if err != nil {
+		return localIdentityUnreadable(address, engine, err)
 	}
 
 	if local == "" {

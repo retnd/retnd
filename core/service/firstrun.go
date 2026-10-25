@@ -183,6 +183,31 @@ func (f *FirstRun) Configured() bool {
 	return !errors.Is(err, os.ErrNotExist)
 }
 
+// DeploymentID names the deployment this first-run surface is setting up,
+// or "" when it cannot.
+//
+// It is the identity the first-run announcement minted beside the journal
+// StateDatabase names (AnnounceServingFirstRun, through
+// announceServingJournal), read and never minted here, for the reason
+// BackupService.DeploymentID gives: the process about to serve a journal is
+// the only one that names it. GET /system/version reports it on a first-run
+// instance (#1254), because a terminal handing this deployment its first
+// configuration confirms which deployment it reached before it sends
+// anything, exactly as every other routed write does, and an instance that
+// named nothing would be refused as one that cannot be confirmed.
+//
+// An identity that cannot be read is "", which a client reads as "cannot
+// confirm" and refuses on. That is the right failure: the wizard in the
+// browser does not depend on it, and the terminal says what it could not
+// check.
+func (f *FirstRun) DeploymentID() string {
+	id, err := DeploymentIdentity(f.defaults.StateDatabase)
+	if err != nil {
+		return ""
+	}
+	return id
+}
+
 // ConfigDirProblem reports, for the first-run guide, that this deployment
 // has no configuration and the directory its default would be written into
 // cannot be written (retnd#1049). It returns that directory and the

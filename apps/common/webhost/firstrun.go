@@ -76,6 +76,13 @@ type FirstRunClient interface {
 	// the exclusive-create contract this package relies on without
 	// re-implementing any part of.
 	CreateInitialConfig(ctx context.Context, req service.CreateBackupSetRequest) (service.BackupSet, error)
+
+	// DeploymentID names the deployment this instance is being set up as,
+	// or "" when it cannot. GET /system/version reports it while there is
+	// no backend to ask (#1254): a terminal handing this instance its first
+	// configuration checks which deployment it reached first, and refuses
+	// an instance that names none.
+	DeploymentID() string
 }
 
 var _ FirstRunClient = (*service.FirstRun)(nil)
@@ -596,6 +603,17 @@ func newUnconfiguredRouter(h *handlers, platform capabilities.PlatformAdapter) h
 		r.With(requireCSRF).Post("/ssh-keys", h.importSSHKey)
 		r.With(requireCSRF).Post("/ssh-keys/from-candidate", h.importSSHKeyFromCandidate)
 		r.With(requireCSRF).Post("/ssh/host-key-probe", h.probeHostKey)
+
+		// The looking half of the key step (#592), which the first-run
+		// surface has always answered (FirstRunClient's ListSSHKeys and
+		// DiscoverSSHKeyCandidates, reached through h.setup()) and this
+		// table never registered, so both answered 503 (#1254). Read-only:
+		// public halves and fingerprints of the store, and where on this
+		// machine a key could be imported from. The wizard's "use a key
+		// this machine already has" and a terminal finishing a headless
+		// first run both need them.
+		r.Get("/ssh-keys", h.listSSHKeys)
+		r.Get("/ssh/key-candidates", h.listSSHKeyCandidates)
 		r.With(requireCSRF).Post("/backup-sets/test-connection", h.testConnection)
 
 		// The wizard's step 5 picklist. Read-only, and code-defined

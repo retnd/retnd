@@ -1,6 +1,8 @@
 package placement_test
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,7 +36,7 @@ func productionGoFiles(t *testing.T) map[string]string {
 	out := map[string]string{}
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return err
+			return tolerateVanished(err)
 		}
 		if d.IsDir() {
 			if d.Name() == "testdata" || d.Name() == "node_modules" {
@@ -47,7 +49,7 @@ func productionGoFiles(t *testing.T) map[string]string {
 		}
 		content, readErr := os.ReadFile(path)
 		if readErr != nil {
-			return readErr
+			return tolerateVanished(readErr)
 		}
 		rel, relErr := filepath.Rel(root, path)
 		if relErr != nil {
@@ -63,6 +65,24 @@ func productionGoFiles(t *testing.T) map[string]string {
 		t.Fatalf("only %d production Go files were found under %s, which is too few for these scans to be checking anything", len(out), root)
 	}
 	return out
+}
+
+// tolerateVanished is the one error the walk may swallow: an entry that
+// readdir listed and that is gone by the time it is opened. Other
+// packages' tests create and remove temporary directories under the
+// module while this walk runs (cmd/retnd's .cli-validators-*, under
+// `go test ./...`), and a path that no longer exists is not a production
+// Go file. Every other error still fails the walk, because a walk that
+// silently visits less than it should is exactly the shape the absence
+// scans above must never take (#1260).
+func tolerateVanished(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 func coreModuleRoot(t *testing.T) string {
@@ -178,5 +198,29 @@ func TestTheRetentionScanActuallyVisitsRetention(t *testing.T) {
 	}
 	if visited < 3 {
 		t.Fatalf("the retention scan visited %d files; internal/retention has more than that, so the filter is wrong and the scan proves nothing", visited)
+	}
+}
+
+// TestTheProductionWalkToleratesAnEntryThatVanishes pins the one error
+// the walk above may swallow. `go test ./...` runs every package at once,
+// and cmd/retnd's tests create and remove a temporary directory under
+// their own package (.cli-validators-*) while this package is walking the
+// module; an entry that readdir listed and that is gone by the time it is
+// opened is not a production file, and failing the ETag scan on it made
+// the gate's architecture check red for a reason that had nothing to do
+// with ETags (#1260). Anything else, a permission refusal included, still
+// fails the walk, because a walk that visits less than it should is the
+// exact shape these absence scans must not take.
+func TestTheProductionWalkToleratesAnEntryThatVanishes(t *testing.T) {
+	gone := &os.PathError{Op: "open", Path: "core/cmd/retnd/.cli-validators-1", Err: os.ErrNotExist}
+	if err := tolerateVanished(gone); err != nil {
+		t.Fatalf("an entry that vanished mid-walk failed the walk: %v", err)
+	}
+	denied := &os.PathError{Op: "open", Path: "core/service/x.go", Err: os.ErrPermission}
+	if err := tolerateVanished(denied); err == nil {
+		t.Fatal("a permission refusal was swallowed; only a vanished entry may be")
+	}
+	if err := tolerateVanished(nil); err != nil {
+		t.Fatalf("nil in, %v out", err)
 	}
 }

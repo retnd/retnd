@@ -192,6 +192,24 @@ test.describe("#1193 the acknowledgement names what is written", () => {
     await expect(dlg.getByRole("radio", { name: "Every retained restore point" })).toBeChecked();
   });
 
+  test("#1251 every restore point onto the source host runs, because the dialog says all", async ({ page }) => {
+    // The engine now refuses a whole set onto the source host unless the
+    // request says "all" (the review of #1256), so this is the dialog's
+    // explicit choice reaching it.
+    const dlg = await theSetDialog(page);
+    await expect(dlg.getByRole("radio", { name: SOURCE })).toBeChecked();
+    await expect(dlg.getByTestId("preflight-summary")).toContainText("1 to recover");
+    await dlg.getByRole("radio", { name: "Every retained restore point" }).check();
+    await expect(dlg.getByTestId("preflight-summary")).toContainText("3 to recover");
+    await dlg.getByRole("checkbox", { name: ACK }).check();
+    const go = dlg.getByRole("button", { name: "Recover this backup set" });
+    await expect(go).toBeEnabled();
+    await go.click();
+    const result = dlg.getByTestId("result");
+    await expect(result).toBeVisible({ timeout: 20_000 });
+    await expect(result).toContainText("3 of 4 backups recovered");
+  });
+
   test("a set with no operator choice switches between newest and all with the target", async ({ page }) => {
     const dlg = await theSetDialog(page);
     await expect(dlg.getByRole("radio", { name: "The newest restore point only" })).toBeChecked();

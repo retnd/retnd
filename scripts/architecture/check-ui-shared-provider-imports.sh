@@ -9,7 +9,7 @@
 # (EPIC I, I1.6 / #672 / #697). This file stays because the path is load
 # bearing:
 #
-#   * scripts/ci-local.sh and .github/workflows/ci.yml run
+#   * scripts/ci-local.sh (the only gate since #1260) runs
 #     `bash scripts/architecture/check-ui-shared-provider-imports.sh`;
 #   * scripts/architecture/verify-ui-shared-without-provider-sdks.sh runs it
 #     first, so a violation reports in seconds rather than after an npm ci;

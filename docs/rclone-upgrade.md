@@ -18,7 +18,7 @@ removes exactly that human.
 
 ## Why this needs its own gate instead of just "green CI"
 
-Ordinary CI (`.github/workflows/ci.yml`) tells you the module still builds,
+The ordinary gate (`scripts/ci-local.sh`, run by the pre-commit hook) tells you the module still builds,
 vets clean, and passes whatever unit tests exist. That is necessary for an
 rclone upgrade but nowhere near sufficient. FR-2 lists eight requirements, and
 a dependency bump PR that only proves compilation is not a reviewed upgrade,
@@ -29,7 +29,7 @@ it's a `go build` with commentary.
 | # | Requirement | Status | Where |
 |---|---|---|---|
 | 1 | Dependency update | **Enforced** | The Dependabot/manual PR itself is the update. The gate workflow records the old and new pinned version. |
-| 2 | Compilation | **Enforced** | `go build ./...` runs in both `ci.yml` and the dedicated gate workflow. |
+| 2 | Compilation | **Enforced** | `go build ./...` runs in both `scripts/ci-local.sh` and the dedicated gate workflow. |
 | 3 | Unit tests | **Partially enforced** | `go test ./...` runs on every PR. Today the module has no `*_test.go` files, so this currently runs clean but exercises nothing. Once the suite lands (`#30`), this line becomes real enforcement with no workflow changes needed, `go test ./...` picks up whatever exists. |
 | 4 | Transport contract tests | **Pending** | Tracked in `#30` (A1.6). Will live under `core/internal/transport` as ordinary `_test.go` files, so it also rides on `go test ./...` once written. |
 | 5 | SFTP integration tests | **Pending** | Tracked in `#31` (A2.13). Needs a disposable SFTP server (Docker is already available in this environment for exactly that). Not wired into any workflow yet because the suite doesn't exist to wire in. |

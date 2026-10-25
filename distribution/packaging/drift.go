@@ -327,15 +327,16 @@ func CheckRequiredMounts(svc Service, c Canonical) []Violation {
 		}
 	}
 
-	// The host-plane paths, which are optional to mount and not optional to
-	// mount CORRECTLY. Nothing here asks why a profile does not carry them:
-	// a NAS store profile deploys no workflow runner and is right not to.
+	// The host-plane and validator paths, which are optional to mount and
+	// not optional to mount CORRECTLY. Nothing here asks why a profile does
+	// not carry them: a NAS store profile deploys no workflow runner and is
+	// right not to.
 	// A profile that does carry one is held to the same write mode as any
 	// other declared path, and the workflows directory is the one that
 	// matters: the engine reads scripts out of it, so a writable mount is a
 	// process one compromise away from running anything it likes on the
 	// host that the container was specifically built not to reach.
-	for _, role := range HostPlaneRoles {
+	for _, role := range OptionalRoles() {
 		m, ok := byRole[role]
 		if !ok {
 			continue
@@ -372,7 +373,9 @@ var apiContractAnchors = []struct {
 	re   *regexp.Regexp
 }{
 	{filepath.Join("apps", "common", "webhost", "router.go"), regexp.MustCompile(`r\.Route\("(/api/v\d+)"`)},
-	{filepath.Join("apps", "common", "webhost", "serve", "ui.go"), regexp.MustCompile(`mux\.Handle\("(/api/v\d+)/"`)},
+	// The UI host's mounts are a list in mounts.go since #1253, so its
+	// proxy to the engine is the entry whose handler is `proxy`.
+	{filepath.Join("apps", "common", "webhost", "serve", "mounts.go"), regexp.MustCompile(`pattern: "(/api/v\d+)/", handler: proxy,`)},
 	{filepath.Join("ui", "shared", "src", "api", "client.ts"), regexp.MustCompile(`const BASE = "(/api/v\d+)"`)},
 }
 

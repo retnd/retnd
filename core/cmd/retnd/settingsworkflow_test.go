@@ -301,3 +301,28 @@ func TestSettingsWorkflowReadsThroughTheSettingsNoun(t *testing.T) {
 		t.Errorf("a --config written before the word \"workflow\" did not reach the command:\n%s", out)
 	}
 }
+
+// #1246: a root the configuration does not name, found mounted at the
+// default path, is reported as the default, not as "no workflow root".
+func TestSettingsWorkflowSaysADefaultRootIsTheDefault(t *testing.T) {
+	out := captureStdout(t, func() {
+		printWorkflowSettings(service.WorkflowSettings{Configured: true, Root: "/workflows", RootDefault: true})
+	})
+	if !strings.Contains(out, "workflow root: /workflows (the default") {
+		t.Errorf("a default root is not reported as the default:\n%s", out)
+	}
+	if strings.Contains(out, "configures no workflow root") {
+		t.Errorf("a deployment running on the default root is told it has none:\n%s", out)
+	}
+}
+
+// And a root an operator cleared says so, rather than reading as a
+// deployment nobody has set up.
+func TestSettingsWorkflowSaysAClearedRootIsTurnedOff(t *testing.T) {
+	out := captureStdout(t, func() {
+		printWorkflowSettings(service.WorkflowSettings{Disabled: true})
+	})
+	if !strings.Contains(out, "workflows.disabled") {
+		t.Errorf("a cleared root does not say workflows were turned off:\n%s", out)
+	}
+}

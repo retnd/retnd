@@ -2,10 +2,13 @@
 # The CI wrapper around the two-machine proof (#575), at the path CI names.
 #
 # The wrapper itself is scripts/bdtools/e2e/two_machine_ci.py now (EPIC I,
-# I1.6 / #672). This file stays because .github/workflows/ci.yml runs
-# `bash scripts/e2e/two-machine-ci.sh --case all` and
-# scripts/tests/two-machine-ci-verdict.test.sh drives this literal path with
-# TWO_MACHINE_PROOF pointing at a stand-in.
+# I1.6 / #672). .github/workflows/ci.yml used to run
+# `bash scripts/e2e/two-machine-ci.sh --case all`; that workflow is gone
+# (#1260) and nothing in this repository calls this path any more. It stays
+# because scripts/tests/two-machine-ci-verdict.test.sh drives this literal
+# path with TWO_MACHINE_PROOF pointing at a stand-in, and a two-outcome
+# wrapper around a three-outcome proof is worth keeping proven for whoever
+# runs the proof under a hosted runner of their own.
 #
 # `exec`, so the three-outcome exit status (0 passed, 3 could not be
 # performed, anything else failed) is the wrapper's own and not a copy of it.

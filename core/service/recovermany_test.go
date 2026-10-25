@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -331,6 +332,127 @@ func TestRecoverSetNewestOnlyAndSinceNarrowTheSet(t *testing.T) {
 	}
 	if res.Totals.Recovered != 2 {
 		t.Fatalf("since recovered %+v", res.Totals)
+	}
+}
+
+// Issue #1251: Until is the upper bound Since was missing, at or before the
+// moment, so a range is the two together; with NewestOnly the newest restore
+// point is the newest inside the range, and without a set it is refused like
+// the other two.
+func TestIssue1251_RecoverSetUntilNarrowsTheSet(t *testing.T) {
+	seed := func(f *recoveryFixture) {
+		f.seedMany(t,
+			manyFile{name: "old.zst", data: manyData(1, 1000), age: 10 * 24 * time.Hour},
+			manyFile{name: "mid.zst", data: manyData(2, 1000), age: 3 * 24 * time.Hour},
+			manyFile{name: "new.zst", data: manyData(3, 1000), age: time.Hour},
+		)
+	}
+	names := func(items []RecoverManyItem) string {
+		var out []string
+		for _, it := range items {
+			out = append(out, it.Name)
+		}
+		sort.Strings(out)
+		return strings.Join(out, ",")
+	}
+
+	f := newRecoveryFixture(t, fixtureOpts{})
+	seed(f)
+	// The fixture's own dump.zst arrived 48 hours ago, so the bound sits
+	// clear of it.
+	req := setReq("u")
+	req.Until = time.Now().Add(-60 * time.Hour)
+	plan, err := f.b.PlanRecoverMany(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := names(plan.Items); got != "mid.zst,old.zst" {
+		t.Fatalf("until planned %s, want mid.zst,old.zst", got)
+	}
+
+	req.Since = time.Now().Add(-5 * 24 * time.Hour)
+	if plan, err = f.b.PlanRecoverMany(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if got := names(plan.Items); got != "mid.zst" {
+		t.Fatalf("since and until planned %s, want mid.zst", got)
+	}
+
+	req = setReq("n")
+	req.NewestOnly, req.Until = true, time.Now().Add(-60*time.Hour)
+	if plan, err = f.b.PlanRecoverMany(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if got := names(plan.Items); got != "mid.zst" {
+		t.Fatalf("newest-only with until planned %s, want the newest inside the range, mid.zst", got)
+	}
+
+	ids := f.seedMany(t, manyFile{name: "x.zst", data: manyData(4, 10), age: time.Minute})
+	_, err = f.b.PlanRecoverMany(context.Background(), RecoverManyRequest{Artifacts: ids, Until: time.Now(), Target: stagingTo("x")})
+	if !errors.Is(err, ErrRecoverManyInvalid) {
+		t.Fatalf("until without a set = %v, want ErrRecoverManyInvalid", err)
+	}
+}
+
+// The review of #1256: updated_at moves on every transition, so a March
+// backup that was flipped to REMOTE_RETAINED (its set went read-only) and back
+// in October read as changed in October. The range and newest-only are about
+// when the backup arrived, so they read DiscoveredAt, which never moves. Here
+// the oldest backup is flipped through REMOTE_RETAINED and back just now: it
+// must still be outside a since five days ago, inside an until 60 hours ago,
+// and never the newest restore point.
+func TestIssue1251_RangeAndNewestOnlyIgnoreALaterTransition(t *testing.T) {
+	f := newRecoveryFixture(t, fixtureOpts{})
+	ids := f.seedMany(t,
+		manyFile{name: "old.zst", data: manyData(1, 1000), age: 10 * 24 * time.Hour},
+		manyFile{name: "mid.zst", data: manyData(2, 1000), age: 3 * 24 * time.Hour},
+		manyFile{name: "new.zst", data: manyData(3, 1000), age: time.Hour},
+	)
+	_ = ids
+	set, _ := model.NewBackupSetID("production", "postgres")
+	old, err := model.NewArtifactID(set, "old.zst")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	for i, hop := range [][2]lifecycle.State{{lifecycle.Complete, lifecycle.RemoteRetained}, {lifecycle.RemoteRetained, lifecycle.Complete}} {
+		if _, err := f.b.journal.RecordTransition(ctx, state.Transition{
+			Artifact: old, Key: "flip-" + string(rune('a'+i)), From: string(hop[0]), To: string(hop[1]), OccurredAt: time.Now().UTC(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	names := func(items []RecoverManyItem) string {
+		var out []string
+		for _, it := range items {
+			out = append(out, it.Name)
+		}
+		sort.Strings(out)
+		return strings.Join(out, ",")
+	}
+	plan := func(req RecoverManyRequest) string {
+		t.Helper()
+		p, err := f.b.PlanRecoverMany(ctx, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return names(p.Items)
+	}
+
+	req := setReq("s")
+	req.Since = time.Now().Add(-5 * 24 * time.Hour)
+	if got := plan(req); got != "dump.zst,mid.zst,new.zst" {
+		t.Errorf("since five days ago planned %s, want dump.zst,mid.zst,new.zst: old.zst arrived ten days ago", got)
+	}
+	req = setReq("u")
+	req.Until = time.Now().Add(-60 * time.Hour)
+	if got := plan(req); got != "mid.zst,old.zst" {
+		t.Errorf("until 60 hours ago planned %s, want mid.zst,old.zst", got)
+	}
+	req = setReq("n")
+	req.NewestOnly = true
+	if got := plan(req); got != "new.zst" {
+		t.Errorf("newest-only planned %s, want new.zst: old.zst was only touched, not received again", got)
 	}
 }
 

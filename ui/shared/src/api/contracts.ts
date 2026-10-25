@@ -2465,8 +2465,13 @@ export interface RecoverManyRequest {
   artifacts?: string[];
   /** With `set`: only the newest restore point. */
   newestOnly?: boolean;
-  /** With `set`: only backups updated at or after this RFC 3339 time. */
+  /** With `set`: only backups that arrived at or after this RFC 3339 time. */
   since?: string;
+  /** With `set`: only backups that arrived at or before this RFC 3339 time (#1251). */
+  until?: string;
+  /** With `set`: every retained restore point, said explicitly. A whole set
+   *  onto its source host is refused without it (#1193, the review of #1256). */
+  all?: boolean;
   copy?: string;
   /** One yes for the whole request's cost. Absent is a no. */
   acknowledged?: boolean;
@@ -2771,6 +2776,11 @@ export interface CustomValidatorList {
   runnerConfigured: boolean;
   directory: string;
   workflowRoot: string;
+  /** workflowRoot is the default (/workflows, found mounted) rather than one
+   *  config.yaml names (#1246). */
+  workflowRootDefault: boolean;
+  /** Where an upload lands: the stage directory under the root, absolute. */
+  scriptsDir: string;
   maxValidators: number;
   maxScriptBytes: number;
   maxPatternBytes: number;

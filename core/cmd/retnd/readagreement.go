@@ -173,5 +173,8 @@ func (d readDecision) agreeOnRetention(ctx context.Context, set model.BackupSetI
 // the file's answer under that announcement would tell an operator the
 // serving process agreed when nobody asked it anything.
 func (d readDecision) unanswered(about string, err error) error {
+	if d.engine == nil {
+		return fmt.Errorf("the engine at %s was asked %s and did not answer, so nothing was printed rather than an answer it has not agreed to: %w", d.remote, about, err)
+	}
 	return fmt.Errorf("the process serving this deployment (state database %s) was asked %s and did not answer, so nothing was printed rather than an answer it has not agreed to: %w", d.engine.StateDatabase, about, err)
 }

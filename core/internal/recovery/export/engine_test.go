@@ -312,7 +312,9 @@ func (g generatedSource) Open(context.Context) (io.ReadCloser, error) {
 func TestStageMemoryStaysBoundedWhateverTheSize(t *testing.T) {
 	const size = 192 << 20
 	h := sha256.New()
-	io.Copy(h, &countingReader{remaining: size, seed: 3})
+	if _, err := io.Copy(h, &countingReader{remaining: size, seed: 3}); err != nil {
+		t.Fatal(err)
+	}
 	n := int64(size)
 	exp := Expect{Size: &n, HashAlg: "sha256", Hash: hex.EncodeToString(h.Sum(nil)), Origin: OriginLocal, Medium: "local"}
 
@@ -346,7 +348,7 @@ func TestStageMemoryStaysBoundedWhateverTheSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Discard()
+	defer s.Discard() //nolint:errcheck // test teardown
 	runtime.ReadMemStats(&peak)
 	growth := int64(maxHeap.Load()) - int64(before.HeapAlloc)
 	if growth > 24<<20 {

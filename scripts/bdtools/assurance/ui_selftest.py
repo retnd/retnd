@@ -210,7 +210,11 @@ def body(root: Path) -> int:
         if code != 0:
             print(out[-3000:], file=sys.stderr)
             print(f"exit status {code}; the first failing line of the run is:", file=sys.stderr)
-            print(next((l for l in out.splitlines() if "failed" in l.lower() or "error" in l.lower()), "(none)"), file=sys.stderr)
+            failing = next(
+                (line for line in out.splitlines() if "failed" in line.lower() or "error" in line.lower()),
+                "(none)",
+            )
+            print(failing, file=sys.stderr)
             harness.die("the narrowed suites FAILED against an unmutated tree, so their failures would mean nothing.")
         print("  ok:   (clean): the narrowed unit tests and specs on an unmutated tree")
 

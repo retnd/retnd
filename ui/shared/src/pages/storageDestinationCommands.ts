@@ -32,9 +32,15 @@
  * leaks. The CLI instead has no flag that takes a secret at all: the
  * material only ever arrives on stdin, through `medium import-credentials
  * --stdin`, and stdin is not in the process table and not in shell
- * history. So there is nothing in these lines to redact, and what is
- * printed is the command that actually works, byte for byte, with nothing
- * starred out.
+ * history. So no flag on these lines carries key material.
+ *
+ * Two values could still carry one anyway, because they are free text an
+ * operator types: an endpoint URL with userinfo spelled into it, and a
+ * credentials command, which is a program and its arguments. Neither is
+ * printed as typed (#1252). The endpoint's userinfo is cut out, and an
+ * address the cut can't read is held back behind a placeholder; the
+ * command is never printed at all. Both follow core/cliecho, and where a
+ * placeholder stands in, the line won't run as printed.
  *
  * That property is asserted rather than trusted: this module's own test
  * plants a canary secret and searches every rendered line for it, with a
@@ -50,6 +56,8 @@
  */
 import { LOCAL_DESTINATION_ID } from "@shared/api/contracts";
 import type { StorageMediumSpec } from "@shared/api/contracts";
+import { shellQuote } from "@shared/assurance/assuranceCommands";
+import { endpointWithoutUserinfo, WITHHELD } from "@shared/pages/destinationConfigureCommands";
 
 /** The one command that ever handles material, and it reads it on stdin.
  *
@@ -67,10 +75,11 @@ export function importCredentialsCommand(): string {
  * There was a `declareCommand` here that rendered
  * `retnd medium add <id> --backend <backend>`, and it was wrong twice over.
  *
- * **`medium` has no `--backend` flag.** Its whole set is json, stdin,
+ * **`medium add` has no `--backend` flag.** Its whole set is json, stdin,
  * candidate, no-verify, type, region, endpoint, bucket, prefix,
  * storage-class, upload-verification and the four credential spellings
- * (`core/cmd/retnd/medium.go:183`). The line failed on execution
+ * (`--backend` arrived with #1154 and belongs to `medium configure`
+ * alone, which refuses it on any other verb). The line failed on execution
  * with `flag provided but not defined: -backend`, which is exactly what
  * EPIC G's rule exists to prevent: a printed command that looks right and
  * does not work is worse than no command, because an operator only finds
@@ -85,12 +94,12 @@ export function importCredentialsCommand(): string {
  * screen is equivalent to at ANY spelling, because it is equivalent to no
  * command at all — it collects two answers and hands them on.
  *
- * The honest answer is the one core/cliecho already uses for a route with
- * no verb: name the gap rather than invent a line. The whole flow's
- * equivalent command is `medium add` with the values it needs, and the
- * configure step is what prints it, because that is the step that writes.
+ * So the confirm step prints no line. The whole flow's equivalent command
+ * is `medium configure <id> --backend B --field ...` with the values it
+ * needs (#1154), and the configure step is what prints it, because that
+ * is the step that writes (destinationConfigureCommands.ts, #1252).
  * AddDestinationWizard's confirm pane says so in prose where the
- * CommandEcho used to be.
+ * CommandEcho used to be, and names `medium backends` for the choice.
  */
 
 /** `medium test-connection --candidate`: the wizard's step 3, proving a
@@ -105,7 +114,7 @@ export function importCredentialsCommand(): string {
  *  command printed under a button that says something else teaches the
  *  wrong word. */
 export function testConnectionCandidateCommand(spec: StorageMediumSpec): string {
-  return ["retnd medium test-connection --candidate", spec.id, ...specFlags(spec)].join(" ");
+  return ["retnd medium test-connection --candidate", shellQuote(spec.id), ...specFlags(spec)].join(" ");
 }
 
 /** `medium add`: the wizard's step 4. It takes the same flags the
@@ -113,13 +122,13 @@ export function testConnectionCandidateCommand(spec: StorageMediumSpec): string 
  *  the two lines can see that what was proven is what is about to be
  *  written. */
 export function addCommand(spec: StorageMediumSpec): string {
-  return ["retnd medium add", spec.id, ...specFlags(spec)].join(" ");
+  return ["retnd medium add", shellQuote(spec.id), ...specFlags(spec)].join(" ");
 }
 
 /** `medium edit`: the same flags again, against a destination that
  *  already exists. */
 export function editCommand(spec: StorageMediumSpec): string {
-  return ["retnd medium edit", spec.id, ...specFlags(spec)].join(" ");
+  return ["retnd medium edit", shellQuote(spec.id), ...specFlags(spec)].join(" ");
 }
 
 /** `medium test-connection <id>`: the Test connection button, on the
@@ -129,7 +138,7 @@ export function editCommand(spec: StorageMediumSpec): string {
  *  of #622's local entry: the destination an operator is most likely to
  *  be on is the one that used to have nothing to check. */
 export function testConnectionCommand(id: string): string {
-  return `retnd medium test-connection ${id}`;
+  return "retnd medium test-connection " + shellQuote(id);
 }
 
 /** `medium default <id>`: the Make default button.
@@ -138,7 +147,7 @@ export function testConnectionCommand(id: string): string {
  *  already the default, because a command that would change nothing is a
  *  command an operator learns nothing from. */
 export function setDefaultCommand(id: string): string {
-  return `retnd medium default ${id}`;
+  return "retnd medium default " + shellQuote(id);
 }
 
 /** `settings patch --tier-medium NAME=MEDIUM_ID`: the picker under a
@@ -156,7 +165,7 @@ export function setDefaultCommand(id: string): string {
  *  tier and leave the rest", so the command and the click produce the
  *  same request rather than merely the same outcome. */
 export function tierMediumCommand(tier: string, mediumId: string): string {
-  const parts = ["retnd settings patch --tier-medium", `${tier}=${mediumId}`];
+  const parts = ["retnd settings patch --tier-medium", shellQuote(`${tier}=${mediumId}`)];
   if (mediumId !== LOCAL_DESTINATION_ID) parts.push("--acknowledge-medium-disclosure");
   return parts.join(" ");
 }
@@ -168,12 +177,12 @@ export function tierMediumCommand(tier: string, mediumId: string): string {
  *  destination, and a command that is only printed when it succeeds
  *  teaches the CLI as something that always works. */
 export function removeCommand(id: string): string {
-  return `retnd medium remove ${id}`;
+  return "retnd medium remove " + shellQuote(id);
 }
 
 /** `medium show <id>`: what the list's own row is a summary of. */
 export function showCommand(id: string): string {
-  return `retnd medium show ${id}`;
+  return "retnd medium show " + shellQuote(id);
 }
 
 /**
@@ -188,24 +197,38 @@ export function showCommand(id: string): string {
  */
 function specFlags(spec: StorageMediumSpec): string[] {
   const out: string[] = [];
-  if (spec.type) out.push("--type", spec.type);
-  if (spec.region) out.push("--region", spec.region);
-  if (spec.endpoint) out.push("--endpoint", spec.endpoint);
-  if (spec.bucket) out.push("--bucket", spec.bucket);
-  if (spec.prefix) out.push("--prefix", spec.prefix);
-  if (spec.storageClass) out.push("--storage-class", spec.storageClass);
-  if (spec.uploadVerification) out.push("--upload-verification", spec.uploadVerification);
+  // Every value shell-quoted, the way core/cliecho's shellQuote does it, so
+  // a bucket with a space in it is one argument on the pasted line (#1252).
+  const flag = (name: string, value: string | undefined) => {
+    if (value) out.push(`--${name}`, shellQuote(value));
+  };
+  flag("type", spec.type);
+  flag("region", spec.region);
+  if (spec.endpoint) {
+    // Userinfo cut out, and an address the cut can't read held back behind
+    // a placeholder, for the reasons endpointWithoutUserinfo gives. The S3
+    // form hands the endpoint to rclone unexamined, so a key typed into it
+    // would otherwise go straight onto this line (#1252).
+    const cut = endpointWithoutUserinfo(spec.endpoint);
+    if (cut.withheld) out.push("--endpoint", `<${WITHHELD}>`);
+    else flag("endpoint", cut.value);
+  }
+  flag("bucket", spec.bucket);
+  flag("prefix", spec.prefix);
+  flag("storage-class", spec.storageClass);
+  flag("upload-verification", spec.uploadVerification);
 
   const c = spec.credentials;
-  if (c?.credentialsId) out.push("--credentials-id", c.credentialsId);
-  else if (c?.file) out.push("--credentials-file", c.file);
-  else if (c?.env) out.push("--credentials-env", c.env);
+  if (c?.credentialsId) flag("credentials-id", c.credentialsId);
+  else if (c?.file) flag("credentials-file", c.file);
+  else if (c?.env) flag("credentials-env", c.env);
   else if (c?.command && c.command.length > 0) {
-    // Quoted as one shell word, because it is one argv array on the other
-    // side and a bare `op read op://…` would be read as three flags'
-    // worth of operands. The line has to be copy-pasteable as typed or it
-    // teaches something that does not work.
-    out.push("--credentials-command", `'${c.command.join(" ")}'`);
+    // Named and never printed, the way core/cliecho's mediumCredentialFlags
+    // does it (#1252). It used to go on the line word for word, but a
+    // credentials command is the caller's words and `printf %s KEY:SECRET`
+    // is a valid one, so a placeholder stands in and the line won't run as
+    // printed.
+    out.push("--credentials-command", "<the command that prints these credentials>");
   }
   return out;
 }

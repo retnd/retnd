@@ -30,7 +30,7 @@ trees in a throwaway worktree.
 
 Ported from `scripts/architecture/check-core-dependency-rule.sh` (EPIC I,
 I1.6 / #672 / #697), which stays on disk as an `exec` shim because
-`scripts/ci-local.sh` runs it twice, `.github/workflows/ci.yml` runs it
+`scripts/ci-local.sh` runs it twice, `.github/workflows/ci.yml` (until #1260) ran it
 once, and `scripts/tests/ci-local-gate.test.sh` fabricates a file at that
 literal path.
 

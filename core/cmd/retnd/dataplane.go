@@ -82,7 +82,7 @@ func openBackupDataPlane(ctx context.Context, configPath string) (*app.Service, 
 // and releases its lock); callers should always `defer cleanup()`
 // immediately.
 func openServingDataPlane(ctx context.Context, configPath string) (*app.Service, *config.Config, func(), error) {
-	svc, closeFn, err := service.Open(ctx, configPath)
+	svc, closeFn, err := service.OpenWith(ctx, configPath, service.OpenOptions{WorkflowRoot: workflowRootDefault()})
 	if err != nil {
 		return nil, nil, func() {}, err
 	}

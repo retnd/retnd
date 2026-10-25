@@ -346,6 +346,31 @@ FAULT_REPORTED_PHRASES = [
 ]
 
 
+
+def connection_cap_probe_argv(net: str, label: str, image: str, source_ip: str) -> list[str]:
+    """The `docker run` that proves the connection cap bites: two
+    connections held open to the source machine, then a third that has
+    to be refused.
+
+    The probe runs from the SOURCE MACHINE IMAGE the proof built from
+    scripts/e2e/source-machine.Dockerfile (which carries nc for this), not
+    from the bare upstream base. The base's tag went single-platform
+    (amd64) upstream, and on an arm64 daemon that pins its platform a
+    container from it cannot start at all; the probe's non-zero status
+    then read as "the cap did not bite" and the gate as FAILED, for a
+    reason that had nothing to do with the cap (#1260). The image the
+    proof built is the one thing here guaranteed to run on this daemon.
+    """
+    probe = (
+        f"(sleep 20 | nc {source_ip} 22 >/dev/null 2>&1) &\n"
+        f"(sleep 20 | nc {source_ip} 22 >/dev/null 2>&1) &\n"
+        "sleep 3\n"
+        f"if nc -w 3 {source_ip} 22 </dev/null >/dev/null 2>&1; then exit 1; fi\n"
+        "exit 0\n"
+    )
+    return ["docker", "run", "--rm", "--network", net, "--label", label, image, "sh", "-c", probe]
+
+
 class Proof:
     """One whole run: the images, the machines, and every case asked for.
 
@@ -1377,15 +1402,8 @@ class Proof:
         # Proven, not assumed. Hold two connections open from a throwaway
         # container on this network and check the third is refused, so a
         # rule that installs and does not bite cannot make the case vacuous.
-        probe = (
-            f"(sleep 20 | nc {source_ip} 22 >/dev/null 2>&1) &\n"
-            f"(sleep 20 | nc {source_ip} 22 >/dev/null 2>&1) &\n"
-            "sleep 3\n"
-            f"if nc -w 3 {source_ip} 22 </dev/null >/dev/null 2>&1; then exit 1; fi\n"
-            "exit 0\n"
-        )
         bites = harness.sh(
-            ["docker", "run", "--rm", "--network", net, "--label", self.label, SOURCE_BASE, "sh", "-c", probe],
+            connection_cap_probe_argv(net, self.label, self.source_image, source_ip),
             check=False,
         )
         if bites.returncode != 0:
@@ -2705,7 +2723,7 @@ class Proof:
         #     complete; no unresolved findings" under `if exitCode == 0`,
         #     and no finding moves exitCode -- only r.Err and Report.Errors
         #     do. So the exit status IS that sentence, and it is the half of
-        #     it scripts/ci-local.sh and .github/workflows/ci.yml read.
+        #     it scripts/ci-local.sh reads (and .github/workflows/ci.yml did, until #1260).
         #
         #     The status is asserted and the sentence deliberately is not.
         #     In this scenario that summary line is FALSE: there is a fault,

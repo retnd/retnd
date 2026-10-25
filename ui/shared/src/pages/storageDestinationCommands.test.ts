@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addCommand,
+  editCommand,
   importCredentialsCommand,
   setDefaultCommand,
   testConnectionCandidateCommand,
@@ -89,14 +90,35 @@ describe("the echoed retnd command", () => {
     );
   });
 
-  it("quotes a credential command so the printed line is copy-pasteable as typed", () => {
+  it("names a credentials command and never prints it (#1252)", () => {
+    // `printf %s AKIA...:secret` is a valid credentials command and a
+    // credential on a command line, and nothing can tell it from an
+    // innocent one. core/cliecho prints a placeholder for the same reason
+    // (mediumCredentialFlags), so the browser does too.
     const line = addCommand({
       id: "vaulted",
       type: "s3",
       bucket: "b",
-      credentials: { command: ["op", "read", "op://vault/s3/creds"] }
+      credentials: { command: ["printf", "%s", CANARY_KEY_ID + ":" + CANARY_SECRET] }
     });
-    expect(line).toContain("--credentials-command 'op read op://vault/s3/creds'");
+    expect(line).toBe(
+      "retnd medium add vaulted --type s3 --bucket b --credentials-command <the command that prints these credentials>"
+    );
+  });
+
+  it("cuts userinfo out of the endpoint, and holds back one it can't read (#1252)", () => {
+    expect(addCommand({ id: "a", type: "s3", bucket: "b", endpoint: `https://${CANARY_KEY_ID}:${CANARY_SECRET}@minio.internal:9000` }))
+      .toBe("retnd medium add a --type s3 --endpoint https://minio.internal:9000 --bucket b");
+    const held = editCommand({ id: "a", type: "s3", bucket: "b", endpoint: `https://k:pa/${CANARY_SECRET}@minio.internal` });
+    expect(held).toBe(
+      "retnd medium edit a --type s3 --endpoint <the value, left out because it looks like it carries credentials> --bucket b"
+    );
+  });
+
+  it("quotes a value the shell would split, as core/cliecho does (#1252)", () => {
+    expect(addCommand({ id: "a", type: "s3", bucket: "acme backups", prefix: "it's" })).toBe(
+      "retnd medium add a --type s3 --bucket 'acme backups' --prefix 'it'\\''s'"
+    );
   });
 
   it("names the reference sources without inventing a value for them", () => {

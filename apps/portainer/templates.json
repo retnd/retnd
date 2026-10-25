@@ -41,7 +41,7 @@
           "name": "IMAGE",
           "label": "Canonical image reference",
           "description": "The one multi-architecture image both containers run. If canonical.json still records this release as unpublished, change this to wherever you pushed or loaded a build until the release workflow records the GHCR digests.",
-          "default": "ghcr.io/retnd/retnd:0.7.1"
+          "default": "ghcr.io/retnd/retnd:0.7.2"
         },
         {
           "name": "PUID",
@@ -88,13 +88,13 @@
         {
           "name": "WORKFLOWS_DIR",
           "label": "Workflow hook scripts directory (host)",
-          "description": "Mounted read-only. Local workflow hooks run in containers the Host Workflow Runner launches on this host, never in this stack; leave the default if you run none.",
+          "description": "Mounted read-only. Local workflow hooks run in containers the Host Workflow Runner launches on this host, never in this stack; leave the default if you run none. Its recovery-test-validators and recovery-test-validators.superseded subdirectories are mounted writable for custom validators, so create both before the first start.",
           "default": "/opt/retnd/workflows"
         },
         {
           "name": "RUNTIME_DIR",
           "label": "Workflow runner socket directory (host)",
-          "description": "Where the Host Workflow Runner's socket appears. The one directory in this group the engine writes.",
+          "description": "Where the Host Workflow Runner's socket appears. With the two validator subdirectories of the workflows directory, the only places in this group the engine writes.",
           "default": "/opt/retnd/run"
         },
         {

@@ -313,6 +313,16 @@ func (c *Client) FirstRunStatus(ctx context.Context) (apicontract.FirstRunStatus
 	return out, err
 }
 
+// CompleteFirstRun is POST /system/first-run: the first configuration a
+// fresh install is given, written by the engine still serving its setup
+// flow. It is how `backup-set create` finishes a first run from a terminal
+// (#1254), with the same spec the wizard sends.
+func (c *Client) CompleteFirstRun(ctx context.Context, spec apicontract.BackupSetSpec) (apicontract.CompleteFirstRunResponse, error) {
+	var out apicontract.CompleteFirstRunResponse
+	err := c.call(ctx, "completeFirstRun", nil, spec, &out)
+	return out, err
+}
+
 // StorageStatus is GET /system/storage, the other half of `status`.
 func (c *Client) StorageStatus(ctx context.Context) (apicontract.ListStorageStatusResponse, error) {
 	var out apicontract.ListStorageStatusResponse
@@ -634,17 +644,22 @@ func (c *Client) GetBackupSetEditHold(ctx context.Context, source, set string) (
 // /backup-sets/{source}/{set}/edit-hold/release: give the lease back, so
 // the scheduler may run this set again without waiting for the hold to
 // lapse.
-//
-// takeBackupSetEditHold is deliberately NOT here, under this file's own
-// rule about wrappers nothing calls. A hold exists to protect an edit
-// session from a cycle running underneath it, and a CLI edit is one
-// `backup-set patch` that either runs or does not: there is no session to
-// protect, so a CLI that could TAKE a hold would only be able to pause a
-// backup set with no way for anything to notice it meant to. Releasing one
-// somebody else left behind is the operation an operator actually needs
-// from a terminal.
 func (c *Client) ReleaseBackupSetEditHold(ctx context.Context, source, set string) error {
 	return c.call(ctx, "releaseBackupSetEditHold", []string{source, set}, nil, nil)
+}
+
+// TakeBackupSetEditHold is POST /backup-sets/{source}/{set}/edit-hold:
+// take, or renew, the lease that stops a cycle running against this set
+// while it is edited, and learn what taking it interrupted.
+//
+// It was deliberately absent until #1253, on the reasoning that a CLI
+// edit is one `backup-set patch` with no session to protect. A scripted
+// edit of several steps is a session, and `backup-set edit-hold --take`
+// is its caller.
+func (c *Client) TakeBackupSetEditHold(ctx context.Context, source, set string) (apicontract.BackupSetEditHold, error) {
+	var out apicontract.BackupSetEditHold
+	err := c.call(ctx, "takeBackupSetEditHold", []string{source, set}, nil, &out)
+	return out, err
 }
 
 // CancelAssuranceOperation is POST /assurance/operations/{op}/cancel: tell a
@@ -676,6 +691,25 @@ func (c *Client) ListOperations(ctx context.Context) (apicontract.ListOperations
 func (c *Client) GetOperation(ctx context.Context, id string) (apicontract.Operation, error) {
 	var out apicontract.Operation
 	err := c.call(ctx, "getOperation", []string{id}, nil, &out)
+	return out, err
+}
+
+// SubmitOperation is POST /operations: ask the engine to start durable work,
+// which `operation run` uses for run_cycle and run_backup_set (#1250). The
+// route requires an Idempotency-Key, so a submission without one is refused
+// here, before sign-in, rather than sent for the engine to answer with a 400
+// an operator cannot act on. The caller mints the key: this package cannot
+// know whether a second call is the same submission retried or a new one.
+func (c *Client) SubmitOperation(ctx context.Context, idempotencyKey string, req apicontract.SubmitOperationRequest) (apicontract.Operation, error) {
+	if idempotencyKey == "" {
+		return apicontract.Operation{}, &ContractViolation{
+			Operation: "submitOperation",
+			Method:    "POST",
+			Reason:    "the contract requires an Idempotency-Key on this operation and none was given",
+		}
+	}
+	var out apicontract.Operation
+	err := c.call(withIdempotencyKey(ctx, idempotencyKey), "submitOperation", nil, req, &out)
 	return out, err
 }
 
@@ -838,6 +872,66 @@ func (c *Client) VerifyRecoveryEmail(ctx context.Context, req apicontract.Verify
 // ResendRecoveryEmailVerification is POST /auth/verify-email/resend.
 func (c *Client) ResendRecoveryEmailVerification(ctx context.Context) error {
 	return c.call(ctx, "resendRecoveryEmailVerification", nil, nil, nil)
+}
+
+// The three account acts a browser performs with no session (#1253).
+//
+// Each is declared unauthenticated and CSRF-required, so none goes through
+// call(): there is no account to sign in as before enrollment, and the
+// reset flow exists precisely because the password is not known. The
+// cookie the double-submit check wants is seeded with one read first
+// (seedCSRF), and the request goes out through do() as a stranger.
+
+// Enroll is POST /auth/enroll: the first administrator, authorised by the
+// single-use bootstrap token out of the enrollment link. The token is used
+// for this one request and kept nowhere.
+//
+// The engine opens a session for the account it just made, the way the
+// enrollment page is signed in afterwards, and this client does not
+// remember it: the caller has no credentials for it, and a session this
+// process holds without being able to re-establish it is the belief
+// ensureSession exists to avoid.
+func (c *Client) Enroll(ctx context.Context, req apicontract.EnrollRequest, bootstrapToken string) error {
+	if err := c.seedCSRF(ctx); err != nil {
+		return err
+	}
+	ep, err := endpoint("enrollAdministrator")
+	if err != nil {
+		return err
+	}
+	return c.do(withBootstrapToken(ctx, bootstrapToken), ep, nil, nil, req, nil)
+}
+
+// RequestPasswordReset is POST /auth/forgot-password. It answers 204 for
+// every username by design, so a nil error says the engine took the
+// request and nothing about whether a message was sent.
+func (c *Client) RequestPasswordReset(ctx context.Context, req apicontract.ForgotPasswordRequest) error {
+	if err := c.seedCSRF(ctx); err != nil {
+		return err
+	}
+	ep, err := endpoint("requestPasswordReset")
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, ep, nil, nil, req, nil)
+}
+
+// ResetPassword is POST /auth/reset-password: the token out of the emailed
+// link and the password to set. Redeeming it revokes every session and
+// opens none, so whatever this client believed about a session is dropped.
+func (c *Client) ResetPassword(ctx context.Context, req apicontract.ResetPasswordRequest) error {
+	if err := c.seedCSRF(ctx); err != nil {
+		return err
+	}
+	ep, err := endpoint("resetPassword")
+	if err != nil {
+		return err
+	}
+	err = c.do(ctx, ep, nil, nil, req, nil)
+	if err == nil {
+		c.remember(false)
+	}
+	return err
 }
 
 // The SSH key store (issue #1153). The store belongs to the process serving

@@ -45,7 +45,7 @@ import { EmptyState, ErrorState } from "@shared/components/EmptyState";
 import { GateNotice } from "@shared/components/GateNotice";
 import { GateRefusal } from "@shared/components/GateRefusal";
 import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
-import { snapshotRestoreCommand } from "@shared/pages/snapshotCommands";
+import { snapshotRestoreCommand, snapshotRestoreShapeCommand } from "@shared/pages/snapshotCommands";
 import { VERIFICATION_COPY } from "@shared/components/EngineBadge";
 import { OperationProgress } from "@shared/components/OperationProgress";
 import { PageHeader } from "@shared/components/PageHeader";
@@ -204,7 +204,7 @@ export function SnapshotRestorePage({ readOnly }: { readOnly: boolean }) {
       <GateNotice
         gate={gate}
         headline="Restoring from a snapshot is refused over HTTP on this deployment."
-        command={"retnd snapshot restore " + setId + " --to <directory>"}
+        command={snapshotRestoreShapeCommand(setId)}
       />
 
       {restore.gate ? <GateRefusal notice={restore.gate} /> : null}

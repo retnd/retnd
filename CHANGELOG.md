@@ -2,6 +2,225 @@
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-24
+
+0.7.2 is a patch release on top of 0.7.1. The CLI now has a command for every route the web UI calls, guarded by
+route-to-verb parity checks. The source preflight default changed, and a whole-set restore without `all: true` is now
+refused with a 400 unless it is narrowed.
+
+### Added
+
+- **Enrolment, the reset flow and `whoami` from a terminal** (#1253). The enrollment page, the two
+  reset pages and the session read a browser makes on load had no terminal twin. `retnd auth enroll
+  --username U --token-stdin --password-stdin` makes the first administrator through the serving engine
+  with the token (or the whole enrollment link) on the first stdin line and the password on the second,
+  optionally `--recovery-email` with the `--smtp-*` flags; it needs only `RETND_API_URL`, so a headless
+  container can enrol where `retnd-web auth create-admin` refuses because the serving process holds the
+  store. `retnd auth forgot-password --username U` asks for the single-use reset link and says that the
+  engine answers the same way for every username, and `retnd auth reset-password --token-stdin
+  --password-stdin` redeems it. `retnd auth whoami [--json]` prints who the credentials sign in as. The
+  terminal panel echoes all four instead of saying there's no equivalent, and no token or password ever
+  goes on a line.
+- **`retnd operation run`, the terminal twin of the run buttons** (#1250). "Run all enabled sets" and "Run this
+  backup set" ask the engine to start a run with `POST /api/v1/operations`, and a terminal couldn't: `retnd run` and
+  `retnd fetch --backup-set` run the cycle in the CLI's own process, so a run started that way never showed in
+  `operation list`. `retnd operation run [--backup-set S] [--skip-workflow-scripts] [--follow] [--json]` posts the
+  same body the buttons do, with the engine's own `config_revision` and a fresh idempotency key each time. A reply
+  that goes missing is sent again with the same key, which the engine answers with the run it already started.
+  `--follow` (here and on `operation show`) sits out a few minutes of failed polls instead of calling the run
+  failed, and Ctrl-C stops following without stopping the run. `run` and `fetch` are unchanged, and the terminal
+  panel now echoes `retnd operation run` for both buttons instead of saying there's no equivalent.
+- **A remote terminal** (#1250). From a machine with no deployment of its own (no `config.yaml`, nothing serving
+  its default state database), `operation list|show|run`, `assurance cancel`, `backup-set edit-hold`, `auth` and
+  `activity --follow` now reach the engine with `RETND_API_URL` and the two credential variables alone, and say
+  which deployment they reached. `operation run` and `assurance cancel` also want `RETND_API_DEPLOYMENT_ID`. A host
+  that has a deployment never goes remote, so a stopped local engine with an address exported still refuses. Plain
+  http to anything but loopback needs `RETND_API_INSECURE_TRANSPORT=acknowledged`, and `RETND_API_CA_FILE` trusts a
+  self-signed reverse proxy on any route.
+- **`retnd backup-set test-connection --candidate`, the wizard's "Test connection" from a terminal** (#1253). The
+  backup set wizard proves a source before it saves it, with `POST /api/v1/backup-sets/test-connection` in its
+  candidate mode, and a terminal could only prove one as a side effect of `backup-set create`, which writes.
+  `retnd backup-set test-connection --candidate --host H --user U --ssh-key-id K --known-hosts-line L --remote-path P
+  [--port N] [--json]` runs the same six checks against the source those flags describe, names no set and writes
+  nothing, the way `medium test-connection --candidate` does for a destination. The key is an id `ssh-key import`
+  printed, never a file, so the check imports nothing either. The terminal panel echoes this line for the button
+  instead of saying there's no equivalent.
+- **`retnd backup-set edit-hold --take`** (#1253). The web UI takes an edit hold when its edit form opens, so no
+  cycle runs against the set while it's half changed, and a terminal could report and release a hold but not take
+  one. `--take` takes it, or renews one already held, and says what that stopped; a scripted edit of several
+  patches can now run under the same hold, and gives it back with `--release`. The terminal panel echoes it.
+- **Exit codes 50 to 52 for the engine's side of a route** (#1250). 50 is the destructive gate refusing any routed
+  command (a validator upload or a routed create used to exit 1 for it), 51 is "stopped watching, the operation may
+  still be running", and 52 is plain http refused. 10 to 49 stay reserved for `recover`.
+
+- **`retnd artifacts --since DATE --until DATE --assurance BUCKET`, and `--until` on `recover --set` and
+  `POST /recoveries`** (#1251). The Backups page's "Received on or after", "Received on or before" and
+  assurance bucket filters had no terminal twin: `artifacts` took no date bounds or bucket, and `recover
+  --set` only took `--since`. Both verbs now take the date pair, with both ends inclusive on when a backup
+  arrived (`discovered_at`). A bare `YYYY-MM-DD` is that whole day in UTC, so `--until 2026-10-07` keeps a
+  backup from 23:30 that day, and an RFC 3339 time is that moment. `--until` before `--since` is refused with
+  exit 2 (and with 400 on the API). On `artifacts` the range narrows the list, `--json` and `--count`; on
+  `recover --set` it narrows the set and `--newest-only` then picks the newest inside it. `artifacts
+  --assurance due|overdue|degraded|untested` keeps the backups in that bucket, classified exactly as
+  `assurance list --bucket` classifies them. `POST /api/v1/recoveries` takes `until` beside `since`, and
+  `all`, the API's spelling of `--all`; the action log prints them as `--until` and `--all`.
+
+### Changed
+
+- **The local pre-commit gate is the only gate** (#1260). `.github/workflows/ci.yml` is gone; nothing on GitHub
+  runs the tests any more. `scripts/install-hooks.sh` installs `.husky/pre-commit`, which runs `scripts/ci-local.sh`
+  on every commit, and a release publishes only a commit the gate has vouched for: `scripts/release/record-local-gate.sh`
+  runs the full gate on a clean worktree and writes `provenance/local-gate.json` (schema `retnd.local-gate/1`, with
+  the gate tree, the toolchain, the ledger and the log's hash) plus `provenance/local-gate.log`, and the `require-release-gate`
+  job in `release.yml` runs `scripts/release/verify-local-gate.sh` against that record and refuses anything short of
+  `==> ci-local: ok` on the exact tree being published. Red tests go in with `CI_LOCAL_RED="<why>"` (test files only,
+  never on `main` or `release`), stamped `Local-Gate: red <why>`; a `--no-verify` commit is stamped `Local-Gate:
+  unverified`. The gate now exports `CI=1`, pins golangci-lint through `scripts/ci/pins.env`, serialises its
+  Docker-backed steps across worktrees under a lock in the shared git dir, and sweeps only its own worktree's test
+  containers (`retnd-test=<owner>`). The browser e2e suite from retnd-tests is blocking for `safety-invariants` and
+  `workflow-recovery` and a ratchet for the rest (`scripts/e2e/known-red.txt`, every entry with an issue, an owner and an
+  expiry). `docs/reference/local-gate.md` lists every knob.
+
+- **`retnd recover --to source: --preflight` no longer writes a probe file on the source host** (#1253). It used
+  to describe where a source-host recovery would write and then run the write check, which writes one probe file
+  on the production host the backup came from and removes it. The recovery dialog in the web UI reads that
+  description on open from configuration alone and probes only when you press "Check write access", and the
+  terminal now draws the same line: `--preflight` prints the destination, its id and the last write check's
+  answer (or `not_checked`) without touching the host, and `--preflight --write-check` runs the probe as well. A
+  script that relied on `--preflight` to prove write access adds `--write-check`. The terminal panel now prints
+  the read-only line for the dialog's description instead of saying there's no equivalent, and the line with
+  `--write-check` for the button.
+- **`workflows.disabled` is a new key, and an older retnd refuses it** (#1246). Clearing the workflow root
+  (`retnd settings workflow patch --disable`, or the older `--root ""`) now writes `workflows.disabled: true`
+  into `config.yaml`, because an absent root now means "use the mounted default". A retnd older than this
+  release refuses a `config.yaml` with that key and won't start, so before you downgrade run `retnd settings
+  workflow patch --enable` or delete the line. The patch says this when it writes the key.
+- **A root you cleared before this release comes back as the default** (#1246). A `config.yaml` whose root
+  was cleared before now looks the same as one that never had one, so on upgrade a deployment with
+  `/workflows` mounted picks it up: custom validators become available, and the Settings card, `retnd
+  settings workflow`, `retnd check` and the health report say workflows are on, with the default root. No hook
+  runs because of it, since a hook directory still needs a root named in the file. If you meant it to stay
+  off, run `retnd settings workflow patch --disable`.
+
+- **A date range, and `--newest-only`, are about when a backup arrived** (#1251). `recover --set --since`,
+  `POST /recoveries` `since`, `--newest-only` and the Backups page's date filter used to read `updated_at`,
+  which moves on every transition, so a March backup whose set went read-only and back in October counted as
+  October's and could become the "newest" restore point. They read `discovered_at` now, which nothing
+  changes after arrival, and the Backups list's Time column shows it too, so the time you see on a row is the
+  time the range filters on.
+- **A range that keeps every retained backup of a set onto its source host needs `--all`, and so does the
+  API** (#1251). A range counts as saying which backups you meant, but `--until 2099-01-01` or `--since
+  1970-01-01` is the whole set by another name, so `recover --set` refuses it with exit 2 and the count,
+  before any network call, and asks for `--all`. `POST /api/v1/recoveries` holds a whole set onto its
+  source host to the same rule: without `newest_only` it needs `"all": true`, or a range that leaves
+  something out, and is refused with 400 and the same sentence otherwise (`preflight` is not held to it).
+  The web console sends `all` when you pick "Every retained restore point" for the source host, so its
+  terminal line and its request say the same thing.
+
+  **This is a behaviour change for API callers.** A `POST /api/v1/recoveries` request that sends a whole set
+  to its source host (`target.kind` `source`) with no `newest_only`, `since` or `until`, or with a range
+  that keeps every retained backup, used to run and is now refused with 400 `INVALID_REQUEST`. Adding
+  `"all": true` to the request restores the old behaviour exactly: the same backups go to the same place.
+  The guard is there because that request overwrites nothing but does put every retained backup onto a
+  production host, and an accidental one should have to say so.
+
+### Fixed
+
+- **A malformed `RETND_API_URL` no longer prints its password** (#1250). An address whose password held a `/` or
+  `?` doesn't parse, and the refusal used to quote it back in full. It now prints only the scheme.
+- **A headless install can finish its first run from a terminal** (#1254). When the engine is serving its
+  first-run setup flow (it could not write its own default `config.yaml`), `retnd backup-set create` used to
+  refuse with exit 3, on the reasoning that the operator was standing in front of the wizard. On a headless
+  install nobody is, and stopping the engine to let the command write the file stops the container it was
+  typed in. With `RETND_API_URL` and the two credential variables set, the create now hands the first
+  configuration to that engine as `POST /api/v1/system/first-run`, the request the wizard sends, and prints
+  the set the engine wrote; the line the Web UI's terminal echoes for that request does the same when pasted.
+  A first-run engine now names its deployment on `GET /api/v1/system/version`, which a routed write checks
+  before it sends anything. Beside an engine that is already configured, a first configuration is still
+  refused with exit 3 and nothing sent, and the refusal now also says how to reach a first-run engine.
+  `retnd ssh-key import|list|discover` and `retnd ssh host-key-probe` go to the same first-run engine, and
+  that engine now serves `GET /api/v1/ssh-keys` and `GET /api/v1/ssh/key-candidates`, which it used to answer
+  503 `NOT_CONFIGURED` although the wizard's key step reads them. The command waits up to twelve minutes for
+  the engine's reply, because bringing its service up can take that long on a slow NAS, and a reply that still
+  doesn't come is followed by asking whether the engine is configured now, so it reports what actually
+  happened.
+- **Terminal lines that did less than the click, or that a shell would split** (#1253). The line the terminal
+  records for an action and the lines printed beside the controls were checked again, and these were wrong:
+  disabling or enabling workflows in Settings echoed a bare `retnd settings workflow patch`, which changes
+  nothing (it now ends in `--disable` or `--enable`). Saving a backup set without proving the connection
+  echoed a line without `--no-verify`, on create, edit and the first-run write. A recovery whose target the
+  engine refused echoed `retnd recover <id>` with no `--to`, which on a terminal means the source host; it now
+  prints no line and says why, and so does an operation request that leaves out the parameters its action
+  reads. The run buttons logged `retnd run` for a run the engine served, where the engine's own echo says
+  `retnd operation run`; they print the engine's line now, and keep `retnd run` and `retnd fetch` only for the
+  refusal where the destructive gate shuts the HTTP route and those are the commands that still work. The
+  Operation page put the id from its address on the copyable line unquoted, so a crafted link could show
+  `retnd assurance show x; curl ...|sh` there; the Backups selection bar, the due list and the snapshot
+  restore notice printed ids unquoted too, and the storage destination lines now quote theirs. Every one of
+  those lines is quoted now.
+- **The hourly activity events prune no longer fails on a busy host or fills the terminal with errors**
+  (#1247). The prune ran its age delete and its row-bound delete under one 10 second deadline, and the row
+  bound found its cut-off by walking up to 50,000 rows of the table on every run. On a NAS whose page cache a
+  scrub had just evicted, that walk was disk reads behind a saturated disk, it held the journal's only
+  connection while it ran, and it missed its deadline about once an hour, each time as an error line in the
+  terminal. Each prune statement now has its own 5 second deadline and removes at most 1,000 rows, one pass
+  sends at most ten of them and picks up again five seconds later, and stopping the engine stops a pass
+  (the shutdown flush no longer prunes at all). The row bound counts the table from its smallest index on
+  each statement, which is still a full scan of that index but no longer of the rows, and then walks only
+  the rows it removes. The delete that coalesces recovery stage lines uses the `op_id` index it was meant
+  to instead of scanning the table inside the writer's transaction. A prune that loses a race for the
+  journal is retried a minute later with one `activity_prune_deferred` warning in the process log, never
+  in the terminal; contention that lasts an hour is an error, and any other failure (a disk fault, a full
+  disk, a read-only or corrupt database) is an error straight away, each at most once an hour. The journal
+  also now logs a `journal_slow_hold` warning naming any statement, cursor or transaction that keeps its
+  connection for more than a second, with how many callers waited behind it, so the next missed deadline
+  says what it was waiting for.
+- **The publish no longer leaves main failing the deployment tripwire** (#1247). The release workflow's
+  merge back into main flipped `canonical.json` to published without moving its line in
+  `core/tests/deploymentdiff/testdata/digests.txt`, so main failed that test after every release. The
+  recorder now moves that line with the publish (and refuses when anything else in the file changed or the
+  recorded line had already drifted), and the merge back runs the test before it pushes.
+- **The destination configure wizard prints `retnd medium configure`** (#1252). Its terminal lines were still
+  `medium add|edit` with a note saying the CLI couldn't carry a local volume's `path`, which stopped being true
+  when `medium configure --field` shipped in #1154. The review step now prints `retnd medium configure <id>
+  --backend B --field id=value ...` with the credential as `--credentials-id`, the same line the terminal
+  records after the save, and adds `retnd medium default <id>` when the default box is ticked. The test step
+  prints that line with `--preflight` instead of `medium test-connection`, which checks what's already saved
+  rather than the values on screen. The add wizard's confirm step names `retnd medium backends` and `retnd
+  medium configure`.
+
+- **A password with a `/`, `?` or `#` in it no longer leaks from an endpoint onto a printed command line**
+  (#1252). The userinfo cut in the terminal echo and in the browser's command lines stopped the address at
+  the first `/`, `?` or `#`, so `https://key:pa/ss@host` found no `@` to cut at and went onto the line
+  whole. Now an address that still has an `@` in it after the cut is left out, with a placeholder in its
+  place, and the line is marked as not runnable as printed. That also leaves out an address with a real `@`
+  after the host, which is the safe way to be wrong. The S3 destination wizard (the Edit button on a
+  destination) had its own copy of these lines that printed the endpoint as typed and a credentials command
+  word for word; it now cuts the first and shows a placeholder for the second, the same as the terminal.
+
+- **Custom validators work on a default install** (#1246). The Docker host installer makes
+  `<prefix>/workflows` and mounts it at `/workflows`, and never told the engine: `config.yaml` had no
+  `workflows` block, so the Custom validators card refused with "no workflow root is configured". The engine
+  now uses `/workflows` when `config.yaml` names no root and that directory is there, on every adapter, and
+  the Settings card, `retnd settings workflow`, `retnd assurance validators list` and `retnd check` call it
+  the default rather than "not configured". An explicit root still wins, `--disable` turns workflows off
+  (default included) and `--enable` turns them back on; the API's `PATCH /settings/workflow` takes the same
+  `disabled`. The hook tree stays mounted read-only: the compose file and the CasaOS, Portainer, Proxmox and
+  OpenMediaVault stacks now mount `recovery-test-validators` and `recovery-test-validators.superseded`
+  writable over it, from the same host tree, and the installer creates both (refusing a symlink or a file
+  there). `config.yaml` can't name either directory as a hook stage. A move aside between the two mounts
+  copies and then removes, and it only moves regular files within the script size limit, never following a
+  link or blocking on a FIFO; anything else in the directory is left where it is and logged, and a
+  temporary file a crashed upload left behind is removed. The validator list now carries `scripts_dir`, the
+  absolute directory an upload lands in. When there really is nowhere to write, the card and the error say
+  which directory was tried and what fixes it.
+
+- **Every Backups filter has a "Same list from the terminal" line** (#1251). With a set filter and a
+  received-date range, the line printed `retnd artifacts --backup-set S` alone, which lists more than the
+  screen shows, and a bucket filter or a range with no set filter had no line at all. The line now carries
+  `--since`, `--until` and `--assurance`, and shows on its own when there's no set filter. An inverted range
+  (which the CLI refuses) prints no line.
+
 ## [0.7.1] - 2026-10-17
 
 0.7.1 is a patch release, and the one thing in it that is new rather than fixed is custom recovery-test

@@ -453,13 +453,6 @@ func trimSlashes(p string) string {
 	return p
 }
 
-func displayDir(rel string) string {
-	if rel == "" {
-		return "."
-	}
-	return rel
-}
-
 // classifyEnumerate gives every failure out of this enumerator a
 // manager-owned Category, so lifecycle code can branch on it the same way
 // it branches on one from the rclone adapter (FR-22, and errors.go's

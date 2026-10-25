@@ -3,7 +3,6 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/retnd/retnd/actions/workflows/ci.yml"><img src="https://github.com/retnd/retnd/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status on main"></a>
   <a href="https://github.com/retnd/retnd/actions/workflows/release.yml"><img src="https://github.com/retnd/retnd/actions/workflows/release.yml/badge.svg" alt="Release workflow status"></a>
   <a href="https://github.com/retnd/retnd/actions/workflows/nightly-e2e.yml"><img src="https://github.com/retnd/retnd/actions/workflows/nightly-e2e.yml/badge.svg" alt="Nightly end-to-end status"></a>
   <a href="https://github.com/retnd/retnd/actions/workflows/pages.yml"><img src="https://github.com/retnd/retnd/actions/workflows/pages.yml/badge.svg" alt="Site deployment status"></a>

@@ -256,7 +256,7 @@ func (s *Server) Listen() error {
 			return fmt.Errorf("%w: %s exists and is not a socket, so this runner will not remove it", ErrServer, path)
 		}
 		if conn, err := net.DialTimeout("unix", path, time.Second); err == nil {
-			conn.Close()
+			_ = conn.Close()
 			return fmt.Errorf("%w: another workflow runner is already listening on %s. One runner per installation: two would each own process groups the other cannot see", ErrServer, path)
 		}
 		if err := os.Remove(path); err != nil {
@@ -329,14 +329,14 @@ func (s *Server) Serve(ctx context.Context) error {
 		}
 		if !s.addConn(conn) {
 			// Shutdown won the race with this accept.
-			conn.Close()
+			_ = conn.Close()
 			continue
 		}
 		conns.Add(1)
 		go func() {
 			defer conns.Done()
 			defer s.forgetConn(conn)
-			defer conn.Close()
+			defer conn.Close() //nolint:errcheck // tearing down a connection that is done; a failed close has nothing to add to the result
 			s.handleConn(ctx, conn)
 		}()
 	}

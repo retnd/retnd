@@ -255,12 +255,14 @@ func TestARefusalIsRecordedWithItsReason(t *testing.T) {
 	if got.Route != "/operations" {
 		t.Errorf("the refusal names route %q", got.Route)
 	}
-	// And it is the named gap, not a misleading `retnd run`.
-	if got.Command != "" {
-		t.Errorf("run_cycle echoed the command %q; `retnd run` opens the service in the operator's own process and runs a cycle THERE", got.Command)
+	// And it is the engine-side twin (#1250), not a misleading `retnd run`,
+	// which opens the service in the operator's own process and runs a
+	// cycle THERE.
+	if want := cliecho.Binary + " operation run"; got.Command != want {
+		t.Errorf("run_cycle echoed the command %q, want %q", got.Command, want)
 	}
-	if !strings.Contains(got.GapDetail, "not in this engine") {
-		t.Errorf("the gap does not say why `retnd run` is not the answer: %q", got.GapDetail)
+	if got.Gap != "" {
+		t.Errorf("run_cycle still carries a gap: %q", got.GapDetail)
 	}
 }
 

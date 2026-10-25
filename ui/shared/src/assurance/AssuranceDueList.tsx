@@ -30,7 +30,7 @@ import { GateRefusal } from "@shared/components/GateRefusal";
 import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
 import { CommandEcho } from "@shared/pages/CommandEcho";
 import { AssuranceLink } from "./AssuranceLink";
-import { recoveryTestCommand } from "./assuranceCommands";
+import { assuranceListCommand, recoveryTestArtifactCommand, recoveryTestArtifactShapeCommand } from "./assuranceCommands";
 import { stageLabel } from "./stages";
 import { listingReason } from "./claims";
 import type { Bucket } from "./claims";
@@ -122,7 +122,7 @@ function DueRow({
           Run assurance
         </button>
       ) : (
-        <code className="mono" style={{ fontSize: "var(--text-xs)", userSelect: "all" }}>{recoveryTestCommand(facts.setId) + " --artifact " + facts.artifactId}</code>
+        <code className="mono" style={{ fontSize: "var(--text-xs)", userSelect: "all" }}>{recoveryTestArtifactCommand(facts.setId, facts.artifactId)}</code>
       )}
       {run?.refused ? <div style={{ flexBasis: "100%" }}><GateRefusal notice={run.refused} /></div> : null}
     </li>
@@ -220,7 +220,7 @@ export function AssuranceDueList({ tally, byArtifact, readOnly }: { tally: Tally
           </AssuranceLink>
         </span>
       ))}
-      <CommandEcho label="Same thing from the terminal" commands={[recoveryTestCommand("<source/set>") + " --artifact <id>", "retnd assurance list"]} />
+      <CommandEcho label="Same thing from the terminal" commands={[recoveryTestArtifactShapeCommand(), assuranceListCommand()]} />
     </div>
   );
 }

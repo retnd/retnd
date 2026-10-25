@@ -195,6 +195,110 @@ func TestSweepStillReapsWhenAListedContainerVanishedFromUnderIt(t *testing.T) {
 	}
 }
 
+// --- another lane's containers are not this sweep's to reap (#1260) --------
+
+// createLabelled makes a container carrying exactly the label given, so a
+// test can stand up what another worktree's run would have created: the
+// same key, somebody else's value.
+func createLabelled(t *testing.T, label string) string {
+	t.Helper()
+	out, err := exec.Command("docker", "create", LabelFlag, label, "alpine:latest", "true").Output()
+	if err != nil {
+		t.Fatalf("docker create: %v", err)
+	}
+	id := strings.TrimSpace(string(out))
+	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", id).Run() })
+	return id
+}
+
+// TestSweepSparesAContainerAnotherOwnerCreated is #1260's item 6. About
+// thirty worktrees on this machine share one Docker daemon and run the
+// full gate against it, and the full gate is twenty-five minutes. Sweep
+// removed any labelled container older than StaleAfter, whoever started
+// it, so under contention a sibling lane's fixture that was still in use
+// after fifteen minutes was removed out from under its test, and that
+// looked like a flaky crash-matrix failure in a lane that had done nothing
+// wrong.
+//
+// So the label's value is now an owner, derived from the worktree the test
+// binary runs in, and Sweep lists only containers carrying THIS owner. A
+// container carrying the key with some other value (another lane's, or
+// the fixed `1` every container carried before owners existed) is never a
+// candidate. Asked through listLabelled, like
+// TestSweepNeverTouchesAnUnlabelledContainer, because the filter IS the
+// boundary and a sweep with a future cutoff would take live fixtures in
+// other packages down with it.
+func TestSweepSparesAContainerAnotherOwnerCreated(t *testing.T) {
+	requireDocker(t)
+	theirs := createLabelled(t, LabelKey+"=1")
+	ours := create(t, true)
+
+	candidates := listLabelled()
+
+	if !containsID(candidates, ours) {
+		t.Fatal("listLabelled did not offer up this lane's own container, so the absence of the other lane's below would prove nothing")
+	}
+	if containsID(candidates, theirs) {
+		t.Fatalf("listLabelled offered up a container another owner created (label %s=1, this lane's is %s). Sweep removes whatever listLabelled hands it, so this is a sibling lane's live fixture being removed mid-test from a lane that did nothing wrong", LabelKey, LabelSpec)
+	}
+}
+
+// TestSweepNetworksSparesANetworkAnotherOwnerCreated is the network half
+// of the owner boundary. The container half is held by the test above;
+// changing sweepNetworksOlderThan's filter back to the bare key stayed
+// green until this existed (#1261 review).
+func TestSweepNetworksSparesANetworkAnotherOwnerCreated(t *testing.T) {
+	requireDocker(t)
+	theirs := createNetwork(t, LabelKey+"=1")
+	ours := createNetwork(t, LabelSpec)
+
+	listed := listLabelledNetworks()
+
+	if !containsID(listed, ours) {
+		t.Fatal("listLabelledNetworks did not offer up this lane's own network, so the absence of the other lane's below would prove nothing")
+	}
+	if containsID(listed, theirs) {
+		t.Fatalf("listLabelledNetworks offered up a network another owner created (label %s=1); SweepNetworks removes whatever it lists", LabelKey)
+	}
+}
+
+func createNetwork(t *testing.T, label string) string {
+	t.Helper()
+	name := fmt.Sprintf("dockerlease-test-%d-%s", os.Getpid(), strings.ReplaceAll(label, "=", "-"))
+	out, err := exec.Command("docker", "network", "create", LabelFlag, label, name).Output()
+	if err != nil {
+		t.Fatalf("docker network create: %v", err)
+	}
+	id := strings.TrimSpace(string(out))
+	t.Cleanup(func() { _ = exec.Command("docker", "network", "rm", id).Run() })
+	return id
+}
+
+// TestTheOwnerIsThisWorktree pins what the owner is made of. It has to be
+// the same for every test binary in one worktree, or a lane could not
+// reclaim its own killed run's leftovers, and different between two
+// worktrees, or the sweep is back to reaping across lanes.
+func TestTheOwnerIsThisWorktree(t *testing.T) {
+	here := ownerFor("/Users/somebody/workspace/retnd-lanes/a-wt")
+	again := ownerFor("/Users/somebody/workspace/retnd-lanes/a-wt")
+	other := ownerFor("/Users/somebody/workspace/retnd-lanes/b-wt")
+	if here == "" {
+		t.Fatal("ownerFor returned an empty owner, which would label every container with nothing and sweep nothing")
+	}
+	if here != again {
+		t.Fatalf("ownerFor is not stable: %q then %q for the same worktree", here, again)
+	}
+	if here == other {
+		t.Fatalf("ownerFor gives two worktrees the same owner %q, so one lane's sweep reaches the other's containers", here)
+	}
+	if !strings.HasSuffix(LabelSpec, "="+ownerID()) {
+		t.Fatalf("LabelSpec %q does not carry this process's owner %q, so the containers this run labels are not the ones its sweep lists", LabelSpec, ownerID())
+	}
+	if ownerID() == "1" {
+		t.Fatal("this process's owner is the fixed value every lane used to share, so nothing has an owner at all")
+	}
+}
+
 // --- this package must not reap other packages' live containers -----------
 
 // runSelf re-runs some of this package's own tests in a child process, so

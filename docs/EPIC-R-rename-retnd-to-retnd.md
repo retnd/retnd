@@ -151,7 +151,7 @@ This epic exists because the previous two renames did not finish, and their unfi
 - `retnd` → `retnd` left `RM_` environment variables, one of which (`RM_DEBUG`) is still a kept alias today;
 - `retnd` → `rbm` → `retnd` left `bm_session`/`bm_csrf` cookies, a compliance-docs miss (#699), a design file still called `Backup Manager.dc.html`, and four issues whose entire content was "finish the rename".
 
-The mechanism that stops a fourth repetition already exists: `scripts/rename/check-brand-drift.sh`, with its self-test, its three-list vocabulary (aliases kept on purpose, pending deletions in transit, pre-existing occurrences pinned to a path) and its gate step in `scripts/ci-local.sh` and `.github/workflows/ci.yml`. This epic's first mechanical act is to point that guard at the name it is about to retire, **red**, with the entire surface enumerated on its `pending` list. Everything after that is deleting entries from a list a gate holds.
+The mechanism that stops a fourth repetition already exists: `scripts/rename/check-brand-drift.sh`, with its self-test, its three-list vocabulary (aliases kept on purpose, pending deletions in transit, pre-existing occurrences pinned to a path) and its gate step in `scripts/ci-local.sh` (and, until #1260, `.github/workflows/ci.yml`). This epic's first mechanical act is to point that guard at the name it is about to retire, **red**, with the entire surface enumerated on its `pending` list. Everything after that is deleting entries from a list a gate holds.
 
 ## The primary invariant
 

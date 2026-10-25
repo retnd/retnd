@@ -32,6 +32,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -84,7 +85,9 @@ def gate(root: Path, where: tuple[str, tuple[str, ...]], pattern: str) -> tuple[
     return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
 
 
-def expect_fails(tracker, tally, label, directory, needle, where, pattern) -> None:
+def expect_fails(
+    tracker: Any, tally: Any, label: str, directory: Path, needle: str, where: tuple[str, tuple[str, ...]], pattern: str
+) -> None:
     if tracker.stale_verdict(label):
         return
     if tracker.anchors_only(label):
@@ -103,7 +106,9 @@ def expect_fails(tracker, tally, label, directory, needle, where, pattern) -> No
     tally.ok(f"(caught): {label}", matched)
 
 
-def expect_passes(tracker, tally, label, directory, where, pattern) -> None:
+def expect_passes(
+    tracker: Any, tally: Any, label: str, directory: Path, where: tuple[str, tuple[str, ...]], pattern: str
+) -> None:
     if tracker.stale_verdict(label):
         return
     if tracker.anchors_only(label):
@@ -116,7 +121,7 @@ def expect_passes(tracker, tally, label, directory, where, pattern) -> None:
 
 
 # Each entry: label, file, old, new, needle, where, pattern
-MUTATIONS = [
+MUTATIONS: list[tuple[Any, ...]] = [
     (
         "an existence check recorded as content verification",
         SCRUB_GO,

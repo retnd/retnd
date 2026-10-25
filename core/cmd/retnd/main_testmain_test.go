@@ -3,6 +3,8 @@ package main
 import (
 	"os"
 	"testing"
+
+	"github.com/retnd/retnd/core/service"
 )
 
 // TestMain makes this suite say the same thing on a developer's machine
@@ -20,7 +22,12 @@ import (
 // cannot forget. The daemon child this package re-executes
 // (daemon_signal_test.go) inherits this process's environment, so it is
 // covered by the same call.
+//
+// The default workflow root is switched off for the same reason (#1246): a
+// suite run inside the retnd image, or on a NAS, has a real /workflows, and
+// every command here would quietly pick it up.
 func TestMain(m *testing.M) {
 	clearInheritedRouteSettings()
+	workflowRootDefault = func() service.WorkflowRootDefault { return service.WorkflowRootDefault{} }
 	os.Exit(m.Run())
 }

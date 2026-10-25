@@ -145,7 +145,7 @@ func TestBeginSourceUpload_RefusesWhatIsNotAnSFTPSourceWithARoot(t *testing.T) {
 	} {
 		s, err := a.BeginSourceUpload(context.Background(), src)
 		if err == nil {
-			s.Close()
+			_ = s.Close()
 			t.Fatalf("%+v: a session was opened", src)
 		}
 		if cat, _ := transport.CategoryOf(err); cat != transport.Configuration {
