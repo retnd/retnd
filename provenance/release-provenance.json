@@ -40,23 +40,23 @@
     },
     "notice": {
       "path": "NOTICE",
-      "sha256": "836abdaa0bad81af9ae3471221f7312239ea27f048b9d52569228ece0fd8e98a"
+      "sha256": "9359b3e14d4f473babc243cb07f6838341f3f5eaae848c3e20532ab650916ab4"
     },
     "inventory": {
       "path": "provenance/third-party-licenses.json",
-      "sha256": "a712ff5c504bb869b1fa9dab7434896e69f07d8ae2ae2c9c1b336978ce0682c9",
+      "sha256": "1ce91c50e71d8ab335d7741f45892835b2b8fb77bccbd6aded520c2d0b9db0fb",
       "format": "retnd/third-party-licenses/1"
     },
     "componentCount": 133
   },
   "sbom": {
     "path": "provenance/sbom.spdx.json",
-    "sha256": "e70d7355267f4fe17aa207dfd037df2f8e0f148924e7b25e01378a1dfa1518c2",
+    "sha256": "6bae1e5a372770795277f5af095c3fc309343cf78b76e02d2367ac43ba23f13e",
     "format": "SPDX-2.3"
   },
   "checksums": {
     "path": "provenance/checksums.txt",
-    "sha256": "2d4062b41a90034b0fbbdfd27f2199c4ece9cf0a52960ef02bf633b2374b8a0a",
+    "sha256": "3b0048a6fc5ea753c5377a692bd881f4660ae396ead548f6946bed33ec6ffabb",
     "format": "sha256sum"
   },
   "artifacts": [

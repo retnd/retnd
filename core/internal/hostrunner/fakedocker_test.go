@@ -341,7 +341,7 @@ shift || true
 # hooks having run). The record is written whole to a file of this
 # process's own and appended with one dd block, which is one write.
 printf '%s %s\n' "$verb" "$*" > "$STATE/calls.$$"
-dd if="$STATE/calls.$$" bs=4m 2>/dev/null >> "$STATE/calls"
+dd if="$STATE/calls.$$" bs=4194304 2>/dev/null >> "$STATE/calls"
 rm -f "$STATE/calls.$$"
 
 # wedged is the daemon that has stopped answering. Every control call goes
