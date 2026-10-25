@@ -20,7 +20,7 @@ python3 scripts/install/install_docker_host.py install \
     --prefix /volume1/retnd \
     --ssh-key /volume1/retnd/secrets/id_ed25519 \
     --known-hosts /volume1/retnd/secrets/known_hosts \
-    --image ghcr.io/retnd/retnd:0.7.1
+    --image ghcr.io/retnd/retnd:0.7.2
 ```
 
 **One file, and no checkout.** Copy
@@ -294,7 +294,7 @@ is for people pulling by hand, not something to install a host from.
 Every release moves `latest` to the new version's index digest, so
 `docker pull ghcr.io/retnd/retnd:latest` gives you the newest release. It is the same
 digest as the version tag, which means the cosign signature and the SBOM attestation
-verify for `latest` exactly as they do for `0.7.1`. It only moves forward: a backport
+verify for `latest` exactly as they do for `0.7.2`. It only moves forward: a backport
 (a 0.5.x fix cut after 0.6.x) and a prerelease never take it, the same rule that decides
 which release GitHub marks "Latest".
 
@@ -309,9 +309,9 @@ Preflight prints the reference it is about to install before anything is created
 and then proves it:
 
 ```
-  ok   installing ghcr.io/retnd/retnd:0.7.1
-  ok   ghcr.io/retnd/retnd:0.7.1 is sha256:..., the identity the release
-       manifest records for 0.7.1
+  ok   installing ghcr.io/retnd/retnd:0.7.2
+  ok   ghcr.io/retnd/retnd:0.7.2 is sha256:..., the identity the release
+       manifest records for 0.7.2
 ```
 
 A registry tag is a mutable pointer, which `scripts/release/publish-image.sh` says
@@ -328,18 +328,18 @@ it is pushed. During that window the manifest records `index_digest: null`, the
 installer carries no digest, and preflight prints this instead:
 
 ```
-  ok   installing ghcr.io/retnd/retnd:0.7.1
-  !!   0.7.1 is cut and not pushed, so container/release-manifest.json records no
+  ok   installing ghcr.io/retnd/retnd:0.7.2
+  !!   0.7.2 is cut and not pushed, so container/release-manifest.json records no
        identity for it and there is nothing here to hold
-       ghcr.io/retnd/retnd:0.7.1 to.
+       ghcr.io/retnd/retnd:0.7.2 to.
 ```
 
-That warning is never a refusal. Copying 0.7.0's digest forward would compare a
-correct 0.7.1 image against the previous release's identity and reject it. After
-the release workflow pushes 0.7.1, its `merge-back-to-main` job reads the index
+That warning is never a refusal. Copying 0.7.1's digest forward would compare a
+correct 0.7.2 image against the previous release's identity and reject it. After
+the release workflow pushes 0.7.2, its `merge-back-to-main` job reads the index
 digest from GHCR, updates the manifest and this installer together, regenerates
 provenance and runs the consistency suites before pushing the record to `main`.
-Until that automated commit lands, `--release 0.7.0` installs the last release
+Until that automated commit lands, `--release 0.7.1` installs the last release
 this candidate installer can prove, or `--image-archive` installs a build you
 made yourself.
 
