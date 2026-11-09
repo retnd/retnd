@@ -11,11 +11,11 @@
   "image": {
     "registry": "ghcr.io",
     "repository": "retnd/retnd",
-    "tag": "0.7.1",
-    "reference": "ghcr.io/retnd/retnd:0.7.1",
+    "tag": "0.7.2",
+    "reference": "ghcr.io/retnd/retnd:0.7.2",
     "published": true,
     "note": [
-      "published:true. 0.7.1 was published by .github/workflows/release.yml from the append-only release branch.",
+      "published:true. 0.7.2 was published by .github/workflows/release.yml from the append-only release branch.",
       "container/release-manifest.json records the index digest and each linux architecture digest read back from GHCR after the push.",
       "The installer carries the same immutable index digest; distribution/packaging tests refuse any disagreement among these three records."
     ]
