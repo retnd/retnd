@@ -155,7 +155,10 @@ func exportedNames(decl ast.Decl) []string {
 // SSH host key, critical storage pressure -- plus EPIC K's two, a
 // repository whose maintenance is failing (#786) and a repository that
 // cannot take a backup at all (#789), plus EPIC L's three workflow
-// conditions (#813), and nothing else.
+// conditions (#813), plus EPIC Q's four assurance kinds, plus EPIC N's one
+// (#990): a `required` encryption policy whose key cannot be resolved,
+// which is the only key-custody fact that resolves by itself and so the
+// only one that may be a condition rather than health. Nothing else.
 //
 // A new kind is how "one proactive mechanism for a few specific
 // conditions" quietly becomes the framework §71 rules out, so it takes an
@@ -184,6 +187,7 @@ func TestKindsAreExactlyTheDeliberatelyChosenConditions(t *testing.T) {
 		alert.ScrubFailing,
 		alert.RecoveryTestOverdue,
 		alert.RecoveryTestFailing,
+		alert.EncryptionKeyUnresolvable,
 	}
 
 	if len(alert.Kinds) != len(want) {
