@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-24
+
+0.7.2 is a patch release on top of 0.7.1. The CLI now has a command for every route the web UI calls, guarded by
+route-to-verb parity checks. The source preflight default changed, and a whole-set restore without `all: true` is now
+refused with a 400 unless it is narrowed.
+
 ### Added
 
 - **Enrolment, the reset flow and `whoami` from a terminal** (#1253). The enrollment page, the two
