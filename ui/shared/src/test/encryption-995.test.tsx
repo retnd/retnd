@@ -151,7 +151,7 @@ describe("the per-set control", () => {
     // satisfied_by field (core/service SatisfiedByRepositoryStatement, pinned to this file by
     // a Go test), so a rewording on either side has to move both.
     expect(
-      document.querySelector("[data-kopia-statement]")?.textContent?.trim()
+      document.querySelector("[data-engine-statement]")?.textContent?.trim()
     ).toBe(
       "This set's repository is already encrypted by the kopia engine under its repository passphrase. Required on such a set is satisfied by that and layers nothing."
     );
