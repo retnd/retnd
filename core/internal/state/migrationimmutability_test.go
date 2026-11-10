@@ -68,6 +68,7 @@ var shippedMigrationChecksums = map[int]string{
 	15: "7f485b73139b3560943fa3596a4cd24e8a7458f5ec349b3ff1b5fc48f5c25cb7",
 	16: "828152b010a00d2c6d2199f9db4534b57e7abe1fafbaea6f0e9c3c9f6e7e7320",
 	18: "bc6ac693a2bd2bd4cbaf2da6ea1c9253a8bbdef3e437455365d2d77ca5418479",
+	19: "92305ce81313aaee1b9573a09019ed79d08acccabbdf69a0e888519c8fd0b4d1",
 }
 
 // driftConsequence deliberately does not print the file's new checksum. That

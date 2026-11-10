@@ -230,6 +230,12 @@ func (b *BackupService) RunEncryptExisting(ctx context.Context, req apicontract.
 	if err := b.requireEncryptExistingKey(ctx, set); err != nil {
 		return EncryptExistingResult{}, err
 	}
+	// The cycle's single-flight guard: a normal move cycle must not drive the
+	// same moves while this runs.
+	if !b.runOnce.TryLock() {
+		return EncryptExistingResult{}, fmt.Errorf("%w: a backup cycle is in progress", ErrOperationAlreadyRunning)
+	}
+	defer b.runOnce.Unlock()
 	report, err := b.state.Load().inner.EncryptExisting(ctx, plans)
 	if err != nil {
 		return EncryptExistingResult{}, err
@@ -270,6 +276,12 @@ func (b *BackupService) StartEncryptExisting(ctx context.Context, req apicontrac
 		cancel(nil)
 		return ScrubStarted{}, ErrEncryptExistingRunning
 	}
+	// The cycle's single-flight guard, held until the goroutine ends.
+	if !b.runOnce.TryLock() {
+		b.ops.mu.Unlock()
+		cancel(nil)
+		return ScrubStarted{}, fmt.Errorf("%w: a backup cycle is in progress", ErrOperationAlreadyRunning)
+	}
 	b.ops.add(&assuranceOp{id: opID, kind: opKindEncryptExisting, set: set.String(), cancel: cancel})
 	b.ops.mu.Unlock()
 
@@ -277,6 +289,7 @@ func (b *BackupService) StartEncryptExisting(ctx context.Context, req apicontrac
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
+		defer b.runOnce.Unlock()
 		defer b.ops.finish(opID)
 		defer func() {
 			if r := recover(); r != nil {

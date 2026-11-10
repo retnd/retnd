@@ -194,12 +194,10 @@ var refusingInputs = []refusingInput{
 	// #1291: encrypting existing plaintext copies. The set-does-not-exist and
 	// the set-does-not-require-encryption refusals are the service's own words
 	// on both routes, and the dry run is a route of its own.
-	{
-		name: "encrypt existing copies of a set this deployment does not have",
-		args: func(configPath, _ string) []string {
-			return []string{"encryption", "encrypt-existing", "nosuch/set", "--to", "offsite", "--config", configPath}
-		},
-	},
+	// The run itself has no row here: the engine-attached route needs
+	// POST /encryption/encrypt-existing in the fake engine that #1287 adds
+	// (fakeengine_encryption_996_test.go), and that file is not on this
+	// branch's base. The dry run below is a local read on both routes.
 	{
 		name: "dry-run encrypting existing copies of a set this deployment does not have",
 		args: func(configPath, _ string) []string {

@@ -286,3 +286,41 @@ func TestASecondRunForTheSameSetIsRefusedWhileOneIsRunning_1291(t *testing.T) {
 	}
 	idle(t, f)
 }
+
+// A normal move cycle and an encrypt-existing run must not drive moves at the
+// same time, so both take the single-flight guard the cycle uses (runOnce).
+// Red if either entry point starts while a cycle holds it, or keeps it after
+// it ends.
+func TestEncryptExistingTakesTheCycleSingleFlightGuard_1291(t *testing.T) {
+	ctx := context.Background()
+	f, a := retroFixture(t, "a.dump")
+
+	f.b.runOnce.Lock()
+	if _, err := f.b.StartEncryptExisting(ctx, retroReq(a)); !errors.Is(err, ErrOperationAlreadyRunning) {
+		t.Errorf("StartEncryptExisting while a cycle runs: err = %v, want ErrOperationAlreadyRunning", err)
+	}
+	if _, err := f.b.RunEncryptExisting(ctx, retroReq(a)); !errors.Is(err, ErrOperationAlreadyRunning) {
+		t.Errorf("RunEncryptExisting while a cycle runs: err = %v, want ErrOperationAlreadyRunning", err)
+	}
+	f.b.runOnce.Unlock()
+
+	stall := &stallOpenStore{recoveryStore: f.store, opened: make(chan struct{})}
+	f.b.state.Load().inner.MediumStore = stall
+	started, err := f.b.StartEncryptExisting(ctx, retroReq(a))
+	if err != nil {
+		t.Fatalf("StartEncryptExisting: %v", err)
+	}
+	<-stall.opened
+	if f.b.runOnce.TryLock() {
+		f.b.runOnce.Unlock()
+		t.Error("a running encrypt-existing operation does not hold the guard")
+	}
+	if _, err := f.b.CancelAssuranceOperation(ctx, started.OperationID); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	idle(t, f)
+	if !f.b.runOnce.TryLock() {
+		t.Fatal("the guard is still held after the operation ended")
+	}
+	f.b.runOnce.Unlock()
+}
