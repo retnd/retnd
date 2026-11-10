@@ -59,8 +59,8 @@ func reencryptStatusSelected(suiteID string) bool {
 	if !ok {
 		return false
 	}
-	st := string(s.Status())
-	return st == "deprecated" || st == "retired"
+	st := s.Status()
+	return st == copycrypt.StatusDeprecated || st == copycrypt.StatusRetired
 }
 
 // prepareReencrypt is every refusal a request has before anything is planned,
