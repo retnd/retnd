@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "8eaec2949de79a6a817d5181bdb61981765d57a8246379a30088017a882a1e4d"
+const ContractSHA256 = "9df36e5b4050dfd06cfd682a813f98c34b8e19c7a7a928968479e1b865f47cc3"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -1404,7 +1404,7 @@ var Endpoints = []Endpoint{
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
 			500: {ErrorCodeInternal},
-			503: {ErrorCodeNotConfigured},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
 		},
 	},
 	{
