@@ -1056,7 +1056,20 @@ func (e *Engine) verifyCopy(ctx context.Context, mv state.Move, src state.Placem
 	if on, err := e.encryptedSet(mv.Artifact.Set); err != nil {
 		return Result{}, want, err
 	} else if on {
-		return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated, "", observed)
+		// Once the destination has its own record (after the VERIFIED
+		// advance, which is when the pre-delete re-read runs), it is opened
+		// through the key recorded for it. The active key is only right for
+		// the first verification, before any record exists: a rotation in
+		// between would otherwise fail a good copy.
+		dstEnc, dstEncrypted, err := e.encryptionOf(ctx, mv.Artifact, mv.DestinationMedium)
+		if err != nil {
+			return Result{}, want, err
+		}
+		keyID := ""
+		if dstEncrypted {
+			keyID = dstEnc.KeyID
+		}
+		return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated, keyID, observed)
 	}
 	if !gated {
 		res, err := Verify(ctx, e.Store, medium, candidate, want, e.now())

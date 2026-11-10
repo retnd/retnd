@@ -509,6 +509,14 @@ bash scripts/tests/web-ui-ratchet.test.sh
 gate_step "docs/reference/local-gate.md documents every knob the gate reads (#1260)"
 bash scripts/tests/local-gate-reference.test.sh
 
+# ci-docker.sh --host (#1267) ships the tree to another machine's Docker
+# daemon and runs the gate there. This drives it with stand-ins for docker,
+# rsync, tar and ssh: the daemon each call goes to, what is mounted, the exit
+# status, the cleanup, the free-space refusal and that no secret travels.
+# No Docker, no network, a few seconds.
+gate_step "ci-docker.sh --host runs the gate on a remote daemon from a copy, and cleans up (#1267)"
+bash scripts/tests/ci-docker-remote.test.sh
+
 # Every Python file under scripts/, held to a linter, and the subset that is
 # clean under a type checker held to that too (EPIC I / I1.6, #672).
 #
