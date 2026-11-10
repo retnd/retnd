@@ -260,6 +260,21 @@ var contractBindings = map[string]contractBinding{
 	"checkSourceHostWrite":     {nil, sourceHostBody{}, "/api/v1/backup-sets/src/set-1/source-host/write-check"},
 	"cancelAssuranceOperation": {nil, assuranceOperationCancelledResponse{}, "/api/v1/assurance/operations/op_1/cancel"},
 	"getRecoveryTestOutput":    {nil, recoveryTestOutputResponse{}, "/api/v1/backup-sets/src/set-1/recovery-test/output"},
+	// Issue #993. The handlers write apicontract's own types.
+	"getEncryptionPolicy":      {nil, apicontract.EncryptionPolicy{}, "/api/v1/encryption/policy"},
+	"patchEncryptionPolicy":    {apicontract.EncryptionPolicyPatch{}, apicontract.EncryptionPolicy{}, "/api/v1/encryption/policy"},
+	"resetEncryptionPolicy":    {nil, apicontract.EncryptionPolicy{}, "/api/v1/encryption/policy/reset"},
+	"setBackupSetEncryption":   {apicontract.EncryptionOverride{}, apicontract.EncryptionSetPolicy{}, "/api/v1/backup-sets/src/set-1/encryption"},
+	"clearBackupSetEncryption": {nil, apicontract.EncryptionSetPolicy{}, "/api/v1/backup-sets/src/set-1/encryption"},
+	"listEncryptionKeys":       {nil, apicontract.ListEncryptionKeysResponse{}, "/api/v1/encryption/keys"},
+	"createEncryptionKey":      {nil, apicontract.EncryptionKeyStatus{}, "/api/v1/encryption/keys"},
+	"rotateEncryptionKey":      {nil, apicontract.EncryptionKeyStatus{}, "/api/v1/encryption/keys/rotate"},
+	"retireEncryptionKey":      {nil, apicontract.EncryptionKeyStatus{}, "/api/v1/encryption/keys/k0123456789abcdef/retire"},
+	"exportRecoveryBundle":     {nil, apicontract.RecoveryBundle{}, "/api/v1/encryption/keys/k0123456789abcdef/export"},
+	"confirmRecoveryBundle":    {apicontract.ConfirmRecoveryBundleRequest{}, apicontract.EncryptionKeyStatus{}, "/api/v1/encryption/keys/k0123456789abcdef/confirm"},
+	"testEncryptionProvider":   {apicontract.EncryptionProviderTestRequest{}, apicontract.EncryptionProviderProbe{}, "/api/v1/encryption/providers/test"},
+	"listEncryptionCopies":     {nil, apicontract.ListEncryptionCopiesResponse{}, "/api/v1/encryption/copies"},
+	"startDecryptVerify":       {apicontract.StartDecryptVerifyRequest{}, apicontract.ScrubStarted{}, "/api/v1/encryption/verify"},
 	// Issue #1203. The handlers write apicontract's own types, so the
 	// bindings are those types.
 	"listCustomValidators":        {nil, apicontract.ListCustomValidatorsResponse{}, "/api/v1/assurance/validators"},

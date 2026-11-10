@@ -218,6 +218,38 @@ cases("assurance/validatorCommands", [
   ["addCommand", "hostile values", HOSTILE, HOSTILE, HOSTILE_SET]
 ]);
 
+cases("encryption/encryptionCommands", [
+  ["policyShowCommand", "the policy"],
+  ["policyPatchCommand", "required, the managed key", { mode: "required", keyProvider: { managed: true } }],
+  ["policyPatchCommand", "off", { mode: "off" }],
+  ["policyPatchCommand", "an external file", { keyProvider: { external: { file: "/etc/retnd/keys/offsite.key" } } }],
+  ["policyPatchCommand", "an external variable", { keyProvider: { external: { env: "RETND_OFFSITE_KEY" } } }],
+  ["policyPatchCommand", "an external command, arguments never echoed", { keyProvider: { external: { command: ["vault", "kv", "get", "secret/offsite"] } } }],
+  ["policyPatchCommand", "a hostile file path", { keyProvider: { external: { file: HOSTILE } } }],
+  ["policyResetCommand", "the policy"],
+  ["setEncryptionCommand", "a set, required, the managed key", SET, "required", { managed: true }],
+  ["setEncryptionCommand", "a set, off", SET, "off"],
+  ["setEncryptionCommand", "a hostile set id", HOSTILE_SET, "required"],
+  ["setEncryptionResetCommand", "a set", SET],
+  ["keyListCommand", "the keys"],
+  ["keyCreateCommand", "the first key"],
+  ["keyRotateCommand", "the active key"],
+  ["keyRetireCommand", "a key", "mk-2026-08-14-a"],
+  ["keyRetireCommand", "a hostile key id", HOSTILE],
+  ["keyExportCommand", "a key", "mk-2026-11-09-a"],
+  ["keyConfirmCommand", "the newest export", "mk-2026-11-09-a"],
+  ["keyConfirmCommand", "a named digest", "mk-2026-11-09-a", "ab".repeat(32)],
+  ["providerTestCommand", "a managed key", { managedKeyId: "mk-2026-11-09-a" }],
+  ["providerTestCommand", "an external file", { external: { file: "/etc/retnd/keys/offsite.key" } }],
+  ["providerTestCommand", "an external variable", { external: { env: "RETND_OFFSITE_KEY" } }],
+  ["providerTestCommand", "an external command, arguments never echoed", { external: { command: ["fetch-key", "--token", "abc"] } }],
+  ["copiesCommand", "one backup", ARTIFACT],
+  ["copiesCommand", "a hostile id", HOSTILE_ARTIFACT],
+  ["verifyCommand", "one backup", ARTIFACT],
+  ["verifyCommand", "one copy, egress accepted", ARTIFACT, { medium: "offsite_s3", allowEgress: true }],
+  ["verifyCommand", "a hostile id and medium", HOSTILE_ARTIFACT, { medium: HOSTILE, allowEgress: true }]
+]);
+
 cases("hooks/runCommands", [
   ["runCommand", "every set", { kind: "all" }],
   ["runCommand", "one set", { kind: "set", id: SET }],
