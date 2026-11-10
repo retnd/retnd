@@ -11,6 +11,7 @@ import (
 
 	"github.com/retnd/retnd/core/internal/keycustody"
 	"github.com/retnd/retnd/core/internal/secretref"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // The managed key store, FR-63: a key is minted once, held under the same
@@ -19,21 +20,30 @@ import (
 
 var fixedNow = time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
 
-// openStore opens a store over its own fresh directory and a file registry
-// beside it, which is the shape the service wires at
+// openStore opens a store over its own fresh directory and a journal-backed
+// registry (the state database) beside it, which is the shape the service wires at
 // filepath.Dir(configPath). The directory is created by Open, so the test
 // also proves Open mints a 0700 directory rather than inheriting umask.
 func openStore(t *testing.T, root string) *keycustody.Store {
 	t.Helper()
-	reg, err := keycustody.OpenFileRegistry(filepath.Join(root, "registry.json"))
-	if err != nil {
-		t.Fatalf("OpenFileRegistry: %v", err)
-	}
-	s, err := keycustody.Open(filepath.Join(root, keycustody.DirName), reg, testFormat)
+	s, err := keycustody.Open(filepath.Join(root, keycustody.DirName), openJournalRegistry(t, root), testFormat)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	return s
+}
+
+// openJournalRegistry opens the state database under root, as the service
+// does, and wraps it. Every call opens its own connection, so a second call
+// over the same root is the restart the persistence tests need.
+func openJournalRegistry(t *testing.T, root string) *keycustody.JournalRegistry {
+	t.Helper()
+	j, err := state.Open(context.Background(), filepath.Join(root, "state.db"))
+	if err != nil {
+		t.Fatalf("state.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = j.Close() })
+	return keycustody.NewJournalRegistry(j)
 }
 
 // materialOf reads the key back through the one door that exists for it.
@@ -264,11 +274,7 @@ func TestAKeyDirectoryThatGainsGroupReadIsRefusedByName(t *testing.T) {
 
 	// A fresh Open over the drifted directory refuses too, so a restart
 	// cannot quietly re-adopt a directory a human loosened.
-	reg, err := keycustody.OpenFileRegistry(filepath.Join(root, "registry.json"))
-	if err != nil {
-		t.Fatalf("OpenFileRegistry: %v", err)
-	}
-	if _, err := keycustody.Open(dir, reg, testFormat); !errors.Is(err, secretref.ErrCustody) {
+	if _, err := keycustody.Open(dir, openJournalRegistry(t, root), testFormat); !errors.Is(err, secretref.ErrCustody) {
 		t.Fatalf("Open over a 0750 directory err = %v, want ErrCustody", err)
 	}
 }
