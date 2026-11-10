@@ -12,10 +12,6 @@
 // equivalence (core/cmd/retnd/suite_equivalence_1319_test.go and
 // ui/shared/e2e/1319-suite-equivalence.spec.ts).
 //
-// Every call into the suite registry and the suite-aware key custody goes
-// through the few helpers in this file, so the names the phase 1 issues
-// (#1312 to #1315) and T2.1 (#1316) settle on are reconciled in one place.
-//
 // Written by reading the packages and the issues; not run. Each test names
 // the defect that turns it red.
 package encryptionsuites_test
@@ -94,18 +90,19 @@ func headerEnd(t *testing.T, ct []byte) int {
 // when the build does not know it.
 func suiteOf(t *testing.T, id string) copycrypt.Suite {
 	t.Helper()
-	s, err := copycrypt.Lookup(id)
-	if err != nil {
-		t.Fatalf("copycrypt.Lookup(%q): %v (this build does not register the suite)", id, err)
+	s, ok := copycrypt.Lookup(id)
+	if !ok {
+		t.Fatalf("copycrypt.Lookup(%q): this build does not register the suite", id)
 	}
 	return s
 }
 
-// mintUnder creates a managed key under suite id in store. It is the first
-// key of that suite, so it becomes the suite's active key.
+// mintUnder creates the deployment's first managed key, under suite id. There
+// is one active managed key deployment-wide (migration 0015's index, kept by
+// T1.2), so this is only ever the first key.
 func mintUnder(t *testing.T, ctx context.Context, store *keycustody.Store, id string, at time.Time) keycustody.KeyRecord {
 	t.Helper()
-	rec, err := store.CreateSuite(ctx, id, at)
+	rec, err := store.CreateIn(ctx, at, id)
 	if err != nil {
 		t.Fatalf("minting a key under %s: %v", id, err)
 	}
@@ -116,13 +113,15 @@ func mintUnder(t *testing.T, ctx context.Context, store *keycustody.Store, id st
 }
 
 // rotateTo makes a new managed key under suite id the active one,
-// superseding the active key of the policy's previous suite in the same
-// write (T1.5).
+// superseding the active key, whatever its suite, in the same write.
 func rotateTo(t *testing.T, ctx context.Context, store *keycustody.Store, id string, at time.Time) keycustody.KeyRecord {
 	t.Helper()
-	rec, err := store.RotateSuite(ctx, id, at)
+	rec, err := store.RotateTo(ctx, at, id)
 	if err != nil {
 		t.Fatalf("rotating to %s: %v", id, err)
+	}
+	if rec.SuiteID != id {
+		t.Fatalf("a key rotated into %s records suite %q", id, rec.SuiteID)
 	}
 	return rec
 }
@@ -130,9 +129,9 @@ func rotateTo(t *testing.T, ctx context.Context, store *keycustody.Store, id str
 // activeUnder is the active managed key under suite id, if there is one.
 func activeUnder(t *testing.T, ctx context.Context, store *keycustody.Store, id string) (keycustody.KeyRecord, bool) {
 	t.Helper()
-	rec, ok, err := store.ActiveKey(ctx, id)
+	rec, ok, err := store.ActiveFor(ctx, id)
 	if err != nil {
-		t.Fatalf("ActiveKey(%s): %v", id, err)
+		t.Fatalf("ActiveFor(%s): %v", id, err)
 	}
 	return rec, ok
 }
@@ -157,8 +156,9 @@ func sealUnder(t *testing.T, ctx context.Context, suite copycrypt.Suite, recipie
 
 // --- one deployment's disk ------------------------------------------------
 
-// rig is one deployment holding a managed key under each shipped suite, over
-// a real journal, a staging directory and a directory standing for the
+// rig is one deployment holding a managed key under each shipped suite (the
+// age/v1 key minted first and superseded by a rotation into age-pq/v1, the
+// path an EPIC N deployment takes), over a real journal, a staging directory and a directory standing for the
 // off-site bucket. The plaintext is written nowhere under root, so a scan of
 // root for plaintext is a scan of everything that must not hold any.
 type rig struct {
@@ -190,17 +190,17 @@ func newRig(t *testing.T) *rig {
 		staging: filepath.Join(root, "staging"), bucket: filepath.Join(root, "bucket"),
 		journal: j, store: store, keys: map[string]keycustody.KeyRecord{},
 	}
-	for i, id := range shipped {
-		r.keys[id] = mintUnder(t, ctx, store, id, mintedAt.Add(time.Duration(i)*time.Minute))
-	}
+	r.keys[ageV1] = mintUnder(t, ctx, store, ageV1, mintedAt)
+	r.keys[agePQV1] = rotateTo(t, ctx, store, agePQV1, mintedAt.Add(time.Minute))
 	if err := os.MkdirAll(r.bucket, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	return r
 }
 
-// seal is the engine's hop as the transform sees it, under one suite's
-// active key.
+// seal is the engine's hop as the transform sees it, under one suite's key.
+// Sealing needs only the recipient, so the superseded age/v1 key still seals
+// here; the engine itself writes only under the active key.
 func (r *rig) seal(id, name string, plain []byte) ([]byte, copycrypt.Staged) {
 	r.t.Helper()
 	obj, s := sealUnder(r.t, r.ctx, suiteOf(r.t, id), r.keys[id].Recipient, r.staging, name, plain)

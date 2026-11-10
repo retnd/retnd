@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/retnd/retnd/core/internal/copycrypt"
+	"github.com/retnd/retnd/core/internal/health"
 	"github.com/retnd/retnd/core/internal/keycustody"
 	"github.com/retnd/retnd/core/internal/state"
 )
@@ -119,52 +120,54 @@ func TestRotationAcrossSuitesKeepsEveryEarlierCopyRecoverable_1319(t *testing.T)
 }
 
 // A test-only deprecated suite degrades health with the retirement version,
-// and still writes: a copy sealed under it after the status moved recovers.
-// The supported suite beside it stays quiet. The control is the same report
-// with the status restored, which says nothing about deprecation. Red if a
+// and still writes: a key rotated into it seals a copy that recovers. The
+// control is the same suite while supported, which reads quiet. Red if a
 // deprecated suite is quiet, stops writing, or if the health entry lacks the
 // version a person needs to plan the move.
 func TestADeprecatedSuiteDegradesHealthAndStillWrites_1319(t *testing.T) {
-	r := newRig(t)
+	const leaving = copycrypt.TestSuitePrefix + "leaving/v1"
+	ts := copycrypt.InjectForTest(t, copycrypt.AgeX25519{}, leaving, copycrypt.StatusSupported, "")
+	r := oneSuiteRig(t)
+	key := rotateTo(t, r.ctx, r.store, leaving, mintedAt.Add(time.Hour))
+	r.keys[leaving] = key
 
-	quiet, err := r.store.Health(r.ctx, true)
-	if err != nil {
-		t.Fatalf("Health: %v", err)
-	}
-	for _, s := range quiet.Suites {
-		if s.Status == string(copycrypt.StatusDeprecated) || s.RetirementVersion != "" {
-			t.Fatalf("control: before anything is deprecated health says %+v", s)
+	entry := func(t *testing.T) (health.SuiteHealth, bool) {
+		t.Helper()
+		keys, err := r.store.Keys(r.ctx)
+		if err != nil {
+			t.Fatalf("Keys: %v", err)
 		}
+		counts, err := r.journal.ActiveEncryptedCopiesBySuite(r.ctx)
+		if err != nil {
+			t.Fatalf("ActiveEncryptedCopiesBySuite: %v", err)
+		}
+		for _, s := range keycustody.SuiteHealth(copycrypt.Suites(), counts, keys) {
+			if s.ID == leaving {
+				return s, true
+			}
+		}
+		return health.SuiteHealth{}, false
 	}
 
-	restore, err := copycrypt.SetStatusForTest(ageV1, copycrypt.StatusDeprecated)
-	if err != nil {
-		t.Fatalf("SetStatusForTest: %v", err)
+	if s, ok := entry(t); !ok || s.Degrading || s.RetirementVersion != "" {
+		t.Fatalf("control: while supported the suite's entry is %+v (listed=%v), want listed and quiet", s, ok)
 	}
-	defer restore()
 
-	h, err := r.store.Health(r.ctx, true)
-	if err != nil {
-		t.Fatalf("Health: %v", err)
-	}
-	byID := map[string]int{}
-	for i, s := range h.Suites {
-		byID[s.ID] = i
-	}
-	i, ok := byID[ageV1]
+	ts.SetStatus(copycrypt.StatusDeprecated, "9.0.0")
+	s, ok := entry(t)
 	if !ok {
-		t.Fatalf("health has no entry for the deprecated suite: %+v", h.Suites)
+		t.Fatal("health has no entry for the deprecated suite the active key is under")
 	}
-	if s := h.Suites[i]; s.Status != string(copycrypt.StatusDeprecated) || s.Keys != 1 || s.RetirementVersion == "" {
-		t.Errorf("the deprecated suite's entry is %+v, want deprecated, one key and a retirement version", s)
+	if s.Status != string(copycrypt.StatusDeprecated) || s.Keys != 1 || !s.ActiveKey || s.RetirementVersion != "9.0.0" || !s.Degrading || s.Reason == "" {
+		t.Errorf("the deprecated suite's entry is %+v, want deprecated, one active key, 9.0.0, degrading with a reason", s)
 	}
-	if j, ok := byID[agePQV1]; ok && h.Suites[j].Status == string(copycrypt.StatusDeprecated) {
-		t.Errorf("the supported suite reads deprecated too: %+v", h.Suites[j])
+	if err := copycrypt.CheckWrite(suiteOf(t, leaving)); err != nil {
+		t.Fatalf("a deprecated suite refuses a write: %v", err)
 	}
 
 	plain := fixture(23)
-	obj, _ := r.seal(ageV1, "deprecated.dump", plain)
-	if _, err := r.recoverTo(filepath.Join(r.root, "out-deprecated"), "x.dump", ageV1, r.keys[ageV1].ID, obj, sum(plain)); err != nil {
+	obj, _ := r.seal(leaving, "deprecated.dump", plain)
+	if _, err := r.recoverTo(filepath.Join(r.root, "out-deprecated"), "x.dump", leaving, key.ID, obj, sum(plain)); err != nil {
 		t.Fatalf("a copy written under a deprecated suite does not recover: %v", err)
 	}
 }

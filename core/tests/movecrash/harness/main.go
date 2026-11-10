@@ -41,6 +41,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -125,17 +126,19 @@ func run() error {
 		killDuringEncrypt    = flag.Bool("kill-during-encrypt", false, "die part-way through reading the local artifact into the encrypting pass")
 		killBeforeUpload     = flag.Bool("kill-before-upload", false, "die the instant before a local file is handed to the medium upload, after anything was written for it")
 		suppressKillRequests = flag.Bool("suppress-kill", false, "turn every self-kill into a no-op, to prove the suite's own kill assertion is not vacuous")
-		encryptSuite         = flag.String("encrypt-suite", "", "the suite policy the set resolves to (an id, or empty for the build's default), with -encrypt-dir")
-		retiredSuite         = flag.String("test-retire-suite", "", "mark this registered suite retired in this process only, through the registry's test hook (#1319)")
+		encryptSuite         = flag.String("encrypt-suite", "", "the suite the set's policy pins, with -encrypt-dir; empty is the default policy (the active key's suite)")
+		testSuite            = flag.String("test-suite", "", "ID=STATUS: inject a test suite over age/v1 with this status into this process's registry, through copycrypt.InjectForTest (#1319)")
 	)
 	flag.Parse()
 	suppressKill = *suppressKillRequests
-	if *retiredSuite != "" {
-		restore, err := copycrypt.SetStatusForTest(*retiredSuite, copycrypt.StatusRetired)
-		if err != nil {
-			return fmt.Errorf("retiring %s for this run: %w", *retiredSuite, err)
+	if *testSuite != "" {
+		id, status, ok := strings.Cut(*testSuite, "=")
+		if !ok {
+			return fmt.Errorf("-test-suite wants ID=STATUS, got %q", *testSuite)
 		}
-		defer restore()
+		hook := &processT{}
+		defer hook.done()
+		copycrypt.InjectForTest(hook, copycrypt.AgeX25519{}, id, copycrypt.Status(status), "9.0.0")
 	}
 
 	ctx := context.Background()
@@ -188,11 +191,6 @@ func run() error {
 			Mode:        config.RetainedCopyEncryptionRequired,
 			KeyProvider: config.RetainedCopyKeyProvider{Managed: true},
 			Suite:       *encryptSuite,
-		}
-		if bs.RetainedCopyEncryption.Suite == "" {
-			// What Validate resolves "default" to; consumers read a
-			// concrete id only (T1.4).
-			bs.RetainedCopyEncryption.Suite = copycrypt.Default().ID()
 		}
 	}
 
@@ -612,4 +610,24 @@ func samePlace(a, b string) bool {
 		return false
 	}
 	return ra == rb
+}
+
+// processT is the part of testing.TB copycrypt.InjectForTest needs, for a
+// process that is not a test: a failure ends the run, and the cleanups run
+// when the run returns.
+type processT struct{ cleanups []func() }
+
+func (*processT) Helper() {}
+
+func (*processT) Fatalf(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "movecrash-harness: "+format+"\n", args...)
+	os.Exit(2)
+}
+
+func (p *processT) Cleanup(f func()) { p.cleanups = append(p.cleanups, f) }
+
+func (p *processT) done() {
+	for i := len(p.cleanups) - 1; i >= 0; i-- {
+		p.cleanups[i]()
+	}
 }

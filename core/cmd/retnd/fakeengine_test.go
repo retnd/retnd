@@ -329,9 +329,6 @@ func (e *fakeEngine) api(w http.ResponseWriter, r *http.Request, path, token str
 	switch {
 	// The encryption writes (#993), for the reason fakeengine_encryption_996_test.go gives.
 	case e.serveEncryption(w, r, path):
-	// The suite reads and the re-encryption dry run (#1319), for the reason
-	// fakeengine_suites_1319_test.go gives.
-	case e.serveSuites(w, r, path):
 	// The eight config writes #1148 routes, ahead of everything below
 	// for the reason fakeengine_configwrites_1148_test.go gives.
 	case e.serveConfigWrite(w, r, path):

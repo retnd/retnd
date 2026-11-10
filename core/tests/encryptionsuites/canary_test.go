@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/retnd/retnd/core/apicontract"
+	"github.com/retnd/retnd/core/internal/copycrypt"
 	"github.com/retnd/retnd/core/internal/health"
 	"github.com/retnd/retnd/core/internal/keycustody"
 	"github.com/retnd/retnd/core/internal/metrics"
@@ -121,19 +122,19 @@ func newSuiteWorld(t *testing.T) *suiteWorld {
 		w.answers[name] = b
 	}
 
-	k1, err := svc.CreateEncryptionKeyUnder(ctx, ageV1)
+	k1, err := svc.CreateEncryptionKey(ctx, ageV1)
 	keep("create under age/v1", k1, err)
 	pol, err := svc.PatchEncryptionPolicy(ctx, apicontract.EncryptionPolicyPatch{Mode: "required", KeyProvider: &apicontract.EncryptionKeyProvider{Managed: true}, Suite: agePQV1})
 	keep("policy patch to age-pq/v1", pol, err)
 	suites, err := svc.ListEncryptionSuites(ctx)
 	keep("suites list", suites, err)
-	k2, err := svc.RotateEncryptionKeyUnder(ctx, agePQV1)
+	k2, err := svc.RotateEncryptionKey(ctx, agePQV1)
 	keep("rotate across suites", k2, err)
 	w.bundle, err = svc.ExportRecoveryBundleBytes(ctx, k2.ID)
 	if err != nil {
 		t.Fatalf("export: %v", err)
 	}
-	plan, err := svc.PlanReencrypt(ctx, apicontract.ReencryptRequest{Suite: ageV1, DryRun: true})
+	plan, err := svc.PlanReencrypt(ctx, apicontract.StartReencryptRequest{SuiteID: ageV1})
 	keep("re-encrypt dry run", plan, err)
 	w.keyIDs = []string{k1.ID, k2.ID}
 
@@ -192,13 +193,13 @@ var suiteSurfaces = []suiteSurface{
 	},
 	{
 		name:    "re-encrypt dry run",
-		marker:  func(w *suiteWorld) string { return ageV1 },
+		marker:  func(*suiteWorld) string { return "would_reencrypt" },
 		collect: answer("re-encrypt dry run"),
 		leaks:   anyMaterial,
 	},
 	{
 		name:   "per-suite health and its metrics (material, or a key id anywhere)",
-		marker: func(*suiteWorld) string { return `suite="` + agePQV1 + `"` },
+		marker: func(*suiteWorld) string { return `"ID":"` + agePQV1 + `"` },
 		collect: func(w *suiteWorld) []byte {
 			j, err := state.Open(w.ctx, w.dbPath)
 			if err != nil {
@@ -213,6 +214,16 @@ var suiteSurfaces = []suiteSurface{
 			if err != nil {
 				w.t.Fatalf("Health: %v", err)
 			}
+			keys, err := store.Keys(w.ctx)
+			if err != nil {
+				w.t.Fatalf("Keys: %v", err)
+			}
+			counts, err := j.ActiveEncryptedCopiesBySuite(w.ctx)
+			if err != nil {
+				w.t.Fatalf("ActiveEncryptedCopiesBySuite: %v", err)
+			}
+			// What core/service/keycustody.go fills the section with.
+			h.Suites = keycustody.SuiteHealth(copycrypt.Suites(), counts, keys)
 			r := health.NewReport(health.ProcessHealth{}, nil, time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC))
 			r.KeyCustody = h
 			section, _ := json.Marshal(h.Suites)
@@ -294,7 +305,9 @@ func TestNoKeyMaterialOnAnySuiteSurface_1319_WouldCatchOne(t *testing.T) {
 	}
 	t.Run("a key id as a suite metric label", func(t *testing.T) {
 		s := suiteSurfaces[4]
-		planted := append(s.collect(w), []byte(`retnd_encrypted_copies{suite="`+agePQV1+`",key_id="`+w.keyIDs[1]+`"} 1`+"\n")...)
+		// No metric carries a suite or key label today; this is the
+		// regression the detector exists for.
+		planted := append(s.collect(w), []byte(`retnd_retained_copy_encryption_degraded{suite="`+agePQV1+`",key_id="`+w.keyIDs[1]+`"} 1`+"\n")...)
 		if !s.leaks(w, planted) {
 			t.Fatal("a key id planted as a label value was not found")
 		}

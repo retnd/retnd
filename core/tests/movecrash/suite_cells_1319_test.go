@@ -20,14 +20,14 @@ import (
 // source checked on disk after the cycle rather than asserted from a return
 // value.
 //
-// The harness flags these cells lean on: -encrypt-suite (the set's resolved
-// policy suite) and -test-retire-suite (the registry's test hook, in the
-// harness process only). Re-encryption is the encrypt-existing entry point
-// over a source copy that is already encrypted (T2.2 generalises #1291's
-// source), so it takes no flag of its own.
+// The harness flags these cells lean on: -encrypt-suite (the suite the set's
+// policy pins) and -test-suite ID=STATUS (copycrypt.InjectForTest in the
+// harness process, over age/v1, so a retired suite exists without retiring a
+// real one). Re-encryption is the encrypt-existing entry point with
+// -reencrypt (#1317), here across suites.
 //
-// Written by reading the harness, the engine and the T1.4, T2.1 and T2.2
-// issues; not run. Each names the defect that turns it red.
+// Written by reading the harness and the engine; not run. Each names the
+// defect that turns it red.
 
 const (
 	suiteAgeV1   = "age/v1"
@@ -64,7 +64,7 @@ func (w *world) enableEncryptionUnder(suite string) keycustody.KeyRecord {
 		w.t.Fatalf("opening the journal: %v", err)
 	}
 	defer func() { _ = j.Close() }()
-	rec, err := w.keysOver(j).CreateSuite(w.ctx, suite, crashNow)
+	rec, err := w.keysOver(j).CreateIn(w.ctx, crashNow, suite)
 	if err != nil {
 		w.t.Fatalf("minting a key under %s: %v", suite, err)
 	}
@@ -81,7 +81,7 @@ func (w *world) rotateUnder(suite string) keycustody.KeyRecord {
 		w.t.Fatalf("opening the journal: %v", err)
 	}
 	defer func() { _ = j.Close() }()
-	rec, err := w.keysOver(j).RotateSuite(w.ctx, suite, crashNow.Add(1))
+	rec, err := w.keysOver(j).RotateTo(w.ctx, crashNow.Add(1), suite)
 	if err != nil {
 		w.t.Fatalf("rotating to %s: %v", suite, err)
 	}
@@ -191,35 +191,42 @@ func TestTheMismatchRefusalLeavesTheSourceOnDiskAndWritesNothing_1319(t *testing
 
 func mustSuite(t *testing.T, id string) copycrypt.Suite {
 	t.Helper()
-	s, err := copycrypt.Lookup(id)
-	if err != nil {
-		t.Fatalf("copycrypt.Lookup(%q): %v", id, err)
+	s, ok := copycrypt.Lookup(id)
+	if !ok {
+		t.Fatalf("copycrypt.Lookup(%q): this build has no such suite", id)
 	}
 	return s
 }
 
 // A retired suite refuses a write before any destructive step, and its copies
-// still recover. The world holds a real age/v1 copy on the first medium; the
-// hop to the second medium runs with age/v1 retired in the harness process
-// and is refused, with the first medium's object untouched. Then, with age/v1
-// retired in this process too, the copy decrypt-verifies through its own
-// record and key. Red if retirement stops reads (an operator loses access to
-// every copy of the old suite on an upgrade) or if it fails to stop a write.
+// still recover. A test suite over age/v1 (copycrypt.InjectForTest, the same
+// id in this process and in the harness) writes a real copy onto the first
+// medium while supported; the hop to the second medium then runs with the
+// suite retired and is refused, with the first medium's object untouched.
+// Then, retired in this process too, the copy decrypt-verifies through its
+// own record and key, and health degrades with the one active copy and the
+// retirement version. Red if retirement stops reads (every copy of the old
+// suite lost on an upgrade), fails to stop a write, or reads quiet in health.
 func TestARetiredSuiteRefusesTheWriteAndItsCopiesStillRecover_1319(t *testing.T) {
+	const retiring = copycrypt.TestSuitePrefix + "retiring/v1"
+	ts := copycrypt.InjectForTest(t, copycrypt.AgeX25519{}, retiring, copycrypt.StatusSupported, "")
 	w := newWorldOver(t, multiChunkArtifact())
-	key := w.enableEncryptionUnder(suiteAgeV1)
-	res := w.crashTo(crashMedium, "-plan", "-encrypt-suite", suiteAgeV1)
+	key := w.enableEncryptionUnder(retiring)
+	res := w.crashTo(crashMedium, "-plan", "-encrypt-suite", retiring, "-test-suite", retiring+"=supported")
 	if res.killed() || !strings.Contains(res.stdout, "FINISHED") || w.localExists() {
-		t.Fatalf("the first hop under age/v1 did not finish:\nstdout:\n%s\nstderr:\n%s", res.stdout, res.stderr)
+		t.Fatalf("the first hop under the test suite did not finish:\nstdout:\n%s\nstderr:\n%s", res.stdout, res.stderr)
 	}
 	before := w.objectAtKey()
 	if stanzaOf(t, before) != suiteAgeV1 {
-		t.Fatal("control: the first copy is not age/v1, so retiring age/v1 tests nothing")
+		t.Fatal("control: the first copy is not an X25519 age object, so the test suite did not write it")
 	}
 
-	res = w.crashTo(crashSecondMedium, "-plan", "-encrypt-suite", suiteAgeV1, "-test-retire-suite", suiteAgeV1)
-	if res.killed() || !strings.Contains(res.stdout, "FINISHED") || strings.Contains(res.stdout, `refused=""`) {
+	res = w.crashTo(crashSecondMedium, "-plan", "-encrypt-suite", retiring, "-test-suite", retiring+"=retired")
+	if res.killed() || !strings.Contains(res.stdout, "FINISHED") || !strings.Contains(res.stdout, `refused="`) || strings.Contains(res.stdout, `refused=""`) {
 		t.Fatalf("a write under a retired suite was not refused:\nstdout:\n%s\nstderr:\n%s", res.stdout, res.stderr)
+	}
+	if !strings.Contains(res.stdout, "retired") {
+		t.Errorf("the refusal does not say the suite is retired:\n%s", res.stdout)
 	}
 	if n := w.objectCountOn(t, w.secondBucket); n != 0 {
 		t.Fatalf("%d object(s) on the second medium under a retired suite", n)
@@ -232,41 +239,44 @@ func TestARetiredSuiteRefusesTheWriteAndItsCopiesStillRecover_1319(t *testing.T)
 		t.Fatalf("the refused move reached %s", p)
 	}
 
-	restore, err := copycrypt.SetStatusForTest(suiteAgeV1, copycrypt.StatusRetired)
-	if err != nil {
-		t.Fatalf("SetStatusForTest: %v", err)
-	}
-	defer restore()
+	ts.SetStatus(copycrypt.StatusRetired, "9.0.0")
 	rec, ok, err := j.PlacementEncryption(w.ctx, w.artifact, crashMedium)
-	if err != nil || !ok || rec.FormatID != suiteAgeV1 || rec.KeyID != key.ID {
-		t.Fatalf("the copy's record is %+v (ok=%v err=%v)", rec, ok, err)
+	if err != nil || !ok || rec.FormatID != retiring || rec.KeyID != key.ID {
+		t.Fatalf("the copy's record is %+v (ok=%v err=%v), want %s under %s", rec, ok, err, retiring, key.ID)
 	}
-	if err := w.keysOver(j).WithKey(w.ctx, rec.KeyID, func(k []byte) error {
+	keys := w.keysOver(j)
+	if err := keys.WithKey(w.ctx, rec.KeyID, func(k []byte) error {
 		_, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(before), mustSuite(t, rec.FormatID), k, w.hash)
 		return err
 	}); err != nil {
 		t.Fatalf("a copy under a retired suite no longer decrypt-verifies: %v", err)
 	}
-	h, err := w.keysOver(j).Health(w.ctx, true)
+	counts, err := j.ActiveEncryptedCopiesBySuite(w.ctx)
 	if err != nil {
-		t.Fatalf("Health: %v", err)
+		t.Fatalf("ActiveEncryptedCopiesBySuite: %v", err)
+	}
+	all, err := keys.Keys(w.ctx)
+	if err != nil {
+		t.Fatalf("Keys: %v", err)
 	}
 	var seen bool
-	for _, s := range h.Suites {
-		if s.ID == suiteAgeV1 {
-			seen = true
-			if s.Status != string(copycrypt.StatusRetired) || s.ActiveCopies != 1 {
-				t.Errorf("health for the retired suite says %+v, want retired with one active copy", s)
-			}
+	for _, s := range keycustody.SuiteHealth(copycrypt.Suites(), counts, all) {
+		if s.ID != retiring {
+			continue
+		}
+		seen = true
+		if s.Status != string(copycrypt.StatusRetired) || s.ActiveCopies != 1 || s.RetirementVersion != "9.0.0" || !s.Degrading {
+			t.Errorf("health for the retired suite says %+v, want retired, one active copy, 9.0.0 and degrading", s)
 		}
 	}
 	if !seen {
-		t.Errorf("health names no entry for the retired suite while a copy records it: %+v", h.Suites)
+		t.Error("health names no entry for the retired suite while a copy records it")
 	}
 }
 
-// Re-encryption under the active suite with a kill part-way through the
-// decrypt-into-encrypt stream: the old age/v1 copy on the first medium is
+// Re-encryption ACROSS suites with a kill part-way through the
+// decrypt-into-encrypt stream (reencrypt_cells_test.go holds the same-suite
+// matrix of #1317, key 1 to key 2 under one suite): the old age/v1 copy on the first medium is
 // read through its suite's reader straight into age-pq/v1's writer, and the
 // process dies mid-read. At the crash the old copy is untouched and nothing
 // on local disk holds plaintext; after the restart the move is DONE, the new
@@ -284,7 +294,7 @@ func TestAReencryptionKilledMidStreamReconcilesWithNoPlaintextOnDisk_1319(t *tes
 	old := w.objectAtKey()
 	fresh := w.rotateUnder(suiteAgePQV1)
 
-	res = w.crashTo(crashSecondMedium, "-plan", "-encrypt-existing", "-encrypt-suite", suiteAgePQV1, "-kill-during-stage")
+	res = w.crashTo(crashSecondMedium, "-plan", "-encrypt-existing", "-reencrypt", "-encrypt-suite", suiteAgePQV1, "-kill-during-stage")
 	if !res.killed() {
 		t.Fatalf("the harness was not killed by SIGKILL (err=%v)\nstdout:\n%s\nstderr:\n%s", res.err, res.stdout, res.stderr)
 	}
@@ -313,7 +323,7 @@ func TestAReencryptionKilledMidStreamReconcilesWithNoPlaintextOnDisk_1319(t *tes
 		},
 	}}
 	engine.Keys = keys
-	report, err := engine.EncryptExisting(w.ctx, w.retroPlans())
+	report, err := engine.EncryptExisting(w.ctx, w.reencPlans())
 	if err != nil {
 		t.Fatalf("the restart failed: %v", err)
 	}

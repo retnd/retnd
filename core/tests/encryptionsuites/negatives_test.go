@@ -16,8 +16,11 @@ import (
 // cross-suite key in both directions, through the custody the product
 // resolves keys with, each failing closed with no plaintext on disk. A
 // failure is a "Decrypt failed" on every surface that renders it and never
-// the content class; at this level that is the error class (ErrCorrupt or
-// ErrWrongKey) and the absence of any output file. The string a person sees
+// the content class; at this level that is the error class and the absence
+// of any output file. The classes are copycrypt's: ErrCorrupt for damaged
+// bytes, ErrWrongKey for a key of the right suite that is not this copy's,
+// and ErrKeyUnavailable for a key of another suite, which decrypt refuses
+// before a byte of the object is read. The string a person sees
 // is the browser and terminal half's claim.
 //
 // Two planted openers stand in for broken adapters, and the checker has to
@@ -84,7 +87,7 @@ func negativesFor(t *testing.T, base, foreign *rig, id string, plain []byte) (go
 		{"wrong key (another deployment's key under the same suite)", good, id, foreign.keys[id].ID, foreign, copycrypt.ErrWrongKey},
 		// The cross-suite key: the copy's record names this suite, the key
 		// handed over is the other suite's identity in the same deployment.
-		{"cross-suite key: a " + other + " identity on a " + id + " copy", good, id, base.keys[other].ID, base, copycrypt.ErrWrongKey},
+		{"cross-suite key: a " + other + " identity on a " + id + " copy", good, id, base.keys[other].ID, base, copycrypt.ErrKeyUnavailable},
 		// The record and the key agree with each other and both name the
 		// other suite; the bytes are this suite's. A reader that trusted the
 		// record's suite over what the header says would still fail closed
@@ -92,7 +95,7 @@ func negativesFor(t *testing.T, base, foreign *rig, id string, plain []byte) (go
 		// open it: that is the planted lookup below.
 		{"cross-suite record: " + other + " record and key over " + id + " bytes", good, other, base.keys[other].ID, base, copycrypt.ErrWrongKey},
 		// And the other suite's copy under this suite's record and key.
-		{"cross-suite key: a " + id + " identity on a " + other + " copy", otherObj, other, key, base, copycrypt.ErrWrongKey},
+		{"cross-suite key: a " + id + " identity on a " + other + " copy", otherObj, other, key, base, copycrypt.ErrKeyUnavailable},
 	}
 	return good, cases
 }

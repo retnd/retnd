@@ -19,8 +19,8 @@ import (
 // rotation, dry run over the old suite's copies, and the registry read back.
 // The browser half is ui/shared/e2e/1319-suite-equivalence.spec.ts.
 //
-// Written by reading the verbs the T1.5 and T2.2 issues name and the fake
-// engine; not run. Each names the defect that turns it red.
+// Written by reading the verbs in encryption.go and the fake engine; not
+// run. Each names the defect that turns it red.
 
 var suiteFlow = []writeStep{
 	{"list the suites before anything is written", []string{"encryption", "suites", "--json"}},
@@ -131,14 +131,20 @@ func TestEverySuiteVerbAnswersAndWritesTheSameOnBothRoutes_1319(t *testing.T) {
 		t.Errorf("after the rotation the registry reads %v, want age/v1 superseded and age-pq/v1 active", got)
 	}
 
-	// The engine route was the one taken.
-	var sawSuites, sawPlan bool
+	// The writes took the engine route (the fake records paths, not the
+	// ?suite= query; the key list comparison above is what shows the suite
+	// arrived). The reads (suites, the re-encryption dry run, key
+	// list) read the deployment directly on both routes, over the one
+	// journal both configurations name, so they compare the state the
+	// routed writes left.
+	var sawCreate, sawRotate, sawPolicy bool
 	for _, req := range engine.requests() {
-		sawSuites = sawSuites || strings.Contains(req, "/encryption/suites")
-		sawPlan = sawPlan || strings.Contains(req, "/encryption/reencrypt")
+		sawCreate = sawCreate || req == "POST /encryption/keys"
+		sawRotate = sawRotate || req == "POST /encryption/keys/rotate"
+		sawPolicy = sawPolicy || strings.Contains(req, "/encryption/policy")
 	}
-	if !sawSuites || !sawPlan {
-		t.Errorf("the engine did not see the suites or re-encryption requests: %v", engine.requests())
+	if !sawCreate || !sawRotate || !sawPolicy {
+		t.Errorf("the engine did not see the create, rotate and policy writes: %v", engine.requests())
 	}
 	if got := readFile(t, cliSide); strings.Contains(got, "retained_copy_encryption") {
 		t.Errorf("a routed write changed the CLI's own configuration:\n%s", got)

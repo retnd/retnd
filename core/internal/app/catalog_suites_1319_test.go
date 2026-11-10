@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -15,8 +16,9 @@ import (
 // whose sidecars record copies under both shipped suites and one suite this
 // build does not know. The two known ones are identified with their own
 // suite id and key; the unknown one is identified as an encrypted copy under
-// an unknown suite, named in the report, and never described as plaintext or
-// as verified content. A rebuild reads no key material either way (#992).
+// an unknown suite (CatalogUnknownSuite), named in the report, counted under
+// its own id, and never adopted as a placement, so never plaintext and never
+// verified content. A rebuild reads no key material either way (#992).
 //
 // Written by reading; not run.
 
@@ -75,6 +77,9 @@ func TestRebuildOverTwoSuitesAndAnUnknownOneNamesEachAndNeverSaysPlaintext_1319(
 		if len(report.Errors) != 0 || len(report.Findings) != len(copies) {
 			t.Fatalf("dry=%v: findings %+v errors %+v, want %d findings and no errors", dry, report.Findings, report.Errors, len(copies))
 		}
+		if want := map[string]int{"age/v1": 1, "age-pq/v1": 1, unknownSuite: 1}; !reflect.DeepEqual(report.SuiteCopies, want) {
+			t.Errorf("dry=%v: the report counts %v per suite, want %v", dry, report.SuiteCopies, want)
+		}
 		byName := map[string]CatalogRebuildFinding{}
 		for _, f := range report.Findings {
 			byName[f.Artifact.Name] = f
@@ -87,10 +92,17 @@ func TestRebuildOverTwoSuitesAndAnUnknownOneNamesEachAndNeverSaysPlaintext_1319(
 			if len(f.EncryptedCopies) != 1 || f.EncryptedCopies[0].FormatID != c.suite || f.EncryptedCopies[0].KeyID != c.key {
 				t.Errorf("dry=%v %s: encrypted copies %+v, want one under %s and %s", dry, c.artifact, f.EncryptedCopies, c.suite, c.key)
 			}
-			notes := strings.Join(f.Notes, "\n")
-			if strings.Contains(strings.ToLower(notes), "plaintext") {
-				t.Errorf("dry=%v %s: the notes call an encrypted copy plaintext:\n%s", dry, c.artifact, notes)
+			// Identified as an encrypted copy at all is the "never
+			// plaintext" half; the Suite verdict is the registry's word or
+			// CatalogUnknownSuite.
+			wantVerdict := "supported"
+			if c.suite == unknownSuite {
+				wantVerdict = CatalogUnknownSuite
 			}
+			if len(f.EncryptedCopies) == 1 && f.EncryptedCopies[0].Suite != wantVerdict {
+				t.Errorf("dry=%v %s: the copy's suite verdict is %q, want %q", dry, c.artifact, f.EncryptedCopies[0].Suite, wantVerdict)
+			}
+			notes := strings.Join(f.Notes, "\n")
 			unknown := strings.Contains(notes, "unknown suite")
 			if unknown != (c.suite == unknownSuite) {
 				t.Errorf("dry=%v %s: notes say unknown suite = %v:\n%s", dry, c.artifact, unknown, notes)
