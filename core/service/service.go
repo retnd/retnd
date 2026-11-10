@@ -362,6 +362,7 @@ func New(cfg *config.Config, journal *state.Journal, tr transport.Transport, log
 	b.activity = activity
 	inner := app.New(cfg, journal, tr, logger)
 	b.keys = NewKeyCustody(func() string { return b.configPath }, journal)
+	b.keys.UseConfig(func() *config.Config { return b.state.Load().inner.Config })
 	inner.Keys = b.keys
 	// The stage runner is wired here, and not with the lifecycle, because
 	// it needs no reconciliation: it runs scripts that are not backups, so

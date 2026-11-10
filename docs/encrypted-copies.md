@@ -126,11 +126,22 @@ executable), never as something that could be pasted back in. An inline key in t
 field to land in and is refused at load. `retnd encryption provider test` tells you whether a
 reference resolves right now, without printing what it resolved to.
 
-What is not there yet: **this build writes new copies only under a managed key.** An external
-reference can be declared, saved and tested, but a set that requires encryption under one
-cannot produce a copy yet. The copy is refused, before anything is deleted, with a message
-saying the engine cannot resolve that provider. There is no KMS or Vault provider either; an
-external `command` is as close as it gets.
+A set that requires encryption under an external reference writes encrypted copies through it.
+The first time the reference resolves, the product records the key as a registry row: its id
+(derived from the key's public recipient, so the same key reached through another reference is
+the same row), the recipient, a status and a created time. It never records the reference
+itself or the key. The reference is resolved only while a copy is written or verified, and a
+reference that does not resolve, is not an age identity or now yields a different key is
+refused before anything is encrypted or uploaded: no copy, no recorded class, nothing deleted.
+
+An external key is yours to keep. It is not in the recovery bundle (a bundle is the one moment
+a managed key leaves this machine, and an external key already lives somewhere you chose), so
+`retnd encryption key export` refuses it, and it does not count towards the "no confirmed
+bundle" state. Opening a copy elsewhere is the stock `age` tool and your own key. Rotating
+registers the new key and moves the old one to `superseded`: the copies written under it keep
+decrypting through it, so **leave the old reference declared** (in the global provider or on a
+set), because a reference removed from the configuration is a key this deployment can no longer
+read. There is no KMS or Vault provider; an external `command` is as close as it gets.
 
 ## The recovery bundle, and where it must not live
 
@@ -249,7 +260,7 @@ key it was written under, so a move also needs the key.
 
 - No progress stages for "Encrypting" or "Decrypt-verifying". A run reports its existing
   stages, and a decrypt-verify is reported as a scrub.
-- No external key provider that can write copies (above), and no KMS or Vault.
+- No KMS or Vault provider (an external `command` can reach either).
 - No retroactive encryption of copies that already exist in plaintext, and no re-encryption
   of old copies after a rotation.
 - No `retnd` command that decrypts a copy for you.

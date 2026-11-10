@@ -83,7 +83,7 @@ func classifyEncryption(err error) error {
 		return &refusal{ErrEncryptionKeyNotFound, err}
 	case errors.Is(err, placement.ErrKeyInUse), errors.Is(err, placement.ErrKeyStillActive):
 		return &refusal{ErrEncryptionKeyInUse, err}
-	case errors.Is(err, keycustody.ErrActiveKeyExists), errors.Is(err, keycustody.ErrNoActiveKey), errors.Is(err, keycustody.ErrNoSuchExport):
+	case errors.Is(err, keycustody.ErrActiveKeyExists), errors.Is(err, keycustody.ErrNoActiveKey), errors.Is(err, keycustody.ErrNoSuchExport), errors.Is(err, keycustody.ErrExternalKeyNotExportable):
 		return &refusal{ErrEncryptionKeyState, err}
 	}
 	return err

@@ -63,6 +63,12 @@ type Store struct {
 	dir      string
 	registry Registry
 	format   Format
+
+	// externals reports the external references config declares right now
+	// (the global provider and every per-set override). The registry records
+	// an external key by id and recipient and never the reference, so this is
+	// how an id becomes material again. Nil means none are declared.
+	externals func() []secretref.Ref
 }
 
 // Open opens the managed key store at dir, creating the directory 0700 if
@@ -133,7 +139,7 @@ func (s *Store) Active(ctx context.Context) (KeyRecord, bool, error) {
 		return KeyRecord{}, false, err
 	}
 	for _, k := range keys {
-		if k.Status == StatusActive {
+		if k.Status == StatusActive && k.Provider != ProviderExternal {
 			return k, true, nil
 		}
 	}
@@ -227,6 +233,9 @@ func (s *Store) WithKey(ctx context.Context, id string, fn func(key []byte) erro
 	rec, err := s.record(ctx, id)
 	if err != nil {
 		return err
+	}
+	if rec.Provider == ProviderExternal {
+		return s.withExternalRecord(ctx, rec, fn)
 	}
 	if err := checkDirCustody(s.dir); err != nil {
 		return err
@@ -326,6 +335,10 @@ func (s *Store) Health(ctx context.Context, enabled bool) (health.KeyCustodyHeal
 	}
 	for _, k := range keys {
 		if k.Status == StatusRetired {
+			continue
+		}
+		if k.Provider == ProviderExternal {
+			// The operator holds an external key; there is no bundle to confirm.
 			continue
 		}
 		at, confirmed := confirmedAt[k.ID]

@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
+	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/health"
 	"github.com/retnd/retnd/core/internal/keycustody"
+	"github.com/retnd/retnd/core/internal/secretref"
 	"github.com/retnd/retnd/core/internal/state"
 )
 
@@ -36,8 +39,58 @@ type KeyCustody struct {
 	journal *state.Journal
 	format  keycustody.Format
 
+	// config is the running configuration, read on every resolution so a hot
+	// reload is seen. It is how an external key's registry row (id and
+	// recipient only) becomes material again: the references are config's.
+	// Nil means none are declared.
+	config func() *config.Config
+
 	mu    sync.Mutex
 	store *keycustody.Store
+}
+
+// UseConfig tells custody where to find the declared external references
+// (#1292). It must be set before the first key is resolved.
+func (c *KeyCustody) UseConfig(fn func() *config.Config) { c.config = fn }
+
+// externalRefs is every external reference the running configuration
+// declares: the global provider and each set's resolved one. A reference
+// that is dropped from config stops resolving, and with it every copy
+// recorded under the key it yielded, which is why the docs say to keep a
+// superseded key's reference declared.
+func (c *KeyCustody) externalRefs() []secretref.Ref {
+	if c.config == nil {
+		return nil
+	}
+	cfg := c.config()
+	if cfg == nil {
+		return nil
+	}
+	var refs []secretref.Ref
+	add := func(p config.RetainedCopyKeyProvider) {
+		if r := p.ExternalRef(); !r.IsZero() {
+			refs = append(refs, r)
+		}
+	}
+	add(cfg.RetainedCopyEncryption.KeyProvider)
+	for _, src := range cfg.Sources {
+		for _, bs := range src.BackupSets {
+			add(bs.RetainedCopyEncryption.KeyProvider)
+		}
+	}
+	return refs
+}
+
+// RegisterExternal is placement.ExternalKeys: it resolves ref and returns the
+// key's registry row, adding it the first time. It opens the key directory
+// like any call that needs custody does, because that is where the store
+// lives, but writes no file into it.
+func (c *KeyCustody) RegisterExternal(ctx context.Context, ref secretref.Ref, at time.Time) (keycustody.KeyRecord, error) {
+	s, err := c.Store(ctx)
+	if err != nil {
+		return keycustody.KeyRecord{}, err
+	}
+	return s.RegisterExternal(ctx, ref, at)
 }
 
 // NewKeyCustody returns the custodian for the deployment whose configuration
@@ -76,6 +129,7 @@ func (c *KeyCustody) Store(_ context.Context) (*keycustody.Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.UseExternalRefs(c.externalRefs)
 	c.store = s
 	return s, nil
 }
@@ -93,7 +147,7 @@ func (c *KeyCustody) Active(ctx context.Context) (keycustody.KeyRecord, bool, er
 		return keycustody.KeyRecord{}, false, err
 	}
 	for _, k := range keys {
-		if k.Status == keycustody.StatusActive {
+		if k.Status == keycustody.StatusActive && k.Provider != keycustody.ProviderExternal {
 			return k, true, nil
 		}
 	}
