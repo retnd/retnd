@@ -21,6 +21,12 @@
 // against deliberately broken matrices (TestTheMatrixCheckerCanLie). That is
 // the mutation self-test a new guard owes: without it this file would be a
 // guard whose only evidence is that it passes on the tree it shipped with.
+//
+// EPIC T (#1310, suite agility) closes through the same checker (#1320): its
+// matrix is docs/conformance/epic-t-matrix.md, read in open mode on every run
+// and in closing mode under RETND_EPIC_T_CLOSURE=1, which
+// scripts/release/check-epic-t-closed.sh sets. Its captures are entries in the
+// same manifest.
 package encryptiongate_test
 
 import (
@@ -35,16 +41,18 @@ import (
 )
 
 const (
-	matrixPath   = "docs/conformance/epic-n-matrix.md"
-	manifestPath = "docs/site/tools/encryption-captures.json"
-	scriptPath   = "docs/site/tools/capture-encryption.mjs"
-	screensDir   = "docs/site/screens"
+	matrixPath      = "docs/conformance/epic-n-matrix.md"
+	epicTMatrixPath = "docs/conformance/epic-t-matrix.md"
+	manifestPath    = "docs/site/tools/encryption-captures.json"
+	scriptPath      = "docs/site/tools/capture-encryption.mjs"
+	screensDir      = "docs/site/screens"
 )
 
 // selfTests are the files whose planted violations a PASS row may cite, by the
 // verbatim label of the mutation in double quotes.
 var selfTests = []string{
 	"scripts/tests/epic-n-closure.test.sh",
+	"scripts/tests/epic-t-closure.test.sh",
 	"core/tests/encryptiongate/matrix_test.go",
 }
 
@@ -443,6 +451,48 @@ func TestTheMatrixCheckerCanLie(t *testing.T) {
 	}
 }
 
+// EPIC T (#1310) closes through the same checker (#1320): its matrix carries
+// the T1.n and T2.n exit-gate rows, the TC-nn consensus rows and the TV.n
+// guard rows, and the parser has to read them or a BLOCKED T row is simply
+// not seen. This feeds a one-row EPIC T table through the parser, so a rowID
+// that forgets a family fails here and not at release time.
+func TestTheCheckerReadsEpicTRowsAndRefusesABlockedOneWhileClosing(t *testing.T) {
+	res := resolver{
+		exists:   func(ref string) bool { return ref == "pkg:TestReal" },
+		contains: func(path, needle string) bool { return false },
+	}
+	for _, id := range []string{"T1.1", "T2.5", "TC-01", "TV.12"} {
+		table := "| ID | Claim | Proof | Falsification | Status | Waits on |\n|---|---|---|---|---|---|\n" +
+			"| " + id + " | c | `pkg:TestReal` | not yet | BLOCKED (#1320) | #1320 |\n"
+		rows := parseMatrix(table)
+		if len(rows) != 1 {
+			t.Fatalf("the parser read %d rows out of a one-row EPIC T table with id %s; it has to read every EPIC T family", len(rows), id)
+		}
+		got := strings.Join(checkRows(rows, res, true), "\n")
+		if !strings.Contains(got, "does not close with a blocked row") {
+			t.Errorf("a BLOCKED %s row was not refused while closing: %q", id, got)
+		}
+		if open := checkRows(rows, res, false); len(open) != 0 {
+			t.Errorf("a BLOCKED %s row was refused before closing: %v", id, open)
+		}
+	}
+}
+
+func TestTheEpicTMatrixDoesNotMisstateAStatus(t *testing.T) {
+	root := repoRoot(t)
+	raw, err := os.ReadFile(filepath.Join(root, epicTMatrixPath))
+	if err != nil {
+		t.Fatalf("reading %s: %v", epicTMatrixPath, err)
+	}
+	rows := parseMatrix(string(raw))
+	if len(rows) == 0 {
+		t.Fatalf("%s parsed to no rows, so the parser or the file is wrong", epicTMatrixPath)
+	}
+	for _, p := range checkRows(rows, repoResolver(root), false) {
+		t.Error(p)
+	}
+}
+
 func TestTheMatrixParserReadsTheRealTablesRatherThanTheirShape(t *testing.T) {
 	root := repoRoot(t)
 	raw, err := os.ReadFile(filepath.Join(root, matrixPath))
@@ -551,6 +601,26 @@ func TestTheManifestMatchesTheCaptureScript(t *testing.T) {
 		t.Fatalf("reading %s: %v", scriptPath, err)
 	}
 	for _, p := range manifestProblems(readManifest(t, root), string(script), nil, false) {
+		t.Error(p)
+	}
+}
+
+// TestEpicTIsClosed is EPIC T's closing check (#1320), run by
+// scripts/release/check-epic-t-closed.sh with RETND_EPIC_T_CLOSURE=1: no row
+// of docs/conformance/epic-t-matrix.md is BLOCKED, every proof a row cites
+// resolves, every PASS cites a mutation that exists. The captures EPIC T owes
+// are entries in the same manifest, so TestEpicNIsClosed's presence rule
+// already covers them and this does not repeat it.
+func TestEpicTIsClosed(t *testing.T) {
+	if os.Getenv("RETND_EPIC_T_CLOSURE") != "1" {
+		t.Skip("closing check: set RETND_EPIC_T_CLOSURE=1 (scripts/release/check-epic-t-closed.sh does)")
+	}
+	root := repoRoot(t)
+	raw, err := os.ReadFile(filepath.Join(root, epicTMatrixPath))
+	if err != nil {
+		t.Fatalf("reading %s: %v", epicTMatrixPath, err)
+	}
+	for _, p := range checkRows(parseMatrix(string(raw)), repoResolver(root), true) {
 		t.Error(p)
 	}
 }
