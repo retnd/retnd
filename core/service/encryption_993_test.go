@@ -491,3 +491,94 @@ func (s *stallStatStore) StatObject(ctx context.Context, _ transport.Medium, _ s
 	<-ctx.Done()
 	return transport.ObjectInfo{}, ctx.Err()
 }
+
+func TestArtifactPlacementsCarryTheEncryptionStateTheBackupsColumnShows_993(t *testing.T) {
+	f, a, key := encryptedFixture(t)
+	ctx := context.Background()
+
+	got, err := f.b.GetArtifact(ctx, a.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, p := range got.Placements {
+		if p.Medium != "warm" {
+			continue
+		}
+		found = true
+		if !p.Encrypted || p.EncryptionKeyID != key.ID || p.EncryptionKeyResolvable == nil || !*p.EncryptionKeyResolvable {
+			t.Errorf("the encrypted copy reads encrypted=%v key=%q resolvable=%v", p.Encrypted, p.EncryptionKeyID, p.EncryptionKeyResolvable)
+		}
+	}
+	if !found {
+		t.Fatal("the fixture's copy on warm is missing")
+	}
+
+	list, err := f.b.ListArtifacts(ctx, ArtifactFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inList bool
+	for _, art := range list {
+		for _, p := range art.Placements {
+			if art.ID == a.String() && p.Medium == "warm" && p.Encrypted && p.EncryptionKeyID == key.ID {
+				inList = true
+			}
+		}
+	}
+	if !inList {
+		t.Error("the list response does not carry the encryption state, so the column would need a request per row")
+	}
+
+	plain := seedComplete(t, f, "plain.dump", "warm")
+	pg, err := f.b.GetArtifact(ctx, plain.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range pg.Placements {
+		if p.Encrypted || p.EncryptionKeyID != "" || p.EncryptionKeyResolvable != nil {
+			t.Errorf("a plaintext copy claims encryption state: %+v", p)
+		}
+	}
+}
+
+func TestEncryptionCopiesCarryBothDigestsAndNeverTheSameOne_993(t *testing.T) {
+	f, a, _ := encryptedFixture(t)
+	got, err := f.b.EncryptionCopies(context.Background(), a.String())
+	if err != nil || len(got.Copies) != 1 {
+		t.Fatalf("EncryptionCopies: %v %+v", err, got)
+	}
+	c := got.Copies[0]
+	if c.StoredDigest != strings.Repeat("e", 64) {
+		t.Errorf("stored_digest = %q, want the stored-bytes digest the journal recorded", c.StoredDigest)
+	}
+	if c.PlaintextDigest == "" || c.PlaintextDigest == c.StoredDigest {
+		t.Errorf("plaintext_digest = %q beside stored_digest %q: the two digests must be present and different", c.PlaintextDigest, c.StoredDigest)
+	}
+}
+
+func TestKeyStatusCountsTheCopiesRecordingItAndSaysWhenItsBundleWasExported_993(t *testing.T) {
+	f, _, key := encryptedFixture(t)
+	ctx := context.Background()
+
+	list, err := f.b.ListEncryptionKeys(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Keys) != 1 || list.Keys[0].CopiesRecording != 1 {
+		t.Fatalf("copies_recording = %+v, want 1 for the one ACTIVE copy", list.Keys)
+	}
+	if list.Keys[0].BundleExportedAt != "" {
+		t.Errorf("bundle_exported_at = %q before any export", list.Keys[0].BundleExportedAt)
+	}
+	if _, err := f.b.ExportRecoveryBundleBytes(ctx, key.ID); err != nil {
+		t.Fatal(err)
+	}
+	list, _ = f.b.ListEncryptionKeys(ctx)
+	if list.Keys[0].BundleExportedAt == "" {
+		t.Error("bundle_exported_at is empty after an export")
+	}
+	if list.Keys[0].BundleConfirmed {
+		t.Error("an export alone confirmed the bundle")
+	}
+}

@@ -27,6 +27,7 @@ import { ArtifactAssuranceCard } from "@shared/assurance/RecoverArtifact";
 import { useBackupFacts } from "@shared/assurance/verificationModel";
 import type { BackupFacts } from "@shared/assurance/verificationModel";
 import { PlacementList } from "@shared/components/PlacementList";
+import { EncryptionDigests } from "@shared/encryption/EncryptionDigests";
 import { VerifyRecoverableDialog } from "@shared/encryption/VerifyRecoverableDialog";
 import { ErrorState } from "@shared/components/EmptyState";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
@@ -234,7 +235,10 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
             <Row label="Producer timestamp" value={stamp(a.producedAt)} mono tip="backups.detail.produced-at" />
             <Row label="Received timestamp" value={stamp(a.receivedAt)} mono tip="backups.detail.received-at" />
             <Row label="Size" value={bytes(a.sizeBytes) + " \u00b7 " + a.sizeBytes + " B"} mono tip="backups.detail.size" />
-            <Row label="Checksum" value={a.checksumAlgorithm + ":" + a.checksum} mono tip="backups.detail.checksum" />
+            {/* The word "plaintext" only on a backup that has an encrypted copy, so a
+                deployment with encryption off reads the label it always did. */}
+            <Row label={copies.data?.some((c) => c.encrypted) ? "Checksum (plaintext)" : "Checksum"} value={a.checksumAlgorithm + ":" + a.checksum} mono tip="backups.detail.checksum" />
+            <EncryptionDigests copies={copies.data} />
             {/* The verdict, and separately what to do about it. They were
                 one ternary and it printed "Failed" for a backup whose
                 validation had never run, which is the #662 artifact

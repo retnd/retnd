@@ -447,6 +447,16 @@ export interface BackupPlacement {
   recoveryCheck?: WirePlacement["recovery_check"] | null;
   recoveryTestedAt?: string | null;
   recoveryFailureReason?: string;
+
+  /**
+   * This copy's own encryption record (EPIC N, #995), straight off the
+   * placement row and never inferred from the policy. All three are absent on
+   * a plaintext copy. `encryptionKeyResolvable` absent on an encrypted copy
+   * means the server did not say, which is not "resolves".
+   */
+  encrypted?: boolean;
+  encryptionKeyId?: string | null;
+  encryptionKeyResolvable?: boolean | null;
 }
 
 /**
