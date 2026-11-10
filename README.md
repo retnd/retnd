@@ -206,9 +206,46 @@ what the application used to leave at the browser's default and paint black on b
 
 ![The settings page switching to dark mode, scrolling through a form of native selects and number inputs, then switching back](docs/site/screens/ui-dark-mode.gif)
 
-None of these clips shows recovery or the three assurance claims (Stored, Content
-verified, Recovery tested), because those screens were not recorded when the clips were. The
-pages describe them in words, and they will get clips of their own...
+None of these clips shows recovery, the three assurance claims (Stored, Content
+verified, Recovery tested) or the encryption cards (Settings, a set's page, a backup's
+copies), because those screens were not recorded when the clips were. The pages describe them
+in words, and they will get clips of their own...
+
+
+## Encrypting the copies you send away
+
+A backup set can **require encryption** of the retained copies it writes to a storage
+destination. It is off until you turn it on, and off is byte-for-byte what it was before. Turned
+on, the copy at the destination is an [age](https://c2sp.org/age) v1 file; your local copy and the
+producer's artifact are untouched. You choose a mode (`off`, or `required` with an `inherit`
+default per set) and who holds the key (the product's managed key, or a `file`, `env` or
+`command` reference you declare). There is no cipher, chunk size or algorithm setting.
+
+```
+retnd encryption key create
+retnd encryption key export <key-id> --out /not/the/backup/volume/bundle.json
+retnd encryption key confirm <key-id>
+retnd encryption policy patch --mode required --managed
+```
+
+Three things to know before you do:
+
+- **It hides contents, not names.** The source, the backup set, the file name, the size and the
+  time stay readable to whoever holds the bucket.
+- **Losing the key loses the encrypted copies.** There is no reset and no support path that
+  recreates a key. You export a recovery bundle and keep it somewhere that is neither the backup
+  volume nor the bucket, and the health report says so until you confirm you did.
+- **It is a one-way door.** A `config.yaml` that carries `retained_copy_encryption:` is refused by
+  any build that predates it. See the [changelog](CHANGELOG.md).
+
+The web interface shows each copy as Plaintext, or Encrypted beside a second chip that says
+whether it has been proved to open, and the Backups list gains an Encryption column only when a
+copy on it is encrypted. What this build does not do yet: no live Encrypting progress stage, no retroactive encryption of copies already stored in plaintext, no external key
+that can write copies, no `retnd` command that decrypts a copy (an encrypted copy is opened with
+the stock `age` tool and the key from your bundle). The whole picture is in
+[`docs/encrypted-copies.md`](docs/encrypted-copies.md), the recovery steps are in
+[`docs/recovery-without-a-terminal.md`](docs/recovery-without-a-terminal.md#6-an-encrypted-copy-has-to-be-opened-on-a-machine-with-no-state),
+and [the site](https://retnd.github.io/retnd/index.html#encrypted-copies) has the short version.
 
 
 ## Two engines: artifacts, and incremental snapshots

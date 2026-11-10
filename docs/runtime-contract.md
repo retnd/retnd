@@ -92,6 +92,19 @@ cannot introduce one: the prohibition rules run against every registered
 artifact, and `TestEveryComposeArtifactInTheTreeIsRegistered` fails when a
 compose file exists in the tree that nothing registered.
 
+## Retained-copy encryption, and why it does not touch this contract
+
+EPIC N adds no port, no mount, no capability, no group and no compose or packaging edit. A
+managed key is a `0600` file in a `0700` directory (`retained_copy_keys`) under the
+configuration mount that already exists and is already writable, and the encrypting copy
+path runs in the engine's own process with a staging file under the backup set's existing
+`local_path`. An external key reference is read with the same `file`, `env` or `command`
+resolvers every other secret uses, so a `command` is run by the engine exactly as a
+credential command already is. The prohibition list above is unchanged, and the key
+directory sits under the configuration mount rather than `/data/backups`, which is the
+separation the previous section is there to keep. The operations guide is
+[encrypted copies](encrypted-copies.md).
+
 ## Local hook scripts, and why they do not touch this contract
 
 EPIC L (#809) gives a backup set hook scripts, and a `.local.sh` hook means

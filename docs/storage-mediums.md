@@ -81,7 +81,7 @@ looking for their snapshots in a bucket list.
 | Which engine uses it | `artifact` | `kopia` (see [`docs/incremental-engine.md`](incremental-engine.md)) |
 | Chosen by | a retention **tier**, per tier | a backup **set**, once, at creation |
 | Names where the bytes are | yes: bucket, endpoint, prefix, region, storage class | **no.** A domain names a boundary, a passphrase and a sharing rule; its storage is local, under the backup root |
-| Encrypted by this product | no; the medium's own at-rest encryption applies | always, with the domain's declared passphrase |
+| Encrypted by this product | no, unless a set requires it ([`retained_copy_encryption`](encrypted-copies.md)); otherwise the medium's own at-rest encryption applies | always, with the domain's declared passphrase |
 | Credential | `--credentials-id/-file/-env/-command`, per medium | a `passphrase` block naming `file`, `env` or `command`, per domain |
 | Declarable from the CLI or API | yes: `retnd medium add/edit/remove`, `retnd medium configure` for a backend's own field ids (the only way to declare a `local_volume` from a terminal, with `retnd medium backends` listing them), and a wizard | yes, declaring only: `retnd repository create`, `POST /repositories`, and the Define a repository domain screen. The declaration is written; the store is realized by the first backup run into the domain. There is no edit or remove verb |
 | Verified by | `retnd medium test-connection` | `retnd repository health` |
@@ -655,8 +655,11 @@ neither step is done for you on a timer.
 - **Encryption through rclone's `crypt` backend.** It is registered and not wired up,
   because it derives its cipher from an rclone password rather than a key this product
   holds, so the product could not tell you which key a copy needs. Encryption of retained
-  copies is a different feature (a backup set's `retained_copy_encryption`, EPIC N) and
-  it has these properties on a medium:
+  copies is a different feature (a backup set's `retained_copy_encryption`, EPIC N, written
+  up in [encrypted copies](encrypted-copies.md)) and it has these properties on a medium:
+  - **A tier that leaves the artifact only on a medium leaves only the encrypted copy.**
+    The disclosure above says the NAS copy is deleted once the upload is verified. With
+    encryption required, what remains is ciphertext, and opening it needs the key.
   - **It protects content, not names.** The object key is still
     `<prefix>/<source>/<set>/<artifact-name>`, so whoever holds the bucket can read the
     names, sizes and timestamps of your backups and cannot read what is in them.

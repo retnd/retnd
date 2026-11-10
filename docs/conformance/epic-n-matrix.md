@@ -146,3 +146,18 @@ Stated plainly, because a table of `BLOCKED` cells will one day be a table of `P
 - **Nothing here designs cryptography.** The format rows prove that the chosen library is the one used and that its failure modes fail closed here. They do not audit the library.
 - **A real NAS or a real provider.** Memory and timing numbers will be measured on one host, named in the row. No eleven-provider fleet and no real off-site bucket at scale are claimed.
 - **The captures are not a store screenshot.** `docs/submission/screenshots.md` needs real hardware, a real installation and a real SFTP source, and a mock must never be substituted there.
+
+## The ungated reverse sweep, by hand (N1.16)
+
+Nothing in the tree catches a command that has no way to be done in the browser, so I swept it by hand for N2.4 (#997) and I am recording it here instead of letting it read as a green row. I checked on 2026-11-09, at the tip of `feat/995-web-ui` (`2ccf8595`), by reading `core/cmd/retnd/encryption.go` and `core/cmd/retnd/main.go` against `ui/shared/src/encryption/` and the pages that mount it. I ran nothing, so this is a reading and not a test.
+
+Every route under `/api/v1/encryption` (and the per-set `PUT`/`DELETE`) has a browser control, and the control echoes the verb (`ui/shared/src/encryption/encryptionCommands.ts` holds the table). What the terminal can do that the browser cannot:
+
+- **`encryption provider test --managed-key ID`.** The browser tests a declared external reference and has no control for probing a managed key. The route accepts both; the screen draws one.
+- **`encryption key confirm <id> --digest D`.** The browser confirms the newest export of a key and never asks for the digest, so confirming a specific, older export is terminal-only.
+- **What `catalog rebuild` says about encrypted copies.** The rebuild names, per encrypted copy, the key it needs and whether this deployment knows it. I found no screen that renders that finding.
+- **`--json`.** Output formatting, not a capability.
+
+Not a gap, listed so nobody re-checks it: `key export --out FILE` and the browser's Download bundle are the same operation with a file and a download as their two ends.
+
+I have not changed the `N1.16` row's status for this. Its other halves (the route, gap-sentence and `reference.html` guards) belong to the test run, and a row that says `BY HAND` still wants a name and a date in its own cell when the matrix is closed out (#998).
