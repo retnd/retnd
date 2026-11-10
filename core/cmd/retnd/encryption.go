@@ -25,6 +25,7 @@ import (
 //	encryption copies <source/set/artifact>    which copies are encrypted
 //	encryption verify <source/set/artifact>    decrypt-verify, a content check
 //	encryption encrypt-existing <source/set>   encrypt plaintext copies that already exist
+//	encryption reencrypt --suite|--key|--deprecated   rewrite copies under the active suite and key
 //	encryption decrypt <object> ...            open one copy to a file (#1289)
 //	encryption suites                          the encryption suites this build has (#1315)
 //
@@ -72,6 +73,7 @@ var encryptionVerbs = map[string]func(args []string) int{
 	"suites":     cmdEncryptionSuites,
 
 	"encrypt-existing": cmdEncryptionEncryptExisting,
+	"reencrypt":        cmdEncryptionReencrypt,
 }
 
 func cmdEncryption(args []string) int {
@@ -80,7 +82,7 @@ func cmdEncryption(args []string) int {
 			return verb(append(append([]string{}, args[:i]...), args[i+1:]...))
 		}
 	}
-	return usageError("encryption: expected `encryption policy`, `encryption backup-set <source/set>`, `encryption key ...`, `encryption provider test`, `encryption copies <source/set/artifact>`, `encryption verify <source/set/artifact>`, `encryption encrypt-existing <source/set> --to <medium>`, `encryption decrypt <object> ...` or `encryption suites`")
+	return usageError("encryption: expected `encryption policy`, `encryption backup-set <source/set>`, `encryption key ...`, `encryption provider test`, `encryption copies <source/set/artifact>`, `encryption verify <source/set/artifact>`, `encryption encrypt-existing <source/set> --to <medium>`, `encryption reencrypt --suite <id> | --key <id> | --deprecated [--to <medium>]`, `encryption decrypt <object> ...` or `encryption suites`")
 }
 
 // providerFlags are the flags that declare a key provider, shared by the
@@ -792,4 +794,118 @@ func printEncryptionSuites(l apicontract.ListEncryptionSuitesResponse) {
 		fmt.Printf("%s (v%d): %s%s, %d active copies, %d keys\n", s.ID, s.Version, s.Status, def, s.ActiveCopies, s.Keys)
 		fmt.Printf("  %s\n", s.Describe)
 	}
+}
+
+// cmdEncryptionReencrypt is `encryption reencrypt --suite ID | --key ID |
+// --deprecated --to MEDIUM` (#1317): rewrite the encrypted retained copies
+// the selector names under the active suite and key, each onto MEDIUM,
+// retiring each old copy only after its replacement has been decrypt-verified.
+// The old ciphertext is streamed through its own suite and key straight into
+// the new one; no plaintext is written to local disk. It is the only thing
+// that does this; a key rotation or a suite deprecation never does.
+//
+// --dry-run lists the selected copies grouped by suite and by key, each with
+// its destination (the --to medium, or the first other configured medium when
+// --to is left out) and, where a run would not rewrite it, the refusal's code
+// and reason. It plans, reads and writes nothing. A run needs --to, so a
+// medium is never chosen for you. Beside a serving engine the run starts that
+// engine's operation (stop it with `assurance cancel`, which is also what the
+// browser's Cancel calls); with nothing serving it runs here, to the end, and
+// an interrupt stops it the same way.
+func cmdEncryptionReencrypt(args []string) int {
+	fs, cfgPath := newFlagSet("encryption reencrypt")
+	asJSON := fs.Bool("json", false, "print the object the API returns instead of text")
+	suite := fs.String("suite", "", "select every copy under this suite id")
+	keyID := fs.String("key", "", "select every copy under this key id")
+	deprecated := fs.Bool("deprecated", false, "select every copy under a deprecated or retired suite")
+	to := fs.String("to", "", "the storage medium the new copies go to; it has to differ from the medium each copy is on")
+	dryRun := fs.Bool("dry-run", false, "list the selected copies by suite and key, with what a run would do with each and why not where it would not, without doing anything")
+	operands, err := parseFlagsAroundOperands(fs, args)
+	if err != nil {
+		return exitUsage
+	}
+	if len(operands) != 0 {
+		return usageError("encryption reencrypt: takes no operands; select copies with --suite, --key or --deprecated")
+	}
+	req := apicontract.StartReencryptRequest{SuiteID: *suite, KeyID: *keyID, Deprecated: *deprecated, DestinationMedium: *to}
+	ctx := context.Background()
+
+	if *dryRun {
+		svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)
+		if err != nil {
+			return fail(err)
+		}
+		defer cleanup()
+		plan, err := svc.PlanReencrypt(ctx, req)
+		if err != nil {
+			return fail(err)
+		}
+		return encryptionAnswer(*asJSON, plan, func() {
+			for _, g := range plan.Groups {
+				fmt.Printf("suite %s, key %s:\n", g.SuiteID, g.KeyID)
+				for _, c := range g.Candidates {
+					if c.Verdict == "refused" {
+						fmt.Printf("  %s on %s: refused (%s): %s\n", c.ArtifactID, c.SourceMedium, c.Refusal, c.Reason)
+						continue
+					}
+					fmt.Printf("  %s on %s: would be re-encrypted onto %s\n", c.ArtifactID, c.SourceMedium, c.DestinationMedium)
+				}
+			}
+			fmt.Printf("dry run: %d would be re-encrypted, %d refused; nothing was changed\n", plan.WouldReencrypt, plan.Refused)
+		})
+	}
+
+	if *to == "" {
+		return usageError("encryption reencrypt: --to MEDIUM is required for a run, because a new copy cannot sit beside its source on the same medium and a medium is never chosen for you; --dry-run proposes one")
+	}
+	route, cleanup, err := openEncryptionWrite(ctx, *cfgPath, *asJSON)
+	if err != nil {
+		return fail(err)
+	}
+	defer cleanup()
+
+	svc, local := route.(*service.BackupService)
+	if !local {
+		started, err := route.StartReencrypt(ctx, req)
+		if err != nil {
+			return fail(err)
+		}
+		return encryptionAnswer(*asJSON, apicontract.ScrubStarted{BackupSetID: started.BackupSetID, OperationID: started.OperationID}, func() {
+			fmt.Printf("re-encrypting the selected copies onto %s started as operation %s\n", req.DestinationMedium, started.OperationID)
+			fmt.Printf("stop it with: %s assurance cancel %s\n", cliecho.Binary, started.OperationID)
+		})
+	}
+
+	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	got, err := svc.RunReencrypt(runCtx, req)
+	if err != nil {
+		return fail(err)
+	}
+	status := exitOK
+	if got.Refused > 0 || got.Abandoned > 0 || runCtx.Err() != nil {
+		status = exitFailure
+	}
+	if *asJSON {
+		if code := emitWireJSON(got); code != exitOK {
+			return code
+		}
+		return status
+	}
+	for _, o := range got.Outcomes {
+		line := o.Phase
+		if o.Refusal != "" {
+			line = "refused (" + o.Refusal + ")"
+		}
+		if o.Reason != "" {
+			line += ": " + o.Reason
+		}
+		fmt.Printf("%s: %s\n", o.ArtifactID, line)
+	}
+	fmt.Printf("reencrypt: %d planned, %d resumed, %d completed, %d abandoned, %d refused\n",
+		got.Planned, got.Resumed, got.Completed, got.Abandoned, got.Refused)
+	if runCtx.Err() != nil {
+		fmt.Println("stopped: a copy that was not yet verified was discarded and the copy it was made from is untouched; run it again to carry on")
+	}
+	return status
 }

@@ -9710,6 +9710,114 @@
           "would_encrypt",
           "refused"
         ]
+      },
+      "StartReencryptRequest": {
+        "type": "object",
+        "description": "POST /encryption/reencrypt. Rewrite encrypted retained copies under the active suite and key, each onto destination_medium. Name exactly one selector: suite_id (every copy under that suite), key_id (every copy under that key) or deprecated (every copy under a deprecated or retired suite). Nothing runs unless this request is made: a key rotation or a suite deprecation never rewrites a copy, and each source copy is retired only after its replacement has been decrypt-verified against the recorded plaintext digest. The plaintext is never written to local disk.",
+        "additionalProperties": false,
+        "properties": {
+          "suite_id": {
+            "type": "string",
+            "x-go-omitempty": true
+          },
+          "key_id": {
+            "type": "string",
+            "x-go-omitempty": true
+          },
+          "deprecated": {
+            "type": "boolean",
+            "x-go-omitempty": true
+          },
+          "destination_medium": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "destination_medium"
+        ]
+      },
+      "ReencryptCandidate": {
+        "type": "object",
+        "description": "One encrypted copy and what a run would do with it. destination_medium is the medium a run would write the new copy to (the one asked for, or, when none was, the first other configured medium); verdict is would_reencrypt or refused; refusal is the stable reason code of a refusal (already_current, source_key_unavailable, same_medium, no_destination, not_required, key_unavailable, destination_unverifiable, no_room, source_unreadable or not_eligible) and reason is the sentence the run would refuse with.",
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "source_medium": {
+            "type": "string"
+          },
+          "destination_medium": {
+            "type": "string",
+            "x-go-omitempty": true
+          },
+          "verdict": {
+            "type": "string"
+          },
+          "refusal": {
+            "type": "string",
+            "x-go-omitempty": true
+          },
+          "reason": {
+            "type": "string",
+            "x-go-omitempty": true
+          }
+        },
+        "required": [
+          "artifact_id",
+          "source_medium",
+          "verdict"
+        ]
+      },
+      "ReencryptGroup": {
+        "type": "object",
+        "description": "The copies under one suite and one key, as their per-copy records name them.",
+        "additionalProperties": false,
+        "properties": {
+          "suite_id": {
+            "type": "string"
+          },
+          "key_id": {
+            "type": "string"
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReencryptCandidate"
+            }
+          }
+        },
+        "required": [
+          "suite_id",
+          "key_id",
+          "candidates"
+        ]
+      },
+      "ReencryptPlan": {
+        "type": "object",
+        "description": "GET /encryption/reencrypt. The dry run: every encrypted copy the selector matches, grouped by suite and then by key, whether a run would rewrite it under the active suite and key, and why not when it would not. It changes and reads nothing.",
+        "additionalProperties": false,
+        "properties": {
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReencryptGroup"
+            }
+          },
+          "would_reencrypt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "refused": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "groups",
+          "would_reencrypt",
+          "refused"
+        ]
       }
     },
     "responses": {}
@@ -24482,6 +24590,249 @@
             "x-error-codes": [
               "OPERATION_ALREADY_RUNNING",
               "ENCRYPTION_KEY_UNRESOLVABLE"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: ENCRYPTION_UNAVAILABLE, NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/encryption/reencrypt": {
+      "get": {
+        "operationId": "planReencrypt",
+        "summary": "Dry run of re-encrypting retained copies under the active suite and key: every encrypted copy the selector matches, grouped by suite and by key, with the destination a run would use and, when it would not rewrite the copy, the refusal and its reason. Read-only: nothing is planned, read or written.",
+        "tags": [
+          "encryption"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "suite",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Select every copy under this suite id."
+          },
+          {
+            "name": "key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Select every copy under this key id."
+          },
+          {
+            "name": "deprecated",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Select every copy under a deprecated or retired suite. Exactly one of suite, key and deprecated is required."
+          },
+          {
+            "name": "destination",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The configured storage medium the new copies would go to. Left out, each copy is shown with the first other configured medium."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReencryptPlan"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. Includes no selector or more than one, a suite this build does not know, a destination that is not a configured medium and, for a run, no destination.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: ENCRYPTION_UNAVAILABLE, NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      },
+      "post": {
+        "operationId": "startReencrypt",
+        "summary": "Re-encrypt the selected retained copies under the active suite and key, onto another medium, in the background. Each old copy is streamed through its own suite and key straight into the active suite, never touching local disk as plaintext, and is retired only after its replacement has been decrypt-verified against the recorded plaintext digest; a key rotation or a suite deprecation never does this by itself. It is a cancellable operation: POST /assurance/operations/{op}/cancel from a terminal and from a browser alike, and before the new copy is verified a cancel leaves the old copy exactly as it was.",
+        "tags": [
+          "encryption"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartReencryptRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScrubStarted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. Includes no selector or more than one, a suite this build does not know, a destination that is not a configured medium and, for a run, no destination.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "409": {
+            "description": "Refused: OPERATION_ALREADY_RUNNING.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "OPERATION_ALREADY_RUNNING"
             ]
           },
           "500": {

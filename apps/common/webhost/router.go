@@ -1004,6 +1004,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// the existing assurance cancel route stops.
 		r.Get("/encryption/encrypt-existing", h.planEncryptExisting)
 		r.With(requireCSRF).Post("/encryption/encrypt-existing", h.startEncryptExisting)
+		// Re-encrypting copies under the active suite and key (#1317): the
+		// same shape, selected by suite, key or deprecation across the
+		// deployment, and stopped by the same assurance cancel.
+		r.Get("/encryption/reencrypt", h.planReencrypt)
+		r.With(requireCSRF).Post("/encryption/reencrypt", h.startReencrypt)
 
 		// EPIC L's workflow runs and recovery (#813).
 		//
