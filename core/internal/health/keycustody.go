@@ -1,6 +1,10 @@
 package health
 
-import "time"
+import (
+	"time"
+
+	"github.com/retnd/retnd/core/internal/model"
+)
 
 // This file is EPIC N's section of the FR-24 report (#990, FR-66): whether
 // the keys that encrypt retained copies could be recovered if this host
@@ -55,6 +59,14 @@ type KeyCustodyHealth struct {
 	// away from unreadable copies.
 	UnconfirmedKeyIDs []string
 
+	// ExternalKeysAtRisk is every external key that ACTIVE copies record and
+	// that no declared reference currently yields (#1304). An external key's
+	// row stores no reference, so dropping a superseded one from the
+	// configuration makes every copy under it unreadable, and this is where
+	// that is said. It is reported whether or not Enabled, because the copies
+	// are unreadable whatever the policy says now.
+	ExternalKeysAtRisk []ExternalKeyAtRisk
+
 	// Unevaluated is one line saying why this section could not be computed
 	// (the key registry could not be read), and empty when it was. The rest
 	// of the report is unaffected; a section that could not be evaluated
@@ -62,11 +74,20 @@ type KeyCustodyHealth struct {
 	Unevaluated string
 }
 
+// ExternalKeyAtRisk is one external key no declared reference yields and the
+// ACTIVE copies that need it. It carries an id, the references' descriptions
+// in secretref's own words and the copies; nothing that could hold material.
+type ExternalKeyAtRisk struct {
+	KeyID  string
+	Reason string
+	Copies []model.CopyRef
+}
+
 // Degraded is FR-66's durable degraded fact: encryption is required
 // somewhere and either no key can encrypt yet, or a key that guards copies
 // has no confirmed bundle.
 func (h KeyCustodyHealth) Degraded() bool {
-	if h.Unevaluated != "" {
+	if h.Unevaluated != "" || len(h.ExternalKeysAtRisk) != 0 {
 		return true
 	}
 	if !h.Enabled {

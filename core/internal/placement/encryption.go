@@ -88,13 +88,15 @@ type Keys interface {
 }
 
 // encryptedSet reports whether the artifact's backup set requires its
-// retained copies to be encrypted.
+// retained copies to be encrypted by this engine. A kopia set is never one:
+// it does not reach this path (app/cycle.go returns into the incremental
+// pipeline first), and its repository is encrypted by kopia itself.
 func (e *Engine) encryptedSet(set model.BackupSetID) (bool, error) {
 	bs, err := e.backupSet(set)
 	if err != nil {
 		return false, err
 	}
-	return bs.RetainedCopyEncryption.Enabled(), nil
+	return bs.EncryptsRetainedCopies(), nil
 }
 
 // activeKey resolves the key new copies of artifact are written under, and

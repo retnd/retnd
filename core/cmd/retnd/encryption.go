@@ -585,6 +585,9 @@ func printEncryptionSet(indent string, s apicontract.EncryptionSetPolicy) {
 		own = "its own block, mode " + s.Mode
 	}
 	fmt.Printf("%s%s: %s (%s), key provider: %s\n", indent, s.BackupSetID, s.EffectiveMode, own, printEncryptionProvider(s.EffectiveKeyProvider))
+	if s.SatisfiedBy == service.SatisfiedByRepository {
+		fmt.Printf("%s  %s\n", indent, service.SatisfiedByRepositoryStatement)
+	}
 }
 
 func printEncryptionPolicy(p apicontract.EncryptionPolicy) {

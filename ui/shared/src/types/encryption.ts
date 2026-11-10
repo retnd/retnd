@@ -36,6 +36,8 @@ export interface SetEncryption {
   isOverride: boolean;
   keyProvider: KeyProviderState;
   effectiveKeyProvider: KeyProviderState;
+  /** "repository" for a kopia-engine set: required is satisfied by kopia's own repository encryption. */
+  satisfiedBy?: "repository";
 }
 
 export interface EncryptionPolicy {

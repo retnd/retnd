@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
+	"github.com/retnd/retnd/core/internal/alert"
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/health"
 	"github.com/retnd/retnd/core/internal/keycustody"
@@ -47,6 +49,11 @@ type KeyCustody struct {
 
 	mu    sync.Mutex
 	store *keycustody.Store
+
+	// probed is the last external key probe and probeAt when it ran (#1304).
+	probeMu sync.Mutex
+	probed  []health.ExternalKeyAtRisk
+	probeAt time.Time
 }
 
 // UseConfig tells custody where to find the declared external references
@@ -161,6 +168,99 @@ func (c *KeyCustody) WithKey(ctx context.Context, id string, fn func(key []byte)
 		return err
 	}
 	return s.WithKey(ctx, id, fn)
+}
+
+// AlertConditions is keycustody.Store.AlertConditions for the alert pass
+// (#1294). The caller only asks when some set requires encryption, so opening
+// the store here, which creates the key directory the first time, never
+// happens for a deployment that encrypts nothing. A store that cannot be
+// opened is a look that could not be made: every required set goes on the
+// unevaluated list rather than being resolved by omission.
+func (c *KeyCustody) AlertConditions(ctx context.Context, policies []keycustody.SetPolicy) ([]alert.Condition, []alert.Subject) {
+	s, err := c.Store(ctx)
+	if err != nil {
+		var unevaluated []alert.Subject
+		for _, p := range policies {
+			if p.Required {
+				unevaluated = append(unevaluated, alert.Subject{Kind: alert.EncryptionKeyUnresolvable, Scope: p.Set})
+			}
+		}
+		return nil, unevaluated
+	}
+	return s.AlertConditions(ctx, policies)
+}
+
+// ExternalKeysAtRisk is every external key that ACTIVE copies record and no
+// declared reference currently yields, with those copies (#1304). A key row
+// stores no reference, so this is how a dropped one is noticed. With no
+// external key on record it reads the registry and opens nothing, so a
+// deployment that uses none stays byte identical.
+//
+// It resolves references (a command reference is executed), so it is for the
+// alert tick only, never for a request. The answer is kept for
+// externalProbeTTL, so two asks in one tick resolve once, and
+// LastExternalKeysAtRisk hands it to a health build without resolving.
+func (c *KeyCustody) ExternalKeysAtRisk(ctx context.Context) ([]health.ExternalKeyAtRisk, error) {
+	c.probeMu.Lock()
+	if !c.probeAt.IsZero() && time.Since(c.probeAt) < externalProbeTTL {
+		out := c.probed
+		c.probeMu.Unlock()
+		return out, nil
+	}
+	c.probeMu.Unlock()
+	out, err := c.probeExternalKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c.probeMu.Lock()
+	c.probed, c.probeAt = out, time.Now()
+	c.probeMu.Unlock()
+	return out, nil
+}
+
+// externalProbeTTL is how long an external key probe stands.
+const externalProbeTTL = time.Minute
+
+// LastExternalKeysAtRisk is the last ExternalKeysAtRisk answer, without
+// resolving anything: nil until the alert tick has probed once.
+func (c *KeyCustody) LastExternalKeysAtRisk() []health.ExternalKeyAtRisk {
+	c.probeMu.Lock()
+	defer c.probeMu.Unlock()
+	return c.probed
+}
+
+func (c *KeyCustody) probeExternalKeys(ctx context.Context) ([]health.ExternalKeyAtRisk, error) {
+	keys, err := c.Keys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	external := false
+	for _, k := range keys {
+		external = external || (k.Provider == keycustody.ProviderExternal && k.Status != keycustody.StatusRetired)
+	}
+	if !external {
+		return nil, nil
+	}
+	s, err := c.Store(ctx)
+	if err != nil {
+		return nil, err
+	}
+	unreadable, err := s.UnreadableExternalKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []health.ExternalKeyAtRisk
+	for id, reason := range unreadable {
+		copies, err := c.journal.ActivePlacementsRecordingKey(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if len(copies) > 0 {
+			out = append(out, health.ExternalKeyAtRisk{KeyID: id, Reason: reason, Copies: copies})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].KeyID < out[j].KeyID })
+	return out, nil
 }
 
 // Health is health.Report.KeyCustody. enabled is whether any backup set

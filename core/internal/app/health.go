@@ -221,7 +221,7 @@ func (s *Service) keyCustodyHealth(ctx context.Context) health.KeyCustodyHealth 
 	enabled := false
 	for _, src := range s.Config.Sources {
 		for _, bs := range src.BackupSets {
-			if bs.RetainedCopyEncryption.Enabled() {
+			if bs.EncryptsRetainedCopies() {
 				enabled = true
 			}
 		}
@@ -230,6 +230,13 @@ func (s *Service) keyCustodyHealth(ctx context.Context) health.KeyCustodyHealth 
 	if err != nil {
 		reason := strings.Join(strings.Fields(err.Error()), " ")
 		return health.KeyCustodyHealth{Enabled: enabled, Unevaluated: reason}
+	}
+	// A dropped external reference strands the copies under its key (#1304).
+	// This is the alert tick's last probe, read as it stands: a health build
+	// runs on every request and must never resolve a reference, a command
+	// reference least of all.
+	if r, ok := s.Keys.(externalKeyRisks); ok {
+		h.ExternalKeysAtRisk = r.LastExternalKeysAtRisk()
 	}
 	return h
 }

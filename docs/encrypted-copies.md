@@ -32,7 +32,7 @@ section says so instead of describing the plan.
 | The object **name** on the medium | **No.** It stays `<prefix>/<source>/<backup set>/<artifact name>`. |
 | The sidecar object beside each copy (`.manifest/<name>.json`) | **No.** It is plain JSON. For an encrypted copy it adds the format, the key id (never a key), the plaintext digest and size, the stored-bytes digest and size, and when the copy last decrypted to the artifact. |
 | A copy that was already on a medium in plaintext before you turned this on | **No, and it stays that way.** Turning the policy on does not encrypt existing copies. |
-| An incremental (`kopia`) set | Not by this feature. Its repository is already encrypted by its own format under the repository passphrase, and `required` on it layers nothing on top (ADR 0028). |
+| An incremental (`kopia`) set | Not by this feature. Its repository is already encrypted by its own format under the repository passphrase, and `required` on it layers nothing on top (ADR 0028). The policy answers `satisfied_by: "repository"` for such a set (`GET /encryption/policy`, `retnd encryption policy show`), and key-custody health and the metrics gauge do not count it. |
 
 ### Object names are visible, and that matters when you choose a destination
 
@@ -144,7 +144,10 @@ key. If you point a reference at another key, new copies register that key as a 
 written under it, and the copies already written stay recorded against the old row. They open
 only while some declared reference (the global provider or a set's) still yields the old key, so
 **keep the old reference declared** under a different name or path; one that is removed from the
-configuration is a key this deployment can no longer read. A verify of an old copy through a
+configuration is a key this deployment can no longer read. If you do drop one while ACTIVE copies still
+record its key, the health section reads degraded and `ENCRYPTION_KEY_UNRESOLVABLE` is raised for each
+affected set, naming the key and the copies (never the reference or the key), and retiring that key is
+refused naming the copies. A verify of an old copy through a
 reference that now yields another key is refused and says so. There is no command that rotates an
 external key yet. There is no KMS or Vault provider; an external `command` is as close as it gets.
 
@@ -302,5 +305,8 @@ key it was written under, so a move also needs the key.
   of old copies after a rotation.
 - `retnd encryption decrypt` opens one copy at a time. There is no bulk "decrypt everything" verb,
   and no API route for it or for key import.
-- The alert kind for an unresolvable `required` key is defined, and nothing raises it yet. You
-  see the refusal and the "Key missing" state on the copy instead.
+- `ENCRYPTION_KEY_UNRESOLVABLE` fires when a `required` set's copies are being refused for want
+  of a key (a missing or unreadable managed key file, no active managed key, or, until external
+  providers can write copies, an external reference), once, and clears when the key resolves
+  again. It reaches the notifier only if alerts are enabled in `config.yaml`. Key custody health
+  on the Dashboard still does not show resolvability; the key list does.
