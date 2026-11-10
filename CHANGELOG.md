@@ -4,6 +4,17 @@
 
 ### Added
 
+- **External key providers write encrypted copies** (#1292, follow-up to EPIC N). A backup set whose
+  `key_provider` is an external `file`/`env`/`command` reference now encrypts its off-site copies instead of
+  being refused. The key is a row in the same `encryption_keys` registry a managed key uses (`provider =
+  'external'`, the recipient, a status, a time; an id derived from the recipient, so one key is one row
+  whatever reference reaches it), so re-home, decrypt-verify and scrub, which already take a key id, are
+  unchanged. The reference is resolved only inside the callback that encrypts or verifies; one that does not
+  resolve or is not an age identity is refused before anything is encrypted or uploaded, with no class
+  recorded. A reference that is pointed at another key registers that key as a new row; copies already
+  written open only while a reference yielding the old key stays declared. An external key is not exported in a recovery bundle and does not count
+  towards the unconfirmed-bundle state. No migration change.
+
 - **The installer knows about the managed encryption keys** (#1295, EPIC N follow-up). The archive
   plan now includes `config/retained_copy_keys`: `upgrade` copies it into the archive (the live
   directory is untouched), and `factory-reset` moves it together with `state.db`, so the archive
@@ -50,8 +61,8 @@
   equals `artifacts.local_hash`; the digest of the stored bytes goes in `placement_encryption.stored_hash`, written
   in the same transaction as the placement row, and the plaintext digest is never written there. An unresolvable
   key refuses the copy before anything is encrypted or uploaded. A set that is `off`, or a deployment that never
-  mentions the key, writes the bytes it always did. A key declared as an external reference can be saved and
-  tested but cannot yet write copies. Not yet: progress stages for encrypting and decrypt-verifying, and
+  mentions the key, writes the bytes it always did. A key declared as an external reference is saved and
+  tested here and writes copies from #1292. Not yet: progress stages for encrypting and decrypt-verifying, and
   encrypting copies that already exist in plaintext.
 - **Lifecycle, retention, catalog rebuild and rotation for encrypted copies** (#992). Retention deletes an
   encrypted object by its stored size and checksum and needs no key. A medium-to-medium move copies the ciphertext
@@ -93,7 +104,7 @@
   encrypted and what is not, object names included, the two digests under their column names, loss of the key
   (there is no recovery path), and how to open a copy with the `age` tool and the bundle on a machine with no
   deployment. It says plainly what this build does not do: `retnd recover` does
-  not decrypt, no external key can write copies yet, nothing raises the unresolvable-key alert, and there are no
+  not decrypt, nothing raises the unresolvable-key alert, and there are no
   progress stages for encrypting. README, the site pages, recovery, storage-mediums, install, deployment,
   runtime-contract, the compliance and submission pages and the config inventory carry the matching changes.
 

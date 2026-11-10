@@ -103,6 +103,9 @@ func (s *Store) Export(ctx context.Context, id string, w io.Writer, now time.Tim
 	if err != nil {
 		return Receipt{}, err
 	}
+	if rec.Provider == ProviderExternal {
+		return Receipt{}, fmt.Errorf("%w: %s", ErrExternalKeyNotExportable, id)
+	}
 	b := Bundle{
 		Version:      bundleVersion,
 		KeyID:        rec.ID,
