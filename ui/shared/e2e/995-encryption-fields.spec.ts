@@ -54,3 +54,49 @@ test.describe("#995 follow-up", () => {
     });
   }
 });
+
+test.describe("#995 verified recoverable is reachable and looks different", () => {
+  const PG2 = "postgres-prod-20260828.dump.zst";
+
+  test("encryption-verified draws Verified recoverable beside Encrypted, and the others do not", async ({ page }) => {
+    await open(page, "/backups", "encryption-verified");
+    await row(page, PG2).click();
+    const off = page.locator('[data-encryption-cell="offsite_s3"]');
+    await expect(off.getByRole("group", { name: /^Encrypted/ })).toBeVisible();
+    await expect(off.getByRole("group", { name: /^Verified recoverable/ })).toBeVisible();
+    await open(page, "/backups", "encryption-on");
+    await row(page, PG2).click();
+    await expect(page.locator('[data-encryption-cell="offsite_s3"]').getByRole("group", { name: /Verified recoverable/ })).toHaveCount(0);
+  });
+
+  for (const theme of ["light", "dark"] as const) {
+    test(`Encrypted and Verified recoverable differ in edge, fill and glyph in ${theme}`, async ({ page }) => {
+      await open(page, "/backups", "encryption-verified");
+      await row(page, PG2).click();
+      await setTheme(page, theme);
+      const off = page.locator('[data-encryption-cell="offsite_s3"]');
+      const look = (name: RegExp) => off.getByRole("group", { name }).evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { edge: cs.borderTopColor, fill: cs.backgroundColor, glyph: el.querySelector(".echip__glyph")!.textContent };
+      });
+      const enc = await look(/^Encrypted/);
+      const ver = await look(/^Verified recoverable/);
+      expect(ver.edge).not.toBe(enc.edge);
+      expect(ver.fill).not.toBe(enc.fill);
+      expect(ver.glyph).not.toBe(enc.glyph);
+      expect(await measureContrast(page, "995 verified chips " + theme, '[data-encryption-cell="offsite_s3"]'), theme).toEqual([]);
+    });
+  }
+
+  test("a verify ends matched under encryption-verified and failed closed under encryption-verify-failed", async ({ page }) => {
+    for (const [scenario, chip] of [["encryption-verified", /^Verified recoverable/], ["encryption-verify-failed", /^Decrypt failed/]] as const) {
+      await open(page, "/backups", scenario);
+      await row(page, PG2).click();
+      await page.getByRole("button", { name: "Verify recoverable" }).click();
+      const dlg = page.getByRole("dialog", { name: /Verify recoverable/ });
+      await dlg.getByRole("checkbox", { name: "I accept this read" }).check();
+      await dlg.getByRole("button", { name: "Verify now" }).click();
+      await expect(dlg.getByRole("group", { name: chip })).toBeVisible({ timeout: 10000 });
+    }
+  });
+});
