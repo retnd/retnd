@@ -1,0 +1,23 @@
+# Retained-copy encryption required on a set with no key provider on the
+# set or on the deployment. A copy with nothing to encrypt under could not
+# be written, so the config is refused at Load naming the key at fault
+# rather than the first copy failing at 3am.
+poll_interval: 15m
+
+state:
+  database: /var/lib/retnd/state.db
+
+sources:
+  - id: production
+    backup_sets:
+      - id: postgres-primary
+        remote:
+          type: local
+        remote_path: /srv/exports/postgres
+        local_path: /backups/production/postgres
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h
+        retained_copy_encryption:
+          mode: required
