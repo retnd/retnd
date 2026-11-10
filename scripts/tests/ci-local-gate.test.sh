@@ -519,6 +519,7 @@ make_full_tree() {
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$guard.test.sh"
   done
   mkdir -p "$tree/scripts/release"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/ci-docker-remote.test.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/release/check-published-provenance.sh"
 
   # The installer's unit tests (#262), which the gate runs by `cd`-ing into
