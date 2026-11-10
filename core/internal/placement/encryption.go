@@ -293,12 +293,13 @@ func resultOf(err error) obs.Result {
 // re-home of an encrypted copy. Only the content class can say an encrypted
 // copy is the artifact, so any other class is refused (no retry can change
 // that), and the archive gate in front of a read is asked exactly as it is
-// for a plaintext copy.
+// for a plaintext copy. observed is the observation verifyCopy took (the one
+// place allowed to), so this file never calls observe itself.
 //
 // keyID is the key the copy must open under: empty for a fresh copy, which
 // opens under the key it was just written with (the active one), and the
 // source copy's recorded key id for a re-home.
-func (e *Engine) verifyEncrypted(ctx context.Context, mv state.Move, medium transport.Medium, want Class, candidate state.Placement, gated bool, keyID string) (Result, Class, error) {
+func (e *Engine) verifyEncrypted(ctx context.Context, mv state.Move, medium transport.Medium, want Class, candidate state.Placement, gated bool, keyID string, observed archive.Observation) (Result, Class, error) {
 	if want != Content {
 		return Result{}, want, fmt.Errorf("%w: %s verification cannot show that an encrypted copy decrypts to the artifact, and nothing weaker than a completed decrypt-verify may stand in for content",
 			ErrClassRefused, want)
@@ -311,7 +312,6 @@ func (e *Engine) verifyEncrypted(ctx context.Context, mv state.Move, medium tran
 		keyID = key.ID
 	}
 	if gated {
-		observed := e.observe(ctx, medium, mv.DestinationKey, medium.StorageClass)
 		access, err := archive.Access(candidate.Medium, medium.StorageClass, observed, e.now())
 		if err != nil {
 			return Result{}, want, fmt.Errorf("%w: %w", ErrClassUnavailable, err)

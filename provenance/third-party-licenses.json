@@ -20,6 +20,30 @@
   "projectLicense": "MIT",
   "components": [
     {
+      "name": "filippo.io/age",
+      "version": "v1.3.2",
+      "ecosystem": "go",
+      "licenseId": "BSD-3-Clause",
+      "licenseFile": "LICENSE",
+      "licenseSha256": "c5d65279d02955c0fc2294ae417c3add650d228f4f5c82bd6d531fc26c89cd96",
+      "linkedInto": [
+        "retnd",
+        "retnd-web"
+      ]
+    },
+    {
+      "name": "filippo.io/hpke",
+      "version": "v0.4.0",
+      "ecosystem": "go",
+      "licenseId": "BSD-3-Clause",
+      "licenseFile": "LICENSE",
+      "licenseSha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+      "linkedInto": [
+        "retnd",
+        "retnd-web"
+      ]
+    },
+    {
       "name": "github.com/Azure/azure-sdk-for-go/sdk/azcore",
       "version": "v1.23.1",
       "ecosystem": "go",

@@ -163,7 +163,7 @@ func TestMigration0015_APreMigrationJournalReadsEveryCopyUnencrypted(t *testing.
 	if err != nil {
 		t.Fatalf("Open over the pre-0015 journal: %v", err)
 	}
-	defer j.Close()
+	defer func() { _ = j.Close() }()
 
 	set, _ := model.NewBackupSetID("production", "postgres-primary")
 	artifact, _ := model.NewArtifactID(set, "old.dump")
@@ -417,7 +417,7 @@ func TestRecoveryBundleConfirmation_SurvivesAReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reopened.Close()
+	defer func() { _ = reopened.Close() }()
 	got, err := reopened.RecoveryBundleConfirmations(ctx, "k1")
 	if err != nil || len(got) != 1 {
 		t.Fatalf("after a reopen: %+v, %v", got, err)
@@ -467,7 +467,7 @@ func TestRetireEncryptionKey_RefusesWhatIsStillNeeded(t *testing.T) {
 	j, a := scrubFixture(t)
 	at := scrubAt.Add(time.Hour)
 	for _, k := range []EncryptionKey{
-		{ID: "k1", Provider: KeyProviderManaged, CreatedAt: scrubAt},
+		{ID: "k1", Provider: KeyProviderExternal, CreatedAt: scrubAt},
 		{ID: "k2", Provider: KeyProviderManaged, CreatedAt: scrubAt.Add(time.Minute)},
 	} {
 		if err := j.RegisterEncryptionKey(ctx, k); err != nil {

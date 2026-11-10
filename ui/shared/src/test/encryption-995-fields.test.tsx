@@ -72,7 +72,7 @@ describe("the two digests on Backup detail", () => {
 });
 
 function card(scenario: string) {
-  return render(<MemoryRouter><ApiProvider api={createMockApi(scenario)}><EncryptionCard readOnly={false} /></ApiProvider></MemoryRouter>);
+  return render(<MemoryRouter><ApiProvider api={createMockApi(scenario as Parameters<typeof createMockApi>[0])}><EncryptionCard readOnly={false} /></ApiProvider></MemoryRouter>);
 }
 
 describe("the key table", () => {
