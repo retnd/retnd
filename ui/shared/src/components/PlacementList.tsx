@@ -7,6 +7,9 @@ import type { IconName } from "@shared/design-system/icons";
 import { Banner } from "@shared/components/Banner";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { bytes, stamp } from "@shared/utilities/format";
+import { CopyChips } from "@shared/encryption/EncryptionChips";
+import { anyEncrypted, copyEncryptionView, copyFor, mayVerify } from "@shared/encryption/encryptionState";
+import type { CopyEncryption } from "@shared/types/encryption";
 
 /**
  * Where a backup's bytes actually are (EPIC E, FR-34, issue #240).
@@ -87,9 +90,22 @@ function statusNote(p: BackupPlacement): string {
 export function PlacementList({
   placements,
   storage,
-  showRecovery = false
+  showRecovery = false,
+  encryption = null,
+  failedVerify,
+  onVerify
 }: {
   placements: BackupPlacement[];
+  /** Each copy's own encryption record (issue #995, GET /encryption/copies).
+   *  Null where it was not read or the server does not offer it. The column
+   *  is drawn only when some copy is encrypted, so a deployment with
+   *  encryption off sees no change. */
+  encryption?: CopyEncryption[] | null;
+  /** Media whose last decrypt-verify on this page failed closed, with the
+   *  engine's reason. The copies read carries no field for it. */
+  failedVerify?: Record<string, string>;
+  /** Opens Verify recoverable for one encrypted copy. */
+  onVerify?: (medium: string) => void;
   /** Say what each copy's own recovery record is (issue #1134). Off where the
    *  server offers no assurance, so a page that cannot know does not claim
    *  that nothing has been tested. */
@@ -102,6 +118,7 @@ export function PlacementList({
   storage?: StorageSchema;
 }) {
   const offLocal = placements.filter((p) => p.medium !== "local");
+  const showEncryption = anyEncrypted(encryption);
   const needsRestore = placements.some((p) => p.access === "requires_restore" || p.access === "restoring");
 
   return (
@@ -151,6 +168,9 @@ export function PlacementList({
                 <th scope="col" style={{ textAlign: "right" }}><InfoTooltip id="backups.copies.col.size"><span>Copy size</span></InfoTooltip></th>
                 <th scope="col"><InfoTooltip id="backups.copies.col.class"><span>Class</span></InfoTooltip></th>
                 <th scope="col"><InfoTooltip id="backups.copies.col.access"><span>Access</span></InfoTooltip></th>
+                {showEncryption ? (
+                  <th scope="col"><InfoTooltip id="encryption.copies.col"><span>Encryption</span></InfoTooltip></th>
+                ) : null}
                 <th scope="col"><InfoTooltip id="backups.copies.col.verification"><span>Verification</span></InfoTooltip></th>
               </tr>
             </thead>
@@ -215,6 +235,16 @@ export function PlacementList({
                         </div>
                       ) : null}
                     </td>
+                    {showEncryption ? (
+                      <td data-encryption-cell={p.medium}>
+                        <EncryptionCell
+                          copy={copyFor(encryption, p.medium)}
+                          placement={p}
+                          failure={failedVerify?.[p.medium]}
+                          onVerify={onVerify}
+                        />
+                      </td>
+                    ) : null}
                     <td>
                       <PlacementVerification placement={p} storage={storage} showRecovery={showRecovery} />
                     </td>
@@ -239,6 +269,42 @@ export function PlacementList({
         </div>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * One copy's encryption chips and what the backend recorded beside them
+ * (issue #995). A copy the encryption read did not name draws a dash, never a
+ * Plaintext chip: not knowing is not a claim that it is open.
+ */
+function EncryptionCell({
+  copy, placement, failure, onVerify
+}: {
+  copy: CopyEncryption | undefined;
+  placement: BackupPlacement;
+  failure?: string;
+  onVerify?: (medium: string) => void;
+}) {
+  if (!copy) return <span style={{ color: "var(--text-3)" }}>{"\u2014"}</span>;
+  const view = copyEncryptionView(copy, placement, failure !== undefined);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
+      <CopyChips view={view} failure={failure} />
+      {copy.encrypted ? (
+        <div className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-2)" }}>
+          {[
+            copy.format ? "format " + copy.format + (copy.formatVersion !== null ? " v" + copy.formatVersion : "") : null,
+            copy.keyId ? "key " + copy.keyId : null,
+            copy.storedSize !== null ? "stored " + bytes(copy.storedSize) : null
+          ].filter(Boolean).join(", ")}
+        </div>
+      ) : null}
+      {copy.encrypted && onVerify && mayVerify(view) ? (
+        <InfoTooltip id="encryption.verify.run">
+          <button type="button" className="btn btn--sm" onClick={() => onVerify(copy.medium)}>Verify recoverable</button>
+        </InfoTooltip>
+      ) : null}
+    </div>
   );
 }
 

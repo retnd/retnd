@@ -48,6 +48,7 @@ import { StatusBadge } from "@shared/components/StatusBadge";
 import type { StatusTone } from "@shared/components/StatusBadge";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { copyText } from "@shared/utilities/copyText";
+import { encryptionEventText } from "@shared/encryption/feedText";
 import {
   recoveryEndText, recoveryStageText, recoveryStartText, recoveryTestEndText, recoveryTestStartText,
   scrubFailureText, scrubPassText, scrubStartText
@@ -414,6 +415,15 @@ export function activityLine(e: SetActivityEvent): ActivityLine {
       text = recoveryTestEndText(e);
       break;
     default: {
+      // EPIC N (issue #995): the key's life and the stages of an encrypted
+      // copy have their own sentences (encryption/feedText.ts). They fall to
+      // the generic line below only when the engine names an event this build
+      // does not.
+      const encrypted = encryptionEventText(e);
+      if (encrypted !== null) {
+        text = encrypted;
+        break;
+      }
       // An event name this build has no rendering for. Its own message
       // plus its own fields is a worse line, not a broken one, and it is
       // what keeps a new event in the engine visible without a UI release.

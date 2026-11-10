@@ -522,6 +522,10 @@ EOF
 # the build disagree). Same reasoning as the eighth: the file is deliberately
 # not renamed, so the citation is right as written.
 #
+# The eleventh is #994's encryption design note, which cites the same canvas
+# for the same reason: it is the authority the note was reviewed against, and
+# the note says where it deliberately diverges from it.
+#
 # Every line is <token> <path>, one occurrence-site per line. Adding one of
 # these names to a file that is not listed is a creation, and this guard
 # treats it as one.
@@ -535,6 +539,7 @@ backup_manager docs/EPIC-R-rename-inventory.md
 Backup Manager ui/shared/src/api/client.ts
 Backup Manager docs/adr/0029-the-recovery-boundary.md
 Backup Manager docs/design/984-recovery-assurance.html
+Backup Manager docs/design/994-retained-copy-encryption.html
 BACKUP_MANAGER_ scripts/ci-local.sh
 BACKUP_MANAGER_API_PASSWORD docs/design/activity-terminal.html
 BACKUP_MANAGER_API_URL docs/design/activity-terminal.html

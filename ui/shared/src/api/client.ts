@@ -37,6 +37,15 @@
 import { debugLog, isDebugEnabled } from "./debug";
 import { apiErrorFromResponse, nameAttempt, noResponse, refusal, unreadableBody } from "./transport";
 import { RetndError } from "./contracts";
+import type {
+  CopyEncryption,
+  EncryptionKey,
+  EncryptionPolicy,
+  KeyProviderInput,
+  KeyProviderState,
+  ProviderProbe,
+  SetEncryption
+} from "@shared/types/encryption";
 // The wire shapes below are GENERATED from api/v1/openapi.json, not
 // declared here. Before issue #166 this file carried its own hand-written
 // copy of every snake_case response body, transcribed from the Go
@@ -106,6 +115,20 @@ import type {
   WireRecoveryTestStarted,
   WireRecoveryTestOutput,
   WireScrubStarted,
+  WireEncryptionCopy,
+  WireEncryptionKeyProvider,
+  WireEncryptionKeyProviderState,
+  WireEncryptionKeyStatus,
+  WireEncryptionOverride,
+  WireEncryptionPolicy,
+  WireEncryptionPolicyPatch,
+  WireEncryptionProviderProbe,
+  WireEncryptionProviderTestRequest,
+  WireEncryptionSetPolicy,
+  WireListEncryptionCopiesResponse,
+  WireListEncryptionKeysResponse,
+  WireRecoveryBundle,
+  WireStartDecryptVerifyRequest,
   WireAssuranceOperationCancelled,
   WireAssuranceOperationRecord,
   WireRecoverySettingsResponse,
@@ -1982,7 +2005,10 @@ function fromWirePlacement(p: WirePlacement): BackupPlacement {
     recoveryState: p.recovery_state ?? null,
     recoveryCheck: p.recovery_check ?? null,
     recoveryTestedAt: stampOrNull(p.recovery_tested_at),
-    recoveryFailureReason: p.recovery_failure_reason ?? ""
+    recoveryFailureReason: p.recovery_failure_reason ?? "",
+    encrypted: p.encrypted === true,
+    encryptionKeyId: p.encryption_key_id ?? null,
+    encryptionKeyResolvable: p.encryption_key_resolvable ?? null
   };
 }
 
@@ -2471,6 +2497,122 @@ function perSetHealth(): Promise<Map<string, WireBackupSetHealth>> {
  *  (model.BackupSetID's own composite shape), URL-encoded independently,
  *  which is also how api/v1/openapi.json publishes them.
  *  See BackupSet.source/BackupSet.set's own doc (types/backup.ts). */
+// ----------------------------------------------------------------------------
+// Retained-copy encryption (EPIC N, #993, issue #995).
+//
+// The same two habits as the rest of this file. An array the wire omits is
+// [], and a scalar it omits stays null, because for these the absence is the
+// fact: a plaintext copy has no key id, and an unretired key has no retirement
+// time. And a word this build has never heard of falls off the end of its
+// lookup table rather than into the nearest neighbour: a provider kind or a
+// key status from a newer service draws nothing rather than the wrong thing.
+//
+// Nothing here reads or builds key material. The one route that returns it
+// (the recovery bundle) is saved as a file inside exportRecoveryBundle and
+// only a receipt leaves that function.
+// ----------------------------------------------------------------------------
+
+const PROVIDER_KINDS = new Set(["managed", "external", "none"]);
+const RESOLVABILITIES = new Set(["resolves", "unreachable", "not_declared"]);
+
+function fromWireKeyProvider(p: WireEncryptionKeyProviderState): KeyProviderState {
+  return {
+    kind: (PROVIDER_KINDS.has(p.kind) ? p.kind : "none") as KeyProviderState["kind"],
+    source: p.source ?? null
+  };
+}
+
+function toWireKeyProvider(p: KeyProviderInput): WireEncryptionKeyProvider {
+  return "managed" in p ? { managed: true } : { external: p.external };
+}
+
+function fromWireSetEncryption(w: WireEncryptionSetPolicy): SetEncryption {
+  return {
+    backupSetId: w.backup_set_id,
+    mode: w.mode as SetEncryption["mode"],
+    effectiveMode: w.effective_mode as SetEncryption["effectiveMode"],
+    isOverride: w.is_override,
+    keyProvider: fromWireKeyProvider(w.key_provider),
+    effectiveKeyProvider: fromWireKeyProvider(w.effective_key_provider)
+  };
+}
+
+function fromWireEncryptionPolicy(w: WireEncryptionPolicy): EncryptionPolicy {
+  return {
+    mode: w.mode as EncryptionPolicy["mode"],
+    keyProvider: fromWireKeyProvider(w.key_provider),
+    sets: (w.sets ?? []).map(fromWireSetEncryption)
+  };
+}
+
+function fromWireEncryptionKey(w: WireEncryptionKeyStatus): EncryptionKey {
+  return {
+    id: w.id,
+    // An unrecognised status is kept as the word it is, so a lookup keyed on
+    // it finds nothing and draws nothing (see the key table's STATUS map).
+    status: w.status as EncryptionKey["status"],
+    createdAt: w.created_at,
+    retiredAt: w.retired_at ?? null,
+    resolvable: w.resolvable,
+    resolvability: (RESOLVABILITIES.has(w.resolvability) ? w.resolvability : "unreachable") as EncryptionKey["resolvability"],
+    reason: w.reason ?? null,
+    bundleConfirmed: w.bundle_confirmed,
+    bundleConfirmedAt: w.bundle_confirmed_at ?? null,
+    bundleExportedAt: w.bundle_exported_at ?? null,
+    copiesRecording: w.copies_recording ?? 0
+  };
+}
+
+function fromWireProviderProbe(w: WireEncryptionProviderProbe): ProviderProbe {
+  return {
+    state: (RESOLVABILITIES.has(w.state) ? w.state : "unreachable") as ProviderProbe["state"],
+    source: w.source,
+    reason: w.reason ?? null
+  };
+}
+
+function fromWireEncryptionCopy(w: WireEncryptionCopy): CopyEncryption {
+  return {
+    medium: w.medium,
+    encrypted: w.encrypted === true,
+    format: w.format ?? null,
+    formatVersion: w.format_version ?? null,
+    keyId: w.key_id ?? null,
+    keyResolvable: w.key_resolvable ?? null,
+    storedDigestAlgorithm: w.stored_digest_algorithm ?? null,
+    storedSize: w.stored_size ?? null,
+    storedDigest: w.stored_digest ?? null,
+    plaintextDigest: w.plaintext_digest ?? null
+  };
+}
+
+const encryptionKeyPath = (id: string) => "/encryption/keys/" + encodeURIComponent(id);
+
+/**
+ * Saves a recovery bundle the operator asked for, as a file, and forgets it.
+ *
+ * The body is held in this function's own locals for the length of the
+ * download and in nothing else: not a store, not a query cache, not a form
+ * value, not a component that survives navigation. The one-time export is
+ * displayed once, from the response, and the page never sees the bytes.
+ */
+async function saveRecoveryBundle(
+  fetchBundle: () => Promise<WireRecoveryBundle>
+): Promise<{ keyId: string; digest: string; fileName: string }> {
+  const bundle = await fetchBundle();
+  const fileName = "retnd-recovery-bundle-" + bundle.key_id + ".json";
+  const receipt = { keyId: bundle.key_id, digest: bundle.digest, fileName };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return receipt;
+}
+
 const backupSetPath = (source: string, set: string) =>
   "/backup-sets/" + encodeURIComponent(source) + "/" + encodeURIComponent(set);
 
@@ -4412,5 +4554,75 @@ export const httpApi: RetndApi = {
   getBackupSetWorkflowValidation: (source, set) =>
     request<WireWorkflowValidationResponse>(setWorkflowPath(source, set) + "/validation").then(
       fromWireValidation
-    )
+    ),
+
+  getEncryptionPolicy: () => request<WireEncryptionPolicy>("/encryption/policy").then(fromWireEncryptionPolicy),
+  patchEncryptionPolicy: (patch) => {
+    const body: WireEncryptionPolicyPatch = {
+      ...(patch.mode !== undefined ? { mode: patch.mode } : {}),
+      ...(patch.keyProvider !== undefined ? { key_provider: toWireKeyProvider(patch.keyProvider) } : {})
+    };
+    return request<WireEncryptionPolicy>("/encryption/policy", { method: "PATCH", body: JSON.stringify(body) }).then(
+      fromWireEncryptionPolicy
+    );
+  },
+  resetEncryptionPolicy: () =>
+    request<WireEncryptionPolicy>("/encryption/policy/reset", { method: "POST" }).then(fromWireEncryptionPolicy),
+  setBackupSetEncryption: (source, set, override) => {
+    const body: WireEncryptionOverride = {
+      mode: override.mode,
+      ...(override.keyProvider ? { key_provider: toWireKeyProvider(override.keyProvider) } : {})
+    };
+    return request<WireEncryptionSetPolicy>(backupSetPath(source, set) + "/encryption", {
+      method: "PUT",
+      body: JSON.stringify(body)
+    }).then(fromWireSetEncryption);
+  },
+  clearBackupSetEncryption: (source, set) =>
+    request<WireEncryptionSetPolicy>(backupSetPath(source, set) + "/encryption", { method: "DELETE" }).then(
+      fromWireSetEncryption
+    ),
+  listEncryptionKeys: () =>
+    request<WireListEncryptionKeysResponse>("/encryption/keys").then((r) => (r.keys ?? []).map(fromWireEncryptionKey)),
+  createEncryptionKey: () =>
+    request<WireEncryptionKeyStatus>("/encryption/keys", { method: "POST" }).then(fromWireEncryptionKey),
+  rotateEncryptionKey: () =>
+    request<WireEncryptionKeyStatus>("/encryption/keys/rotate", { method: "POST" }).then(fromWireEncryptionKey),
+  retireEncryptionKey: (id) =>
+    request<WireEncryptionKeyStatus>(encryptionKeyPath(id) + "/retire", { method: "POST" }).then(fromWireEncryptionKey),
+  exportRecoveryBundle: (id, opts) =>
+    saveRecoveryBundle(() =>
+      request<WireRecoveryBundle>(encryptionKeyPath(id) + "/export", {
+        method: "POST",
+        headers: stepUpHeaders(opts).headers
+      })
+    ),
+  confirmRecoveryBundle: (id, digest) =>
+    request<WireEncryptionKeyStatus>(encryptionKeyPath(id) + "/confirm", {
+      method: "POST",
+      body: JSON.stringify(digest ? { digest } : {})
+    }).then(fromWireEncryptionKey),
+  testEncryptionProvider: (req) => {
+    const body: WireEncryptionProviderTestRequest =
+      "managedKeyId" in req ? { managed_key_id: req.managedKeyId } : { external: req.external };
+    return request<WireEncryptionProviderProbe>("/encryption/providers/test", {
+      method: "POST",
+      body: JSON.stringify(body)
+    }).then(fromWireProviderProbe);
+  },
+  listEncryptionCopies: (artifactId) =>
+    request<WireListEncryptionCopiesResponse>("/encryption/copies?artifact=" + encodeURIComponent(artifactId)).then(
+      (r) => (r.copies ?? []).map(fromWireEncryptionCopy)
+    ),
+  startDecryptVerify: (req) => {
+    const body: WireStartDecryptVerifyRequest = {
+      artifact_id: req.artifactId,
+      ...(req.medium ? { medium: req.medium } : {}),
+      ...(req.acknowledgeEgress ? { acknowledge_egress: true } : {})
+    };
+    return request<WireScrubStarted>("/encryption/verify", { method: "POST", body: JSON.stringify(body) }).then((r) => ({
+      backupSetId: r.backup_set_id,
+      operationId: r.operation_id
+    }));
+  }
 };
