@@ -10,7 +10,6 @@ refused with a 400 unless it is narrowed.
 
 ### Added
 
-<<<<<<< HEAD
 - **Managed key custody for encrypted retained copies** (#990). A new `core/internal/keycustody` package generates
   the age X25519 identity that ADR 0027 selects, holds it as a 0600 file in a 0700 directory beside `config.yaml`
   under the same custody rule `secretref` enforces, and gives every key a stable id with creation and retirement
@@ -20,7 +19,6 @@ refused with a 400 unless it is narrowed.
   new key custody section. A `required` set whose key cannot be resolved raises the new `ENCRYPTION_KEY_UNRESOLVABLE`
   alert. Key create, rotate, bundle export and bundle confirm are new log events, each with a result. Nothing calls
   it yet: the byte path, the routes and the CLI verbs are the issues after this one.
-=======
 - **The retained-copy encryption policy and its schema, ahead of the cipher** (#989, EPIC N). One new
   top-level `retained_copy_encryption:` key with `mode: off | required` and a `key_provider` that is
   either `managed: true` or an external `file`/`env`/`command` reference, plus a per-set
@@ -35,7 +33,6 @@ refused with a 400 unless it is narrowed.
   **One-way door:** a `config.yaml` carrying `retained_copy_encryption:` at either scope cannot be
   read by any build before this one, which refuses it as an unknown field, so write the key only once
   a rollback below this version is off the table.
->>>>>>> origin/feat/989-encryption-adr
 - **Enrolment, the reset flow and `whoami` from a terminal** (#1253). The enrollment page, the two
   reset pages and the session read a browser makes on load had no terminal twin. `retnd auth enroll
   --username U --token-stdin --password-stdin` makes the first administrator through the serving engine

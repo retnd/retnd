@@ -115,6 +115,23 @@ func (f *encTwo) recorded(medium string) (state.PlacementEncryption, bool) {
 	return e, ok
 }
 
+// moveTo is the one move whose destination is medium. The fixture already
+// made the first hop, so onlyMove (exactly one move) is the wrong question
+// here; this asks for the hop under test and fails if there is not exactly one.
+func (f *encTwo) moveTo(medium string) state.Move {
+	f.t.Helper()
+	var hops []state.Move
+	for _, m := range f.moves() {
+		if m.DestinationMedium == medium {
+			hops = append(hops, m)
+		}
+	}
+	if len(hops) != 1 {
+		f.t.Fatalf("expected exactly one move to %q for %s, got %d", medium, f.artifact, len(hops))
+	}
+	return hops[0]
+}
+
 // keysWithout is custody that has lost one key: every other key still opens.
 type keysWithout struct {
 	placement.Keys
@@ -146,7 +163,7 @@ func TestAnEncryptedCopyIsRehomedAsTheSameCiphertextAndRecordedUnderTheSameKey_9
 	report := f.moveToB()
 	f.guard.fail()
 	if report.Completed != 1 {
-		t.Fatalf("the re-home did not complete: %+v (move error %q)", report, f.onlyMove().Error)
+		t.Fatalf("the re-home did not complete: %+v (move error %q)", report, f.moveTo(mediumB).Error)
 	}
 
 	after := f.medium.bytesAt(f.keyB)
@@ -202,7 +219,7 @@ func TestARehomeAfterARotationUsesTheRecordedKeyNotTheActiveOne_992(t *testing.T
 	report := f.moveToB()
 	f.guard.fail()
 	if report.Completed != 1 {
-		t.Fatalf("a re-home after a rotation did not complete: %+v (move error %q)", report, f.onlyMove().Error)
+		t.Fatalf("a re-home after a rotation did not complete: %+v (move error %q)", report, f.moveTo(mediumB).Error)
 	}
 	dst, ok := f.recorded(mediumB)
 	if !ok || dst.KeyID != f.ck.ID {
@@ -271,7 +288,7 @@ func TestARehomeOverAStaleStagingFileStillCompletes_992(t *testing.T) {
 	report := f.moveToB()
 	f.guard.fail()
 	if report.Completed != 1 {
-		t.Fatalf("a stale staging file blocked the re-home: %+v (move error %q)", report, f.onlyMove().Error)
+		t.Fatalf("a stale staging file blocked the re-home: %+v (move error %q)", report, f.moveTo(mediumB).Error)
 	}
 	if _, ok := f.recorded(mediumB); !ok {
 		t.Error("the destination has no encryption record")
@@ -297,7 +314,7 @@ func TestAnEncryptedCopyIsNeverMovedToLocalAsCiphertext_992(t *testing.T) {
 	if !f.medium.has(f.key) {
 		t.Error("the encrypted source was deleted")
 	}
-	if msg := f.onlyMove().Error; !strings.Contains(msg, "restore") {
+	if msg := f.moveTo(state.MediumLocal).Error; !strings.Contains(msg, "restore") {
 		t.Errorf("the refusal does not say that bringing an encrypted copy home is a restore: %q", msg)
 	}
 }
@@ -596,7 +613,7 @@ func TestASidecarThatCannotBeWrittenKeepsTheSourceAndTheNextCycleCompletes_992(t
 	report = f.runCycle()
 	f.guard.fail()
 	if report.Completed != 1 {
-		t.Fatalf("the next cycle did not complete the move: %+v (move error %q)", report, f.onlyMove().Error)
+		t.Fatalf("the next cycle did not complete the move: %+v (move error %q)", report, f.moveTo(mediumB).Error)
 	}
 	m, err := recovery.ReadManifest(path)
 	if err != nil {
