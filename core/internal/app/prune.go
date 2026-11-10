@@ -268,11 +268,20 @@ func (s *Service) mediumPruner() retention.MediumPruner {
 	if s.MediumStore == nil || len(s.Config.StorageMediums) == 0 {
 		return nil
 	}
-	return &placement.Reclaimer{
+	r := &placement.Reclaimer{
 		Store:   s.MediumStore,
 		Mediums: MediumResolver(s.Config.StorageMediums),
 		Now:     s.now,
 	}
+	// The journal holds the per-copy encryption record. Deleting an
+	// encrypted copy needs it (to judge the object by its stored bytes) and
+	// needs no key, so it is wired here whether or not key custody is.
+	if enc, ok := s.Journal.(interface {
+		PlacementEncryption(ctx context.Context, artifact model.ArtifactID, medium string) (state.PlacementEncryption, bool, error)
+	}); ok {
+		r.Encryption = enc
+	}
+	return r
 }
 
 // pruneInputsFor loads the two things PruneDecide/PruneApply both need for

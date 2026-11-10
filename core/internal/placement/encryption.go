@@ -17,6 +17,7 @@ import (
 	"github.com/retnd/retnd/core/internal/copycrypt"
 	"github.com/retnd/retnd/core/internal/keycustody"
 	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/obs"
 	"github.com/retnd/retnd/core/internal/state"
 	"github.com/retnd/retnd/core/internal/transport"
 )
@@ -53,9 +54,29 @@ import (
 // quiet downgrade. An unresolvable key is ErrClassUnavailable too, and it
 // is found before anything is encrypted or uploaded.
 //
-// Moving an encrypted copy anywhere (back to local, or to another medium)
-// is refused here with ErrClassRefused: those paths would copy ciphertext as
-// if it were the artifact, and carrying the record to the new row is #992's.
+// # Re-homing an encrypted copy (#992)
+//
+// A move of an encrypted copy from one medium to another is defined: the
+// ciphertext is staged as it is, accepted only if it hashes to the
+// stored-bytes digest the journal recorded (never the plaintext digest, which
+// no ciphertext can match), uploaded unchanged, and the destination is
+// accepted only by a decrypt-verify through the key id recorded against the
+// SOURCE copy, whatever the active key is by now. Nothing is re-encrypted: a
+// re-home is not a retry, and the destination row carries the same format
+// and key id, with the stored-bytes digest measured from the object that is
+// there. Copying the ciphertext needs no key; accepting it does, so with the
+// key gone the move stops with the source untouched.
+//
+// Moving an encrypted copy back to local disk stays refused with
+// ErrClassRefused, now for a stated reason: a local placement is plaintext by
+// design (the epic's objective is one plaintext local copy and an unreadable
+// off-site one), so bringing the artifact home is a decrypt, which is a
+// restore and not a move of the copy.
+//
+// A plaintext copy on a medium under a set that now requires encryption is
+// still refused a medium-to-medium hop (it would stage and upload the
+// artifact in the clear). Encrypting copies that already exist in the clear
+// is a decision for the owner and is not made here.
 
 // Keys is the slice of key custody the byte path uses. *keycustody.Store
 // satisfies it. The identity is only ever handed to a callback, which is
@@ -105,22 +126,27 @@ func (e *Engine) activeKey(ctx context.Context, artifact model.ArtifactID) (keyc
 	return rec, nil
 }
 
-// sourceIsEncrypted reports whether the copy at (medium) is an encrypted one
-// according to the journal. A journal that cannot say is not asked: it has
-// no encrypted copies.
-func (e *Engine) sourceIsEncrypted(ctx context.Context, artifact model.ArtifactID, medium string) (bool, error) {
+// encryptionOf reads the per-copy encryption record of the copy at medium.
+// A journal that cannot say is not asked: it has no encrypted copies.
+func (e *Engine) encryptionOf(ctx context.Context, artifact model.ArtifactID, medium string) (state.PlacementEncryption, bool, error) {
 	r, ok := e.Journal.(interface {
 		PlacementEncryption(ctx context.Context, artifact model.ArtifactID, medium string) (state.PlacementEncryption, bool, error)
 	})
 	if !ok {
-		return false, nil
+		return state.PlacementEncryption{}, false, nil
 	}
-	_, enc, err := r.PlacementEncryption(ctx, artifact, medium)
+	return r.PlacementEncryption(ctx, artifact, medium)
+}
+
+// sourceIsEncrypted reports whether the copy at (medium) is an encrypted one
+// according to the journal.
+func (e *Engine) sourceIsEncrypted(ctx context.Context, artifact model.ArtifactID, medium string) (bool, error) {
+	_, enc, err := e.encryptionOf(ctx, artifact, medium)
 	return enc, err
 }
 
 func refuseEncryptedMove(artifact model.ArtifactID, from string) error {
-	return fmt.Errorf("%w: the copy of %s on %q is encrypted, and moving it would copy ciphertext as if it were the artifact; re-homing an encrypted copy is not implemented (#992)",
+	return fmt.Errorf("%w: the copy of %s on %q is encrypted, and a local placement is plaintext by design, so bringing it home is a decrypt (a restore), not a move of the copy",
 		ErrClassRefused, artifact, from)
 }
 
@@ -171,6 +197,7 @@ func (e *Engine) copyEncryptedToMedium(ctx context.Context, mv state.Move, src s
 	}
 	pass, encErr := copycrypt.EncryptToStaging(ctx, dir, filepath.Base(staged), rc, key.Recipient, src.Hash)
 	_ = rc.Close()
+	e.Logger.CopyEncrypting(ctx, mv.Artifact.String(), mv.DestinationMedium, resultOf(encErr))
 	if encErr != nil {
 		if errors.Is(encErr, copycrypt.ErrKeyUnavailable) {
 			return 0, fmt.Errorf("%w: %w", ErrClassUnavailable, encErr)
@@ -179,6 +206,7 @@ func (e *Engine) copyEncryptedToMedium(ctx context.Context, mv state.Move, src s
 	}
 
 	res, uploadErr := e.Store.UploadFromLocal(ctx, medium, pass.Path, mv.DestinationKey, transport.UploadOptions{})
+	e.Logger.CopyUploadingEncrypted(ctx, mv.Artifact.String(), mv.DestinationMedium, resultOf(uploadErr))
 
 	// The staged ciphertext goes whether the upload worked or not, for the
 	// reason copyMediumToMedium gives for its staging copy. It is not a
@@ -217,23 +245,39 @@ func (e *Engine) discardEncryptedStaging(ctx context.Context, mv state.Move) err
 	return e.sweepStagingTemps(ctx, filepath.Dir(staged))
 }
 
-// verifyEncrypted is verifyCopy for a destination under a set that requires
-// encryption. Only the content class can say an encrypted copy is the
-// artifact, so any other class is refused (no retry can change that), and
-// the archive gate in front of a read is asked exactly as it is for a
-// plaintext copy.
-func (e *Engine) verifyEncrypted(ctx context.Context, mv state.Move, medium transport.Medium, want Class, candidate state.Placement, gated bool) (Result, Class, error) {
+// resultOf is the obs.Result a stage that returned err completed with.
+func resultOf(err error) obs.Result {
+	if err != nil {
+		return obs.ResultError
+	}
+	return obs.ResultSuccess
+}
+
+// verifyEncrypted is verifyCopy for a destination that holds ciphertext:
+// either a fresh encrypted copy under a set that requires encryption, or a
+// re-home of an encrypted copy. Only the content class can say an encrypted
+// copy is the artifact, so any other class is refused (no retry can change
+// that), and the archive gate in front of a read is asked exactly as it is
+// for a plaintext copy.
+//
+// keyID is the key the copy must open under: empty for a fresh copy, which
+// opens under the key it was just written with (the active one), and the
+// source copy's recorded key id for a re-home.
+func (e *Engine) verifyEncrypted(ctx context.Context, mv state.Move, medium transport.Medium, want Class, candidate state.Placement, gated bool, keyID string) (Result, Class, error) {
 	if want != Content {
 		return Result{}, want, fmt.Errorf("%w: %s verification cannot show that an encrypted copy decrypts to the artifact, and nothing weaker than a completed decrypt-verify may stand in for content",
 			ErrClassRefused, want)
 	}
-	key, err := e.activeKey(ctx, mv.Artifact)
-	if err != nil {
-		return Result{}, want, err
+	if keyID == "" {
+		key, err := e.activeKey(ctx, mv.Artifact)
+		if err != nil {
+			return Result{}, want, err
+		}
+		keyID = key.ID
 	}
 	if gated {
-		obs := e.observe(ctx, medium, mv.DestinationKey, medium.StorageClass)
-		access, err := archive.Access(candidate.Medium, medium.StorageClass, obs, e.now())
+		observed := e.observe(ctx, medium, mv.DestinationKey, medium.StorageClass)
+		access, err := archive.Access(candidate.Medium, medium.StorageClass, observed, e.now())
 		if err != nil {
 			return Result{}, want, fmt.Errorf("%w: %w", ErrClassUnavailable, err)
 		}
@@ -241,7 +285,18 @@ func (e *Engine) verifyEncrypted(ctx context.Context, mv state.Move, medium tran
 			return Result{}, want, err
 		}
 	}
-	res, err := verifyEncryptedContent(ctx, e.Store, e.Keys, key.ID, medium, candidate, e.now())
+	res, err := verifyEncryptedContent(ctx, e.Store, e.Keys, keyID, medium, candidate, e.now())
+	if gated {
+		// One row per copy per stage, on the verification that is recorded;
+		// the re-read before the source delete is not a stage of its own.
+		artifact := mv.Artifact.String()
+		if err == nil && res.Passed {
+			e.Logger.CopyVerifyingStored(ctx, artifact, mv.DestinationMedium, obs.ResultSuccess)
+			e.Logger.CopyDecryptVerifying(ctx, artifact, mv.DestinationMedium, keyID, obs.ResultSuccess)
+		} else {
+			e.Logger.CopyDecryptVerifying(ctx, artifact, mv.DestinationMedium, keyID, obs.ResultError)
+		}
+	}
 	return res, want, err
 }
 
@@ -273,32 +328,47 @@ func verifyEncryptedContent(ctx context.Context, store Store, keys Keys, keyID s
 			ErrClassUnavailable, transport.SHA256, p.HashAlg)
 	}
 	if keys == nil || keyID == "" {
-		return Result{}, fmt.Errorf("%w: no key is available to decrypt %q", ErrClassUnavailable, p.Location)
+		return Result{}, fmt.Errorf("%w: %w: no key custody is available to open %q", ErrClassUnavailable, ErrKeyUnresolvable, p.Location)
 	}
-	rc, err := store.OpenObject(ctx, medium, p.Location)
-	if err != nil {
-		return Result{}, fmt.Errorf("%w: reading %q back from %q: %w", ErrClassUnavailable, p.Location, p.Medium, err)
-	}
-	defer rc.Close()
 
-	stored := &tally{h: sha256.New()}
-	tee := io.TeeReader(rc, stored)
-	err = keys.WithKey(ctx, keyID, func(secret []byte) error {
-		_, err := copycrypt.DecryptVerify(ctx, tee, secret, p.Hash)
-		return err
+	// The key is resolved BEFORE the object is opened, inside the same
+	// callback, so a key that cannot be had costs no read at all: "could not
+	// check" must not be preceded by a download of something that cannot be
+	// checked.
+	var (
+		resolved bool
+		stored   = &tally{h: sha256.New()}
+	)
+	err := keys.WithKey(ctx, keyID, func(secret []byte) error {
+		resolved = true
+		rc, err := store.OpenObject(ctx, medium, p.Location)
+		if err != nil {
+			return readFailure{err}
+		}
+		defer rc.Close()
+		tee := io.TeeReader(rc, stored)
+		if _, err := copycrypt.DecryptVerify(ctx, tee, secret, p.Hash); err != nil {
+			return err
+		}
+		// Whatever follows the final chunk is an error DecryptVerify already
+		// returned; draining makes the stored digest cover every byte at the key.
+		if _, err := io.Copy(io.Discard, tee); err != nil {
+			return readFailure{err}
+		}
+		return nil
 	})
+	var rf readFailure
 	switch {
 	case err == nil:
+	case !resolved:
+		return Result{}, fmt.Errorf("%w: %w: key %s cannot be resolved: %w", ErrClassUnavailable, ErrKeyUnresolvable, keyID, err)
+	case errors.As(err, &rf):
+		return Result{}, fmt.Errorf("%w: reading %q back from %q: %w", ErrClassUnavailable, p.Location, p.Medium, rf.err)
 	case errors.Is(err, copycrypt.ErrCorrupt), errors.Is(err, copycrypt.ErrWrongKey), errors.Is(err, copycrypt.ErrDigestMismatch):
 		return Result{Class: Content, Passed: false, At: now, Detail: fmt.Sprintf(
 			"%s on %s did not decrypt to the artifact: %v", p.Location, p.Medium, err)}, nil
 	default:
 		return Result{}, fmt.Errorf("%w: decrypting %q from %q: %w", ErrClassUnavailable, p.Location, p.Medium, err)
-	}
-	// Whatever follows the final chunk is an error DecryptVerify already
-	// returned; draining makes the stored digest cover every byte at the key.
-	if _, err := io.Copy(io.Discard, tee); err != nil {
-		return Result{}, fmt.Errorf("%w: reading %q back from %q: %w", ErrClassUnavailable, p.Location, p.Medium, err)
 	}
 	return Result{
 		Class: Content, Passed: true, At: now,
@@ -308,4 +378,62 @@ func verifyEncryptedContent(ctx context.Context, store Store, keys Keys, keyID s
 			StoredHash: hex.EncodeToString(stored.h.Sum(nil)), StoredHashAlg: string(transport.SHA256), StoredSize: stored.n,
 		},
 	}, nil
+}
+
+// readFailure marks an error from reading the object back, as opposed to
+// one from opening it with the key, so the two are told apart after WithKey.
+type readFailure struct{ err error }
+
+func (r readFailure) Error() string { return r.err.Error() }
+func (r readFailure) Unwrap() error { return r.err }
+
+// ErrKeyUnresolvable is what a verification wraps, beside ErrClassUnavailable,
+// when the key the copy needs cannot be had. It lets a surface say "could not
+// check, the key is not available" instead of the generic "could not be
+// asked", and it is never a verdict about the copy.
+var ErrKeyUnresolvable = errors.New("placement: the key this encrypted copy needs cannot be resolved")
+
+// VerifyCopy is Verify for a copy that may be encrypted: enc is the copy's
+// per-copy record, or nil for a plaintext copy, which is Verify exactly.
+//
+// For an encrypted copy the generic ladder would compare numbers that are
+// never equal (the plaintext size and digest against the object's), so each
+// class is answered for what it can honestly prove:
+//
+//   - Existence compares the STORED size recorded for the copy. It proves an
+//     object of the recorded stored size is at the key and nothing about its
+//     bytes, which is all it ever proved.
+//   - Content is a streaming decrypt through the key id RECORDED against the
+//     copy (never the active key, which is what makes a rotation orphan
+//     nothing) whose plaintext digest must equal the artifact's. An
+//     unresolvable key is ErrClassUnavailable wrapping ErrKeyUnresolvable and
+//     costs no read. A passing Content notes it when the bytes at the key are
+//     not the ones recorded at commit.
+//   - Attested is ErrClassUnavailable: an endpoint's checksum of the object
+//     proves the stored bytes are intact, not that they decrypt, and must not
+//     wear the same class.
+func VerifyCopy(ctx context.Context, store Store, keys Keys, medium transport.Medium, p state.Placement, enc *state.PlacementEncryption, want Class, now time.Time) (Result, error) {
+	if enc == nil {
+		return Verify(ctx, store, medium, p, want, now)
+	}
+	switch want {
+	case Content:
+		res, err := verifyEncryptedContent(ctx, store, keys, enc.KeyID, medium, p, now)
+		if err == nil && res.Passed && res.Encryption != nil && res.Encryption.StoredHash != enc.StoredHash {
+			res.Detail += fmt.Sprintf("; the bytes at the key hash to %s, not the %s recorded when the copy was committed, so the object was replaced after that (it still decrypts to the artifact)",
+				res.Encryption.StoredHash, enc.StoredHash)
+		}
+		return res, err
+	case Existence:
+		stored := enc.StoredSize
+		q := p
+		q.Size = &stored
+		res, err := Verify(ctx, store, medium, q, Existence, now)
+		if err == nil {
+			res.Detail += " (the stored size of an encrypted copy)"
+		}
+		return res, err
+	default:
+		return Result{}, fmt.Errorf("%w: %s verification cannot show that an encrypted copy decrypts to the artifact", ErrClassUnavailable, want)
+	}
 }
