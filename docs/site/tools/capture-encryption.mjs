@@ -333,6 +333,28 @@ const steps = {
       return [DIALOG];
     }
   },
+  "backups-list": {
+    path: "/backups",
+    async prep(page) {
+      await page.locator('[data-list-copy="offsite_s3"]').first().waitFor();
+      await page.getByRole("columnheader", { name: /Encryption/ }).waitFor();
+      return ["main table"];
+    }
+  },
+  "settings-exported": {
+    path: "/settings",
+    async prep(page) {
+      await card(page).getByText(/exported .*, not yet confirmed/).first().waitFor();
+      return [CARD];
+    }
+  },
+  "key-copies-count": {
+    path: "/settings",
+    async prep(page) {
+      await card(page).getByRole("link", { name: /41 in Backups/ }).waitFor();
+      return ['table[aria-label="Managed keys"]'];
+    }
+  },
   "verify-running": {
     path: DETAIL,
     async prep(page) {
@@ -385,7 +407,8 @@ const gifs = {
       await dlg.getByRole("checkbox", { name: /I understand this file can decrypt every copy/ }).check();
       await clip.frame(1.0);
       await dlg.getByRole("button", { name: "Download bundle" }).click();
-      await card(page).locator("[data-bundle-receipt]").waitFor();
+      await dlg.waitFor({ state: "hidden" });
+      await card(page).getByText(/exported .*, not yet confirmed/).first().waitFor();
       await toTop(page, CARD);
       await clip.frame(1.8);
     }

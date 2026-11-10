@@ -171,8 +171,32 @@
       "caption": "Accepted, key resolved, decrypt-verifying. Named progress stages are an undecided contract, so none are drawn."
     },
     {
+      "id": "backups-list",
+      "name": "encryption-19-backups-list",
+      "scenario": "encryption-on",
+      "state": "capturable",
+      "alt": "Backups list with an Encryption column",
+      "caption": "Plaintext and Encrypted chips per copy on the list. The column exists only when a listed copy is encrypted."
+    },
+    {
+      "id": "settings-exported",
+      "name": "encryption-20-settings-exported",
+      "scenario": "encryption-exported",
+      "state": "capturable",
+      "alt": "Settings card with a bundle exported and not yet confirmed",
+      "caption": "Exported is recorded on the key, so it survives a reload, and it is still not confirmed."
+    },
+    {
+      "id": "key-copies-count",
+      "name": "encryption-21-key-copies-count",
+      "scenario": "encryption-in-use",
+      "state": "capturable",
+      "alt": "Managed keys table with a per-key copy count",
+      "caption": "Each key shows how many copies record it, linking to the Backups list filtered to that key."
+    },
+    {
       "id": "verified-recoverable",
-      "name": "encryption-19-verified-recoverable",
+      "name": "encryption-22-verified-recoverable",
       "scenario": "encryption-on",
       "state": "needs-ui-state",
       "alt": "Encrypted and Verified recoverable chips on one copy",
@@ -181,7 +205,7 @@
     },
     {
       "id": "verify-matched",
-      "name": "encryption-20-verify-matched",
+      "name": "encryption-23-verify-matched",
       "scenario": "encryption-on",
       "state": "needs-ui-state",
       "alt": "Verify recoverable ended in a match",
@@ -190,7 +214,7 @@
     },
     {
       "id": "verify-failed",
-      "name": "encryption-21-verify-failed",
+      "name": "encryption-24-verify-failed",
       "scenario": "encryption-on",
       "state": "needs-ui-state",
       "alt": "Verify recoverable ended failed closed",
@@ -209,7 +233,7 @@
       "id": "bundle-flow",
       "name": "encryption-bundle-flow",
       "alt": "Exporting the recovery bundle",
-      "caption": "Export dialog, the tick that arms Download, and the receipt that says nothing was shown on screen."
+      "caption": "Export dialog, the tick that arms Download, and the card afterwards saying the bundle is exported and not yet confirmed."
     },
     {
       "id": "verify-flow",
