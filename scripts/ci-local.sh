@@ -634,6 +634,16 @@ bash scripts/tests/release-refuses-an-ungated-publish.test.sh
 gate_step "the release still moves the latest tag, only forwards (#1168)"
 bash scripts/tests/release-moves-latest.test.sh
 
+# EPIC N's closing check (#998): the canonical container contract is an empty
+# diff, the epic adds exactly one migration (0015), and, in the release job, no
+# matrix row is BLOCKED and every listed capture exists. This drives the real
+# script against throwaway repositories, one planted violation per guard with
+# controls that must pass. The matrix and capture halves are the Go tests in
+# core/tests/encryptiongate, which run with the core suite below and carry their
+# own lie tables. No containers, no browser, no network.
+gate_step "the EPIC N closing check refuses a moved container contract or a second migration, and can still fail (#998)"
+bash scripts/tests/epic-n-closure.test.sh
+
 gate_step "core/ go build"
 (cd core && GOWORK=off go build ./...)
 

@@ -384,7 +384,7 @@ make_full_tree() {
   for t in first-run-report pin-on-main every-module-builds-on-its-own \
     release-refuses-an-ungated-publish local-gate-reference \
     release-moves-latest two-machine-ci-verdict record-published-release \
-    publish-image-guards published-provenance-guards; do
+    publish-image-guards published-provenance-guards epic-n-closure; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$t.test.sh"
   done
   mkdir -p "$tree/scripts/release"
