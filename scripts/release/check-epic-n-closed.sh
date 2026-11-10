@@ -13,10 +13,11 @@
 #      distribution/packaging/*.json and apps/common/platform/capabilities/.
 #      Nothing this epic ships changes how a container is run, and an untracked
 #      file in one of those places counts as a change;
-#   2. the epic added exactly one migration, 0015_retained_copy_encryption.sql,
-#      and nothing else under core/migrations/ moved. (The issue says the
+#   2. the epic added 0015_retained_copy_encryption.sql (and may add
+#      0019_encrypt_existing_consents.sql, #1302) and no other migration, and
+#      nothing else under core/migrations/ moved. (The issue says the
 #      directory "ends at 0015". Main already holds 0016 and 0018, so the
-#      claim that survives is "exactly one new migration, numbered 0015".);
+#      claim that survives is the epic's own list.);
 #   3. the closing mode of core/tests/encryptiongate passes: no BLOCKED row in
 #      docs/conformance/epic-n-matrix.md, every proof it cites resolves, every
 #      PASS row cites a mutation that exists, and every picture and GIF listed
@@ -65,14 +66,19 @@ else
   ok "the canonical container contract is an empty diff against $base"
 fi
 
-# 2. Exactly one new migration, and it is 0015.
+# 2. The epic's migrations, and no others. The list is 0015 (the schema, #989,
+# required) and 0019 (encrypt existing consents, #1302, owner decision: it stays
+# its own migration; allowed, not required, so this can merge before it). Any
+# other new migration, and any change to or removal of an existing one, fails.
 added="$(git diff --name-only --diff-filter=A "$base" -- core/migrations; git ls-files --others --exclude-standard -- core/migrations)"
 touched="$(git diff --name-only --diff-filter=MDRT "$base" -- core/migrations)"
-want="core/migrations/0015_retained_copy_encryption.sql"
-if [ "$added" = "$want" ] && [ -z "$touched" ]; then
-  ok "core/migrations gained exactly 0015 and nothing else moved"
+want15="core/migrations/0015_retained_copy_encryption.sql"
+want19="core/migrations/0019_encrypt_existing_consents.sql"
+unexpected="$(printf '%s\n' "$added" | grep -vxF -e "$want15" -e "$want19" | grep -v '^$' || true)"
+if printf '%s\n' "$added" | grep -qxF "$want15" && [ -z "$unexpected" ] && [ -z "$touched" ]; then
+  ok "core/migrations gained only the epic's own (0015, and 0019 if present) and nothing else moved"
 else
-  bad "core/migrations must gain exactly $want and change nothing else. Added: [$(printf '%s' "$added" | tr '\n' ' ')] Changed or removed: [$(printf '%s' "$touched" | tr '\n' ' ')]"
+  bad "core/migrations must gain exactly $want15 (and may also gain $want19) and nothing else, and change nothing. Added: [$(printf '%s' "$added" | tr '\n' ' ')] Not allowed: [$(printf '%s' "$unexpected" | tr '\n' ' ')] Changed or removed: [$(printf '%s' "$touched" | tr '\n' ' ')]"
 fi
 
 # 3. The matrix and the captures.
