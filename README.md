@@ -240,7 +240,7 @@ Three things to know before you do:
 
 The web interface shows each copy as Plaintext, or Encrypted beside a second chip that says
 whether it has been proved to open, and the Backups list gains an Encryption column only when a
-copy on it is encrypted. What this build does not do yet: no live Encrypting progress stage, no retroactive encryption of copies already stored in plaintext, no external key
+copy on it is encrypted. What this build does not do yet: no live byte count for a standalone decrypt-verify, no retroactive encryption of copies already stored in plaintext, no external key
 that can write copies, no `retnd` command that decrypts a copy (an encrypted copy is opened with
 the stock `age` tool and the key from your bundle). The whole picture is in
 [`docs/encrypted-copies.md`](docs/encrypted-copies.md), the recovery steps are in

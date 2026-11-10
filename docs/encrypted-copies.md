@@ -245,10 +245,25 @@ key it was written under, so a move also needs the key.
 - **Memory:** designed to stream, so it does not grow with the artifact. I have not measured
   throughput on any hardware, and the multi-gigabyte memory budget test has not been run by me.
 
+## Progress while a copy is made
+
+A copy under a `required` policy reports two stages with their own byte counters, in the
+terminal, the activity strip and the operation panel, the same ones from the CLI and the browser:
+
+- `encrypting`: bytes of the artifact read into the encrypting pass, out of the artifact's size.
+- `decrypt-verifying`: bytes of the stored, encrypted object read back, out of its stored size
+  (a little bigger than the artifact).
+
+Each starts at a measured zero, never goes backward, never passes its total, and ends when the
+stage ends, however it ended: a cancel or a failure clears the stage, so nothing keeps saying
+"Encrypting" after the copy is over. There is no rate (nothing measures one), and no reading
+ever carries a key or a key id. A plaintext copy never reports either stage.
+
 ## What this does not do yet
 
-- No progress stages for "Encrypting" or "Decrypt-verifying". A run reports its existing
-  stages, and a decrypt-verify is reported as a scrub.
+- No live byte progress for a standalone `retnd encryption verify`. It is a scrub operation and
+  reports `bytes_read` in its result. The Decrypt-verifying stage below is the check a copy
+  goes through when it is made.
 - No external key provider that can write copies (above), and no KMS or Vault.
 - No retroactive encryption of copies that already exist in plaintext, and no re-encryption
   of old copies after a rotation.

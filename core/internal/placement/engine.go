@@ -197,6 +197,17 @@ type Engine struct {
 	// copy per stage and never per chunk (#992). Nil is silent.
 	Logger *obs.Logger
 
+	// Progress receives live readings of an encrypted copy's two running
+	// stages, encrypting and decrypt-verifying, each with byte progress
+	// (#1290). It is called from the engine's own goroutine, so it must not
+	// block. Nil is silent, and so is every copy that is not encrypted.
+	Progress func(CopyProgress)
+
+	// ProgressStep is how many bytes pass between two readings of one stage.
+	// Zero means one MiB. It is a field for the reason StagingFreeBytes is
+	// one: a test has to see several readings from a small artifact.
+	ProgressStep int64
+
 	// Now is the clock. Nil means time.Now.
 	Now func() time.Time
 

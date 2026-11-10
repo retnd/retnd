@@ -4193,7 +4193,7 @@ export interface WireLiveActivitySet {
   oldest_sequence: number;
   outcome?: "ok" | "failed" | "stopped";
   progress_basis: "artifacts" | "unknown";
-  stage?: "discovering" | "transferring" | "verifying" | "committing" | "cleaning-remote";
+  stage?: "discovering" | "transferring" | "verifying" | "committing" | "cleaning-remote" | "encrypting" | "decrypt-verifying";
   started_at?: string;
   truncated: boolean;
   unfinished_actions: WireLiveActivityAction[];
@@ -4366,7 +4366,7 @@ export interface WireOperationProgress {
   bytes_transferred?: number;
   observed_at: string;
   sequence: number;
-  stage: "discovering" | "transferring" | "verifying" | "committing" | "cleaning-remote";
+  stage: "discovering" | "transferring" | "verifying" | "committing" | "cleaning-remote" | "encrypting" | "decrypt-verifying";
 }
 
 /** A restore operation's own facts: what was asked for, which never

@@ -10,10 +10,10 @@
  * nothing else; none of these sentences can print key material because none of
  * the events can carry it.
  *
- * Byte counters are NOT here. Whether encrypting and decrypt-verifying publish
- * named progress stages with a counter is an undecided contract, so a line says
- * that the stage finished and with what result, and a stage this build does not
- * name still falls through to the feed's default line.
+ * Byte counters are NOT here: they are live progress (the Encrypting and
+ * Decrypt-verifying stages of #1290, drawn by the activity strip and the
+ * operation panel), and these lines are the durable record, so a line says that
+ * the stage finished and with what result.
  *
  * The colour of a line is the engine's stated result, like every line's; the
  * words follow the same fact and say "refused" or "failed" only when the result

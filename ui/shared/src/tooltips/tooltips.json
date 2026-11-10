@@ -833,7 +833,7 @@
   },
   "dashboard.operation.stages": {
     "label": "Transfer stages",
-    "html": "The stages each backup passes through in order, with the current one emphasised and completed ones ticked. Bytes move only during transfer; the later stages prove the copy and record it."
+    "html": "The stages each backup passes through in order, with the current one emphasised and completed ones ticked. Bytes move only during transfer; the later stages prove the copy and record it. A copy under an encrypting policy adds two more rows, Encrypting and Decrypt-verifying, each with its own byte count: the first reads the artifact, the second reads the stored encrypted object back and checks it."
   },
   "dashboard.operation.no-progress": {
     "label": "No progress reading",

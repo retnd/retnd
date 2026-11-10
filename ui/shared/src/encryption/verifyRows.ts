@@ -1,17 +1,17 @@
 /**
  * The rows of a decrypt-verify, as DATA (EPIC N, issue #995; design section 8).
  *
- * Whether the engine publishes named stages for this operation (Encrypting,
- * Decrypt-verifying with a byte counter) is an owner decision that is not
- * settled: a stage is a published contract, and #993 left it open on purpose.
- * Until it is, the only facts this UI can state are the ones the durable
- * operation record carries today: the run was accepted (the key resolved,
- * because an unresolvable key is refused before any read), it is running or
- * has ended, and how it ended. So the rows are a table and not markup. When
- * stages are published, adding one is one entry in STAGE_ROWS and a line in
- * rowState; no component changes.
+ * The engine now publishes "encrypting" and "decrypt-verifying" as progress
+ * stages with a byte counter (#1290), on the run cycle's progress and the
+ * activity feed. A standalone decrypt-verify rides the scrub operation and its
+ * durable record names no stage, so STAGE_ROWS stays empty for it: a stage this
+ * build does not see on the record is never invented. What the decrypt row can
+ * do is carry a byte reading when the caller has one for this operation.
+ * Adding a stage row is still one entry in STAGE_ROWS and a line in rowState;
+ * no component changes.
  */
 import type { AssuranceOperationRecord } from "@shared/api/contracts";
+import { bytes } from "@shared/utilities/format";
 
 export interface VerifyRow {
   id: string;
@@ -23,7 +23,14 @@ export interface VerifyRow {
  *  has not published: a stage this build does not name is never invented. */
 const STAGE_ROWS: readonly { id: string; label: string }[] = [];
 
-export function verifyRows(record: AssuranceOperationRecord | null): VerifyRow[] {
+/** A byte reading of the running stage, as the progress feed carries it. */
+export interface VerifyReading {
+  stage: string;
+  bytesDone: number;
+  bytesTotal?: number;
+}
+
+export function verifyRows(record: AssuranceOperationRecord | null, reading: VerifyReading | null = null): VerifyRow[] {
   const ended = record !== null && record.state !== "running";
   const failed = record !== null && (record.state === "failed" || record.state === "did_not_complete");
   const rows: VerifyRow[] = [{ id: "accepted", label: "Key resolved", state: "done" }];
@@ -32,7 +39,11 @@ export function verifyRows(record: AssuranceOperationRecord | null): VerifyRow[]
   }
   rows.push({
     id: "decrypt",
-    label: "Decrypt-verifying",
+    label:
+      "Decrypt-verifying" +
+      (reading && reading.stage === "decrypt-verifying"
+        ? " " + bytes(reading.bytesDone) + (reading.bytesTotal !== undefined ? " / " + bytes(reading.bytesTotal) : "")
+        : ""),
     state: record === null || record.state === "running" ? "active" : failed ? "failed" : record.state === "passed" ? "done" : "pending"
   });
   rows.push({ id: "compare", label: "Compare digest and record result", state: record?.state === "passed" ? "done" : failed ? "failed" : "pending" });

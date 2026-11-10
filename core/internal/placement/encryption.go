@@ -195,8 +195,20 @@ func (e *Engine) copyEncryptedToMedium(ctx context.Context, mv state.Move, src s
 	if err != nil {
 		return 0, err
 	}
-	pass, encErr := copycrypt.EncryptToStaging(ctx, dir, filepath.Base(staged), rc, key.Recipient, src.Hash)
+	// The artifact's size is the total of the encrypting stage: what is read
+	// is the plaintext, so the ciphertext's extra header and tags do not
+	// bend the bar. It is the journal's number when it has one and the
+	// file's own otherwise, and 0 (not known) when neither says.
+	var total int64
+	if src.Size != nil {
+		total = *src.Size
+	} else if st, statErr := e.Local.Stat(ctx, src.Location); statErr == nil && st.Size != nil {
+		total = *st.Size
+	}
+	m := e.newMeter(StageEncrypting, mv.Artifact, total)
+	pass, encErr := copycrypt.EncryptToStaging(ctx, dir, filepath.Base(staged), m.wrap(rc), key.Recipient, src.Hash)
 	_ = rc.Close()
+	m.end()
 	e.Logger.CopyEncrypting(ctx, mv.Artifact.String(), mv.DestinationMedium, resultOf(encErr))
 	if encErr != nil {
 		if errors.Is(encErr, copycrypt.ErrKeyUnavailable) {
@@ -285,7 +297,13 @@ func (e *Engine) verifyEncrypted(ctx context.Context, mv state.Move, medium tran
 			return Result{}, want, err
 		}
 	}
-	res, err := verifyEncryptedContent(ctx, e.Store, e.Keys, keyID, medium, candidate, e.now())
+	// Only the recorded verification is a stage, as with the events below;
+	// the re-read before the source delete reports nothing.
+	var stage func(total int64) *meter
+	if gated {
+		stage = func(total int64) *meter { return e.newMeter(StageDecryptVerifying, mv.Artifact, total) }
+	}
+	res, err := verifyEncryptedContent(ctx, e.Store, e.Keys, keyID, medium, candidate, e.now(), stage)
 	if gated {
 		// One row per copy per stage, on the verification that is recorded;
 		// the re-read before the source delete is not a stage of its own.
@@ -322,7 +340,12 @@ func (t *tally) Write(p []byte) (int, error) {
 // A key that cannot be read is ErrClassUnavailable. A stream that fails
 // authentication, or decrypts to something other than the artifact, is a
 // failed verification and never an error: it is a fact about the object.
-func verifyEncryptedContent(ctx context.Context, store Store, keys Keys, keyID string, medium transport.Medium, p state.Placement, now time.Time) (Result, error) {
+//
+// stage, when non-nil, opens the decrypt-verifying progress stage once the key
+// has resolved and the object is open, given the stored object's size (0 when
+// the medium cannot say). It is nil for every caller that is not the move
+// engine's recorded verification.
+func verifyEncryptedContent(ctx context.Context, store Store, keys Keys, keyID string, medium transport.Medium, p state.Placement, now time.Time, stage func(total int64) *meter) (Result, error) {
 	if p.Hash == "" || !strings.EqualFold(p.HashAlg, string(transport.SHA256)) {
 		return Result{}, fmt.Errorf("%w: decrypt-verification compares against a recorded %s, and this placement records %q",
 			ErrClassUnavailable, transport.SHA256, p.HashAlg)
@@ -346,7 +369,16 @@ func verifyEncryptedContent(ctx context.Context, store Store, keys Keys, keyID s
 			return readFailure{err}
 		}
 		defer rc.Close()
-		tee := io.TeeReader(rc, stored)
+		var m *meter
+		if stage != nil {
+			var total int64
+			if info, statErr := store.StatObject(ctx, medium, p.Location); statErr == nil {
+				total = info.Size
+			}
+			m = stage(total)
+			defer m.end()
+		}
+		tee := io.TeeReader(m.wrap(rc), stored)
 		if _, err := copycrypt.DecryptVerify(ctx, tee, secret, p.Hash); err != nil {
 			return err
 		}
@@ -418,7 +450,7 @@ func VerifyCopy(ctx context.Context, store Store, keys Keys, medium transport.Me
 	}
 	switch want {
 	case Content:
-		res, err := verifyEncryptedContent(ctx, store, keys, enc.KeyID, medium, p, now)
+		res, err := verifyEncryptedContent(ctx, store, keys, enc.KeyID, medium, p, now, nil)
 		if err == nil && res.Passed && res.Encryption != nil && res.Encryption.StoredHash != enc.StoredHash {
 			res.Detail += fmt.Sprintf("; the bytes at the key hash to %s, not the %s recorded when the copy was committed, so the object was replaced after that (it still decrypts to the artifact)",
 				res.Encryption.StoredHash, enc.StoredHash)
