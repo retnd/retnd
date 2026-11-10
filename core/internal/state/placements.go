@@ -184,6 +184,15 @@ type PlacementUpdate struct {
 	// Status defaults to PlacementActive when empty, because that is what
 	// a caller recording a copy it just made always means.
 	Status string
+
+	// Encryption, when non-nil, is the per-copy record of an encrypted
+	// copy (EPIC N, #991). Journal.AdvanceMove writes it in the same
+	// transaction as this placement row, which is the only way the stored-
+	// bytes digest may be written: by the attempt that reached the durable
+	// phase advance, in that same write. Every other writer of a
+	// placement ignores it, and Placement.Update leaves it nil, so a
+	// rewrite of an existing row never rewrites or drops a record.
+	Encryption *PlacementEncryption
 }
 
 // LocalPlacement returns the artifact's ACTIVE local copy, if it has one.

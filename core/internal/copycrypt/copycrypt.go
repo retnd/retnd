@@ -41,9 +41,11 @@
 //
 // # Keys
 //
-// A recipient is an age X25519 public key and an identity is the
-// AGE-SECRET-KEY-1... line. Resolving them is core/internal/keycustody's
-// job (#990); this package takes the strings. An empty or unparseable one
+// A recipient is an age X25519 public key (a string, not secret) and an
+// identity is the AGE-SECRET-KEY-1... line as bytes. Resolving them is
+// core/internal/keycustody's job (#990): the identity arrives inside a
+// Store.WithKey callback, which zeroes it on return, and this package never
+// keeps it. An empty or unparseable one
 // is ErrKeyUnavailable, which the placement engine maps to its
 // ErrClassUnavailable so that an unreadable key can never be recorded as a
 // weaker class. No error here carries an identity string.
@@ -248,8 +250,8 @@ func EncryptToStaging(ctx context.Context, dir, name string, src io.Reader, reci
 
 // decrypt authenticates every chunk of src, writes the plaintext to dst and
 // returns its length, requiring its digest to equal want.
-func decrypt(ctx context.Context, src io.Reader, identity string, dst io.Writer, want string) (int64, error) {
-	id, err := age.ParseX25519Identity(strings.TrimSpace(identity))
+func decrypt(ctx context.Context, src io.Reader, identity []byte, dst io.Writer, want string) (int64, error) {
+	id, err := age.ParseX25519Identity(strings.TrimSpace(string(identity)))
 	if err != nil {
 		// The parse error is dropped on purpose: it can quote the input.
 		return 0, fmt.Errorf("%w: the identity is not a valid age X25519 secret key", ErrKeyUnavailable)
@@ -290,7 +292,7 @@ func decrypt(ctx context.Context, src io.Reader, identity string, dst io.Writer,
 // was present and the digest equals wantPlaintextHash (hex sha256, any
 // case). It returns the plaintext length on success and 0 on any error.
 // This is what verification_class: content means for an encrypted copy.
-func DecryptVerify(ctx context.Context, src io.Reader, identity, wantPlaintextHash string) (int64, error) {
+func DecryptVerify(ctx context.Context, src io.Reader, identity []byte, wantPlaintextHash string) (int64, error) {
 	return decrypt(ctx, src, identity, io.Discard, wantPlaintextHash)
 }
 
@@ -298,7 +300,7 @@ func DecryptVerify(ctx context.Context, src io.Reader, identity, wantPlaintextHa
 // a temporary file in dir and renames it to dir/name only after the final
 // chunk authenticated and the digest matched. On any error nothing is left
 // in dir and the returned path is empty.
-func DecryptToFile(ctx context.Context, src io.Reader, identity, wantPlaintextHash, dir, name string) (string, error) {
+func DecryptToFile(ctx context.Context, src io.Reader, identity []byte, wantPlaintextHash, dir, name string) (string, error) {
 	if err := checkName(name); err != nil {
 		return "", err
 	}

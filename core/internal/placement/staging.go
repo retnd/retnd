@@ -178,6 +178,17 @@ func (e *Engine) canStage(artifact model.ArtifactID) error {
 // FR-30's invariant rests on until the VERIFIED write records the
 // destination.
 func (e *Engine) copyMediumToMedium(ctx context.Context, mv state.Move, src state.Placement) (int64, error) {
+	if enc, err := e.sourceIsEncrypted(ctx, mv.Artifact, src.Medium); err != nil {
+		return 0, err
+	} else if enc {
+		return 0, refuseEncryptedMove(mv.Artifact, src.Medium)
+	}
+	if on, err := e.encryptedSet(mv.Artifact.Set); err != nil {
+		return 0, err
+	} else if on {
+		return 0, fmt.Errorf("%w: backup set %s requires encryption, and a hop between two mediums would stage and upload the artifact in the clear (#992)",
+			ErrClassRefused, mv.Artifact.Set)
+	}
 	if e.Store == nil {
 		return 0, fmt.Errorf("no medium store is configured")
 	}

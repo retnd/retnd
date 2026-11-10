@@ -185,6 +185,12 @@ type Engine struct {
 	Sets    BackupSets
 	Tiers   TierGuard
 
+	// Keys is key custody, consulted only for a backup set whose resolved
+	// retained_copy_encryption is "required" (encryption.go). Nil with such
+	// a set is ErrClassUnavailable at the copy phase, before anything is
+	// encrypted or uploaded.
+	Keys Keys
+
 	// Now is the clock. Nil means time.Now.
 	Now func() time.Time
 
@@ -850,6 +856,13 @@ func (e *Engine) copy(ctx context.Context, mv state.Move) (state.Move, error) {
 // never there. copyMediumToMedium and its staging copy are what that
 // costs to fix properly (#429, staging.go).
 func (e *Engine) copyToMedium(ctx context.Context, mv state.Move, src state.Placement) (int64, error) {
+	on, err := e.encryptedSet(mv.Artifact.Set)
+	if err != nil {
+		return 0, err
+	}
+	if on {
+		return e.copyEncryptedToMedium(ctx, mv, src)
+	}
 	if e.Store == nil {
 		return 0, fmt.Errorf("no medium store is configured")
 	}
@@ -873,6 +886,11 @@ func (e *Engine) copyToMedium(ctx context.Context, mv state.Move, src state.Plac
 // linked the final name has done its job, and the verify phase is what
 // decides whether those bytes are the artifact.
 func (e *Engine) copyToLocal(ctx context.Context, mv state.Move, src state.Placement) (int64, error) {
+	if enc, err := e.sourceIsEncrypted(ctx, mv.Artifact, src.Medium); err != nil {
+		return 0, err
+	} else if enc {
+		return 0, refuseEncryptedMove(mv.Artifact, src.Medium)
+	}
 	if e.Local == nil {
 		return 0, fmt.Errorf("no local store is configured")
 	}
@@ -1011,6 +1029,11 @@ func (e *Engine) verifyCopy(ctx context.Context, mv state.Move, src state.Placem
 	if e.Store == nil {
 		return Result{}, want, fmt.Errorf("no medium store is configured")
 	}
+	if on, err := e.encryptedSet(mv.Artifact.Set); err != nil {
+		return Result{}, want, err
+	} else if on {
+		return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated)
+	}
 	if !gated {
 		res, err := Verify(ctx, e.Store, medium, candidate, want, e.now())
 		return res, want, err
@@ -1073,11 +1096,16 @@ func (e *Engine) verifyLocalCopy(ctx context.Context, p state.Placement) (Result
 func (e *Engine) destinationPlacement(mv state.Move, src state.Placement, result Result) state.PlacementUpdate {
 	verified := result.At
 	size := src.Size
-	if mv.BytesCopied != nil {
+	if mv.BytesCopied != nil && result.Encryption == nil {
+		// Only for a plaintext copy: the bytes that arrived are the
+		// artifact's bytes. For an encrypted one they are the ciphertext,
+		// and placements.size_bytes stays the artifact's size, so the two
+		// sizes are never confused (the stored size is in the record).
 		copied := *mv.BytesCopied
 		size = &copied
 	}
 	return state.PlacementUpdate{
+		Encryption:        result.Encryption,
 		Medium:            mv.DestinationMedium,
 		Location:          mv.DestinationKey,
 		Size:              size,
@@ -1417,6 +1445,12 @@ func (e *Engine) abandon(ctx context.Context, mv state.Move, why string) (state.
 // is not guarded by guardSourceDelete, because the thing it deletes is the
 // object this move itself created at a key this move itself computed.
 func (e *Engine) discardDestination(ctx context.Context, mv state.Move) error {
+	// An encrypting pass leaves a staged ciphertext (or a temporary file)
+	// on local disk, which is part of what this move put in the world, so
+	// it goes through the same cleanup rather than a second one.
+	if err := e.discardEncryptedStaging(ctx, mv); err != nil {
+		return err
+	}
 	if mv.DestinationKey == "" {
 		return nil
 	}
