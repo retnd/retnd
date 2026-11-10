@@ -262,62 +262,61 @@ func TestAnExportedBundleIsConfirmedByAStatementAndTheDigestIsChecked_993(t *tes
 	}
 }
 
-// fakeKeyJournal is the journal's retirement half, with one ACTIVE copy
-// recording the key.
-type fakeKeyJournal struct {
-	mu      sync.Mutex
-	copies  []model.CopyRef
-	retired []string
-}
-
-func (j *fakeKeyJournal) EncryptionKey(_ context.Context, id string) (state.EncryptionKey, error) {
-	return state.EncryptionKey{ID: id, Provider: state.KeyProviderManaged, Status: state.EncryptionKeySuperseded, CreatedAt: time.Now().UTC()}, nil
-}
-
-func (j *fakeKeyJournal) ActivePlacementsRecordingKey(context.Context, string) ([]model.CopyRef, error) {
-	return j.copies, nil
-}
-
-func (j *fakeKeyJournal) RetireEncryptionKey(_ context.Context, id string, _ time.Time) error {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	j.retired = append(j.retired, id)
-	return nil
-}
-
 func TestRetiringAKeyAnActiveCopyRecordsIsRefusedNamingTheCopyAndClassified_993(t *testing.T) {
-	f := newRecoveryFixture(t, fixtureOpts{})
-	fileBacked(t, f)
-	set, _ := model.NewBackupSetID("production", "postgres")
-	art, _ := model.NewArtifactID(set, "dump.sql")
-	j := &fakeKeyJournal{copies: []model.CopyRef{{Artifact: art, Medium: "warm"}}}
-	f.b.retireJournal = j
+	f, a, key := encryptedFixture(t)
+	ctx := context.Background()
+	if _, err := f.b.RotateEncryptionKey(ctx); err != nil {
+		t.Fatalf("RotateEncryptionKey: %v", err)
+	}
 
-	_, err := f.b.RetireEncryptionKey(context.Background(), "kold")
+	_, err := f.b.RetireEncryptionKey(ctx, key.ID)
 	if !errors.Is(err, ErrEncryptionKeyInUse) {
 		t.Fatalf("err = %v, want ErrEncryptionKeyInUse", err)
 	}
-	if !strings.Contains(err.Error(), "production/postgres/dump.sql on warm") {
+	if !strings.Contains(err.Error(), a.String()+" on warm") {
 		t.Errorf("the refusal does not name the copy: %v", err)
 	}
-	if len(j.retired) != 0 {
-		t.Errorf("the key was retired anyway: %v", j.retired)
+	list, _ := f.b.ListEncryptionKeys(ctx)
+	for _, k := range list.Keys {
+		if k.ID == key.ID && k.Status == "retired" {
+			t.Error("the key was retired anyway")
+		}
 	}
 }
 
-func TestRetiringWithAJournalThatCannotRetireRefusesRatherThanSkippingTheCheck_993(t *testing.T) {
+func TestRetiringTheActiveKeyIsRefusedAndAnUnknownKeyIsNotFound_993(t *testing.T) {
 	f := newRecoveryFixture(t, fixtureOpts{})
 	fileBacked(t, f)
-	// No retireJournal: the journal is a *state.Journal, which does not carry
-	// the retirement transaction until #989 lands. When it does, this test is
-	// the one to delete, and TestRetiringAKeyAnActiveCopyRecords... stands.
-	if _, ok := any(f.b.journal).(interface {
-		ActivePlacementsRecordingKey(context.Context, string) ([]model.CopyRef, error)
-	}); ok {
-		t.Skip("the journal now carries the retirement transaction; the in-use refusal test covers it")
+	ctx := context.Background()
+	k, err := f.b.CreateEncryptionKey(ctx)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := f.b.RetireEncryptionKey(context.Background(), "kany"); !errors.Is(err, ErrEncryptionRetireUnavailable) {
-		t.Errorf("err = %v, want ErrEncryptionRetireUnavailable, never a retirement without the check", err)
+	if _, err := f.b.RetireEncryptionKey(ctx, k.ID); !errors.Is(err, ErrEncryptionKeyInUse) {
+		t.Errorf("retiring the active key: err = %v, want ErrEncryptionKeyInUse", err)
+	}
+	if _, err := f.b.RetireEncryptionKey(ctx, "knosuchkey"); !errors.Is(err, ErrEncryptionKeyNotFound) {
+		t.Errorf("retiring an unknown key: err = %v, want ErrEncryptionKeyNotFound", err)
+	}
+}
+
+func TestRetiringASupersededKeyNoCopyRecordsSucceeds_993(t *testing.T) {
+	f := newRecoveryFixture(t, fixtureOpts{})
+	fileBacked(t, f)
+	ctx := context.Background()
+	old, err := f.b.CreateEncryptionKey(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.b.RotateEncryptionKey(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.b.RetireEncryptionKey(ctx, old.ID)
+	if err != nil {
+		t.Fatalf("RetireEncryptionKey: %v", err)
+	}
+	if got.Status != "retired" || got.RetiredAt == "" {
+		t.Errorf("the key reads %+v after retiring", got)
 	}
 }
 

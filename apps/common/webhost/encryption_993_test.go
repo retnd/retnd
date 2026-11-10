@@ -168,7 +168,6 @@ func TestEachEncryptionRefusalMapsToItsOwnStatusAndCode_993(t *testing.T) {
 		{"a key a copy still records", service.ErrEncryptionKeyInUse, http.StatusConflict, "ENCRYPTION_KEY_IN_USE"},
 		{"a key in the wrong state", service.ErrEncryptionKeyState, http.StatusConflict, "ENCRYPTION_KEY_STATE"},
 		{"a key that does not resolve", service.ErrEncryptionKeyUnresolvable, http.StatusConflict, "ENCRYPTION_KEY_UNRESOLVABLE"},
-		{"a journal that cannot retire", service.ErrEncryptionRetireUnavailable, http.StatusServiceUnavailable, "ENCRYPTION_UNAVAILABLE"},
 		{"a deployment with no file", service.ErrConfigNotFileBacked, http.StatusServiceUnavailable, "ENCRYPTION_UNAVAILABLE"},
 		{"a policy the file would refuse", service.ErrInvalidRequest, http.StatusBadRequest, "INVALID_REQUEST"},
 	} {
