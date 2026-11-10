@@ -11,6 +11,7 @@ import (
 
 	"github.com/retnd/retnd/core/internal/alert"
 	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/copycrypt"
 	"github.com/retnd/retnd/core/internal/health"
 	"github.com/retnd/retnd/core/internal/keycustody"
 	"github.com/retnd/retnd/core/internal/secretref"
@@ -282,5 +283,20 @@ func (c *KeyCustody) Health(ctx context.Context, enabled bool) (health.KeyCustod
 	if err != nil {
 		return health.KeyCustodyHealth{}, fmt.Errorf("service: opening key custody: %w", err)
 	}
-	return s.Health(ctx, enabled)
+	h, err := s.Health(ctx, enabled)
+	if err != nil {
+		return h, err
+	}
+	// Each suite something still depends on, with the lifecycle's verdict
+	// (#1316). Two reads over ids and counts; no key file is opened for it.
+	copies, err := c.journal.ActiveCopiesBySuite(ctx)
+	if err != nil {
+		return h, err
+	}
+	keys, err := c.Keys(ctx)
+	if err != nil {
+		return h, err
+	}
+	h.Suites = keycustody.SuiteHealth(copycrypt.Suites(), copies, keys)
+	return h, nil
 }

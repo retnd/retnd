@@ -633,7 +633,7 @@ func quoteLabel(v string) string {
 // section) emits none of the four, so a scrape of a deployment that never
 // enabled the feature is the scrape it always was.
 func writeKeyCustody(b *strings.Builder, h health.KeyCustodyHealth) {
-	if !h.Enabled && h.ActiveKeyID == "" && len(h.UnconfirmedKeyIDs) == 0 && len(h.ExternalKeysAtRisk) == 0 {
+	if !h.Enabled && h.ActiveKeyID == "" && len(h.UnconfirmedKeyIDs) == 0 && len(h.ExternalKeysAtRisk) == 0 && len(h.Suites) == 0 {
 		return
 	}
 	one := func(suffix, help string, v float64) {
@@ -643,7 +643,7 @@ func writeKeyCustody(b *strings.Builder, h health.KeyCustodyHealth) {
 		writeSample(b, name, nil, v)
 	}
 	one("retained_copy_encryption_enabled", "1 when at least one backup set requires its retained copies to be encrypted, 0 when none does.", gaugeBool(h.Enabled))
-	one("retained_copy_encryption_degraded", "1 when encryption is required somewhere and either no key can encrypt yet or a key that guards copies has no confirmed recovery bundle, 0 otherwise. Which key is on the status surface, never a label here.", gaugeBool(h.Degraded()))
+	one("retained_copy_encryption_degraded", "1 when encryption is required somewhere and either no key can encrypt yet or a key that guards copies has no confirmed recovery bundle, or copies or the active key are under a deprecated or retired suite, 0 otherwise. Which key or suite is on the status surface, never a label here.", gaugeBool(h.Degraded()))
 	one("retained_copy_key_bundle_confirmed", "1 when a person confirmed holding a recovery bundle for the active managed key, 0 when not or when there is no active key.", gaugeBool(h.BundleConfirmed))
 	one("retained_copy_keys_unconfirmed", "How many managed keys that are not retired have no confirmed recovery bundle, the active one included.", float64(len(h.UnconfirmedKeyIDs)))
 }

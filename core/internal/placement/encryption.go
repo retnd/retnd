@@ -136,6 +136,28 @@ func (e *Engine) activeKey(ctx context.Context, artifact model.ArtifactID) (keyc
 	return rec, nil
 }
 
+// writeSuite resolves the suite a new copy of artifact is written under (the
+// set's resolved policy suite, a concrete id since Validate) and refuses one
+// that may not write. Every failure wraps ErrClassUnavailable, so a suite
+// that cannot be honoured is never substituted with another one and never
+// recorded as a weaker class (FR-86). Reads never come here: a copy is opened
+// with the suite its record names, whatever its status (FR-87).
+func (e *Engine) writeSuite(artifact model.ArtifactID) (copycrypt.Suite, error) {
+	bs, err := e.backupSet(artifact.Set)
+	if err != nil {
+		return nil, err
+	}
+	id := bs.RetainedCopyEncryption.Suite
+	suite, ok := copycrypt.Lookup(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: %w: backup set %s names the suite %q, which this build does not know", ErrClassUnavailable, copycrypt.ErrUnknownSuite, artifact.Set, id)
+	}
+	if err := copycrypt.CheckWrite(suite); err != nil {
+		return nil, fmt.Errorf("%w: backup set %s: %w", ErrClassUnavailable, artifact.Set, err)
+	}
+	return suite, nil
+}
+
 // ExternalKeys is what custody adds for an external provider (#1292):
 // resolving the reference once, checking it is a key of the format and
 // returning its registry row, adding the row on first use. *keycustody.Store
@@ -205,6 +227,13 @@ func (e *Engine) copyEncryptedToMedium(ctx context.Context, mv state.Move, src s
 	}
 	medium, _, err := e.resolve(mv.DestinationMedium)
 	if err != nil {
+		return 0, err
+	}
+	// The suite is settled before the key and before any byte moves: a
+	// retired suite reads every copy it wrote and writes none (#1316), and
+	// that refusal sits where the required refusal sits, ahead of the first
+	// destructive step.
+	if _, err := e.writeSuite(mv.Artifact); err != nil {
 		return 0, err
 	}
 	key, err := e.activeKey(ctx, mv.Artifact)

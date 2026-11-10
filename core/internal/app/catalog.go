@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/copycrypt"
 	"github.com/retnd/retnd/core/internal/keycustody"
 	"github.com/retnd/retnd/core/internal/lifecycle"
 	"github.com/retnd/retnd/core/internal/model"
@@ -112,8 +113,16 @@ type CatalogEncryptedCopy struct {
 	Medium   string
 	Location string
 
-	// FormatID is the per-copy format identifier ("age/v1").
+	// FormatID is the per-copy format identifier, which is the suite id
+	// ("age/v1", "age-pq/v1").
 	FormatID string
+
+	// Suite is what this build makes of FormatID: the registry's status
+	// (supported, deprecated, retired), or CatalogUnknownSuite when the
+	// registry does not know the id (#1316). A copy under an unknown suite is
+	// still an encrypted copy: it is never read as plaintext and never as
+	// verified, and the rebuild names it.
+	Suite string
 
 	// KeyID is the registry id of the key the copy needs.
 	KeyID string
@@ -157,7 +166,17 @@ type CatalogRebuildReport struct {
 	DryRun   bool
 	Findings []CatalogRebuildFinding
 	Errors   []CatalogRebuildError
+
+	// SuiteCopies counts the encrypted copies the findings name, per suite id
+	// as recorded, known to this build or not (#1316). A retired suite's
+	// copies are counted like any other; an unknown suite's are counted under
+	// their own id, never under a known one and never as plaintext.
+	SuiteCopies map[string]int
 }
+
+// CatalogUnknownSuite is CatalogEncryptedCopy.Suite for a copy whose suite id
+// this build's registry does not know.
+const CatalogUnknownSuite = "unknown suite"
 
 // RebuildCatalog implements EPIC-B section 19.3 and section 71 Work
 // Package 3.3 (issue #102): it scans set's configured local backup
@@ -291,6 +310,12 @@ func (s *Service) RebuildCatalog(ctx context.Context, set model.BackupSetID, dry
 			continue
 		}
 		finding.ManifestPath = recovery.ManifestPath(bs.LocalPath, m.ArtifactName)
+		for _, c := range finding.EncryptedCopies {
+			if report.SuiteCopies == nil {
+				report.SuiteCopies = map[string]int{}
+			}
+			report.SuiteCopies[c.FormatID]++
+		}
 		report.Findings = append(report.Findings, finding)
 	}
 	return report, nil
@@ -447,6 +472,15 @@ func (s *Service) encryptedCopies(ctx context.Context, bs config.BackupSet, m re
 		c := CatalogEncryptedCopy{
 			Medium: p.Medium, Location: p.Location, FormatID: e.FormatID, KeyID: e.KeyID,
 			Provider: providerDescription(bs.RetainedCopyEncryption, provider),
+			Suite:    CatalogUnknownSuite,
+		}
+		// The suite is looked up by the recorded id and nothing else: an id
+		// the registry does not know stays an encrypted copy under an unknown
+		// suite, and a retired one is catalogued like any other (it still
+		// reads). Neither is ever adopted as plaintext or as verified.
+		suite, knownSuite := copycrypt.Lookup(e.FormatID)
+		if knownSuite {
+			c.Suite = string(suite.Status())
 		}
 		managed := bs.RetainedCopyEncryption.KeyProvider.Managed
 		c.KeyKnown = managed && known[e.KeyID]
@@ -464,6 +498,12 @@ func (s *Service) encryptedCopies(ctx context.Context, bs config.BackupSet, m re
 			why = fmt.Sprintf("backup set %s names %s as its key provider; this rebuild did not resolve it, and a content revalidation will say whether key %s opens", bs.ID, c.Provider, e.KeyID)
 		}
 		notes = append(notes, fmt.Sprintf("the copy on medium %q at %q is encrypted (%s v%d) under key %s: %s", p.Medium, p.Location, e.FormatID, e.FormatVersion, e.KeyID, why))
+		switch {
+		case !knownSuite:
+			notes = append(notes, fmt.Sprintf("the copy on medium %q at %q names the suite %q, which this build does not know (unknown suite): it cannot be opened here, it is not plaintext, and nothing has verified it; a build that registers %q can", p.Medium, p.Location, e.FormatID, e.FormatID))
+		case suite.Status() == copycrypt.StatusRetired:
+			notes = append(notes, fmt.Sprintf("the copy on medium %q at %q is under %s, a retired suite: it still reads, and new copies go under another suite", p.Medium, p.Location, e.FormatID))
+		}
 	}
 	return out, notes
 }

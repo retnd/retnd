@@ -280,6 +280,39 @@ func activePlacementsRecordingKey(ctx context.Context, q interface {
 	return out, nil
 }
 
+// ActiveCopiesBySuite counts the ACTIVE copies per recorded suite id
+// (placement_encryption.format_id, which is the suite id: ADR 0033 D1). It is
+// the count the key custody health section and `retnd encryption suites`
+// report per suite (#1316). Ids are returned as recorded, known to this
+// build or not, so a copy under a suite the build does not know is counted
+// and named rather than dropped. A journal with no encrypted copy returns an
+// empty map.
+func (j *Journal) ActiveCopiesBySuite(ctx context.Context) (map[string]int, error) {
+	rows, err := j.db.QueryContext(ctx, `
+		SELECT pe.format_id, COUNT(*)
+		  FROM placement_encryption pe
+		  JOIN placements p ON p.id = pe.placement_id
+		 WHERE p.status = ?
+		 GROUP BY pe.format_id`, PlacementActive)
+	if err != nil {
+		return nil, fmt.Errorf("state: count active copies by suite: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var id string
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, fmt.Errorf("state: count active copies by suite: %w", err)
+		}
+		out[id] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("state: count active copies by suite: %w", err)
+	}
+	return out, nil
+}
+
 // RetireEncryptionKey moves a key to EncryptionKeyRetired at time at, in
 // its own transaction that re-checks the rules first: an unknown key is
 // ErrEncryptionKeyNotFound, a key that is still active, already retired, or
