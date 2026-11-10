@@ -18,6 +18,7 @@ missing from this page.
 ```
 scripts/ci-local.sh                       # the full gate, as pre-commit runs it
 scripts/ci-docker.sh                      # the same gate inside scripts/ci/Dockerfile
+scripts/ci-docker.sh --host ssh://user@host   # the same, on another machine's Docker daemon (below)
 scripts/release/record-local-gate.sh      # a full run, then provenance/local-gate.json
 ```
 
@@ -59,6 +60,11 @@ at 3. A stray exit 3 from a command the gate did not mark is read as FAILED.
 | `GATE_LOCK_STALE_AFTER` | `600` | a lock whose holder cannot be judged (another host's pid, a lock from before a reboot, no pid file) is reclaimed once it is this old. A lock whose holder is a dead pid on this host and boot is reclaimed at once |
 | `GOLANGCI_LINT_DIR` | unset | a directory to put ahead of `PATH` so a specific golangci-lint wins over Homebrew's |
 | `GOLANGCI_LINT_VERSION` | from `scripts/ci/pins.env` | the linter the gate is pinned to. A run with another version is ledgered INCOMPLETE and the release check refuses its record. `scripts/ci-docker.sh` builds the image with it |
+| `CI_DOCKER_HOST` | unset | `user@host` or `ssh://user@host[:port]`: run `scripts/ci-docker.sh` on that machine's Docker daemon. `--host` on the command line wins. A remote `DOCKER_HOST` without it is refused, because the gate's bind mounts would be empty on the other machine |
+| `CI_DOCKER_REMOTE_DIR` | `/work/nas-work` for `devshell@` hosts, else `$HOME/workspace/nas-work` there | the parent of the one scratch directory a remote run uses |
+| `CI_DOCKER_MIN_FREE_MB` | `20480` | a remote run refuses, before sending anything, when the scratch parent has less free space than this |
+| `CI_DOCKER_KEEP_CACHE` | `0` | `1` keeps the toolchain image and the cache volumes on the remote after the run, for a faster next one. By default a remote run removes what it created |
+| `CI_DOCKER_SYNC` | `rsync` | `tar` copies the tree with tar over ssh, for a host that has no rsync |
 | `GOTOOLCHAIN` | derived | the gate exports the Go its golangci-lint was built with, so the linter can read the export data. Set it yourself only to run the whole gate on one toolchain |
 | `GOFLAGS` | unset | the recorder refuses a value that narrows tests (`-run`, `-skip`, `-short`, `-count=0`, `-failfast`, `-bench`, `-fuzz`); the gate itself does not read it |
 | `RETND_TEST_OWNER` | the worktree's path | the owner stamped on every test container and network (`retnd-test=<hash>`). `dockerlease` sweeps only this owner's leftovers, so one lane never removes another's fixture. Set it to drive two owners from one worktree |
@@ -66,6 +72,28 @@ at 3. A stray exit 3 from a command the gate did not mark is read as FAILED.
 
 The recorder refuses to start with any `CI_LOCAL_*` set, because every one of
 them weakens the run it is about to vouch for.
+
+## Running the gate on another machine
+
+`scripts/ci-docker.sh --host ssh://user@host` (or `CI_DOCKER_HOST`) sends the
+gate to another machine's Docker daemon, so several gates do not all load one
+laptop. Pointing `DOCKER_HOST` there by hand does not work: the gate bind
+mounts paths under the repo, the daemon reads them from its own disk, and
+docker turns a missing path into an empty directory rather than an error. So
+the script copies first. It checks the free space, copies the files git knows
+about (tracked, plus untracked that are not ignored, minus `.env*`, `.npmrc`,
+`.netrc` and `.git-credentials`) and the git dir (without its config and
+hooks) into one scratch directory, runs the unchanged gate there as the remote
+user, streams the output and returns the gate's exit status. Afterwards it
+removes the scratch directory, the toolchain image if the run built it, and
+the cache volumes it created (`CI_DOCKER_KEEP_CACHE=1` keeps them). No
+environment variable is passed to the container and no token is written on the
+remote. Only `ssh`, `docker` and writes into the scratch directory happen on
+the host. The remote platform defaults to `linux/amd64` (`RCM_CI_PLATFORM`
+overrides). The gate lock is per copy, so two remote runs on one host are not
+serialized against each other; pick different hosts, or run them one after the
+other. `scripts/tests/ci-docker-remote.test.sh` drives all of this with
+stand-ins for docker, rsync, tar and ssh.
 
 ## The gate lock
 
