@@ -63,6 +63,16 @@ func (s *Store) externalRecipient(ctx context.Context, ref secretref.Ref) (recip
 	return recipient, suiteID, err
 }
 
+// ExternalKeySuite resolves ref and reports the suite of the key it yields,
+// writing nothing: no registry row, no file. It is how a surface that must
+// not register a key (the alert pass, the policy read) learns whether an
+// external key matches a pinned suite (EPIC T, #1314). The material never
+// leaves the callback.
+func (s *Store) ExternalKeySuite(ctx context.Context, ref secretref.Ref) (string, error) {
+	_, suiteID, err := s.externalRecipient(ctx, ref)
+	return suiteID, err
+}
+
 // RegisterExternal resolves ref, checks the key is one the format can open,
 // and returns its registry row, adding it when it is not there yet. It is
 // idempotent per key. Nothing is written for a reference that does not

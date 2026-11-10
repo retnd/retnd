@@ -89,6 +89,17 @@ func (c *KeyCustody) externalRefs() []secretref.Ref {
 	return refs
 }
 
+// ExternalKeySuite is the suite of the key ref yields, resolved and
+// registered nowhere (EPIC T, #1314). It opens the key directory like any
+// call that needs custody, and writes nothing.
+func (c *KeyCustody) ExternalKeySuite(ctx context.Context, ref secretref.Ref) (string, error) {
+	s, err := c.Store(ctx)
+	if err != nil {
+		return "", err
+	}
+	return s.ExternalKeySuite(ctx, ref)
+}
+
 // RegisterExternal is placement.ExternalKeys: it resolves ref and returns the
 // key's registry row, adding it the first time. It opens the key directory
 // like any call that needs custody does, because that is where the store
