@@ -1,7 +1,7 @@
 {
   "schema": "retnd.encryption-captures/1",
   "issue": 998,
-  "note": "The list of media EPIC N owes, and the one place #997 looks up an id, a file name and its alt text. A still has four variants (variants[].suffix). state needs-ui-state means the stack has no UI state to photograph; the release gate counts its files as missing until the state exists and the entry becomes capturable. Store-submission screenshots are not here and are never generated.",
+  "note": "The list of media EPIC N owes, and since #1320 the media EPIC T owes (ids encryption-25 onwards), and the one place #997 looks up an id, a file name and its alt text. A still has four variants (variants[].suffix). state needs-ui-state means the stack has no UI state to photograph; the release gate counts its files as missing until the state exists and the entry becomes capturable. Store-submission screenshots are not here and are never generated.",
   "clock": "2026-08-29T06:15:00+02:00 (harness FROZEN_TIME)",
   "variants": [
     {
@@ -217,6 +217,46 @@
       "state": "capturable",
       "alt": "Verify recoverable ended failed closed",
       "caption": "Decrypt failed, no partial plaintext written, recover from another copy."
+    },
+    {
+      "id": "suite-select",
+      "name": "encryption-25-suite-select",
+      "scenario": "encryption-suite-change",
+      "state": "capturable",
+      "alt": "Settings, Retained-copy encryption, the Suite choice with each suite's status badge and its one-sentence description",
+      "caption": "The Suite choice lists every suite the build has, with its status, and the sentence the product states about each, nothing more."
+    },
+    {
+      "id": "suite-rotate-confirm",
+      "name": "encryption-26-suite-rotate-confirm",
+      "scenario": "encryption-suite-change",
+      "state": "capturable",
+      "alt": "The Change the suite dialog at its Rotate key step, after the policy was patched",
+      "caption": "Choosing a suite writes no key: the dialog walks Change suite, Rotate key, Download bundle and Confirm, and copies wait until the rotation."
+    },
+    {
+      "id": "suite-chips",
+      "name": "encryption-27-suite-chips",
+      "scenario": "encryption-suite-lifecycle",
+      "state": "capturable",
+      "alt": "The Backups list with one copy under age/v1 and one under age-pq/v1, each with its suite chip",
+      "caption": "Each encrypted copy shows the suite its record names, beside the Encrypted chip."
+    },
+    {
+      "id": "suite-deprecated-health",
+      "name": "encryption-28-suite-deprecated-health",
+      "scenario": "encryption-suite-lifecycle",
+      "state": "capturable",
+      "alt": "Dashboard encryption health with a deprecated and a retired suite still recorded by copies",
+      "caption": "A deprecated suite still reads and writes; health says so, with the number of active copies under it and the announced retirement."
+    },
+    {
+      "id": "reencrypt-dry-run",
+      "name": "encryption-29-reencrypt-dry-run",
+      "scenario": "encryption-suite-lifecycle",
+      "state": "capturable",
+      "alt": "The Re-encrypt under current suite dialog showing the dry run by key",
+      "caption": "The dry run lists the copies under the older suite by key, what can move and what is refused, before anything moves."
     }
   ],
   "gifs": [
@@ -237,6 +277,12 @@
       "name": "encryption-verify-flow",
       "alt": "Starting a decrypt-verify on an encrypted copy",
       "caption": "Verify recoverable, the egress acceptance, and the running state."
+    },
+    {
+      "id": "suite-flow",
+      "name": "encryption-suite-flow",
+      "alt": "Changing the encryption suite",
+      "caption": "Pick age-pq/v1, Change suite, and the Rotate key step that follows, with nothing minted until it is pressed."
     }
   ]
 }

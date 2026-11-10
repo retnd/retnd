@@ -66,6 +66,10 @@ the camera must be one that has these cards, and a store screenshot is never tak
 mock API or generated from the capture scripts under `docs/site/tools/`. #998 owns the
 pictures on the project's own site, which are mock recordings and say so.
 
+EPIC T (#1310) adds a Suite select to the same Settings card and a suite chip beside each
+encrypted copy. Same consequence, same verdict: no row moves, the build in front of the camera
+must be one with the select, and #1320's pictures on the project's site are mock recordings.
+
 ## The rename (#893), and why it does not move any row
 
 Every screenshot this file describes shows the product's name, in the topbar of every

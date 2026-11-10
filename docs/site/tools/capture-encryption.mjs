@@ -1,5 +1,8 @@
 // Re-shoots the pictures and the short GIFs of EPIC N: retained-copy
-// encryption, recoverable key custody and the copy states beside them (#998).
+// encryption, recoverable key custody and the copy states beside them (#998),
+// and of EPIC T's encryption suites (#1320): the Suite select, the
+// rotate-then-confirm flow, the per-copy suite chip, the deprecated health
+// state and the re-encrypt dry run, ids encryption-25 onwards in the manifest.
 //
 // Run it from the repository root, through the Playwright lock (never bare):
 //
@@ -130,7 +133,10 @@ if (EMBEDS) {
 // ---------------------------------------------------------------------------
 // What may never be in a picture.
 
-const KEY_MATERIAL = /AGE-SECRET-KEY|BEGIN [A-Z ]*PRIVATE KEY|PRIVATE KEY-----|CANARY|\bage1[a-z0-9]{58}\b/i;
+// age1pq1 is the age-pq/v1 recipient (#1320): public like the X25519 one, and
+// kept out of a picture for the same reason, with about 2000 characters where
+// the X25519 recipient has 58 after its prefix.
+const KEY_MATERIAL = /AGE-SECRET-KEY|BEGIN [A-Z ]*PRIVATE KEY|PRIVATE KEY-----|CANARY|\bage1[a-z0-9]{58}\b|\bage1pq1[a-z0-9]{100,}/i;
 const HOSTISH = /\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|dev|app|cloud|de|eu|uk|us|ch|nl|fr|se|info|biz|co)\b/gi;
 const SAFE_HOST = /(^|\.)(example\.(com|net|org)|retnd\.[a-z]+|github\.com|ghcr\.io)$/i;
 
@@ -217,6 +223,12 @@ async function endedVerify(page, chip) {
   await dlg.getByRole("button", { name: "Verify now" }).click();
   await dlg.getByRole("group", { name: chip }).waitFor({ timeout: 20_000 });
   return [DIALOG];
+}
+
+/** Picks a suite on the Settings card (#1318), which opens the change dialog. */
+async function openSuiteChange(page, id) {
+  await card(page).locator(`[data-suite-option="${id}"] input[type=radio]`).check();
+  await dialog(page, "Change the suite").waitFor();
 }
 
 const steps = {
@@ -399,6 +411,45 @@ const steps = {
       return endedVerify(page, /^Decrypt failed/);
     }
   },
+  "suite-select": {
+    path: "/settings",
+    async prep(page) {
+      await card(page).locator('[data-suite-group] [data-suite-option="age-pq/v1"]').waitFor();
+      return [CARD];
+    }
+  },
+  "suite-rotate-confirm": {
+    path: "/settings",
+    async prep(page) {
+      await openSuiteChange(page, "age-pq/v1");
+      await dialog(page, "Change the suite").getByRole("button", { name: "Change suite" }).click();
+      await page.locator('[data-suite-step="rotate"][data-state="now"]').waitFor();
+      return [DIALOG];
+    }
+  },
+  "suite-chips": {
+    path: "/backups",
+    async prep(page) {
+      await page.locator("[data-echip-suite]", { hasText: "age/v1" }).first().waitFor();
+      await page.locator("[data-echip-suite]", { hasText: "age-pq/v1" }).first().waitFor();
+      return ["main table"];
+    }
+  },
+  "suite-deprecated-health": {
+    path: "/",
+    async prep(page) {
+      await page.locator('[data-suite-health="age/v1"]').waitFor();
+      return ["[data-encryption-health]"];
+    }
+  },
+  "reencrypt-dry-run": {
+    path: "/",
+    async prep(page) {
+      await page.locator('[data-suite-health="age/v1"]').getByRole("button", { name: "Re-encrypt under current suite" }).click();
+      await dialog(page, "Re-encrypt under current suite").locator("[data-reencrypt-plan]").waitFor();
+      return [DIALOG];
+    }
+  },
   "verify-running": {
     path: DETAIL,
     async prep(page) {
@@ -453,6 +504,20 @@ const gifs = {
       await dlg.waitFor({ state: "hidden" });
       await card(page).getByText(/exported .*, not yet confirmed/).first().waitFor();
       await toTop(page, CARD);
+      await clip.frame(1.8);
+    }
+  },
+  "suite-flow": {
+    path: "/settings",
+    scenario: "encryption-suite-change",
+    async run(page, clip) {
+      await card(page).locator("[data-suite-group]").waitFor();
+      await page.evaluate(() => document.querySelector("[data-suite-group]")?.scrollIntoView({ block: "center" }));
+      await clip.frame(1.0);
+      await openSuiteChange(page, "age-pq/v1");
+      await clip.frame(1.3);
+      await dialog(page, "Change the suite").getByRole("button", { name: "Change suite" }).click();
+      await page.locator('[data-suite-step="rotate"][data-state="now"]').waitFor();
       await clip.frame(1.8);
     }
   },

@@ -64,7 +64,7 @@ make_repo() {
   printf '%s' "$dir"
 }
 
-run_check() { (cd "$1" && EPIC_N_ROOT="$1" EPIC_N_BASE="${BASE_SHA:-$(cat "$SANDBOX/$(basename "$1").base")}" EPIC_N_SKIP_GO=1 bash "$CHECK" 2>&1); }
+run_check() { (cd "$1" && EPIC_N_ROOT="$1" EPIC_N_BASE="${BASE_SHA:-$(cat "$SANDBOX/$(basename "$1").base")}" EPIC_N_TIP="${TIP_SHA:-WORKTREE}" EPIC_N_SKIP_GO=1 bash "$CHECK" 2>&1); }
 add_0015() { echo "-- 15" > "$1/core/migrations/0015_retained_copy_encryption.sql"; (cd "$1" && git add -A && git commit -q -m "epic"); }
 
 expect_pass() { # name repo
@@ -123,6 +123,24 @@ r="$(make_repo g2-edit)"; add_0015 "$r"; echo "-- changed" >> "$r/core/migration
 expect_fail "migrations: an edit to an existing migration is refused" "$r" "0001_init.sql"
 r="$(make_repo g2-wrong-number)"; echo "-- 17" > "$r/core/migrations/0017_retained_copy_encryption.sql"; (cd "$r" && git add -A && git commit -qm x)
 expect_fail "migrations: a new migration with another number is refused" "$r" "$msg"
+
+# The tip (#1320): a later epic's migration after EPIC N's last commit is that
+# epic's business, an extra migration inside EPIC N's range is still refused,
+# and an edit to an existing migration is refused whenever it happened.
+r="$(make_repo tip-later)"; add_0015 "$r"; tip="$(cd "$r" && git rev-parse HEAD)"
+echo "-- 20" > "$r/core/migrations/0020_encryption_key_suites.sql"; (cd "$r" && git add -A && git commit -qm "epic t")
+out="$(TIP_SHA="$tip" run_check "$r")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'epic-n-closed: ok$'; then pass "tip: a later epic's 0020 after EPIC N's tip passes"; else fail "tip: a later epic's 0020 after EPIC N's tip passes" "$out"; fi
+r="$(make_repo tip-inside)"; add_0015 "$r"; echo "-- 20" > "$r/core/migrations/0020_extra.sql"; (cd "$r" && git add -A && git commit -qm x); tip="$(cd "$r" && git rev-parse HEAD)"
+out="$(TIP_SHA="$tip" run_check "$r")"; rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qF "0020_extra.sql"; then pass "tip: an extra migration inside EPIC N's range is refused, and named"; else fail "tip: an extra migration inside EPIC N's range is refused" "exit $rc: $out"; fi
+r="$(make_repo tip-edit)"; add_0015 "$r"; tip="$(cd "$r" && git rev-parse HEAD)"
+echo "-- changed" >> "$r/core/migrations/0001_init.sql"; (cd "$r" && git commit -qam x)
+out="$(TIP_SHA="$tip" run_check "$r")"; rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qF "0001_init.sql"; then pass "tip: an edit to an existing migration after the tip is still refused"; else fail "tip: an edit after the tip is refused" "exit $rc: $out"; fi
+r="$(make_repo tip-missing)"; add_0015 "$r"
+out="$(TIP_SHA=1111111111111111111111111111111111111111 run_check "$r")"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'tip commit .* is not in this checkout'; then pass "a tip commit that is not in the checkout is refused, not skipped"; else fail "a missing tip is refused" "exit $rc: $out"; fi
 
 # The base commit.
 r="$(make_repo nobase)"; BASE_SHA=0000000000000000000000000000000000000000

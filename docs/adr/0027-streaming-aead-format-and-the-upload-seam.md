@@ -310,6 +310,10 @@ direct dependency and sio would have added one module, which is the size differe
   writes the sentence where operators read it.
 - `retained_copy_encryption:` is a one-way door under `KnownFields(true)`: an older binary
   refuses a file that has it. The CHANGELOG names the version.
+- Superseded in one sentence by [ADR 0033](0033-encryption-suite-agility.md): the format is no
+  longer only a property of the build. A global `suite:` field chooses among the suites the build
+  registers, `age/v1` keeps its exact meaning, and the default for new keys is `age-pq/v1`.
+  Everything else here stands.
 - `0015_retained_copy_encryption.sql` is applied after 0013 whatever its neighbours are:
   `0014` is EPIC M's and not in the tree, `0016` and `0018` landed first, and `migrate`
   applies any unapplied version regardless of order.

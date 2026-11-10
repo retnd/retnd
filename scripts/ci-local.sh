@@ -644,6 +644,19 @@ bash scripts/tests/release-moves-latest.test.sh
 gate_step "the EPIC N closing check refuses a moved container contract or a second migration, and can still fail (#998)"
 bash scripts/tests/epic-n-closure.test.sh
 
+# EPIC T's closing check (#1320), the same shape for suite agility: the
+# canonical deployment is an empty diff against 477aec5a (a suite changes the
+# bytes of a copy, never how a container runs), the epic adds exactly its two
+# migrations (0020, the key's suite; 0021, the default it last ran under), and, in the release job, no row of
+# docs/conformance/epic-t-matrix.md is BLOCKED. This drives the real script
+# against throwaway repositories, one planted violation per guard and two
+# controls. The suite vectors (core/internal/copycrypt/suitetest) run with the
+# core suite below, the matrix half is core/tests/encryptiongate, and the
+# two-suite e2e rows run in the retnd-tests lane at the pin. No containers, no
+# browser, no network.
+gate_step "the EPIC T closing check refuses a moved canonical deployment or a migration other than 0020 and 0021, and can still fail (#1320)"
+bash scripts/tests/epic-t-closure.test.sh
+
 gate_step "core/ go build"
 (cd core && GOWORK=off go build ./...)
 

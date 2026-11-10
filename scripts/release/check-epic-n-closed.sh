@@ -30,12 +30,21 @@
 #   EPIC_N_ROOT     repository to check (default: the one this script is in)
 #   EPIC_N_BASE     the commit the epic started from (default: bc085e06, the
 #                   0.7.2 merge into main, the last commit before any of it)
+#   EPIC_N_TIP      the commit the epic ended at (default: 477aec5a, the merge
+#                   of #1302 that put the last of it on main). Check 2 reads the
+#                   migrations ADDED between EPIC_N_BASE and this commit, so a
+#                   later epic's own migration (EPIC T's 0020, #1320) is that
+#                   epic's closing check's business and not a failure here. An
+#                   edit to an existing migration still fails at any point.
+#                   WORKTREE reads additions up to the working tree, untracked
+#                   files included, which is what the self-test uses.
 #   EPIC_N_SKIP_GO  1 leaves out check 3's Go run (the self-test sets it; the
 #                   Go checker has its own self-test)
 set -uo pipefail
 
 root="${EPIC_N_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
 base="${EPIC_N_BASE:-bc085e06}"
+tip="${EPIC_N_TIP:-477aec5a}"
 cd "$root" || exit 2
 
 fails=0
@@ -44,6 +53,10 @@ ok() { printf 'epic-n-closed: ok   %s\n' "$1"; }
 
 if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
   echo "epic-n-closed: the base commit $base is not in this checkout, so nothing can be compared to it (fetch the full history)" >&2
+  exit 2
+fi
+if [ "$tip" != "WORKTREE" ] && ! git rev-parse --verify --quiet "$tip^{commit}" >/dev/null; then
+  echo "epic-n-closed: the tip commit $tip is not in this checkout, so the epic's own migrations cannot be told from a later epic's (fetch the full history)" >&2
   exit 2
 fi
 
@@ -70,7 +83,11 @@ fi
 # required) and 0019 (encrypt existing consents, #1302, owner decision: it stays
 # its own migration; allowed, not required, so this can merge before it). Any
 # other new migration, and any change to or removal of an existing one, fails.
-added="$(git diff --name-only --diff-filter=A "$base" -- core/migrations; git ls-files --others --exclude-standard -- core/migrations)"
+if [ "$tip" = "WORKTREE" ]; then
+  added="$(git diff --name-only --diff-filter=A "$base" -- core/migrations; git ls-files --others --exclude-standard -- core/migrations)"
+else
+  added="$(git diff --name-only --diff-filter=A "$base" "$tip" -- core/migrations)"
+fi
 touched="$(git diff --name-only --diff-filter=MDRT "$base" -- core/migrations)"
 want15="core/migrations/0015_retained_copy_encryption.sql"
 want19="core/migrations/0019_encrypt_existing_consents.sql"

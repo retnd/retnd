@@ -1,9 +1,11 @@
 # Encrypted retained copies
 
-This is the operations guide for retained-copy encryption (EPIC N, #967): what it does to
-your bytes, what it leaves readable, who holds the key, and what happens if you lose it.
-The decisions behind it are in [ADR 0027](adr/0027-streaming-aead-format-and-the-upload-seam.md)
-and [ADR 0028](adr/0028-what-encrypted-copies-prove-and-what-they-leave-visible.md). The
+This is the operations guide for retained-copy encryption (EPIC N, #967, and the encryption
+suites of EPIC T, #1310): what it does to your bytes, what it leaves readable, who holds the
+key, and what happens if you lose it. The decisions behind it are in
+[ADR 0027](adr/0027-streaming-aead-format-and-the-upload-seam.md),
+[ADR 0028](adr/0028-what-encrypted-copies-prove-and-what-they-leave-visible.md) and
+[ADR 0033](adr/0033-encryption-suite-agility.md). The
 byte-for-byte recovery steps for a machine with nothing on it are in
 [recovery without a terminal](recovery-without-a-terminal.md#6-an-encrypted-copy-has-to-be-opened-on-a-machine-with-no-state).
 
@@ -14,7 +16,8 @@ section says so instead of describing the plan.
 
 - It is off until you turn it on, and off is byte-for-byte what it was before.
 - When a backup set requires it, the copy sent to a storage medium is written as an
-  [age](https://c2sp.org/age) v1 file. Your local copy stays plaintext.
+  [age](https://c2sp.org/age) v1 file under an **encryption suite**: the suite of your active
+  key unless you pin one, and `age-pq/v1` for a first key. Your local copy stays plaintext.
 - The key is generated and kept by the product ("managed"), and you export a **recovery
   bundle** and keep it somewhere that is not this machine.
 - **If you lose the key, you lose the encrypted copies.** There is no reset, no recovery
@@ -26,11 +29,11 @@ section says so instead of describing the plan.
 
 | Thing | Encrypted? |
 |---|---|
-| A retained copy on a storage medium, for a set whose resolved policy is `required` | Yes. The object is an age v1 file. |
+| A retained copy on a storage medium, for a set whose resolved policy is `required` | Yes. The object is an age v1 file, written under the suite the copy records ([below](#encryption-suites)). |
 | The local copy under the set's `local_path` | No. Local copies are plaintext by design: the point is a readable local copy beside an unreadable off-site one. If a retention tier removes the local copy once the upload is verified (the storage-mediums disclosure), the encrypted copy is then the only one, and the key is all that stands between you and it. |
 | The producer's artifact, at the source | Never touched. Encryption is a copy transform. Nothing rewrites, renames or re-encrypts what a producer wrote. |
 | The object **name** on the medium | **No.** It stays `<prefix>/<source>/<backup set>/<artifact name>`. |
-| The sidecar object beside each copy (`.manifest/<name>.json`) | **No.** It is plain JSON. For an encrypted copy it adds the format, the key id (never a key), the plaintext digest and size, the stored-bytes digest and size, and when the copy last decrypted to the artifact. |
+| The sidecar object beside each copy (`.manifest/<name>.json`) | **No.** It is plain JSON. For an encrypted copy it adds the suite id (`format_id`), the key id (never a key), the plaintext digest and size, the stored-bytes digest and size, and when the copy last decrypted to the artifact. |
 | A copy that was already on a medium in plaintext before you turned this on | **Not until you ask.** Turning the policy on does not touch existing copies, and the retention cycle never does. `retnd encryption encrypt-existing` is the one thing that encrypts them ([below](#encrypting-copies-that-already-exist)). |
 | An incremental (`kopia`) set | Not by this feature. Its repository is already encrypted by its own format under the repository passphrase, and `required` on it layers nothing on top (ADR 0028). The policy answers `satisfied_by: "repository"` for such a set (`GET /encryption/policy`, `retnd encryption policy show`), and key-custody health and the metrics gauge do not count it. |
 
@@ -68,11 +71,13 @@ could not run. It does not fall back to a weaker answer.
 
 ## Smart defaults, and the things you do not choose
 
-The whole operator surface is a **mode** and a **key provider**.
+The whole operator surface is a **mode**, a **key provider** and, deployment-wide only, a
+**suite**.
 
 ```yaml
 retained_copy_encryption:
   mode: required          # off (the default, and what you get if you write nothing) | required
+  suite: default          # default (the active key's suite; age-pq/v1 for a first key) | age/v1 | age-pq/v1
   key_provider:
     managed: true         # or external: { file: ... } / { env: ... } / { command: [...] }
 
@@ -84,11 +89,15 @@ sources:
           mode: inherit   # inherit (default) | off | required; and a key_provider if you want one
 ```
 
-There is no cipher, nonce length, chunk size, KDF cost or algorithm setting at either level,
-and none is planned. The format is fixed by the build (age v1, 64 KiB chunks, ChaCha20-Poly1305,
-an X25519 key) and recorded against each copy, so a later format can be added without a
-setting. The config reader rejects unknown fields, so a per-set rotation cadence or chunk size
-is refused outright rather than ignored.
+The suite is the one cryptographic choice you get, and it is a choice between whole
+constructions the build already ships, never a set of parameters. There is no cipher, nonce
+length, chunk size or KDF cost setting at either level, and no per-set suite: a per-set suite
+would mean a per-set key and a per-set bundle to keep, which is the burden this feature exists
+to avoid. Writing nothing is the same as writing `suite: default`, which means "keep the suite of
+the active key": an upgrade never changes the suite your copies are written under, and a
+deployment with no key yet gets the build's default, `age-pq/v1`, when its first key is made. The config reader rejects
+unknown fields, so a per-set rotation cadence, chunk size or suite is refused outright rather
+than ignored.
 
 `retnd encryption policy` shows what each set resolves to. Everything below is also a button in
 the web UI (Settings, then "Retained-copy encryption", and a card under Retention on each
@@ -105,9 +114,140 @@ the [changelog](../CHANGELOG.md) names. Do not write the key until going back be
 version is off the table, and keep a copy of the previous `config.yaml` if you want a way
 out.
 
+`suite:` is a second door of the same kind. A file that writes it cannot be read by a build
+that predates suites (anything up to and including 0.7.2, and any build of EPIC N alone). If
+you never write the field you get the build's default and no door at all.
+
+## Encryption suites
+
+A suite names a whole construction from an established library: the container, the kind of
+key that opens it, and the payload cipher. Every encrypted copy records the suite it was
+written under (its `format_id`, in the journal and in the sidecar beside it), and that record
+decides how the copy is opened, never the policy of the day. This build ships two, both from
+`filippo.io/age`, both read by the stock `age` tool:
+
+| Suite | Status | What the product says about it (its `Describe()` sentence, word for word) |
+|---|---|---|
+| `age-pq/v1` | supported, **the default for a first key** | "age v1 file, one ML-KEM-768 + X25519 hybrid recipient, ChaCha20-Poly1305 in 64 KiB authenticated chunks. 128-bit security level, post-quantum key establishment. Not AES, not FIPS-validated. Opens with `age -d -i key.txt` (age 1.3 or newer)." |
+| `age/v1` | supported | "age v1 file, one X25519 recipient, ChaCha20-Poly1305 in 64 KiB authenticated chunks. 128-bit security level. Not post-quantum. Opens with `age -d -i key.txt`." |
+
+That sentence is the only thing any surface says about a suite: `retnd encryption suites`,
+`GET /api/v1/encryption/suites`, the Suite choice on the Settings card and this table print the
+same words, and a test holds them to the code. I would rather print less than the code can
+back.
+
+**Why `age-pq/v1` is the default.** The threat an off-site copy actually faces over ten years is
+whoever holds the bucket keeping the ciphertext and waiting. `age-pq/v1` wraps each copy's file
+key under a hybrid of ML-KEM-768 and X25519, so recorded ciphertext stays closed even if one day
+the curve falls to a quantum computer, as long as ML-KEM holds (and the other way round). It adds
+no module to the build, and a clean machine still opens a copy with `age -d`. What it does and
+does not meet, plainly:
+
+| Property | `age-pq/v1` |
+|---|---|
+| Authenticated encryption per 64 KiB chunk, with position and the end of the file bound into every tag | meets it |
+| Key establishment that survives a quantum adversary recording ciphertext today | meets it (hybrid ML-KEM-768 + X25519) |
+| Security level | 128-bit, because age's file key is 16 bytes whatever the payload cipher |
+| AES | does not use it (ChaCha20-Poly1305, which is also the faster choice on NAS processors without AES instructions) |
+| A FIPS 140-3 validated module | does not meet it, and the product makes no FIPS claim for any suite |
+| CNSA 2.0 parameters | does not meet them (they ask for ML-KEM-1024 and AES-256) |
+| Opens on a clean machine with a stock tool | meets it, with `age` 1.3 or newer |
+
+The product does not call any suite "military-grade" or "256-bit", on any surface, because no standard stands behind the first and no age suite can honestly claim the second; it prints the `Describe()` sentence above instead.
+
+### Status: supported, deprecated, retired
+
+A suite carries one of three statuses in the build's own table. None is ever removed while a
+copy records it.
+
+- **supported**: new copies may be written under it, and its copies read, verify, move and
+  recover as usual.
+- **deprecated**: still reads and still writes, and the health report reads degraded, in words
+  like "12 active copies are under age/v1, a deprecated suite; retirement announced for version
+  0.9.0" (or "... and the active key are ..." when your key is under it too), so you know to
+  move off it. The Dashboard line carries a **Re-encrypt under current suite** button. A
+  `suite:` pinned to it loads, and health says so.
+- **retired**: reads only. Decrypt-verify, scrub, moving its ciphertext, `retnd encryption
+  decrypt` and recovery all keep working on its copies, but no new copy is written under it, a
+  `suite:` pinned to it is refused at load, and health stays degraded while any active copy
+  records it. A build that removes a suite is a major version, and only once no copy records it.
+
+Both suites in this build are supported. The statuses are there so that the day one has to go,
+nothing you already stored is orphaned.
+
+### Changing the suite: choose, rotate, export, confirm
+
+A key belongs to one suite, and there is still one active managed key at a time. New copies go
+under the active key only when it belongs to **the policy's suite**, never under whatever key
+happens to be active, and the product never mints a key behind your back. So a change of suite is four steps, and the Settings
+card walks you through them in one "Change the suite" dialog, in this order:
+
+1. **Choose.** `retnd encryption policy patch --suite age-pq/v1` (or pick it in the Suite choice
+   on the card). When no active key belongs to that suite, the answer carries `rotation_needed`
+   and the exact `retnd encryption key rotate --suite age-pq/v1` command, and the terminal says
+   "no active key for suite age-pq/v1 yet, so copies are refused until you run" it. Nothing is
+   written to the key store.
+2. **Rotate.** `retnd encryption key rotate --suite age-pq/v1` mints the new suite's key and
+   supersedes the old suite's active key in the same write, so there is still exactly one key new
+   copies go under.
+3. **Export.** `retnd encryption key export <new-key-id> --out <file>`, somewhere that is not
+   this machine.
+4. **Confirm.** `retnd encryption key confirm <new-key-id>`. Until you do, health carries the "no
+   confirmed recovery bundle" state for the new key.
+
+Between steps 1 and 2 a `required` set's new copies are **refused, not downgraded**: "no active
+key for suite age-pq/v1; run `retnd encryption key rotate --suite age-pq/v1`". The refusal comes
+before anything destructive, so the local copy stays and the source is not deleted. If you leave
+the dialog half way, the card and the Dashboard keep saying what is still owed.
+
+A new build that moves the default does **not** do this to you. With `suite: default` your copies
+keep following the active key's suite; the first cycle under the new build says once, in an
+`EncryptionDefaultSuiteChanged` event naming both suites, that the default moved, and nothing
+else happens until you choose to change.
+
+Copies already written stay under the suite and key they record, and keep opening through them.
+Moving them to the new suite is `reencrypt`, below, and is optional while their suite is
+supported.
+
+### Re-encrypting copies under the active suite
+
+`retnd encryption reencrypt` takes the encrypted copies you select, across every backup set,
+and writes them again under the active suite and key. It is the same journaled move
+`encrypt-existing` uses, with an encrypted source. You select by suite (`--suite ID`), by key
+(`--key ID`) or everything under a deprecated or retired suite (`--deprecated`), and it takes no
+other operand:
+
+```
+retnd encryption reencrypt --suite age/v1 --dry-run
+retnd encryption reencrypt --suite age/v1 --to offsite
+```
+
+The same thing is `GET /api/v1/encryption/reencrypt` (the dry run) and `POST` (the run), and in the
+browser the **Re-encrypt under current suite** button on a deprecated or retired suite's Dashboard
+line, which shows the dry run before anything moves.
+
+- The old copy is streamed off its medium through its own suite's reader straight into the new
+  suite's writer. Plaintext is never written to local disk.
+- The new copy is uploaded to **another medium** and decrypted back in full against the
+  artifact's plaintext digest before it is recorded. Only then is the old copy marked for
+  retirement and deleted. A crash at any point resumes from the journal.
+- Same-medium rewrite is not offered, for the reason `encrypt-existing` gives: one copy per
+  backup per medium, and an object key fixed by the backup.
+- `--dry-run` lists the selected copies grouped by suite and by key, each with the medium a run
+  would use (`--to`, or the first other configured medium when you leave it out) or the refusal
+  and its reason. It plans, reads and writes nothing. A run needs `--to`, so a medium is never
+  chosen for you.
+- Beside a serving engine the run is that engine's operation, and `retnd assurance cancel` and
+  the browser's Cancel stop it alike.
+- When the plaintext local copy still exists, you usually need no verb at all: the next ordinary
+  move writes a fresh copy under the active suite. `reencrypt` is for copies whose local copy is
+  gone.
+
 ## Managed keys and external keys
 
-**Managed.** The product generates an age X25519 identity from the system random source and
+**Managed.** The product generates an identity of the key's suite from the system random
+source (an age X25519 identity for `age/v1`, an age ML-KEM-768 + X25519 hybrid identity for
+`age-pq/v1`) and
 writes it as a `0600` file in a `0700` directory called `retained_copy_keys`, beside
 `config.yaml`. It applies the same custody rule it applies to any secret file you point it at:
 owner-only mode, no symlinked final component, no group- or world-writable ancestor. Every key
@@ -164,7 +304,8 @@ retnd encryption key confirm <key-id>
 
 (The web UI does the same under Settings, with a Download bundle button and then a confirmation.) The export file
 holds the key, so it is created `0600` and never over a file that exists, and it is never
-printed. The bundle is a small JSON file: a version, the key id, the format, the public
+printed. The bundle is a small JSON file: a version, the key id, the suite (its `format`
+field, which is the first thing to check on a clean machine), the public
 recipient, the created and exported times, the key itself in a field called `material`, an
 integrity digest, and plain instructions. What the command prints is a receipt, the key id,
 the digest and the time, and no key.
@@ -255,11 +396,12 @@ Things worth knowing before you run it:
 ## Rotation affects new copies only
 
 `retnd encryption key rotate` creates a new active key and marks the previous one
-`superseded`.
+`superseded`. With `--suite` it rotates to another suite ([above](#changing-the-suite-choose-rotate-export-confirm)).
 
 - New copies are written under the new key.
 - Every copy already stored stays readable through the key id recorded against it.
-- **Nothing is re-encrypted.** Re-encrypting history is not a feature of this build.
+- **Nothing is re-encrypted by a rotation.** Moving old copies under the new key is
+  [`reencrypt`](#re-encrypting-copies-under-the-active-suite), and only when you run it.
 - `key retire <id>` is refused for the active key and, naming the copies, while any active
   copy still records the key. A key you retire is one you no longer need for any live copy.
 
@@ -279,7 +421,7 @@ Check you hold a bundle for every key that guards a copy, and use **Verify recov
 ## Opening a copy
 
 **With a working catalog.** `retnd encryption copies <source/set/backup>` lists which copies
-of a backup are encrypted, under which key and format, and whether that key resolves here.
+of a backup are encrypted, under which key and suite, and whether that key resolves here.
 `retnd encryption verify <source/set/backup>` decrypts a copy and compares the plaintext
 digest to the recorded one; this is the check behind "Verified recoverable".
 
@@ -315,10 +457,14 @@ place for it.
 
 **The independent route.** The copy is an age file and the bundle holds an age identity, so the
 stock `age` command line tool works on any machine, with no `retnd` at all. I kept it as the
-fallback on purpose, so recovery does not depend on this binary alone:
+fallback on purpose, so recovery does not depend on this binary alone. Both suites open with
+the same command; an `age-pq/v1` copy needs **age 1.3 or newer** (older releases do not know its
+recipient type and say they found no identity that matches), an `age/v1` copy opens with any
+release:
 
-1. Open the bundle JSON and copy the value of its `material` field (one line starting
-   `AGE-SECRET-KEY-1`) into a new file `identity.txt` that only you can read.
+1. Open the bundle JSON, check its `format` field (`age/v1` or `age-pq/v1`), and copy the value
+   of its `material` field (one line starting `AGE-SECRET-KEY-1` for `age/v1`, or
+   `AGE-SECRET-KEY-PQ-1` for `age-pq/v1`) into a new file `identity.txt` that only you can read.
 2. `age -d -i identity.txt <object> > <artifact-name>.tmp`
 3. Compare the file's digest with the `plaintext_digest` in the sidecar beside the object
    (the sidecar names the algorithm). Rename the file only when they match.
@@ -343,8 +489,11 @@ key it was written under, so a move also needs the key.
 
 ## What it costs
 
-- **Space:** the age header (a couple of hundred bytes) plus 16 bytes per 64 KiB, about 0.024
-  percent on the medium.
+- **Space:** the age header plus 16 bytes per 64 KiB (about 0.024 percent). The header is a
+  couple of hundred bytes under `age/v1` and about 1.4 KB under `age-pq/v1`, whose recipient
+  stanza carries an ML-KEM ciphertext. An `age-pq/v1` public recipient (`age1pq1...`) is about
+  2000 characters long, against 62 for `age/v1`; the bundle and the key list carry it, and the
+  screens shorten it.
 - **Local free space:** the copy is encrypted into a staging file under the set's `local_path`
   (the `.moves` directory) and the staged file is what is uploaded, so you need room for a
   ciphertext-sized file there while a copy is in flight. The staging file is removed whether
@@ -373,8 +522,10 @@ ever carries a key or a key id. A plaintext copy never reports either stage.
   reports `bytes_read` in its result. The Decrypt-verifying stage above is the check a copy
   goes through when it is made.
 - No KMS or Vault provider (an external `command` can reach either).
-- No re-encryption of old copies after a rotation. Copies that already exist in plaintext can be
-  encrypted, only when you run `encrypt-existing`, and only onto another medium.
+- No re-encryption onto the same medium. `reencrypt` and `encrypt-existing` both write the new
+  copy to another medium, and only when you run them.
+- No per-set suite, no `auto` suite and no automatic rotation when the default moves.
+- No FIPS build mode, and no claim of FIPS validation for any suite.
 - `retnd encryption decrypt` opens one copy at a time. There is no bulk "decrypt everything" verb,
   and no API route for it or for key import.
 - `ENCRYPTION_KEY_UNRESOLVABLE` fires when a `required` set's copies are being refused for want
@@ -382,3 +533,42 @@ ever carries a key or a key id. A plaintext copy never reports either stage.
   providers can write copies, an external reference), once, and clears when the key resolves
   again. It reaches the notifier only if alerts are enabled in `config.yaml`. Key custody health
   on the Dashboard still does not show resolvability; the key list does.
+
+## Where encryption enters, and how to have it earlier
+
+If your archives are sensitive enough that you care which disk ever holds them in the clear,
+this is the part to read before you pick a setup.
+
+**What happens to a new file today.** Each poll lists the remote directory. A file that is
+complete is pulled whole, over SFTP, into a `.partial` file under the set's `local_path`. That
+file is read back from disk and hashed, compared with the remote's own `sha256sum` when you
+asked for that, and handed to your validator if you named one. Then it is committed as the
+**local copy**, in plaintext. In the same cycle, once every set has had its pass, the move engine
+encrypts the local copy under the policy's suite into the `.moves` staging file, uploads it,
+decrypts it back to check it, and only then records the encrypted copy. So the first ciphertext
+exists in the cycle the file arrived in, and only for a set whose copies go to a storage medium.
+
+**Why the local copy is plaintext.** Because that is the product's promise: a readable local copy
+beside an unreadable off-site one. Everything that checks the local copy (the read-back, your
+validator, the scrub, the check before a source is deleted, recovery tests and downloads) reads
+it as plaintext, and the source is deleted on the strength of that local copy alone, without
+needing a key. Encrypting earlier in the same pass would save one read of the local disk and
+change nothing about who can read it, so this build does not.
+
+**If plaintext on this machine's disk is not acceptable,** there are two ways to have encryption
+earlier, and only one exists today:
+
+1. **Encrypt before retnd sees it (available now).** Have the producer encrypt its own output,
+   with `age` or anything else, before it lands in the directory retnd watches. retnd stores the
+   bytes it is given and never needs the key: the local copy, the off-site copies and every check
+   are of ciphertext, and nothing on this machine can open them. This is the model
+   [ADR 0003](adr/0003-pull-encrypted-runs-to-the-nas.md) started from. The cost is the
+   producer's: its disk, its CPU, and the key custody, which is yours to arrange, because retnd
+   has no key to export for you. Pick this when the archives are credentials or anything else
+   whose plaintext must never sit on the backup host.
+2. **A ciphertext-only local copy (not built, a possible later epic).** retnd would encrypt as it
+   pulls and keep only ciphertext locally. It would protect against someone who reads the disk
+   or the share, not against whoever owns the host (the key still lives there for the checks),
+   and it would make the key necessary to delete a source, so losing the key would lose the only
+   copy, not just the off-site one. It is a change to what the product promises, and it is not in
+   this build.

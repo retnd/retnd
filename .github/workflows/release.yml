@@ -292,6 +292,36 @@ jobs:
       - name: Refuse a release while EPIC N is open
         run: bash scripts/release/check-epic-n-closed.sh
 
+  # EPIC T (#1310, suite agility) closes the same way (#1320): the canonical
+  # deployment is an empty diff against 477aec5a, the epic added exactly its two
+  # migrations (0020, 0021) and no row of docs/conformance/epic-t-matrix.md is
+  # BLOCKED. Its captures are entries in the manifest the EPIC N job already
+  # holds to docs/site/screens/. scripts/tests/epic-t-closure.test.sh runs the
+  # script in throwaway repositories, once per way it can refuse.
+  require-epic-t-closed:
+    name: EPIC T is closed (matrix, canonical deployment, two migrations)
+    needs: decide
+    if: needs.decide.outputs.repoint != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # The check diffs against the commit the epic started from.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.0"
+          cache: true
+          cache-dependency-path: core/go.sum
+
+      - name: Refuse a release while EPIC T is open
+        run: bash scripts/release/check-epic-t-closed.sh
+
   compliance-artifacts:
     name: compliance artifacts are what this tree generates
     needs: decide
@@ -355,7 +385,7 @@ jobs:
 
   publish:
     name: build, push, sign and attest
-    needs: [decide, require-release-gate, require-epic-n-closed, compliance-artifacts]
+    needs: [decide, require-release-gate, require-epic-n-closed, require-epic-t-closed, compliance-artifacts]
     runs-on: ubuntu-latest
     permissions:
       contents: read

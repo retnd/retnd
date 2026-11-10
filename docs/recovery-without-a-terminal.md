@@ -426,6 +426,14 @@ key was created. Which key a copy needs is written in the copy's sidecar (`key_i
 the bundle's own metadata. Losing the bundle and the host together loses the copies, and
 nothing can recreate the key.
 
+Each copy was also written under a **suite**, and the procedure is the same for both suites
+this build ships. The only difference is the oldest `age` that can open it:
+
+| Suite (the bundle's `format`, the sidecar's `format_id`) | Key line in the bundle's `material` | Oldest `age` that opens it |
+|---|---|---|
+| `age-pq/v1` (the default for a first key) | starts `AGE-SECRET-KEY-PQ-1` | 1.3 |
+| `age/v1` | starts `AGE-SECRET-KEY-1` | any release |
+
 ### What to do
 
 This is the one procedure here that needs a terminal, on the machine you recover on, because
@@ -433,13 +441,16 @@ the deployment that would have offered a button is the thing that is gone. You n
 `retnd` binary, the encrypted object, its sidecar and the bundle. You do not need the
 deployment, its configuration or its state database.
 
-1. Find the bundle for the key id the sidecar names. Its `digest` field should be the
-   digest you were shown when you exported it (the export receipt prints the same value).
-   That compares the file with what you saved; `retnd` also refuses a bundle whose digest
-   does not cover its contents, so an edited file stops here.
+1. Find the bundle for the key id the sidecar names, and check its `format` field first: it
+   has to be the suite the sidecar's `format_id` names (`age/v1` or `age-pq/v1`). A bundle of
+   another suite is another key, and no tool will open the copy with it. Its `digest` field
+   should be the digest you were shown when you exported it (the export receipt prints the
+   same value). That compares the file with what you saved; `retnd` also refuses a bundle whose
+   digest does not cover its contents, so an edited file stops here.
 2. Open the copy:
    `retnd encryption decrypt <object> --bundle <bundle.json> --sidecar <sidecar.json> --out <artifact-name>`
-   It hashes the object first and compares that with the stored-bytes digest the sidecar
+   It takes the suite from the sidecar and refuses to guess when there is none. It hashes
+   the object first and compares that with the stored-bytes digest the sidecar
    records, so a cut-short or altered copy is refused before the key is touched. It then
    decrypts, and it creates `<artifact-name>` only after every chunk authenticated and the
    plaintext digest equals the sidecar's `plaintext_digest`. A failure leaves no file at all,
@@ -456,9 +467,11 @@ deployment, its configuration or its state database.
    so it is refused while an engine is serving it.
 
 **The independent route.** If you would rather not trust this binary with the key, or you do
-not have it, the copy is an `age` v1 file and the `age` command line tool from any package
-manager reads it. Copy the bundle's `material` field (one line that starts `AGE-SECRET-KEY-1`)
-into `key.txt`, readable only by you, then:
+not have it, the copy is an `age` v1 file and the `age` command line tool reads it: any
+release for an `age/v1` copy, **1.3 or newer** for an `age-pq/v1` copy (check `age --version`;
+an older one says no identity matched, which is not a wrong key). Copy the bundle's `material`
+field (one line that starts `AGE-SECRET-KEY-1` or `AGE-SECRET-KEY-PQ-1`) into `key.txt`,
+readable only by you, then, for either suite:
 `age -d -i key.txt <object> > <artifact-name>.tmp`
 This checks neither digest for you, so compare the result with the sidecar's
 `plaintext_digest` and rename it only when they match. `age` releases each authenticated chunk

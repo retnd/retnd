@@ -223,8 +223,10 @@ type ManifestPlacement struct {
 // digest is the artifact's (what a restore must reproduce), the stored digest
 // is that of the bytes at the object key, header and ciphertext.
 type ManifestEncryption struct {
-	// FormatID and FormatVersion are the per-copy format identifiers (ADR
-	// 0027, "age/v1" and 1).
+	// FormatID is the suite the copy was written under, a copycrypt registry
+	// id ("age/v1" or "age-pq/v1" in this build, ADR 0027 and ADR 0033), and
+	// FormatVersion is the container version, 1 for every suite so far. A
+	// reader opens the copy with the suite named here, never the policy's.
 	FormatID      string `json:"format_id"`
 	FormatVersion int    `json:"format_version"`
 
