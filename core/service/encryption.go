@@ -178,10 +178,12 @@ func (b *BackupService) EncryptionPolicy(ctx context.Context) (apicontract.Encry
 }
 
 // policyAnswer is encryptionPolicyOf with the suite new copies go under
-// right now, which needs the key registry (ADR 0033 D4): the pinned suite,
-// or for the default policy the active managed key's suite, or the build's
-// default when there is no active key. It reads the registry only; no key
-// directory is opened.
+// right now (ADR 0033 D4): the pinned suite; or for the default policy, the
+// suite of the deployment's external key when its provider is external, or
+// the active managed key's suite, or the build's default when there is no
+// active key. A managed provider reads the registry only; an external one
+// resolves its reference (writing nothing) because nothing else says which
+// suite that key is.
 func (b *BackupService) policyAnswer(ctx context.Context, cfg *config.Config) apicontract.EncryptionPolicy {
 	out := encryptionPolicyOf(cfg)
 	out.Suite = b.effectiveSuite(ctx, cfg.RetainedCopyEncryption)
@@ -189,14 +191,35 @@ func (b *BackupService) policyAnswer(ctx context.Context, cfg *config.Config) ap
 }
 
 // effectiveSuite is the suite a copy under policy is written in.
+//
+// For an external provider whose reference does not resolve the answer is
+// empty: the engine refuses every copy until it does, and naming a suite
+// here would be a claim nothing stands behind.
 func (b *BackupService) effectiveSuite(ctx context.Context, policy config.RetainedCopyEncryption) string {
 	if id, pinned := policy.PinnedSuite(); pinned {
 		return id
+	}
+	if policy.KeyProvider.External != nil {
+		suite, _ := b.externalKeySuite(ctx, policy.KeyProvider.ExternalRef())
+		return suite
 	}
 	if suite, ok := b.activeKeySuite(ctx); ok {
 		return suite
 	}
 	return copycrypt.Default().ID()
+}
+
+// externalKeySuite is the suite of the key ref yields, resolved and
+// registered nowhere, and false when it does not resolve.
+func (b *BackupService) externalKeySuite(ctx context.Context, ref secretref.Ref) (string, bool) {
+	if b.keys == nil {
+		return "", false
+	}
+	suite, err := b.keys.ExternalKeySuite(ctx, ref)
+	if err != nil {
+		return "", false
+	}
+	return suite, true
 }
 
 // activeKeySuite is the active managed key's suite, and false when there is
@@ -281,11 +304,18 @@ func (b *BackupService) PatchEncryptionPolicy(ctx context.Context, req apicontra
 	}
 	out := b.policyAnswer(ctx, cfg)
 	// A pinned suite with no active key of it: copies are refused until the
-	// operator rotates into it. The patch says so and rotates nothing, so a
-	// suite change is never a key minted behind the operator's back
-	// (ADR 0033 D4, #1315).
+	// operator gets one. The patch says so and changes no key, so a suite
+	// change is never a key minted behind the operator's back (ADR 0033 D4,
+	// #1315). For a managed provider the remedy is a rotation into the suite,
+	// and the answer carries the exact command. For an external provider no
+	// rotation here can help: the operator points the reference at a key of
+	// the suite, so rotation_needed is said and rotate_command stays empty.
 	if id, pinned := cfg.RetainedCopyEncryption.PinnedSuite(); pinned {
-		if have, ok := b.activeKeySuite(ctx); !ok || have != id {
+		if kp := cfg.RetainedCopyEncryption.KeyProvider; kp.External != nil {
+			if have, ok := b.externalKeySuite(ctx, kp.ExternalRef()); !ok || have != id {
+				out.RotationNeeded = true
+			}
+		} else if have, ok := b.activeKeySuite(ctx); !ok || have != id {
 			out.RotationNeeded = true
 			out.RotateCommand = cliecho.Binary + " encryption key rotate --suite " + id
 		}

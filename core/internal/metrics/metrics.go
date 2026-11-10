@@ -48,6 +48,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/retnd/retnd/core/internal/copycrypt"
 	"github.com/retnd/retnd/core/internal/health"
 	"github.com/retnd/retnd/core/internal/lifecycle"
 )
@@ -650,4 +651,31 @@ func writeKeyCustody(b *strings.Builder, h health.KeyCustodyHealth) {
 	one("retained_copy_encryption_degraded", "1 when encryption is required somewhere and either no key can encrypt yet or a key that guards copies has no confirmed recovery bundle, 0 otherwise. Which key is on the status surface, never a label here.", gaugeBool(h.Degraded()))
 	one("retained_copy_key_bundle_confirmed", "1 when a person confirmed holding a recovery bundle for the active managed key, 0 when not or when there is no active key.", gaugeBool(h.BundleConfirmed))
 	one("retained_copy_keys_unconfirmed", "How many managed keys that are not retired have no confirmed recovery bundle, the active one included.", float64(len(h.UnconfirmedKeyIDs)))
+	writeEncryptedCopiesBySuite(b, h.EncryptedCopiesBySuite)
+}
+
+// writeEncryptedCopiesBySuite renders retained_copy_encrypted_copies with one
+// label, suite (EPIC T, #1315). Its values are the build's own suite ids, one
+// series per registered suite (zero when no copy records it), and "unknown"
+// for every recorded id the build has no suite for, so the series count is
+// bounded by the registry and never by what a journal holds. A key id is
+// never a label (TestNoKeyIdIsALabel's rule).
+func writeEncryptedCopiesBySuite(b *strings.Builder, bySuite map[string]int) {
+	name := namePrefix + "retained_copy_encrypted_copies"
+	writeHelp(b, name, "How many ACTIVE encrypted retained copies record each encryption suite. The label is a suite id from this build's registry, or unknown for an id it has no suite for.")
+	writeType(b, name, "gauge")
+	known := map[string]bool{}
+	for _, s := range copycrypt.Suites() {
+		known[s.ID()] = true
+		writeSample(b, name, []label{{"suite", s.ID()}}, float64(bySuite[s.ID()]))
+	}
+	unknown := 0
+	for id, n := range bySuite {
+		if !known[id] {
+			unknown += n
+		}
+	}
+	if unknown > 0 {
+		writeSample(b, name, []label{{"suite", "unknown"}}, float64(unknown))
+	}
 }
