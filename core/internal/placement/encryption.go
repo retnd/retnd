@@ -258,7 +258,8 @@ func resultOf(err error) obs.Result {
 // re-home of an encrypted copy. Only the content class can say an encrypted
 // copy is the artifact, so any other class is refused (no retry can change
 // that), and the archive gate in front of a read is asked exactly as it is
-// for a plaintext copy.
+// for a plaintext copy. observed is the observation verifyCopy took (the one
+// place allowed to), so this file never calls observe itself.
 //
 // keyID is the key the copy must open under: empty for a fresh copy, which
 // opens under the key it was just written with (the active one), and the
