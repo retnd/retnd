@@ -10,11 +10,11 @@ import { anyEncrypted, copyEncryptionView, encryptionConditions, mayVerify } fro
 
 const encrypted = (over: Partial<CopyEncryption> = {}): CopyEncryption => ({
   medium: "offsite", encrypted: true, format: "age", formatVersion: 1, keyId: "k1", keyResolvable: true,
-  storedDigestAlgorithm: "sha256", storedSize: 10, ...over
+  storedDigestAlgorithm: "sha256", storedSize: 10, storedDigest: null, plaintextDigest: null, ...over
 });
 const plain: CopyEncryption = {
   medium: "local", encrypted: false, format: null, formatVersion: null, keyId: null, keyResolvable: null,
-  storedDigestAlgorithm: null, storedSize: null
+  storedDigestAlgorithm: null, storedSize: null, storedDigest: null, plaintextDigest: null
 };
 
 describe("a copy with ciphertext and no completed decrypt-verify is encrypted and not verified recoverable", () => {

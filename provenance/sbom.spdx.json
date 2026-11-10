@@ -13,6 +13,52 @@
   },
   "packages": [
     {
+      "SPDXID": "SPDXRef-Package-go-filippo.io-age-v1.3.2",
+      "name": "filippo.io/age",
+      "versionInfo": "v1.3.2",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "supplier": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/filippo.io/age@v1.3.2"
+        }
+      ],
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "c5d65279d02955c0fc2294ae417c3add650d228f4f5c82bd6d531fc26c89cd96"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-go-filippo.io-hpke-v0.4.0",
+      "name": "filippo.io/hpke",
+      "versionInfo": "v0.4.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "supplier": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/filippo.io/hpke@v0.4.0"
+        }
+      ],
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+        }
+      ]
+    },
+    {
       "SPDXID": "SPDXRef-Package-go-github.com-Azure-azure-sdk-for-go-sdk-azcore-v1.23.1",
       "name": "github.com/Azure/azure-sdk-for-go/sdk/azcore",
       "versionInfo": "v1.23.1",
@@ -3019,6 +3065,16 @@
     }
   ],
   "relationships": [
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-go-filippo.io-age-v1.3.2"
+    },
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-go-filippo.io-hpke-v0.4.0"
+    },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
