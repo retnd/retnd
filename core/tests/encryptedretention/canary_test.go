@@ -43,7 +43,7 @@ import (
 // ageIdentityShape is what an age identity looks like on a page. The bare
 // prefix is not enough: the refusal for a secret that is not an identity
 // quotes "AGE-SECRET-KEY-1" as what it expected, and that sentence is allowed.
-var ageIdentityShape = regexp.MustCompile(`AGE-SECRET-KEY-1[A-Z0-9]{20,}`)
+var ageIdentityShape = regexp.MustCompile(`AGE-SECRET-KEY-(PQ-)?1[A-Z0-9]{20,}`)
 
 // renderings is every way material could plausibly reach a text surface.
 func renderings(m string) []string {
@@ -346,8 +346,19 @@ var surfaces = []surface{
 			if err != nil || !ok {
 				w.t.Fatalf("no active key (ok=%v err=%v)", ok, err)
 			}
+			// The copy is sealed under the active key's own suite: since #1313
+			// a first key is age-pq/v1, so assuming age/v1 here would fail
+			// before the sidecar this surface is about was ever written.
+			suiteID := rec.SuiteID
+			if suiteID == "" {
+				suiteID = copycrypt.AgeX25519ID
+			}
+			suite, ok := copycrypt.Lookup(suiteID)
+			if !ok {
+				w.t.Fatalf("the active key names suite %q, which the registry does not have", suiteID)
+			}
 			plain := fixture(31)
-			s, err := copycrypt.EncryptToStaging(w.ctx, filepath.Join(w.t.TempDir(), "staging"), "backup-2026-11-01.dump", bytes.NewReader(plain), copycrypt.AgeX25519{}, rec.Recipient, sum(plain))
+			s, err := copycrypt.EncryptToStaging(w.ctx, filepath.Join(w.t.TempDir(), "staging"), "backup-2026-11-01.dump", bytes.NewReader(plain), suite, rec.Recipient, sum(plain))
 			if err != nil {
 				w.t.Fatalf("EncryptToStaging: %v", err)
 			}
@@ -360,7 +371,7 @@ var surfaces = []surface{
 					Medium: "offsite_s3", Location: "retnd/production/postgres-primary/backup-2026-11-01.dump",
 					Checksum: s.PlaintextHash, ChecksumAlgorithm: "sha256", VerificationClass: "content", Status: "ACTIVE",
 					Encryption: &recovery.ManifestEncryption{
-						FormatID: copycrypt.FormatID, FormatVersion: copycrypt.FormatVersion, KeyID: rec.ID,
+						FormatID: s.SuiteID, FormatVersion: s.Version, KeyID: rec.ID,
 						PlaintextDigest: s.PlaintextHash, PlaintextDigestAlgorithm: "sha256", PlaintextSize: s.PlaintextSize,
 						StoredDigest: s.StoredHash, StoredDigestAlgorithm: "sha256", StoredSize: s.StoredSize,
 					},
