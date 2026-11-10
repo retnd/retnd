@@ -136,6 +136,10 @@ type world struct {
 	hash     string
 	key      string
 
+	// keyDir, when set, is a managed key directory the harness is told to
+	// encrypt under (-encrypt-dir). Empty for every plaintext cell.
+	keyDir string
+
 	// store is the restarting process's own medium store, kept so a cell
 	// can ask it what it actually read.
 	store *guardedStore
@@ -270,6 +274,9 @@ func (w *world) crashTo(destination string, extra ...string) harnessResult {
 		"-artifact", crashArtifact, "-destination", destination,
 		"-second-medium", crashSecondMedium, "-second-bucket", w.secondBucket,
 	}, extra...)
+	if w.keyDir != "" {
+		args = append(args, "-encrypt-dir", w.keyDir)
+	}
 
 	return w.runHarness(args)
 }

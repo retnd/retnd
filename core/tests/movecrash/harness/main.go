@@ -45,6 +45,7 @@ import (
 
 	"github.com/retnd/retnd/core/internal/artifactstore"
 	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/keycustody"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/placement"
 	"github.com/retnd/retnd/core/internal/state"
@@ -115,6 +116,9 @@ func run() error {
 		killDuringStage      = flag.Bool("kill-during-stage", false, "die part-way through reading a medium object back onto local disk")
 		killAfterStage       = flag.Bool("kill-after-stage", false, "die the instant a local file is written, before anything is done with it")
 		corruptAfterCopy     = flag.Bool("corrupt-after-copy", false, "overwrite the object the copy just wrote, the way a hostile or broken endpoint would")
+		encryptDir           = flag.String("encrypt-dir", "", "a managed key directory; when set the backup set requires retained-copy encryption under its active key")
+		killDuringEncrypt    = flag.Bool("kill-during-encrypt", false, "die part-way through reading the local artifact into the encrypting pass")
+		killBeforeUpload     = flag.Bool("kill-before-upload", false, "die the instant before a local file is handed to the medium upload, after anything was written for it")
 		suppressKillRequests = flag.Bool("suppress-kill", false, "turn every self-kill into a no-op, to prove the suite's own kill assertion is not vacuous")
 	)
 	flag.Parse()
@@ -159,21 +163,43 @@ func run() error {
 
 	g := &invariantGuard{journal: journal, artifact: id}
 
+	bs := config.BackupSet{Name: *set, ID: setID, LocalPath: *root}
+	var keys *keycustody.Store
+	if *encryptDir != "" {
+		reg, err := keycustody.OpenFileRegistry(filepath.Join(*encryptDir, "registry.json"))
+		if err != nil {
+			return fmt.Errorf("opening the key registry: %w", err)
+		}
+		keys, err = keycustody.Open(*encryptDir, reg, keycustody.AgeFormat{})
+		if err != nil {
+			return fmt.Errorf("opening the key store: %w", err)
+		}
+		bs.RetainedCopyEncryption = config.RetainedCopyEncryption{
+			Mode:        config.RetainedCopyEncryptionRequired,
+			KeyProvider: config.RetainedCopyKeyProvider{Managed: true},
+		}
+	}
+
 	engine := &placement.Engine{
 		Journal: &killerJournal{Journal: journal, killAfter: *killAfterPhase, killAfterPlan: *killAfterPlan, guard: g},
 		Store: &killerStore{
 			MediumStore: adapter, guard: g,
 			killAfterCopy: *killAfterCopy, corruptAfterCopy: *corruptAfterCopy,
 			killAfterDelete: *killAfterObjectWipe, killDuringRead: *killDuringStage,
+			killBeforeUpload: *killBeforeUpload,
 		},
 		Local: &killerLocal{
 			Local: local, guard: g,
 			killAfterRemove: *killAfterSourceWipe, killAfterPut: *killAfterStage,
+			killDuringOpen: *killDuringEncrypt,
 		},
 		Mediums:          resolver{mediums: mediums},
-		Sets:             sets{set: config.BackupSet{Name: *set, ID: setID, LocalPath: *root}},
+		Sets:             sets{set: bs},
 		Tiers:            noTierWantsIt{},
 		MaxMovesPerCycle: 4,
+	}
+	if keys != nil {
+		engine.Keys = keys
 	}
 
 	var plans []placement.Plan
@@ -309,6 +335,7 @@ type killerStore struct {
 	corruptAfterCopy bool
 	killAfterDelete  bool
 	killDuringRead   bool
+	killBeforeUpload bool
 }
 
 // OpenObject can hand back a reader that dies part-way through, which is
@@ -365,6 +392,9 @@ func (r *dyingReader) Read(p []byte) (int, error) {
 }
 
 func (s *killerStore) UploadFromLocal(ctx context.Context, medium transport.Medium, localPath, key string, opts transport.UploadOptions) (transport.UploadResult, error) {
+	if s.killBeforeUpload {
+		selfDestruct("the local file " + localPath + " is complete and was about to be uploaded to " + key)
+	}
 	res, err := s.MediumStore.UploadFromLocal(ctx, medium, localPath, key, opts)
 	if err != nil {
 		return res, err
@@ -439,6 +469,20 @@ type killerLocal struct {
 	guard           *invariantGuard
 	killAfterRemove bool
 	killAfterPut    bool
+	killDuringOpen  bool
+}
+
+// Open can hand back a reader that dies part-way through, which is how a
+// cell lands a kill in the middle of the encrypting pass: the artifact is
+// read from the local store and nothing else opens it first. Like
+// -kill-during-stage it kills inside the read, so the temporary file the
+// pass writes through exists and is not yet at any name anything looks for.
+func (l *killerLocal) Open(ctx context.Context, locator string) (io.ReadCloser, error) {
+	rc, err := l.Local.Open(ctx, locator)
+	if err != nil || !l.killDuringOpen {
+		return rc, err
+	}
+	return &dyingReader{ReadCloser: rc, what: locator}, nil
 }
 
 // Put can die the instant a local file is written and linked into place,

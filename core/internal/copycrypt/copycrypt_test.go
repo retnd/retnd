@@ -47,13 +47,13 @@ func fixture(seed uint64, n int) []byte {
 	return b
 }
 
-func newKey(t *testing.T) (identity, recipient string) {
+func newKey(t *testing.T) (identity []byte, recipient string) {
 	t.Helper()
 	id, err := age.GenerateX25519Identity()
 	if err != nil {
 		t.Fatalf("GenerateX25519Identity: %v", err)
 	}
-	return id.String(), id.Recipient().String()
+	return []byte(id.String()), id.Recipient().String()
 }
 
 func staged(t *testing.T, plain []byte, recipient string) (dir string, s copycrypt.Staged) {
@@ -187,7 +187,7 @@ func TestEveryNegativeFailsClosedAndWritesNoPartialPlaintext(t *testing.T) {
 	cases := []struct {
 		name     string
 		ct       []byte
-		identity string
+		identity []byte
 		want     error
 	}{
 		{"single bit flip in the second chunk", mutate(func(b []byte) []byte { b[payload+chunkSealed+1000] ^= 0x01; return b }), identity, copycrypt.ErrCorrupt},
@@ -288,7 +288,7 @@ func TestAnUnresolvableKeyIsKeyUnavailableNotACorruptionOrAWrongKey(t *testing.T
 	ct := read(t, s.Path)
 
 	for _, bad := range []string{"", "   ", "not a key", "AGE-SECRET-KEY-1QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"} {
-		_, err := copycrypt.DecryptVerify(context.Background(), bytes.NewReader(ct), bad, sum(plain))
+		_, err := copycrypt.DecryptVerify(context.Background(), bytes.NewReader(ct), []byte(bad), sum(plain))
 		if !errors.Is(err, copycrypt.ErrKeyUnavailable) {
 			t.Fatalf("identity %q: err = %v, want ErrKeyUnavailable", bad, err)
 		}
