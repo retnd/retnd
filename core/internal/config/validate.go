@@ -182,6 +182,7 @@ func (c *Config) Validate() error {
 	// than the defaulted one. It gets its own pass here.
 	c.resolveBackupSetRetentions(v)
 	c.resolveAssurance(v)
+	c.resolveRetainedCopyEncryption(v)
 
 	// Phase 2 as well, and for a related reason: resolving a tier's medium
 	// needs BOTH halves finished, the declared list and every chain that

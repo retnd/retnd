@@ -119,7 +119,15 @@ type Placement struct {
 	// zero bytes, so a zero must not double as "not reported".
 	Size *int64
 
-	// Hash and HashAlg are the content hash recorded for THIS copy.
+	// Hash and HashAlg are the ARTIFACT'S content digest, carried onto
+	// this copy. 0007 described them as the hash recorded for this copy,
+	// and nothing has ever filled them that way: destinationPlacement and
+	// measureCommitted both copy the artifact's own digest here. For a
+	// plaintext copy that is the same number. For an encrypted copy it is
+	// not, and the digest of the bytes at the key lives in the per-copy
+	// encryption record (migration 0015, PlacementEncryption.StoredHash),
+	// never here. 0007's sentence stays as written because a shipped
+	// migration is frozen; 0015's header carries the correction.
 	Hash    string
 	HashAlg string
 

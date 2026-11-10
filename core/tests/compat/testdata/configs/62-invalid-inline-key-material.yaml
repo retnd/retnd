@@ -1,0 +1,28 @@
+# FR-64's inline-key refusal, which is a Load-time unknown-field error
+# rather than a validation error, because the schema has no field for key
+# material at all: a key_provider is managed: true or an external
+# file/env/command reference, and nothing an operator could paste a key
+# into. The same door 53-invalid-inline-medium-secret proves for a medium
+# credential. The value below is a placeholder, not a key.
+poll_interval: 15m
+
+state:
+  database: /var/lib/retnd/state.db
+
+retained_copy_encryption:
+  mode: required
+  key_provider:
+    identity: NOT-A-KEY-THIS-IS-A-FIXTURE-PLACEHOLDER
+
+sources:
+  - id: production
+    backup_sets:
+      - id: postgres-primary
+        remote:
+          type: local
+        remote_path: /srv/exports/postgres
+        local_path: /backups/production/postgres
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h

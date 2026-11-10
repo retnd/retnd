@@ -1,0 +1,67 @@
+# EPIC N, N1.1 (#989), pinned valid: a deployment-wide
+# retained_copy_encryption block (mode required under the product's own
+# managed key) and four sets that resolve it four ways: inheriting by
+# absence, saying inherit out loud, turning encryption off for one set,
+# and requiring it under the set's own external key reference. The
+# per-set surface is mode and key_provider and nothing else. A config
+# carrying the retained_copy_encryption key is refused outright by a
+# build that predates it (Load's KnownFields(true)), which is why this is
+# the one-way-door fixture.
+poll_interval: 15m
+
+state:
+  database: /var/lib/retnd/state.db
+
+retained_copy_encryption:
+  mode: required
+  key_provider:
+    managed: true
+
+sources:
+  - id: production
+    backup_sets:
+      - id: inherits
+        remote:
+          type: local
+        remote_path: /srv/exports/inherits
+        local_path: /backups/production/inherits
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h
+      - id: explicit-inherit
+        remote:
+          type: local
+        remote_path: /srv/exports/explicit-inherit
+        local_path: /backups/production/explicit-inherit
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h
+        retained_copy_encryption:
+          mode: inherit
+      - id: opted-out
+        remote:
+          type: local
+        remote_path: /srv/exports/opted-out
+        local_path: /backups/production/opted-out
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h
+        retained_copy_encryption:
+          mode: off
+      - id: own-external-key
+        remote:
+          type: local
+        remote_path: /srv/exports/own-external-key
+        local_path: /backups/production/own-external-key
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h
+        retained_copy_encryption:
+          mode: required
+          key_provider:
+            external:
+              env: RETND_MEDIA_COPY_KEY
