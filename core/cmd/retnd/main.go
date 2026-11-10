@@ -525,6 +525,15 @@ commands:
                                                   not. Beside a serving engine it starts that engine's operation (stop it
                                                   with assurance cancel); otherwise it runs here and an interrupt stops it.
                                                   POST and GET /api/v1/encryption/encrypt-existing
+  encryption reencrypt --suite ID | --key ID | --deprecated [--to MEDIUM] [--dry-run] [--json]
+                                                  rewrite the encrypted copies under a suite, a key, or a deprecated or
+                                                  retired suite under the active suite and key, onto MEDIUM (another medium:
+                                                  the journal holds one copy per medium). The old ciphertext is streamed
+                                                  straight into the new one; no plaintext touches local disk. Only when you
+                                                  run it, never because a key rotated. An old copy is retired only after its
+                                                  replacement decrypt-verifies; --dry-run lists the copies by suite and key
+                                                  with each destination and refusal. A run needs --to.
+                                                  POST and GET /api/v1/encryption/reencrypt
   auth enroll --username U --token-stdin --password-stdin
                           [--recovery-email ADDR --smtp-host H [--smtp-port N] [--smtp-security starttls|tls|none]
                           [--smtp-username U] [--smtp-from ADDR] [--smtp-password-stdin]]

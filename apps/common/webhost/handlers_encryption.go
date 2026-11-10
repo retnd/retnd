@@ -376,6 +376,71 @@ func (h *handlers) startEncryptExisting(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusAccepted, apicontract.ScrubStarted{BackupSetID: got.BackupSetID, OperationID: got.OperationID})
 }
 
+// ReencryptBackend is the dry run and the run of re-encrypting retained
+// copies under the active suite and key (#1317). Its own interface for the
+// reason EncryptExistingBackend gives: a backend or fake that predates it
+// still satisfies what it was written against, and answers 503 here.
+type ReencryptBackend interface {
+	PlanReencrypt(ctx context.Context, req apicontract.StartReencryptRequest) (apicontract.ReencryptPlan, error)
+	StartReencrypt(ctx context.Context, req apicontract.StartReencryptRequest) (service.ScrubStarted, error)
+}
+
+var _ ReencryptBackend = (*service.BackupService)(nil)
+
+func (h *handlers) reencrypt(w http.ResponseWriter) (ReencryptBackend, bool) {
+	b, ok := h.backend.(ReencryptBackend)
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "ENCRYPTION_UNAVAILABLE", "this deployment cannot manage retained-copy encryption")
+	}
+	return b, ok
+}
+
+// planReencrypt is GET /encryption/reencrypt: the dry run. It changes
+// nothing, so it needs no CSRF token. deprecated is a boolean, and anything
+// other than true or false is a malformed request rather than a guess.
+func (h *handlers) planReencrypt(w http.ResponseWriter, r *http.Request) {
+	b, ok := h.reencrypt(w)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	req := apicontract.StartReencryptRequest{SuiteID: q.Get("suite"), KeyID: q.Get("key"), DestinationMedium: q.Get("destination")}
+	switch q.Get("deprecated") {
+	case "", "false":
+	case "true":
+		req.Deprecated = true
+	default:
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "deprecated must be true or false")
+		return
+	}
+	got, err := b.PlanReencrypt(r.Context(), req)
+	if err != nil {
+		h.writeEncryptionError(w, r, err, "failed to plan the re-encryption of copies")
+		return
+	}
+	writeJSON(w, http.StatusOK, got)
+}
+
+// startReencrypt is POST /encryption/reencrypt. The request has the fields
+// the contract names and nothing else, so there is no spelling for skipping
+// a verification or carrying a key.
+func (h *handlers) startReencrypt(w http.ResponseWriter, r *http.Request) {
+	b, ok := h.reencrypt(w)
+	if !ok {
+		return
+	}
+	var body apicontract.StartReencryptRequest
+	if !decodeStrict(w, r, &body) {
+		return
+	}
+	got, err := b.StartReencrypt(r.Context(), body)
+	if err != nil {
+		h.writeEncryptionError(w, r, err, "failed to start the re-encryption of copies")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, apicontract.ScrubStarted{BackupSetID: got.BackupSetID, OperationID: got.OperationID})
+}
+
 // writeEncryptionError maps the encryption sentinels. The message is the
 // error's own text, whole, so the terminal that printed the same error
 // directly and the browser that got it here read one sentence.
@@ -394,7 +459,7 @@ func (h *handlers) writeEncryptionError(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusNotFound, "BACKUP_SET_NOT_FOUND", msg)
 	case errors.Is(err, service.ErrArtifactNotFound):
 		writeError(w, http.StatusNotFound, "ARTIFACT_NOT_FOUND", msg)
-	case errors.Is(err, service.ErrScrubRunning), errors.Is(err, service.ErrEncryptExistingRunning), errors.Is(err, service.ErrOperationAlreadyRunning):
+	case errors.Is(err, service.ErrScrubRunning), errors.Is(err, service.ErrEncryptExistingRunning), errors.Is(err, service.ErrReencryptRunning), errors.Is(err, service.ErrOperationAlreadyRunning):
 		writeError(w, http.StatusConflict, "OPERATION_ALREADY_RUNNING", msg)
 	case errors.Is(err, service.ErrConfigNotFileBacked):
 		writeError(w, http.StatusServiceUnavailable, "ENCRYPTION_UNAVAILABLE", msg)

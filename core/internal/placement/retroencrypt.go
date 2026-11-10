@@ -7,6 +7,8 @@ import (
 	"io"
 	"time"
 
+	"github.com/retnd/retnd/core/internal/copycrypt"
+	"github.com/retnd/retnd/core/internal/keycustody"
 	"github.com/retnd/retnd/core/internal/state"
 )
 
@@ -67,6 +69,26 @@ import (
 // plaintext. The terminal's interrupt and the browser's cancel both end in a
 // cancelled context handed to EncryptExisting, which is why they leave the
 // same state.
+//
+// # Re-encrypting an encrypted copy (#1317, EPIC T)
+//
+// The source may also be an ENCRYPTED copy whose suite or key is not the
+// active one, when the plan says Reencrypt. Nothing about the move changes:
+// same journal, same opt-in row (the 0019 table, reused as it is), same
+// destination rule, same decrypt-verify against the artifact's recorded
+// plaintext digest before the source is retired. The only difference is the
+// bytes the encrypting pass reads: the ciphertext object is streamed from its
+// medium through the old suite's Open, under the key its own record names,
+// straight into the active suite's Seal (withEncryptionSource). The plaintext
+// exists only in the two passes' buffers; it is never written to local disk,
+// and the only local file is the new ciphertext in the staging directory.
+//
+// A superseded key still opens its copies, so a copy under one is
+// re-encrypted. A key that cannot be resolved at all is a refusal before
+// anything is planned, ErrReencryptSourceKeyUnavailable, and the copy is left
+// as it is and named. A copy already under the active suite and key is
+// ErrReencryptAlreadyCurrent. The same medium is refused for the reason above,
+// ErrEncryptExistingSameMedium, and the refusal says what to do instead.
 
 // The refusals. Each is a distinct error so the dry run can say which one
 // applies to which copy and a caller can ask errors.Is. None of them is
@@ -102,6 +124,22 @@ var (
 	// right now (an archive class with no restore in effect, say). It also
 	// wraps the class error the reading check returned.
 	ErrEncryptExistingSourceUnreadable = errors.New("placement: the plaintext copy cannot be read")
+
+	// ErrEncryptExistingSameMedium: the destination is the medium the copy is
+	// already on. The journal holds one placement per artifact per medium and
+	// the object key is derived from the artifact, so the new copy would
+	// overwrite the only good one. The refusal names the alternatives.
+	ErrEncryptExistingSameMedium = errors.New("placement: the destination is the medium the copy is already on")
+
+	// ErrReencryptAlreadyCurrent: the encrypted copy is already under the
+	// active suite and the active key, so there is nothing to rewrite (#1317).
+	ErrReencryptAlreadyCurrent = errors.New("placement: the copy is already under the active suite and key")
+
+	// ErrReencryptSourceKeyUnavailable: the key the encrypted copy was written
+	// under cannot be resolved, so the copy cannot be opened to be rewritten.
+	// The copy is left exactly as it is. It also wraps ErrClassUnavailable,
+	// the class every key problem already is (#1317).
+	ErrReencryptSourceKeyUnavailable = errors.New("placement: the key the copy was written under cannot be resolved")
 )
 
 // consentJournal is the slice of the journal the opt-in lives in. *state.Journal
@@ -141,7 +179,8 @@ func (e *Engine) CheckEncryptExisting(ctx context.Context, p Plan) error {
 	if !on {
 		return fmt.Errorf("%w: %s does not require it, so turn the policy on first", ErrEncryptExistingNotRequired, p.Artifact.Set)
 	}
-	if _, err := e.activeKey(ctx, p.Artifact); err != nil {
+	key, err := e.activeKey(ctx, p.Artifact)
+	if err != nil {
 		return fmt.Errorf("%w: %w", ErrEncryptExistingNoKey, err)
 	}
 
@@ -157,12 +196,20 @@ func (e *Engine) CheckEncryptExisting(ctx context.Context, p Plan) error {
 		return fmt.Errorf("%w: %s has no ACTIVE copy on a medium (a copy on local disk is plaintext by design, and a hop from it to a medium already encrypts)",
 			ErrEncryptExistingNoPlaintextCopy, p.Artifact)
 	}
-	if encrypted, err := e.sourceIsEncrypted(ctx, p.Artifact, src.Medium); err != nil {
+	enc, encrypted, err := e.encryptionOf(ctx, p.Artifact, src.Medium)
+	if err != nil {
 		return err
-	} else if encrypted {
-		return fmt.Errorf("%w: the copy of %s on %q is ciphertext already", ErrEncryptExistingAlreadyEncrypted, p.Artifact, src.Medium)
+	}
+	if encrypted {
+		if err := e.checkReencryptSource(ctx, p, src, enc, key); err != nil {
+			return err
+		}
 	}
 
+	if p.DestinationMedium == src.Medium {
+		return fmt.Errorf("%w: the copy of %s is on %q already, and the journal holds one copy per medium with an object key derived from the artifact, so a new copy there would overwrite the only good one; name a second medium, or, where a plaintext local copy still exists, let the ordinary move write a fresh copy from it (that needs no verb)",
+			ErrEncryptExistingSameMedium, p.Artifact, src.Medium)
+	}
 	if p.DestinationMedium == state.MediumLocal {
 		return fmt.Errorf("%w: local disk is plaintext by design, so an encrypted copy has to go to a medium", ErrEncryptExistingDestinationClass)
 	}
@@ -197,6 +244,30 @@ func (e *Engine) CheckEncryptExisting(ctx context.Context, p Plan) error {
 	return nil
 }
 
+// checkReencryptSource is CheckEncryptExisting's part for an encrypted source:
+// it is refused unless the plan asked for a re-encryption, unless the copy is
+// under something other than the active suite and key, and unless the copy
+// can be opened (its suite is one this build reads and its key resolves). It
+// reads no object: resolving the key is a callback that returns at once.
+func (e *Engine) checkReencryptSource(ctx context.Context, p Plan, src state.Placement, enc state.PlacementEncryption, active keycustody.KeyRecord) error {
+	if !p.Reencrypt {
+		return fmt.Errorf("%w: the copy of %s on %q is ciphertext already", ErrEncryptExistingAlreadyEncrypted, p.Artifact, src.Medium)
+	}
+	if enc.FormatID == active.SuiteID && enc.KeyID == active.ID {
+		return fmt.Errorf("%w: the copy of %s on %q is under suite %s and key %s, which are the active ones",
+			ErrReencryptAlreadyCurrent, p.Artifact, src.Medium, enc.FormatID, enc.KeyID)
+	}
+	if _, ok := copycrypt.Lookup(enc.FormatID); !ok {
+		return fmt.Errorf("%w: the copy of %s on %q records suite %q, which this build cannot read, so it is left as it is",
+			ErrEncryptExistingSourceUnreadable, p.Artifact, src.Medium, enc.FormatID)
+	}
+	if err := e.Keys.WithKey(ctx, enc.KeyID, func([]byte) error { return nil }); err != nil {
+		return fmt.Errorf("%w: %w: the copy of %s on %q was written under key %s, which does not resolve (%v), so it is left as it is",
+			ErrReencryptSourceKeyUnavailable, ErrClassUnavailable, p.Artifact, src.Medium, enc.KeyID, err)
+	}
+	return nil
+}
+
 // EncryptExisting is the operator's entry point: for each plan, encrypt the
 // plaintext copy that already sits on a medium onto plan.DestinationMedium,
 // retiring the plaintext copy only after the encrypted one has been
@@ -227,9 +298,9 @@ func (e *Engine) EncryptExisting(ctx context.Context, plans []Plan) (CycleReport
 	if err != nil {
 		return report, err
 	}
-	wanted := make(map[string]string, len(plans))
+	wanted := make(map[string]Plan, len(plans))
 	for _, p := range plans {
-		wanted[p.Artifact.String()] = p.DestinationMedium
+		wanted[p.Artifact.String()] = p
 	}
 
 	budget := e.MaxMovesPerCycle
@@ -302,19 +373,21 @@ func (e *Engine) EncryptExisting(ctx context.Context, plans []Plan) (CycleReport
 
 // adoptable reports whether a live move nobody opted in to is the one an
 // explicit run was asked for: the same artifact and destination, from a
-// plaintext medium copy, before anything was copied.
-func (e *Engine) adoptable(ctx context.Context, mv state.Move, wanted map[string]string) (bool, error) {
-	if wanted[mv.Artifact.String()] != mv.DestinationMedium || mv.SourceMedium == state.MediumLocal {
+// plaintext medium copy (or, for a plan that asked to re-encrypt, an encrypted
+// one), before anything was copied.
+func (e *Engine) adoptable(ctx context.Context, mv state.Move, wanted map[string]Plan) (bool, error) {
+	p, ok := wanted[mv.Artifact.String()]
+	if !ok || p.DestinationMedium != mv.DestinationMedium || mv.SourceMedium == state.MediumLocal {
 		return false, nil
 	}
-	if p := Phase(mv.Phase); p != Planned && p != Copying {
+	if ph := Phase(mv.Phase); ph != Planned && ph != Copying {
 		return false, nil
 	}
 	encrypted, err := e.sourceIsEncrypted(ctx, mv.Artifact, mv.SourceMedium)
 	if err != nil {
 		return false, err
 	}
-	return !encrypted, nil
+	return !encrypted || p.Reencrypt, nil
 }
 
 // advanceEncryptExisting drives one move and, if the run was cancelled,
@@ -339,7 +412,7 @@ func (e *Engine) advanceEncryptExisting(ctx context.Context, mv state.Move, resu
 		}
 		switch Phase(cur.Phase) {
 		case Planned, Copying, Copied, Verifying:
-			next, err := e.abandon(cleanup, cur, "cancelled before the encrypted copy was verified; the plaintext copy was not touched")
+			next, err := e.abandon(cleanup, cur, "cancelled before the encrypted copy was verified; the copy it was made from was not touched")
 			if err != nil {
 				out.Err, out.Refused = err, err.Error()
 				return out
@@ -347,18 +420,144 @@ func (e *Engine) advanceEncryptExisting(ctx context.Context, mv state.Move, resu
 			out.Phase, out.Err, out.Refused = Phase(next.Phase), nil, next.Error
 		default:
 			out.Phase = Phase(cur.Phase)
-			out.Refused = "cancelled after the encrypted copy was verified; the next run, or the next ordinary cycle, finishes retiring the plaintext copy"
+			out.Refused = "cancelled after the encrypted copy was verified; the next run, or the next ordinary cycle, finishes retiring the copy it was made from"
 		}
 		return out
 	}
 	return out
 }
 
-// openEncryptionSource opens the bytes an encrypting pass reads: the local
-// artifact for a local-to-medium copy, or the plaintext object on its medium
-// for #1291's encrypt-existing. A medium source is asked first whether it can
-// be read at all (an archive class with no restore in effect cannot), so the
-// engine spends no GET on an object it knows will answer InvalidObjectState.
+// withEncryptionSource hands fn the plaintext an encrypting pass reads, and
+// closes what it opened when fn returns. For a plaintext source that is the
+// local artifact (a local-to-medium copy) or the plaintext object on its
+// medium (#1291). For an encrypted source (#1317) it is the ciphertext object
+// streamed through the suite its own record names, opened under the key its
+// own record names, never the active ones: the plaintext lives in the two
+// passes' buffers and is never written to local disk.
+//
+// The key is resolved BEFORE the object is opened, inside custody's callback,
+// so a key that cannot be had costs no read, and fn runs inside the same
+// callback because custody's secret does not outlive it.
+func (e *Engine) withEncryptionSource(ctx context.Context, mv state.Move, src state.Placement, fn func(plaintext io.Reader) error) error {
+	enc, encrypted := state.PlacementEncryption{}, false
+	if src.Medium != state.MediumLocal {
+		var err error
+		if enc, encrypted, err = e.encryptionOf(ctx, mv.Artifact, src.Medium); err != nil {
+			return err
+		}
+	}
+	if !encrypted {
+		rc, err := e.openEncryptionSource(ctx, src)
+		if err != nil {
+			return err
+		}
+		defer rc.Close()
+		return fn(rc)
+	}
+
+	suite, ok := copycrypt.Lookup(enc.FormatID)
+	if !ok {
+		return fmt.Errorf("%w: %w: the copy of %s on %q records suite %q, which this build cannot read",
+			ErrClassUnavailable, ErrEncryptExistingSourceUnreadable, mv.Artifact, src.Medium, enc.FormatID)
+	}
+	if e.Keys == nil {
+		return fmt.Errorf("%w: %w: no key custody is configured to open the copy of %s on %q",
+			ErrClassUnavailable, ErrReencryptSourceKeyUnavailable, mv.Artifact, src.Medium)
+	}
+	if e.Store == nil {
+		return fmt.Errorf("no medium store is configured")
+	}
+	medium, _, err := e.resolve(src.Medium)
+	if err != nil {
+		return err
+	}
+	if err := e.sourceCanBeStaged(ctx, medium, src); err != nil {
+		return err
+	}
+
+	var (
+		resolved bool
+		in       notingReader // the ciphertext as it comes off the medium
+		out      notingReader // the plaintext as the old suite releases it
+	)
+	err = e.Keys.WithKey(ctx, enc.KeyID, func(secret []byte) error {
+		resolved = true
+		rc, err := e.Store.OpenObject(ctx, medium, src.Location)
+		if err != nil {
+			return readFailure{err}
+		}
+		defer rc.Close()
+		in.r = rc
+		plain, err := suite.Open(secret, &in)
+		if err != nil {
+			if in.err != nil {
+				return readFailure{in.err}
+			}
+			return undecryptable{err}
+		}
+		out.r = plain
+		err = fn(&out)
+		switch {
+		case err == nil:
+			return nil
+		case in.err != nil:
+			return readFailure{in.err}
+		case out.err != nil:
+			return undecryptable{out.err}
+		}
+		return err
+	})
+	var rf readFailure
+	var bad undecryptable
+	switch {
+	case err == nil:
+		return nil
+	case !resolved:
+		return fmt.Errorf("%w: %w: key %s, which the copy of %s on %q was written under, cannot be resolved, so the copy is left as it is: %w",
+			ErrClassUnavailable, ErrReencryptSourceKeyUnavailable, enc.KeyID, mv.Artifact, src.Medium, err)
+	case errors.As(err, &rf):
+		// A read that failed is the medium's problem, not the copy's, and the
+		// move retries it like any other failed copy.
+		return fmt.Errorf("reading the copy of %s on %q: %w", mv.Artifact, src.Medium, rf.err)
+	case errors.As(err, &bad):
+		// The bytes at the key do not open under their own key and suite. No
+		// retry can change that, so the move is abandoned with the copy as it
+		// is; nothing was uploaded.
+		return fmt.Errorf("%w: the copy of %s on %q does not decrypt under key %s and suite %s, so it cannot be re-encrypted and is left as it is: %v",
+			ErrClassRefused, mv.Artifact, src.Medium, enc.KeyID, enc.FormatID, bad.err)
+	}
+	return err
+}
+
+// notingReader remembers the first error other than EOF its reader returned,
+// so a failure of the medium read is told apart from a failure of the
+// decryption that reads from it.
+type notingReader struct {
+	r   io.Reader
+	err error
+}
+
+func (n *notingReader) Read(p []byte) (int, error) {
+	k, err := n.r.Read(p)
+	if err != nil && !errors.Is(err, io.EOF) && n.err == nil {
+		n.err = err
+	}
+	return k, err
+}
+
+// undecryptable marks an error from opening or authenticating the old
+// ciphertext, as opposed to one from reading it off the medium.
+type undecryptable struct{ err error }
+
+func (u undecryptable) Error() string { return u.err.Error() }
+func (u undecryptable) Unwrap() error { return u.err }
+
+// openEncryptionSource opens the bytes an encrypting pass reads from a
+// plaintext source: the local artifact for a local-to-medium copy, or the
+// plaintext object on its medium for #1291's encrypt-existing. A medium source
+// is asked first whether it can be read at all (an archive class with no
+// restore in effect cannot), so the engine spends no GET on an object it knows
+// will answer InvalidObjectState.
 func (e *Engine) openEncryptionSource(ctx context.Context, src state.Placement) (io.ReadCloser, error) {
 	if src.Medium == state.MediumLocal {
 		return e.Local.Open(ctx, src.Location)

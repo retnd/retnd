@@ -28,6 +28,7 @@ type encryptionRoute interface {
 	TestEncryptionProvider(ctx context.Context, req apicontract.EncryptionProviderTestRequest) (apicontract.EncryptionProviderProbe, error)
 	StartDecryptVerify(ctx context.Context, req apicontract.StartDecryptVerifyRequest) (service.ScrubStarted, error)
 	StartEncryptExisting(ctx context.Context, req apicontract.StartEncryptExistingRequest) (service.ScrubStarted, error)
+	StartReencrypt(ctx context.Context, req apicontract.StartReencryptRequest) (service.ScrubStarted, error)
 }
 
 func (r *engineRoute) PatchEncryptionPolicy(ctx context.Context, req apicontract.EncryptionPolicyPatch) (apicontract.EncryptionPolicy, error) {
@@ -98,6 +99,14 @@ func (r *engineRoute) StartDecryptVerify(ctx context.Context, req apicontract.St
 
 func (r *engineRoute) StartEncryptExisting(ctx context.Context, req apicontract.StartEncryptExistingRequest) (service.ScrubStarted, error) {
 	got, err := r.client.StartEncryptExisting(ctx, req)
+	if err != nil {
+		return service.ScrubStarted{}, err
+	}
+	return service.ScrubStarted{BackupSetID: got.BackupSetID, OperationID: got.OperationID}, nil
+}
+
+func (r *engineRoute) StartReencrypt(ctx context.Context, req apicontract.StartReencryptRequest) (service.ScrubStarted, error) {
+	got, err := r.client.StartReencrypt(ctx, req)
 	if err != nil {
 		return service.ScrubStarted{}, err
 	}

@@ -188,6 +188,25 @@ func (e *Engine) copyMediumToMedium(ctx context.Context, mv state.Move, src stat
 		return 0, err
 	}
 	if encrypted {
+		// An encrypted copy an operator opted in to rewrite (#1317) is
+		// re-encrypted under the active suite and key instead of re-homed.
+		// The retention cycle never writes the opt-in, so a key rotation or a
+		// suite deprecation cannot turn into a rewrite of copies on its own.
+		consented, err := e.retroConsented(ctx, mv)
+		if err != nil {
+			return 0, err
+		}
+		if consented {
+			on, err := e.encryptedSet(mv.Artifact.Set)
+			if err != nil {
+				return 0, err
+			}
+			if !on {
+				return 0, fmt.Errorf("%w: %w: %s was opted in to be re-encrypted, and its backup set no longer requires encryption",
+					ErrClassRefused, ErrEncryptExistingNotRequired, mv.Artifact)
+			}
+			return e.copyEncryptedToMedium(ctx, mv, src)
+		}
 		if !strings.EqualFold(enc.StoredHashAlg, string(transport.SHA256)) {
 			return 0, fmt.Errorf("%w: the copy of %s on %q records its stored bytes under %q, and the staged ciphertext is checked with %s",
 				ErrClassUnavailable, mv.Artifact, src.Medium, enc.StoredHashAlg, transport.SHA256)

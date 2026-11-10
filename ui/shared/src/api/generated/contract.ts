@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "a771a77776de092ac9dc0a8784091c7094157e58ab39f28c104e6422dd29330a";
+export const CONTRACT_SHA256 = "f4de5694507e2b0e4857ca1ec4e480f3f7efa88f11a1d2d53d5d33fabeb05be3";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -1951,6 +1951,46 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
       404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND"],
       409: ["OPERATION_ALREADY_RUNNING", "ENCRYPTION_KEY_UNRESOLVABLE"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "planReencrypt",
+    method: "GET",
+    path: "/encryption/reencrypt",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ReencryptPlan",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "startReencrypt",
+    method: "POST",
+    path: "/encryption/reencrypt",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "StartReencryptRequest",
+    responseSchema: "ScrubStarted",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      409: ["OPERATION_ALREADY_RUNNING"],
       500: ["INTERNAL"],
       503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
     }
@@ -4784,6 +4824,42 @@ export interface WireRecoveryTestStarted {
   operation_id: string;
 }
 
+/** One encrypted copy and what a run would do with it.
+ *  destination_medium is the medium a run would write the new copy to
+ *  (the one asked for, or, when none was, the first other configured
+ *  medium); verdict is would_reencrypt or refused; refusal is the
+ *  stable reason code of a refusal (already_current,
+ *  source_key_unavailable, same_medium, no_destination, not_required,
+ *  key_unavailable, destination_unverifiable, no_room,
+ *  source_unreadable or not_eligible) and reason is the sentence the
+ *  run would refuse with. */
+export interface WireReencryptCandidate {
+  artifact_id: string;
+  destination_medium?: string;
+  reason?: string;
+  refusal?: string;
+  source_medium: string;
+  verdict: string;
+}
+
+/** The copies under one suite and one key, as their per-copy records
+ *  name them. */
+export interface WireReencryptGroup {
+  candidates: WireReencryptCandidate[];
+  key_id: string;
+  suite_id: string;
+}
+
+/** GET /encryption/reencrypt. The dry run: every encrypted copy the
+ *  selector matches, grouped by suite and then by key, whether a run
+ *  would rewrite it under the active suite and key, and why not when
+ *  it would not. It changes and reads nothing. */
+export interface WireReencryptPlan {
+  groups: WireReencryptGroup[];
+  refused: number;
+  would_reencrypt: number;
+}
+
 /** One repository domain's own health, which is a different question
  *  from any backup set's. A set can be perfectly fresh while the
  *  repository holding its snapshots is unwritable, out of
@@ -5486,6 +5562,22 @@ export interface WireStartEncryptExistingRequest {
 export interface WireStartRecoveryTestRequest {
   acknowledged?: boolean;
   artifact_id?: string;
+}
+
+/** POST /encryption/reencrypt. Rewrite encrypted retained copies
+ *  under the active suite and key, each onto destination_medium. Name
+ *  exactly one selector: suite_id (every copy under that suite),
+ *  key_id (every copy under that key) or deprecated (every copy under
+ *  a deprecated or retired suite). Nothing runs unless this request
+ *  is made: a key rotation or a suite deprecation never rewrites a
+ *  copy, and each source copy is retired only after its replacement
+ *  has been decrypt-verified against the recorded plaintext digest.
+ *  The plaintext is never written to local disk. */
+export interface WireStartReencryptRequest {
+  deprecated?: boolean;
+  destination_medium: string;
+  key_id?: string;
+  suite_id?: string;
 }
 
 /** Where one storage medium's credentials come from. Exactly one of

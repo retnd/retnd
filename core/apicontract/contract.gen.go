@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "a771a77776de092ac9dc0a8784091c7094157e58ab39f28c104e6422dd29330a"
+const ContractSHA256 = "f4de5694507e2b0e4857ca1ec4e480f3f7efa88f11a1d2d53d5d33fabeb05be3"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -1433,6 +1433,30 @@ var Endpoints = []Endpoint{
 			403: {ErrorCodeCsrfTokenMissing, ErrorCodeCsrfTokenMismatch},
 			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound},
 			409: {ErrorCodeOperationAlreadyRunning, ErrorCodeEncryptionKeyUnresolvable},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "planReencrypt", Method: "GET", Path: "/encryption/reencrypt",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ReencryptPlan", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "startReencrypt", Method: "POST", Path: "/encryption/reencrypt",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "StartReencryptRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCsrfTokenMissing, ErrorCodeCsrfTokenMismatch},
+			409: {ErrorCodeOperationAlreadyRunning},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
 		},
@@ -3836,6 +3860,42 @@ type RecoveryTestStarted struct {
 	OperationID string `json:"operation_id"`
 }
 
+// ReencryptCandidate is one encrypted copy and what a run would do with it.
+// destination_medium is the medium a run would write the new copy to
+// (the one asked for, or, when none was, the first other configured
+// medium); verdict is would_reencrypt or refused; refusal is the
+// stable reason code of a refusal (already_current,
+// source_key_unavailable, same_medium, no_destination, not_required,
+// key_unavailable, destination_unverifiable, no_room,
+// source_unreadable or not_eligible) and reason is the sentence the
+// run would refuse with.
+type ReencryptCandidate struct {
+	ArtifactID        string `json:"artifact_id"`
+	DestinationMedium string `json:"destination_medium,omitempty"`
+	Reason            string `json:"reason,omitempty"`
+	Refusal           string `json:"refusal,omitempty"`
+	SourceMedium      string `json:"source_medium"`
+	Verdict           string `json:"verdict"`
+}
+
+// ReencryptGroup is the copies under one suite and one key, as their per-copy records
+// name them.
+type ReencryptGroup struct {
+	Candidates []ReencryptCandidate `json:"candidates"`
+	KeyID      string               `json:"key_id"`
+	SuiteID    string               `json:"suite_id"`
+}
+
+// ReencryptPlan is GET /encryption/reencrypt. The dry run: every encrypted copy the
+// selector matches, grouped by suite and then by key, whether a run
+// would rewrite it under the active suite and key, and why not when
+// it would not. It changes and reads nothing.
+type ReencryptPlan struct {
+	Groups         []ReencryptGroup `json:"groups"`
+	Refused        int64            `json:"refused"`
+	WouldReencrypt int64            `json:"would_reencrypt"`
+}
+
 // RepositoryHealth is one repository domain's own health, which is a different question
 // from any backup set's. A set can be perfectly fresh while the
 // repository holding its snapshots is unwritable, out of
@@ -4538,6 +4598,22 @@ type StartEncryptExistingRequest struct {
 type StartRecoveryTestRequest struct {
 	Acknowledged bool   `json:"acknowledged,omitempty"`
 	ArtifactID   string `json:"artifact_id,omitempty"`
+}
+
+// StartReencryptRequest is POST /encryption/reencrypt. Rewrite encrypted retained copies
+// under the active suite and key, each onto destination_medium. Name
+// exactly one selector: suite_id (every copy under that suite),
+// key_id (every copy under that key) or deprecated (every copy under
+// a deprecated or retired suite). Nothing runs unless this request
+// is made: a key rotation or a suite deprecation never rewrites a
+// copy, and each source copy is retired only after its replacement
+// has been decrypt-verified against the recorded plaintext digest.
+// The plaintext is never written to local disk.
+type StartReencryptRequest struct {
+	Deprecated        bool   `json:"deprecated,omitempty"`
+	DestinationMedium string `json:"destination_medium"`
+	KeyID             string `json:"key_id,omitempty"`
+	SuiteID           string `json:"suite_id,omitempty"`
 }
 
 // StorageMediumCredentialsReference is where one storage medium's credentials come from. Exactly one of
@@ -5399,6 +5475,9 @@ var SchemaTypes = map[string]any{
 	"RecoveryTestOutput":                 RecoveryTestOutput{},
 	"RecoveryTestOutputRecord":           RecoveryTestOutputRecord{},
 	"RecoveryTestStarted":                RecoveryTestStarted{},
+	"ReencryptCandidate":                 ReencryptCandidate{},
+	"ReencryptGroup":                     ReencryptGroup{},
+	"ReencryptPlan":                      ReencryptPlan{},
 	"RepositoryHealth":                   RepositoryHealth{},
 	"RepositoryMaintenance":              RepositoryMaintenance{},
 	"RepositoryPassphraseReference":      RepositoryPassphraseReference{},
@@ -5453,6 +5532,7 @@ var SchemaTypes = map[string]any{
 	"StartDecryptVerifyRequest":          StartDecryptVerifyRequest{},
 	"StartEncryptExistingRequest":        StartEncryptExistingRequest{},
 	"StartRecoveryTestRequest":           StartRecoveryTestRequest{},
+	"StartReencryptRequest":              StartReencryptRequest{},
 	"StorageMediumCredentialsReference":  StorageMediumCredentialsReference{},
 	"StorageMediumRequest":               StorageMediumRequest{},
 	"StorageMediumSummary":               StorageMediumSummary{},
