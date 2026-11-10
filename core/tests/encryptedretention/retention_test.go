@@ -134,7 +134,7 @@ func (r *rig) encryptOffsite(name string, plain []byte, rec keycustody.KeyRecord
 		r.t.Fatal(err)
 	}
 	defer f.Close()
-	s, err := copycrypt.EncryptToStaging(r.ctx, r.staging, name, f, rec.Recipient, sum(plain))
+	s, err := copycrypt.EncryptToStaging(r.ctx, r.staging, name, f, copycrypt.AgeX25519{}, rec.Recipient, sum(plain))
 	if err != nil {
 		r.t.Fatalf("EncryptToStaging: %v", err)
 	}
@@ -159,7 +159,7 @@ func (r *rig) recoverTo(dir, name string, id string, obj []byte, want string) (s
 	var path string
 	err := r.store.WithKey(r.ctx, id, func(k []byte) error {
 		var derr error
-		path, derr = copycrypt.DecryptToFile(r.ctx, bytes.NewReader(obj), k, want, dir, name)
+		path, derr = copycrypt.DecryptToFile(r.ctx, bytes.NewReader(obj), copycrypt.AgeX25519{}, k, want, dir, name)
 		return derr
 	})
 	return path, err
@@ -237,7 +237,7 @@ func TestOneArtifactHasAPlaintextLocalCopyBesideAnEncryptedOffsiteCopyWithDistin
 
 	// Both verify. The off-site one through the key custody holds.
 	if err := r.store.WithKey(r.ctx, r.key.ID, func(k []byte) error {
-		n, err := copycrypt.DecryptVerify(r.ctx, bytes.NewReader(obj), k, sum(plain))
+		n, err := copycrypt.DecryptVerify(r.ctx, bytes.NewReader(obj), copycrypt.AgeX25519{}, k, sum(plain))
 		if err == nil && n != int64(len(plain)) {
 			t.Errorf("decrypt-verify counted %d plaintext bytes, want %d", n, len(plain))
 		}
@@ -249,7 +249,7 @@ func TestOneArtifactHasAPlaintextLocalCopyBesideAnEncryptedOffsiteCopyWithDistin
 	// The control: the same verification refuses a digest that is not the
 	// artifact's, so a pass above is a finding.
 	if err := r.store.WithKey(r.ctx, r.key.ID, func(k []byte) error {
-		_, err := copycrypt.DecryptVerify(r.ctx, bytes.NewReader(obj), k, sum(fixture(2)))
+		_, err := copycrypt.DecryptVerify(r.ctx, bytes.NewReader(obj), copycrypt.AgeX25519{}, k, sum(fixture(2)))
 		return err
 	}); !errors.Is(err, copycrypt.ErrDigestMismatch) {
 		t.Fatalf("decrypt-verify against another artifact's digest: err = %v, want ErrDigestMismatch", err)

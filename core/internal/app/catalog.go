@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/copycrypt"
 	"github.com/retnd/retnd/core/internal/keycustody"
 	"github.com/retnd/retnd/core/internal/lifecycle"
 	"github.com/retnd/retnd/core/internal/model"
@@ -112,7 +113,9 @@ type CatalogEncryptedCopy struct {
 	Medium   string
 	Location string
 
-	// FormatID is the per-copy format identifier ("age/v1").
+	// FormatID is the per-copy format identifier, the suite id ("age/v1",
+	// "age-pq/v1"; ADR 0033 D1). It is reported as the sidecar holds it,
+	// and an id this build has no suite for is said to be one in the note.
 	FormatID string
 
 	// KeyID is the registry id of the key the copy needs.
@@ -453,7 +456,12 @@ func (s *Service) encryptedCopies(ctx context.Context, bs config.BackupSet, m re
 		out = append(out, c)
 
 		var why string
+		_, suiteKnown := copycrypt.Lookup(e.FormatID)
 		switch {
+		case !suiteKnown:
+			// An unknown suite is neither plaintext nor verified (ADR 0033
+			// D7.6): no adapter here can open it, whatever key is held.
+			why = fmt.Sprintf("unknown suite: %q is not a suite this build can read, so no key opens it here and it is neither plaintext nor verified; recover it with a build that has the suite, or with that suite's own reader", e.FormatID)
 		case bs.RetainedCopyEncryption.KeyProvider.IsZero():
 			why = fmt.Sprintf("backup set %s has no key provider configured, so there is nothing here to open it with; configure one, or restore key %s from its recovery bundle (docs/recovery-without-a-terminal.md)", bs.ID, e.KeyID)
 		case managed && !c.KeyKnown:

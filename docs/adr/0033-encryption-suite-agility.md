@@ -222,6 +222,13 @@ If it does not, the alternative is a side table `encryption_key_suites(key_id PR
 absence meaning `age/v1`, and the per-suite active rule enforced in `state` on the write path, the way
 `registry.go` already enforces the status vocabulary.
 
+**Outcome (#1312): the side table.** The cell is additive-only over `sqlite_master`, and both `ADD COLUMN`
+(which rewrites the stored `CREATE TABLE` text) and the index drop change a line an existing deployment has.
+Migration `0020` creates `encryption_key_suites` and nothing else; `state` writes a key's suite in the key's
+own transaction and refuses a suite the registry does not know. 0015's index stays, so the rule is one
+active managed key deployment-wide, stricter than one per suite and exactly what the rotation flow above
+produces.
+
 ### D4. One global `suite` policy field; fail closed; no auto-rotation
 
 ```yaml
