@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/retnd/retnd/core/internal/alert"
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/health"
 	"github.com/retnd/retnd/core/internal/keycustody"
@@ -161,6 +162,26 @@ func (c *KeyCustody) WithKey(ctx context.Context, id string, fn func(key []byte)
 		return err
 	}
 	return s.WithKey(ctx, id, fn)
+}
+
+// AlertConditions is keycustody.Store.AlertConditions for the alert pass
+// (#1294). The caller only asks when some set requires encryption, so opening
+// the store here, which creates the key directory the first time, never
+// happens for a deployment that encrypts nothing. A store that cannot be
+// opened is a look that could not be made: every required set goes on the
+// unevaluated list rather than being resolved by omission.
+func (c *KeyCustody) AlertConditions(ctx context.Context, policies []keycustody.SetPolicy) ([]alert.Condition, []alert.Subject) {
+	s, err := c.Store(ctx)
+	if err != nil {
+		var unevaluated []alert.Subject
+		for _, p := range policies {
+			if p.Required {
+				unevaluated = append(unevaluated, alert.Subject{Kind: alert.EncryptionKeyUnresolvable, Scope: p.Set})
+			}
+		}
+		return nil, unevaluated
+	}
+	return s.AlertConditions(ctx, policies)
 }
 
 // Health is health.Report.KeyCustody. enabled is whether any backup set

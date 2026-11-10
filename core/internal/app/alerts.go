@@ -286,6 +286,13 @@ func (s *Service) evaluateAlerts(ctx context.Context, report CycleReport) {
 	// as often.
 	conditions = append(conditions, s.RepositoryAlertConditions(ctx)...)
 
+	// EPIC N's refusal (#1294, FR-66): a required policy whose key cannot be
+	// resolved refuses the copy, and this is what tells whoever is on the
+	// other end of the notifier. See KeyCustodyAlertConditions.
+	keyConditions, keyUnevaluated := s.KeyCustodyAlertConditions(ctx, alertable)
+	conditions = append(conditions, keyConditions...)
+	unevaluated = append(unevaluated, keyUnevaluated...)
+
 	// EPIC Q's assurance conditions, from the same health report: a copy
 	// that keeps failing its scrub, a scrub that has lapsed, and a required
 	// recovery test that failed or has lapsed. They ride the dispatcher a

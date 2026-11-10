@@ -79,13 +79,15 @@ confirmation is a row in the key registry (`recovery_bundle_confirmations`, migr
 encrypts nothing), and a restart reports the same thing it did before.
 
 Exactly one new kind exists, `alert.EncryptionKeyUnresolvable`, because that fact does
-resolve by itself: the file comes back, the secrets manager answers again. The honest
-state of it today: the kind and the condition builder
-(`keycustody.Store.AlertConditions`) are in the tree and pinned by the kind-list test,
-and nothing in this build feeds that builder to the dispatcher yet. What an operator gets
-instead is the refusal itself (the copy is not written, the source and the medium are
-untouched) and the "Key missing" state on the copy. Wiring the builder is follow-up
-work, not something this ADR claims.
+resolve by itself: the file comes back, the secrets manager answers again. The alert pass
+raises it (`app.Service.KeyCustodyAlertConditions`, called from `evaluateAlerts`) for each
+alertable set that resolves to `required`, is not a `kopia` set and whose copies the engine
+would refuse for want of a key: a managed key with no active key or an unreadable file, an
+external reference this build cannot write under yet, or no key custody at all. It fires
+once, stays quiet while the fact holds, resolves when the key resolves again, and is noticed
+within one alert tick. A pass that cannot read the registry reports the set as not looked at
+rather than resolving it. The refusal itself (the copy is not written, the source and the
+medium are untouched) and the "Key missing" state on the copy are unchanged.
 
 ## Decision 4: what `required` means for a `kopia`-engine set
 
@@ -101,9 +103,18 @@ incremental set among forty should not have their config refused for it, and I d
 make it silently double-encrypt because the second layer would add a key to lose and
 protect nothing the first does not.
 
-What is not proven: the configuration still accepts `required` on a kopia set without
-comment, and I did not find a test that pins the sentence in the engine path rather than
-in the UI. That belongs to whoever next touches that seam.
+The decision has one home in the code, `config.BackupSet.EncryptsRetainedCopies()`
+(resolves to `required` and is not a `kopia` set). The placement engine, the key-custody
+health section, the metrics gauge and the key alert read it, so none of them counts a kopia
+set as one a managed key guards. `GET /encryption/policy` and `retnd encryption policy show`
+say so with `satisfied_by: "repository"` on the set, in the sentence the web UI draws.
+`required` is still accepted at load, on the deployment and as a per-set override. Pinned by
+`TestRequiredOnAKopiaSetIsAcceptedAndDoesNotEncryptRetainedCopies_1296` (config),
+`TestARequiredKopiaSetNeverAsksKeyCustody_1296` and
+`TestAKopiaOnlyDeploymentUnderRequiredIsNotDegradedKeyCustody_1296` (app),
+`TestAKopiaSetUnderRequiredIsNotAnEncryptedSetToTheCopyPath_1296` (placement),
+`TestSetPolicyOfAKopiaSetSaysSatisfiedByTheRepository_1296` (service) and the compat fixture
+`10-encryption-kopia-set-under-required.yaml`.
 
 ## Consequences
 

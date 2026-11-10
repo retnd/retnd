@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`ENCRYPTION_KEY_UNRESOLVABLE` is now raised** (#1294, EPIC N follow-up). The kind and its condition
+  builder from #990 had no caller, so a daemon refusing every off-site copy for a `required` set paged
+  nobody. The alert pass now raises it for a `required` set (not a `kopia` set, not a disabled one) whose
+  managed key file is missing or unreadable, that has no active managed key, whose external reference this
+  build cannot write under yet, or that has no key custody. It fires once, resolves when the key resolves,
+  and a pass that cannot read the key registry leaves it as it was. A deployment that encrypts nothing never
+  opens or creates the key directory for this. The alert guard now also fails an outside function that
+  builds an alert kind and has no non-test caller.
+
+- **`required` on a `kopia` set no longer reads as degraded key custody** (#1296, EPIC N follow-up).
+  A deployment whose only encrypted-by-policy sets are incremental ones, with a managed provider and no
+  key created, showed key custody as degraded and `retnd_retained_copy_encryption_enabled 1`, though no
+  managed key will ever encrypt anything for it. Health, the gauge and the copy path now read one
+  method, `config.BackupSet.EncryptsRetainedCopies()`. `EncryptionSetPolicy` gains an additive
+  `satisfied_by: "repository"` for a kopia set, and `retnd encryption policy show` prints the sentence
+  the web UI already drew. `required` is still accepted on a kopia set.
+
 ### Added
 
 - **External key providers write encrypted copies** (#1292, follow-up to EPIC N). A backup set whose
@@ -35,8 +54,7 @@
   never for what it is. A one-time recovery bundle carries the key with integrity metadata and plain instructions
   (the stock `age` CLI opens a copy from it), and until someone confirms holding one the health report says so in a
   new key custody section. A `required` set whose key cannot be resolved has a new `ENCRYPTION_KEY_UNRESOLVABLE`
-  alert kind and a condition builder for it; nothing feeds that builder to the dispatcher yet, so what an operator
-  sees today is the refusal itself. Key create, rotate, bundle export and bundle confirm are new log events, each
+  alert kind and a condition builder for it, which the alert pass now feeds (#1294, below). Key create, rotate, bundle export and bundle confirm are new log events, each
   with a result. The byte path, the routes and the CLI verbs landed in the entries below.
 - **The byte path for encrypted retained copies** (#991). For a backup set whose resolved
   `retained_copy_encryption` is `required` and whose key is the managed one, a local-to-medium copy is
