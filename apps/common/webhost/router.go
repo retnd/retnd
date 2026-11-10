@@ -979,6 +979,26 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// shut.
 		r.Get("/assurance/operations/{op}", h.getAssuranceOperation)
 
+		// Retained-copy encryption (#993). The writes are CSRF; the export is
+		// the one act that lets key material leave the host, so it carries
+		// the destructive gate and the step-up as well (handlers_encryption.go
+		// has the argument). "rotate", "policy/reset" and "providers/test" are
+		// static segments, so none can be read as a {id}.
+		r.Get("/encryption/policy", h.getEncryptionPolicy)
+		r.With(requireCSRF).Patch("/encryption/policy", h.patchEncryptionPolicy)
+		r.With(requireCSRF).Post("/encryption/policy/reset", h.resetEncryptionPolicy)
+		r.With(requireCSRF).Put("/backup-sets/{source}/{set}/encryption", h.setBackupSetEncryption)
+		r.With(requireCSRF).Delete("/backup-sets/{source}/{set}/encryption", h.clearBackupSetEncryption)
+		r.Get("/encryption/keys", h.listEncryptionKeys)
+		r.With(requireCSRF).Post("/encryption/keys", h.createEncryptionKey)
+		r.With(requireCSRF).Post("/encryption/keys/rotate", h.rotateEncryptionKey)
+		r.With(requireCSRF).Post("/encryption/keys/{id}/retire", h.retireEncryptionKey)
+		r.With(requireCSRF, requireKeyExportGate(h.enforce)).Post("/encryption/keys/{id}/export", h.exportRecoveryBundle)
+		r.With(requireCSRF).Post("/encryption/keys/{id}/confirm", h.confirmRecoveryBundle)
+		r.With(requireCSRF).Post("/encryption/providers/test", h.testEncryptionProvider)
+		r.Get("/encryption/copies", h.listEncryptionCopies)
+		r.With(requireCSRF).Post("/encryption/verify", h.startDecryptVerify)
+
 		// EPIC L's workflow runs and recovery (#813).
 		//
 		// Top-level rather than under /backup-sets, because of the reads

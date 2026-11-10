@@ -376,6 +376,15 @@ var fieldsNotEchoed = map[string]map[string]string{
 		"tiers[0].window_unit": "part of the tier chain, which --policy-file carries",
 		"tiers[0].medium":      "part of the tier chain, which --policy-file carries",
 	},
+	"PATCH /encryption/policy": {
+		"key_provider.external.command[0]": "a key reference's command is printed as a placeholder: its arguments routinely carry a vault path, a role or a token name, and the line is exportable. The file and the variable name are printed, because they are source descriptions",
+	},
+	"PUT /backup-sets/{source}/{set}/encryption": {
+		"key_provider.external.command[0]": "a key reference's command is printed as a placeholder, for the reason PATCH /encryption/policy gives",
+	},
+	"POST /encryption/providers/test": {
+		"external.command[0]": "a key reference's command is printed as a placeholder, for the reason PATCH /encryption/policy gives",
+	},
 	"POST /backup-sets/{source}/{set}/retention/apply": {
 		"plan_id": "binds the deletion to the plan the operator was shown. The terminal has no flag for it: `retention apply --acknowledge` previews and deletes in one go, so the pasted line deletes whatever the plan is at paste time, which may not be what was on screen (the routes.go comment on this builder)",
 	},

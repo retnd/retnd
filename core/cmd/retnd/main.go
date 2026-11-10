@@ -87,6 +87,7 @@ var commands = map[string]func([]string) int{
 	"scrub":           cmdScrub,
 	"recovery-test":   cmdRecoveryTest,
 	"assurance":       cmdAssurance,
+	"encryption":      cmdEncryption,
 	"auth":            cmdAuth,
 	"ssh-key":         cmdSSHKey,
 	"ssh":             cmdSSH,
@@ -456,6 +457,50 @@ commands:
                                                    environment a validator gets, what its exit status means, what becomes
                                                    of its output and where it runs. Reads no configuration.
                                                    GET /api/v1/assurance/default-validator-script
+  encryption policy [--json]
+                                                  the deployment's retained-copy encryption: its mode (off or required),
+                                                  its key provider, and what every backup set resolves to. A key
+                                                  provider reads back as a description of its source and never as a
+                                                  reference that could be parsed back. GET /api/v1/encryption/policy (#993)
+  encryption policy patch [--mode off|required] [--managed | --external-file P | --external-env V | --external-command CMD] [--json]
+                                                  change the deployment's mode or key provider; what is not named stays.
+                                                  --external-command is split on spaces and run without a shell. Refused
+                                                  with the words a hand-edited config.yaml gets (required with no provider
+                                                  among them). Routed, PATCH /api/v1/encryption/policy
+  encryption policy reset [--json]                remove the deployment's block: off, no provider. Copies already
+                                                  written stay encrypted and readable. Routed, POST .../policy/reset
+  encryption backup-set <source/backup-set> [--mode inherit|off|required] [--managed | --external-file P | --external-env V |
+                        --external-command CMD] [--reset] [--json]
+                                                  show one set's own mode and what it resolves to; with --mode, give it a
+                                                  block of its own, with --reset take it off so it follows the deployment.
+                                                  Routed, PUT and DELETE /api/v1/backup-sets/{source}/{set}/encryption
+  encryption key list [--json]                    the managed keys: id, status, when created, whether each resolves now and
+                                                  whether its recovery bundle is confirmed. Never bytes. GET .../keys
+  encryption key create|rotate [--json]           mint the first managed key, or a new active one with the old superseded.
+                                                  New copies use the new key; every old copy decrypts through the key id
+                                                  recorded against it. Routed, POST .../keys and .../keys/rotate
+  encryption key retire <id> [--json]             retire a key. Refused, naming the copies, while an ACTIVE copy records
+                                                  it, and for the active key. Routed, POST .../keys/{id}/retire
+  encryption key export <id> --out FILE [--json]  write the recovery bundle (key material, integrity data, clean-machine
+                                                  steps) to FILE, which is created 0600 and never over a file that exists.
+                                                  It is never printed. Routed, POST .../keys/{id}/export
+  encryption key confirm <id> [--digest D] [--json]
+                                                  say the exported bundle is stored safely, which clears the degraded
+                                                  state. Without --digest it confirms the newest export. A statement, never
+                                                  an upload. Routed, POST .../keys/{id}/confirm
+  encryption provider test (--managed-key ID | --external-file P | --external-env V | --external-command CMD) [--json]
+                                                  whether a key provider resolves right now and, if not, why, in words that
+                                                  name the source and never its content. Exit 1 unless it resolves.
+                                                  POST /api/v1/encryption/providers/test
+  encryption copies <source/backup-set/backup> [--json]
+                                                  which copies of a backup are encrypted, under which key and format, and
+                                                  whether that key resolves. GET /api/v1/encryption/copies
+  encryption verify <source/backup-set/backup> [--medium M] [--allow-egress] [--json]
+                                                  decrypt-verify a backup's encrypted copy: a content check whose plaintext
+                                                  digest has to equal the recorded one. Refused before any read when the
+                                                  copy's key does not resolve. Beside a serving engine it starts that
+                                                  engine's operation (stop it with assurance cancel); otherwise it runs
+                                                  here. POST /api/v1/encryption/verify
   auth enroll --username U --token-stdin --password-stdin
                           [--recovery-email ADDR --smtp-host H [--smtp-port N] [--smtp-security starttls|tls|none]
                           [--smtp-username U] [--smtp-from ADDR] [--smtp-password-stdin]]

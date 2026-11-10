@@ -151,6 +151,46 @@ var refusingInputs = []refusingInput{
 			return []string{"backup-set", "--config", configPath, "read-only", "nosuch/set", "on"}
 		},
 	},
+	// #993 (N1.2, N1.16, N1.20): the encryption writes are routed too. The
+	// required-without-provider rule is config.Validate's, so a route that
+	// dropped the provider would turn the first row into a success, and the
+	// key refusals are the key store's own words on both routes.
+	{
+		name: "require encryption with no key provider",
+		args: func(configPath, _ string) []string {
+			return []string{"encryption", "policy", "patch", "--mode", "required", "--config", configPath}
+		},
+	},
+	{
+		name: "give a set this deployment does not have its own encryption",
+		args: func(configPath, _ string) []string {
+			return []string{"encryption", "backup-set", "nosuch/set", "--mode", "required", "--managed", "--config", configPath}
+		},
+	},
+	{
+		name: "reset the encryption of a set this deployment does not have",
+		args: func(configPath, _ string) []string {
+			return []string{"encryption", "backup-set", "nosuch/set", "--reset", "--config", configPath}
+		},
+	},
+	{
+		name: "rotate with no managed key",
+		args: func(configPath, _ string) []string {
+			return []string{"encryption", "key", "rotate", "--config", configPath}
+		},
+	},
+	{
+		name: "confirm a bundle for a key that does not exist",
+		args: func(configPath, _ string) []string {
+			return []string{"encryption", "key", "confirm", "knosuchkey", "--config", configPath}
+		},
+	},
+	{
+		name: "decrypt-verify a backup this deployment does not have",
+		args: func(configPath, _ string) []string {
+			return []string{"encryption", "verify", "api/postgres/none.dump", "--config", configPath}
+		},
+	},
 }
 
 func TestARefusalIsTheSameOnBothRoutes(t *testing.T) {
