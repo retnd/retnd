@@ -1,0 +1,221 @@
+{
+  "schema": "retnd.encryption-captures/1",
+  "issue": 998,
+  "note": "The list of media EPIC N owes, and the one place #997 looks up an id, a file name and its alt text. A still has four variants (variants[].suffix). state needs-ui-state means the stack has no UI state to photograph; the release gate counts its files as missing until the state exists and the entry becomes capturable. Store-submission screenshots are not here and are never generated.",
+  "clock": "2026-08-29T06:15:00+02:00 (harness FROZEN_TIME)",
+  "variants": [
+    {
+      "suffix": "",
+      "theme": "light",
+      "width": 1280
+    },
+    {
+      "suffix": "-dark",
+      "theme": "dark",
+      "width": 1280
+    },
+    {
+      "suffix": "-narrow",
+      "theme": "light",
+      "width": 360
+    },
+    {
+      "suffix": "-narrow-dark",
+      "theme": "dark",
+      "width": 360
+    }
+  ],
+  "stills": [
+    {
+      "id": "settings-off",
+      "name": "encryption-01-settings-off",
+      "scenario": "default",
+      "state": "capturable",
+      "alt": "Settings, Retained-copy encryption, off",
+      "caption": "Retained-copy encryption is off by default: one switch and a sentence, no key field."
+    },
+    {
+      "id": "enable-dialog",
+      "name": "encryption-02-enable-dialog",
+      "scenario": "default",
+      "state": "capturable",
+      "alt": "Enable retained-copy encryption dialog",
+      "caption": "Turning it on asks one question, who holds the key, and echoes the command it runs."
+    },
+    {
+      "id": "settings-on-unconfirmed",
+      "name": "encryption-03-settings-on-unconfirmed",
+      "scenario": "encryption-on",
+      "state": "capturable",
+      "alt": "Settings card with encryption on and no confirmed recovery bundle",
+      "caption": "A managed key exists and the missing-bundle notice stays until a person confirms a bundle is stored."
+    },
+    {
+      "id": "export-bundle",
+      "name": "encryption-04-export-bundle",
+      "scenario": "encryption-on",
+      "state": "capturable",
+      "alt": "Export recovery bundle dialog",
+      "caption": "Download arms only after the tick, and nothing is rendered on screen. The fixture holds no key."
+    },
+    {
+      "id": "bundle-confirmed",
+      "name": "encryption-05-bundle-confirmed",
+      "scenario": "encryption-confirmed",
+      "state": "capturable",
+      "alt": "Settings card with the recovery bundle confirmed",
+      "caption": "Confirmation is a statement with a time, and the notice is gone."
+    },
+    {
+      "id": "external-reference",
+      "name": "encryption-06-external-reference",
+      "scenario": "encryption-on",
+      "state": "capturable",
+      "alt": "External key reference dialog with a failed test",
+      "caption": "One single-line reference, three sources, and a three-answer test (resolves, declared but unreachable, not declared)."
+    },
+    {
+      "id": "rotate-confirm",
+      "name": "encryption-07-rotate-confirm",
+      "scenario": "encryption-confirmed",
+      "state": "capturable",
+      "alt": "Rotate the managed key dialog",
+      "caption": "Rotation makes a new active key and keeps the old one readable for the copies that record it."
+    },
+    {
+      "id": "rotated",
+      "name": "encryption-08-rotated",
+      "scenario": "encryption-confirmed",
+      "state": "capturable",
+      "alt": "Managed keys table after a rotation",
+      "caption": "The previous key is superseded, not gone, and the new one is not yet confirmed."
+    },
+    {
+      "id": "retire-refused",
+      "name": "encryption-09-retire-refused",
+      "scenario": "encryption-in-use",
+      "state": "capturable",
+      "alt": "Retire refused naming the copies",
+      "caption": "A key that active copies still record cannot be retired, and the refusal says how many copies need it."
+    },
+    {
+      "id": "key-missing-settings",
+      "name": "encryption-10-key-missing-settings",
+      "scenario": "encryption-key-missing",
+      "state": "capturable",
+      "alt": "Settings card when a required key does not resolve",
+      "caption": "Drawn as itself: copies are refused, nothing is deleted."
+    },
+    {
+      "id": "key-missing-dashboard",
+      "name": "encryption-11-key-missing-dashboard",
+      "scenario": "encryption-key-missing",
+      "state": "capturable",
+      "alt": "Dashboard health row when a required key does not resolve",
+      "caption": "The same condition on the dashboard, so it is not found only by opening Settings."
+    },
+    {
+      "id": "set-inherit",
+      "name": "encryption-12-set-inherit",
+      "scenario": "encryption-confirmed",
+      "state": "capturable",
+      "alt": "Per-set encryption control on Inherit",
+      "caption": "Inherit says what it resolves to from the deployment setting."
+    },
+    {
+      "id": "set-required",
+      "name": "encryption-13-set-required",
+      "scenario": "encryption-confirmed",
+      "state": "capturable",
+      "alt": "Per-set encryption control on Required",
+      "caption": "An explicit Required is distinguishable from Inherit."
+    },
+    {
+      "id": "set-required-key-missing",
+      "name": "encryption-14-set-required-key-missing",
+      "scenario": "encryption-key-missing",
+      "state": "capturable",
+      "alt": "Per-set control, Required, key missing",
+      "caption": "The set is drawn as refusing and says nothing was deleted."
+    },
+    {
+      "id": "copies-chips",
+      "name": "encryption-15-copies-chips",
+      "scenario": "encryption-on",
+      "state": "capturable",
+      "alt": "Copies table with a plaintext and an encrypted copy",
+      "caption": "A plaintext local copy and an encrypted off-site copy that is not decrypt-verified, side by side."
+    },
+    {
+      "id": "copies-key-missing",
+      "name": "encryption-16-copies-key-missing",
+      "scenario": "encryption-key-missing",
+      "state": "capturable",
+      "alt": "Copies table with a key-missing copy",
+      "caption": "A copy whose key does not resolve is Key missing and offers no verify action."
+    },
+    {
+      "id": "verify-dialog",
+      "name": "encryption-17-verify-dialog",
+      "scenario": "encryption-on",
+      "state": "capturable",
+      "alt": "Verify recoverable dialog",
+      "caption": "Names the egress cost, needs the acceptance, and echoes the equivalent command."
+    },
+    {
+      "id": "verify-running",
+      "name": "encryption-18-verify-running",
+      "scenario": "encryption-on",
+      "state": "capturable",
+      "alt": "Verify recoverable running",
+      "caption": "Accepted, key resolved, decrypt-verifying. Named progress stages are an undecided contract, so none are drawn."
+    },
+    {
+      "id": "verified-recoverable",
+      "name": "encryption-19-verified-recoverable",
+      "scenario": "encryption-on",
+      "state": "needs-ui-state",
+      "alt": "Encrypted and Verified recoverable chips on one copy",
+      "caption": "The two indicators side by side, visibly different.",
+      "reason": "No mock scenario reaches a copy that is encrypted, whose key resolves and whose placement holds a content-class verification, so the Verified recoverable chip is never drawn. Needs a mock scenario (for example encryption-verified) in ui/shared/src/encryption/mockEncryption.ts."
+    },
+    {
+      "id": "verify-matched",
+      "name": "encryption-20-verify-matched",
+      "scenario": "encryption-on",
+      "state": "needs-ui-state",
+      "alt": "Verify recoverable ended in a match",
+      "caption": "The plaintext digest equals the catalog's, the copy is Verified recoverable.",
+      "reason": "The mock's decrypt-verify operation id is unknown to getAssuranceOperation, so the record never ends. Needs a mock operation record that passes."
+    },
+    {
+      "id": "verify-failed",
+      "name": "encryption-21-verify-failed",
+      "scenario": "encryption-on",
+      "state": "needs-ui-state",
+      "alt": "Verify recoverable ended failed closed",
+      "caption": "Decrypt failed, no partial plaintext written, recover from another copy.",
+      "reason": "Same cause as verify-matched: the mock cannot end the operation as failed."
+    }
+  ],
+  "gifs": [
+    {
+      "id": "enable-flow",
+      "name": "encryption-enable-flow",
+      "alt": "Turning retained-copy encryption on",
+      "caption": "Switch, the one question, Enable and create key, and the card re-read with the missing-bundle notice."
+    },
+    {
+      "id": "bundle-flow",
+      "name": "encryption-bundle-flow",
+      "alt": "Exporting the recovery bundle",
+      "caption": "Export dialog, the tick that arms Download, and the receipt that says nothing was shown on screen."
+    },
+    {
+      "id": "verify-flow",
+      "name": "encryption-verify-flow",
+      "alt": "Starting a decrypt-verify on an encrypted copy",
+      "caption": "Verify recoverable, the egress acceptance, and the running state."
+    }
+  ]
+}
