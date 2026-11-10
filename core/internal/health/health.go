@@ -649,6 +649,13 @@ type Report struct {
 	// that assembles the report sets it, like Workflow above, because only
 	// that caller reads the removed sets' rows. See CountRetained.
 	RetainedCount int
+
+	// KeyCustody is EPIC N's section (#990, FR-66): whether the keys behind
+	// encrypted retained copies could be recovered if this host were lost.
+	// Assigned by the caller exactly as Workflow is, for the same reason,
+	// and its zero value reads "this deployment encrypts nothing". See
+	// KeyCustodyHealth's own doc (keycustody.go).
+	KeyCustody KeyCustodyHealth
 }
 
 // NewReport bundles an already-computed ProcessHealth and set of

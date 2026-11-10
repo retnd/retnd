@@ -71,6 +71,10 @@ func TestEventNamesAreStable(t *testing.T) {
 		{"EventError", EventError, "error"},
 		{"EventActivityPruneDeferred", EventActivityPruneDeferred, "activity_prune_deferred"},
 		{"EventJournalSlowHold", EventJournalSlowHold, "journal_slow_hold"},
+		{"EventKeyCreated", EventKeyCreated, "key_created"},
+		{"EventKeyRotated", EventKeyRotated, "key_rotated"},
+		{"EventKeyBundleExported", EventKeyBundleExported, "key_bundle_exported"},
+		{"EventKeyBundleConfirmed", EventKeyBundleConfirmed, "key_bundle_confirmed"},
 	}
 	seen := make(map[string]string, len(cases))
 	for _, c := range cases {
@@ -595,5 +599,32 @@ func TestRecoveryTestEventIsNeverAQuietSuccessWhenCleanupFailedOrNothingWasTeste
 				t.Errorf("result = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// The four key-custody events each carry a result, the key id, and (for an
+// export) the digest, and a failed one is logged at the failure level.
+func TestKeyCustodyEventsCarryAResultAndNoMaterial(t *testing.T) {
+	for _, result := range []Result{ResultSuccess, ResultError} {
+		l, buf := newRecorder(t)
+		ctx := context.Background()
+		l.KeyCreated(ctx, "k1", result)
+		l.KeyRotated(ctx, "k1", "k2", result)
+		l.KeyBundleExported(ctx, "k2", "abc123", result)
+		l.KeyBundleConfirmed(ctx, "k2", result)
+
+		lines := decodeLines(t, buf)
+		events := []string{EventKeyCreated, EventKeyRotated, EventKeyBundleExported, EventKeyBundleConfirmed}
+		if len(lines) != len(events) {
+			t.Fatalf("%d lines, want %d", len(lines), len(events))
+		}
+		for i, line := range lines {
+			if line["event"] != events[i] || line["result"] != string(result) || line["level"] != result.Level().String() {
+				t.Errorf("%s with %s: got %#v", events[i], result, line)
+			}
+		}
+		if lines[2]["digest"] != "abc123" || lines[2]["key_id"] != "k2" || lines[1]["previous_key_id"] != "k1" {
+			t.Errorf("export/rotate attributes missing: %#v %#v", lines[2], lines[1])
+		}
 	}
 }
