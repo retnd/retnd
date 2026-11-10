@@ -611,8 +611,11 @@ func printEncryptionPolicy(p apicontract.EncryptionPolicy) {
 	if p.Suite != "" {
 		fmt.Printf("  suite: %s (configured: %s)\n", p.Suite, p.SuiteConfigured)
 	}
-	if p.RotationNeeded {
+	switch {
+	case p.RotationNeeded && p.RotateCommand != "":
 		fmt.Printf("  no active key for suite %s yet, so copies are refused until you run: %s\n", p.SuiteConfigured, p.RotateCommand)
+	case p.RotationNeeded:
+		fmt.Printf("  the external key is not a %s key, so copies are refused until the reference yields one\n", p.SuiteConfigured)
 	}
 	fmt.Printf("  backup sets:\n")
 	for _, s := range p.Sets {
