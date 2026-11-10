@@ -153,6 +153,24 @@ var matrixPairs = []matrixPair{
 		},
 		ledger: ledgerRowPerGuard,
 	},
+	{
+		// EPIC T (#1310) follows EPIC N's shape on purpose: it lands its
+		// matrix with every row BLOCKED and registers here first (#1311),
+		// red, so the suite agility documents are held together from the
+		// day they exist. One ledger row per guard in the spec's section 6
+		// table, EPIC E's rule, because each suite guard is a separate
+		// downgrade path and a composite row would hide one of them.
+		name:     "EPIC T",
+		spec:     "../../../docs/EPIC-T-encryption-suites.md",
+		matrix:   "../../../docs/conformance/epic-t-matrix.md",
+		gateID:   regexp.MustCompile(`^T[12]\.\d+$`),
+		ledgerID: regexp.MustCompile(`^TV\.\d+$`),
+		gates: []gatePhase{
+			{prefix: "T1", heading: "### Phase 1 exit gate"},
+			{prefix: "T2", heading: "### Phase 2 exit gate"},
+		},
+		ledger: ledgerRowPerGuard,
+	},
 }
 
 // matrixRepo is the repository whose issues a BLOCKED row cites. It is
