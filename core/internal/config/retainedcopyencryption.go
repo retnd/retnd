@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 
+	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/secretref"
 )
 
@@ -180,6 +181,18 @@ type RetainedCopyEncryption struct {
 
 // Enabled reports whether copies under this policy are to be encrypted.
 func (e RetainedCopyEncryption) Enabled() bool { return e.Mode == RetainedCopyEncryptionRequired }
+
+// EncryptsRetainedCopies reports whether a managed or external key guards
+// this set's retained copies: the set resolves to required AND it is not a
+// kopia-engine set. A kopia set never reaches the artifact copy path where
+// retained_copy_encryption acts; its repository is always encrypted by kopia
+// under the operator's own passphrase, so required on it is satisfied by the
+// repository and layers nothing (ADR 0028 decision 4). The engine, health,
+// metrics and the alert wiring all read this one method so they agree with
+// the web UI. Enabled stays the question "what does the resolved policy say".
+func (b BackupSet) EncryptsRetainedCopies() bool {
+	return b.RetainedCopyEncryption.Enabled() && b.Engine != model.EngineKopia
+}
 
 // RetainedCopyEncryptionIsOverride reports whether this set declares its
 // own block. It is the one sanctioned read of the pointer, and it answers

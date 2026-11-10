@@ -729,3 +729,42 @@ func TestAContentDecryptVerifyReportsPlaintextBytesThroughTheContextHook_1303(t 
 		t.Errorf("an existence check reported %d bytes read", total)
 	}
 }
+
+// A rotation that lands after the destination was verified and before the
+// source is deleted must not cost the verified copy: the re-read before the
+// delete opens it through the key recorded for that copy, not the active one.
+// The medium reports no mod time so the second read really happens (the
+// proof cache would otherwise skip it and the test would pass for no reason).
+// Red if the re-check goes through the active key. Written by reading; not run.
+func TestARotationBetweenVerifyAndDeleteKeepsTheVerifiedCopy_992(t *testing.T) {
+	f := newEncryptedFixture(t, fixtureOpts{})
+	f.medium.noModTime = true
+	var opens int
+	var rotated string
+	f.medium.afterOpen = func(*fakeMedium) {
+		opens++
+		if opens == 1 {
+			k, err := f.keys.Rotate(f.ctx, testNow2)
+			if err != nil {
+				t.Errorf("Rotate: %v", err)
+				return
+			}
+			rotated = k.ID
+		}
+	}
+
+	report := f.runCycle()
+	f.guard.fail()
+	if rotated == "" || rotated == f.ck.ID {
+		t.Fatal("control: no rotation happened between the verify and the delete")
+	}
+	if opens < 2 {
+		t.Fatalf("control: the object was opened %d times, so the pre-delete re-read never ran", opens)
+	}
+	if report.Completed != 1 {
+		t.Fatalf("a rotation after verify threw the verified copy away: %+v (move error %q)", report, f.onlyMove().Error)
+	}
+	if enc, ok := f.encryption(); !ok || enc.KeyID != f.ck.ID {
+		t.Errorf("record = %+v (ok=%v), want the key the copy was written with, %s", enc, ok, f.ck.ID)
+	}
+}

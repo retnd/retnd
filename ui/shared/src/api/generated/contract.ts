@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "eaca18dc0ef5987bd2262763dfd609776c74d9258bce91c53f8e13c7ae4c9123";
+export const CONTRACT_SHA256 = "2237bb10aef104d832411f99e33247024a2276c645881fb7a0cdf46496cd3977";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -3795,6 +3795,10 @@ export interface WireEncryptionSetPolicy {
   is_override: boolean;
   key_provider: WireEncryptionKeyProviderState;
   mode: string;
+  /** "repository" for a kopia-engine set, whose repository kopia
+   *  always encrypts, so required on it layers nothing. Absent for
+   *  every other set. */
+  satisfied_by?: string;
 }
 
 /** POST /auth/enroll. The credentials, and optionally the two things

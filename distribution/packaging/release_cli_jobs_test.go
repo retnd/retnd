@@ -97,7 +97,7 @@ func TestPublishJobNeedsAndPermissionsAreUnchanged(t *testing.T) {
 	if !ok {
 		t.Fatal("no publish job")
 	}
-	if got, want := needsList(p), []string{"decide", "require-release-gate", "compliance-artifacts"}; !reflect.DeepEqual(got, want) {
+	if got, want := needsList(p), []string{"decide", "require-release-gate", "require-epic-n-closed", "compliance-artifacts"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("publish needs = %v, want %v", got, want)
 	}
 	want := map[string]any{"contents": "read", "packages": "write", "id-token": "write"}

@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "eaca18dc0ef5987bd2262763dfd609776c74d9258bce91c53f8e13c7ae4c9123"
+const ContractSHA256 = "2237bb10aef104d832411f99e33247024a2276c645881fb7a0cdf46496cd3977"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -2866,6 +2866,7 @@ type EncryptionSetPolicy struct {
 	IsOverride           bool                       `json:"is_override"`
 	KeyProvider          EncryptionKeyProviderState `json:"key_provider"`
 	Mode                 string                     `json:"mode"`
+	SatisfiedBy          string                     `json:"satisfied_by,omitempty"`
 }
 
 // EnrollRequest is POST /auth/enroll. The credentials, and optionally the two things

@@ -2534,7 +2534,8 @@ function fromWireSetEncryption(w: WireEncryptionSetPolicy): SetEncryption {
     effectiveMode: w.effective_mode as SetEncryption["effectiveMode"],
     isOverride: w.is_override,
     keyProvider: fromWireKeyProvider(w.key_provider),
-    effectiveKeyProvider: fromWireKeyProvider(w.effective_key_provider)
+    effectiveKeyProvider: fromWireKeyProvider(w.effective_key_provider),
+    ...(w.satisfied_by === "repository" ? { satisfiedBy: "repository" as const } : {})
   };
 }
 

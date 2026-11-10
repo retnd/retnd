@@ -9189,6 +9189,10 @@
           },
           "effective_key_provider": {
             "$ref": "#/components/schemas/EncryptionKeyProviderState"
+          },
+          "satisfied_by": {
+            "type": "string",
+            "description": "\"repository\" for a kopia-engine set, whose repository kopia always encrypts, so required on it layers nothing. Absent for every other set."
           }
         },
         "required": [

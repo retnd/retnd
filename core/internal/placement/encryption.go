@@ -18,6 +18,7 @@ import (
 	"github.com/retnd/retnd/core/internal/keycustody"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/secretref"
 	"github.com/retnd/retnd/core/internal/state"
 	"github.com/retnd/retnd/core/internal/transport"
 )
@@ -87,31 +88,37 @@ type Keys interface {
 }
 
 // encryptedSet reports whether the artifact's backup set requires its
-// retained copies to be encrypted.
+// retained copies to be encrypted by this engine. A kopia set is never one:
+// it does not reach this path (app/cycle.go returns into the incremental
+// pipeline first), and its repository is encrypted by kopia itself.
 func (e *Engine) encryptedSet(set model.BackupSetID) (bool, error) {
 	bs, err := e.backupSet(set)
 	if err != nil {
 		return false, err
 	}
-	return bs.RetainedCopyEncryption.Enabled(), nil
+	return bs.EncryptsRetainedCopies(), nil
 }
 
 // activeKey resolves the key new copies of artifact are written under, and
 // proves it can be read before any byte is encrypted. Every failure wraps
 // ErrClassUnavailable. The key row a per-copy record references is the one
 // custody itself wrote: keycustody.JournalRegistry is the encryption_keys
-// table, so nothing here registers anything.
+// table. A managed key's row is written when the key is minted; an external
+// key's row is written by custody (never by this package) the first time its
+// reference resolves, which is externalKey.
 func (e *Engine) activeKey(ctx context.Context, artifact model.ArtifactID) (keycustody.KeyRecord, error) {
 	bs, err := e.backupSet(artifact.Set)
 	if err != nil {
 		return keycustody.KeyRecord{}, err
 	}
-	if !bs.RetainedCopyEncryption.KeyProvider.Managed {
-		return keycustody.KeyRecord{}, fmt.Errorf("%w: backup set %s requires encryption under a key provider this engine cannot resolve yet (only a managed key has a registry row to record copies under)",
-			ErrClassUnavailable, artifact.Set)
-	}
 	if e.Keys == nil {
 		return keycustody.KeyRecord{}, fmt.Errorf("%w: backup set %s requires encryption and no key custody is configured", ErrClassUnavailable, artifact.Set)
+	}
+	if kp := bs.RetainedCopyEncryption.KeyProvider; kp.External != nil {
+		return e.externalKey(ctx, artifact.Set, kp.ExternalRef())
+	}
+	if !bs.RetainedCopyEncryption.KeyProvider.Managed {
+		return keycustody.KeyRecord{}, fmt.Errorf("%w: backup set %s requires encryption and names no key provider", ErrClassUnavailable, artifact.Set)
 	}
 	rec, ok, err := e.Keys.Active(ctx)
 	if err != nil {
@@ -122,6 +129,36 @@ func (e *Engine) activeKey(ctx context.Context, artifact model.ArtifactID) (keyc
 	}
 	if err := e.Keys.WithKey(ctx, rec.ID, func([]byte) error { return nil }); err != nil {
 		return keycustody.KeyRecord{}, fmt.Errorf("%w: key %s does not resolve: %w", ErrClassUnavailable, rec.ID, err)
+	}
+	return rec, nil
+}
+
+// ExternalKeys is what custody adds for an external provider (#1292):
+// resolving the reference once, checking it is a key of the format and
+// returning its registry row, adding the row on first use. *keycustody.Store
+// satisfies it. A Keys that does not is a custody that cannot back an
+// external provider, and the copy is refused.
+type ExternalKeys interface {
+	RegisterExternal(ctx context.Context, ref secretref.Ref, now time.Time) (keycustody.KeyRecord, error)
+}
+
+// externalKey is activeKey for a set whose provider is an external
+// reference. The reference is resolved inside custody's callback only, so it
+// is proved readable, and its row exists, before any byte is encrypted. A
+// reference that does not resolve, is not a key of the format or has changed
+// registers nothing and is ErrClassUnavailable, like a managed key that
+// cannot be read.
+func (e *Engine) externalKey(ctx context.Context, set model.BackupSetID, ref secretref.Ref) (keycustody.KeyRecord, error) {
+	ek, ok := e.Keys.(ExternalKeys)
+	if !ok {
+		return keycustody.KeyRecord{}, fmt.Errorf("%w: backup set %s requires encryption under an external key and this key custody cannot register one", ErrClassUnavailable, set)
+	}
+	rec, err := ek.RegisterExternal(ctx, ref, e.now())
+	if err != nil {
+		return keycustody.KeyRecord{}, fmt.Errorf("%w: %w: the external key from %s: %w", ErrClassUnavailable, ErrKeyUnresolvable, ref, err)
+	}
+	if err := e.Keys.WithKey(ctx, rec.ID, func([]byte) error { return nil }); err != nil {
+		return keycustody.KeyRecord{}, fmt.Errorf("%w: %w: key %s does not resolve: %w", ErrClassUnavailable, ErrKeyUnresolvable, rec.ID, err)
 	}
 	return rec, nil
 }

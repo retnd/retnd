@@ -147,6 +147,14 @@ describe("the per-set control", () => {
     const group = await screen.findByRole("radiogroup", { name: "Encryption for this set" });
     for (const r of within(group).getAllByRole("radio")) expect(r).toBeDisabled();
     expect(onPage(/already encrypted by the kopia engine/).length).toBe(1);
+    // #1296: the sentence is the one `retnd encryption policy show` prints from the API's
+    // satisfied_by field (core/service SatisfiedByRepositoryStatement, pinned to this file by
+    // a Go test), so a rewording on either side has to move both.
+    expect(
+      document.querySelector("[data-engine-statement]")?.textContent?.trim()
+    ).toBe(
+      "This set's repository is already encrypted by the kopia engine under its repository passphrase. Required on such a set is satisfied by that and layers nothing."
+    );
     // The disabled control is a statement of fact: it is not wrapped in a pop-up host.
     expect(group.closest("[aria-describedby]")).toBeNull();
   });

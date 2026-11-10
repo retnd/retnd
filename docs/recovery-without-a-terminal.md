@@ -429,28 +429,41 @@ nothing can recreate the key.
 ### What to do
 
 This is the one procedure here that needs a terminal, on the machine you recover on, because
-the deployment that would have offered a button is the thing that is gone.
+the deployment that would have offered a button is the thing that is gone. You need the
+`retnd` binary, the encrypted object, its sidecar and the bundle. You do not need the
+deployment, its configuration or its state database.
 
 1. Find the bundle for the key id the sidecar names. Its `digest` field should be the
    digest you were shown when you exported it (the export receipt prints the same value).
-   That compares the file with what you saved; it does not recompute anything for you.
-2. Put the bundle's key in a file only you can read, on the machine you are recovering on.
-   The key is the value of the bundle's `material` field, one line that starts
-   `AGE-SECRET-KEY-1`. The bundle itself is JSON, so copy that one line out into
-   `key.txt` rather than pointing `age` at the bundle.
-3. Open the copy with the `age` command line tool from any package manager, which reads
-   the same format:
-   `age -d -i key.txt <object> > <artifact-name>`
-   This build of the product has no command of its own that decrypts a copy, so `age` is
-   the way. (The bundle's own printed instructions mention the shipped binary doing it; that
-   is ahead of the code today, and the `age` line above is the one that works.)
-4. Compare the result with the plaintext digest the sidecar records
-   (`plaintext_digest`, with the algorithm it names). A match is the proof the copy opened
-   to the artifact; no match means you used the wrong key or the object is damaged.
+   That compares the file with what you saved; `retnd` also refuses a bundle whose digest
+   does not cover its contents, so an edited file stops here.
+2. Open the copy:
+   `retnd encryption decrypt <object> --bundle <bundle.json> --sidecar <sidecar.json> --out <artifact-name>`
+   It hashes the object first and compares that with the stored-bytes digest the sidecar
+   records, so a cut-short or altered copy is refused before the key is touched. It then
+   decrypts, and it creates `<artifact-name>` only after every chunk authenticated and the
+   plaintext digest equals the sidecar's `plaintext_digest`. A failure leaves no file at all,
+   not even a short one. It will not overwrite a file that is already there and it has no
+   way to write the artifact to the screen. It never prints the key.
+3. Read the refusal if there is one. "does not open this object" is the wrong key (check the
+   `key_id` the sidecar names against the bundle), "failed authentication" is a copy that was
+   cut short or altered, and a digest message names which digest, plaintext or stored, did
+   not match.
+4. Optionally, to make a deployment know the key so that its copies resolve there, run
+   `retnd encryption key import --bundle <bundle.json>` against it. The key is registered as
+   superseded (it opens old copies; new copies keep using the active key), the bundle counts
+   as confirmed, and running it twice changes nothing. It needs the deployment's own journal,
+   so it is refused while an engine is serving it.
 
-Write the output to a temporary name and rename it once the command has finished. `age`
-releases each authenticated chunk as it goes, so an interrupted run leaves a short file that
-looks like an artifact and is not.
+**The independent route.** If you would rather not trust this binary with the key, or you do
+not have it, the copy is an `age` v1 file and the `age` command line tool from any package
+manager reads it. Copy the bundle's `material` field (one line that starts `AGE-SECRET-KEY-1`)
+into `key.txt`, readable only by you, then:
+`age -d -i key.txt <object> > <artifact-name>.tmp`
+This checks neither digest for you, so compare the result with the sidecar's
+`plaintext_digest` and rename it only when they match. `age` releases each authenticated chunk
+as it goes, so an interrupted run leaves a short file that looks like an artifact and is not,
+which is the reason for the temporary name.
 
 There is no way back if the bundle and the host are both gone. How to keep the bundle, what
 rotation does to it, and what the copies cost are in

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/retnd/retnd/core/internal/capacity"
@@ -199,10 +200,7 @@ func (s *Service) BuildHealthReport(ctx context.Context, versionInfo VersionInfo
 		return health.Report{}, err
 	}
 	report.RetainedCount = retained
-	kc, err := s.keyCustodyHealth(ctx)
-	if err != nil {
-		return health.Report{}, err
-	}
+	kc := s.keyCustodyHealth(ctx)
 	report.KeyCustody = kc
 	return report, nil
 }
@@ -210,28 +208,37 @@ func (s *Service) BuildHealthReport(ctx context.Context, versionInfo VersionInfo
 // keyCustodyHealth is health.Report.KeyCustody (EPIC N, FR-66). A
 // deployment with no custodian wired, or one that encrypts nothing and holds
 // no keys, gets the zero section, which reads "this deployment encrypts
-// nothing". An error is a failed report rather than that zero: a registry
-// that could not be asked must not read as nothing to report.
-func (s *Service) keyCustodyHealth(ctx context.Context) (health.KeyCustodyHealth, error) {
+// nothing". A custodian that cannot be read degrades only this section
+// (Unevaluated says why): failing the report would silence the alert pass
+// behind it for every other condition.
+func (s *Service) keyCustodyHealth(ctx context.Context) health.KeyCustodyHealth {
 	custody, ok := s.Keys.(interface {
 		Health(ctx context.Context, enabled bool) (health.KeyCustodyHealth, error)
 	})
 	if !ok {
-		return health.KeyCustodyHealth{}, nil
+		return health.KeyCustodyHealth{}
 	}
 	enabled := false
 	for _, src := range s.Config.Sources {
 		for _, bs := range src.BackupSets {
-			if bs.RetainedCopyEncryption.Enabled() {
+			if bs.EncryptsRetainedCopies() {
 				enabled = true
 			}
 		}
 	}
 	h, err := custody.Health(ctx, enabled)
 	if err != nil {
-		return health.KeyCustodyHealth{}, fmt.Errorf("app: health: key custody: %w", err)
+		reason := strings.Join(strings.Fields(err.Error()), " ")
+		return health.KeyCustodyHealth{Enabled: enabled, Unevaluated: reason}
 	}
-	return h, nil
+	// A dropped external reference strands the copies under its key (#1304).
+	// This is the alert tick's last probe, read as it stands: a health build
+	// runs on every request and must never resolve a reference, a command
+	// reference least of all.
+	if r, ok := s.Keys.(externalKeyRisks); ok {
+		h.ExternalKeysAtRisk = r.LastExternalKeysAtRisk()
+	}
+	return h
 }
 
 // retainedCount is the deployment's figure for the sidebar's Backups badge

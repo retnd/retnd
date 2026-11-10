@@ -384,10 +384,12 @@ make_full_tree() {
   for t in first-run-report pin-on-main every-module-builds-on-its-own \
     release-refuses-an-ungated-publish local-gate-reference \
     release-moves-latest two-machine-ci-verdict record-published-release \
-    publish-image-guards published-provenance-guards; do
+    publish-image-guards published-provenance-guards epic-n-closure; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$t.test.sh"
   done
   mkdir -p "$tree/scripts/release"
+  # ci-docker.sh --host test (#1267): stand-ins and a fixture checkout, none of which a synthetic tree has.
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/ci-docker-remote.test.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/release/check-published-provenance.sh"
 
   # EPIC E's FR-35 compatibility mutation self-test (#242), stubbed for the
@@ -517,6 +519,7 @@ make_full_tree() {
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$guard.test.sh"
   done
   mkdir -p "$tree/scripts/release"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/ci-docker-remote.test.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/release/check-published-provenance.sh"
 
   # The installer's unit tests (#262), which the gate runs by `cd`-ing into
