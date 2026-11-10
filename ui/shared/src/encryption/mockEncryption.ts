@@ -78,19 +78,19 @@ function suitesFor(scenario: string): EncryptionSuite[] {
     {
       id: PQ, version: 1, status: "supported", isDefault: true,
       description: canary ? PQ_CANARY : "age v1 with a hybrid ML-KEM-768 and X25519 recipient; 128-bit security level.",
-      retiredIn: null, reason: null, activeCopies: lifecycle ? 4 : 0, keys: 1
+      retirementVersion: null, activeCopies: lifecycle ? 4 : 0, keys: 1
     },
     {
       id: AGE, version: 1, status: lifecycle ? "deprecated" : "supported", isDefault: false,
       description: "age v1 with an X25519 recipient; 128-bit security level.",
-      retiredIn: lifecycle ? "0.9.0" : null, reason: null, activeCopies: lifecycle ? 12 : 0, keys: scenario === "encryption-suite-change" || lifecycle ? 1 : 0
+      retirementVersion: lifecycle ? "0.9.0" : null, activeCopies: lifecycle ? 12 : 0, keys: scenario === "encryption-suite-change" || lifecycle ? 1 : 0
     }
   ];
   if (lifecycle || canary || scenario === "encryption-suite-change") {
     list.push({
       id: RETIRED, version: 1, status: "retired", isDefault: false,
-      description: "A suite this mock retired, to draw the retired state.",
-      retiredIn: null, reason: canary ? PQ_CANARY : "Retired in 0.8.0.", activeCopies: lifecycle ? 3 : 0, keys: lifecycle ? 1 : 0
+      description: canary ? PQ_CANARY : "A suite this mock retired, to draw the retired state.",
+      retirementVersion: canary ? PQ_CANARY : "0.8.0", activeCopies: lifecycle ? 3 : 0, keys: lifecycle ? 1 : 0
     });
   }
   return list;
@@ -343,11 +343,15 @@ export function createMockEncryption(scenario: string, setIds: () => string[]) {
         artifactId: "production/postgres-primary/postgres-prod-202608" + String(10 + i) + ".dump.zst",
         medium: "offsite_s3", suite: req.suite ?? "", keyId: key,
         to: i < n - 2 || req.suite !== AGE ? req.to ?? "offsite_cold" : null,
-        refusal: i < n - 2 || req.suite !== AGE ? null : "same medium only: offsite_cold already holds this backup, and a copy is never rewritten in place"
+        refusal: i < n - 2 || req.suite !== AGE ? null : "same_medium",
+        reason: i < n - 2 || req.suite !== AGE ? null : "same medium only: offsite_cold already holds this backup, and a copy is never rewritten in place"
       }));
       return later({ copies });
     },
-    startReencrypt: () => later({ operationId: "mock-reencrypt" })
+    startReencrypt: (req) => {
+      if (!req.to) return Promise.reject(new RetndError({ code: "INVALID_REQUEST", message: "A re-encryption names the medium the new copies go to.", status: 400 }));
+      return later({ backupSetId: "production/postgres-primary", operationId: "mock-reencrypt" });
+    }
   };
   return methods;
 }

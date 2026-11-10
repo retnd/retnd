@@ -256,7 +256,7 @@ cases("encryption/encryptionCommands", [
   ["keyRotateCommand", "to another suite", "age-pq/v1"],
   ["reencryptCommand", "a suite, dry run", { suite: "age/v1", dryRun: true }],
   ["reencryptCommand", "a suite to a medium", { suite: "age/v1", to: "offsite_cold" }],
-  ["reencryptCommand", "a key", { key: "mk-2026-08-14-a" }],
+  ["reencryptCommand", "a key to a medium", { key: "mk-2026-08-14-a", to: "offsite_cold" }],
   ["reencryptCommand", "every deprecated suite, dry run", { deprecated: true, dryRun: true }],
   ["reencryptCommand", "hostile values", { suite: HOSTILE, to: HOSTILE }]
 ]);

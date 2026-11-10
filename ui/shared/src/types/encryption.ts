@@ -79,10 +79,9 @@ export interface EncryptionSuite {
   status: SuiteStatus;
   isDefault: boolean;
   description: string;
-  /** The version a deprecated suite retires in, null otherwise. */
-  retiredIn: string | null;
-  /** Why a retired suite cannot be chosen, as the engine words it. */
-  reason: string | null;
+  /** The version a deprecated suite's retirement is announced for, or the
+   *  version that retired a retired one (T2.1); null for a supported suite. */
+  retirementVersion: string | null;
   activeCopies: number;
   keys: number;
 }
@@ -92,7 +91,8 @@ export interface ReencryptRequest {
   suite?: string;
   key?: string;
   deprecated?: boolean;
-  /** The destination medium; the engine picks one when absent. */
+  /** The destination medium. On a dry run the engine shows the first other
+   *  medium when absent; a run needs one. */
   to?: string;
 }
 
@@ -103,9 +103,11 @@ export interface ReencryptPlanCopy {
   suite: string;
   keyId: string;
   to: string | null;
-  /** The engine's refusal for this copy (same medium only, key unavailable,
-   *  already current), null when it can move. */
+  /** The engine's refusal code for this copy (same medium only, key
+   *  unavailable, already current), null when it would move. */
   refusal: string | null;
+  /** The engine's sentence for the refusal. */
+  reason: string | null;
 }
 
 export interface ReencryptPlan {
@@ -113,6 +115,7 @@ export interface ReencryptPlan {
 }
 
 export interface ReencryptStart {
+  backupSetId: string;
   operationId: string;
 }
 

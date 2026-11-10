@@ -70,7 +70,7 @@ function renderWith(api: RetndApi, ui: React.ReactNode) {
 const suite = (over: Partial<EncryptionSuite>): EncryptionSuite => ({
   id: "age/v1", version: 1, status: "supported", isDefault: false,
   description: "age v1 with an X25519 recipient; 128-bit security level.",
-  retiredIn: null, reason: null, activeCopies: 0, keys: 0, ...over
+  retirementVersion: null, activeCopies: 0, keys: 0, ...over
 });
 
 describe("field help and the registry (#1318)", () => {
@@ -130,14 +130,14 @@ describe("the client over the suite routes (#1318)", () => {
   it("maps GET /encryption/suites and keeps an unknown status as no status rather than the nearest one", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json({
       suites: [
-        { id: "age-pq/v1", version: 1, status: "supported", default: true, description: "d1", active_copies: 4, keys: 1 },
-        { id: "age/v1", version: 1, status: "deprecated", default: false, description: "d2", retired_in: "0.9.0", active_copies: 12, keys: 1 },
-        { id: "x/v1", version: 1, status: "sunset", default: false, description: "d3", active_copies: 0, keys: 0 }
+        { id: "age-pq/v1", version: 1, status: "supported", default: true, describe: "d1", active_copies: 4, keys: 1 },
+        { id: "age/v1", version: 1, status: "deprecated", default: false, describe: "d2", retirement_version: "0.9.0", active_copies: 12, keys: 1 },
+        { id: "x/v1", version: 1, status: "sunset", default: false, describe: "d3", active_copies: 0, keys: 0 }
       ]
     })));
     const s = await httpApi.listEncryptionSuites();
-    expect(s[0]).toEqual({ id: "age-pq/v1", version: 1, status: "supported", isDefault: true, description: "d1", retiredIn: null, reason: null, activeCopies: 4, keys: 1 });
-    expect(s[1].retiredIn).toBe("0.9.0");
+    expect(s[0]).toEqual({ id: "age-pq/v1", version: 1, status: "supported", isDefault: true, description: "d1", retirementVersion: null, activeCopies: 4, keys: 1 });
+    expect(s[1].retirementVersion).toBe("0.9.0");
     expect(s[2].status).toBe("unknown");
   });
 
@@ -155,6 +155,25 @@ describe("the client over the suite routes (#1318)", () => {
     expect(p.rotateCommand).toBe("retnd encryption key rotate --suite age-pq/v1");
   });
 
+  it("asks for the dry run with GET and starts the run with the one destination it names", async () => {
+    const fetch = vi.fn(async (url: string) => json(String(url).includes("?")
+      ? { groups: [{ suite_id: "age/v1", key_id: "k0", candidates: [
+          { artifact_id: "a/b/c", source_medium: "offsite_s3", destination_medium: "offsite_cold", verdict: "would_reencrypt" },
+          { artifact_id: "a/b/d", source_medium: "offsite_cold", verdict: "refused", refusal: "same_medium", reason: "same medium only" }
+        ] }], would_reencrypt: 1, refused: 1 }
+      : { backup_set_id: "a/b", operation_id: "op-1" }));
+    vi.stubGlobal("fetch", fetch);
+    const plan = await httpApi.planReencrypt({ suite: "age/v1" });
+    expect(String((fetch.mock.calls[0] as unknown as [string, RequestInit])[0])).toMatch(/\/encryption\/reencrypt\?suite=age%2Fv1$/);
+    expect(plan.copies).toEqual([
+      { artifactId: "a/b/c", medium: "offsite_s3", suite: "age/v1", keyId: "k0", to: "offsite_cold", refusal: null, reason: null },
+      { artifactId: "a/b/d", medium: "offsite_cold", suite: "age/v1", keyId: "k0", to: null, refusal: "same_medium", reason: "same medium only" }
+    ]);
+    const started = await httpApi.startReencrypt({ suite: "age/v1", to: "offsite_cold" });
+    expect(JSON.parse(String((fetch.mock.calls[1] as unknown as [string, RequestInit])[1].body))).toEqual({ suite_id: "age/v1", destination_medium: "offsite_cold" });
+    expect(started).toEqual({ backupSetId: "a/b", operationId: "op-1" });
+  });
+
   it("sends the suite on a rotation and drops a recipient the answer carries", async () => {
     const fetch = vi.fn(async () => json({
       id: "mk-2026-11-10-b", status: "active", created_at: "2026-11-10T09:00:00Z", resolvable: true, resolvability: "resolves",
@@ -162,7 +181,8 @@ describe("the client over the suite routes (#1318)", () => {
     }));
     vi.stubGlobal("fetch", fetch);
     const k = await httpApi.rotateEncryptionKey("age-pq/v1");
-    expect(JSON.parse(String((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body))).toEqual({ suite: "age-pq/v1" });
+    // T1.5 takes the suite as a query parameter on the rotate route.
+    expect(String((fetch.mock.calls[0] as unknown as [string, RequestInit])[0])).toMatch(/\/encryption\/keys\/rotate\?suite=age-pq%2Fv1$/);
     expect(k.suite).toBe("age-pq/v1");
     expect(JSON.stringify(k)).not.toContain("CANARY1318TAIL");
   });
@@ -219,18 +239,24 @@ describe("the suite on every encrypted copy (#1318)", () => {
 });
 
 describe("the health rows (#1318)", () => {
-  it("speaks T2.1's sentence for a deprecated and a retired suite", () => {
-    expect(suiteHealthSentence(suite({ status: "deprecated", retiredIn: "0.9.0", activeCopies: 12, keys: 1 }), false)).toBe(
-      "12 active copies are under a deprecated suite (age/v1); retirement is announced for version 0.9.0."
+  it("speaks T2.1's sentence, word for word what suiteVerdict writes", () => {
+    expect(suiteHealthSentence(suite({ status: "deprecated", retirementVersion: "0.9.0", activeCopies: 12, keys: 1 }), false)).toBe(
+      "12 active copies are under age/v1, a deprecated suite; retirement announced for version 0.9.0"
     );
-    expect(suiteHealthSentence(suite({ status: "deprecated", retiredIn: "0.9.0", activeCopies: 1, keys: 1 }), true)).toBe(
-      "1 active copy and the active key are under a deprecated suite (age/v1); retirement is announced for version 0.9.0."
+    expect(suiteHealthSentence(suite({ status: "deprecated", retirementVersion: "0.9.0", activeCopies: 1, keys: 1 }), true)).toBe(
+      "1 active copies and the active key are under age/v1, a deprecated suite; retirement announced for version 0.9.0"
     );
-    expect(suiteHealthSentence(suite({ id: "mock-retired/v1", status: "retired", activeCopies: 3, keys: 1 }), false)).toBe(
-      "3 active copies are under a retired suite (mock-retired/v1); it reads and never writes."
+    expect(suiteHealthSentence(suite({ status: "deprecated", activeCopies: 2, keys: 1 }), false)).toBe(
+      "2 active copies are under age/v1, a deprecated suite; no retirement version is announced yet"
+    );
+    expect(suiteHealthSentence(suite({ id: "mock-retired/v1", status: "retired", retirementVersion: "0.8.0", activeCopies: 3, keys: 1 }), false)).toBe(
+      "3 active copies record mock-retired/v1, retired in 0.8.0; they still read, and re-encrypting them under the active suite clears this"
+    );
+    expect(suiteHealthSentence(suite({ id: "mock-retired/v1", status: "retired", activeCopies: 0, keys: 1 }), true)).toBe(
+      "the active key is under mock-retired/v1, retired; new copies are refused until the key is rotated to another suite"
     );
     expect(suiteHealthSentence(suite({ status: "supported", activeCopies: 40 }), true)).toBeNull();
-    expect(suiteHealthSentence(suite({ status: "deprecated", retiredIn: "0.9.0", activeCopies: 0, keys: 0 }), false)).toBeNull();
+    expect(suiteHealthSentence(suite({ status: "deprecated", retirementVersion: "0.9.0", activeCopies: 0, keys: 0 }), false)).toBeNull();
   });
 
   it("draws a row per deprecated or retired suite still recorded, and opens the dry run first", async () => {
@@ -251,7 +277,7 @@ describe("the health rows (#1318)", () => {
     const dialog = await screen.findByRole("dialog", { name: "Re-encrypt under current suite" });
     const run = await within(dialog).findByRole("button", { name: /^Re-encrypt \d+ copies$/ });
     await user.click(run);
-    expect(start).toHaveBeenCalledWith(expect.objectContaining({ suite: "age/v1" }));
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ suite: "age/v1", to: "offsite_cold" }));
   });
 
   it("draws nothing when every recorded suite is supported", async () => {

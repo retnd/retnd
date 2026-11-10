@@ -165,10 +165,10 @@ test.describe("#1318 health-tile-shows-deprecated-counts", () => {
     await open(page, "/", "encryption-suite-lifecycle");
     const h = page.locator("[data-encryption-health]");
     await expect(h.locator('[data-suite-health="age/v1"]')).toContainText(
-      "12 active copies are under a deprecated suite (age/v1); retirement is announced for version 0.9.0."
+      "12 active copies are under age/v1, a deprecated suite; retirement announced for version 0.9.0"
     );
     await expect(h.locator('[data-suite-health="mock-retired/v1"]')).toContainText(
-      "3 active copies are under a retired suite (mock-retired/v1); it reads and never writes."
+      "3 active copies record mock-retired/v1, retired in 0.8.0; they still read, and re-encrypting them under the active suite clears this"
     );
   });
 
@@ -181,7 +181,7 @@ test.describe("#1318 health-tile-shows-deprecated-counts", () => {
     await expect(dlg.getByText(/same medium only/)).toBeVisible();
     const run = dlg.getByRole("button", { name: /^Re-encrypt \d+ copies$/ });
     await expect(run).toBeEnabled();
-    await expect(dlg.getByText("retnd encryption reencrypt --suite age/v1", { exact: true })).toBeVisible();
+    await expect(dlg.getByText("retnd encryption reencrypt --suite age/v1 --to offsite_cold", { exact: true })).toBeVisible();
     await run.click();
     await expect(dlg.getByText(/Started/)).toBeVisible();
   });

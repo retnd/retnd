@@ -44,7 +44,7 @@ import "./encryption.css";
 
 function badgeOf(s: EncryptionSuite): { kind: string; label: string } | null {
   if (s.status === "retired") return { kind: "retired", label: "Retired" };
-  if (s.status === "deprecated") return { kind: "deprecated", label: "Deprecated" + (s.retiredIn ? ", retiring in " + s.retiredIn : "") };
+  if (s.status === "deprecated") return { kind: "deprecated", label: "Deprecated" + (s.retirementVersion ? ", retiring in " + s.retirementVersion : "") };
   if (s.status === "supported") return s.isDefault ? { kind: "default", label: "Default" } : { kind: "supported", label: "Supported" };
   // A status this build has never heard of draws no badge, never a guess.
   return null;
@@ -105,7 +105,7 @@ export function SuiteChoice({
                   </span>
                   {retired ? (
                     <span className="esuite__reason" data-suite-reason="">
-                      {(s.reason ? clipText(s.reason) + " " : "") + "Copies under it still read; nothing new is written under it."}
+                      {(s.retirementVersion ? "Retired in " + clipText(s.retirementVersion) + ". " : "") + "Copies under it still read; nothing new is written under it."}
                     </span>
                   ) : null}
                 </div>

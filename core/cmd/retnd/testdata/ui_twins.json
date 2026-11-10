@@ -31,7 +31,7 @@
     },
     {
       "path": "ui/shared/src/test/cliTwins.test.ts",
-      "sha256": "b42e017307692a31cf7798ff6b9219223ca3f624b88452458d8ce78e16549f2c"
+      "sha256": "842437fd86d4847ff42675af89336cad8d8f290b338a915133e5882e596006c8"
     }
   ],
   "twins": [
@@ -590,8 +590,8 @@
     {
       "module": "encryption/encryptionCommands",
       "fn": "reencryptCommand",
-      "case": "a key",
-      "line": "retnd encryption reencrypt --key mk-2026-08-14-a"
+      "case": "a key to a medium",
+      "line": "retnd encryption reencrypt --key mk-2026-08-14-a --to offsite_cold"
     },
     {
       "module": "encryption/encryptionCommands",

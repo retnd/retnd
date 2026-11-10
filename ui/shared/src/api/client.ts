@@ -132,6 +132,10 @@ import type {
   WireEncryptionSetPolicy,
   WireListEncryptionCopiesResponse,
   WireListEncryptionKeysResponse,
+  WireListEncryptionSuitesResponse,
+  WireEncryptionSuite,
+  WireReencryptPlan,
+  WireStartReencryptRequest,
   WireRecoveryBundle,
   WireStartDecryptVerifyRequest,
   WireAssuranceOperationCancelled,
@@ -2545,86 +2549,56 @@ function fromWireSetEncryption(w: WireEncryptionSetPolicy): SetEncryption {
   };
 }
 
-// EPIC T (#1318): the suite fields T1.5 adds to the policy and key bodies,
-// the registry route, and T2.2's re-encrypt operation. They are spelled here
-// as the issues fix them; once the regenerated bindings carry them, these
-// local shapes give way to the generated Wire* names.
-interface WireSuiteFields {
-  suite?: string;
-  suite_configured?: string;
-  rotation_needed?: boolean;
-  rotate_command?: string;
-}
-
-interface WireEncryptionSuite {
-  id: string;
-  version: number;
-  status: string;
-  default: boolean;
-  description: string;
-  retired_in?: string;
-  reason?: string;
-  active_copies?: number;
-  keys?: number;
-}
-
-interface WireReencryptCopy {
-  artifact_id: string;
-  medium: string;
-  suite: string;
-  key_id: string;
-  to?: string;
-  refusal?: string;
-}
-
-interface WireReencryptRequest {
-  suite?: string;
-  key?: string;
-  deprecated?: boolean;
-  to?: string;
-  dry_run?: boolean;
-}
-
+// EPIC T (#1318): the suite registry (T1.5, with T2.1's retirement
+// version) and the re-encrypt dry run and run (T2.2), from the generated
+// bindings. A suite status this build has never heard of draws as no status,
+// never as its nearest neighbour.
 const SUITE_STATUSES = new Set(["supported", "deprecated", "retired"]);
 
 function fromWireEncryptionSuite(w: WireEncryptionSuite): EncryptionSuite {
   return {
     id: w.id,
     version: w.version,
-    // A status this build has never heard of draws as no status, never as
-    // its nearest neighbour.
     status: (SUITE_STATUSES.has(w.status) ? w.status : "unknown") as SuiteStatus,
     isDefault: w.default === true,
-    description: w.description ?? "",
-    retiredIn: w.retired_in ?? null,
-    reason: w.reason ?? null,
+    description: w.describe ?? "",
+    retirementVersion: w.retirement_version ?? null,
     activeCopies: w.active_copies ?? 0,
     keys: w.keys ?? 0
   };
 }
 
-function fromWireReencryptCopy(w: WireReencryptCopy): ReencryptPlanCopy {
-  return {
-    artifactId: w.artifact_id,
-    medium: w.medium,
-    suite: w.suite,
-    keyId: w.key_id,
-    to: w.to ?? null,
-    refusal: w.refusal ?? null
-  };
+/** The plan's groups (suite, then key) flattened to one row per copy. */
+function fromWireReencryptPlan(w: WireReencryptPlan): ReencryptPlan {
+  const copies: ReencryptPlanCopy[] = [];
+  for (const g of w.groups ?? []) {
+    for (const c of g.candidates ?? []) {
+      copies.push({
+        artifactId: c.artifact_id,
+        medium: c.source_medium,
+        suite: g.suite_id,
+        keyId: g.key_id,
+        to: c.destination_medium ?? null,
+        refusal: c.verdict === "would_reencrypt" ? null : c.refusal ?? c.verdict,
+        reason: c.reason ?? null
+      });
+    }
+  }
+  return { copies };
 }
 
-function toWireReencrypt(req: ReencryptRequest, dryRun: boolean): WireReencryptRequest {
-  return {
-    ...(req.suite ? { suite: req.suite } : {}),
-    ...(req.key ? { key: req.key } : {}),
-    ...(req.deprecated ? { deprecated: true } : {}),
-    ...(req.to ? { to: req.to } : {}),
-    ...(dryRun ? { dry_run: true } : {})
-  };
+function reencryptQuery(req: ReencryptRequest): string {
+  const q = new URLSearchParams();
+  if (req.suite) q.set("suite", req.suite);
+  if (req.key) q.set("key", req.key);
+  if (req.deprecated) q.set("deprecated", "true");
+  if (req.to) q.set("destination", req.to);
+  return q.toString();
 }
 
-function fromWireEncryptionPolicy(w: WireEncryptionPolicy & WireSuiteFields): EncryptionPolicy {
+const suiteQuery = (suite?: string) => (suite ? "?suite=" + encodeURIComponent(suite) : "");
+
+function fromWireEncryptionPolicy(w: WireEncryptionPolicy): EncryptionPolicy {
   return {
     mode: w.mode as EncryptionPolicy["mode"],
     keyProvider: fromWireKeyProvider(w.key_provider),
@@ -2635,7 +2609,7 @@ function fromWireEncryptionPolicy(w: WireEncryptionPolicy & WireSuiteFields): En
   };
 }
 
-function fromWireEncryptionKey(w: WireEncryptionKeyStatus & { suite?: string }): EncryptionKey {
+function fromWireEncryptionKey(w: WireEncryptionKeyStatus): EncryptionKey {
   return {
     id: w.id,
     // An unrecognised status is kept as the word it is, so a lookup keyed on
@@ -4652,12 +4626,12 @@ export const httpApi: RetndApi = {
 
   getEncryptionPolicy: () => request<WireEncryptionPolicy>("/encryption/policy").then(fromWireEncryptionPolicy),
   patchEncryptionPolicy: (patch) => {
-    const body: WireEncryptionPolicyPatch & { suite?: string } = {
+    const body: WireEncryptionPolicyPatch = {
       ...(patch.mode !== undefined ? { mode: patch.mode } : {}),
       ...(patch.keyProvider !== undefined ? { key_provider: toWireKeyProvider(patch.keyProvider) } : {}),
       ...(patch.suite !== undefined ? { suite: patch.suite } : {})
     };
-    return request<WireEncryptionPolicy & WireSuiteFields>("/encryption/policy", { method: "PATCH", body: JSON.stringify(body) }).then(
+    return request<WireEncryptionPolicy>("/encryption/policy", { method: "PATCH", body: JSON.stringify(body) }).then(
       fromWireEncryptionPolicy
     );
   },
@@ -4680,15 +4654,9 @@ export const httpApi: RetndApi = {
   listEncryptionKeys: () =>
     request<WireListEncryptionKeysResponse>("/encryption/keys").then((r) => (r.keys ?? []).map(fromWireEncryptionKey)),
   createEncryptionKey: (suite) =>
-    request<WireEncryptionKeyStatus>("/encryption/keys", {
-      method: "POST",
-      ...(suite ? { body: JSON.stringify({ suite }) } : {})
-    }).then(fromWireEncryptionKey),
+    request<WireEncryptionKeyStatus>("/encryption/keys" + suiteQuery(suite), { method: "POST" }).then(fromWireEncryptionKey),
   rotateEncryptionKey: (suite) =>
-    request<WireEncryptionKeyStatus>("/encryption/keys/rotate", {
-      method: "POST",
-      ...(suite ? { body: JSON.stringify({ suite }) } : {})
-    }).then(fromWireEncryptionKey),
+    request<WireEncryptionKeyStatus>("/encryption/keys/rotate" + suiteQuery(suite), { method: "POST" }).then(fromWireEncryptionKey),
   retireEncryptionKey: (id) =>
     request<WireEncryptionKeyStatus>(encryptionKeyPath(id) + "/retire", { method: "POST" }).then(fromWireEncryptionKey),
   exportRecoveryBundle: (id, opts) =>
@@ -4727,15 +4695,21 @@ export const httpApi: RetndApi = {
     }));
   },
   listEncryptionSuites: () =>
-    request<{ suites?: WireEncryptionSuite[] }>("/encryption/suites").then((r) => (r.suites ?? []).map(fromWireEncryptionSuite)),
-  planReencrypt: (req): Promise<ReencryptPlan> =>
-    request<{ copies?: WireReencryptCopy[] }>("/encryption/reencrypt", {
-      method: "POST",
-      body: JSON.stringify(toWireReencrypt(req, true))
-    }).then((r) => ({ copies: (r.copies ?? []).map(fromWireReencryptCopy) })),
-  startReencrypt: (req) =>
-    request<{ operation_id: string }>("/encryption/reencrypt", {
-      method: "POST",
-      body: JSON.stringify(toWireReencrypt(req, false))
-    }).then((r) => ({ operationId: r.operation_id }))
+    request<WireListEncryptionSuitesResponse>("/encryption/suites").then((r) => (r.suites ?? []).map(fromWireEncryptionSuite)),
+  planReencrypt: (req) => {
+    const q = reencryptQuery(req);
+    return request<WireReencryptPlan>("/encryption/reencrypt" + (q ? "?" + q : "")).then(fromWireReencryptPlan);
+  },
+  startReencrypt: (req) => {
+    const body: WireStartReencryptRequest = {
+      destination_medium: req.to ?? "",
+      ...(req.suite ? { suite_id: req.suite } : {}),
+      ...(req.key ? { key_id: req.key } : {}),
+      ...(req.deprecated ? { deprecated: true } : {})
+    };
+    return request<WireScrubStarted>("/encryption/reencrypt", { method: "POST", body: JSON.stringify(body) }).then((r) => ({
+      backupSetId: r.backup_set_id,
+      operationId: r.operation_id
+    }));
+  }
 };

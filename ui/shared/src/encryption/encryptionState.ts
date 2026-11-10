@@ -142,20 +142,33 @@ export function artifactsUnderKey<T extends { placements: readonly Pick<BackupPl
 }
 
 /**
- * T2.1's health sentence for one suite (EPIC T, #1318), or null when the
- * suite says nothing: a supported suite, or a deprecated or retired one that
- * no active copy and no key records any more. `activeKeyUnderIt` is whether
- * the active managed key belongs to this suite.
+ * T2.1's health sentence for one suite (EPIC T, #1318), word for word what
+ * core/internal/keycustody/suitehealth.go's suiteVerdict writes into
+ * health.Report.KeyCustody.Suites[].Reason, or null where it writes none: a
+ * supported suite, or a deprecated or retired one nothing still needs. The
+ * health section is not on the wire, so the tile composes the same sentence
+ * from the registry's counts; a change on either side changes both.
+ * `activeKeyUnderIt` is SuiteHealth.ActiveKey: the active key is this suite's.
  */
 export function suiteHealthSentence(s: EncryptionSuite, activeKeyUnderIt: boolean): string | null {
-  if (s.status !== "deprecated" && s.status !== "retired") return null;
-  if (s.activeCopies === 0 && s.keys === 0) return null;
-  const copies = s.activeCopies + (s.activeCopies === 1 ? " active copy" : " active copies");
-  const subject = activeKeyUnderIt && s.status === "deprecated" ? copies + " and the active key are" : copies + (s.activeCopies === 1 ? " is" : " are");
+  const v = s.retirementVersion;
   if (s.status === "deprecated") {
-    return subject + " under a deprecated suite (" + s.id + ")" + (s.retiredIn ? "; retirement is announced for version " + s.retiredIn : "") + ".";
+    if (s.activeCopies === 0 && !activeKeyUnderIt) return null;
+    const under = activeKeyUnderIt ? s.activeCopies + " active copies and the active key are" : s.activeCopies + " active copies are";
+    return under + " under " + s.id + ", a deprecated suite; " + (v ? "retirement announced for version " + v : "no retirement version is announced yet");
   }
-  return subject + " under a retired suite (" + s.id + "); it reads and never writes.";
+  if (s.status === "retired") {
+    const retired = v ? "retired in " + v : "retired";
+    if (s.activeCopies > 0 && activeKeyUnderIt) {
+      return s.activeCopies + " active copies and the active key are under " + s.id + ", " + retired + "; the copies still read, new copies are refused until the key is rotated to another suite";
+    }
+    if (s.activeCopies > 0) {
+      return s.activeCopies + " active copies record " + s.id + ", " + retired + "; they still read, and re-encrypting them under the active suite clears this";
+    }
+    if (activeKeyUnderIt) return "the active key is under " + s.id + ", " + retired + "; new copies are refused until the key is rotated to another suite";
+    return null;
+  }
+  return null;
 }
 
 /**

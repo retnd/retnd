@@ -45,13 +45,17 @@ export function ReencryptDialog({ suite, onClose }: { suite: string; onClose(): 
 
   const copies = plan.data?.copies ?? [];
   const moving = copies.filter((c) => c.refusal === null).length;
-  const destinations = [...new Set(copies.map((c) => c.to).filter((t): t is string => t !== null))];
+  const destinations = [...new Set(copies.filter((c) => c.refusal === null).map((c) => c.to).filter((t): t is string => t !== null))];
+  // A run names one destination (T2.2 requires it). The dry run shows each
+  // copy with the medium the engine would pick; the run takes the first of
+  // those, and the echo below says which.
+  const to = destinations[0];
 
   const run = async () => {
     setBusy(true);
     setFailure(null);
     try {
-      const r = await api.startReencrypt({ suite });
+      const r = await api.startReencrypt({ suite, to });
       setStarted(r.operationId);
     } catch (e) {
       setFailure(describeFailure(e, "the re-encryption was not started").message);
@@ -66,7 +70,7 @@ export function ReencryptDialog({ suite, onClose }: { suite: string; onClose(): 
       eyebrow="Encryption"
       title="Re-encrypt under current suite"
       confirmLabel={started ? "Close" : "Re-encrypt " + moving + " copies"}
-      disabled={busy || (!started && (plan.data === null || moving === 0))}
+      disabled={busy || (!started && (plan.data === null || moving === 0 || to === undefined))}
       onCancel={onClose}
       onConfirm={() => (started ? onClose() : void run())}
     >
@@ -95,9 +99,9 @@ export function ReencryptDialog({ suite, onClose }: { suite: string; onClose(): 
                     <td>
                       {g.refused.length === 0 ? "0" : (
                         <ul style={{ margin: 0, paddingLeft: 16 }}>
-                          {[...new Set(g.refused.map((c) => c.refusal ?? ""))].map((reason) => (
+                          {[...new Set(g.refused.map((c) => c.reason ?? c.refusal ?? ""))].map((reason) => (
                             <li key={reason}>
-                              {g.refused.filter((c) => c.refusal === reason).length + ": "}
+                              {g.refused.filter((c) => (c.reason ?? c.refusal ?? "") === reason).length + ": "}
                               <ClippedText value={reason} />
                             </li>
                           ))}
@@ -112,7 +116,7 @@ export function ReencryptDialog({ suite, onClose }: { suite: string; onClose(): 
           <p style={{ margin: 0, color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
             Each copy moves to another medium under the active suite and key. The old copy is retired only after the new one decrypt-verifies, and no plaintext is written to local disk.
           </p>
-          <CommandEcho label="Equivalent command" commands={[reencryptCommand({ suite })]} />
+          <CommandEcho label="Equivalent command" commands={[reencryptCommand({ suite, to })]} />
         </div>
       )}
       {started ? <p role="status" style={{ margin: 0, fontWeight: 600 }}>{"Started: operation " + clipText(started) + ". Its progress is in Activity."}</p> : null}

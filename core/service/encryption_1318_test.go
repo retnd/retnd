@@ -24,9 +24,9 @@ func TestArtifactPlacementsCarryTheSuiteTheChipShows_1318(t *testing.T) {
 			continue
 		}
 		found = true
-		// encryptedFixture records format id "age" for the copy on warm.
-		if p.EncryptionSuite != "age" {
-			t.Errorf("the encrypted copy reads suite %q, want the recorded format id %q", p.EncryptionSuite, "age")
+		// encryptedFixture records format id "age/v1" for the copy on warm.
+		if p.EncryptionSuite != "age/v1" {
+			t.Errorf("the encrypted copy reads suite %q, want the recorded format id %q", p.EncryptionSuite, "age/v1")
 		}
 		if w := placementWire(p); w.EncryptionSuite != p.EncryptionSuite {
 			t.Errorf("the wire drops the suite: %q, want %q", w.EncryptionSuite, p.EncryptionSuite)
@@ -43,7 +43,7 @@ func TestArtifactPlacementsCarryTheSuiteTheChipShows_1318(t *testing.T) {
 	var inList bool
 	for _, art := range list {
 		for _, p := range art.Placements {
-			if art.ID == a.String() && p.Medium == "warm" && p.EncryptionSuite == "age" {
+			if art.ID == a.String() && p.Medium == "warm" && p.EncryptionSuite == "age/v1" {
 				inList = true
 			}
 		}
