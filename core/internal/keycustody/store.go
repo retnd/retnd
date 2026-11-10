@@ -198,29 +198,33 @@ func (s *Store) CreateIn(ctx context.Context, now time.Time, suiteID string) (Ke
 	return s.mint(ctx, now, "", f)
 }
 
-// Rotate mints a new active key under the store's format and moves the
-// current one to superseded in one durable registry write. Every copy
-// recorded against the old key keeps decrypting through it; nothing here
-// re-encrypts anything (#992).
+// Rotate mints a new active key under the active key's own suite and
+// moves the current one to superseded in one durable registry write, so a
+// rotation with no suite named never changes the suite a deployment writes
+// under (ADR 0033 D4). Every copy recorded against the old key keeps
+// decrypting through it; nothing here re-encrypts anything (#992).
 func (s *Store) Rotate(ctx context.Context, now time.Time) (KeyRecord, error) {
 	return s.RotateTo(ctx, now, "")
 }
 
-// RotateTo is Rotate into suiteID (the store's format when empty). Rotating
+// RotateTo is Rotate into suiteID (the active key's suite when empty). Rotating
 // into another suite supersedes the current active key, whatever its suite,
 // in the same durable write that adds the new one (ADR 0033 D3), so there
 // is never a moment with two active managed keys or none.
 func (s *Store) RotateTo(ctx context.Context, now time.Time, suiteID string) (KeyRecord, error) {
-	f, err := s.mintFormat(suiteID)
-	if err != nil {
-		return KeyRecord{}, err
-	}
 	active, ok, err := s.Active(ctx)
 	if err != nil {
 		return KeyRecord{}, err
 	}
 	if !ok {
 		return KeyRecord{}, ErrNoActiveKey
+	}
+	if suiteID == "" {
+		suiteID = suiteOf(active)
+	}
+	f, err := s.mintFormat(suiteID)
+	if err != nil {
+		return KeyRecord{}, err
 	}
 	return s.mint(ctx, now, active.ID, f)
 }

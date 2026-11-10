@@ -91,8 +91,15 @@ func newDecryptFixture(t *testing.T) decryptFixture {
 	sum := sha256.Sum256(f.plaintext)
 	f.plainHash = hex.EncodeToString(sum[:])
 
+	// The copy is sealed under the suite the bundle names, which is the
+	// suite the key was minted under (age-pq/v1 for a fresh deployment
+	// since #1313).
+	suite, ok := copycrypt.Lookup(b.FormatID)
+	if !ok {
+		t.Fatalf("the bundle names suite %q, which the registry does not have", b.FormatID)
+	}
 	objDir := t.TempDir()
-	staged, err := copycrypt.EncryptToStaging(context.Background(), objDir, "backup-2026-11-01.dump", bytes.NewReader(f.plaintext), copycrypt.AgeX25519{}, b.Recipient, f.plainHash)
+	staged, err := copycrypt.EncryptToStaging(context.Background(), objDir, "backup-2026-11-01.dump", bytes.NewReader(f.plaintext), suite, b.Recipient, f.plainHash)
 	if err != nil {
 		t.Fatalf("EncryptToStaging: %v", err)
 	}

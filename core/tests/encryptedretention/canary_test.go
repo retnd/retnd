@@ -43,7 +43,7 @@ import (
 // ageIdentityShape is what an age identity looks like on a page. The bare
 // prefix is not enough: the refusal for a secret that is not an identity
 // quotes "AGE-SECRET-KEY-1" as what it expected, and that sentence is allowed.
-var ageIdentityShape = regexp.MustCompile(`AGE-SECRET-KEY-1[A-Z0-9]{20,}`)
+var ageIdentityShape = regexp.MustCompile(`AGE-SECRET-KEY-(PQ-)?1[A-Z0-9]{20,}`)
 
 // renderings is every way material could plausibly reach a text surface.
 func renderings(m string) []string {
