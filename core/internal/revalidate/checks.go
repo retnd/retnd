@@ -14,6 +14,7 @@ import (
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/fsopen"
 	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/placement"
 	"github.com/retnd/retnd/core/internal/state"
 	"github.com/retnd/retnd/core/internal/transport"
@@ -129,7 +130,7 @@ func runChecks(ctx context.Context, deps Deps, cfg config.Revalidation, opts Opt
 	// to asking the other.
 	if _, local := rec.LocalPlacement(); !local {
 		if mediums := rec.ActiveMediumPlacements(); len(mediums) > 0 {
-			return checkMediumPlacements(ctx, deps, cfg, opts, mediums)
+			return checkMediumPlacements(ctx, deps, cfg, opts, rec.Artifact, mediums)
 		}
 	}
 	return checkLocalCopy(ctx, deps, cfg, rec)
@@ -195,7 +196,7 @@ func int64p(n int64) *int64 { return &n }
 // them to have been asked AND to have failed. A placement that could not
 // be asked leaves the question open, which is an error rather than a
 // verdict: an unreachable bucket is not evidence that a backup is gone.
-func checkMediumPlacements(ctx context.Context, deps Deps, cfg config.Revalidation, opts Options, ps []state.Placement) (checkResult, error) {
+func checkMediumPlacements(ctx context.Context, deps Deps, cfg config.Revalidation, opts Options, artifact model.ArtifactID, ps []state.Placement) (checkResult, error) {
 	if deps.Store == nil || deps.Mediums == nil {
 		return checkResult{
 			passed: true,
@@ -275,8 +276,29 @@ func checkMediumPlacements(ctx context.Context, deps Deps, cfg config.Revalidati
 			return checkResult{}, limitErr
 		}
 		started := deps.now()
-		result, verifyErr := placement.Verify(ctx, deps.Store, medium, p, want, started)
+		enc, encErr := encryptionOf(ctx, deps, artifact, p.Medium)
+		if encErr != nil {
+			release()
+			return checkResult{}, fmt.Errorf("revalidate: reading the encryption record of %s on %q: %w", artifact, p.Medium, encErr)
+		}
+		result, verifyErr := placement.VerifyCopy(ctx, deps.Store, deps.Keys, medium, p, enc, want, started)
 		release()
+		if errors.Is(verifyErr, placement.ErrKeyUnresolvable) {
+			// The decrypt-verify could not be attempted because the key
+			// cannot be had. That is "could not check", said as that, with
+			// no class: nothing weaker was run in its place, nothing was
+			// read, and a copy nobody could examine is not evidence of loss.
+			keyID := ""
+			if enc != nil {
+				keyID = enc.KeyID
+			}
+			reason := fmt.Sprintf("could not check %s on %s: the key it needs (%s) cannot be resolved here, so the copy was not decrypt-verified and nothing weaker was run in its place", p.Location, p.Medium, keyID)
+			if didNotAnswer == nil {
+				didNotAnswer = fmt.Errorf("%s", reason)
+			}
+			copies = append(copies, copyOutcome{medium: p.Medium, verdict: state.ScrubCouldNotComplete, reason: reason})
+			continue
+		}
 		if verifyErr != nil {
 			if isCancelled(verifyErr) {
 				return checkResult{}, verifyErr
@@ -403,6 +425,24 @@ func checkMediumPlacements(ctx context.Context, deps Deps, cfg config.Revalidati
 		detail += "; the restore-test hook did not run, because opening this artifact means downloading it and FR-31 makes anything that costs egress operator-initiated"
 	}
 	return checkResult{checked: true, passed: anyPassed, class: want, reason: detail, copies: copies}, nil
+}
+
+// encryptionOf reads one copy's per-copy encryption record, or nil for a
+// plaintext copy and for a journal that keeps none. The journal is asked
+// through an optional interface, the way placement's engine asks it, so a
+// journal double that predates the record is simply a plaintext one.
+func encryptionOf(ctx context.Context, deps Deps, artifact model.ArtifactID, medium string) (*state.PlacementEncryption, error) {
+	r, ok := deps.Journal.(interface {
+		PlacementEncryption(ctx context.Context, artifact model.ArtifactID, medium string) (state.PlacementEncryption, bool, error)
+	})
+	if !ok {
+		return nil, nil
+	}
+	enc, encrypted, err := r.PlacementEncryption(ctx, artifact, medium)
+	if err != nil || !encrypted {
+		return nil, err
+	}
+	return &enc, nil
 }
 
 // errEgressNotAcknowledged is the refusal a read that costs egress gets

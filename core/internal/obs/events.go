@@ -374,6 +374,35 @@ const (
 	// bundle, which is what clears health.Report.KeyCustody's degraded
 	// state.
 	EventKeyBundleConfirmed = "key_bundle_confirmed"
+
+	// EventKeyRetired records a managed key leaving service (#992). It is
+	// only ever written after the journal has agreed that no ACTIVE copy
+	// records the key; a refusal is logged with ResultError and the
+	// refusal's own text goes to the caller.
+	EventKeyRetired = "key_retired"
+
+	// The four stage events are EPIC N's (#992, FR-23 catalog additions) for
+	// the moments an encrypted copy passes a stage. They are emitted ONCE per
+	// copy per stage, on completion, with a Result, and never per chunk: the
+	// activity feed is append-only and cursor-paged, so a row per 64 KiB
+	// chunk of a multi-terabyte artifact would bury every other row in it.
+	// Each names the copy by artifact and medium and nothing else about the
+	// bytes; only the decrypt-verify also names the key id.
+
+	// EventCopyEncrypting is the encrypting pass into staging finishing.
+	EventCopyEncrypting = "copy_encrypting"
+
+	// EventCopyUploadingEncrypted is the upload of the staged ciphertext
+	// finishing.
+	EventCopyUploadingEncrypted = "copy_uploading_encrypted"
+
+	// EventCopyVerifyingStored is the stored bytes at the key having been
+	// read back and measured (the stored-bytes digest and size).
+	EventCopyVerifyingStored = "copy_verifying_stored"
+
+	// EventCopyDecryptVerifying is the decrypt-verify of the plaintext
+	// against the artifact's digest finishing.
+	EventCopyDecryptVerifying = "copy_decrypt_verifying"
 )
 
 // Startup logs EventStartup: binaryVersion and commit are normally the
@@ -1226,5 +1255,41 @@ func (l *Logger) KeyBundleExported(ctx context.Context, keyID, digest string, re
 func (l *Logger) KeyBundleConfirmed(ctx context.Context, keyID string, result Result) {
 	l.emitMarked(ctx, result.Level(), mark{result: result}, EventKeyBundleConfirmed, "encryption key recovery bundle confirmed",
 		slog.String("key_id", keyID),
+	)
+}
+
+// KeyRetired logs EventKeyRetired for keyID.
+func (l *Logger) KeyRetired(ctx context.Context, keyID string, result Result) {
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventKeyRetired, "managed encryption key retired",
+		slog.String("key_id", keyID),
+	)
+}
+
+// CopyEncrypting logs EventCopyEncrypting for the copy of artifact on medium.
+func (l *Logger) CopyEncrypting(ctx context.Context, artifact, medium string, result Result) {
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventCopyEncrypting, "encrypted copy: encrypting",
+		slog.String("artifact", artifact), slog.String("medium", medium),
+	)
+}
+
+// CopyUploadingEncrypted logs EventCopyUploadingEncrypted.
+func (l *Logger) CopyUploadingEncrypted(ctx context.Context, artifact, medium string, result Result) {
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventCopyUploadingEncrypted, "encrypted copy: uploading",
+		slog.String("artifact", artifact), slog.String("medium", medium),
+	)
+}
+
+// CopyVerifyingStored logs EventCopyVerifyingStored.
+func (l *Logger) CopyVerifyingStored(ctx context.Context, artifact, medium string, result Result) {
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventCopyVerifyingStored, "encrypted copy: verifying stored bytes",
+		slog.String("artifact", artifact), slog.String("medium", medium),
+	)
+}
+
+// CopyDecryptVerifying logs EventCopyDecryptVerifying. keyID is the id of the
+// key the copy was opened with, an identifier and never material.
+func (l *Logger) CopyDecryptVerifying(ctx context.Context, artifact, medium, keyID string, result Result) {
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventCopyDecryptVerifying, "encrypted copy: decrypt-verifying",
+		slog.String("artifact", artifact), slog.String("medium", medium), slog.String("key_id", keyID),
 	)
 }

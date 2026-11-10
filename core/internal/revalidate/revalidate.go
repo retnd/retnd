@@ -121,6 +121,13 @@ type Deps struct {
 	// as a nil Store.
 	Mediums Mediums
 
+	// Keys is key custody, consulted only to decrypt-verify an encrypted
+	// copy when an operator asked for content (EPIC N, #992). An unattended
+	// pass never reaches it: its ceiling is existence, which needs no key.
+	// Nil with an encrypted copy and a content request is "could not check",
+	// never a weaker class.
+	Keys placement.Keys
+
 	// Now is injectable so a test can control both what a recorded
 	// transition's OccurredAt is stamped with and what a copy's next due
 	// time is computed from. Nil means time.Now.

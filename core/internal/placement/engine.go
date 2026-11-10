@@ -15,6 +15,7 @@ import (
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/lifecycle"
 	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/obs"
 	"github.com/retnd/retnd/core/internal/state"
 	"github.com/retnd/retnd/core/internal/transport"
 )
@@ -190,6 +191,11 @@ type Engine struct {
 	// a set is ErrClassUnavailable at the copy phase, before anything is
 	// encrypted or uploaded.
 	Keys Keys
+
+	// Logger receives the four encrypted-copy stage events (encrypting,
+	// uploading, verifying the stored bytes, decrypt-verifying), once per
+	// copy per stage and never per chunk (#992). Nil is silent.
+	Logger *obs.Logger
 
 	// Now is the clock. Nil means time.Now.
 	Now func() time.Time
@@ -1029,23 +1035,47 @@ func (e *Engine) verifyCopy(ctx context.Context, mv state.Move, src state.Placem
 	if e.Store == nil {
 		return Result{}, want, fmt.Errorf("no medium store is configured")
 	}
+	// A destination holds ciphertext when the source copy did (a re-home,
+	// opened through the key recorded against the source) or when the set
+	// requires encryption (a fresh copy, opened through the active key).
+	srcEnc, srcEncrypted, err := e.encryptionOf(ctx, mv.Artifact, src.Medium)
+	if err != nil {
+		return Result{}, want, err
+	}
+	// observe spends a restore-status call only for a class that needs
+	// one, so a STANDARD destination costs exactly what it cost before. It
+	// is asked here, once, for every kind of destination, because only this
+	// function and two others are allowed to ask it (destructive_test.go).
+	var observed archive.Observation
+	if gated {
+		observed = e.observe(ctx, medium, mv.DestinationKey, medium.StorageClass)
+	}
+	if srcEncrypted {
+		return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated, srcEnc.KeyID, observed)
+	}
 	if on, err := e.encryptedSet(mv.Artifact.Set); err != nil {
 		return Result{}, want, err
 	} else if on {
-		var obs archive.Observation
-		if gated {
-			obs = e.observe(ctx, medium, mv.DestinationKey, medium.StorageClass)
+		// Once the destination has its own record (after the VERIFIED
+		// advance, which is when the pre-delete re-read runs), it is opened
+		// through the key recorded for it. The active key is only right for
+		// the first verification, before any record exists: a rotation in
+		// between would otherwise fail a good copy.
+		dstEnc, dstEncrypted, err := e.encryptionOf(ctx, mv.Artifact, mv.DestinationMedium)
+		if err != nil {
+			return Result{}, want, err
 		}
-		return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated, obs)
+		keyID := ""
+		if dstEncrypted {
+			keyID = dstEnc.KeyID
+		}
+		return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated, keyID, observed)
 	}
 	if !gated {
 		res, err := Verify(ctx, e.Store, medium, candidate, want, e.now())
 		return res, want, err
 	}
-	// observe spends a restore-status call only for a class that needs
-	// one, so a STANDARD destination costs exactly what it cost before.
-	obs := e.observe(ctx, medium, mv.DestinationKey, medium.StorageClass)
-	res, err := VerifyWithAccess(ctx, e.Store, medium, candidate, want, obs, e.now())
+	res, err := VerifyWithAccess(ctx, e.Store, medium, candidate, want, observed, e.now())
 	return res, want, err
 }
 
@@ -1137,6 +1167,13 @@ func (e *Engine) intendSourceDelete(ctx context.Context, mv state.Move) (state.M
 	src, ok := placementOn(rec, mv.SourceMedium)
 	if !ok {
 		return mv, fmt.Errorf("placement: %s has no placement on %q to delete", mv.Artifact, mv.SourceMedium)
+	}
+	// Before the source is marked for deletion, an encrypted destination is
+	// written into the sidecar, so a deployment that loses its state can
+	// still learn that the copy exists and which key it needs. A sidecar that
+	// cannot be written stops the move here, with the source untouched.
+	if err := e.refreshSidecar(ctx, mv, rec); err != nil {
+		return mv, err
 	}
 	return e.Journal.AdvanceMove(ctx, e.checked(state.MoveAdvance{
 		MoveID: mv.ID, From: state.MoveVerified, To: state.MoveSourceDeletePending,

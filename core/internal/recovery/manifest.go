@@ -204,6 +204,62 @@ type ManifestPlacement struct {
 
 	// Status is the copy's own status: ACTIVE, DELETE_PENDING or GONE.
 	Status string `json:"status"`
+
+	// Encryption is set only for an encrypted copy (EPIC N, #992) and is
+	// omitted for every other, so a deployment that encrypts nothing writes
+	// the sidecar it always wrote.
+	Encryption *ManifestEncryption `json:"encryption,omitempty"`
+}
+
+// ManifestEncryption is the non-secret description of an encrypted copy: what
+// a catalog rebuild with no state needs to know that the copy is encrypted
+// and which key it needs, and what a person reading the sidecar needs to
+// check the copy by hand. It carries the key's ID, which is an identifier,
+// and never the key: this struct has nowhere to put material, and the field
+// guard in manifest_test.go allows exactly one secret-looking name, KeyID,
+// and asserts it is a plain string.
+//
+// The two digests are named for what they are and never swap: the plaintext
+// digest is the artifact's (what a restore must reproduce), the stored digest
+// is that of the bytes at the object key, header and ciphertext.
+type ManifestEncryption struct {
+	// FormatID and FormatVersion are the per-copy format identifiers (ADR
+	// 0027, "age/v1" and 1).
+	FormatID      string `json:"format_id"`
+	FormatVersion int    `json:"format_version"`
+
+	// KeyID is the registry id of the key the copy was written under.
+	KeyID string `json:"key_id"`
+
+	// PlaintextDigest, its algorithm and PlaintextSize describe the artifact.
+	PlaintextDigest          string `json:"plaintext_digest"`
+	PlaintextDigestAlgorithm string `json:"plaintext_digest_algorithm"`
+	PlaintextSize            int64  `json:"plaintext_size"`
+
+	// StoredDigest, its algorithm and StoredSize describe the bytes at the key.
+	StoredDigest          string `json:"stored_digest"`
+	StoredDigestAlgorithm string `json:"stored_digest_algorithm"`
+	StoredSize            int64  `json:"stored_size"`
+
+	// LastDecryptVerified is when the copy last decrypted to the artifact's
+	// digest, or nil when it never has. It is as of the last time the
+	// sidecar was written, not a live reading.
+	LastDecryptVerified *time.Time `json:"last_decrypt_verified,omitempty"`
+}
+
+// validate refuses an encryption block that cannot be honest.
+func (e ManifestEncryption) validate() error {
+	switch {
+	case e.FormatID == "" || e.FormatVersion < 1:
+		return fmt.Errorf("recovery: an encrypted copy's manifest block needs a format id and a version of at least 1")
+	case e.KeyID == "":
+		return fmt.Errorf("recovery: an encrypted copy's manifest block needs the id of the key it was written under")
+	case e.StoredSize <= e.PlaintextSize:
+		return fmt.Errorf("recovery: an encrypted copy's stored size %d does not exceed its plaintext size %d, so it does not describe ciphertext", e.StoredSize, e.PlaintextSize)
+	case e.StoredDigest != "" && e.StoredDigest == e.PlaintextDigest:
+		return fmt.Errorf("recovery: an encrypted copy's stored digest equals its plaintext digest; a ciphertext copy does not hash to its plaintext")
+	}
+	return nil
 }
 
 // ManifestPath computes the sidecar path for one artifact, exactly the
@@ -292,6 +348,14 @@ func (m Manifest) Validate() error {
 	}
 	if _, err := model.NewArtifactID(set, m.ArtifactName); err != nil {
 		return fmt.Errorf("recovery: manifest artifact identity: %w", err)
+	}
+	for _, p := range m.Placements {
+		if p.Encryption == nil {
+			continue
+		}
+		if err := p.Encryption.validate(); err != nil {
+			return fmt.Errorf("recovery: manifest placement on %q: %w", p.Medium, err)
+		}
 	}
 	return nil
 }
