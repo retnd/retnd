@@ -38,7 +38,7 @@ describe("encryption-verified reaches the green chip, on the copy's own rows", (
   it("draws Verified recoverable on the copy, and the other scenarios still do not", async () => {
     for (const [scenario, verified] of [["encryption-verified", true], ["encryption-on", false], ["encryption-confirmed", false]] as const) {
       cleanup();
-      const api = createMockApi(scenario);
+      const api = createMockApi(scenario as Parameters<typeof createMockApi>[0]);
       const a = await api.getArtifact("production/postgres-primary/postgres-prod-20260828.dump.zst");
       const copies = await api.listEncryptionCopies(a.id);
       render(<MemoryRouter><PlacementList placements={a.placements} encryption={copies} /></MemoryRouter>);
@@ -67,7 +67,7 @@ describe("the two indicators look different", () => {
 });
 
 function dialog(scenario: string) {
-  const api = createMockApi(scenario);
+  const api = createMockApi(scenario as Parameters<typeof createMockApi>[0]);
   const ended: unknown[] = [];
   render(
     <MemoryRouter><ApiProvider api={api}>

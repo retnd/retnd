@@ -11,8 +11,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"strings"
 	"testing"
+	"time"
 
 	"filippo.io/age"
 
@@ -177,8 +179,7 @@ func TestEveryNegativeFailsClosedAndWritesNoPartialPlaintext(t *testing.T) {
 	hdr := headerEnd(t, good)
 	payload := hdr + nonceLen
 
-	_, other := newKey(t)
-	_, foreign := staged(t, plain, other)
+	_, foreign := staged(t, plain, recipient) // same recipient, its own file key and nonce
 	foreignCT := read(t, foreign.Path)
 	foreignHdr := headerEnd(t, foreignCT)
 
@@ -295,7 +296,7 @@ func TestAnUnresolvableKeyIsKeyUnavailableNotACorruptionOrAWrongKey(t *testing.T
 		if errors.Is(err, copycrypt.ErrWrongKey) || errors.Is(err, copycrypt.ErrCorrupt) {
 			t.Fatalf("identity %q: an unresolvable key was reported as a different failure: %v", bad, err)
 		}
-		if bad != "" && strings.Contains(err.Error(), strings.TrimSpace(bad)) {
+		if strings.TrimSpace(bad) != "" && strings.Contains(err.Error(), strings.TrimSpace(bad)) {
 			t.Fatalf("the error repeats the identity string: %v", err)
 		}
 	}
@@ -513,7 +514,7 @@ func TestNamesThatEscapeTheDirectoryAreRefused(t *testing.T) {
 			t.Fatalf("DecryptToFile accepted the name %q", name)
 		}
 	}
-	if got := names(t, root); len(got) != 0 && !(len(got) == 1 && got[0] == "staging") {
+	if got := names(t, root); len(got) != 0 && (len(got) != 1 || got[0] != "staging") {
 		t.Fatalf("a refused name wrote outside the directory: %v", got)
 	}
 }
@@ -561,38 +562,66 @@ func TestAMultiGiBObjectEncryptsAndDecryptVerifiesInsideAnAllocationBudget(t *te
 
 	dir := filepath.Join(t.TempDir(), "staging")
 	runtime.GC()
-	var start runtime.MemStats
-	runtime.ReadMemStats(&start)
+
+	// The metric is the peak of the heap in use while the pass runs, not
+	// cumulative allocation. age seals each 64 KiB chunk into a fresh buffer,
+	// so TotalAlloc grows with the object (about 2 GiB here) even though
+	// almost none of it is ever live at once; a bound on the total would
+	// either fail an honest streamer or have to be set so high it asserts
+	// nothing. What "copied rather than streamed" means is that the object
+	// (or a large part of it) is held, and that shows up as live heap: a
+	// whole-object buffer is at least 2 GiB, the sampled peak of a streamer
+	// is a few chunks plus the collector's headroom.
+	var peak atomic.Uint64
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		var m runtime.MemStats
+		for {
+			runtime.ReadMemStats(&m)
+			if m.HeapAlloc > peak.Load() {
+				peak.Store(m.HeapAlloc)
+			}
+			select {
+			case <-stop:
+				return
+			case <-time.After(5 * time.Millisecond):
+			}
+		}
+	}()
 
 	s, err := copycrypt.EncryptToStaging(context.Background(), dir, "huge.bin", &generated{remaining: size}, recipient, want)
 	if err != nil {
+		close(stop)
+		<-done
 		t.Fatalf("EncryptToStaging: %v", err)
 	}
 	f, err := os.Open(s.Path)
 	if err != nil {
+		close(stop)
+		<-done
 		t.Fatal(err)
 	}
 	defer f.Close()
 	n, err := copycrypt.DecryptVerify(context.Background(), f, identity, want)
+	close(stop)
+	<-done
 	if err != nil {
 		t.Fatalf("DecryptVerify: %v", err)
 	}
-
-	runtime.GC()
-	var end runtime.MemStats
-	runtime.ReadMemStats(&end)
-
 	if n != size {
 		t.Fatalf("decrypt-verified %d bytes of a %d-byte object", n, int64(size))
 	}
-	const (
-		allocBudget = 256 << 20
-		heldBudget  = 64 << 20
-	)
-	if total := int64(end.TotalAlloc - start.TotalAlloc); total > allocBudget {
-		t.Fatalf("encrypting and decrypt-verifying %d bytes allocated %d in total; the object is being copied rather than streamed", int64(size), total)
+
+	const peakBudget = 128 << 20
+	if p := int64(peak.Load()); p > peakBudget {
+		t.Fatalf("encrypting and decrypt-verifying %d bytes reached a live heap of %d; the object is being copied rather than streamed", int64(size), p)
 	}
-	if live := int64(end.HeapAlloc); live > heldBudget {
+	runtime.GC()
+	var end runtime.MemStats
+	runtime.ReadMemStats(&end)
+	if live := int64(end.HeapAlloc); live > 64<<20 {
 		t.Fatalf("the heap still holds %d bytes after streaming a %d-byte object", live, int64(size))
 	}
 }
