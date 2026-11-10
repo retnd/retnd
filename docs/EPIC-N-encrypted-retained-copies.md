@@ -222,11 +222,11 @@ Each sub-issue line names every `docs/epic-checklist.md` section it must satisfy
 - [ ] Exactly one new `alert.Kind` exists, for a `required` policy whose key cannot be resolved; it is a deliberate edit to the pinned list with its reason in its own doc, and the bundle-confirmation state is not an alert.
 - [ ] The `recovery.Manifest` sidecar carries the non-secret encryption metadata (format id, format version, key id, plaintext digest, plaintext size, stored size, last decrypt-verification time) and nothing secret, and `catalog rebuild` identifies an encrypted copy and names its missing key provider.
 - [ ] The object key layout is unchanged: `MediumKey` still derives `<prefix>/<source>/<set>/<artifact-name>`, and the documentation states that encryption protects object content and not object names.
-- [ ] A CLI cancel and a browser cancel of the same operation leave identical durable state: the row does not advance, the destination object is discarded, the staging area is swept, and both surfaces report the same state after a reconnect.
 - [ ] Parity holds both ways at the API and CLI: a `cliecho` entry per new route, no gap sentence naming a shipped verb, every new verb in the dispatch table **and** `docs/site/reference.html`, refusals and exit codes matching on both routes, and the ungated reverse direction (a command with no browser equivalent) checked by hand and recorded.
 - [ ] `openapi.json` is authoritative, both bindings are regenerated, drift and client-path checks are green, the key-reference field is write-only and reads back as its source description, and `docs/api/contract.md` carries the new surface.
 - [ ] Two compat config fixtures land (`09-` valid, `62-invalid-`), an inline key in config is refused at `Load` with a fixture beside `53-invalid-inline-medium-secret.yaml`, the compat captures are updated, and `core/migrations/` gains exactly `0015`.
 - [ ] Every new `obs` event constant is an FR-23 catalog addition with a typed method and a `Result`, the four new `app.Progress` stages carry the existing byte counters, and the feed-volume answer is stated and asserted: one durable event per copy, never per chunk.
+- [ ] A CLI cancel and a browser cancel of the same operation leave identical durable state: the row does not advance, the destination object is discarded, the staging area is swept, and both surfaces report the same state after a reconnect.
 
 ## Phase 2, design, web UI, e2e, docs and media (`N:phase-2`)
 
