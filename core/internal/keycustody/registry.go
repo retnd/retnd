@@ -2,13 +2,11 @@ package keycustody
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"sync"
 	"time"
+
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // Status is where a managed key is in its life. The vocabulary is enforced
@@ -77,11 +75,9 @@ type Confirmation struct {
 // Registry is the durable record of keys, exports and confirmations. Every
 // method is one durable write or one read; there is no in-memory state a
 // restart could lose, which is what the restart tests in this package
-// prove against FileRegistry.
+// prove against JournalRegistry.
 //
-// FileRegistry is the durable implementation today. Migration 0015's
-// encryption_keys has no 'superseded' status and no table for exports, so a
-// journal-backed implementation needs a schema addition first; see doc.go.
+// JournalRegistry is the implementation, over migration 0015's tables.
 type Registry interface {
 	// Keys returns every key, oldest first.
 	Keys(ctx context.Context) ([]KeyRecord, error)
@@ -110,188 +106,95 @@ type Registry interface {
 // writing one registry, which is a deployment error worth refusing loudly.
 var ErrDuplicateKey = errors.New("keycustody: a key with this id is already registered")
 
-// FileRegistry is a Registry over one JSON file, rewritten whole and
-// atomically on every mutation. It is the durable implementation until the
-// journal-backed one exists (migration 0015 is in the tree but cannot hold
-// a superseded key or an export record yet), and it is small enough that
-// reading it on every call is the right trade: there is no cache to
-// invalidate and nothing a crash can leave half-applied.
-type FileRegistry struct {
-	path string
-	mu   sync.Mutex
+// JournalRegistry is the Registry over migration 0015's encryption_keys,
+// recovery_bundle_exports and recovery_bundle_confirmations tables. It holds
+// no state of its own: every call is one journal call, so a second process
+// over the same database sees the same keys, which is the restart property.
+// Rows carry ids, recipients, digests and times and nothing else.
+type JournalRegistry struct {
+	j *state.Journal
 }
 
-// registryFile is the on-disk shape. The version field is what a later
-// shape change keys on.
-type registryFile struct {
-	Version       int            `json:"version"`
-	Keys          []KeyRecord    `json:"keys"`
-	Exports       []ExportRecord `json:"exports"`
-	Confirmations []Confirmation `json:"confirmations"`
+// NewJournalRegistry wraps an open journal. The caller owns the journal's
+// lifetime.
+func NewJournalRegistry(j *state.Journal) *JournalRegistry {
+	return &JournalRegistry{j: j}
 }
 
-const registryFileVersion = 1
-
-// OpenFileRegistry opens, or creates empty, the registry file at path. The
-// directory containing it must already exist; the file is written 0600.
-func OpenFileRegistry(path string) (*FileRegistry, error) {
-	r := &FileRegistry{path: path}
-	if _, err := r.load(); err != nil {
-		return nil, err
+// Keys implements Registry. Every managed key keeps its row for ever, so
+// this is the history, oldest first.
+func (r *JournalRegistry) Keys(ctx context.Context) ([]KeyRecord, error) {
+	rows, err := r.j.EncryptionKeys(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("keycustody: reading key registry: %w", err)
 	}
-	return r, nil
+	out := make([]KeyRecord, 0, len(rows))
+	for _, k := range rows {
+		out = append(out, KeyRecord{ID: k.ID, Recipient: k.Recipient, Created: k.CreatedAt, Retired: k.RetiredAt, Status: Status(k.Status)})
+	}
+	return out, nil
 }
 
-func (r *FileRegistry) load() (registryFile, error) {
-	var f registryFile
-	b, err := os.ReadFile(r.path)
+// AddKey implements Registry. The supersede and the insert are one
+// transaction in the journal.
+func (r *JournalRegistry) AddKey(ctx context.Context, rec KeyRecord, supersede string) error {
+	err := r.j.AddEncryptionKey(ctx, state.EncryptionKey{
+		ID: rec.ID, Provider: state.KeyProviderManaged, Recipient: rec.Recipient,
+		Status: string(rec.Status), CreatedAt: rec.Created, RetiredAt: rec.Retired,
+	}, supersede)
 	switch {
-	case errors.Is(err, os.ErrNotExist):
-		f.Version = registryFileVersion
-		return f, nil
-	case err != nil:
-		return f, fmt.Errorf("keycustody: reading registry %s: %w", r.path, err)
+	case errors.Is(err, state.ErrEncryptionKeyExists):
+		return fmt.Errorf("%w: %s", ErrDuplicateKey, rec.ID)
+	case errors.Is(err, state.ErrEncryptionKeyNotFound):
+		return fmt.Errorf("%w: %s", ErrUnknownKey, supersede)
 	}
-	if err := json.Unmarshal(b, &f); err != nil {
-		return f, fmt.Errorf("keycustody: registry %s is not readable: %w", r.path, err)
-	}
-	if f.Version != registryFileVersion {
-		return f, fmt.Errorf("keycustody: registry %s is version %d and this build reads version %d", r.path, f.Version, registryFileVersion)
-	}
-	return f, nil
-}
-
-// save writes the whole file through a temporary name and a rename, fsyncing
-// both the file and its directory, so a reader never sees a torn registry.
-func (r *FileRegistry) save(f registryFile) error {
-	f.Version = registryFileVersion
-	b, err := json.MarshalIndent(f, "", "  ")
-	if err != nil {
-		return fmt.Errorf("keycustody: encoding registry: %w", err)
-	}
-	tmp := r.path + ".partial"
-	if err := writeFileSync(tmp, append(b, '\n'), 0o600); err != nil {
-		return fmt.Errorf("keycustody: writing registry: %w", err)
-	}
-	if err := os.Rename(tmp, r.path); err != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("keycustody: replacing registry: %w", err)
-	}
-	return fsyncDir(filepath.Dir(r.path))
-}
-
-// Keys implements Registry.
-func (r *FileRegistry) Keys(_ context.Context) ([]KeyRecord, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	f, err := r.load()
-	if err != nil {
-		return nil, err
-	}
-	return append([]KeyRecord(nil), f.Keys...), nil
-}
-
-// AddKey implements Registry.
-func (r *FileRegistry) AddKey(_ context.Context, rec KeyRecord, supersede string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	f, err := r.load()
-	if err != nil {
-		return err
-	}
-	for i := range f.Keys {
-		if f.Keys[i].ID == rec.ID {
-			return fmt.Errorf("%w: %s", ErrDuplicateKey, rec.ID)
-		}
-		if supersede != "" && f.Keys[i].ID == supersede {
-			f.Keys[i].Status = StatusSuperseded
-		}
-	}
-	f.Keys = append(f.Keys, rec)
-	return r.save(f)
+	return err
 }
 
 // Exports implements Registry.
-func (r *FileRegistry) Exports(_ context.Context, keyID string) ([]ExportRecord, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	f, err := r.load()
+func (r *JournalRegistry) Exports(ctx context.Context, keyID string) ([]ExportRecord, error) {
+	rows, err := r.j.RecoveryBundleExports(ctx, keyID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("keycustody: reading bundle exports: %w", err)
 	}
 	var out []ExportRecord
-	for _, e := range f.Exports {
-		if e.KeyID == keyID {
-			out = append(out, e)
-		}
+	for _, e := range rows {
+		out = append(out, ExportRecord{KeyID: e.KeyID, Digest: e.Digest, ExportedAt: e.ExportedAt})
 	}
 	return out, nil
 }
 
 // RecordExport implements Registry.
-func (r *FileRegistry) RecordExport(_ context.Context, rec ExportRecord) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	f, err := r.load()
-	if err != nil {
-		return err
-	}
-	f.Exports = append(f.Exports, rec)
-	return r.save(f)
+func (r *JournalRegistry) RecordExport(ctx context.Context, rec ExportRecord) error {
+	return r.j.RecordRecoveryBundleExport(ctx, state.RecoveryBundleExport{KeyID: rec.KeyID, Digest: rec.Digest, ExportedAt: rec.ExportedAt})
 }
 
-// Confirmations implements Registry.
-func (r *FileRegistry) Confirmations(_ context.Context) ([]Confirmation, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	f, err := r.load()
+// Confirmations implements Registry. The journal reads per key, so this
+// walks the registry's keys.
+func (r *JournalRegistry) Confirmations(ctx context.Context) ([]Confirmation, error) {
+	keys, err := r.j.EncryptionKeys(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("keycustody: reading key registry: %w", err)
 	}
-	return append([]Confirmation(nil), f.Confirmations...), nil
+	var out []Confirmation
+	for _, k := range keys {
+		rows, err := r.j.RecoveryBundleConfirmations(ctx, k.ID)
+		if err != nil {
+			return nil, fmt.Errorf("keycustody: reading bundle confirmations: %w", err)
+		}
+		for _, c := range rows {
+			out = append(out, Confirmation{KeyID: c.KeyID, Digest: c.BundleDigest, ConfirmedAt: c.ConfirmedAt})
+		}
+	}
+	return out, nil
 }
 
-// Confirm implements Registry.
-func (r *FileRegistry) Confirm(_ context.Context, c Confirmation) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	f, err := r.load()
-	if err != nil {
-		return err
+// Confirm implements Registry. The journal refuses a digest no recorded
+// export carries, and that refusal is ErrNoSuchExport here.
+func (r *JournalRegistry) Confirm(ctx context.Context, c Confirmation) error {
+	err := r.j.ConfirmRecoveryBundle(ctx, state.RecoveryBundleConfirmation{KeyID: c.KeyID, BundleDigest: c.Digest, ConfirmedAt: c.ConfirmedAt})
+	if errors.Is(err, state.ErrRecoveryBundleExportNotFound) {
+		return fmt.Errorf("%w: key %s", ErrNoSuchExport, c.KeyID)
 	}
-	f.Confirmations = append(f.Confirmations, c)
-	return r.save(f)
-}
-
-// writeFileSync writes b to path with mode, creating or truncating it, and
-// fsyncs before closing so a rename after it publishes bytes that are on
-// disk.
-func writeFileSync(path string, b []byte, mode os.FileMode) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(b); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
-	}
-	return f.Close()
-}
-
-// fsyncDir makes a directory entry change (a link, a rename, an unlink)
-// durable. Same discipline as core/internal/lifecycle/commit.go's fsyncDir.
-func fsyncDir(dir string) error {
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	if err := d.Sync(); err != nil {
-		return fmt.Errorf("keycustody: fsync %s: %w", dir, err)
-	}
-	return nil
+	return err
 }
