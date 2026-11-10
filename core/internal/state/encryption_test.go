@@ -430,3 +430,90 @@ func TestRecoveryBundleConfirmation_SurvivesAReopen(t *testing.T) {
 		t.Error("schema stores a confirmation with no matching export")
 	}
 }
+
+// A key can be retired only when nothing ACTIVE still needs it. The listing
+// is what the refusal names, and it ignores copies that are no longer active.
+func TestActivePlacementsRecordingKey_ListsOnlyActiveCopies(t *testing.T) {
+	ctx := context.Background()
+	j, a := scrubFixture(t)
+	for _, id := range []string{"k1", "k2"} {
+		if err := j.RegisterEncryptionKey(ctx, EncryptionKey{ID: id, Provider: KeyProviderExternal, CreatedAt: scrubAt}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, err := j.ActivePlacementsRecordingKey(ctx, "k1"); err != nil || len(got) != 0 {
+		t.Fatalf("a key nothing uses lists %+v, %v", got, err)
+	}
+	if err := j.RecordPlacementEncryption(ctx, a, MediumLocal, PlacementEncryption{FormatID: "age/v1", FormatVersion: 1, KeyID: "k1", StoredHash: "c", StoredHashAlg: "sha256", StoredSize: 5000}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := j.ActivePlacementsRecordingKey(ctx, "k1")
+	if err != nil || len(got) != 1 || got[0] != (model.CopyRef{Artifact: a, Medium: MediumLocal}) {
+		t.Fatalf("ActivePlacementsRecordingKey(k1) = %+v, %v; want the one copy", got, err)
+	}
+	if got, err := j.ActivePlacementsRecordingKey(ctx, "k2"); err != nil || len(got) != 0 {
+		t.Errorf("another key's copies listed under k2: %+v, %v", got, err)
+	}
+	if _, err := j.db.ExecContext(ctx, `UPDATE placements SET status = ?`, PlacementGone); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := j.ActivePlacementsRecordingKey(ctx, "k1"); err != nil || len(got) != 0 {
+		t.Errorf("a retired copy still lists: %+v, %v", got, err)
+	}
+}
+
+func TestRetireEncryptionKey_RefusesWhatIsStillNeeded(t *testing.T) {
+	ctx := context.Background()
+	j, a := scrubFixture(t)
+	at := scrubAt.Add(time.Hour)
+	for _, k := range []EncryptionKey{
+		{ID: "k1", Provider: KeyProviderManaged, CreatedAt: scrubAt},
+		{ID: "k2", Provider: KeyProviderManaged, CreatedAt: scrubAt.Add(time.Minute)},
+	} {
+		if err := j.RegisterEncryptionKey(ctx, k); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := j.RetireEncryptionKey(ctx, "nope", at); !errors.Is(err, ErrEncryptionKeyNotFound) {
+		t.Errorf("retiring an unknown key = %v, want ErrEncryptionKeyNotFound", err)
+	}
+	if err := j.RetireEncryptionKey(ctx, "k1", time.Time{}); err == nil {
+		t.Error("a retirement with no time was accepted")
+	}
+	// k1 is still active, so it is refused whatever the copies say.
+	if err := j.RetireEncryptionKey(ctx, "k1", at); !errors.Is(err, ErrEncryptionKeyInUse) {
+		t.Errorf("retiring the active key = %v, want ErrEncryptionKeyInUse", err)
+	}
+	// Rotate to k2, then record a copy under k1: superseded but still needed.
+	if err := j.AddEncryptionKey(ctx, EncryptionKey{ID: "k3", Provider: KeyProviderManaged, CreatedAt: scrubAt.Add(time.Hour)}, "k2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.RecordPlacementEncryption(ctx, a, MediumLocal, PlacementEncryption{FormatID: "age/v1", FormatVersion: 1, KeyID: "k2", StoredHash: "c", StoredHashAlg: "sha256", StoredSize: 5000}); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.RetireEncryptionKey(ctx, "k2", at); !errors.Is(err, ErrEncryptionKeyInUse) {
+		t.Errorf("retiring a key an active copy records = %v, want ErrEncryptionKeyInUse", err)
+	}
+	if k, _ := j.EncryptionKey(ctx, "k2"); k.Status != EncryptionKeySuperseded || k.RetiredAt != nil {
+		t.Errorf("a refused retirement changed the key: %+v", k)
+	}
+	// Once the copy is no longer active the same call succeeds.
+	if _, err := j.db.ExecContext(ctx, `UPDATE placements SET status = ?`, PlacementGone); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.RetireEncryptionKey(ctx, "k2", at); err != nil {
+		t.Fatalf("RetireEncryptionKey: %v", err)
+	}
+	k, err := j.EncryptionKey(ctx, "k2")
+	if err != nil || k.Status != EncryptionKeyRetired || k.RetiredAt == nil || !k.RetiredAt.Equal(at) {
+		t.Errorf("after retirement: %+v, %v", k, err)
+	}
+	// The record of which copies named it is untouched: a key outlives them.
+	if _, ok, err := j.PlacementEncryption(ctx, a, MediumLocal); err != nil || !ok {
+		t.Errorf("retiring the key lost the copy's record: %v, %v", ok, err)
+	}
+	// Retiring twice is refused rather than moving retired_at.
+	if err := j.RetireEncryptionKey(ctx, "k2", at.Add(time.Hour)); err == nil {
+		t.Error("an already retired key was retired again")
+	}
+}
