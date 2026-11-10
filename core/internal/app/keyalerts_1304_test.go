@@ -147,10 +147,7 @@ func TestKeyCustodyHealthCarriesTheExternalKeysNoReferenceYields_1304(t *testing
 	svc := New(alertingConfig(t, testSource("production", bs)), openJournal(t), newFakeTransport(), nil)
 	svc.Keys = keys
 
-	got, err := svc.keyCustodyHealth(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	got := svc.keyCustodyHealth(context.Background())
 	if len(got.ExternalKeysAtRisk) != 1 || got.ExternalKeysAtRisk[0].KeyID != "x0123456789abcdef" || !got.Degraded() {
 		t.Errorf("health = %+v, want the key listed and the section degraded", got)
 	}

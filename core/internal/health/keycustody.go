@@ -66,6 +66,12 @@ type KeyCustodyHealth struct {
 	// that is said. It is reported whether or not Enabled, because the copies
 	// are unreadable whatever the policy says now.
 	ExternalKeysAtRisk []ExternalKeyAtRisk
+
+	// Unevaluated is one line saying why this section could not be computed
+	// (the key registry could not be read), and empty when it was. The rest
+	// of the report is unaffected; a section that could not be evaluated
+	// reads as degraded rather than as nothing to report.
+	Unevaluated string
 }
 
 // ExternalKeyAtRisk is one external key no declared reference yields and the
@@ -81,7 +87,7 @@ type ExternalKeyAtRisk struct {
 // somewhere and either no key can encrypt yet, or a key that guards copies
 // has no confirmed bundle.
 func (h KeyCustodyHealth) Degraded() bool {
-	if len(h.ExternalKeysAtRisk) != 0 {
+	if h.Unevaluated != "" || len(h.ExternalKeysAtRisk) != 0 {
 		return true
 	}
 	if !h.Enabled {

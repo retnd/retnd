@@ -1196,10 +1196,11 @@ Whether a key actually opens a copy is a different question, and `retnd validate
 --content` answers it. With the key unavailable it says it could not check. It does not
 report an existence check in its place.
 
-On a machine that cannot get the key back into a deployment, which today is every machine
-after a lost host, the copy is opened with the stock `age` tool and the key from the recovery
+On a machine that cannot get the key back into a deployment, which is every machine
+after a lost host, the copy is opened with `retnd encryption decrypt` and the key from the recovery
 bundle, as [recovery without a terminal](recovery-without-a-terminal.md#6-an-encrypted-copy-has-to-be-opened-on-a-machine-with-no-state)
-walks through, and `retnd recover` will not do it for you: it does not decrypt. The operations
+walks through (the stock `age` tool is the independent fallback there). `retnd recover` itself does not
+decrypt, and `retnd encryption key import --bundle FILE` is what makes a rebuilt deployment know the key. The operations
 guide, [encrypted copies](encrypted-copies.md), covers keeping the bundle and what losing it
 means.
 

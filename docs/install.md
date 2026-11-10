@@ -406,16 +406,32 @@ to prevent.
 
 Archives are not pruned, and they are not unlimited either. Each one holds a copy of
 `config/ssh_keys`, which is where the engine keeps the keys imported through the Web UI,
-so an unbounded pile is an installer that multiplies private key material every time it
+and of `config/retained_copy_keys`, where it keeps the managed encryption keys, so an
+unbounded pile is an installer that multiplies private key material every time it
 runs. Past five, `install` refuses and names them: deleting one for you would take back
 the recoverability that moving rather than deleting is there to provide.
 
-One thing the archive does not list: if you turned on retained-copy encryption with a managed
-key, that key is a file under `config/retained_copy_keys`, and the installer's archive list
-(`config.yaml`, `ssh_keys`, `known_hosts.d` and the state files) does not name it. I have not
-traced what a factory reset does to that directory. The recovery bundle you exported is the
-copy of the key that matters, so before any upgrade or reset on a deployment that encrypts, check
-that you can put your hand on it. See [encrypted copies](encrypted-copies.md).
+If you turned on retained-copy encryption with a managed key, that key is a file under
+`config/retained_copy_keys`, beside `config.yaml`. The installer treats it like `ssh_keys`:
+
+- `upgrade` copies it into the archive and leaves the live directory alone, so the running
+  install keeps its key.
+- `factory-reset` moves it into the archive together with `state.db`, which holds the key
+  registry. The archive stays self-consistent (the journal and the keys its encrypted copies
+  name), and the clean install starts with no key files nobody knows about. The preview
+  counts the key files and says that copies encrypted under them are unreadable without the
+  key or its recovery bundle.
+- `uninstall` removes nothing under the host directories, and says the managed keys are among
+  what it leaves in place.
+- On Synology the package scripts (`preupgrade`, `postupgrade`, `preuninst`, `postuninst`)
+  delete nothing and DSM keeps `etc/`, so the key directory survives upgrade and uninstall.
+
+An archive that holds key material is the same trade as the one that already holds
+`ssh_keys`: same host, same disk, created `0700`, and the managed key never protected
+against whoever owns the machine (it protects against whoever owns the bucket). The
+recovery bundle you exported is still the copy of the key that matters, so before any
+upgrade or reset on a deployment that encrypts, check that you can put your hand on it. See
+[encrypted copies](encrypted-copies.md).
 
 ## It will not adopt a layout you did not ask for
 

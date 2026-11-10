@@ -178,6 +178,9 @@ alert: only a person can clear it, so nothing pages anybody.
 The Dashboard shows the same fact as a warning you cannot dismiss, "No confirmed recovery
 bundle", with a link to the Settings card, until you confirm.
 
+What the installer does with the key directory on an upgrade, a factory reset and an
+uninstall is in [the install guide](install.md).
+
 Where to put it:
 
 - **Not on the volume the backup shares export.** The same mistake as the one
@@ -224,18 +227,47 @@ of a backup are encrypted, under which key and format, and whether that key reso
 digest to the recorded one; this is the check behind "Verified recoverable".
 
 What this build does **not** do: `retnd recover`, `retnd fetch` and `retnd restore` do not
-decrypt. An encrypted copy is opened with the key outside the product, as below. I did not find
-a path in the code that decrypts a copy to a file for you, and `retnd recover` reads a medium
-copy and compares what it reads to the plaintext digest, which a ciphertext object cannot match.
+decrypt. `retnd recover` reads a medium copy and compares what it reads to the plaintext digest,
+which a ciphertext object cannot match. Opening a copy to a file is its own verb, below.
 
-**Without a catalog, or without a deployment at all.** The copy is an age file and the bundle
-holds an age identity. On any machine, with the stock `age` command line tool:
+**Without a catalog, or without a deployment at all.** `retnd encryption decrypt` opens one copy
+into one file and reads no configuration and no state database, so the binary, the object, its
+sidecar and the bundle are enough:
+
+```
+retnd encryption decrypt <object> --bundle bundle.json --sidecar <sidecar.json> --out <artifact-name>
+```
+
+It hashes the object and compares that with the stored-bytes digest in the sidecar before it
+uses the key, decrypts, and creates the output only after every chunk authenticated and the
+plaintext digest equals the recorded one. On any failure (wrong key, a cut-short or altered
+copy, a digest that does not match) it exits 1 and leaves nothing in the destination, not
+even a partial file. It refuses to replace an existing file, and it cannot write to standard
+output. Instead of a bundle it takes `--identity FILE` (an age identity file), and instead of
+a sidecar `--digest HEX` with an optional `--stored-digest HEX`.
+
+To make a deployment know a key it has lost (a rebuilt host, say) run
+`retnd encryption key import --bundle bundle.json`. The key is registered as superseded, so it
+opens old copies and new copies keep using the active key. Importing is safe to repeat, it
+counts as confirming the bundle, and it never prints the key. It needs the deployment's own
+journal, so it refuses while an engine serves that deployment. It takes a bundle and not a bare
+identity, because an identity does not carry the key id the copies record.
+
+Neither verb has an API route. Both take key material as input, and a request body is not a
+place for it.
+
+**The independent route.** The copy is an age file and the bundle holds an age identity, so the
+stock `age` command line tool works on any machine, with no `retnd` at all. I kept it as the
+fallback on purpose, so recovery does not depend on this binary alone:
 
 1. Open the bundle JSON and copy the value of its `material` field (one line starting
    `AGE-SECRET-KEY-1`) into a new file `identity.txt` that only you can read.
 2. `age -d -i identity.txt <object> > <artifact-name>.tmp`
 3. Compare the file's digest with the `plaintext_digest` in the sidecar beside the object
    (the sidecar names the algorithm). Rename the file only when they match.
+
+`age` checks neither digest and writes plaintext as it authenticates each chunk, which is the
+reason for the `.tmp` name and the rename.
 
 `retnd catalog rebuild` reads the sidecars and tells you, per encrypted copy, which key it needs
 and whether this deployment knows that key. It never opens a key file and never runs an external
@@ -271,7 +303,8 @@ key it was written under, so a move also needs the key.
 - No KMS or Vault provider (an external `command` can reach either).
 - No retroactive encryption of copies that already exist in plaintext, and no re-encryption
   of old copies after a rotation.
-- No `retnd` command that decrypts a copy for you.
+- `retnd encryption decrypt` opens one copy at a time. There is no bulk "decrypt everything" verb,
+  and no API route for it or for key import.
 - `ENCRYPTION_KEY_UNRESOLVABLE` fires when a `required` set's copies are being refused for want
   of a key (a missing or unreadable managed key file, no active managed key, or, until external
   providers can write copies, an external reference), once, and clears when the key resolves
