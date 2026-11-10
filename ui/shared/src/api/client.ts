@@ -2597,13 +2597,9 @@ const encryptionKeyPath = (id: string) => "/encryption/keys/" + encodeURICompone
  * displayed once, from the response, and the page never sees the bytes.
  */
 async function saveRecoveryBundle(
-  id: string,
-  stepUp: Record<string, string> | undefined
+  fetchBundle: () => Promise<WireRecoveryBundle>
 ): Promise<{ keyId: string; digest: string; fileName: string }> {
-  const bundle = await request<WireRecoveryBundle>(encryptionKeyPath(id) + "/export", {
-    method: "POST",
-    headers: stepUp
-  });
+  const bundle = await fetchBundle();
   const fileName = "retnd-recovery-bundle-" + bundle.key_id + ".json";
   const receipt = { keyId: bundle.key_id, digest: bundle.digest, fileName };
   const url = URL.createObjectURL(new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" }));
@@ -4594,7 +4590,13 @@ export const httpApi: RetndApi = {
     request<WireEncryptionKeyStatus>("/encryption/keys/rotate", { method: "POST" }).then(fromWireEncryptionKey),
   retireEncryptionKey: (id) =>
     request<WireEncryptionKeyStatus>(encryptionKeyPath(id) + "/retire", { method: "POST" }).then(fromWireEncryptionKey),
-  exportRecoveryBundle: (id, opts) => saveRecoveryBundle(id, stepUpHeaders(opts).headers),
+  exportRecoveryBundle: (id, opts) =>
+    saveRecoveryBundle(() =>
+      request<WireRecoveryBundle>(encryptionKeyPath(id) + "/export", {
+        method: "POST",
+        headers: stepUpHeaders(opts).headers
+      })
+    ),
   confirmRecoveryBundle: (id, digest) =>
     request<WireEncryptionKeyStatus>(encryptionKeyPath(id) + "/confirm", {
       method: "POST",
