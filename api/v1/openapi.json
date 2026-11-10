@@ -9285,7 +9285,7 @@
           },
           "suite": {
             "type": "string",
-            "description": "The suite new copies are written under right now: the pinned suite, or for the default policy the active managed key's suite, or the build's default suite when there is no active key."
+            "description": "The suite new copies are written under right now: the pinned suite; or for the default policy the suite of the deployment's external key, the active managed key's suite, or the build's default suite when there is no active key. Empty when the provider is external and its reference does not resolve."
           },
           "suite_configured": {
             "type": "string",
@@ -9293,12 +9293,12 @@
           },
           "rotation_needed": {
             "type": "boolean",
-            "description": "On a patch only: the pinned suite has no active managed key, so copies are refused until the key is rotated into it. The patch rotated nothing.",
+            "description": "On a patch only: the pinned suite has no usable key, so copies are refused. For a managed provider rotate_command says how to mint one; for an external provider the reference has to yield a key of the suite. The patch changed no key.",
             "x-go-omitempty": true
           },
           "rotate_command": {
             "type": "string",
-            "description": "With rotation_needed: the exact command that rotates into the pinned suite.",
+            "description": "With rotation_needed and a managed provider: the exact command that rotates into the pinned suite. Absent for an external provider, which no rotation here can change.",
             "x-go-omitempty": true
           }
         },
@@ -23247,7 +23247,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "The suite to mint the key under (age/v1 or age-pq/v1). Omitted: the policy's pinned suite, or for a rotation the active key's own suite, or for a first key the build's default suite. A rotation into another suite supersedes the old suite's active key in the same write."
+            "description": "The suite to mint the key under (age/v1 or age-pq/v1). Omitted: the policy's pinned suite, or for a rotation the active key's own suite, or for a first key the build's default suite. There is one active managed key at a time, so a rotation into another suite supersedes the current active key in the same write."
           }
         ],
         "responses": {
@@ -23358,7 +23358,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "The suite to mint the key under (age/v1 or age-pq/v1). Omitted: the policy's pinned suite, or for a rotation the active key's own suite, or for a first key the build's default suite. A rotation into another suite supersedes the old suite's active key in the same write."
+            "description": "The suite to mint the key under (age/v1 or age-pq/v1). Omitted: the policy's pinned suite, or for a rotation the active key's own suite, or for a first key the build's default suite. There is one active managed key at a time, so a rotation into another suite supersedes the current active key in the same write."
           }
         ],
         "responses": {
@@ -23994,7 +23994,7 @@
             ]
           },
           "503": {
-            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "description": "Refused: ENCRYPTION_UNAVAILABLE, NOT_CONFIGURED.",
             "content": {
               "application/json": {
                 "schema": {
@@ -24003,6 +24003,7 @@
               }
             },
             "x-error-codes": [
+              "ENCRYPTION_UNAVAILABLE",
               "NOT_CONFIGURED"
             ]
           }

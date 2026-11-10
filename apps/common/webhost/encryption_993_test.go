@@ -123,6 +123,7 @@ var everyEncryptionRequest = []struct {
 	name, method, path, body string
 }{
 	{"policy", http.MethodGet, "/api/v1/encryption/policy", ""},
+	{"suites", http.MethodGet, "/api/v1/encryption/suites", ""},
 	{"patch", http.MethodPatch, "/api/v1/encryption/policy", `{"mode":"required","key_provider":{"managed":true}}`},
 	{"reset", http.MethodPost, "/api/v1/encryption/policy/reset", ""},
 	{"set", http.MethodPut, "/api/v1/backup-sets/src/set-1/encryption", `{"mode":"required"}`},
