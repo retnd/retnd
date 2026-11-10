@@ -62,8 +62,9 @@ Saying it anyway would be worse than the copying, so:
 
   * `--mode upgrade` and `--mode factory-reset` archive
     `config/ssh_keys`, which is where the ENGINE keeps the keys an
-    operator imported through the Web UI. An archive therefore holds
-    copies of private key material. It is created 0700 under the prefix,
+    operator imported through the Web UI, and `config/retained_copy_keys`,
+    where it keeps the managed keys for encrypted retained copies (#1295).
+    An archive therefore holds copies of private key material. It is created 0700 under the prefix,
     nothing in it is ever read or printed, and the installer refuses
     rather than let archives accumulate past ARCHIVE_LIMIT: an upgrade
     that silently multiplied that material every time it ran would be
@@ -2150,6 +2151,12 @@ def archive_plan(args):
         args.config_dir / "config.yaml",
         args.config_dir / "ssh_keys",
         args.config_dir / "known_hosts.d",
+        # The managed encryption keys (#1295). A factory reset moves the
+        # journal, and with it the registry rows that name these keys, so
+        # the keys have to move with it: leaving them behind orphans them
+        # beside a fresh install and gives the archive a journal whose
+        # encrypted copies name keys it does not hold.
+        args.config_dir / "retained_copy_keys",
     ]
 
 
@@ -2213,6 +2220,11 @@ def destroy_preview(args):
     if known.is_dir():
         n = len([p for p in known.iterdir() if p.is_file()])
         lines.append(f"{n} pinned host key file(s) (config/known_hosts.d)")
+    managed = args.config_dir / "retained_copy_keys"
+    if managed.is_dir():
+        n = len([p for p in managed.iterdir() if p.is_file()])
+        lines.append(f"{n} managed encryption key(s) (config/retained_copy_keys): copies encrypted "
+                     f"under them are unreadable without the key or its recovery bundle")
     if not lines:
         lines.append("nothing: no administrator record, catalog or configuration is here to destroy")
     # Named, not left to be discovered. Everything below survives a
@@ -2226,7 +2238,8 @@ def destroy_preview(args):
 
 # How many archives may sit under --prefix before this refuses to make
 # another. Each one holds a copy of config/ssh_keys, which is where the
-# engine keeps the SSH keys an operator imported, so an unbounded pile is
+# engine keeps the SSH keys an operator imported, and of
+# config/retained_copy_keys, its managed encryption keys, so an unbounded pile is
 # an installer that multiplies private key material every time it runs.
 #
 # A refusal rather than a prune, and the choice is deliberate. This whole
@@ -2275,7 +2288,7 @@ def archive_state(args, *, move: bool):
             f"{len(archives)} archives are already under {args.prefix}, and the limit is "
             f"{ARCHIVE_LIMIT}:\n" + "\n".join(f"  {a}" for a in archives),
             "Each one holds a copy of config/ssh_keys, which is where the engine keeps the SSH keys "
-            "you imported, so leaving them to pile up spreads private key material with every "
+            "you imported, and of config/retained_copy_keys, its managed encryption keys, so leaving them to pile up spreads private key material with every "
             "upgrade. This will not delete them for you, because moving rather than deleting is the "
             "whole reason the archive is recoverable. Look at what you still need, then remove the "
             "rest by hand and re-run.",
@@ -2341,15 +2354,16 @@ def archive_state(args, *, move: bool):
     return archive, captured
 
 
-# The two directories the ENGINE creates and owns inside the config
-# directory: the keys an operator imports through the Web UI, and the host
-# keys it pins per source. container/compose.yaml documents both as
-# siblings of config.yaml (issue #196).
-ENGINE_OWNED_CONFIG_DIRS = ("ssh_keys", "known_hosts.d")
+# The directories the ENGINE creates and owns inside the config
+# directory: the keys an operator imports through the Web UI, the host
+# keys it pins per source, and the managed encryption keys for retained
+# copies (#1295). container/compose.yaml documents them as siblings of
+# config.yaml (issue #196).
+ENGINE_OWNED_CONFIG_DIRS = ("ssh_keys", "known_hosts.d", "retained_copy_keys")
 
 
 def prepare_engine_config_dirs(args) -> None:
-    """Create the engine's two on-demand stores, 0700, before it does.
+    """Create the engine's on-demand stores, 0700, before it does.
 
     This ran BEFORE stage_payload, when neither the prefix nor the config
     directory existed yet, so on a fresh install every path it looked at
@@ -6818,8 +6832,8 @@ def cmd_uninstall(args) -> int:
         say(f"  {label:<14} {path}")
     if args.workflows_dir.is_dir():
         say(f"  {'--workflows':<14} {args.workflows_dir}")
-    say("They hold the SQLite journal, the administrator record, the backups themselves, and any")
-    say("hook scripts you wrote.")
+    say("They hold the SQLite journal, the administrator record, the backups themselves, the managed")
+    say("encryption keys (config/retained_copy_keys), and any hook scripts you wrote.")
     say("Remove them by hand if that is really what you want.")
     say("")
     say("NOT removed by this command: if `install` or `network-doctor` ever repaired this host's")

@@ -159,6 +159,9 @@ alert: only a person can clear it, so nothing pages anybody.
 The Dashboard shows the same fact as a warning you cannot dismiss, "No confirmed recovery
 bundle", with a link to the Settings card, until you confirm.
 
+What the installer does with the key directory on an upgrade, a factory reset and an
+uninstall is in [the install guide](install.md).
+
 Where to put it:
 
 - **Not on the volume the backup shares export.** The same mistake as the one
