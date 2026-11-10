@@ -1,13 +1,17 @@
 package keycustody
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"regexp"
 	"time"
 )
 
@@ -57,8 +61,8 @@ type Bundle struct {
 	// the only field anywhere in this package, that holds material.
 	Material string `json:"material"`
 
-	// Digest is hex SHA-256 over the identity fields and the material (see
-	// digest), so a bundle whose key id was edited to match a different
+	// Digest is hex SHA-256 over the identity fields, the export time and
+	// the material (see digest), so a bundle whose key id was edited to match a different
 	// copy's record is refused as firmly as one whose material was.
 	Digest string `json:"digest"`
 
@@ -80,10 +84,11 @@ type Receipt struct {
 // digest is the bundle's integrity value: SHA-256 over the fields a
 // recovery trusts, newline-separated in a fixed order. The instructions are
 // deliberately outside it, so a translation or a wording fix does not
-// invalidate every bundle in a safe.
+// invalidate every bundle in a safe. The export time is inside it, so two
+// exports of one key are two digests and two recorded rows.
 func (b Bundle) digest() string {
 	h := sha256.New()
-	for _, field := range []string{b.Version, b.KeyID, b.FormatID, b.Recipient, b.Created.UTC().Format(time.RFC3339Nano), b.Material} {
+	for _, field := range []string{b.Version, b.KeyID, b.FormatID, b.Recipient, b.Created.UTC().Format(time.RFC3339Nano), b.Exported.UTC().Format(time.RFC3339Nano), b.Material} {
 		h.Write([]byte(field))
 		h.Write([]byte{'\n'})
 	}
@@ -97,6 +102,9 @@ func (s *Store) Export(ctx context.Context, id string, w io.Writer, now time.Tim
 	rec, err := s.record(ctx, id)
 	if err != nil {
 		return Receipt{}, err
+	}
+	if rec.Provider == ProviderExternal {
+		return Receipt{}, fmt.Errorf("%w: %s", ErrExternalKeyNotExportable, id)
 	}
 	b := Bundle{
 		Version:      bundleVersion,
@@ -119,12 +127,14 @@ func (s *Store) Export(ctx context.Context, id string, w io.Writer, now time.Tim
 	if err != nil {
 		return Receipt{}, fmt.Errorf("keycustody: encoding bundle: %w", err)
 	}
-	if _, err := w.Write(append(out, '\n')); err != nil {
-		return Receipt{}, fmt.Errorf("keycustody: writing bundle: %w", err)
-	}
 	receipt := Receipt{KeyID: rec.ID, Digest: b.Digest, ExportedAt: b.Exported}
+	// Record before writing: an export the registry refuses must not leave
+	// key material in the destination.
 	if err := s.registry.RecordExport(ctx, ExportRecord{KeyID: rec.ID, Digest: b.Digest, ExportedAt: b.Exported}); err != nil {
 		return Receipt{}, err
+	}
+	if _, err := w.Write(append(out, '\n')); err != nil {
+		return Receipt{}, fmt.Errorf("keycustody: writing bundle: %w", err)
 	}
 	return receipt, nil
 }
@@ -203,16 +213,154 @@ func (b Bundle) Decrypt(f Format, ciphertext io.Reader, out io.Writer) error {
 	return nil
 }
 
-// instructions are the bundle's human-readable half. They name the doc and
-// the shape of the recovery, and not a CLI verb, because the verbs are
-// #993's and a wrong verb in a safe is worse than none.
+// instructions are the bundle's human-readable half. They name the two verbs
+// that exist (`retnd encryption decrypt` and `retnd encryption key import`,
+// #1289), the doc, and the age CLI as the way that needs nothing of this
+// product. A verb named here that the binary lacks is worse than none, which
+// is why a test in this package and one in core/cmd/retnd read them.
 func instructions(keyID string) []string {
 	return []string{
 		"This file holds the encryption key " + keyID + " for this deployment's encrypted retained copies. Anyone holding it can read those copies. Keep it where you keep the thing you would need after losing the machine: a password manager, a printed copy in a safe, an encrypted USB key kept elsewhere.",
 		"Every encrypted copy records the key id it was written under, both in the deployment's journal and in the recovery sidecar stored next to the copy. A copy recording key " + keyID + " is one this file opens.",
-		"To recover on a clean machine: install the shipped binary, give it this file and the encrypted copy, and it will check the digest below, decrypt the copy, and refuse to call it recovered unless the plaintext digest matches what the sidecar recorded. docs/recovery-without-a-terminal.md walks through it without assuming a terminal.",
-		"The copies are age files (https://c2sp.org/age) and the \"material\" field is an age identity. Without this product at all: save that one line to identity.txt and run: age -d -i identity.txt copy.age > recovered. The \"recipient\" field is the public half, and the copy's age header names it.",
+		"To recover on a clean machine: install the shipped binary and run: retnd encryption decrypt <copy> --bundle <this file> --sidecar <the copy's sidecar> --out <recovered file>. It checks this file's digest, checks the copy against the stored-bytes digest the sidecar records, decrypts, and creates the output file only after every chunk authenticated and the plaintext digest matched, so a damaged or cut-short copy leaves nothing behind. To make a deployment know this key (so copies recording key " + keyID + " resolve there), run: retnd encryption key import --bundle <this file>. docs/recovery-without-a-terminal.md walks through both without assuming a terminal.",
+		"The copies are age files (https://c2sp.org/age) and the \"material\" field is an age identity. Without this product at all, and without the checks above: save that one line to identity.txt and run: age -d -i identity.txt copy.age > recovered. The \"recipient\" field is the public half, and the copy's age header names it.",
 		"If the deployment ever reports that its key bundle is not confirmed, confirm it by entering the digest below where the interface asks for it. The digest is not secret; the material above is.",
-		"Do not edit this file. The digest covers the key id, the format and the material, and an edited file is refused.",
+		"Do not edit this file. The digest covers the key id, the format, the export time and the material, and an edited file is refused.",
 	}
+}
+
+// keyIDPattern is what an imported key id has to look like, because the id
+// becomes a file name in the key directory. Minted ids are "k" and sixteen
+// hex digits; this is wider so another build's ids still import, and
+// narrower than anything that could leave the directory.
+var keyIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
+
+// ErrKeyConflict is Import's refusal when the id is already held by a
+// different key, in the registry or as a file in the key directory. It never
+// quotes either key.
+var ErrKeyConflict = errors.New("keycustody: a different key is already held under this id")
+
+// Import registers the key a bundle carries on this machine, so copies that
+// record its id resolve here. It is the clean-machine counterpart of Export:
+// the bundle goes in, and nothing about the key comes back out.
+//
+// The imported key is registered as superseded, never active. It exists to
+// open copies written elsewhere, and making it the key new copies are
+// written under would be a rotation nobody asked for. Holding the bundle is
+// the proof Confirm asks a person for, so the export and the confirmation it
+// carries are recorded too, and the key does not sit in Health as
+// unconfirmed.
+//
+// It is idempotent: a key already held under the id, with the same recipient
+// and the same bytes, is left alone and imported is false. A key file that is
+// missing for a registered key is restored (imported is true). The file is
+// written under the commit discipline mint uses, before the registry is
+// touched, so a refusal or a crash leaves no record without a key.
+func (s *Store) Import(ctx context.Context, b Bundle, now time.Time) (rec KeyRecord, imported bool, err error) {
+	if b.Version != bundleVersion || b.Digest != b.digest() {
+		return KeyRecord{}, false, ErrBundleIntegrity
+	}
+	if !keyIDPattern.MatchString(b.KeyID) {
+		return KeyRecord{}, false, fmt.Errorf("%w: %q is not a key id this build can hold", ErrBundleIntegrity, b.KeyID)
+	}
+	if b.FormatID != s.format.ID() {
+		return KeyRecord{}, false, fmt.Errorf("keycustody: the bundle was exported under format %q and this build opens %q", b.FormatID, s.format.ID())
+	}
+	material := []byte(b.Material)
+	defer zero(material)
+	if recipient, rerr := s.format.Recipient(material); rerr != nil || recipient != b.Recipient {
+		return KeyRecord{}, false, fmt.Errorf("keycustody: the bundle's material is not the key %s names", b.KeyID)
+	}
+	if err := checkDirCustody(s.dir); err != nil {
+		return KeyRecord{}, false, err
+	}
+
+	keys, err := s.registry.Keys(ctx)
+	if err != nil {
+		return KeyRecord{}, false, err
+	}
+	var existing *KeyRecord
+	for i := range keys {
+		if keys[i].ID == b.KeyID {
+			existing = &keys[i]
+		}
+	}
+	if existing != nil && existing.Recipient != b.Recipient {
+		return KeyRecord{}, false, fmt.Errorf("%w: %s", ErrKeyConflict, b.KeyID)
+	}
+
+	path := s.keyPath(b.KeyID)
+	li, statErr := os.Lstat(path)
+	switch {
+	case statErr == nil:
+		if !li.Mode().IsRegular() {
+			return KeyRecord{}, false, fmt.Errorf("%w: %s is not a plain file", ErrKeyConflict, b.KeyID)
+		}
+		onDisk, err := os.ReadFile(path)
+		if err != nil {
+			return KeyRecord{}, false, fmt.Errorf("keycustody: reading key file for %s: %w", b.KeyID, err)
+		}
+		same := subtle.ConstantTimeCompare(bytes.TrimSpace(onDisk), bytes.TrimSpace(material)) == 1
+		zero(onDisk)
+		if !same {
+			return KeyRecord{}, false, fmt.Errorf("%w: %s", ErrKeyConflict, b.KeyID)
+		}
+	case errors.Is(statErr, os.ErrNotExist):
+		encoded := append(append([]byte(nil), material...), '\n')
+		defer zero(encoded)
+		tmp := path + ".partial"
+		if err := writeFileSync(tmp, encoded, 0o600); err != nil {
+			os.Remove(tmp)
+			return KeyRecord{}, false, fmt.Errorf("keycustody: writing key file: %w", err)
+		}
+		if err := os.Link(tmp, path); err != nil {
+			os.Remove(tmp)
+			return KeyRecord{}, false, fmt.Errorf("keycustody: publishing key file: %w", err)
+		}
+		os.Remove(tmp)
+		if err := fsyncDir(s.dir); err != nil {
+			return KeyRecord{}, false, err
+		}
+		imported = true
+	default:
+		return KeyRecord{}, false, fmt.Errorf("keycustody: checking key file for %s: %w", b.KeyID, statErr)
+	}
+
+	if existing != nil {
+		rec = *existing
+	} else {
+		rec = KeyRecord{ID: b.KeyID, Recipient: b.Recipient, Created: b.Created.UTC(), Status: StatusSuperseded}
+		if err := s.registry.AddKey(ctx, rec, ""); err != nil {
+			return KeyRecord{}, false, err
+		}
+		imported = true
+	}
+
+	exports, err := s.registry.Exports(ctx, rec.ID)
+	if err != nil {
+		return KeyRecord{}, false, err
+	}
+	var exported bool
+	for _, e := range exports {
+		exported = exported || e.Digest == b.Digest
+	}
+	if !exported {
+		if err := s.registry.RecordExport(ctx, ExportRecord{KeyID: rec.ID, Digest: b.Digest, ExportedAt: b.Exported.UTC()}); err != nil {
+			return KeyRecord{}, false, err
+		}
+	}
+	confirmations, err := s.registry.Confirmations(ctx)
+	if err != nil {
+		return KeyRecord{}, false, err
+	}
+	var confirmed bool
+	for _, c := range confirmations {
+		confirmed = confirmed || (c.KeyID == rec.ID && c.Digest == b.Digest)
+	}
+	if !confirmed {
+		if err := s.registry.Confirm(ctx, Confirmation{KeyID: rec.ID, Digest: b.Digest, ConfirmedAt: now.UTC()}); err != nil {
+			return KeyRecord{}, false, err
+		}
+	}
+	return rec, imported, nil
 }

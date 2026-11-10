@@ -260,7 +260,7 @@
       "default": "\"\"",
       "required": false,
       "scope": "deployment",
-      "description": "External key reference (file), the secretref shape. Write-only: the API and CLI read it back as a description of its source. This build tests such a reference but cannot yet write copies under one.",
+      "description": "External key reference (file), the secretref shape. Write-only: the API and CLI read it back as a description of its source. A set that requires encryption under such a reference writes encrypted copies through it, and the key must stay resolvable to verify them.",
       "ui": {
         "configurable": true,
         "location": "Settings > Retained-copy encryption",
@@ -278,7 +278,7 @@
       "default": "\"\"",
       "required": false,
       "scope": "deployment",
-      "description": "External key reference (env), the secretref shape. Write-only: the API and CLI read it back as a description of its source. This build tests such a reference but cannot yet write copies under one.",
+      "description": "External key reference (env), the secretref shape. Write-only: the API and CLI read it back as a description of its source. A set that requires encryption under such a reference writes encrypted copies through it, and the key must stay resolvable to verify them.",
       "ui": {
         "configurable": true,
         "location": "Settings > Retained-copy encryption",
@@ -296,7 +296,7 @@
       "default": "[] ",
       "required": false,
       "scope": "deployment",
-      "description": "External key reference (command), the secretref shape. Write-only: the API and CLI read it back as a description of its source. This build tests such a reference but cannot yet write copies under one.",
+      "description": "External key reference (command), the secretref shape. Write-only: the API and CLI read it back as a description of its source. A set that requires encryption under such a reference writes encrypted copies through it, and the key must stay resolvable to verify them.",
       "ui": {
         "configurable": true,
         "location": "Settings > Retained-copy encryption",
