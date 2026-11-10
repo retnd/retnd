@@ -35,10 +35,12 @@ these in it, and once at each phase exit gate.
   epic, in #817, which is how long an ungated item can go missing while every
   gated one stays green.
 - [ ] **FR numbers continue the global series and renumber nothing.** *(Ungated.)*
-  The next free number is **FR-75**. FR-1 to FR-24 are in `docs/EPIC.md`, FR-26 is
+  The next free number is **FR-91**. FR-1 to FR-24 are in `docs/EPIC.md`, FR-26 is
   the `version` command, FR-27 to FR-35 are EPIC E, FR-36 to FR-48 are EPIC L, FR-59
   to FR-66 are EPIC N (`docs/EPIC-N-encrypted-retained-copies.md`), FR-67 to FR-74
-  are EPIC Q (EPICs O and M hold FR-45 to FR-58 in their open specs).
+  are EPIC Q, FR-75 to FR-82 are reserved to EPIC P in prose, and FR-83 to FR-90 are
+  EPIC T (`docs/EPIC-T-encryption-suites.md`) (EPICs O and M hold FR-45 to FR-58 in
+  their open specs).
   FR-25 is an unclaimed hole: leave it alone rather than filling it, because
   anything citing "FR-25" today is citing nothing.
 - [ ] **A five-expert adversarial review section**, initial verdicts and consensus

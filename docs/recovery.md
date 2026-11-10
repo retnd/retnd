@@ -1181,16 +1181,18 @@ ways forward, in this order:
 ### When the catalog is gone and some copies are encrypted
 
 A sidecar written after a copy was encrypted carries that copy's non-secret description:
-the format (`age/v1`), the **id** of the key it needs, the plaintext and stored digests and
+the suite it was written under (`format_id`, `age/v1` or `age-pq/v1`), the **id** of the key
+it needs, the plaintext and stored digests and
 sizes, and when it last decrypted to the artifact. It never carries a key. `retnd catalog
 rebuild` reads it and tells you, per encrypted copy, which key it needs and whether this
 deployment knows that key: either the backup set has no key provider configured, or the
-managed key is not in the key registry (a fresh deployment does not have it, and this build has
-no command that imports a key back from its recovery bundle), or the set names an external
+managed key is not in the key registry (a fresh deployment does not have it until you run
+`retnd encryption key import --bundle FILE`), or the set names an external
 provider. The rebuild never opens the key file and never runs an
 external key command, so it works on a machine that has no keys. It also does not adopt the
 copy into the journal; a medium copy comes back only through the sidecar's say-so, and a
-sidecar is a proposal.
+sidecar is a proposal. A sidecar naming a suite this build does not know is reported as an
+unknown suite, never as plaintext and never as verified.
 
 Whether a key actually opens a copy is a different question, and `retnd validate <artifact>
 --content` answers it. With the key unavailable it says it could not check. It does not
@@ -1199,7 +1201,9 @@ report an existence check in its place.
 On a machine that cannot get the key back into a deployment, which is every machine
 after a lost host, the copy is opened with `retnd encryption decrypt` and the key from the recovery
 bundle, as [recovery without a terminal](recovery-without-a-terminal.md#6-an-encrypted-copy-has-to-be-opened-on-a-machine-with-no-state)
-walks through (the stock `age` tool is the independent fallback there). `retnd recover` itself does not
+walks through, per suite (the stock `age` tool is the independent fallback there: any release
+opens an `age/v1` copy, an `age-pq/v1` copy needs age 1.3 or newer, and the bundle's `format`
+field is the thing to check first). `retnd recover` itself does not
 decrypt, and `retnd encryption key import --bundle FILE` is what makes a rebuilt deployment know the key. The operations
 guide, [encrypted copies](encrypted-copies.md), covers keeping the bundle and what losing it
 means.
@@ -1209,7 +1213,7 @@ means.
 | What you see | What it means | What to do |
 |---|---|---|
 | Scrub: `failed`, `existence` class | An object of the wrong size, or none, is at that key | Run `retnd validate <artifact> --content` for a read of the bytes; if the copy is damaged, recover from another copy |
-| Scrub `--content` of an encrypted copy: `could not complete`, "the key it needs cannot be resolved here" | This deployment cannot open the key the copy was written under. It says nothing about the copy | Get the key back (managed: its file in the `retained_copy_keys` directory beside `config.yaml`, owner-only, because this build cannot import a key from a bundle; external: make the reference resolve), then run it again. An unattended scrub does not need the key and keeps checking the stored size |
+| Scrub `--content` of an encrypted copy: `could not complete`, "the key it needs cannot be resolved here" | This deployment cannot open the key the copy was written under. It says nothing about the copy | Get the key back (managed: `retnd encryption key import --bundle FILE` with its recovery bundle, while no engine serves the deployment; external: make the reference resolve), then run it again. An unattended scrub does not need the key and keeps checking the stored size |
 | Scrub: `could not complete` | The endpoint did not answer. It says nothing about the copy | Fix reachability. Three failed or incomplete checks in a row degrade the set's health and raise `SCRUB_FAILING` once through your alert channels, and it clears on a later pass |
 | Scrub: `requires_restore` | The copy is archived | `retnd restore` (billed, hours), then `recover`. A scrub never starts that for you |
 | Scrub skipped for a set | The set is under an edit hold | The skip is visible; release the hold |

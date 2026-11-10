@@ -81,8 +81,10 @@ through creating them.
 - **Encrypted retained copies, only if the operator turns them on**: what is stored
   changes shape for a backup set that requires it. The copy sent to a storage destination
   is an `age` file instead of the artifact's own bytes, with a plain JSON sidecar beside it
-  that names the key (by id, never the key), the format, and the plaintext and stored digests
-  and sizes. The local copy is not encrypted, and object names on the destination are not
+  that names the key (by id, never the key), the encryption suite, and the plaintext and stored
+  digests and sizes. Choosing a suite (EPIC T) changes which age recipient the key is, and
+  nothing else here: no new data is collected, stored elsewhere or sent anywhere, and the
+  suite id is the only new value in the database, a metric label or the activity feed. The local copy is not encrypted, and object names on the destination are not
   hidden. If the managed key is used, it is an owner-only file in a `retained_copy_keys`
   directory beside the configuration, and the state database holds the key's id, public
   recipient, status and times, and which recovery bundles were exported and confirmed. The

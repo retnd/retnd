@@ -56,4 +56,4 @@ echo
 echo "==> 3. what is now in docs/site/screens/ for this epic"
 git status --short -- 'docs/site/screens/encryption-*' | sed 's/^/    /'
 echo
-echo "Next: bash scripts/release/check-epic-n-closed.sh (closing check, needs every row decided)."
+echo "Next: bash scripts/release/check-epic-n-closed.sh and bash scripts/release/check-epic-t-closed.sh (closing checks, each needs every row of its matrix decided)."

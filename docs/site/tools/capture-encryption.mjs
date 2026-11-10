@@ -1,5 +1,8 @@
 // Re-shoots the pictures and the short GIFs of EPIC N: retained-copy
-// encryption, recoverable key custody and the copy states beside them (#998).
+// encryption, recoverable key custody and the copy states beside them (#998),
+// and of EPIC T's encryption suites (#1320): the Suite select, the
+// rotate-then-confirm flow, the per-copy suite chip, the deprecated health
+// state and the re-encrypt dry run, ids encryption-25 onwards in the manifest.
 //
 // Run it from the repository root, through the Playwright lock (never bare):
 //
@@ -130,7 +133,10 @@ if (EMBEDS) {
 // ---------------------------------------------------------------------------
 // What may never be in a picture.
 
-const KEY_MATERIAL = /AGE-SECRET-KEY|BEGIN [A-Z ]*PRIVATE KEY|PRIVATE KEY-----|CANARY|\bage1[a-z0-9]{58}\b/i;
+// age1pq1 is the age-pq/v1 recipient (#1320): public like the X25519 one, and
+// kept out of a picture for the same reason, with about 2000 characters where
+// the X25519 recipient has 58 after its prefix.
+const KEY_MATERIAL = /AGE-SECRET-KEY|BEGIN [A-Z ]*PRIVATE KEY|PRIVATE KEY-----|CANARY|\bage1[a-z0-9]{58}\b|\bage1pq1[a-z0-9]{100,}/i;
 const HOSTISH = /\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|dev|app|cloud|de|eu|uk|us|ch|nl|fr|se|info|biz|co)\b/gi;
 const SAFE_HOST = /(^|\.)(example\.(com|net|org)|retnd\.[a-z]+|github\.com|ghcr\.io)$/i;
 

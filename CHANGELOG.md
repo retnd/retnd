@@ -23,6 +23,39 @@
 
 ### Added
 
+- **Encryption suites for retained copies** (EPIC T, #1310: #1311 to #1320). Every encrypted copy now
+  records the suite it was written under (its existing `format_id`, so `age/v1` keeps its exact meaning and
+  no copy record changes), from a registry compiled into the build. Two suites ship, both `filippo.io/age`
+  and no new module. The default for new keys is `age-pq/v1`, which every surface describes in the same
+  words as the Settings tooltip: "age v1 file with a hybrid ML-KEM-768 + X25519 recipient and
+  ChaCha20-Poly1305 payload: post-quantum hybrid key establishment, 128-bit security level, not AES, not
+  FIPS-validated; opens with age 1.3 or newer." `age/v1` stays supported. `retnd encryption suites` and
+  `GET /api/v1/encryption/suites` list them with their status.
+  - **A key belongs to a suite** (migration 0020 adds `encryption_keys.suite_id`; every existing key reads
+    `age/v1`). There is one active managed key per suite, and a copy is written only under the active key
+    of the policy's suite. Changing the suite is choose, rotate, export, confirm: `policy patch --suite`
+    answers `rotation_needed` and writes no key, `key rotate --suite <id>` mints the new suite's key and
+    supersedes the old suite's in one write, and the new bundle is unconfirmed until you confirm it. Until
+    the rotation, a `required` set's new copies are refused before anything destructive, never written
+    under another suite. Nothing rotates on its own, and a build that moves the default says so once in an
+    `EncryptionDefaultSuiteChanged` event.
+  - **Supported, deprecated, retired.** A deprecated suite still reads and writes and turns health
+    degraded with the count of active copies under it. A retired suite reads only: decrypt-verify, scrub,
+    moves, `decrypt` and recovery keep working on its copies, no new copy is written under it, and
+    `suite:` pinned to it is refused at load. No suite is removed while a copy records it.
+  - **`retnd encryption reencrypt`** writes copies recorded under another suite again under the active
+    suite and key, through the same journaled move as `encrypt-existing`: another medium, no plaintext on
+    local disk, the old copy retired only after the new one decrypt-verifies, `--dry-run` to see which
+    copies it would take.
+  - **One-way door:** a `config.yaml` that writes `retained_copy_encryption.suite` cannot be read by 0.7.2
+    or any earlier build, which refuses it as an unknown field. Writing nothing means `suite: default` and
+    opens no door.
+  - The product never calls a suite "military-grade" and never prints a security level the code does not
+    state. `docs/encrypted-copies.md` has the suites, what the default meets and does not meet, and where
+    encryption enters the ingest path; the recovery pages give the per-suite procedure (the same
+    `age -d -i` line, age 1.3 or newer for `age-pq/v1`). ADR 0033 records the decision and supersedes one
+    sentence of ADR 0027.
+
 - **Progress stages for encrypted copies** (#1290, EPIC N). `OperationProgress.stage` and
   `LiveActivitySet.stage` gain `encrypting` and `decrypt-verifying` (appended after the original five, so
   existing clients are unaffected), each with byte progress that starts at a measured zero, never goes

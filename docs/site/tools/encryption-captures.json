@@ -1,7 +1,7 @@
 {
   "schema": "retnd.encryption-captures/1",
   "issue": 998,
-  "note": "The list of media EPIC N owes, and the one place #997 looks up an id, a file name and its alt text. A still has four variants (variants[].suffix). state needs-ui-state means the stack has no UI state to photograph; the release gate counts its files as missing until the state exists and the entry becomes capturable. Store-submission screenshots are not here and are never generated.",
+  "note": "The list of media EPIC N owes, and since #1320 the media EPIC T owes (ids encryption-25 onwards), and the one place #997 looks up an id, a file name and its alt text. A still has four variants (variants[].suffix). state needs-ui-state means the stack has no UI state to photograph; the release gate counts its files as missing until the state exists and the entry becomes capturable. Store-submission screenshots are not here and are never generated.",
   "clock": "2026-08-29T06:15:00+02:00 (harness FROZEN_TIME)",
   "variants": [
     {
@@ -217,6 +217,51 @@
       "state": "capturable",
       "alt": "Verify recoverable ended failed closed",
       "caption": "Decrypt failed, no partial plaintext written, recover from another copy."
+    },
+    {
+      "id": "suite-select",
+      "name": "encryption-25-suite-select",
+      "scenario": "encryption-suites",
+      "state": "needs-ui-state",
+      "reason": "Waits on the T2.3 Settings suite select (#1318) and a mock scenario that draws it; becomes capturable with a steps entry once that UI exists.",
+      "alt": "Settings, Retained-copy encryption, the Suite select open with each suite's status and its one-sentence tooltip",
+      "caption": "The Suite select lists age-pq/v1 (default) and age/v1 (supported), and the tooltip is the Describe() sentence, word for word."
+    },
+    {
+      "id": "suite-rotate-confirm",
+      "name": "encryption-26-suite-rotate-confirm",
+      "scenario": "encryption-suites",
+      "state": "needs-ui-state",
+      "reason": "Waits on the T2.3 Settings suite select (#1318) and a mock scenario that draws it; becomes capturable with a steps entry once that UI exists.",
+      "alt": "Settings after choosing another suite: rotate, export and confirm, in that order",
+      "caption": "Choosing a suite writes no key: the card asks for the rotation, then the bundle export, then the confirmation, and says new copies wait until then."
+    },
+    {
+      "id": "suite-chips",
+      "name": "encryption-27-suite-chips",
+      "scenario": "encryption-suites",
+      "state": "needs-ui-state",
+      "reason": "Waits on the T2.3 per-copy suite chip (#1318) and a mock backup with copies under both suites.",
+      "alt": "A backup's copies, one encrypted under age/v1 and one under age-pq/v1, each with its suite chip",
+      "caption": "Each encrypted copy shows the suite it was written under, beside the Encrypted and Verified recoverable chips."
+    },
+    {
+      "id": "suite-deprecated-health",
+      "name": "encryption-28-suite-deprecated-health",
+      "scenario": "encryption-suites",
+      "state": "needs-ui-state",
+      "reason": "Waits on the T2.1 deprecated health state (#1316) reaching the UI through T2.3 (#1318), and a mock scenario with a deprecated suite.",
+      "alt": "Dashboard health reading degraded because active copies sit under a deprecated suite",
+      "caption": "A deprecated suite still reads and writes; health says so, with the number of active copies under it."
+    },
+    {
+      "id": "reencrypt-dry-run",
+      "name": "encryption-29-reencrypt-dry-run",
+      "scenario": "encryption-suites",
+      "state": "needs-ui-state",
+      "reason": "Waits on a web control for reencrypt (#1317, #1318); if it stays a command and a route with no button, as encrypt-existing does, this entry is removed with that reason.",
+      "alt": "The re-encrypt dry run listing copies under age/v1 and what a run would do with each",
+      "caption": "The dry run lists every copy under the older suite and, per copy, whether a run would re-encrypt it onto another medium or refuse, and why."
     }
   ],
   "gifs": [
