@@ -23,6 +23,13 @@
 
 ### Added
 
+- **A guard against dropping an external key reference that still has copies** (#1304, EPIC N follow-up).
+  An external key's row stores no reference, so removing a superseded one from the configuration left
+  every copy under it unreadable and nothing said so. The key-custody health section now lists each
+  external key that ACTIVE copies record and no declared reference yields (and reads degraded, whatever
+  the mode), and the alert pass raises `ENCRYPTION_KEY_UNRESOLVABLE` for each affected set, naming the key
+  and the copies. Retiring such a key was already refused naming the copies and still is. Nothing stores
+  the reference text or any key material; with no external key on record custody is not opened.
 - **External key providers write encrypted copies** (#1292, follow-up to EPIC N). A backup set whose
   `key_provider` is an external `file`/`env`/`command` reference now encrypts its off-site copies instead of
   being refused. The key is a row in the same `encryption_keys` registry a managed key uses (`provider =

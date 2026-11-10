@@ -2,10 +2,14 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/retnd/retnd/core/internal/alert"
 	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/health"
 	"github.com/retnd/retnd/core/internal/keycustody"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/secretref"
@@ -29,6 +33,97 @@ type keyAlertSource interface {
 // no change here.
 type externalKeyRegistrar interface {
 	RegisterExternal(ctx context.Context, ref secretref.Ref, at time.Time) (keycustody.KeyRecord, error)
+}
+
+// externalKeyRisks is the capability that tells which external keys have lost
+// every declared reference while ACTIVE copies still need them (#1304).
+// service.KeyCustody satisfies it; it is asked of s.Keys so a custodian
+// without it simply raises nothing.
+type externalKeyRisks interface {
+	ExternalKeysAtRisk(ctx context.Context) ([]health.ExternalKeyAtRisk, error)
+}
+
+// ExternalKeyAlertConditions raises ENCRYPTION_KEY_UNRESOLVABLE for each
+// alertable set holding ACTIVE copies under an external key no declared
+// reference yields any more (#1304). It is a different fact from the required
+// set's own condition (those copies already exist and are unreadable, not
+// refused), so it is raised whatever the set's mode is, but a set that already
+// carries a condition this pass (have) is not given a second one for the same
+// kind and scope: the dispatcher keys on both.
+//
+// A look that fails marks every alertable set unevaluated, so a standing
+// condition is not resolved by a pass that could not look.
+func (s *Service) ExternalKeyAlertConditions(ctx context.Context, alertable map[model.BackupSetID]bool, have []alert.Condition) ([]alert.Condition, []alert.Subject) {
+	risks, ok := s.Keys.(externalKeyRisks)
+	if !ok {
+		return nil, nil
+	}
+	couldNotLook := func() []alert.Subject {
+		var out []alert.Subject
+		for id, on := range alertable {
+			if on {
+				out = append(out, alert.Subject{Kind: alert.EncryptionKeyUnresolvable, Scope: id.String()})
+			}
+		}
+		return out
+	}
+	if ctx.Err() != nil {
+		return nil, couldNotLook()
+	}
+	list, err := risks.ExternalKeysAtRisk(ctx)
+	if err != nil {
+		return nil, couldNotLook()
+	}
+	taken := map[string]bool{}
+	for _, c := range have {
+		if c.Kind == alert.EncryptionKeyUnresolvable {
+			taken[c.Scope] = true
+		}
+	}
+	type atSet struct {
+		keys   []string
+		copies []string
+	}
+	bySet := map[string]*atSet{}
+	var order []string
+	for _, r := range list {
+		for _, c := range r.Copies {
+			set := c.Artifact.Set
+			if !alertable[set] || taken[set.String()] {
+				continue
+			}
+			a := bySet[set.String()]
+			if a == nil {
+				a = &atSet{}
+				bySet[set.String()] = a
+				order = append(order, set.String())
+			}
+			if len(a.keys) == 0 || a.keys[len(a.keys)-1] != r.KeyID {
+				a.keys = append(a.keys, r.KeyID)
+			}
+			a.copies = append(a.copies, c.String())
+		}
+	}
+	sort.Strings(order)
+	var out []alert.Condition
+	for _, set := range order {
+		a := bySet[set]
+		shown := a.copies
+		more := ""
+		if len(shown) > 10 {
+			more = fmt.Sprintf(", and %d more", len(shown)-10)
+			shown = shown[:10]
+		}
+		out = append(out, alert.Condition{
+			Kind:  alert.EncryptionKeyUnresolvable,
+			Scope: set,
+			Detail: fmt.Sprintf(
+				"Backup set %s holds %d ACTIVE encrypted copies under external key %s, and no declared key reference yields that key now, so they cannot be read, verified or restored: %s%s. "+
+					"Declare a reference that yields the key again (keep a superseded key's reference declared for as long as copies record it). Nothing was deleted.",
+				set, len(a.copies), strings.Join(a.keys, ", "), strings.Join(shown, ", "), more),
+		})
+	}
+	return out, nil
 }
 
 // KeyCustodyAlertConditions is FR-66's refusal reaching whoever is on the other

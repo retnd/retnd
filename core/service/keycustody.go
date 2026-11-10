@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
@@ -182,6 +183,45 @@ func (c *KeyCustody) AlertConditions(ctx context.Context, policies []keycustody.
 		return nil, unevaluated
 	}
 	return s.AlertConditions(ctx, policies)
+}
+
+// ExternalKeysAtRisk is every external key that ACTIVE copies record and no
+// declared reference currently yields, with those copies (#1304). A key row
+// stores no reference, so this is how a dropped one is noticed. With no
+// external key on record it reads the registry and opens nothing, so a
+// deployment that uses none stays byte identical.
+func (c *KeyCustody) ExternalKeysAtRisk(ctx context.Context) ([]health.ExternalKeyAtRisk, error) {
+	keys, err := c.Keys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	external := false
+	for _, k := range keys {
+		external = external || (k.Provider == keycustody.ProviderExternal && k.Status != keycustody.StatusRetired)
+	}
+	if !external {
+		return nil, nil
+	}
+	s, err := c.Store(ctx)
+	if err != nil {
+		return nil, err
+	}
+	unreadable, err := s.UnreadableExternalKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []health.ExternalKeyAtRisk
+	for id, reason := range unreadable {
+		copies, err := c.journal.ActivePlacementsRecordingKey(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if len(copies) > 0 {
+			out = append(out, health.ExternalKeyAtRisk{KeyID: id, Reason: reason, Copies: copies})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].KeyID < out[j].KeyID })
+	return out, nil
 }
 
 // Health is health.Report.KeyCustody. enabled is whether any backup set

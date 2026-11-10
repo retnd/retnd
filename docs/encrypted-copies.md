@@ -141,7 +141,9 @@ bundle" state. Opening a copy elsewhere is the stock `age` tool and your own key
 registers the new key and moves the old one to `superseded`: the copies written under it keep
 decrypting through it, so **leave the old reference declared** (in the global provider or on a
 set), because a reference removed from the configuration is a key this deployment can no longer
-read. There is no KMS or Vault provider; an external `command` is as close as it gets.
+read. If you drop one anyway while ACTIVE copies still record its key, the health section reads
+degraded and `ENCRYPTION_KEY_UNRESOLVABLE` is raised for each affected set, naming the key and the
+copies (never the reference or the key), and retiring that key is refused naming the copies. There is no KMS or Vault provider; an external `command` is as close as it gets.
 
 ## The recovery bundle, and where it must not live
 

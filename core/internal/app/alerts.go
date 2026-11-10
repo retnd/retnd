@@ -292,6 +292,11 @@ func (s *Service) evaluateAlerts(ctx context.Context, report CycleReport) {
 	keyConditions, keyUnevaluated := s.KeyCustodyAlertConditions(ctx, alertable)
 	conditions = append(conditions, keyConditions...)
 	unevaluated = append(unevaluated, keyUnevaluated...)
+	// And the other way round (#1304): copies already written under an
+	// external key whose reference was dropped.
+	extConditions, extUnevaluated := s.ExternalKeyAlertConditions(ctx, alertable, keyConditions)
+	conditions = append(conditions, extConditions...)
+	unevaluated = append(unevaluated, extUnevaluated...)
 
 	// EPIC Q's assurance conditions, from the same health report: a copy
 	// that keeps failing its scrub, a scrub that has lapsed, and a required

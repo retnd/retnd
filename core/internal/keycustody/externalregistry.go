@@ -155,4 +155,27 @@ func (s *Store) withExternalRecord(ctx context.Context, rec KeyRecord, fn func(k
 	return fmt.Errorf("%w: %s (%s)", ErrExternalKeyUnresolvable, rec.ID, strings.Join(tried, "; "))
 }
 
+// UnreadableExternalKeys lists the external keys, not retired, that no
+// declared reference currently yields, each with the reason in secretref's
+// own words (the references' descriptions, never material). The row stores no
+// reference, so this is the only way to learn that a dropped reference has
+// stranded a key (#1304). It resolves each key's references and keeps
+// nothing it resolved. Managed keys are never listed.
+func (s *Store) UnreadableExternalKeys(ctx context.Context) (map[string]string, error) {
+	keys, err := s.registry.Keys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, k := range keys {
+		if k.Provider != ProviderExternal || k.Status == StatusRetired {
+			continue
+		}
+		if err := s.withExternalRecord(ctx, k, func([]byte) error { return nil }); err != nil {
+			out[k.ID] = err.Error()
+		}
+	}
+	return out, nil
+}
+
 var errExternalNoMatch = errors.New("keycustody: reference yields a different key")
