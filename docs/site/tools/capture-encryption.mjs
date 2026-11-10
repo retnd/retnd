@@ -195,6 +195,17 @@ async function openVerify(page) {
   await dialog(page, /Verify recoverable/).waitFor();
 }
 
+/** Runs the verify to its end (the mock's operation record ends it) and waits
+ *  for the chip the ending draws. */
+async function endedVerify(page, chip) {
+  await openVerify(page);
+  const dlg = dialog(page, /Verify recoverable/);
+  await dlg.getByRole("checkbox", { name: "I accept this read" }).check();
+  await dlg.getByRole("button", { name: "Verify now" }).click();
+  await dlg.getByRole("group", { name: chip }).waitFor({ timeout: 20_000 });
+  return [DIALOG];
+}
+
 const steps = {
   "settings-off": {
     path: "/settings",
@@ -353,6 +364,27 @@ const steps = {
     async prep(page) {
       await card(page).getByRole("link", { name: /41 in Backups/ }).waitFor();
       return ['table[aria-label="Managed keys"]'];
+    }
+  },
+  "verified-recoverable": {
+    path: DETAIL,
+    async prep(page) {
+      const off = page.getByRole("region", { name: "Copies" }).locator('[data-encryption-cell="offsite_s3"]');
+      await off.getByRole("group", { name: /^Encrypted/ }).waitFor();
+      await off.getByRole("group", { name: /^Verified recoverable/ }).waitFor();
+      return ['[aria-label="Copies"]'];
+    }
+  },
+  "verify-matched": {
+    path: DETAIL,
+    async prep(page) {
+      return endedVerify(page, /^Verified recoverable/);
+    }
+  },
+  "verify-failed": {
+    path: DETAIL,
+    async prep(page) {
+      return endedVerify(page, /^Decrypt failed/);
     }
   },
   "verify-running": {
