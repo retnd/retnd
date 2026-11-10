@@ -14,7 +14,7 @@
  * answers a receipt, so no fixture can leak what it never held.
  */
 import { RetndError } from "@shared/api/contracts";
-import type { RetndApi, ScrubStart } from "@shared/api/contracts";
+import type { AssuranceOperationRecord, RetndApi, ScrubStart } from "@shared/api/contracts";
 import type { BackupArtifact } from "@shared/types/backup";
 import type {
   CopyEncryption,
@@ -30,9 +30,22 @@ export const ENCRYPTION_SCENARIOS = [
   "encryption-on",
   "encryption-confirmed",
   "encryption-exported",
+  // A copy that is encrypted, whose key resolves and whose placement holds a
+  // content-class verification: the one road to Verified recoverable. Its verify
+  // ends matched ("mock-decrypt-verify-passed").
+  "encryption-verified",
+  // The same deployment with no decrypt-verify on record, whose verify ends
+  // failed closed ("mock-decrypt-verify-failed").
+  "encryption-verify-failed",
   "encryption-key-missing",
   "encryption-in-use"
 ] as const;
+
+/** Scenarios whose key has a confirmed bundle. */
+const CONFIRMED = new Set<string>(["encryption-confirmed", "encryption-verified", "encryption-verify-failed"]);
+
+export const PASSED_ID = "mock-decrypt-verify-passed";
+export const FAILED_ID = "mock-decrypt-verify-failed";
 
 const NONE: KeyProviderState = { kind: "none", source: null };
 const MANAGED: KeyProviderState = { kind: "managed", source: null };
@@ -55,8 +68,8 @@ export function createMockEncryption(scenario: string, setIds: () => string[]) {
           id: KEY_A, status: "active", createdAt: "2026-11-09T09:12:00Z", retiredAt: null,
           resolvable: scenario !== "encryption-key-missing", resolvability: scenario === "encryption-key-missing" ? "unreachable" : "resolves",
           reason: scenario === "encryption-key-missing" ? "the key file is not readable by this service" : null,
-          bundleConfirmed: scenario === "encryption-confirmed", bundleConfirmedAt: scenario === "encryption-confirmed" ? "2026-11-09T09:31:00Z" : null,
-          bundleExportedAt: scenario === "encryption-confirmed" || scenario === "encryption-exported" ? "2026-11-09T09:20:00Z" : null,
+          bundleConfirmed: CONFIRMED.has(scenario), bundleConfirmedAt: CONFIRMED.has(scenario) ? "2026-11-09T09:31:00Z" : null,
+          bundleExportedAt: CONFIRMED.has(scenario) || scenario === "encryption-exported" ? "2026-11-09T09:20:00Z" : null,
           copiesRecording: scenario === "encryption-in-use" ? 41 : 0
         }
       ]
@@ -222,7 +235,12 @@ export function createMockEncryption(scenario: string, setIds: () => string[]) {
       if (scenario === "encryption-key-missing") {
         return Promise.reject(refuse("ENCRYPTION_KEY_UNRESOLVABLE", "Key " + KEY_OLD + " does not resolve (the key file is not readable by this service). Nothing was read."));
       }
-      return later({ backupSetId: req.artifactId.split("/").slice(0, 2).join("/"), operationId: "mock-decrypt-verify" });
+      // The id decides how the run reads back (encryptionOperationRecord): the
+      // two verified scenarios end, every other leaves the run unknown to the
+      // record, which the dialog draws as still running.
+      const operationId =
+        scenario === "encryption-verified" ? PASSED_ID : scenario === "encryption-verify-failed" ? FAILED_ID : "mock-decrypt-verify";
+      return later({ backupSetId: req.artifactId.split("/").slice(0, 2).join("/"), operationId });
     }
   };
   return methods;
@@ -249,7 +267,28 @@ export function overlayEncryption(scenario: string, a: BackupArtifact): BackupAr
     placements: a.placements.map((p) =>
       p.medium === "local"
         ? p
-        : { ...p, encrypted: true, encryptionKeyId: missing ? KEY_OLD : KEY_A, encryptionKeyResolvable: !missing }
+        : {
+            ...p, encrypted: true, encryptionKeyId: missing ? KEY_OLD : KEY_A, encryptionKeyResolvable: !missing,
+            // The only copy with a decrypt-verify on record: a content class with a time.
+            ...(scenario === "encryption-verified" ? { verificationClass: "content" as const, verifiedAt: "2026-08-28T02:07:31+02:00" } : {})
+          }
     )
+  };
+}
+
+/**
+ * The durable record of the two decrypt-verify runs this mock can end, read by
+ * id the way the real route reads one back. One passed, one failed closed with
+ * the engine's kind of reason. Any other id is not here (undefined), so a run
+ * the mock started under another scenario is still being looked for.
+ */
+export function encryptionOperationRecord(operationId: string): AssuranceOperationRecord | undefined {
+  if (operationId !== PASSED_ID && operationId !== FAILED_ID) return undefined;
+  const passed = operationId === PASSED_ID;
+  return {
+    operationId, kind: "scrub", backupSetId: "production/postgres-primary",
+    state: passed ? "passed" : "failed", stage: passed ? "complete" : "",
+    reason: passed ? "" : "authentication failed at chunk 412 of 9811",
+    startedAt: "2026-08-29T06:14:00+02:00", endedAt: "2026-08-29T06:15:00+02:00", events: []
   };
 }

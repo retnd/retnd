@@ -73,7 +73,7 @@ import { createMockRecoverMany } from "@shared/assurance/mockRecoverMany";
 import { createMockHostBrowse } from "@shared/assurance/mockHostBrowse";
 import { BUILTIN_ARTIFACT, DEFAULT_POLICY_NEWEST, DEFAULT_POLICY_TESTED, INGEST_FAILED_SCENARIO, followsDefault, untestedScenario, assuranceLiveEvents, assuranceStoredLines, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
 import { createHttpAssurance } from "@shared/assurance/realAssurance";
-import { ENCRYPTION_SCENARIOS, createMockEncryption, overlayEncryption } from "@shared/encryption/mockEncryption";
+import { ENCRYPTION_SCENARIOS, createMockEncryption, encryptionOperationRecord, overlayEncryption } from "@shared/encryption/mockEncryption";
 import { HISTORY_IDS, HISTORY_RUNNING, LATE_MISSES, OFF_TAIL_SCENARIO, OPERATION_HISTORY_SCENARIO, RETENTION_DAYS, durableRecordOf, historyLines, historyValidatorResult } from "@shared/assurance/mockOperationHistory";
 import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
 
@@ -6084,7 +6084,10 @@ export function createMockApi(
         state: "" as never, recordedAt: "", truncated: false, records: []
       }),
     // Nothing is on record for an id this server never ran (#1200).
-    getAssuranceOperation: (operationId) => Promise.reject(operationNotOnRecord(operationId)),
+    getAssuranceOperation: (operationId) => {
+      const enc = encryptionOperationRecord(operationId);
+      return enc ? delay(enc) : Promise.reject(operationNotOnRecord(operationId));
+    },
 
     ...validatorsApi,
     getAssuranceSettings: () => delay(structuredClone(assuranceSettings)),
@@ -6287,6 +6290,9 @@ export function createMockApi(
     // what the live tail has dropped. operation-history's fixtures, else the
     // runs this mock started.
     getAssuranceOperation: async (operationId) => {
+      // EPIC N (#995): the two decrypt-verify runs the encryption scenarios end.
+      const enc = encryptionOperationRecord(operationId);
+      if (enc) return delay(enc);
       // The late run is not on the record for its first reads: the writer
       // batches, so a read right after a start can find nothing yet.
       if (scenario === OPERATION_HISTORY_SCENARIO && operationId === HISTORY_IDS.late) {
