@@ -79,8 +79,9 @@ type Confirmation struct {
 // restart could lose, which is what the restart tests in this package
 // prove against FileRegistry.
 //
-// Migration 0015 (#989) is where a journal-backed implementation of this
-// interface lands; until then FileRegistry is the durable one.
+// FileRegistry is the durable implementation today. Migration 0015's
+// encryption_keys has no 'superseded' status and no table for exports, so a
+// journal-backed implementation needs a schema addition first; see doc.go.
 type Registry interface {
 	// Keys returns every key, oldest first.
 	Keys(ctx context.Context) ([]KeyRecord, error)
@@ -110,8 +111,9 @@ type Registry interface {
 var ErrDuplicateKey = errors.New("keycustody: a key with this id is already registered")
 
 // FileRegistry is a Registry over one JSON file, rewritten whole and
-// atomically on every mutation. It is the durable implementation while
-// migration 0015's tables are #989's to land, and it is small enough that
+// atomically on every mutation. It is the durable implementation until the
+// journal-backed one exists (migration 0015 is in the tree but cannot hold
+// a superseded key or an export record yet), and it is small enough that
 // reading it on every call is the right trade: there is no cache to
 // invalidate and nothing a crash can leave half-applied.
 type FileRegistry struct {

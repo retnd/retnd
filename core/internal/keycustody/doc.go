@@ -54,9 +54,12 @@
 // encrypts; the transform is #991's. The registry of key ids, recipients,
 // timestamps, statuses, exports and confirmations is durable state behind
 // the Registry interface; FileRegistry here is the durable implementation,
-// and a journal-backed one over migration 0015's encryption_keys table
-// (#989) is the follow-up that lets the sidecar and the catalog answer
-// "which key does this copy need" from one place.
+// and a journal-backed one over migration 0015's encryption_keys table is
+// not written: that table's status check allows only active and retired and
+// it has no table for exports, so mapping this package's lifecycle onto it
+// needs a schema addition that belongs to the migration's owner. Until
+// then the sidecar and the catalog cannot answer "which key does this copy
+// need" from one place.
 //
 // Retirement and the refusal to retire a key that still guards an ACTIVE
 // placement are #992's: KeyRecord carries the Retired timestamp and the
