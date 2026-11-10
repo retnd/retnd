@@ -343,3 +343,36 @@ func (s *Store) Health(ctx context.Context, enabled bool) (health.KeyCustodyHeal
 	}
 	return h, nil
 }
+
+// writeFileSync writes b to path with mode, creating or truncating it, and
+// fsyncs before closing so a rename after it publishes bytes that are on
+// disk.
+func writeFileSync(path string, b []byte, mode os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(b); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// fsyncDir makes a directory entry change (a link, a rename, an unlink)
+// durable. Same discipline as core/internal/lifecycle/commit.go's fsyncDir.
+func fsyncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	if err := d.Sync(); err != nil {
+		return fmt.Errorf("keycustody: fsync %s: %w", dir, err)
+	}
+	return nil
+}

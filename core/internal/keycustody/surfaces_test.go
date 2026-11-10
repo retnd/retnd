@@ -92,7 +92,7 @@ func TestEveryExportedShapeIsClassifiedAndOnlyTheBundleCarriesMaterial(t *testin
 	// Types that are not response shapes: interfaces, enums, the store and
 	// the registry. They are classified here so the enumeration is total.
 	fieldless := map[string]bool{
-		"Format": true, "AgeFormat": true, "Registry": true, "FileRegistry": true, "Store": true,
+		"Format": true, "AgeFormat": true, "Registry": true, "JournalRegistry": true, "Store": true,
 		"Status": true, "Resolvability": true,
 	}
 
