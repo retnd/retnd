@@ -16,6 +16,16 @@
 # the mock), and `--check` proves it still reproduces. If it breaks, the harness
 # is what broke, and nothing the new script writes is to be believed yet.
 #
+# Known, pre-existing, and shown rather than hidden: the batch gate ran this
+# first step on a clean main and the unchanged script moved 33 recovery-*
+# pictures there too (the committed bytes were made on another machine and
+# browser build). So step 1 is expected to report a diff under docs/site/screens/
+# for recovery-* files even with this epic absent, and that alone is not a
+# reason to stop. What matters is that the script ran to the end and said
+# "reproducible", which proves the shared harness still works. The wrapper prints
+# the moved files and lists them under their own heading; do not commit them as
+# part of this epic, and do not touch that script here.
+#
 # It stops at the first failure. It does not commit anything.
 set -euo pipefail
 cd "$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -29,8 +39,12 @@ if git diff --quiet -- docs/site/screens; then
   echo "    no picture under docs/site/screens/ differs from what is committed"
 else
   git diff --stat -- docs/site/screens
-  echo "    ^ these moved. Open them and decide whether the harness or the product moved them"
-  echo "      BEFORE trusting anything below. Record what you found in issue #998."
+  moved="$(git diff --name-only -- docs/site/screens | grep -vc '/recovery-' || true)"
+  echo "    ^ these moved: $(git diff --name-only -- docs/site/screens | grep -c '/recovery-' || true) recovery-* pictures and $moved others."
+  echo "      Moves in recovery-* are the KNOWN pre-existing ones (33 on a clean main, see the"
+  echo "      header of this file): note them in issue #998 and leave them uncommitted here."
+  echo "      Any move OUTSIDE recovery-* means the harness or the product moved something"
+  echo "      this epic did not intend: look at it BEFORE trusting anything below."
 fi
 git status --short -- docs/site/screens | sed 's/^/    /'
 

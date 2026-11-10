@@ -188,6 +188,19 @@ async function selectedMode(page, label) {
   );
 }
 
+/** Opens the export dialog from the action row (the last "Export recovery
+ *  bundle" button; the first one sits inside the missing-bundle notice, whose
+ *  layout at 360px let a click through without opening anything in the first
+ *  batch run), scrolls it into view and waits for the dialog itself. */
+async function openExportDialog(page) {
+  const button = card(page).getByRole("button", { name: "Export recovery bundle" }).last();
+  await button.scrollIntoViewIfNeeded();
+  await button.click();
+  const dlg = dialog(page, "Export recovery bundle");
+  await dlg.waitFor({ timeout: 10_000 });
+  return dlg;
+}
+
 async function openVerify(page) {
   const copies = page.getByRole("region", { name: "Copies" });
   await copies.locator('[data-encryption-cell="offsite_s3"]').waitFor();
@@ -232,8 +245,7 @@ const steps = {
   "export-bundle": {
     path: "/settings",
     async prep(page) {
-      await card(page).getByRole("button", { name: "Export recovery bundle" }).first().click();
-      const dlg = dialog(page, "Export recovery bundle");
+      const dlg = await openExportDialog(page);
       await dlg.getByRole("checkbox", { name: /I understand this file can decrypt every copy/ }).check();
       await dlg.getByRole("button", { name: "Download bundle" }).waitFor();
       return [DIALOG];
@@ -432,8 +444,7 @@ const gifs = {
     path: "/settings",
     scenario: "encryption-on",
     async run(page, clip) {
-      await card(page).getByRole("button", { name: "Export recovery bundle" }).first().click();
-      const dlg = dialog(page, "Export recovery bundle");
+      const dlg = await openExportDialog(page);
       await dlg.getByRole("button", { name: "Download bundle" }).waitFor();
       await clip.frame(1.2);
       await dlg.getByRole("checkbox", { name: /I understand this file can decrypt every copy/ }).check();
@@ -514,6 +525,19 @@ async function openStill(app, id, scenario, v) {
   return { context, page };
 }
 
+/** A picture of the wrong thing is worse than no picture. The first batch run
+ *  left it to a person to wonder whether the 360px card pictures framed the
+ *  card, so: the first clip selector has to match, be visible, be as wide as
+ *  the window allows (at least 280px) and no wider than the window, and not be
+ *  a sliver. */
+async function assertFramed(page, clip, v, label) {
+  const box = await page.locator(clip[0]).first().boundingBox();
+  if (!box) throw new Error(label + ": " + clip[0] + " has no box, so there is nothing to frame");
+  if (box.width > v.width + 1 || box.width < Math.min(280, v.width - 80) || box.height < 40) {
+    throw new Error(label + ": " + clip[0] + " is " + Math.round(box.width) + "x" + Math.round(box.height) + " in a " + v.width + "px window, which is not the thing this picture is of");
+  }
+}
+
 async function shootStills(app) {
   const written = [];
   for (const s of capturable) {
@@ -525,6 +549,7 @@ async function shootStills(app) {
       await page.mouse.move(0, 0);
       await settle(page, 400);
       await assertClean(page, s.name + v.suffix);
+      await assertFramed(page, clip, v, s.name + v.suffix);
       await shot(page, s.name + v.suffix, clip, { pad: 16 });
       written.push(s.name + v.suffix);
       await context.close();
