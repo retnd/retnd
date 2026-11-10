@@ -95,7 +95,7 @@ Every suite change is a new managed key and therefore a new unconfirmed bundle. 
 
 ### Consensus position: APPROVE AFTER REVISION
 
-No auto-rotation. A policy whose suite has no active key refuses the copy with "no active key for suite X; run `retnd encryption key rotate --suite X`", health carries it, and the policy patch answers `rotation_needed: true` with the exact command and writes nothing to the key store. The first cycle under a build whose default moved emits one `EncryptionDefaultSuiteChanged` event naming both ids, once. Rotation across suites supersedes the old suite's active key in the same durable write.
+No auto-rotation, and no refusal on upgrade: `suite: default` (or nothing) resolves to the suite of the deployment's active managed key when there is one, and to the build default only when there is none, so an upgraded EPIC N deployment stays on `age/v1` untouched (owner decision, 2026-11-10). A policy that pins a suite with no active key refuses the copy with "no active key for suite X; run `retnd encryption key rotate --suite X`", health carries it, and the policy patch answers `rotation_needed: true` with the exact command and writes nothing to the key store. The first cycle under a build whose default moved emits one `EncryptionDefaultSuiteChanged` event naming both ids, once. Rotation across suites supersedes the old suite's active key in the same durable write.
 
 ## Expert 5, A Downgrade Surface
 
@@ -165,7 +165,7 @@ One conformance vector suite runs against every registered suite, red first, and
 ## Core invariants
 
 - `age/v1` keeps its exact meaning for ever: age v1, one X25519 recipient, ChaCha20-Poly1305 payload. A suite id once written is never renamed.
-- A configuration that writes nothing behaves as EPIC N does, except that a newly minted managed key is minted under the build's default suite.
+- A configuration that writes nothing behaves as EPIC N does: `default` resolves to the suite of the active managed key when there is one, and to the build's default suite only when there is none.
 - The suite that opens a copy is the one its record names, never the policy's.
 - No key material on any suite surface, and a suite id (an enumerated string) is the only new metric label.
 
@@ -303,7 +303,7 @@ A ciphertext-only local copy. Per-set suites. Same-medium re-encryption. Any KMS
 
 # 11. Compatibility and migration summary
 
-- A configuration that never writes `suite:` resolves to the build's default and behaves as EPIC N does, except that a newly minted managed key is `age-pq/v1`. An existing active `age/v1` key is untouched and, with `suite: default`, the next copy is refused until the operator rotates (no auto-rotation).
+- A configuration that never writes `suite:` (or writes `default`) resolves to the suite of the deployment's active managed key, so an upgraded EPIC N deployment with an active `age/v1` key keeps writing `age/v1`, nothing is refused and behaviour is byte-identical. Only a deployment with no active managed key resolves to the build default, `age-pq/v1`. Moving an existing deployment is an explicit `suite: age-pq/v1` plus `key rotate --suite age-pq/v1`; no build ever rotates by itself.
 - `suite:` under `KnownFields(true)` is a one-way door for a config that writes it; T2.5's CHANGELOG names the version.
 - One forward migration, `0020`, additive: a column with a default and a recreated index. An older binary meeting it fails closed under `state.ErrUnknownSchemaVersion`.
 - Suite ids and status values are compatibility surfaces: never renamed, never removed while a copy records them.
@@ -322,7 +322,7 @@ A ciphertext-only local copy. Per-set suites. Same-medium re-encryption. Any KMS
 | Adapters | `copycrypt.AgeX25519` (`age/v1`), `copycrypt.AgeMLKEM768X25519` (`age-pq/v1`); `keycustody.AgeFormat` is an alias of `copycrypt.AgeX25519` |
 | Errors | `copycrypt.ErrUnknownSuite`, `state.ErrUnknownSuite`, `config.ErrRetiredSuite` |
 | Vectors | `core/internal/copycrypt/suitetest` |
-| Config | `retained_copy_encryption.suite` (`default` or an id); resolved `config.RetainedCopyEncryption.Suite` |
+| Config | `retained_copy_encryption.suite` (`default` or an id); resolved `config.RetainedCopyEncryption.Suite` (a pinned id at `Validate`; `default` resolves at the engine to the active managed key's suite, else `copycrypt.Default()`) |
 | Migration | `0020_encryption_key_suites.sql`: the side table `encryption_key_suites(key_id, suite_id)`, absence read as `age/v1` (#1312 found the column-and-index shape non-additive for compat cell `03-migrated-schema`) |
 | Event | `EncryptionDefaultSuiteChanged` |
 | Verbs | `retnd encryption suites`, `key create --suite`, `key rotate --suite`, `reencrypt --suite` |
