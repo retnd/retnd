@@ -89,9 +89,24 @@ func (c *KeyCustody) externalRefs() []secretref.Ref {
 	return refs
 }
 
+// LastExternalKeySuite is the suite of the key ref yielded the last time
+// custody resolved it (the alert tick's probe, a registration, a policy
+// patch), and false when it has not been resolved yet. It resolves nothing
+// and opens nothing: a store that is not open yet has resolved nothing.
+func (c *KeyCustody) LastExternalKeySuite(ref secretref.Ref) (string, bool) {
+	c.mu.Lock()
+	s := c.store
+	c.mu.Unlock()
+	if s == nil {
+		return "", false
+	}
+	return s.LastExternalKeySuite(ref)
+}
+
 // ExternalKeySuite is the suite of the key ref yields, resolved and
-// registered nowhere (EPIC T, #1314). It opens the key directory like any
-// call that needs custody, and writes nothing.
+// registered nowhere (EPIC T, #1314). It is for an explicit write, the
+// policy patch; a read surface uses LastExternalKeySuite. It opens the key
+// directory like any call that needs custody, and writes nothing.
 func (c *KeyCustody) ExternalKeySuite(ctx context.Context, ref secretref.Ref) (string, error) {
 	s, err := c.Store(ctx)
 	if err != nil {
@@ -305,10 +320,13 @@ func (c *KeyCustody) Health(ctx context.Context, enabled bool) (health.KeyCustod
 	}
 	// Each suite something still depends on, with the lifecycle's verdict
 	// (#1316). Two reads over ids and counts; no key file is opened for it.
+	// The copy counts are the section's per-suite figure too (#1315), so the
+	// health build does not make the same grouped read a second time.
 	copies, err := c.journal.ActiveEncryptedCopiesBySuite(ctx)
 	if err != nil {
 		return h, err
 	}
+	h.EncryptedCopiesBySuite = copies
 	keys, err := c.Keys(ctx)
 	if err != nil {
 		return h, err

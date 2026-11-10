@@ -35,12 +35,15 @@ type externalKeyRegistrar interface {
 	RegisterExternal(ctx context.Context, ref secretref.Ref, at time.Time) (keycustody.KeyRecord, error)
 }
 
-// externalKeySuites tells which suite an external reference's key belongs
-// to without registering it (EPIC T, #1314). service.KeyCustody satisfies it;
-// a custodian without it cannot say, and the pinned-suite check for an
-// external set is then left to the engine's refusal.
+// externalKeySuites tells which suite an external reference's key belonged
+// to when custody last resolved it (EPIC T, #1314, #1315). The alert pass
+// asks after custody's own probe this tick, which is the one resolution a
+// tick makes, so the reference is resolved once and never twice.
+// service.KeyCustody satisfies it; a custodian without it cannot say, and
+// the pinned-suite check for an external set is then left to the engine's
+// refusal.
 type externalKeySuites interface {
-	ExternalKeySuite(ctx context.Context, ref secretref.Ref) (string, error)
+	LastExternalKeySuite(ref secretref.Ref) (string, bool)
 }
 
 // externalKeyRisks is the capability that tells which external keys have lost
@@ -203,12 +206,18 @@ func (s *Service) KeyCustodyAlertConditions(ctx context.Context, alertable map[m
 	}
 	_, canWriteExternal := s.Keys.(externalKeyRegistrar)
 
+	type pinnedExternalSet struct {
+		set  string
+		ref  secretref.Ref
+		want string
+	}
 	var (
-		policies    []keycustody.SetPolicy
-		activeID    string
-		activeSuite string
-		activeErr   error
-		looked      bool
+		pinnedExternal []pinnedExternalSet
+		policies       []keycustody.SetPolicy
+		activeID       string
+		activeSuite    string
+		activeErr      error
+		looked         bool
 	)
 	for _, w := range sets {
 		kp := w.policy.KeyProvider
@@ -221,19 +230,8 @@ func (s *Service) KeyCustodyAlertConditions(ctx context.Context, alertable map[m
 					"this build cannot write copies under an external key reference yet"))
 				continue
 			}
-			// A pinned suite the external key is not a key of: the engine
-			// refuses every copy (FR-86), so the alert says why, under the
-			// existing kind. A reference that does not resolve is the probe's
-			// to report, so it falls through.
 			if want, pinned := w.policy.PinnedSuite(); pinned {
-				if es, ok := s.Keys.(externalKeySuites); ok {
-					if have, err := es.ExternalKeySuite(ctx, ref); err == nil && have != want {
-						conditions = append(conditions, keycustody.UnresolvableCondition(w.set,
-							keycustody.Provider{External: ref}.Describe(),
-							fmt.Sprintf("the deployment pins suite %s and the external key is a %s key; point the reference at a %s key", want, have, want)))
-						continue
-					}
-				}
+				pinnedExternal = append(pinnedExternal, pinnedExternalSet{set: w.set, ref: ref, want: want})
 			}
 			policies = append(policies, keycustody.SetPolicy{Set: w.set, Required: true, Provider: keycustody.Provider{External: ref}})
 		case kp.Managed:
@@ -272,6 +270,19 @@ func (s *Service) KeyCustodyAlertConditions(ctx context.Context, alertable map[m
 		c, u := source.AlertConditions(ctx, policies)
 		conditions = append(conditions, c...)
 		unevaluated = append(unevaluated, u...)
+	}
+	// A pinned suite the external key is not a key of: the engine refuses
+	// every copy (FR-86), so the alert says why, under the existing kind.
+	// The suite is the one custody's probe just saw; a reference that did
+	// not resolve has no suite here and the probe has already reported it.
+	if es, ok := s.Keys.(externalKeySuites); ok {
+		for _, p := range pinnedExternal {
+			if have, known := es.LastExternalKeySuite(p.ref); known && have != p.want {
+				conditions = append(conditions, keycustody.UnresolvableCondition(p.set,
+					keycustody.Provider{External: p.ref}.Describe(),
+					fmt.Sprintf("the deployment pins suite %s and the external key is a %s key; point the reference at a %s key", p.want, have, p.want)))
+			}
+		}
 	}
 	return conditions, unevaluated
 }

@@ -239,10 +239,12 @@ func (s *Service) keyCustodyHealth(ctx context.Context) health.KeyCustodyHealth 
 		h.ExternalKeysAtRisk = r.LastExternalKeysAtRisk()
 	}
 	// Copies per suite (#1315): one grouped journal read, no key touched.
-	// A read that fails leaves the counts out rather than the section.
+	// A custodian whose Health already counted them (for its own per-suite
+	// section) has filled the map, and the read is not made twice. A read
+	// that fails leaves the counts out rather than the section.
 	if j, ok := s.Journal.(interface {
 		ActiveEncryptedCopiesBySuite(ctx context.Context) (map[string]int, error)
-	}); ok {
+	}); ok && h.EncryptedCopiesBySuite == nil {
 		if bySuite, err := j.ActiveEncryptedCopiesBySuite(ctx); err == nil {
 			h.EncryptedCopiesBySuite = bySuite
 		}
