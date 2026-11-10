@@ -31,7 +31,7 @@ section says so instead of describing the plan.
 | The producer's artifact, at the source | Never touched. Encryption is a copy transform. Nothing rewrites, renames or re-encrypts what a producer wrote. |
 | The object **name** on the medium | **No.** It stays `<prefix>/<source>/<backup set>/<artifact name>`. |
 | The sidecar object beside each copy (`.manifest/<name>.json`) | **No.** It is plain JSON. For an encrypted copy it adds the format, the key id (never a key), the plaintext digest and size, the stored-bytes digest and size, and when the copy last decrypted to the artifact. |
-| A copy that was already on a medium in plaintext before you turned this on | **No, and it stays that way.** Turning the policy on does not encrypt existing copies. |
+| A copy that was already on a medium in plaintext before you turned this on | **Not until you ask.** Turning the policy on does not touch existing copies, and the retention cycle never does. `retnd encryption encrypt-existing` is the one thing that encrypts them ([below](#encrypting-copies-that-already-exist)). |
 | An incremental (`kopia`) set | Not by this feature. Its repository is already encrypted by its own format under the repository passphrase, and `required` on it layers nothing on top (ADR 0028). The policy answers `satisfied_by: "repository"` for such a set (`GET /encryption/policy`, `retnd encryption policy show`), and key-custody health and the metrics gauge do not count it. |
 
 ### Object names are visible, and that matters when you choose a destination
@@ -195,6 +195,63 @@ Export and confirm each key you rely on. After a rotation, the old key still gua
 copy written under it, and the health report lists it as unconfirmed until you confirm a bundle
 for it too.
 
+## Encrypting copies that already exist
+
+If a set already had plaintext copies on a medium when you turned `required` on, those copies are
+still plaintext, and the move engine refuses to hop one of them to another medium (the hop would
+send it in the clear). `retnd encryption encrypt-existing <source/set> --to <medium>` is how I
+deal with them, and nothing else does: not the policy change, not a retention cycle, not a
+schedule.
+
+```
+retnd encryption encrypt-existing production/postgres --to offsite --dry-run
+retnd encryption encrypt-existing production/postgres --to offsite
+```
+
+What it does, per backup that has an ACTIVE copy on a medium:
+
+1. It streams the plaintext object off its medium straight into the encrypting pass, which
+   checks it against the artifact's recorded plaintext digest as it goes. Plaintext is never
+   written to local disk, and only the ciphertext sits in the `.moves` staging file.
+2. It uploads the ciphertext to `--to` and decrypts it back, in full, against that recorded
+   plaintext digest. Only then is the encrypted copy recorded, with its key id and stored-bytes
+   digest, in one write.
+3. Only after that does it mark the plaintext copy for retirement, and only then delete it. Until
+   step 2 has passed, the plaintext object and its ACTIVE record are untouched, so the plaintext
+   copy is the only good copy for exactly as long as it has to be.
+
+Every step is a phase of the same journaled move the engine uses for any copy, so a crash at any
+point resumes from the journal when you run the command again, and a half-written ciphertext is
+discarded and rewritten, never trusted. If the retirement is refused (a retention tier still
+selects the plaintext medium, say), the encrypted copy is kept and the plaintext copy stays, and
+the command says so.
+
+Things worth knowing before you run it:
+
+- **`--to` has to be another medium.** The journal holds one copy per backup per medium, and the
+  object key on a medium is fixed by the backup, so an encrypted copy cannot sit beside its own
+  plaintext source on the same medium. If you want the encrypted copy on the plaintext's medium,
+  encrypt onto a second medium first and move it back: moving an encrypted copy is a re-home and
+  needs no opt-in.
+- **`--dry-run` lists every backup of the set that has a copy on a medium** and says, for each, whether
+  a run would encrypt it or refuse, with a code and a reason: `not_required`, `already_encrypted`,
+  `no_plaintext_copy`, `key_unavailable`, `destination_unverifiable` (the destination can only
+  verify at a class weaker than a full decrypt), `no_room` (the staging disk cannot hold the
+  ciphertext), `source_unreadable` (an archive class with no restore in effect) or
+  `not_eligible` (the move engine's own reasons). A refusal changes nothing.
+- **It reads each plaintext copy once and each new copy twice** (the verify, and the re-read before
+  the plaintext is deleted). If your medium bills for reads, that is the cost.
+- **A run is bounded** by the deployment's `max_moves_per_cycle` and does one backup at a time.
+  Run it again to carry on; refusals do not use up the bound.
+- **Cancel.** Beside a serving engine the command starts an operation, and `retnd assurance
+  cancel <operation-id>` and the browser's Cancel are the same call. Run in a terminal with nothing
+  serving, Ctrl-C does the same. Before the new copy is verified, a cancel discards it and leaves
+  the plaintext exactly as it was. After that point the encrypted copy is already a verified copy
+  and is not thrown away: the next run (or the next ordinary cycle) finishes retiring the
+  plaintext.
+- **There is no button for it.** The encryption screens do not show one, so it is a command and a
+  route (`POST` and `GET /api/v1/encryption/encrypt-existing`) and nothing else.
+
 ## Rotation affects new copies only
 
 `retnd encryption key rotate` creates a new active key and marks the previous one
@@ -316,8 +373,8 @@ ever carries a key or a key id. A plaintext copy never reports either stage.
   reports `bytes_read` in its result. The Decrypt-verifying stage above is the check a copy
   goes through when it is made.
 - No KMS or Vault provider (an external `command` can reach either).
-- No retroactive encryption of copies that already exist in plaintext, and no re-encryption
-  of old copies after a rotation.
+- No re-encryption of old copies after a rotation. Copies that already exist in plaintext can be
+  encrypted, only when you run `encrypt-existing`, and only onto another medium.
 - `retnd encryption decrypt` opens one copy at a time. There is no bulk "decrypt everything" verb,
   and no API route for it or for key import.
 - `ENCRYPTION_KEY_UNRESOLVABLE` fires when a `required` set's copies are being refused for want

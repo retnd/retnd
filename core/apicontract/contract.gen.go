@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "2237bb10aef104d832411f99e33247024a2276c645881fb7a0cdf46496cd3977"
+const ContractSHA256 = "a771a77776de092ac9dc0a8784091c7094157e58ab39f28c104e6422dd29330a"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -1412,6 +1412,32 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "planEncryptExisting", Method: "GET", Path: "/encryption/encrypt-existing",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "EncryptExistingPlan", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "startEncryptExisting", Method: "POST", Path: "/encryption/encrypt-existing",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "StartEncryptExistingRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCsrfTokenMissing, ErrorCodeCsrfTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound},
+			409: {ErrorCodeOperationAlreadyRunning, ErrorCodeEncryptionKeyUnresolvable},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "listOperations", Method: "GET", Path: "/operations",
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListOperationsResponse", SuccessStatus: 200,
@@ -2759,6 +2785,30 @@ type DestructiveOperationsStatus struct {
 	Reason                       string `json:"reason"`
 	State                        string `json:"state"`
 	StepUpRequired               bool   `json:"step_up_required"`
+}
+
+// EncryptExistingCandidate is one plaintext copy and what a run would do with it. verdict is
+// would_encrypt or refused; refusal is the stable reason code of a
+// refusal (not_required, already_encrypted, no_plaintext_copy,
+// key_unavailable, destination_unverifiable, no_room,
+// source_unreadable or not_eligible) and reason is the sentence the
+// run would refuse with.
+type EncryptExistingCandidate struct {
+	ArtifactID   string `json:"artifact_id"`
+	Reason       string `json:"reason,omitempty"`
+	Refusal      string `json:"refusal,omitempty"`
+	SourceMedium string `json:"source_medium"`
+	Verdict      string `json:"verdict"`
+}
+
+// EncryptExistingPlan is GET /encryption/encrypt-existing. The dry run: every backup of the
+// set with a copy on a medium, whether a run would encrypt it onto
+// the destination, and why not when it would not. It changes and
+// reads nothing.
+type EncryptExistingPlan struct {
+	Candidates   []EncryptExistingCandidate `json:"candidates"`
+	Refused      int64                      `json:"refused"`
+	WouldEncrypt int64                      `json:"would_encrypt"`
 }
 
 // EncryptionCopy is one copy's encryption state. A plaintext copy says encrypted false
@@ -4466,6 +4516,20 @@ type StartDecryptVerifyRequest struct {
 	Medium            string `json:"medium,omitempty"`
 }
 
+// StartEncryptExistingRequest is POST /encryption/encrypt-existing. Encrypt the plaintext retained
+// copies that already sit on a medium, under a backup set whose
+// retained-copy encryption is required, onto destination_medium.
+// backup_set_id is source/set; artifact_id narrows the run to one
+// backup of that set. Nothing runs unless this request is made: a
+// policy change never encrypts an existing copy, and each plaintext
+// copy is retired only after its encrypted replacement has been
+// decrypt-verified.
+type StartEncryptExistingRequest struct {
+	ArtifactID        string `json:"artifact_id,omitempty"`
+	BackupSetID       string `json:"backup_set_id"`
+	DestinationMedium string `json:"destination_medium"`
+}
+
 // StartRecoveryTestRequest is POST /backup-sets/{source}/{set}/recovery-test. Starts a recovery
 // test now. An empty body tests the newest known good copy and
 // acknowledges no cost: a copy that costs money to read (a download
@@ -5253,6 +5317,8 @@ var SchemaTypes = map[string]any{
 	"CycleMoveOutcome":                   CycleMoveOutcome{},
 	"CycleOutcome":                       CycleOutcome{},
 	"DestructiveOperationsStatus":        DestructiveOperationsStatus{},
+	"EncryptExistingCandidate":           EncryptExistingCandidate{},
+	"EncryptExistingPlan":                EncryptExistingPlan{},
 	"EncryptionCopy":                     EncryptionCopy{},
 	"EncryptionKeyProvider":              EncryptionKeyProvider{},
 	"EncryptionKeyProviderState":         EncryptionKeyProviderState{},
@@ -5385,6 +5451,7 @@ var SchemaTypes = map[string]any{
 	"StagingDirectoryEntry":              StagingDirectoryEntry{},
 	"StagingDirectoryResponse":           StagingDirectoryResponse{},
 	"StartDecryptVerifyRequest":          StartDecryptVerifyRequest{},
+	"StartEncryptExistingRequest":        StartEncryptExistingRequest{},
 	"StartRecoveryTestRequest":           StartRecoveryTestRequest{},
 	"StorageMediumCredentialsReference":  StorageMediumCredentialsReference{},
 	"StorageMediumRequest":               StorageMediumRequest{},

@@ -194,11 +194,29 @@ func (e *Engine) copyMediumToMedium(ctx context.Context, mv state.Move, src stat
 		}
 		storedSize := enc.StoredSize
 		src.Hash, src.HashAlg, src.Size = enc.StoredHash, enc.StoredHashAlg, &storedSize
-	} else if on, err := e.encryptedSet(mv.Artifact.Set); err != nil {
-		return 0, err
-	} else if on {
-		return 0, fmt.Errorf("%w: backup set %s requires encryption, and a hop between two mediums would stage and upload the artifact in the clear; encrypting a copy that already exists in the clear is not defined (#992)",
-			ErrClassRefused, mv.Artifact.Set)
+	} else {
+		// A plaintext copy. Under a set that requires encryption it is
+		// encrypted only for a move an operator opted in to (retroencrypt.go,
+		// #1291); the retention cycle never writes that opt-in, so a policy
+		// change cannot turn into a rewrite of copies that already exist.
+		on, err := e.encryptedSet(mv.Artifact.Set)
+		if err != nil {
+			return 0, err
+		}
+		consented, err := e.retroConsented(ctx, mv)
+		if err != nil {
+			return 0, err
+		}
+		switch {
+		case on && consented:
+			return e.copyEncryptedToMedium(ctx, mv, src)
+		case on:
+			return 0, fmt.Errorf("%w: backup set %s requires encryption, and a hop between two mediums would stage and upload the artifact in the clear; to encrypt the copy that already exists, run `encryption encrypt-existing` for it (nothing does that on its own)",
+				ErrClassRefused, mv.Artifact.Set)
+		case consented:
+			return 0, fmt.Errorf("%w: %w: %s was opted in to be encrypted, and its backup set no longer requires it",
+				ErrClassRefused, ErrEncryptExistingNotRequired, mv.Artifact)
+		}
 	}
 	if e.Store == nil {
 		return 0, fmt.Errorf("no medium store is configured")

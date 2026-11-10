@@ -9541,6 +9541,82 @@
         "required": [
           "artifact_id"
         ]
+      },
+      "StartEncryptExistingRequest": {
+        "type": "object",
+        "description": "POST /encryption/encrypt-existing. Encrypt the plaintext retained copies that already sit on a medium, under a backup set whose retained-copy encryption is required, onto destination_medium. backup_set_id is source/set; artifact_id narrows the run to one backup of that set. Nothing runs unless this request is made: a policy change never encrypts an existing copy, and each plaintext copy is retired only after its encrypted replacement has been decrypt-verified.",
+        "additionalProperties": false,
+        "properties": {
+          "backup_set_id": {
+            "type": "string"
+          },
+          "artifact_id": {
+            "type": "string",
+            "x-go-omitempty": true
+          },
+          "destination_medium": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "backup_set_id",
+          "destination_medium"
+        ]
+      },
+      "EncryptExistingCandidate": {
+        "type": "object",
+        "description": "One plaintext copy and what a run would do with it. verdict is would_encrypt or refused; refusal is the stable reason code of a refusal (not_required, already_encrypted, no_plaintext_copy, key_unavailable, destination_unverifiable, no_room, source_unreadable or not_eligible) and reason is the sentence the run would refuse with.",
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "source_medium": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string"
+          },
+          "refusal": {
+            "type": "string",
+            "x-go-omitempty": true
+          },
+          "reason": {
+            "type": "string",
+            "x-go-omitempty": true
+          }
+        },
+        "required": [
+          "artifact_id",
+          "source_medium",
+          "verdict"
+        ]
+      },
+      "EncryptExistingPlan": {
+        "type": "object",
+        "description": "GET /encryption/encrypt-existing. The dry run: every backup of the set with a copy on a medium, whether a run would encrypt it onto the destination, and why not when it would not. It changes and reads nothing.",
+        "additionalProperties": false,
+        "properties": {
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EncryptExistingCandidate"
+            }
+          },
+          "would_encrypt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "refused": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "candidates",
+          "would_encrypt",
+          "refused"
+        ]
       }
     },
     "responses": {}
@@ -23944,6 +24020,269 @@
             "x-error-codes": [
               "ARTIFACT_NOT_FOUND",
               "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "409": {
+            "description": "Refused: OPERATION_ALREADY_RUNNING, ENCRYPTION_KEY_UNRESOLVABLE.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "OPERATION_ALREADY_RUNNING",
+              "ENCRYPTION_KEY_UNRESOLVABLE"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: ENCRYPTION_UNAVAILABLE, NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/encryption/encrypt-existing": {
+      "get": {
+        "operationId": "planEncryptExisting",
+        "summary": "Dry run of encrypting a set's existing plaintext copies: for each backup with a copy on a medium, whether a run would encrypt it onto the destination medium and, when it would not, the refusal and its reason. Read-only: nothing is planned, read or written.",
+        "tags": [
+          "encryption"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "set",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup set, source/set."
+          },
+          {
+            "name": "destination",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The configured storage medium the encrypted copies would go to. It has to differ from the medium each plaintext copy is on."
+          },
+          {
+            "name": "artifact",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Narrow the answer to one backup of the set, source/set/name."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncryptExistingPlan"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. Includes a set that does not require encryption and a destination that is not a configured medium.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND, ARTIFACT_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND",
+              "ARTIFACT_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: ENCRYPTION_UNAVAILABLE, NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      },
+      "post": {
+        "operationId": "startEncryptExisting",
+        "summary": "Encrypt a set's existing plaintext copies onto another medium, in the background. Each plaintext copy is retired only after its encrypted replacement has been decrypt-verified against the recorded plaintext digest; a policy change never does this by itself. It is a cancellable operation: POST /assurance/operations/{op}/cancel from a terminal and from a browser alike, and before the new copy is verified a cancel leaves the plaintext copy exactly as it was.",
+        "tags": [
+          "encryption"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartEncryptExistingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScrubStarted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. Includes a set that does not require encryption and a destination that is not a configured medium.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND, ARTIFACT_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND",
+              "ARTIFACT_NOT_FOUND"
             ]
           },
           "409": {

@@ -31,8 +31,9 @@ import (
 //
 // # Where the pieces sit
 //
-//   - Copy: the artifact is read through LocalStore.Open, encrypted into the
-//     staging directory (the same .moves directory a medium-to-medium hop
+//   - Copy: the artifact is read through LocalStore.Open (or, for a plaintext
+//     copy an operator asked to encrypt, streamed from its medium: #1291),
+//     encrypted into the staging directory (the same .moves directory a medium-to-medium hop
 //     uses, so sweepStagingTemps and discardDestination cover it), and the
 //     staged file goes to UploadFromLocal unchanged. The staging file is
 //     removed whether the upload worked or not. It is never a placement.
@@ -77,7 +78,9 @@ import (
 // A plaintext copy on a medium under a set that now requires encryption is
 // still refused a medium-to-medium hop (it would stage and upload the
 // artifact in the clear). Encrypting copies that already exist in the clear
-// is a decision for the owner and is not made here.
+// is the operator's explicit act, EncryptExisting (retroencrypt.go, #1291),
+// and it reuses this file's encrypting pass and verification unchanged: the
+// plaintext object is the source of the same copyEncryptedToMedium.
 
 // Keys is the slice of key custody the byte path uses. *keycustody.Store
 // satisfies it. The identity is only ever handed to a callback, which is
@@ -228,7 +231,7 @@ func (e *Engine) copyEncryptedToMedium(ctx context.Context, mv state.Move, src s
 		return 0, err
 	}
 
-	rc, err := e.Local.Open(ctx, src.Location)
+	rc, err := e.openEncryptionSource(ctx, src)
 	if err != nil {
 		return 0, err
 	}

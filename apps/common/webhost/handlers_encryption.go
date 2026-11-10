@@ -319,6 +319,63 @@ func (h *handlers) startDecryptVerify(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, apicontract.ScrubStarted{BackupSetID: got.BackupSetID, OperationID: got.OperationID})
 }
 
+// EncryptExistingBackend is the dry run and the run of encrypting retained
+// copies that already sit on a medium in the clear (#1291). It is its own
+// interface rather than two more methods on EncryptionBackend so a backend
+// that predates it, and every fake of EncryptionBackend, still satisfies the
+// one it was written against; a backend without it answers the same 503
+// every other encryption route answers with no encryption.
+type EncryptExistingBackend interface {
+	PlanEncryptExisting(ctx context.Context, set, artifact, destination string) (apicontract.EncryptExistingPlan, error)
+	StartEncryptExisting(ctx context.Context, req apicontract.StartEncryptExistingRequest) (service.ScrubStarted, error)
+}
+
+var _ EncryptExistingBackend = (*service.BackupService)(nil)
+
+func (h *handlers) encryptExisting(w http.ResponseWriter) (EncryptExistingBackend, bool) {
+	b, ok := h.backend.(EncryptExistingBackend)
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "ENCRYPTION_UNAVAILABLE", "this deployment cannot manage retained-copy encryption")
+	}
+	return b, ok
+}
+
+// planEncryptExisting is GET /encryption/encrypt-existing: the dry run. It
+// changes nothing, so it needs no CSRF token and answers with the gate shut.
+func (h *handlers) planEncryptExisting(w http.ResponseWriter, r *http.Request) {
+	b, ok := h.encryptExisting(w)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	got, err := b.PlanEncryptExisting(r.Context(), q.Get("set"), q.Get("artifact"), q.Get("destination"))
+	if err != nil {
+		h.writeEncryptionError(w, r, err, "failed to plan the encryption of existing copies")
+		return
+	}
+	writeJSON(w, http.StatusOK, got)
+}
+
+// startEncryptExisting is POST /encryption/encrypt-existing. The request has
+// the fields the contract names and nothing else, so there is no spelling for
+// skipping a verification or carrying a key.
+func (h *handlers) startEncryptExisting(w http.ResponseWriter, r *http.Request) {
+	b, ok := h.encryptExisting(w)
+	if !ok {
+		return
+	}
+	var body apicontract.StartEncryptExistingRequest
+	if !decodeStrict(w, r, &body) {
+		return
+	}
+	got, err := b.StartEncryptExisting(r.Context(), body)
+	if err != nil {
+		h.writeEncryptionError(w, r, err, "failed to start the encryption of existing copies")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, apicontract.ScrubStarted{BackupSetID: got.BackupSetID, OperationID: got.OperationID})
+}
+
 // writeEncryptionError maps the encryption sentinels. The message is the
 // error's own text, whole, so the terminal that printed the same error
 // directly and the browser that got it here read one sentence.
@@ -337,7 +394,7 @@ func (h *handlers) writeEncryptionError(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusNotFound, "BACKUP_SET_NOT_FOUND", msg)
 	case errors.Is(err, service.ErrArtifactNotFound):
 		writeError(w, http.StatusNotFound, "ARTIFACT_NOT_FOUND", msg)
-	case errors.Is(err, service.ErrScrubRunning):
+	case errors.Is(err, service.ErrScrubRunning), errors.Is(err, service.ErrEncryptExistingRunning), errors.Is(err, service.ErrOperationAlreadyRunning):
 		writeError(w, http.StatusConflict, "OPERATION_ALREADY_RUNNING", msg)
 	case errors.Is(err, service.ErrConfigNotFileBacked):
 		writeError(w, http.StatusServiceUnavailable, "ENCRYPTION_UNAVAILABLE", msg)

@@ -6,7 +6,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/cliecho"
@@ -22,6 +24,7 @@ import (
 //	encryption provider test                   does a key provider resolve now
 //	encryption copies <source/set/artifact>    which copies are encrypted
 //	encryption verify <source/set/artifact>    decrypt-verify, a content check
+//	encryption encrypt-existing <source/set>   encrypt plaintext copies that already exist
 //	encryption decrypt <object> ...            open one copy to a file (#1289)
 //
 // # One author for every refusal
@@ -65,6 +68,8 @@ var encryptionVerbs = map[string]func(args []string) int{
 	"copies":     cmdEncryptionCopies,
 	"verify":     cmdEncryptionVerify,
 	"decrypt":    cmdEncryptionDecrypt,
+
+	"encrypt-existing": cmdEncryptionEncryptExisting,
 }
 
 func cmdEncryption(args []string) int {
@@ -73,7 +78,7 @@ func cmdEncryption(args []string) int {
 			return verb(append(append([]string{}, args[:i]...), args[i+1:]...))
 		}
 	}
-	return usageError("encryption: expected `encryption policy`, `encryption backup-set <source/set>`, `encryption key ...`, `encryption provider test`, `encryption copies <source/set/artifact>`, `encryption verify <source/set/artifact>` or `encryption decrypt <object> ...`")
+	return usageError("encryption: expected `encryption policy`, `encryption backup-set <source/set>`, `encryption key ...`, `encryption provider test`, `encryption copies <source/set/artifact>`, `encryption verify <source/set/artifact>`, `encryption encrypt-existing <source/set> --to <medium>` or `encryption decrypt <object> ...`")
 }
 
 // providerFlags are the flags that declare a key provider, shared by the
@@ -618,4 +623,110 @@ func printEncryptionKeys(l apicontract.ListEncryptionKeysResponse) {
 	for _, k := range l.Keys {
 		printEncryptionKey(k)
 	}
+}
+
+// cmdEncryptionEncryptExisting is `encryption encrypt-existing <source/set> --to
+// MEDIUM` (#1291): encrypt the plaintext retained copies that already sit on a
+// medium, under a set whose encryption is required, onto MEDIUM, retiring each
+// plaintext copy only after its replacement has been decrypt-verified. It is
+// the only thing that does this; a policy change never does.
+//
+// --dry-run is the same question the run asks, answered per backup with the
+// refusal's code and reason, and it plans, reads and writes nothing. Beside a
+// serving engine the run starts that engine's operation (stop it with
+// `assurance cancel`, which is also what the browser's Cancel calls); with
+// nothing serving it runs here, to the end, and an interrupt stops it the same
+// way: before the new copy is verified the plaintext copy is exactly as it
+// was.
+func cmdEncryptionEncryptExisting(args []string) int {
+	fs, cfgPath := newFlagSet("encryption encrypt-existing")
+	asJSON := fs.Bool("json", false, "print the object the API returns instead of text")
+	to := fs.String("to", "", "the storage medium the encrypted copies go to; it has to differ from the medium each plaintext copy is on")
+	artifact := fs.String("artifact", "", "only this backup of the set, source/set/name")
+	dryRun := fs.Bool("dry-run", false, "say what a run would do with each copy, and why not where it would not, without doing anything")
+	operands, err := parseFlagsAroundOperands(fs, args)
+	if err != nil {
+		return exitUsage
+	}
+	if len(operands) != 1 || strings.Count(operands[0], "/") != 1 {
+		return usageError("encryption encrypt-existing: expected exactly one backup set, source/set")
+	}
+	if *to == "" {
+		return usageError("encryption encrypt-existing: --to MEDIUM is required, because an encrypted copy cannot sit beside its plaintext source on the same medium")
+	}
+	req := apicontract.StartEncryptExistingRequest{BackupSetID: operands[0], ArtifactID: *artifact, DestinationMedium: *to}
+	ctx := context.Background()
+
+	if *dryRun {
+		svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)
+		if err != nil {
+			return fail(err)
+		}
+		defer cleanup()
+		plan, err := svc.PlanEncryptExisting(ctx, req.BackupSetID, req.ArtifactID, req.DestinationMedium)
+		if err != nil {
+			return fail(err)
+		}
+		return encryptionAnswer(*asJSON, plan, func() {
+			for _, c := range plan.Candidates {
+				if c.Verdict == "refused" {
+					fmt.Printf("%s on %s: refused (%s): %s\n", c.ArtifactID, c.SourceMedium, c.Refusal, c.Reason)
+					continue
+				}
+				fmt.Printf("%s on %s: would be encrypted onto %s\n", c.ArtifactID, c.SourceMedium, req.DestinationMedium)
+			}
+			fmt.Printf("dry run: %d would be encrypted, %d refused; nothing was changed\n", plan.WouldEncrypt, plan.Refused)
+		})
+	}
+
+	route, cleanup, err := openEncryptionWrite(ctx, *cfgPath, *asJSON)
+	if err != nil {
+		return fail(err)
+	}
+	defer cleanup()
+
+	svc, local := route.(*service.BackupService)
+	if !local {
+		started, err := route.StartEncryptExisting(ctx, req)
+		if err != nil {
+			return fail(err)
+		}
+		return encryptionAnswer(*asJSON, apicontract.ScrubStarted{BackupSetID: started.BackupSetID, OperationID: started.OperationID}, func() {
+			fmt.Printf("encrypting the existing copies of %s onto %s started as operation %s\n", req.BackupSetID, req.DestinationMedium, started.OperationID)
+			fmt.Printf("stop it with: %s assurance cancel %s\n", cliecho.Binary, started.OperationID)
+		})
+	}
+
+	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	got, err := svc.RunEncryptExisting(runCtx, req)
+	if err != nil {
+		return fail(err)
+	}
+	status := exitOK
+	if got.Refused > 0 || got.Abandoned > 0 || runCtx.Err() != nil {
+		status = exitFailure
+	}
+	if *asJSON {
+		if code := emitWireJSON(got); code != exitOK {
+			return code
+		}
+		return status
+	}
+	for _, o := range got.Outcomes {
+		line := o.Phase
+		if o.Refusal != "" {
+			line = "refused (" + o.Refusal + ")"
+		}
+		if o.Reason != "" {
+			line += ": " + o.Reason
+		}
+		fmt.Printf("%s: %s\n", o.ArtifactID, line)
+	}
+	fmt.Printf("encrypt-existing: %d planned, %d resumed, %d completed, %d abandoned, %d refused\n",
+		got.Planned, got.Resumed, got.Completed, got.Abandoned, got.Refused)
+	if runCtx.Err() != nil {
+		fmt.Println("stopped: a copy that was not yet verified was discarded and its plaintext copy is untouched; run it again to carry on")
+	}
+	return status
 }

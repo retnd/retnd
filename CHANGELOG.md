@@ -100,7 +100,19 @@
   in the same transaction as the placement row, and the plaintext digest is never written there. An unresolvable
   key refuses the copy before anything is encrypted or uploaded. A set that is `off`, or a deployment that never
   mentions the key, writes the bytes it always did. A key declared as an external reference is saved and
-  tested here and writes copies from #1292. Not yet: encrypting copies that already exist in plaintext.
+  tested here and writes copies from #1292.
+- **Encrypting retained copies that already exist in plaintext** (#1291, a follow-up to EPIC N, not a
+  sub-issue of it). A plaintext copy on a medium under a set that is now `required` was refused a
+  medium-to-medium hop and nothing encrypted it. `retnd encryption encrypt-existing <source/set> --to
+  <medium> [--artifact A] [--dry-run]` (and `POST`/`GET /api/v1/encryption/encrypt-existing`) does, only when an
+  operator runs it: the plaintext object is streamed into the encrypting pass, the ciphertext goes to the other
+  medium, is decrypt-verified against the recorded plaintext digest and recorded, and only then is the plaintext
+  copy retired. It is the engine's ordinary journaled move with a recorded opt-in (migration 0019), so a crash
+  at any phase resumes and a failed verify keeps the plaintext as the only good copy. The destination has to be
+  another medium (one placement per backup per medium). `--dry-run` names, per backup, whether a run would
+  encrypt it or the refusal and its reason. A cancel from the terminal and from the browser (the existing
+  assurance cancel) both discard an unverified copy and leave the plaintext untouched. A policy change and the
+  retention cycle still never rewrite an existing copy. No screen has a button for it.
 - **Lifecycle, retention, catalog rebuild and rotation for encrypted copies** (#992). Retention deletes an
   encrypted object by its stored size and checksum and needs no key. A medium-to-medium move copies the ciphertext
   as it is and accepts the destination only after a decrypt through the key id recorded on the source copy, and a

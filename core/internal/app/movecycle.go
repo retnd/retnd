@@ -72,6 +72,41 @@ func (s *Service) RunHomeMoves(ctx context.Context, plans []placement.Plan) (pla
 	return engine.RunCycle(ctx, plans)
 }
 
+// EncryptExisting is the operator's opt-in to encrypt retained copies that
+// already sit on a medium in the clear (#1291): it runs the move engine's
+// EncryptExisting over plans, from the medium each plaintext copy is on to the
+// destination each plan names. It is not part of RunCycle, nothing schedules
+// it, and a policy change never calls it. ctx is the only way to stop it, and
+// a cancelled ctx leaves the state placement.Engine.EncryptExisting documents.
+func (s *Service) EncryptExisting(ctx context.Context, plans []placement.Plan) (placement.CycleReport, error) {
+	engine, err := s.moveEngine()
+	if err != nil {
+		return placement.CycleReport{}, err
+	}
+	if engine == nil {
+		return placement.CycleReport{}, fmt.Errorf("app: this deployment declares no storage medium, so there is nowhere to encrypt a copy onto")
+	}
+	return engine.EncryptExisting(ctx, plans)
+}
+
+// CheckEncryptExisting is the dry run of EncryptExisting: one answer per plan,
+// in order, nil where a run would encrypt that copy and the engine's named
+// refusal where it would not. It writes nothing and reads no object.
+func (s *Service) CheckEncryptExisting(ctx context.Context, plans []placement.Plan) ([]error, error) {
+	engine, err := s.moveEngine()
+	if err != nil {
+		return nil, err
+	}
+	if engine == nil {
+		return nil, fmt.Errorf("app: this deployment declares no storage medium, so there is nowhere to encrypt a copy onto")
+	}
+	out := make([]error, len(plans))
+	for i, p := range plans {
+		out[i] = engine.CheckEncryptExisting(ctx, p)
+	}
+	return out, nil
+}
+
 // HomeMovePlans turns one backup set's retention report into the plans the
 // engine takes.
 //

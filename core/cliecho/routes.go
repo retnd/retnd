@@ -1826,6 +1826,37 @@ var routes = map[string]entry{
 			{Body: []byte(`{"artifact_id":"api-server/var-backups/MANIFEST-20260902T153521Z.txt","medium":"offsite","acknowledge_egress":true}`)},
 		},
 	},
+	// Encrypting plaintext copies that already exist (#1291). The run and its
+	// dry run are one verb, told apart by --dry-run, because the dry run is
+	// the same question the run asks and the two are never wanted apart.
+	key("GET", "/encryption/encrypt-existing"): {
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "encrypt-existing", a.Query.Get("set")).
+				flag("to", a.Query.Get("destination")).
+				flagIfSet("artifact", a.Query.Get("artifact")).
+				bare("dry-run")
+		},
+		examples: []Action{
+			{Query: mustQuery("set=api-server%2Fvar-backups&destination=offsite")},
+			{Query: mustQuery("set=api-server%2Fvar-backups&destination=offsite&artifact=api-server%2Fvar-backups%2FMANIFEST-20260902T153521Z.txt")},
+		},
+	},
+	key("POST", "/encryption/encrypt-existing"): {
+		build: func(a Action) *cmd {
+			var req apicontract.StartEncryptExistingRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			return newCmd("encryption", "encrypt-existing", req.BackupSetID).
+				flag("to", req.DestinationMedium).
+				flagIfSet("artifact", req.ArtifactID)
+		},
+		why: "there is no verb that encrypts existing copies from a request body that does not decode",
+		examples: []Action{
+			{Body: []byte(`{"backup_set_id":"api-server/var-backups","destination_medium":"offsite"}`)},
+			{Body: []byte(`{"backup_set_id":"api-server/var-backups","artifact_id":"api-server/var-backups/MANIFEST-20260902T153521Z.txt","destination_medium":"offsite"}`)},
+		},
+	},
 	// ------------------------------------------- custom validators (#1203) ---
 	key("GET", "/assurance/validators"): {
 		build: func(a Action) *cmd {

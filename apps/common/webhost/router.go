@@ -998,6 +998,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(requireCSRF).Post("/encryption/providers/test", h.testEncryptionProvider)
 		r.Get("/encryption/copies", h.listEncryptionCopies)
 		r.With(requireCSRF).Post("/encryption/verify", h.startDecryptVerify)
+		// Encrypting plaintext copies that already exist (#1291): the dry run
+		// reads, the run is a CSRF write that answers 202 with an operation
+		// the existing assurance cancel route stops.
+		r.Get("/encryption/encrypt-existing", h.planEncryptExisting)
+		r.With(requireCSRF).Post("/encryption/encrypt-existing", h.startEncryptExisting)
 
 		// EPIC L's workflow runs and recovery (#813).
 		//
