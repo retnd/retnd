@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/retnd/retnd/core/internal/copycrypt"
 	"github.com/retnd/retnd/core/internal/health"
 	"github.com/retnd/retnd/core/internal/secretref"
 )
@@ -56,9 +57,12 @@ var (
 	ErrKeyMismatch = errors.New("keycustody: the key file does not match the recipient recorded for its id")
 )
 
-// Store is the managed key store: one directory, one Registry, one Format.
-// Every method is safe to call from a fresh process over the same
-// directory, which is what the restart tests prove.
+// Store is the managed key store: one directory, one Registry, and the
+// Format a new key is minted under when no suite is named. A key already in
+// the registry is read and checked under its own suite (KeyRecord.SuiteID),
+// which may differ from that Format once a deployment has rotated across
+// suites (EPIC T). Every method is safe to call from a fresh process over
+// the same directory, which is what the restart tests prove.
 type Store struct {
 	dir      string
 	registry Registry
@@ -132,7 +136,10 @@ func (s *Store) Keys(ctx context.Context) ([]KeyRecord, error) {
 	return s.registry.Keys(ctx)
 }
 
-// Active returns the key new copies are encrypted under, if there is one.
+// Active returns the active managed key, whatever its suite, if there is
+// one. There is at most one (migration 0015's index). The engine does not
+// use this to choose a key for a copy: it asks ActiveFor with the policy's
+// suite, so an active key of another suite is never a substitute (FR-85).
 func (s *Store) Active(ctx context.Context) (KeyRecord, bool, error) {
 	keys, err := s.registry.Keys(ctx)
 	if err != nil {
@@ -146,20 +153,68 @@ func (s *Store) Active(ctx context.Context) (KeyRecord, bool, error) {
 	return KeyRecord{}, false, nil
 }
 
-// Create mints the first managed key. It refuses while a key is active.
+// ActiveFor returns the active managed key of suiteID, if there is one.
+// This is the question the engine asks before a copy (FR-85): "the active
+// key of the policy's suite", never "whatever key is active".
+func (s *Store) ActiveFor(ctx context.Context, suiteID string) (KeyRecord, bool, error) {
+	rec, ok, err := s.Active(ctx)
+	if err != nil || !ok {
+		return KeyRecord{}, false, err
+	}
+	if suiteOf(rec) != suiteID {
+		return KeyRecord{}, false, nil
+	}
+	return rec, true, nil
+}
+
+// suiteOf is a record's suite id, with the empty id of a key written before
+// migration 0020 read as age/v1.
+func suiteOf(rec KeyRecord) string {
+	if rec.SuiteID == "" {
+		return AgeFormatID
+	}
+	return rec.SuiteID
+}
+
+// Create mints the first managed key under the store's format. It refuses
+// while a key is active.
 func (s *Store) Create(ctx context.Context, now time.Time) (KeyRecord, error) {
+	return s.CreateIn(ctx, now, "")
+}
+
+// CreateIn mints the first managed key under suiteID, or under the store's
+// format when suiteID is empty. It refuses while a managed key of any suite
+// is active: a second active key is a rotation, which is a separate verb.
+func (s *Store) CreateIn(ctx context.Context, now time.Time, suiteID string) (KeyRecord, error) {
+	f, err := s.mintFormat(suiteID)
+	if err != nil {
+		return KeyRecord{}, err
+	}
 	if _, ok, err := s.Active(ctx); err != nil {
 		return KeyRecord{}, err
 	} else if ok {
 		return KeyRecord{}, ErrActiveKeyExists
 	}
-	return s.mint(ctx, now, "")
+	return s.mint(ctx, now, "", f)
 }
 
-// Rotate mints a new active key and moves the current one to superseded in
-// one durable registry write. Every copy recorded against the old key keeps
-// decrypting through it; nothing here re-encrypts anything (#992).
+// Rotate mints a new active key under the store's format and moves the
+// current one to superseded in one durable registry write. Every copy
+// recorded against the old key keeps decrypting through it; nothing here
+// re-encrypts anything (#992).
 func (s *Store) Rotate(ctx context.Context, now time.Time) (KeyRecord, error) {
+	return s.RotateTo(ctx, now, "")
+}
+
+// RotateTo is Rotate into suiteID (the store's format when empty). Rotating
+// into another suite supersedes the current active key, whatever its suite,
+// in the same durable write that adds the new one (ADR 0033 D3), so there
+// is never a moment with two active managed keys or none.
+func (s *Store) RotateTo(ctx context.Context, now time.Time, suiteID string) (KeyRecord, error) {
+	f, err := s.mintFormat(suiteID)
+	if err != nil {
+		return KeyRecord{}, err
+	}
 	active, ok, err := s.Active(ctx)
 	if err != nil {
 		return KeyRecord{}, err
@@ -167,8 +222,28 @@ func (s *Store) Rotate(ctx context.Context, now time.Time) (KeyRecord, error) {
 	if !ok {
 		return KeyRecord{}, ErrNoActiveKey
 	}
-	return s.mint(ctx, now, active.ID)
+	return s.mint(ctx, now, active.ID, f)
 }
+
+// mintFormat is the Format a new key of suiteID is generated under. A suite
+// this build does not know is refused before anything is generated or
+// written; so is a retired one, which reads and never writes (ADR 0033 D6).
+func (s *Store) mintFormat(suiteID string) (Format, error) {
+	if suiteID == "" {
+		return s.format, nil
+	}
+	f, err := s.formatOf(suiteID)
+	if err != nil {
+		return nil, err
+	}
+	if suite, ok := f.(copycrypt.Suite); ok && suite.Status() == copycrypt.StatusRetired {
+		return nil, fmt.Errorf("%w: suite %s is retired and no new key is minted under it", ErrRetiredSuite, suiteID)
+	}
+	return f, nil
+}
+
+// ErrRetiredSuite is the refusal to mint a key under a retired suite.
+var ErrRetiredSuite = errors.New("keycustody: the suite is retired")
 
 // mint generates the material, writes the file under the commit discipline
 // core/internal/lifecycle/commit.go uses for a local copy (temporary name,
@@ -176,7 +251,7 @@ func (s *Store) Rotate(ctx context.Context, now time.Time) (KeyRecord, error) {
 // directory), and only then records the key. A crash before the registry
 // write leaves a file no record names, which Open sweeps if it was still
 // .partial and which Probe reports as NotDeclared otherwise.
-func (s *Store) mint(ctx context.Context, now time.Time, supersede string) (KeyRecord, error) {
+func (s *Store) mint(ctx context.Context, now time.Time, supersede string, f Format) (KeyRecord, error) {
 	if err := checkDirCustody(s.dir); err != nil {
 		return KeyRecord{}, err
 	}
@@ -184,7 +259,7 @@ func (s *Store) mint(ctx context.Context, now time.Time, supersede string) (KeyR
 	if err != nil {
 		return KeyRecord{}, err
 	}
-	secret, recipient, err := s.format.Generate()
+	secret, recipient, err := f.Generate()
 	if err != nil {
 		return KeyRecord{}, err
 	}
@@ -208,7 +283,7 @@ func (s *Store) mint(ctx context.Context, now time.Time, supersede string) (KeyR
 		return KeyRecord{}, err
 	}
 
-	rec := KeyRecord{ID: id, Recipient: recipient, Created: now.UTC(), Status: StatusActive}
+	rec := KeyRecord{ID: id, Recipient: recipient, Created: now.UTC(), Status: StatusActive, SuiteID: f.ID()}
 	if err := s.registry.AddKey(ctx, rec, supersede); err != nil {
 		return KeyRecord{}, err
 	}
@@ -246,7 +321,11 @@ func (s *Store) WithKey(ctx context.Context, id string, fn func(key []byte) erro
 	}
 	key := []byte(secret.Reveal())
 	defer zero(key)
-	recipient, err := s.format.Recipient(key)
+	f, err := s.formatOf(rec.SuiteID)
+	if err != nil {
+		return fmt.Errorf("keycustody: key %s: %w", id, err)
+	}
+	recipient, err := f.Recipient(key)
 	if err != nil {
 		return fmt.Errorf("keycustody: key file for %s: %w", id, err)
 	}
@@ -298,10 +377,10 @@ func (s *Store) Resolvability(ctx context.Context, p Provider) Probe {
 		if probe.State != Resolves {
 			return probe
 		}
-		// It resolves; it must also be a key of the format, or a copy
-		// written under it could never be opened.
+		// It resolves; it must also be a key of a registered suite, or a
+		// copy written under it could never be opened.
 		if err := WithExternalKey(ctx, p.External, func(key []byte) error {
-			_, err := s.format.Recipient(key)
+			_, _, err := s.recipientOfAnySuite(key)
 			return err
 		}); err != nil {
 			return Probe{State: Unreachable, Source: probe.Source, Reason: err.Error()}
@@ -399,4 +478,26 @@ func fsyncDir(dir string) error {
 		return fmt.Errorf("keycustody: fsync %s: %w", dir, err)
 	}
 	return nil
+}
+
+// recipientOfAnySuite derives the recipient of key under the first suite
+// that accepts it: the store's own format first, then the rest of
+// copycrypt's registry in table order. It is how an operator's external key
+// is matched to the suite it belongs to without being told. A key no suite
+// accepts is refused with the store's format's own error, which never
+// quotes the key.
+func (s *Store) recipientOfAnySuite(key []byte) (recipient, suiteID string, err error) {
+	recipient, err = s.format.Recipient(key)
+	if err == nil {
+		return recipient, s.format.ID(), nil
+	}
+	for _, suite := range copycrypt.Suites() {
+		if suite.ID() == s.format.ID() {
+			continue
+		}
+		if r, rerr := suite.Recipient(key); rerr == nil {
+			return r, suite.ID(), nil
+		}
+	}
+	return "", "", err
 }

@@ -347,7 +347,7 @@ var surfaces = []surface{
 				w.t.Fatalf("no active key (ok=%v err=%v)", ok, err)
 			}
 			plain := fixture(31)
-			s, err := copycrypt.EncryptToStaging(w.ctx, filepath.Join(w.t.TempDir(), "staging"), "backup-2026-11-01.dump", bytes.NewReader(plain), rec.Recipient, sum(plain))
+			s, err := copycrypt.EncryptToStaging(w.ctx, filepath.Join(w.t.TempDir(), "staging"), "backup-2026-11-01.dump", bytes.NewReader(plain), copycrypt.AgeX25519{}, rec.Recipient, sum(plain))
 			if err != nil {
 				w.t.Fatalf("EncryptToStaging: %v", err)
 			}

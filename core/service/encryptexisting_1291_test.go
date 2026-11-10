@@ -134,7 +134,7 @@ func TestThePlanListsAnAlreadyEncryptedCopyAsRefusedWithItsOwnCode_1291(t *testi
 		t.Fatalf("keys: %+v err=%v", key, err)
 	}
 	if err := f.b.journal.RecordPlacementEncryption(ctx, a, "warm", state.PlacementEncryption{
-		FormatID: "age", FormatVersion: 1, KeyID: key.Keys[0].ID,
+		FormatID: "age/v1", FormatVersion: 1, KeyID: key.Keys[0].ID,
 		StoredHash: strings.Repeat("e", 64), StoredHashAlg: "sha256", StoredSize: int64(len(f.data)) + 200,
 	}); err != nil {
 		t.Fatalf("seeding the encrypted copy: %v", err)

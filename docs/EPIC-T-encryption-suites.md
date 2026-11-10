@@ -24,7 +24,7 @@ This epic does four things and holds one line.
 
 - The suite becomes a recorded, enumerated property of every encrypted copy, written by the committing attempt from a compile-time registry and never from config text.
 - The build names one default suite, `age-pq/v1` (age v1, ML-KEM-768 + X25519 hybrid recipient), and every surface that names it prints the one sentence the code states about it.
-- A key belongs to one suite, the active managed key is per suite, and a policy that cannot be honoured refuses the copy before any destructive step instead of downgrading.
+- A key belongs to one suite, there is one active managed key deployment-wide whatever its suite (a suite change is a rotation into the new suite), and a policy that cannot be honoured refuses the copy before any destructive step instead of downgrading.
 - A suite has a lifecycle (supported, deprecated, retired) that keeps every historical copy readable while new copies move to the active suite.
 - The line it holds: **I design no cryptography here.** Every suite is an established library's construction and that library's reader. No envelope, no chunk framing, no KDF, no nonce scheme of this project's own.
 
@@ -85,7 +85,7 @@ The unique index that makes "one active managed key" true is the only thing stan
 
 ### Consensus position: APPROVE AFTER REVISION
 
-Migration `0020` adds `encryption_keys.suite_id TEXT NOT NULL DEFAULT 'age/v1'`, drops the index and recreates it over `(provider, suite_id)` with the same partial predicate, inside the migration's one transaction (so there is no window a writer can see). Every existing key reads `age/v1`, which is what it is. T1.2 checks the compat cell first and, if it refuses an index drop, falls back to the side table `encryption_key_suites(key_id PRIMARY KEY, suite_id)` with the per-suite rule in `state` on the write path, and says which in its pull request. `state` refuses a key or a copy record naming a suite the registry does not know.
+The first plan was a column on `encryption_keys` and the index recreated over `(provider, suite_id)`. Compat cell `03-migrated-schema` is additive-only and refuses both, so migration `0020` is the side table `encryption_key_suites(key_id PRIMARY KEY, suite_id)`, written in the key's own transaction, with absence read as `age/v1`. 0015's one-active index stays exactly as it is, so the rotation's crash guard never has a window: there is one active managed key deployment-wide, whatever its suite. `state` refuses a key or a copy record naming a suite the registry does not know.
 
 ## Expert 4, An Operator Flow That Mints Keys
 
@@ -121,7 +121,7 @@ ADR 0033 D7 lists the seven and each gets a guard in section 6: an unknown or re
 |---|---|---|
 | TC-01 | No standard stands behind "military-grade", and age suites are 128-bit | `Describe()` is the only text about a suite; it states the level and contains neither "military" nor "256-bit"; a test pins it |
 | TC-02 | An embedding plus an alias is an import cycle | `copycrypt` stays a leaf; `Suite` declares `Format`'s methods; `keycustody` asserts the assignment at compile time |
-| TC-03 | The one-active index is the rotation's crash guard | Recreate it per suite inside migration `0020`'s transaction, or the side table; the compat cell decides, the pull request says which |
+| TC-03 | The one-active index is the rotation's crash guard | Leave it untouched: migration `0020` is a side table for a key's suite, so one active managed key holds deployment-wide and a suite change is a rotation in one write |
 | TC-04 | A suite change mints a bundle to confirm | No auto-rotation; refusal with the rotate command; `rotation_needed` on the patch; one event when the build default moves |
 | TC-05 | Seven places can substitute a weaker suite | One guard per place, each with a planted violation in section 6 |
 | TC-06 | One vector suite, or every suite tests itself differently | `copycrypt/suitetest` runs the same groups over `Suites()`, with a planted truncation-accepting adapter as its anti-vacuity control |
@@ -140,7 +140,7 @@ The build names exactly one default suite, states its properties from code on ev
 
 ## FR-85, Keys belong to suites
 
-A key belongs to one suite; the active managed key is per suite; a copy is written only under the active key of the policy's suite.
+A key belongs to one suite; there is at most one active managed key, whatever its suite, and changing the suite is a rotation into it in one write; a copy is written only under an active key of the policy's suite.
 
 ## FR-86, Fail closed, never downgrade
 
@@ -195,7 +195,7 @@ Dependency order: T1.1 > T1.2 > T1.3 > T1.4 > T1.5; T2.1 and T2.2 on T1.5; T2.3 
 - [ ] `copycrypt.Suites()` lists `age/v1` (supported) and `age-pq/v1` (default); a test pins the table and that exactly one default exists.
 - [ ] Every row in `placement_encryption` written by this build carries the suite id the registry's constant names; planting a config string there turns a row red.
 - [ ] A copy encrypted under `age-pq/v1` decrypts with the stock `age` CLI pinned in `scripts/ci/pins.env` using the exported bundle's material, and an `age/v1` identity cannot open it.
-- [ ] `encryption_keys.suite_id` exists, every pre-migration key reads `age/v1`, and two active managed keys under one suite are impossible while one per suite is possible.
+- [ ] Every key carries a suite (migration `0020`'s `encryption_key_suites`, written in the key's own transaction), every pre-migration key reads `age/v1`, a key under an unregistered suite is refused, and two active managed keys are impossible whatever their suites while a rotation across suites is one write.
 - [ ] `suite: nonsense` and `suite: <retired>` fail `Load`; `suite: default` and a known id load; a config that writes nothing is byte-identical in behaviour to EPIC N.
 - [ ] A `required` set whose policy suite has no active key refuses the copy before `SOURCE_DELETE_PENDING`, the local copy is untouched, health shows the reason, and nothing is written under another suite.
 - [ ] `retnd encryption suites [--json]`, `GET /api/v1/encryption/suites`, `policy` showing the suite, `key create|rotate --suite` exist with `cliecho` entries, regenerated `openapi.json`, and the route-to-verb guard green.
@@ -234,7 +234,7 @@ Every guard below lands red before the code that turns it green, and each has th
 | Exactly one default, and it is supported | Mark a second suite default, or mark the default deprecated; `TestTheRegistryHasExactlyOneDefaultAndItIsSupported` must go red |
 | The recorded suite comes from the registry, never config text | Write `cfg.Suite` text into `RecordPlacementEncryption`; `state` must refuse it with `ErrUnknownSuite` |
 | An unknown suite on a record is never plaintext and never `content` | Treat an unknown `format_id` as `age/v1` on the read side; verify must report `ErrClassUnavailable` and rebuild "unknown suite" |
-| One active managed key per suite | Recreate the index over `(provider)` only, or drop it; a second suite's active key must be accepted and a second key under one suite refused |
+| One active managed key, whatever its suite | Drop `idx_encryption_keys_one_active_managed` or let a rotation across suites add before it supersedes; the second active key must be refused |
 | A key names a registered suite | Hand `AddKey` an unregistered suite; it must be refused |
 | A key of another suite is refused by `Open` and `Recipient` | Make one suite's adapter accept the other suite's identity; vector group 3 must go red |
 | The shared vectors catch a truncation-accepting adapter | Plant an adapter whose reader returns EOF at a chunk boundary; vector group 2 must go red |
@@ -323,7 +323,7 @@ A ciphertext-only local copy. Per-set suites. Same-medium re-encryption. Any KMS
 | Errors | `copycrypt.ErrUnknownSuite`, `state.ErrUnknownSuite`, `config.ErrRetiredSuite` |
 | Vectors | `core/internal/copycrypt/suitetest` |
 | Config | `retained_copy_encryption.suite` (`default` or an id); resolved `config.RetainedCopyEncryption.Suite` (a pinned id at `Validate`; `default` resolves at the engine to the active managed key's suite, else `copycrypt.Default()`) |
-| Migration | `0020_encryption_key_suites.sql`: `encryption_keys.suite_id` |
+| Migration | `0020_encryption_key_suites.sql`: the side table `encryption_key_suites(key_id, suite_id)`, absence read as `age/v1` (#1312 found the column-and-index shape non-additive for compat cell `03-migrated-schema`) |
 | Event | `EncryptionDefaultSuiteChanged` |
 | Verbs | `retnd encryption suites`, `key create --suite`, `key rotate --suite`, `reencrypt --suite` |
 | Routes | `GET /api/v1/encryption/suites`; `suite` and `suite_configured` on the policy read, `suite` on the patch |
@@ -336,6 +336,7 @@ A ciphertext-only local copy. Per-set suites. Same-medium re-encryption. Any KMS
 - **ADR `0033`, not `0031`.** EPIC P's `0031`/`0032` are reserved in prose on `main`; see the Status block.
 - **No embedding, no cycle.** #1311's names table says `Suite` embeds `keycustody.Format`, and #1312 says `keycustody.AgeFormat` aliases a `copycrypt` type. Both cannot hold, so `Suite` declares the four methods itself and `keycustody` asserts the assignment. The behaviour is the same and the "custody never encrypts" rule is stated where custody lives.
 - **The `age` pin does not exist yet.** T1.3 adds it to `scripts/ci/pins.env`; until it does, the external-reader vector skips and its matrix row stays `BLOCKED`.
+- **A side table, not a column (#1312).** Compat cell `03-migrated-schema` is additive-only over `sqlite_master`: `ALTER TABLE ... ADD COLUMN` rewrites the stored `CREATE TABLE` text of `encryption_keys`, and dropping the one-active index removes a line. So migration `0020` is the side table #1312 names as the fallback, and 0015's index stays, which keeps "one active managed key" deployment-wide. That is stricter than "one per suite" and is what ADR 0033 D3's flow produces anyway (a suite change is a rotation that supersedes the old suite's active key in the same write). The T1.4 exit line says so.
 - **The fixture numbers.** #1314 names `10-encryption-suite-pinned.yaml`; `10-` holds EPIC N's `10-encryption-kopia-set-under-required.yaml`, so the valid fixture is `11-encryption-suite-pinned.yaml`. `64-` and `65-` are free (`63-invalid-encryption-required-without-provider.yaml` is the last invalid one).
 - **The metric family does not exist yet.** T1.5 adds one copy-count family with a `suite` label rather than "a `suite` label on `retnd_encrypted_copies`".
 - **The matrix guard.** I registered this pair in `core/tests/compat/matrix_test.go`, red, before the documents existed, as EPIC N did.

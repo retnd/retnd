@@ -92,7 +92,7 @@ func newDecryptFixture(t *testing.T) decryptFixture {
 	f.plainHash = hex.EncodeToString(sum[:])
 
 	objDir := t.TempDir()
-	staged, err := copycrypt.EncryptToStaging(context.Background(), objDir, "backup-2026-11-01.dump", bytes.NewReader(f.plaintext), b.Recipient, f.plainHash)
+	staged, err := copycrypt.EncryptToStaging(context.Background(), objDir, "backup-2026-11-01.dump", bytes.NewReader(f.plaintext), copycrypt.AgeX25519{}, b.Recipient, f.plainHash)
 	if err != nil {
 		t.Fatalf("EncryptToStaging: %v", err)
 	}

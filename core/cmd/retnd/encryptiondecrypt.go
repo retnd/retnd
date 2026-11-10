@@ -94,7 +94,7 @@ func cmdEncryptionDecrypt(args []string) int {
 	}
 	object := operands[0]
 
-	identity, keyID, err := loadDecryptKey(*bundlePath, *identityPath)
+	identity, keyID, suite, err := loadDecryptKey(*bundlePath, *identityPath)
 	if err != nil {
 		return fail(err)
 	}
@@ -142,7 +142,7 @@ func cmdEncryptionDecrypt(args []string) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	written, err := copycrypt.DecryptToFile(ctx, src, identity, wantPlain, dir, name)
+	written, err := copycrypt.DecryptToFile(ctx, src, suite, identity, wantPlain, dir, name)
 	if err != nil {
 		return fail(fmt.Errorf("decrypting %s: %w", object, err))
 	}
@@ -159,34 +159,37 @@ func cmdEncryptionDecrypt(args []string) int {
 }
 
 // loadDecryptKey reads the key from a bundle or an identity file and returns
-// the identity and, for a bundle, the key id it names. A bundle is read
-// through keycustody.ReadBundle, so an edited one is refused by its integrity
-// digest, and its material has to derive the recipient it names.
-func loadDecryptKey(bundlePath, identityPath string) (identity []byte, keyID string, err error) {
-	format := keycustody.AgeFormat{}
+// the identity, the suite it is a key of and, for a bundle, the key id it
+// names. A bundle is read through keycustody.ReadBundle, so an edited one is
+// refused by its integrity digest; its format names its suite (ADR 0033 D8),
+// a suite this build has no adapter for is refused naming it, and its
+// material has to derive the recipient it names under that suite. An
+// identity file's suite is the one registered suite whose key it is.
+func loadDecryptKey(bundlePath, identityPath string) (identity []byte, keyID string, suite copycrypt.Suite, err error) {
 	if bundlePath != "" {
 		f, err := os.Open(bundlePath)
 		if err != nil {
-			return nil, "", fmt.Errorf("opening the bundle: %w", err)
+			return nil, "", nil, fmt.Errorf("opening the bundle: %w", err)
 		}
 		defer f.Close()
 		b, err := keycustody.ReadBundle(f)
 		if err != nil {
-			return nil, "", err
+			return nil, "", nil, err
 		}
-		if b.FormatID != format.ID() {
-			return nil, "", fmt.Errorf("the bundle was exported under format %q and this build opens %q", b.FormatID, format.ID())
+		suite, ok := copycrypt.Lookup(b.FormatID)
+		if !ok {
+			return nil, "", nil, fmt.Errorf("the bundle was exported under format %q, which this build cannot open: %w", b.FormatID, copycrypt.ErrUnknownSuite)
 		}
 		identity = []byte(b.Material)
-		if recipient, err := format.Recipient(identity); err != nil || recipient != b.Recipient {
-			return nil, "", fmt.Errorf("the bundle's material is not the key %s names", b.KeyID)
+		if recipient, err := suite.Recipient(identity); err != nil || recipient != b.Recipient {
+			return nil, "", nil, fmt.Errorf("the bundle's material is not the key %s names", b.KeyID)
 		}
-		return identity, b.KeyID, nil
+		return identity, b.KeyID, suite, nil
 	}
 
 	f, err := os.Open(identityPath)
 	if err != nil {
-		return nil, "", fmt.Errorf("opening the identity file: %w", err)
+		return nil, "", nil, fmt.Errorf("opening the identity file: %w", err)
 	}
 	defer f.Close()
 	sc := bufio.NewScanner(io.LimitReader(f, maxKeyFile))
@@ -199,12 +202,19 @@ func loadDecryptKey(bundlePath, identityPath string) (identity []byte, keyID str
 		break
 	}
 	if len(identity) == 0 {
-		return nil, "", fmt.Errorf("%s holds no age identity", identityPath)
+		return nil, "", nil, fmt.Errorf("%s holds no age identity", identityPath)
 	}
-	if _, err := format.Recipient(identity); err != nil {
-		return nil, "", err
+	// Every suite in the table is asked, in order; a line no suite accepts
+	// is refused with the age/v1 refusal, which never quotes the line.
+	var firstErr error
+	for _, candidate := range copycrypt.Suites() {
+		if _, err := candidate.Recipient(identity); err == nil {
+			return identity, "", candidate, nil
+		} else if firstErr == nil || candidate.ID() == copycrypt.AgeX25519ID {
+			firstErr = err
+		}
 	}
-	return identity, "", nil
+	return nil, "", nil, firstErr
 }
 
 // digestsFromSidecar reads the recorded digests of the encrypted copy in src
