@@ -168,7 +168,7 @@ func cmdEncryptionPolicy(args []string) int {
 
 	switch sub {
 	case "":
-		if len(visitedFlags(fs, "mode", "managed", "external-file", "external-env", "external-command")) > 0 {
+		if len(passedEncryptionFlags(fs, "mode", "managed", "external-file", "external-env", "external-command")) > 0 {
 			return usageError("encryption policy: the flags change the policy; write `encryption policy patch` to change it")
 		}
 		svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)
@@ -199,7 +199,7 @@ func cmdEncryptionPolicy(args []string) int {
 		}
 		return encryptionAnswer(*asJSON, got, func() { printEncryptionPolicy(got) })
 	case "reset":
-		if len(visitedFlags(fs, "mode", "managed", "external-file", "external-env", "external-command")) > 0 {
+		if len(passedEncryptionFlags(fs, "mode", "managed", "external-file", "external-env", "external-command")) > 0 {
 			return usageError("encryption policy reset: removes the deployment's block, so it takes no policy flags")
 		}
 		route, cleanup, err := openEncryptionWrite(ctx, *cfgPath, *asJSON)
@@ -216,8 +216,8 @@ func cmdEncryptionPolicy(args []string) int {
 	return usageError("encryption policy: %q is not `patch` or `reset`", sub)
 }
 
-// visitedFlags returns the named flags that were actually passed.
-func visitedFlags(fs *flag.FlagSet, names ...string) []string {
+// passedEncryptionFlags returns the named flags that were actually passed.
+func passedEncryptionFlags(fs *flag.FlagSet, names ...string) []string {
 	want := map[string]bool{}
 	for _, n := range names {
 		want[n] = true

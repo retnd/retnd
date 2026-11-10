@@ -123,7 +123,7 @@ func setPolicyOf(sourceName string, bs config.BackupSet) apicontract.EncryptionS
 		KeyProvider:          providerState(config.RetainedCopyKeyProvider{}),
 		EffectiveKeyProvider: providerState(bs.RetainedCopyEncryption.KeyProvider),
 	}
-	if o := bs.RetainedCopyEncryptionConfig; o != nil {
+	if o, declared := bs.DeclaredRetainedCopyEncryption(); declared {
 		if o.Mode != "" {
 			out.Mode = o.Mode
 		}
@@ -134,13 +134,13 @@ func setPolicyOf(sourceName string, bs config.BackupSet) apicontract.EncryptionS
 	return out
 }
 
-func policyOf(cfg *config.Config) apicontract.EncryptionPolicy {
+func encryptionPolicyOf(cfg *config.Config) apicontract.EncryptionPolicy {
 	out := apicontract.EncryptionPolicy{
 		Mode:        cfg.RetainedCopyEncryption.Mode,
 		KeyProvider: providerState(config.RetainedCopyKeyProvider{}),
 		Sets:        []apicontract.EncryptionSetPolicy{},
 	}
-	if blk := cfg.RetainedCopyEncryptionBlock; blk != nil && blk.KeyProvider != nil {
+	if blk, declared := cfg.DeclaredRetainedCopyEncryption(); declared && blk.KeyProvider != nil {
 		out.KeyProvider = providerState(*blk.KeyProvider)
 	}
 	for _, src := range cfg.Sources {
@@ -154,7 +154,7 @@ func policyOf(cfg *config.Config) apicontract.EncryptionPolicy {
 // EncryptionPolicy is GET /encryption/policy: the deployment's mode and key
 // provider, and what every backup set resolves to and why.
 func (b *BackupService) EncryptionPolicy(_ context.Context) (apicontract.EncryptionPolicy, error) {
-	return policyOf(b.state.Load().inner.Config), nil
+	return encryptionPolicyOf(b.state.Load().inner.Config), nil
 }
 
 // PatchEncryptionPolicy is PATCH /encryption/policy: the named fields change
@@ -166,23 +166,20 @@ func (b *BackupService) PatchEncryptionPolicy(_ context.Context, req apicontract
 		return apicontract.EncryptionPolicy{}, fmt.Errorf("%w: the patch names neither a mode nor a key provider", ErrInvalidRequest)
 	}
 	cfg, err := b.writeEncryptionConfig(func(cfg *config.Config) error {
-		blk := config.RetainedCopyEncryptionBlock{}
-		if cfg.RetainedCopyEncryptionBlock != nil {
-			blk = *cfg.RetainedCopyEncryptionBlock
-		}
+		blk, _ := cfg.DeclaredRetainedCopyEncryption()
 		if req.Mode != "" {
 			blk.Mode = req.Mode
 		}
 		if req.KeyProvider != nil {
 			blk.KeyProvider = configProvider(req.KeyProvider)
 		}
-		cfg.RetainedCopyEncryptionBlock = &blk
+		cfg.SetDeclaredRetainedCopyEncryption(blk)
 		return nil
 	})
 	if err != nil {
 		return apicontract.EncryptionPolicy{}, err
 	}
-	return policyOf(cfg), nil
+	return encryptionPolicyOf(cfg), nil
 }
 
 // ResetEncryptionPolicy is POST /encryption/policy/reset: the deployment's
@@ -190,13 +187,13 @@ func (b *BackupService) PatchEncryptionPolicy(_ context.Context, req apicontract
 // bytes a configuration that never mentioned the key would have.
 func (b *BackupService) ResetEncryptionPolicy(_ context.Context) (apicontract.EncryptionPolicy, error) {
 	cfg, err := b.writeEncryptionConfig(func(cfg *config.Config) error {
-		cfg.RetainedCopyEncryptionBlock = nil
+		cfg.ClearDeclaredRetainedCopyEncryption()
 		return nil
 	})
 	if err != nil {
 		return apicontract.EncryptionPolicy{}, err
 	}
-	return policyOf(cfg), nil
+	return encryptionPolicyOf(cfg), nil
 }
 
 // SetBackupSetEncryption is PUT /backup-sets/{source}/{set}/encryption: this
@@ -204,14 +201,14 @@ func (b *BackupService) ResetEncryptionPolicy(_ context.Context) (apicontract.En
 // provider. A whole replace, like the retention override.
 func (b *BackupService) SetBackupSetEncryption(_ context.Context, id string, o apicontract.EncryptionOverride) (apicontract.EncryptionSetPolicy, error) {
 	return b.writeBackupSetEncryption(id, func(bs *config.BackupSet) {
-		bs.RetainedCopyEncryptionConfig = &config.RetainedCopyEncryptionOverride{Mode: o.Mode, KeyProvider: configProvider(o.KeyProvider)}
+		bs.SetDeclaredRetainedCopyEncryption(config.RetainedCopyEncryptionOverride{Mode: o.Mode, KeyProvider: configProvider(o.KeyProvider)})
 	})
 }
 
 // ClearBackupSetEncryption is DELETE /backup-sets/{source}/{set}/encryption:
 // the set follows the deployment's policy again.
 func (b *BackupService) ClearBackupSetEncryption(_ context.Context, id string) (apicontract.EncryptionSetPolicy, error) {
-	return b.writeBackupSetEncryption(id, func(bs *config.BackupSet) { bs.RetainedCopyEncryptionConfig = nil })
+	return b.writeBackupSetEncryption(id, func(bs *config.BackupSet) { bs.ClearDeclaredRetainedCopyEncryption() })
 }
 
 func (b *BackupService) writeBackupSetEncryption(id string, mutate func(*config.BackupSet)) (apicontract.EncryptionSetPolicy, error) {
@@ -491,6 +488,9 @@ func (b *BackupService) ConfirmRecoveryBundle(ctx context.Context, id, digest st
 	defer func() { err = classifyEncryption(err) }()
 	store, err := b.keys.Store(ctx)
 	if err != nil {
+		return apicontract.EncryptionKeyStatus{}, err
+	}
+	if _, err := b.oneKeyStatus(ctx, store, id); err != nil {
 		return apicontract.EncryptionKeyStatus{}, err
 	}
 	if digest == "" {
