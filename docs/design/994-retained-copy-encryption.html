@@ -1,0 +1,588 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Retained-copy encryption: encrypted is not recoverable, keys are never shown, the bundle is the only thing that changes the threat model (issue #994)</title>
+<style>
+/* Tokens copied from ui/shared/src/design-system/tokens.css at 6d0d6978 (the tip of #1266). Nothing below declares a colour literal of its own.
+   --text-3 is the tertiary TEXT ink (#1235 moved it to 4.5:1 on every surface it sits on); --edge-3 is the ink for an edge that
+   has to be found by its edge (a chip, a button, a segmented control, a bar, a text box): 3.35:1 light and 3.85:1 dark on
+   --surface. --border-strong is 1.69:1 and 1.81:1 on --surface, so it is kept for the decorative frames and card rules only.
+   See the contrast table at the end. */
+:root,.th-light{
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;--space-8:32px;
+  --radius-sm:4px;--radius-md:6px;--radius-lg:8px;--radius-xl:10px;--radius-pill:999px;
+  --bg:#f2f2f0;--surface:#fff;--surface-2:#fafaf9;--surface-3:#f0f0ed;
+  --border:#e0dfdc;--border-strong:#c8c7c3;--edge-3:#8b8d8a;
+  --text:#191a19;--text-2:#5b5d5b;--text-3:#696b68;
+  --accent:oklch(0.52 0.09 255);--accent-quiet:oklch(0.95 0.02 255);
+  --ok:oklch(0.52 0.10 155);--ok-quiet:oklch(0.955 0.025 155);
+  --warn:oklch(0.56 0.11 70);--warn-quiet:oklch(0.96 0.035 75);
+  --danger:oklch(0.52 0.15 25);--danger-quiet:oklch(0.955 0.03 25);
+  --shadow:0 1px 2px rgba(20,20,18,.05),0 1px 1px rgba(20,20,18,.04);
+  --term-bg:#14150f;--term-text:#d7d9d2;--term-time:#868b80;--term-info:#9aa39b;--term-accent:oklch(0.70 0.09 255);
+  --term-ok:oklch(0.72 0.11 155);--term-warn:oklch(0.78 0.12 75);--term-danger:oklch(0.72 0.16 25);
+  --font-mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.th-dark{
+  --bg:#121312;--surface:#1b1d1b;--surface-2:#202220;--surface-3:#262826;
+  --border:#313331;--border-strong:#454745;--edge-3:#767976;
+  --text:#eceeeb;--text-2:#a3a6a2;--text-3:#959892;
+  --accent:oklch(0.70 0.09 255);--accent-quiet:oklch(0.30 0.045 255);
+  --ok:oklch(0.72 0.11 155);--ok-quiet:oklch(0.28 0.05 155);
+  --warn:oklch(0.78 0.12 75);--warn-quiet:oklch(0.30 0.055 70);
+  --danger:oklch(0.68 0.15 25);--danger-quiet:oklch(0.30 0.07 25);
+  --shadow:0 1px 2px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:var(--space-6)}
+.wrap{max-width:1240px;margin:0 auto;display:flex;flex-direction:column;gap:var(--space-6)}
+h1{font-size:18px;font-weight:640;margin:0 0 var(--space-1);letter-spacing:-.01em}
+h2{font-size:15px;margin:0 0 var(--space-1)}
+.sub{color:var(--text-2);margin:0;max-width:96ch}
+code{font-family:var(--font-mono);font-size:12px}
+.sec{border-top:1px solid var(--border);padding-top:var(--space-5)}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-4);margin-top:var(--space-3)}
+.frame{background:var(--bg);color:var(--text);border:1px solid var(--border-strong);border-radius:var(--radius-xl);padding:var(--space-3);container-type:inline-size;min-width:0}
+.frame>.tag{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);margin-bottom:var(--space-2)}
+.frame.narrow{max-width:360px}
+.reason{display:grid;grid-template-columns:1fr;gap:var(--space-2);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:var(--space-4);margin-top:var(--space-3);color:var(--text)}
+.reason p,.reason li{margin:0;color:var(--text-2);max-width:110ch}
+.reason strong{color:var(--text)}
+.reason ol,.reason ul{margin:0;padding-left:1.4em}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);box-shadow:var(--shadow);overflow:hidden;margin-bottom:var(--space-3)}
+.card h3{margin:0;padding:var(--space-2) var(--space-3);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);border-bottom:1px solid var(--border);background:var(--surface-2);display:flex;gap:var(--space-2);align-items:center}
+.card h3 .grow{flex:1}
+.card .body{padding:var(--space-3);display:flex;flex-direction:column;gap:var(--space-2)}
+.row{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center}
+.grow{flex:1}
+.muted{color:var(--text-2);font-size:12.5px}
+.mono{font-family:var(--font-mono);font-size:12px}
+.eyebrow{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-2)}
+/* the state chip: ink is always --text, the state is carried by glyph shape, border style and words */
+.chip{display:inline-flex;align-items:center;gap:6px;min-height:24px;padding:2px 9px;border-radius:var(--radius-md);font-size:12px;font-weight:600;color:var(--text);background:var(--surface);border:1.5px solid var(--edge-3);white-space:nowrap}
+.chip .g{font-weight:800;font-size:13px;min-width:14px;text-align:center}
+.chip .age{font-weight:500;color:var(--text-2)}
+.s-plain{border-style:dashed;border-color:var(--edge-3);background:var(--surface-3)}
+.s-enc{border-style:solid;border-color:var(--edge-3);background:var(--surface-2)}
+.s-recov{border-style:solid;border-color:var(--ok);background:var(--ok-quiet)}.s-recov .g{color:var(--ok)}
+.s-unver{border-style:dotted;border-color:var(--edge-3);background:var(--surface)}
+.s-nokey{border-style:double;border-width:4px;border-color:var(--danger);background:var(--danger-quiet)}.s-nokey .g{color:var(--danger)}
+.s-fail{border-style:solid;border-color:var(--danger);background:var(--danger-quiet)}.s-fail .g{color:var(--danger)}
+.s-degraded{border-style:solid;border-color:var(--warn);background:var(--warn-quiet)}.s-degraded .g{color:var(--text)}
+.s-key-ok{border-style:solid;border-color:var(--ok);background:var(--ok-quiet)}.s-key-ok .g{color:var(--ok)}
+.s-key-off{border-style:solid;border-color:var(--edge-3);background:var(--surface-3)}
+.s-key-retired{border-style:dashed;border-color:var(--edge-3);background:var(--surface)}
+.s-cost{border-style:dotted;border-color:var(--warn);background:var(--warn-quiet)}.s-cost .g{color:var(--text)}
+.s-live{border-style:solid;border-left-width:6px;border-color:var(--accent);background:var(--accent-quiet)}.s-live .g{color:var(--accent)}
+.chips{display:flex;flex-wrap:wrap;gap:var(--space-2)}
+.chipcol{display:flex;flex-direction:column;gap:2px}
+.chipcol .lab{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2)}
+table.t{width:100%;border-collapse:collapse;font-size:12.5px}
+table.t th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-2);text-align:left;padding:6px 8px;border-bottom:1px solid var(--border)}
+table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
+.btn{min-height:30px;padding:3px 12px;border:1px solid var(--edge-3);border-radius:var(--radius-md);background:var(--surface);color:var(--text);font:inherit;font-size:12.5px;cursor:pointer}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+.btn.danger{border-color:var(--danger);color:var(--danger)}
+.btn[disabled],.btn.primary[disabled]{background:var(--surface-3);color:var(--text-3);border-color:var(--border);cursor:not-allowed}
+.seg{display:inline-flex;border:1px solid var(--edge-3);border-radius:var(--radius-md);overflow:hidden}
+.seg span{padding:4px 12px;font-size:12.5px;border-right:1px solid var(--edge-3);background:var(--surface);color:var(--text)}
+.seg span:last-child{border-right:0}
+.seg .on{background:var(--accent);color:var(--surface);font-weight:600}
+.seg.off span{color:var(--text-2);background:var(--surface-3)}
+.knob{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:baseline;padding:6px 8px;background:var(--surface-3);border-radius:var(--radius-md);border:1px dashed var(--edge-3)}
+.knob b{font-family:var(--font-mono);font-size:12px}
+.lock{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text)}
+.notice{border:1px solid var(--warn);background:var(--warn-quiet);border-radius:var(--radius-md);padding:var(--space-3);color:var(--text)}
+.notice.blocking{border-width:2px}
+.notice.refused{border:2px solid var(--danger);background:var(--danger-quiet)}
+.notice.info{border-color:var(--accent);background:var(--accent-quiet)}
+.notice .muted{color:var(--text)}
+.bar{height:10px;border-radius:var(--radius-pill);background:var(--surface-3);border:1px solid var(--edge-3);overflow:hidden}
+.bar>i{display:block;height:100%;background:var(--accent)}
+.stages{display:flex;flex-direction:column;gap:4px;margin:0;padding:0;list-style:none;font-size:12.5px}
+.stages li{display:flex;gap:8px;align-items:baseline}
+.stages .g{width:16px;text-align:center;font-weight:800}
+.stages .on .g{color:var(--accent)}.stages .ok .g{color:var(--ok)}
+.term{background:var(--term-bg);color:var(--term-text);font-family:var(--font-mono);font-size:11.5px;line-height:1.7;padding:var(--space-3);border-radius:var(--radius-md);overflow:hidden}
+.term .t{color:var(--term-info)}.term .w{color:var(--term-warn)}.term .e{color:var(--term-danger)}.term .o{color:var(--term-ok)}.term .a{color:var(--term-accent)}
+.echo{display:flex;flex-direction:column;gap:4px}
+.echo code{display:block;font-size:11.5px;color:var(--text-2);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-md);padding:5px 8px;overflow-x:auto;white-space:pre}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:2px var(--space-3);font-size:12.5px;margin:0}
+.kv dt{color:var(--text-2)}.kv dd{margin:0;color:var(--text)}
+.input{font:inherit;font-size:12.5px;background:var(--surface);color:var(--text);border:1px solid var(--edge-3);border-radius:var(--radius-sm);padding:4px 8px;min-width:0}
+.input.mono{font-family:var(--font-mono);font-size:12px}
+.toggle{display:inline-flex;align-items:center;gap:8px;font-size:12.5px}
+.toggle i{display:inline-block;width:34px;height:18px;border-radius:var(--radius-pill);border:1px solid var(--edge-3);background:var(--surface-3);position:relative}
+.toggle i::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--text-2)}
+.toggle.on i{background:var(--accent);border-color:var(--accent)}
+.toggle.on i::after{left:18px;background:var(--surface)}
+.radio{display:flex;gap:8px;align-items:flex-start;padding:8px;border:1px solid var(--edge-3);border-radius:var(--radius-md)}
+.radio.on{border-color:var(--accent);border-width:2px;background:var(--accent-quiet)}
+.radio input{margin-top:3px}
+.tipid{font-family:var(--font-mono);font-size:11px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);padding:0 4px;color:var(--text);background:var(--surface-3)}
+.nopop{font-size:11px;border:1px dashed var(--border-strong);border-radius:var(--radius-sm);padding:0 4px;color:var(--text)}
+.dash{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-2)}
+.health{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border-radius:var(--radius-md);border:1px solid var(--edge-3)}
+.health .g{font-weight:800;width:16px;text-align:center;flex:none}
+.health.degraded{border:2px solid var(--warn);background:var(--warn-quiet)}
+.health.refusing{border:2px solid var(--danger);background:var(--danger-quiet)}.health.refusing .g{color:var(--danger)}
+.strip{display:flex;gap:var(--space-2);flex-wrap:wrap}
+.strip .op{flex:1 1 220px;border:1px solid var(--border);border-radius:var(--radius-md);padding:8px;background:var(--surface);display:flex;flex-direction:column;gap:4px;min-width:0}
+@container (max-width:420px){.dash{grid-template-columns:1fr}.hide-narrow{display:none}.chips{flex-direction:column;align-items:flex-start}.strip{flex-direction:column}}
+@media (max-width:900px){.grid{grid-template-columns:1fr}}
+</style>
+
+<div class="wrap">
+<header>
+  <h1>Retained-copy encryption: encrypted is not recoverable, keys are never shown, the bundle is the only thing that changes the threat model</h1>
+  <p class="sub">Issue #994 (N2.1), dated 2026-11-09. Parent epic #967, FR-59 and FR-66. I started this ahead of the written order, in parallel with #989 (the ADR and the config model), because the design needs the spec and what already ships, not the Phase 1 code. Section 15 lists what it leans on, so a change in #989 to #993 can be traced back to the picture it moves. Drawn against the screens that ship today (<code>docs/design/Backup Manager.dc.html</code> is the authority where this note and the build disagree) and in the token set from <code>ui/shared/src/design-system/tokens.css</code>. Every surface below is drawn four times: light, dark, and the narrow layout in each. This note writes no TypeScript and no tooltip copy. It records the decisions N2.2 (#995) implements rather than reinterprets, and it was drawn by hand in the per-issue note form that <code>814-workflow-ui.html</code>, <code>815-step-terminal.html</code> and <code>984-recovery-assurance.html</code> already follow.</p>
+  <p class="sub"><strong>Vocabulary.</strong> The labels are <em>Encrypted</em>, <em>Verified recoverable</em>, <em>Plaintext</em>, <em>Not decrypt-verified</em>, <em>Key missing</em>, <em>Recovery bundle</em>, <em>Managed key</em>, <em>External key reference</em>, <em>Rotate</em>, <em>Verify recoverable</em>. "Verified" on its own is not a label for anything in this note, because the Backup detail page already uses that word for the producer-manifest checksum on the lifecycle rail, and <em>Encrypted</em> is never qualified with "securely", "strongly" or an algorithm name, because the format is a property of the build and no sentence here may claim more than the code states.</p>
+  <div class="notice" role="note" id="status">
+    <b>Status: a mock-up, superseded where the product differs.</b>
+    <p class="sub" style="color:var(--text)">This is a picture drawn on 2026-11-09 to settle decisions for N2.2 (#995). It is not the product and it is not kept in step with it, so where the two disagree the product wins, and the build's own CSS and strings win over anything drawn here. The command lines in the echo blocks are the <em>shape</em> N1.5 (#993) fixes: <code>CommandEcho</code> prints the real verbs and flags from the same function the terminal uses, so the strings drawn here are not copied into the build. Key ids, dates, sizes and destination names are examples of what the named fields hold. No key value, canary, credential or real hostname appears anywhere in this file or its render, and no field drawn here accepts one.</p>
+  </div>
+</header>
+
+<section class="sec" id="states">
+  <h2>1. Two states that look different: Encrypted, and Verified recoverable</h2>
+  <div class="grid" data-surface="states"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> A copy carries two separate facts about encryption and they are two chips, never one. <em>Encrypted</em> (a filled-box glyph for a sealed copy, a solid neutral edge, the quiet second surface) means exactly what the backend recorded: the committing attempt wrote ciphertext under a named format id and version, recorded the key id it used, and recorded the digest of the stored bytes in the new per-copy column (FR-61). It says nothing about whether anybody can read it back. <em>Verified recoverable</em> (a double check, a solid green edge, the ok fill, always with an age) means a streaming decrypt of the stored object produced a plaintext digest equal to <code>artifacts.local_hash</code>, at the time shown (FR-62). That is the only path to the green chip. Ciphertext existing, an existence check at the recorded size, a provider's own checksum, a lock existing (EPIC M) or a key being resolvable do not reach it.</p>
+    <p><strong>Why they cannot be one badge.</strong> If the product drew one badge for both, an operator would read "encrypted" as "safe", and the backend has proved no such thing: the key could be gone, the object could be tampered or truncated, and the row would still say the same word. <code>placement.Class.Proves()</code> is already the operator-facing sentence for what a verification class proved, and over an encrypted copy a ciphertext-to-ciphertext content check would make that sentence lie in the product's own words. Two chips with two meanings is how the UI stays inside what the backend proved.</p>
+    <p><strong>The not-recoverable states are each their own rendering.</strong> <em>Not decrypt-verified</em> (dotted neutral edge, a hollow circle) is an encrypted copy that nobody has asked to decrypt yet: the honest default, since decrypt-verify costs egress and is never automatic (<code>revalidate.automaticMediumClass</code> stays <code>Existence</code>). <em>Key missing</em> (double red edge, a slashed-circle glyph) is an encrypted copy whose recorded key id cannot be resolved right now: <code>ErrClassUnavailable</code>, drawn as itself, never as a weaker class wearing a stronger name and never as a plain "Encrypted". <em>Decrypt failed</em> (solid red, a cross) is a decrypt-verify that ran and failed closed: wrong key, tampered chunk, truncated tail or reordered chunk, named in words beside it. <em>Plaintext</em> (dashed neutral, a hollow-box glyph for an open copy) is an unencrypted copy, drawn deliberately so that a local plaintext copy next to an encrypted off-site copy of the same artifact reads as two different things on one row.</p>
+    <p><strong>Why the chip is not coloured text.</strong> As in #984: the ink is always the body text colour, the state lives in the glyph shape, the border style (solid, dashed, dotted, double) and the words, with colour as a redundant fourth cue. Every chip stays at body-text contrast in both themes and reads to someone who cannot tell the hues apart. <code>--text-3</code> is used for no text in this note and <code>--edge-3</code> for no text at all.</p>
+  </div>
+</section>
+
+<section class="sec" id="settings">
+  <h2>2. Settings: the Retained-copy encryption card, off and on</h2>
+  <div class="grid" data-surface="settings"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> One card on the Settings page, directly after Storage destinations and before Workflow (the order the Workflow and Assurance cards already follow: the destination is declared, then what happens to a copy on its way there), in the same shape as the cards around it. In its default state the card is a single switch and a sentence that says what <em>Off</em> is: today's bytes, today's rows, today's timings, nothing changed (FR-59, the <em>off is byte-identical</em> invariant). There is no format, cipher, chunk-size, nonce or KDF field anywhere on the card, in either state. The draft's <code>algorithm: auto</code> is gone, not hidden behind "Advanced": its effect could not be stated from the code because the format is a property of the build and no operator input changes it, so by <code>docs/epic-checklist.md</code> §5 it gets no control and no pop-up. What the build does use is drawn once, as a <em>deployment-wide</em> readout with a lock (format id and version as the per-copy metadata records them), so the absence of a knob is visible and nobody later "fixes" it.</p>
+    <p><strong>The enabled card is a status card first.</strong> It shows the active managed key by id, when it was created and its status; whether a recovery bundle has been confirmed and when; and, when it has not, the bundle warning from section 3 in the card itself. The actions are <em>Export recovery bundle</em>, <em>Rotate key</em> and <em>Use an external key reference instead</em>. There is no <em>Show key</em>, <em>Copy key</em> or <em>Reveal</em> action and no field that would hold one (FR-63). Every mutating control echoes its command through <code>CommandEcho</code> below it.</p>
+    <p><strong>Smart defaults, chosen so the enable flow asks one question.</strong> Three options were weighed for what enabling should ask. (a) Ask nothing and mint a managed key: simplest, but an operator who already keeps keys in a secrets manager would have a managed key created against their policy before they could say so, and minting material without asking is a custody action taken silently. (b) Ask the full set (key source, format, rotation cadence): every one of those but the first is either unstatable from the code or not a property an operator should set. (c) Ask one question, <em>who holds the key</em>, with the managed key pre-selected. (c) is the one decision that changes a trust boundary, it leaves the format to the build, and it maps one-to-one onto the two shapes the config has (<code>key_provider</code> absent, or <code>secretref</code>-shaped). (c) is drawn in section 3.</p>
+  </div>
+</section>
+
+<section class="sec" id="enable">
+  <h2>3. Enabling: one question, then the bundle warning and its confirmation</h2>
+  <div class="grid" data-surface="enable"></div>
+  <div class="grid" data-surface="bundle"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> Turning the switch on opens a dialog with one question: <em>Who holds the key?</em> <em>A key this deployment manages</em> is pre-selected and says plainly where it lives (a 0600 file in a 0700 directory in the state directory, under the same custody rule the other secrets already follow) and the one honest sentence about it: anyone who can read that file can read the copies, so the recovery bundle is what moves the key off this host. <em>A key I keep elsewhere</em> switches to the reference-only flow in section 7. The primary button is <em>Enable and create key</em> and the echo shows the two commands it is equivalent to.</p>
+    <p><strong>The bundle warning appears the moment the key exists, where the operator is standing.</strong> After the key is created the card shows the <em>No confirmed recovery bundle</em> notice (a two-pixel warning edge, a diamond glyph). It is a durable health fact (migration 0015, FR-66), not a toast and not an alert: it is still there after a reload and after a restart, and only a human confirming a bundle clears it. The same fact is drawn on the Dashboard health card in section 10, because a settings card is a surface the operator has no reason to revisit. The notice does not block the switch: encryption is enabled and copies are being written. It blocks nothing and nags durably, which is the honest shape for "your copies are encrypted and you cannot yet recover them without this machine".</p>
+    <p><strong>The one-time export is explicit, warned once, and not obstructive.</strong> <em>Export recovery bundle</em> opens one dialog that says what the bundle contains (the key material, integrity metadata, and the clean-machine instructions), that this is the only time the material leaves the deployment, and that the file is the thing to protect. One checkbox, <em>I understand this file can decrypt every copy made under this key</em>, enables <em>Download bundle</em>. The download is a file; nothing is rendered to the screen, there is no "show as text" alternative and no QR code, and the dialog closes on completion. That is the single exception to <em>no key byte is rendered after generation</em>, and it renders nothing either: the material goes into a file the operator chose to download.</p>
+    <p><strong>Confirming is a separate, deliberate act.</strong> After the download the notice changes to <em>Bundle exported, not yet confirmed</em> and offers <em>I have stored the bundle safely</em>. Confirming writes the durable fact and clears the health state. Two options were considered and rejected: clearing the warning on download (the download may have landed in a browser folder on the same host, which moves nothing off it), and demanding the operator re-upload the bundle to prove they have it (which would make this UI accept key material, the one thing it must never do). The confirm is a statement by a human and is recorded as one, with its correlation id in the feed.</p>
+  </div>
+</section>
+
+<section class="sec" id="perset">
+  <h2>4. The per-set control: Inherit / Off / Required, beside the retention card</h2>
+  <div class="grid" data-surface="perset"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> A card on the Backup Set detail page, directly under <em>Retention</em> in the right column, in the same segmented-control shape the Assurance card from #984 uses. Three values and only three: <em>Inherit</em>, <em>Off</em>, <em>Required</em>. <em>Inherit</em> shows the value it currently resolves to, exactly as the retention card attributes an inheriting set to the deployment's chain, so a global edit is visibly the thing that moved this set, and so <em>inherit</em> and an explicit <em>off</em> stay distinguishable on screen the way #989 keeps them distinguishable after <code>Validate</code>. <em>Required</em> shows what it means in one sentence: a copy to a destination is refused rather than written in plaintext, and the refusal happens before any source or medium deletion step (FR-66).</p>
+    <p><strong>The written "no".</strong> Rotation cadence, format and chunk size are not properties of a backup set and get no per-set control, in the same way #984 refused per-set staging and concurrency. A per-set format would make one artifact's two copies unreadable by two different rules for nobody's benefit. The per-set surface is <code>mode</code> and <code>key_provider</code>, nothing else, and this card draws <code>key_provider</code> only as a read-only attribution (<em>Key: the deployment's managed key</em>) with the per-set override reachable through the same reference-only flow as section 7.</p>
+    <p><strong>A kopia-engine set.</strong> A set whose engine is kopia already has its repository encrypted by kopia's own format under the repository passphrase. Its card draws the control disabled and a statement of fact in its place, with the wording owned by ADR 0027 (#989) and the docs (#997). This note decides only that the control is not drawn live for such a set, because a live <em>Required</em> there would promise a second cipher the epic explicitly does not ship.</p>
+  </div>
+</section>
+
+<section class="sec" id="copies">
+  <h2>5. Backups and Backup detail: per-destination and per-copy indicators</h2>
+  <div class="grid" data-surface="copies"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> The Backups list gains one <em>Encryption</em> column of chips per row, one chip per copy, in destination order. The Backup detail <em>Copies</em> table gains an <em>Encryption</em> column between <em>Access</em> and <em>Verification</em>, carrying the section 1 chips, plus two rows in the artifact facts: <em>Plaintext digest</em> (which is <code>artifacts.local_hash</code>; the Artifact card's existing <em>Checksum</em> row keeps its label and gains the word <em>plaintext</em> only on an artifact that has an encrypted copy, so a deployment with encryption off sees no change) and, per encrypted copy, <em>Stored-bytes digest</em> with the format id, version and key id beside it. They are two numbers in two places and the labels say which is which, because two numbers that disagree about the same file are not a measurement (#662), and under encryption they are supposed to disagree.</p>
+    <p><strong>The row this feature exists for.</strong> One artifact, a plaintext local copy and an encrypted off-site copy, is drawn as <em>Plaintext</em> beside <em>Encrypted</em> plus <em>Verified recoverable 3d ago</em>. The <em>Verification</em> column keeps saying what class was <em>achieved</em> (existence only, content), and <em>Content verified</em> over an encrypted copy is only ever written when the decrypt-verify matched the plaintext digest. The chip and the class never contradict each other because they come from the same row. The three Assurance claims at the top of Backup detail (<code>ArtifactAssuranceCard</code>) are untouched: <em>Content verified</em> over an encrypted copy can only come from the same decrypt-verify that writes <em>Verified recoverable</em>, so the claim chip and the encryption chip cannot disagree.</p>
+    <p><strong>Key missing, where the operator already looks.</strong> A copy whose recorded key id cannot be resolved shows <em>Key missing</em> on the Backups list row and in the Copies table, and the destination block on the set page shows the same chip beside the destination name. It is also the one new <code>alert.Kind</code> (a <em>required</em> policy whose key cannot resolve), so it reaches the Dashboard health card and the feed. An operator meets it on four surfaces before Settings is one of them.</p>
+  </div>
+</section>
+
+<section class="sec" id="rotate">
+  <h2>6. Key rotation, and the retirement that is refused</h2>
+  <div class="grid" data-surface="rotate"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> <em>Rotate key</em> opens a dialog that states the three facts rotation has and the one it does not: new copies use the new key from now on; every copy made so far stays readable through the key id recorded against it; the old key stays in the registry as <em>Retired</em>; nothing is re-encrypted (FR-65, and the cut list). The dialog warns that the new key has no confirmed bundle yet, so the section 3 notice comes back the moment rotation completes, and the echo shows the command. Rotation is a durable operation with a <code>Result</code> and appears in Active operations and the terminal like any other.</p>
+    <p><strong>The key list is metadata only.</strong> Under the active key the card lists every key the registry holds: id, created, retired, status, and the count of <code>ACTIVE</code> placements that record it. There is no fingerprint, no first-eight-characters, no "verify this matches your bundle" string: a fingerprint of key material is a function of key material, and the probe reports <em>whether</em> a key resolves, never what it is.</p>
+    <p><strong>Retire is refused, naming the copies.</strong> <em>Retire</em> on a key that any <code>ACTIVE</code> placement still records is a refusal, not a confirmation: the dialog names the copies (as many as fit, with a count and a link to the Backups list filtered to that key id), says that retiring would orphan them, and offers nothing else. The CLI line under it is the same refusal with a non-zero status. A key with zero copies recording it can be retired, and the dialog says so in the same shape.</p>
+  </div>
+</section>
+
+<section class="sec" id="external">
+  <h2>7. The external key reference: a path, a variable name or a command, and never material</h2>
+  <div class="grid" data-surface="external"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> The advanced flow is one card with a three-way choice, <em>File</em>, <em>Environment variable</em>, <em>Command</em>, exactly the three sources <code>secretref.Ref</code> has, and one single-line text box whose label changes with the choice: <em>Path to the key file</em>, <em>Variable name</em>, <em>Executable</em>. The box is a reference. It has no multi-line form, no paste-the-key variant, no file-upload control, and no "or enter the key directly" link anywhere. The server refuses a value that is key material rather than a reference at <code>Load</code> (the fixture beside <code>53-invalid-inline-medium-secret.yaml</code>), and the UI draws that refusal in the same words rather than pre-empting it with a guess about what material looks like (FR-64).</p>
+    <p><strong>Test, with three answers.</strong> <em>Test reference</em> runs the resolvability probe and reports one of three states, each its own chip: <em>Resolves</em> (green, check), <em>Declared but unreachable</em> (double red edge, slashed circle, with the refusal vocabulary the resolver already has: no source, ambiguous, empty, too large, custody), and <em>Not declared</em> (neutral dashed). None of the three renders a byte of what was resolved, and the success state does not say how long the key is or what it starts with.</p>
+    <p><strong>It reads back as its description.</strong> After saving, the card shows <code>file: /etc/retnd/keys/offsite.key</code>, or <code>env: RETND_OFFSITE_KEY</code>, or <code>command: /usr/local/bin/fetch-key</code> (the executable without its arguments), which is what <code>secretref.Ref.String()</code> renders and why the API field is write-only. The text box is not pre-filled from the readback: a reference you can parse back out of the UI is a second way to declare a key, which the type's missing <code>UnmarshalJSON</code> exists to prevent.</p>
+  </div>
+</section>
+
+<section class="sec" id="verify">
+  <h2>8. Verify recoverable: the operator-initiated decrypt-verify and its three endings</h2>
+  <div class="grid" data-surface="verify"></div>
+  <div class="grid" data-surface="verifyend"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> <em>Verify recoverable</em> sits in the Copies table on an encrypted copy and in the destination block of the set page. It opens a dialog that says what will happen in order (the key is resolved, the object is streamed and decrypted, the plaintext digest is compared to the recorded one, nothing is written to disk), shows the egress the read will cost in the words the provider gives (the same cost panel #984 draws for a thaw, since this is a <code>Content</code>-class check and <code>Class.CostsEgress()</code> is true for exactly that), and requires <em>I accept this read</em> before <em>Verify now</em> is enabled. Nothing in the product schedules this. The echo shows the command and its dry-run form.</p>
+    <p><strong>The three endings are three chips.</strong> A match writes <em>Verified recoverable</em> with its age and <code>verification_class: content</code>. A key that cannot be resolved ends as <em>Key missing</em> before any byte is read and spends nothing. A decrypt that fails closed ends as <em>Decrypt failed</em> with the reason in words: wrong key, authentication failed at chunk N of M, truncated at N of M bytes, chunk out of order. No partial plaintext is written or shown on any of them, and the dialog says that, because the natural question after "failed at chunk 412" is "so where is what you got", and the answer is nowhere.</p>
+    <p><strong>Progress is per copy, not per chunk.</strong> The operation reports bytes decrypted so far against the stored size through the existing <code>app.Progress</code> counters (nil outside the transform, a non-nil zero when it has started and read nothing). The feed gets one durable entry for the start and one for the result; chunk progress is live-only.</p>
+  </div>
+</section>
+
+<section class="sec" id="live">
+  <h2>9. Live states: Encrypting and Decrypt-verifying in Active operations and the docked terminal</h2>
+  <div class="grid" data-surface="live"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> Two new stages join the existing progress vocabulary: <em>Encrypting</em> on the copy path (between the local commit and <em>Uploading</em>) and <em>Decrypt-verifying</em> on the verify path. Each is one line in the docked terminal with its byte counter, in the terminal's own inks, and one stage in the Active operations card. A stage line names the destination and the key id, never the key. The terminal's existing filter chips (Everything, Engine, per set) apply unchanged. A reload re-reads the durable operation and shows the same stage and the same byte count; it does not start a second transform.</p>
+    <p><strong>A refusal is a line, not a stage.</strong> A <em>required</em> policy whose key cannot resolve refuses the copy before the first destructive step and the terminal shows the refusal in the danger ink with the set, the destination and the key id, followed by what was <em>not</em> done: the source was not deleted, the medium was not touched. The Active operations card for that run ends with <em>Refused: key missing</em> rather than an error glyph with no words.</p>
+  </div>
+</section>
+
+<section class="sec" id="degraded">
+  <h2>10. Degraded states on the Dashboard and the set page, not only in Settings</h2>
+  <div class="grid" data-surface="degraded"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> The Dashboard gains one row per encryption condition that holds, inside the <em>Backup health</em> card (<code>HealthSummary.tsx</code>) and in the same banner vocabulary the Dashboard already uses for its warnings (<code>Banner</code> and <code>WarningBanner</code>, never dismissible for these two, for the reason <code>Banner.tsx</code> gives: the words are the only thing standing between an operator and a misunderstanding): <em>No confirmed recovery bundle</em> (warning edge, the diamond glyph, with how long it has held and a link to the Settings card) and <em>A required key cannot be resolved</em> (danger edge, the slashed circle, with the key id, the sets it affects and how many copies are being refused). The zero value of the new <code>health.Report</code> section reads "this deployment encrypts nothing" and draws no row at all, so a deployment with encryption off shows no change here, which is also how the test can tell the zero value is not doing the work.</p>
+    <p><strong>The set page.</strong> A set under a <em>required</em> policy with an unresolvable key shows the refusing state in the destination block, next to the destination, with the same chip as the Backups list. The operator standing on the set page to find out why last night's copy did not go sees it there, and the Settings card is the fourth place they could learn it rather than the first.</p>
+  </div>
+</section>
+
+<section class="sec" id="tips">
+  <h2>11. Tooltips: each new control names an id, or is refused one with the reason</h2>
+  <div class="reason">
+    <p>The rule is <code>docs/epic-checklist.md</code> §5: a control gets a registry entry and, if it is an input, a three-part <code>fieldHelpCopy.ts</code> entry only when its effect can be stated from the code. Where it cannot, it gets neither, and that is a decision rather than a gap. N2.2 (#995) writes the copy from the code in <code>core/internal/config</code>, <code>core/internal/placement</code> and the key store #990 lands; this note decides which ids may exist. Phase 1 is not written yet, so every id below is conditional: it exists only if, when #995 writes the copy, the effect can be read out of the code that #989 to #993 land. An id whose effect cannot be read then moves to the refusal rows in this table, and #995 records that in its pull request. The namespace is <code>encryption.*</code>, which nothing in the 516-entry registry uses today.</p>
+    <table class="t">
+      <tr><th>Control</th><th>TooltipId, or the refusal</th></tr>
+      <tr><td>Retained-copy encryption card heading</td><td><span class="tipid">encryption.card</span></td></tr>
+      <tr><td>Encrypt copies sent to destinations (switch)</td><td><span class="tipid">encryption.enable</span> The effect is <code>retained_copy_encryption.mode</code> resolving to the default for every inheriting set, stated from <code>Validate</code> and the resolver #989 ships.</td></tr>
+      <tr><td>Who holds the key: managed / external (radio group)</td><td><span class="tipid">encryption.keyProvider</span> Two values, each with a statable effect: <code>key_provider</code> absent and a registry key, or a <code>secretref</code>-shaped reference.</td></tr>
+      <tr><td>Export recovery bundle (button); I understand this file can decrypt every copy (checkbox)</td><td><span class="tipid">encryption.bundle.export</span>, <span class="tipid">encryption.bundle.acknowledge</span></td></tr>
+      <tr><td>I have stored the bundle safely (confirm)</td><td><span class="tipid">encryption.bundle.confirm</span> Its effect is the durable confirmation fact in migration 0015 and the health row clearing.</td></tr>
+      <tr><td>Rotate key (button); Retire (button, including its refusal)</td><td><span class="tipid">encryption.key.rotate</span>, <span class="tipid">encryption.key.retire</span></td></tr>
+      <tr><td>Per-set: Inherit / Off / Required</td><td><span class="tipid">encryption.set.mode</span> Inherit names the value it resolves to, as the retention card does.</td></tr>
+      <tr><td>External reference: File / Environment variable / Command (choice)</td><td><span class="tipid">encryption.external.source</span></td></tr>
+      <tr><td>External reference: path / variable name / executable (text input)</td><td><span class="tipid">encryption.external.reference</span> with a three-part field-help entry: what it is for, an example an operator could type (a path, a variable name, an executable), and what typing that causes (the reference is stored as its description, resolved at use, and refused at <code>Load</code> if it is material rather than a reference).</td></tr>
+      <tr><td>Test reference (button)</td><td><span class="tipid">encryption.external.test</span></td></tr>
+      <tr><td>Verify recoverable (button); I accept this read (checkbox)</td><td><span class="tipid">encryption.verify.run</span>, <span class="tipid">encryption.verify.acceptCost</span></td></tr>
+      <tr><td>The chips: Plaintext, Encrypted, Verified recoverable, Not decrypt-verified, Key missing, Decrypt failed</td><td><span class="tipid">encryption.state.plaintext</span>, <span class="tipid">encryption.state.encrypted</span>, <span class="tipid">encryption.state.verifiedRecoverable</span>, <span class="tipid">encryption.state.notVerified</span>, <span class="tipid">encryption.state.keyMissing</span>, <span class="tipid">encryption.state.decryptFailed</span> Each states what the backend recorded: the stored-bytes digest and key id, the plaintext digest match and its time, <code>ErrClassUnavailable</code>, or the fail-closed reason.</td></tr>
+      <tr><td>Plaintext digest and Stored-bytes digest (rows on Backup detail)</td><td><span class="tipid">encryption.digest.plaintext</span>, <span class="tipid">encryption.digest.stored</span> They name the columns: <code>artifacts.local_hash</code> and the new per-copy column.</td></tr>
+      <tr><td>Health rows: No confirmed recovery bundle; A required key cannot be resolved</td><td><span class="tipid">encryption.health.bundle</span>, <span class="tipid">encryption.health.keyMissing</span></td></tr>
+      <tr><td><code>algorithm: auto</code> (the draft's select)</td><td><span class="nopop">removed, not explained</span> The worked example. The format is a property of the build and no operator input changes it, so the code cannot state what choosing a value would do. It is not drawn, not disabled, not "advanced": it is gone.</td></tr>
+      <tr><td>Format id and version (deployment-wide readout)</td><td><span class="nopop">no pop-up</span> A non-interactive statement of fact with the label "deployment-wide" visible as text. Nothing to explain about a control that is not one.</td></tr>
+      <tr><td>Key id, created, retired, status, copies recording it (readouts in the key list)</td><td><span class="nopop">no pop-up</span> Facts from the registry, drawn as text. The id is explained once by <span class="tipid">encryption.state.encrypted</span>, which already says a copy records the id of the key that wrote it.</td></tr>
+      <tr><td>Rotation cadence, chunk size, per-set format, "strength" indicator, key fingerprint</td><td><span class="nopop">not drawn</span> Refused as controls, so there is nothing to explain. Cadence, chunk size and format are not properties of a set and the format is not a property of a config; a strength indicator would be an invented claim; a fingerprint is a function of key material and the probe reports only whether a key resolves.</td></tr>
+      <tr><td>The kopia-engine set's disabled per-set control</td><td><span class="nopop">no pop-up (deliberate)</span> The statement of what <em>required</em> means for a repository kopia already encrypts is ADR 0027's to make (#989) and the docs' to carry (#997). Until the code states it, a pop-up here would be invented. The card draws the fact as text in the ADR's words once they exist, or omits it.</td></tr>
+    </table>
+  </div>
+</section>
+
+<section class="sec" id="divergence">
+  <h2>12. Reviewed against Backup Manager.dc.html: what follows it and what deliberately does not</h2>
+  <div class="reason">
+    <p><strong>Follows the canvas and the build.</strong> Card shape, eyebrow headings, the segmented control, the primary, neutral and danger button weights, the Copies table on Backup detail (<code>PlacementList.tsx</code>: Where, Location, Copy size, Class, Access, Verification), the Active operations card, the docked terminal and its inks, and the token set, all unchanged. Where the canvas and <code>ui/shared/src/design-system/tokens.css</code> differ (the build moved <code>--text-3</code> to a text ink at 4.5:1 and added <code>--edge-3</code> for edges, #1235), this note takes the build's values, because the canvas predates both. Every chip is the same shape as the three Assurance claims from #984 (<code>assurance.css</code>), with new glyphs and words.</p>
+    <p><strong>Diverges, and why.</strong> The canvas draws a green <em>Verified</em> tick and a <em>Checksum passed</em> validation line for a backup. This note adds no encryption state to either and lets none roll up into them: they are the producer-manifest checksum of the plaintext, and the build has since retired the green header tick (<code>BackupDetailPage.tsx</code>, EPIC Q). Encryption is drawn only as the two-chip pair in section 1. The canvas has no encryption vocabulary at all (the word occurs once, in unrelated copy), so the chips, the bundle notice and the external-reference card are additions in its shape rather than reinterpretations of anything it draws. The canvas's text boxes and segmented controls take <code>--border-strong</code> for their edge, which is 1.69:1 on the light surface; this note uses <code>--edge-3</code> as the shipped assurance CSS does, so a control edge meets 3:1. The canvas draws the Settings page as one column of cards in the order of the build at the time; the new card goes where the build puts a destination-adjacent card today (after Storage destinations), not where the canvas would.</p>
+  </div>
+</section>
+
+<section class="sec" id="absent">
+  <h2>13. Drawn as absent</h2>
+  <div class="reason">
+    <p>No KMS or Vault provider field (the <code>command</code> reference is how a secrets manager is reached). No re-encrypt-everything action on rotation. No automatic or scheduled decrypt-verify. No per-set format, chunk size or cadence. No key fingerprint, key preview, "show key" or QR. No field that accepts key material, including the bundle confirmation, which is a statement and not an upload. No encryption of object names: the destination block keeps showing the full key under the bucket and the docs say what that means. No second cipher for a kopia-engine set. No audit view beyond the activity feed. Where a number is not computable (a size before the first copy, an age before the first decrypt-verify), the row is missing rather than showing a placeholder.</p>
+  </div>
+</section>
+
+<section class="sec" id="contrast">
+  <h2>14. Measured contrast</h2>
+  <div class="reason">
+    <p>I computed these from the token values in the style block above (the same values as <code>ui/shared/src/design-system/tokens.css</code> at <code>6d0d6978</code>), converting the <code>oklch()</code> tokens to sRGB and applying the WCAG 2.x relative-luminance formula. Text needs 4.5:1, a component edge or graphic needs 3:1. Every pair below is one the picture actually draws.</p>
+    <table class="t" id="contrast-table">
+      <tr><th>Pair</th><th>Light</th><th>Dark</th><th>Needs</th></tr>
+      <tr><td>--text on --surface (chip ink, body, dialog text)</td><td data-pair="text/surface"></td><td data-pair="text/surface"></td><td>4.5</td></tr>
+      <tr><td>--text on --surface-2 (the Encrypted chip fill)</td><td data-pair="text/surface-2"></td><td data-pair="text/surface-2"></td><td>4.5</td></tr>
+      <tr><td>--text on --surface-3 (the Plaintext chip fill, readouts)</td><td data-pair="text/surface-3"></td><td data-pair="text/surface-3"></td><td>4.5</td></tr>
+      <tr><td>--text on ok, warn, danger and accent quiet fills (worst)</td><td data-pair="text/quiet-worst"></td><td data-pair="text/quiet-worst"></td><td>4.5</td></tr>
+      <tr><td>--text-2 on --surface (labels, ages, echo lines)</td><td data-pair="text-2/surface"></td><td data-pair="text-2/surface"></td><td>4.5</td></tr>
+      <tr><td>--text-2 on --surface-2 (echo lines, card headings)</td><td data-pair="text-2/surface-2"></td><td data-pair="text-2/surface-2"></td><td>4.5</td></tr>
+      <tr><td>--text-2 on --surface-3 (disabled segments, readouts)</td><td data-pair="text-2/surface-3"></td><td data-pair="text-2/surface-3"></td><td>4.5</td></tr>
+      <tr><td>--text-3 on --surface-3 (a disabled button, as <code>.btn:disabled</code> draws it)</td><td data-pair="text-3/surface-3"></td><td data-pair="text-3/surface-3"></td><td>4.5</td></tr>
+      <tr><td>--text-2 on the quiet fills (worst)</td><td data-pair="text-2/quiet-worst"></td><td data-pair="text-2/quiet-worst"></td><td>4.5</td></tr>
+      <tr><td>--surface on --accent (primary button, selected segment)</td><td data-pair="surface/accent"></td><td data-pair="surface/accent"></td><td>4.5</td></tr>
+      <tr><td>--danger on --surface (danger button text, Retire)</td><td data-pair="danger/surface"></td><td data-pair="danger/surface"></td><td>4.5</td></tr>
+      <tr><td>terminal text, info, ok, warn, danger, accent on --term-bg (worst)</td><td data-pair="term-worst"></td><td data-pair="term-worst"></td><td>4.5</td></tr>
+      <tr><td>terminal timestamp --term-time on --term-bg</td><td data-pair="term-time"></td><td data-pair="term-time"></td><td>4.5</td></tr>
+      <tr><td>chip, button, text box and bar edge --edge-3 on --surface</td><td data-pair="edge-3/surface"></td><td data-pair="edge-3/surface"></td><td>3</td></tr>
+      <tr><td>chip edge --edge-3 on --surface-2 (Encrypted, against its own fill)</td><td data-pair="edge-3/surface-2"></td><td data-pair="edge-3/surface-2"></td><td>3</td></tr>
+      <tr><td>chip edge --edge-3 on --surface-3 (Plaintext, against its own fill)</td><td data-pair="edge-3/surface-3"></td><td data-pair="edge-3/surface-3"></td><td>3</td></tr>
+      <tr><td>chip edge --ok, --warn, --danger, --accent on --surface (worst)</td><td data-pair="status-edge/surface-worst"></td><td data-pair="status-edge/surface-worst"></td><td>3</td></tr>
+      <tr><td>glyph --ok, --danger, --accent on its own quiet fill (worst)</td><td data-pair="glyph/quiet-worst"></td><td data-pair="glyph/quiet-worst"></td><td>3</td></tr>
+    </table>
+    <p id="contrast-note"><strong>What the numbers say.</strong> The figures above are filled in by the script at the bottom of this file from the token values in the style block, so the table and the picture cannot disagree. The one pair under its bar is the Plaintext chip's dashed <code>--edge-3</code> edge measured against its own <code>--surface-3</code> fill in the light theme, 2.93:1; against the surface the chip sits on it is 3.35:1, and the state is also carried by the dashed edge, the hollow-box glyph and the word <em>Plaintext</em>, so nothing depends on that edge alone. This is the same pair #984 kept for the same reason and the shipped assurance CSS draws it the same way. <code>--term-time</code> is 5.26:1 on the terminal surface after #1235 and is used for the timestamps here. A disabled button (<em>I have stored the bundle safely</em> before a bundle exists, <em>Download bundle</em> and <em>Verify now</em> before their checkbox is ticked) is drawn at 55% opacity, which puts its edge at 2.96:1 light and 3.14:1 dark against the surface; an inactive component is exempt from the 3:1 bar and the button becomes a full-contrast control the moment it is enabled, but the number is recorded rather than left out.</p>
+    <p><strong>How the render was checked.</strong> I rendered this file in Chromium (Playwright 1.62.1 from the pinned gate checkout, 1280 px wide) and read the computed colour of every text node against its composited background, and of every chip, button, segmented control, bar, text box, notice and health row edge against the surface around it and against its own fill, converting <code>oklch()</code> through a canvas because Chromium reports those tokens unconverted. Result: 897 text nodes in each theme frame, lowest 4.61:1 in light (the double check and the key glyph on their quiet fills) and 4.53:1 in dark (the slashed circle and the cross on the danger fill), none under 4.5:1; 553 text nodes outside the frames (headings, the status note, the reasoning), lowest 5.93:1. Every enabled component edge is at least 3.35:1 in light and 3.85:1 in dark against the surface it sits on; the only edges under 3:1 are the Plaintext chip against its own fill (above) and the disabled buttons (above). No narrow frame scrolls horizontally at 360 px. I did not run an automated accessibility scanner and did not check forced-colours mode.</p>
+  </div>
+</section>
+
+<section class="sec" id="assumptions">
+  <h2>15. What this note leans on, so a change in #989 to #993 can be traced back to it</h2>
+  <div class="reason">
+    <p>This was started before #989 (the ADR and the config model) and the rest of Phase 1, and the owner chose that on purpose. The spec (<code>docs/EPIC-N-encrypted-retained-copies.md</code>, #968) is what I drew against. Each line is an assumption in it that the pictures depend on. If a Phase 1 issue changes one, the section named is the one to revisit; this note is not edited, a later note supersedes it.</p>
+    <table class="t">
+      <tr><th>Assumption (from the spec)</th><th>Owner</th><th>Sections that lean on it</th></tr>
+      <tr><td>One new top-level key, <code>retained_copy_encryption:</code>, whose default is <code>off</code>, and a per-set answer that is <code>mode</code> (<code>inherit | off | required</code>) and <code>key_provider</code> and nothing else</td><td>#989</td><td>2, 4, 11</td></tr>
+      <tr><td>No <code>algorithm</code>, chunk size or cipher knob: the format is the build's, and its id and version are recorded per copy</td><td>#989 (ADR 0027)</td><td>2 (the deployment-wide readout), 5 (format beside the stored-bytes digest), 11 (the refusal rows)</td></tr>
+      <tr><td>The effective policy is resolvable and readable by the UI, so <em>Inherit</em> can say what it resolves to, and it re-resolves after a global edit</td><td>#989, #993</td><td>4</td></tr>
+      <tr><td>What <code>required</code> means for a kopia-engine set is an ADR 0027 answer; the control is not drawn live until it exists</td><td>#989</td><td>4</td></tr>
+      <tr><td>A key registry with id, created, retired and a status, plus a count of <code>ACTIVE</code> placements that record each key. I drew the statuses <em>Active</em>, <em>Retired</em> and <em>Unresolvable</em>; the registry may name them differently</td><td>#990, #992</td><td>2, 6</td></tr>
+      <tr><td>A one-time export that produces a file (key, integrity metadata, clean-machine instructions) and nothing on screen, and a separate confirmation stored as a durable fact that survives a restart</td><td>#990, #993</td><td>2, 3, 10</td></tr>
+      <tr><td>A resolvability probe with three answers and the resolver's own refusal vocabulary, reporting whether a key resolves and never what it is</td><td>#990</td><td>7, 8</td></tr>
+      <tr><td>The no-confirmed-bundle condition reaches the UI through a <code>health.Report</code> section whose zero value reads "this deployment encrypts nothing", and the one new <code>alert.Kind</code> is the unresolvable <code>required</code> key</td><td>#990</td><td>10</td></tr>
+      <tr><td>Two new <code>app.Progress</code> stages, Encrypting and Decrypt-verifying, with the existing byte counters, and one durable feed entry per copy rather than per chunk</td><td>#991, #992</td><td>8, 9</td></tr>
+      <tr><td>Per-copy state is readable from the Backups list and Backup detail responses: whether the copy is encrypted, its format id and version, its key id, its stored-bytes digest, and the time and class of the last decrypt-verify. Without it the Encryption column on the list is one request per row</td><td>#991, #993</td><td>1, 5</td></tr>
+      <tr><td>Retiring a key that an <code>ACTIVE</code> placement still records is refused naming the copies, with the same reason on both routes</td><td>#992, #993</td><td>6</td></tr>
+      <tr><td>The CLI verbs. Every command line drawn here is a shape (<code>retnd encryption ...</code>); <code>CommandEcho</code> prints the real strings from the same function the terminal uses, and the real names, flags and exit codes are #993's</td><td>#993</td><td>2 to 8</td></tr>
+      <tr><td>The API's key-reference field is write-only and reads back as its description; a value that is key material rather than a reference is refused at the server and the UI shows the refusal as written</td><td>#989, #993</td><td>7</td></tr>
+      <tr><td>The browser can receive the bundle as a single download. If #993 decides the API must not return key material at all, section 3's browser download becomes a command-line-only export, and the checkbox dialog becomes an instruction to run the echoed command</td><td>#990, #993</td><td>3</td></tr>
+      <tr><td>The egress figure shown before a decrypt-verify is whatever the provider response states, as the thaw panel in #984 does; this product holds no price list</td><td>#991, #993</td><td>8</td></tr>
+    </table>
+    <p><strong>Not decided here, on purpose.</strong> The wording of any tooltip, the real command names and exit codes, the Active operations ordering when several encryptions run, and what an operator sees for a destination that is expected to be offline (EPIC P composes with this policy rather than forking it). None of these changes a picture; each would change a label.</p>
+  </div>
+</section>
+</div>
+
+<script>
+// Text glyphs only, never emoji: an emoji is drawn in its own colours, which would break "the ink is always --text".
+const G={lock:"▣",open:"▢",nolock:"⊘",check2:"✓✓",pass:"✓",fail:"✕",hollow:"○",shield:"◆",dash:"−",play:"▶",clock:"◷",coin:"$",warn:"!",key:"⚿"};
+const chip=(cls,g,label,age)=>`<span class="chip ${cls}"><span class="g" aria-hidden="true">${g}</span>${label}${age?` <span class="age">${age}</span>`:""}</span>`;
+const col=(lab,inner)=>`<div class="chipcol"><span class="lab">${lab}</span>${inner}</div>`;
+const echo=(...cmds)=>`<div class="echo"><span class="eyebrow">Equivalent command</span>${cmds.map(c=>`<code>${c}</code>`).join("")}</div>`;
+const enc=(age)=>chip("s-enc",G.lock,"Encrypted",age);
+const recov=(age)=>chip("s-recov",G.check2,"Verified recoverable",age);
+const plain=()=>chip("s-plain",G.open,"Plaintext");
+const unver=()=>chip("s-unver",G.hollow,"Not decrypt-verified");
+const nokey=(age)=>chip("s-nokey",G.nolock,"Key missing",age);
+const dfail=(why)=>chip("s-fail",G.fail,"Decrypt failed",why);
+const KEY1="rce-2026-11-09-a", KEY0="rce-2026-08-14-a";
+const S={
+ states(){const rows=[
+  ["Plaintext copy","s-plain",G.open,"Plaintext","no encryption on this copy"],
+  ["Encrypted (stored)","s-enc",G.lock,"Encrypted",`key ${KEY1}`],
+  ["Verified recoverable","s-recov",G.check2,"Verified recoverable","3d ago"],
+  ["Not decrypt-verified","s-unver",G.hollow,"Not decrypt-verified","never read back"],
+  ["Key missing","s-nokey",G.nolock,"Key missing",`key ${KEY0} does not resolve`],
+  ["Decrypt failed","s-fail",G.fail,"Decrypt failed","authentication failed at chunk 412 of 9,811"],
+  ["Live (copy path)","s-live",G.play,"Encrypting","6.1 of 14.2 GB"],
+  ["Live (verify path)","s-live",G.play,"Decrypt-verifying","9.8 of 14.2 GB"]];
+  return `<div class="card" style="grid-column:1/-1"><h3>Every encryption state a copy can be drawn in</h3><div class="body">`+
+  rows.map(r=>`<div class="row"><span class="muted" style="min-width:170px">${r[0]}</span>${chip(r[1],r[2],r[3],r[4])}</div>`).join("")+
+  `<div class="muted">Encrypted means ciphertext was stored under a recorded key id and the stored-bytes digest was written by the committing attempt. Verified recoverable means a streaming decrypt produced the plaintext digest the catalog holds. Only the second is green.</div></div></div>`},
+ settings(){return `
+  <div class="card"><h3>Retained-copy encryption</h3><div class="body">
+   <label class="toggle"><i aria-hidden="true"></i> Encrypt copies sent to destinations</label>
+   <div class="muted">Off. Copies are written exactly as they are today: the same bytes, the same catalog rows, the same verification classes. The local copy is never encrypted; this applies to copies sent to a destination.</div>
+   <div class="knob"><span class="lock">Deployment-wide</span><span>Format</span><b>recorded per copy by the build</b></div>
+   <div class="muted">There is no cipher, chunk size or algorithm to choose. The build records the format it used against each copy, so a later build can read every copy it ever wrote.</div>
+  </div></div>
+  <div class="card"><h3>Retained-copy encryption <span class="grow"></span>${chip("s-key-ok",G.key,"Managed key active")}</h3><div class="body">
+   <label class="toggle on"><i aria-hidden="true"></i> Encrypt copies sent to destinations</label>
+   <dl class="kv"><dt>Key</dt><dd class="mono">${KEY1}</dd><dt>Created</dt><dd>2026-11-09 09:12</dd><dt>Held</dt><dd>by this deployment, in its state directory</dd><dt>Recovery bundle</dt><dd>not confirmed</dd></dl>
+   <div class="notice blocking" role="status"><b>${G.shield} No confirmed recovery bundle</b>
+    <div class="muted">Copies are being encrypted under a key that exists only on this host. If this host is lost, so are they. Export the bundle, store it away from this machine, then confirm here. This stays until you do, including across restarts.</div>
+    <div class="row" style="margin-top:8px"><button class="btn primary">Export recovery bundle</button><button class="btn" disabled>I have stored the bundle safely</button></div>
+   </div>
+   <div class="row"><button class="btn">Rotate key</button><button class="btn">Use an external key reference instead</button></div>
+   <div class="knob"><span class="lock">Deployment-wide</span><span>Format</span><b>recorded per copy by the build</b></div>
+   ${echo("retnd encryption show","retnd encryption bundle export --out <path>")}
+  </div></div>`},
+ enable(){return `
+  <div class="card"><h3>Enable retained-copy encryption</h3><div class="body">
+   <div>Who holds the key?</div>
+   <label class="radio on"><input type="radio" checked><span><b>A key this deployment manages</b> <span class="muted">(default)</span><div class="muted">Created now, kept as a file only this service can read, in its state directory. Anyone who can read that file can read the copies, so the recovery bundle you export next is what moves the key off this host.</div></span></label>
+   <label class="radio"><input type="radio"><span><b>A key I keep elsewhere</b><div class="muted">A file path, an environment variable or a command that prints the key. You give a reference; the key itself is never typed or pasted here.</div></span></label>
+   <div class="muted">Nothing else to decide. The format is the build's and is recorded against every copy.</div>
+   ${echo("retnd encryption set --mode required","retnd encryption key create")}
+   <div class="row"><span class="grow"></span><button class="btn">Cancel</button><button class="btn primary">Enable and create key</button></div>
+  </div></div>
+  <div class="card"><h3>Enable retained-copy encryption <span class="grow"></span><span class="muted">external</span></h3><div class="body">
+   <label class="radio"><input type="radio"><span><b>A key this deployment manages</b></span></label>
+   <label class="radio on"><input type="radio" checked><span><b>A key I keep elsewhere</b></span></label>
+   <div class="seg" role="radiogroup"><span class="on">File</span><span>Environment variable</span><span>Command</span></div>
+   <label class="row"><span class="muted" style="min-width:140px">Path to the key file</span><input class="input mono grow" value="/etc/retnd/keys/offsite.key"></label>
+   <div class="muted">A reference, resolved when a copy is written. If what you type is a key rather than a path, the server refuses it and says so here.</div>
+   <div class="row"><button class="btn">Test reference</button>${chip("s-key-ok",G.pass,"Resolves")}</div>
+   ${echo("retnd encryption key-ref set --file /etc/retnd/keys/offsite.key","retnd encryption key-ref test")}
+   <div class="row"><span class="grow"></span><button class="btn">Cancel</button><button class="btn primary">Enable</button></div>
+  </div></div>`},
+ bundle(){return `
+  <div class="card"><h3>Export recovery bundle</h3><div class="body">
+   <div class="notice blocking"><b>${G.shield} This is the one time the key leaves this deployment.</b>
+    <div class="muted">The bundle is a file holding the key for <span class="mono">${KEY1}</span>, integrity metadata and the instructions for decrypting a copy on a clean machine with nothing but the shipped binary. Whoever holds the file can read every copy made under this key. Store it away from this host.</div></div>
+   <label class="row"><input type="checkbox"> I understand this file can decrypt every copy made under this key</label>
+   <div class="muted">Nothing is shown on screen. The key goes into the downloaded file and nowhere else.</div>
+   ${echo("retnd encryption bundle export --out <path>")}
+   <div class="row"><span class="grow"></span><button class="btn">Cancel</button><button class="btn primary" disabled>Download bundle</button></div>
+  </div></div>
+  <div class="card"><h3>Retained-copy encryption <span class="grow"></span>${chip("s-key-ok",G.key,"Managed key active")}</h3><div class="body">
+   <dl class="kv"><dt>Key</dt><dd class="mono">${KEY1}</dd><dt>Recovery bundle</dt><dd>exported 2026-11-09 09:20, not yet confirmed</dd></dl>
+   <div class="notice" role="status"><b>${G.shield} Bundle exported, not yet confirmed</b>
+    <div class="muted">A download can land on this same host, which moves nothing. Confirm once the file is somewhere this machine's loss would not take with it.</div>
+    <div class="row" style="margin-top:8px"><button class="btn primary">I have stored the bundle safely</button><button class="btn">Export again</button></div>
+   </div>
+   ${echo("retnd encryption bundle confirm")}
+   <div class="row"><span class="muted">After confirming:</span>${chip("s-key-ok",G.pass,"Recovery bundle confirmed","2026-11-09 09:31")}</div>
+  </div></div>`},
+ perset(){return `
+  <div class="card"><h3>Retained-copy encryption (this set)</h3><div class="body">
+   <div class="seg" role="radiogroup"><span class="on">Inherit</span><span>Off</span><span>Required</span></div>
+   <div class="muted">Inheriting: <b>required</b> (from the deployment setting). Copies of this set's artifacts sent to a destination are encrypted; the local copy is not.</div>
+   <div class="muted">Key: the deployment's managed key <span class="mono">${KEY1}</span>. <a href="#external" style="color:var(--accent)">Use a different key reference for this set</a></div>
+   <div class="row">${col("offsite-b2",enc()+" "+recov("3d ago"))}${col("nas-mirror",plain())}</div>
+   ${echo("retnd encryption set --set production/postgres-primary --mode inherit")}
+  </div></div>
+  <div class="card"><h3>Retained-copy encryption (this set) <span class="grow"></span><span class="muted">Required, key missing</span></h3><div class="body">
+   <div class="seg" role="radiogroup"><span>Inherit</span><span>Off</span><span class="on">Required</span></div>
+   <div class="muted">Required: a copy to a destination is refused rather than written in plaintext. The refusal happens before anything is deleted at the source or on the medium.</div>
+   <div class="health refusing"><span class="g" aria-hidden="true">${G.nolock}</span><div><b>Copies are being refused.</b> <span class="muted">Key <span class="mono">${KEY0}</span> does not resolve (file: custody refused, mode is group-readable). 2 copies refused since 02:00. Nothing was deleted.</span></div></div>
+   <div class="row">${col("offsite-b2",nokey("since 02:00"))}${col("nas-mirror",plain())}</div>
+   ${echo("retnd encryption set --set production/postgres-primary --mode required")}
+  </div></div>
+  <div class="card" style="grid-column:1/-1"><h3>Retained-copy encryption (this set) <span class="grow"></span><span class="muted">kopia engine</span></h3><div class="body">
+   <div class="seg off" role="radiogroup" aria-disabled="true"><span>Inherit</span><span>Off</span><span>Required</span></div>
+   <div class="knob"><span class="lock">Statement of fact</span><span>This set's repository is encrypted by the kopia engine under its repository passphrase. What <em>Required</em> means for such a set is decided by ADR 0027 (#989) and written in the docs (#997); this control is not live until it is.</span></div>
+  </div></div>`},
+ copies(){return `
+  <div class="card"><h3>Backups</h3><div class="body">
+   <div class="row"><b class="mono">postgres-prod-20261108.dump.zst</b><span class="grow"></span><span class="muted">2026-11-08 02:00</span></div>
+   <div class="chips">${col("nas-mirror",plain())}${col("offsite-b2",enc()+" "+recov("3d ago"))}</div>
+   <div class="row"><b class="mono">postgres-prod-20261107.dump.zst</b><span class="grow"></span><span class="muted">2026-11-07 02:00</span></div>
+   <div class="chips">${col("nas-mirror",plain())}${col("offsite-b2",enc()+" "+unver())}</div>
+   <div class="row"><b class="mono">billing-20261025.sql.zst</b><span class="grow"></span><span class="muted">2026-10-25 02:00</span></div>
+   <div class="chips">${col("nas-mirror",plain())}${col("offsite-b2",nokey(`key ${KEY0}`))}</div>
+  </div></div>
+  <div class="card"><h3>Backup detail <span class="grow"></span><span class="muted">2 durable copies</span></h3><div class="body">
+   <b class="mono">postgres-prod-20261108.dump.zst</b>
+   <dl class="kv"><dt>Plaintext digest</dt><dd class="mono">sha256:&hellip;a04 <span class="muted">(artifacts.local_hash)</span></dd><dt>Stored-bytes digest, offsite-b2</dt><dd class="mono">sha256:&hellip;f17 <span class="muted">(format rce/1, key ${KEY1})</span></dd></dl>
+   <table class="t hide-narrow"><tr><th>Where</th><th>Encryption</th><th>Verification</th><th></th></tr>
+    <tr><td class="mono">nas-mirror</td><td>${plain()}</td><td>Content verified<br><span class="muted">plaintext digest matched</span></td><td></td></tr>
+    <tr><td class="mono">offsite-b2</td><td>${enc()}<br>${recov("3d ago")}</td><td>Content verified<br><span class="muted">decrypted, plaintext digest matched</span></td><td><button class="btn">Verify recoverable</button></td></tr></table>
+   <div class="muted">Two digests, two rows. The plaintext digest is the artifact's; the stored-bytes digest is this copy's own, and they are supposed to differ.</div>
+  </div></div>`},
+ rotate(){return `
+  <div class="card"><h3>Rotate key</h3><div class="body">
+   <div>Rotating creates a new active key. From now on:</div>
+   <ul class="stages"><li class="ok"><span class="g">${G.pass}</span>New copies are encrypted under the new key</li><li class="ok"><span class="g">${G.pass}</span>Every copy made so far stays readable through the key recorded against it</li><li class="ok"><span class="g">${G.pass}</span><span class="mono">${KEY1}</span> stays in the registry as <em>Retired</em> while any copy records it</li><li><span class="g">${G.dash}</span>Nothing is re-encrypted</li></ul>
+   <div class="notice"><b>${G.shield} The new key will have no confirmed recovery bundle.</b><div class="muted">The warning on the Dashboard and here returns until you export and confirm a bundle for the new key.</div></div>
+   ${echo("retnd encryption key rotate")}
+   <div class="row"><span class="grow"></span><button class="btn">Cancel</button><button class="btn primary">Rotate key</button></div>
+  </div></div>
+  <div class="card"><h3>Keys</h3><div class="body">
+   <table class="t"><tr><th>Key</th><th>Created</th><th>Status</th><th class="hide-narrow">Copies</th><th></th></tr>
+    <tr><td class="mono">rce-2026-11-09-b</td><td>2026-11-09</td><td>${chip("s-key-ok",G.key,"Active")}</td><td class="hide-narrow">0</td><td></td></tr>
+    <tr><td class="mono">${KEY1}</td><td>2026-11-09</td><td>${chip("s-key-retired",G.dash,"Retired")}</td><td class="hide-narrow">41</td><td><button class="btn danger">Retire</button></td></tr>
+    <tr><td class="mono">${KEY0}</td><td>2026-08-14</td><td>${chip("s-key-off",G.nolock,"Unresolvable")}</td><td class="hide-narrow">7</td><td></td></tr></table>
+   <div class="notice refused" role="alert"><b>${G.fail} Cannot retire ${KEY1}: 41 copies still need it.</b>
+    <div class="muted">Retiring would make them unreadable. postgres-prod-20261108.dump.zst (offsite-b2), postgres-prod-20261107.dump.zst (offsite-b2), billing-20261025.sql.zst (offsite-b2) and 38 more. <a href="#copies" style="color:var(--accent)">Show all 41 in Backups</a></div></div>
+   <div class="term"><div><span class="t">$</span> retnd encryption key retire ${KEY1}</div><div><span class="e">refused</span> 41 ACTIVE placements record key ${KEY1}; retiring would orphan them</div><div><span class="t">exit status</span> non-zero, the orphan-refusal code</div></div>
+  </div></div>`},
+ external(){return `
+  <div class="card"><h3>External key reference</h3><div class="body">
+   <div class="seg" role="radiogroup"><span>File</span><span class="on">Environment variable</span><span>Command</span></div>
+   <label class="row"><span class="muted" style="min-width:140px">Variable name</span><input class="input mono grow" value="RETND_OFFSITE_KEY"></label>
+   <div class="muted">The variable is read in this service's environment when a copy is written or verified. Its value is never shown here and never stored in the configuration or the catalog.</div>
+   <div class="row"><button class="btn">Test reference</button>${chip("s-nokey",G.nolock,"Declared but unreachable","empty")}</div>
+   <div class="muted">The resolver found the variable set to an empty value. Three answers are possible: resolves, declared but unreachable (with the resolver's reason), not declared.</div>
+   ${echo("retnd encryption key-ref set --env RETND_OFFSITE_KEY","retnd encryption key-ref test")}
+   <div class="row"><span class="grow"></span><button class="btn">Cancel</button><button class="btn primary">Save reference</button></div>
+  </div></div>
+  <div class="card"><h3>External key reference <span class="grow"></span>${chip("s-key-ok",G.pass,"Resolves")}</h3><div class="body">
+   <dl class="kv"><dt>Source</dt><dd class="mono">command: /usr/local/bin/fetch-offsite-key</dd><dt>Last tested</dt><dd>2026-11-09 09:40, resolves</dd><dt>Key id</dt><dd class="mono">ext-2026-11-09-a</dd></dl>
+   <div class="muted">Shown as its description only: the executable without its arguments, as the resolver prints it. The text box is not pre-filled from this, so what you read here cannot be pasted back to re-declare a key.</div>
+   <div class="row"><button class="btn">Test reference</button><button class="btn">Change reference</button></div>
+   <div class="notice refused" role="alert"><b>${G.fail} Refused: this looks like key material, not a reference.</b><div class="muted">A key reference is a path, a variable name or an executable. The value was not saved. (The server's refusal at Load, in its own words.)</div></div>
+  </div></div>`},
+ verify(){return `
+  <div class="card"><h3>Verify recoverable</h3><div class="body">
+   <div class="mono">postgres-prod-20261108.dump.zst / offsite-b2</div>
+   <ol class="stages"><li><span class="g">1</span>Resolve key <span class="mono">${KEY1}</span></li><li><span class="g">2</span>Stream the stored object and decrypt it</li><li><span class="g">3</span>Compare the plaintext digest to the one the catalog holds</li><li><span class="g">4</span>Record the result. Nothing is written to disk.</li></ol>
+   <div class="notice blocking"><b>${G.coin} Reading this copy back costs egress.</b><div class="muted">Provider b2, 14.2 GB read. The provider bills it at its rate; I hold no price list. Nothing in this product runs this check on its own.</div></div>
+   <label class="row"><input type="checkbox"> I accept this read</label>
+   ${echo("retnd encryption verify --artifact production/postgres-primary/postgres-prod-20261108.dump.zst --destination offsite-b2","retnd encryption verify --dry-run ...")}
+   <div class="row"><span class="grow"></span><button class="btn">Cancel</button><button class="btn primary" disabled>Verify now</button></div>
+  </div></div>
+  <div class="card"><h3>Verify recoverable <span class="grow"></span>${chip("s-live",G.play,"Decrypt-verifying")}</h3><div class="body">
+   <div class="mono">postgres-prod-20261108.dump.zst / offsite-b2</div>
+   <ol class="stages"><li class="ok"><span class="g">${G.pass}</span>Key resolved</li><li class="on"><span class="g">${G.play}</span><b>Decrypt-verifying</b> <span class="muted">9.8 of 14.2 GB</span></li><li><span class="g">${G.hollow}</span>Compare digest</li><li><span class="g">${G.hollow}</span>Record result</li></ol>
+   <div class="bar" role="progressbar" aria-valuenow="69" aria-valuemin="0" aria-valuemax="100"><i style="width:69%"></i></div>
+   <div class="row"><label class="row"><input type="checkbox" checked> Following</label><span class="grow"></span><button class="btn danger">Cancel</button></div>
+  </div></div>`},
+ verifyend(){const card=(title,c,kv,note)=>`<div class="card"><h3>${title}</h3><div class="body"><div class="mono">postgres-prod-20261108.dump.zst / offsite-b2</div><div class="row">${c}</div><dl class="kv">${kv}</dl><div class="muted">${note}</div></div></div>`;
+  return card("Result: match",recov("just now"),`<dt>Decrypted</dt><dd>14.2 of 14.2 GB</dd><dt>Plaintext digest</dt><dd>equals artifacts.local_hash</dd><dt>Class achieved</dt><dd>content</dd>`,"This copy can be read back with the key recorded against it. The age on the chip counts from now.")+
+  card("Result: key missing",nokey("nothing read"),`<dt>Decrypted</dt><dd>0 bytes</dd><dt>Key</dt><dd class="mono">${KEY0}: file custody refused (group-readable)</dd><dt>Class</dt><dd>unavailable, not downgraded</dd>`,"Stopped before the first byte, so nothing was billed. The copy keeps its Encrypted chip and gains this one; it is never shown as existence-only in its place.")+
+  card("Result: decrypt failed",dfail("chunk 412 of 9,811"),`<dt>Decrypted</dt><dd>5.9 of 14.2 GB, then stopped</dd><dt>Reason</dt><dd>authentication failed at chunk 412</dd><dt>Written</dt><dd>nothing, anywhere</dd>`,"The object is damaged, was changed, or is under a different key than recorded. No partial plaintext exists. Recover from another copy.")},
+ live(){return `
+  <div class="card"><h3>Active operations</h3><div class="body"><div class="strip">
+   <div class="op"><div class="row"><b>Copy</b><span class="mono">production/postgres-primary</span></div>${chip("s-live",G.play,"Encrypting","6.1 of 14.2 GB")}<div class="bar"><i style="width:43%"></i></div><div class="muted">to offsite-b2, key ${KEY1}</div></div>
+   <div class="op"><div class="row"><b>Verify recoverable</b><span class="mono">production/billing-mysql</span></div>${chip("s-live",G.play,"Decrypt-verifying","2.2 of 3.1 GB")}<div class="bar"><i style="width:71%"></i></div><div class="muted">offsite-b2, key ${KEY1}</div></div>
+   <div class="op"><div class="row"><b>Copy</b><span class="mono">media/weekly-archive</span></div>${nokey("refused")}<div class="muted">required policy, key ${KEY0} does not resolve. Source not deleted, medium not touched.</div></div>
+  </div></div></div>
+  <div class="card"><h3>Docked terminal</h3><div class="body">
+   <div class="term">
+    <div><span class="t">02:00:53</span> [engine] <span class="o">committed</span> postgres-prod-20261108.dump.zst 14.2 GB</div>
+    <div><span class="t">02:00:54</span> [engine] <span class="a">encrypting</span> postgres-prod-20261108.dump.zst to offsite-b2 under key ${KEY1}: 6.1 of 14.2 GB</div>
+    <div><span class="t">02:04:10</span> [engine] uploading postgres-prod-20261108.dump.zst to offsite-b2: 9.0 of 14.2 GB</div>
+    <div><span class="t">02:07:31</span> [engine] <span class="o">stored</span> offsite-b2/production/postgres-primary/postgres-prod-20261108.dump.zst, stored-bytes digest recorded, format rce/1</div>
+    <div><span class="t">02:07:31</span> [engine] <span class="w">not decrypt-verified</span>: verification class existence; run Verify recoverable to prove it reads back</div>
+    <div><span class="t">02:10:02</span> [admin] <span class="a">decrypt-verifying</span> billing-20261108.sql.zst from offsite-b2 under key ${KEY1}: 2.2 of 3.1 GB</div>
+    <div><span class="t">02:11:40</span> [admin] <span class="o">verified recoverable</span> billing-20261108.sql.zst: plaintext digest matches</div>
+    <div><span class="t">02:15:00</span> [engine] <span class="e">refused</span> media/weekly-archive to offsite-b2: policy required, key ${KEY0} does not resolve (file custody refused). Source not deleted. Medium not touched.</div>
+   </div>
+  </div></div>`},
+ degraded(){return `
+  <div class="card" style="grid-column:1/-1"><h3>Dashboard: Backup health</h3><div class="body">
+   <div class="health"><span class="g" aria-hidden="true" style="color:var(--ok)">${G.pass}</span><div><b>Service running</b></div></div>
+   <div class="health degraded"><span class="g" aria-hidden="true">${G.shield}</span><div><b>No confirmed recovery bundle</b> <span class="muted">for key <span class="mono">${KEY1}</span>, 2 days. 41 encrypted copies depend on a key that exists only on this host.</span> <a href="#settings" style="color:var(--accent)">Export and confirm in Settings</a></div></div>
+   <div class="health refusing"><span class="g" aria-hidden="true">${G.nolock}</span><div><b>A required key cannot be resolved</b> <span class="muted">key <span class="mono">${KEY0}</span>: file custody refused. media/weekly-archive and production/billing-mysql are refusing copies to offsite-b2 (3 refused since 02:00). Nothing was deleted.</span></div></div>
+   <div class="muted">A deployment with encryption off draws neither row and nothing else here changes.</div>
+  </div></div>`}
+};
+document.querySelectorAll("[data-surface]").forEach(g=>{
+  const fn=S[g.dataset.surface];
+  const mk=(theme,narrow)=>`<div class="frame th-${theme}${narrow?" narrow":""}"><div class="tag">${theme}${narrow?", narrow":""}</div>${fn()}</div>`;
+  g.innerHTML=mk("light",false)+mk("dark",false)+mk("light",true)+mk("dark",true);
+});
+
+// Contrast table: computed from the token values in the style block, so the table and the picture cannot disagree.
+(function(){
+  // Chromium reports an oklch() token as oklch(), not as rgb(), so each colour is painted to a canvas and read back as sRGB.
+  const probe=document.createElement("span");document.body.appendChild(probe);
+  const cv=document.createElement("canvas");cv.width=cv.height=1;const cx=cv.getContext("2d",{willReadFrequently:true});
+  const rgb=(theme,token)=>{probe.className="th-"+theme;probe.style.color=`var(${token})`;cx.fillStyle=getComputedStyle(probe).color;cx.fillRect(0,0,1,1);return Array.from(cx.getImageData(0,0,1,1).data.slice(0,3))};
+  const lum=([r,g,b])=>{const f=v=>{v/=255;return v<=0.04045?v/12.92:Math.pow((v+0.055)/1.055,2.4)};return 0.2126*f(r)+0.7152*f(g)+0.0722*f(b)};
+  const ratio=(a,b)=>{const la=lum(a),lb=lum(b);return (Math.max(la,lb)+0.05)/(Math.min(la,lb)+0.05)};
+  const R=(theme,fg,bg)=>ratio(rgb(theme,fg),rgb(theme,bg));
+  const quiet=["--ok-quiet","--warn-quiet","--danger-quiet","--accent-quiet"];
+  const status=["--ok","--warn","--danger","--accent"];
+  const pairs={
+   "text/surface":t=>R(t,"--text","--surface"),
+   "text/surface-2":t=>R(t,"--text","--surface-2"),
+   "text/surface-3":t=>R(t,"--text","--surface-3"),
+   "text/quiet-worst":t=>Math.min(...quiet.map(q=>R(t,"--text",q))),
+   "text-2/surface":t=>R(t,"--text-2","--surface"),
+   "text-2/surface-2":t=>R(t,"--text-2","--surface-2"),
+   "text-2/surface-3":t=>R(t,"--text-2","--surface-3"),
+   "text-3/surface-3":t=>R(t,"--text-3","--surface-3"),
+   "text-2/quiet-worst":t=>Math.min(...quiet.map(q=>R(t,"--text-2",q))),
+   "surface/accent":t=>R(t,"--surface","--accent"),
+   "danger/surface":t=>R(t,"--danger","--surface"),
+   "term-worst":t=>Math.min(...["--term-text","--term-info","--term-ok","--term-warn","--term-danger","--term-accent"].map(x=>R(t,x,"--term-bg"))),
+   "term-time":t=>R(t,"--term-time","--term-bg"),
+   "edge-3/surface":t=>R(t,"--edge-3","--surface"),
+   "edge-3/surface-2":t=>R(t,"--edge-3","--surface-2"),
+   "edge-3/surface-3":t=>R(t,"--edge-3","--surface-3"),
+   "status-edge/surface-worst":t=>Math.min(...status.map(s=>R(t,s,"--surface"))),
+   "glyph/quiet-worst":t=>Math.min(R(t,"--ok","--ok-quiet"),R(t,"--danger","--danger-quiet"),R(t,"--accent","--accent-quiet"))
+  };
+  document.querySelectorAll("#contrast-table tr").forEach(tr=>{
+    const tds=tr.querySelectorAll("td[data-pair]");if(tds.length!==2)return;
+    const need=parseFloat(tr.lastElementChild.textContent);
+    ["light","dark"].forEach((t,i)=>{const v=pairs[tds[i].dataset.pair](t);tds[i].textContent=v.toFixed(2);if(v<need)tds[i].style.fontWeight="700"});
+  });
+  probe.remove();
+})();
+</script>

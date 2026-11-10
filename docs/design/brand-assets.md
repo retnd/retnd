@@ -47,6 +47,7 @@ user-unit coordinate system.
 | `docs/design/814-workflow-ui.png` | export of its `.html` | dated design note | record only: see **Design-note art** below |
 | `docs/design/815-step-terminal.png` | export of its `.html` | dated design note | record only |
 | `docs/design/984-recovery-assurance.png` | export of its `.html` | dated design note | record only |
+| `docs/design/994-retained-copy-encryption.png` | export of its `.html` | dated design note | record only |
 | `docs/design/906-shell-verification-findings.png` | export of its `.html` | dated design note | record only |
 | `docs/design/activity-error-diagnostic.png` | export of its `.html` | dated design note | record only |
 | `docs/design/activity-terminal.png` | export of its `.html` | dated design note | record only |
@@ -202,7 +203,7 @@ shown at 8× beside the reasoning.
 
 ## Design-note art
 
-The twelve `docs/design/*.png` mockups other than this issue's own are
+The thirteen `docs/design/*.png` mockups other than this issue's own are
 **deliberately not regenerated**, and that is a decision rather than an
 omission. `docs/epic-checklist.md` §5 and
 `docs/EPIC-R-rename-retnd-to-retnd.md` §6 both say a dated design note
