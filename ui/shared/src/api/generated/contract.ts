@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "18d069734bc8cae425e638928bc661ed772401f56b8edc5b7d2e97223e598189";
+export const CONTRACT_SHA256 = "cfc78fcee709d1346c070adc8cf971fb3d675c6b22f444b2a077b8480f0f954f";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -3698,6 +3698,8 @@ export interface WireEncryptionCopy {
   key_id?: string;
   key_resolvable?: boolean;
   medium: string;
+  plaintext_digest?: string;
+  stored_digest?: string;
   stored_digest_algorithm?: string;
   stored_size?: number;
 }
@@ -3733,6 +3735,8 @@ export interface WireEncryptionKeyReference {
 export interface WireEncryptionKeyStatus {
   bundle_confirmed: boolean;
   bundle_confirmed_at?: string;
+  bundle_exported_at?: string;
+  copies_recording: number;
   created_at: string;
   id: string;
   reason?: string;
@@ -4394,23 +4398,26 @@ export interface WireOperationRestore {
  *  verification_class fields are for. Nothing here is a price, a bill
  *  or an estimate of how long a restore will take; see access. */
 export interface WirePlacement {
-  access: "immediate" | "requires_restore" | "restoring" | "unreachable";
-  assurance_state?: "passed" | "failed" | "requires_restore" | "could_not_complete";
+  access: string;
+  assurance_state?: string;
   consecutive_failures?: number;
+  encrypted?: boolean;
+  encryption_key_id?: string;
+  encryption_key_resolvable?: boolean;
   last_checked_at?: string;
   last_failure_at?: string;
   last_failure_reason?: string;
   location: string;
   medium: string;
-  medium_type: "local" | "s3";
-  recovery_check?: "validator" | "builtin";
+  medium_type: string;
+  recovery_check?: string;
   recovery_failure_reason?: string;
-  recovery_state?: "not_configured" | "never_run" | "passed" | "readable" | "overdue" | "failed" | "refused_for_cost" | "could_not_complete";
+  recovery_state?: string;
   recovery_tested_at?: string;
   size_bytes?: number;
-  status: "ACTIVE" | "DELETE_PENDING";
+  status: string;
   storage_class?: string;
-  verification_class?: "content" | "attested" | "existence";
+  verification_class?: string;
   verified_at?: string;
 }
 

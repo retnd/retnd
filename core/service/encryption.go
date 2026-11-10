@@ -296,7 +296,7 @@ func (b *BackupService) bundleConfirmations(ctx context.Context) (map[string]tim
 	return at, nil
 }
 
-func (b *BackupService) keyStatus(ctx context.Context, store *keycustody.Store, rec keycustody.KeyRecord, confirmed map[string]time.Time) apicontract.EncryptionKeyStatus {
+func (b *BackupService) keyStatus(ctx context.Context, store *keycustody.Store, rec keycustody.KeyRecord, confirmed map[string]time.Time) (apicontract.EncryptionKeyStatus, error) {
 	out := apicontract.EncryptionKeyStatus{
 		ID:        rec.ID,
 		Status:    string(rec.Status),
@@ -313,7 +313,26 @@ func (b *BackupService) keyStatus(ctx context.Context, store *keycustody.Store, 
 	out.Resolvability = probe.State.String()
 	out.Resolvable = probe.State == keycustody.Resolves
 	out.Reason = probe.Reason
-	return out
+
+	copies, err := b.journal.ActivePlacementsRecordingKey(ctx, rec.ID)
+	if err != nil {
+		return out, fmt.Errorf("service: counting the copies that record key %s: %w", rec.ID, err)
+	}
+	out.CopiesRecording = len(copies)
+	exports, err := b.keys.registry().Exports(ctx, rec.ID)
+	if err != nil {
+		return out, fmt.Errorf("service: reading the bundle exports of key %s: %w", rec.ID, err)
+	}
+	var newest time.Time
+	for _, e := range exports {
+		if e.ExportedAt.After(newest) {
+			newest = e.ExportedAt
+		}
+	}
+	if !newest.IsZero() {
+		out.BundleExportedAt = newest.UTC().Format(time.RFC3339)
+	}
+	return out, nil
 }
 
 // ListEncryptionKeys is GET /encryption/keys: id, status, timestamps,
@@ -337,7 +356,11 @@ func (b *BackupService) ListEncryptionKeys(ctx context.Context) (apicontract.Lis
 		return out, err
 	}
 	for _, rec := range recs {
-		out.Keys = append(out.Keys, b.keyStatus(ctx, store, rec, confirmed))
+		st, err := b.keyStatus(ctx, store, rec, confirmed)
+		if err != nil {
+			return out, err
+		}
+		out.Keys = append(out.Keys, st)
 	}
 	return out, nil
 }
@@ -353,7 +376,7 @@ func (b *BackupService) oneKeyStatus(ctx context.Context, store *keycustody.Stor
 	}
 	for _, rec := range recs {
 		if rec.ID == id {
-			return b.keyStatus(ctx, store, rec, confirmed), nil
+			return b.keyStatus(ctx, store, rec, confirmed)
 		}
 	}
 	return apicontract.EncryptionKeyStatus{}, fmt.Errorf("%w: %s", keycustody.ErrUnknownKey, id)
@@ -535,6 +558,8 @@ func (b *BackupService) EncryptionCopies(ctx context.Context, artifactID string)
 			c.KeyID = enc.KeyID
 			c.StoredSize = enc.StoredSize
 			c.StoredDigestAlgorithm = enc.StoredHashAlg
+			c.StoredDigest = enc.StoredHash
+			c.PlaintextDigest = a.Checksum
 			resolvable := b.keyResolves(ctx, enc.KeyID)
 			c.KeyResolvable = &resolvable
 		}
@@ -663,4 +688,35 @@ func resultOfErr(err error) obs.Result {
 		return obs.ResultError
 	}
 	return obs.ResultSuccess
+}
+
+// annotateEncryption fills each placement's encryption state so the Backups
+// list can show a column without a request per row. It reads one record per
+// placement on a medium (the local copy is never encrypted) and probes each
+// distinct key once per call. A read that fails leaves the copy unannotated
+// rather than failing a list that is not about encryption.
+func (b *BackupService) annotateEncryption(ctx context.Context, arts []Artifact) {
+	resolves := map[string]bool{}
+	for i := range arts {
+		id, err := app.ParseArtifactID(arts[i].ID)
+		if err != nil {
+			continue
+		}
+		for j := range arts[i].Placements {
+			p := &arts[i].Placements[j]
+			if p.Medium == state.MediumLocal {
+				continue
+			}
+			enc, ok, err := b.journal.PlacementEncryption(ctx, id, p.Medium)
+			if err != nil || !ok {
+				continue
+			}
+			r, seen := resolves[enc.KeyID]
+			if !seen {
+				r = b.keyResolves(ctx, enc.KeyID)
+				resolves[enc.KeyID] = r
+			}
+			p.Encrypted, p.EncryptionKeyID, p.EncryptionKeyResolvable = true, enc.KeyID, &r
+		}
+	}
 }

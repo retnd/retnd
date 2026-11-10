@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "18d069734bc8cae425e638928bc661ed772401f56b8edc5b7d2e97223e598189"
+const ContractSHA256 = "cfc78fcee709d1346c070adc8cf971fb3d675c6b22f444b2a077b8480f0f954f"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -457,6 +457,8 @@ type EncryptionCopy struct {
 	KeyID                 string `json:"key_id,omitempty"`
 	KeyResolvable         *bool  `json:"key_resolvable,omitempty"`
 	Medium                string `json:"medium"`
+	PlaintextDigest       string `json:"plaintext_digest,omitempty"`
+	StoredDigest          string `json:"stored_digest,omitempty"`
 	StoredDigestAlgorithm string `json:"stored_digest_algorithm,omitempty"`
 	StoredSize            int64  `json:"stored_size,omitempty"`
 }
@@ -493,6 +495,8 @@ type EncryptionKeyReference struct {
 type EncryptionKeyStatus struct {
 	BundleConfirmed   bool   `json:"bundle_confirmed"`
 	BundleConfirmedAt string `json:"bundle_confirmed_at,omitempty"`
+	BundleExportedAt  string `json:"bundle_exported_at,omitempty"`
+	CopiesRecording   int    `json:"copies_recording"`
 	CreatedAt         string `json:"created_at"`
 	ID                string `json:"id"`
 	Reason            string `json:"reason,omitempty"`
@@ -3468,24 +3472,27 @@ type OperationRestore struct {
 // verification_class fields are for. Nothing here is a price, a bill
 // or an estimate of how long a restore will take; see access.
 type Placement struct {
-	Access                string `json:"access"`
-	AssuranceState        string `json:"assurance_state,omitempty"`
-	ConsecutiveFailures   int    `json:"consecutive_failures,omitempty"`
-	LastCheckedAt         string `json:"last_checked_at,omitempty"`
-	LastFailureAt         string `json:"last_failure_at,omitempty"`
-	LastFailureReason     string `json:"last_failure_reason,omitempty"`
-	Location              string `json:"location"`
-	Medium                string `json:"medium"`
-	MediumType            string `json:"medium_type"`
-	RecoveryCheck         string `json:"recovery_check,omitempty"`
-	RecoveryFailureReason string `json:"recovery_failure_reason,omitempty"`
-	RecoveryState         string `json:"recovery_state,omitempty"`
-	RecoveryTestedAt      string `json:"recovery_tested_at,omitempty"`
-	SizeBytes             *int64 `json:"size_bytes,omitempty"`
-	Status                string `json:"status"`
-	StorageClass          string `json:"storage_class,omitempty"`
-	VerificationClass     string `json:"verification_class,omitempty"`
-	VerifiedAt            string `json:"verified_at,omitempty"`
+	Access                  string `json:"access"`
+	AssuranceState          string `json:"assurance_state,omitempty"`
+	ConsecutiveFailures     int    `json:"consecutive_failures,omitempty"`
+	Encrypted               bool   `json:"encrypted,omitempty"`
+	EncryptionKeyID         string `json:"encryption_key_id,omitempty"`
+	EncryptionKeyResolvable *bool  `json:"encryption_key_resolvable,omitempty"`
+	LastCheckedAt           string `json:"last_checked_at,omitempty"`
+	LastFailureAt           string `json:"last_failure_at,omitempty"`
+	LastFailureReason       string `json:"last_failure_reason,omitempty"`
+	Location                string `json:"location"`
+	Medium                  string `json:"medium"`
+	MediumType              string `json:"medium_type"`
+	RecoveryCheck           string `json:"recovery_check,omitempty"`
+	RecoveryFailureReason   string `json:"recovery_failure_reason,omitempty"`
+	RecoveryState           string `json:"recovery_state,omitempty"`
+	RecoveryTestedAt        string `json:"recovery_tested_at,omitempty"`
+	SizeBytes               *int64 `json:"size_bytes,omitempty"`
+	Status                  string `json:"status"`
+	StorageClass            string `json:"storage_class,omitempty"`
+	VerificationClass       string `json:"verification_class,omitempty"`
+	VerifiedAt              string `json:"verified_at,omitempty"`
 }
 
 // PreviewCustomValidatorRequest is A pattern to judge, without saving anything.
