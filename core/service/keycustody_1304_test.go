@@ -80,7 +80,7 @@ func externalCopy(t *testing.T, withCopy bool) (f *recoveryFixture, a keycustody
 	if withCopy {
 		art = seedComplete(t, f, "enc.dump", "warm")
 		if err := f.b.journal.RecordPlacementEncryption(ctx, art, "warm", state.PlacementEncryption{
-			FormatID: "age", FormatVersion: 1, KeyID: a.ID,
+			FormatID: "age/v1", FormatVersion: 1, KeyID: a.ID,
 			StoredHash: strings.Repeat("e", 64), StoredHashAlg: "sha256", StoredSize: int64(len(f.data)) + 200,
 		}); err != nil {
 			t.Fatal(err)

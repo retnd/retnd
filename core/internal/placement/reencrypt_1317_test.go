@@ -196,13 +196,13 @@ func TestReencryptStreamsOldCiphertextIntoNewCiphertextWithoutLocalPlaintext_131
 		t.Fatal("the new object is the old ciphertext copied as it is; that is a re-home, not a re-encryption")
 	}
 	if err := w.keys.WithKey(w.ctx, w.newKey.ID, func(k []byte) error {
-		_, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(obj), k, w.hash)
+		_, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(obj), copycrypt.AgeX25519{}, k, w.hash)
 		return err
 	}); err != nil {
 		t.Fatalf("the new copy does not decrypt to the artifact under the active key: %v", err)
 	}
 	if err := w.keys.WithKey(w.ctx, w.oldKey.ID, func(k []byte) error {
-		_, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(obj), k, w.hash)
+		_, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(obj), copycrypt.AgeX25519{}, k, w.hash)
 		return err
 	}); !errors.Is(err, copycrypt.ErrWrongKey) {
 		t.Fatalf("the new copy under the superseded key: %v, want ErrWrongKey", err)

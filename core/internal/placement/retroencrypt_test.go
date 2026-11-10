@@ -122,7 +122,7 @@ func TestEncryptExistingTurnsAPlaintextMediumCopyIntoAnEncryptedOneOnTheDestinat
 		t.Fatal("plaintext appears in the object on the destination")
 	}
 	if err := w.keys.WithKey(w.ctx, w.ck.ID, func(k []byte) error {
-		_, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(obj), k, w.hash)
+		_, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(obj), copycrypt.AgeX25519{}, k, w.hash)
 		return err
 	}); err != nil {
 		t.Fatalf("the encrypted copy does not decrypt to the artifact: %v", err)

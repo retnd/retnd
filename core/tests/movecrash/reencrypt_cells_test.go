@@ -257,13 +257,13 @@ func TestCrashMatrixOverReencryptingAnEncryptedCopy_1317(t *testing.T) {
 			obj := w.ciphertextObject()
 			active := mustActive(t, keys, w.ctx)
 			if err := keys.WithKey(w.ctx, active, func(k []byte) error {
-				_, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(obj), k, w.hash)
+				_, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(obj), copycrypt.AgeX25519{}, k, w.hash)
 				return err
 			}); err != nil {
 				t.Fatalf("the object on the second medium does not decrypt to the artifact under the active key: %v\nthis cell proves: %s", err, cell.proves)
 			}
 			if err := keys.WithKey(w.ctx, oldKey, func(k []byte) error {
-				_, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(obj), k, w.hash)
+				_, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(obj), copycrypt.AgeX25519{}, k, w.hash)
 				return err
 			}); !errors.Is(err, copycrypt.ErrWrongKey) {
 				t.Fatalf("the object on the second medium under key 1: %v, want ErrWrongKey (it was re-homed, not re-encrypted)", err)
@@ -316,7 +316,7 @@ func TestTheReencryptCrashCellsReallyReencryptSomething_1317(t *testing.T) {
 	j := w.journalNow()
 	keys := w.keysOver(j)
 	if err := keys.WithKey(w.ctx, oldKey, func(k []byte) error {
-		_, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(obj), k, w.hash)
+		_, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(obj), copycrypt.AgeX25519{}, k, w.hash)
 		return err
 	}); !errors.Is(err, copycrypt.ErrWrongKey) {
 		t.Fatalf("the new object under key 1: %v, want ErrWrongKey", err)

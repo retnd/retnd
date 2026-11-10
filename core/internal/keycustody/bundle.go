@@ -109,7 +109,7 @@ func (s *Store) Export(ctx context.Context, id string, w io.Writer, now time.Tim
 	b := Bundle{
 		Version:      bundleVersion,
 		KeyID:        rec.ID,
-		FormatID:     s.format.ID(),
+		FormatID:     suiteOf(rec),
 		Recipient:    rec.Recipient,
 		Created:      rec.Created.UTC(),
 		Exported:     now.UTC(),
@@ -263,12 +263,16 @@ func (s *Store) Import(ctx context.Context, b Bundle, now time.Time) (rec KeyRec
 	if !keyIDPattern.MatchString(b.KeyID) {
 		return KeyRecord{}, false, fmt.Errorf("%w: %q is not a key id this build can hold", ErrBundleIntegrity, b.KeyID)
 	}
-	if b.FormatID != s.format.ID() {
-		return KeyRecord{}, false, fmt.Errorf("keycustody: the bundle was exported under format %q and this build opens %q", b.FormatID, s.format.ID())
+	// The bundle's format is the key's suite (ADR 0033 D8). A suite this
+	// build has no adapter for is refused naming it: the material could be
+	// stored, but no copy written under it could ever be opened here.
+	f, err := s.formatOf(b.FormatID)
+	if err != nil {
+		return KeyRecord{}, false, fmt.Errorf("keycustody: the bundle was exported under format %q, which this build cannot open: %w", b.FormatID, err)
 	}
 	material := []byte(b.Material)
 	defer zero(material)
-	if recipient, rerr := s.format.Recipient(material); rerr != nil || recipient != b.Recipient {
+	if recipient, rerr := f.Recipient(material); rerr != nil || recipient != b.Recipient {
 		return KeyRecord{}, false, fmt.Errorf("keycustody: the bundle's material is not the key %s names", b.KeyID)
 	}
 	if err := checkDirCustody(s.dir); err != nil {
@@ -329,7 +333,7 @@ func (s *Store) Import(ctx context.Context, b Bundle, now time.Time) (rec KeyRec
 	if existing != nil {
 		rec = *existing
 	} else {
-		rec = KeyRecord{ID: b.KeyID, Recipient: b.Recipient, Created: b.Created.UTC(), Status: StatusSuperseded}
+		rec = KeyRecord{ID: b.KeyID, Recipient: b.Recipient, Created: b.Created.UTC(), Status: StatusSuperseded, SuiteID: f.ID()}
 		if err := s.registry.AddKey(ctx, rec, ""); err != nil {
 			return KeyRecord{}, false, err
 		}
