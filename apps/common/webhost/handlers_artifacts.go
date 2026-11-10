@@ -123,6 +123,12 @@ type placementResponse struct {
 	// RecoveryCheck says which check produced the verdict in recovery_state:
 	// "validator" or "builtin" (#1111). Absent when there is none to attribute.
 	RecoveryCheck string `json:"recovery_check,omitempty"`
+
+	// The copy's encryption state (#993), absent for a plaintext copy. An id,
+	// never material.
+	Encrypted               bool   `json:"encrypted,omitempty"`
+	EncryptionKeyID         string `json:"encryption_key_id,omitempty"`
+	EncryptionKeyResolvable *bool  `json:"encryption_key_resolvable,omitempty"`
 }
 
 // listArtifactsResponse is the body of both GET /api/v1/backups and GET
@@ -523,6 +529,10 @@ func toPlacementResponses(placements []service.Placement) []placementResponse {
 			RecoveryTestedAt:      formatTime(p.RecoveryTestedAt),
 			RecoveryFailureReason: p.RecoveryFailureReason,
 			RecoveryCheck:         p.RecoveryCheck,
+
+			Encrypted:               p.Encrypted,
+			EncryptionKeyID:         p.EncryptionKeyID,
+			EncryptionKeyResolvable: p.EncryptionKeyResolvable,
 		})
 	}
 	return out

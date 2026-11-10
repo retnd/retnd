@@ -111,7 +111,7 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
         <div className="card__body">
           <Banner tone="info" dismissible={false}>
             <span style={{ fontSize: "var(--text-sm)" }}>
-              {"This deployment has no configuration file to write the policy into, so retained-copy encryption cannot be set from here. " + policy.error.message}
+              {"This deployment has no configuration file to write the policy into, so retained-copy encryption cannot be set from here."}
             </span>
           </Banner>
         </div>

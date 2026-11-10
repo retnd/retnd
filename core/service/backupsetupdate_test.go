@@ -617,6 +617,14 @@ func writeRichTestConfigFile(t *testing.T) string {
 		// an operator's hook directories on an unrelated edit would
 		// silently stop running the scripts that quiesce their
 		// database, and a fixture that omitted the keys could not tell.
+		// EPIC N's per-set retained-copy encryption override (#989), set
+		// for the same reason: an applier that dropped it on an unrelated
+		// edit would quietly put the set back on the deployment's policy
+		// and write its next retained copy in the clear.
+		"        retained_copy_encryption:\n" +
+		"          mode: required\n" +
+		"          key_provider:\n" +
+		"            managed: true\n" +
 		"        workflow:\n" +
 		"          before_dir: db-before\n" +
 		"          after_dir: db-after\n" +
@@ -735,6 +743,9 @@ var exemptFromIsolationFixture = map[string]string{
 	"Retention":                           "the RESOLVED policy, filled in by Validate and carrying yaml:\"-\", so it is never on disk to compare",
 	"ReadOnly":                            "the RESOLVED answer, filled in by Validate from ReadOnlyConfig; the override is what the fixture sets",
 	"Disabled":                            "a bool whose zero value IS its ordinary state (an enabled set), so \"non-zero\" cannot be required of it. UpdateBackupSetRequest cannot reach it either: enabling and disabling is POST /enabled's own route",
+	"RetainedCopyEncryption.Mode":                 "the RESOLVED retained-copy encryption mode, filled in by Validate from RetainedCopyEncryptionConfig and the deployment's block and carrying yaml:\"-\", so it is never on disk to compare",
+	"RetainedCopyEncryption.KeyProvider.Managed":  "the RESOLVED key provider, same footing as the mode",
+	"RetainedCopyEncryption.KeyProvider.External": "the RESOLVED external key reference, same footing as the mode",
 	"Assurance.Scrub.Cadence":             "the RESOLVED scrub cadence, filled in by Validate from AssuranceConfig and the deployment's block and carrying yaml:\"-\", so it is never on disk to compare",
 	"Assurance.Scrub.Strategy":            "the RESOLVED scrub strategy, same footing as the cadence",
 	"Assurance.RecoveryTest.Mode":         "the RESOLVED recovery-test mode, same footing",
