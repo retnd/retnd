@@ -663,3 +663,35 @@ func containsString(list []string, s string) bool {
 	}
 	return false
 }
+
+// ActiveEncryptedCopiesBySuite counts the ACTIVE copies whose encryption
+// record names each suite id (EPIC T, #1315). An id no copy records is
+// absent from the map. Copies that are delete-pending or gone are not
+// counted, for the reason ActivePlacementsRecordingKey gives.
+func (j *Journal) ActiveEncryptedCopiesBySuite(ctx context.Context) (map[string]int, error) {
+	rows, err := j.db.QueryContext(ctx, `
+		SELECT pe.format_id, COUNT(*)
+		  FROM placement_encryption pe
+		  JOIN placements p ON p.id = pe.placement_id
+		 WHERE p.status = ?
+		 GROUP BY pe.format_id`, PlacementActive)
+	if err != nil {
+		return nil, fmt.Errorf("state: count encrypted copies by suite: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var (
+			suite string
+			n     int
+		)
+		if err := rows.Scan(&suite, &n); err != nil {
+			return nil, fmt.Errorf("state: count encrypted copies by suite: %w", err)
+		}
+		out[suite] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("state: count encrypted copies by suite: %w", err)
+	}
+	return out, nil
+}

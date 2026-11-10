@@ -84,7 +84,7 @@ func TestKeyStatusCarriesNoMaterialAndACanaryInAnyFieldIsFound_993(t *testing.T)
 	fileBacked(t, f)
 	ctx := context.Background()
 
-	created, err := f.b.CreateEncryptionKey(ctx)
+	created, err := f.b.CreateEncryptionKey(ctx, "")
 	if err != nil {
 		t.Fatalf("CreateEncryptionKey: %v", err)
 	}
@@ -207,14 +207,14 @@ func TestEveryRefusalIsTheSameWordsOnEverySurface_993(t *testing.T) {
 	fileBacked(t, f)
 	ctx := context.Background()
 
-	if _, err := f.b.RotateEncryptionKey(ctx); !errors.Is(err, ErrEncryptionKeyState) {
+	if _, err := f.b.RotateEncryptionKey(ctx, ""); !errors.Is(err, ErrEncryptionKeyState) {
 		t.Errorf("rotating with no key: err = %v, want ErrEncryptionKeyState", err)
 	}
-	k, err := f.b.CreateEncryptionKey(ctx)
+	k, err := f.b.CreateEncryptionKey(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.b.CreateEncryptionKey(ctx); !errors.Is(err, ErrEncryptionKeyState) {
+	if _, err := f.b.CreateEncryptionKey(ctx, ""); !errors.Is(err, ErrEncryptionKeyState) {
 		t.Errorf("a second create: err = %v, want ErrEncryptionKeyState", err)
 	}
 	if _, err := f.b.ConfirmRecoveryBundle(ctx, k.ID, ""); !errors.Is(err, ErrEncryptionKeyState) {
@@ -234,7 +234,7 @@ func TestAnExportedBundleIsConfirmedByAStatementAndTheDigestIsChecked_993(t *tes
 	f := newRecoveryFixture(t, fixtureOpts{})
 	fileBacked(t, f)
 	ctx := context.Background()
-	k, err := f.b.CreateEncryptionKey(ctx)
+	k, err := f.b.CreateEncryptionKey(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestAnExportedBundleIsConfirmedByAStatementAndTheDigestIsChecked_993(t *tes
 func TestRetiringAKeyAnActiveCopyRecordsIsRefusedNamingTheCopyAndClassified_993(t *testing.T) {
 	f, a, key := encryptedFixture(t)
 	ctx := context.Background()
-	if _, err := f.b.RotateEncryptionKey(ctx); err != nil {
+	if _, err := f.b.RotateEncryptionKey(ctx, ""); err != nil {
 		t.Fatalf("RotateEncryptionKey: %v", err)
 	}
 
@@ -288,7 +288,7 @@ func TestRetiringTheActiveKeyIsRefusedAndAnUnknownKeyIsNotFound_993(t *testing.T
 	f := newRecoveryFixture(t, fixtureOpts{})
 	fileBacked(t, f)
 	ctx := context.Background()
-	k, err := f.b.CreateEncryptionKey(ctx)
+	k, err := f.b.CreateEncryptionKey(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,11 +304,11 @@ func TestRetiringASupersededKeyNoCopyRecordsSucceeds_993(t *testing.T) {
 	f := newRecoveryFixture(t, fixtureOpts{})
 	fileBacked(t, f)
 	ctx := context.Background()
-	old, err := f.b.CreateEncryptionKey(ctx)
+	old, err := f.b.CreateEncryptionKey(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.b.RotateEncryptionKey(ctx); err != nil {
+	if _, err := f.b.RotateEncryptionKey(ctx, ""); err != nil {
 		t.Fatal(err)
 	}
 	got, err := f.b.RetireEncryptionKey(ctx, old.ID)
@@ -327,7 +327,7 @@ func encryptedFixture(t *testing.T) (*recoveryFixture, model.ArtifactID, apicont
 	f := newRecoveryFixture(t, fixtureOpts{})
 	fileBacked(t, f)
 	ctx := context.Background()
-	key, err := f.b.CreateEncryptionKey(ctx)
+	key, err := f.b.CreateEncryptionKey(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -26,6 +26,7 @@ import (
 //	encryption verify <source/set/artifact>    decrypt-verify, a content check
 //	encryption encrypt-existing <source/set>   encrypt plaintext copies that already exist
 //	encryption decrypt <object> ...            open one copy to a file (#1289)
+//	encryption suites                          the encryption suites this build has (#1315)
 //
 // # One author for every refusal
 //
@@ -68,6 +69,7 @@ var encryptionVerbs = map[string]func(args []string) int{
 	"copies":     cmdEncryptionCopies,
 	"verify":     cmdEncryptionVerify,
 	"decrypt":    cmdEncryptionDecrypt,
+	"suites":     cmdEncryptionSuites,
 
 	"encrypt-existing": cmdEncryptionEncryptExisting,
 }
@@ -78,7 +80,7 @@ func cmdEncryption(args []string) int {
 			return verb(append(append([]string{}, args[:i]...), args[i+1:]...))
 		}
 	}
-	return usageError("encryption: expected `encryption policy`, `encryption backup-set <source/set>`, `encryption key ...`, `encryption provider test`, `encryption copies <source/set/artifact>`, `encryption verify <source/set/artifact>`, `encryption encrypt-existing <source/set> --to <medium>` or `encryption decrypt <object> ...`")
+	return usageError("encryption: expected `encryption policy`, `encryption backup-set <source/set>`, `encryption key ...`, `encryption provider test`, `encryption copies <source/set/artifact>`, `encryption verify <source/set/artifact>`, `encryption encrypt-existing <source/set> --to <medium>`, `encryption decrypt <object> ...` or `encryption suites`")
 }
 
 // providerFlags are the flags that declare a key provider, shared by the
@@ -156,6 +158,7 @@ func cmdEncryptionPolicy(args []string) int {
 	fs, cfgPath := newFlagSet("encryption policy")
 	asJSON := fs.Bool("json", false, "print the object the API returns instead of text")
 	mode := fs.String("mode", "", "patch: off or required")
+	suite := fs.String("suite", "", "patch: default, or a suite id to pin (see `encryption suites`)")
 	prov := declareEncryptionProviderFlags(fs)
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
@@ -173,7 +176,7 @@ func cmdEncryptionPolicy(args []string) int {
 
 	switch sub {
 	case "":
-		if len(passedEncryptionFlags(fs, "mode", "managed", "external-file", "external-env", "external-command")) > 0 {
+		if len(passedEncryptionFlags(fs, "mode", "suite", "managed", "external-file", "external-env", "external-command")) > 0 {
 			return usageError("encryption policy: the flags change the policy; write `encryption policy patch` to change it")
 		}
 		svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)
@@ -189,9 +192,10 @@ func cmdEncryptionPolicy(args []string) int {
 	case "patch":
 		var req apicontract.EncryptionPolicyPatch
 		req.Mode = *mode
+		req.Suite = *suite
 		req.KeyProvider = prov.provider(fs)
-		if req.Mode == "" && req.KeyProvider == nil {
-			return usageError("encryption policy patch: name what to change: --mode, or one of --managed, --external-file, --external-env, --external-command")
+		if req.Mode == "" && req.Suite == "" && req.KeyProvider == nil {
+			return usageError("encryption policy patch: name what to change: --mode, --suite, or one of --managed, --external-file, --external-env, --external-command")
 		}
 		route, cleanup, err := openEncryptionWrite(ctx, *cfgPath, *asJSON)
 		if err != nil {
@@ -204,7 +208,7 @@ func cmdEncryptionPolicy(args []string) int {
 		}
 		return encryptionAnswer(*asJSON, got, func() { printEncryptionPolicy(got) })
 	case "reset":
-		if len(passedEncryptionFlags(fs, "mode", "managed", "external-file", "external-env", "external-command")) > 0 {
+		if len(passedEncryptionFlags(fs, "mode", "suite", "managed", "external-file", "external-env", "external-command")) > 0 {
 			return usageError("encryption policy reset: removes the deployment's block, so it takes no policy flags")
 		}
 		route, cleanup, err := openEncryptionWrite(ctx, *cfgPath, *asJSON)
@@ -304,6 +308,7 @@ func cmdEncryptionKey(args []string) int {
 	out := fs.String("out", "", "export: the file to write the bundle to; created 0600, and never over a file that exists")
 	digest := fs.String("digest", "", "confirm: the digest the export printed; omitted confirms the newest export of the key")
 	bundlePath := fs.String("bundle", "", "import: the recovery bundle to register the key from")
+	suite := fs.String("suite", "", "create, rotate: the suite to mint the key under; omitted, the policy's pinned suite, else the active key's suite (rotate) or the build default (create)")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return exitUsage
@@ -336,6 +341,9 @@ func cmdEncryptionKey(args []string) int {
 	}
 	if *bundlePath != "" && sub != "import" {
 		return usageError("encryption key %s: --bundle is for import", sub)
+	}
+	if *suite != "" && sub != "create" && sub != "rotate" {
+		return usageError("encryption key %s: --suite is for create and rotate", sub)
 	}
 	if sub == "import" && *bundlePath == "" {
 		return usageError("encryption key import: --bundle FILE is required")
@@ -383,9 +391,9 @@ func cmdEncryptionKey(args []string) int {
 	var got apicontract.EncryptionKeyStatus
 	switch sub {
 	case "create":
-		got, err = route.CreateEncryptionKey(ctx)
+		got, err = route.CreateEncryptionKey(ctx, *suite)
 	case "rotate":
-		got, err = route.RotateEncryptionKey(ctx)
+		got, err = route.RotateEncryptionKey(ctx, *suite)
 	case "retire":
 		got, err = route.RetireEncryptionKey(ctx, rest[0])
 	case "confirm":
@@ -598,6 +606,12 @@ func printEncryptionSet(indent string, s apicontract.EncryptionSetPolicy) {
 func printEncryptionPolicy(p apicontract.EncryptionPolicy) {
 	fmt.Printf("retained-copy encryption: %s\n", p.Mode)
 	fmt.Printf("  key provider: %s\n", printEncryptionProvider(p.KeyProvider))
+	if p.Suite != "" {
+		fmt.Printf("  suite: %s (configured: %s)\n", p.Suite, p.SuiteConfigured)
+	}
+	if p.RotationNeeded {
+		fmt.Printf("  no active key for suite %s yet, so copies are refused until you run: %s\n", p.SuiteConfigured, p.RotateCommand)
+	}
 	fmt.Printf("  backup sets:\n")
 	for _, s := range p.Sets {
 		printEncryptionSet("    ", s)
@@ -609,7 +623,7 @@ func printEncryptionKey(k apicontract.EncryptionKeyStatus) {
 	if k.BundleConfirmed {
 		bundle = "recovery bundle confirmed " + k.BundleConfirmedAt
 	}
-	fmt.Printf("%s: %s, created %s, %s, %s\n", k.ID, k.Status, k.CreatedAt, k.Resolvability, bundle)
+	fmt.Printf("%s: %s, suite %s, created %s, %s, %s\n", k.ID, k.Status, k.Suite, k.CreatedAt, k.Resolvability, bundle)
 	if k.Reason != "" {
 		fmt.Printf("  %s\n", k.Reason)
 	}
@@ -729,4 +743,43 @@ func cmdEncryptionEncryptExisting(args []string) int {
 		fmt.Println("stopped: a copy that was not yet verified was discarded and its plaintext copy is untouched; run it again to carry on")
 	}
 	return status
+}
+
+// cmdEncryptionSuites is `encryption suites [--json]` (EPIC T, #1315): the
+// suites this build has, each with its status, whether it is the default,
+// the one sentence any surface may print about it, and how many active
+// copies and live keys are under it. It reads the journal only, so it opens
+// no key directory. GET /encryption/suites answers with the same body.
+func cmdEncryptionSuites(args []string) int {
+	fs, cfgPath := newFlagSet("encryption suites")
+	asJSON := fs.Bool("json", false, "print the object the API returns instead of text")
+	operands, err := parseFlagsAroundOperands(fs, args)
+	if err != nil {
+		return exitUsage
+	}
+	if len(operands) != 0 {
+		return usageError("encryption suites: takes no operand")
+	}
+	ctx := context.Background()
+	svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)
+	if err != nil {
+		return fail(err)
+	}
+	defer cleanup()
+	got, err := svc.ListEncryptionSuites(ctx)
+	if err != nil {
+		return fail(err)
+	}
+	return encryptionAnswer(*asJSON, got, func() { printEncryptionSuites(got) })
+}
+
+func printEncryptionSuites(l apicontract.ListEncryptionSuitesResponse) {
+	for _, s := range l.Suites {
+		def := ""
+		if s.Default {
+			def = ", default for a first key"
+		}
+		fmt.Printf("%s (v%d): %s%s, %d active copies, %d keys\n", s.ID, s.Version, s.Status, def, s.ActiveCopies, s.Keys)
+		fmt.Printf("  %s\n", s.Describe)
+	}
 }

@@ -1708,12 +1708,13 @@ var routes = map[string]entry{
 			if !decode(a.Body, &req) {
 				return nil
 			}
-			c := newCmd("encryption", "policy", "patch").flagIfSet("mode", req.Mode)
+			c := newCmd("encryption", "policy", "patch").flagIfSet("mode", req.Mode).flagIfSet("suite", req.Suite)
 			return providerFlags(c, req.KeyProvider)
 		},
 		why: "there is no verb that patches the encryption policy from a request body that does not decode",
 		examples: []Action{
 			{Body: []byte(`{"mode":"required","key_provider":{"managed":true}}`)},
+			{Body: []byte(`{"suite":"age-pq/v1"}`)},
 			{Body: []byte(`{"key_provider":{"external":{"file":"/run/secrets/retained-copy-key"}}}`)},
 			{Body: []byte(`{"key_provider":{"external":{"command":["vault","kv","get"]}}}`)},
 			{Body: []byte(`{"mode":"off"}`)},
@@ -1749,12 +1750,16 @@ var routes = map[string]entry{
 		examples: []Action{{}},
 	},
 	key("POST", "/encryption/keys"): {
-		build:    func(a Action) *cmd { return newCmd("encryption", "key", "create") },
-		examples: []Action{{}},
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "key", "create").flagIfSet("suite", a.Query.Get("suite"))
+		},
+		examples: []Action{{}, {Query: mustQuery("suite=age-pq%2Fv1")}},
 	},
 	key("POST", "/encryption/keys/rotate"): {
-		build:    func(a Action) *cmd { return newCmd("encryption", "key", "rotate") },
-		examples: []Action{{}},
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "key", "rotate").flagIfSet("suite", a.Query.Get("suite"))
+		},
+		examples: []Action{{}, {Query: mustQuery("suite=age-pq%2Fv1")}},
 	},
 	key("POST", "/encryption/keys/{id}/retire"): {
 		build: func(a Action) *cmd {
@@ -1801,6 +1806,12 @@ var routes = map[string]entry{
 			{Body: []byte(`{"managed_key_id":"k0123456789abcdef"}`)},
 			{Body: []byte(`{"external":{"env":"RETAINED_COPY_KEY"}}`)},
 		},
+	},
+	// The suite table (EPIC T, #1315): a read, the same body as the verb's
+	// --json.
+	key("GET", "/encryption/suites"): {
+		build:    func(a Action) *cmd { return newCmd("encryption", "suites") },
+		examples: []Action{{}},
 	},
 	key("GET", "/encryption/copies"): {
 		build: func(a Action) *cmd {

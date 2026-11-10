@@ -1080,17 +1080,33 @@ func (c *Client) ListEncryptionKeys(ctx context.Context) (apicontract.ListEncryp
 	return out, err
 }
 
-// CreateEncryptionKey is POST /encryption/keys.
-func (c *Client) CreateEncryptionKey(ctx context.Context) (apicontract.EncryptionKeyStatus, error) {
+// suiteQuery is the ?suite= a key create or rotate carries, or nil when no
+// suite is named, so the request is the one it was before EPIC T.
+func suiteQuery(suite string) url.Values {
+	if suite == "" {
+		return nil
+	}
+	return url.Values{"suite": {suite}}
+}
+
+// CreateEncryptionKey is POST /encryption/keys[?suite=].
+func (c *Client) CreateEncryptionKey(ctx context.Context, suite string) (apicontract.EncryptionKeyStatus, error) {
 	var out apicontract.EncryptionKeyStatus
-	err := c.call(ctx, "createEncryptionKey", nil, nil, &out)
+	err := c.callQuery(ctx, "createEncryptionKey", nil, suiteQuery(suite), nil, &out)
 	return out, err
 }
 
-// RotateEncryptionKey is POST /encryption/keys/rotate.
-func (c *Client) RotateEncryptionKey(ctx context.Context) (apicontract.EncryptionKeyStatus, error) {
+// RotateEncryptionKey is POST /encryption/keys/rotate[?suite=].
+func (c *Client) RotateEncryptionKey(ctx context.Context, suite string) (apicontract.EncryptionKeyStatus, error) {
 	var out apicontract.EncryptionKeyStatus
-	err := c.call(ctx, "rotateEncryptionKey", nil, nil, &out)
+	err := c.callQuery(ctx, "rotateEncryptionKey", nil, suiteQuery(suite), nil, &out)
+	return out, err
+}
+
+// ListEncryptionSuites is GET /encryption/suites.
+func (c *Client) ListEncryptionSuites(ctx context.Context) (apicontract.ListEncryptionSuitesResponse, error) {
+	var out apicontract.ListEncryptionSuitesResponse
+	err := c.call(ctx, "listEncryptionSuites", nil, nil, &out)
 	return out, err
 }
 

@@ -9163,9 +9163,71 @@
             "$ref": "#/components/schemas/EncryptionKeyProvider",
             "x-go-omitempty": true,
             "x-go-pointer": true
+          },
+          "suite": {
+            "type": "string",
+            "description": "default, or a suite id to pin. Validated as a hand-edited configuration would be; an unknown or retired suite is refused.",
+            "x-go-omitempty": true
           }
         },
         "required": []
+      },
+      "EncryptionSuite": {
+        "type": "object",
+        "description": "One encryption suite this build has. describe is the only sentence a surface may print about it.",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "description": "supported, deprecated or retired."
+          },
+          "default": {
+            "type": "boolean",
+            "description": "Whether a deployment with no active key mints its first key under this suite."
+          },
+          "describe": {
+            "type": "string"
+          },
+          "active_copies": {
+            "type": "integer",
+            "description": "ACTIVE copies whose record names this suite."
+          },
+          "keys": {
+            "type": "integer",
+            "description": "Keys of this suite that are not retired."
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "status",
+          "default",
+          "describe",
+          "active_copies",
+          "keys"
+        ]
+      },
+      "ListEncryptionSuitesResponse": {
+        "type": "object",
+        "description": "GET /encryption/suites. Every suite this build has, in table order.",
+        "additionalProperties": false,
+        "properties": {
+          "suites": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EncryptionSuite"
+            }
+          }
+        },
+        "required": [
+          "suites"
+        ]
       },
       "EncryptionSetPolicy": {
         "type": "object",
@@ -9220,6 +9282,24 @@
             "items": {
               "$ref": "#/components/schemas/EncryptionSetPolicy"
             }
+          },
+          "suite": {
+            "type": "string",
+            "description": "The suite new copies are written under right now: the pinned suite, or for the default policy the active managed key's suite, or the build's default suite when there is no active key."
+          },
+          "suite_configured": {
+            "type": "string",
+            "description": "What the configuration says: default, or the pinned suite id."
+          },
+          "rotation_needed": {
+            "type": "boolean",
+            "description": "On a patch only: the pinned suite has no active managed key, so copies are refused until the key is rotated into it. The patch rotated nothing.",
+            "x-go-omitempty": true
+          },
+          "rotate_command": {
+            "type": "string",
+            "description": "With rotation_needed: the exact command that rotates into the pinned suite.",
+            "x-go-omitempty": true
           }
         },
         "required": [
@@ -9296,6 +9376,10 @@
             "format": "date-time",
             "x-go-omitempty": true,
             "description": "When a recovery bundle for this key was last exported. Absent if never."
+          },
+          "suite": {
+            "type": "string",
+            "description": "The encryption suite the key belongs to, and the only one whose copies it writes or opens."
           }
         },
         "required": [
@@ -23155,6 +23239,17 @@
             "csrfCookie": []
           }
         ],
+        "parameters": [
+          {
+            "name": "suite",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The suite to mint the key under (age/v1 or age-pq/v1). Omitted: the policy's pinned suite, or for a rotation the active key's own suite, or for a first key the build's default suite. A rotation into another suite supersedes the old suite's active key in the same write."
+          }
+        ],
         "responses": {
           "201": {
             "description": "Created.",
@@ -23253,6 +23348,17 @@
             "session": [],
             "csrf": [],
             "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "suite",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The suite to mint the key under (age/v1 or age-pq/v1). Omitted: the policy's pinned suite, or for a rotation the active key's own suite, or for a first key the build's default suite. A rotation into another suite supersedes the old suite's active key in the same write."
           }
         ],
         "responses": {
@@ -23835,6 +23941,76 @@
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/encryption/suites": {
+      "get": {
+        "operationId": "listEncryptionSuites",
+        "summary": "List the encryption suites this build has: id, version, status, whether it is the default, the one sentence any surface may print about it, and how many active copies and keys are under it. Read-only, and it opens no key directory.",
+        "tags": [
+          "encryption"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListEncryptionSuitesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
         "x-authenticated": true
       }
     },

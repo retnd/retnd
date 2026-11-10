@@ -40,7 +40,7 @@ func retroFixture(t *testing.T, name string) (*recoveryFixture, model.ArtifactID
 	t.Helper()
 	f := newRecoveryFixture(t, fixtureOpts{cfg: requireEncryption})
 	fileBacked(t, f)
-	if _, err := f.b.CreateEncryptionKey(context.Background()); err != nil {
+	if _, err := f.b.CreateEncryptionKey(context.Background(), ""); err != nil {
 		t.Fatalf("CreateEncryptionKey: %v", err)
 	}
 	return f, seedComplete(t, f, name, "warm")
