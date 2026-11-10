@@ -320,10 +320,13 @@ func (c *KeyCustody) Health(ctx context.Context, enabled bool) (health.KeyCustod
 	}
 	// Each suite something still depends on, with the lifecycle's verdict
 	// (#1316). Two reads over ids and counts; no key file is opened for it.
+	// The copy counts are the section's per-suite figure too (#1315), so the
+	// health build does not make the same grouped read a second time.
 	copies, err := c.journal.ActiveEncryptedCopiesBySuite(ctx)
 	if err != nil {
 		return h, err
 	}
+	h.EncryptedCopiesBySuite = copies
 	keys, err := c.Keys(ctx)
 	if err != nil {
 		return h, err
