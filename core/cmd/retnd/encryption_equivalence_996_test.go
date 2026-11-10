@@ -12,9 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"filippo.io/age"
-
 	"github.com/retnd/retnd/core/apicontract"
+	"github.com/retnd/retnd/core/internal/copycrypt"
 	"github.com/retnd/retnd/core/internal/keycustody"
 )
 
@@ -206,14 +205,16 @@ func TestABundleExportedThroughTheEngineOpensACopyLikeADirectOne_996(t *testing.
 		if err != nil {
 			t.Fatalf("the exported bundle is refused by its own reader: %v", err)
 		}
-		rcpt, err := age.ParseX25519Recipient(b.Recipient)
-		if err != nil {
-			t.Fatalf("the bundle's recipient does not parse: %v", err)
+		// Sealed under the suite the bundle names (#1313: a fresh key is
+		// age-pq/v1), through that suite's own library construction.
+		suite, ok := copycrypt.Lookup(b.FormatID)
+		if !ok {
+			t.Fatalf("the bundle names suite %q, which the registry does not have", b.FormatID)
 		}
 		var sealed bytes.Buffer
-		w, err := age.Encrypt(&sealed, rcpt)
+		w, err := suite.Seal(&sealed, b.Recipient)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("the bundle's recipient does not parse: %v", err)
 		}
 		if _, err := w.Write(plaintext); err != nil {
 			t.Fatal(err)
@@ -222,7 +223,7 @@ func TestABundleExportedThroughTheEngineOpensACopyLikeADirectOne_996(t *testing.
 			t.Fatal(err)
 		}
 		var got bytes.Buffer
-		if err := b.Decrypt(keycustody.AgeFormat{}, &sealed, &got); err != nil {
+		if err := b.Decrypt(suite, &sealed, &got); err != nil {
 			t.Fatalf("the bundle does not open a copy sealed to its recipient: %v", err)
 		}
 		if !bytes.Equal(got.Bytes(), plaintext) {
@@ -296,7 +297,7 @@ func allMaterial(t *testing.T, configPath string) []string {
 // ageIdentityShape is what an age identity looks like on a page. The bare
 // prefix is not enough: the refusal for a key that is not an identity quotes
 // "AGE-SECRET-KEY-1" as the thing it expected, and that sentence is allowed.
-var ageIdentityShape = regexp.MustCompile(`AGE-SECRET-KEY-1[A-Z0-9]{20,}`)
+var ageIdentityShape = regexp.MustCompile(`AGE-SECRET-KEY-(PQ-)?1[A-Z0-9]{20,}`)
 
 // leaksAny is the one predicate every NV.23 check and control shares: any
 // rendering of any key's material, or anything shaped like an age identity.

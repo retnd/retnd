@@ -234,7 +234,7 @@ func TestCrashMatrixOverAnEncryptedCopy(t *testing.T) {
 				t.Fatalf("the object at the key is not age ciphertext\nthis cell proves: %s", cell.proves)
 			}
 			if err := keys.WithKey(w.ctx, mustActive(t, keys, w.ctx), func(k []byte) error {
-				_, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(obj), k, w.hash)
+				_, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(obj), copycrypt.AgeX25519{}, k, w.hash)
 				return err
 			}); err != nil {
 				t.Fatalf("the object at the key does not decrypt to the artifact: %v", err)

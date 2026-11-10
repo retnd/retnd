@@ -107,7 +107,7 @@ func TestTheStoredObjectIsAgeCiphertextThatDecryptsToTheArtifact(t *testing.T) {
 		t.Fatal("the artifact's plaintext appears in the stored object")
 	}
 	err := f.keys.WithKey(f.ctx, f.ck.ID, func(k []byte) error {
-		_, err := copycrypt.DecryptVerify(f.ctx, bytes.NewReader(obj), k, f.hash)
+		_, err := copycrypt.DecryptVerify(f.ctx, bytes.NewReader(obj), copycrypt.AgeX25519{}, k, f.hash)
 		return err
 	})
 	if err != nil {

@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "71bd4a35fb3c911cdf1b76729556eeb3a62e270f568a8f285eb5ab4c9448d3ef";
+export const CONTRACT_SHA256 = "3c723316b6a1175b9142b5c10f969e766e40e2e8394372906c44c3ee946711c3";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -1889,6 +1889,24 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
       500: ["INTERNAL"],
       503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "listEncryptionSuites",
+    method: "GET",
+    path: "/encryption/suites",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListEncryptionSuitesResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
     }
   },
   {
@@ -3811,6 +3829,7 @@ export interface WireEncryptionKeyStatus {
   resolvable: boolean;
   retired_at?: string;
   status: string;
+  suite?: string;
 }
 
 /** PUT /backup-sets/{source}/{set}/encryption. A backup set's own
@@ -3826,7 +3845,11 @@ export interface WireEncryptionOverride {
 export interface WireEncryptionPolicy {
   key_provider: WireEncryptionKeyProviderState;
   mode: string;
+  rotate_command?: string;
+  rotation_needed?: boolean;
   sets: WireEncryptionSetPolicy[];
+  suite?: string;
+  suite_configured?: string;
 }
 
 /** PATCH /encryption/policy. Fields that are present change and the
@@ -3834,6 +3857,7 @@ export interface WireEncryptionPolicy {
 export interface WireEncryptionPolicyPatch {
   key_provider?: WireEncryptionKeyProvider;
   mode?: string;
+  suite?: string;
 }
 
 /** Whether a key provider resolves right now. source is a
@@ -3865,6 +3889,22 @@ export interface WireEncryptionSetPolicy {
    *  always encrypts, so required on it layers nothing. Absent for
    *  every other set. */
   satisfied_by?: string;
+}
+
+/** One encryption suite this build has. describe is the only sentence
+ *  a surface may print about it. */
+export interface WireEncryptionSuite {
+  active_copies: number;
+  default: boolean;
+  describe: string;
+  id: string;
+  keys: number;
+  /** The version a deprecated suite's retirement is announced for, or
+   *  the version that retired a retired one. Absent for a supported
+   *  suite. */
+  retirement_version?: string;
+  status: string;
+  version: number;
 }
 
 /** POST /auth/enroll. The credentials, and optionally the two things
@@ -4065,6 +4105,12 @@ export interface WireListEncryptionCopiesResponse {
 /** GET /encryption/keys. Every managed key, oldest first. */
 export interface WireListEncryptionKeysResponse {
   keys: WireEncryptionKeyStatus[];
+}
+
+/** GET /encryption/suites. Every suite this build has, in table
+ *  order. */
+export interface WireListEncryptionSuitesResponse {
+  suites: WireEncryptionSuite[];
 }
 
 /** GET /operations, newest first. The list counterpart of GET

@@ -1062,7 +1062,7 @@ func (e *Engine) verifyCopy(ctx context.Context, mv state.Move, src state.Placem
 		observed = e.observe(ctx, medium, mv.DestinationKey, medium.StorageClass)
 	}
 	if srcEncrypted {
-		return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated, srcEnc.KeyID, observed)
+		return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated, srcEnc.KeyID, srcEnc.FormatID, observed)
 	}
 	if on, err := e.encryptedSet(mv.Artifact.Set); err != nil {
 		return Result{}, want, err
@@ -1076,11 +1076,11 @@ func (e *Engine) verifyCopy(ctx context.Context, mv state.Move, src state.Placem
 		if err != nil {
 			return Result{}, want, err
 		}
-		keyID := ""
+		keyID, suiteID := "", ""
 		if dstEncrypted {
-			keyID = dstEnc.KeyID
+			keyID, suiteID = dstEnc.KeyID, dstEnc.FormatID
 		}
-		return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated, keyID, observed)
+		return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated, keyID, suiteID, observed)
 	}
 	if !gated {
 		res, err := Verify(ctx, e.Store, medium, candidate, want, e.now())

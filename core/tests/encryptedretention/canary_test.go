@@ -43,7 +43,7 @@ import (
 // ageIdentityShape is what an age identity looks like on a page. The bare
 // prefix is not enough: the refusal for a secret that is not an identity
 // quotes "AGE-SECRET-KEY-1" as what it expected, and that sentence is allowed.
-var ageIdentityShape = regexp.MustCompile(`AGE-SECRET-KEY-1[A-Z0-9]{20,}`)
+var ageIdentityShape = regexp.MustCompile(`AGE-SECRET-KEY-(PQ-)?1[A-Z0-9]{20,}`)
 
 // renderings is every way material could plausibly reach a text surface.
 func renderings(m string) []string {
@@ -153,7 +153,7 @@ func newWorld(t *testing.T) *world {
 		w.refusals = append(w.refusals, err.Error())
 	}
 
-	k1, err := svc.CreateEncryptionKey(ctx)
+	k1, err := svc.CreateEncryptionKey(ctx, "")
 	must("create", k1, err)
 	pol, err := svc.PatchEncryptionPolicy(ctx, apicontract.EncryptionPolicyPatch{Mode: "required", KeyProvider: &apicontract.EncryptionKeyProvider{Managed: true}})
 	must("policy", pol, err)
@@ -163,7 +163,7 @@ func newWorld(t *testing.T) *world {
 	}
 	conf, err := svc.ConfirmRecoveryBundle(ctx, k1.ID, "")
 	must("confirm", conf, err)
-	k2, err := svc.RotateEncryptionKey(ctx)
+	k2, err := svc.RotateEncryptionKey(ctx, "")
 	must("rotate", k2, err)
 	probe, err := svc.TestEncryptionProvider(ctx, apicontract.EncryptionProviderTestRequest{ManagedKeyID: k2.ID})
 	must("provider test", probe, err)
@@ -347,7 +347,7 @@ var surfaces = []surface{
 				w.t.Fatalf("no active key (ok=%v err=%v)", ok, err)
 			}
 			plain := fixture(31)
-			s, err := copycrypt.EncryptToStaging(w.ctx, filepath.Join(w.t.TempDir(), "staging"), "backup-2026-11-01.dump", bytes.NewReader(plain), rec.Recipient, sum(plain))
+			s, err := copycrypt.EncryptToStaging(w.ctx, filepath.Join(w.t.TempDir(), "staging"), "backup-2026-11-01.dump", bytes.NewReader(plain), copycrypt.AgeX25519{}, rec.Recipient, sum(plain))
 			if err != nil {
 				w.t.Fatalf("EncryptToStaging: %v", err)
 			}

@@ -23,7 +23,7 @@ import (
 //
 // Written by reading the router and the fakes; not run.
 
-var identityShape996 = regexp.MustCompile(`AGE-SECRET-KEY-1[A-Z0-9]{20,}`)
+var identityShape996 = regexp.MustCompile(`AGE-SECRET-KEY-(PQ-)?1[A-Z0-9]{20,}`)
 
 func leaks996(surface, material string) bool {
 	if identityShape996.MatchString(surface) {

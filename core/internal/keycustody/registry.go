@@ -17,7 +17,9 @@ type Status string
 
 const (
 	// StatusActive is the one key new copies are encrypted under. There is
-	// at most one at a time; Rotate is the only thing that changes which.
+	// at most one managed key at a time, whatever its suite (migration
+	// 0015's index, which migration 0020 leaves exactly as it was); Rotate
+	// is the only thing that changes which, including across suites.
 	StatusActive Status = "active"
 
 	// StatusSuperseded is a key a rotation moved out of the active slot.
@@ -65,6 +67,13 @@ type KeyRecord struct {
 
 	// Status is the key's current Status.
 	Status Status `json:"status"`
+
+	// SuiteID is the copycrypt suite the key belongs to (EPIC T, migration
+	// 0020): the only suite whose copies it can write or open. Empty on a
+	// record handed to AddKey means age/v1, which is every key written
+	// before the column existed. Not rendered by this type: the surfaces
+	// that show it do so through their own contract fields (#1315).
+	SuiteID string `json:"-"`
 }
 
 // ExportRecord is the durable fact that a bundle for KeyID was written,
@@ -143,13 +152,16 @@ func (r *JournalRegistry) Keys(ctx context.Context) ([]KeyRecord, error) {
 	}
 	out := make([]KeyRecord, 0, len(rows))
 	for _, k := range rows {
-		out = append(out, KeyRecord{ID: k.ID, Provider: k.Provider, Recipient: k.Recipient, Created: k.CreatedAt, Retired: k.RetiredAt, Status: Status(k.Status)})
+		out = append(out, KeyRecord{ID: k.ID, Provider: k.Provider, Recipient: k.Recipient, Created: k.CreatedAt, Retired: k.RetiredAt, Status: Status(k.Status), SuiteID: k.SuiteID})
 	}
 	return out, nil
 }
 
 // AddKey implements Registry. The supersede and the insert are one
-// transaction in the journal.
+// transaction in the journal, and so is the key's suite (#1312): a key is
+// never visible without the suite it belongs to. A suite this build has no
+// adapter for is refused by the journal (state.ErrUnknownSuite), which is
+// ErrUnknownSuite here.
 func (r *JournalRegistry) AddKey(ctx context.Context, rec KeyRecord, supersede string) error {
 	provider := rec.Provider
 	if provider == "" {
@@ -158,8 +170,11 @@ func (r *JournalRegistry) AddKey(ctx context.Context, rec KeyRecord, supersede s
 	err := r.j.AddEncryptionKey(ctx, state.EncryptionKey{
 		ID: rec.ID, Provider: provider, Recipient: rec.Recipient,
 		Status: string(rec.Status), CreatedAt: rec.Created, RetiredAt: rec.Retired,
+		SuiteID: rec.SuiteID,
 	}, supersede)
 	switch {
+	case errors.Is(err, state.ErrUnknownSuite):
+		return fmt.Errorf("%w: key %s names suite %q", ErrUnknownSuite, rec.ID, rec.SuiteID)
 	case errors.Is(err, state.ErrEncryptionKeyExists):
 		return fmt.Errorf("%w: %s", ErrDuplicateKey, rec.ID)
 	case errors.Is(err, state.ErrEncryptionKeyNotFound):
