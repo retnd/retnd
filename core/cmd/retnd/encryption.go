@@ -25,7 +25,9 @@ import (
 //	encryption copies <source/set/artifact>    which copies are encrypted
 //	encryption verify <source/set/artifact>    decrypt-verify, a content check
 //	encryption encrypt-existing <source/set>   encrypt plaintext copies that already exist
+//	encryption reencrypt --suite|--key|--deprecated   rewrite copies under the active suite and key
 //	encryption decrypt <object> ...            open one copy to a file (#1289)
+//	encryption suites                          the encryption suites this build has (#1315)
 //
 // # One author for every refusal
 //
@@ -68,8 +70,10 @@ var encryptionVerbs = map[string]func(args []string) int{
 	"copies":     cmdEncryptionCopies,
 	"verify":     cmdEncryptionVerify,
 	"decrypt":    cmdEncryptionDecrypt,
+	"suites":     cmdEncryptionSuites,
 
 	"encrypt-existing": cmdEncryptionEncryptExisting,
+	"reencrypt":        cmdEncryptionReencrypt,
 }
 
 func cmdEncryption(args []string) int {
@@ -78,7 +82,7 @@ func cmdEncryption(args []string) int {
 			return verb(append(append([]string{}, args[:i]...), args[i+1:]...))
 		}
 	}
-	return usageError("encryption: expected `encryption policy`, `encryption backup-set <source/set>`, `encryption key ...`, `encryption provider test`, `encryption copies <source/set/artifact>`, `encryption verify <source/set/artifact>`, `encryption encrypt-existing <source/set> --to <medium>` or `encryption decrypt <object> ...`")
+	return usageError("encryption: expected `encryption policy`, `encryption backup-set <source/set>`, `encryption key ...`, `encryption provider test`, `encryption copies <source/set/artifact>`, `encryption verify <source/set/artifact>`, `encryption encrypt-existing <source/set> --to <medium>`, `encryption reencrypt --suite <id> | --key <id> | --deprecated [--to <medium>]`, `encryption decrypt <object> ...` or `encryption suites`")
 }
 
 // providerFlags are the flags that declare a key provider, shared by the
@@ -156,6 +160,7 @@ func cmdEncryptionPolicy(args []string) int {
 	fs, cfgPath := newFlagSet("encryption policy")
 	asJSON := fs.Bool("json", false, "print the object the API returns instead of text")
 	mode := fs.String("mode", "", "patch: off or required")
+	suite := fs.String("suite", "", "patch: default, or a suite id to pin (see `encryption suites`)")
 	prov := declareEncryptionProviderFlags(fs)
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
@@ -173,7 +178,7 @@ func cmdEncryptionPolicy(args []string) int {
 
 	switch sub {
 	case "":
-		if len(passedEncryptionFlags(fs, "mode", "managed", "external-file", "external-env", "external-command")) > 0 {
+		if len(passedEncryptionFlags(fs, "mode", "suite", "managed", "external-file", "external-env", "external-command")) > 0 {
 			return usageError("encryption policy: the flags change the policy; write `encryption policy patch` to change it")
 		}
 		svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)
@@ -189,9 +194,10 @@ func cmdEncryptionPolicy(args []string) int {
 	case "patch":
 		var req apicontract.EncryptionPolicyPatch
 		req.Mode = *mode
+		req.Suite = *suite
 		req.KeyProvider = prov.provider(fs)
-		if req.Mode == "" && req.KeyProvider == nil {
-			return usageError("encryption policy patch: name what to change: --mode, or one of --managed, --external-file, --external-env, --external-command")
+		if req.Mode == "" && req.Suite == "" && req.KeyProvider == nil {
+			return usageError("encryption policy patch: name what to change: --mode, --suite, or one of --managed, --external-file, --external-env, --external-command")
 		}
 		route, cleanup, err := openEncryptionWrite(ctx, *cfgPath, *asJSON)
 		if err != nil {
@@ -204,7 +210,7 @@ func cmdEncryptionPolicy(args []string) int {
 		}
 		return encryptionAnswer(*asJSON, got, func() { printEncryptionPolicy(got) })
 	case "reset":
-		if len(passedEncryptionFlags(fs, "mode", "managed", "external-file", "external-env", "external-command")) > 0 {
+		if len(passedEncryptionFlags(fs, "mode", "suite", "managed", "external-file", "external-env", "external-command")) > 0 {
 			return usageError("encryption policy reset: removes the deployment's block, so it takes no policy flags")
 		}
 		route, cleanup, err := openEncryptionWrite(ctx, *cfgPath, *asJSON)
@@ -304,6 +310,7 @@ func cmdEncryptionKey(args []string) int {
 	out := fs.String("out", "", "export: the file to write the bundle to; created 0600, and never over a file that exists")
 	digest := fs.String("digest", "", "confirm: the digest the export printed; omitted confirms the newest export of the key")
 	bundlePath := fs.String("bundle", "", "import: the recovery bundle to register the key from")
+	suite := fs.String("suite", "", "create, rotate: the suite to mint the key under; omitted, the policy's pinned suite, else the active key's suite (rotate) or the build default (create)")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return exitUsage
@@ -336,6 +343,9 @@ func cmdEncryptionKey(args []string) int {
 	}
 	if *bundlePath != "" && sub != "import" {
 		return usageError("encryption key %s: --bundle is for import", sub)
+	}
+	if *suite != "" && sub != "create" && sub != "rotate" {
+		return usageError("encryption key %s: --suite is for create and rotate", sub)
 	}
 	if sub == "import" && *bundlePath == "" {
 		return usageError("encryption key import: --bundle FILE is required")
@@ -383,9 +393,9 @@ func cmdEncryptionKey(args []string) int {
 	var got apicontract.EncryptionKeyStatus
 	switch sub {
 	case "create":
-		got, err = route.CreateEncryptionKey(ctx)
+		got, err = route.CreateEncryptionKey(ctx, *suite)
 	case "rotate":
-		got, err = route.RotateEncryptionKey(ctx)
+		got, err = route.RotateEncryptionKey(ctx, *suite)
 	case "retire":
 		got, err = route.RetireEncryptionKey(ctx, rest[0])
 	case "confirm":
@@ -598,6 +608,12 @@ func printEncryptionSet(indent string, s apicontract.EncryptionSetPolicy) {
 func printEncryptionPolicy(p apicontract.EncryptionPolicy) {
 	fmt.Printf("retained-copy encryption: %s\n", p.Mode)
 	fmt.Printf("  key provider: %s\n", printEncryptionProvider(p.KeyProvider))
+	if p.Suite != "" {
+		fmt.Printf("  suite: %s (configured: %s)\n", p.Suite, p.SuiteConfigured)
+	}
+	if p.RotationNeeded {
+		fmt.Printf("  no active key for suite %s yet, so copies are refused until you run: %s\n", p.SuiteConfigured, p.RotateCommand)
+	}
 	fmt.Printf("  backup sets:\n")
 	for _, s := range p.Sets {
 		printEncryptionSet("    ", s)
@@ -609,7 +625,7 @@ func printEncryptionKey(k apicontract.EncryptionKeyStatus) {
 	if k.BundleConfirmed {
 		bundle = "recovery bundle confirmed " + k.BundleConfirmedAt
 	}
-	fmt.Printf("%s: %s, created %s, %s, %s\n", k.ID, k.Status, k.CreatedAt, k.Resolvability, bundle)
+	fmt.Printf("%s: %s, suite %s, created %s, %s, %s\n", k.ID, k.Status, k.Suite, k.CreatedAt, k.Resolvability, bundle)
 	if k.Reason != "" {
 		fmt.Printf("  %s\n", k.Reason)
 	}
@@ -727,6 +743,169 @@ func cmdEncryptionEncryptExisting(args []string) int {
 		got.Planned, got.Resumed, got.Completed, got.Abandoned, got.Refused)
 	if runCtx.Err() != nil {
 		fmt.Println("stopped: a copy that was not yet verified was discarded and its plaintext copy is untouched; run it again to carry on")
+	}
+	return status
+}
+
+// cmdEncryptionSuites is `encryption suites [--json]` (EPIC T, #1315): the
+// suites this build has, each with its status, whether it is the default,
+// the one sentence any surface may print about it, and how many active
+// copies and live keys are under it. It reads the journal only, so it opens
+// no key directory. GET /encryption/suites answers with the same body.
+func cmdEncryptionSuites(args []string) int {
+	fs, cfgPath := newFlagSet("encryption suites")
+	asJSON := fs.Bool("json", false, "print the object the API returns instead of text")
+	operands, err := parseFlagsAroundOperands(fs, args)
+	if err != nil {
+		return exitUsage
+	}
+	if len(operands) != 0 {
+		return usageError("encryption suites: takes no operand")
+	}
+	ctx := context.Background()
+	svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)
+	if err != nil {
+		return fail(err)
+	}
+	defer cleanup()
+	got, err := svc.ListEncryptionSuites(ctx)
+	if err != nil {
+		return fail(err)
+	}
+	return encryptionAnswer(*asJSON, got, func() { printEncryptionSuites(got) })
+}
+
+func printEncryptionSuites(l apicontract.ListEncryptionSuitesResponse) {
+	for _, s := range l.Suites {
+		def := ""
+		if s.Default {
+			def = ", default for a first key"
+		}
+		// When a deprecated suite retires, or which version retired it,
+		// comes from the table and is never typed here (#1316).
+		if s.RetirementVersion != "" {
+			switch s.Status {
+			case "retired":
+				def += ", retired in " + s.RetirementVersion
+			default:
+				def += ", retirement announced for version " + s.RetirementVersion
+			}
+		}
+		fmt.Printf("%s (v%d): %s%s, %d active copies, %d keys\n", s.ID, s.Version, s.Status, def, s.ActiveCopies, s.Keys)
+		fmt.Printf("  %s\n", s.Describe)
+	}
+}
+
+// cmdEncryptionReencrypt is `encryption reencrypt --suite ID | --key ID |
+// --deprecated --to MEDIUM` (#1317): rewrite the encrypted retained copies
+// the selector names under the active suite and key, each onto MEDIUM,
+// retiring each old copy only after its replacement has been decrypt-verified.
+// The old ciphertext is streamed through its own suite and key straight into
+// the new one; no plaintext is written to local disk. It is the only thing
+// that does this; a key rotation or a suite deprecation never does.
+//
+// --dry-run lists the selected copies grouped by suite and by key, each with
+// its destination (the --to medium, or the first other configured medium when
+// --to is left out) and, where a run would not rewrite it, the refusal's code
+// and reason. It plans, reads and writes nothing. A run needs --to, so a
+// medium is never chosen for you. Beside a serving engine the run starts that
+// engine's operation (stop it with `assurance cancel`, which is also what the
+// browser's Cancel calls); with nothing serving it runs here, to the end, and
+// an interrupt stops it the same way.
+func cmdEncryptionReencrypt(args []string) int {
+	fs, cfgPath := newFlagSet("encryption reencrypt")
+	asJSON := fs.Bool("json", false, "print the object the API returns instead of text")
+	suite := fs.String("suite", "", "select every copy under this suite id")
+	keyID := fs.String("key", "", "select every copy under this key id")
+	deprecated := fs.Bool("deprecated", false, "select every copy under a deprecated or retired suite")
+	to := fs.String("to", "", "the storage medium the new copies go to; it has to differ from the medium each copy is on")
+	dryRun := fs.Bool("dry-run", false, "list the selected copies by suite and key, with what a run would do with each and why not where it would not, without doing anything")
+	operands, err := parseFlagsAroundOperands(fs, args)
+	if err != nil {
+		return exitUsage
+	}
+	if len(operands) != 0 {
+		return usageError("encryption reencrypt: takes no operands; select copies with --suite, --key or --deprecated")
+	}
+	req := apicontract.StartReencryptRequest{SuiteID: *suite, KeyID: *keyID, Deprecated: *deprecated, DestinationMedium: *to}
+	ctx := context.Background()
+
+	if *dryRun {
+		svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)
+		if err != nil {
+			return fail(err)
+		}
+		defer cleanup()
+		plan, err := svc.PlanReencrypt(ctx, req)
+		if err != nil {
+			return fail(err)
+		}
+		return encryptionAnswer(*asJSON, plan, func() {
+			for _, g := range plan.Groups {
+				fmt.Printf("suite %s, key %s:\n", g.SuiteID, g.KeyID)
+				for _, c := range g.Candidates {
+					if c.Verdict == "refused" {
+						fmt.Printf("  %s on %s: refused (%s): %s\n", c.ArtifactID, c.SourceMedium, c.Refusal, c.Reason)
+						continue
+					}
+					fmt.Printf("  %s on %s: would be re-encrypted onto %s\n", c.ArtifactID, c.SourceMedium, c.DestinationMedium)
+				}
+			}
+			fmt.Printf("dry run: %d would be re-encrypted, %d refused; nothing was changed\n", plan.WouldReencrypt, plan.Refused)
+		})
+	}
+
+	if *to == "" {
+		return usageError("encryption reencrypt: --to MEDIUM is required for a run, because a new copy cannot sit beside its source on the same medium and a medium is never chosen for you; --dry-run proposes one")
+	}
+	route, cleanup, err := openEncryptionWrite(ctx, *cfgPath, *asJSON)
+	if err != nil {
+		return fail(err)
+	}
+	defer cleanup()
+
+	svc, local := route.(*service.BackupService)
+	if !local {
+		started, err := route.StartReencrypt(ctx, req)
+		if err != nil {
+			return fail(err)
+		}
+		return encryptionAnswer(*asJSON, apicontract.ScrubStarted{BackupSetID: started.BackupSetID, OperationID: started.OperationID}, func() {
+			fmt.Printf("re-encrypting the selected copies onto %s started as operation %s\n", req.DestinationMedium, started.OperationID)
+			fmt.Printf("stop it with: %s assurance cancel %s\n", cliecho.Binary, started.OperationID)
+		})
+	}
+
+	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	got, err := svc.RunReencrypt(runCtx, req)
+	if err != nil {
+		return fail(err)
+	}
+	status := exitOK
+	if got.Refused > 0 || got.Abandoned > 0 || runCtx.Err() != nil {
+		status = exitFailure
+	}
+	if *asJSON {
+		if code := emitWireJSON(got); code != exitOK {
+			return code
+		}
+		return status
+	}
+	for _, o := range got.Outcomes {
+		line := o.Phase
+		if o.Refusal != "" {
+			line = "refused (" + o.Refusal + ")"
+		}
+		if o.Reason != "" {
+			line += ": " + o.Reason
+		}
+		fmt.Printf("%s: %s\n", o.ArtifactID, line)
+	}
+	fmt.Printf("reencrypt: %d planned, %d resumed, %d completed, %d abandoned, %d refused\n",
+		got.Planned, got.Resumed, got.Completed, got.Abandoned, got.Refused)
+	if runCtx.Err() != nil {
+		fmt.Println("stopped: a copy that was not yet verified was discarded and the copy it was made from is untouched; run it again to carry on")
 	}
 	return status
 }

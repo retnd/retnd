@@ -2065,7 +2065,7 @@
   },
   "encryption.card": {
     "label": "Retained-copy encryption",
-    "html": "Whether the copies this product sends to a <strong>destination</strong> are written as ciphertext. The <strong>local</strong> copy is never encrypted. There is no cipher, chunk size or algorithm to choose: the build fixes the format and records it against every copy."
+    "html": "Whether the copies this product sends to a <strong>destination</strong> are written as ciphertext. The <strong>local</strong> copy is never encrypted. There is no cipher, chunk size or nonce to set: with encryption on, the one format choice is the <strong>suite</strong>, and the suite each copy was written under is recorded against it."
   },
   "encryption.enable": {
     "label": "Encrypt copies sent to destinations",
@@ -2121,7 +2121,7 @@
   },
   "encryption.state.encrypted": {
     "label": "Encrypted",
-    "html": "The copy was stored as ciphertext under a recorded key id and format. That is all it says: nothing about whether anybody can read it back. <strong>Verified recoverable</strong> is a separate chip."
+    "html": "The copy was stored as ciphertext under a recorded key id and format. The id after the word is the suite the copy was written under, read from its own record. That is all it says: nothing about whether anybody can read it back. <strong>Verified recoverable</strong> is a separate chip."
   },
   "encryption.state.verifiedRecoverable": {
     "label": "Verified recoverable",
@@ -2158,5 +2158,21 @@
   "encryption.digest.stored": {
     "label": "Stored-bytes digest",
     "html": "The digest of the bytes this one copy holds at its destination, which for an encrypted copy are ciphertext. It describes this copy only, and it is supposed to differ from the plaintext digest."
+  },
+  "encryption.suite": {
+    "label": "Suite",
+    "html": "The construction new copies are encrypted with, from the list this build carries. A new copy is written only under the active key of the chosen suite, so choosing one with no active key leads through <strong>Rotate key</strong>, <strong>Download bundle</strong> and <strong>Confirm</strong>; until the rotation, copies under the policy are refused before anything is deleted. Every existing copy keeps the suite and key recorded against it and stays readable. Nothing is re-encrypted. The sentence under each suite is the build's own description of it."
+  },
+  "encryption.suite.status": {
+    "label": "Suite status",
+    "html": "A default suite is the one this build uses when the configuration says <code>default</code>. A supported suite writes and reads. A deprecated suite still writes and reads, health is degraded while copies or the active key use it, and the version it retires in is named. A retired suite's copies still read, decrypt-verify and recover, and nothing new is written under it, so it cannot be chosen."
+  },
+  "encryption.health.suite": {
+    "label": "Suite health",
+    "html": "Counts the active copies, and says whether the active key, are under a deprecated or retired suite. A deprecated suite keeps writing until its retirement version; a retired one reads and never writes. Re-encrypting moves each copy to another medium under the current suite and key. Nothing here blocks a backup, except a policy whose suite has no active key: those copies are refused, before anything is deleted, until a rotation."
+  },
+  "encryption.reencrypt": {
+    "label": "Re-encrypt under current suite",
+    "html": "Asks for a dry run first: each copy under the suite, the medium it would move to, and every copy the engine will not move with its reason (same medium only, key unavailable, already current). Running it moves each copy to another medium under the active suite and key, and retires the old copy only after the new one decrypt-verifies. No plaintext is written to local disk. It is never automatic."
   }
 }

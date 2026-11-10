@@ -996,6 +996,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(requireCSRF, requireKeyExportGate(h.enforce)).Post("/encryption/keys/{id}/export", h.exportRecoveryBundle)
 		r.With(requireCSRF).Post("/encryption/keys/{id}/confirm", h.confirmRecoveryBundle)
 		r.With(requireCSRF).Post("/encryption/providers/test", h.testEncryptionProvider)
+		r.Get("/encryption/suites", h.listEncryptionSuites)
 		r.Get("/encryption/copies", h.listEncryptionCopies)
 		r.With(requireCSRF).Post("/encryption/verify", h.startDecryptVerify)
 		// Encrypting plaintext copies that already exist (#1291): the dry run
@@ -1003,6 +1004,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// the existing assurance cancel route stops.
 		r.Get("/encryption/encrypt-existing", h.planEncryptExisting)
 		r.With(requireCSRF).Post("/encryption/encrypt-existing", h.startEncryptExisting)
+		// Re-encrypting copies under the active suite and key (#1317): the
+		// same shape, selected by suite, key or deprecation across the
+		// deployment, and stopped by the same assurance cancel.
+		r.Get("/encryption/reencrypt", h.planReencrypt)
+		r.With(requireCSRF).Post("/encryption/reencrypt", h.startReencrypt)
 
 		// EPIC L's workflow runs and recovery (#813).
 		//

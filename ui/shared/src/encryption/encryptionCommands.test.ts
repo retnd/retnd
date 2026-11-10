@@ -3,7 +3,7 @@ import { API_OPERATIONS } from "@shared/api/generated/contract";
 import {
   copiesCommand, keyConfirmCommand, keyCreateCommand, keyExportCommand, keyListCommand, keyRetireCommand,
   keyRotateCommand, policyPatchCommand, policyResetCommand, policyShowCommand, providerTestCommand,
-  setEncryptionCommand, setEncryptionResetCommand, verifyCommand
+  reencryptCommand, setEncryptionCommand, setEncryptionResetCommand, verifyCommand
 } from "./encryptionCommands";
 
 /**
@@ -64,7 +64,8 @@ const CONTROLS: Record<string, { control: string; echo: () => string }> = {
   exportRecoveryBundle: { control: "Export recovery bundle", echo: () => keyExportCommand("k") },
   confirmRecoveryBundle: { control: "I have stored the bundle safely", echo: () => keyConfirmCommand("k") },
   testEncryptionProvider: { control: "Test reference", echo: () => providerTestCommand({ external: { env: "X" } }) },
-  startDecryptVerify: { control: "Verify recoverable", echo: () => verifyCommand("a/b/c", { medium: "m" }) }
+  startDecryptVerify: { control: "Verify recoverable", echo: () => verifyCommand("a/b/c", { medium: "m" }) },
+  startReencrypt: { control: "Re-encrypt under current suite (Dashboard, #1318)", echo: () => reencryptCommand({ suite: "age/v1", to: "offsite_cold" }) }
 };
 
 describe("no browser action without a command, and no command without an action (#995 sweep)", () => {
@@ -81,7 +82,7 @@ describe("no browser action without a command, and no command without an action 
 
   it("gives each control a real retnd encryption command", () => {
     for (const [id, c] of Object.entries(CONTROLS)) {
-      expect(c.echo(), id).toMatch(/^retnd encryption (policy|backup-set|key|provider|verify)/);
+      expect(c.echo(), id).toMatch(/^retnd encryption (policy|backup-set|key|provider|verify|reencrypt)/);
     }
   });
 });

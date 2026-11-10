@@ -1080,17 +1080,33 @@ func (c *Client) ListEncryptionKeys(ctx context.Context) (apicontract.ListEncryp
 	return out, err
 }
 
-// CreateEncryptionKey is POST /encryption/keys.
-func (c *Client) CreateEncryptionKey(ctx context.Context) (apicontract.EncryptionKeyStatus, error) {
+// suiteQuery is the ?suite= a key create or rotate carries, or nil when no
+// suite is named, so the request is the one it was before EPIC T.
+func suiteQuery(suite string) url.Values {
+	if suite == "" {
+		return nil
+	}
+	return url.Values{"suite": {suite}}
+}
+
+// CreateEncryptionKey is POST /encryption/keys[?suite=].
+func (c *Client) CreateEncryptionKey(ctx context.Context, suite string) (apicontract.EncryptionKeyStatus, error) {
 	var out apicontract.EncryptionKeyStatus
-	err := c.call(ctx, "createEncryptionKey", nil, nil, &out)
+	err := c.callQuery(ctx, "createEncryptionKey", nil, suiteQuery(suite), nil, &out)
 	return out, err
 }
 
-// RotateEncryptionKey is POST /encryption/keys/rotate.
-func (c *Client) RotateEncryptionKey(ctx context.Context) (apicontract.EncryptionKeyStatus, error) {
+// RotateEncryptionKey is POST /encryption/keys/rotate[?suite=].
+func (c *Client) RotateEncryptionKey(ctx context.Context, suite string) (apicontract.EncryptionKeyStatus, error) {
 	var out apicontract.EncryptionKeyStatus
-	err := c.call(ctx, "rotateEncryptionKey", nil, nil, &out)
+	err := c.callQuery(ctx, "rotateEncryptionKey", nil, suiteQuery(suite), nil, &out)
+	return out, err
+}
+
+// ListEncryptionSuites is GET /encryption/suites.
+func (c *Client) ListEncryptionSuites(ctx context.Context) (apicontract.ListEncryptionSuitesResponse, error) {
+	var out apicontract.ListEncryptionSuitesResponse
+	err := c.call(ctx, "listEncryptionSuites", nil, nil, &out)
 	return out, err
 }
 
@@ -1155,5 +1171,34 @@ func (c *Client) PlanEncryptExisting(ctx context.Context, set, artifact, destina
 func (c *Client) StartEncryptExisting(ctx context.Context, req apicontract.StartEncryptExistingRequest) (apicontract.ScrubStarted, error) {
 	var out apicontract.ScrubStarted
 	err := c.call(ctx, "startEncryptExisting", nil, req, &out)
+	return out, err
+}
+
+// PlanReencrypt is GET /encryption/reencrypt, the dry run of re-encrypting
+// the selected copies under the active suite and key. Exactly one of the
+// request's selectors is set; the destination may be empty.
+func (c *Client) PlanReencrypt(ctx context.Context, req apicontract.StartReencryptRequest) (apicontract.ReencryptPlan, error) {
+	q := url.Values{}
+	if req.SuiteID != "" {
+		q.Set("suite", req.SuiteID)
+	}
+	if req.KeyID != "" {
+		q.Set("key", req.KeyID)
+	}
+	if req.Deprecated {
+		q.Set("deprecated", "true")
+	}
+	if req.DestinationMedium != "" {
+		q.Set("destination", req.DestinationMedium)
+	}
+	var out apicontract.ReencryptPlan
+	err := c.callQuery(ctx, "planReencrypt", nil, q, nil, &out)
+	return out, err
+}
+
+// StartReencrypt is POST /encryption/reencrypt.
+func (c *Client) StartReencrypt(ctx context.Context, req apicontract.StartReencryptRequest) (apicontract.ScrubStarted, error) {
+	var out apicontract.ScrubStarted
+	err := c.call(ctx, "startReencrypt", nil, req, &out)
 	return out, err
 }

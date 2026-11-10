@@ -16,11 +16,14 @@
 import { RetndError } from "@shared/api/contracts";
 import type { ApiErrorCode, AssuranceOperationRecord, RetndApi, ScrubStart } from "@shared/api/contracts";
 import type { BackupArtifact } from "@shared/types/backup";
+import { keyRotateCommand } from "./encryptionCommands";
 import type {
   CopyEncryption,
   EncryptionKey,
   EncryptionPolicy,
+  EncryptionSuite,
   KeyProviderState,
+  ReencryptPlanCopy,
   SetEncryption
 } from "@shared/types/encryption";
 
@@ -38,11 +41,63 @@ export const ENCRYPTION_SCENARIOS = [
   // failed closed ("mock-decrypt-verify-failed").
   "encryption-verify-failed",
   "encryption-key-missing",
-  "encryption-in-use"
+  "encryption-in-use",
+  // EPIC T (#1318). An active age/v1 key under a policy pinned to age/v1, so
+  // choosing age-pq/v1 answers rotation_needed and the flow can be walked.
+  "encryption-suite-change",
+  // age/v1 deprecated (retiring in 0.9.0) and mock-retired/v1 retired, both
+  // still recorded by copies; the policy and its key are on age-pq/v1. One
+  // backup's copy is age/v1 and another's is age-pq/v1, on one list.
+  "encryption-suite-lifecycle",
+  // A 2000-character recipient-shaped string planted where a careless server
+  // could put one: a suite sentence, a retired suite's reason, and a copy's
+  // key id. No page may hold its tail.
+  "encryption-suite-canary"
 ] as const;
 
 /** Scenarios whose key has a confirmed bundle. */
-const CONFIRMED = new Set<string>(["encryption-confirmed", "encryption-verified", "encryption-verify-failed"]);
+const CONFIRMED = new Set<string>([
+  "encryption-confirmed", "encryption-verified", "encryption-verify-failed",
+  "encryption-suite-change", "encryption-suite-lifecycle", "encryption-suite-canary"
+]);
+
+const PQ = "age-pq/v1";
+const AGE = "age/v1";
+const RETIRED = "mock-retired/v1";
+
+/** Shaped like a post-quantum age recipient (about 2000 characters), with a
+ *  tail the canary rows look for. It is not a key and decrypts nothing. */
+export const PQ_CANARY = "age1pq1" + "q".repeat(1980) + "CANARY1318TAIL";
+
+/** The registry as the route answers it, per scenario. The sentences are
+ *  placeholders of the right shape; the build prints Describe()'s own. */
+function suitesFor(scenario: string): EncryptionSuite[] {
+  const lifecycle = scenario === "encryption-suite-lifecycle";
+  const canary = scenario === "encryption-suite-canary";
+  const list: EncryptionSuite[] = [
+    {
+      id: PQ, version: 1, status: "supported", isDefault: true,
+      description: canary ? PQ_CANARY : "age v1 with a hybrid ML-KEM-768 and X25519 recipient; 128-bit security level.",
+      retirementVersion: null, activeCopies: lifecycle ? 4 : 0, keys: 1
+    },
+    {
+      id: AGE, version: 1, status: lifecycle ? "deprecated" : "supported", isDefault: false,
+      description: "age v1 with an X25519 recipient; 128-bit security level.",
+      retirementVersion: lifecycle ? "0.9.0" : null, activeCopies: lifecycle ? 12 : 0, keys: scenario === "encryption-suite-change" || lifecycle ? 1 : 0
+    }
+  ];
+  if (lifecycle || canary || scenario === "encryption-suite-change") {
+    list.push({
+      id: RETIRED, version: 1, status: "retired", isDefault: false,
+      description: canary ? PQ_CANARY : "A suite this mock retired, to draw the retired state.",
+      retirementVersion: canary ? PQ_CANARY : "0.8.0", activeCopies: lifecycle ? 3 : 0, keys: lifecycle ? 1 : 0
+    });
+  }
+  return list;
+}
+
+/** The suite a scenario's copies and policy start on. */
+const startingSuite = (scenario: string) => (scenario === "encryption-suite-change" ? AGE : PQ);
 
 export const PASSED_ID = "mock-decrypt-verify-passed";
 export const FAILED_ID = "mock-decrypt-verify-failed";
@@ -61,6 +116,9 @@ export function createMockEncryption(scenario: string, setIds: () => string[]) {
   const on = scenario.startsWith("encryption-");
   let mode: EncryptionPolicy["mode"] = on ? "required" : "off";
   let provider: KeyProviderState = on ? MANAGED : NONE;
+  let suite = startingSuite(scenario);
+  let suiteConfigured = scenario === "encryption-suite-change" ? AGE : "default";
+  const suites = suitesFor(scenario);
   const overrides = new Map<string, { mode: SetEncryption["mode"]; provider: KeyProviderState }>();
   const keys: EncryptionKey[] = on
     ? [
@@ -70,8 +128,16 @@ export function createMockEncryption(scenario: string, setIds: () => string[]) {
           reason: scenario === "encryption-key-missing" ? "the key file is not readable by this service" : null,
           bundleConfirmed: CONFIRMED.has(scenario), bundleConfirmedAt: CONFIRMED.has(scenario) ? "2026-11-09T09:31:00Z" : null,
           bundleExportedAt: CONFIRMED.has(scenario) || scenario === "encryption-exported" ? "2026-11-09T09:20:00Z" : null,
-          copiesRecording: scenario === "encryption-in-use" ? 41 : 0
-        }
+          copiesRecording: scenario === "encryption-in-use" ? 41 : 0,
+          suite: startingSuite(scenario)
+        },
+        ...(scenario === "encryption-suite-lifecycle"
+          ? [{
+              id: KEY_OLD, status: "superseded" as const, createdAt: "2026-08-14T08:00:00Z", retiredAt: null,
+              resolvable: true, resolvability: "resolves" as const, reason: null, bundleConfirmed: true,
+              bundleConfirmedAt: "2026-08-14T08:30:00Z", bundleExportedAt: "2026-08-14T08:20:00Z", copiesRecording: 12, suite: AGE
+            }]
+          : [])
       ]
     : [];
   const exported = new Set<string>();
@@ -88,7 +154,8 @@ export function createMockEncryption(scenario: string, setIds: () => string[]) {
       effectiveKeyProvider: o && o.provider.kind !== "none" ? o.provider : provider
     };
   };
-  const policy = (): EncryptionPolicy => ({ mode, keyProvider: provider, sets: setIds().map(resolveSet) });
+  const policy = (): EncryptionPolicy => ({ mode, keyProvider: provider, sets: setIds().map(resolveSet), suite, suiteConfigured });
+  const activeUnder = (id: string) => keys.some((k) => k.status === "active" && k.suite === id);
   const key = (id: string) => {
     const k = keys.find((x) => x.id === id);
     if (!k) throw new RetndError({ code: "ENCRYPTION_KEY_NOT_FOUND", message: "There is no managed key " + id + ".", status: 404 });
@@ -100,12 +167,22 @@ export function createMockEncryption(scenario: string, setIds: () => string[]) {
     | "getEncryptionPolicy" | "patchEncryptionPolicy" | "resetEncryptionPolicy" | "setBackupSetEncryption"
     | "clearBackupSetEncryption" | "listEncryptionKeys" | "createEncryptionKey" | "rotateEncryptionKey"
     | "retireEncryptionKey" | "exportRecoveryBundle" | "confirmRecoveryBundle" | "testEncryptionProvider"
-    | "listEncryptionCopies" | "startDecryptVerify"
+    | "listEncryptionCopies" | "startDecryptVerify" | "listEncryptionSuites" | "planReencrypt" | "startReencrypt"
   > = {
     getEncryptionPolicy: () => later(policy()),
     patchEncryptionPolicy: (patch) => {
-      if (patch.mode === undefined && patch.keyProvider === undefined) {
-        return Promise.reject(new RetndError({ code: "INVALID_REQUEST", message: "A policy change names a mode or a key provider.", status: 400 }));
+      if (patch.mode === undefined && patch.keyProvider === undefined && patch.suite === undefined) {
+        return Promise.reject(new RetndError({ code: "INVALID_REQUEST", message: "A policy change names a mode, a key provider or a suite.", status: 400 }));
+      }
+      if (patch.suite !== undefined && patch.suite !== "default") {
+        const named = suites.find((x) => x.id === patch.suite);
+        // The words Validate gives a hand-edited config.yaml (T1.4).
+        if (!named) {
+          return Promise.reject(new RetndError({ code: "INVALID_REQUEST", message: "retained_copy_encryption: suite " + patch.suite + " is not a suite this build knows.", status: 400 }));
+        }
+        if (named.status === "retired") {
+          return Promise.reject(new RetndError({ code: "INVALID_REQUEST", message: "retained_copy_encryption: suite " + patch.suite + " is retired; it reads and never writes.", status: 400 }));
+        }
       }
       const nextProvider = patch.keyProvider
         ? "managed" in patch.keyProvider
@@ -123,6 +200,16 @@ export function createMockEncryption(scenario: string, setIds: () => string[]) {
       }
       mode = nextMode;
       provider = nextProvider;
+      if (patch.suite !== undefined) {
+        suiteConfigured = patch.suite;
+        suite = patch.suite === "default" ? (suites.find((x) => x.isDefault)?.id ?? PQ) : patch.suite;
+        // The patch never rotates: it says so, with the command, and writes
+        // nothing to the key store (T1.5).
+        if (mode === "required" && provider.kind === "managed" && !activeUnder(suite)) {
+          return later({ ...policy(), rotationNeeded: true, rotateCommand: keyRotateCommand(suite) });
+        }
+        return later({ ...policy(), rotationNeeded: false, rotateCommand: null });
+      }
       return later(policy());
     },
     resetEncryptionPolicy: () => {
@@ -143,22 +230,25 @@ export function createMockEncryption(scenario: string, setIds: () => string[]) {
       return later(resolveSet(source + "/" + set));
     },
     listEncryptionKeys: () => later(structuredClone(keys)),
-    createEncryptionKey: () => {
+    createEncryptionKey: (forSuite) => {
       if (keys.some((k) => k.status === "active")) {
         return Promise.reject(refuse("ENCRYPTION_KEY_STATE", "A managed key is already active; rotate it to make a new one."));
       }
       const k: EncryptionKey = {
         id: "mk-2026-11-10-a", status: "active", createdAt: new Date().toISOString(), retiredAt: null,
-        resolvable: true, resolvability: "resolves", reason: null, bundleConfirmed: false, bundleConfirmedAt: null, bundleExportedAt: null, copiesRecording: 0
+        resolvable: true, resolvability: "resolves", reason: null, bundleConfirmed: false, bundleConfirmedAt: null, bundleExportedAt: null, copiesRecording: 0,
+        suite: forSuite ?? suite
       };
       keys.push(k);
       return later(structuredClone(k));
     },
-    rotateEncryptionKey: () => {
+    rotateEncryptionKey: (forSuite) => {
+      // Across suites, the old active key is superseded in the same write (T1.5).
       for (const k of keys) if (k.status === "active") k.status = "superseded";
       const k: EncryptionKey = {
         id: "mk-2026-11-10-b" + keys.length, status: "active", createdAt: new Date().toISOString(), retiredAt: null,
-        resolvable: true, resolvability: "resolves", reason: null, bundleConfirmed: false, bundleConfirmedAt: null, bundleExportedAt: null, copiesRecording: 0
+        resolvable: true, resolvability: "resolves", reason: null, bundleConfirmed: false, bundleConfirmedAt: null, bundleExportedAt: null, copiesRecording: 0,
+        suite: forSuite ?? suite
       };
       keys.push(k);
       return later(structuredClone(k));
@@ -222,8 +312,8 @@ export function createMockEncryption(scenario: string, setIds: () => string[]) {
       }];
       if (on) {
         copies.push({
-          medium: "offsite_s3", encrypted: true, format: "age", formatVersion: 1,
-          keyId: scenario === "encryption-key-missing" ? KEY_OLD : KEY_A,
+          medium: "offsite_s3", encrypted: true, format: copySuite(scenario, "offsite_s3"), formatVersion: 1,
+          keyId: scenario === "encryption-suite-canary" ? PQ_CANARY : scenario === "encryption-key-missing" || scenario === "encryption-suite-lifecycle" ? KEY_OLD : KEY_A,
           keyResolvable: scenario !== "encryption-key-missing",
           storedDigestAlgorithm: "sha256", storedSize: 14_200_000_000,
           storedDigest: "sha256:f17c0de1", plaintextDigest: "sha256:a04b7e22"
@@ -241,6 +331,26 @@ export function createMockEncryption(scenario: string, setIds: () => string[]) {
       const operationId =
         scenario === "encryption-verified" ? PASSED_ID : scenario === "encryption-verify-failed" ? FAILED_ID : "mock-decrypt-verify";
       return later({ backupSetId: req.artifactId.split("/").slice(0, 2).join("/"), operationId });
+    },
+    listEncryptionSuites: () => later(structuredClone(suites)),
+    // The dry run (T2.2): every active copy under the suite, where it would
+    // go, and the ones the engine refuses with its reason. Nothing changes.
+    planReencrypt: (req) => {
+      const under = suites.find((x) => x.id === req.suite);
+      const n = under?.activeCopies ?? 0;
+      const key = req.suite === AGE ? KEY_OLD : "mk-2026-05-02-a";
+      const copies: ReencryptPlanCopy[] = Array.from({ length: n }, (_, i) => ({
+        artifactId: "production/postgres-primary/postgres-prod-202608" + String(10 + i) + ".dump.zst",
+        medium: "offsite_s3", suite: req.suite ?? "", keyId: key,
+        to: i < n - 2 || req.suite !== AGE ? req.to ?? "offsite_cold" : null,
+        refusal: i < n - 2 || req.suite !== AGE ? null : "same_medium",
+        reason: i < n - 2 || req.suite !== AGE ? null : "same medium only: offsite_cold already holds this backup, and a copy is never rewritten in place"
+      }));
+      return later({ copies });
+    },
+    startReencrypt: (req) => {
+      if (!req.to) return Promise.reject(new RetndError({ code: "INVALID_REQUEST", message: "A re-encryption names the medium the new copies go to.", status: 400 }));
+      return later({ backupSetId: "production/postgres-primary", operationId: "mock-reencrypt" });
     }
   };
   return methods;
@@ -268,7 +378,12 @@ export function overlayEncryption(scenario: string, a: BackupArtifact): BackupAr
       p.medium === "local"
         ? p
         : {
-            ...p, encrypted: true, encryptionKeyId: missing ? KEY_OLD : KEY_A, encryptionKeyResolvable: !missing,
+            ...p, encrypted: true,
+            // In the lifecycle scenario the age/v1 copy records the old age/v1
+            // key; every other copy records the scenario's active key.
+            encryptionKeyId: scenario === "encryption-suite-canary" ? PQ_CANARY : missing || (scenario === "encryption-suite-lifecycle" && p.medium === "offsite_s3") ? KEY_OLD : KEY_A,
+            encryptionKeyResolvable: !missing,
+            encryptionSuite: copySuite(scenario, p.medium),
             // The only copy with a decrypt-verify on record: a content class with a time.
             ...(scenario === "encryption-verified" ? { verificationClass: "content" as const, verifiedAt: "2026-08-28T02:07:31+02:00" } : {})
           }
@@ -291,4 +406,12 @@ export function encryptionOperationRecord(operationId: string): AssuranceOperati
     reason: passed ? "" : "authentication failed at chunk 412 of 9811",
     startedAt: "2026-08-29T06:14:00+02:00", endedAt: "2026-08-29T06:15:00+02:00", events: []
   };
+}
+
+/** The suite a scenario's copy on a medium was written under. In the
+ *  lifecycle scenario the off-site copies are the old age/v1 ones and the
+ *  cold copies the new age-pq/v1 ones, so one list shows both. */
+function copySuite(scenario: string, medium: string): string {
+  if (scenario === "encryption-suite-lifecycle") return medium === "offsite_s3" ? AGE : PQ;
+  return startingSuite(scenario);
 }

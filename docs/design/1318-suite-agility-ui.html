@@ -1,0 +1,321 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Encryption suites in the browser: the suite choice, the rotate-then-confirm flow, the suite on every copy and the health tile (issue #1318)</title>
+<style>
+/* Tokens copied from ui/shared/src/design-system/tokens.css at 283fd457. Nothing below declares a colour literal of its own.
+   --text-3 is the tertiary TEXT ink (#1235 moved it to 4.5:1 on every surface it sits on); --edge-3 is the ink for an edge that
+   has to be found by its edge (a chip, a button, a segmented control, a bar, a text box): 3.35:1 light and 3.85:1 dark on
+   --surface. --border-strong is 1.69:1 and 1.81:1 on --surface, so it is kept for the decorative frames and card rules only.
+   See the contrast table at the end. */
+:root,.th-light{
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;--space-8:32px;
+  --radius-sm:4px;--radius-md:6px;--radius-lg:8px;--radius-xl:10px;--radius-pill:999px;
+  --bg:#f2f2f0;--surface:#fff;--surface-2:#fafaf9;--surface-3:#f0f0ed;
+  --border:#e0dfdc;--border-strong:#c8c7c3;--edge-3:#8b8d8a;
+  --text:#191a19;--text-2:#5b5d5b;--text-3:#696b68;
+  --accent:oklch(0.52 0.09 255);--accent-quiet:oklch(0.95 0.02 255);
+  --ok:oklch(0.52 0.10 155);--ok-quiet:oklch(0.955 0.025 155);
+  --warn:oklch(0.56 0.11 70);--warn-quiet:oklch(0.96 0.035 75);
+  --danger:oklch(0.52 0.15 25);--danger-quiet:oklch(0.955 0.03 25);
+  --shadow:0 1px 2px rgba(20,20,18,.05),0 1px 1px rgba(20,20,18,.04);
+  --term-bg:#14150f;--term-text:#d7d9d2;--term-time:#868b80;--term-info:#9aa39b;--term-accent:oklch(0.70 0.09 255);
+  --term-ok:oklch(0.72 0.11 155);--term-warn:oklch(0.78 0.12 75);--term-danger:oklch(0.72 0.16 25);
+  --font-mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.th-dark{
+  --bg:#121312;--surface:#1b1d1b;--surface-2:#202220;--surface-3:#262826;
+  --border:#313331;--border-strong:#454745;--edge-3:#767976;
+  --text:#eceeeb;--text-2:#a3a6a2;--text-3:#959892;
+  --accent:oklch(0.70 0.09 255);--accent-quiet:oklch(0.30 0.045 255);
+  --ok:oklch(0.72 0.11 155);--ok-quiet:oklch(0.28 0.05 155);
+  --warn:oklch(0.78 0.12 75);--warn-quiet:oklch(0.30 0.055 70);
+  --danger:oklch(0.68 0.15 25);--danger-quiet:oklch(0.30 0.07 25);
+  --shadow:0 1px 2px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:var(--space-6)}
+.wrap{max-width:1240px;margin:0 auto;display:flex;flex-direction:column;gap:var(--space-6)}
+h1{font-size:18px;font-weight:640;margin:0 0 var(--space-1);letter-spacing:-.01em}
+h2{font-size:15px;margin:0 0 var(--space-1)}
+.sub{color:var(--text-2);margin:0;max-width:96ch}
+code{font-family:var(--font-mono);font-size:12px}
+.sec{border-top:1px solid var(--border);padding-top:var(--space-5)}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-4);margin-top:var(--space-3)}
+.frame{background:var(--bg);color:var(--text);border:1px solid var(--border-strong);border-radius:var(--radius-xl);padding:var(--space-3);container-type:inline-size;min-width:0}
+.frame>.tag{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);margin-bottom:var(--space-2)}
+.frame.narrow{max-width:360px}
+.reason{display:grid;grid-template-columns:1fr;gap:var(--space-2);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:var(--space-4);margin-top:var(--space-3);color:var(--text)}
+.reason p,.reason li{margin:0;color:var(--text-2);max-width:110ch}
+.reason strong{color:var(--text)}
+.reason ol,.reason ul{margin:0;padding-left:1.4em}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);box-shadow:var(--shadow);overflow:hidden;margin-bottom:var(--space-3)}
+.card h3{margin:0;padding:var(--space-2) var(--space-3);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);border-bottom:1px solid var(--border);background:var(--surface-2);display:flex;gap:var(--space-2);align-items:center}
+.card h3 .grow{flex:1}
+.card .body{padding:var(--space-3);display:flex;flex-direction:column;gap:var(--space-2)}
+.row{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center}
+.grow{flex:1}
+.muted{color:var(--text-2);font-size:12.5px}
+.mono{font-family:var(--font-mono);font-size:12px}
+.eyebrow{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-2)}
+/* the state chip: ink is always --text, the state is carried by glyph shape, border style and words */
+.chip{display:inline-flex;align-items:center;gap:6px;min-height:24px;padding:2px 9px;border-radius:var(--radius-md);font-size:12px;font-weight:600;color:var(--text);background:var(--surface);border:1.5px solid var(--edge-3);white-space:nowrap}
+.chip .g{font-weight:800;font-size:13px;min-width:14px;text-align:center}
+.chip .age{font-weight:500;color:var(--text-2)}
+.s-plain{border-style:dashed;border-color:var(--edge-3);background:var(--surface-2)}
+.s-enc{border-style:solid;border-color:var(--edge-3);background:var(--surface-2)}
+.s-recov{border-style:solid;border-color:var(--ok);background:var(--ok-quiet)}.s-recov .g{color:var(--ok)}
+.s-unver{border-style:dotted;border-color:var(--edge-3);background:var(--surface)}
+.s-nokey{border-style:double;border-width:4px;border-color:var(--danger);background:var(--danger-quiet)}.s-nokey .g{color:var(--danger)}
+.s-fail{border-style:solid;border-color:var(--danger);background:var(--danger-quiet)}.s-fail .g{color:var(--danger)}
+.s-degraded{border-style:solid;border-color:var(--warn);background:var(--warn-quiet)}.s-degraded .g{color:var(--text)}
+.s-key-ok{border-style:solid;border-color:var(--ok);background:var(--ok-quiet)}.s-key-ok .g{color:var(--ok)}
+.s-key-off{border-style:solid;border-color:var(--edge-3);background:var(--surface-2)}
+.s-key-retired{border-style:dashed;border-color:var(--edge-3);background:var(--surface)}
+.s-cost{border-style:dotted;border-color:var(--warn);background:var(--warn-quiet)}.s-cost .g{color:var(--text)}
+.s-live{border-style:solid;border-left-width:6px;border-color:var(--accent);background:var(--accent-quiet)}.s-live .g{color:var(--accent)}
+.chips{display:flex;flex-wrap:wrap;gap:var(--space-2)}
+.chipcol{display:flex;flex-direction:column;gap:2px}
+.chipcol .lab{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2)}
+table.t{width:100%;border-collapse:collapse;font-size:12.5px}
+table.t th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-2);text-align:left;padding:6px 8px;border-bottom:1px solid var(--border)}
+table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
+.btn{min-height:30px;padding:3px 12px;border:1px solid var(--edge-3);border-radius:var(--radius-md);background:var(--surface);color:var(--text);font:inherit;font-size:12.5px;cursor:pointer}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+.btn.danger{border-color:var(--danger);color:var(--danger)}
+.notice .btn:not(.primary):not([disabled]){border-color:var(--text-2)}
+.btn[disabled],.btn.primary[disabled]{background:var(--surface-3);color:var(--text-3);border-color:var(--border);cursor:not-allowed}
+.seg{display:inline-flex;border:1px solid var(--edge-3);border-radius:var(--radius-md);overflow:hidden}
+.seg span{padding:4px 12px;font-size:12.5px;border-right:1px solid var(--edge-3);background:var(--surface);color:var(--text)}
+.seg span:last-child{border-right:0}
+.seg .on{background:var(--accent);color:var(--surface);font-weight:600}
+.seg.off span{color:var(--text-2);background:var(--surface-3)}
+.knob{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:baseline;padding:6px 8px;background:var(--surface-2);border-radius:var(--radius-md);border:1px dashed var(--edge-3)}
+.knob b{font-family:var(--font-mono);font-size:12px}
+.lock{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text)}
+.notice{border:1px solid var(--warn);background:var(--warn-quiet);border-radius:var(--radius-md);padding:var(--space-3);color:var(--text)}
+.notice.blocking{border-width:2px}
+.notice.refused{border:2px solid var(--danger);background:var(--danger-quiet)}
+.notice.info{border-color:var(--accent);background:var(--accent-quiet)}
+.notice .muted{color:var(--text)}
+.bar{height:10px;border-radius:var(--radius-pill);background:var(--surface-2);border:1px solid var(--edge-3);overflow:hidden}
+.bar>i{display:block;height:100%;background:var(--accent)}
+.stages{display:flex;flex-direction:column;gap:4px;margin:0;padding:0;list-style:none;font-size:12.5px}
+.stages li{display:flex;gap:8px;align-items:baseline}
+.stages .g{width:16px;text-align:center;font-weight:800}
+.stages .on .g{color:var(--accent)}.stages .ok .g{color:var(--ok)}
+.term{background:var(--term-bg);color:var(--term-text);font-family:var(--font-mono);font-size:11.5px;line-height:1.7;padding:var(--space-3);border-radius:var(--radius-md);overflow:hidden}
+.term .t{color:var(--term-info)}.term .w{color:var(--term-warn)}.term .e{color:var(--term-danger)}.term .o{color:var(--term-ok)}.term .a{color:var(--term-accent)}
+.echo{display:flex;flex-direction:column;gap:4px}
+.echo code{display:block;font-size:11.5px;color:var(--text-2);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-md);padding:5px 8px;overflow-x:auto;white-space:pre}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:2px var(--space-3);font-size:12.5px;margin:0}
+.kv dt{color:var(--text-2)}.kv dd{margin:0;color:var(--text)}
+.input{font:inherit;font-size:12.5px;background:var(--surface);color:var(--text);border:1px solid var(--edge-3);border-radius:var(--radius-sm);padding:4px 8px;min-width:0}
+.input.mono{font-family:var(--font-mono);font-size:12px}
+.toggle{display:inline-flex;align-items:center;gap:8px;font-size:12.5px}
+.toggle i{display:inline-block;width:34px;height:18px;border-radius:var(--radius-pill);border:1px solid var(--edge-3);background:var(--surface-2);position:relative}
+.toggle i::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--text-2)}
+.toggle.on i{background:var(--accent);border-color:var(--accent)}
+.toggle.on i::after{left:18px;background:var(--surface)}
+.radio{display:flex;gap:8px;align-items:flex-start;padding:8px;border:1px solid var(--edge-3);border-radius:var(--radius-md)}
+.radio.on{border-color:var(--accent);border-width:2px;background:var(--accent-quiet)}
+.radio input{margin-top:3px}
+.tipid{font-family:var(--font-mono);font-size:11px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);padding:0 4px;color:var(--text);background:var(--surface-3)}
+.nopop{font-size:11px;border:1px dashed var(--border-strong);border-radius:var(--radius-sm);padding:0 4px;color:var(--text)}
+.dash{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-2)}
+.health{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border-radius:var(--radius-md);border:1px solid var(--edge-3)}
+.health .g{font-weight:800;width:16px;text-align:center;flex:none}
+.health.degraded{border:2px solid var(--warn);background:var(--warn-quiet)}
+.health.refusing{border:2px solid var(--danger);background:var(--danger-quiet)}.health.refusing .g{color:var(--danger)}
+.strip{display:flex;gap:var(--space-2);flex-wrap:wrap}
+.strip .op{flex:1 1 220px;border:1px solid var(--border);border-radius:var(--radius-md);padding:8px;background:var(--surface);display:flex;flex-direction:column;gap:4px;min-width:0}
+@container (max-width:420px){.dash{grid-template-columns:1fr}.hide-narrow{display:none}.chips{flex-direction:column;align-items:flex-start}.strip{flex-direction:column}}
+@media (max-width:900px){.grid{grid-template-columns:1fr}}
+/* Additions for #1318. Tokens only, and only pairs measured in section 8. */
+.suites{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;border:0}
+.suites legend{font-weight:600;font-size:12.5px;margin-bottom:4px}
+.sopt{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;padding:8px;border:1px solid var(--edge-3);border-radius:var(--radius-md);background:var(--surface)}
+.sopt.on{border-width:2px;border-color:var(--accent)}
+.sopt.off{border-style:dashed}
+.sopt .id{font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--text)}
+.sopt .d{grid-column:2;color:var(--text-2);font-size:12px}
+.sopt.off .id{color:var(--text-2)}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:0 6px;border-radius:var(--radius-sm);font-size:11px;font-weight:700;color:var(--text);background:var(--surface-2);border:1.5px solid var(--edge-3);margin-left:6px}
+.b-default{border-color:var(--ok);background:var(--ok-quiet)}
+.b-deprecated{border-color:var(--warn);background:var(--warn-quiet)}
+.b-retired{border-style:dashed;color:var(--text-2)}
+.suiteid{font-family:var(--font-mono);font-weight:500;color:var(--text-2);margin-left:2px}
+.steps{display:flex;gap:6px;flex-wrap:wrap;margin:0;padding:0;list-style:none;font-size:12px}
+.steps li{display:flex;gap:6px;align-items:center;padding:3px 8px;border:1px solid var(--edge-3);border-radius:var(--radius-pill);background:var(--surface);color:var(--text)}
+.steps li.now{background:var(--accent-quiet);border-color:var(--accent);font-weight:700}
+.steps li.done .g{color:var(--ok)}
+.clip{font-family:var(--font-mono);font-size:12px;color:var(--text)}
+</style>
+
+<div class="wrap">
+<header>
+  <h1>Encryption suites in the browser: the suite choice, the rotate-then-confirm flow, the suite on every copy and the health tile</h1>
+  <p class="sub">Issue #1318 (T2.3), dated 2026-11-10. Parent epic #1310, FR-89 and FR-84. I drew this before the component work and ahead of T1.5 (#1315), T2.1 (#1316) and T2.2 (#1317), against the shapes those issues fix: <code>GET /encryption/suites</code> with the <code>Describe()</code> sentence and counts, the policy's <code>suite</code> and <code>rotation_needed</code>, <code>key rotate --suite</code>, the deprecated and retired health sentences, and the re-encrypt operation with its dry run. Section 9 lists what it leans on. Every surface is drawn four times: light, dark, and narrow in each, in the token set from <code>ui/shared/src/design-system/tokens.css</code>, and in the vocabulary <code>994-retained-copy-encryption.html</code> settled (the Encrypted chip and the Verified recoverable chip stay two chips; nothing here changes either beyond adding the suite id).</p>
+  <div class="notice" role="note" id="status">
+    <b>Status: a mock-up, superseded where the product differs.</b>
+    <p class="sub" style="color:var(--text)">A picture drawn on 2026-11-10 to settle decisions for the component work in the same issue. Where the product and this note disagree, the product wins. The <code>Describe()</code> sentences drawn here are placeholders of the right shape: the build prints the registry's own sentence and never one typed in the UI. No key, recipient, canary or credential appears anywhere in this file or its render. A post-quantum recipient is about 2000 characters, so wherever one could ever be drawn it is clipped at 80 with a copy action (section 6), and none is drawn in full here.</p>
+  </div>
+</header>
+
+<section class="sec" id="select">
+  <h2>1. Settings: the Suite choice inside the Retained-copy encryption card</h2>
+  <div class="grid" data-surface="select"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> The card gains one group, <em>Suite</em>, listing every suite the registry has, in registry order, each with its id in mono, a status badge and the suite's own <code>Describe()</code> sentence under it. The default carries a <em>Default</em> badge (ok edge and fill), a supported suite <em>Supported</em> (neutral edge), a deprecated suite <em>Deprecated, retiring in V</em> (warn edge and fill), and a retired suite is shown, dashed and disabled, with <em>Retired</em> and the reason it cannot be chosen. The current choice is the policy's resolved <code>suite</code>; when the configuration says <code>default</code> the line under the group says so, because "follows the build's default" and "pinned to age-pq/v1" are different promises across an upgrade.</p>
+    <p><strong>Why a radio group and not a native select.</strong> A native <code>&lt;option&gt;</code> cannot carry a sentence under it, a badge beside it or a reason next to a disabled entry, and its disabled ink is the browser's, which cannot be measured or held to 4.5:1. The issue asks for the status beside each option and the reason beside a retired one, so every option is a row that can show them, measured in section 8. It is still one choice with one value, and the keyboard moves through it as a radio group does.</p>
+    <p><strong>Off is unchanged.</strong> With encryption off the card stays one switch and one sentence, as #994 decided: no Suite group is drawn, because there is nothing to write under a suite until encryption is on. Enabling creates the first key under the policy's suite, which reads as the default unless a configuration pins one.</p>
+  </div>
+</section>
+
+<section class="sec" id="flow">
+  <h2>2. Changing the suite: patch, then Rotate key, Download bundle, Confirm, in that order</h2>
+  <div class="grid" data-surface="flow"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> Choosing a suite opens one dialog. Its first step states the effect from the code (new copies go under the new suite once it has an active key, every existing copy keeps its recorded suite and key and stays readable, nothing is re-encrypted) and echoes <code>retnd encryption policy patch --suite &lt;id&gt;</code>. Confirming patches the policy and re-reads it. When the answer says <code>rotation_needed</code>, the same dialog moves to <em>Rotate key</em> (echo <code>retnd encryption key rotate --suite &lt;id&gt;</code>), then to <em>Download bundle</em> (the existing one-time export, its acknowledgement and its step-up), then to <em>Confirm</em> (the existing statement, never an upload). A strip of three steps at the top shows where the operator is and what is done.</p>
+    <p><strong>Leaving early says what is owed.</strong> Cancel, Escape or a click outside on any step after the patch does not close the dialog straight away: it replaces the body with "Still owed" and the list of what is left (an active key for the suite, a downloaded bundle, a confirmation), each with the command that does it, and two buttons, <em>Back to the steps</em> and <em>Leave, I will finish later</em>. Leaving keeps the policy patched, because it was written, and the card and the Dashboard keep the degraded states that already exist: "No active key for suite X" (danger, copies under the policy are refused before anything is deleted) until the rotation, and "No confirmed recovery bundle" until the confirmation.</p>
+    <p><strong>Nothing about the key is held.</strong> The rotation answer is mapped to an id, a status, a suite and timestamps; a recipient or any other long string in it is dropped at the client, and the bundle step is the same download that holds the bytes only in the client function's locals.</p>
+  </div>
+</section>
+
+<section class="sec" id="copies">
+  <h2>3. The suite on every encrypted copy, on Backup detail and in the Backups list</h2>
+  <div class="grid" data-surface="copies"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> The Encrypted chip gains the suite id after its word, in mono and in <code>--text-2</code>, inside the same chip: <em>Encrypted age-pq/v1</em>. The second chip (Verified recoverable, Not decrypt-verified, Key missing, Decrypt failed) is unchanged. An <code>age/v1</code> and an <code>age-pq/v1</code> copy on one page read as two different ids in two chips, which is the whole point. A copy whose record names no suite (an older server) draws the chip as before with no id rather than a guessed one. The stored-bytes digest line on Backup detail names the suite in place of the bare format: "(suite age-pq/v1 v1, key mk-...)".</p>
+  </div>
+</section>
+
+<section class="sec" id="health">
+  <h2>4. Health: deprecated and retired suite counts on the Dashboard, and Re-encrypt under current suite with its dry run first</h2>
+  <div class="grid" data-surface="health"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> The Dashboard's encryption rows (the key-custody tile) gain one row per suite that is deprecated or retired and still recorded by an active copy or a key, in T2.1's words, exactly as <code>suiteVerdict</code> writes them: "12 active copies are under age/v1, a deprecated suite; retirement announced for version 0.9.0", or "3 active copies record mock-retired/v1, retired in 0.8.0; they still read, and re-encrypting them under the active suite clears this". Each row has <em>Re-encrypt under current suite</em>, which opens the T2.2 operation with the dry run already requested: the dialog lists the copies by key with their destination and every per-copy refusal (same medium only, key unavailable, already current) in the engine's words, and the <em>Re-encrypt</em> button is armed only once that dry run has answered. Its echo is <code>retnd encryption reencrypt --suite &lt;id&gt; --dry-run</code> before and the same line without <code>--dry-run</code> on the button.</p>
+    <p><strong>Zero is silence.</strong> A deployment with every copy under supported suites draws none of this, as a deployment that encrypts nothing draws nothing today.</p>
+  </div>
+</section>
+
+<section class="sec" id="echo">
+  <h2>5. Command echoes: the four verbs, from the one function the terminal uses</h2>
+  <div class="reason">
+    <p><code>retnd encryption suites</code> under the Suite group, <code>retnd encryption policy patch --suite &lt;id&gt;</code> on the change step, <code>retnd encryption key rotate --suite &lt;id&gt;</code> on the rotate step and <code>retnd encryption reencrypt --suite &lt;id&gt; [--dry-run]</code> in the re-encrypt dialog. All four come from <code>encryptionCommands.ts</code>, so the line beside a control and the terminal's echo of the request cannot disagree, and the terminal never says a suite action has no equivalent.</p>
+  </div>
+</section>
+
+<section class="sec" id="clip">
+  <h2>6. Long strings: nothing over 80 characters is drawn whole</h2>
+  <div class="grid" data-surface="clip"></div>
+  <div class="reason">
+    <p>No surface in this issue draws a recipient, and the client's mapping drops one if a response carries it. As a second line of defence, every runtime string the new surfaces print (an id, a refusal sentence quoted from the engine) goes through one clip: up to 80 characters it is drawn as it is, past that it is cut at 80 with an ellipsis and a <em>Copy</em> button that copies the whole value to the clipboard without putting it in the page. The canary rows plant a 2000-character post-quantum-shaped recipient in the mock's responses for the Settings card and the backup page and assert the page never holds it.</p>
+  </div>
+</section>
+
+<section class="sec" id="tips">
+  <h2>7. Tooltips and field help</h2>
+  <div class="reason">
+    <table class="t">
+      <tr><th>Element</th><th>Registry id</th><th>What it states</th></tr>
+      <tr><td>Suite group</td><td><span class="tipid">encryption.suite</span></td><td>What the suite is, that new copies use it once it has an active key, that existing copies keep theirs; the field help (<code>FIELD_HELP.encryptionSuite</code>) adds an example and the effect.</td></tr>
+      <tr><td>Status badges</td><td><span class="tipid">encryption.suite.status</span></td><td>Default, Supported, Deprecated and Retired as T2.1's table defines them.</td></tr>
+      <tr><td>Each option's sentence</td><td>none</td><td>It is the registry's <code>Describe()</code> sentence, runtime data, so it is drawn as text and never put through the HTML registry.</td></tr>
+      <tr><td>Suite id on the Encrypted chip</td><td><span class="tipid">encryption.state.encrypted</span></td><td>The existing entry, extended by one sentence: the id after the word is the suite the copy was written under.</td></tr>
+      <tr><td>Health rows</td><td><span class="tipid">encryption.health.suite</span></td><td>What deprecated and retired mean for new copies and for reading.</td></tr>
+      <tr><td>Re-encrypt under current suite</td><td><span class="tipid">encryption.reencrypt</span></td><td>Moves each copy to another medium under the active suite and key, retires the source only after decrypt-verify, dry run first, never automatic.</td></tr>
+    </table>
+  </div>
+</section>
+
+<section class="sec" id="contrast">
+  <h2>8. Measured contrast</h2>
+  <div class="reason">
+    <p>I computed these from the token values in <code>tokens.css</code> at <code>477aec5a</code>, converting the <code>oklch()</code> tokens to sRGB and applying the WCAG 2.x relative-luminance formula. Text needs 4.5:1, an edge that identifies a control needs 3:1. No new token is introduced; every pair below is an existing token on an existing surface.</p>
+    <table class="t">
+      <tr><th>Pair</th><th>Light</th><th>Dark</th><th>Needs</th></tr>
+      <tr><td>Suite id in the Encrypted chip: --text-2 on --surface-2</td><td>6.36</td><td>6.51</td><td>4.5</td></tr>
+      <tr><td>Chip word: --text on --surface-2</td><td>16.71</td><td>13.73</td><td>4.5</td></tr>
+      <tr><td>Default badge: --text on --ok-quiet</td><td>15.45</td><td>12.27</td><td>4.5</td></tr>
+      <tr><td>Deprecated badge: --text on --warn-quiet</td><td>15.46</td><td>11.80</td><td>4.5</td></tr>
+      <tr><td>Retired badge: --text-2 on --surface-2</td><td>6.36</td><td>6.51</td><td>4.5</td></tr>
+      <tr><td>Disabled (retired) option id and reason: --text-2 on --surface</td><td>6.64</td><td>6.89</td><td>4.5</td></tr>
+      <tr><td>Describe() sentence: --text-2 on --surface</td><td>6.64</td><td>6.89</td><td>4.5</td></tr>
+      <tr><td>Selected option edge: --accent on --surface (the row keeps the plain surface)</td><td>5.51</td><td>6.36</td><td>3</td></tr>
+      <tr><td>Current step: --text on --accent-quiet</td><td>15.10</td><td>11.68</td><td>4.5</td></tr>
+      <tr><td>Tooltip body: --text-2 on --surface</td><td>6.64</td><td>6.89</td><td>4.5</td></tr>
+      <tr><td>Tooltip strong and code: --text on --surface-3</td><td>15.29</td><td>12.73</td><td>4.5</td></tr>
+      <tr><td>Still-owed note and health rows: --text on --warn-quiet</td><td>15.46</td><td>11.80</td><td>4.5</td></tr>
+      <tr><td>Option, badge and step edge: --edge-3 on --surface</td><td>3.35</td><td>3.85</td><td>3</td></tr>
+      <tr><td>Default badge edge and done-step glyph: --ok on --surface</td><td>5.24</td><td>7.16</td><td>3</td></tr>
+      <tr><td>Deprecated badge edge: --warn on --surface</td><td>4.76</td><td>8.34</td><td>3</td></tr>
+    </table>
+    <p>The first draft filled the selected option with <code>--accent-quiet</code>. A neutral badge edge (<code>--edge-3</code>) on that fill measures 2.90:1 in light, under the 3:1 a control edge needs, so the selected row keeps the plain surface and is marked by a 2px <code>--accent</code> edge (5.51:1 and 6.36:1) and by its checked radio.</p>
+    <p>The disabled option is not faded with opacity, which is how a disabled control usually loses its contrast: it keeps <code>--text-2</code>, a dashed edge and the word <em>Retired</em>, so it reads as unavailable by its shape and its words rather than by being hard to read.</p>
+  </div>
+</section>
+
+<section class="sec" id="assumptions">
+  <h2>9. What this note leans on</h2>
+  <div class="reason">
+    <p>Written against the issue bodies on 2026-11-10 and checked against the merged contract the same day (T1.5 #1325, T2.1 #1327, T2.2 #1326). <code>GET /encryption/suites</code> answers <code>suites[]</code> with <code>id</code>, <code>version</code>, <code>status</code>, <code>default</code>, <code>describe</code> (the <code>Describe()</code> sentence), <code>retirement_version</code> (announced for a deprecated suite, or the one that retired it) and the <code>active_copies</code> and <code>keys</code> counts. The policy carries <code>suite</code> and <code>suite_configured</code>, and a patch with <code>suite</code> answers <code>rotation_needed</code> and <code>rotate_command</code> without rotating. A key carries <code>suite</code>, and <code>POST /encryption/keys/rotate?suite=</code> rotates into one. A placement carries <code>encryption_suite</code> next to <code>encryption_key_id</code> (added in this issue: the copy record's <code>format_id</code> is the suite id). The re-encrypt dry run is <code>GET /encryption/reencrypt</code> with <code>suite</code>, <code>key</code> or <code>deprecated</code> and an optional <code>destination</code>, answering groups by suite and key with a verdict, refusal code and reason per copy; the run is <code>POST</code> with <code>destination_medium</code> required, so the dialog takes the destination the dry run proposed and echoes it with <code>--to</code>. The health section's sentence is not on the wire, so the tile composes it from these counts in the same words.</p>
+  </div>
+</section>
+</div>
+
+<script>
+const G={lock:"▣",check2:"✓✓",hollow:"○",nolock:"⊘",key:"⚿",pass:"✓",dot:"•",warn:"!"};
+const chip=(cls,g,label,extra)=>`<span class="chip ${cls}"><span class="g" aria-hidden="true">${g}</span>${label}${extra||""}</span>`;
+const enc=(suite)=>chip("s-enc",G.lock,"Encrypted",suite?`<span class="suiteid">${suite}</span>`:"");
+const unver=()=>chip("s-unver",G.hollow,"Not decrypt-verified");
+const recov=(age)=>chip("s-recov",G.check2,"Verified recoverable",` <span class="age">${age}</span>`);
+const echo=(...c)=>`<div class="echo"><span class="eyebrow">Equivalent command</span>${c.map(x=>`<code>${x}</code>`).join("")}</div>`;
+const opt=(id,badge,d,cls)=>`<label class="sopt ${cls||""}"><input type="radio" ${cls==="on"?"checked":""} ${cls==="off"?"disabled":""}><span class="id">${id}${badge}</span><span class="d">${d}</span></label>`;
+const S={
+ select(){return `<div class="card"><h3>Retained-copy encryption <span class="grow"></span>${chip("s-key-ok",G.key,"Managed key active")}</h3><div class="body">
+  <fieldset class="suites"><legend>Suite</legend>
+   ${opt("age-pq/v1",`<span class="badge b-default">Default</span>`,"age v1 with a hybrid ML-KEM-768 and X25519 recipient; 128-bit security level.","on")}
+   ${opt("age/v1",`<span class="badge b-deprecated">Deprecated, retiring in 0.9.0</span>`,"age v1 with an X25519 recipient; 128-bit security level.")}
+   ${opt("mock-retired/v1",`<span class="badge b-retired">Retired</span>`,"Retired in 0.8.0: copies under it still read, nothing new is written under it.","off")}
+  </fieldset>
+  <div class="muted">Configured: default (follows the build's default suite).</div>
+  ${echo("retnd encryption suites")}
+ </div></div>`},
+ flow(){return `<div class="card"><h3>Change the suite</h3><div class="body">
+  <ol class="steps"><li class="done"><span class="g">${G.pass}</span>Change suite</li><li class="now"><span class="g">2</span>Rotate key</li><li><span class="g">3</span>Download bundle</li><li><span class="g">4</span>Confirm</li></ol>
+  <div class="muted">The policy now says age-pq/v1 and there is no active key under it, so copies under the policy are refused, before anything is deleted, until you rotate.</div>
+  ${echo("retnd encryption key rotate --suite age-pq/v1")}
+  <div class="row"><button class="btn">Cancel</button><button class="btn primary">Rotate key</button></div>
+ </div></div>
+ <div class="card"><h3>Still owed</h3><div class="body">
+  <div class="notice"><b>The suite change is not finished.</b><ul style="margin:6px 0 0;padding-left:18px"><li>A downloaded recovery bundle for mk-2026-11-10-b</li><li>A confirmation that it is stored away from this host</li></ul></div>
+  <div class="muted">Leaving keeps the policy as patched; the card and the Dashboard keep saying what is owed.</div>
+  <div class="row"><button class="btn primary">Back to the steps</button><button class="btn">Leave, I will finish later</button></div>
+ </div></div>`},
+ copies(){return `<div class="card"><h3>Copies</h3><div class="body">
+  <div class="row"><span class="muted" style="min-width:110px">offsite_s3</span>${enc("age/v1")} ${unver()}</div>
+  <div class="row"><span class="muted" style="min-width:110px">offsite_cold</span>${enc("age-pq/v1")} ${recov("2d ago")}</div>
+  <dl class="kv"><dt>Stored-bytes digest, offsite_cold</dt><dd class="mono">sha256:f17c0de1 <span class="muted">(suite age-pq/v1 v1, key mk-2026-11-10-b)</span></dd></dl>
+ </div></div>`},
+ health(){return `<div class="card"><h3>Encryption</h3><div class="body">
+  <div class="notice"><b>Deprecated suite: age/v1</b><div class="muted">12 active copies are under age/v1, a deprecated suite; retirement announced for version 0.9.0</div><div class="row" style="margin-top:6px"><button class="btn">Re-encrypt under current suite</button></div></div>
+  <div class="notice"><b>Retired suite: mock-retired/v1</b><div class="muted">3 active copies record mock-retired/v1, retired in 0.8.0; they still read, and re-encrypting them under the active suite clears this</div></div>
+ </div></div>
+ <div class="card"><h3>Re-encrypt under current suite</h3><div class="body">
+  <div class="muted">Dry run: 12 copies under age/v1. 10 can move to offsite_cold, 2 are refused.</div>
+  <table class="t"><tr><th>Key</th><th>Copies</th><th>Refused</th></tr><tr><td class="mono">mk-2026-08-14-a</td><td>10 to offsite_cold</td><td>2: same medium only</td></tr></table>
+  ${echo("retnd encryption reencrypt --suite age/v1 --dry-run","retnd encryption reencrypt --suite age/v1 --to offsite_cold")}
+  <div class="row"><button class="btn">Cancel</button><button class="btn primary">Re-encrypt 10 copies</button></div>
+ </div></div>`},
+ clip(){return `<div class="card"><h3>A value past 80 characters</h3><div class="body">
+  <div class="row"><span class="clip">age1pq1qz8x0c4m5n6p7r8s9t0u2v3w4x5y6z7a8b9c0d1e2f3g4h5j6k7m8n9p0q2r3s4t5u6v7w…</span><button class="btn">Copy</button></div>
+  <div class="muted">Cut at 80 characters with an ellipsis. Copy puts the whole value on the clipboard and nowhere on the page.</div>
+ </div></div>`}
+};
+document.querySelectorAll("[data-surface]").forEach(g=>{
+  const fn=S[g.dataset.surface];
+  const mk=(theme,narrow)=>`<div class="frame th-${theme}${narrow?" narrow":""}"><div class="tag">${theme}${narrow?", narrow":""}</div>${fn()}</div>`;
+  g.innerHTML=mk("light",false)+mk("dark",false)+mk("light",true)+mk("dark",true);
+});
+</script>

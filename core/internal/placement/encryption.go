@@ -81,6 +81,12 @@ import (
 // is the operator's explicit act, EncryptExisting (retroencrypt.go, #1291),
 // and it reuses this file's encrypting pass and verification unchanged: the
 // plaintext object is the source of the same copyEncryptedToMedium.
+//
+// Re-encrypting an encrypted copy under the active suite and key (#1317) is
+// the same opted-in move with an encrypted source: the old ciphertext is
+// opened under the suite and key its own record names and streamed into the
+// same encrypting pass, and the destination is verified, like a fresh copy,
+// through the active key. A move with no opt-in stays a re-home.
 
 // Keys is the slice of key custody the byte path uses. *keycustody.Store
 // satisfies it. The identity is only ever handed to a callback, which is
@@ -117,8 +123,17 @@ func (e *Engine) activeKey(ctx context.Context, artifact model.ArtifactID) (keyc
 	if e.Keys == nil {
 		return keycustody.KeyRecord{}, fmt.Errorf("%w: backup set %s requires encryption and no key custody is configured", ErrClassUnavailable, artifact.Set)
 	}
+	want, pinned := bs.RetainedCopyEncryption.PinnedSuite()
 	if kp := bs.RetainedCopyEncryption.KeyProvider; kp.External != nil {
-		return e.externalKey(ctx, artifact.Set, kp.ExternalRef())
+		rec, err := e.externalKey(ctx, artifact.Set, kp.ExternalRef())
+		if err != nil {
+			return rec, err
+		}
+		if pinned && keySuite(rec) != want {
+			return keycustody.KeyRecord{}, fmt.Errorf("%w: %w: backup set %s pins suite %s and its external key %s is a %s key; point the reference at a %s key",
+				ErrClassUnavailable, ErrNoActiveKeyForSuite, artifact.Set, want, rec.ID, keySuite(rec), want)
+		}
+		return rec, nil
 	}
 	if !bs.RetainedCopyEncryption.KeyProvider.Managed {
 		return keycustody.KeyRecord{}, fmt.Errorf("%w: backup set %s requires encryption and names no key provider", ErrClassUnavailable, artifact.Set)
@@ -127,8 +142,21 @@ func (e *Engine) activeKey(ctx context.Context, artifact model.ArtifactID) (keyc
 	if err != nil {
 		return keycustody.KeyRecord{}, fmt.Errorf("%w: reading the active key: %w", ErrClassUnavailable, err)
 	}
+	if !ok && pinned {
+		return keycustody.KeyRecord{}, fmt.Errorf("%w: %w: backup set %s: no active key for suite %s; run `retnd encryption key rotate --suite %s`",
+			ErrClassUnavailable, ErrNoActiveKeyForSuite, artifact.Set, want, want)
+	}
 	if !ok {
 		return keycustody.KeyRecord{}, fmt.Errorf("%w: backup set %s requires encryption and no key is active", ErrClassUnavailable, artifact.Set)
+	}
+	// The policy's suite (FR-85, FR-86). A pinned suite is honoured exactly:
+	// an active key of another suite is never a substitute, and the copy is
+	// refused here, before any byte is encrypted and before any destructive
+	// step. The default policy is the active key's own suite (ADR 0033 D4),
+	// so an upgraded deployment keeps writing what it wrote.
+	if pinned && keySuite(rec) != want {
+		return keycustody.KeyRecord{}, fmt.Errorf("%w: %w: backup set %s: no active key for suite %s (the active key %s is %s); run `retnd encryption key rotate --suite %s`",
+			ErrClassUnavailable, ErrNoActiveKeyForSuite, artifact.Set, want, rec.ID, keySuite(rec), want)
 	}
 	if err := e.Keys.WithKey(ctx, rec.ID, func([]byte) error { return nil }); err != nil {
 		return keycustody.KeyRecord{}, fmt.Errorf("%w: key %s does not resolve: %w", ErrClassUnavailable, rec.ID, err)
@@ -191,7 +219,9 @@ func refuseEncryptedMove(artifact model.ArtifactID, from string) error {
 }
 
 // copyEncryptedToMedium is the copy phase for a local source going to a
-// medium under a set that requires encryption.
+// medium under a set that requires encryption, and for a move an operator
+// opted in to: a plaintext medium copy (#1291) or an encrypted one under an
+// older suite or key (#1317), both written under the active suite and key.
 func (e *Engine) copyEncryptedToMedium(ctx context.Context, mv state.Move, src state.Placement) (int64, error) {
 	if e.Store == nil {
 		return 0, fmt.Errorf("no medium store is configured")
@@ -210,6 +240,20 @@ func (e *Engine) copyEncryptedToMedium(ctx context.Context, mv state.Move, src s
 	key, err := e.activeKey(ctx, mv.Artifact)
 	if err != nil {
 		return 0, err
+	}
+	// The copy is written under the key's own suite, and only that suite
+	// (FR-85): the key is a key of exactly one, and the record written at
+	// the VERIFIED advance names the suite that opened it, which is this one.
+	suite, err := suiteOf(key.SuiteID)
+	if err != nil {
+		return 0, err
+	}
+	// A retired suite reads every copy it wrote and writes none (#1316,
+	// FR-87). The refusal sits where the required refusal sits: the key has
+	// only been proved readable, and nothing is staged, uploaded or deleted
+	// yet. Another suite is never substituted (FR-86).
+	if err := copycrypt.CheckWrite(suite); err != nil {
+		return 0, fmt.Errorf("%w: backup set %s: %w", ErrClassUnavailable, mv.Artifact.Set, err)
 	}
 
 	staged, err := e.stagingPath(mv.Artifact)
@@ -231,10 +275,6 @@ func (e *Engine) copyEncryptedToMedium(ctx context.Context, mv state.Move, src s
 		return 0, err
 	}
 
-	rc, err := e.openEncryptionSource(ctx, src)
-	if err != nil {
-		return 0, err
-	}
 	// The artifact's size is the total of the encrypting stage: what is read
 	// is the plaintext, so the ciphertext's extra header and tags do not
 	// bend the bar. It is the journal's number when it has one and the
@@ -245,10 +285,27 @@ func (e *Engine) copyEncryptedToMedium(ctx context.Context, mv state.Move, src s
 	} else if st, statErr := e.Local.Stat(ctx, src.Location); statErr == nil && st.Size != nil {
 		total = *st.Size
 	}
-	m := e.newMeter(StageEncrypting, mv.Artifact, total)
-	pass, encErr := copycrypt.EncryptToStaging(ctx, dir, filepath.Base(staged), m.wrap(rc), key.Recipient, src.Hash)
-	_ = rc.Close()
-	m.end()
+	// The source is plaintext (local, or #1291's medium copy) or, for #1317's
+	// re-encryption, an older ciphertext opened under its own suite and key;
+	// either way what reaches the encrypting pass is the artifact's plaintext,
+	// checked against src.Hash as it goes, and nothing plaintext touches disk.
+	var pass copycrypt.Staged
+	var encErr error
+	srcErr := e.withEncryptionSource(ctx, mv, src, func(plaintext io.Reader) error {
+		m := e.newMeter(StageEncrypting, mv.Artifact, total)
+		pass, encErr = copycrypt.EncryptToStaging(ctx, dir, filepath.Base(staged), m.wrap(plaintext), suite, key.Recipient, src.Hash)
+		m.end()
+		return encErr
+	})
+	if encErr == nil && srcErr != nil {
+		// Nothing was encrypted: the source could not be opened.
+		return 0, srcErr
+	}
+	if srcErr != nil && !errors.Is(srcErr, encErr) {
+		// The encrypting pass failed because its source did (a medium read,
+		// or an old ciphertext that would not open); that is the reason.
+		encErr = srcErr
+	}
 	e.Logger.CopyEncrypting(ctx, mv.Artifact.String(), mv.DestinationMedium, resultOf(encErr))
 	if encErr != nil {
 		if errors.Is(encErr, copycrypt.ErrKeyUnavailable) {
@@ -315,8 +372,10 @@ func resultOf(err error) obs.Result {
 //
 // keyID is the key the copy must open under: empty for a fresh copy, which
 // opens under the key it was just written with (the active one), and the
-// source copy's recorded key id for a re-home.
-func (e *Engine) verifyEncrypted(ctx context.Context, mv state.Move, medium transport.Medium, want Class, candidate state.Placement, gated bool, keyID string, observed archive.Observation) (Result, Class, error) {
+// source copy's recorded key id for a re-home. suiteID is the suite it must
+// open under, from the same place: the record's format_id when there is a
+// record, and the active key's suite for a fresh copy (ADR 0033 D7.4).
+func (e *Engine) verifyEncrypted(ctx context.Context, mv state.Move, medium transport.Medium, want Class, candidate state.Placement, gated bool, keyID, suiteID string, observed archive.Observation) (Result, Class, error) {
 	if want != Content {
 		return Result{}, want, fmt.Errorf("%w: %s verification cannot show that an encrypted copy decrypts to the artifact, and nothing weaker than a completed decrypt-verify may stand in for content",
 			ErrClassRefused, want)
@@ -326,7 +385,7 @@ func (e *Engine) verifyEncrypted(ctx context.Context, mv state.Move, medium tran
 		if err != nil {
 			return Result{}, want, err
 		}
-		keyID = key.ID
+		keyID, suiteID = key.ID, key.SuiteID
 	}
 	if gated {
 		access, err := archive.Access(candidate.Medium, medium.StorageClass, observed, e.now())
@@ -343,7 +402,7 @@ func (e *Engine) verifyEncrypted(ctx context.Context, mv state.Move, medium tran
 	if gated {
 		stage = func(total int64) *meter { return e.newMeter(StageDecryptVerifying, mv.Artifact, total) }
 	}
-	res, err := verifyEncryptedContent(ctx, e.Store, e.Keys, keyID, medium, candidate, e.now(), stage)
+	res, err := verifyEncryptedContent(ctx, e.Store, e.Keys, keyID, suiteID, medium, candidate, e.now(), stage)
 	if gated {
 		// One row per copy per stage, on the verification that is recorded;
 		// the re-read before the source delete is not a stage of its own.
@@ -381,14 +440,25 @@ func (t *tally) Write(p []byte) (int, error) {
 // authentication, or decrypts to something other than the artifact, is a
 // failed verification and never an error: it is a fact about the object.
 //
+// suiteID names the suite the copy is opened under: the copy's record's
+// format_id, or the writing key's suite for a fresh copy (empty reads as
+// age/v1, a key written before migration 0020). A suite this build has no
+// adapter for is ErrClassUnavailable before the key or the object is
+// touched: never plaintext, never content (ADR 0033 D7.4). The Result's
+// record names that same suite, from the adapter and never from config.
+//
 // stage, when non-nil, opens the decrypt-verifying progress stage once the key
 // has resolved and the object is open, given the stored object's size (0 when
 // the medium cannot say). It is nil for every caller that is not the move
 // engine's recorded verification.
-func verifyEncryptedContent(ctx context.Context, store Store, keys Keys, keyID string, medium transport.Medium, p state.Placement, now time.Time, stage func(total int64) *meter) (Result, error) {
+func verifyEncryptedContent(ctx context.Context, store Store, keys Keys, keyID, suiteID string, medium transport.Medium, p state.Placement, now time.Time, stage func(total int64) *meter) (Result, error) {
 	if p.Hash == "" || !strings.EqualFold(p.HashAlg, string(transport.SHA256)) {
 		return Result{}, fmt.Errorf("%w: decrypt-verification compares against a recorded %s, and this placement records %q",
 			ErrClassUnavailable, transport.SHA256, p.HashAlg)
+	}
+	suite, err := suiteOf(suiteID)
+	if err != nil {
+		return Result{}, fmt.Errorf("opening %q on %q: %w", p.Location, p.Medium, err)
 	}
 	if keys == nil || keyID == "" {
 		return Result{}, fmt.Errorf("%w: %w: no key custody is available to open %q", ErrClassUnavailable, ErrKeyUnresolvable, p.Location)
@@ -402,7 +472,7 @@ func verifyEncryptedContent(ctx context.Context, store Store, keys Keys, keyID s
 		resolved bool
 		stored   = &tally{h: sha256.New()}
 	)
-	err := keys.WithKey(ctx, keyID, func(secret []byte) error {
+	err = keys.WithKey(ctx, keyID, func(secret []byte) error {
 		resolved = true
 		rc, err := store.OpenObject(ctx, medium, p.Location)
 		if err != nil {
@@ -419,7 +489,7 @@ func verifyEncryptedContent(ctx context.Context, store Store, keys Keys, keyID s
 			defer m.end()
 		}
 		tee := io.TeeReader(m.wrap(rc), stored)
-		if _, err := copycrypt.DecryptVerifyProgress(ctx, tee, secret, p.Hash, readProgressOf(ctx)); err != nil {
+		if _, err := copycrypt.DecryptVerifyProgress(ctx, tee, suite, secret, p.Hash, readProgressOf(ctx)); err != nil {
 			return err
 		}
 		// Whatever follows the final chunk is an error DecryptVerify already
@@ -446,7 +516,7 @@ func verifyEncryptedContent(ctx context.Context, store Store, keys Keys, keyID s
 		Class: Content, Passed: true, At: now,
 		Detail: fmt.Sprintf("%s on %s was read back, decrypted and authenticated, and its plaintext hashes to the %s recorded at ingestion", p.Location, p.Medium, p.HashAlg),
 		Encryption: &state.PlacementEncryption{
-			FormatID: copycrypt.FormatID, FormatVersion: copycrypt.FormatVersion, KeyID: keyID,
+			FormatID: suite.ID(), FormatVersion: suite.Version(), KeyID: keyID,
 			StoredHash: hex.EncodeToString(stored.h.Sum(nil)), StoredHashAlg: string(transport.SHA256), StoredSize: stored.n,
 		},
 	}, nil
@@ -490,7 +560,7 @@ func VerifyCopy(ctx context.Context, store Store, keys Keys, medium transport.Me
 	}
 	switch want {
 	case Content:
-		res, err := verifyEncryptedContent(ctx, store, keys, enc.KeyID, medium, p, now, nil)
+		res, err := verifyEncryptedContent(ctx, store, keys, enc.KeyID, enc.FormatID, medium, p, now, nil)
 		if err == nil && res.Passed && res.Encryption != nil && res.Encryption.StoredHash != enc.StoredHash {
 			res.Detail += fmt.Sprintf("; the bytes at the key hash to %s, not the %s recorded when the copy was committed, so the object was replaced after that (it still decrypts to the artifact)",
 				res.Encryption.StoredHash, enc.StoredHash)
@@ -508,4 +578,35 @@ func VerifyCopy(ctx context.Context, store Store, keys Keys, medium transport.Me
 	default:
 		return Result{}, fmt.Errorf("%w: %s verification cannot show that an encrypted copy decrypts to the artifact", ErrClassUnavailable, want)
 	}
+}
+
+// suiteOf is the copycrypt suite id names, with the empty id (a key written
+// before migration 0020, or a registry that does not record suites) read as
+// age/v1, which is what every such key is. An id this build has no adapter
+// for wraps copycrypt.ErrUnknownSuite and ErrClassUnavailable: a copy under
+// it cannot be written or checked here, and nothing weaker stands in.
+func suiteOf(id string) (copycrypt.Suite, error) {
+	if id == "" {
+		id = copycrypt.AgeX25519ID
+	}
+	suite, ok := copycrypt.Lookup(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: %w: %q", ErrClassUnavailable, copycrypt.ErrUnknownSuite, id)
+	}
+	return suite, nil
+}
+
+// ErrNoActiveKeyForSuite is what a copy is refused with, beside
+// ErrClassUnavailable, when the policy pins a suite and no active key of
+// that suite exists (EPIC T, #1314). The message names the suite and the
+// rotate command; nothing is written under another suite.
+var ErrNoActiveKeyForSuite = errors.New("placement: no active key for the policy's suite")
+
+// keySuite is a key record's suite id, with the empty id of a key written
+// before migration 0020 read as age/v1.
+func keySuite(rec keycustody.KeyRecord) string {
+	if rec.SuiteID == "" {
+		return copycrypt.AgeX25519ID
+	}
+	return rec.SuiteID
 }

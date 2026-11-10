@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/retnd/retnd/core/internal/copycrypt"
 	"github.com/retnd/retnd/core/internal/model"
 )
 
@@ -88,6 +89,14 @@ var (
 	// digest handed in equals the artifact's plaintext digest, so it
 	// describes the plaintext and not the bytes at the key.
 	ErrStoredDigestIsPlaintext = errors.New("state: the stored-bytes digest equals the artifact's plaintext digest; a ciphertext copy does not hash to its plaintext")
+
+	// ErrUnknownSuite is the refusal for a key or a per-copy record naming a
+	// suite copycrypt's registry does not have (EPIC T, #1312). A suite id
+	// is written by the committing attempt from the suite that produced the
+	// bytes; an id this build cannot read is something else, a config
+	// string or a typo, and recording it would leave a copy nobody can open
+	// described as encrypted (ADR 0033 D7.3).
+	ErrUnknownSuite = errors.New("state: no encryption suite with that id is registered")
 )
 
 // EncryptionKey is one row of the key registry. It carries no material.
@@ -109,6 +118,12 @@ type EncryptionKey struct {
 
 	CreatedAt time.Time
 	RetiredAt *time.Time
+
+	// SuiteID is the copycrypt suite the key belongs to (migration 0020).
+	// Empty on a key being registered means age/v1; a key read back with no
+	// encryption_key_suites row was written before 0020 and reads age/v1,
+	// which is what every such key is.
+	SuiteID string
 }
 
 // RegisterEncryptionKey adds a key to the registry. It refuses an empty id,
@@ -123,9 +138,23 @@ func (j *Journal) RegisterEncryptionKey(ctx context.Context, k EncryptionKey) er
 // key to EncryptionKeySuperseded in the same transaction, so a crash cannot
 // leave two active managed keys or none. An unknown supersede id is
 // ErrEncryptionKeyNotFound and rolls the new key back.
+//
+// The key's suite is written in the same transaction (migration 0020's
+// encryption_key_suites), and a suite copycrypt's registry does not have is
+// ErrUnknownSuite before anything is written. The supersede may name a key
+// of another suite: that is a rotation across suites (ADR 0033 D3), and
+// migration 0015's one-active-managed index, which 0020 leaves as it was,
+// still allows exactly one active managed key whatever its suite.
 func (j *Journal) AddEncryptionKey(ctx context.Context, k EncryptionKey, supersede string) error {
 	if k.ID == "" {
 		return fmt.Errorf("state: register encryption key: id must not be empty")
+	}
+	suite := k.SuiteID
+	if suite == "" {
+		suite = copycrypt.AgeX25519ID
+	}
+	if _, ok := copycrypt.Lookup(suite); !ok {
+		return fmt.Errorf("%w: register encryption key %s: suite %q", ErrUnknownSuite, k.ID, suite)
 	}
 	if !containsString(KeyProviders, k.Provider) {
 		return fmt.Errorf("state: register encryption key %s: provider %q is not one of %v", k.ID, k.Provider, KeyProviders)
@@ -178,13 +207,22 @@ func (j *Journal) AddEncryptionKey(ctx context.Context, k EncryptionKey, superse
 	if n, err := res.RowsAffected(); err == nil && n == 0 {
 		return fmt.Errorf("%w: %s", ErrEncryptionKeyExists, k.ID)
 	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO encryption_key_suites (key_id, suite_id) VALUES (?, ?)`, k.ID, suite); err != nil {
+		return fmt.Errorf("state: register encryption key %s: recording its suite: %w", k.ID, err)
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("state: register encryption key %s: %w", k.ID, err)
 	}
 	return nil
 }
 
-const encryptionKeyColumns = `id, provider, recipient, status, created_at, retired_at`
+// encryptionKeyColumns and encryptionKeysFrom read a key with its suite.
+// A key with no encryption_key_suites row predates migration 0020 and is
+// age/v1, so the absence is read as that id here, in one place.
+const (
+	encryptionKeyColumns = `k.id, k.provider, k.recipient, k.status, k.created_at, k.retired_at, COALESCE(ks.suite_id, '` + copycrypt.AgeX25519ID + `')`
+	encryptionKeysFrom   = `encryption_keys k LEFT JOIN encryption_key_suites ks ON ks.key_id = k.id`
+)
 
 func scanEncryptionKey(row scanRow) (EncryptionKey, error) {
 	var (
@@ -192,7 +230,7 @@ func scanEncryptionKey(row scanRow) (EncryptionKey, error) {
 		createdAt string
 		retiredAt sql.NullString
 	)
-	if err := row.Scan(&k.ID, &k.Provider, &k.Recipient, &k.Status, &createdAt, &retiredAt); err != nil {
+	if err := row.Scan(&k.ID, &k.Provider, &k.Recipient, &k.Status, &createdAt, &retiredAt, &k.SuiteID); err != nil {
 		return EncryptionKey{}, err
 	}
 	created, err := parseTime(createdAt)
@@ -210,7 +248,7 @@ func scanEncryptionKey(row scanRow) (EncryptionKey, error) {
 
 // EncryptionKeys lists every registered key, oldest first.
 func (j *Journal) EncryptionKeys(ctx context.Context) ([]EncryptionKey, error) {
-	rows, err := j.db.QueryContext(ctx, `SELECT `+encryptionKeyColumns+` FROM encryption_keys ORDER BY created_at, id`)
+	rows, err := j.db.QueryContext(ctx, `SELECT `+encryptionKeyColumns+` FROM `+encryptionKeysFrom+` ORDER BY k.created_at, k.id`)
 	if err != nil {
 		return nil, fmt.Errorf("state: list encryption keys: %w", err)
 	}
@@ -231,7 +269,7 @@ func (j *Journal) EncryptionKeys(ctx context.Context) ([]EncryptionKey, error) {
 
 // EncryptionKey returns one registered key, or ErrEncryptionKeyNotFound.
 func (j *Journal) EncryptionKey(ctx context.Context, id string) (EncryptionKey, error) {
-	k, err := scanEncryptionKey(j.db.QueryRowContext(ctx, `SELECT `+encryptionKeyColumns+` FROM encryption_keys WHERE id = ?`, id))
+	k, err := scanEncryptionKey(j.db.QueryRowContext(ctx, `SELECT `+encryptionKeyColumns+` FROM `+encryptionKeysFrom+` WHERE k.id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return EncryptionKey{}, fmt.Errorf("%w: %s", ErrEncryptionKeyNotFound, id)
 	}
@@ -296,7 +334,7 @@ func (j *Journal) RetireEncryptionKey(ctx context.Context, keyID string, at time
 	}
 	defer tx.Rollback() //nolint:errcheck // rolled back unless committed
 
-	k, err := scanEncryptionKey(tx.QueryRowContext(ctx, `SELECT `+encryptionKeyColumns+` FROM encryption_keys WHERE id = ?`, keyID))
+	k, err := scanEncryptionKey(tx.QueryRowContext(ctx, `SELECT `+encryptionKeyColumns+` FROM `+encryptionKeysFrom+` WHERE k.id = ?`, keyID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%w: %s", ErrEncryptionKeyNotFound, keyID)
 	}
@@ -330,7 +368,11 @@ func (j *Journal) RetireEncryptionKey(ctx context.Context, keyID string, at time
 // written and what its stored bytes hash to. A copy with no record is
 // plaintext.
 type PlacementEncryption struct {
-	// FormatID and FormatVersion name the on-the-wire format (ADR 0027).
+	// FormatID and FormatVersion name the on-the-wire format (ADR 0027),
+	// which is the suite id and its version (ADR 0033 D1). A write naming a
+	// suite copycrypt's registry does not have is ErrUnknownSuite; a read
+	// returns whatever the row holds, and the reader decides (an unknown id
+	// is ErrClassUnavailable in the engine, "unknown suite" in a rebuild).
 	FormatID      string
 	FormatVersion int
 
@@ -358,6 +400,17 @@ func (e PlacementEncryption) validate() error {
 		return fmt.Errorf("state: record placement encryption: the stored-bytes digest and its algorithm must both be set")
 	case e.StoredSize < 0:
 		return fmt.Errorf("state: record placement encryption: stored size %d must not be negative", e.StoredSize)
+	}
+	// The id must name a suite this build can read (FR-83, ADR 0033 D7.3).
+	// The engine writes it from the suite that produced the bytes; anything
+	// else reaching here is a config string or a typo, and a record naming
+	// it would describe as encrypted a copy nothing here can open.
+	suite, ok := copycrypt.Lookup(e.FormatID)
+	if !ok {
+		return fmt.Errorf("%w: record placement encryption: format id %q", ErrUnknownSuite, e.FormatID)
+	}
+	if e.FormatVersion != suite.Version() {
+		return fmt.Errorf("state: record placement encryption: format version %d is not the version of suite %s (%d)", e.FormatVersion, e.FormatID, suite.Version())
 	}
 	return nil
 }
@@ -609,4 +662,36 @@ func containsString(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// ActiveEncryptedCopiesBySuite counts the ACTIVE copies whose encryption
+// record names each suite id (EPIC T, #1315). An id no copy records is
+// absent from the map. Copies that are delete-pending or gone are not
+// counted, for the reason ActivePlacementsRecordingKey gives.
+func (j *Journal) ActiveEncryptedCopiesBySuite(ctx context.Context) (map[string]int, error) {
+	rows, err := j.db.QueryContext(ctx, `
+		SELECT pe.format_id, COUNT(*)
+		  FROM placement_encryption pe
+		  JOIN placements p ON p.id = pe.placement_id
+		 WHERE p.status = ?
+		 GROUP BY pe.format_id`, PlacementActive)
+	if err != nil {
+		return nil, fmt.Errorf("state: count encrypted copies by suite: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var (
+			suite string
+			n     int
+		)
+		if err := rows.Scan(&suite, &n); err != nil {
+			return nil, fmt.Errorf("state: count encrypted copies by suite: %w", err)
+		}
+		out[suite] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("state: count encrypted copies by suite: %w", err)
+	}
+	return out, nil
 }

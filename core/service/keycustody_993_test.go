@@ -62,7 +62,7 @@ func TestAKeyWithoutAConfirmedBundleIsADurableDegradedStateForARequiredSet_993(t
 	f := newRecoveryFixture(t, fixtureOpts{})
 	fileBacked(t, f)
 	ctx := context.Background()
-	k, err := f.b.CreateEncryptionKey(ctx)
+	k, err := f.b.CreateEncryptionKey(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}

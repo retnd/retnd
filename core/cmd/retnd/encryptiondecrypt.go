@@ -71,6 +71,7 @@ func cmdEncryptionDecrypt(args []string) int {
 	plainDigest := fs.String("digest", "", "the recorded plaintext digest (hex SHA-256), in place of a sidecar")
 	storedDigest := fs.String("stored-digest", "", "with --digest: the recorded stored-bytes digest (hex SHA-256) to check first")
 	out := fs.String("out", "", "the file to write the recovered artifact to; it must not exist")
+	suiteFlag := fs.String("suite", "", "a confirmation only: the suite the copy is under, which must match what the sidecar and the key say")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return exitUsage
@@ -94,7 +95,7 @@ func cmdEncryptionDecrypt(args []string) int {
 	}
 	object := operands[0]
 
-	identity, keyID, err := loadDecryptKey(*bundlePath, *identityPath)
+	identity, keyID, suite, err := loadDecryptKey(*bundlePath, *identityPath)
 	if err != nil {
 		return fail(err)
 	}
@@ -111,11 +112,31 @@ func cmdEncryptionDecrypt(args []string) int {
 	defer src.Close()
 
 	wantPlain, wantStored := strings.ToLower(*plainDigest), strings.ToLower(*storedDigest)
+	// The suite comes from the record when there is one (the sidecar), and
+	// otherwise from the key, which is a key of exactly one suite; --suite
+	// is a confirmation and never a choice (ADR 0033 D8, #1315). Nothing is
+	// guessed: a record naming a suite this build cannot read is refused,
+	// and so is any disagreement between the record, the key and the flag.
+	if *suiteFlag != "" {
+		if _, ok := copycrypt.Lookup(*suiteFlag); !ok {
+			return fail(fmt.Errorf("--suite %q is not a suite this build has: %w", *suiteFlag, copycrypt.ErrUnknownSuite))
+		}
+		if *suiteFlag != suite.ID() {
+			return fail(fmt.Errorf("--suite says %s and the key is a %s key; nothing was decrypted", *suiteFlag, suite.ID()))
+		}
+	}
 	if *sidecarPath != "" {
 		// The stored digest it returns is one src was already hashed against.
-		wantPlain, wantStored, err = digestsFromSidecar(*sidecarPath, src, keyID)
+		var recorded string
+		wantPlain, wantStored, recorded, err = digestsFromSidecar(*sidecarPath, src, keyID)
 		if err != nil {
 			return fail(err)
+		}
+		if recorded != "" && recorded != suite.ID() {
+			if _, ok := copycrypt.Lookup(recorded); !ok {
+				return fail(fmt.Errorf("%s says this copy is under suite %q, which this build cannot read: %w; nothing was decrypted", *sidecarPath, recorded, copycrypt.ErrUnknownSuite))
+			}
+			return fail(fmt.Errorf("%s says this copy is under suite %s and the key is a %s key; nothing was decrypted", *sidecarPath, recorded, suite.ID()))
 		}
 	} else if wantStored != "" {
 		got, err := hashFile(src)
@@ -142,7 +163,7 @@ func cmdEncryptionDecrypt(args []string) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	written, err := copycrypt.DecryptToFile(ctx, src, identity, wantPlain, dir, name)
+	written, err := copycrypt.DecryptToFile(ctx, src, suite, identity, wantPlain, dir, name)
 	if err != nil {
 		return fail(fmt.Errorf("decrypting %s: %w", object, err))
 	}
@@ -159,34 +180,37 @@ func cmdEncryptionDecrypt(args []string) int {
 }
 
 // loadDecryptKey reads the key from a bundle or an identity file and returns
-// the identity and, for a bundle, the key id it names. A bundle is read
-// through keycustody.ReadBundle, so an edited one is refused by its integrity
-// digest, and its material has to derive the recipient it names.
-func loadDecryptKey(bundlePath, identityPath string) (identity []byte, keyID string, err error) {
-	format := keycustody.AgeFormat{}
+// the identity, the suite it is a key of and, for a bundle, the key id it
+// names. A bundle is read through keycustody.ReadBundle, so an edited one is
+// refused by its integrity digest; its format names its suite (ADR 0033 D8),
+// a suite this build has no adapter for is refused naming it, and its
+// material has to derive the recipient it names under that suite. An
+// identity file's suite is the one registered suite whose key it is.
+func loadDecryptKey(bundlePath, identityPath string) (identity []byte, keyID string, suite copycrypt.Suite, err error) {
 	if bundlePath != "" {
 		f, err := os.Open(bundlePath)
 		if err != nil {
-			return nil, "", fmt.Errorf("opening the bundle: %w", err)
+			return nil, "", nil, fmt.Errorf("opening the bundle: %w", err)
 		}
 		defer f.Close()
 		b, err := keycustody.ReadBundle(f)
 		if err != nil {
-			return nil, "", err
+			return nil, "", nil, err
 		}
-		if b.FormatID != format.ID() {
-			return nil, "", fmt.Errorf("the bundle was exported under format %q and this build opens %q", b.FormatID, format.ID())
+		suite, ok := copycrypt.Lookup(b.FormatID)
+		if !ok {
+			return nil, "", nil, fmt.Errorf("the bundle was exported under format %q, which this build cannot open: %w", b.FormatID, copycrypt.ErrUnknownSuite)
 		}
 		identity = []byte(b.Material)
-		if recipient, err := format.Recipient(identity); err != nil || recipient != b.Recipient {
-			return nil, "", fmt.Errorf("the bundle's material is not the key %s names", b.KeyID)
+		if recipient, err := suite.Recipient(identity); err != nil || recipient != b.Recipient {
+			return nil, "", nil, fmt.Errorf("the bundle's material is not the key %s names", b.KeyID)
 		}
-		return identity, b.KeyID, nil
+		return identity, b.KeyID, suite, nil
 	}
 
 	f, err := os.Open(identityPath)
 	if err != nil {
-		return nil, "", fmt.Errorf("opening the identity file: %w", err)
+		return nil, "", nil, fmt.Errorf("opening the identity file: %w", err)
 	}
 	defer f.Close()
 	sc := bufio.NewScanner(io.LimitReader(f, maxKeyFile))
@@ -199,12 +223,19 @@ func loadDecryptKey(bundlePath, identityPath string) (identity []byte, keyID str
 		break
 	}
 	if len(identity) == 0 {
-		return nil, "", fmt.Errorf("%s holds no age identity", identityPath)
+		return nil, "", nil, fmt.Errorf("%s holds no age identity", identityPath)
 	}
-	if _, err := format.Recipient(identity); err != nil {
-		return nil, "", err
+	// Every suite in the table is asked, in order; a line no suite accepts
+	// is refused with the age/v1 refusal, which never quotes the line.
+	var firstErr error
+	for _, candidate := range copycrypt.Suites() {
+		if _, err := candidate.Recipient(identity); err == nil {
+			return identity, "", candidate, nil
+		} else if firstErr == nil || candidate.ID() == copycrypt.AgeX25519ID {
+			firstErr = err
+		}
 	}
-	return identity, "", nil
+	return nil, "", nil, firstErr
 }
 
 // digestsFromSidecar reads the recorded digests of the encrypted copy in src
@@ -213,10 +244,10 @@ func loadDecryptKey(bundlePath, identityPath string) (identity []byte, keyID str
 // to; if none does, the copy is not one the sidecar describes and the
 // refusal says so, naming the digest src has. When keyID is known it has to
 // be the key the sidecar says the copy was written under.
-func digestsFromSidecar(path string, src *os.File, keyID string) (plain, stored string, err error) {
+func digestsFromSidecar(path string, src *os.File, keyID string) (plain, stored, suite string, err error) {
 	m, err := recovery.ReadManifest(path)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	var candidates []*recovery.ManifestEncryption
 	for _, p := range m.Placements {
@@ -225,11 +256,11 @@ func digestsFromSidecar(path string, src *os.File, keyID string) (plain, stored 
 		}
 	}
 	if len(candidates) == 0 {
-		return "", "", fmt.Errorf("%s records no encrypted copy, so there is no digest to check this one against", path)
+		return "", "", "", fmt.Errorf("%s records no encrypted copy, so there is no digest to check this one against", path)
 	}
 	got, err := hashFile(src)
 	if err != nil {
-		return "", "", fmt.Errorf("reading the encrypted copy: %w", err)
+		return "", "", "", fmt.Errorf("reading the encrypted copy: %w", err)
 	}
 	var enc *recovery.ManifestEncryption
 	for _, c := range candidates {
@@ -242,20 +273,20 @@ func digestsFromSidecar(path string, src *os.File, keyID string) (plain, stored 
 	case len(candidates) == 1 && candidates[0].StoredDigest == "":
 		enc = candidates[0] // nothing was recorded to check, and there is only one copy it can be
 	case len(candidates) == 1:
-		return "", "", fmt.Errorf("the stored object hashes to %s and %s records stored digest %s: this is not the copy that was recorded, or it was cut short or altered; nothing was decrypted", got, path, candidates[0].StoredDigest)
+		return "", "", "", fmt.Errorf("the stored object hashes to %s and %s records stored digest %s: this is not the copy that was recorded, or it was cut short or altered; nothing was decrypted", got, path, candidates[0].StoredDigest)
 	default:
-		return "", "", fmt.Errorf("the stored object hashes to %s, which none of the %d encrypted copies in %s records as its stored digest; nothing was decrypted", got, len(candidates), path)
+		return "", "", "", fmt.Errorf("the stored object hashes to %s, which none of the %d encrypted copies in %s records as its stored digest; nothing was decrypted", got, len(candidates), path)
 	}
 	if enc.PlaintextDigestAlgorithm != "sha256" || (enc.StoredDigest != "" && enc.StoredDigestAlgorithm != "sha256") {
-		return "", "", fmt.Errorf("%s records digests under an algorithm this build does not check (%q, %q)", path, enc.PlaintextDigestAlgorithm, enc.StoredDigestAlgorithm)
+		return "", "", "", fmt.Errorf("%s records digests under an algorithm this build does not check (%q, %q)", path, enc.PlaintextDigestAlgorithm, enc.StoredDigestAlgorithm)
 	}
 	if !isHexSHA256(enc.PlaintextDigest) {
-		return "", "", fmt.Errorf("%s records no usable plaintext digest", path)
+		return "", "", "", fmt.Errorf("%s records no usable plaintext digest", path)
 	}
 	if keyID != "" && enc.KeyID != keyID {
-		return "", "", fmt.Errorf("%s says this copy was written under key %s and this bundle holds key %s", path, enc.KeyID, keyID)
+		return "", "", "", fmt.Errorf("%s says this copy was written under key %s and this bundle holds key %s", path, enc.KeyID, keyID)
 	}
-	return strings.ToLower(enc.PlaintextDigest), strings.ToLower(enc.StoredDigest), nil
+	return strings.ToLower(enc.PlaintextDigest), strings.ToLower(enc.StoredDigest), enc.FormatID, nil
 }
 
 func hashFile(f *os.File) (string, error) {

@@ -247,7 +247,18 @@ cases("encryption/encryptionCommands", [
   ["copiesCommand", "a hostile id", HOSTILE_ARTIFACT],
   ["verifyCommand", "one backup", ARTIFACT],
   ["verifyCommand", "one copy, egress accepted", ARTIFACT, { medium: "offsite_s3", allowEgress: true }],
-  ["verifyCommand", "a hostile id and medium", HOSTILE_ARTIFACT, { medium: HOSTILE, allowEgress: true }]
+  ["verifyCommand", "a hostile id and medium", HOSTILE_ARTIFACT, { medium: HOSTILE, allowEgress: true }],
+  // EPIC T (#1318): the suite verbs.
+  ["suitesCommand", "the registry"],
+  ["policyPatchCommand", "a suite", { suite: "age-pq/v1" }],
+  ["policyPatchCommand", "a hostile suite", { suite: HOSTILE }],
+  ["keyCreateCommand", "under a suite", "age-pq/v1"],
+  ["keyRotateCommand", "to another suite", "age-pq/v1"],
+  ["reencryptCommand", "a suite, dry run", { suite: "age/v1", dryRun: true }],
+  ["reencryptCommand", "a suite to a medium", { suite: "age/v1", to: "offsite_cold" }],
+  ["reencryptCommand", "a key to a medium", { key: "mk-2026-08-14-a", to: "offsite_cold" }],
+  ["reencryptCommand", "every deprecated suite, dry run", { deprecated: true, dryRun: true }],
+  ["reencryptCommand", "hostile values", { suite: HOSTILE, to: HOSTILE }]
 ]);
 
 cases("hooks/runCommands", [

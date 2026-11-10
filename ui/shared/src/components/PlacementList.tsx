@@ -7,6 +7,7 @@ import type { IconName } from "@shared/design-system/icons";
 import { Banner } from "@shared/components/Banner";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { bytes, stamp } from "@shared/utilities/format";
+import { clipText } from "@shared/encryption/ClippedText";
 import { CopyChips } from "@shared/encryption/EncryptionChips";
 import { anyEncrypted, copyEncryptionView, copyFor, mayVerify } from "@shared/encryption/encryptionState";
 import type { CopyEncryption } from "@shared/types/encryption";
@@ -293,8 +294,8 @@ function EncryptionCell({
       {copy.encrypted ? (
         <div className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-2)" }}>
           {[
-            copy.format ? "format " + copy.format + (copy.formatVersion !== null ? " v" + copy.formatVersion : "") : null,
-            copy.keyId ? "key " + copy.keyId : null,
+            copy.format ? "format " + clipText(copy.format) + (copy.formatVersion !== null ? " v" + copy.formatVersion : "") : null,
+            copy.keyId ? "key " + clipText(copy.keyId) : null,
             copy.storedSize !== null ? "stored " + bytes(copy.storedSize) : null
           ].filter(Boolean).join(", ")}
         </div>

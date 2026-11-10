@@ -52,15 +52,15 @@ func externalKeyID(recipient string) string {
 }
 
 // externalRecipient resolves ref and derives the recipient of the key it
-// yields. The material never leaves the callback.
-func (s *Store) externalRecipient(ctx context.Context, ref secretref.Ref) (string, error) {
-	var recipient string
-	err := WithExternalKey(ctx, ref, func(key []byte) error {
-		r, err := s.format.Recipient(key)
-		recipient = r
+// yields, and the suite that key belongs to. The material never leaves the
+// callback.
+func (s *Store) externalRecipient(ctx context.Context, ref secretref.Ref) (recipient, suiteID string, err error) {
+	err = WithExternalKey(ctx, ref, func(key []byte) error {
+		r, id, err := s.recipientOfAnySuite(key)
+		recipient, suiteID = r, id
 		return err
 	})
-	return recipient, err
+	return recipient, suiteID, err
 }
 
 // RegisterExternal resolves ref, checks the key is one the format can open,
@@ -68,7 +68,7 @@ func (s *Store) externalRecipient(ctx context.Context, ref secretref.Ref) (strin
 // idempotent per key. Nothing is written for a reference that does not
 // resolve or does not yield a key of the format.
 func (s *Store) RegisterExternal(ctx context.Context, ref secretref.Ref, now time.Time) (KeyRecord, error) {
-	recipient, err := s.externalRecipient(ctx, ref)
+	recipient, suiteID, err := s.externalRecipient(ctx, ref)
 	if err != nil {
 		return KeyRecord{}, err
 	}
@@ -78,7 +78,7 @@ func (s *Store) RegisterExternal(ctx context.Context, ref secretref.Ref, now tim
 	} else if !errors.Is(err, ErrUnknownKey) {
 		return KeyRecord{}, err
 	}
-	rec := KeyRecord{ID: id, Provider: ProviderExternal, Recipient: recipient, Created: now.UTC(), Status: StatusActive}
+	rec := KeyRecord{ID: id, Provider: ProviderExternal, Recipient: recipient, Created: now.UTC(), Status: StatusActive, SuiteID: suiteID}
 	if err := s.registry.AddKey(ctx, rec, ""); err != nil {
 		if errors.Is(err, ErrDuplicateKey) {
 			// Another writer registered the same key between the read and the
@@ -102,11 +102,11 @@ func (s *Store) RotateExternal(ctx context.Context, oldID string, newRef secretr
 	if old.Provider != ProviderExternal {
 		return KeyRecord{}, fmt.Errorf("%w: %s is not an external key", ErrUnknownKey, oldID)
 	}
-	recipient, err := s.externalRecipient(ctx, newRef)
+	recipient, suiteID, err := s.externalRecipient(ctx, newRef)
 	if err != nil {
 		return KeyRecord{}, err
 	}
-	rec := KeyRecord{ID: externalKeyID(recipient), Provider: ProviderExternal, Recipient: recipient, Created: now.UTC(), Status: StatusActive}
+	rec := KeyRecord{ID: externalKeyID(recipient), Provider: ProviderExternal, Recipient: recipient, Created: now.UTC(), Status: StatusActive, SuiteID: suiteID}
 	if rec.ID == oldID {
 		return KeyRecord{}, fmt.Errorf("%w: %s (the new reference yields the key already registered)", ErrDuplicateKey, oldID)
 	}
@@ -132,7 +132,11 @@ func (s *Store) withExternalRecord(ctx context.Context, rec KeyRecord, fn func(k
 		matched := false
 		var fnErr error
 		err := WithExternalKey(ctx, ref, func(key []byte) error {
-			recipient, err := s.format.Recipient(key)
+			f, err := s.formatOf(rec.SuiteID)
+			if err != nil {
+				return err
+			}
+			recipient, err := f.Recipient(key)
 			if err != nil || recipient != rec.Recipient {
 				return errExternalNoMatch
 			}

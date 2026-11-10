@@ -788,6 +788,7 @@ changes shape, and every new field on a request is optional.
 | `listEncryptionCopies` | `GET /encryption/copies?artifact=` |
 | `startDecryptVerify` | `POST /encryption/verify` (answers `ScrubStarted`; cancel is the existing `POST /assurance/operations/{op}/cancel`) |
 | `planEncryptExisting`, `startEncryptExisting` | `GET`, `POST /encryption/encrypt-existing` (the dry run answers `EncryptExistingPlan`; the run answers `ScrubStarted` and is stopped by the same assurance cancel) |
+| `planReencrypt`, `startReencrypt` | `GET`, `POST /encryption/reencrypt?suite=&key=&deprecated=&destination=` (exactly one selector; the dry run answers `ReencryptPlan` grouped by suite and key; the run answers `ScrubStarted` and is stopped by the same assurance cancel) |
 
 Five error codes arrive with them: `ENCRYPTION_KEY_NOT_FOUND`,
 `ENCRYPTION_KEY_IN_USE` (the message names the copies), `ENCRYPTION_KEY_STATE`,
@@ -832,6 +833,11 @@ copy. `EncryptionCopy` gains `stored_digest` (the ciphertext bytes) and
 `plaintext_digest` (`artifacts.local_hash`), two different values by
 construction. `EncryptionKeyStatus` gains `copies_recording` (ACTIVE copies
 that record the key) and `bundle_exported_at` (absent if never exported).
+
+`Placement` also gains `encryption_suite` (#1318): the suite the copy's record
+names, which is its format id read back, never the policy's current suite.
+Absent for a plaintext copy and from an older server, so the Encrypted chip
+draws no id rather than a guessed one.
 
 ### Progress stages for an encrypted copy
 

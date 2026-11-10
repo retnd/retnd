@@ -78,6 +78,12 @@ func captureConfigValidation(fixtureDir string) (Cell, error) {
 			e := cfg.RetainedCopyEncryption
 			lines = append(lines, fmt.Sprintf("%s   deployment retained_copy_encryption: mode=%s provider=%s",
 				base, e.Mode, providerLine(e.KeyProvider)))
+			// The suite policy (EPIC T, #1314), printed only for the fixtures
+			// named for it, so 09- and 10- keep the lines they were captured
+			// with.
+			if strings.Contains(base, "suite") {
+				lines = append(lines, fmt.Sprintf("%s   deployment retained_copy_encryption suite=%s deprecated=%v", base, e.Suite, e.SuiteDeprecated))
+			}
 			for _, src := range cfg.Sources {
 				for _, bs := range src.BackupSets {
 					e := bs.RetainedCopyEncryption
