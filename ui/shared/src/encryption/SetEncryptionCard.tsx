@@ -14,7 +14,7 @@
  * attribution, reachable for an override through the same reference-only flow
  * as the deployment card.
  *
- * A kopia-engine set draws the control disabled and a statement of fact, in
+ * A set on the kopia engine draws the control disabled and a statement of fact, in
  * the words ADR 0027 gives, with no pop-up: its repository is already
  * encrypted by kopia's own format, `required` is satisfied by that and layers
  * nothing.
@@ -76,7 +76,9 @@ export function SetEncryptionCard({
   // The deployment says it cannot be asked (no file-backed configuration, or an
   // older engine): nothing is claimed, and no control that could only fail is drawn.
   if (policy.error) {
-    return frame(<p style={{ margin: 0, fontSize: 13, color: "var(--text-2)" }}>{"Retained-copy encryption is not available here. " + policy.error.message}</p>);
+    return frame(<p style={{ margin: 0, fontSize: 13, color: "var(--text-2)" }}>{policy.error.code === "ENCRYPTION_UNAVAILABLE" || policy.error.code === "NOT_CONFIGURED"
+          ? "Retained-copy encryption is not available here, because this deployment has no configuration file to write a policy into."
+          : "Retained-copy encryption could not be read. " + policy.error.message}</p>);
   }
   if (policy.data === null) {
     return frame(<p style={{ margin: 0, fontSize: 13, color: "var(--text-2)" }}>Reading this set's encryption policy...</p>);
@@ -90,7 +92,7 @@ export function SetEncryptionCard({
             <label key={m.mode}><input type="radio" disabled name={"enc-" + setId} checked={false} readOnly />{m.label}</label>
           ))}
         </div>
-        <p data-kopia-statement="" style={{ margin: 0, fontSize: 13, color: "var(--text-2)", maxWidth: "78ch" }}>
+        <p data-engine-statement="" style={{ margin: 0, fontSize: 13, color: "var(--text-2)", maxWidth: "78ch" }}>
           This set's repository is already encrypted by the kopia engine under its repository passphrase. Required on such a set is satisfied by that and layers nothing.
         </p>
       </>
