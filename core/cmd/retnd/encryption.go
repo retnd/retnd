@@ -784,6 +784,16 @@ func printEncryptionSuites(l apicontract.ListEncryptionSuitesResponse) {
 		if s.Default {
 			def = ", default for a first key"
 		}
+		// When a deprecated suite retires, or which version retired it,
+		// comes from the table and is never typed here (#1316).
+		if s.RetirementVersion != "" {
+			switch s.Status {
+			case "retired":
+				def += ", retired in " + s.RetirementVersion
+			default:
+				def += ", retirement announced for version " + s.RetirementVersion
+			}
+		}
 		fmt.Printf("%s (v%d): %s%s, %d active copies, %d keys\n", s.ID, s.Version, s.Status, def, s.ActiveCopies, s.Keys)
 		fmt.Printf("  %s\n", s.Describe)
 	}

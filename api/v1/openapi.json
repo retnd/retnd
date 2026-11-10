@@ -9201,6 +9201,11 @@
           "keys": {
             "type": "integer",
             "description": "Keys of this suite that are not retired."
+          },
+          "retirement_version": {
+            "type": "string",
+            "description": "The version a deprecated suite's retirement is announced for, or the version that retired a retired one. Absent for a supported suite.",
+            "x-go-omitempty": true
           }
         },
         "required": [

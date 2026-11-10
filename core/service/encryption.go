@@ -277,6 +277,7 @@ func (b *BackupService) ListEncryptionSuites(ctx context.Context) (apicontract.L
 		out.Suites = append(out.Suites, apicontract.EncryptionSuite{
 			ID: s.ID(), Version: s.Version(), Status: string(s.Status()), Default: s.ID() == def,
 			Describe: string(s.Describe()), ActiveCopies: copies[s.ID()], Keys: keysBySuite[s.ID()],
+			RetirementVersion: copycrypt.RetiredIn(s),
 		})
 	}
 	return out, nil

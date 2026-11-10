@@ -248,6 +248,13 @@ func (e *Engine) copyEncryptedToMedium(ctx context.Context, mv state.Move, src s
 	if err != nil {
 		return 0, err
 	}
+	// A retired suite reads every copy it wrote and writes none (#1316,
+	// FR-87). The refusal sits where the required refusal sits: the key has
+	// only been proved readable, and nothing is staged, uploaded or deleted
+	// yet. Another suite is never substituted (FR-86).
+	if err := copycrypt.CheckWrite(suite); err != nil {
+		return 0, fmt.Errorf("%w: backup set %s: %w", ErrClassUnavailable, mv.Artifact.Set, err)
+	}
 
 	staged, err := e.stagingPath(mv.Artifact)
 	if err != nil {

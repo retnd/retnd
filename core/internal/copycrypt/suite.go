@@ -94,15 +94,23 @@ var suites = []Suite{
 // one, and it must be supported; a test pins both.
 const defaultID = AgeMLKEM768X25519ID
 
-// Suites returns the whole table, in order. The slice is a copy.
+// Suites returns the whole table, in order. The slice is a copy. While a
+// test has injected a suite (testhook.go) it follows the table; the product
+// binary never injects one.
 func Suites() []Suite {
-	return append([]Suite(nil), suites...)
+	return withInjected(append([]Suite(nil), suites...))
 }
 
-// Default returns the build's default suite.
+// Default returns the build's default suite. It reads the production table
+// only, so an injected test suite can never become the default.
 func Default() Suite {
-	s, ok := Lookup(defaultID)
-	if !ok {
+	var s Suite
+	for _, x := range suites {
+		if x.ID() == defaultID {
+			s = x
+		}
+	}
+	if s == nil {
 		// The table and defaultID are both constants of this file and a
 		// test pins that one names a row of the other.
 		panic("copycrypt: the default suite " + defaultID + " is not in the table")
@@ -112,7 +120,7 @@ func Default() Suite {
 
 // Lookup returns the suite with id, or false when this build has none.
 func Lookup(id string) (Suite, bool) {
-	for _, s := range suites {
+	for _, s := range withInjected(suites) {
 		if s.ID() == id {
 			return s, true
 		}

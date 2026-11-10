@@ -67,6 +67,15 @@ type KeyCustodyHealth struct {
 	// are unreadable whatever the policy says now.
 	ExternalKeysAtRisk []ExternalKeyAtRisk
 
+	// Suites is one entry per encryption suite something in this deployment
+	// still depends on: a suite that ACTIVE copies record or that a key which
+	// is not retired belongs to (EPIC T, T2.1, #1316, FR-87). A suite nothing
+	// depends on is not listed, so a deployment that encrypts nothing keeps
+	// the zero section. It is reported whether or not Enabled, for the reason
+	// ExternalKeysAtRisk is: the copies depend on their suite whatever the
+	// policy says now.
+	Suites []SuiteHealth
+
 	// EncryptedCopiesBySuite is how many ACTIVE encrypted copies record
 	// each suite id (EPIC T, #1315). Suite ids are an enumerated vocabulary,
 	// never a key id, so this is the one encryption fact a scrape carries
@@ -89,12 +98,54 @@ type ExternalKeyAtRisk struct {
 	Copies []model.CopyRef
 }
 
+// SuiteHealth is one suite's line in the key custody section: its status
+// and what still depends on it. It carries ids, counts and a version, never
+// material.
+//
+// The status is the registry's word (supported, deprecated, retired) as a
+// string, so this package stays a leaf; keycustody fills it from the
+// registry and decides Degrading, which is the lifecycle's verdict for this
+// suite with these counts. A health section never holds an alert: the state
+// is durable and only a person changes it (a re-encryption, or a rotation to
+// another suite), so it lives here, as ADR 0028 D3 argues, and no alert kind
+// is added for it.
+type SuiteHealth struct {
+	ID     string
+	Status string
+
+	// ActiveCopies counts the ACTIVE copies whose record names this suite.
+	ActiveCopies int
+
+	// Keys counts the keys of this suite that are not retired, and
+	// ActiveKey says one of them is the active key new copies go under.
+	Keys      int
+	ActiveKey bool
+
+	// RetirementVersion is the version the retirement is announced for
+	// (deprecated) or that retired the suite (retired), from the registry's
+	// table; empty for a supported suite.
+	RetirementVersion string
+
+	// Degrading says this suite degrades the section: a deprecated suite
+	// that copies or the active key are still under, or a retired suite that
+	// any active copy still records. Reason is the sentence a surface prints
+	// for it, empty when Degrading is false.
+	Degrading bool
+	Reason    string
+}
+
 // Degraded is FR-66's durable degraded fact: encryption is required
 // somewhere and either no key can encrypt yet, or a key that guards copies
-// has no confirmed bundle.
+// has no confirmed bundle. A suite the lifecycle says is being left behind
+// degrades it too, whatever Enabled says (#1316).
 func (h KeyCustodyHealth) Degraded() bool {
 	if h.Unevaluated != "" || len(h.ExternalKeysAtRisk) != 0 {
 		return true
+	}
+	for _, s := range h.Suites {
+		if s.Degrading {
+			return true
+		}
 	}
 	if !h.Enabled {
 		return false

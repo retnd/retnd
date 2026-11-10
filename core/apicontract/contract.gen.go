@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "99d57970f3f35e4d60db5af363a9645cf058571e76ff71a56a08290bd2280b6d"
+const ContractSHA256 = "83ecc641139393e3cbb87d7312d8e30de25b9f586a6a431965f145819ac085a9"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -2962,13 +2962,14 @@ type EncryptionSetPolicy struct {
 // EncryptionSuite is one encryption suite this build has. describe is the only sentence
 // a surface may print about it.
 type EncryptionSuite struct {
-	ActiveCopies int    `json:"active_copies"`
-	Default      bool   `json:"default"`
-	Describe     string `json:"describe"`
-	ID           string `json:"id"`
-	Keys         int    `json:"keys"`
-	Status       string `json:"status"`
-	Version      int    `json:"version"`
+	ActiveCopies      int    `json:"active_copies"`
+	Default           bool   `json:"default"`
+	Describe          string `json:"describe"`
+	ID                string `json:"id"`
+	Keys              int    `json:"keys"`
+	RetirementVersion string `json:"retirement_version,omitempty"`
+	Status            string `json:"status"`
+	Version           int    `json:"version"`
 }
 
 // EnrollRequest is POST /auth/enroll. The credentials, and optionally the two things

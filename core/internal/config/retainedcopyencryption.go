@@ -326,6 +326,10 @@ func resolveSuite(v *validator, path, declared string) (suite string, deprecated
 	}
 	switch s.Status() {
 	case copycrypt.StatusRetired:
+		if when := copycrypt.RetiredIn(s); when != "" {
+			v.addf("%s: %s: %q was retired in %s; its copies still open, and no new copy is written under it, so pin a supported suite (and rotate into it) or write %s", path, ErrRetiredSuite, declared, when, RetainedCopyEncryptionSuiteDefault)
+			return RetainedCopyEncryptionSuiteDefault, false
+		}
 		v.addf("%s: %s: %q is retired in this build; its copies still open, and no new copy is written under it, so pin a supported suite (and rotate into it) or write %s", path, ErrRetiredSuite, declared, RetainedCopyEncryptionSuiteDefault)
 		return RetainedCopyEncryptionSuiteDefault, false
 	case copycrypt.StatusDeprecated:
