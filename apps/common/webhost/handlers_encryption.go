@@ -63,8 +63,9 @@ type EncryptionBackend interface {
 	SetBackupSetEncryption(ctx context.Context, id string, o apicontract.EncryptionOverride) (apicontract.EncryptionSetPolicy, error)
 	ClearBackupSetEncryption(ctx context.Context, id string) (apicontract.EncryptionSetPolicy, error)
 	ListEncryptionKeys(ctx context.Context) (apicontract.ListEncryptionKeysResponse, error)
-	CreateEncryptionKey(ctx context.Context) (apicontract.EncryptionKeyStatus, error)
-	RotateEncryptionKey(ctx context.Context) (apicontract.EncryptionKeyStatus, error)
+	CreateEncryptionKey(ctx context.Context, suite string) (apicontract.EncryptionKeyStatus, error)
+	RotateEncryptionKey(ctx context.Context, suite string) (apicontract.EncryptionKeyStatus, error)
+	ListEncryptionSuites(ctx context.Context) (apicontract.ListEncryptionSuitesResponse, error)
 	RetireEncryptionKey(ctx context.Context, id string) (apicontract.EncryptionKeyStatus, error)
 	ExportRecoveryBundleBytes(ctx context.Context, id string) ([]byte, error)
 	ConfirmRecoveryBundle(ctx context.Context, id, digest string) (apicontract.EncryptionKeyStatus, error)
@@ -182,12 +183,28 @@ func (h *handlers) listEncryptionKeys(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, got)
 }
 
+// listEncryptionSuites is GET /encryption/suites (EPIC T, #1315): the suite
+// table with its sentences and counts, the same body `retnd encryption
+// suites --json` prints.
+func (h *handlers) listEncryptionSuites(w http.ResponseWriter, r *http.Request) {
+	b, ok := h.encryption(w)
+	if !ok {
+		return
+	}
+	got, err := b.ListEncryptionSuites(r.Context())
+	if err != nil {
+		h.writeEncryptionError(w, r, err, "failed to list the encryption suites")
+		return
+	}
+	writeJSON(w, http.StatusOK, got)
+}
+
 func (h *handlers) createEncryptionKey(w http.ResponseWriter, r *http.Request) {
 	b, ok := h.encryption(w)
 	if !ok {
 		return
 	}
-	got, err := b.CreateEncryptionKey(r.Context())
+	got, err := b.CreateEncryptionKey(r.Context(), r.URL.Query().Get("suite"))
 	if err != nil {
 		h.writeEncryptionError(w, r, err, "failed to create the encryption key")
 		return
@@ -200,7 +217,7 @@ func (h *handlers) rotateEncryptionKey(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	got, err := b.RotateEncryptionKey(r.Context())
+	got, err := b.RotateEncryptionKey(r.Context(), r.URL.Query().Get("suite"))
 	if err != nil {
 		h.writeEncryptionError(w, r, err, "failed to rotate the encryption key")
 		return

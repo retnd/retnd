@@ -273,6 +273,7 @@ var contractBindings = map[string]contractBinding{
 	"exportRecoveryBundle":     {nil, apicontract.RecoveryBundle{}, "/api/v1/encryption/keys/k0123456789abcdef/export"},
 	"confirmRecoveryBundle":    {apicontract.ConfirmRecoveryBundleRequest{}, apicontract.EncryptionKeyStatus{}, "/api/v1/encryption/keys/k0123456789abcdef/confirm"},
 	"testEncryptionProvider":   {apicontract.EncryptionProviderTestRequest{}, apicontract.EncryptionProviderProbe{}, "/api/v1/encryption/providers/test"},
+	"listEncryptionSuites":     {nil, apicontract.ListEncryptionSuitesResponse{}, "/api/v1/encryption/suites"},
 	"listEncryptionCopies":     {nil, apicontract.ListEncryptionCopiesResponse{}, "/api/v1/encryption/copies"},
 	"startDecryptVerify":       {apicontract.StartDecryptVerifyRequest{}, apicontract.ScrubStarted{}, "/api/v1/encryption/verify"},
 	// Issue #1203. The handlers write apicontract's own types, so the

@@ -34,7 +34,7 @@ func reencryptFixture(t *testing.T) (f *recoveryFixture, old, current model.Arti
 		t.Fatalf("control: want one key before the rotation, got %+v (err=%v)", keys, err)
 	}
 	oldKey = keys.Keys[0].ID
-	rotated, err := f.b.RotateEncryptionKey(ctx)
+	rotated, err := f.b.RotateEncryptionKey(ctx, "")
 	if err != nil {
 		t.Fatalf("RotateEncryptionKey: %v", err)
 	}

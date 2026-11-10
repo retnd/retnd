@@ -84,11 +84,15 @@ var ErrUnknownSuite = errors.New("copycrypt: this build has no suite with that i
 // suite_test.go, and the shared vectors in suitetest going green for it.
 var suites = []Suite{
 	AgeX25519{},
+	AgeMLKEM768X25519{},
 }
 
-// defaultID is the suite a new managed key is minted under when no suite
-// is named. Exactly one, and it must be supported; a test pins both.
-const defaultID = AgeX25519ID
+// defaultID is the build's default suite (ADR 0033 D2): what a deployment
+// with no active managed key mints its first key under when no suite is
+// named. A deployment that already has an active key stays on that key's
+// suite (ADR 0033 D4); the default moving never rotates anything. Exactly
+// one, and it must be supported; a test pins both.
+const defaultID = AgeMLKEM768X25519ID
 
 // Suites returns the whole table, in order. The slice is a copy.
 func Suites() []Suite {

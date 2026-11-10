@@ -76,6 +76,7 @@ func TestEventNamesAreStable(t *testing.T) {
 		{"EventKeyBundleExported", EventKeyBundleExported, "key_bundle_exported"},
 		{"EventKeyBundleConfirmed", EventKeyBundleConfirmed, "key_bundle_confirmed"},
 		{"EventKeyRetired", EventKeyRetired, "key_retired"},
+		{"EventEncryptionDefaultSuiteChanged", EventEncryptionDefaultSuiteChanged, "encryption_default_suite_changed"},
 		{"EventCopyEncrypting", EventCopyEncrypting, "copy_encrypting"},
 		{"EventCopyUploadingEncrypted", EventCopyUploadingEncrypted, "copy_uploading_encrypted"},
 		{"EventCopyVerifyingStored", EventCopyVerifyingStored, "copy_verifying_stored"},

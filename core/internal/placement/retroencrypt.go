@@ -253,12 +253,7 @@ func (e *Engine) checkReencryptSource(ctx context.Context, p Plan, src state.Pla
 	if !p.Reencrypt {
 		return fmt.Errorf("%w: the copy of %s on %q is ciphertext already", ErrEncryptExistingAlreadyEncrypted, p.Artifact, src.Medium)
 	}
-	activeSuite := active.SuiteID
-	if activeSuite == "" {
-		// A key written before migration 0020 is age/v1 (suiteOf's rule).
-		activeSuite = copycrypt.AgeX25519ID
-	}
-	if enc.FormatID == activeSuite && enc.KeyID == active.ID {
+	if enc.FormatID == keySuite(active) && enc.KeyID == active.ID {
 		return fmt.Errorf("%w: the copy of %s on %q is under suite %s and key %s, which are the active ones",
 			ErrReencryptAlreadyCurrent, p.Artifact, src.Medium, enc.FormatID, enc.KeyID)
 	}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/retnd/retnd/core/internal/alert"
 	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/copycrypt"
 	"github.com/retnd/retnd/core/internal/health"
 	"github.com/retnd/retnd/core/internal/keycustody"
 	"github.com/retnd/retnd/core/internal/secretref"
@@ -102,8 +103,13 @@ func (c *KeyCustody) RegisterExternal(ctx context.Context, ref secretref.Ref, at
 
 // NewKeyCustody returns the custodian for the deployment whose configuration
 // file is path(), recording keys in journal.
+//
+// A deployment's first managed key is minted under the build's default
+// suite (copycrypt.Default(), age-pq/v1 since #1313). A deployment that
+// already holds an active key keeps that key's suite: a rotation with no
+// suite named stays in it, and nothing here rotates by itself (ADR 0033 D4).
 func NewKeyCustody(path func() string, journal *state.Journal) *KeyCustody {
-	return &KeyCustody{path: path, journal: journal, format: keycustody.AgeFormat{}}
+	return &KeyCustody{path: path, journal: journal, format: copycrypt.Default()}
 }
 
 // registry is the journal-backed registry; it holds no state of its own.

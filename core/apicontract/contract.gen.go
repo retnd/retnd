@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "f4de5694507e2b0e4857ca1ec4e480f3f7efa88f11a1d2d53d5d33fabeb05be3"
+const ContractSHA256 = "8eaec2949de79a6a817d5181bdb61981765d57a8246379a30088017a882a1e4d"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -1395,6 +1395,16 @@ var Endpoints = []Endpoint{
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "listEncryptionSuites", Method: "GET", Path: "/encryption/suites",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListEncryptionSuitesResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
 		},
 	},
 	{
@@ -2890,6 +2900,7 @@ type EncryptionKeyStatus struct {
 	Resolvable        bool   `json:"resolvable"`
 	RetiredAt         string `json:"retired_at,omitempty"`
 	Status            string `json:"status"`
+	Suite             string `json:"suite"`
 }
 
 // EncryptionOverride is PUT /backup-sets/{source}/{set}/encryption. A backup set's own
@@ -2903,9 +2914,13 @@ type EncryptionOverride struct {
 // EncryptionPolicy is GET /encryption/policy. The deployment's retained-copy encryption
 // mode and key provider, and every backup set's resolution.
 type EncryptionPolicy struct {
-	KeyProvider EncryptionKeyProviderState `json:"key_provider"`
-	Mode        string                     `json:"mode"`
-	Sets        []EncryptionSetPolicy      `json:"sets"`
+	KeyProvider     EncryptionKeyProviderState `json:"key_provider"`
+	Mode            string                     `json:"mode"`
+	RotateCommand   string                     `json:"rotate_command,omitempty"`
+	RotationNeeded  bool                       `json:"rotation_needed,omitempty"`
+	Sets            []EncryptionSetPolicy      `json:"sets"`
+	Suite           string                     `json:"suite"`
+	SuiteConfigured string                     `json:"suite_configured"`
 }
 
 // EncryptionPolicyPatch is PATCH /encryption/policy. Fields that are present change and the
@@ -2913,6 +2928,7 @@ type EncryptionPolicy struct {
 type EncryptionPolicyPatch struct {
 	KeyProvider *EncryptionKeyProvider `json:"key_provider,omitempty"`
 	Mode        string                 `json:"mode,omitempty"`
+	Suite       string                 `json:"suite,omitempty"`
 }
 
 // EncryptionProviderProbe is whether a key provider resolves right now. source is a
@@ -2941,6 +2957,18 @@ type EncryptionSetPolicy struct {
 	KeyProvider          EncryptionKeyProviderState `json:"key_provider"`
 	Mode                 string                     `json:"mode"`
 	SatisfiedBy          string                     `json:"satisfied_by,omitempty"`
+}
+
+// EncryptionSuite is one encryption suite this build has. describe is the only sentence
+// a surface may print about it.
+type EncryptionSuite struct {
+	ActiveCopies int    `json:"active_copies"`
+	Default      bool   `json:"default"`
+	Describe     string `json:"describe"`
+	ID           string `json:"id"`
+	Keys         int    `json:"keys"`
+	Status       string `json:"status"`
+	Version      int    `json:"version"`
 }
 
 // EnrollRequest is POST /auth/enroll. The credentials, and optionally the two things
@@ -3141,6 +3169,12 @@ type ListEncryptionCopiesResponse struct {
 // ListEncryptionKeysResponse is GET /encryption/keys. Every managed key, oldest first.
 type ListEncryptionKeysResponse struct {
 	Keys []EncryptionKeyStatus `json:"keys"`
+}
+
+// ListEncryptionSuitesResponse is GET /encryption/suites. Every suite this build has, in table
+// order.
+type ListEncryptionSuitesResponse struct {
+	Suites []EncryptionSuite `json:"suites"`
 }
 
 // ListOperationsResponse is GET /operations, newest first. The list counterpart of GET
@@ -5406,6 +5440,7 @@ var SchemaTypes = map[string]any{
 	"EncryptionProviderProbe":            EncryptionProviderProbe{},
 	"EncryptionProviderTestRequest":      EncryptionProviderTestRequest{},
 	"EncryptionSetPolicy":                EncryptionSetPolicy{},
+	"EncryptionSuite":                    EncryptionSuite{},
 	"EnrollRequest":                      EnrollRequest{},
 	"ErrorBody":                          ErrorBody{},
 	"ErrorResponse":                      ErrorResponse{},
@@ -5427,6 +5462,7 @@ var SchemaTypes = map[string]any{
 	"ListCustomValidatorsResponse":       ListCustomValidatorsResponse{},
 	"ListEncryptionCopiesResponse":       ListEncryptionCopiesResponse{},
 	"ListEncryptionKeysResponse":         ListEncryptionKeysResponse{},
+	"ListEncryptionSuitesResponse":       ListEncryptionSuitesResponse{},
 	"ListOperationsResponse":             ListOperationsResponse{},
 	"ListRepositoriesResponse":           ListRepositoriesResponse{},
 	"ListSSHKeyCandidatesResponse":       ListSSHKeyCandidatesResponse{},

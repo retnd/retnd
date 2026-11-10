@@ -996,6 +996,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(requireCSRF, requireKeyExportGate(h.enforce)).Post("/encryption/keys/{id}/export", h.exportRecoveryBundle)
 		r.With(requireCSRF).Post("/encryption/keys/{id}/confirm", h.confirmRecoveryBundle)
 		r.With(requireCSRF).Post("/encryption/providers/test", h.testEncryptionProvider)
+		r.Get("/encryption/suites", h.listEncryptionSuites)
 		r.Get("/encryption/copies", h.listEncryptionCopies)
 		r.With(requireCSRF).Post("/encryption/verify", h.startDecryptVerify)
 		// Encrypting plaintext copies that already exist (#1291): the dry run
