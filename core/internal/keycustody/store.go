@@ -3,7 +3,9 @@ package keycustody
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -75,23 +77,55 @@ type Store struct {
 	// how an id becomes material again. Nil means none are declared.
 	externals func() []secretref.Ref
 
-	// lastSuites remembers, per external reference (its description), the
-	// suite of the key it yielded the last time something here resolved it
-	// (the alert tick's probe, a registration, an explicit write). A read
-	// surface takes the suite from here and never resolves a reference
-	// itself (EPIC T, #1315). It holds suite ids only, never material.
+	// lastSuites remembers, per external reference, the suite of the key it
+	// yielded the last time something here resolved it (the alert tick's
+	// probe, a registration, an explicit write), and forgets it the moment a
+	// resolution fails. A read surface takes the suite from here and never
+	// resolves a reference itself (EPIC T, #1315). The key is refKey's hash
+	// of the whole reference, so two command references running one
+	// executable with different arguments are two entries; the values are
+	// suite ids. Nothing in it is material or is ever logged.
 	suitesMu   sync.Mutex
 	lastSuites map[string]string
 }
 
+// refKey identifies a reference by every field that decides what it
+// yields: the file path, the variable name, and the command with all of its
+// arguments. ref.String() is a description and leaves a command's arguments
+// out on purpose, so it cannot be the key. The canonical form is a JSON
+// array, hashed, so an argument never sits in the map in the clear.
+func refKey(ref secretref.Ref) string {
+	canon, err := json.Marshal([]any{ref.File, ref.Env, ref.Command})
+	if err != nil {
+		// Three strings and a string slice always marshal; refuse to share
+		// an entry if that ever stops being true.
+		return ""
+	}
+	sum := sha256.Sum256(canon)
+	return hex.EncodeToString(sum[:])
+}
+
 // noteExternalSuite records what resolving ref just showed.
 func (s *Store) noteExternalSuite(ref secretref.Ref, suiteID string) {
+	k := refKey(ref)
+	if k == "" {
+		return
+	}
 	s.suitesMu.Lock()
 	defer s.suitesMu.Unlock()
 	if s.lastSuites == nil {
 		s.lastSuites = map[string]string{}
 	}
-	s.lastSuites[ref.String()] = suiteID
+	s.lastSuites[k] = suiteID
+}
+
+// forgetExternalSuite drops what an earlier resolution of ref showed,
+// because a later one failed: a reference that does not resolve now has no
+// suite to report.
+func (s *Store) forgetExternalSuite(ref secretref.Ref) {
+	s.suitesMu.Lock()
+	defer s.suitesMu.Unlock()
+	delete(s.lastSuites, refKey(ref))
 }
 
 // LastExternalKeySuite is the suite of the key ref yielded the last time it
@@ -100,7 +134,11 @@ func (s *Store) noteExternalSuite(ref secretref.Ref, suiteID string) {
 func (s *Store) LastExternalKeySuite(ref secretref.Ref) (string, bool) {
 	s.suitesMu.Lock()
 	defer s.suitesMu.Unlock()
-	id, ok := s.lastSuites[ref.String()]
+	k := refKey(ref)
+	if k == "" {
+		return "", false
+	}
+	id, ok := s.lastSuites[k]
 	return id, ok
 }
 
@@ -408,6 +446,7 @@ func (s *Store) Resolvability(ctx context.Context, p Provider) Probe {
 	case !p.External.IsZero():
 		probe := ProbeExternal(ctx, p.External)
 		if probe.State != Resolves {
+			s.forgetExternalSuite(p.External)
 			return probe
 		}
 		// It resolves; it must also be a key of a registered suite, or a
@@ -419,6 +458,7 @@ func (s *Store) Resolvability(ctx context.Context, p Provider) Probe {
 			}
 			return err
 		}); err != nil {
+			s.forgetExternalSuite(p.External)
 			return Probe{State: Unreachable, Source: probe.Source, Reason: err.Error()}
 		}
 		return probe
