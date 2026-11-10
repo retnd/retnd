@@ -52,7 +52,7 @@ export function copyEncryptionView(
   failedVerify = false
 ): CopyEncryptionView {
   if (!copy.encrypted) return { sealed: false, recovery: "none", verifiedAt: null, keyId: null, suite: null };
-  // The copies read's format IS the suite id (ADR 0031); the placement's own
+  // The copies read's format IS the suite id (ADR 0033); the placement's own
   // field says the same thing where the page has only the placement.
   const base = { sealed: true, keyId: copy.keyId, suite: copy.format ?? placement?.encryptionSuite ?? null };
   // The key does not resolve: that is its own state, never a weaker class

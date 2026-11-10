@@ -7,7 +7,7 @@ import (
 
 // The Backups list and Backup detail draw the suite id on the Encrypted chip
 // (#1318), so each encrypted placement carries the suite its copy record
-// names. The record's format_id IS the suite id (ADR 0031, D1), so the field
+// names. The record's format_id IS the suite id (ADR 0033, D1), so the field
 // is that column read back, never the policy's current suite: a copy written
 // under age/v1 says age/v1 after the policy moved to age-pq/v1.
 func TestArtifactPlacementsCarryTheSuiteTheChipShows_1318(t *testing.T) {

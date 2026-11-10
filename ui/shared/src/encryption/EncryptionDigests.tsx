@@ -27,7 +27,7 @@ export function EncryptionDigests({ copies }: { copies: CopyEncryption[] | null 
             <>
               {c.storedDigest}
               {c.format ? (
-                // The format id IS the suite id (EPIC T, ADR 0031), so the
+                // The format id IS the suite id (EPIC T, ADR 0033), so the
                 // line names it as the suite (#1318).
                 <span style={{ color: "var(--text-2)" }}>
                   {" (suite " + clipText(c.format) + (c.formatVersion !== null ? " v" + c.formatVersion : "") + (c.keyId ? ", key " + clipText(c.keyId) : "") + ")"}

@@ -106,7 +106,7 @@ type Placement struct {
 	EncryptionKeyResolvable *bool
 
 	// EncryptionSuite is the suite the copy's record names (#1318): its
-	// format_id, which is the suite id (ADR 0031), read back and never the
+	// format_id, which is the suite id (ADR 0033), read back and never the
 	// policy's current suite. Empty for a plaintext copy.
 	EncryptionSuite string
 

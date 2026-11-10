@@ -606,7 +606,7 @@ export const FIELD_HELP = {
   // Issue #1318 (EPIC T). Read out of the suite policy as T1.4 and T1.5 fix
   // it (the global `suite:` field, `default | <id>`, Validate refusing an
   // unknown or retired id, the active-key mismatch refusal before any
-  // destructive step) and ADR 0031 D6. What a suite IS is not written here:
+  // destructive step) and ADR 0033 D6. What a suite IS is not written here:
   // the option shows the registry's own Describe() sentence, from the route.
   encryptionSuite: {
     what: "Which suite new retained copies are encrypted with, chosen from the suites this build carries. Each one is a single library construction, described in its own words under its name.",
