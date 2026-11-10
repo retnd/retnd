@@ -42,9 +42,11 @@ func TestMigration0015IsAdditiveAndAddsOnlyTheEncryptionTables(t *testing.T) {
 		up := strings.ToUpper(stmt)
 		if !strings.HasPrefix(up, "CREATE TABLE ENCRYPTION_KEYS") &&
 			!strings.HasPrefix(up, "CREATE TABLE PLACEMENT_ENCRYPTION") &&
+			!strings.HasPrefix(up, "CREATE TABLE RECOVERY_BUNDLE_EXPORTS") &&
 			!strings.HasPrefix(up, "CREATE TABLE RECOVERY_BUNDLE_CONFIRMATIONS") &&
+			!strings.HasPrefix(up, "CREATE UNIQUE INDEX IDX_ENCRYPTION_KEYS_") &&
 			!strings.HasPrefix(up, "CREATE INDEX IDX_PLACEMENT_ENCRYPTION_") {
-			t.Errorf("0015 may only create the key registry, the per-copy record, the bundle confirmation and their indexes; it also does: %.80s", stmt)
+			t.Errorf("0015 may only create the key registry, the per-copy record, the bundle exports and confirmations and their indexes; it also does: %.80s", stmt)
 		}
 	}
 	// 0016 moved the FR-35 argument for a side table, and this file leans
@@ -58,6 +60,86 @@ func TestMigration0015IsAdditiveAndAddsOnlyTheEncryptionTables(t *testing.T) {
 // A journal written before 0015 upgrades with every copy unencrypted and the
 // hash it recorded exactly where it was. Nothing is backfilled: absence is
 // the honest answer for a copy nobody encrypted.
+// Rotation moves one key out of the active slot and puts another in it in
+// ONE write, so a crash cannot leave two active managed keys or none.
+func TestAddEncryptionKey_SupersedesInTheSameWrite(t *testing.T) {
+	ctx := context.Background()
+	j, _ := openJournal(t)
+	at := time.Date(2026, 11, 9, 9, 0, 0, 0, time.UTC)
+	if err := j.AddEncryptionKey(ctx, EncryptionKey{ID: "k1", Provider: KeyProviderManaged, CreatedAt: at}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.AddEncryptionKey(ctx, EncryptionKey{ID: "k2", Provider: KeyProviderManaged, CreatedAt: at.Add(time.Hour)}, "k1"); err != nil {
+		t.Fatal(err)
+	}
+	k1, err := j.EncryptionKey(ctx, "k1")
+	if err != nil || k1.Status != EncryptionKeySuperseded || k1.RetiredAt != nil {
+		t.Errorf("k1 after rotation = %+v, %v; want superseded with no retired_at", k1, err)
+	}
+	k2, err := j.EncryptionKey(ctx, "k2")
+	if err != nil || k2.Status != EncryptionKeyActive {
+		t.Errorf("k2 after rotation = %+v, %v; want active", k2, err)
+	}
+	// A refused rotation leaves nothing half done: an unknown key to
+	// supersede rolls the new key back with it.
+	if err := j.AddEncryptionKey(ctx, EncryptionKey{ID: "k3", Provider: KeyProviderManaged, CreatedAt: at.Add(2 * time.Hour)}, "nope"); !errors.Is(err, ErrEncryptionKeyNotFound) {
+		t.Errorf("superseding an unknown key = %v, want ErrEncryptionKeyNotFound", err)
+	}
+	if _, err := j.EncryptionKey(ctx, "k3"); !errors.Is(err, ErrEncryptionKeyNotFound) {
+		t.Errorf("k3 was registered although its rotation was refused: %v", err)
+	}
+	// At most one active managed key, enforced by the schema as well.
+	if _, err := j.db.ExecContext(ctx, `UPDATE encryption_keys SET status = 'active' WHERE id = 'k1'`); err == nil {
+		t.Error("schema stores two active managed keys")
+	}
+}
+
+func TestRecoveryBundleExports_ConstraintsAndRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	j, _ := openJournal(t)
+	at := time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)
+	if err := j.RegisterEncryptionKey(ctx, EncryptionKey{ID: "k1", Provider: KeyProviderManaged, CreatedAt: at}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := j.RecoveryBundleExports(ctx, "k1"); err != nil || len(got) != 0 {
+		t.Fatalf("a fresh key has exports %+v, %v", got, err)
+	}
+	for _, bad := range []RecoveryBundleExport{
+		{Digest: "d1", ExportedAt: at},
+		{KeyID: "k1", ExportedAt: at},
+		{KeyID: "k1", Digest: "d1"},
+	} {
+		if err := j.RecordRecoveryBundleExport(ctx, bad); err == nil {
+			t.Errorf("RecordRecoveryBundleExport(%+v) accepted", bad)
+		}
+	}
+	if err := j.RecordRecoveryBundleExport(ctx, RecoveryBundleExport{KeyID: "nope", Digest: "d1", ExportedAt: at}); !errors.Is(err, ErrEncryptionKeyNotFound) {
+		t.Errorf("an export for an unknown key = %v, want ErrEncryptionKeyNotFound", err)
+	}
+	first := RecoveryBundleExport{KeyID: "k1", Digest: "d1", ExportedAt: at}
+	second := RecoveryBundleExport{KeyID: "k1", Digest: "d2", ExportedAt: at.Add(time.Hour)}
+	for _, e := range []RecoveryBundleExport{second, first} {
+		if err := j.RecordRecoveryBundleExport(ctx, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := j.RecoveryBundleExports(ctx, "k1")
+	if err != nil || len(got) != 2 || got[0].Digest != "d1" || got[1].Digest != "d2" || !got[0].ExportedAt.Equal(at) {
+		t.Errorf("RecoveryBundleExports = %+v, %v; want d1 then d2, oldest first", got, err)
+	}
+	// The same bundle digest is recorded once per key.
+	if err := j.RecordRecoveryBundleExport(ctx, first); err == nil {
+		t.Error("the same export was recorded twice")
+	}
+	// The schema, not only the Go code, keeps an export attached to a key.
+	if _, err := j.db.ExecContext(ctx, `INSERT INTO recovery_bundle_exports (key_id, digest, exported_at) VALUES ('nope', 'd', ?)`, formatTime(at)); err == nil {
+		t.Error("schema stores an export for an unregistered key")
+	}
+	if _, err := j.db.ExecContext(ctx, `INSERT INTO recovery_bundle_exports (key_id, digest, exported_at) VALUES ('k1', '', ?)`, formatTime(at)); err == nil {
+		t.Error("schema stores an export with an empty digest")
+	}
+}
+
 func TestMigration0015_APreMigrationJournalReadsEveryCopyUnencrypted(t *testing.T) {
 	ctx := context.Background()
 	db, path := openLikeProduction(t)
@@ -172,7 +254,16 @@ func TestEncryptionKeys_RegisterListAndTheVocabulariesAgreeWithTheSchema(t *test
 	if _, err := j.db.ExecContext(ctx, `UPDATE encryption_keys SET status = 'retired', retired_at = NULL WHERE id = 'k-ext'`); err == nil {
 		t.Error("schema stores a retired key with no retirement time")
 	}
-	if len(EncryptionKeyStatuses) != 2 || len(KeyProviders) != 2 {
+	if !containsString(EncryptionKeyStatuses, EncryptionKeySuperseded) || EncryptionKeySuperseded != "superseded" {
+		t.Errorf("EncryptionKeyStatuses = %v, want superseded in the vocabulary (the rotation state #990 writes)", EncryptionKeyStatuses)
+	}
+	if _, err := j.db.ExecContext(ctx, `UPDATE encryption_keys SET status = 'superseded', retired_at = NULL WHERE id = 'k-ext'`); err != nil {
+		t.Errorf("schema refuses status superseded with no retirement time: %v", err)
+	}
+	if _, err := j.db.ExecContext(ctx, `UPDATE encryption_keys SET status = 'superseded', retired_at = ? WHERE id = 'k-ext'`, formatTime(created)); err == nil {
+		t.Error("schema stores a superseded key with a retirement time; only retired keys have one")
+	}
+	if len(EncryptionKeyStatuses) != 3 || len(KeyProviders) != 2 {
 		t.Errorf("vocabulary sizes = %d, %d; a new value needs a migration and a deliberate edit here", len(EncryptionKeyStatuses), len(KeyProviders))
 	}
 }
@@ -286,7 +377,8 @@ func TestPlacementEncryption_DiesWithItsPlacement(t *testing.T) {
 
 // FR-66's durable half: a confirmed bundle is a fact in the journal, not a
 // computed state, so it is still there after the process that recorded it
-// has restarted.
+// has restarted. A confirmation is accepted only against an export with the
+// same digest, so confirming is a proof of possession rather than a tick.
 func TestRecoveryBundleConfirmation_SurvivesAReopen(t *testing.T) {
 	ctx := context.Background()
 	j, path := openJournal(t)
@@ -294,18 +386,28 @@ func TestRecoveryBundleConfirmation_SurvivesAReopen(t *testing.T) {
 	if err := j.RegisterEncryptionKey(ctx, EncryptionKey{ID: "k1", Provider: KeyProviderManaged, CreatedAt: at}); err != nil {
 		t.Fatal(err)
 	}
-	if _, confirmed, err := j.RecoveryBundleConfirmation(ctx, "k1"); err != nil || confirmed {
-		t.Fatalf("a fresh key reads as confirmed (%v, %v)", confirmed, err)
+	if got, err := j.RecoveryBundleConfirmations(ctx, "k1"); err != nil || len(got) != 0 {
+		t.Fatalf("a fresh key reads as confirmed (%+v, %v)", got, err)
 	}
-	if err := j.ConfirmRecoveryBundle(ctx, RecoveryBundleConfirmation{KeyID: "nope", ConfirmedAt: at}); !errors.Is(err, ErrEncryptionKeyNotFound) {
+	if err := j.ConfirmRecoveryBundle(ctx, RecoveryBundleConfirmation{KeyID: "nope", BundleDigest: "sha256:bundle", ConfirmedAt: at}); !errors.Is(err, ErrEncryptionKeyNotFound) {
 		t.Errorf("confirming a bundle for an unknown key = %v", err)
 	}
-	if err := j.ConfirmRecoveryBundle(ctx, RecoveryBundleConfirmation{KeyID: "k1"}); err == nil {
+	if err := j.ConfirmRecoveryBundle(ctx, RecoveryBundleConfirmation{KeyID: "k1", BundleDigest: "sha256:bundle"}); err == nil {
 		t.Error("a confirmation with no time was accepted")
 	}
 	want := RecoveryBundleConfirmation{KeyID: "k1", ConfirmedAt: at, ConfirmedBy: "operator", BundleDigest: "sha256:bundle"}
+	if err := j.ConfirmRecoveryBundle(ctx, want); !errors.Is(err, ErrRecoveryBundleExportNotFound) {
+		t.Errorf("confirming a digest no export recorded = %v, want ErrRecoveryBundleExportNotFound", err)
+	}
+	if err := j.RecordRecoveryBundleExport(ctx, RecoveryBundleExport{KeyID: "k1", Digest: "sha256:bundle", ExportedAt: at.Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
 	if err := j.ConfirmRecoveryBundle(ctx, want); err != nil {
 		t.Fatal(err)
+	}
+	// Confirming the same bundle again is idempotent: it keeps one row.
+	if err := j.ConfirmRecoveryBundle(ctx, want); err != nil {
+		t.Errorf("a repeated confirmation = %v, want nil", err)
 	}
 	if err := j.Close(); err != nil {
 		t.Fatal(err)
@@ -316,11 +418,15 @@ func TestRecoveryBundleConfirmation_SurvivesAReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	got, confirmed, err := reopened.RecoveryBundleConfirmation(ctx, "k1")
-	if err != nil || !confirmed {
-		t.Fatalf("after a reopen: confirmed=%v err=%v", confirmed, err)
+	got, err := reopened.RecoveryBundleConfirmations(ctx, "k1")
+	if err != nil || len(got) != 1 {
+		t.Fatalf("after a reopen: %+v, %v", got, err)
 	}
-	if got != want {
-		t.Errorf("round trip = %+v, want %+v", got, want)
+	if got[0] != want {
+		t.Errorf("round trip = %+v, want %+v", got[0], want)
+	}
+	// The schema ties a confirmation to an export of the same key and digest.
+	if _, err := reopened.db.ExecContext(ctx, `INSERT INTO recovery_bundle_confirmations (key_id, bundle_digest, confirmed_at) VALUES ('k1', 'sha256:other', ?)`, formatTime(at)); err == nil {
+		t.Error("schema stores a confirmation with no matching export")
 	}
 }
