@@ -60,10 +60,12 @@ func (s *Store) externalRecipient(ctx context.Context, ref secretref.Ref) (recip
 		recipient, suiteID = r, id
 		return err
 	})
-	if err == nil {
-		s.noteExternalSuite(ref, suiteID)
+	if err != nil {
+		s.forgetExternalSuite(ref)
+		return recipient, suiteID, err
 	}
-	return recipient, suiteID, err
+	s.noteExternalSuite(ref, suiteID)
+	return recipient, suiteID, nil
 }
 
 // ExternalKeySuite resolves ref and reports the suite of the key it yields,
