@@ -192,7 +192,12 @@
           "VALIDATOR_PATTERN_CONFLICT",
           "VALIDATOR_LIMIT_REACHED",
           "VALIDATORS_UNAVAILABLE",
-          "VALIDATOR_SCRIPT_CHANGED"
+          "VALIDATOR_SCRIPT_CHANGED",
+          "ENCRYPTION_KEY_NOT_FOUND",
+          "ENCRYPTION_KEY_IN_USE",
+          "ENCRYPTION_KEY_STATE",
+          "ENCRYPTION_KEY_UNRESOLVABLE",
+          "ENCRYPTION_UNAVAILABLE"
         ],
         "x-code-origins": {
           "authentication-failed": "ui",
@@ -311,7 +316,12 @@
           "VALIDATOR_PATTERN_CONFLICT": "wire",
           "VALIDATOR_LIMIT_REACHED": "wire",
           "VALIDATORS_UNAVAILABLE": "wire",
-          "VALIDATOR_SCRIPT_CHANGED": "wire"
+          "VALIDATOR_SCRIPT_CHANGED": "wire",
+          "ENCRYPTION_KEY_NOT_FOUND": "wire",
+          "ENCRYPTION_KEY_IN_USE": "wire",
+          "ENCRYPTION_KEY_STATE": "wire",
+          "ENCRYPTION_KEY_UNRESOLVABLE": "wire",
+          "ENCRYPTION_UNAVAILABLE": "wire"
         },
         "x-error-classes": {
           "authentication": [
@@ -384,7 +394,10 @@
             "VALIDATOR_EXISTS",
             "VALIDATOR_PATTERN_CONFLICT",
             "VALIDATOR_LIMIT_REACHED",
-            "VALIDATOR_SCRIPT_CHANGED"
+            "VALIDATOR_SCRIPT_CHANGED",
+            "ENCRYPTION_KEY_IN_USE",
+            "ENCRYPTION_KEY_STATE",
+            "ENCRYPTION_KEY_UNRESOLVABLE"
           ],
           "not-found": [
             "BACKUP_SET_NOT_FOUND",
@@ -401,7 +414,8 @@
             "RECOVERY_COPY_NOT_FOUND",
             "RECOVERY_GRANT_UNKNOWN",
             "DIRECTORY_NOT_FOUND",
-            "VALIDATOR_NOT_FOUND"
+            "VALIDATOR_NOT_FOUND",
+            "ENCRYPTION_KEY_NOT_FOUND"
           ],
           "throttling": [
             "RATE_LIMITED",
@@ -428,7 +442,8 @@
             "RECOVERY_INTERRUPTED",
             "STEP_UP_UNAVAILABLE",
             "RECOVERY_SOURCE_HOST_UNREACHABLE",
-            "VALIDATORS_UNAVAILABLE"
+            "VALIDATORS_UNAVAILABLE",
+            "ENCRYPTION_UNAVAILABLE"
           ]
         }
       },
@@ -9048,6 +9063,431 @@
           "sha256",
           "size_bytes",
           "content"
+        ]
+      },
+      "EncryptionKeyReference": {
+        "type": "object",
+        "description": "Where an external key is read from: exactly one of file, env or command. Write-only: a response never carries this shape, only the description in EncryptionKeyProviderState.",
+        "additionalProperties": false,
+        "properties": {
+          "file": {
+            "type": "string",
+            "x-go-omitempty": true
+          },
+          "env": {
+            "type": "string",
+            "x-go-omitempty": true
+          },
+          "command": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "x-go-omitempty": true
+          }
+        },
+        "required": []
+      },
+      "EncryptionKeyProvider": {
+        "type": "object",
+        "description": "Who holds the key: this product's managed key, or an external reference. Exactly one.",
+        "additionalProperties": false,
+        "properties": {
+          "managed": {
+            "type": "boolean",
+            "x-go-omitempty": true
+          },
+          "external": {
+            "$ref": "#/components/schemas/EncryptionKeyReference",
+            "x-go-omitempty": true,
+            "x-go-pointer": true
+          }
+        },
+        "required": []
+      },
+      "EncryptionKeyProviderState": {
+        "type": "object",
+        "description": "A key provider as it reads back. kind is managed, external or none. source is the reference's description (a path, a variable name, or an executable without arguments) and is absent for managed and none. It cannot be parsed back into a reference.",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "x-go-omitempty": true
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "EncryptionPolicyPatch": {
+        "type": "object",
+        "description": "PATCH /encryption/policy. Fields that are present change and the rest stay. At least one is required.",
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "off or required."
+          },
+          "key_provider": {
+            "$ref": "#/components/schemas/EncryptionKeyProvider",
+            "x-go-omitempty": true,
+            "x-go-pointer": true
+          }
+        },
+        "required": []
+      },
+      "EncryptionSetPolicy": {
+        "type": "object",
+        "description": "What one backup set's retained-copy encryption is set to, and what that resolves to. mode is what the set says (inherit, off or required); effective_mode is what applies.",
+        "additionalProperties": false,
+        "properties": {
+          "backup_set_id": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "effective_mode": {
+            "type": "string"
+          },
+          "is_override": {
+            "type": "boolean"
+          },
+          "key_provider": {
+            "$ref": "#/components/schemas/EncryptionKeyProviderState"
+          },
+          "effective_key_provider": {
+            "$ref": "#/components/schemas/EncryptionKeyProviderState"
+          }
+        },
+        "required": [
+          "backup_set_id",
+          "mode",
+          "effective_mode",
+          "is_override",
+          "key_provider",
+          "effective_key_provider"
+        ]
+      },
+      "EncryptionPolicy": {
+        "type": "object",
+        "description": "GET /encryption/policy. The deployment's retained-copy encryption mode and key provider, and every backup set's resolution.",
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "type": "string"
+          },
+          "key_provider": {
+            "$ref": "#/components/schemas/EncryptionKeyProviderState"
+          },
+          "sets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EncryptionSetPolicy"
+            }
+          }
+        },
+        "required": [
+          "mode",
+          "key_provider",
+          "sets"
+        ]
+      },
+      "EncryptionOverride": {
+        "type": "object",
+        "description": "PUT /backup-sets/{source}/{set}/encryption. A backup set's own mode (inherit, off or required) and, for required, its own key provider. A whole replace.",
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "type": "string"
+          },
+          "key_provider": {
+            "$ref": "#/components/schemas/EncryptionKeyProvider",
+            "x-go-omitempty": true,
+            "x-go-pointer": true
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "EncryptionKeyStatus": {
+        "type": "object",
+        "description": "One managed key's identity and condition. Ids, timestamps, status and whether it resolves right now. Never key material, a recipient or a fingerprint.",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "active, superseded or retired."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "retired_at": {
+            "type": "string",
+            "format": "date-time",
+            "x-go-omitempty": true
+          },
+          "resolvable": {
+            "type": "boolean"
+          },
+          "resolvability": {
+            "type": "string",
+            "description": "resolves, unreachable or not_declared."
+          },
+          "reason": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "Why a key does not resolve, in words that name the source and never its content."
+          },
+          "bundle_confirmed": {
+            "type": "boolean"
+          },
+          "bundle_confirmed_at": {
+            "type": "string",
+            "format": "date-time",
+            "x-go-omitempty": true
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "created_at",
+          "resolvable",
+          "resolvability",
+          "bundle_confirmed"
+        ]
+      },
+      "ListEncryptionKeysResponse": {
+        "type": "object",
+        "description": "GET /encryption/keys. Every managed key, oldest first.",
+        "additionalProperties": false,
+        "properties": {
+          "keys": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EncryptionKeyStatus"
+            }
+          }
+        },
+        "required": [
+          "keys"
+        ]
+      },
+      "EncryptionProviderTestRequest": {
+        "type": "object",
+        "description": "POST /encryption/providers/test. Name a managed key id or an external reference to test.",
+        "additionalProperties": false,
+        "properties": {
+          "managed_key_id": {
+            "type": "string",
+            "x-go-omitempty": true
+          },
+          "external": {
+            "$ref": "#/components/schemas/EncryptionKeyReference",
+            "x-go-omitempty": true,
+            "x-go-pointer": true
+          }
+        },
+        "required": []
+      },
+      "EncryptionProviderProbe": {
+        "type": "object",
+        "description": "Whether a key provider resolves right now. source is a description, never the reference itself.",
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "description": "resolves, unreachable or not_declared."
+          },
+          "reason": {
+            "type": "string",
+            "x-go-omitempty": true
+          }
+        },
+        "required": [
+          "source",
+          "state"
+        ]
+      },
+      "ConfirmRecoveryBundleRequest": {
+        "type": "object",
+        "description": "POST /encryption/keys/{id}/confirm. A statement that the exported bundle is stored safely, never an upload. With no digest it confirms the newest export of the key; with one it must match an export.",
+        "additionalProperties": false,
+        "properties": {
+          "digest": {
+            "type": "string",
+            "x-go-omitempty": true
+          }
+        },
+        "required": []
+      },
+      "RecoveryBundleReceipt": {
+        "type": "object",
+        "description": "What exporting a bundle left on record: the key, the digest the bundle carries and when. No material.",
+        "additionalProperties": false,
+        "properties": {
+          "key_id": {
+            "type": "string"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "exported_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "key_id",
+          "digest",
+          "exported_at"
+        ]
+      },
+      "RecoveryBundle": {
+        "type": "object",
+        "description": "POST /encryption/keys/{id}/export. The disaster-recovery bundle: the ONE shape in this API that carries key material, answered once as a file to save and never rendered. Whether the API should return it at all is an open decision (see docs/api/contract.md).",
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "key_id": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "recipient": {
+            "type": "string"
+          },
+          "created": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "exported": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "material": {
+            "type": "string"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "instructions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "version",
+          "key_id",
+          "format",
+          "recipient",
+          "created",
+          "exported",
+          "material",
+          "digest",
+          "instructions"
+        ]
+      },
+      "EncryptionCopy": {
+        "type": "object",
+        "description": "One copy's encryption state. A plaintext copy says encrypted false and nothing else.",
+        "additionalProperties": false,
+        "properties": {
+          "medium": {
+            "type": "string",
+            "description": "local, or a storage medium id."
+          },
+          "encrypted": {
+            "type": "boolean"
+          },
+          "format": {
+            "type": "string",
+            "x-go-omitempty": true
+          },
+          "format_version": {
+            "type": "integer",
+            "x-go-omitempty": true
+          },
+          "key_id": {
+            "type": "string",
+            "x-go-omitempty": true
+          },
+          "key_resolvable": {
+            "type": "boolean",
+            "x-go-omitempty": true,
+            "x-go-pointer": true
+          },
+          "stored_size": {
+            "type": "integer",
+            "format": "int64",
+            "x-go-omitempty": true
+          },
+          "stored_digest_algorithm": {
+            "type": "string",
+            "x-go-omitempty": true
+          }
+        },
+        "required": [
+          "medium",
+          "encrypted"
+        ]
+      },
+      "ListEncryptionCopiesResponse": {
+        "type": "object",
+        "description": "GET /encryption/copies. The encryption state of each copy of one backup.",
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "copies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EncryptionCopy"
+            }
+          }
+        },
+        "required": [
+          "artifact_id",
+          "copies"
+        ]
+      },
+      "StartDecryptVerifyRequest": {
+        "type": "object",
+        "description": "POST /encryption/verify. Decrypt-verify one backup's encrypted copy: a content check through the key the copy records. acknowledge_egress accepts the cost of reading a medium that bills for it.",
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "medium": {
+            "type": "string",
+            "x-go-omitempty": true
+          },
+          "acknowledge_egress": {
+            "type": "boolean",
+            "x-go-omitempty": true
+          }
+        },
+        "required": [
+          "artifact_id"
         ]
       }
     },
@@ -21972,6 +22412,1531 @@
           }
         },
         "x-destructive-gate": true,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/encryption/policy": {
+      "get": {
+        "operationId": "getEncryptionPolicy",
+        "summary": "Report the deployment's retained-copy encryption mode and key provider, and what every backup set resolves to. Read-only. The key provider reads back as a description of its source, never as a reference that could be parsed.",
+        "tags": [
+          "encryption"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncryptionPolicy"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      },
+      "patch": {
+        "operationId": "patchEncryptionPolicy",
+        "summary": "Change the deployment's retained-copy encryption mode and key provider. Fields that are present change, the rest stay. The same validation a hand-edited configuration file gets.",
+        "tags": [
+          "encryption"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EncryptionPolicyPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncryptionPolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. Includes every refusal the same policy written into the configuration file would get, such as required with no key provider.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: ENCRYPTION_UNAVAILABLE, NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/encryption/policy/reset": {
+      "post": {
+        "operationId": "resetEncryptionPolicy",
+        "summary": "Remove the deployment's retained-copy encryption block, which resolves to off with no key provider. Copies already written stay encrypted and stay readable through their recorded keys.",
+        "tags": [
+          "encryption"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncryptionPolicy"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: ENCRYPTION_UNAVAILABLE, NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/backup-sets/{source}/{set}/encryption": {
+      "put": {
+        "operationId": "setBackupSetEncryption",
+        "summary": "Give this backup set its own retained-copy encryption mode (inherit, off or required) and, for required, its own key provider. A whole replace.",
+        "tags": [
+          "encryption"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The configured source this backup set belongs to."
+          },
+          {
+            "name": "set",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup set's own name within that source."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EncryptionOverride"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncryptionSetPolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. Includes every refusal the same policy written into the configuration file would get, such as required with no key provider.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: ENCRYPTION_UNAVAILABLE, NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      },
+      "delete": {
+        "operationId": "clearBackupSetEncryption",
+        "summary": "Remove this backup set's own retained-copy encryption block so it follows the deployment's policy again.",
+        "tags": [
+          "encryption"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The configured source this backup set belongs to."
+          },
+          {
+            "name": "set",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup set's own name within that source."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncryptionSetPolicy"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: ENCRYPTION_UNAVAILABLE, NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/encryption/keys": {
+      "get": {
+        "operationId": "listEncryptionKeys",
+        "summary": "List the managed keys: id, status, timestamps, whether each resolves right now and whether its bundle is confirmed. Never key bytes.",
+        "tags": [
+          "encryption"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListEncryptionKeysResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: ENCRYPTION_UNAVAILABLE, NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      },
+      "post": {
+        "operationId": "createEncryptionKey",
+        "summary": "Create the first managed key. Refused while a key is active; that is a rotation.",
+        "tags": [
+          "encryption"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncryptionKeyStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "409": {
+            "description": "Refused: ENCRYPTION_KEY_STATE.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_KEY_STATE"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: ENCRYPTION_UNAVAILABLE, NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/encryption/keys/rotate": {
+      "post": {
+        "operationId": "rotateEncryptionKey",
+        "summary": "Mint a new active managed key and supersede the current one. New copies use the new key; every earlier copy still decrypts through the key id recorded against it.",
+        "tags": [
+          "encryption"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncryptionKeyStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "409": {
+            "description": "Refused: ENCRYPTION_KEY_STATE.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_KEY_STATE"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: ENCRYPTION_UNAVAILABLE, NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/encryption/keys/{id}/retire": {
+      "post": {
+        "operationId": "retireEncryptionKey",
+        "summary": "Retire a managed key. Refused, naming the copies, while an ACTIVE copy still records it, and refused for the active key.",
+        "tags": [
+          "encryption"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The managed key id, as GET /encryption/keys lists it."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncryptionKeyStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "404": {
+            "description": "Refused: ENCRYPTION_KEY_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_KEY_NOT_FOUND"
+            ]
+          },
+          "409": {
+            "description": "Refused: ENCRYPTION_KEY_IN_USE. The message names the copies that still record the key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_KEY_IN_USE"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: ENCRYPTION_UNAVAILABLE, NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/encryption/keys/{id}/export": {
+      "post": {
+        "operationId": "exportRecoveryBundle",
+        "summary": "Export the disaster-recovery bundle for a managed key. This is the one moment key material leaves the deployment, so it asks what a validator upload asks: the destructive gate and, where the gate opens for local accounts, the password. The response is a file to save and is never cached.",
+        "tags": [
+          "encryption"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The managed key id, as GET /encryption/keys lists it."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryBundle"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, DESTRUCTIVE_OPERATIONS_DISABLED, STEP_UP_REQUIRED, STEP_UP_FAILED, INSECURE_TRANSPORT_ACK_REQUIRED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH",
+              "DESTRUCTIVE_OPERATIONS_DISABLED",
+              "STEP_UP_REQUIRED",
+              "STEP_UP_FAILED",
+              "INSECURE_TRANSPORT_ACK_REQUIRED"
+            ]
+          },
+          "404": {
+            "description": "Refused: ENCRYPTION_KEY_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_KEY_NOT_FOUND"
+            ]
+          },
+          "429": {
+            "description": "Refused: RATE_LIMITED. Too many password checks in the last minute; Retry-After says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RATE_LIMITED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: ENCRYPTION_UNAVAILABLE, STEP_UP_UNAVAILABLE, NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_UNAVAILABLE",
+              "STEP_UP_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": true,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/encryption/keys/{id}/confirm": {
+      "post": {
+        "operationId": "confirmRecoveryBundle",
+        "summary": "Say the exported bundle is stored safely. Clears the durable degraded state for the key. A statement, not an upload: this API never accepts key material. Refused when nothing was exported.",
+        "tags": [
+          "encryption"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The managed key id, as GET /encryption/keys lists it."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmRecoveryBundleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncryptionKeyStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "404": {
+            "description": "Refused: ENCRYPTION_KEY_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_KEY_NOT_FOUND"
+            ]
+          },
+          "409": {
+            "description": "Refused: ENCRYPTION_KEY_STATE.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_KEY_STATE"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: ENCRYPTION_UNAVAILABLE, NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/encryption/providers/test": {
+      "post": {
+        "operationId": "testEncryptionProvider",
+        "summary": "Report whether a key provider resolves right now and, when it does not, why in words that name the source and never its content. Writes nothing and keeps nothing it resolved.",
+        "tags": [
+          "encryption"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EncryptionProviderTestRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncryptionProviderProbe"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. Includes every refusal the same policy written into the configuration file would get, such as required with no key provider.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: ENCRYPTION_UNAVAILABLE, NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/encryption/copies": {
+      "get": {
+        "operationId": "listEncryptionCopies",
+        "summary": "Report the encryption state of each copy of one backup: whether it is encrypted, under which key and format, and whether that key resolves. Read-only.",
+        "tags": [
+          "encryption"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "artifact",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup id, source/set/name."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListEncryptionCopiesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "404": {
+            "description": "Refused: ARTIFACT_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ARTIFACT_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: ENCRYPTION_UNAVAILABLE, NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      }
+    },
+    "/encryption/verify": {
+      "post": {
+        "operationId": "startDecryptVerify",
+        "summary": "Decrypt-verify one backup's encrypted copy in the background: a content check whose plaintext digest has to equal the recorded one. It is a scrub operation, so cancelling it is POST /assurance/operations/{op}/cancel from a terminal and from a browser alike. Refused before any read when the copy's key does not resolve.",
+        "tags": [
+          "encryption"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartDecryptVerifyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScrubStarted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. Includes every refusal the same policy written into the configuration file would get, such as required with no key provider.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "404": {
+            "description": "Refused: ARTIFACT_NOT_FOUND, BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ARTIFACT_NOT_FOUND",
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "409": {
+            "description": "Refused: OPERATION_ALREADY_RUNNING, ENCRYPTION_KEY_UNRESOLVABLE.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "OPERATION_ALREADY_RUNNING",
+              "ENCRYPTION_KEY_UNRESOLVABLE"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: ENCRYPTION_UNAVAILABLE, NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ENCRYPTION_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": true,

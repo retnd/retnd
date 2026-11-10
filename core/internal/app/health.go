@@ -199,7 +199,39 @@ func (s *Service) BuildHealthReport(ctx context.Context, versionInfo VersionInfo
 		return health.Report{}, err
 	}
 	report.RetainedCount = retained
+	kc, err := s.keyCustodyHealth(ctx)
+	if err != nil {
+		return health.Report{}, err
+	}
+	report.KeyCustody = kc
 	return report, nil
+}
+
+// keyCustodyHealth is health.Report.KeyCustody (EPIC N, FR-66). A
+// deployment with no custodian wired, or one that encrypts nothing and holds
+// no keys, gets the zero section, which reads "this deployment encrypts
+// nothing". An error is a failed report rather than that zero: a registry
+// that could not be asked must not read as nothing to report.
+func (s *Service) keyCustodyHealth(ctx context.Context) (health.KeyCustodyHealth, error) {
+	custody, ok := s.Keys.(interface {
+		Health(ctx context.Context, enabled bool) (health.KeyCustodyHealth, error)
+	})
+	if !ok {
+		return health.KeyCustodyHealth{}, nil
+	}
+	enabled := false
+	for _, src := range s.Config.Sources {
+		for _, bs := range src.BackupSets {
+			if bs.RetainedCopyEncryption.Enabled() {
+				enabled = true
+			}
+		}
+	}
+	h, err := custody.Health(ctx, enabled)
+	if err != nil {
+		return health.KeyCustodyHealth{}, fmt.Errorf("app: health: key custody: %w", err)
+	}
+	return h, nil
 }
 
 // retainedCount is the deployment's figure for the sidebar's Backups badge

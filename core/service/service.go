@@ -39,6 +39,7 @@ import (
 	"github.com/retnd/retnd/core/internal/backend"
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/placement"
 	"github.com/retnd/retnd/core/internal/state"
 	"github.com/retnd/retnd/core/internal/transport"
 	"github.com/retnd/retnd/core/internal/transport/rclone"
@@ -96,6 +97,18 @@ type BackupService struct {
 	configChanged chan struct{}
 
 	journal *state.Journal
+
+	// keys is key custody for encrypted retained copies (keycustody.go).
+	// It is also what inner.Keys holds, so the engine, a scrub and the
+	// encryption routes all reach one custodian.
+	keys *KeyCustody
+
+	// retireJournal stands in for the journal in a key retirement. Nil, which
+	// is every real process, means "the journal itself, when it carries the
+	// retirement transaction" (RetireEncryptionKey). It exists so the
+	// refusal that names the copies can be driven before state.Journal gains
+	// ActivePlacementsRecordingKey and RetireEncryptionKey (#989).
+	retireJournal placement.KeyJournal
 
 	// rootDefault is where this process looks for a workflow root when
 	// config.yaml names none (#1246). Zero, which New leaves it, looks
@@ -356,6 +369,8 @@ func New(cfg *config.Config, journal *state.Journal, tr transport.Transport, log
 	b.logger = logger
 	b.activity = activity
 	inner := app.New(cfg, journal, tr, logger)
+	b.keys = NewKeyCustody(func() string { return b.configPath }, journal)
+	inner.Keys = b.keys
 	// The stage runner is wired here, and not with the lifecycle, because
 	// it needs no reconciliation: it runs scripts that are not backups, so
 	// there is no quiesced machine for a startup pass to account for.

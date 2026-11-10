@@ -436,6 +436,9 @@ type gatedAct struct {
 	// validatorUpload is an upload or edit of a custom recovery-test
 	// validator (#1203): new code the engine will run on the host.
 	validatorUpload bool
+	// keyExport is the export of a recovery bundle (#993): the one act that
+	// lets managed key material leave the deployment through the API.
+	keyExport bool
 }
 
 // sourceRecoveryAct is what decide needs from a source-host recovery: the
@@ -495,6 +498,14 @@ func (e gateEnforcement) decide(r *http.Request, act gatedAct) (gateRefusal, boo
 		// and where nothing can check it the answer is 503, not 201.
 		return e.checkStepUp(r, stepUpAct{
 			name: "a validator upload", plural: "validator uploads", onHost: "retnd assurance validators add",
+		})
+	}
+	if act.keyExport {
+		// Fails closed for the validator upload's reason: where the gate is
+		// open the password is asked for, and where nothing can check it the
+		// answer is 503, not a bundle.
+		return e.checkStepUp(r, stepUpAct{
+			name: "a recovery bundle export", plural: "recovery bundle exports", onHost: "retnd encryption key export",
 		})
 	}
 	return gateRefusal{}, false

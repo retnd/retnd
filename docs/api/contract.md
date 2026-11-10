@@ -773,6 +773,57 @@ Recovery runs inside written budgets (`core/internal/recovery/budget`, #983), an
 
 The UI host (`retnd-ui`) is the front door in the two-container topology, so a download goes through its reverse proxy. That proxy bounds the wait for the engine's first response byte at five seconds and its server bounds a whole response at thirty, both right for JSON and both fatal to a download whose first request has to make the preparation read of the whole copy before the first byte. `/api/v1/recoveries/` gets its own proxy with no header bound and a write deadline that rolls with the client accepting bytes. A different gateway in front of that one needs the same treatment: a read timeout longer than the time to read the copy, and no response buffering.
 
+## Recorded decision: retained-copy encryption is fourteen operations, one write-only field and one route that returns key material (#993)
+
+EPIC N adds the `encryption` surface, all of it additive: nothing existing
+changes shape, and every new field on a request is optional.
+
+| Operation | Route |
+|---|---|
+| `getEncryptionPolicy`, `patchEncryptionPolicy`, `resetEncryptionPolicy` | `GET`, `PATCH /encryption/policy`, `POST /encryption/policy/reset` |
+| `setBackupSetEncryption`, `clearBackupSetEncryption` | `PUT`, `DELETE /backup-sets/{source}/{set}/encryption` |
+| `listEncryptionKeys`, `createEncryptionKey`, `rotateEncryptionKey`, `retireEncryptionKey` | `GET`, `POST /encryption/keys`, `POST .../keys/rotate`, `POST .../keys/{id}/retire` |
+| `exportRecoveryBundle`, `confirmRecoveryBundle` | `POST /encryption/keys/{id}/export`, `POST .../keys/{id}/confirm` |
+| `testEncryptionProvider` | `POST /encryption/providers/test` |
+| `listEncryptionCopies` | `GET /encryption/copies?artifact=` |
+| `startDecryptVerify` | `POST /encryption/verify` (answers `ScrubStarted`; cancel is the existing `POST /assurance/operations/{op}/cancel`) |
+
+Five error codes arrive with them: `ENCRYPTION_KEY_NOT_FOUND`,
+`ENCRYPTION_KEY_IN_USE` (the message names the copies), `ENCRYPTION_KEY_STATE`,
+`ENCRYPTION_KEY_UNRESOLVABLE` and `ENCRYPTION_UNAVAILABLE`.
+
+### The key-reference field is write-only
+
+A request declares an external key as `{file | env | command}`
+(`EncryptionKeyReference`). Nothing answers with that shape. A response says
+`{kind, source}` (`EncryptionKeyProviderState`), where `source` is the
+reference's own description: a path, a variable name, or an executable without
+its arguments. The reference type has no `UnmarshalJSON`
+(`core/internal/secretref`), so a description read back from a response cannot
+re-declare a key. No key id appears in any metric label.
+
+### The one route that returns key material, and the open question
+
+`exportRecoveryBundle` answers with a `RecoveryBundle`, the single shape that
+carries managed key material. It is the browser's "Download bundle" and the
+terminal's `encryption key export --out FILE`. It is gated like a validator
+upload (the destructive gate and, where the gate opens for local accounts, the
+password), answers `Cache-Control: no-store` as an attachment, and is never
+rendered.
+
+**Open decision, not settled here:** whether the API should return the bundle at
+all. The browser keeps the download for now. If the answer is no, the route is
+removed, the browser's export becomes an instruction to run the echoed command,
+and nothing else in this surface depends on it.
+
+### Not decided here
+
+Progress stages for encrypting and decrypt-verifying are a published contract
+(`OperationProgress.stage`), and external key provider support goes beyond the
+`file | env | command` reference. A decrypt-verify rides the scrub operation and
+reports `bytes_read` in its result; neither stage list nor provider list is
+extended by this surface, and both can be added later without breaking it.
+
 ## Migration record: what was removed and what replaced it
 
 | removed | replaced by |

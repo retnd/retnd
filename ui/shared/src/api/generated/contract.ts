@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "a69f995bd065524ae305e2437665008b3213a1226e53525c9d5b78e1bbf40caa";
+export const CONTRACT_SHA256 = "18d069734bc8cae425e638928bc661ed772401f56b8edc5b7d2e97223e598189";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -127,6 +127,11 @@ export const WIRE_ERROR_CODES = [
   "VALIDATOR_LIMIT_REACHED",
   "VALIDATORS_UNAVAILABLE",
   "VALIDATOR_SCRIPT_CHANGED",
+  "ENCRYPTION_KEY_NOT_FOUND",
+  "ENCRYPTION_KEY_IN_USE",
+  "ENCRYPTION_KEY_STATE",
+  "ENCRYPTION_KEY_UNRESOLVABLE",
+  "ENCRYPTION_UNAVAILABLE",
 ] as const;
 
 /** This UI's own presentation vocabulary. No endpoint emits these;
@@ -266,6 +271,11 @@ export const API_ERROR_CODES = [
   "VALIDATOR_LIMIT_REACHED",
   "VALIDATORS_UNAVAILABLE",
   "VALIDATOR_SCRIPT_CHANGED",
+  "ENCRYPTION_KEY_NOT_FOUND",
+  "ENCRYPTION_KEY_IN_USE",
+  "ENCRYPTION_KEY_STATE",
+  "ENCRYPTION_KEY_UNRESOLVABLE",
+  "ENCRYPTION_UNAVAILABLE",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -275,11 +285,11 @@ export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 export const API_ERROR_CLASSES = {
   "authentication": ["UNAUTHENTICATED", "BOOTSTRAP_TOKEN_INVALID", "RESET_TOKEN_INVALID", "VERIFY_TOKEN_INVALID"],
   "authorization": ["ENROLLMENT_CLOSED", "DESTRUCTIVE_OPERATIONS_DISABLED", "CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "RECOVERY_GRANT_SESSION_ENDED", "STEP_UP_REQUIRED", "STEP_UP_FAILED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
-  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED", "RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED", "RECOVERY_TARGET_EXISTS", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_BUSY", "DIRECTORY_NOT_READABLE", "RESTORE_TARGET_NOT_ACKNOWLEDGED", "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_UNAVAILABLE", "RECOVERY_SOURCE_HOST_READ_ONLY", "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE", "VALIDATOR_EXISTS", "VALIDATOR_PATTERN_CONFLICT", "VALIDATOR_LIMIT_REACHED", "VALIDATOR_SCRIPT_CHANGED"],
+  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED", "RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED", "RECOVERY_TARGET_EXISTS", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_BUSY", "DIRECTORY_NOT_READABLE", "RESTORE_TARGET_NOT_ACKNOWLEDGED", "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_UNAVAILABLE", "RECOVERY_SOURCE_HOST_READ_ONLY", "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE", "VALIDATOR_EXISTS", "VALIDATOR_PATTERN_CONFLICT", "VALIDATOR_LIMIT_REACHED", "VALIDATOR_SCRIPT_CHANGED", "ENCRYPTION_KEY_IN_USE", "ENCRYPTION_KEY_STATE", "ENCRYPTION_KEY_UNRESOLVABLE"],
   "internal": ["INTERNAL", "INTERNAL_ERROR", "RECOVERY_LOCAL_COPY_CORRUPT", "RECOVERY_REMOTE_COPY_CORRUPT", "RECOVERY_NO_SPACE", "RECOVERY_BELOW_RESERVE", "RECOVERY_FAILED", "RECOVERY_SOURCE_HOST_NO_SPACE"],
-  "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN", "DIRECTORY_NOT_FOUND", "VALIDATOR_NOT_FOUND"],
+  "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN", "DIRECTORY_NOT_FOUND", "VALIDATOR_NOT_FOUND", "ENCRYPTION_KEY_NOT_FOUND"],
   "throttling": ["RATE_LIMITED", "RECOVERY_TOO_MANY_GRANTS", "RECOVERY_READS_BUSY", "RECOVERY_DESTINATION_BUSY", "RECOVERY_DOWNLOADS_BUSY"],
-  "unavailable": ["NOT_CONFIGURED", "SMTP_SEND_FAILED", "WORKFLOW_ENGINE_UNAVAILABLE", "RECOVERY_UNAVAILABLE", "RECOVERY_INTERRUPTED", "STEP_UP_UNAVAILABLE", "RECOVERY_SOURCE_HOST_UNREACHABLE", "VALIDATORS_UNAVAILABLE"],
+  "unavailable": ["NOT_CONFIGURED", "SMTP_SEND_FAILED", "WORKFLOW_ENGINE_UNAVAILABLE", "RECOVERY_UNAVAILABLE", "RECOVERY_INTERRUPTED", "STEP_UP_UNAVAILABLE", "RECOVERY_SOURCE_HOST_UNREACHABLE", "VALIDATORS_UNAVAILABLE", "ENCRYPTION_UNAVAILABLE"],
   "validation": ["INVALID_REQUEST", "INVALID_EMAIL", "SSH_KEY_NOT_FOUND", "HOST_KEY_PROBE_FAILED", "MEDIUM_DISCLOSURE_REQUIRED", "BACKUP_SET_NOT_INCREMENTAL", "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED", "RECOVERY_TARGET_INVALID"],
 } as const satisfies Record<string, readonly ApiErrorCode[]>;
 
@@ -2680,6 +2690,286 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       503: ["NOT_CONFIGURED", "WORKFLOW_ENGINE_UNAVAILABLE"],
     }
   },
+  {
+    id: "getEncryptionPolicy",
+    method: "GET",
+    path: "/encryption/policy",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "EncryptionPolicy",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "patchEncryptionPolicy",
+    method: "PATCH",
+    path: "/encryption/policy",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "EncryptionPolicyPatch",
+    responseSchema: "EncryptionPolicy",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "resetEncryptionPolicy",
+    method: "POST",
+    path: "/encryption/policy/reset",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "EncryptionPolicy",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "setBackupSetEncryption",
+    method: "PUT",
+    path: "/backup-sets/{source}/{set}/encryption",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "EncryptionOverride",
+    responseSchema: "EncryptionSetPolicy",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "clearBackupSetEncryption",
+    method: "DELETE",
+    path: "/backup-sets/{source}/{set}/encryption",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "EncryptionSetPolicy",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "listEncryptionKeys",
+    method: "GET",
+    path: "/encryption/keys",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListEncryptionKeysResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "createEncryptionKey",
+    method: "POST",
+    path: "/encryption/keys",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "EncryptionKeyStatus",
+    successStatus: 201,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      409: ["ENCRYPTION_KEY_STATE"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "rotateEncryptionKey",
+    method: "POST",
+    path: "/encryption/keys/rotate",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "EncryptionKeyStatus",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      409: ["ENCRYPTION_KEY_STATE"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "retireEncryptionKey",
+    method: "POST",
+    path: "/encryption/keys/{id}/retire",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "EncryptionKeyStatus",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["ENCRYPTION_KEY_NOT_FOUND"],
+      409: ["ENCRYPTION_KEY_IN_USE"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "exportRecoveryBundle",
+    method: "POST",
+    path: "/encryption/keys/{id}/export",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: true,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "RecoveryBundle",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED", "STEP_UP_REQUIRED", "STEP_UP_FAILED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
+      404: ["ENCRYPTION_KEY_NOT_FOUND"],
+      429: ["RATE_LIMITED"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "STEP_UP_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "confirmRecoveryBundle",
+    method: "POST",
+    path: "/encryption/keys/{id}/confirm",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "ConfirmRecoveryBundleRequest",
+    responseSchema: "EncryptionKeyStatus",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["ENCRYPTION_KEY_NOT_FOUND"],
+      409: ["ENCRYPTION_KEY_STATE"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "testEncryptionProvider",
+    method: "POST",
+    path: "/encryption/providers/test",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "EncryptionProviderTestRequest",
+    responseSchema: "EncryptionProviderProbe",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "listEncryptionCopies",
+    method: "GET",
+    path: "/encryption/copies",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListEncryptionCopiesResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["ARTIFACT_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "startDecryptVerify",
+    method: "POST",
+    path: "/encryption/verify",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "StartDecryptVerifyRequest",
+    responseSchema: "ScrubStarted",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["ARTIFACT_NOT_FOUND", "BACKUP_SET_NOT_FOUND"],
+      409: ["OPERATION_ALREADY_RUNNING", "ENCRYPTION_KEY_UNRESOLVABLE"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
 ];
 
 /** One recorded lifecycle moment: a backup moved from one state to
@@ -3176,6 +3466,14 @@ export interface WireConfigRevisionStaleResponse {
   error: WireErrorBody;
 }
 
+/** POST /encryption/keys/{id}/confirm. A statement that the exported
+ *  bundle is stored safely, never an upload. With no digest it
+ *  confirms the newest export of the key; with one it must match an
+ *  export. */
+export interface WireConfirmRecoveryBundleRequest {
+  digest?: string;
+}
+
 /** One step of a connection test. `outcome` is passed, failed or
  *  skipped, and skipped is a first-class answer rather than a quiet
  *  pass: a surface that renders a skipped authentication as anything
@@ -3391,6 +3689,109 @@ export interface WireDestructiveOperationsStatus {
   step_up_required: boolean;
 }
 
+/** One copy's encryption state. A plaintext copy says encrypted false
+ *  and nothing else. */
+export interface WireEncryptionCopy {
+  encrypted: boolean;
+  format?: string;
+  format_version?: number;
+  key_id?: string;
+  key_resolvable?: boolean;
+  medium: string;
+  stored_digest_algorithm?: string;
+  stored_size?: number;
+}
+
+/** Who holds the key: this product's managed key, or an external
+ *  reference. Exactly one. */
+export interface WireEncryptionKeyProvider {
+  external?: WireEncryptionKeyReference;
+  managed?: boolean;
+}
+
+/** A key provider as it reads back. kind is managed, external or
+ *  none. source is the reference's description (a path, a variable
+ *  name, or an executable without arguments) and is absent for
+ *  managed and none. It cannot be parsed back into a reference. */
+export interface WireEncryptionKeyProviderState {
+  kind: string;
+  source?: string;
+}
+
+/** Where an external key is read from: exactly one of file, env or
+ *  command. Write-only: a response never carries this shape, only the
+ *  description in EncryptionKeyProviderState. */
+export interface WireEncryptionKeyReference {
+  command?: string[];
+  env?: string;
+  file?: string;
+}
+
+/** One managed key's identity and condition. Ids, timestamps, status
+ *  and whether it resolves right now. Never key material, a recipient
+ *  or a fingerprint. */
+export interface WireEncryptionKeyStatus {
+  bundle_confirmed: boolean;
+  bundle_confirmed_at?: string;
+  created_at: string;
+  id: string;
+  reason?: string;
+  resolvability: string;
+  resolvable: boolean;
+  retired_at?: string;
+  status: string;
+}
+
+/** PUT /backup-sets/{source}/{set}/encryption. A backup set's own
+ *  mode (inherit, off or required) and, for required, its own key
+ *  provider. A whole replace. */
+export interface WireEncryptionOverride {
+  key_provider?: WireEncryptionKeyProvider;
+  mode: string;
+}
+
+/** GET /encryption/policy. The deployment's retained-copy encryption
+ *  mode and key provider, and every backup set's resolution. */
+export interface WireEncryptionPolicy {
+  key_provider: WireEncryptionKeyProviderState;
+  mode: string;
+  sets: WireEncryptionSetPolicy[];
+}
+
+/** PATCH /encryption/policy. Fields that are present change and the
+ *  rest stay. At least one is required. */
+export interface WireEncryptionPolicyPatch {
+  key_provider?: WireEncryptionKeyProvider;
+  mode?: string;
+}
+
+/** Whether a key provider resolves right now. source is a
+ *  description, never the reference itself. */
+export interface WireEncryptionProviderProbe {
+  reason?: string;
+  source: string;
+  state: string;
+}
+
+/** POST /encryption/providers/test. Name a managed key id or an
+ *  external reference to test. */
+export interface WireEncryptionProviderTestRequest {
+  external?: WireEncryptionKeyReference;
+  managed_key_id?: string;
+}
+
+/** What one backup set's retained-copy encryption is set to, and what
+ *  that resolves to. mode is what the set says (inherit, off or
+ *  required); effective_mode is what applies. */
+export interface WireEncryptionSetPolicy {
+  backup_set_id: string;
+  effective_key_provider: WireEncryptionKeyProviderState;
+  effective_mode: string;
+  is_override: boolean;
+  key_provider: WireEncryptionKeyProviderState;
+  mode: string;
+}
+
 /** POST /auth/enroll. The credentials, and optionally the two things
  *  issue #830 makes part of recovering the administrator: the address
  *  account recovery mails to, and the SMTP endpoint it goes out over.
@@ -3577,6 +3978,18 @@ export interface WireListCustomValidatorsResponse {
   validators: WireCustomValidator[];
   workflow_root: string;
   workflow_root_default: boolean;
+}
+
+/** GET /encryption/copies. The encryption state of each copy of one
+ *  backup. */
+export interface WireListEncryptionCopiesResponse {
+  artifact_id: string;
+  copies: WireEncryptionCopy[];
+}
+
+/** GET /encryption/keys. Every managed key, oldest first. */
+export interface WireListEncryptionKeysResponse {
+  keys: WireEncryptionKeyStatus[];
 }
 
 /** GET /operations, newest first. The list counterpart of GET
@@ -4006,6 +4419,30 @@ export interface WirePreviewCustomValidatorRequest {
   backup_set_id?: string;
   pattern: string;
   replacing?: string;
+}
+
+/** POST /encryption/keys/{id}/export. The disaster-recovery bundle:
+ *  the ONE shape in this API that carries key material, answered once
+ *  as a file to save and never rendered. Whether the API should
+ *  return it at all is an open decision (see docs/api/contract.md). */
+export interface WireRecoveryBundle {
+  created: string;
+  digest: string;
+  exported: string;
+  format: string;
+  instructions: string[];
+  key_id: string;
+  material: string;
+  recipient: string;
+  version: string;
+}
+
+/** What exporting a bundle left on record: the key, the digest the
+ *  bundle carries and when. No material. */
+export interface WireRecoveryBundleReceipt {
+  digest: string;
+  exported_at: string;
+  key_id: string;
 }
 
 export interface WireRecoveryManyError {
@@ -4937,6 +5374,16 @@ export interface WireStagingDirectoryResponse {
   path: string;
   root: string;
   truncated: boolean;
+}
+
+/** POST /encryption/verify. Decrypt-verify one backup's encrypted
+ *  copy: a content check through the key the copy records.
+ *  acknowledge_egress accepts the cost of reading a medium that bills
+ *  for it. */
+export interface WireStartDecryptVerifyRequest {
+  acknowledge_egress?: boolean;
+  artifact_id: string;
+  medium?: string;
 }
 
 /** POST /backup-sets/{source}/{set}/recovery-test. Starts a recovery

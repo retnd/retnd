@@ -1691,6 +1691,141 @@ var routes = map[string]entry{
 		},
 		examples: []Action{{Params: map[string]string{"op": "7b0c9a1e-0000-4000-8000-000000000001"}}},
 	},
+	// ----------------------- retained-copy encryption (#993, EPIC N) ---
+	//
+	// Every route has a verb. A key reference is never echoed whole: a file
+	// path and an environment variable name are source descriptions, and a
+	// command's arguments are not, so the command is a stand-in and the
+	// echo can be pasted, filled in and run without the arguments ever
+	// having been written to the activity feed.
+	key("GET", "/encryption/policy"): {
+		build:    func(a Action) *cmd { return newCmd("encryption", "policy") },
+		examples: []Action{{}},
+	},
+	key("PATCH", "/encryption/policy"): {
+		build: func(a Action) *cmd {
+			var req apicontract.EncryptionPolicyPatch
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("encryption", "policy", "patch").flagIfSet("mode", req.Mode)
+			return providerFlags(c, req.KeyProvider)
+		},
+		why: "there is no verb that patches the encryption policy from a request body that does not decode",
+		examples: []Action{
+			{Body: []byte(`{"mode":"required","key_provider":{"managed":true}}`)},
+			{Body: []byte(`{"key_provider":{"external":{"file":"/run/secrets/retained-copy-key"}}}`)},
+			{Body: []byte(`{"key_provider":{"external":{"command":["vault","kv","get"]}}}`)},
+			{Body: []byte(`{"mode":"off"}`)},
+		},
+	},
+	key("POST", "/encryption/policy/reset"): {
+		build:    func(a Action) *cmd { return newCmd("encryption", "policy", "reset") },
+		examples: []Action{{}},
+	},
+	key("PUT", "/backup-sets/{source}/{set}/encryption"): {
+		build: func(a Action) *cmd {
+			var req apicontract.EncryptionOverride
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("encryption", "backup-set", setID(a)).flag("mode", req.Mode)
+			return providerFlags(c, req.KeyProvider)
+		},
+		why: "there is no verb that sets a backup set's encryption from a request body that does not decode",
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Body: []byte(`{"mode":"required","key_provider":{"managed":true}}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Body: []byte(`{"mode":"inherit"}`)},
+		},
+	},
+	key("DELETE", "/backup-sets/{source}/{set}/encryption"): {
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "backup-set", setID(a)).bare("reset")
+		},
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+	},
+	key("GET", "/encryption/keys"): {
+		build:    func(a Action) *cmd { return newCmd("encryption", "key", "list") },
+		examples: []Action{{}},
+	},
+	key("POST", "/encryption/keys"): {
+		build:    func(a Action) *cmd { return newCmd("encryption", "key", "create") },
+		examples: []Action{{}},
+	},
+	key("POST", "/encryption/keys/rotate"): {
+		build:    func(a Action) *cmd { return newCmd("encryption", "key", "rotate") },
+		examples: []Action{{}},
+	},
+	key("POST", "/encryption/keys/{id}/retire"): {
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "key", "retire", a.Params["id"])
+		},
+		examples: []Action{{Params: map[string]string{"id": "k0123456789abcdef"}}},
+	},
+	key("POST", "/encryption/keys/{id}/export"): {
+		// The bundle goes to a file the operator names. It is never printed,
+		// so there is nothing on the line that could be the key.
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "key", "export", a.Params["id"]).placeholderFlag("out", "a path to write the bundle to")
+		},
+		examples: []Action{{Params: map[string]string{"id": "k0123456789abcdef"}}},
+	},
+	key("POST", "/encryption/keys/{id}/confirm"): {
+		build: func(a Action) *cmd {
+			var req apicontract.ConfirmRecoveryBundleRequest
+			c := newCmd("encryption", "key", "confirm", a.Params["id"])
+			if decode(a.Body, &req) {
+				c.flagIfSet("digest", req.Digest)
+			}
+			return c
+		},
+		examples: []Action{
+			{Params: map[string]string{"id": "k0123456789abcdef"}},
+			{Params: map[string]string{"id": "k0123456789abcdef"}, Body: []byte(`{"digest":"` + strings.Repeat("ab", 32) + `"}`)},
+		},
+	},
+	key("POST", "/encryption/providers/test"): {
+		build: func(a Action) *cmd {
+			var req apicontract.EncryptionProviderTestRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("encryption", "provider", "test").flagIfSet("managed-key", req.ManagedKeyID)
+			if req.External != nil {
+				providerFlags(c, &apicontract.EncryptionKeyProvider{External: req.External})
+			}
+			return c
+		},
+		why: "there is no verb that tests a key provider from a request body that does not decode",
+		examples: []Action{
+			{Body: []byte(`{"managed_key_id":"k0123456789abcdef"}`)},
+			{Body: []byte(`{"external":{"env":"RETAINED_COPY_KEY"}}`)},
+		},
+	},
+	key("GET", "/encryption/copies"): {
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "copies", a.Query.Get("artifact"))
+		},
+		examples: []Action{{Query: mustQuery("artifact=api-server%2Fvar-backups%2FMANIFEST-20260902T153521Z.txt")}},
+	},
+	key("POST", "/encryption/verify"): {
+		build: func(a Action) *cmd {
+			var req apicontract.StartDecryptVerifyRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("encryption", "verify", req.ArtifactID).flagIfSet("medium", req.Medium)
+			if req.AcknowledgeEgress {
+				c.bare("allow-egress")
+			}
+			return c
+		},
+		why: "there is no verb that decrypt-verifies a backup from a request body that does not decode",
+		examples: []Action{
+			{Body: []byte(`{"artifact_id":"api-server/var-backups/MANIFEST-20260902T153521Z.txt"}`)},
+			{Body: []byte(`{"artifact_id":"api-server/var-backups/MANIFEST-20260902T153521Z.txt","medium":"offsite","acknowledge_egress":true}`)},
+		},
+	},
 	// ------------------------------------------- custom validators (#1203) ---
 	key("GET", "/assurance/validators"): {
 		build: func(a Action) *cmd {
@@ -2495,4 +2630,25 @@ func scopeFlag(c *cmd, backupSetID string) {
 func scriptIdentity(script string) string {
 	sum := sha256.Sum256([]byte(script))
 	return "the script file you uploaded, " + strconv.Itoa(len(script)) + " bytes, sha256 " + hex.EncodeToString(sum[:])
+}
+
+// providerFlags appends the flags that declare a key provider. A managed
+// provider is --managed; an external one is its file path or its variable
+// name, which are source descriptions, or a stand-in for a command, whose
+// arguments are not and are never echoed.
+func providerFlags(c *cmd, p *apicontract.EncryptionKeyProvider) *cmd {
+	if p == nil {
+		return c
+	}
+	if p.Managed {
+		c.bare("managed")
+	}
+	if p.External != nil {
+		c.flagIfSet("external-file", p.External.File)
+		c.flagIfSet("external-env", p.External.Env)
+		if len(p.External.Command) > 0 {
+			c.placeholderFlag("external-command", "the command that prints the key")
+		}
+	}
+	return c
 }

@@ -423,6 +423,7 @@ type configWriteRoute interface {
 	sshKeyRoute
 	workflowRetentionRoute
 	customValidatorRoute
+	encryptionRoute
 }
 
 // attachToEngine builds this invocation's route to the serving process,
