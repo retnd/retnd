@@ -15,7 +15,7 @@
  * behaviour that is correct for a singleton resource would show one
  * artifact's fields under another artifact's URL.
  */
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { useAsync } from "@shared/hooks/useAsync";
@@ -27,6 +27,7 @@ import { ArtifactAssuranceCard } from "@shared/assurance/RecoverArtifact";
 import { useBackupFacts } from "@shared/assurance/verificationModel";
 import type { BackupFacts } from "@shared/assurance/verificationModel";
 import { PlacementList } from "@shared/components/PlacementList";
+import { VerifyRecoverableDialog } from "@shared/encryption/VerifyRecoverableDialog";
 import { ErrorState } from "@shared/components/EmptyState";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
@@ -83,6 +84,41 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
   // the Validation result and the Copies block below read the same facts the
   // Assurance card above does.
   const facts = useBackupFacts(artifactId);
+  // EPIC N (issue #995): each copy's own encryption record, read once for the
+  // page. A server that does not offer the route, or a deployment with no
+  // configuration to encrypt under, reads as "no encryption information": the
+  // Encryption column is then not drawn, which is not a claim that anything is
+  // plaintext.
+  const copies = useAsync(
+    () =>
+      typeof api.listEncryptionCopies === "function"
+        ? api.listEncryptionCopies(artifactId).catch(() => null)
+        : Promise.resolve(null),
+    [api, artifactId]
+  );
+  const [verifying, setVerifying] = useState<string | null>(null);
+  const [failedVerify, setFailedVerify] = useState<Record<string, string>>({});
+  const [verifyEnded, setVerifyEnded] = useState(false);
+  // The page is re-read when the dialog is CLOSED, not when the run ends: a
+  // re-read blanks the page while it loads, and the ending is what the
+  // operator is reading in the dialog.
+  const onVerifyEnded = useCallback((r: { medium: string; ok: boolean; reason: string | null }) => {
+    setFailedVerify((m) => {
+      const next = { ...m };
+      if (r.ok || r.reason === null) delete next[r.medium];
+      else next[r.medium] = r.reason;
+      return next;
+    });
+    setVerifyEnded(true);
+  }, []);
+  const closeVerify = () => {
+    setVerifying(null);
+    if (verifyEnded) {
+      setVerifyEnded(false);
+      artifact.reload();
+      copies.reload();
+    }
+  };
 
   if (artifact.error) return <ErrorState {...artifact.error} onRetry={artifact.reload} />;
   // Both checks matter: `data` is null only before the first successful
@@ -268,7 +304,22 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
       ) : null}
 
       <div style={{ marginTop: 14 }}>
-        <PlacementList placements={a.placements} storage={settings.data?.schema.storage} showRecovery={!!facts} />
+        <PlacementList
+          placements={a.placements}
+          storage={settings.data?.schema.storage}
+          showRecovery={!!facts}
+          encryption={copies.data}
+          failedVerify={failedVerify}
+          onVerify={setVerifying}
+        />
+        {verifying !== null && copies.data?.find((c) => c.medium === verifying) ? (
+          <VerifyRecoverableDialog
+            artifactId={artifactId}
+            copy={copies.data.find((c) => c.medium === verifying) as NonNullable<typeof copies.data>[number]}
+            onClose={closeVerify}
+            onEnded={onVerifyEnded}
+          />
+        ) : null}
       </div>
     </>
   );

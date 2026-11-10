@@ -19,7 +19,7 @@
 import { Acknowledgement } from "@shared/components/Acknowledgement";
 
 /** The act a password check is for, which decides the words. */
-export type StepUpAct = "restore" | "source" | "validator";
+export type StepUpAct = "restore" | "source" | "validator" | "bundle";
 
 const WORDS: Record<StepUpAct, { help: string; nothing: string; start: string; terminal: string }> = {
   restore: {
@@ -41,6 +41,14 @@ const WORDS: Record<StepUpAct, { help: string; nothing: string; start: string; t
     nothing: "No validator was uploaded or changed.",
     start: "Enter your password to upload the validator.",
     terminal: "upload a validator from the web interface. Run retnd assurance validators add on the host."
+  },
+  // Issue #995: exporting a recovery bundle is the one route that returns key
+  // material, so it asks the way a validator upload does.
+  bundle: {
+    help: "Exporting the recovery bundle asks for your password again. It is sent once with this request and not kept.",
+    nothing: "No bundle was written.",
+    start: "Enter your password to export the recovery bundle.",
+    terminal: "export a recovery bundle from the web interface. Run retnd encryption key export on the host."
   }
 };
 

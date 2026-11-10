@@ -73,6 +73,7 @@ import { createMockRecoverMany } from "@shared/assurance/mockRecoverMany";
 import { createMockHostBrowse } from "@shared/assurance/mockHostBrowse";
 import { BUILTIN_ARTIFACT, DEFAULT_POLICY_NEWEST, DEFAULT_POLICY_TESTED, INGEST_FAILED_SCENARIO, followsDefault, untestedScenario, assuranceLiveEvents, assuranceStoredLines, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
 import { createHttpAssurance } from "@shared/assurance/realAssurance";
+import { ENCRYPTION_SCENARIOS, createMockEncryption } from "@shared/encryption/mockEncryption";
 import { HISTORY_IDS, HISTORY_RUNNING, LATE_MISSES, OFF_TAIL_SCENARIO, OPERATION_HISTORY_SCENARIO, RETENTION_DAYS, durableRecordOf, historyLines, historyValidatorResult } from "@shared/assurance/mockOperationHistory";
 import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
 
@@ -284,6 +285,13 @@ export const SCENARIOS = [
   // list carries it while it runs.
   "operation-history",
   "operation-off-tail",
+  // Issue #995 (EPIC N): retained-copy encryption. The default scenario is a
+  // deployment that encrypts nothing. "encryption-on" is required with a
+  // managed key and NO confirmed bundle, "encryption-confirmed" the same with
+  // the bundle confirmed, "encryption-key-missing" a required policy whose
+  // recorded key does not resolve, and "encryption-in-use" refuses a retire
+  // because copies still record the key.
+  ...ENCRYPTION_SCENARIOS,
 ] as const;
 
 export type Scenario = (typeof SCENARIOS)[number];
@@ -4404,6 +4412,7 @@ export function createMockApi(
   // which is what the real backend's hot reload does, and a write in one
   // test must not be visible to the next.
   const workflowSettings = defaultWorkflowSettings();
+  const mockEncryption = createMockEncryption(scenario, () => SETS.map((x) => x.id));
   if (scenario === "workflow-no-globals") {
     workflowSettings.beforeDir = "";
     workflowSettings.afterDir = "";
@@ -6219,6 +6228,8 @@ export function createMockApi(
       delay(mockEnvSet(workflowEnv, source + "/" + set, name, entry), 300),
     unsetBackupSetWorkflowEnvironment: (source, set, name) =>
       delay(mockEnvUnset(workflowEnv, source + "/" + set, name), 300),
+
+    ...mockEncryption,
 
     getBackupSetWorkflowValidation: (source, set) => {
       const id = source + "/" + set;

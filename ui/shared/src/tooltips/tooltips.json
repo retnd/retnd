@@ -2062,5 +2062,93 @@
   "assurance.dashboard.card": {
     "label": "Assurance summary",
     "html": "<strong>Due</strong> counts backups whose content check is unknown, never run or overdue, and those whose recovery test is overdue. <strong>Overdue</strong> counts those where either check last passed too long ago. <strong>Degraded</strong> counts failed, incomplete or unreadable ones. A count is never shown as zero when it could not be read."
+  },
+  "encryption.card": {
+    "label": "Retained-copy encryption",
+    "html": "Whether the copies this product sends to a <strong>destination</strong> are written as ciphertext. The <strong>local</strong> copy is never encrypted. There is no cipher, chunk size or algorithm to choose: the build fixes the format and records it against every copy."
+  },
+  "encryption.enable": {
+    "label": "Encrypt copies sent to destinations",
+    "html": "Sets <code>retained_copy_encryption.mode</code> to <code>required</code> for the deployment, so every backup set that inherits refuses to write a destination copy in plaintext. The change goes through the same validation a hand-edited configuration gets and is applied without a restart. Turning it off writes <code>off</code>: new copies are plaintext again, and copies already written stay encrypted and readable through their recorded keys."
+  },
+  "encryption.keyProvider": {
+    "label": "Who holds the key",
+    "html": "<strong>Managed</strong> means this deployment creates the key and keeps it in a file only this service can read. <strong>External</strong> means you name where it comes from, as a file, an environment variable or a command, and it is read when a copy is written or verified. Nothing here accepts the key itself."
+  },
+  "encryption.bundle.export": {
+    "label": "Export recovery bundle",
+    "html": "Writes a file holding the key, integrity metadata and the steps to decrypt a copy on a clean machine. It is the one time the key leaves this deployment, it is saved as a download and nothing is shown on screen. Asks for your password again where the deployment checks it. It does not clear the warning: only confirming does."
+  },
+  "encryption.bundle.acknowledge": {
+    "label": "I understand this file can decrypt every copy",
+    "html": "Arms <strong>Download bundle</strong>. The tick is a statement that you know whoever holds the file can read every copy made under this key. The file is the only place the key goes."
+  },
+  "encryption.bundle.confirm": {
+    "label": "I have stored the bundle safely",
+    "html": "Records, durably, that a person holds the exported bundle somewhere this machine's loss would not take with it, and clears the missing-bundle warning here and on the Dashboard. It is a statement and not an upload: nothing is checked, and no key bytes are asked for. Refused if no bundle was exported for the key."
+  },
+  "encryption.key.rotate": {
+    "label": "Rotate key",
+    "html": "Creates a new active key. New copies use it from now on, every copy already made stays readable through the key id recorded against it, and nothing is re-encrypted. The new key has no confirmed bundle, so the missing-bundle warning returns until you export and confirm one."
+  },
+  "encryption.key.retire": {
+    "label": "Retire",
+    "html": "Takes a key out of service. Refused, naming the copies, while any active copy still records the key, because retiring it would make them unreadable. The active key cannot be retired: rotate first."
+  },
+  "encryption.set.mode": {
+    "label": "Encryption for this set",
+    "html": "<strong>Inherit</strong> follows the deployment and shows what it currently resolves to. <strong>Off</strong> writes this set's destination copies as plaintext whatever the deployment says. <strong>Required</strong> refuses a destination copy rather than write it in plaintext, before anything is deleted at the source or on the medium. A key reference can be given for the set only with Required."
+  },
+  "encryption.external.source": {
+    "label": "Where the key reference points",
+    "html": "A <strong>file</strong> path, the <strong>name</strong> of an environment variable, or a <strong>command</strong> whose output is the key. Exactly one. It is a reference: if what you type is key material rather than a reference, the server refuses it at load."
+  },
+  "encryption.external.test": {
+    "label": "Test reference",
+    "html": "Asks the service whether the reference resolves right now. <strong>Resolves</strong>, <strong>declared but unreachable</strong> (with the reason, naming the source and never its content) or <strong>not declared</strong>. It reports whether a key resolves and never what it is, how long it is or what it starts with."
+  },
+  "encryption.verify.run": {
+    "label": "Verify recoverable",
+    "html": "Reads one encrypted copy back from its destination, decrypts it with the key recorded against it and compares the plaintext digest to the one the catalog holds. A match is the only way to <strong>Verified recoverable</strong>. Nothing is written to disk. It is never run on a schedule and it costs the egress of reading the copy."
+  },
+  "encryption.verify.acceptCost": {
+    "label": "I accept this read",
+    "html": "Sent with the request as an acknowledgement that reading a billed medium costs money. Without it the engine refuses a copy that costs to read."
+  },
+  "encryption.state.plaintext": {
+    "label": "Plaintext",
+    "html": "This copy was written without encryption. It is drawn on purpose, so a plaintext local copy beside an encrypted off-site copy of the same backup reads as two different things."
+  },
+  "encryption.state.encrypted": {
+    "label": "Encrypted",
+    "html": "The copy was stored as ciphertext under a recorded key id and format. That is all it says: nothing about whether anybody can read it back. <strong>Verified recoverable</strong> is a separate chip."
+  },
+  "encryption.state.verifiedRecoverable": {
+    "label": "Verified recoverable",
+    "html": "A decrypt of the stored copy produced the plaintext digest the catalog holds, at the time shown (verification class <code>content</code>). Ciphertext existing, an existence check or a key resolving do not reach this."
+  },
+  "encryption.state.notVerified": {
+    "label": "Not decrypt-verified",
+    "html": "The copy is encrypted and nobody has asked to decrypt it yet. This is the default: a decrypt-verify costs egress and is never automatic."
+  },
+  "encryption.state.keyMissing": {
+    "label": "Key missing",
+    "html": "The key id recorded against this copy does not resolve right now. The copy keeps its Encrypted chip, no action here would make it recoverable, and it is never shown as a weaker check under a stronger name."
+  },
+  "encryption.state.decryptFailed": {
+    "label": "Decrypt failed",
+    "html": "A decrypt-verify ran and failed closed: the object is damaged, was changed, or is under a different key than recorded. No partial plaintext was written or shown. Recover from another copy."
+  },
+  "encryption.copies.col": {
+    "label": "Encryption",
+    "html": "One chip pair per copy, from that copy's own record and never inferred from the policy. A set that says required today can still hold a plaintext copy written yesterday."
+  },
+  "encryption.health.bundle": {
+    "label": "No confirmed recovery bundle",
+    "html": "Copies are encrypted under a key that exists only on this host. This stays, across reloads and restarts, until a person confirms an exported bundle. It blocks nothing."
+  },
+  "encryption.health.keyMissing": {
+    "label": "A required key cannot be resolved",
+    "html": "A set whose policy is required has a key that does not resolve, so its destination copies are refused rather than written in plaintext. Nothing is deleted when a copy is refused."
   }
 }
