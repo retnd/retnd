@@ -193,7 +193,7 @@ func TestCrashMatrixOverAnEncryptedCopy(t *testing.T) {
 		},
 	} {
 		t.Run(cell.name, func(t *testing.T) {
-			w := newWorld(t)
+			w := newWorldOver(t, multiChunkArtifact())
 			w.enableEncryption()
 
 			res := w.crashTo(crashMedium, cell.kill...)
@@ -283,7 +283,7 @@ func mustActive(t *testing.T, keys *keycustody.Store, ctx context.Context) strin
 // names the staged ciphertext, finishes, and leaves ciphertext on the
 // medium and nothing in the staging area.
 func TestTheEncryptedCrashCellsReallyEncryptSomething(t *testing.T) {
-	w := newWorld(t)
+	w := newWorldOver(t, multiChunkArtifact())
 	w.enableEncryption()
 
 	res := w.crashTo(crashMedium, "-plan", "-kill-before-upload", "-suppress-kill")

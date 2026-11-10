@@ -2206,6 +2206,7 @@ function fromWireAssuranceOperation(r: WireAssuranceOperationRecord): AssuranceO
     state: r.state,
     stage: r.stage,
     reason: r.reason,
+    ...(r.bytes_read !== undefined ? { bytesRead: r.bytes_read } : {}),
     startedAt: r.started_at,
     endedAt: r.ended_at,
     events: r.events.map(fromWireLiveActivityEvent)
@@ -2533,7 +2534,8 @@ function fromWireSetEncryption(w: WireEncryptionSetPolicy): SetEncryption {
     effectiveMode: w.effective_mode as SetEncryption["effectiveMode"],
     isOverride: w.is_override,
     keyProvider: fromWireKeyProvider(w.key_provider),
-    effectiveKeyProvider: fromWireKeyProvider(w.effective_key_provider)
+    effectiveKeyProvider: fromWireKeyProvider(w.effective_key_provider),
+    ...(w.satisfied_by === "repository" ? { satisfiedBy: "repository" as const } : {})
   };
 }
 

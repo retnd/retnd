@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "f391c0ddc60ebe83251db8f5e6185f2b76f230f054d3e6fcc88edd25a5bfb762";
+export const CONTRACT_SHA256 = "a771a77776de092ac9dc0a8784091c7094157e58ab39f28c104e6422dd29330a";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -3142,6 +3142,7 @@ export interface WireAssuranceOperationCancelled {
  *  record holds it (#1200). */
 export interface WireAssuranceOperationRecord {
   backup_set_id: string;
+  bytes_read?: number;
   ended_at: string;
   events: WireLiveActivityEvent[];
   kind: "scrub" | "recovery_test" | "recovery";
@@ -3860,6 +3861,10 @@ export interface WireEncryptionSetPolicy {
   is_override: boolean;
   key_provider: WireEncryptionKeyProviderState;
   mode: string;
+  /** "repository" for a kopia-engine set, whose repository kopia
+   *  always encrypts, so required on it layers nothing. Absent for
+   *  every other set. */
+  satisfied_by?: string;
 }
 
 /** POST /auth/enroll. The credentials, and optionally the two things
@@ -4259,7 +4264,7 @@ export interface WireLiveActivitySet {
   oldest_sequence: number;
   outcome?: "ok" | "failed" | "stopped";
   progress_basis: "artifacts" | "unknown";
-  stage?: "discovering" | "transferring" | "verifying" | "committing" | "cleaning-remote";
+  stage?: "discovering" | "transferring" | "verifying" | "committing" | "cleaning-remote" | "encrypting" | "decrypt-verifying";
   started_at?: string;
   truncated: boolean;
   unfinished_actions: WireLiveActivityAction[];
@@ -4432,7 +4437,7 @@ export interface WireOperationProgress {
   bytes_transferred?: number;
   observed_at: string;
   sequence: number;
-  stage: "discovering" | "transferring" | "verifying" | "committing" | "cleaning-remote";
+  stage: "discovering" | "transferring" | "verifying" | "committing" | "cleaning-remote" | "encrypting" | "decrypt-verifying";
 }
 
 /** A restore operation's own facts: what was asked for, which never

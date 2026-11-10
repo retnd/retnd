@@ -18,6 +18,7 @@ import (
 	"github.com/retnd/retnd/core/internal/keycustody"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/secretref"
 	"github.com/retnd/retnd/core/internal/state"
 	"github.com/retnd/retnd/core/internal/transport"
 )
@@ -90,31 +91,37 @@ type Keys interface {
 }
 
 // encryptedSet reports whether the artifact's backup set requires its
-// retained copies to be encrypted.
+// retained copies to be encrypted by this engine. A kopia set is never one:
+// it does not reach this path (app/cycle.go returns into the incremental
+// pipeline first), and its repository is encrypted by kopia itself.
 func (e *Engine) encryptedSet(set model.BackupSetID) (bool, error) {
 	bs, err := e.backupSet(set)
 	if err != nil {
 		return false, err
 	}
-	return bs.RetainedCopyEncryption.Enabled(), nil
+	return bs.EncryptsRetainedCopies(), nil
 }
 
 // activeKey resolves the key new copies of artifact are written under, and
 // proves it can be read before any byte is encrypted. Every failure wraps
 // ErrClassUnavailable. The key row a per-copy record references is the one
 // custody itself wrote: keycustody.JournalRegistry is the encryption_keys
-// table, so nothing here registers anything.
+// table. A managed key's row is written when the key is minted; an external
+// key's row is written by custody (never by this package) the first time its
+// reference resolves, which is externalKey.
 func (e *Engine) activeKey(ctx context.Context, artifact model.ArtifactID) (keycustody.KeyRecord, error) {
 	bs, err := e.backupSet(artifact.Set)
 	if err != nil {
 		return keycustody.KeyRecord{}, err
 	}
-	if !bs.RetainedCopyEncryption.KeyProvider.Managed {
-		return keycustody.KeyRecord{}, fmt.Errorf("%w: backup set %s requires encryption under a key provider this engine cannot resolve yet (only a managed key has a registry row to record copies under)",
-			ErrClassUnavailable, artifact.Set)
-	}
 	if e.Keys == nil {
 		return keycustody.KeyRecord{}, fmt.Errorf("%w: backup set %s requires encryption and no key custody is configured", ErrClassUnavailable, artifact.Set)
+	}
+	if kp := bs.RetainedCopyEncryption.KeyProvider; kp.External != nil {
+		return e.externalKey(ctx, artifact.Set, kp.ExternalRef())
+	}
+	if !bs.RetainedCopyEncryption.KeyProvider.Managed {
+		return keycustody.KeyRecord{}, fmt.Errorf("%w: backup set %s requires encryption and names no key provider", ErrClassUnavailable, artifact.Set)
 	}
 	rec, ok, err := e.Keys.Active(ctx)
 	if err != nil {
@@ -125,6 +132,36 @@ func (e *Engine) activeKey(ctx context.Context, artifact model.ArtifactID) (keyc
 	}
 	if err := e.Keys.WithKey(ctx, rec.ID, func([]byte) error { return nil }); err != nil {
 		return keycustody.KeyRecord{}, fmt.Errorf("%w: key %s does not resolve: %w", ErrClassUnavailable, rec.ID, err)
+	}
+	return rec, nil
+}
+
+// ExternalKeys is what custody adds for an external provider (#1292):
+// resolving the reference once, checking it is a key of the format and
+// returning its registry row, adding the row on first use. *keycustody.Store
+// satisfies it. A Keys that does not is a custody that cannot back an
+// external provider, and the copy is refused.
+type ExternalKeys interface {
+	RegisterExternal(ctx context.Context, ref secretref.Ref, now time.Time) (keycustody.KeyRecord, error)
+}
+
+// externalKey is activeKey for a set whose provider is an external
+// reference. The reference is resolved inside custody's callback only, so it
+// is proved readable, and its row exists, before any byte is encrypted. A
+// reference that does not resolve, is not a key of the format or has changed
+// registers nothing and is ErrClassUnavailable, like a managed key that
+// cannot be read.
+func (e *Engine) externalKey(ctx context.Context, set model.BackupSetID, ref secretref.Ref) (keycustody.KeyRecord, error) {
+	ek, ok := e.Keys.(ExternalKeys)
+	if !ok {
+		return keycustody.KeyRecord{}, fmt.Errorf("%w: backup set %s requires encryption under an external key and this key custody cannot register one", ErrClassUnavailable, set)
+	}
+	rec, err := ek.RegisterExternal(ctx, ref, e.now())
+	if err != nil {
+		return keycustody.KeyRecord{}, fmt.Errorf("%w: %w: the external key from %s: %w", ErrClassUnavailable, ErrKeyUnresolvable, ref, err)
+	}
+	if err := e.Keys.WithKey(ctx, rec.ID, func([]byte) error { return nil }); err != nil {
+		return keycustody.KeyRecord{}, fmt.Errorf("%w: %w: key %s does not resolve: %w", ErrClassUnavailable, ErrKeyUnresolvable, rec.ID, err)
 	}
 	return rec, nil
 }
@@ -198,8 +235,20 @@ func (e *Engine) copyEncryptedToMedium(ctx context.Context, mv state.Move, src s
 	if err != nil {
 		return 0, err
 	}
-	pass, encErr := copycrypt.EncryptToStaging(ctx, dir, filepath.Base(staged), rc, key.Recipient, src.Hash)
+	// The artifact's size is the total of the encrypting stage: what is read
+	// is the plaintext, so the ciphertext's extra header and tags do not
+	// bend the bar. It is the journal's number when it has one and the
+	// file's own otherwise, and 0 (not known) when neither says.
+	var total int64
+	if src.Size != nil {
+		total = *src.Size
+	} else if st, statErr := e.Local.Stat(ctx, src.Location); statErr == nil && st.Size != nil {
+		total = *st.Size
+	}
+	m := e.newMeter(StageEncrypting, mv.Artifact, total)
+	pass, encErr := copycrypt.EncryptToStaging(ctx, dir, filepath.Base(staged), m.wrap(rc), key.Recipient, src.Hash)
 	_ = rc.Close()
+	m.end()
 	e.Logger.CopyEncrypting(ctx, mv.Artifact.String(), mv.DestinationMedium, resultOf(encErr))
 	if encErr != nil {
 		if errors.Is(encErr, copycrypt.ErrKeyUnavailable) {
@@ -288,7 +337,13 @@ func (e *Engine) verifyEncrypted(ctx context.Context, mv state.Move, medium tran
 			return Result{}, want, err
 		}
 	}
-	res, err := verifyEncryptedContent(ctx, e.Store, e.Keys, keyID, medium, candidate, e.now())
+	// Only the recorded verification is a stage, as with the events below;
+	// the re-read before the source delete reports nothing.
+	var stage func(total int64) *meter
+	if gated {
+		stage = func(total int64) *meter { return e.newMeter(StageDecryptVerifying, mv.Artifact, total) }
+	}
+	res, err := verifyEncryptedContent(ctx, e.Store, e.Keys, keyID, medium, candidate, e.now(), stage)
 	if gated {
 		// One row per copy per stage, on the verification that is recorded;
 		// the re-read before the source delete is not a stage of its own.
@@ -325,7 +380,12 @@ func (t *tally) Write(p []byte) (int, error) {
 // A key that cannot be read is ErrClassUnavailable. A stream that fails
 // authentication, or decrypts to something other than the artifact, is a
 // failed verification and never an error: it is a fact about the object.
-func verifyEncryptedContent(ctx context.Context, store Store, keys Keys, keyID string, medium transport.Medium, p state.Placement, now time.Time) (Result, error) {
+//
+// stage, when non-nil, opens the decrypt-verifying progress stage once the key
+// has resolved and the object is open, given the stored object's size (0 when
+// the medium cannot say). It is nil for every caller that is not the move
+// engine's recorded verification.
+func verifyEncryptedContent(ctx context.Context, store Store, keys Keys, keyID string, medium transport.Medium, p state.Placement, now time.Time, stage func(total int64) *meter) (Result, error) {
 	if p.Hash == "" || !strings.EqualFold(p.HashAlg, string(transport.SHA256)) {
 		return Result{}, fmt.Errorf("%w: decrypt-verification compares against a recorded %s, and this placement records %q",
 			ErrClassUnavailable, transport.SHA256, p.HashAlg)
@@ -349,8 +409,17 @@ func verifyEncryptedContent(ctx context.Context, store Store, keys Keys, keyID s
 			return readFailure{err}
 		}
 		defer rc.Close()
-		tee := io.TeeReader(rc, stored)
-		if _, err := copycrypt.DecryptVerify(ctx, tee, secret, p.Hash); err != nil {
+		var m *meter
+		if stage != nil {
+			var total int64
+			if info, statErr := store.StatObject(ctx, medium, p.Location); statErr == nil {
+				total = info.Size
+			}
+			m = stage(total)
+			defer m.end()
+		}
+		tee := io.TeeReader(m.wrap(rc), stored)
+		if _, err := copycrypt.DecryptVerifyProgress(ctx, tee, secret, p.Hash, readProgressOf(ctx)); err != nil {
 			return err
 		}
 		// Whatever follows the final chunk is an error DecryptVerify already
@@ -421,7 +490,7 @@ func VerifyCopy(ctx context.Context, store Store, keys Keys, medium transport.Me
 	}
 	switch want {
 	case Content:
-		res, err := verifyEncryptedContent(ctx, store, keys, enc.KeyID, medium, p, now)
+		res, err := verifyEncryptedContent(ctx, store, keys, enc.KeyID, medium, p, now, nil)
 		if err == nil && res.Passed && res.Encryption != nil && res.Encryption.StoredHash != enc.StoredHash {
 			res.Detail += fmt.Sprintf("; the bytes at the key hash to %s, not the %s recorded when the copy was committed, so the object was replaced after that (it still decrypts to the artifact)",
 				res.Encryption.StoredHash, enc.StoredHash)

@@ -31,13 +31,26 @@ const (
 	StatusRetired Status = "retired"
 )
 
-// KeyRecord is one managed key's identity and history, and never its
+// Provider kinds a KeyRecord can carry. They are migration 0015's provider
+// column by value (state.KeyProviderManaged / KeyProviderExternal).
+const (
+	ProviderManaged  = "managed"
+	ProviderExternal = "external"
+)
+
+// KeyRecord is one key's identity and history, and never its
 // material. It is safe to render anywhere.
 type KeyRecord struct {
 	// ID is stable for the life of the key and derived from nothing about
 	// the process that minted it, so a restart, a reinstall over the same
 	// state directory and a catalog rebuild all name the same key.
 	ID string `json:"id"`
+
+	// Provider is ProviderManaged for a key this product minted and holds, or
+	// ProviderExternal for an operator's own reference (#1292). Empty on a
+	// record handed to AddKey means managed. Never rendered: a surface that
+	// wants it says so deliberately.
+	Provider string `json:"-"`
 
 	// Recipient is the key's public half (for age, "age1..."). It is not
 	// secret, it is what migration 0015's encryption_keys.recipient holds,
@@ -130,7 +143,7 @@ func (r *JournalRegistry) Keys(ctx context.Context) ([]KeyRecord, error) {
 	}
 	out := make([]KeyRecord, 0, len(rows))
 	for _, k := range rows {
-		out = append(out, KeyRecord{ID: k.ID, Recipient: k.Recipient, Created: k.CreatedAt, Retired: k.RetiredAt, Status: Status(k.Status)})
+		out = append(out, KeyRecord{ID: k.ID, Provider: k.Provider, Recipient: k.Recipient, Created: k.CreatedAt, Retired: k.RetiredAt, Status: Status(k.Status)})
 	}
 	return out, nil
 }
@@ -138,8 +151,12 @@ func (r *JournalRegistry) Keys(ctx context.Context) ([]KeyRecord, error) {
 // AddKey implements Registry. The supersede and the insert are one
 // transaction in the journal.
 func (r *JournalRegistry) AddKey(ctx context.Context, rec KeyRecord, supersede string) error {
+	provider := rec.Provider
+	if provider == "" {
+		provider = state.KeyProviderManaged
+	}
 	err := r.j.AddEncryptionKey(ctx, state.EncryptionKey{
-		ID: rec.ID, Provider: state.KeyProviderManaged, Recipient: rec.Recipient,
+		ID: rec.ID, Provider: provider, Recipient: rec.Recipient,
 		Status: string(rec.Status), CreatedAt: rec.Created, RetiredAt: rec.Retired,
 	}, supersede)
 	switch {

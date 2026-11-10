@@ -11,8 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sync/atomic"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -623,5 +623,57 @@ func TestAMultiGiBObjectEncryptsAndDecryptVerifiesInsideAnAllocationBudget(t *te
 	runtime.ReadMemStats(&end)
 	if live := int64(end.HeapAlloc); live > 64<<20 {
 		t.Fatalf("the heap still holds %d bytes after streaming a %d-byte object", live, int64(size))
+	}
+}
+
+// #1303: a decrypt-verify can say how much plaintext it has read so far. The
+// readings are increments of authenticated plaintext only, so the running sum
+// never goes backward and never passes the object's plaintext size.
+func TestDecryptVerifyProgressReportsPlaintextBytesAndEndsAtTheSize_1303(t *testing.T) {
+	identity, recipient := newKey(t)
+	plain := fixture(1303, 3*chunk)
+	_, s := staged(t, plain, recipient)
+
+	var total int64
+	var calls int
+	n, err := copycrypt.DecryptVerifyProgress(context.Background(), bytes.NewReader(read(t, s.Path)), identity, sum(plain), func(delta int64) {
+		calls++
+		if delta <= 0 {
+			t.Errorf("reading %d is %d, a reading is a positive increment", calls, delta)
+		}
+		total += delta
+		if total > int64(len(plain)) {
+			t.Errorf("running sum %d passed the plaintext size %d", total, len(plain))
+		}
+	})
+	if err != nil {
+		t.Fatalf("DecryptVerifyProgress: %v", err)
+	}
+	if n != int64(len(plain)) || total != int64(len(plain)) {
+		t.Errorf("returned %d, summed %d, want both %d", n, total, len(plain))
+	}
+	if calls < 3 {
+		t.Errorf("a three-chunk object produced %d readings, want at least 3", calls)
+	}
+}
+
+// A digest that disagrees fails closed, and what was counted never passes the
+// size either: the counter stops, it does not run on.
+func TestDecryptVerifyProgressOnAWrongDigestStillFailsClosedAndStaysBounded_1303(t *testing.T) {
+	identity, recipient := newKey(t)
+	plain := fixture(1304, 3*chunk)
+	_, s := staged(t, plain, recipient)
+
+	var total int64
+	n, err := copycrypt.DecryptVerifyProgress(context.Background(), bytes.NewReader(read(t, s.Path)), identity, sum([]byte("not it")), func(delta int64) { total += delta })
+	if !errors.Is(err, copycrypt.ErrDigestMismatch) || n != 0 {
+		t.Fatalf("got (%d, %v), want (0, ErrDigestMismatch)", n, err)
+	}
+	if total > int64(len(plain)) {
+		t.Errorf("counted %d, more than the %d plaintext bytes", total, len(plain))
+	}
+	// A nil callback is DecryptVerify exactly.
+	if _, err := copycrypt.DecryptVerifyProgress(context.Background(), bytes.NewReader(read(t, s.Path)), identity, sum(plain), nil); err != nil {
+		t.Errorf("nil progress: %v", err)
 	}
 }

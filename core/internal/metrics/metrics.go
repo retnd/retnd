@@ -633,7 +633,7 @@ func quoteLabel(v string) string {
 // section) emits none of the four, so a scrape of a deployment that never
 // enabled the feature is the scrape it always was.
 func writeKeyCustody(b *strings.Builder, h health.KeyCustodyHealth) {
-	if !h.Enabled && h.ActiveKeyID == "" && len(h.UnconfirmedKeyIDs) == 0 {
+	if !h.Enabled && h.ActiveKeyID == "" && len(h.UnconfirmedKeyIDs) == 0 && len(h.ExternalKeysAtRisk) == 0 {
 		return
 	}
 	one := func(suffix, help string, v float64) {

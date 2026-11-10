@@ -488,6 +488,13 @@ commands:
                                                   say the exported bundle is stored safely, which clears the degraded
                                                   state. Without --digest it confirms the newest export. A statement, never
                                                   an upload. Routed, POST .../keys/{id}/confirm
+  encryption key import --bundle FILE [--json]
+                                                  register the key a recovery bundle carries in this deployment, so copies
+                                                  recorded under that key id resolve here. It is registered as superseded:
+                                                  it opens old copies and new copies keep using the active key. Safe to
+                                                  repeat. It needs this host's own journal, so it is refused (exit 3)
+                                                  while an engine serves the deployment. There is no API route: a bundle is
+                                                  key material and does not go in a request.
   encryption provider test (--managed-key ID | --external-file P | --external-env V | --external-command CMD) [--json]
                                                   whether a key provider resolves right now and, if not, why, in words that
                                                   name the source and never its content. Exit 1 unless it resolves.
@@ -501,6 +508,14 @@ commands:
                                                   copy's key does not resolve. Beside a serving engine it starts that
                                                   engine's operation (stop it with assurance cancel); otherwise it runs
                                                   here. POST /api/v1/encryption/verify
+  encryption decrypt <object> (--bundle FILE | --identity FILE) (--sidecar FILE | --digest HEX [--stored-digest HEX]) --out FILE
+                                                  open one encrypted copy into FILE. Reads no configuration and no state, so
+                                                  it works on a machine with only this binary, the copy and the bundle. The
+                                                  stored-bytes digest is checked before any key is used and the plaintext
+                                                  digest after the last chunk; FILE appears only when both hold, must not
+                                                  already exist, and is never standard output. Refusals say whether the key,
+                                                  a digest or the copy's own authentication failed. There is no API route:
+                                                  the key is an input.
   encryption encrypt-existing <source/backup-set> --to MEDIUM [--artifact <source/backup-set/backup>] [--dry-run] [--json]
                                                   encrypt the retained copies that sit on a medium in the clear, under a set
                                                   whose encryption is required, onto MEDIUM (another medium: the journal

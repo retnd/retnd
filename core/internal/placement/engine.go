@@ -197,6 +197,17 @@ type Engine struct {
 	// copy per stage and never per chunk (#992). Nil is silent.
 	Logger *obs.Logger
 
+	// Progress receives live readings of an encrypted copy's two running
+	// stages, encrypting and decrypt-verifying, each with byte progress
+	// (#1290). It is called from the engine's own goroutine, so it must not
+	// block. Nil is silent, and so is every copy that is not encrypted.
+	Progress func(CopyProgress)
+
+	// ProgressStep is how many bytes pass between two readings of one stage.
+	// Zero means one MiB. It is a field for the reason StagingFreeBytes is
+	// one: a test has to see several readings from a small artifact.
+	ProgressStep int64
+
 	// Now is the clock. Nil means time.Now.
 	Now func() time.Time
 
@@ -1056,7 +1067,20 @@ func (e *Engine) verifyCopy(ctx context.Context, mv state.Move, src state.Placem
 	if on, err := e.encryptedSet(mv.Artifact.Set); err != nil {
 		return Result{}, want, err
 	} else if on {
-		return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated, "", observed)
+		// Once the destination has its own record (after the VERIFIED
+		// advance, which is when the pre-delete re-read runs), it is opened
+		// through the key recorded for it. The active key is only right for
+		// the first verification, before any record exists: a rotation in
+		// between would otherwise fail a good copy.
+		dstEnc, dstEncrypted, err := e.encryptionOf(ctx, mv.Artifact, mv.DestinationMedium)
+		if err != nil {
+			return Result{}, want, err
+		}
+		keyID := ""
+		if dstEncrypted {
+			keyID = dstEnc.KeyID
+		}
+		return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated, keyID, observed)
 	}
 	if !gated {
 		res, err := Verify(ctx, e.Store, medium, candidate, want, e.now())

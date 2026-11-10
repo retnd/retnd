@@ -93,8 +93,8 @@ no content). If the
 backup is encrypted at rest by the operator's own tooling, the staged copy is
 whatever that tooling produced. A recovery does not decrypt anything. That includes a copy
 this product encrypted itself (retained-copy encryption): a recovery reads the stored
-object and compares it with the artifact's plaintext digest, and in this build an encrypted
-copy is opened with the key and the stock `age` tool instead, as
+object and compares it with the artifact's plaintext digest, and an encrypted
+copy is opened with `retnd encryption decrypt` (or the key and the stock `age` tool) instead, as
 [encrypted copies](../encrypted-copies.md) describes.
 
 ## What this does not claim

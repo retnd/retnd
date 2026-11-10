@@ -454,7 +454,8 @@ export interface RunningWork {
   /** The artifact being worked on, or "" during discovery. */
   artifact: string;
   /** One of the cycle's own stage names ("discovering", "transferring",
-   *  "verifying", "committing", "cleaning-remote"). */
+   *  "verifying", "committing", "cleaning-remote", and for an encrypted copy
+   *  "encrypting", "decrypt-verifying"). */
   stage: string;
 }
 
@@ -2569,6 +2570,9 @@ export interface AssuranceOperationRecord {
   stage: string;
   /** The end line's words for a run that did not pass. */
   reason: string;
+  /** Plaintext bytes a decrypt-verify scrub has read (issue #1303); absent
+   *  when none. The CLI's `assurance show` prints the same figure. */
+  bytesRead?: number;
   startedAt: string;
   endedAt: string;
   events: SetActivityEvent[];

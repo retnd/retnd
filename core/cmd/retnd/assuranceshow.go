@@ -112,7 +112,7 @@ func notOnRecord(opID string) error {
 func assuranceOperationContract(r service.AssuranceOperationRecord) apicontract.AssuranceOperationRecord {
 	return apicontract.AssuranceOperationRecord{
 		OperationID: r.OperationID, Kind: r.Kind, BackupSetID: r.BackupSetID, State: r.State,
-		Stage: r.Stage, Reason: r.Reason, Events: contractEvents(r.Events),
+		Stage: r.Stage, Reason: r.Reason, BytesRead: r.BytesRead, Events: contractEvents(r.Events),
 		StartedAt: formatActivityTime(r.StartedAt), EndedAt: formatActivityTime(r.EndedAt),
 	}
 }
@@ -149,6 +149,9 @@ func writeAssuranceOperation(w io.Writer, r apicontract.AssuranceOperationRecord
 	}
 	if r.Reason != "" {
 		_, _ = fmt.Fprintf(w, "reason: %s\n", r.Reason)
+	}
+	if r.BytesRead > 0 {
+		_, _ = fmt.Fprintf(w, "bytes read: %d\n", r.BytesRead)
 	}
 	for _, e := range r.Events {
 		_, _ = fmt.Fprintln(w, formatFollowEvent(e))
