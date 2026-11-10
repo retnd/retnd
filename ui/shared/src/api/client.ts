@@ -2005,7 +2005,10 @@ function fromWirePlacement(p: WirePlacement): BackupPlacement {
     recoveryState: p.recovery_state ?? null,
     recoveryCheck: p.recovery_check ?? null,
     recoveryTestedAt: stampOrNull(p.recovery_tested_at),
-    recoveryFailureReason: p.recovery_failure_reason ?? ""
+    recoveryFailureReason: p.recovery_failure_reason ?? "",
+    encrypted: p.encrypted === true,
+    encryptionKeyId: p.encryption_key_id ?? null,
+    encryptionKeyResolvable: p.encryption_key_resolvable ?? null
   };
 }
 
@@ -2554,7 +2557,9 @@ function fromWireEncryptionKey(w: WireEncryptionKeyStatus): EncryptionKey {
     resolvability: (RESOLVABILITIES.has(w.resolvability) ? w.resolvability : "unreachable") as EncryptionKey["resolvability"],
     reason: w.reason ?? null,
     bundleConfirmed: w.bundle_confirmed,
-    bundleConfirmedAt: w.bundle_confirmed_at ?? null
+    bundleConfirmedAt: w.bundle_confirmed_at ?? null,
+    bundleExportedAt: w.bundle_exported_at ?? null,
+    copiesRecording: w.copies_recording ?? 0
   };
 }
 
@@ -2575,7 +2580,9 @@ function fromWireEncryptionCopy(w: WireEncryptionCopy): CopyEncryption {
     keyId: w.key_id ?? null,
     keyResolvable: w.key_resolvable ?? null,
     storedDigestAlgorithm: w.stored_digest_algorithm ?? null,
-    storedSize: w.stored_size ?? null
+    storedSize: w.stored_size ?? null,
+    storedDigest: w.stored_digest ?? null,
+    plaintextDigest: w.plaintext_digest ?? null
   };
 }
 

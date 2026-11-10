@@ -2150,5 +2150,13 @@
   "encryption.health.keyMissing": {
     "label": "A required key cannot be resolved",
     "html": "A set whose policy is required has a key that does not resolve, so its destination copies are refused rather than written in plaintext. Nothing is deleted when a copy is refused."
+  },
+  "encryption.digest.plaintext": {
+    "label": "Plaintext digest",
+    "html": "The digest of the backup's own bytes before any encryption, the value the catalog holds as <code>artifacts.local_hash</code>. A decrypt-verify compares against it. It is a different number from the stored-bytes digest on purpose."
+  },
+  "encryption.digest.stored": {
+    "label": "Stored-bytes digest",
+    "html": "The digest of the bytes this one copy holds at its destination, which for an encrypted copy are ciphertext. It describes this copy only, and it is supposed to differ from the plaintext digest."
   }
 }

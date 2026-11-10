@@ -99,3 +99,38 @@ export function encryptionConditions(keys: { id: string; status: string; resolva
   }
   return out;
 }
+
+/**
+ * A placement's own encryption fields as a CopyEncryption, for the surfaces
+ * that have the placement and not the copies read (the Backups list). Only the
+ * three fields the placement carries are filled; the rest are null, and a
+ * resolvability the server did not state stays null, never "resolves".
+ */
+export function placementEncryption(p: Pick<BackupPlacement, "medium" | "encrypted" | "encryptionKeyId" | "encryptionKeyResolvable">): CopyEncryption {
+  const encrypted = p.encrypted === true;
+  return {
+    medium: p.medium,
+    encrypted,
+    format: null,
+    formatVersion: null,
+    keyId: encrypted ? p.encryptionKeyId ?? null : null,
+    keyResolvable: encrypted ? p.encryptionKeyResolvable ?? null : null,
+    storedDigestAlgorithm: null,
+    storedSize: null,
+    storedDigest: null,
+    plaintextDigest: null
+  };
+}
+
+/** Whether any of these placements is encrypted. */
+export const anyPlacementEncrypted = (placements: readonly Pick<BackupPlacement, "encrypted">[]): boolean =>
+  placements.some((p) => p.encrypted === true);
+
+/** The backups with a copy recording `keyId`; an empty id keeps them all. */
+export function artifactsUnderKey<T extends { placements: readonly Pick<BackupPlacement, "encrypted" | "encryptionKeyId">[] }>(
+  artifacts: readonly T[],
+  keyId: string
+): T[] {
+  if (keyId === "") return [...artifacts];
+  return artifacts.filter((a) => a.placements.some((p) => p.encrypted === true && p.encryptionKeyId === keyId));
+}

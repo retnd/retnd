@@ -33,6 +33,7 @@
  * digest is not asked for, and the card accepts no key bytes anywhere.
  */
 import { useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { acknowledgeInsecureTransport } from "@shared/api/client";
 import { apiErrorOf, describeFailure, isNotConfigured } from "@shared/api/failure";
@@ -77,9 +78,6 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  /** What the last bundle export left on record: a receipt, never material. */
-  const [exported, setExported] = useState<{ keyId: string; fileName: string } | null>(null);
-
   const heading = (
     <InfoTooltip id="encryption.card">
       <h2 className="eyebrow">Retained-copy encryption</h2>
@@ -186,7 +184,7 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
               {active ? (
                 <Cell
                   label="Recovery bundle"
-                  value={active.bundleConfirmed ? "confirmed" + (active.bundleConfirmedAt ? " " + stamp(active.bundleConfirmedAt) : "") : exported && exported.keyId === active.id ? "exported, not yet confirmed" : "not confirmed"}
+                  value={active.bundleConfirmed ? "confirmed" + (active.bundleConfirmedAt ? " " + stamp(active.bundleConfirmedAt) : "") : active.bundleExportedAt ? "exported " + stamp(active.bundleExportedAt) + ", not yet confirmed" : "not confirmed"}
                 />
               ) : null}
             </CellGrid>
@@ -196,7 +194,7 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
                 key={"bundle-" + k.id}
                 tone="warn"
                 eyebrow="Recovery bundle"
-                title={exported && exported.keyId === k.id ? "Bundle exported, not yet confirmed" : "No confirmed recovery bundle"}
+                title={k.bundleExportedAt ? "Bundle exported, not yet confirmed" : "No confirmed recovery bundle"}
                 tip="encryption.health.bundle"
                 dismissible={false}
                 actions={
@@ -222,8 +220,10 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
                 }
               >
                 {"Copies are being encrypted under key " + k.id + ", which exists only on this host. If this host is lost, so are they. " +
-                  "Export the bundle, store it away from this machine, then confirm here. This stays until you do, including across restarts. " +
-                  "A download can land on this same host, which moves nothing."}
+                  (k.bundleExportedAt
+                    ? "A bundle was exported " + stamp(k.bundleExportedAt) + ". A download can land on this same host, which moves nothing: confirm once the file is somewhere this machine's loss would not take with it."
+                    : "Export the bundle, store it away from this machine, then confirm here.") +
+                  " This stays until you do, including across restarts."}
               </WarningBanner>
             ))}
 
@@ -240,11 +240,6 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
               </WarningBanner>
             ))}
 
-            {exported ? (
-              <p className="eresult" role="status" data-bundle-receipt="">
-                {"Saved " + exported.fileName + ". Nothing was shown on screen."}
-              </p>
-            ) : null}
             {failure && dialog === null ? <Banner tone="danger" dismissKey={failure}><span style={{ fontSize: "var(--text-sm)" }}>{failure}</span></Banner> : null}
 
             {readOnly ? null : (
@@ -277,7 +272,7 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
                 <table className="ekeys" aria-label="Managed keys">
                   <thead>
                     <tr>
-                      <th scope="col">Key</th><th scope="col">Created</th><th scope="col">Status</th><th scope="col">Actions</th>
+                      <th scope="col">Key</th><th scope="col">Created</th><th scope="col">Status</th><th scope="col">Copies</th><th scope="col">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -289,6 +284,13 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
                           {(KEY_STATUS_WORDS[k.status] ?? k.status) +
                             (k.resolvable ? "" : ", does not resolve") +
                             (k.retiredAt ? " " + stamp(k.retiredAt) : "")}
+                        </td>
+                        <td data-copies-recording={k.copiesRecording}>
+                          {k.copiesRecording > 0 ? (
+                            <Link to={"/backups?key=" + encodeURIComponent(k.id)}>{k.copiesRecording + " in Backups"}</Link>
+                          ) : (
+                            "0"
+                          )}
                         </td>
                         <td>
                           {readOnly || k.status === "active" || k.status === "retired" ? null : (
@@ -419,7 +421,7 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
         <BundleDialog
           keyId={dialog.key.id}
           onCancel={close}
-          onDone={(receipt) => { setExported({ keyId: receipt.keyId, fileName: receipt.fileName }); reload(); close(); }}
+          onDone={() => { reload(); close(); }}
         />
       ) : null}
     </section>

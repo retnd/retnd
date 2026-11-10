@@ -3684,6 +3684,22 @@
             ],
             "description": "Which check produced the verdict in recovery_state: validator is the operator's own script, builtin is the product's structure check (it read the recovered file end to end as its archive or compression format). Absent when there is no passed, readable, failed or overdue verdict to attribute, and from an older server. builtin goes with recovery_state readable (or a failed or overdue built-in verdict): it proves the file decodes, not that an application can use it.",
             "x-go-omitempty": true
+          },
+          "encrypted": {
+            "type": "boolean",
+            "x-go-omitempty": true,
+            "description": "The copy is stored encrypted. Absent for a plaintext copy."
+          },
+          "encryption_key_id": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The managed key id the copy records. An id, never material."
+          },
+          "encryption_key_resolvable": {
+            "type": "boolean",
+            "x-go-omitempty": true,
+            "x-go-pointer": true,
+            "description": "Whether that key resolves right now. Absent for a plaintext copy."
           }
         },
         "required": [
@@ -9255,6 +9271,16 @@
             "type": "string",
             "format": "date-time",
             "x-go-omitempty": true
+          },
+          "copies_recording": {
+            "type": "integer",
+            "description": "How many ACTIVE copies record this key."
+          },
+          "bundle_exported_at": {
+            "type": "string",
+            "format": "date-time",
+            "x-go-omitempty": true,
+            "description": "When a recovery bundle for this key was last exported. Absent if never."
           }
         },
         "required": [
@@ -9263,7 +9289,8 @@
           "created_at",
           "resolvable",
           "resolvability",
-          "bundle_confirmed"
+          "bundle_confirmed",
+          "copies_recording"
         ]
       },
       "ListEncryptionKeysResponse": {
@@ -9442,6 +9469,16 @@
           "stored_digest_algorithm": {
             "type": "string",
             "x-go-omitempty": true
+          },
+          "stored_digest": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "Digest of the stored (ciphertext) bytes. Never the plaintext digest."
+          },
+          "plaintext_digest": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The backup's plaintext digest, artifacts.local_hash."
           }
         },
         "required": [

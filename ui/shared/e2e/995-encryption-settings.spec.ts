@@ -61,7 +61,8 @@ test.describe("#995 Settings, Retained-copy encryption", () => {
     await expect(dlg.getByRole("button", { name: "Download bundle" })).toBeEnabled();
     expect(await page.content()).not.toMatch(canary);
     await dlg.getByRole("button", { name: "Download bundle" }).click();
-    await expect(c.getByText(/Nothing was shown on screen/)).toBeVisible();
+    await expect(dlg).toBeHidden();
+    await expect(c.getByText("Bundle exported, not yet confirmed")).toBeVisible();
     expect(await page.content()).not.toMatch(canary);
   });
 

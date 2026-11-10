@@ -69,6 +69,10 @@ export interface EncryptionKey {
   reason: string | null;
   bundleConfirmed: boolean;
   bundleConfirmedAt: string | null;
+  /** When a bundle was last exported for this key, or null if never. */
+  bundleExportedAt: string | null;
+  /** How many active copies record this key. */
+  copiesRecording: number;
 }
 
 export interface ProviderProbe {
@@ -89,6 +93,10 @@ export interface CopyEncryption {
   keyResolvable: boolean | null;
   storedDigestAlgorithm: string | null;
   storedSize: number | null;
+  /** The digest of the stored bytes (ciphertext), and the artifact's own
+   *  plaintext digest. Null when the route omitted them. */
+  storedDigest: string | null;
+  plaintextDigest: string | null;
 }
 
 export interface DecryptVerifyRequest {

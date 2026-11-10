@@ -319,10 +319,9 @@ describe("no key material after the one-time export", () => {
     expect(within(dialog).getByRole("button", { name: "Download bundle" })).toBeDisabled();
     await user.click(within(dialog).getByRole("checkbox", { name: /I understand this file can decrypt every copy/ }));
     await user.click(within(dialog).getByRole("button", { name: "Download bundle" }));
-    expect(await screen.findByText(/Nothing was shown on screen/)).toBeInTheDocument();
+    // The dialog is gone; the page holds no receipt of its own, it re-reads the key.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.body.innerHTML).not.toContain(CANARY);
-    // The dialog is gone and the receipt is a file name, not a value.
-    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("has no field anywhere on the card that could hold a key", async () => {

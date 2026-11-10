@@ -100,3 +100,43 @@ describe("the conditions the Dashboard draws", () => {
     expect(encryptionConditions([key({ status: "retired", bundleConfirmed: false, resolvable: false })])).toEqual([]);
   });
 });
+
+/** The follow-up fields (#995): placements carry their own encryption record. */
+import { artifactsUnderKey, placementEncryption } from "./encryptionState";
+import type { BackupPlacement } from "@shared/types/backup";
+
+const pl = (over: Partial<BackupPlacement> = {}): BackupPlacement => ({
+  medium: "offsite", mediumType: "s3", location: "k", sizeBytes: 1, storageClass: "", verificationClass: null, verifiedAt: null,
+  access: "immediate", status: "ACTIVE", ...over
+});
+
+describe("a placement's own encryption fields", () => {
+  it("is plaintext when the wire omitted them, which is what a plaintext copy sends", () => {
+    expect(placementEncryption(pl())).toMatchObject({ medium: "offsite", encrypted: false, keyId: null, keyResolvable: null });
+  });
+
+  it("is encrypted with its key id and resolvability when it says so", () => {
+    expect(placementEncryption(pl({ encrypted: true, encryptionKeyId: "k1", encryptionKeyResolvable: false }))).toMatchObject({
+      encrypted: true, keyId: "k1", keyResolvable: false
+    });
+  });
+
+  it("keeps an unreported resolvability null, so it can never reach verified recoverable", () => {
+    const c = placementEncryption(pl({ encrypted: true, encryptionKeyId: "k1" }));
+    expect(c.keyResolvable).toBeNull();
+    expect(copyEncryptionView(c, { verificationClass: "content", verifiedAt: "2026-11-09T09:00:00Z" }).recovery).toBe("not-verified");
+  });
+});
+
+describe("the filter link from the key table", () => {
+  const art = (id: string, ...ps: BackupPlacement[]) => ({ id, placements: ps });
+  it("keeps exactly the backups with a copy recording the key", () => {
+    const rows = [
+      art("a", pl({ encrypted: true, encryptionKeyId: "k1" })),
+      art("b", pl({ encrypted: true, encryptionKeyId: "k2" })),
+      art("c", pl())
+    ];
+    expect(artifactsUnderKey(rows, "k1").map((a) => a.id)).toEqual(["a"]);
+    expect(artifactsUnderKey(rows, "")).toHaveLength(3);
+  });
+});

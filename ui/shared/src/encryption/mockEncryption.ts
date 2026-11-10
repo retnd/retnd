@@ -14,7 +14,8 @@
  * answers a receipt, so no fixture can leak what it never held.
  */
 import { RetndError } from "@shared/api/contracts";
-import type { RetndApi, ScrubStart } from "@shared/api/contracts";
+import type { AssuranceOperationRecord, RetndApi, ScrubStart } from "@shared/api/contracts";
+import type { BackupArtifact } from "@shared/types/backup";
 import type {
   CopyEncryption,
   EncryptionKey,
@@ -28,9 +29,23 @@ import type {
 export const ENCRYPTION_SCENARIOS = [
   "encryption-on",
   "encryption-confirmed",
+  "encryption-exported",
+  // A copy that is encrypted, whose key resolves and whose placement holds a
+  // content-class verification: the one road to Verified recoverable. Its verify
+  // ends matched ("mock-decrypt-verify-passed").
+  "encryption-verified",
+  // The same deployment with no decrypt-verify on record, whose verify ends
+  // failed closed ("mock-decrypt-verify-failed").
+  "encryption-verify-failed",
   "encryption-key-missing",
   "encryption-in-use"
 ] as const;
+
+/** Scenarios whose key has a confirmed bundle. */
+const CONFIRMED = new Set<string>(["encryption-confirmed", "encryption-verified", "encryption-verify-failed"]);
+
+export const PASSED_ID = "mock-decrypt-verify-passed";
+export const FAILED_ID = "mock-decrypt-verify-failed";
 
 const NONE: KeyProviderState = { kind: "none", source: null };
 const MANAGED: KeyProviderState = { kind: "managed", source: null };
@@ -53,7 +68,9 @@ export function createMockEncryption(scenario: string, setIds: () => string[]) {
           id: KEY_A, status: "active", createdAt: "2026-11-09T09:12:00Z", retiredAt: null,
           resolvable: scenario !== "encryption-key-missing", resolvability: scenario === "encryption-key-missing" ? "unreachable" : "resolves",
           reason: scenario === "encryption-key-missing" ? "the key file is not readable by this service" : null,
-          bundleConfirmed: scenario === "encryption-confirmed", bundleConfirmedAt: scenario === "encryption-confirmed" ? "2026-11-09T09:31:00Z" : null
+          bundleConfirmed: CONFIRMED.has(scenario), bundleConfirmedAt: CONFIRMED.has(scenario) ? "2026-11-09T09:31:00Z" : null,
+          bundleExportedAt: CONFIRMED.has(scenario) || scenario === "encryption-exported" ? "2026-11-09T09:20:00Z" : null,
+          copiesRecording: scenario === "encryption-in-use" ? 41 : 0
         }
       ]
     : [];
@@ -132,7 +149,7 @@ export function createMockEncryption(scenario: string, setIds: () => string[]) {
       }
       const k: EncryptionKey = {
         id: "mk-2026-11-10-a", status: "active", createdAt: new Date().toISOString(), retiredAt: null,
-        resolvable: true, resolvability: "resolves", reason: null, bundleConfirmed: false, bundleConfirmedAt: null
+        resolvable: true, resolvability: "resolves", reason: null, bundleConfirmed: false, bundleConfirmedAt: null, bundleExportedAt: null, copiesRecording: 0
       };
       keys.push(k);
       return later(structuredClone(k));
@@ -141,7 +158,7 @@ export function createMockEncryption(scenario: string, setIds: () => string[]) {
       for (const k of keys) if (k.status === "active") k.status = "superseded";
       const k: EncryptionKey = {
         id: "mk-2026-11-10-b" + keys.length, status: "active", createdAt: new Date().toISOString(), retiredAt: null,
-        resolvable: true, resolvability: "resolves", reason: null, bundleConfirmed: false, bundleConfirmedAt: null
+        resolvable: true, resolvability: "resolves", reason: null, bundleConfirmed: false, bundleConfirmedAt: null, bundleExportedAt: null, copiesRecording: 0
       };
       keys.push(k);
       return later(structuredClone(k));
@@ -169,6 +186,7 @@ export function createMockEncryption(scenario: string, setIds: () => string[]) {
     exportRecoveryBundle: (id) => {
       key(id);
       exported.add(id);
+      key(id).bundleExportedAt = new Date().toISOString();
       return later({ keyId: id, digest: "ab".repeat(32), fileName: "retnd-recovery-bundle-" + id + ".json" });
     },
     confirmRecoveryBundle: (id) => {
@@ -178,7 +196,7 @@ export function createMockEncryption(scenario: string, setIds: () => string[]) {
       } catch (e) {
         return Promise.reject(e);
       }
-      if (!exported.has(id) && scenario !== "encryption-confirmed") {
+      if (!exported.has(id) && key(id).bundleExportedAt === null) {
         return Promise.reject(refuse("ENCRYPTION_KEY_STATE", "Key " + id + " has no exported bundle to confirm. Export one first."));
       }
       k.bundleConfirmed = true;
@@ -200,14 +218,15 @@ export function createMockEncryption(scenario: string, setIds: () => string[]) {
     listEncryptionCopies: () => {
       const copies: CopyEncryption[] = [{
         medium: "local", encrypted: false, format: null, formatVersion: null, keyId: null,
-        keyResolvable: null, storedDigestAlgorithm: null, storedSize: null
+        keyResolvable: null, storedDigestAlgorithm: null, storedSize: null, storedDigest: null, plaintextDigest: null
       }];
       if (on) {
         copies.push({
           medium: "offsite_s3", encrypted: true, format: "age", formatVersion: 1,
           keyId: scenario === "encryption-key-missing" ? KEY_OLD : KEY_A,
           keyResolvable: scenario !== "encryption-key-missing",
-          storedDigestAlgorithm: "sha256", storedSize: 14_200_000_000
+          storedDigestAlgorithm: "sha256", storedSize: 14_200_000_000,
+          storedDigest: "sha256:f17c0de1", plaintextDigest: "sha256:a04b7e22"
         });
       }
       return later(copies);
@@ -216,7 +235,12 @@ export function createMockEncryption(scenario: string, setIds: () => string[]) {
       if (scenario === "encryption-key-missing") {
         return Promise.reject(refuse("ENCRYPTION_KEY_UNRESOLVABLE", "Key " + KEY_OLD + " does not resolve (the key file is not readable by this service). Nothing was read."));
       }
-      return later({ backupSetId: req.artifactId.split("/").slice(0, 2).join("/"), operationId: "mock-decrypt-verify" });
+      // The id decides how the run reads back (encryptionOperationRecord): the
+      // two verified scenarios end, every other leaves the run unknown to the
+      // record, which the dialog draws as still running.
+      const operationId =
+        scenario === "encryption-verified" ? PASSED_ID : scenario === "encryption-verify-failed" ? FAILED_ID : "mock-decrypt-verify";
+      return later({ backupSetId: req.artifactId.split("/").slice(0, 2).join("/"), operationId });
     }
   };
   return methods;
@@ -227,4 +251,44 @@ function describeReference(r: { file: string } | { env: string } | { command: st
   if ("file" in r) return "file: " + r.file;
   if ("env" in r) return "env: " + r.env;
   return "command: " + (r.command[0] ?? "");
+}
+
+/**
+ * The placements of a backup as the list and the detail routes carry them in
+ * an encryption scenario: the off-site copy is encrypted under the scenario's
+ * key, and the local copy sends no encryption field at all, as a plaintext copy
+ * does on the wire. Any other scenario is returned as it came.
+ */
+export function overlayEncryption(scenario: string, a: BackupArtifact): BackupArtifact {
+  if (!scenario.startsWith("encryption-")) return a;
+  const missing = scenario === "encryption-key-missing";
+  return {
+    ...a,
+    placements: a.placements.map((p) =>
+      p.medium === "local"
+        ? p
+        : {
+            ...p, encrypted: true, encryptionKeyId: missing ? KEY_OLD : KEY_A, encryptionKeyResolvable: !missing,
+            // The only copy with a decrypt-verify on record: a content class with a time.
+            ...(scenario === "encryption-verified" ? { verificationClass: "content" as const, verifiedAt: "2026-08-28T02:07:31+02:00" } : {})
+          }
+    )
+  };
+}
+
+/**
+ * The durable record of the two decrypt-verify runs this mock can end, read by
+ * id the way the real route reads one back. One passed, one failed closed with
+ * the engine's kind of reason. Any other id is not here (undefined), so a run
+ * the mock started under another scenario is still being looked for.
+ */
+export function encryptionOperationRecord(operationId: string): AssuranceOperationRecord | undefined {
+  if (operationId !== PASSED_ID && operationId !== FAILED_ID) return undefined;
+  const passed = operationId === PASSED_ID;
+  return {
+    operationId, kind: "scrub", backupSetId: "production/postgres-primary",
+    state: passed ? "passed" : "failed", stage: passed ? "complete" : "",
+    reason: passed ? "" : "authentication failed at chunk 412 of 9811",
+    startedAt: "2026-08-29T06:14:00+02:00", endedAt: "2026-08-29T06:15:00+02:00", events: []
+  };
 }
