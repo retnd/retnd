@@ -39,22 +39,31 @@ import (
 // pass at all, because "the staging area ends empty" is trivially true of
 // an engine that never encrypted anything.
 
-func (w *world) enableEncryption() *keycustody.Store {
+// enableEncryption mints the managed key before any harness runs. The
+// registry is keycustody.JournalRegistry over the cell's own journal file, so
+// the harness process and the restarting engine see the same encryption_keys
+// row, and the test closes its handle before a harness opens the file.
+func (w *world) enableEncryption() {
 	w.t.Helper()
 	w.keyDir = filepath.Join(w.dir, "keys")
 	if err := os.MkdirAll(w.keyDir, 0o700); err != nil {
 		w.t.Fatal(err)
 	}
-	reg, err := keycustody.OpenFileRegistry(filepath.Join(w.keyDir, "registry.json"))
+	j, err := state.Open(w.ctx, w.journal)
 	if err != nil {
-		w.t.Fatalf("OpenFileRegistry: %v", err)
+		w.t.Fatalf("opening the journal: %v", err)
 	}
-	keys, err := keycustody.Open(w.keyDir, reg, keycustody.AgeFormat{})
+	defer func() { _ = j.Close() }()
+	if _, err := w.keysOver(j).Create(w.ctx, crashNow); err != nil {
+		w.t.Fatalf("Create: %v", err)
+	}
+}
+
+func (w *world) keysOver(j *state.Journal) *keycustody.Store {
+	w.t.Helper()
+	keys, err := keycustody.Open(w.keyDir, keycustody.NewJournalRegistry(j), keycustody.AgeFormat{})
 	if err != nil {
 		w.t.Fatalf("keycustody.Open: %v", err)
-	}
-	if _, err := keys.Create(w.ctx, crashNow); err != nil {
-		w.t.Fatalf("Create: %v", err)
 	}
 	return keys
 }
@@ -185,7 +194,7 @@ func TestCrashMatrixOverAnEncryptedCopy(t *testing.T) {
 	} {
 		t.Run(cell.name, func(t *testing.T) {
 			w := newWorld(t)
-			keys := w.enableEncryption()
+			w.enableEncryption()
 
 			res := w.crashTo(crashMedium, cell.kill...)
 			if !res.killed() {
@@ -203,6 +212,7 @@ func TestCrashMatrixOverAnEncryptedCopy(t *testing.T) {
 			w.checkInvariantNow(j, "at the instant of the crash ("+cell.name+")")
 			w.recordAndPlacementAgree(j, "at the instant of the crash ("+cell.name+")")
 
+			keys := w.keysOver(j)
 			engine, guard := w.encryptedRestart(j, keys)
 			report, err := engine.RunCycle(w.ctx, nil)
 			if err != nil {

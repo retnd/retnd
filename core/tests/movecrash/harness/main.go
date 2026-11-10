@@ -166,11 +166,7 @@ func run() error {
 	bs := config.BackupSet{Name: *set, ID: setID, LocalPath: *root}
 	var keys *keycustody.Store
 	if *encryptDir != "" {
-		reg, err := keycustody.OpenFileRegistry(filepath.Join(*encryptDir, "registry.json"))
-		if err != nil {
-			return fmt.Errorf("opening the key registry: %w", err)
-		}
-		keys, err = keycustody.Open(*encryptDir, reg, keycustody.AgeFormat{})
+		keys, err = keycustody.Open(*encryptDir, keycustody.NewJournalRegistry(journal), keycustody.AgeFormat{})
 		if err != nil {
 			return fmt.Errorf("opening the key store: %w", err)
 		}

@@ -24,10 +24,10 @@ import (
 // key the engine encrypts to and the key it decrypt-verifies with are the
 // ones custody holds.
 //
-// The journal is deliberately NOT told about the key: the engine has to put
-// the registry row there itself before it records a copy under it, because
-// nothing else in this tree mirrors keycustody's registry into
-// encryption_keys yet.
+// The key store's registry is keycustody.JournalRegistry over the fixture's
+// own journal, so the encryption_keys row a per-copy record references is
+// the row custody wrote when it minted the key. The engine registers
+// nothing itself.
 
 type encFixture struct {
 	*fixture
@@ -43,11 +43,7 @@ func newEncryptedFixture(t *testing.T, opts fixtureOpts) *encFixture {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	reg, err := keycustody.OpenFileRegistry(filepath.Join(dir, "registry.json"))
-	if err != nil {
-		t.Fatalf("OpenFileRegistry: %v", err)
-	}
-	keys, err := keycustody.Open(dir, reg, keycustody.AgeFormat{})
+	keys, err := keycustody.Open(dir, keycustody.NewJournalRegistry(f.journal), keycustody.AgeFormat{})
 	if err != nil {
 		t.Fatalf("keycustody.Open: %v", err)
 	}
