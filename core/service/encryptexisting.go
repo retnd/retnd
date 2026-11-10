@@ -74,6 +74,11 @@ func encryptExistingRefusal(err error) (code string, ok bool) {
 		err  error
 		code string
 	}{
+		// #1317's refusals come first: the source-key one also wraps
+		// ErrClassUnavailable, and the more specific code is the one to say.
+		{placement.ErrReencryptAlreadyCurrent, "already_current"},
+		{placement.ErrReencryptSourceKeyUnavailable, "source_key_unavailable"},
+		{placement.ErrEncryptExistingSameMedium, "same_medium"},
 		{placement.ErrEncryptExistingNotRequired, "not_required"},
 		{placement.ErrEncryptExistingAlreadyEncrypted, "already_encrypted"},
 		{placement.ErrEncryptExistingNoPlaintextCopy, "no_plaintext_copy"},

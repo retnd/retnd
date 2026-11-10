@@ -268,6 +268,13 @@ type Plan struct {
 	// DestinationMedium is config.MediumLocal for a move back to the
 	// backup set's own local_path, or a configured medium id.
 	DestinationMedium string
+
+	// Reencrypt is read by EncryptExisting only (#1317): the operator asked
+	// for an ENCRYPTED copy under a suite or key other than the active one to
+	// be rewritten under the active suite and key. Without it an encrypted
+	// source is refused as already encrypted, which is what #1291's verb
+	// over plaintext copies wants. RunCycle ignores it.
+	Reencrypt bool
 }
 
 // Outcome is what happened to one move.
@@ -1061,12 +1068,21 @@ func (e *Engine) verifyCopy(ctx context.Context, mv state.Move, src state.Placem
 	if gated {
 		observed = e.observe(ctx, medium, mv.DestinationKey, medium.StorageClass)
 	}
+	// An encrypted source an operator opted in to rewrite (#1317) is not a
+	// re-home: the destination was written under the active key, so it is
+	// verified the way a fresh copy is, below.
+	var reencrypted bool
 	if srcEncrypted {
-		return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated, srcEnc.KeyID, srcEnc.FormatID, observed)
+		if reencrypted, err = e.retroConsented(ctx, mv); err != nil {
+			return Result{}, want, err
+		}
+		if !reencrypted {
+			return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated, srcEnc.KeyID, srcEnc.FormatID, observed)
+		}
 	}
 	if on, err := e.encryptedSet(mv.Artifact.Set); err != nil {
 		return Result{}, want, err
-	} else if on {
+	} else if on || reencrypted {
 		// Once the destination has its own record (after the VERIFIED
 		// advance, which is when the pre-delete re-read runs), it is opened
 		// through the key recorded for it. The active key is only right for
