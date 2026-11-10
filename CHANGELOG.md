@@ -26,27 +26,30 @@
 - **Encryption suites for retained copies** (EPIC T, #1310: #1311 to #1320). Every encrypted copy now
   records the suite it was written under (its existing `format_id`, so `age/v1` keeps its exact meaning and
   no copy record changes), from a registry compiled into the build. Two suites ship, both `filippo.io/age`
-  and no new module. The default for new keys is `age-pq/v1`, which every surface describes in the same
-  words as the Settings tooltip: "age v1 file with a hybrid ML-KEM-768 + X25519 recipient and
-  ChaCha20-Poly1305 payload: post-quantum hybrid key establishment, 128-bit security level, not AES, not
-  FIPS-validated; opens with age 1.3 or newer." `age/v1` stays supported. `retnd encryption suites` and
+  and no new module. The default for a first key is `age-pq/v1`, which every surface describes in the same
+  words as the Settings card: "age v1 file, one ML-KEM-768 + X25519 hybrid recipient, ChaCha20-Poly1305 in 64 KiB authenticated chunks. 128-bit security level, post-quantum key establishment. Not AES, not FIPS-validated. Opens with `age -d -i key.txt` (age 1.3 or newer)." `age/v1` stays supported, and `suite: default` (or no
+  `suite:` at all) keeps the active key's suite, so an upgrade changes no deployment's suite. `retnd encryption suites` and
   `GET /api/v1/encryption/suites` list them with their status.
   - **A key belongs to a suite** (migration 0020 adds the side table `encryption_key_suites`; a key with
-    no row there, which is every existing key, reads `age/v1`). There is still one active managed key at a
+    no row there, which is every existing key, reads `age/v1`; migration 0021 records the build default
+    the deployment last ran under). There is still one active managed key at a
     time, and a copy is written only when that key belongs to the policy's suite. Changing the suite is choose, rotate, export, confirm: `policy patch --suite`
     answers `rotation_needed` and writes no key, `key rotate --suite <id>` mints the new suite's key and
     supersedes the old suite's in one write, and the new bundle is unconfirmed until you confirm it. Until
     the rotation, a `required` set's new copies are refused before anything destructive, never written
-    under another suite. Nothing rotates on its own, and a build that moves the default says so once in an
-    `EncryptionDefaultSuiteChanged` event.
+    under another suite. The web UI walks the same four steps in one Change the suite dialog. Nothing
+    rotates on its own, and a build that moves the default says so once in an
+    `EncryptionDefaultSuiteChanged` event and changes nothing else.
   - **Supported, deprecated, retired.** A deprecated suite still reads and writes and turns health
-    degraded with the count of active copies under it. A retired suite reads only: decrypt-verify, scrub,
+    degraded with the count of active copies under it and the announced retirement version. A retired suite reads only: decrypt-verify, scrub,
     moves, `decrypt` and recovery keep working on its copies, no new copy is written under it, and
     `suite:` pinned to it is refused at load. No suite is removed while a copy records it.
-  - **`retnd encryption reencrypt`** writes copies recorded under another suite again under the active
-    suite and key, through the same journaled move as `encrypt-existing`: another medium, no plaintext on
-    local disk, the old copy retired only after the new one decrypt-verifies, `--dry-run` to see which
-    copies it would take.
+  - **`retnd encryption reencrypt --suite ID | --key ID | --deprecated [--to MEDIUM] [--dry-run]`**
+    (`GET` and `POST /api/v1/encryption/reencrypt`, and a Re-encrypt under current suite button on a
+    deprecated or retired suite's Dashboard line) writes the selected copies again under the active
+    suite and key, through the same journaled move as `encrypt-existing`: another medium, no plaintext
+    on local disk, the old copy retired only after the new one decrypt-verifies. The dry run groups the
+    copies by suite and key; a run needs `--to`.
   - **One-way door:** a `config.yaml` that writes `retained_copy_encryption.suite` cannot be read by 0.7.2
     or any earlier build, which refuses it as an unknown field. Writing nothing means `suite: default` and
     opens no door.

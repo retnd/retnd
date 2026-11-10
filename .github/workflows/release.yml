@@ -293,13 +293,13 @@ jobs:
         run: bash scripts/release/check-epic-n-closed.sh
 
   # EPIC T (#1310, suite agility) closes the same way (#1320): the canonical
-  # deployment is an empty diff against 477aec5a, the epic added exactly one
-  # migration (0020) and no row of docs/conformance/epic-t-matrix.md is
+  # deployment is an empty diff against 477aec5a, the epic added exactly its two
+  # migrations (0020, 0021) and no row of docs/conformance/epic-t-matrix.md is
   # BLOCKED. Its captures are entries in the manifest the EPIC N job already
   # holds to docs/site/screens/. scripts/tests/epic-t-closure.test.sh runs the
   # script in throwaway repositories, once per way it can refuse.
   require-epic-t-closed:
-    name: EPIC T is closed (matrix, canonical deployment, one migration)
+    name: EPIC T is closed (matrix, canonical deployment, two migrations)
     needs: decide
     if: needs.decide.outputs.repoint != 'true'
     runs-on: ubuntu-latest

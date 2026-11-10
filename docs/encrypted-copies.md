@@ -16,8 +16,8 @@ section says so instead of describing the plan.
 
 - It is off until you turn it on, and off is byte-for-byte what it was before.
 - When a backup set requires it, the copy sent to a storage medium is written as an
-  [age](https://c2sp.org/age) v1 file under an **encryption suite**, `age-pq/v1` unless you pin
-  another. Your local copy stays plaintext.
+  [age](https://c2sp.org/age) v1 file under an **encryption suite**: the suite of your active
+  key unless you pin one, and `age-pq/v1` for a first key. Your local copy stays plaintext.
 - The key is generated and kept by the product ("managed"), and you export a **recovery
   bundle** and keep it somewhere that is not this machine.
 - **If you lose the key, you lose the encrypted copies.** There is no reset, no recovery
@@ -77,7 +77,7 @@ The whole operator surface is a **mode**, a **key provider** and, deployment-wid
 ```yaml
 retained_copy_encryption:
   mode: required          # off (the default, and what you get if you write nothing) | required
-  suite: default          # default (the build's default suite, today age-pq/v1) | age/v1 | age-pq/v1
+  suite: default          # default (the active key's suite; age-pq/v1 for a first key) | age/v1 | age-pq/v1
   key_provider:
     managed: true         # or external: { file: ... } / { env: ... } / { command: [...] }
 
@@ -93,7 +93,9 @@ The suite is the one cryptographic choice you get, and it is a choice between wh
 constructions the build already ships, never a set of parameters. There is no cipher, nonce
 length, chunk size or KDF cost setting at either level, and no per-set suite: a per-set suite
 would mean a per-set key and a per-set bundle to keep, which is the burden this feature exists
-to avoid. Writing nothing is the same as writing `suite: default`. The config reader rejects
+to avoid. Writing nothing is the same as writing `suite: default`, which means "keep the suite of
+the active key": an upgrade never changes the suite your copies are written under, and a
+deployment with no key yet gets the build's default, `age-pq/v1`, when its first key is made. The config reader rejects
 unknown fields, so a per-set rotation cadence, chunk size or suite is refused outright rather
 than ignored.
 
@@ -126,11 +128,11 @@ decides how the copy is opened, never the policy of the day. This build ships tw
 
 | Suite | Status | What the product says about it (its `Describe()` sentence, word for word) |
 |---|---|---|
-| `age-pq/v1` | supported, **the default** | "age v1 file with a hybrid ML-KEM-768 + X25519 recipient and ChaCha20-Poly1305 payload: post-quantum hybrid key establishment, 128-bit security level, not AES, not FIPS-validated; opens with age 1.3 or newer." |
+| `age-pq/v1` | supported, **the default for a first key** | "age v1 file, one ML-KEM-768 + X25519 hybrid recipient, ChaCha20-Poly1305 in 64 KiB authenticated chunks. 128-bit security level, post-quantum key establishment. Not AES, not FIPS-validated. Opens with `age -d -i key.txt` (age 1.3 or newer)." |
 | `age/v1` | supported | "age v1 file, one X25519 recipient, ChaCha20-Poly1305 in 64 KiB authenticated chunks. 128-bit security level. Not post-quantum. Opens with `age -d -i key.txt`." |
 
 That sentence is the only thing any surface says about a suite: `retnd encryption suites`,
-`GET /api/v1/encryption/suites`, the tooltip on the Settings select and this table print the
+`GET /api/v1/encryption/suites`, the Suite choice on the Settings card and this table print the
 same words, and a test holds them to the code. I would rather print less than the code can
 back.
 
@@ -160,9 +162,11 @@ copy records it.
 
 - **supported**: new copies may be written under it, and its copies read, verify, move and
   recover as usual.
-- **deprecated**: still reads and still writes, and the health report reads degraded with the
-  number of active copies (and the active key, if any) under it, so you know to move off it. A
-  `suite:` pinned to it loads with a warning.
+- **deprecated**: still reads and still writes, and the health report reads degraded, in words
+  like "12 active copies are under age/v1, a deprecated suite; retirement announced for version
+  0.9.0" (or "... and the active key are ..." when your key is under it too), so you know to
+  move off it. The Dashboard line carries a **Re-encrypt under current suite** button. A
+  `suite:` pinned to it loads, and health says so.
 - **retired**: reads only. Decrypt-verify, scrub, moving its ciphertext, `retnd encryption
   decrypt` and recovery all keep working on its copies, but no new copy is written under it, a
   `suite:` pinned to it is refused at load, and health stays degraded while any active copy
@@ -176,11 +180,13 @@ nothing you already stored is orphaned.
 A key belongs to one suite, and there is still one active managed key at a time. New copies go
 under the active key only when it belongs to **the policy's suite**, never under whatever key
 happens to be active, and the product never mints a key behind your back. So a change of suite is four steps, and the Settings
-card walks you through them in this order:
+card walks you through them in one "Change the suite" dialog, in this order:
 
-1. **Choose.** `retnd encryption policy patch --suite age-pq/v1` (or the select on the card). The
-   answer says `rotation_needed` and prints the exact command for the next step; nothing is
-   written to the key store yet.
+1. **Choose.** `retnd encryption policy patch --suite age-pq/v1` (or pick it in the Suite choice
+   on the card). When no active key belongs to that suite, the answer carries `rotation_needed`
+   and the exact `retnd encryption key rotate --suite age-pq/v1` command, and the terminal says
+   "no active key for suite age-pq/v1 yet, so copies are refused until you run" it. Nothing is
+   written to the key store.
 2. **Rotate.** `retnd encryption key rotate --suite age-pq/v1` mints the new suite's key and
    supersedes the old suite's active key in the same write, so there is still exactly one key new
    copies go under.
@@ -191,10 +197,13 @@ card walks you through them in this order:
 
 Between steps 1 and 2 a `required` set's new copies are **refused, not downgraded**: "no active
 key for suite age-pq/v1; run `retnd encryption key rotate --suite age-pq/v1`". The refusal comes
-before anything destructive, so the local copy stays and the source is not deleted. The same
-happens when a new build moves the default while your active key is under the old one: the
-first cycle says so once, in an `EncryptionDefaultSuiteChanged` event naming both suites, and
-copies wait for the rotation.
+before anything destructive, so the local copy stays and the source is not deleted. If you leave
+the dialog half way, the card and the Dashboard keep saying what is still owed.
+
+A new build that moves the default does **not** do this to you. With `suite: default` your copies
+keep following the active key's suite; the first cycle under the new build says once, in an
+`EncryptionDefaultSuiteChanged` event naming both suites, that the default moved, and nothing
+else happens until you choose to change.
 
 Copies already written stay under the suite and key they record, and keep opening through them.
 Moving them to the new suite is `reencrypt`, below, and is optional while their suite is
@@ -202,14 +211,20 @@ supported.
 
 ### Re-encrypting copies under the active suite
 
-`retnd encryption reencrypt` takes copies recorded under an older suite (or an older key) and
-writes them again under the active suite and key. It is the same journaled move
-`encrypt-existing` uses, with an encrypted source:
+`retnd encryption reencrypt` takes the encrypted copies you select, across every backup set,
+and writes them again under the active suite and key. It is the same journaled move
+`encrypt-existing` uses, with an encrypted source. You select by suite (`--suite ID`), by key
+(`--key ID`) or everything under a deprecated or retired suite (`--deprecated`), and it takes no
+other operand:
 
 ```
-retnd encryption reencrypt production/postgres --suite age/v1 --to offsite --dry-run
-retnd encryption reencrypt production/postgres --suite age/v1 --to offsite
+retnd encryption reencrypt --suite age/v1 --dry-run
+retnd encryption reencrypt --suite age/v1 --to offsite
 ```
+
+The same thing is `GET /api/v1/encryption/reencrypt` (the dry run) and `POST` (the run), and in the
+browser the **Re-encrypt under current suite** button on a deprecated or retired suite's Dashboard
+line, which shows the dry run before anything moves.
 
 - The old copy is streamed off its medium through its own suite's reader straight into the new
   suite's writer. Plaintext is never written to local disk.
@@ -218,8 +233,12 @@ retnd encryption reencrypt production/postgres --suite age/v1 --to offsite
   retirement and deleted. A crash at any point resumes from the journal.
 - Same-medium rewrite is not offered, for the reason `encrypt-existing` gives: one copy per
   backup per medium, and an object key fixed by the backup.
-- `--dry-run` lists the copies under that suite and says, for each, whether a run would
-  re-encrypt it or refuse, and why. A refusal changes nothing.
+- `--dry-run` lists the selected copies grouped by suite and by key, each with the medium a run
+  would use (`--to`, or the first other configured medium when you leave it out) or the refusal
+  and its reason. It plans, reads and writes nothing. A run needs `--to`, so a medium is never
+  chosen for you.
+- Beside a serving engine the run is that engine's operation, and `retnd assurance cancel` and
+  the browser's Cancel stop it alike.
 - When the plaintext local copy still exists, you usually need no verb at all: the next ordinary
   move writes a fresh copy under the active suite. `reencrypt` is for copies whose local copy is
   gone.

@@ -62,7 +62,7 @@ make_repo() {
 }
 
 run_check() { (cd "$1" && EPIC_T_ROOT="$1" EPIC_T_BASE="${BASE_OVERRIDE:-$(cat "$SANDBOX/$(basename "$1").base")}" EPIC_T_SKIP_GO=1 bash "$CHECK" 2>&1); }
-add_0020() { echo "-- 20" > "$1/core/migrations/0020_encryption_key_suites.sql"; (cd "$1" && git add -A && git commit -q -m "epic"); }
+add_0020() { echo "-- 20" > "$1/core/migrations/0020_encryption_key_suites.sql"; echo "-- 21" > "$1/core/migrations/0021_encryption_default_suite.sql"; (cd "$1" && git add -A && git commit -q -m "epic"); }
 
 expect_pass() { # name repo
   local out rc
@@ -76,9 +76,9 @@ expect_fail() { # name repo message
 $out"; fi
 }
 
-# Control: the epic's one migration and nothing else.
+# Control: the epic's two migrations and nothing else.
 r="$(make_repo control)"; add_0020 "$r"
-expect_pass "control: one new migration 0020 and nothing guarded touched passes" "$r"
+expect_pass "control: the new migrations 0020 and 0021 and nothing guarded touched pass" "$r"
 
 # Control: a change outside every guarded place.
 r="$(make_repo outside)"; add_0020 "$r"
@@ -104,15 +104,17 @@ done
 r="$(make_repo g1-caps)"; add_0020 "$r"; echo "// x" >> "$r/apps/common/platform/capabilities/capabilities.go"; (cd "$r" && git commit -qam x)
 expect_fail "the capability contract: an edit under apps/common/platform/capabilities is refused" "$r" "apps/common/platform/capabilities/capabilities.go"
 
-# Guard 2, the migration claim: 0020 and nothing else.
+# Guard 2, the migration claim: 0020 and 0021 and nothing else.
 msg='core/migrations must gain exactly'
 r="$(make_repo g2-none)"
 expect_fail "migrations: an epic that added no 0020 is refused" "$r" "$msg"
-r="$(make_repo g2-extra)"; add_0020 "$r"; echo "-- 21" > "$r/core/migrations/0021_extra.sql"; (cd "$r" && git add -A && git commit -qm x)
-expect_fail "migrations: a second new migration is refused, and named" "$r" "0021_extra.sql"
+r="$(make_repo g2-extra)"; add_0020 "$r"; echo "-- 22" > "$r/core/migrations/0022_extra.sql"; (cd "$r" && git add -A && git commit -qm x)
+expect_fail "migrations: a third new migration is refused, and named" "$r" "0022_extra.sql"
+r="$(make_repo g2-no-0021)"; echo "-- 20" > "$r/core/migrations/0020_encryption_key_suites.sql"; (cd "$r" && git add -A && git commit -qm x)
+expect_fail "migrations: 0020 without 0021 is refused" "$r" "$msg"
 r="$(make_repo g2-edit-n)"; add_0020 "$r"; echo "-- changed" >> "$r/core/migrations/0015_retained_copy_encryption.sql"; (cd "$r" && git commit -qam x)
 expect_fail "migrations: an edit to EPIC N's 0015 is refused" "$r" "0015_retained_copy_encryption.sql"
-r="$(make_repo g2-wrong-name)"; echo "-- 20" > "$r/core/migrations/0020_suites.sql"; (cd "$r" && git add -A && git commit -qm x)
+r="$(make_repo g2-wrong-name)"; echo "-- 20" > "$r/core/migrations/0020_suites.sql"; echo "-- 21" > "$r/core/migrations/0021_encryption_default_suite.sql"; (cd "$r" && git add -A && git commit -qm x)
 expect_fail "migrations: a 0020 under another name is refused" "$r" "$msg"
 
 # The base commit.

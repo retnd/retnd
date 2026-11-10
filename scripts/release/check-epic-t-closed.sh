@@ -14,8 +14,10 @@
 #      A suite is a property of the bytes a copy holds, so nothing this epic
 #      ships changes how a container is run, and an untracked file in one of
 #      those places counts as a change;
-#   2. the epic added 0020_encryption_key_suites.sql (T1.2, the key's suite)
-#      and no other migration, and nothing else under core/migrations/ moved;
+#   2. the epic added exactly its two migrations, 0020_encryption_key_suites.sql
+#      (T1.2, the key's suite) and 0021_encryption_default_suite.sql (T1.4, the
+#      build default it last ran under), and nothing else under core/migrations/
+#      moved;
 #   3. the closing mode of core/tests/encryptiongate passes for EPIC T's
 #      matrix: no BLOCKED row in docs/conformance/epic-t-matrix.md, every proof
 #      it cites resolves, every PASS row cites a mutation that exists.
@@ -64,15 +66,16 @@ else
   ok "the canonical container contract is an empty diff against $base"
 fi
 
-# 2. The epic's one migration, and no other.
+# 2. The epic's two migrations, and no other.
 added="$(git diff --name-only --diff-filter=A "$base" -- core/migrations; git ls-files --others --exclude-standard -- core/migrations)"
 touched="$(git diff --name-only --diff-filter=MDRT "$base" -- core/migrations)"
 want20="core/migrations/0020_encryption_key_suites.sql"
-unexpected="$(printf '%s\n' "$added" | grep -vxF -e "$want20" | grep -v '^$' || true)"
-if printf '%s\n' "$added" | grep -qxF "$want20" && [ -z "$unexpected" ] && [ -z "$touched" ]; then
-  ok "core/migrations gained only the epic's own 0020 and nothing else moved"
+want21="core/migrations/0021_encryption_default_suite.sql"
+unexpected="$(printf '%s\n' "$added" | grep -vxF -e "$want20" -e "$want21" | grep -v '^$' || true)"
+if printf '%s\n' "$added" | grep -qxF "$want20" && printf '%s\n' "$added" | grep -qxF "$want21" && [ -z "$unexpected" ] && [ -z "$touched" ]; then
+  ok "core/migrations gained only the epic's own 0020 and 0021 and nothing else moved"
 else
-  bad "core/migrations must gain exactly $want20 and nothing else, and change nothing. Added: [$(printf '%s' "$added" | tr '\n' ' ')] Not allowed: [$(printf '%s' "$unexpected" | tr '\n' ' ')] Changed or removed: [$(printf '%s' "$touched" | tr '\n' ' ')]"
+  bad "core/migrations must gain exactly $want20 and $want21 and nothing else, and change nothing. Added: [$(printf '%s' "$added" | tr '\n' ' ')] Not allowed: [$(printf '%s' "$unexpected" | tr '\n' ' ')] Changed or removed: [$(printf '%s' "$touched" | tr '\n' ' ')]"
 fi
 
 # 3. The matrix.

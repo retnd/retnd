@@ -221,47 +221,42 @@
     {
       "id": "suite-select",
       "name": "encryption-25-suite-select",
-      "scenario": "encryption-suites",
-      "state": "needs-ui-state",
-      "reason": "Waits on the T2.3 Settings suite select (#1318) and a mock scenario that draws it; becomes capturable with a steps entry once that UI exists.",
-      "alt": "Settings, Retained-copy encryption, the Suite select open with each suite's status and its one-sentence tooltip",
-      "caption": "The Suite select lists age-pq/v1 (default) and age/v1 (supported), and the tooltip is the Describe() sentence, word for word."
+      "scenario": "encryption-suite-change",
+      "state": "capturable",
+      "alt": "Settings, Retained-copy encryption, the Suite choice with each suite's status badge and its one-sentence description",
+      "caption": "The Suite choice lists every suite the build has, with its status, and the sentence the product states about each, nothing more."
     },
     {
       "id": "suite-rotate-confirm",
       "name": "encryption-26-suite-rotate-confirm",
-      "scenario": "encryption-suites",
-      "state": "needs-ui-state",
-      "reason": "Waits on the T2.3 Settings suite select (#1318) and a mock scenario that draws it; becomes capturable with a steps entry once that UI exists.",
-      "alt": "Settings after choosing another suite: rotate, export and confirm, in that order",
-      "caption": "Choosing a suite writes no key: the card asks for the rotation, then the bundle export, then the confirmation, and says new copies wait until then."
+      "scenario": "encryption-suite-change",
+      "state": "capturable",
+      "alt": "The Change the suite dialog at its Rotate key step, after the policy was patched",
+      "caption": "Choosing a suite writes no key: the dialog walks Change suite, Rotate key, Download bundle and Confirm, and copies wait until the rotation."
     },
     {
       "id": "suite-chips",
       "name": "encryption-27-suite-chips",
-      "scenario": "encryption-suites",
-      "state": "needs-ui-state",
-      "reason": "Waits on the T2.3 per-copy suite chip (#1318) and a mock backup with copies under both suites.",
-      "alt": "A backup's copies, one encrypted under age/v1 and one under age-pq/v1, each with its suite chip",
-      "caption": "Each encrypted copy shows the suite it was written under, beside the Encrypted and Verified recoverable chips."
+      "scenario": "encryption-suite-lifecycle",
+      "state": "capturable",
+      "alt": "The Backups list with one copy under age/v1 and one under age-pq/v1, each with its suite chip",
+      "caption": "Each encrypted copy shows the suite its record names, beside the Encrypted chip."
     },
     {
       "id": "suite-deprecated-health",
       "name": "encryption-28-suite-deprecated-health",
-      "scenario": "encryption-suites",
-      "state": "needs-ui-state",
-      "reason": "Waits on the T2.1 deprecated health state (#1316) reaching the UI through T2.3 (#1318), and a mock scenario with a deprecated suite.",
-      "alt": "Dashboard health reading degraded because active copies sit under a deprecated suite",
-      "caption": "A deprecated suite still reads and writes; health says so, with the number of active copies under it."
+      "scenario": "encryption-suite-lifecycle",
+      "state": "capturable",
+      "alt": "Dashboard encryption health with a deprecated and a retired suite still recorded by copies",
+      "caption": "A deprecated suite still reads and writes; health says so, with the number of active copies under it and the announced retirement."
     },
     {
       "id": "reencrypt-dry-run",
       "name": "encryption-29-reencrypt-dry-run",
-      "scenario": "encryption-suites",
-      "state": "needs-ui-state",
-      "reason": "Waits on a web control for reencrypt (#1317, #1318); if it stays a command and a route with no button, as encrypt-existing does, this entry is removed with that reason.",
-      "alt": "The re-encrypt dry run listing copies under age/v1 and what a run would do with each",
-      "caption": "The dry run lists every copy under the older suite and, per copy, whether a run would re-encrypt it onto another medium or refuse, and why."
+      "scenario": "encryption-suite-lifecycle",
+      "state": "capturable",
+      "alt": "The Re-encrypt under current suite dialog showing the dry run by key",
+      "caption": "The dry run lists the copies under the older suite by key, what can move and what is refused, before anything moves."
     }
   ],
   "gifs": [
@@ -282,6 +277,12 @@
       "name": "encryption-verify-flow",
       "alt": "Starting a decrypt-verify on an encrypted copy",
       "caption": "Verify recoverable, the egress acceptance, and the running state."
+    },
+    {
+      "id": "suite-flow",
+      "name": "encryption-suite-flow",
+      "alt": "Changing the encryption suite",
+      "caption": "Pick age-pq/v1, Change suite, and the Rotate key step that follows, with nothing minted until it is pressed."
     }
   ]
 }

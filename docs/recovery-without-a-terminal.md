@@ -431,7 +431,7 @@ this build ships. The only difference is the oldest `age` that can open it:
 
 | Suite (the bundle's `format`, the sidecar's `format_id`) | Key line in the bundle's `material` | Oldest `age` that opens it |
 |---|---|---|
-| `age-pq/v1` (the default for new keys) | starts `AGE-SECRET-KEY-PQ-1` | 1.3 |
+| `age-pq/v1` (the default for a first key) | starts `AGE-SECRET-KEY-PQ-1` | 1.3 |
 | `age/v1` | starts `AGE-SECRET-KEY-1` | any release |
 
 ### What to do
