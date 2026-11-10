@@ -42,6 +42,7 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/retnd/retnd/core/internal/artifactstore"
 	"github.com/retnd/retnd/core/internal/config"
@@ -97,19 +98,21 @@ func run() error {
 		// binary put their two mediums on one endpoint; only the id and
 		// the bucket differ. Left empty, nothing about this harness
 		// changes and every existing invocation means what it meant.
-		secondMediumID = flag.String("second-medium", "", "a second medium id, for a hop between two mediums")
-		secondBucket   = flag.String("second-bucket", "", "the second medium's bucket")
-		endpoint       = flag.String("endpoint", "", "the medium's endpoint, for an s3 medium")
-		region         = flag.String("region", "", "the medium's region, for an s3 medium")
-		credentials    = flag.String("credentials-file", "", "a shared-credentials file, for an s3 medium")
-		source         = flag.String("source", "", "the backup set's source name")
-		set            = flag.String("set", "", "the backup set's name")
-		artifact       = flag.String("artifact", "", "the artifact's name")
-		destination    = flag.String("destination", "", "the medium the artifact should move to")
-		plan           = flag.Bool("plan", false, "plan a move for the artifact as well as resuming")
+		secondMediumID  = flag.String("second-medium", "", "a second medium id, for a hop between two mediums")
+		secondBucket    = flag.String("second-bucket", "", "the second medium's bucket")
+		endpoint        = flag.String("endpoint", "", "the medium's endpoint, for an s3 medium")
+		region          = flag.String("region", "", "the medium's region, for an s3 medium")
+		credentials     = flag.String("credentials-file", "", "a shared-credentials file, for an s3 medium")
+		source          = flag.String("source", "", "the backup set's source name")
+		set             = flag.String("set", "", "the backup set's name")
+		artifact        = flag.String("artifact", "", "the artifact's name")
+		destination     = flag.String("destination", "", "the medium the artifact should move to")
+		plan            = flag.Bool("plan", false, "plan a move for the artifact as well as resuming")
+		encryptExisting = flag.Bool("encrypt-existing", false, "run the operator's encrypt-existing entry point over the plan instead of an ordinary cycle")
 
 		killAfterPhase       = flag.String("kill-after-phase", "", "die the instant a phase write with this target commits")
 		killAfterPlan        = flag.Bool("kill-after-plan", false, "die the instant the durable intent to move is recorded, before any phase write")
+		killAfterConsent     = flag.Bool("kill-after-consent", false, "die the instant the operator's opt-in for a move is durably recorded, before any phase write")
 		killAfterCopy        = flag.Bool("kill-after-copy", false, "die the instant a copy to the medium returns, before anything is journaled")
 		killAfterSourceWipe  = flag.Bool("kill-after-source-delete", false, "die the instant a local file is removed, before anything is journaled")
 		killAfterObjectWipe  = flag.Bool("kill-after-object-delete", false, "die the instant an object is removed from a medium, before anything is journaled")
@@ -177,7 +180,7 @@ func run() error {
 	}
 
 	engine := &placement.Engine{
-		Journal: &killerJournal{Journal: journal, killAfter: *killAfterPhase, killAfterPlan: *killAfterPlan, guard: g},
+		Journal: &killerJournal{Journal: journal, killAfter: *killAfterPhase, killAfterPlan: *killAfterPlan, killAfterConsent: *killAfterConsent, guard: g},
 		Store: &killerStore{
 			MediumStore: adapter, guard: g,
 			killAfterCopy: *killAfterCopy, corruptAfterCopy: *corruptAfterCopy,
@@ -203,7 +206,12 @@ func run() error {
 		plans = []placement.Plan{{Artifact: id, DestinationMedium: *destination}}
 	}
 
-	report, err := engine.RunCycle(ctx, plans)
+	var report placement.CycleReport
+	if *encryptExisting {
+		report, err = engine.EncryptExisting(ctx, plans)
+	} else {
+		report, err = engine.RunCycle(ctx, plans)
+	}
 	if err != nil {
 		return fmt.Errorf("running a cycle: %w", err)
 	}
@@ -284,10 +292,25 @@ func (g *invariantGuard) violation(what string, err error) error {
 // and is compared, never interpreted: see this file's package doc.
 type killerJournal struct {
 	*state.Journal
-	killAfter     string
-	killAfterPlan bool
-	guard         *invariantGuard
-	fired         bool
+	killAfter        string
+	killAfterPlan    bool
+	killAfterConsent bool
+	guard            *invariantGuard
+	fired            bool
+}
+
+// RecordEncryptExisting is the durable write that says an operator asked for
+// this move to encrypt an existing plaintext copy. It is not a phase write
+// either, so it has a boolean seam of its own for the reason PlanMove does.
+func (j *killerJournal) RecordEncryptExisting(ctx context.Context, moveID int64, at time.Time) error {
+	if err := j.Journal.RecordEncryptExisting(ctx, moveID, at); err != nil {
+		return err
+	}
+	if !j.fired && j.killAfterConsent {
+		j.fired = true
+		selfDestruct("the operator's opt-in for a move committed")
+	}
+	return nil
 }
 
 // PlanMove is the first durable write a move makes, and it is not a phase

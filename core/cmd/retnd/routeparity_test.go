@@ -191,6 +191,21 @@ var refusingInputs = []refusingInput{
 			return []string{"encryption", "verify", "api/postgres/none.dump", "--config", configPath}
 		},
 	},
+	// #1291: encrypting existing plaintext copies. The set-does-not-exist and
+	// the set-does-not-require-encryption refusals are the service's own words
+	// on both routes, and the dry run is a route of its own.
+	{
+		name: "encrypt existing copies of a set this deployment does not have",
+		args: func(configPath, _ string) []string {
+			return []string{"encryption", "encrypt-existing", "nosuch/set", "--to", "offsite", "--config", configPath}
+		},
+	},
+	{
+		name: "dry-run encrypting existing copies of a set this deployment does not have",
+		args: func(configPath, _ string) []string {
+			return []string{"encryption", "encrypt-existing", "nosuch/set", "--to", "offsite", "--dry-run", "--config", configPath}
+		},
+	},
 }
 
 func TestARefusalIsTheSameOnBothRoutes(t *testing.T) {
