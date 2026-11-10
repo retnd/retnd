@@ -454,7 +454,7 @@ func TestActivePlacementsRecordingKey_ListsOnlyActiveCopies(t *testing.T) {
 	if got, err := j.ActivePlacementsRecordingKey(ctx, "k2"); err != nil || len(got) != 0 {
 		t.Errorf("another key's copies listed under k2: %+v, %v", got, err)
 	}
-	if _, err := j.db.ExecContext(ctx, `UPDATE placements SET status = ?`, PlacementRetired); err != nil {
+	if _, err := j.db.ExecContext(ctx, `UPDATE placements SET status = ?`, PlacementGone); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := j.ActivePlacementsRecordingKey(ctx, "k1"); err != nil || len(got) != 0 {
@@ -498,7 +498,7 @@ func TestRetireEncryptionKey_RefusesWhatIsStillNeeded(t *testing.T) {
 		t.Errorf("a refused retirement changed the key: %+v", k)
 	}
 	// Once the copy is no longer active the same call succeeds.
-	if _, err := j.db.ExecContext(ctx, `UPDATE placements SET status = ?`, PlacementRetired); err != nil {
+	if _, err := j.db.ExecContext(ctx, `UPDATE placements SET status = ?`, PlacementGone); err != nil {
 		t.Fatal(err)
 	}
 	if err := j.RetireEncryptionKey(ctx, "k2", at); err != nil {
