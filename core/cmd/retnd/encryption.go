@@ -18,10 +18,11 @@ import (
 //
 //	encryption policy [patch|reset]            deployment mode and key provider
 //	encryption backup-set <source/set>         one set's own mode and provider
-//	encryption key list|create|rotate|retire|export|confirm
+//	encryption key list|create|rotate|retire|export|confirm|import
 //	encryption provider test                   does a key provider resolve now
 //	encryption copies <source/set/artifact>    which copies are encrypted
 //	encryption verify <source/set/artifact>    decrypt-verify, a content check
+//	encryption decrypt <object> ...            open one copy to a file (#1289)
 //
 // # One author for every refusal
 //
@@ -42,6 +43,14 @@ import (
 // file it creates (0600, never over an existing one) and prints the receipt.
 // It has no stdout form on purpose.
 //
+// # Two verbs with no API route (#1289)
+//
+// `decrypt` and `key import` are host-local on purpose and have no twin under
+// /api/v1/encryption. Both take key material as input, and a request body is
+// a place material does not belong; `decrypt` also has to work where no
+// deployment exists at all, which is the reason it exists. encryptiondecrypt.go
+// has the rest.
+//
 // # --json
 //
 // --json prints the object the API returns for the same call and nothing
@@ -55,6 +64,7 @@ var encryptionVerbs = map[string]func(args []string) int{
 	"provider":   cmdEncryptionProvider,
 	"copies":     cmdEncryptionCopies,
 	"verify":     cmdEncryptionVerify,
+	"decrypt":    cmdEncryptionDecrypt,
 }
 
 func cmdEncryption(args []string) int {
@@ -63,7 +73,7 @@ func cmdEncryption(args []string) int {
 			return verb(append(append([]string{}, args[:i]...), args[i+1:]...))
 		}
 	}
-	return usageError("encryption: expected `encryption policy`, `encryption backup-set <source/set>`, `encryption key ...`, `encryption provider test`, `encryption copies <source/set/artifact>` or `encryption verify <source/set/artifact>`")
+	return usageError("encryption: expected `encryption policy`, `encryption backup-set <source/set>`, `encryption key ...`, `encryption provider test`, `encryption copies <source/set/artifact>`, `encryption verify <source/set/artifact>` or `encryption decrypt <object> ...`")
 }
 
 // providerFlags are the flags that declare a key provider, shared by the
@@ -288,17 +298,18 @@ func cmdEncryptionKey(args []string) int {
 	asJSON := fs.Bool("json", false, "print the object the API returns instead of text")
 	out := fs.String("out", "", "export: the file to write the bundle to; created 0600, and never over a file that exists")
 	digest := fs.String("digest", "", "confirm: the digest the export printed; omitted confirms the newest export of the key")
+	bundlePath := fs.String("bundle", "", "import: the recovery bundle to register the key from")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return exitUsage
 	}
 	if len(operands) == 0 {
-		return usageError("encryption key: expected `key list`, `key create`, `key rotate`, `key retire <id>`, `key export <id> --out FILE` or `key confirm <id>`")
+		return usageError("encryption key: expected `key list`, `key create`, `key rotate`, `key retire <id>`, `key export <id> --out FILE`, `key confirm <id>` or `key import --bundle FILE`")
 	}
 	sub, rest := operands[0], operands[1:]
 	needsID := sub == "retire" || sub == "export" || sub == "confirm"
 	switch {
-	case sub == "list" || sub == "create" || sub == "rotate":
+	case sub == "list" || sub == "create" || sub == "rotate" || sub == "import":
 		if len(rest) != 0 {
 			return usageError("encryption key %s: takes no operand", sub)
 		}
@@ -307,7 +318,7 @@ func cmdEncryptionKey(args []string) int {
 			return usageError("encryption key %s: expected exactly one key id", sub)
 		}
 	default:
-		return usageError("encryption key: %q is not list, create, rotate, retire, export or confirm", sub)
+		return usageError("encryption key: %q is not list, create, rotate, retire, export, confirm or import", sub)
 	}
 	if *out != "" && sub != "export" {
 		return usageError("encryption key %s: --out is for export", sub)
@@ -318,7 +329,17 @@ func cmdEncryptionKey(args []string) int {
 	if *digest != "" && sub != "confirm" {
 		return usageError("encryption key %s: --digest is for confirm", sub)
 	}
+	if *bundlePath != "" && sub != "import" {
+		return usageError("encryption key %s: --bundle is for import", sub)
+	}
+	if sub == "import" && *bundlePath == "" {
+		return usageError("encryption key import: --bundle FILE is required")
+	}
 	ctx := context.Background()
+
+	if sub == "import" {
+		return cmdEncryptionKeyImport(ctx, *cfgPath, *bundlePath, *asJSON)
+	}
 
 	if sub == "list" {
 		svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)

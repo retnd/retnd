@@ -62,12 +62,22 @@
   recoverable dialog that asks before a read that may be billed, and two Dashboard warnings: no confirmed recovery
   bundle, and a required key that cannot be resolved. Every control echoes its `retnd encryption` command. An
   existing deployment sees none of it drawn until a key exists.
+- **`retnd encryption decrypt` and `retnd encryption key import`** (#1289, EPIC N). `decrypt` opens one encrypted copy
+  into one file from a recovery bundle (or an age identity file) and the copy's sidecar (or digests given by hand),
+  reading no configuration and no state, so a lost-host recovery no longer depends on the `age` CLI alone. It hashes the
+  object against the sidecar's stored-bytes digest before the key is used, writes to a temporary name in the destination
+  directory and renames it only after the last chunk authenticated and the plaintext digest matched, so a truncated or
+  altered copy leaves nothing behind. It refuses to replace a file, has no standard output form, and prints neither the
+  key nor the plaintext. `key import --bundle FILE` registers the bundle's key in a deployment as a superseded key (new
+  copies keep using the active one), records the bundle as confirmed, is idempotent and never prints the key. Neither
+  verb has an API route, since both take key material as input. The bundle's printed instructions, the recovery pages
+  and the site now name these verbs, and the `age` CLI stays documented as the independent fallback.
 - **Documentation for encrypted retained copies** (#997). A new operations guide,
   `docs/encrypted-copies.md`, and ADR 0028 (what an encrypted copy proves, why object names stay visible, why the
   bundle warning is a health fact and not an alert, and what `required` means for a `kopia` set). It states what is
   encrypted and what is not, object names included, the two digests under their column names, loss of the key
   (there is no recovery path), and how to open a copy with the `age` tool and the bundle on a machine with no
-  deployment. It says plainly what this build does not do: no `retnd` command decrypts a copy, `retnd recover` does
+  deployment. It says plainly what this build does not do: `retnd recover` does
   not decrypt, no external key can write copies yet, nothing raises the unresolvable-key alert, and there are no
   progress stages for encrypting. README, the site pages, recovery, storage-mediums, install, deployment,
   runtime-contract, the compliance and submission pages and the config inventory carry the matching changes.

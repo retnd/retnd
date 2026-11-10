@@ -459,6 +459,30 @@ func (b *BackupService) ExportRecoveryBundleBytes(ctx context.Context, id string
 	return buf.Bytes(), nil
 }
 
+// ImportRecoveryBundle registers the key a recovery bundle carries, read from
+// r, in this deployment (`retnd encryption key import`). It is the other end
+// of ExportRecoveryBundle and it is host-local on purpose: it has no route,
+// because the bundle is key material and a request body is a place material
+// does not belong. What it returns is the key's status, never the bundle.
+// imported is false when the key was already held, byte for byte.
+func (b *BackupService) ImportRecoveryBundle(ctx context.Context, r io.Reader) (_ apicontract.EncryptionKeyStatus, imported bool, err error) {
+	defer func() { err = classifyEncryption(err) }()
+	bundle, err := keycustody.ReadBundle(r)
+	if err != nil {
+		return apicontract.EncryptionKeyStatus{}, false, err
+	}
+	store, err := b.keys.Store(ctx)
+	if err != nil {
+		return apicontract.EncryptionKeyStatus{}, false, err
+	}
+	rec, imported, err := store.Import(ctx, bundle, now())
+	if err != nil {
+		return apicontract.EncryptionKeyStatus{}, false, err
+	}
+	status, err := b.oneKeyStatus(ctx, store, rec.ID)
+	return status, imported, err
+}
+
 // ConfirmRecoveryBundle is POST /encryption/keys/{id}/confirm. A statement,
 // not an upload: with no digest it confirms the newest export recorded for
 // the key, with one it must match an export. It clears the durable degraded
