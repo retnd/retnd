@@ -260,6 +260,38 @@ jobs:
           PUBLISH: ${{ needs.decide.outputs.publish }}
         run: bash scripts/release/verify-local-gate.sh "$GITHUB_SHA"
 
+  # EPIC N (#967) does not ship half done. This refuses a release unless the
+  # canonical container contract is an empty diff against the commit the epic
+  # started from, the epic added exactly one migration (0015), no row of
+  # docs/conformance/epic-n-matrix.md is BLOCKED and every picture and GIF in
+  # docs/site/tools/encryption-captures.json is in docs/site/screens/. Like
+  # require-release-gate it holds no id-token and no packages scope and
+  # publishes nothing; scripts/tests/epic-n-closure.test.sh runs the script in
+  # throwaway repositories, once per way it can refuse.
+  require-epic-n-closed:
+    name: EPIC N is closed (matrix, captures, container contract)
+    needs: decide
+    if: needs.decide.outputs.repoint != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # The check diffs against the commit the epic started from.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.0"
+          cache: true
+          cache-dependency-path: core/go.sum
+
+      - name: Refuse a release while EPIC N is open
+        run: bash scripts/release/check-epic-n-closed.sh
+
   compliance-artifacts:
     name: compliance artifacts are what this tree generates
     needs: decide
@@ -323,7 +355,7 @@ jobs:
 
   publish:
     name: build, push, sign and attest
-    needs: [decide, require-release-gate, compliance-artifacts]
+    needs: [decide, require-release-gate, require-epic-n-closed, compliance-artifacts]
     runs-on: ubuntu-latest
     permissions:
       contents: read

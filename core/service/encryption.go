@@ -83,7 +83,7 @@ func classifyEncryption(err error) error {
 		return &refusal{ErrEncryptionKeyNotFound, err}
 	case errors.Is(err, placement.ErrKeyInUse), errors.Is(err, placement.ErrKeyStillActive):
 		return &refusal{ErrEncryptionKeyInUse, err}
-	case errors.Is(err, keycustody.ErrActiveKeyExists), errors.Is(err, keycustody.ErrNoActiveKey), errors.Is(err, keycustody.ErrNoSuchExport):
+	case errors.Is(err, keycustody.ErrActiveKeyExists), errors.Is(err, keycustody.ErrNoActiveKey), errors.Is(err, keycustody.ErrNoSuchExport), errors.Is(err, keycustody.ErrExternalKeyNotExportable):
 		return &refusal{ErrEncryptionKeyState, err}
 	}
 	return err
@@ -467,6 +467,30 @@ func (b *BackupService) ExportRecoveryBundleBytes(ctx context.Context, id string
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// ImportRecoveryBundle registers the key a recovery bundle carries, read from
+// r, in this deployment (`retnd encryption key import`). It is the other end
+// of ExportRecoveryBundle and it is host-local on purpose: it has no route,
+// because the bundle is key material and a request body is a place material
+// does not belong. What it returns is the key's status, never the bundle.
+// imported is false when the key was already held, byte for byte.
+func (b *BackupService) ImportRecoveryBundle(ctx context.Context, r io.Reader) (_ apicontract.EncryptionKeyStatus, imported bool, err error) {
+	defer func() { err = classifyEncryption(err) }()
+	bundle, err := keycustody.ReadBundle(r)
+	if err != nil {
+		return apicontract.EncryptionKeyStatus{}, false, err
+	}
+	store, err := b.keys.Store(ctx)
+	if err != nil {
+		return apicontract.EncryptionKeyStatus{}, false, err
+	}
+	rec, imported, err := store.Import(ctx, bundle, now())
+	if err != nil {
+		return apicontract.EncryptionKeyStatus{}, false, err
+	}
+	status, err := b.oneKeyStatus(ctx, store, rec.ID)
+	return status, imported, err
 }
 
 // ConfirmRecoveryBundle is POST /encryption/keys/{id}/confirm. A statement,

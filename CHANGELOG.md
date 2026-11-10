@@ -4,6 +4,15 @@
 
 ### Fixed
 
+- **`ENCRYPTION_KEY_UNRESOLVABLE` is now raised** (#1294, EPIC N follow-up). The kind and its condition
+  builder from #990 had no caller, so a daemon refusing every off-site copy for a `required` set paged
+  nobody. The alert pass now raises it for a `required` set (not a `kopia` set, not a disabled one) whose
+  managed key file is missing or unreadable, that has no active managed key, whose external reference this
+  build cannot write under yet, or that has no key custody. It fires once, resolves when the key resolves,
+  and a pass that cannot read the key registry leaves it as it was. A deployment that encrypts nothing never
+  opens or creates the key directory for this. The alert guard now also fails an outside function that
+  builds an alert kind and has no non-test caller.
+
 - **`required` on a `kopia` set no longer reads as degraded key custody** (#1296, EPIC N follow-up).
   A deployment whose only encrypted-by-policy sets are incremental ones, with a managed provider and no
   key created, showed key custody as degraded and `retnd_retained_copy_encryption_enabled 1`, though no
@@ -13,6 +22,39 @@
   the web UI already drew. `required` is still accepted on a kopia set.
 
 ### Added
+
+- **A guard against dropping an external key reference that still has copies** (#1304, EPIC N follow-up).
+  An external key's row stores no reference, so removing a superseded one from the configuration left
+  every copy under it unreadable and nothing said so. The key-custody health section now lists each
+  external key that ACTIVE copies record and no declared reference yields (and reads degraded, whatever
+  the mode), and the alert pass raises `ENCRYPTION_KEY_UNRESOLVABLE` for each affected set, naming the key
+  and the copies. Retiring such a key was already refused naming the copies and still is. Nothing stores
+  the reference text or any key material; with no external key on record custody is not opened.
+- **External key providers write encrypted copies** (#1292, follow-up to EPIC N). A backup set whose
+  `key_provider` is an external `file`/`env`/`command` reference now encrypts its off-site copies instead of
+  being refused. The key is a row in the same `encryption_keys` registry a managed key uses (`provider =
+  'external'`, the recipient, a status, a time; an id derived from the recipient, so one key is one row
+  whatever reference reaches it), so re-home, decrypt-verify and scrub, which already take a key id, are
+  unchanged. The reference is resolved only inside the callback that encrypts or verifies; one that does not
+  resolve or is not an age identity is refused before anything is encrypted or uploaded, with no class
+  recorded. A reference that is pointed at another key registers that key as a new row; copies already
+  written open only while a reference yielding the old key stays declared. An external key is not exported in a recovery bundle and does not count
+  towards the unconfirmed-bundle state. No migration change.
+
+- **The installer knows about the managed encryption keys** (#1295, EPIC N follow-up). The archive
+  plan now includes `config/retained_copy_keys`: `upgrade` copies it into the archive (the live
+  directory is untouched), and `factory-reset` moves it together with `state.db`, so the archive
+  holds the journal and the keys its encrypted copies name, and the clean install has no orphaned
+  key files. The factory-reset preview counts the key files and says what losing them means, the
+  archive-limit refusal and `uninstall`'s "Left in place" text name the directory, and it joins
+  `ENGINE_OWNED_CONFIG_DIRS` so it is pre-created `0700`. The Synology scripts delete nothing, so
+  there is nothing to change there, and `docs/install.md` now says what each mode does.
+
+- **`scripts/ci-docker.sh --host ssh://user@host` runs the gate on another machine's Docker daemon** (#1267). Several
+  gates at once took a laptop to a load of 60 and more. Pointing `DOCKER_HOST` at another machine does not work, since
+  the gate's bind mounts are read from the daemon's disk and come up empty, so remote mode copies the tree first, runs
+  the unchanged gate, returns its exit status and removes what it created. A remote `DOCKER_HOST` without `--host` is
+  now refused. See `docs/reference/local-gate.md`.
 
 - **The retained-copy encryption policy and its schema, ahead of the cipher** (#989, EPIC N). One new
   top-level `retained_copy_encryption:` key with `mode: off | required` and a `key_provider` that is
@@ -35,8 +77,7 @@
   never for what it is. A one-time recovery bundle carries the key with integrity metadata and plain instructions
   (the stock `age` CLI opens a copy from it), and until someone confirms holding one the health report says so in a
   new key custody section. A `required` set whose key cannot be resolved has a new `ENCRYPTION_KEY_UNRESOLVABLE`
-  alert kind and a condition builder for it; nothing feeds that builder to the dispatcher yet, so what an operator
-  sees today is the refusal itself. Key create, rotate, bundle export and bundle confirm are new log events, each
+  alert kind and a condition builder for it, which the alert pass now feeds (#1294, below). Key create, rotate, bundle export and bundle confirm are new log events, each
   with a result. The byte path, the routes and the CLI verbs landed in the entries below.
 - **The byte path for encrypted retained copies** (#991). For a backup set whose resolved
   `retained_copy_encryption` is `required` and whose key is the managed one, a local-to-medium copy is
@@ -45,8 +86,8 @@
   equals `artifacts.local_hash`; the digest of the stored bytes goes in `placement_encryption.stored_hash`, written
   in the same transaction as the placement row, and the plaintext digest is never written there. An unresolvable
   key refuses the copy before anything is encrypted or uploaded. A set that is `off`, or a deployment that never
-  mentions the key, writes the bytes it always did. A key declared as an external reference can be saved and
-  tested but cannot yet write copies. Not yet: progress stages for encrypting and decrypt-verifying, and
+  mentions the key, writes the bytes it always did. A key declared as an external reference is saved and
+  tested here and writes copies from #1292. Not yet: progress stages for encrypting and decrypt-verifying, and
   encrypting copies that already exist in plaintext.
 - **Lifecycle, retention, catalog rebuild and rotation for encrypted copies** (#992). Retention deletes an
   encrypted object by its stored size and checksum and needs no key. A medium-to-medium move copies the ciphertext
@@ -72,13 +113,23 @@
   recoverable dialog that asks before a read that may be billed, and two Dashboard warnings: no confirmed recovery
   bundle, and a required key that cannot be resolved. Every control echoes its `retnd encryption` command. An
   existing deployment sees none of it drawn until a key exists.
+- **`retnd encryption decrypt` and `retnd encryption key import`** (#1289, EPIC N). `decrypt` opens one encrypted copy
+  into one file from a recovery bundle (or an age identity file) and the copy's sidecar (or digests given by hand),
+  reading no configuration and no state, so a lost-host recovery no longer depends on the `age` CLI alone. It hashes the
+  object against the sidecar's stored-bytes digest before the key is used, writes to a temporary name in the destination
+  directory and renames it only after the last chunk authenticated and the plaintext digest matched, so a truncated or
+  altered copy leaves nothing behind. It refuses to replace a file, has no standard output form, and prints neither the
+  key nor the plaintext. `key import --bundle FILE` registers the bundle's key in a deployment as a superseded key (new
+  copies keep using the active one), records the bundle as confirmed, is idempotent and never prints the key. Neither
+  verb has an API route, since both take key material as input. The bundle's printed instructions, the recovery pages
+  and the site now name these verbs, and the `age` CLI stays documented as the independent fallback.
 - **Documentation for encrypted retained copies** (#997). A new operations guide,
   `docs/encrypted-copies.md`, and ADR 0028 (what an encrypted copy proves, why object names stay visible, why the
   bundle warning is a health fact and not an alert, and what `required` means for a `kopia` set). It states what is
   encrypted and what is not, object names included, the two digests under their column names, loss of the key
   (there is no recovery path), and how to open a copy with the `age` tool and the bundle on a machine with no
-  deployment. It says plainly what this build does not do: no `retnd` command decrypts a copy, `retnd recover` does
-  not decrypt, no external key can write copies yet, nothing raises the unresolvable-key alert, and there are no
+  deployment. It says plainly what this build does not do: `retnd recover` does
+  not decrypt, nothing raises the unresolvable-key alert, and there are no
   progress stages for encrypting. README, the site pages, recovery, storage-mediums, install, deployment,
   runtime-contract, the compliance and submission pages and the config inventory carry the matching changes.
 

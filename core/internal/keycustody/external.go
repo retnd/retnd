@@ -146,6 +146,13 @@ type SetPolicy struct {
 	Set      string
 	Required bool
 	Provider Provider
+
+	// Managed says the set's provider is the managed key. Provider.Managed
+	// is then the active key's id, and empty means no managed key is active,
+	// which AlertConditions says in those words instead of "no key provider
+	// is declared" (#1294). A caller that sets only Provider.Managed, as
+	// every caller did before, gets the behaviour it always had.
+	Managed bool
 }
 
 // zero overwrites b in place, with the KeepAlive secretref's own zero uses
