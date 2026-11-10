@@ -424,6 +424,12 @@ func verifyEncryptedContent(ctx context.Context, store Store, keys Keys, keyID, 
 	)
 	err = keys.WithKey(ctx, keyID, func(secret []byte) error {
 		resolved = true
+		// A key of another suite cannot open this copy, so it costs no read
+		// either: the object is not opened until the key is known to be a
+		// key of the suite the copy is under.
+		if _, err := suite.Recipient(secret); err != nil {
+			return fmt.Errorf("key %s is not a %s key: %w", keyID, suite.ID(), copycrypt.ErrKeyUnavailable)
+		}
 		rc, err := store.OpenObject(ctx, medium, p.Location)
 		if err != nil {
 			return readFailure{err}
