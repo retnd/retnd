@@ -60,14 +60,20 @@ func (s *Store) externalRecipient(ctx context.Context, ref secretref.Ref) (recip
 		recipient, suiteID = r, id
 		return err
 	})
-	return recipient, suiteID, err
+	if err != nil {
+		s.forgetExternalSuite(ref)
+		return recipient, suiteID, err
+	}
+	s.noteExternalSuite(ref, suiteID)
+	return recipient, suiteID, nil
 }
 
 // ExternalKeySuite resolves ref and reports the suite of the key it yields,
-// writing nothing: no registry row, no file. It is how a surface that must
-// not register a key (the alert pass, the policy read) learns whether an
-// external key matches a pinned suite (EPIC T, #1314). The material never
-// leaves the callback.
+// writing nothing: no registry row, no file. It is for an explicit write
+// (the policy patch), never a read surface, because resolving a command
+// reference runs the operator's command; a read takes
+// LastExternalKeySuite instead (EPIC T, #1315). The material never leaves
+// the callback.
 func (s *Store) ExternalKeySuite(ctx context.Context, ref secretref.Ref) (string, error) {
 	_, suiteID, err := s.externalRecipient(ctx, ref)
 	return suiteID, err

@@ -51,6 +51,7 @@ type decryptFixture struct {
 	object     string // path of the encrypted copy
 	sidecar    string // path of its sidecar
 	outDir     string // an empty directory to recover into
+	suite      string // the suite the bundle's key belongs to, and the copy is under
 	out        string // outDir/recovered.dump
 	plaintext  []byte
 	plainHash  string
@@ -98,6 +99,7 @@ func newDecryptFixture(t *testing.T) decryptFixture {
 	if !ok {
 		t.Fatalf("the bundle names suite %q, which the registry does not have", b.FormatID)
 	}
+	f.suite = suite.ID()
 	objDir := t.TempDir()
 	staged, err := copycrypt.EncryptToStaging(context.Background(), objDir, "backup-2026-11-01.dump", bytes.NewReader(f.plaintext), suite, b.Recipient, f.plainHash)
 	if err != nil {
@@ -114,7 +116,7 @@ func newDecryptFixture(t *testing.T) decryptFixture {
 		Placements: []recovery.ManifestPlacement{{
 			Medium: "offsite", Location: "retnd/production/postgres-primary/backup-2026-11-01.dump", Status: "ACTIVE",
 			Encryption: &recovery.ManifestEncryption{
-				FormatID: "age/v1", FormatVersion: 1, KeyID: f.keyID,
+				FormatID: suite.ID(), FormatVersion: suite.Version(), KeyID: f.keyID,
 				PlaintextDigest: f.plainHash, PlaintextDigestAlgorithm: "sha256", PlaintextSize: staged.PlaintextSize,
 				StoredDigest: f.storedHash, StoredDigestAlgorithm: "sha256", StoredSize: staged.StoredSize,
 			},
@@ -650,3 +652,6 @@ func TestTheMatrixRecordsTheTwoVerbsWithNoAPITwin_1289(t *testing.T) {
 		}
 	}
 }
+
+// suiteID is the suite the fixture's key and copy are under.
+func (f decryptFixture) suiteID() string { return f.suite }

@@ -50,11 +50,11 @@ func (e *fakeEngine) serveEncryption(w http.ResponseWriter, r *http.Request, pat
 		answerEncryption(w, "resetEncryptionPolicy", got, err)
 		return true
 	case path == keys && r.Method == http.MethodPost:
-		got, err := e.svc.CreateEncryptionKey(r.Context())
+		got, err := e.svc.CreateEncryptionKey(r.Context(), r.URL.Query().Get("suite"))
 		answerEncryptionAs(w, http.StatusCreated, "createEncryptionKey", got, err)
 		return true
 	case path == keys+"/rotate" && r.Method == http.MethodPost:
-		got, err := e.svc.RotateEncryptionKey(r.Context())
+		got, err := e.svc.RotateEncryptionKey(r.Context(), r.URL.Query().Get("suite"))
 		answerEncryption(w, "rotateEncryptionKey", got, err)
 		return true
 	case strings.HasPrefix(path, keys+"/") && strings.HasSuffix(path, "/retire") && r.Method == http.MethodPost:
