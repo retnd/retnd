@@ -296,3 +296,45 @@ func resolveSetRetainedCopyEncryption(v *validator, path string, o *RetainedCopy
 		return global
 	}
 }
+
+// The accessors below are the sanctioned way for a writer outside this
+// package to read and change what the operator DECLARED, so no consumer
+// touches the raw pointers (TestRetainedCopyEncryption_NoConsumerReadsThePointers).
+// Each hands out a copy; none returns a pointer into the Config.
+
+// DeclaredRetainedCopyEncryption is the deployment's own block as written,
+// and false when the file never mentioned the key.
+func (c *Config) DeclaredRetainedCopyEncryption() (RetainedCopyEncryptionBlock, bool) {
+	if c.RetainedCopyEncryptionBlock == nil {
+		return RetainedCopyEncryptionBlock{}, false
+	}
+	return *c.RetainedCopyEncryptionBlock, true
+}
+
+// SetDeclaredRetainedCopyEncryption writes the deployment's block. The caller
+// re-validates, which re-resolves.
+func (c *Config) SetDeclaredRetainedCopyEncryption(b RetainedCopyEncryptionBlock) {
+	c.RetainedCopyEncryptionBlock = &b
+}
+
+// ClearDeclaredRetainedCopyEncryption removes the deployment's block, so a
+// re-marshal writes the bytes a file that never mentioned it would.
+func (c *Config) ClearDeclaredRetainedCopyEncryption() { c.RetainedCopyEncryptionBlock = nil }
+
+// DeclaredRetainedCopyEncryption is this set's own block as written, and
+// false when it declares none.
+func (b BackupSet) DeclaredRetainedCopyEncryption() (RetainedCopyEncryptionOverride, bool) {
+	if b.RetainedCopyEncryptionConfig == nil {
+		return RetainedCopyEncryptionOverride{}, false
+	}
+	return *b.RetainedCopyEncryptionConfig, true
+}
+
+// SetDeclaredRetainedCopyEncryption gives this set a block of its own.
+func (b *BackupSet) SetDeclaredRetainedCopyEncryption(o RetainedCopyEncryptionOverride) {
+	b.RetainedCopyEncryptionConfig = &o
+}
+
+// ClearDeclaredRetainedCopyEncryption takes the set's block off, so it
+// inherits again.
+func (b *BackupSet) ClearDeclaredRetainedCopyEncryption() { b.RetainedCopyEncryptionConfig = nil }

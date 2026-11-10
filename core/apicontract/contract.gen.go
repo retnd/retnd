@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "cfc78fcee709d1346c070adc8cf971fb3d675c6b22f444b2a077b8480f0f954f"
+const ContractSHA256 = "bb75382048be948c1d28da3c98788f051dea0cab6c87ca93d6295210180a15e4"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -438,124 +438,6 @@ var ErrorClasses = map[string][]ErrorCode{
 	"throttling":     {ErrorCodeRateLimited, ErrorCodeRecoveryTooManyGrants, ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy},
 	"unavailable":    {ErrorCodeNotConfigured, ErrorCodeSmtpSendFailed, ErrorCodeWorkflowEngineUnavailable, ErrorCodeRecoveryUnavailable, ErrorCodeRecoveryInterrupted, ErrorCodeStepUpUnavailable, ErrorCodeRecoverySourceHostUnreachable, ErrorCodeValidatorsUnavailable, ErrorCodeEncryptionUnavailable},
 	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired, ErrorCodeRecoveryTargetInvalid},
-}
-
-// ConfirmRecoveryBundleRequest is POST /encryption/keys/{id}/confirm. A
-// statement that the exported bundle is stored safely, never an upload.
-// With no digest it confirms the newest export of the key; with one it
-// must match an export.
-type ConfirmRecoveryBundleRequest struct {
-	Digest string `json:"digest,omitempty"`
-}
-
-// EncryptionCopy is one copy's encryption state. A plaintext copy says
-// encrypted false and nothing else.
-type EncryptionCopy struct {
-	Encrypted             bool   `json:"encrypted"`
-	Format                string `json:"format,omitempty"`
-	FormatVersion         int    `json:"format_version,omitempty"`
-	KeyID                 string `json:"key_id,omitempty"`
-	KeyResolvable         *bool  `json:"key_resolvable,omitempty"`
-	Medium                string `json:"medium"`
-	PlaintextDigest       string `json:"plaintext_digest,omitempty"`
-	StoredDigest          string `json:"stored_digest,omitempty"`
-	StoredDigestAlgorithm string `json:"stored_digest_algorithm,omitempty"`
-	StoredSize            int64  `json:"stored_size,omitempty"`
-}
-
-// EncryptionKeyProvider is who holds the key: this product's managed
-// key, or an external reference. Exactly one.
-type EncryptionKeyProvider struct {
-	External *EncryptionKeyReference `json:"external,omitempty"`
-	Managed  bool                    `json:"managed,omitempty"`
-}
-
-// EncryptionKeyProviderState is a key provider as it reads back. kind is
-// managed, external or none. source is the reference's description (a
-// path, a variable name, or an executable without arguments) and is
-// absent for managed and none. It cannot be parsed back into a
-// reference.
-type EncryptionKeyProviderState struct {
-	Kind   string `json:"kind"`
-	Source string `json:"source,omitempty"`
-}
-
-// EncryptionKeyReference is where an external key is read from: exactly
-// one of file, env or command. Write-only: a response never carries this
-// shape, only the description in EncryptionKeyProviderState.
-type EncryptionKeyReference struct {
-	Command []string `json:"command,omitempty"`
-	Env     string   `json:"env,omitempty"`
-	File    string   `json:"file,omitempty"`
-}
-
-// EncryptionKeyStatus is one managed key's identity and condition. Ids,
-// timestamps, status and whether it resolves right now. Never key
-// material, a recipient or a fingerprint.
-type EncryptionKeyStatus struct {
-	BundleConfirmed   bool   `json:"bundle_confirmed"`
-	BundleConfirmedAt string `json:"bundle_confirmed_at,omitempty"`
-	BundleExportedAt  string `json:"bundle_exported_at,omitempty"`
-	CopiesRecording   int    `json:"copies_recording"`
-	CreatedAt         string `json:"created_at"`
-	ID                string `json:"id"`
-	Reason            string `json:"reason,omitempty"`
-	Resolvability     string `json:"resolvability"`
-	Resolvable        bool   `json:"resolvable"`
-	RetiredAt         string `json:"retired_at,omitempty"`
-	Status            string `json:"status"`
-}
-
-// EncryptionOverride is PUT /backup-sets/{source}/{set}/encryption. A
-// backup set's own mode (inherit, off or required) and, for required,
-// its own key provider. A whole replace.
-type EncryptionOverride struct {
-	KeyProvider *EncryptionKeyProvider `json:"key_provider,omitempty"`
-	Mode        string                 `json:"mode"`
-}
-
-// EncryptionPolicy is GET /encryption/policy. The deployment's retained-
-// copy encryption mode and key provider, and every backup set's
-// resolution.
-type EncryptionPolicy struct {
-	KeyProvider EncryptionKeyProviderState `json:"key_provider"`
-	Mode        string                     `json:"mode"`
-	Sets        []EncryptionSetPolicy      `json:"sets"`
-}
-
-// EncryptionPolicyPatch is PATCH /encryption/policy. Fields that are
-// present change and the rest stay. At least one is required.
-type EncryptionPolicyPatch struct {
-	KeyProvider *EncryptionKeyProvider `json:"key_provider,omitempty"`
-	Mode        string                 `json:"mode,omitempty"`
-}
-
-// EncryptionProviderProbe is whether a key provider resolves right now.
-// source is a description, never the reference itself.
-type EncryptionProviderProbe struct {
-	Reason string `json:"reason,omitempty"`
-	Source string `json:"source"`
-	State  string `json:"state"`
-}
-
-// EncryptionProviderTestRequest is POST /encryption/providers/test. Name
-// a managed key id or an external reference to test.
-type EncryptionProviderTestRequest struct {
-	External     *EncryptionKeyReference `json:"external,omitempty"`
-	ManagedKeyID string                  `json:"managed_key_id,omitempty"`
-}
-
-// EncryptionSetPolicy is what one backup set's retained-copy encryption
-// is set to, and what that resolves to. mode is what the set says
-// (inherit, off or required); effective_mode is what applies.
-type EncryptionSetPolicy struct {
-	BackupSetID          string                     `json:"backup_set_id"`
-	EffectiveKeyProvider EncryptionKeyProviderState `json:"effective_key_provider"`
-	EffectiveMode        string                     `json:"effective_mode"`
-	IsOverride           bool                       `json:"is_override"`
-	KeyProvider          EncryptionKeyProviderState `json:"key_provider"`
-	Mode                 string                     `json:"mode"`
-	SatisfiedBy          string                     `json:"satisfied_by,omitempty"`
 }
 
 // Endpoint is one operation of the contract, with the requirements a
@@ -1027,6 +909,31 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "clearBackupSetEncryption", Method: "DELETE", Path: "/backup-sets/{source}/{set}/encryption",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "EncryptionSetPolicy", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "setBackupSetEncryption", Method: "PUT", Path: "/backup-sets/{source}/{set}/encryption",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "EncryptionOverride", ResponseSchema: "EncryptionSetPolicy", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "listBackupSetSnapshotHolds", Method: "GET", Path: "/backup-sets/{source}/{set}/holds",
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListSnapshotHoldsResponse", SuccessStatus: 200,
@@ -1359,6 +1266,149 @@ var Endpoints = []Endpoint{
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
 			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "listEncryptionCopies", Method: "GET", Path: "/encryption/copies",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListEncryptionCopiesResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeArtifactNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "listEncryptionKeys", Method: "GET", Path: "/encryption/keys",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListEncryptionKeysResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "createEncryptionKey", Method: "POST", Path: "/encryption/keys",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "EncryptionKeyStatus", SuccessStatus: 201,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			409: {ErrorCodeEncryptionKeyState},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "rotateEncryptionKey", Method: "POST", Path: "/encryption/keys/rotate",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "EncryptionKeyStatus", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			409: {ErrorCodeEncryptionKeyState},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "confirmRecoveryBundle", Method: "POST", Path: "/encryption/keys/{id}/confirm",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "ConfirmRecoveryBundleRequest", ResponseSchema: "EncryptionKeyStatus", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeEncryptionKeyNotFound},
+			409: {ErrorCodeEncryptionKeyState},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "exportRecoveryBundle", Method: "POST", Path: "/encryption/keys/{id}/export",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "RecoveryBundle", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired},
+			404: {ErrorCodeEncryptionKeyNotFound},
+			429: {ErrorCodeRateLimited},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeStepUpUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "retireEncryptionKey", Method: "POST", Path: "/encryption/keys/{id}/retire",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "EncryptionKeyStatus", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeEncryptionKeyNotFound},
+			409: {ErrorCodeEncryptionKeyInUse},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getEncryptionPolicy", Method: "GET", Path: "/encryption/policy",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "EncryptionPolicy", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "patchEncryptionPolicy", Method: "PATCH", Path: "/encryption/policy",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "EncryptionPolicyPatch", ResponseSchema: "EncryptionPolicy", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "resetEncryptionPolicy", Method: "POST", Path: "/encryption/policy/reset",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "EncryptionPolicy", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "testEncryptionProvider", Method: "POST", Path: "/encryption/providers/test",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "EncryptionProviderTestRequest", ResponseSchema: "EncryptionProviderProbe", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "startDecryptVerify", Method: "POST", Path: "/encryption/verify",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "StartDecryptVerifyRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeArtifactNotFound, ErrorCodeBackupSetNotFound},
+			409: {ErrorCodeOperationAlreadyRunning, ErrorCodeEncryptionKeyUnresolvable},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
 		},
 	},
 	{
@@ -1978,174 +2028,6 @@ var Endpoints = []Endpoint{
 			503: {ErrorCodeNotConfigured, ErrorCodeWorkflowEngineUnavailable},
 		},
 	},
-	{
-		ID: "getEncryptionPolicy", Method: "GET", Path: "/encryption/policy",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "EncryptionPolicy", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			401: {ErrorCodeUnauthenticated},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "patchEncryptionPolicy", Method: "PATCH", Path: "/encryption/policy",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "EncryptionPolicyPatch", ResponseSchema: "EncryptionPolicy", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest},
-			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCsrfTokenMissing, ErrorCodeCsrfTokenMismatch},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "resetEncryptionPolicy", Method: "POST", Path: "/encryption/policy/reset",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "EncryptionPolicy", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCsrfTokenMissing, ErrorCodeCsrfTokenMismatch},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "setBackupSetEncryption", Method: "PUT", Path: "/backup-sets/{source}/{set}/encryption",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "EncryptionOverride", ResponseSchema: "EncryptionSetPolicy", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest},
-			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCsrfTokenMissing, ErrorCodeCsrfTokenMismatch},
-			404: {ErrorCodeBackupSetNotFound},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "clearBackupSetEncryption", Method: "DELETE", Path: "/backup-sets/{source}/{set}/encryption",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "EncryptionSetPolicy", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCsrfTokenMissing, ErrorCodeCsrfTokenMismatch},
-			404: {ErrorCodeBackupSetNotFound},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "listEncryptionKeys", Method: "GET", Path: "/encryption/keys",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "ListEncryptionKeysResponse", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			401: {ErrorCodeUnauthenticated},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "createEncryptionKey", Method: "POST", Path: "/encryption/keys",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "EncryptionKeyStatus", SuccessStatus: 201,
-		ErrorCodes: map[int][]ErrorCode{
-			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCsrfTokenMissing, ErrorCodeCsrfTokenMismatch},
-			409: {ErrorCodeEncryptionKeyState},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "rotateEncryptionKey", Method: "POST", Path: "/encryption/keys/rotate",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "EncryptionKeyStatus", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCsrfTokenMissing, ErrorCodeCsrfTokenMismatch},
-			409: {ErrorCodeEncryptionKeyState},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "retireEncryptionKey", Method: "POST", Path: "/encryption/keys/{id}/retire",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "EncryptionKeyStatus", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCsrfTokenMissing, ErrorCodeCsrfTokenMismatch},
-			404: {ErrorCodeEncryptionKeyNotFound},
-			409: {ErrorCodeEncryptionKeyInUse},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "exportRecoveryBundle", Method: "POST", Path: "/encryption/keys/{id}/export",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "RecoveryBundle", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCsrfTokenMissing, ErrorCodeCsrfTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired},
-			404: {ErrorCodeEncryptionKeyNotFound},
-			429: {ErrorCodeRateLimited},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeEncryptionUnavailable, ErrorCodeStepUpUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "confirmRecoveryBundle", Method: "POST", Path: "/encryption/keys/{id}/confirm",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "ConfirmRecoveryBundleRequest", ResponseSchema: "EncryptionKeyStatus", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCsrfTokenMissing, ErrorCodeCsrfTokenMismatch},
-			404: {ErrorCodeEncryptionKeyNotFound},
-			409: {ErrorCodeEncryptionKeyState},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "testEncryptionProvider", Method: "POST", Path: "/encryption/providers/test",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "EncryptionProviderTestRequest", ResponseSchema: "EncryptionProviderProbe", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest},
-			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCsrfTokenMissing, ErrorCodeCsrfTokenMismatch},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "listEncryptionCopies", Method: "GET", Path: "/encryption/copies",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "ListEncryptionCopiesResponse", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			401: {ErrorCodeUnauthenticated},
-			404: {ErrorCodeArtifactNotFound},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "startDecryptVerify", Method: "POST", Path: "/encryption/verify",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "StartDecryptVerifyRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
-		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest},
-			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCsrfTokenMissing, ErrorCodeCsrfTokenMismatch},
-			404: {ErrorCodeArtifactNotFound, ErrorCodeBackupSetNotFound},
-			409: {ErrorCodeOperationAlreadyRunning, ErrorCodeEncryptionKeyUnresolvable},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
-		},
-	},
 }
 
 // CapabilityFields is the platform-capability set GET /system/capabilities
@@ -2653,6 +2535,14 @@ type ConfigRevisionStaleResponse struct {
 	Error          ErrorBody `json:"error"`
 }
 
+// ConfirmRecoveryBundleRequest is POST /encryption/keys/{id}/confirm. A statement that the exported
+// bundle is stored safely, never an upload. With no digest it
+// confirms the newest export of the key; with one it must match an
+// export.
+type ConfirmRecoveryBundleRequest struct {
+	Digest string `json:"digest,omitempty"`
+}
+
 // ConnectionCheck is one step of a connection test. `outcome` is passed, failed or
 // skipped, and skipped is a first-class answer rather than a quiet
 // pass: a surface that renders a skipped authentication as anything
@@ -2870,6 +2760,114 @@ type DestructiveOperationsStatus struct {
 	StepUpRequired               bool   `json:"step_up_required"`
 }
 
+// EncryptionCopy is one copy's encryption state. A plaintext copy says encrypted false
+// and nothing else.
+type EncryptionCopy struct {
+	Encrypted             bool   `json:"encrypted"`
+	Format                string `json:"format,omitempty"`
+	FormatVersion         int    `json:"format_version,omitempty"`
+	KeyID                 string `json:"key_id,omitempty"`
+	KeyResolvable         *bool  `json:"key_resolvable,omitempty"`
+	Medium                string `json:"medium"`
+	PlaintextDigest       string `json:"plaintext_digest,omitempty"`
+	StoredDigest          string `json:"stored_digest,omitempty"`
+	StoredDigestAlgorithm string `json:"stored_digest_algorithm,omitempty"`
+	StoredSize            int64  `json:"stored_size,omitempty"`
+}
+
+// EncryptionKeyProvider is who holds the key: this product's managed key, or an external
+// reference. Exactly one.
+type EncryptionKeyProvider struct {
+	External *EncryptionKeyReference `json:"external,omitempty"`
+	Managed  bool                    `json:"managed,omitempty"`
+}
+
+// EncryptionKeyProviderState is A key provider as it reads back. kind is managed, external or
+// none. source is the reference's description (a path, a variable
+// name, or an executable without arguments) and is absent for
+// managed and none. It cannot be parsed back into a reference.
+type EncryptionKeyProviderState struct {
+	Kind   string `json:"kind"`
+	Source string `json:"source,omitempty"`
+}
+
+// EncryptionKeyReference is where an external key is read from: exactly one of file, env or
+// command. Write-only: a response never carries this shape, only the
+// description in EncryptionKeyProviderState.
+type EncryptionKeyReference struct {
+	Command []string `json:"command,omitempty"`
+	Env     string   `json:"env,omitempty"`
+	File    string   `json:"file,omitempty"`
+}
+
+// EncryptionKeyStatus is one managed key's identity and condition. Ids, timestamps, status
+// and whether it resolves right now. Never key material, a recipient
+// or a fingerprint.
+type EncryptionKeyStatus struct {
+	BundleConfirmed   bool   `json:"bundle_confirmed"`
+	BundleConfirmedAt string `json:"bundle_confirmed_at,omitempty"`
+	BundleExportedAt  string `json:"bundle_exported_at,omitempty"`
+	CopiesRecording   int    `json:"copies_recording"`
+	CreatedAt         string `json:"created_at"`
+	ID                string `json:"id"`
+	Reason            string `json:"reason,omitempty"`
+	Resolvability     string `json:"resolvability"`
+	Resolvable        bool   `json:"resolvable"`
+	RetiredAt         string `json:"retired_at,omitempty"`
+	Status            string `json:"status"`
+}
+
+// EncryptionOverride is PUT /backup-sets/{source}/{set}/encryption. A backup set's own
+// mode (inherit, off or required) and, for required, its own key
+// provider. A whole replace.
+type EncryptionOverride struct {
+	KeyProvider *EncryptionKeyProvider `json:"key_provider,omitempty"`
+	Mode        string                 `json:"mode"`
+}
+
+// EncryptionPolicy is GET /encryption/policy. The deployment's retained-copy encryption
+// mode and key provider, and every backup set's resolution.
+type EncryptionPolicy struct {
+	KeyProvider EncryptionKeyProviderState `json:"key_provider"`
+	Mode        string                     `json:"mode"`
+	Sets        []EncryptionSetPolicy      `json:"sets"`
+}
+
+// EncryptionPolicyPatch is PATCH /encryption/policy. Fields that are present change and the
+// rest stay. At least one is required.
+type EncryptionPolicyPatch struct {
+	KeyProvider *EncryptionKeyProvider `json:"key_provider,omitempty"`
+	Mode        string                 `json:"mode,omitempty"`
+}
+
+// EncryptionProviderProbe is whether a key provider resolves right now. source is a
+// description, never the reference itself.
+type EncryptionProviderProbe struct {
+	Reason string `json:"reason,omitempty"`
+	Source string `json:"source"`
+	State  string `json:"state"`
+}
+
+// EncryptionProviderTestRequest is POST /encryption/providers/test. Name a managed key id or an
+// external reference to test.
+type EncryptionProviderTestRequest struct {
+	External     *EncryptionKeyReference `json:"external,omitempty"`
+	ManagedKeyID string                  `json:"managed_key_id,omitempty"`
+}
+
+// EncryptionSetPolicy is what one backup set's retained-copy encryption is set to, and what
+// that resolves to. mode is what the set says (inherit, off or
+// required); effective_mode is what applies.
+type EncryptionSetPolicy struct {
+	BackupSetID          string                     `json:"backup_set_id"`
+	EffectiveKeyProvider EncryptionKeyProviderState `json:"effective_key_provider"`
+	EffectiveMode        string                     `json:"effective_mode"`
+	IsOverride           bool                       `json:"is_override"`
+	KeyProvider          EncryptionKeyProviderState `json:"key_provider"`
+	Mode                 string                     `json:"mode"`
+	SatisfiedBy          string                     `json:"satisfied_by,omitempty"`
+}
+
 // EnrollRequest is POST /auth/enroll. The credentials, and optionally the two things
 // issue #830 makes part of recovering the administrator: the address
 // account recovery mails to, and the SMTP endpoint it goes out over.
@@ -3058,15 +3056,14 @@ type ListCustomValidatorsResponse struct {
 	WorkflowRootDefault bool                       `json:"workflow_root_default"`
 }
 
-// ListEncryptionCopiesResponse is GET /encryption/copies. The encryption
-// state of each copy of one backup.
+// ListEncryptionCopiesResponse is GET /encryption/copies. The encryption state of each copy of one
+// backup.
 type ListEncryptionCopiesResponse struct {
 	ArtifactID string           `json:"artifact_id"`
 	Copies     []EncryptionCopy `json:"copies"`
 }
 
-// ListEncryptionKeysResponse is GET /encryption/keys. Every managed key,
-// oldest first.
+// ListEncryptionKeysResponse is GET /encryption/keys. Every managed key, oldest first.
 type ListEncryptionKeysResponse struct {
 	Keys []EncryptionKeyStatus `json:"keys"`
 }
@@ -3503,11 +3500,10 @@ type PreviewCustomValidatorRequest struct {
 	Replacing   string `json:"replacing"`
 }
 
-// RecoveryBundle is POST /encryption/keys/{id}/export. The disaster-
-// recovery bundle: the ONE shape in this API that carries key material,
-// answered once as a file to save and never rendered. Whether the API
-// should return it at all is an open decision (see
-// docs/api/contract.md).
+// RecoveryBundle is POST /encryption/keys/{id}/export. The disaster-recovery bundle:
+// the ONE shape in this API that carries key material, answered once
+// as a file to save and never rendered. Whether the API should
+// return it at all is an open decision (see docs/api/contract.md).
 type RecoveryBundle struct {
 	Created      string   `json:"created"`
 	Digest       string   `json:"digest"`
@@ -3520,8 +3516,8 @@ type RecoveryBundle struct {
 	Version      string   `json:"version"`
 }
 
-// RecoveryBundleReceipt is what exporting a bundle left on record: the
-// key, the digest the bundle carries and when. No material.
+// RecoveryBundleReceipt is what exporting a bundle left on record: the key, the digest the
+// bundle carries and when. No material.
 type RecoveryBundleReceipt struct {
 	Digest     string `json:"digest"`
 	ExportedAt string `json:"exported_at"`
@@ -4459,10 +4455,10 @@ type StagingDirectoryResponse struct {
 	Truncated bool                    `json:"truncated"`
 }
 
-// StartDecryptVerifyRequest is POST /encryption/verify. Decrypt-verify
-// one backup's encrypted copy: a content check through the key the copy
-// records. acknowledge_egress accepts the cost of reading a medium that
-// bills for it.
+// StartDecryptVerifyRequest is POST /encryption/verify. Decrypt-verify one backup's encrypted
+// copy: a content check through the key the copy records.
+// acknowledge_egress accepts the cost of reading a medium that bills
+// for it.
 type StartDecryptVerifyRequest struct {
 	AcknowledgeEgress bool   `json:"acknowledge_egress,omitempty"`
 	ArtifactID        string `json:"artifact_id"`

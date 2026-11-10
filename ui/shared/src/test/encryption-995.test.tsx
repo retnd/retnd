@@ -142,7 +142,7 @@ describe("the per-set control", () => {
     expect(await screen.findByText(/written as plaintext whatever the deployment says/)).toBeInTheDocument();
   });
 
-  it("draws a kopia-engine set disabled with the ADR's statement and no pop-up", async () => {
+  it("draws a set on the kopia engine disabled with the ADR's statement and no pop-up", async () => {
     renderWith(createMockApi("encryption-confirmed"), <SetEncryptionCard source="production" set="postgres-primary" engine="kopia" readOnly={false} />);
     const group = await screen.findByRole("radiogroup", { name: "Encryption for this set" });
     for (const r of within(group).getAllByRole("radio")) expect(r).toBeDisabled();
@@ -193,7 +193,12 @@ describe("keys: metadata only, the notice that nags durably, and the refusal tha
     renderWith(api, <EncryptionCard readOnly={false} />);
     await user.click(await screen.findByRole("button", { name: "Retire" }));
     await user.click(await screen.findByRole("button", { name: "Retire key" }));
-    const refusal = await screen.findByRole("alert");
+    // By its own marker: the key banners behind the dialog are alerts too.
+    const refusal = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>("[data-retire-refusal]");
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
     expect(refusal).toHaveTextContent(/41 copies still need it/);
     expect(refusal).toHaveTextContent(/postgres-prod-20261108/);
     expect(screen.getByRole("button", { name: "Retire key" })).toBeDisabled();
@@ -225,7 +230,7 @@ const placement = (over: Partial<BackupPlacement>): BackupPlacement => ({
 });
 const copy = (over: Partial<CopyEncryption>): CopyEncryption => ({
   medium: "offsite", encrypted: true, format: "age", formatVersion: 1, keyId: "mk-1", keyResolvable: true,
-  storedDigestAlgorithm: "sha256", storedSize: 10, ...over
+  storedDigestAlgorithm: "sha256", storedSize: 10, storedDigest: null, plaintextDigest: null, ...over
 });
 const local = placement({ medium: "local", mediumType: "local", location: "/data/a" });
 const localCopy = copy({ medium: "local", encrypted: false, format: null, formatVersion: null, keyId: null, keyResolvable: null, storedSize: null, storedDigestAlgorithm: null });
@@ -301,7 +306,13 @@ describe("no key material after the one-time export", () => {
     };
     const saved: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(bundle), { status: 200, headers: { "content-type": "application/json" } })));
-    const create = vi.fn((blob: Blob) => { void blob.text().then((t) => saved.push(t)); return "blob:x"; });
+    // jsdom's Blob has no text(); a FileReader reads it.
+    const create = vi.fn((blob: Blob) => {
+      const reader = new FileReader();
+      reader.onload = () => saved.push(String(reader.result));
+      reader.readAsText(blob);
+      return "blob:x";
+    });
     Object.assign(URL, { createObjectURL: create, revokeObjectURL: vi.fn() });
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
 

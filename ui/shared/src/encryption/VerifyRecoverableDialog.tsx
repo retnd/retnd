@@ -22,6 +22,7 @@ import { apiErrorOf, describeFailure } from "@shared/api/failure";
 import { Acknowledgement } from "@shared/components/Acknowledgement";
 import { ConfirmationDialog } from "@shared/components/ConfirmationDialog";
 import { CommandEcho } from "@shared/pages/CommandEcho";
+import { Icon } from "@shared/design-system/icons";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { CopyEncryption } from "@shared/types/encryption";
 import { bytes } from "@shared/utilities/format";
@@ -140,7 +141,8 @@ export function VerifyRecoverableDialog({
           <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 4 }}>
             {rows.map((r) => (
               <li key={r.id} data-row={r.id} data-row-state={r.state}>
-                {(r.state === "done" ? "✓ " : r.state === "failed" ? "✕ " : r.state === "active" ? "▶ " : "○ ") + r.label}
+                {r.state === "done" ? <Icon name="success" /> : r.state === "failed" ? <Icon name="failure" /> : r.state === "active" ? "\u25B6" : <Icon name="status-idle" />}
+                {" " + r.label}
               </li>
             ))}
           </ul>
