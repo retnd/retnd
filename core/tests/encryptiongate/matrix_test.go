@@ -57,7 +57,7 @@ var selfTests = []string{
 }
 
 var (
-	rowID     = regexp.MustCompile(`^(N[12]\.[0-9]+|NC-[0-9]{2}|NV\.[0-9]+)$`)
+	rowID     = regexp.MustCompile(`^(N[12]\.[0-9]+|NC-[0-9]{2}|NV\.[0-9]+|T[12]\.[0-9]+|TC-[0-9]{2}|TV\.[0-9]+)$`)
 	backtick  = regexp.MustCompile("`([^`]+)`")
 	proofType = regexp.MustCompile(`^[A-Za-z0-9_./-]+(:Test[A-Za-z0-9_]+)?$`)
 	labelRe   = regexp.MustCompile(`"([^"]{12,})"`)
