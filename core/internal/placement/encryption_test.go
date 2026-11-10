@@ -89,7 +89,7 @@ func (f *encFixture) encryption() (state.PlacementEncryption, bool) {
 	return e, ok
 }
 
-func (e *encFixture) objectKey() string { return e.fixture.key }
+func (e *encFixture) objectKey() string { return e.key }
 
 func TestTheStoredObjectIsAgeCiphertextThatDecryptsToTheArtifact(t *testing.T) {
 	f := newEncryptedFixture(t, fixtureOpts{})
