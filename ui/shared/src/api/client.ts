@@ -41,6 +41,11 @@ import type {
   CopyEncryption,
   EncryptionKey,
   EncryptionPolicy,
+  EncryptionSuite,
+  ReencryptPlan,
+  ReencryptPlanCopy,
+  ReencryptRequest,
+  SuiteStatus,
   KeyProviderInput,
   KeyProviderState,
   ProviderProbe,
@@ -127,6 +132,10 @@ import type {
   WireEncryptionSetPolicy,
   WireListEncryptionCopiesResponse,
   WireListEncryptionKeysResponse,
+  WireListEncryptionSuitesResponse,
+  WireEncryptionSuite,
+  WireReencryptPlan,
+  WireStartReencryptRequest,
   WireRecoveryBundle,
   WireStartDecryptVerifyRequest,
   WireAssuranceOperationCancelled,
@@ -2008,7 +2017,8 @@ function fromWirePlacement(p: WirePlacement): BackupPlacement {
     recoveryFailureReason: p.recovery_failure_reason ?? "",
     encrypted: p.encrypted === true,
     encryptionKeyId: p.encryption_key_id ?? null,
-    encryptionKeyResolvable: p.encryption_key_resolvable ?? null
+    encryptionKeyResolvable: p.encryption_key_resolvable ?? null,
+    encryptionSuite: p.encryption_suite ?? null
   };
 }
 
@@ -2539,11 +2549,63 @@ function fromWireSetEncryption(w: WireEncryptionSetPolicy): SetEncryption {
   };
 }
 
+// EPIC T (#1318): the suite registry (T1.5, with T2.1's retirement
+// version) and the re-encrypt dry run and run (T2.2), from the generated
+// bindings. A suite status this build has never heard of draws as no status,
+// never as its nearest neighbour.
+const SUITE_STATUSES = new Set(["supported", "deprecated", "retired"]);
+
+function fromWireEncryptionSuite(w: WireEncryptionSuite): EncryptionSuite {
+  return {
+    id: w.id,
+    version: w.version,
+    status: (SUITE_STATUSES.has(w.status) ? w.status : "unknown") as SuiteStatus,
+    isDefault: w.default === true,
+    description: w.describe ?? "",
+    retirementVersion: w.retirement_version ?? null,
+    activeCopies: w.active_copies ?? 0,
+    keys: w.keys ?? 0
+  };
+}
+
+/** The plan's groups (suite, then key) flattened to one row per copy. */
+function fromWireReencryptPlan(w: WireReencryptPlan): ReencryptPlan {
+  const copies: ReencryptPlanCopy[] = [];
+  for (const g of w.groups ?? []) {
+    for (const c of g.candidates ?? []) {
+      copies.push({
+        artifactId: c.artifact_id,
+        medium: c.source_medium,
+        suite: g.suite_id,
+        keyId: g.key_id,
+        to: c.destination_medium ?? null,
+        refusal: c.verdict === "would_reencrypt" ? null : c.refusal ?? c.verdict,
+        reason: c.reason ?? null
+      });
+    }
+  }
+  return { copies };
+}
+
+function reencryptQuery(req: ReencryptRequest): string {
+  const q = new URLSearchParams();
+  if (req.suite) q.set("suite", req.suite);
+  if (req.key) q.set("key", req.key);
+  if (req.deprecated) q.set("deprecated", "true");
+  if (req.to) q.set("destination", req.to);
+  return q.toString();
+}
+
+const suiteQuery = (suite?: string) => (suite ? "?suite=" + encodeURIComponent(suite) : "");
+
 function fromWireEncryptionPolicy(w: WireEncryptionPolicy): EncryptionPolicy {
   return {
     mode: w.mode as EncryptionPolicy["mode"],
     keyProvider: fromWireKeyProvider(w.key_provider),
-    sets: (w.sets ?? []).map(fromWireSetEncryption)
+    sets: (w.sets ?? []).map(fromWireSetEncryption),
+    suite: w.suite ?? null,
+    suiteConfigured: w.suite_configured ?? null,
+    ...(w.rotation_needed !== undefined ? { rotationNeeded: w.rotation_needed === true, rotateCommand: w.rotate_command ?? null } : {})
   };
 }
 
@@ -2561,7 +2623,11 @@ function fromWireEncryptionKey(w: WireEncryptionKeyStatus): EncryptionKey {
     bundleConfirmed: w.bundle_confirmed,
     bundleConfirmedAt: w.bundle_confirmed_at ?? null,
     bundleExportedAt: w.bundle_exported_at ?? null,
-    copiesRecording: w.copies_recording ?? 0
+    copiesRecording: w.copies_recording ?? 0,
+    // The suite id and nothing else of what a key answer may carry: a
+    // recipient (about 2000 characters for a post-quantum suite) or any
+    // other field is not mapped, so it never reaches a page.
+    suite: w.suite ?? null
   };
 }
 
@@ -4562,7 +4628,8 @@ export const httpApi: RetndApi = {
   patchEncryptionPolicy: (patch) => {
     const body: WireEncryptionPolicyPatch = {
       ...(patch.mode !== undefined ? { mode: patch.mode } : {}),
-      ...(patch.keyProvider !== undefined ? { key_provider: toWireKeyProvider(patch.keyProvider) } : {})
+      ...(patch.keyProvider !== undefined ? { key_provider: toWireKeyProvider(patch.keyProvider) } : {}),
+      ...(patch.suite !== undefined ? { suite: patch.suite } : {})
     };
     return request<WireEncryptionPolicy>("/encryption/policy", { method: "PATCH", body: JSON.stringify(body) }).then(
       fromWireEncryptionPolicy
@@ -4586,10 +4653,10 @@ export const httpApi: RetndApi = {
     ),
   listEncryptionKeys: () =>
     request<WireListEncryptionKeysResponse>("/encryption/keys").then((r) => (r.keys ?? []).map(fromWireEncryptionKey)),
-  createEncryptionKey: () =>
-    request<WireEncryptionKeyStatus>("/encryption/keys", { method: "POST" }).then(fromWireEncryptionKey),
-  rotateEncryptionKey: () =>
-    request<WireEncryptionKeyStatus>("/encryption/keys/rotate", { method: "POST" }).then(fromWireEncryptionKey),
+  createEncryptionKey: (suite) =>
+    request<WireEncryptionKeyStatus>("/encryption/keys" + suiteQuery(suite), { method: "POST" }).then(fromWireEncryptionKey),
+  rotateEncryptionKey: (suite) =>
+    request<WireEncryptionKeyStatus>("/encryption/keys/rotate" + suiteQuery(suite), { method: "POST" }).then(fromWireEncryptionKey),
   retireEncryptionKey: (id) =>
     request<WireEncryptionKeyStatus>(encryptionKeyPath(id) + "/retire", { method: "POST" }).then(fromWireEncryptionKey),
   exportRecoveryBundle: (id, opts) =>
@@ -4623,6 +4690,24 @@ export const httpApi: RetndApi = {
       ...(req.acknowledgeEgress ? { acknowledge_egress: true } : {})
     };
     return request<WireScrubStarted>("/encryption/verify", { method: "POST", body: JSON.stringify(body) }).then((r) => ({
+      backupSetId: r.backup_set_id,
+      operationId: r.operation_id
+    }));
+  },
+  listEncryptionSuites: () =>
+    request<WireListEncryptionSuitesResponse>("/encryption/suites").then((r) => (r.suites ?? []).map(fromWireEncryptionSuite)),
+  planReencrypt: (req) => {
+    const q = reencryptQuery(req);
+    return request<WireReencryptPlan>("/encryption/reencrypt" + (q ? "?" + q : "")).then(fromWireReencryptPlan);
+  },
+  startReencrypt: (req) => {
+    const body: WireStartReencryptRequest = {
+      destination_medium: req.to ?? "",
+      ...(req.suite ? { suite_id: req.suite } : {}),
+      ...(req.key ? { key_id: req.key } : {}),
+      ...(req.deprecated ? { deprecated: true } : {})
+    };
+    return request<WireScrubStarted>("/encryption/reencrypt", { method: "POST", body: JSON.stringify(body) }).then((r) => ({
       backupSetId: r.backup_set_id,
       operationId: r.operation_id
     }));

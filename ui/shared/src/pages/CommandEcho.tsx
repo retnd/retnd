@@ -32,6 +32,12 @@
  * strings come from encryption/encryptionCommands.ts, which is also where the
  * list of every mutating control and its echo is kept (the reverse-direction
  * sweep).
+ *
+ * The encryption suites (EPIC T, #1318) add four lines from the same module:
+ * `retnd encryption suites` under the Suite choice, `policy patch --suite`
+ * and `key rotate --suite` on the change dialog's steps, and `reencrypt`
+ * (with `--dry-run` first) in the re-encrypt dialog. Each is the real
+ * command, so no suite action is ever one the terminal has no equivalent for.
  */
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 

@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "83ecc641139393e3cbb87d7312d8e30de25b9f586a6a431965f145819ac085a9"
+const ContractSHA256 = "29e8bad06ac6e40608cf53fad446c274537e3bbf062c225ee56ff3c7372d9fb7"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -3586,6 +3586,7 @@ type Placement struct {
 	Encrypted               bool   `json:"encrypted,omitempty"`
 	EncryptionKeyID         string `json:"encryption_key_id,omitempty"`
 	EncryptionKeyResolvable *bool  `json:"encryption_key_resolvable,omitempty"`
+	EncryptionSuite         string `json:"encryption_suite,omitempty"`
 	LastCheckedAt           string `json:"last_checked_at,omitempty"`
 	LastFailureAt           string `json:"last_failure_at,omitempty"`
 	LastFailureReason       string `json:"last_failure_reason,omitempty"`

@@ -8,7 +8,7 @@
  */
 import { RetndError } from "@shared/api/contracts";
 import type { RetndApi } from "@shared/api/contracts";
-import type { EncryptionKey, EncryptionPolicy } from "@shared/types/encryption";
+import type { EncryptionKey, EncryptionPolicy, EncryptionSuite } from "@shared/types/encryption";
 
 const notOffered = () =>
   new RetndError({ code: "ENCRYPTION_UNAVAILABLE", message: "This server does not offer retained-copy encryption." });
@@ -18,3 +18,8 @@ export const readPolicy = (api: RetndApi): Promise<EncryptionPolicy> =>
 
 export const readKeys = (api: RetndApi): Promise<EncryptionKey[]> =>
   typeof api.listEncryptionKeys === "function" ? api.listEncryptionKeys() : Promise.resolve([]);
+
+/** The suite registry (EPIC T, #1318). A server older than the registry has
+ *  no suites to offer, which draws no Suite group rather than an error. */
+export const readSuites = (api: RetndApi): Promise<EncryptionSuite[]> =>
+  typeof api.listEncryptionSuites === "function" ? api.listEncryptionSuites() : Promise.resolve([]);

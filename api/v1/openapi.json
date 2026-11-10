@@ -3702,6 +3702,11 @@
             "x-go-omitempty": true,
             "x-go-pointer": true,
             "description": "Whether that key resolves right now. Absent for a plaintext copy."
+          },
+          "encryption_suite": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The encryption suite the copy's record names (its format id, which is the suite id), never the policy's current suite. Absent for a plaintext copy and from an older server."
           }
         },
         "required": [
