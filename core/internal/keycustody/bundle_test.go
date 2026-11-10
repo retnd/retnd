@@ -265,3 +265,51 @@ func TestConfirmingAnUnknownKeyIsErrUnknownKeyNotErrNoSuchExport_990(t *testing.
 		t.Fatalf("Confirm on an unknown key err = %v, must not be ErrNoSuchExport", err)
 	}
 }
+
+// #990: a second export of the same key is a second recorded export with its
+// own digest, not a primary key failure after the material has been written.
+func TestASecondExportOfTheSameKeyRecordsASecondRow_990(t *testing.T) {
+	s := openStore(t, t.TempDir())
+	ctx := context.Background()
+	rec, _, first, _ := exportBundle(t, s)
+
+	var out bytes.Buffer
+	second, err := s.Export(ctx, rec.ID, &out, fixedNow.Add(2*time.Hour))
+	if err != nil {
+		t.Fatalf("second Export: %v", err)
+	}
+	if second.Digest == first.Digest {
+		t.Fatalf("two exports share digest %s, so the second cannot be recorded", first.Digest)
+	}
+	if err := s.Confirm(ctx, rec.ID, second.Digest, fixedNow.Add(3*time.Hour)); err != nil {
+		t.Fatalf("Confirm the second export: %v", err)
+	}
+	if err := s.Confirm(ctx, rec.ID, first.Digest, fixedNow.Add(3*time.Hour)); err != nil {
+		t.Fatalf("Confirm the first export: %v", err)
+	}
+}
+
+// #990: when the export cannot be recorded, nothing is written to the
+// destination, so there is never a bundle in the world the registry does not
+// know about. An export repeated at the very same instant yields the same
+// digest, which the registry refuses.
+func TestAnExportThatCannotBeRecordedWritesNothing_990(t *testing.T) {
+	s := openStore(t, t.TempDir())
+	ctx := context.Background()
+	rec, err := s.Create(ctx, fixedNow)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	at := fixedNow.Add(time.Minute)
+	var first bytes.Buffer
+	if _, err := s.Export(ctx, rec.ID, &first, at); err != nil {
+		t.Fatalf("first Export: %v", err)
+	}
+	var again bytes.Buffer
+	if _, err := s.Export(ctx, rec.ID, &again, at); err == nil {
+		t.Fatalf("a repeat export at the same instant was recorded twice")
+	}
+	if again.Len() != 0 {
+		t.Fatalf("%d bytes of bundle were written although the export was not recorded", again.Len())
+	}
+}
