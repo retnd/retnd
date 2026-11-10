@@ -4,6 +4,21 @@
 
 ### Added
 
+- **The installer knows about the managed encryption keys** (#1295, EPIC N follow-up). The archive
+  plan now includes `config/retained_copy_keys`: `upgrade` copies it into the archive (the live
+  directory is untouched), and `factory-reset` moves it together with `state.db`, so the archive
+  holds the journal and the keys its encrypted copies name, and the clean install has no orphaned
+  key files. The factory-reset preview counts the key files and says what losing them means, the
+  archive-limit refusal and `uninstall`'s "Left in place" text name the directory, and it joins
+  `ENGINE_OWNED_CONFIG_DIRS` so it is pre-created `0700`. The Synology scripts delete nothing, so
+  there is nothing to change there, and `docs/install.md` now says what each mode does.
+
+- **`scripts/ci-docker.sh --host ssh://user@host` runs the gate on another machine's Docker daemon** (#1267). Several
+  gates at once took a laptop to a load of 60 and more. Pointing `DOCKER_HOST` at another machine does not work, since
+  the gate's bind mounts are read from the daemon's disk and come up empty, so remote mode copies the tree first, runs
+  the unchanged gate, returns its exit status and removes what it created. A remote `DOCKER_HOST` without `--host` is
+  now refused. See `docs/reference/local-gate.md`.
+
 - **The retained-copy encryption policy and its schema, ahead of the cipher** (#989, EPIC N). One new
   top-level `retained_copy_encryption:` key with `mode: off | required` and a `key_provider` that is
   either `managed: true` or an external `file`/`env`/`command` reference, plus a per-set
