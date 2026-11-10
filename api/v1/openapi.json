@@ -8123,6 +8123,13 @@
             "type": "string",
             "description": "The last named stage the run reached, as the stage field of its recovery_stage lines names it; complete for a run that passed. Empty for a scrub, which names no stages."
           },
+          "bytes_read": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "x-go-omitempty": true,
+            "description": "Plaintext bytes a decrypt-verify scrub has read: the live count while it runs, the pass line's total once it has ended. Never decreases while the run is going, never exceeds the plaintext size of what was read, and carries no key material. Absent for anything that has read nothing (#1303)."
+          },
           "reason": {
             "type": "string",
             "description": "The end line's own words for a run that did not pass. Empty otherwise."

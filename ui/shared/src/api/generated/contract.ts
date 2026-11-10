@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "5cdb977a92e1765c978177d1002696e14a5661cffe367eeda29ac979acbac1d4";
+export const CONTRACT_SHA256 = "2237bb10aef104d832411f99e33247024a2276c645881fb7a0cdf46496cd3977";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -3100,6 +3100,7 @@ export interface WireAssuranceOperationCancelled {
  *  record holds it (#1200). */
 export interface WireAssuranceOperationRecord {
   backup_set_id: string;
+  bytes_read?: number;
   ended_at: string;
   events: WireLiveActivityEvent[];
   kind: "scrub" | "recovery_test" | "recovery";

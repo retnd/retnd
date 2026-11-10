@@ -698,8 +698,12 @@ func (b *BackupService) StartDecryptVerify(ctx context.Context, req apicontract.
 		cancel(nil)
 		return ScrubStarted{}, ErrScrubRunning
 	}
-	b.ops.add(&assuranceOp{id: opID, kind: opKindScrub, set: set.String(), cancel: cancel})
+	op := &assuranceOp{id: opID, kind: opKindScrub, set: set.String(), cancel: cancel}
+	b.ops.add(op)
 	b.ops.mu.Unlock()
+	// The decrypt counts the plaintext it has read into the operation, so the
+	// record can say how far along a running verify is (#1303).
+	opCtx = placement.WithReadProgress(opCtx, op.addBytesRead)
 
 	inner := b.state.Load().inner
 	scrub := decryptVerifyScrub(id, req, opID)

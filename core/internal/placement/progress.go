@@ -1,6 +1,7 @@
 package placement
 
 import (
+	"context"
 	"io"
 
 	"github.com/retnd/retnd/core/internal/model"
@@ -123,4 +124,20 @@ func (mr *meteredReader) Read(p []byte) (int, error) {
 		mr.m.report()
 	}
 	return n, err
+}
+
+type readProgressKey struct{}
+
+// WithReadProgress returns a context whose content decrypt-verifies tell fn
+// how many more plaintext bytes have authenticated (an increment, never
+// zero). It is how a standalone decrypt-verify, which is a scrub and has no
+// move engine to carry a Progress callback, counts what it has read (#1303).
+// fn is called from the verifying goroutine and must not block.
+func WithReadProgress(ctx context.Context, fn func(delta int64)) context.Context {
+	return context.WithValue(ctx, readProgressKey{}, fn)
+}
+
+func readProgressOf(ctx context.Context) func(int64) {
+	fn, _ := ctx.Value(readProgressKey{}).(func(int64))
+	return fn
 }

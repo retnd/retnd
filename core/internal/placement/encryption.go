@@ -416,7 +416,7 @@ func verifyEncryptedContent(ctx context.Context, store Store, keys Keys, keyID s
 			defer m.end()
 		}
 		tee := io.TeeReader(m.wrap(rc), stored)
-		if _, err := copycrypt.DecryptVerify(ctx, tee, secret, p.Hash); err != nil {
+		if _, err := copycrypt.DecryptVerifyProgress(ctx, tee, secret, p.Hash, readProgressOf(ctx)); err != nil {
 			return err
 		}
 		// Whatever follows the final chunk is an error DecryptVerify already

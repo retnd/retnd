@@ -2206,6 +2206,7 @@ function fromWireAssuranceOperation(r: WireAssuranceOperationRecord): AssuranceO
     state: r.state,
     stage: r.stage,
     reason: r.reason,
+    ...(r.bytes_read !== undefined ? { bytesRead: r.bytes_read } : {}),
     startedAt: r.started_at,
     endedAt: r.ended_at,
     events: r.events.map(fromWireLiveActivityEvent)

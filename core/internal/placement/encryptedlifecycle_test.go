@@ -697,6 +697,39 @@ func TestAFailedUploadIsAnErrorRowAndNoLaterStageIsClaimed_992(t *testing.T) {
 	}
 }
 
+// #1303: a context that carries a read-progress hook hears the plaintext bytes
+// of a content decrypt-verify, ending at the plaintext size, and a fresh
+// context (the unattended pass) pays for no hook at all.
+func TestAContentDecryptVerifyReportsPlaintextBytesThroughTheContextHook_1303(t *testing.T) {
+	content := multiChunk()
+	f := newEncryptedFixture(t, fixtureOpts{content: content})
+	p, enc := encryptedCopy(t, f)
+
+	var total int64
+	ctx := placement.WithReadProgress(f.ctx, func(delta int64) {
+		if delta <= 0 {
+			t.Errorf("reading of %d", delta)
+		}
+		total += delta
+	})
+	res, err := placement.VerifyCopy(ctx, f.medium, f.keys, f.medium0(t), p, &enc, placement.Content, testNow2)
+	if err != nil || !res.Passed {
+		t.Fatalf("verify = %+v, %v", res, err)
+	}
+	if total != int64(len(content)) {
+		t.Errorf("hook heard %d bytes, want the plaintext size %d", total, len(content))
+	}
+
+	// Existence reads no object, so the hook hears nothing.
+	total = 0
+	if _, err := placement.VerifyCopy(ctx, f.medium, f.keys, f.medium0(t), p, &enc, placement.Existence, testNow2); err != nil {
+		t.Fatal(err)
+	}
+	if total != 0 {
+		t.Errorf("an existence check reported %d bytes read", total)
+	}
+}
+
 // A rotation that lands after the destination was verified and before the
 // source is deleted must not cost the verified copy: the re-read before the
 // delete opens it through the key recorded for that copy, not the active one.

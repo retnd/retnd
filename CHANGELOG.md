@@ -31,6 +31,11 @@
   counters, and no reading carries a key or a key id. The operation checklist shows the two rows only for an
   encrypted copy and the activity strip says how many bytes of which. A standalone `retnd encryption verify`
   still reports `bytes_read` in its result and no live stage.
+- **Live byte progress for a standalone `retnd encryption verify`** (#1303, EPIC N). The
+  `AssuranceOperationRecord` gains an optional `bytes_read` (omitted when there is none), the plaintext a
+  decrypt-verify scrub has read: a live count while it runs, the pass line's total once it has ended. It only
+  grows while the run is going and carries no key or key id. `retnd assurance show` prints it as
+  `bytes read: N` and the Verify recoverable dialog's decrypt row draws the same figure.
 - **A guard against dropping an external key reference that still has copies** (#1304, EPIC N follow-up).
   An external key's row stores no reference, so removing a superseded one from the configuration left
   every copy under it unreadable and nothing said so. The key-custody health section now lists each

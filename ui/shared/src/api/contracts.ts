@@ -2570,6 +2570,9 @@ export interface AssuranceOperationRecord {
   stage: string;
   /** The end line's words for a run that did not pass. */
   reason: string;
+  /** Plaintext bytes a decrypt-verify scrub has read (issue #1303); absent
+   *  when none. The CLI's `assurance show` prints the same figure. */
+  bytesRead?: number;
   startedAt: string;
   endedAt: string;
   events: SetActivityEvent[];

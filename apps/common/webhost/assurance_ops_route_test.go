@@ -311,3 +311,36 @@ func TestAssuranceOperationRoutesAgainstTheRealServiceOnAShutGate(t *testing.T) 
 		t.Errorf("output of an unknown set = %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// #1303: GET /assurance/operations/{op} carries bytes_read for a scrub that
+// has read some, and leaves the key out of a run that has read none, so the
+// browser and the terminal draw one number and an old client sees no change.
+type bytesReadBackend struct {
+	*opsFakeBackend
+	read int64
+}
+
+func (b bytesReadBackend) AssuranceOperation(_ context.Context, id string) (service.AssuranceOperationRecord, error) {
+	return service.AssuranceOperationRecord{OperationID: id, Kind: "scrub", BackupSetID: "production/alpha", State: "running", BytesRead: b.read}, nil
+}
+
+func TestTheOperationRecordCarriesBytesReadOnlyWhenThereIsOne_1303(t *testing.T) {
+	for _, tc := range []struct {
+		read    int64
+		present bool
+	}{{196608, true}, {0, false}} {
+		router := opsRouter(bytesReadBackend{newOpsFake(), tc.read}, NotYetImplementedGate{})
+		rec := send(router, http.MethodGet, "/api/v1/assurance/operations/op-1", "", false)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET = %d %s", rec.Code, rec.Body.String())
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
+			t.Fatal(err)
+		}
+		got, has := doc["bytes_read"]
+		if has != tc.present || (has && got != float64(tc.read)) {
+			t.Errorf("read %d: bytes_read = %v (present %v), want present %v", tc.read, got, has, tc.present)
+		}
+	}
+}
