@@ -54,6 +54,18 @@ large binaries, they change with every visual revision, and no check here can te
 current one from a stale one. Record in the acceptance run which build they were taken
 from.
 
+## Encrypted retained copies (#997), and the screens it changed
+
+EPIC N added a "Retained-copy encryption" card to Settings, an Inherit / Off / Required card
+under Retention on each backup set's page, and Encrypted / Verified recoverable chips on the
+copies list of a backup's own page. Two of the screens above (the Backup set detail, 2, and
+anywhere a listing shows Settings) are therefore not the screens any earlier capture showed.
+That moves no row, because every row already reads `PENDING_OPERATOR` and none has a picture.
+It does mean that when somebody finally captures them on real hardware, the build in front of
+the camera must be one that has these cards, and a store screenshot is never taken of the
+mock API or generated from the capture scripts under `docs/site/tools/`. #998 owns the
+pictures on the project's own site, which are mock recordings and say so.
+
 ## The rename (#893), and why it does not move any row
 
 Every screenshot this file describes shows the product's name, in the topbar of every
