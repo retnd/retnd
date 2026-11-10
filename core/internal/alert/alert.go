@@ -325,11 +325,39 @@ const (
 	// RecoveryTestFailing: a recovery test recovered the bytes and the
 	// operator's validator refused them, or the digest did not match.
 	RecoveryTestFailing Kind = "RECOVERY_TEST_FAILING"
+
+	// EncryptionKeyUnresolvable is EPIC N's one kind (#990, FR-66): a
+	// backup set whose retained-copy encryption policy is `required` and
+	// whose key, managed or external, cannot be resolved right now. While
+	// it holds, new copies for that set are refused before any source or
+	// medium deletion step, and nothing already stored is touched.
+	//
+	// # Why this is the one key-custody fact that is a condition
+	//
+	// EPIC N has two operator-facing degradations and they have different
+	// shapes. "Encryption is on and nobody has confirmed holding a recovery
+	// bundle" can only be cleared by a person, so as a condition it would
+	// ride the retry ladder forever, which none of the kinds above does;
+	// it is health.Report.KeyCustody instead. An unresolvable key resolves
+	// BY ITSELF: the file comes back from the mount that dropped, the mode
+	// is corrected, the secrets manager answers again, and the fact is
+	// gone without this product doing anything. That is exactly the shape
+	// Dispatcher's model is built for: true for a while, resolves on its
+	// own, may genuinely recur. It passes the three tests every kind has
+	// to: it needs a human (nothing here can fix a path or a mode), it
+	// resolves when the underlying fact changes, and it names a backup
+	// set.
+	//
+	// What it must never suggest is that a copy was lost or written in
+	// the clear. internal/keycustody.AlertConditions composes the
+	// sentence, and it says refused, not failed.
+	EncryptionKeyUnresolvable Kind = "ENCRYPTION_KEY_UNRESOLVABLE"
 )
 
 // Kinds is every Kind this package can produce: §71's four in the order
-// it lists them, then EPIC K's two, then EPIC L's three, then EPIC Q's four. It exists so a
-// test (and a reader) can see the whole vocabulary in one place.
+// it lists them, then EPIC K's two, then EPIC L's three, then EPIC Q's
+// four, then EPIC N's one. It exists so a test (and a reader) can see the
+// whole vocabulary in one place.
 var Kinds = []Kind{
 	StaleBackup,
 	RepeatedFailure,
@@ -344,6 +372,7 @@ var Kinds = []Kind{
 	ScrubFailing,
 	RecoveryTestOverdue,
 	RecoveryTestFailing,
+	EncryptionKeyUnresolvable,
 }
 
 func (k Kind) String() string { return string(k) }
@@ -381,6 +410,8 @@ func (k Kind) title() string {
 		return "No recent recovery test"
 	case RecoveryTestFailing:
 		return "A recovery test failed"
+	case EncryptionKeyUnresolvable:
+		return "Encryption key cannot be resolved"
 	default:
 		return "retnd alert"
 	}

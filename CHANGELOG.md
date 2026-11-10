@@ -18,6 +18,15 @@ refused with a 400 unless it is narrowed.
 
 ### Added
 
+- **Managed key custody for encrypted retained copies** (#990). A new `core/internal/keycustody` package generates
+  the age X25519 identity that ADR 0027 selects, holds it as a 0600 file in a 0700 directory beside `config.yaml`
+  under the same custody rule `secretref` enforces, and gives every key a stable id with creation and retirement
+  times and a status. An external key is declared in `secretref`'s own shape and probed for whether it resolves,
+  never for what it is. A one-time recovery bundle carries the key with integrity metadata and plain instructions
+  (the stock `age` CLI opens a copy from it), and until someone confirms holding one the health report says so in a
+  new key custody section. A `required` set whose key cannot be resolved raises the new `ENCRYPTION_KEY_UNRESOLVABLE`
+  alert. Key create, rotate, bundle export and bundle confirm are new log events, each with a result. Nothing calls
+  it yet: the byte path, the routes and the CLI verbs are the issues after this one.
 - **The retained-copy encryption policy and its schema, ahead of the cipher** (#989, EPIC N). One new
   top-level `retained_copy_encryption:` key with `mode: off | required` and a `key_provider` that is
   either `managed: true` or an external `file`/`env`/`command` reference, plus a per-set
