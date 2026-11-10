@@ -5,7 +5,6 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import "@shared/design-system/components.css";
 import { ApiProvider } from "@shared/api/ApiContext";
@@ -110,7 +109,5 @@ describe("exported, not yet confirmed, read from the record and not from this se
     expect((await api.listEncryptionKeys())[0].bundleExportedAt).not.toBeNull();
     await api.confirmRecoveryBundle("mk-2026-11-09-a");
     expect((await api.listEncryptionKeys())[0].bundleConfirmed).toBe(true);
-    const user = userEvent.setup();
-    void user;
   });
 });
