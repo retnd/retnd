@@ -131,17 +131,22 @@ The first time the reference resolves, the product records the key as a registry
 (derived from the key's public recipient, so the same key reached through another reference is
 the same row), the recipient, a status and a created time. It never records the reference
 itself or the key. The reference is resolved only while a copy is written or verified, and a
-reference that does not resolve, is not an age identity or now yields a different key is
-refused before anything is encrypted or uploaded: no copy, no recorded class, nothing deleted.
+reference that does not resolve or is not an age identity is refused before anything is
+encrypted or uploaded: no copy, no recorded class, nothing deleted.
 
 An external key is yours to keep. It is not in the recovery bundle (a bundle is the one moment
 a managed key leaves this machine, and an external key already lives somewhere you chose), so
 `retnd encryption key export` refuses it, and it does not count towards the "no confirmed
-bundle" state. Opening a copy elsewhere is the stock `age` tool and your own key. Rotating
-registers the new key and moves the old one to `superseded`: the copies written under it keep
-decrypting through it, so **leave the old reference declared** (in the global provider or on a
-set), because a reference removed from the configuration is a key this deployment can no longer
-read. There is no KMS or Vault provider; an external `command` is as close as it gets.
+bundle" state. Opening a copy elsewhere is the stock `age` tool and your own key.
+
+The row records no reference, so the product cannot tell that a reference now yields a different
+key. If you point a reference at another key, new copies register that key as a new row and are
+written under it, and the copies already written stay recorded against the old row. They open
+only while some declared reference (the global provider or a set's) still yields the old key, so
+**keep the old reference declared** under a different name or path; one that is removed from the
+configuration is a key this deployment can no longer read. A verify of an old copy through a
+reference that now yields another key is refused and says so. There is no command that rotates an
+external key yet. There is no KMS or Vault provider; an external `command` is as close as it gets.
 
 ## The recovery bundle, and where it must not live
 
