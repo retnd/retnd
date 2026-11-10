@@ -352,6 +352,28 @@ const (
 	// how many callers waited behind it (#1247). It is what lets the next
 	// "context deadline exceeded" be traced to whatever held the journal.
 	EventJournalSlowHold = "journal_slow_hold"
+
+	// The four key-custody events are EPIC N's (#990), FR-23 catalog
+	// additions for the moments a managed encryption key's life changes.
+	// Each carries the key id and, for an export, the bundle digest; none
+	// can carry material, because the typed methods below take ids and
+	// digests and nothing else.
+
+	// EventKeyCreated records the first managed key being minted.
+	EventKeyCreated = "key_created"
+
+	// EventKeyRotated records a new active key superseding the previous
+	// one. Copies already written stay on the superseded key.
+	EventKeyRotated = "key_rotated"
+
+	// EventKeyBundleExported records a disaster-recovery bundle being
+	// written, with the digest a person later types back to confirm it.
+	EventKeyBundleExported = "key_bundle_exported"
+
+	// EventKeyBundleConfirmed records a person confirming they hold the
+	// bundle, which is what clears health.Report.KeyCustody's degraded
+	// state.
+	EventKeyBundleConfirmed = "key_bundle_confirmed"
 )
 
 // Startup logs EventStartup: binaryVersion and commit are normally the
@@ -1169,3 +1191,40 @@ func (l *Logger) RecoveryTest(ctx context.Context, f RecoveryTestFacts) {
 // builtinID says whether a validator id is the product's own built-in check
 // (config's reserved retnd- prefix, which obs cannot import).
 func builtinID(id string) bool { return strings.HasPrefix(id, "retnd-") }
+
+// KeyCreated logs EventKeyCreated for the managed key keyID. The result
+// says whether the mint completed; a refused mint (a key already active, a
+// directory whose custody drifted) is ResultError with the refusal in the
+// caller's own error path, never here.
+func (l *Logger) KeyCreated(ctx context.Context, keyID string, result Result) {
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventKeyCreated, "managed encryption key created",
+		slog.String("key_id", keyID),
+	)
+}
+
+// KeyRotated logs EventKeyRotated: keyID is now active and previousKeyID is
+// superseded.
+func (l *Logger) KeyRotated(ctx context.Context, previousKeyID, keyID string, result Result) {
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventKeyRotated, "managed encryption key rotated",
+		slog.String("previous_key_id", previousKeyID),
+		slog.String("key_id", keyID),
+	)
+}
+
+// KeyBundleExported logs EventKeyBundleExported for keyID with the bundle's
+// integrity digest. The digest is not secret and belongs here: it is what
+// lets an operator match the bundle in their hand to the export the log
+// records.
+func (l *Logger) KeyBundleExported(ctx context.Context, keyID, digest string, result Result) {
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventKeyBundleExported, "encryption key recovery bundle exported",
+		slog.String("key_id", keyID),
+		slog.String("digest", digest),
+	)
+}
+
+// KeyBundleConfirmed logs EventKeyBundleConfirmed for keyID.
+func (l *Logger) KeyBundleConfirmed(ctx context.Context, keyID string, result Result) {
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventKeyBundleConfirmed, "encryption key recovery bundle confirmed",
+		slog.String("key_id", keyID),
+	)
+}
