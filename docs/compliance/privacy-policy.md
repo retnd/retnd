@@ -78,6 +78,19 @@ through creating them.
   secret, so the value is resolved when a message is sent and is never written
   into the record, returned by the API or printed in a log. Both live beside the
   account in the state directory, and both are editable in Settings.
+- **Encrypted retained copies, only if the operator turns them on**: what is stored
+  changes shape for a backup set that requires it. The copy sent to a storage destination
+  is an `age` file instead of the artifact's own bytes, with a plain JSON sidecar beside it
+  that names the key (by id, never the key), the format, and the plaintext and stored digests
+  and sizes. The local copy is not encrypted, and object names on the destination are not
+  hidden. If the managed key is used, it is an owner-only file in a `retained_copy_keys`
+  directory beside the configuration, and the state database holds the key's id, public
+  recipient, status and times, and which recovery bundles were exported and confirmed. The
+  key itself is never in the database, a log, an API response, a metric or the activity
+  feed. The **recovery bundle** is the one deliberate moment the key leaves the machine:
+  the operator exports it to a file they choose and keeps it themselves. Nothing is sent to
+  us or to anyone else, and there is no copy of the key anywhere the operator did not put
+  it, which is also why a lost key cannot be recovered by anybody.
 
 ## Personal data
 
@@ -112,7 +125,8 @@ claim that decays silently.
 
 Removing the app and deleting the state, config and secrets directories the
 platform's acceptance procedure created removes everything retnd
-stored. There is nothing held anywhere else, so there is no deletion request to
+stored (a managed encryption key included, which is under the config directory;
+a recovery bundle the operator exported is theirs and is somewhere they chose). There is nothing held anywhere else, so there is no deletion request to
 make of anybody and nobody to make it to.
 
 ## Changes

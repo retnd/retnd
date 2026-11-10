@@ -19,15 +19,15 @@
   ],
   "what_is_in_here": "One entry per CONFIGURATION field: something that changes what this deployment is, and that persists. Purely operational CLI flags are deliberately excluded, because they select an action rather than configure anything: --dry-run, --json, --limit, --follow, --scope, --severity, --source/--backup-set filters, --note, --content, --days, --medium, --acknowledge, --acknowledge-repoint, --acknowledge-host-key-change, --acknowledge-medium-disclosure, --release, --run, --inherit, --candidate, --stdin, --policy-file and --tier/--tier-medium as a preview override. Where such a flag is the only way to write a persistent field (--no-verify writing connection_unverified, --policy-file and --tier writing a retention chain) it is listed on that field instead.",
   "summary": {
-    "total": 121,
-    "ui_already": 49,
+    "total": 131,
+    "ui_already": 59,
     "ui_to_add": 28,
     "file_only": 44,
     "by_scope": {
       "auth_smtp": 9,
-      "backup_set": 46,
+      "backup_set": 51,
       "capacity": 5,
-      "deployment": 32,
+      "deployment": 37,
       "medium": 13,
       "retention": 13,
       "source": 2,
@@ -39,8 +39,8 @@
       "deployment": 6,
       "source": 1
     },
-    "yaml_fields": 94,
-    "cli_reachable": 70,
+    "yaml_fields": 104,
+    "cli_reachable": 80,
     "env_reachable": 14
   },
   "known_asymmetries": [
@@ -211,6 +211,186 @@
         "configurable": false,
         "location": null,
         "recommendation": "file-only: an executable this service runs; a browser-settable command line is arbitrary code execution on the host"
+      }
+    },
+    {
+      "field": "retained_copy_encryption.mode",
+      "yaml_path": "retained_copy_encryption.mode",
+      "cli_flags": [
+        "encryption policy patch --mode"
+      ],
+      "env": [],
+      "type": "enum off|required",
+      "default": "\"\" (absent: every set resolves to off)",
+      "required": false,
+      "scope": "deployment",
+      "description": "Whether retained copies written to a storage medium are encrypted, deployment-wide. required with no usable key_provider is refused at load. Writing the key is a one-way door: a build before EPIC N refuses the file (#989).",
+      "ui": {
+        "configurable": true,
+        "location": "Settings > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "retained_copy_encryption.key_provider.managed",
+      "yaml_path": "retained_copy_encryption.key_provider.managed",
+      "cli_flags": [
+        "encryption policy patch --managed"
+      ],
+      "env": [],
+      "type": "bool",
+      "default": "false",
+      "required": false,
+      "scope": "deployment",
+      "description": "The key is the product's own managed key (a 0600 file under retained_copy_keys beside config.yaml). Exactly one of managed or external.",
+      "ui": {
+        "configurable": true,
+        "location": "Settings > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "retained_copy_encryption.key_provider.external.file",
+      "yaml_path": "retained_copy_encryption.key_provider.external.file",
+      "cli_flags": [
+        "encryption policy patch --external-file"
+      ],
+      "env": [],
+      "type": "string (path)",
+      "default": "\"\"",
+      "required": false,
+      "scope": "deployment",
+      "description": "External key reference (file), the secretref shape. Write-only: the API and CLI read it back as a description of its source. This build tests such a reference but cannot yet write copies under one.",
+      "ui": {
+        "configurable": true,
+        "location": "Settings > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "retained_copy_encryption.key_provider.external.env",
+      "yaml_path": "retained_copy_encryption.key_provider.external.env",
+      "cli_flags": [
+        "encryption policy patch --external-env"
+      ],
+      "env": [],
+      "type": "string (env var NAME)",
+      "default": "\"\"",
+      "required": false,
+      "scope": "deployment",
+      "description": "External key reference (env), the secretref shape. Write-only: the API and CLI read it back as a description of its source. This build tests such a reference but cannot yet write copies under one.",
+      "ui": {
+        "configurable": true,
+        "location": "Settings > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "retained_copy_encryption.key_provider.external.command",
+      "yaml_path": "retained_copy_encryption.key_provider.external.command",
+      "cli_flags": [
+        "encryption policy patch --external-command"
+      ],
+      "env": [],
+      "type": "[]string (argv)",
+      "default": "[] ",
+      "required": false,
+      "scope": "deployment",
+      "description": "External key reference (command), the secretref shape. Write-only: the API and CLI read it back as a description of its source. This build tests such a reference but cannot yet write copies under one.",
+      "ui": {
+        "configurable": true,
+        "location": "Settings > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "sources[].backup_sets[].retained_copy_encryption.mode",
+      "yaml_path": "sources[].backup_sets[].retained_copy_encryption.mode",
+      "cli_flags": [
+        "encryption backup-set --mode"
+      ],
+      "env": [],
+      "type": "enum inherit|off|required",
+      "default": "inherit",
+      "required": false,
+      "scope": "backup_set",
+      "description": "One backup set's own answer to retained-copy encryption; inherit follows the deployment. An incremental (kopia) set draws the control disabled, since its repository is already encrypted.",
+      "ui": {
+        "configurable": true,
+        "location": "Backup set detail > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "sources[].backup_sets[].retained_copy_encryption.key_provider.managed",
+      "yaml_path": "sources[].backup_sets[].retained_copy_encryption.key_provider.managed",
+      "cli_flags": [
+        "encryption backup-set --managed"
+      ],
+      "env": [],
+      "type": "bool",
+      "default": "false",
+      "required": false,
+      "scope": "backup_set",
+      "description": "The set's own override to use the managed key. The per-set surface is mode and key_provider and nothing else.",
+      "ui": {
+        "configurable": true,
+        "location": "Backup set detail > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "sources[].backup_sets[].retained_copy_encryption.key_provider.external.file",
+      "yaml_path": "sources[].backup_sets[].retained_copy_encryption.key_provider.external.file",
+      "cli_flags": [
+        "encryption backup-set --external-file"
+      ],
+      "env": [],
+      "type": "string (path)",
+      "default": "\"\"",
+      "required": false,
+      "scope": "backup_set",
+      "description": "The set's own external key reference (file). Write-only, as at the deployment level.",
+      "ui": {
+        "configurable": true,
+        "location": "Backup set detail > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "sources[].backup_sets[].retained_copy_encryption.key_provider.external.env",
+      "yaml_path": "sources[].backup_sets[].retained_copy_encryption.key_provider.external.env",
+      "cli_flags": [
+        "encryption backup-set --external-env"
+      ],
+      "env": [],
+      "type": "string (env var NAME)",
+      "default": "\"\"",
+      "required": false,
+      "scope": "backup_set",
+      "description": "The set's own external key reference (env). Write-only, as at the deployment level.",
+      "ui": {
+        "configurable": true,
+        "location": "Backup set detail > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "sources[].backup_sets[].retained_copy_encryption.key_provider.external.command",
+      "yaml_path": "sources[].backup_sets[].retained_copy_encryption.key_provider.external.command",
+      "cli_flags": [
+        "encryption backup-set --external-command"
+      ],
+      "env": [],
+      "type": "[]string (argv)",
+      "default": "[] ",
+      "required": false,
+      "scope": "backup_set",
+      "description": "The set's own external key reference (command). Write-only, as at the deployment level.",
+      "ui": {
+        "configurable": true,
+        "location": "Backup set detail > Retained-copy encryption",
+        "recommendation": null
       }
     },
     {

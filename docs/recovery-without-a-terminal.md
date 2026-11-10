@@ -431,12 +431,19 @@ nothing can recreate the key.
 This is the one procedure here that needs a terminal, on the machine you recover on, because
 the deployment that would have offered a button is the thing that is gone.
 
-1. Find the bundle for the key id the sidecar names. Check its integrity digest against
-   the one you were shown when you exported it.
+1. Find the bundle for the key id the sidecar names. Its `digest` field should be the
+   digest you were shown when you exported it (the export receipt prints the same value).
+   That compares the file with what you saved; it does not recompute anything for you.
 2. Put the bundle's key in a file only you can read, on the machine you are recovering on.
-3. Open the copy with the shipped binary, or with the `age` command line tool from any
-   package manager, which reads the same format:
+   The key is the value of the bundle's `material` field, one line that starts
+   `AGE-SECRET-KEY-1`. The bundle itself is JSON, so copy that one line out into
+   `key.txt` rather than pointing `age` at the bundle.
+3. Open the copy with the `age` command line tool from any package manager, which reads
+   the same format:
    `age -d -i key.txt <object> > <artifact-name>`
+   This build of the product has no command of its own that decrypts a copy, so `age` is
+   the way. (The bundle's own printed instructions mention the shipped binary doing it; that
+   is ahead of the code today, and the `age` line above is the one that works.)
 4. Compare the result with the plaintext digest the sidecar records
    (`plaintext_digest`, with the algorithm it names). A match is the proof the copy opened
    to the artifact; no match means you used the wrong key or the object is damaged.
@@ -444,6 +451,10 @@ the deployment that would have offered a button is the thing that is gone.
 Write the output to a temporary name and rename it once the command has finished. `age`
 releases each authenticated chunk as it goes, so an interrupted run leaves a short file that
 looks like an artifact and is not.
+
+There is no way back if the bundle and the host are both gone. How to keep the bundle, what
+rotation does to it, and what the copies cost are in
+[encrypted copies](encrypted-copies.md).
 
 ## When none of these is it
 
