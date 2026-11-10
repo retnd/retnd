@@ -333,12 +333,16 @@ func (s *Store) Health(ctx context.Context, enabled bool) (health.KeyCustodyHeal
 			confirmedAt[c.KeyID] = c.ConfirmedAt
 		}
 	}
+	var externalActive string
 	for _, k := range keys {
 		if k.Status == StatusRetired {
 			continue
 		}
 		if k.Provider == ProviderExternal {
 			// The operator holds an external key; there is no bundle to confirm.
+			if k.Status == StatusActive && externalActive == "" {
+				externalActive = k.ID
+			}
 			continue
 		}
 		at, confirmed := confirmedAt[k.ID]
@@ -353,6 +357,13 @@ func (s *Store) Health(ctx context.Context, enabled bool) (health.KeyCustodyHeal
 		if !confirmed {
 			h.UnconfirmedKeyIDs = append(h.UnconfirmedKeyIDs, k.ID)
 		}
+	}
+	if h.ActiveKeyID == "" && externalActive != "" {
+		// An external-only deployment: the operator holds the key, so there
+		// is no managed key to be active and no bundle to confirm. Whether
+		// the reference resolves is the alert condition's, not this state's.
+		h.ActiveKeyID = externalActive
+		h.BundleConfirmed = true
 	}
 	return h, nil
 }

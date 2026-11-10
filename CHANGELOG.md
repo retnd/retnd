@@ -36,8 +36,9 @@
   'external'`, the recipient, a status, a time; an id derived from the recipient, so one key is one row
   whatever reference reaches it), so re-home, decrypt-verify and scrub, which already take a key id, are
   unchanged. The reference is resolved only inside the callback that encrypts or verifies; one that does not
-  resolve, is not an age identity or now yields a different key is refused before anything is encrypted or
-  uploaded, with no class recorded. An external key is not exported in a recovery bundle and does not count
+  resolve or is not an age identity is refused before anything is encrypted or uploaded, with no class
+  recorded. A reference that is pointed at another key registers that key as a new row; copies already
+  written open only while a reference yielding the old key stays declared. An external key is not exported in a recovery bundle and does not count
   towards the unconfirmed-bundle state. No migration change.
 
 - **The retained-copy encryption policy and its schema, ahead of the cipher** (#989, EPIC N). One new

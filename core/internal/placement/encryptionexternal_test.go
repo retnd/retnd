@@ -197,9 +197,10 @@ func TestAnExternalKeyThatDoesNotResolveIsRefusedBeforeAnyUpload_1292(t *testing
 }
 
 // The reference starts yielding a different key after copies were written:
-// the next copy is not written under a key the registry does not know, and
-// verifying the old copy through its recorded id fails closed.
-func TestAnExternalKeyThatChangedUnderItsReferenceIsNeverUsedForANewRow_1292(t *testing.T) {
+// verifying the old copy through its recorded id fails closed and the
+// callback is never called. (A new copy would register the new key as its
+// own row; the registry keeps no reference to compare against.)
+func TestAnExternalKeyThatChangedUnderItsReferenceIsNotHandedOutForTheOldRow_1292(t *testing.T) {
 	f, keys, ref, _ := newExternalFixture(t)
 	f.runCycle()
 	f.guard.fail()
