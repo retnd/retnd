@@ -221,8 +221,9 @@ func (e *Engine) discardEncryptedStaging(ctx context.Context, mv state.Move) err
 // encryption. Only the content class can say an encrypted copy is the
 // artifact, so any other class is refused (no retry can change that), and
 // the archive gate in front of a read is asked exactly as it is for a
-// plaintext copy.
-func (e *Engine) verifyEncrypted(ctx context.Context, mv state.Move, medium transport.Medium, want Class, candidate state.Placement, gated bool) (Result, Class, error) {
+// plaintext copy. obs is the observation verifyCopy took (the one place
+// allowed to), so this file never calls observe itself.
+func (e *Engine) verifyEncrypted(ctx context.Context, mv state.Move, medium transport.Medium, want Class, candidate state.Placement, gated bool, obs archive.Observation) (Result, Class, error) {
 	if want != Content {
 		return Result{}, want, fmt.Errorf("%w: %s verification cannot show that an encrypted copy decrypts to the artifact, and nothing weaker than a completed decrypt-verify may stand in for content",
 			ErrClassRefused, want)
@@ -232,7 +233,6 @@ func (e *Engine) verifyEncrypted(ctx context.Context, mv state.Move, medium tran
 		return Result{}, want, err
 	}
 	if gated {
-		obs := e.observe(ctx, medium, mv.DestinationKey, medium.StorageClass)
 		access, err := archive.Access(candidate.Medium, medium.StorageClass, obs, e.now())
 		if err != nil {
 			return Result{}, want, fmt.Errorf("%w: %w", ErrClassUnavailable, err)

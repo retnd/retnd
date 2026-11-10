@@ -1032,7 +1032,11 @@ func (e *Engine) verifyCopy(ctx context.Context, mv state.Move, src state.Placem
 	if on, err := e.encryptedSet(mv.Artifact.Set); err != nil {
 		return Result{}, want, err
 	} else if on {
-		return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated)
+		var obs archive.Observation
+		if gated {
+			obs = e.observe(ctx, medium, mv.DestinationKey, medium.StorageClass)
+		}
+		return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated, obs)
 	}
 	if !gated {
 		res, err := Verify(ctx, e.Store, medium, candidate, want, e.now())
