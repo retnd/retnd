@@ -39,7 +39,6 @@ import (
 	"github.com/retnd/retnd/core/internal/backend"
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/obs"
-	"github.com/retnd/retnd/core/internal/placement"
 	"github.com/retnd/retnd/core/internal/state"
 	"github.com/retnd/retnd/core/internal/transport"
 	"github.com/retnd/retnd/core/internal/transport/rclone"
@@ -102,13 +101,6 @@ type BackupService struct {
 	// It is also what inner.Keys holds, so the engine, a scrub and the
 	// encryption routes all reach one custodian.
 	keys *KeyCustody
-
-	// retireJournal stands in for the journal in a key retirement. Nil, which
-	// is every real process, means "the journal itself, when it carries the
-	// retirement transaction" (RetireEncryptionKey). It exists so the
-	// refusal that names the copies can be driven before state.Journal gains
-	// ActivePlacementsRecordingKey and RetireEncryptionKey (#989).
-	retireJournal placement.KeyJournal
 
 	// rootDefault is where this process looks for a workflow root when
 	// config.yaml names none (#1246). Zero, which New leaves it, looks

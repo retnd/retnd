@@ -56,11 +56,6 @@ var (
 	// key cannot be resolved right now, before any byte is read from a
 	// medium that may bill for egress.
 	ErrEncryptionKeyUnresolvable = errors.New("service: the key this copy was encrypted under cannot be resolved")
-
-	// ErrEncryptionRetireUnavailable is the retirement refusal for a journal
-	// that does not yet carry the retirement transaction (state.Journal's
-	// ActivePlacementsRecordingKey and RetireEncryptionKey).
-	ErrEncryptionRetireUnavailable = errors.New("service: this build's journal cannot retire a key yet")
 )
 
 var (
@@ -398,20 +393,11 @@ func (b *BackupService) RotateEncryptionKey(ctx context.Context) (_ apicontract.
 }
 
 // RetireEncryptionKey is POST /encryption/keys/{id}/retire. It is
-// placement.RetireKey, which refuses naming the copies while an ACTIVE copy
-// still records the key. A journal without the retirement transaction
-// refuses with ErrEncryptionRetireUnavailable instead of retiring without
-// the check.
+// placement.RetireKey over the journal, which refuses naming the copies while
+// an ACTIVE copy still records the key.
 func (b *BackupService) RetireEncryptionKey(ctx context.Context, id string) (_ apicontract.EncryptionKeyStatus, err error) {
 	defer func() { err = classifyEncryption(err) }()
-	kj := b.retireJournal
-	if kj == nil {
-		var ok bool
-		if kj, ok = any(b.journal).(placement.KeyJournal); !ok {
-			return apicontract.EncryptionKeyStatus{}, ErrEncryptionRetireUnavailable
-		}
-	}
-	if err := placement.RetireKey(ctx, kj, b.logger, id, now()); err != nil {
+	if err := placement.RetireKey(ctx, b.journal, b.logger, id, now()); err != nil {
 		return apicontract.EncryptionKeyStatus{}, err
 	}
 	store, err := b.keys.Store(ctx)

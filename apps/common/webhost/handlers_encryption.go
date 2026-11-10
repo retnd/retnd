@@ -339,7 +339,7 @@ func (h *handlers) writeEncryptionError(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusNotFound, "ARTIFACT_NOT_FOUND", msg)
 	case errors.Is(err, service.ErrScrubRunning):
 		writeError(w, http.StatusConflict, "OPERATION_ALREADY_RUNNING", msg)
-	case errors.Is(err, service.ErrEncryptionRetireUnavailable), errors.Is(err, service.ErrConfigNotFileBacked):
+	case errors.Is(err, service.ErrConfigNotFileBacked):
 		writeError(w, http.StatusServiceUnavailable, "ENCRYPTION_UNAVAILABLE", msg)
 	default:
 		h.writeAssuranceError(w, r, err, internal)
