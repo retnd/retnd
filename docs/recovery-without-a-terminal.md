@@ -410,6 +410,41 @@ older, better result as if it were current.
 
 ---
 
+## 6. An encrypted copy has to be opened on a machine with no state
+
+### What you see
+
+The deployment is gone (state, configuration, the application), the backup bucket is
+intact, and the objects in it are encrypted copies.
+
+### What it means
+
+An encrypted copy is an `age` v1 file and nothing else. It does not need this product, its
+catalog or its state to be opened. It needs the key it was written under, and that key
+exists in exactly one place off the host: the recovery bundle that was exported when the
+key was created. Which key a copy needs is written in the copy's sidecar (`key_id`) and in
+the bundle's own metadata. Losing the bundle and the host together loses the copies, and
+nothing can recreate the key.
+
+### What to do
+
+This is the one procedure here that needs a terminal, on the machine you recover on, because
+the deployment that would have offered a button is the thing that is gone.
+
+1. Find the bundle for the key id the sidecar names. Check its integrity digest against
+   the one you were shown when you exported it.
+2. Put the bundle's key in a file only you can read, on the machine you are recovering on.
+3. Open the copy with the shipped binary, or with the `age` command line tool from any
+   package manager, which reads the same format:
+   `age -d -i key.txt <object> > <artifact-name>`
+4. Compare the result with the plaintext digest the sidecar records
+   (`plaintext_digest`, with the algorithm it names). A match is the proof the copy opened
+   to the artifact; no match means you used the wrong key or the object is damaged.
+
+Write the output to a temporary name and rename it once the command has finished. `age`
+releases each authenticated chunk as it goes, so an interrupted run leaves a short file that
+looks like an artifact and is not.
+
 ## When none of these is it
 
 - **The interface loads but every page is empty or errors.** The web interface and the

@@ -27,4 +27,9 @@ describe("sectionForHash (#1188)", () => {
   it("builds links from the same table", () => {
     expect(settingsLink("assurance")).toBe("/settings#assurance");
   });
+
+  it("knows the retained-copy encryption card (#995), which the Dashboard rows link to", () => {
+    expect(sectionForHash("#encryption")).toBe("encryption");
+    expect(settingsLink("encryption")).toBe("/settings#encryption");
+  });
 });

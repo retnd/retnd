@@ -29,6 +29,7 @@ import type { CycleOutcome, SystemHealth } from "@shared/types/operation";
 import { Banner } from "@shared/components/Banner";
 import { PageHeader } from "@shared/components/PageHeader";
 import { HealthSummary } from "@shared/components/HealthSummary";
+import { EncryptionHealthRows } from "@shared/encryption/EncryptionHealthRows";
 import { MetricCard } from "@shared/components/MetricCard";
 import { StorageGauge } from "@shared/components/StorageGauge";
 import { OperationProgress } from "@shared/components/OperationProgress";
@@ -254,6 +255,8 @@ export function DashboardPage({
       ) : null}
 
       {h ? <HealthSummary health={h} /> : null}
+
+      {h ? <EncryptionHealthRows /> : null}
 
       {h ? (
         <section className="card" aria-label="Key metrics">

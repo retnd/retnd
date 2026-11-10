@@ -124,9 +124,10 @@ func (s *Service) moveEngine() (*placement.Engine, error) {
 			"app: this deployment's journal (%T) cannot record a move, so FR-30's durable-intent-before-every-side-effect ordering has nowhere to live", s.Journal)
 	}
 
-	return &placement.Engine{
+	engine := &placement.Engine{
 		Journal: journal,
 		Store:   s.MediumStore,
+		Logger:  s.Logger,
 		// The local end of a move addresses full paths that came from the
 		// journal or from the destination backup set's OWN store
 		// (placement.localArtifactPath, and placement.stagingPath for the
@@ -143,7 +144,11 @@ func (s *Service) moveEngine() (*placement.Engine, error) {
 		Tiers:            TierGuard{Service: s},
 		Now:              s.now,
 		MaxMovesPerCycle: s.Config.EffectiveMaxMovesPerCycle(),
-	}, nil
+	}
+	if keys, ok := s.Keys.(placement.Keys); ok {
+		engine.Keys = keys
+	}
+	return engine, nil
 }
 
 // backupSetsOf implements placement.BackupSets over a Service's own loaded

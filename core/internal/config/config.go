@@ -148,9 +148,28 @@ type Config struct {
 	AssuranceBlock *AssuranceBlock `yaml:"assurance,omitempty"`
 	// Assurance is the resolved deployment-wide policy, filled by
 	// Validate. Read this, never the pointer above.
-	Assurance     AssuranceDefaults `yaml:"-"`
-	Capacity      Capacity          `yaml:"capacity,omitempty"`
-	KeyEncryption KeyEncryption     `yaml:"key_encryption,omitempty"`
+	Assurance AssuranceDefaults `yaml:"-"`
+
+	// RetainedCopyEncryptionBlock is the deployment-wide retained-copy
+	// encryption policy (EPIC N, N1.1 / FR-59): mode and key_provider,
+	// see retainedcopyencryption.go. Nil means "the operator wrote
+	// nothing", which resolves to off, and omitempty keeps a config that
+	// never mentions it byte-identical through a re-marshal. A config
+	// carrying the key is refused by an older build under Load's
+	// KnownFields(true); the CHANGELOG names that door with the version.
+	//
+	// It is deliberately NOT a second meaning for KeyEncryption below.
+	// That field protects secret material this manager persists (#298,
+	// the SSH key store); this one decides whether the copies the
+	// artifact engine writes to a medium are readable to whoever holds
+	// the medium. ADR 0027 has the argument for keeping them apart.
+	RetainedCopyEncryptionBlock *RetainedCopyEncryptionBlock `yaml:"retained_copy_encryption,omitempty"`
+	// RetainedCopyEncryption is the resolved deployment-wide policy,
+	// filled by Validate. Read this, never the pointer above.
+	RetainedCopyEncryption RetainedCopyEncryption `yaml:"-"`
+
+	Capacity      Capacity      `yaml:"capacity,omitempty"`
+	KeyEncryption KeyEncryption `yaml:"key_encryption,omitempty"`
 
 	// IncrementalEngine is EPIC K's production feature gate (#789): does
 	// this deployment run the incremental engine at all.
@@ -879,6 +898,20 @@ type BackupSet struct {
 	// inheriting set goes on deciding under the old policy.
 	AssuranceConfig *AssuranceOverride `yaml:"assurance,omitempty"`
 	Assurance       Assurance          `yaml:"-"`
+
+	// RetainedCopyEncryptionConfig is this set's own retained-copy
+	// encryption override (EPIC N, N1.1 / FR-59), in the same three-field
+	// pattern: nil means inherit the deployment's policy, and the block's
+	// whole surface is mode (inherit | off | required) and key_provider.
+	// There is no per-set rotation cadence, format or chunk size, and
+	// there will not be: a format is a property of the build recorded per
+	// copy, a cadence is a property of a key, and neither is a property of
+	// a backup set. RetainedCopyEncryption below is the resolved answer
+	// Validate fills, and every consumer reads that, never this pointer.
+	// Any mutation of the global block must be followed by Validate, or
+	// every inheriting set goes on deciding under the old policy.
+	RetainedCopyEncryptionConfig *RetainedCopyEncryptionOverride `yaml:"retained_copy_encryption,omitempty"`
+	RetainedCopyEncryption       RetainedCopyEncryption          `yaml:"-"`
 
 	// ReadOnly is the fully-resolved answer to "may this backup set's
 	// remote source ever be deleted", filled in by Validate from

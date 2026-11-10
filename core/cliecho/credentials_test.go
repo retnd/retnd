@@ -294,6 +294,17 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 
 	"--note": "the operator's own note on a retry, which they wrote and can read back",
 
+	// Retained-copy encryption (#993). Each is a word from a closed
+	// vocabulary, a source DESCRIPTION (a path, the NAME of a variable) or an
+	// id the deployment minted. A key reference's command is never one of
+	// them: it is a placeholder, because its arguments are not a source
+	// description.
+	"--mode":          "off, inherit or required: the policy the operator chose",
+	"--external-file": "a PATH to the file the key is read from, never its contents",
+	"--external-env":  "the NAME of the environment variable the key is read from, never its value",
+	"--managed-key":   "an id this deployment minted for a managed key, never the key",
+	"--digest":        "the digest an export printed, which names a bundle and is not the key",
+
 	// EPIC K's snapshot verbs (#788). Every one of these is a value the
 	// operator themselves supplied and has to be able to retype: a
 	// restore that landed somewhere they cannot name is a restore they
@@ -405,7 +416,7 @@ var flagRoutes = map[string][]string{
 	"--level":                       {"POST /operations"},
 	"--local-path":                  {"PATCH /backup-sets/{source}/{set}", "POST /backup-sets", "POST /system/first-run"},
 	"--location":                    {"POST /repositories"},
-	"--medium":                      {"POST /operations"},
+	"--medium":                      {"POST /encryption/verify", "POST /operations"},
 	"--note":                        {"POST /backups/{source}/{set}/{name}/retry"},
 	"--owner":                       {"POST /repositories"},
 	"--passphrase-env":              {"POST /repositories"},
@@ -442,6 +453,11 @@ var flagRoutes = map[string][]string{
 	"--validator-id":                {"PATCH /backup-sets/{source}/{set}", "POST /backup-sets", "POST /system/first-run"},
 	"--verification-level":          {"PATCH /backup-sets/{source}/{set}", "POST /backup-sets", "POST /system/first-run"},
 	"--week-starts-on":              {"PATCH /settings", "PUT /backup-sets/{source}/{set}/retention"},
+	"--digest":                      {"POST /encryption/keys/{id}/confirm"},
+	"--external-env":                {"PATCH /encryption/policy", "POST /encryption/providers/test", "PUT /backup-sets/{source}/{set}/encryption"},
+	"--external-file":               {"PATCH /encryption/policy", "POST /encryption/providers/test", "PUT /backup-sets/{source}/{set}/encryption"},
+	"--managed-key":                 {"POST /encryption/providers/test"},
+	"--mode":                        {"PATCH /encryption/policy", "PUT /backup-sets/{source}/{set}/encryption"},
 }
 
 // operandsThatNameTheSubject is the same list for the positional argument
@@ -463,6 +479,7 @@ var operandsThatNameTheSubject = map[string]string{
 	"POST /ssh/host-key-probe":          "the host being probed, which the operator typed and has to type again (issue #1153)",
 	"POST /assurance/validators":        "the custom validator's own name, NAME in NAME.local.sh (issue #1203)",
 	"POST /assurance/validator-preview": "the name of the custom validator being edited, when the preview is for an edit (issue #1203)",
+	"POST /encryption/verify":           "the backup id (source/set/name) whose encrypted copy is being decrypt-verified (#993)",
 }
 
 // A credential in an endpoint URL, which is the leak the name-based test

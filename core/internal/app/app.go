@@ -220,6 +220,15 @@ type Service struct {
 	// rather than a nil-pointer panic.
 	Transport transport.Transport
 
+	// Keys is key custody for encrypted retained copies (EPIC N). Catalog
+	// rebuild asks it only which key ids are registered. Anything that also
+	// satisfies placement.Keys (a *keycustody.Store does) is handed to the
+	// move engine and to scrub, which use it to encrypt new copies and to
+	// decrypt-verify on request. Nil is every deployment that encrypts
+	// nothing, and what the engine does with a set that requires encryption
+	// and no custody is refuse before anything is encrypted or uploaded.
+	Keys KeyRegistry
+
 	// Logger is the FR-23 structured-observability sink. A nil Logger is a
 	// safe no-op everywhere (see internal/obs's package doc), so leaving
 	// this unset is always safe, just silent.

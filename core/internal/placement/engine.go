@@ -15,6 +15,7 @@ import (
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/lifecycle"
 	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/obs"
 	"github.com/retnd/retnd/core/internal/state"
 	"github.com/retnd/retnd/core/internal/transport"
 )
@@ -184,6 +185,17 @@ type Engine struct {
 	Mediums MediumResolver
 	Sets    BackupSets
 	Tiers   TierGuard
+
+	// Keys is key custody, consulted only for a backup set whose resolved
+	// retained_copy_encryption is "required" (encryption.go). Nil with such
+	// a set is ErrClassUnavailable at the copy phase, before anything is
+	// encrypted or uploaded.
+	Keys Keys
+
+	// Logger receives the four encrypted-copy stage events (encrypting,
+	// uploading, verifying the stored bytes, decrypt-verifying), once per
+	// copy per stage and never per chunk (#992). Nil is silent.
+	Logger *obs.Logger
 
 	// Now is the clock. Nil means time.Now.
 	Now func() time.Time
@@ -850,6 +862,13 @@ func (e *Engine) copy(ctx context.Context, mv state.Move) (state.Move, error) {
 // never there. copyMediumToMedium and its staging copy are what that
 // costs to fix properly (#429, staging.go).
 func (e *Engine) copyToMedium(ctx context.Context, mv state.Move, src state.Placement) (int64, error) {
+	on, err := e.encryptedSet(mv.Artifact.Set)
+	if err != nil {
+		return 0, err
+	}
+	if on {
+		return e.copyEncryptedToMedium(ctx, mv, src)
+	}
 	if e.Store == nil {
 		return 0, fmt.Errorf("no medium store is configured")
 	}
@@ -873,6 +892,11 @@ func (e *Engine) copyToMedium(ctx context.Context, mv state.Move, src state.Plac
 // linked the final name has done its job, and the verify phase is what
 // decides whether those bytes are the artifact.
 func (e *Engine) copyToLocal(ctx context.Context, mv state.Move, src state.Placement) (int64, error) {
+	if enc, err := e.sourceIsEncrypted(ctx, mv.Artifact, src.Medium); err != nil {
+		return 0, err
+	} else if enc {
+		return 0, refuseEncryptedMove(mv.Artifact, src.Medium)
+	}
 	if e.Local == nil {
 		return 0, fmt.Errorf("no local store is configured")
 	}
@@ -1011,14 +1035,47 @@ func (e *Engine) verifyCopy(ctx context.Context, mv state.Move, src state.Placem
 	if e.Store == nil {
 		return Result{}, want, fmt.Errorf("no medium store is configured")
 	}
+	// A destination holds ciphertext when the source copy did (a re-home,
+	// opened through the key recorded against the source) or when the set
+	// requires encryption (a fresh copy, opened through the active key).
+	srcEnc, srcEncrypted, err := e.encryptionOf(ctx, mv.Artifact, src.Medium)
+	if err != nil {
+		return Result{}, want, err
+	}
+	// observe spends a restore-status call only for a class that needs
+	// one, so a STANDARD destination costs exactly what it cost before. It
+	// is asked here, once, for every kind of destination, because only this
+	// function and two others are allowed to ask it (destructive_test.go).
+	var observed archive.Observation
+	if gated {
+		observed = e.observe(ctx, medium, mv.DestinationKey, medium.StorageClass)
+	}
+	if srcEncrypted {
+		return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated, srcEnc.KeyID, observed)
+	}
+	if on, err := e.encryptedSet(mv.Artifact.Set); err != nil {
+		return Result{}, want, err
+	} else if on {
+		// Once the destination has its own record (after the VERIFIED
+		// advance, which is when the pre-delete re-read runs), it is opened
+		// through the key recorded for it. The active key is only right for
+		// the first verification, before any record exists: a rotation in
+		// between would otherwise fail a good copy.
+		dstEnc, dstEncrypted, err := e.encryptionOf(ctx, mv.Artifact, mv.DestinationMedium)
+		if err != nil {
+			return Result{}, want, err
+		}
+		keyID := ""
+		if dstEncrypted {
+			keyID = dstEnc.KeyID
+		}
+		return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated, keyID, observed)
+	}
 	if !gated {
 		res, err := Verify(ctx, e.Store, medium, candidate, want, e.now())
 		return res, want, err
 	}
-	// observe spends a restore-status call only for a class that needs
-	// one, so a STANDARD destination costs exactly what it cost before.
-	obs := e.observe(ctx, medium, mv.DestinationKey, medium.StorageClass)
-	res, err := VerifyWithAccess(ctx, e.Store, medium, candidate, want, obs, e.now())
+	res, err := VerifyWithAccess(ctx, e.Store, medium, candidate, want, observed, e.now())
 	return res, want, err
 }
 
@@ -1062,17 +1119,27 @@ func (e *Engine) verifyLocalCopy(ctx context.Context, p state.Placement) (Result
 // worked the two agree; where they disagree the journal should describe
 // the object that is really at the key rather than the one that was
 // expected, and this row is what the guard before the source delete reads.
-// Everything else comes from the source row, since a copy is the same
-// bytes under the same hash, and the class comes from the Result, which
-// carries the rung that RAN.
+// Everything else comes from the source row: the hash it carries is the
+// artifact's digest, and that is what every placements row has always
+// held (0015's header corrects 0007's "for this copy" wording). Under
+// retained-copy encryption the destination's bytes are not the source's,
+// and the digest of what is actually at the key goes in the per-copy
+// encryption record (state.PlacementEncryption), which #991 writes in the
+// same transaction as this row; it is never written into Hash. The class
+// comes from the Result, which carries the rung that RAN.
 func (e *Engine) destinationPlacement(mv state.Move, src state.Placement, result Result) state.PlacementUpdate {
 	verified := result.At
 	size := src.Size
-	if mv.BytesCopied != nil {
+	if mv.BytesCopied != nil && result.Encryption == nil {
+		// Only for a plaintext copy: the bytes that arrived are the
+		// artifact's bytes. For an encrypted one they are the ciphertext,
+		// and placements.size_bytes stays the artifact's size, so the two
+		// sizes are never confused (the stored size is in the record).
 		copied := *mv.BytesCopied
 		size = &copied
 	}
 	return state.PlacementUpdate{
+		Encryption:        result.Encryption,
 		Medium:            mv.DestinationMedium,
 		Location:          mv.DestinationKey,
 		Size:              size,
@@ -1100,6 +1167,13 @@ func (e *Engine) intendSourceDelete(ctx context.Context, mv state.Move) (state.M
 	src, ok := placementOn(rec, mv.SourceMedium)
 	if !ok {
 		return mv, fmt.Errorf("placement: %s has no placement on %q to delete", mv.Artifact, mv.SourceMedium)
+	}
+	// Before the source is marked for deletion, an encrypted destination is
+	// written into the sidecar, so a deployment that loses its state can
+	// still learn that the copy exists and which key it needs. A sidecar that
+	// cannot be written stops the move here, with the source untouched.
+	if err := e.refreshSidecar(ctx, mv, rec); err != nil {
+		return mv, err
 	}
 	return e.Journal.AdvanceMove(ctx, e.checked(state.MoveAdvance{
 		MoveID: mv.ID, From: state.MoveVerified, To: state.MoveSourceDeletePending,
@@ -1412,6 +1486,12 @@ func (e *Engine) abandon(ctx context.Context, mv state.Move, why string) (state.
 // is not guarded by guardSourceDelete, because the thing it deletes is the
 // object this move itself created at a key this move itself computed.
 func (e *Engine) discardDestination(ctx context.Context, mv state.Move) error {
+	// An encrypting pass leaves a staged ciphertext (or a temporary file)
+	// on local disk, which is part of what this move put in the world, so
+	// it goes through the same cleanup rather than a second one.
+	if err := e.discardEncryptedStaging(ctx, mv); err != nil {
+		return err
+	}
 	if mv.DestinationKey == "" {
 		return nil
 	}

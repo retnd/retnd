@@ -582,6 +582,9 @@ const stepUpHeaderName = "X-Retnd-Step-Up-Password"
 var stepUpOperations = map[string]bool{
 	"createCustomValidator": true,
 	"updateCustomValidator": true,
+	// The bundle export (#993): the terminal that holds the password has
+	// already proved what the step-up asks a browser session to prove again.
+	"exportRecoveryBundle": true,
 }
 
 // The rate limit this client is on the wrong side of, and why waiting is

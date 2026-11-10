@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/keycustody"
 	"github.com/retnd/retnd/core/internal/lifecycle"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/recovery"
@@ -90,6 +92,12 @@ type CatalogRebuildFinding struct {
 	// from the shape of the difference.
 	Conflicts []string
 
+	// EncryptedCopies are the copies the sidecar says are encrypted
+	// (EPIC N, #992), identified from the sidecar alone. Each says which key
+	// it needs and whether this deployment can tell that key is its own. No
+	// key material was read to fill it in, and no key provider was resolved.
+	EncryptedCopies []CatalogEncryptedCopy
+
 	// Notes are things the operator needs to know about a reconstruction
 	// that otherwise succeeded: what the sidecar said that this rebuild
 	// read and did not adopt.
@@ -97,6 +105,36 @@ type CatalogRebuildFinding struct {
 	// A note is not a failure and not a conflict. The row was rebuilt and
 	// is correct as far as it goes; a note says where it stops going.
 	Notes []string
+}
+
+// CatalogEncryptedCopy is one encrypted copy a sidecar names.
+type CatalogEncryptedCopy struct {
+	Medium   string
+	Location string
+
+	// FormatID is the per-copy format identifier ("age/v1").
+	FormatID string
+
+	// KeyID is the registry id of the key the copy needs.
+	KeyID string
+
+	// Provider is what the backup set's key provider is configured as, in
+	// the words every durable surface uses (a managed key, an external
+	// reference's description, or "no key provider"). It is a description of
+	// configuration and never a resolved value.
+	Provider string
+
+	// KeyKnown is whether this deployment's key registry holds KeyID. It is
+	// only ever true for a managed provider, and false when no registry is
+	// wired, because a registry that cannot be asked has not said yes.
+	KeyKnown bool
+}
+
+// KeyRegistry is the read of the key registry a rebuild needs: key ids and
+// statuses, never material. *keycustody.Store satisfies it, and so does
+// anything over keycustody.JournalRegistry.
+type KeyRegistry interface {
+	Keys(ctx context.Context) ([]keycustody.KeyRecord, error)
 }
 
 // CatalogRebuildError reports one sidecar manifest RebuildCatalog could
@@ -245,7 +283,7 @@ func (s *Service) RebuildCatalog(ctx context.Context, set model.BackupSetID, dry
 			continue
 		}
 
-		finding, err := s.rebuildOne(ctx, bs.LocalPath, artifact, m, dryRun)
+		finding, err := s.rebuildOne(ctx, bs, artifact, m, dryRun)
 		if err != nil {
 			report.Errors = append(report.Errors, CatalogRebuildError{
 				Path: recovery.ManifestPath(bs.LocalPath, m.ArtifactName), Err: err,
@@ -289,7 +327,8 @@ func (s *Service) RebuildCatalog(ctx context.Context, set model.BackupSetID, dry
 // checkLocalFinal falls back to a size-only comparison when LocalHashAlg is
 // empty, exactly the same honest degrade FR-16 already documents for a
 // backend that never reported a hash at all.
-func (s *Service) rebuildOne(ctx context.Context, localDir string, artifact model.ArtifactID, m recovery.Manifest, dryRun bool) (CatalogRebuildFinding, error) {
+func (s *Service) rebuildOne(ctx context.Context, bs config.BackupSet, artifact model.ArtifactID, m recovery.Manifest, dryRun bool) (CatalogRebuildFinding, error) {
+	localDir := bs.LocalPath
 	existing, err := s.Journal.Get(ctx, artifact)
 	switch {
 	case err == nil:
@@ -307,9 +346,11 @@ func (s *Service) rebuildOne(ctx context.Context, localDir string, artifact mode
 	}
 
 	notes := unadoptablePlacementNotes(m)
+	encrypted, encNotes := s.encryptedCopies(ctx, bs, m)
+	notes = append(notes, encNotes...)
 
 	if dryRun {
-		return CatalogRebuildFinding{Artifact: artifact, Action: CatalogRebuildReconstructed, Notes: notes}, nil
+		return CatalogRebuildFinding{Artifact: artifact, Action: CatalogRebuildReconstructed, Notes: notes, EncryptedCopies: encrypted}, nil
 	}
 
 	final, err := lifecycle.FinalArtifactPath(localDir, artifact)
@@ -365,7 +406,78 @@ func (s *Service) rebuildOne(ctx context.Context, localDir string, artifact mode
 		return CatalogRebuildFinding{}, fmt.Errorf("recovery: populating verification evidence for %s: %w", artifact, err)
 	}
 
-	return CatalogRebuildFinding{Artifact: artifact, Action: CatalogRebuildReconstructed, Notes: notes}, nil
+	return CatalogRebuildFinding{Artifact: artifact, Action: CatalogRebuildReconstructed, Notes: notes, EncryptedCopies: encrypted}, nil
+}
+
+// encryptedCopies identifies the encrypted copies m names and says, for each,
+// which key it needs and what this deployment can tell about that key,
+// WITHOUT reading key material and without resolving the key provider.
+//
+// That restraint is the point. A rebuild runs when state is gone, possibly on
+// a machine that has none of the keys, and it has to say what is missing
+// rather than fail or, worse, reach out to a secrets manager on the strength
+// of a file somebody dropped in a directory. So it asks two cheap questions
+// and no others: what does the set's configuration say the provider is (read
+// from config, rendered by keycustody.Provider's description), and does the
+// key registry know the key id. Whether the key actually resolves is a
+// content revalidation's question, and that path reports "could not check"
+// when it does not.
+func (s *Service) encryptedCopies(ctx context.Context, bs config.BackupSet, m recovery.Manifest) ([]CatalogEncryptedCopy, []string) {
+	var (
+		out   []CatalogEncryptedCopy
+		notes []string
+		known map[string]bool
+	)
+	provider := keycustody.Provider{External: bs.RetainedCopyEncryption.KeyProvider.ExternalRef()}
+	for _, p := range m.Placements {
+		if p.Encryption == nil {
+			continue
+		}
+		if known == nil {
+			known = map[string]bool{}
+			if s.Keys != nil {
+				if keys, err := s.Keys.Keys(ctx); err == nil {
+					for _, k := range keys {
+						known[k.ID] = true
+					}
+				}
+			}
+		}
+		e := p.Encryption
+		c := CatalogEncryptedCopy{
+			Medium: p.Medium, Location: p.Location, FormatID: e.FormatID, KeyID: e.KeyID,
+			Provider: providerDescription(bs.RetainedCopyEncryption, provider),
+		}
+		managed := bs.RetainedCopyEncryption.KeyProvider.Managed
+		c.KeyKnown = managed && known[e.KeyID]
+		out = append(out, c)
+
+		var why string
+		switch {
+		case bs.RetainedCopyEncryption.KeyProvider.IsZero():
+			why = fmt.Sprintf("backup set %s has no key provider configured, so there is nothing here to open it with; configure one, or restore key %s from its recovery bundle (docs/recovery-without-a-terminal.md)", bs.ID, e.KeyID)
+		case managed && !c.KeyKnown:
+			why = fmt.Sprintf("managed key %s is not in this deployment's key registry, so it is not known here; restore it from its recovery bundle (docs/recovery-without-a-terminal.md)", e.KeyID)
+		case managed:
+			why = fmt.Sprintf("managed key %s is in this deployment's key registry; this rebuild did not read it", e.KeyID)
+		default:
+			why = fmt.Sprintf("backup set %s names %s as its key provider; this rebuild did not resolve it, and a content revalidation will say whether key %s opens", bs.ID, c.Provider, e.KeyID)
+		}
+		notes = append(notes, fmt.Sprintf("the copy on medium %q at %q is encrypted (%s v%d) under key %s: %s", p.Medium, p.Location, e.FormatID, e.FormatVersion, e.KeyID, why))
+	}
+	return out, notes
+}
+
+// providerDescription says what a set's provider is configured as.
+func providerDescription(policy config.RetainedCopyEncryption, external keycustody.Provider) string {
+	switch {
+	case policy.KeyProvider.Managed:
+		return "managed key"
+	case policy.KeyProvider.External != nil:
+		return external.Describe()
+	default:
+		return "no key provider"
+	}
 }
 
 // unadoptablePlacementNotes describes every copy the sidecar names that a

@@ -71,6 +71,15 @@ func TestEventNamesAreStable(t *testing.T) {
 		{"EventError", EventError, "error"},
 		{"EventActivityPruneDeferred", EventActivityPruneDeferred, "activity_prune_deferred"},
 		{"EventJournalSlowHold", EventJournalSlowHold, "journal_slow_hold"},
+		{"EventKeyCreated", EventKeyCreated, "key_created"},
+		{"EventKeyRotated", EventKeyRotated, "key_rotated"},
+		{"EventKeyBundleExported", EventKeyBundleExported, "key_bundle_exported"},
+		{"EventKeyBundleConfirmed", EventKeyBundleConfirmed, "key_bundle_confirmed"},
+		{"EventKeyRetired", EventKeyRetired, "key_retired"},
+		{"EventCopyEncrypting", EventCopyEncrypting, "copy_encrypting"},
+		{"EventCopyUploadingEncrypted", EventCopyUploadingEncrypted, "copy_uploading_encrypted"},
+		{"EventCopyVerifyingStored", EventCopyVerifyingStored, "copy_verifying_stored"},
+		{"EventCopyDecryptVerifying", EventCopyDecryptVerifying, "copy_decrypt_verifying"},
 	}
 	seen := make(map[string]string, len(cases))
 	for _, c := range cases {
@@ -596,4 +605,79 @@ func TestRecoveryTestEventIsNeverAQuietSuccessWhenCleanupFailedOrNothingWasTeste
 			}
 		})
 	}
+}
+
+// The four key-custody events each carry a result, the key id, and (for an
+// export) the digest, and a failed one is logged at the failure level.
+func TestKeyCustodyEventsCarryAResultAndNoMaterial(t *testing.T) {
+	for _, result := range []Result{ResultSuccess, ResultError} {
+		l, buf := newRecorder(t)
+		ctx := context.Background()
+		l.KeyCreated(ctx, "k1", result)
+		l.KeyRotated(ctx, "k1", "k2", result)
+		l.KeyBundleExported(ctx, "k2", "abc123", result)
+		l.KeyBundleConfirmed(ctx, "k2", result)
+
+		lines := decodeLines(t, buf)
+		events := []string{EventKeyCreated, EventKeyRotated, EventKeyBundleExported, EventKeyBundleConfirmed}
+		if len(lines) != len(events) {
+			t.Fatalf("%d lines, want %d", len(lines), len(events))
+		}
+		for i, line := range lines {
+			if line["event"] != events[i] || line["result"] != string(result) || line["level"] != result.Level().String() {
+				t.Errorf("%s with %s: got %#v", events[i], result, line)
+			}
+		}
+		if lines[2]["digest"] != "abc123" || lines[2]["key_id"] != "k2" || lines[1]["previous_key_id"] != "k1" {
+			t.Errorf("export/rotate attributes missing: %#v %#v", lines[2], lines[1])
+		}
+	}
+}
+
+// The four encrypted-copy stage events and the key retirement are #992's FR-23
+// catalog additions: each carries a result, names the copy by artifact and
+// medium, and a failed one is logged at the failure level. None of them has
+// anywhere to put material (the typed methods take ids and names), and the
+// key id is the only key-related string they carry.
+func TestEncryptedCopyStageEventsCarryAResultAndNoMaterial_992(t *testing.T) {
+	for _, result := range []Result{ResultSuccess, ResultError} {
+		l, buf := newRecorder(t)
+		ctx := context.Background()
+		l.CopyEncrypting(ctx, "prod/pg/a.dump", "offsite", result)
+		l.CopyUploadingEncrypted(ctx, "prod/pg/a.dump", "offsite", result)
+		l.CopyVerifyingStored(ctx, "prod/pg/a.dump", "offsite", result)
+		l.CopyDecryptVerifying(ctx, "prod/pg/a.dump", "offsite", "k0123", result)
+		l.KeyRetired(ctx, "k0123", result)
+
+		lines := decodeLines(t, buf)
+		events := []string{EventCopyEncrypting, EventCopyUploadingEncrypted, EventCopyVerifyingStored, EventCopyDecryptVerifying, EventKeyRetired}
+		if len(lines) != len(events) {
+			t.Fatalf("%d lines, want %d", len(lines), len(events))
+		}
+		for i, line := range lines {
+			if line["event"] != events[i] || line["result"] != string(result) || line["level"] != result.Level().String() {
+				t.Errorf("%s with %s: got %#v", events[i], result, line)
+			}
+		}
+		for i := 0; i < 4; i++ {
+			if lines[i]["artifact"] != "prod/pg/a.dump" || lines[i]["medium"] != "offsite" {
+				t.Errorf("%s does not name its copy: %#v", events[i], lines[i])
+			}
+		}
+		if lines[3]["key_id"] != "k0123" || lines[4]["key_id"] != "k0123" {
+			t.Errorf("the decrypt-verify and the retirement must name the key id: %#v %#v", lines[3], lines[4])
+		}
+	}
+}
+
+// A nil Logger is a safe no-op for the new methods too, which is what lets
+// the move engine carry an optional logger.
+func TestEncryptedCopyStageEventsAreNilSafe_992(t *testing.T) {
+	var l *Logger
+	ctx := context.Background()
+	l.CopyEncrypting(ctx, "a", "m", ResultSuccess)
+	l.CopyUploadingEncrypted(ctx, "a", "m", ResultSuccess)
+	l.CopyVerifyingStored(ctx, "a", "m", ResultSuccess)
+	l.CopyDecryptVerifying(ctx, "a", "m", "k", ResultSuccess)
+	l.KeyRetired(ctx, "k", ResultSuccess)
 }

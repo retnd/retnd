@@ -587,5 +587,19 @@ export const FIELD_HELP = {
     example: "10 GB",
     effect:
       "A transfer that would itself drop the remaining headroom to or below this number never begins. Nothing is deleted to make room for it: the transfer is simply skipped and retried on a later cycle, once space has been freed some other way."
+  },
+
+  // ------------------------------------------- retained-copy encryption
+
+  // Issue #995 (EPIC N). Read out of core/internal/config/retainedcopyencryption.go
+  // (RetainedCopyKeyProvider, the validate rules) and core/internal/secretref.
+  // The box takes a REFERENCE for exactly one of three sources; a key can never
+  // be typed into it. The format, cipher and chunk size have no field anywhere,
+  // by design (docs/design/994-retained-copy-encryption.html, section 11).
+  encryptionExternalReference: {
+    what: "Where the key that encrypts retained copies comes from: a path to a file, the name of an environment variable, or a command, depending on the choice above. It names the key and is never the key.",
+    example: "/etc/retnd/keys/offsite.key",
+    effect:
+      "The reference is saved as its description and read again each time a copy is written or verified, so the key itself is never stored in the configuration or the catalog. With Required on, a copy is refused rather than written in plaintext whenever the reference does not resolve. A command is split on spaces and run without a shell, and only its name is ever echoed or shown back. If what you type is key material rather than a reference, the server refuses it when the configuration loads and nothing is saved."
   }
 } as const satisfies Record<string, FieldHelpCopy>;

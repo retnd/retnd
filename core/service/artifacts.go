@@ -299,6 +299,7 @@ func (b *BackupService) ListArtifacts(ctx context.Context, filter ArtifactFilter
 		}
 		out = append(out, a)
 	}
+	b.annotateEncryption(ctx, out)
 	return out, nil
 }
 
@@ -323,7 +324,9 @@ func (b *BackupService) GetArtifact(ctx context.Context, id string) (Artifact, e
 			return Artifact{}, err
 		}
 	}
-	return a, nil
+	one := []Artifact{a}
+	b.annotateEncryption(ctx, one)
+	return one[0], nil
 }
 
 // attachQuarantineReason populates a.QuarantineReason with the literal

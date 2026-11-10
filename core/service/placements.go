@@ -98,6 +98,13 @@ type Placement struct {
 	// read as a copy.
 	Status string
 
+	// Encrypted, EncryptionKeyID and EncryptionKeyResolvable are the copy's
+	// encryption state for the Backups list (#993), filled in by
+	// annotateEncryption and zero for a plaintext copy. An id, never material.
+	Encrypted               bool
+	EncryptionKeyID         string
+	EncryptionKeyResolvable *bool
+
 	// ScrubState, ScrubNextDueAt and ScrubLastCheckedAt are this copy's own
 	// scrub record (migration 0016), read back from the journal. ScrubState
 	// is "unknown" for a copy nobody has scrubbed, and the two times are the

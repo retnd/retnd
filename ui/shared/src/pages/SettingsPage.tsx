@@ -42,6 +42,7 @@ import { StorageDestinationsCard } from "@shared/pages/StorageDestinationsCard";
 import { AssuranceSettingsCard } from "@shared/assurance/AssuranceSettingsCard";
 import { CustomValidatorsCard } from "@shared/assurance/CustomValidatorsCard";
 import { WorkflowSettingsCard } from "@shared/pages/WorkflowSettingsCard";
+import { EncryptionCard } from "@shared/encryption/EncryptionCard";
 import { HelpField } from "@shared/components/FieldHelp";
 import { PasswordInput } from "@shared/components/PasswordInput";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
@@ -170,6 +171,12 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
               onChanged={() => setDestinationsRevision((n) => n + 1)}
             />
           </Anchored>
+
+          {/* EPIC N (issue #995). Directly after the destinations and before
+              Workflow, the order the Workflow and Assurance cards already
+              follow: a destination is declared, then what happens to a copy
+              on its way there. */}
+          <Anchored section="encryption"><EncryptionCard readOnly={readOnly} /></Anchored>
 
           {/* EPIC L (issue #814). Beside the destinations card rather
               than on a page of its own: a hook directory is deployment

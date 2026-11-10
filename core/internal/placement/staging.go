@@ -178,6 +178,28 @@ func (e *Engine) canStage(artifact model.ArtifactID) error {
 // FR-30's invariant rests on until the VERIFIED write records the
 // destination.
 func (e *Engine) copyMediumToMedium(ctx context.Context, mv state.Move, src state.Placement) (int64, error) {
+	// An encrypted source is re-homed as the same ciphertext: what is staged,
+	// size-checked and hash-checked is the object at the key, against the
+	// stored-bytes digest and size the journal recorded for it, because the
+	// plaintext digest is a number no ciphertext can match. Everything below
+	// then runs unchanged on that view of the source.
+	enc, encrypted, err := e.encryptionOf(ctx, mv.Artifact, src.Medium)
+	if err != nil {
+		return 0, err
+	}
+	if encrypted {
+		if !strings.EqualFold(enc.StoredHashAlg, string(transport.SHA256)) {
+			return 0, fmt.Errorf("%w: the copy of %s on %q records its stored bytes under %q, and the staged ciphertext is checked with %s",
+				ErrClassUnavailable, mv.Artifact, src.Medium, enc.StoredHashAlg, transport.SHA256)
+		}
+		storedSize := enc.StoredSize
+		src.Hash, src.HashAlg, src.Size = enc.StoredHash, enc.StoredHashAlg, &storedSize
+	} else if on, err := e.encryptedSet(mv.Artifact.Set); err != nil {
+		return 0, err
+	} else if on {
+		return 0, fmt.Errorf("%w: backup set %s requires encryption, and a hop between two mediums would stage and upload the artifact in the clear; encrypting a copy that already exists in the clear is not defined (#992)",
+			ErrClassRefused, mv.Artifact.Set)
+	}
 	if e.Store == nil {
 		return 0, fmt.Errorf("no medium store is configured")
 	}

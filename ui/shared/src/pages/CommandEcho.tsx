@@ -21,6 +21,17 @@
  * nothing starred out: there is no flag on this CLI surface that takes a
  * secret, so there is nothing here to redact. That argument lives in full
  * in storageDestinationCommands.ts.
+ *
+ * Retained-copy encryption (EPIC N, #995) is the one place a line is NOT
+ * runnable as printed, and it is said on the line itself rather than starred
+ * out: `--external-command` names the command whose output is a key, and the
+ * arguments of that command are the secret's address, so the echo carries an
+ * angle-bracket stand-in (the same one core/cliecho prints), and the bundle
+ * export names a placeholder file because the bundle is written to a file and
+ * never printed. Every other encryption line is the real command. The
+ * strings come from encryption/encryptionCommands.ts, which is also where the
+ * list of every mutating control and its echo is kept (the reverse-direction
+ * sweep).
  */
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 
