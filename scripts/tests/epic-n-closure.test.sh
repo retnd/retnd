@@ -113,6 +113,12 @@ r="$(make_repo g2-none)"
 expect_fail "migrations: an epic that added no 0015 is refused" "$r" "$msg"
 r="$(make_repo g2-extra)"; add_0015 "$r"; echo "-- 19" > "$r/core/migrations/0019_extra.sql"; (cd "$r" && git add -A && git commit -qm x)
 expect_fail "migrations: a second new migration is refused" "$r" "0019_extra.sql"
+r="$(make_repo g2-0019)"; add_0015 "$r"; echo "-- 19" > "$r/core/migrations/0019_encrypt_existing_consents.sql"; (cd "$r" && git add -A && git commit -qm x)
+expect_pass "migrations: 0015 plus 0019_encrypt_existing_consents is the epic's whole list and passes" "$r"
+r="$(make_repo g2-0020)"; add_0015 "$r"; echo "-- 19" > "$r/core/migrations/0019_encrypt_existing_consents.sql"; echo "-- 20" > "$r/core/migrations/0020_extra.sql"; (cd "$r" && git add -A && git commit -qm x)
+expect_fail "migrations: a 0020 beside 0015 and 0019 is refused, and named" "$r" "0020_extra.sql"
+r="$(make_repo g2-0019-only)"; echo "-- 19" > "$r/core/migrations/0019_encrypt_existing_consents.sql"; (cd "$r" && git add -A && git commit -qm x)
+expect_fail "migrations: 0019 without 0015 is refused" "$r" "$msg"
 r="$(make_repo g2-edit)"; add_0015 "$r"; echo "-- changed" >> "$r/core/migrations/0001_init.sql"; (cd "$r" && git commit -qam x)
 expect_fail "migrations: an edit to an existing migration is refused" "$r" "0001_init.sql"
 r="$(make_repo g2-wrong-number)"; echo "-- 17" > "$r/core/migrations/0017_retained_copy_encryption.sql"; (cd "$r" && git add -A && git commit -qm x)
