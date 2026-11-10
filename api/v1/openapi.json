@@ -1083,7 +1083,9 @@
               "transferring",
               "verifying",
               "committing",
-              "cleaning-remote"
+              "cleaning-remote",
+              "encrypting",
+              "decrypt-verifying"
             ]
           },
           "backup_set_id": {
@@ -4255,7 +4257,9 @@
               "transferring",
               "verifying",
               "committing",
-              "cleaning-remote"
+              "cleaning-remote",
+              "encrypting",
+              "decrypt-verifying"
             ],
             "x-go-omitempty": true,
             "description": "The step the artifact below is at. Absent when nothing is in flight."

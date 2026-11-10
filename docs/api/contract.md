@@ -832,13 +832,20 @@ copy. `EncryptionCopy` gains `stored_digest` (the ciphertext bytes) and
 construction. `EncryptionKeyStatus` gains `copies_recording` (ACTIVE copies
 that record the key) and `bundle_exported_at` (absent if never exported).
 
+### Progress stages for an encrypted copy
+
+`OperationProgress.stage` and `LiveActivitySet.stage` gain `encrypting` and
+`decrypt-verifying`, appended after the original five, so a client that handled the
+five still handles them as before and treats the new two as it treats any stage it
+does not draw. They carry the existing `bytes_transferred` and `bytes_total` (a
+non-zero total only when it is known, `bytes_per_second` absent). A decrypt-verify
+started with `POST /encryption/verify` still rides the scrub operation and reports
+`bytes_read` in its result; its durable record names no stage.
+
 ### Not decided here
 
-Progress stages for encrypting and decrypt-verifying are a published contract
-(`OperationProgress.stage`), and external key provider support goes beyond the
-`file | env | command` reference. A decrypt-verify rides the scrub operation and
-reports `bytes_read` in its result; neither stage list nor provider list is
-extended by this surface, and both can be added later without breaking it.
+External key provider support goes beyond the `file | env | command` reference and
+is not extended by this surface; it can be added later without breaking it.
 
 ## Migration record: what was removed and what replaced it
 

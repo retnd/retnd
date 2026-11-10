@@ -454,7 +454,8 @@ export interface RunningWork {
   /** The artifact being worked on, or "" during discovery. */
   artifact: string;
   /** One of the cycle's own stage names ("discovering", "transferring",
-   *  "verifying", "committing", "cleaning-remote"). */
+   *  "verifying", "committing", "cleaning-remote", and for an encrypted copy
+   *  "encrypting", "decrypt-verifying"). */
   stage: string;
 }
 

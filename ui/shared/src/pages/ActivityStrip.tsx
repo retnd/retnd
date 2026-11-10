@@ -49,6 +49,7 @@ import type { StatusTone } from "@shared/components/StatusBadge";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { copyText } from "@shared/utilities/copyText";
 import { encryptionEventText } from "@shared/encryption/feedText";
+import { stageWords as stageWordsOf } from "@shared/types/operation";
 import {
   recoveryEndText, recoveryStageText, recoveryStartText, recoveryTestEndText, recoveryTestStartText,
   scrubFailureText, scrubPassText, scrubStartText
@@ -564,7 +565,7 @@ function barFill(activity: SetActivity, live: boolean, stale: boolean): { classN
 function stepSentence(activity: SetActivity, stale: boolean): { lead: string; subject: string | null; trail: string } {
   const fraction = fractionWords(activity);
   const stage = activity.stage ?? "working";
-  const stageWords = stage.replace(/-/g, " ");
+  const stageWords = stageWordsOf(stage);
   if (activity.active) {
     // A reading nobody can refresh keeps its fraction and loses every
     // number that is a claim about now. A rate is measured over the last
@@ -581,12 +582,18 @@ function stepSentence(activity: SetActivity, stale: boolean): { lead: string; su
     }
     const parts: string[] = [];
     if (fraction) parts.push(fraction);
+    // The two stages of an encrypted copy (#1290) have no rate, so the
+    // bytes are what shows that one is moving: the artifact's read for
+    // encrypting, the stored object's for decrypt-verifying.
+    if ((stage === "encrypting" || stage === "decrypt-verifying") && activity.bytesTransferred !== null) {
+      parts.push(bytes(activity.bytesTransferred) + (activity.bytesTotal !== null ? " of " + bytes(activity.bytesTotal) : ""));
+    }
     if (activity.bytesPerSecond !== null) parts.push(rate(activity.bytesPerSecond));
     const left = remaining(activity);
     if (left) parts.push(left);
     if (activity.failures > 0) parts.push(failureWords(activity.failures) + " so far");
     parts.push("in progress");
-    const lead = stage.charAt(0).toUpperCase() + stage.slice(1).replace(/-/g, " ");
+    const lead = stageWordsOf(stage).charAt(0).toUpperCase() + stageWordsOf(stage).slice(1);
     return { lead: activity.artifact ? lead : lead + "…", subject: activity.artifact, trail: parts.join(" · ") };
   }
   if (activity.failures > 0) {

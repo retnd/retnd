@@ -23,6 +23,14 @@
 
 ### Added
 
+- **Progress stages for encrypted copies** (#1290, EPIC N). `OperationProgress.stage` and
+  `LiveActivitySet.stage` gain `encrypting` and `decrypt-verifying` (appended after the original five, so
+  existing clients are unaffected), each with byte progress that starts at a measured zero, never goes
+  backward, never passes its total and is cleared on cancel and on failure. The move engine reports them through
+  a new `Engine.Progress` callback into `app.Progress`, so the CLI and the browser show the same stage and
+  counters, and no reading carries a key or a key id. The operation checklist shows the two rows only for an
+  encrypted copy and the activity strip says how many bytes of which. A standalone `retnd encryption verify`
+  still reports `bytes_read` in its result and no live stage.
 - **A guard against dropping an external key reference that still has copies** (#1304, EPIC N follow-up).
   An external key's row stores no reference, so removing a superseded one from the configuration left
   every copy under it unreadable and nothing said so. The key-custody health section now lists each
@@ -87,8 +95,7 @@
   in the same transaction as the placement row, and the plaintext digest is never written there. An unresolvable
   key refuses the copy before anything is encrypted or uploaded. A set that is `off`, or a deployment that never
   mentions the key, writes the bytes it always did. A key declared as an external reference is saved and
-  tested here and writes copies from #1292. Not yet: progress stages for encrypting and decrypt-verifying, and
-  encrypting copies that already exist in plaintext.
+  tested here and writes copies from #1292. Not yet: encrypting copies that already exist in plaintext.
 - **Lifecycle, retention, catalog rebuild and rotation for encrypted copies** (#992). Retention deletes an
   encrypted object by its stored size and checksum and needs no key. A medium-to-medium move copies the ciphertext
   as it is and accepts the destination only after a decrypt through the key id recorded on the source copy, and a
@@ -129,8 +136,7 @@
   encrypted and what is not, object names included, the two digests under their column names, loss of the key
   (there is no recovery path), and how to open a copy with the `age` tool and the bundle on a machine with no
   deployment. It says plainly what this build does not do: `retnd recover` does
-  not decrypt, nothing raises the unresolvable-key alert, and there are no
-  progress stages for encrypting. README, the site pages, recovery, storage-mediums, install, deployment,
+  not decrypt, and nothing raises the unresolvable-key alert. README, the site pages, recovery, storage-mediums, install, deployment,
   runtime-contract, the compliance and submission pages and the config inventory carry the matching changes.
 
 ## [0.7.2] - 2026-10-24

@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "bb75382048be948c1d28da3c98788f051dea0cab6c87ca93d6295210180a15e4";
+export const CONTRACT_SHA256 = "5cdb977a92e1765c978177d1002696e14a5661cffe367eeda29ac979acbac1d4";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -4197,7 +4197,7 @@ export interface WireLiveActivitySet {
   oldest_sequence: number;
   outcome?: "ok" | "failed" | "stopped";
   progress_basis: "artifacts" | "unknown";
-  stage?: "discovering" | "transferring" | "verifying" | "committing" | "cleaning-remote";
+  stage?: "discovering" | "transferring" | "verifying" | "committing" | "cleaning-remote" | "encrypting" | "decrypt-verifying";
   started_at?: string;
   truncated: boolean;
   unfinished_actions: WireLiveActivityAction[];
@@ -4370,7 +4370,7 @@ export interface WireOperationProgress {
   bytes_transferred?: number;
   observed_at: string;
   sequence: number;
-  stage: "discovering" | "transferring" | "verifying" | "committing" | "cleaning-remote";
+  stage: "discovering" | "transferring" | "verifying" | "committing" | "cleaning-remote" | "encrypting" | "decrypt-verifying";
 }
 
 /** A restore operation's own facts: what was asked for, which never

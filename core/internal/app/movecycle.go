@@ -63,6 +63,12 @@ func (s *Service) RunHomeMoves(ctx context.Context, plans []placement.Plan) (pla
 	if engine == nil {
 		return placement.CycleReport{}, nil
 	}
+	// The encrypted copy's two stages ride the same observer the cycle's own
+	// stages do (#1290). A caller with no observer has a nil tracker and the
+	// engine's callback stays nil, which is silent.
+	if prog := progressFrom(ctx); prog != nil {
+		engine.Progress = prog.observeCopy
+	}
 	return engine.RunCycle(ctx, plans)
 }
 
