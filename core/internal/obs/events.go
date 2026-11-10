@@ -381,6 +381,13 @@ const (
 	// refusal's own text goes to the caller.
 	EventKeyRetired = "key_retired"
 
+	// EventEncryptionDefaultSuiteChanged records the first cycle under a
+	// build whose default encryption suite differs from the one this
+	// deployment last ran under (EPIC T, #1314). It names both suite ids,
+	// once per change. It rotates nothing: a deployment with an active key
+	// keeps that key's suite (ADR 0033 D4).
+	EventEncryptionDefaultSuiteChanged = "encryption_default_suite_changed"
+
 	// The four stage events are EPIC N's (#992, FR-23 catalog additions) for
 	// the moments an encrypted copy passes a stage. They are emitted ONCE per
 	// copy per stage, on completion, with a Result, and never per chunk: the
@@ -1255,6 +1262,16 @@ func (l *Logger) KeyBundleExported(ctx context.Context, keyID, digest string, re
 func (l *Logger) KeyBundleConfirmed(ctx context.Context, keyID string, result Result) {
 	l.emitMarked(ctx, result.Level(), mark{result: result}, EventKeyBundleConfirmed, "encryption key recovery bundle confirmed",
 		slog.String("key_id", keyID),
+	)
+}
+
+// EncryptionDefaultSuiteChanged logs EventEncryptionDefaultSuiteChanged:
+// the build default moved from previous to current. Both are suite ids,
+// never anything about a key.
+func (l *Logger) EncryptionDefaultSuiteChanged(ctx context.Context, previous, current string, result Result) {
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventEncryptionDefaultSuiteChanged, "the build's default encryption suite changed; no key was rotated",
+		slog.String("previous_suite", previous),
+		slog.String("suite", current),
 	)
 }
 

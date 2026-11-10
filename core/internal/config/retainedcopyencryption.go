@@ -1,8 +1,10 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 
+	"github.com/retnd/retnd/core/internal/copycrypt"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/secretref"
 )
@@ -18,9 +20,11 @@ import (
 // product's own managed key, or an external reference in the file/env/
 // command shape every other secret in this file uses). There is no cipher,
 // no chunk size, no nonce length, no KDF cost and no algorithm knob, at
-// either scope. ADR 0027 fixes the format as a property of the build and
-// records its id and version per stored copy, so a second format can land
-// later without a config field and without a one-way door. A per-set
+// either scope. ADR 0027 fixed the format as a property of the build and
+// recorded its id and version per stored copy; ADR 0033 (EPIC T) added the
+// one exception, a deployment-wide `suite:` naming an entry of copycrypt's
+// compile-time registry (never a cipher or a parameter), with no per-set
+// override. A per-set
 // format would make one artifact's two copies unreadable by two different
 // rules for no operator benefit, and a per-set rotation cadence is a
 // property of a key, not of a backup set, so both are refused by the only
@@ -157,7 +161,33 @@ type RetainedCopyEncryptionBlock struct {
 	// provider, the way a storage medium no tier names yet is staged, and
 	// a later flip to required finds it in place.
 	KeyProvider *RetainedCopyKeyProvider `yaml:"key_provider,omitempty"`
+
+	// Suite is "default", empty (the same thing) or a copycrypt suite id
+	// (EPIC T, ADR 0033 D4). A pinned id is honoured exactly; Validate
+	// refuses one this build does not know or has retired. Deployment-wide
+	// only: a set inherits it and has no field of its own. omitempty, so a
+	// file that never mentioned it re-marshals byte for byte, and under
+	// KnownFields(true) a file that does write it cannot be read by an
+	// older build (the CHANGELOG names the version).
+	Suite string `yaml:"suite,omitempty"`
 }
+
+// RetainedCopyEncryptionSuiteDefault is the suite policy that keeps a
+// deployment on what it already uses: the suite of its active managed key
+// when it has one, and the build's default suite (copycrypt.Default())
+// when it has none. Config cannot know which key is active, so this
+// resolves at the engine, never here (owner decision on #1314, 2026-11-10:
+// an upgraded EPIC N deployment must keep writing age/v1 untouched).
+const RetainedCopyEncryptionSuiteDefault = "default"
+
+// ErrRetiredSuite is the refusal for a policy pinning a retired suite. Its
+// text is part of the Validate message, which names the id.
+var ErrRetiredSuite = errors.New("retired suite")
+
+// lookupSuite is copycrypt.Lookup, through a variable so this package's
+// own tests can put a retired or deprecated suite in front of Validate
+// before the registry has one.
+var lookupSuite = copycrypt.Lookup
 
 // RetainedCopyEncryptionOverride is a backup set's own
 // `retained_copy_encryption:` block: mode and key_provider, nothing else.
@@ -177,6 +207,25 @@ type RetainedCopyEncryptionOverride struct {
 type RetainedCopyEncryption struct {
 	Mode        string
 	KeyProvider RetainedCopyKeyProvider
+
+	// Suite is RetainedCopyEncryptionSuiteDefault or a pinned suite id the
+	// registry has and has not retired; never empty after resolution. A set
+	// carries the deployment's by inheritance, so a later per-set override
+	// is a vocabulary edit rather than a model change.
+	Suite string
+
+	// SuiteDeprecated is true when Suite pins a suite the registry marks
+	// deprecated. Load succeeds; health reads this (#1316).
+	SuiteDeprecated bool
+}
+
+// PinnedSuite is the suite id this policy pins, and false for the default
+// policy, whose suite the engine resolves from the active managed key.
+func (e RetainedCopyEncryption) PinnedSuite() (string, bool) {
+	if e.Suite == "" || e.Suite == RetainedCopyEncryptionSuiteDefault {
+		return "", false
+	}
+	return e.Suite, true
 }
 
 // Enabled reports whether copies under this policy are to be encrypted.
@@ -253,7 +302,36 @@ func (c *Config) resolveGlobalRetainedCopyEncryption(v *validator) RetainedCopyE
 	if out.Mode == RetainedCopyEncryptionRequired && out.KeyProvider.IsZero() {
 		v.addf("%s.key_provider: mode required needs a key provider (managed: true, or an external file, env or command reference); with nothing to encrypt under, no copy could be written", p)
 	}
+	out.Suite, out.SuiteDeprecated = resolveSuite(v, p+".suite", b.Suite)
 	return out
+}
+
+// resolveSuite checks the declared suite against copycrypt's registry. An
+// unknown id and a retired one are refused naming the id (ADR 0033 D7.1:
+// nothing is ever substituted); a deprecated one loads and is flagged.
+func resolveSuite(v *validator, path, declared string) (suite string, deprecated bool) {
+	if declared == "" || declared == RetainedCopyEncryptionSuiteDefault {
+		return RetainedCopyEncryptionSuiteDefault, false
+	}
+	s, ok := lookupSuite(declared)
+	if !ok {
+		var known []string
+		for _, k := range copycrypt.Suites() {
+			if k.Status() != copycrypt.StatusRetired {
+				known = append(known, k.ID())
+			}
+		}
+		v.addf("%s: %q is not a suite this build has; name %s or one of %v", path, declared, RetainedCopyEncryptionSuiteDefault, known)
+		return RetainedCopyEncryptionSuiteDefault, false
+	}
+	switch s.Status() {
+	case copycrypt.StatusRetired:
+		v.addf("%s: %s: %q is retired in this build; its copies still open, and no new copy is written under it, so pin a supported suite (and rotate into it) or write %s", path, ErrRetiredSuite, declared, RetainedCopyEncryptionSuiteDefault)
+		return RetainedCopyEncryptionSuiteDefault, false
+	case copycrypt.StatusDeprecated:
+		return declared, true
+	}
+	return declared, false
 }
 
 // resolveSetRetainedCopyEncryption resolves one set's policy from its
@@ -281,9 +359,9 @@ func resolveSetRetainedCopyEncryption(v *validator, path string, o *RetainedCopy
 		if o.KeyProvider != nil {
 			v.addf("%s.key_provider: a key provider needs mode required; remove it, or set the mode", path)
 		}
-		return RetainedCopyEncryption{Mode: RetainedCopyEncryptionOff}
+		return RetainedCopyEncryption{Mode: RetainedCopyEncryptionOff, Suite: global.Suite, SuiteDeprecated: global.SuiteDeprecated}
 	case RetainedCopyEncryptionRequired:
-		out := RetainedCopyEncryption{Mode: RetainedCopyEncryptionRequired, KeyProvider: global.KeyProvider}
+		out := RetainedCopyEncryption{Mode: RetainedCopyEncryptionRequired, KeyProvider: global.KeyProvider, Suite: global.Suite, SuiteDeprecated: global.SuiteDeprecated}
 		if o.KeyProvider != nil {
 			out.KeyProvider = *o.KeyProvider
 		}
