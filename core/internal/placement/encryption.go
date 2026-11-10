@@ -232,8 +232,10 @@ func (e *Engine) copyEncryptedToMedium(ctx context.Context, mv state.Move, src s
 	}
 	// Ciphertext is a little bigger than the artifact; the arithmetic is
 	// the one a medium-to-medium hop does, against the plaintext size, and
-	// the header and tags (about 0.024 percent) are inside the margin a
-	// filesystem keeps. ADR 0027 names this cost.
+	// the tags (16 bytes per 64 KiB, about 0.024 percent) and the header
+	// (a couple of hundred bytes for age/v1, about 1.4 KB for age-pq/v1)
+	// are inside the margin a filesystem keeps. ADR 0027 and ADR 0033 name
+	// this cost.
 	if err := e.roomToStage(staged, src); err != nil {
 		return 0, err
 	}
