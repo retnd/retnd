@@ -35,6 +35,14 @@ type externalKeyRegistrar interface {
 	RegisterExternal(ctx context.Context, ref secretref.Ref, at time.Time) (keycustody.KeyRecord, error)
 }
 
+// externalKeySuites tells which suite an external reference's key belongs
+// to without registering it (EPIC T, #1314). service.KeyCustody satisfies it;
+// a custodian without it cannot say, and the pinned-suite check for an
+// external set is then left to the engine's refusal.
+type externalKeySuites interface {
+	ExternalKeySuite(ctx context.Context, ref secretref.Ref) (string, error)
+}
+
 // externalKeyRisks is the capability that tells which external keys have lost
 // every declared reference while ACTIVE copies still need them (#1304).
 // service.KeyCustody satisfies it; it is asked of s.Keys so a custodian
@@ -212,6 +220,20 @@ func (s *Service) KeyCustodyAlertConditions(ctx context.Context, alertable map[m
 					keycustody.Provider{External: ref}.Describe(),
 					"this build cannot write copies under an external key reference yet"))
 				continue
+			}
+			// A pinned suite the external key is not a key of: the engine
+			// refuses every copy (FR-86), so the alert says why, under the
+			// existing kind. A reference that does not resolve is the probe's
+			// to report, so it falls through.
+			if want, pinned := w.policy.PinnedSuite(); pinned {
+				if es, ok := s.Keys.(externalKeySuites); ok {
+					if have, err := es.ExternalKeySuite(ctx, ref); err == nil && have != want {
+						conditions = append(conditions, keycustody.UnresolvableCondition(w.set,
+							keycustody.Provider{External: ref}.Describe(),
+							fmt.Sprintf("the deployment pins suite %s and the external key is a %s key; point the reference at a %s key", want, have, want)))
+						continue
+					}
+				}
 			}
 			policies = append(policies, keycustody.SetPolicy{Set: w.set, Required: true, Provider: keycustody.Provider{External: ref}})
 		case kp.Managed:

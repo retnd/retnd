@@ -76,6 +76,12 @@ type KeyCustodyHealth struct {
 	// policy says now.
 	Suites []SuiteHealth
 
+	// EncryptedCopiesBySuite is how many ACTIVE encrypted copies record
+	// each suite id (EPIC T, #1315). Suite ids are an enumerated vocabulary,
+	// never a key id, so this is the one encryption fact a scrape carries
+	// as a label. Nil when nothing was counted.
+	EncryptedCopiesBySuite map[string]int
+
 	// Unevaluated is one line saying why this section could not be computed
 	// (the key registry could not be read), and empty when it was. The rest
 	// of the report is unaffected; a section that could not be evaluated
