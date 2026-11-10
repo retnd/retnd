@@ -228,7 +228,7 @@ func TestRecordPlacementEncryption_RefusesWhatItCannotDescribe(t *testing.T) {
 	if err := j.RegisterEncryptionKey(ctx, EncryptionKey{ID: "k1", Provider: KeyProviderManaged, CreatedAt: scrubAt}); err != nil {
 		t.Fatal(err)
 	}
-	ok := PlacementEncryption{FormatID: "age/v1", FormatVersion: 1, KeyID: "k1", StoredHash: "c", StoredHashAlg: "sha256", StoredSize: 1}
+	ok := PlacementEncryption{FormatID: "age/v1", FormatVersion: 1, KeyID: "k1", StoredHash: "c", StoredHashAlg: "sha256", StoredSize: 5000}
 
 	if err := j.RecordPlacementEncryption(ctx, a, "offsite", ok); !errors.Is(err, ErrPlacementNotFound) {
 		t.Errorf("a copy the journal does not know = %v, want ErrPlacementNotFound", err)

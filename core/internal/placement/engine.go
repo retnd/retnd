@@ -1062,9 +1062,14 @@ func (e *Engine) verifyLocalCopy(ctx context.Context, p state.Placement) (Result
 // worked the two agree; where they disagree the journal should describe
 // the object that is really at the key rather than the one that was
 // expected, and this row is what the guard before the source delete reads.
-// Everything else comes from the source row, since a copy is the same
-// bytes under the same hash, and the class comes from the Result, which
-// carries the rung that RAN.
+// Everything else comes from the source row: the hash it carries is the
+// artifact's digest, and that is what every placements row has always
+// held (0015's header corrects 0007's "for this copy" wording). Under
+// retained-copy encryption the destination's bytes are not the source's,
+// and the digest of what is actually at the key goes in the per-copy
+// encryption record (state.PlacementEncryption), which #991 writes in the
+// same transaction as this row; it is never written into Hash. The class
+// comes from the Result, which carries the rung that RAN.
 func (e *Engine) destinationPlacement(mv state.Move, src state.Placement, result Result) state.PlacementUpdate {
 	verified := result.At
 	size := src.Size

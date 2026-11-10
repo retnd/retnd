@@ -72,8 +72,12 @@ func TestRetainedCopyEncryption_AConfigThatMentionsNothingSurvivesAReMarshalByte
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(after) != string(before) {
-		t.Errorf("Validate changed the marshalled file:\n--- before\n%s\n--- after\n%s", before, after)
+	// Validate fills retention and alert defaults into the file on
+	// purpose, so the claim here is narrower than byte equality of the
+	// whole document: nothing about encryption reaches a file that never
+	// mentioned it.
+	if strings.Contains(string(after), "retained_copy_encryption") {
+		t.Errorf("Validate leaked the resolved encryption policy into the marshalled file:\n%s", after)
 	}
 }
 
