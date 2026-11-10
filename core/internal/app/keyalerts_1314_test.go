@@ -15,14 +15,16 @@ import (
 // not run.
 
 // keyAlertCustodyWithSuites can register an external key and say which suite
-// a reference's key belongs to, as service.KeyCustody does.
+// a reference's key was when custody last resolved it, as service.KeyCustody
+// does. It never resolves anything itself, which is the point: the alert
+// pass must not add a second resolution to the probe's.
 type keyAlertCustodyWithSuites struct {
 	keyAlertCustodyWithExternals
 	suite string
 }
 
-func (c keyAlertCustodyWithSuites) ExternalKeySuite(context.Context, secretref.Ref) (string, error) {
-	return c.suite, nil
+func (c keyAlertCustodyWithSuites) LastExternalKeySuite(secretref.Ref) (string, bool) {
+	return c.suite, c.suite != ""
 }
 
 func pinnedExternalSet(t *testing.T, suite string) config.BackupSet {

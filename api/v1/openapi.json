@@ -9285,7 +9285,7 @@
           },
           "suite": {
             "type": "string",
-            "description": "The suite new copies are written under right now: the pinned suite; or for the default policy the suite of the deployment's external key, the active managed key's suite, or the build's default suite when there is no active key. Empty when the provider is external and its reference does not resolve."
+            "description": "The suite new copies are written under right now: the pinned suite; or for the default policy the suite of the deployment's external key as custody last resolved it, the active managed key's suite, or the build's default suite when there is no active key. Empty when the provider is external and its reference has not been resolved yet (a read never resolves it; the next alert pass or a patch does)."
           },
           "suite_configured": {
             "type": "string",

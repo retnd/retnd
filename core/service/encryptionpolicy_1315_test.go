@@ -16,18 +16,29 @@ import (
 func TestTheDefaultPolicyUnderAnExternalKeyNamesThatKeysSuite_1315(t *testing.T) {
 	f := newRecoveryFixture(t, fixtureOpts{})
 	fileBacked(t, f)
+	ctx := context.Background()
 	ref, _ := externalRefFile(t) // an age/v1 key
 	policy := config.RetainedCopyEncryption{
 		Mode:        config.RetainedCopyEncryptionRequired,
 		KeyProvider: config.RetainedCopyKeyProvider{External: &config.SecretSource{File: ref.File}},
 		Suite:       config.RetainedCopyEncryptionSuiteDefault,
 	}
-	if got := f.b.effectiveSuite(context.Background(), policy); got != "age/v1" {
-		t.Fatalf("the default policy under an age/v1 external key reports %q, want age/v1 (the build default would be a claim the engine does not honour)", got)
+	// A read never resolves the reference: before anything in this process
+	// has, the answer is empty rather than a guess, and asking does not
+	// resolve it as a side effect.
+	if got := f.b.effectiveSuite(ctx, policy); got != "" {
+		t.Fatalf("the policy read named suite %q for an external key nothing has resolved yet", got)
 	}
-	policy.KeyProvider.External.File = ref.File + ".gone"
-	if got := f.b.effectiveSuite(context.Background(), policy); got != "" {
-		t.Fatalf("an external reference that does not resolve reports suite %q, want none", got)
+	if got := f.b.effectiveSuite(ctx, policy); got != "" {
+		t.Fatalf("the first read resolved the reference: the second one says %q", got)
+	}
+	// Custody resolves it, as the alert tick's probe or a patch does; the
+	// read then names that key's suite and not the build default.
+	if _, err := f.b.keys.ExternalKeySuite(ctx, ref); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.b.effectiveSuite(ctx, policy); got != "age/v1" {
+		t.Fatalf("the default policy under an age/v1 external key reports %q after a resolution, want age/v1", got)
 	}
 }
 
