@@ -549,7 +549,24 @@ describe("every request the shared client makes is a declared operation", () => 
       ["unsetBackupSetWorkflowEnvironment", () =>
         httpApi.unsetBackupSetWorkflowEnvironment("src", "set-1", "PGHOST")],
       ["getBackupSetWorkflowValidation", () =>
-        httpApi.getBackupSetWorkflowValidation("src", "set-1")]
+        httpApi.getBackupSetWorkflowValidation("src", "set-1")],
+      // EPIC N's retained-copy encryption (#993, wired by #995). References go in
+      // as a source and never as material; the bundle export is driven with a
+      // response that carries none, and only its receipt comes back.
+      ["getEncryptionPolicy", () => httpApi.getEncryptionPolicy()],
+      ["patchEncryptionPolicy", () => httpApi.patchEncryptionPolicy({ mode: "required", keyProvider: { managed: true } })],
+      ["resetEncryptionPolicy", () => httpApi.resetEncryptionPolicy()],
+      ["setBackupSetEncryption", () => httpApi.setBackupSetEncryption("src", "set-1", { mode: "required", keyProvider: { external: { env: "KEY_VAR" } } })],
+      ["clearBackupSetEncryption", () => httpApi.clearBackupSetEncryption("src", "set-1")],
+      ["listEncryptionKeys", () => httpApi.listEncryptionKeys()],
+      ["createEncryptionKey", () => httpApi.createEncryptionKey()],
+      ["rotateEncryptionKey", () => httpApi.rotateEncryptionKey()],
+      ["retireEncryptionKey", () => httpApi.retireEncryptionKey("k0123")],
+      ["exportRecoveryBundle", () => httpApi.exportRecoveryBundle("k0123", { stepUpPassword: "pw" })],
+      ["confirmRecoveryBundle", () => httpApi.confirmRecoveryBundle("k0123")],
+      ["testEncryptionProvider", () => httpApi.testEncryptionProvider({ external: { file: "/run/secrets/key" } })],
+      ["listEncryptionCopies", () => httpApi.listEncryptionCopies("src/set-1/a.tar.gz")],
+      ["startDecryptVerify", () => httpApi.startDecryptVerify({ artifactId: "src/set-1/a.tar.gz", medium: "offsite", acknowledgeEgress: true })]
     ];
     for (const [, call] of calls) {
       await call().catch(() => undefined);
