@@ -4,6 +4,15 @@
 
 ### Added
 
+- **The installer knows about the managed encryption keys** (#1295, EPIC N follow-up). The archive
+  plan now includes `config/retained_copy_keys`: `upgrade` copies it into the archive (the live
+  directory is untouched), and `factory-reset` moves it together with `state.db`, so the archive
+  holds the journal and the keys its encrypted copies name, and the clean install has no orphaned
+  key files. The factory-reset preview counts the key files and says what losing them means, the
+  archive-limit refusal and `uninstall`'s "Left in place" text name the directory, and it joins
+  `ENGINE_OWNED_CONFIG_DIRS` so it is pre-created `0700`. The Synology scripts delete nothing, so
+  there is nothing to change there, and `docs/install.md` now says what each mode does.
+
 - **The retained-copy encryption policy and its schema, ahead of the cipher** (#989, EPIC N). One new
   top-level `retained_copy_encryption:` key with `mode: off | required` and a `key_provider` that is
   either `managed: true` or an external `file`/`env`/`command` reference, plus a per-set
