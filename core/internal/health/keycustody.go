@@ -54,12 +54,21 @@ type KeyCustodyHealth struct {
 	// new key and never the old one is still a deployment one lost disk
 	// away from unreadable copies.
 	UnconfirmedKeyIDs []string
+
+	// Unevaluated is one line saying why this section could not be computed
+	// (the key registry could not be read), and empty when it was. The rest
+	// of the report is unaffected; a section that could not be evaluated
+	// reads as degraded rather than as nothing to report.
+	Unevaluated string
 }
 
 // Degraded is FR-66's durable degraded fact: encryption is required
 // somewhere and either no key can encrypt yet, or a key that guards copies
 // has no confirmed bundle.
 func (h KeyCustodyHealth) Degraded() bool {
+	if h.Unevaluated != "" {
+		return true
+	}
 	if !h.Enabled {
 		return false
 	}
