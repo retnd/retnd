@@ -59,11 +59,12 @@ make_repo() {
   echo "readme" > apps/a/docs/README.md
   git add -A && git commit -q -m base
   BASE_SHA="$(git rev-parse HEAD)"
+  printf '%s' "$BASE_SHA" > "$SANDBOX/$1.base"
   cd "$SANDBOX" || return 1
   printf '%s' "$dir"
 }
 
-run_check() { (cd "$1" && EPIC_N_ROOT="$1" EPIC_N_BASE="$BASE_SHA" EPIC_N_SKIP_GO=1 bash "$CHECK" 2>&1); }
+run_check() { (cd "$1" && EPIC_N_ROOT="$1" EPIC_N_BASE="${BASE_SHA:-$(cat "$SANDBOX/$(basename "$1").base")}" EPIC_N_SKIP_GO=1 bash "$CHECK" 2>&1); }
 add_0015() { echo "-- 15" > "$1/core/migrations/0015_retained_copy_encryption.sql"; (cd "$1" && git add -A && git commit -q -m "epic"); }
 
 expect_pass() { # name repo
@@ -80,12 +81,12 @@ $out"; fi
 
 # Control: the epic's one migration and nothing else.
 r="$(make_repo control)"; add_0015 "$r"
-expect_pass "control: one new migration 0015 and nothing guarded touched passes"
+expect_pass "control: one new migration 0015 and nothing guarded touched passes" "$r"
 
 # Control: a change outside every guarded place.
 r="$(make_repo outside)"; add_0015 "$r"
 echo "more" >> "$r/apps/a/docs/README.md"; (cd "$r" && git commit -qam "docs")
-expect_pass "control: a change beside the guarded places does not fire the guard"
+expect_pass "control: a change beside the guarded places does not fire the guard" "$r"
 
 # Guard 1, one violation per group.
 msg='the canonical container contract moved'

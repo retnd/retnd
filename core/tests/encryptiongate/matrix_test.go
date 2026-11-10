@@ -450,8 +450,32 @@ func TestTheMatrixParserReadsTheRealTablesRatherThanTheirShape(t *testing.T) {
 		t.Fatalf("reading %s: %v", matrixPath, err)
 	}
 	rows := parseMatrix(string(raw))
-	if len(rows) < 90 {
-		t.Fatalf("%s parsed to %d rows, fewer than the 90 it carries, so the parser or the file is wrong", matrixPath, len(rows))
+	// How many rows there should be is the specification's to say, and
+	// core/tests/compat:TestTheMatrixHasARowPerGateLine already holds the matrix
+	// to it (one row per exit-gate line, one per consensus finding, one per
+	// guard). What this parser has to show is that it read every family and
+	// lost nothing in the middle of one: each of the four families is present
+	// and numbered 1..n without a gap.
+	family := regexp.MustCompile(`^(N1|N2|NC|NV)[.-]0*([0-9]+)$`)
+	seen := map[string][]int{}
+	for _, r := range rows {
+		if m := family.FindStringSubmatch(r.id); m != nil {
+			var n int
+			_, _ = fmt.Sscanf(m[2], "%d", &n)
+			seen[m[1]] = append(seen[m[1]], n)
+		}
+	}
+	for _, f := range []string{"N1", "N2", "NC", "NV"} {
+		ns := seen[f]
+		if len(ns) == 0 {
+			t.Fatalf("%s parsed to no %s rows, so the parser or the file is wrong", matrixPath, f)
+		}
+		sort.Ints(ns)
+		for i, n := range ns {
+			if n != i+1 {
+				t.Fatalf("%s rows %s are not numbered 1..%d without a gap (found %v), so a row was lost or the parser stopped reading", matrixPath, f, len(ns), ns)
+			}
+		}
 	}
 	if got := parseMatrix("| ID | Claim |\n|---|---|\n| N9 | x |\n"); len(got) != 0 {
 		t.Fatalf("a table that is not the matrix parsed to rows: %v", got)
