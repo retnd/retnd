@@ -11,7 +11,7 @@
     },
     {
       "path": "ui/shared/src/encryption/encryptionCommands.ts",
-      "sha256": "6724e25530ed4d960b3f4e04029ba620ebab7819a482725ae5d94e34be7baa2e"
+      "sha256": "9810164506dfb3ca9da5dca7bbedc7c73b6fae8fb3eaec51060916e4f59326b0"
     },
     {
       "path": "ui/shared/src/hooks/runCommands.ts",

@@ -189,7 +189,14 @@ export function SuiteChangeFlow({
   };
 
   // Cancel before anything was written closes; after, it says what is owed.
-  const cancel = () => (step === "patch" ? onClose() : setOwed(true));
+  // While a write is in flight nothing closes: Escape or a click outside
+  // during the patch would otherwise drop the flow with the patch landing
+  // behind it and the rotate step gone.
+  const cancel = () => {
+    if (busy) return;
+    if (step === "patch") onClose();
+    else setOwed(true);
+  };
 
   if (owed) {
     const items: { text: string; command: string }[] = [];
@@ -293,7 +300,7 @@ export function SuiteChangeFlow({
           {"The policy now says " + clipText(suite) + " and there is no active key under it, so copies under the policy are refused, before anything is deleted, until you rotate."}
         </p>
         <p style={{ margin: 0, color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
-          The current key stays in the registry as Retired while any copy records it. The new key will have no confirmed bundle.
+          The current key stays in the registry, superseded, and keeps reading every copy that records it. The new key will have no confirmed bundle.
         </p>
         <CommandEcho label="Equivalent command" commands={[keyCommand]} />
         {failureLine}
