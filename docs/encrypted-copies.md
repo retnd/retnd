@@ -253,5 +253,8 @@ key it was written under, so a move also needs the key.
 - No retroactive encryption of copies that already exist in plaintext, and no re-encryption
   of old copies after a rotation.
 - No `retnd` command that decrypts a copy for you.
-- The alert kind for an unresolvable `required` key is defined, and nothing raises it yet. You
-  see the refusal and the "Key missing" state on the copy instead.
+- `ENCRYPTION_KEY_UNRESOLVABLE` fires when a `required` set's copies are being refused for want
+  of a key (a missing or unreadable managed key file, no active managed key, or, until external
+  providers can write copies, an external reference), once, and clears when the key resolves
+  again. It reaches the notifier only if alerts are enabled in `config.yaml`. Key custody health
+  on the Dashboard still does not show resolvability; the key list does.

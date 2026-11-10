@@ -49,6 +49,10 @@ func (s *Store) AlertConditions(ctx context.Context, policies []SetPolicy) ([]al
 			unevaluated = append(unevaluated, alert.Subject{Kind: alert.EncryptionKeyUnresolvable, Scope: p.Set})
 			continue
 		}
+		if p.Managed && p.Provider.Managed == "" && p.Provider.External.IsZero() {
+			conditions = append(conditions, UnresolvableCondition(p.Set, "the managed key", "no managed key is active"))
+			continue
+		}
 		probe := s.Resolvability(ctx, p.Provider)
 		if probe.State == Resolves {
 			continue
@@ -57,15 +61,25 @@ func (s *Store) AlertConditions(ctx context.Context, policies []SetPolicy) ([]al
 		if probe.State == NotDeclared {
 			reason = "no key provider is declared for it"
 		}
-		conditions = append(conditions, alert.Condition{
-			Kind:  alert.EncryptionKeyUnresolvable,
-			Scope: p.Set,
-			Detail: fmt.Sprintf(
-				"Backup set %s requires encrypted retained copies and its key (%s) cannot be resolved: %s. "+
-					"New copies for this set are being refused until the key resolves again, and nothing is deleted at the source or on any medium while they are. "+
-					"Copies already stored are unaffected.",
-				p.Set, p.Provider.Describe(), reason),
-		})
+		conditions = append(conditions, UnresolvableCondition(p.Set, p.Provider.Describe(), reason))
 	}
 	return conditions, unevaluated
+}
+
+// UnresolvableCondition is the one sentence ENCRYPTION_KEY_UNRESOLVABLE says,
+// for the two places that build it: Store.AlertConditions, for a key it probed,
+// and app's key alert wiring, for the cases no probe is needed to know copies
+// are refused (no custody configured, an external reference this build cannot
+// write under). key describes the key the way Provider.Describe does and
+// carries no material.
+func UnresolvableCondition(set, key, reason string) alert.Condition {
+	return alert.Condition{
+		Kind:  alert.EncryptionKeyUnresolvable,
+		Scope: set,
+		Detail: fmt.Sprintf(
+			"Backup set %s requires encrypted retained copies and its key (%s) cannot be resolved: %s. "+
+				"New copies for this set are being refused until the key resolves again, and nothing is deleted at the source or on any medium while they are. "+
+				"Copies already stored are unaffected.",
+			set, key, reason),
+	}
 }
