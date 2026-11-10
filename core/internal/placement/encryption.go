@@ -77,9 +77,9 @@ func (e *Engine) encryptedSet(set model.BackupSetID) (bool, error) {
 
 // activeKey resolves the key new copies of artifact are written under, and
 // proves it can be read before any byte is encrypted. Every failure wraps
-// ErrClassUnavailable. It also makes sure the journal's key registry has the
-// row a per-copy record will reference, because nothing else mirrors
-// keycustody's registry into encryption_keys yet.
+// ErrClassUnavailable. The key row a per-copy record references is the one
+// custody itself wrote: keycustody.JournalRegistry is the encryption_keys
+// table, so nothing here registers anything.
 func (e *Engine) activeKey(ctx context.Context, artifact model.ArtifactID) (keycustody.KeyRecord, error) {
 	bs, err := e.backupSet(artifact.Set)
 	if err != nil {
@@ -101,17 +101,6 @@ func (e *Engine) activeKey(ctx context.Context, artifact model.ArtifactID) (keyc
 	}
 	if err := e.Keys.WithKey(ctx, rec.ID, func([]byte) error { return nil }); err != nil {
 		return keycustody.KeyRecord{}, fmt.Errorf("%w: key %s does not resolve: %w", ErrClassUnavailable, rec.ID, err)
-	}
-	if reg, ok := e.Journal.(interface {
-		RegisterEncryptionKey(ctx context.Context, k state.EncryptionKey) error
-	}); ok {
-		err := reg.RegisterEncryptionKey(ctx, state.EncryptionKey{
-			ID: rec.ID, Provider: state.KeyProviderManaged, Recipient: rec.Recipient,
-			Status: state.EncryptionKeyActive, CreatedAt: rec.Created,
-		})
-		if err != nil && !errors.Is(err, state.ErrEncryptionKeyExists) {
-			return keycustody.KeyRecord{}, fmt.Errorf("placement: registering key %s in the journal: %w", rec.ID, err)
-		}
 	}
 	return rec, nil
 }
