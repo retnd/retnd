@@ -73,6 +73,7 @@ func placementWire(p Placement) apicontract.Placement {
 		Encrypted:               p.Encrypted,
 		EncryptionKeyID:         p.EncryptionKeyID,
 		EncryptionKeyResolvable: p.EncryptionKeyResolvable,
+		EncryptionSuite:         p.EncryptionSuite,
 		LastCheckedAt:           wireTime(p.ScrubLastCheckedAt),
 		LastFailureAt:           wireTime(p.ScrubLastFailureAt),
 		LastFailureReason:       p.ScrubLastFailureReason,

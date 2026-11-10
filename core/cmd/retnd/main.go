@@ -462,8 +462,10 @@ commands:
                                                   its key provider, and what every backup set resolves to. A key
                                                   provider reads back as a description of its source and never as a
                                                   reference that could be parsed back. GET /api/v1/encryption/policy (#993)
-  encryption policy patch [--mode off|required] [--managed | --external-file P | --external-env V | --external-command CMD] [--json]
-                                                  change the deployment's mode or key provider; what is not named stays.
+  encryption policy patch [--mode off|required] [--suite default|ID] [--managed | --external-file P | --external-env V | --external-command CMD] [--json]
+                                                  change the deployment's mode, suite or key provider; what is not named stays.
+                                                  A suite with no active key answers with the key rotate command and
+                                                  rotates nothing.
                                                   --external-command is split on spaces and run without a shell. Refused
                                                   with the words a hand-edited config.yaml gets (required with no provider
                                                   among them). Routed, PATCH /api/v1/encryption/policy
@@ -476,9 +478,12 @@ commands:
                                                   Routed, PUT and DELETE /api/v1/backup-sets/{source}/{set}/encryption
   encryption key list [--json]                    the managed keys: id, status, when created, whether each resolves now and
                                                   whether its recovery bundle is confirmed. Never bytes. GET .../keys
-  encryption key create|rotate [--json]           mint the first managed key, or a new active one with the old superseded.
+  encryption key create|rotate [--suite ID] [--json]
+                                                  mint the first managed key, or a new active one with the old superseded.
                                                   New copies use the new key; every old copy decrypts through the key id
-                                                  recorded against it. Routed, POST .../keys and .../keys/rotate
+                                                  recorded against it. --suite names the suite (default: the policy's
+                                                  pinned suite, else the active key's, else the build default); rotating
+                                                  into another suite is one write. Routed, POST .../keys and .../keys/rotate
   encryption key retire <id> [--json]             retire a key. Refused, naming the copies, while an ACTIVE copy records
                                                   it, and for the active key. Routed, POST .../keys/{id}/retire
   encryption key export <id> --out FILE [--json]  write the recovery bundle (key material, integrity data, clean-machine
@@ -508,7 +513,10 @@ commands:
                                                   copy's key does not resolve. Beside a serving engine it starts that
                                                   engine's operation (stop it with assurance cancel); otherwise it runs
                                                   here. POST /api/v1/encryption/verify
-  encryption decrypt <object> (--bundle FILE | --identity FILE) (--sidecar FILE | --digest HEX [--stored-digest HEX]) --out FILE
+  encryption suites [--json]                      the encryption suites this build has: status, the default, the one
+                                                  sentence said about each, and its active copies and keys. Opens no key
+                                                  directory. GET /api/v1/encryption/suites (#1315)
+  encryption decrypt <object> (--bundle FILE | --identity FILE) (--sidecar FILE | --digest HEX [--stored-digest HEX]) [--suite ID] --out FILE
                                                   open one encrypted copy into FILE. Reads no configuration and no state, so
                                                   it works on a machine with only this binary, the copy and the bundle. The
                                                   stored-bytes digest is checked before any key is used and the plaintext
@@ -525,6 +533,15 @@ commands:
                                                   not. Beside a serving engine it starts that engine's operation (stop it
                                                   with assurance cancel); otherwise it runs here and an interrupt stops it.
                                                   POST and GET /api/v1/encryption/encrypt-existing
+  encryption reencrypt --suite ID | --key ID | --deprecated [--to MEDIUM] [--dry-run] [--json]
+                                                  rewrite the encrypted copies under a suite, a key, or a deprecated or
+                                                  retired suite under the active suite and key, onto MEDIUM (another medium:
+                                                  the journal holds one copy per medium). The old ciphertext is streamed
+                                                  straight into the new one; no plaintext touches local disk. Only when you
+                                                  run it, never because a key rotated. An old copy is retired only after its
+                                                  replacement decrypt-verifies; --dry-run lists the copies by suite and key
+                                                  with each destination and refusal. A run needs --to.
+                                                  POST and GET /api/v1/encryption/reencrypt
   auth enroll --username U --token-stdin --password-stdin
                           [--recovery-email ADDR --smtp-host H [--smtp-port N] [--smtp-security starttls|tls|none]
                           [--smtp-username U] [--smtp-from ADDR] [--smtp-password-stdin]]

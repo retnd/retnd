@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "a771a77776de092ac9dc0a8784091c7094157e58ab39f28c104e6422dd29330a"
+const ContractSHA256 = "4f92817b0a668e07038174cd3e1fb667007aa3b3358cea855bdaae4d470ea1dc"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -1398,6 +1398,16 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "listEncryptionSuites", Method: "GET", Path: "/encryption/suites",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListEncryptionSuitesResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "startDecryptVerify", Method: "POST", Path: "/encryption/verify",
 		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "StartDecryptVerifyRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
@@ -1433,6 +1443,30 @@ var Endpoints = []Endpoint{
 			403: {ErrorCodeCsrfTokenMissing, ErrorCodeCsrfTokenMismatch},
 			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound},
 			409: {ErrorCodeOperationAlreadyRunning, ErrorCodeEncryptionKeyUnresolvable},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "planReencrypt", Method: "GET", Path: "/encryption/reencrypt",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ReencryptPlan", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "startReencrypt", Method: "POST", Path: "/encryption/reencrypt",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "StartReencryptRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCsrfTokenMissing, ErrorCodeCsrfTokenMismatch},
+			409: {ErrorCodeOperationAlreadyRunning},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
 		},
@@ -2866,6 +2900,7 @@ type EncryptionKeyStatus struct {
 	Resolvable        bool   `json:"resolvable"`
 	RetiredAt         string `json:"retired_at,omitempty"`
 	Status            string `json:"status"`
+	Suite             string `json:"suite"`
 }
 
 // EncryptionOverride is PUT /backup-sets/{source}/{set}/encryption. A backup set's own
@@ -2879,9 +2914,13 @@ type EncryptionOverride struct {
 // EncryptionPolicy is GET /encryption/policy. The deployment's retained-copy encryption
 // mode and key provider, and every backup set's resolution.
 type EncryptionPolicy struct {
-	KeyProvider EncryptionKeyProviderState `json:"key_provider"`
-	Mode        string                     `json:"mode"`
-	Sets        []EncryptionSetPolicy      `json:"sets"`
+	KeyProvider     EncryptionKeyProviderState `json:"key_provider"`
+	Mode            string                     `json:"mode"`
+	RotateCommand   string                     `json:"rotate_command,omitempty"`
+	RotationNeeded  bool                       `json:"rotation_needed,omitempty"`
+	Sets            []EncryptionSetPolicy      `json:"sets"`
+	Suite           string                     `json:"suite"`
+	SuiteConfigured string                     `json:"suite_configured"`
 }
 
 // EncryptionPolicyPatch is PATCH /encryption/policy. Fields that are present change and the
@@ -2889,6 +2928,7 @@ type EncryptionPolicy struct {
 type EncryptionPolicyPatch struct {
 	KeyProvider *EncryptionKeyProvider `json:"key_provider,omitempty"`
 	Mode        string                 `json:"mode,omitempty"`
+	Suite       string                 `json:"suite,omitempty"`
 }
 
 // EncryptionProviderProbe is whether a key provider resolves right now. source is a
@@ -2917,6 +2957,19 @@ type EncryptionSetPolicy struct {
 	KeyProvider          EncryptionKeyProviderState `json:"key_provider"`
 	Mode                 string                     `json:"mode"`
 	SatisfiedBy          string                     `json:"satisfied_by,omitempty"`
+}
+
+// EncryptionSuite is one encryption suite this build has. describe is the only sentence
+// a surface may print about it.
+type EncryptionSuite struct {
+	ActiveCopies      int    `json:"active_copies"`
+	Default           bool   `json:"default"`
+	Describe          string `json:"describe"`
+	ID                string `json:"id"`
+	Keys              int    `json:"keys"`
+	RetirementVersion string `json:"retirement_version,omitempty"`
+	Status            string `json:"status"`
+	Version           int    `json:"version"`
 }
 
 // EnrollRequest is POST /auth/enroll. The credentials, and optionally the two things
@@ -3117,6 +3170,12 @@ type ListEncryptionCopiesResponse struct {
 // ListEncryptionKeysResponse is GET /encryption/keys. Every managed key, oldest first.
 type ListEncryptionKeysResponse struct {
 	Keys []EncryptionKeyStatus `json:"keys"`
+}
+
+// ListEncryptionSuitesResponse is GET /encryption/suites. Every suite this build has, in table
+// order.
+type ListEncryptionSuitesResponse struct {
+	Suites []EncryptionSuite `json:"suites"`
 }
 
 // ListOperationsResponse is GET /operations, newest first. The list counterpart of GET
@@ -3527,6 +3586,7 @@ type Placement struct {
 	Encrypted               bool   `json:"encrypted,omitempty"`
 	EncryptionKeyID         string `json:"encryption_key_id,omitempty"`
 	EncryptionKeyResolvable *bool  `json:"encryption_key_resolvable,omitempty"`
+	EncryptionSuite         string `json:"encryption_suite,omitempty"`
 	LastCheckedAt           string `json:"last_checked_at,omitempty"`
 	LastFailureAt           string `json:"last_failure_at,omitempty"`
 	LastFailureReason       string `json:"last_failure_reason,omitempty"`
@@ -3834,6 +3894,42 @@ type RecoveryTestStarted struct {
 	BackupSetID string `json:"backup_set_id"`
 	Coalesced   bool   `json:"coalesced"`
 	OperationID string `json:"operation_id"`
+}
+
+// ReencryptCandidate is one encrypted copy and what a run would do with it.
+// destination_medium is the medium a run would write the new copy to
+// (the one asked for, or, when none was, the first other configured
+// medium); verdict is would_reencrypt or refused; refusal is the
+// stable reason code of a refusal (already_current,
+// source_key_unavailable, same_medium, no_destination, not_required,
+// key_unavailable, destination_unverifiable, no_room,
+// source_unreadable or not_eligible) and reason is the sentence the
+// run would refuse with.
+type ReencryptCandidate struct {
+	ArtifactID        string `json:"artifact_id"`
+	DestinationMedium string `json:"destination_medium,omitempty"`
+	Reason            string `json:"reason,omitempty"`
+	Refusal           string `json:"refusal,omitempty"`
+	SourceMedium      string `json:"source_medium"`
+	Verdict           string `json:"verdict"`
+}
+
+// ReencryptGroup is the copies under one suite and one key, as their per-copy records
+// name them.
+type ReencryptGroup struct {
+	Candidates []ReencryptCandidate `json:"candidates"`
+	KeyID      string               `json:"key_id"`
+	SuiteID    string               `json:"suite_id"`
+}
+
+// ReencryptPlan is GET /encryption/reencrypt. The dry run: every encrypted copy the
+// selector matches, grouped by suite and then by key, whether a run
+// would rewrite it under the active suite and key, and why not when
+// it would not. It changes and reads nothing.
+type ReencryptPlan struct {
+	Groups         []ReencryptGroup `json:"groups"`
+	Refused        int64            `json:"refused"`
+	WouldReencrypt int64            `json:"would_reencrypt"`
 }
 
 // RepositoryHealth is one repository domain's own health, which is a different question
@@ -4538,6 +4634,22 @@ type StartEncryptExistingRequest struct {
 type StartRecoveryTestRequest struct {
 	Acknowledged bool   `json:"acknowledged,omitempty"`
 	ArtifactID   string `json:"artifact_id,omitempty"`
+}
+
+// StartReencryptRequest is POST /encryption/reencrypt. Rewrite encrypted retained copies
+// under the active suite and key, each onto destination_medium. Name
+// exactly one selector: suite_id (every copy under that suite),
+// key_id (every copy under that key) or deprecated (every copy under
+// a deprecated or retired suite). Nothing runs unless this request
+// is made: a key rotation or a suite deprecation never rewrites a
+// copy, and each source copy is retired only after its replacement
+// has been decrypt-verified against the recorded plaintext digest.
+// The plaintext is never written to local disk.
+type StartReencryptRequest struct {
+	Deprecated        bool   `json:"deprecated,omitempty"`
+	DestinationMedium string `json:"destination_medium"`
+	KeyID             string `json:"key_id,omitempty"`
+	SuiteID           string `json:"suite_id,omitempty"`
 }
 
 // StorageMediumCredentialsReference is where one storage medium's credentials come from. Exactly one of
@@ -5330,6 +5442,7 @@ var SchemaTypes = map[string]any{
 	"EncryptionProviderProbe":            EncryptionProviderProbe{},
 	"EncryptionProviderTestRequest":      EncryptionProviderTestRequest{},
 	"EncryptionSetPolicy":                EncryptionSetPolicy{},
+	"EncryptionSuite":                    EncryptionSuite{},
 	"EnrollRequest":                      EnrollRequest{},
 	"ErrorBody":                          ErrorBody{},
 	"ErrorResponse":                      ErrorResponse{},
@@ -5351,6 +5464,7 @@ var SchemaTypes = map[string]any{
 	"ListCustomValidatorsResponse":       ListCustomValidatorsResponse{},
 	"ListEncryptionCopiesResponse":       ListEncryptionCopiesResponse{},
 	"ListEncryptionKeysResponse":         ListEncryptionKeysResponse{},
+	"ListEncryptionSuitesResponse":       ListEncryptionSuitesResponse{},
 	"ListOperationsResponse":             ListOperationsResponse{},
 	"ListRepositoriesResponse":           ListRepositoriesResponse{},
 	"ListSSHKeyCandidatesResponse":       ListSSHKeyCandidatesResponse{},
@@ -5399,6 +5513,9 @@ var SchemaTypes = map[string]any{
 	"RecoveryTestOutput":                 RecoveryTestOutput{},
 	"RecoveryTestOutputRecord":           RecoveryTestOutputRecord{},
 	"RecoveryTestStarted":                RecoveryTestStarted{},
+	"ReencryptCandidate":                 ReencryptCandidate{},
+	"ReencryptGroup":                     ReencryptGroup{},
+	"ReencryptPlan":                      ReencryptPlan{},
 	"RepositoryHealth":                   RepositoryHealth{},
 	"RepositoryMaintenance":              RepositoryMaintenance{},
 	"RepositoryPassphraseReference":      RepositoryPassphraseReference{},
@@ -5453,6 +5570,7 @@ var SchemaTypes = map[string]any{
 	"StartDecryptVerifyRequest":          StartDecryptVerifyRequest{},
 	"StartEncryptExistingRequest":        StartEncryptExistingRequest{},
 	"StartRecoveryTestRequest":           StartRecoveryTestRequest{},
+	"StartReencryptRequest":              StartReencryptRequest{},
 	"StorageMediumCredentialsReference":  StorageMediumCredentialsReference{},
 	"StorageMediumRequest":               StorageMediumRequest{},
 	"StorageMediumSummary":               StorageMediumSummary{},

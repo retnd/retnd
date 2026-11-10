@@ -234,18 +234,25 @@ produces.
 ```yaml
 retained_copy_encryption:
   mode: required
-  suite: default            # default | age/v1 | age-pq/v1   (default = the build's default suite)
+  suite: default            # default | age/v1 | age-pq/v1   (default: see below)
   key_provider:
     managed: true
 ```
 
-- `default` means "the build's default suite". It is the smart default: writing nothing is the same as
-  writing it. A build that changes its default announces it in the CHANGELOG, and the first cycle under the
-  new build emits one activity event naming the old and the new suite. It never mints a key by itself.
+- `default` (or writing nothing, which is the same) **keeps the deployment on the suite it already uses**:
+  it resolves to the suite of the deployment's active managed key when there is one, and to the build's
+  default suite only when there is no active managed key. So an EPIC N deployment upgrading with an active
+  `age/v1` key stays on `age/v1`, nothing is refused and behaviour is byte-identical, and a fresh deployment
+  mints its first key under `age-pq/v1`. Moving an existing deployment to `age-pq/v1` is an explicit
+  `suite: age-pq/v1` plus `retnd encryption key rotate --suite age-pq/v1`. (Owner decision, 2026-11-10,
+  replacing the first draft's "default always means the build default, and a mismatch is refused until the
+  operator rotates", which would have stopped every upgraded deployment's copies on the first cycle.) A
+  build that changes its default announces it in the CHANGELOG, and the first cycle under the new build
+  emits one activity event naming the old and the new default. It never mints a key by itself.
 - A pinned id is honoured exactly. `Validate` refuses an id this build does not know and an id whose
   status is retired, and warns (load succeeds, health degrades) on a deprecated one.
 - **Mismatch is a refusal, not a downgrade.** If the resolved suite has no active managed key (the operator
-  changed the suite and has not rotated, or a new build moved the default), the engine refuses the copy
+  pinned a suite and has not rotated into it), the engine refuses the copy
   before any destructive step, exactly as `required` with an unresolvable key does today, with the sentence
   "no active key for suite X; run `retnd encryption key rotate --suite X`". The local copy is untouched and
   the source is not deleted, because remote deletion needs only the local copy (verified above). Health
@@ -444,9 +451,10 @@ changes scope, not code already written.
   one tooltip sentence per suite, stated from `Describe()`.
 - Every suite change is a key rotation and therefore a bundle export and confirmation. The health state
   that already exists carries that.
-- A deployment that writes nothing is byte-identical to EPIC N, except that new managed keys are minted
-  under `age-pq/v1`, so the first rotation after the upgrade changes the recipient string length (about
-  2000 characters) and the header size (about 1.4 KB). Fixtures that assume a 200-byte header move.
+- A deployment that writes nothing and already has an active `age/v1` key is byte-identical to EPIC N: it
+  stays on `age/v1` until the operator pins `age-pq/v1` and rotates. A deployment with no active key mints
+  its first key under `age-pq/v1`, which changes the recipient string length (about 2000 characters) and the
+  header size (about 1.4 KB). Fixtures that assume a 200-byte header move.
 - `age/v1` copies stay readable for as long as the age library reads X25519 stanzas, which is forever by
   the age spec's own compatibility promise.
 - `GOFIPS140` builds are not promised by this ADR. If D2(b) is taken, a separate ADR covers the build mode,

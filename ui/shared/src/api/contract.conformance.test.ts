@@ -721,7 +721,11 @@ describe("every request the shared client makes is a declared operation", () => 
     // out. They were never a standing permission — nothing in ui/shared
     // could call them without this list shrinking, which is the property
     // the exact assertion below enforces in both directions.
-    "getSession"
+    "getSession",
+    // EPIC T's suite listing (#1315) lands its route and verb before any
+    // screen; the Settings suite select (#1318) calls it and takes it out of
+    // this list in the same commit.
+    "listEncryptionSuites"
     //
     // EPIC Q's recovery pair (#976), mintRecovery and redeemRecovery, used to
     // be pinned here as "unreached until a screen calls them". The Recover

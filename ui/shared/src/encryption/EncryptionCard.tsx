@@ -16,6 +16,15 @@
  * is. There is no Show key, Copy key or Reveal, and no field that could hold
  * one: a key here is an id, a status and two timestamps.
  *
+ * # The suite (EPIC T, #1318)
+ *
+ * With encryption on, the card lists the registry's suites (SuiteControls.tsx)
+ * and the choice is the one format decision there is: a suite is a library's
+ * construction with its own Describe() sentence, not a cipher or a chunk
+ * size. Changing it walks patch, rotate, bundle and confirm, and a policy
+ * whose suite has no active key says so here, as the engine refuses copies
+ * under it.
+ *
  * # Every write goes through the route
  *
  * Enable, turn off, reset and the external reference are PATCH
@@ -32,32 +41,31 @@
  * Confirming is a separate act and a statement, never an upload: the bundle's
  * digest is not asked for, and the card accepts no key bytes anywhere.
  */
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
-import { acknowledgeInsecureTransport } from "@shared/api/client";
-import { apiErrorOf, describeFailure, isNotConfigured } from "@shared/api/failure";
-import { Acknowledgement } from "@shared/components/Acknowledgement";
+import { describeFailure, isNotConfigured } from "@shared/api/failure";
 import { Banner } from "@shared/components/Banner";
 import { ConfirmationDialog } from "@shared/components/ConfirmationDialog";
 import { Cell, CellGrid } from "@shared/components/Definitions";
 import { ErrorState } from "@shared/components/EmptyState";
-import { StepUpPassword, stepUpMessage } from "@shared/components/StepUpFields";
 import { WarningBanner } from "@shared/components/WarningBanner";
 import { useAsync } from "@shared/hooks/useAsync";
-import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
 import { CommandEcho } from "@shared/pages/CommandEcho";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { EncryptionKey, EncryptionPolicy } from "@shared/types/encryption";
 import { stamp } from "@shared/utilities/format";
+import { BundleDialog } from "./BundleDialog";
+import { clipText } from "./ClippedText";
 import { EncryptionChip } from "./EncryptionChips";
 import { EMPTY_REFERENCE, ExternalReferenceFields, referenceOf } from "./ExternalReferenceFields";
 import type { ReferenceDraft } from "./ExternalReferenceFields";
 import {
-  keyConfirmCommand, keyCreateCommand, keyExportCommand, keyRetireCommand, keyRotateCommand,
-  policyPatchCommand, policyResetCommand
+  keyCreateCommand, keyRetireCommand, keyRotateCommand, policyPatchCommand, policyResetCommand
 } from "./encryptionCommands";
-import { readKeys, readPolicy } from "./offered";
+import { suiteWithoutKey } from "./encryptionState";
+import { readKeys, readPolicy, readSuites } from "./offered";
+import { SuiteChangeFlow, SuiteChoice } from "./SuiteControls";
 import "./encryption.css";
 
 type Dialog =
@@ -67,7 +75,8 @@ type Dialog =
   | { kind: "reset" }
   | { kind: "rotate" }
   | { kind: "bundle"; key: EncryptionKey }
-  | { kind: "retire"; key: EncryptionKey };
+  | { kind: "retire"; key: EncryptionKey }
+  | { kind: "suite"; suite: string; start?: "patch" | "rotate" };
 
 const KEY_STATUS_WORDS: Record<string, string> = { active: "Active", superseded: "Retired", retired: "Retired" };
 
@@ -75,6 +84,10 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
   const api = useApi();
   const policy = useAsync(() => readPolicy(api), [api]);
   const keys = useAsync(() => readKeys(api), [api]);
+  // The registry (EPIC T, #1318). A server without it answers [], which draws
+  // no Suite group; a failed read draws none either, since the policy and
+  // keys above already say whether encryption works.
+  const suites = useAsync(() => readSuites(api), [api]);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -84,7 +97,7 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
     </InfoTooltip>
   );
 
-  const reload = () => { policy.reload(); keys.reload(); };
+  const reload = () => { policy.reload(); keys.reload(); suites.reload(); };
   const close = () => { setDialog(null); setFailure(null); };
 
   /** One mutation: busy while it runs, the engine's own words if it refuses,
@@ -145,6 +158,7 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
   const active = keyList.find((k) => k.status === "active") ?? null;
   const unconfirmed = keyList.filter((k) => k.status !== "retired" && !k.bundleConfirmed);
   const unresolvable = keyList.filter((k) => k.status !== "retired" && !k.resolvable);
+  const owedSuite = suiteWithoutKey(p, keyList);
 
   return (
     <section className="card" data-encryption-card="" data-state={on ? "on" : "off"}>
@@ -188,6 +202,35 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
                 />
               ) : null}
             </CellGrid>
+
+            <SuiteChoice
+              suites={suites.data ?? []}
+              current={p.suite ?? null}
+              configured={p.suiteConfigured ?? null}
+              disabled={readOnly || busy}
+              onChoose={(id) => setDialog({ kind: "suite", suite: id })}
+            />
+
+            {owedSuite ? (
+              <WarningBanner
+                tone="danger"
+                eyebrow="Suite"
+                title={"No active key for suite " + clipText(owedSuite)}
+                tip="encryption.health.suite"
+                dismissible={false}
+                actions={
+                  readOnly ? null : (
+                    <InfoTooltip id="encryption.key.rotate">
+                      <button type="button" className="btn btn--sm" disabled={busy} onClick={() => setDialog({ kind: "suite", suite: owedSuite, start: "rotate" })}>
+                        Rotate key
+                      </button>
+                    </InfoTooltip>
+                  )
+                }
+              >
+                {"The policy names " + clipText(owedSuite) + " and no active key belongs to it, so copies under the policy are refused, before anything is deleted at the source or on a medium, until a key is rotated under it. Nothing is written under another suite."}
+              </WarningBanner>
+            ) : null}
 
             {unconfirmed.map((k) => (
               <WarningBanner
@@ -312,7 +355,11 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
 
         <div className="ereadout" data-deployment-wide="">
           <span className="ereadout__lab">Deployment-wide</span>
-          <span>Format: recorded per copy by the build. There is no cipher, chunk size or algorithm to choose.</span>
+          <span>
+            {on && (suites.data ?? []).length > 0
+              ? "Format: the suite above, recorded per copy. There is no cipher, chunk size or nonce to set: each suite is one library construction."
+              : "Format: recorded per copy by the build. There is no cipher, chunk size or algorithm to choose."}
+          </span>
         </div>
 
         <CommandEcho
@@ -414,6 +461,16 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
           refusal={failure}
           onCancel={close}
           onRetire={() => void act(() => api.retireEncryptionKey(dialog.key.id), "the key was not retired").then((ok) => ok && close())}
+        />
+      ) : null}
+
+      {dialog?.kind === "suite" ? (
+        <SuiteChangeFlow
+          suite={dialog.suite}
+          start={dialog.start}
+          hasActiveKey={active !== null}
+          onChanged={reload}
+          onClose={close}
         />
       ) : null}
 
@@ -547,84 +604,6 @@ function RetireDialog({
       {refusal ? (
         <p role="alert" data-retire-refusal="" style={{ margin: 0, color: "var(--danger)", fontWeight: 600 }}>{refusal}</p>
       ) : null}
-    </ConfirmationDialog>
-  );
-}
-
-/**
- * The one-time export. One checkbox arms Download bundle; the file is the only
- * place the material goes. The password, where the deployment asks for one, is
- * held in a ref for the one request and forgotten, as the validator upload does.
- */
-function BundleDialog({
-  keyId, onCancel, onDone
-}: {
-  keyId: string;
-  onCancel(): void;
-  onDone(receipt: { keyId: string; fileName: string; digest: string }): void;
-}) {
-  const api = useApi();
-  const gate = useDestructiveGate();
-  const [ack, setAck] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const password = useRef("");
-  const [hasPassword, setHasPassword] = useState(false);
-  const [passwordKey, setPasswordKey] = useState(0);
-  const needsPassword = gate.stepUpRequired;
-  const forget = () => { password.current = ""; setHasPassword(false); setPasswordKey((k) => k + 1); };
-
-  const download = async () => {
-    setBusy(true);
-    setError(null);
-    if (needsPassword && gate.insecureTransportAckRequired && !(await acknowledgeInsecureTransport())) {
-      setError(stepUpMessage("INSECURE_TRANSPORT_ACK_REQUIRED", "bundle") ?? "Nothing was sent.");
-      setBusy(false);
-      return;
-    }
-    const opts = needsPassword && password.current ? { stepUpPassword: password.current } : {};
-    forget();
-    try {
-      onDone(await api.exportRecoveryBundle(keyId, opts));
-    } catch (e) {
-      const code = apiErrorOf(e)?.code;
-      setError(stepUpMessage(code, "bundle") ?? describeFailure(e, "the bundle was not exported").message);
-      setBusy(false);
-    }
-  };
-
-  return (
-    <ConfirmationDialog
-      open
-      eyebrow="Export recovery bundle"
-      title="Export recovery bundle"
-      confirmLabel="Download bundle"
-      disabled={busy || !ack || (needsPassword && !hasPassword)}
-      onCancel={onCancel}
-      onConfirm={() => void download()}
-    >
-      <WarningBanner tone="warn" title="This is the one time the key leaves this deployment." dismissible={false}>
-        {"The bundle is a file holding the key for " + keyId + ", integrity metadata and the instructions for decrypting a copy on a clean machine. " +
-          "Whoever holds the file can read every copy made under this key. Store it away from this host."}
-      </WarningBanner>
-      <InfoTooltip id="encryption.bundle.acknowledge" block>
-        <Acknowledgement checked={ack} onChange={setAck}>
-          I understand this file can decrypt every copy made under this key
-        </Acknowledgement>
-      </InfoTooltip>
-      {needsPassword ? (
-        <StepUpPassword
-          key={passwordKey}
-          act="bundle"
-          id="bundle-step-up-help"
-          onPassword={(next) => { password.current = next; setHasPassword(next !== ""); }}
-        />
-      ) : null}
-      <p style={{ margin: 0, color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
-        Nothing is shown on screen. The key goes into the downloaded file and nowhere else.
-      </p>
-      <CommandEcho label="Equivalent command" commands={[keyExportCommand(keyId), keyConfirmCommand(keyId)]} />
-      {error ? <p role="alert" data-step-up-error="" style={{ margin: 0, color: "var(--danger)", fontWeight: 600 }}>{error}</p> : null}
     </ConfirmationDialog>
   );
 }

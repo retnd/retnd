@@ -45,6 +45,10 @@ import type {
   EncryptionOverride,
   EncryptionPolicy,
   EncryptionPolicyPatch,
+  EncryptionSuite,
+  ReencryptPlan,
+  ReencryptRequest,
+  ReencryptStart,
   ExternalKeyReference,
   ProviderProbe,
   SetEncryption
@@ -4186,8 +4190,11 @@ export interface RetndApi {
   setBackupSetEncryption(source: string, set: string, override: EncryptionOverride): Promise<SetEncryption>;
   clearBackupSetEncryption(source: string, set: string): Promise<SetEncryption>;
   listEncryptionKeys(): Promise<EncryptionKey[]>;
-  createEncryptionKey(): Promise<EncryptionKey>;
-  rotateEncryptionKey(): Promise<EncryptionKey>;
+  /** EPIC T (#1318): `suite` names the key's suite; absent, the policy's. */
+  createEncryptionKey(suite?: string): Promise<EncryptionKey>;
+  /** Rotating to another suite supersedes the old suite's active key in the
+   *  same durable write (T1.5). */
+  rotateEncryptionKey(suite?: string): Promise<EncryptionKey>;
   /** REJECTS with ENCRYPTION_KEY_IN_USE (409) naming the copies that still record the key. */
   retireEncryptionKey(id: string): Promise<EncryptionKey>;
   /** POST .../export: gated like a validator upload. Saves the bundle as a
@@ -4201,4 +4208,14 @@ export interface RetndApi {
    *  operation id, which `cancelAssuranceOperation` stops. REJECTS with
    *  ENCRYPTION_KEY_UNRESOLVABLE (409) before any byte is read. */
   startDecryptVerify(req: DecryptVerifyRequest): Promise<ScrubStart>;
+
+  /**
+   * EPIC T, encryption suites (#1318 over T1.5, T2.1 and T2.2). The registry
+   * with its statuses, Describe() sentences and counts, and the re-encrypt
+   * operation: the dry run answers the plan and changes nothing; the run
+   * answers an operation id. Neither returns key material.
+   */
+  listEncryptionSuites(): Promise<EncryptionSuite[]>;
+  planReencrypt(req: ReencryptRequest): Promise<ReencryptPlan>;
+  startReencrypt(req: ReencryptRequest): Promise<ReencryptStart>;
 }

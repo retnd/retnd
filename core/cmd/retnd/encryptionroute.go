@@ -20,14 +20,15 @@ type encryptionRoute interface {
 	ResetEncryptionPolicy(ctx context.Context) (apicontract.EncryptionPolicy, error)
 	SetBackupSetEncryption(ctx context.Context, id string, o apicontract.EncryptionOverride) (apicontract.EncryptionSetPolicy, error)
 	ClearBackupSetEncryption(ctx context.Context, id string) (apicontract.EncryptionSetPolicy, error)
-	CreateEncryptionKey(ctx context.Context) (apicontract.EncryptionKeyStatus, error)
-	RotateEncryptionKey(ctx context.Context) (apicontract.EncryptionKeyStatus, error)
+	CreateEncryptionKey(ctx context.Context, suite string) (apicontract.EncryptionKeyStatus, error)
+	RotateEncryptionKey(ctx context.Context, suite string) (apicontract.EncryptionKeyStatus, error)
 	RetireEncryptionKey(ctx context.Context, id string) (apicontract.EncryptionKeyStatus, error)
 	ExportRecoveryBundleBytes(ctx context.Context, id string) ([]byte, error)
 	ConfirmRecoveryBundle(ctx context.Context, id, digest string) (apicontract.EncryptionKeyStatus, error)
 	TestEncryptionProvider(ctx context.Context, req apicontract.EncryptionProviderTestRequest) (apicontract.EncryptionProviderProbe, error)
 	StartDecryptVerify(ctx context.Context, req apicontract.StartDecryptVerifyRequest) (service.ScrubStarted, error)
 	StartEncryptExisting(ctx context.Context, req apicontract.StartEncryptExistingRequest) (service.ScrubStarted, error)
+	StartReencrypt(ctx context.Context, req apicontract.StartReencryptRequest) (service.ScrubStarted, error)
 }
 
 func (r *engineRoute) PatchEncryptionPolicy(ctx context.Context, req apicontract.EncryptionPolicyPatch) (apicontract.EncryptionPolicy, error) {
@@ -54,12 +55,12 @@ func (r *engineRoute) ClearBackupSetEncryption(ctx context.Context, id string) (
 	return r.client.ClearBackupSetEncryption(ctx, source, set)
 }
 
-func (r *engineRoute) CreateEncryptionKey(ctx context.Context) (apicontract.EncryptionKeyStatus, error) {
-	return r.client.CreateEncryptionKey(ctx)
+func (r *engineRoute) CreateEncryptionKey(ctx context.Context, suite string) (apicontract.EncryptionKeyStatus, error) {
+	return r.client.CreateEncryptionKey(ctx, suite)
 }
 
-func (r *engineRoute) RotateEncryptionKey(ctx context.Context) (apicontract.EncryptionKeyStatus, error) {
-	return r.client.RotateEncryptionKey(ctx)
+func (r *engineRoute) RotateEncryptionKey(ctx context.Context, suite string) (apicontract.EncryptionKeyStatus, error) {
+	return r.client.RotateEncryptionKey(ctx, suite)
 }
 
 func (r *engineRoute) RetireEncryptionKey(ctx context.Context, id string) (apicontract.EncryptionKeyStatus, error) {
@@ -98,6 +99,14 @@ func (r *engineRoute) StartDecryptVerify(ctx context.Context, req apicontract.St
 
 func (r *engineRoute) StartEncryptExisting(ctx context.Context, req apicontract.StartEncryptExistingRequest) (service.ScrubStarted, error) {
 	got, err := r.client.StartEncryptExisting(ctx, req)
+	if err != nil {
+		return service.ScrubStarted{}, err
+	}
+	return service.ScrubStarted{BackupSetID: got.BackupSetID, OperationID: got.OperationID}, nil
+}
+
+func (r *engineRoute) StartReencrypt(ctx context.Context, req apicontract.StartReencryptRequest) (service.ScrubStarted, error) {
+	got, err := r.client.StartReencrypt(ctx, req)
 	if err != nil {
 		return service.ScrubStarted{}, err
 	}

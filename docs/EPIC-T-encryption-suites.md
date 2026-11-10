@@ -10,7 +10,7 @@
 **FR numbering:** this specification claims **FR-83 through FR-90**. FR-1 through FR-24 are in `docs/EPIC.md`; FR-25 is an unclaimed hole and stays one; FR-26 is the `version` command; FR-27 through FR-35 are EPIC E's; FR-36 through FR-48 are EPIC L's; FR-45 through FR-50 are claimed by EPIC O's open spec PR #904; FR-51 through FR-58 are EPIC M's; FR-59 through FR-66 are EPIC N's; FR-67 through FR-74 are EPIC Q's; FR-75 through FR-82 are reserved to EPIC P (#955) in prose by the N and Q specifications. The next free number after this block is **FR-91**. Nothing here renumbers an existing FR.
 **Measured on:** `main` at `477aec5a` (the merge of #1302, which put the whole EPIC N stack on `main`), read on 2026-11-10. #1310 was written against `feat/retroactive-encryption` and `bc085e06`; every `path:line` below was re-read at `477aec5a` and section 2 says where a number moved.
 
-**Reserved numbers.** One ADR, **`0033`**. `docs/adr/` ends at `0030-three-claims-and-existence-is-not-content.md` and has no `0031` or `0032`, but both are reserved to EPIC P in prose (`docs/EPIC-N-encrypted-retained-copies.md` section 9 and `docs/EPIC-Q-recovery-and-assurance.md` section 11), and this repository honours a reservation in prose the way EPIC N honoured `0024` to `0026`. #1310 says "ADR 0031 (0033 if EPIC P lands 0031/0032 first)"; I read the reservation as already landed for that purpose, so the ADR is `docs/adr/0033-encryption-suite-agility.md` and every name in this document uses `0033`. One migration, **`0020`**: `core/migrations/` ends at `0019_encrypt_existing_consents.sql`, `0017` is EPIC P's, and `loadMigrations` refuses a duplicate version and nothing else (`core/internal/state/migrate.go`).
+**Reserved numbers.** One ADR, **`0033`**. `docs/adr/` ends at `0030-three-claims-and-existence-is-not-content.md` and has no `0031` or `0032`, but both are reserved to EPIC P in prose (`docs/EPIC-N-encrypted-retained-copies.md` section 9 and `docs/EPIC-Q-recovery-and-assurance.md` section 11), and this repository honours a reservation in prose the way EPIC N honoured `0024` to `0026`. #1310 says "ADR 0031 (0033 if EPIC P lands 0031/0032 first)"; I read the reservation as already landed for that purpose, so the ADR is `docs/adr/0033-encryption-suite-agility.md` and every name in this document uses `0033`. Two migrations, **`0020`** (a key's suite, #1312) and **`0021`** (the build default this deployment last ran under, so the default-changed event fires once per change, #1314): `core/migrations/` ends at `0019_encrypt_existing_consents.sql`, `0017` is EPIC P's, and `loadMigrations` refuses a duplicate version and nothing else (`core/internal/state/migrate.go`).
 
 This document was written before any of the implementation exists, which is the order `docs/epic-checklist.md` section 1 asks for. The matrix, `docs/conformance/epic-t-matrix.md`, has every row `BLOCKED`, citing the epic (#1310) and naming the sub-issue it waits on.
 
@@ -95,7 +95,7 @@ Every suite change is a new managed key and therefore a new unconfirmed bundle. 
 
 ### Consensus position: APPROVE AFTER REVISION
 
-No auto-rotation. A policy whose suite has no active key refuses the copy with "no active key for suite X; run `retnd encryption key rotate --suite X`", health carries it, and the policy patch answers `rotation_needed: true` with the exact command and writes nothing to the key store. The first cycle under a build whose default moved emits one `EncryptionDefaultSuiteChanged` event naming both ids, once. Rotation across suites supersedes the old suite's active key in the same durable write.
+No auto-rotation, and no refusal on upgrade: `suite: default` (or nothing) resolves to the suite of the deployment's active managed key when there is one, and to the build default only when there is none, so an upgraded EPIC N deployment stays on `age/v1` untouched (owner decision, 2026-11-10). A policy that pins a suite with no active key refuses the copy with "no active key for suite X; run `retnd encryption key rotate --suite X`", health carries it, and the policy patch answers `rotation_needed: true` with the exact command and writes nothing to the key store. The first cycle under a build whose default moved emits one `EncryptionDefaultSuiteChanged` event naming both ids, once. Rotation across suites supersedes the old suite's active key in the same durable write.
 
 ## Expert 5, A Downgrade Surface
 
@@ -165,7 +165,7 @@ One conformance vector suite runs against every registered suite, red first, and
 ## Core invariants
 
 - `age/v1` keeps its exact meaning for ever: age v1, one X25519 recipient, ChaCha20-Poly1305 payload. A suite id once written is never renamed.
-- A configuration that writes nothing behaves as EPIC N does, except that a newly minted managed key is minted under the build's default suite.
+- A configuration that writes nothing behaves as EPIC N does: `default` resolves to the suite of the active managed key when there is one, and to the build's default suite only when there is none.
 - The suite that opens a copy is the one its record names, never the policy's.
 - No key material on any suite surface, and a suite id (an enumerated string) is the only new metric label.
 
@@ -303,7 +303,7 @@ A ciphertext-only local copy. Per-set suites. Same-medium re-encryption. Any KMS
 
 # 11. Compatibility and migration summary
 
-- A configuration that never writes `suite:` resolves to the build's default and behaves as EPIC N does, except that a newly minted managed key is `age-pq/v1`. An existing active `age/v1` key is untouched and, with `suite: default`, the next copy is refused until the operator rotates (no auto-rotation).
+- A configuration that never writes `suite:` (or writes `default`) resolves to the suite of the deployment's active managed key, so an upgraded EPIC N deployment with an active `age/v1` key keeps writing `age/v1`, nothing is refused and behaviour is byte-identical. Only a deployment with no active managed key resolves to the build default, `age-pq/v1`. Moving an existing deployment is an explicit `suite: age-pq/v1` plus `key rotate --suite age-pq/v1`; no build ever rotates by itself.
 - `suite:` under `KnownFields(true)` is a one-way door for a config that writes it; T2.5's CHANGELOG names the version.
 - One forward migration, `0020`, additive: a column with a default and a recreated index. An older binary meeting it fails closed under `state.ErrUnknownSchemaVersion`.
 - Suite ids and status values are compatibility surfaces: never renamed, never removed while a copy records them.
@@ -322,7 +322,7 @@ A ciphertext-only local copy. Per-set suites. Same-medium re-encryption. Any KMS
 | Adapters | `copycrypt.AgeX25519` (`age/v1`), `copycrypt.AgeMLKEM768X25519` (`age-pq/v1`); `keycustody.AgeFormat` is an alias of `copycrypt.AgeX25519` |
 | Errors | `copycrypt.ErrUnknownSuite`, `state.ErrUnknownSuite`, `config.ErrRetiredSuite` |
 | Vectors | `core/internal/copycrypt/suitetest` |
-| Config | `retained_copy_encryption.suite` (`default` or an id); resolved `config.RetainedCopyEncryption.Suite` |
+| Config | `retained_copy_encryption.suite` (`default` or an id); resolved `config.RetainedCopyEncryption.Suite` (a pinned id at `Validate`; `default` resolves at the engine to the active managed key's suite, else `copycrypt.Default()`) |
 | Migration | `0020_encryption_key_suites.sql`: the side table `encryption_key_suites(key_id, suite_id)`, absence read as `age/v1` (#1312 found the column-and-index shape non-additive for compat cell `03-migrated-schema`) |
 | Event | `EncryptionDefaultSuiteChanged` |
 | Verbs | `retnd encryption suites`, `key create --suite`, `key rotate --suite`, `reencrypt --suite` |
@@ -337,6 +337,7 @@ A ciphertext-only local copy. Per-set suites. Same-medium re-encryption. Any KMS
 - **No embedding, no cycle.** #1311's names table says `Suite` embeds `keycustody.Format`, and #1312 says `keycustody.AgeFormat` aliases a `copycrypt` type. Both cannot hold, so `Suite` declares the four methods itself and `keycustody` asserts the assignment. The behaviour is the same and the "custody never encrypts" rule is stated where custody lives.
 - **The `age` pin does not exist yet.** T1.3 adds it to `scripts/ci/pins.env`; until it does, the external-reader vector skips and its matrix row stays `BLOCKED`.
 - **A side table, not a column (#1312).** Compat cell `03-migrated-schema` is additive-only over `sqlite_master`: `ALTER TABLE ... ADD COLUMN` rewrites the stored `CREATE TABLE` text of `encryption_keys`, and dropping the one-active index removes a line. So migration `0020` is the side table #1312 names as the fallback, and 0015's index stays, which keeps "one active managed key" deployment-wide. That is stricter than "one per suite" and is what ADR 0033 D3's flow produces anyway (a suite change is a rotation that supersedes the old suite's active key in the same write). The T1.4 exit line says so.
+- **Fixture `65-invalid-encryption-retired-suite.yaml` waits (#1314).** No shipped suite is retired, and a compat fixture cannot reach a test hook, so `65-` lands with the first real retirement. The retired path is pinned in `core/internal/config` through a registry stand-in instead.
 - **The fixture numbers.** #1314 names `10-encryption-suite-pinned.yaml`; `10-` holds EPIC N's `10-encryption-kopia-set-under-required.yaml`, so the valid fixture is `11-encryption-suite-pinned.yaml`. `64-` and `65-` are free (`63-invalid-encryption-required-without-provider.yaml` is the last invalid one).
 - **The metric family does not exist yet.** T1.5 adds one copy-count family with a `suite` label rather than "a `suite` label on `retnd_encrypted_copies`".
 - **The matrix guard.** I registered this pair in `core/tests/compat/matrix_test.go`, red, before the documents existed, as EPIC N did.

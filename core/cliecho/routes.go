@@ -1708,12 +1708,13 @@ var routes = map[string]entry{
 			if !decode(a.Body, &req) {
 				return nil
 			}
-			c := newCmd("encryption", "policy", "patch").flagIfSet("mode", req.Mode)
+			c := newCmd("encryption", "policy", "patch").flagIfSet("mode", req.Mode).flagIfSet("suite", req.Suite)
 			return providerFlags(c, req.KeyProvider)
 		},
 		why: "there is no verb that patches the encryption policy from a request body that does not decode",
 		examples: []Action{
 			{Body: []byte(`{"mode":"required","key_provider":{"managed":true}}`)},
+			{Body: []byte(`{"suite":"age-pq/v1"}`)},
 			{Body: []byte(`{"key_provider":{"external":{"file":"/run/secrets/retained-copy-key"}}}`)},
 			{Body: []byte(`{"key_provider":{"external":{"command":["vault","kv","get"]}}}`)},
 			{Body: []byte(`{"mode":"off"}`)},
@@ -1749,12 +1750,16 @@ var routes = map[string]entry{
 		examples: []Action{{}},
 	},
 	key("POST", "/encryption/keys"): {
-		build:    func(a Action) *cmd { return newCmd("encryption", "key", "create") },
-		examples: []Action{{}},
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "key", "create").flagIfSet("suite", a.Query.Get("suite"))
+		},
+		examples: []Action{{}, {Query: mustQuery("suite=age-pq%2Fv1")}},
 	},
 	key("POST", "/encryption/keys/rotate"): {
-		build:    func(a Action) *cmd { return newCmd("encryption", "key", "rotate") },
-		examples: []Action{{}},
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "key", "rotate").flagIfSet("suite", a.Query.Get("suite"))
+		},
+		examples: []Action{{}, {Query: mustQuery("suite=age-pq%2Fv1")}},
 	},
 	key("POST", "/encryption/keys/{id}/retire"): {
 		build: func(a Action) *cmd {
@@ -1801,6 +1806,12 @@ var routes = map[string]entry{
 			{Body: []byte(`{"managed_key_id":"k0123456789abcdef"}`)},
 			{Body: []byte(`{"external":{"env":"RETAINED_COPY_KEY"}}`)},
 		},
+	},
+	// The suite table (EPIC T, #1315): a read, the same body as the verb's
+	// --json.
+	key("GET", "/encryption/suites"): {
+		build:    func(a Action) *cmd { return newCmd("encryption", "suites") },
+		examples: []Action{{}},
 	},
 	key("GET", "/encryption/copies"): {
 		build: func(a Action) *cmd {
@@ -1855,6 +1866,48 @@ var routes = map[string]entry{
 		examples: []Action{
 			{Body: []byte(`{"backup_set_id":"api-server/var-backups","destination_medium":"offsite"}`)},
 			{Body: []byte(`{"backup_set_id":"api-server/var-backups","artifact_id":"api-server/var-backups/MANIFEST-20260902T153521Z.txt","destination_medium":"offsite"}`)},
+		},
+	},
+	// Re-encrypting copies under the active suite and key (#1317). One verb,
+	// the dry run told apart by --dry-run, as for encrypt-existing. Exactly
+	// one selector is meant to be set; the echo writes what the request
+	// carried, so a request with two selectors echoes a line the verb refuses
+	// for the same reason the route did.
+	key("GET", "/encryption/reencrypt"): {
+		build: func(a Action) *cmd {
+			c := newCmd("encryption", "reencrypt").
+				flagIfSet("suite", a.Query.Get("suite")).
+				flagIfSet("key", a.Query.Get("key"))
+			if a.Query.Get("deprecated") == "true" {
+				c = c.bare("deprecated")
+			}
+			return c.flagIfSet("to", a.Query.Get("destination")).bare("dry-run")
+		},
+		examples: []Action{
+			{Query: mustQuery("suite=age%2Fv1")},
+			{Query: mustQuery("key=k0123456789abcdef&destination=offsite")},
+			{Query: mustQuery("deprecated=true&destination=offsite")},
+		},
+	},
+	key("POST", "/encryption/reencrypt"): {
+		build: func(a Action) *cmd {
+			var req apicontract.StartReencryptRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("encryption", "reencrypt").
+				flagIfSet("suite", req.SuiteID).
+				flagIfSet("key", req.KeyID)
+			if req.Deprecated {
+				c = c.bare("deprecated")
+			}
+			return c.flag("to", req.DestinationMedium)
+		},
+		why: "there is no verb that re-encrypts copies from a request body that does not decode",
+		examples: []Action{
+			{Body: []byte(`{"suite_id":"age/v1","destination_medium":"offsite"}`)},
+			{Body: []byte(`{"key_id":"k0123456789abcdef","destination_medium":"offsite"}`)},
+			{Body: []byte(`{"deprecated":true,"destination_medium":"offsite"}`)},
 		},
 	},
 	// ------------------------------------------- custom validators (#1203) ---

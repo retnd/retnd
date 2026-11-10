@@ -18,6 +18,7 @@ import type { IconName } from "@shared/design-system/icons";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
 import { stamp } from "@shared/utilities/format";
+import { clipText } from "./ClippedText";
 import type { CopyEncryptionView, RecoveryChip } from "./encryptionState";
 
 /** Text glyphs for the shapes this feature owns, and the repo's approved icon
@@ -56,7 +57,14 @@ const WORDS: Record<keyof typeof GLYPH, { label: string; tip: TooltipId }> = {
 
 export type ChipState = keyof typeof GLYPH;
 
-export function EncryptionChip({ state, age, detail }: { state: ChipState; age?: string; detail?: string }) {
+/**
+ * `suite` (EPIC T, #1318) is the suite id the copy's record names, drawn
+ * after the word inside the same chip, in the secondary ink: "Encrypted
+ * age-pq/v1". It is never guessed: a record that names none draws none. Every
+ * runtime string here (suite, detail) goes through the 80-character clip, in
+ * the label as well as in the text.
+ */
+export function EncryptionChip({ state, age, detail, suite }: { state: ChipState; age?: string; detail?: string; suite?: string | null }) {
   const w = WORDS[state];
   return (
     <InfoTooltip id={w.tip}>
@@ -65,12 +73,13 @@ export function EncryptionChip({ state, age, detail }: { state: ChipState; age?:
         data-echip=""
         data-state={state}
         role="group"
-        aria-label={w.label + (age ? " " + age : "") + (detail ? ", " + detail : "")}
+        aria-label={w.label + (suite ? " " + clipText(suite) : "") + (age ? " " + age : "") + (detail ? ", " + clipText(detail) : "")}
       >
         <span className="echip__glyph" aria-hidden="true">
           {"text" in GLYPH[state] ? (GLYPH[state] as { text: string }).text : (GLYPH[state] as { icons: readonly IconName[] }).icons.map((n, k) => <Icon key={k} name={n} />)}
         </span>
         <span>{w.label}</span>
+        {suite ? <span className="echip__suite mono" data-echip-suite="">{clipText(suite)}</span> : null}
         {age ? <span className="echip__age">{age}</span> : null}
       </span>
     </InfoTooltip>
@@ -96,7 +105,7 @@ export function CopyChips({ view, failure }: { view: CopyEncryptionView; failure
   const second = view.recovery === "none" ? null : RECOVERY_STATE[view.recovery];
   return (
     <span className="echips" data-copy-chips="" data-sealed="true" data-recovery={view.recovery}>
-      <EncryptionChip state="encrypted" detail={view.keyId ? "key " + view.keyId : undefined} />
+      <EncryptionChip state="encrypted" suite={view.suite ?? null} detail={view.keyId ? "key " + view.keyId : undefined} />
       {second ? (
         <EncryptionChip state={second} age={view.recovery === "verified" && view.verifiedAt ? stamp(view.verifiedAt) : undefined} detail={failure} />
       ) : null}

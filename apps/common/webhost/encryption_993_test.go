@@ -78,12 +78,16 @@ func (f *encryptionFakeBackend) ListEncryptionKeys(context.Context) (apicontract
 	return apicontract.ListEncryptionKeysResponse{Keys: []apicontract.EncryptionKeyStatus{sampleKey}}, f.note("keys")
 }
 
-func (f *encryptionFakeBackend) CreateEncryptionKey(context.Context) (apicontract.EncryptionKeyStatus, error) {
-	return sampleKey, f.note("create")
+func (f *encryptionFakeBackend) CreateEncryptionKey(_ context.Context, suite string) (apicontract.EncryptionKeyStatus, error) {
+	return sampleKey, f.note(strings.TrimSpace("create " + suite))
 }
 
-func (f *encryptionFakeBackend) RotateEncryptionKey(context.Context) (apicontract.EncryptionKeyStatus, error) {
-	return sampleKey, f.note("rotate")
+func (f *encryptionFakeBackend) RotateEncryptionKey(_ context.Context, suite string) (apicontract.EncryptionKeyStatus, error) {
+	return sampleKey, f.note(strings.TrimSpace("rotate " + suite))
+}
+
+func (f *encryptionFakeBackend) ListEncryptionSuites(context.Context) (apicontract.ListEncryptionSuitesResponse, error) {
+	return apicontract.ListEncryptionSuitesResponse{Suites: []apicontract.EncryptionSuite{{ID: "age-pq/v1", Version: 1, Status: "supported", Default: true, Describe: "a sentence"}}}, f.note("suites")
 }
 
 func (f *encryptionFakeBackend) RetireEncryptionKey(_ context.Context, id string) (apicontract.EncryptionKeyStatus, error) {

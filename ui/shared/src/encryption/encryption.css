@@ -49,3 +49,50 @@
 .ekeys { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
 .ekeys th { text-align: left; font-size: var(--text-xs); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); padding: 4px 8px; }
 .ekeys td { padding: 6px 8px; border-top: 1px solid var(--border); vertical-align: middle; }
+
+/* Encryption suites (EPIC T, issue #1318; design docs/design/1318-suite-agility-ui.html).
+   Tokens only, and every pair is in scripts/contrast/check-ui-pairs.py, which
+   measures it in both themes. */
+.echip__suite { font-weight: 500; color: var(--text-2); }
+
+.esuites { display: flex; flex-direction: column; gap: 6px; }
+.esuites__legend { font-size: var(--text-sm); font-weight: 600; color: var(--text); }
+.esuite {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center; padding: 8px 10px;
+  border: 1.5px solid var(--edge-3); border-radius: var(--radius-md); background: var(--surface); color: var(--text);
+}
+/* Selected: a 2px accent edge on the plain surface, never a fill (a neutral
+   badge edge on the accent fill is under 3:1 in light). */
+.esuite[data-selected] { border-color: var(--accent); border-width: 2px; }
+/* Retired: a dashed edge and the secondary ink, never opacity, so it reads as
+   unavailable by its shape and words and stays at 4.5:1. */
+.esuite[data-disabled] { border-style: dashed; }
+.esuite[data-disabled] .esuite__id { color: var(--text-2); }
+.esuite__head { display: inline-flex; gap: 8px; align-items: center; }
+.esuite__id { font-size: var(--text-sm); font-weight: 600; color: var(--text); }
+.esuite__badge {
+  justify-self: start; display: inline-flex; align-items: center; padding: 0 6px; border-radius: var(--radius-sm);
+  font-size: var(--text-xs); font-weight: 700; color: var(--text); background: var(--surface-2); border: 1.5px solid var(--edge-3);
+}
+.esuite__badge[data-suite-badge="default"] { border-color: var(--ok); background: var(--ok-quiet); }
+.esuite__badge[data-suite-badge="deprecated"] { border-color: var(--warn); background: var(--warn-quiet); }
+.esuite__badge[data-suite-badge="retired"] { border-style: dashed; color: var(--text-2); }
+.esuite__desc { grid-column: 1 / -1; font-size: var(--text-sm); color: var(--text-2); }
+.esuite__reason { grid-column: 1 / -1; font-size: var(--text-sm); color: var(--text-2); }
+
+/* The change dialog's step strip. */
+.esteps { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); }
+.esteps__step {
+  display: inline-flex; gap: 6px; align-items: center; padding: 2px 10px;
+  border: 1px solid var(--edge-3); border-radius: var(--radius-pill); background: var(--surface); color: var(--text);
+}
+.esteps__step[data-state="now"] { border-color: var(--accent); background: var(--accent-quiet); font-weight: 700; }
+.esteps__step[data-state="done"] .esteps__glyph { color: var(--ok); }
+.esteps__glyph { font-weight: 700; min-width: 12px; text-align: center; }
+
+/* The still-owed list. */
+.eowed { padding: 10px 12px; border: 1px solid var(--warn); border-radius: var(--radius-md); background: var(--warn-quiet); color: var(--text); }
+
+/* The 80-character clip. */
+.eclip { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: baseline; overflow-wrap: anywhere; }
+.eclip__note { font-size: var(--text-xs); color: var(--text-2); }

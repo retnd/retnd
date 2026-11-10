@@ -167,3 +167,26 @@ func TestRecordPlacementEncryptionRefusesAnUnregisteredSuite(t *testing.T) {
 		t.Fatalf("the age/v1 record was refused: %v", err)
 	}
 }
+
+// With two suites registered (#1313): an active age-pq/v1 key beside an
+// active age/v1 key is refused, and the same key superseding it is the
+// rotation across suites, in one write.
+func TestARotationAcrossSuitesIsOneWriteAndTwoActiveAreRefused(t *testing.T) {
+	ctx := context.Background()
+	j, _ := openJournal(t)
+	at := time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC)
+	if err := j.AddEncryptionKey(ctx, EncryptionKey{ID: "k1", Provider: KeyProviderManaged, CreatedAt: at, SuiteID: "age/v1"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.AddEncryptionKey(ctx, EncryptionKey{ID: "k2", Provider: KeyProviderManaged, CreatedAt: at.Add(time.Hour), SuiteID: "age-pq/v1"}, ""); err == nil {
+		t.Fatal("an active age-pq/v1 key was registered beside an active age/v1 key")
+	}
+	if err := j.AddEncryptionKey(ctx, EncryptionKey{ID: "k2", Provider: KeyProviderManaged, CreatedAt: at.Add(time.Hour), SuiteID: "age-pq/v1"}, "k1"); err != nil {
+		t.Fatalf("the rotation across suites was refused: %v", err)
+	}
+	k1, _ := j.EncryptionKey(ctx, "k1")
+	k2, _ := j.EncryptionKey(ctx, "k2")
+	if k1.Status != EncryptionKeySuperseded || k1.SuiteID != "age/v1" || k2.Status != EncryptionKeyActive || k2.SuiteID != "age-pq/v1" {
+		t.Fatalf("after the rotation k1 = %+v, k2 = %+v", k1, k2)
+	}
+}

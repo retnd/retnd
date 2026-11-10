@@ -457,6 +457,9 @@ export interface BackupPlacement {
   encrypted?: boolean;
   encryptionKeyId?: string | null;
   encryptionKeyResolvable?: boolean | null;
+  /** The suite the copy's record names (EPIC T, #1318): its format id, never
+   *  the policy's current suite. Absent from an older server. */
+  encryptionSuite?: string | null;
 }
 
 /**

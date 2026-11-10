@@ -84,21 +84,33 @@ var ErrUnknownSuite = errors.New("copycrypt: this build has no suite with that i
 // suite_test.go, and the shared vectors in suitetest going green for it.
 var suites = []Suite{
 	AgeX25519{},
+	AgeMLKEM768X25519{},
 }
 
-// defaultID is the suite a new managed key is minted under when no suite
-// is named. Exactly one, and it must be supported; a test pins both.
-const defaultID = AgeX25519ID
+// defaultID is the build's default suite (ADR 0033 D2): what a deployment
+// with no active managed key mints its first key under when no suite is
+// named. A deployment that already has an active key stays on that key's
+// suite (ADR 0033 D4); the default moving never rotates anything. Exactly
+// one, and it must be supported; a test pins both.
+const defaultID = AgeMLKEM768X25519ID
 
-// Suites returns the whole table, in order. The slice is a copy.
+// Suites returns the whole table, in order. The slice is a copy. While a
+// test has injected a suite (testhook.go) it follows the table; the product
+// binary never injects one.
 func Suites() []Suite {
-	return append([]Suite(nil), suites...)
+	return withInjected(append([]Suite(nil), suites...))
 }
 
-// Default returns the build's default suite.
+// Default returns the build's default suite. It reads the production table
+// only, so an injected test suite can never become the default.
 func Default() Suite {
-	s, ok := Lookup(defaultID)
-	if !ok {
+	var s Suite
+	for _, x := range suites {
+		if x.ID() == defaultID {
+			s = x
+		}
+	}
+	if s == nil {
 		// The table and defaultID are both constants of this file and a
 		// test pins that one names a row of the other.
 		panic("copycrypt: the default suite " + defaultID + " is not in the table")
@@ -108,7 +120,7 @@ func Default() Suite {
 
 // Lookup returns the suite with id, or false when this build has none.
 func Lookup(id string) (Suite, bool) {
-	for _, s := range suites {
+	for _, s := range withInjected(suites) {
 		if s.ID() == id {
 			return s, true
 		}

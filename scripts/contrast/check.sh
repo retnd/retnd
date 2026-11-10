@@ -6,3 +6,6 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 python3 "$here/check-tokens.py" --selftest
 python3 "$here/check-tokens.py"
+# The web UI's reviewed pairs (#1318): controls first, then the table.
+python3 "$here/check-ui-pairs.py" --selftest
+python3 "$here/check-ui-pairs.py"
