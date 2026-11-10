@@ -90,7 +90,7 @@ func TestRebuildOverAnUnknownSuiteSaysSoAndNeverSaysPlaintext(t *testing.T) {
 		}
 	}
 	joined := strings.Join(f.Notes, "\n")
-	for _, want := range []string{"unknown suite", unknown, "not plaintext", "nothing has verified it"} {
+	for _, want := range []string{"unknown suite", unknown, "neither plaintext nor verified"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the notes do not say %q:\n%s", want, joined)
 		}

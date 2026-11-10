@@ -86,7 +86,7 @@ func TestRotationAfterARealEncryptedMoveKeepsTheCopyRecoverableAndRetirementIsRe
 
 	for _, id := range []string{rec.KeyID} {
 		if err := keys.WithKey(w.ctx, id, func(k []byte) error {
-			n, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(obj), k, w.hash)
+			n, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(obj), copycrypt.AgeX25519{}, k, w.hash)
 			if err == nil && n != int64(len(w.content)) {
 				t.Errorf("decrypt-verify counted %d plaintext bytes, want %d", n, len(w.content))
 			}
@@ -98,7 +98,7 @@ func TestRotationAfterARealEncryptedMoveKeepsTheCopyRecoverableAndRetirementIsRe
 	// The new key is not the one that opens it: the control that the check
 	// above is about the recorded key and not about any key.
 	if err := keys.WithKey(w.ctx, fresh.ID, func(k []byte) error {
-		_, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(obj), k, w.hash)
+		_, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(obj), copycrypt.AgeX25519{}, k, w.hash)
 		return err
 	}); !errors.Is(err, copycrypt.ErrWrongKey) {
 		t.Fatalf("the new key opening the old copy: err = %v, want ErrWrongKey", err)
@@ -114,7 +114,7 @@ func TestRotationAfterARealEncryptedMoveKeepsTheCopyRecoverableAndRetirementIsRe
 	}
 	// Refused means unchanged: the key still opens the copy.
 	if err := keys.WithKey(w.ctx, old.ID, func(k []byte) error {
-		_, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(obj), k, w.hash)
+		_, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(obj), copycrypt.AgeX25519{}, k, w.hash)
 		return err
 	}); err != nil {
 		t.Fatalf("after a refused retirement the key no longer opens the copy: %v", err)

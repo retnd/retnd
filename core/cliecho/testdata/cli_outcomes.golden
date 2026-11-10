@@ -143,6 +143,9 @@ GET /encryption/keys
 GET /encryption/policy
 	example: command
 
+GET /encryption/suites
+	example: command
+
 GET /operations
 	example: command
 
@@ -263,6 +266,7 @@ PATCH /backup-sets/{source}/{set}/workflow
 PATCH /encryption/policy
 	corpus: command
 	example {"mode":"required","key_provider":{"managed":true}}: command
+	example {"suite":"age-pq/v1"}: command
 	example {"key_provider":{"external":{"file":"/run/secrets/retained-copy-key"}}}: command
 	example {"key_provider":{"external":{"command":["vault","kv","get"]}}}: command
 	example {"mode":"off"}: command
@@ -439,10 +443,12 @@ POST /catalog/scan
 
 POST /encryption/keys
 	example: command
+	example ?suite=age-pq%2Fv1: command
 	body that isn't JSON: command
 
 POST /encryption/keys/rotate
 	example: command
+	example ?suite=age-pq%2Fv1: command
 	body that isn't JSON: command
 
 POST /encryption/keys/{id}/confirm

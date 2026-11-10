@@ -41,7 +41,7 @@ func underSuite(t *testing.T, f *fixture, s copycrypt.Suite) (*keycustody.Store,
 	if err != nil {
 		t.Fatalf("keycustody.Open: %v", err)
 	}
-	rec, err := keys.Create(f.ctx, s, testNow2.Add(-time.Hour))
+	rec, err := keys.CreateIn(f.ctx, testNow2.Add(-time.Hour), s.ID())
 	if err != nil {
 		t.Fatalf("Create under %s: %v", s.ID(), err)
 	}
@@ -72,9 +72,13 @@ func lifecycleSuite(t *testing.T, status copycrypt.Status, retiredIn string) *co
 // Red if the engine encrypts under a retired suite, if it checks the status
 // after staging or uploading, or if it substitutes another suite.
 func TestAWriteUnderARetiredSuiteIsRefusedBeforeAnyDestructiveStep(t *testing.T) {
-	ts := lifecycleSuite(t, copycrypt.StatusRetired, "0.9.0")
+	// The key is minted while the suite still writes (custody refuses to
+	// mint under a retired one), then the suite is retired: the state a
+	// deployment is in on the first cycle under a build that retired it.
+	ts := lifecycleSuite(t, copycrypt.StatusSupported, "")
 	f := newFixture(t, fixtureOpts{})
 	underSuite(t, f, ts)
+	ts.SetStatus(copycrypt.StatusRetired, "0.9.0")
 
 	for attempt := 1; attempt <= 2; attempt++ {
 		f.runCycle()
@@ -119,8 +123,9 @@ func TestAWriteUnderARetiredSuiteIsRefusedBeforeAnyDestructiveStep(t *testing.T)
 	}
 }
 
-// A suite id the registry does not know is refused the same way and never
-// replaced with the default. Red if Lookup's miss falls back to Default().
+// A pinned suite id the registry does not know (Load refuses it; this
+// plants it past Load) is refused and never replaced with the active key's
+// suite or the default. Red if the engine substitutes.
 func TestAWriteUnderAnUnknownSuiteIsRefusedAndNotSubstituted(t *testing.T) {
 	ts := lifecycleSuite(t, copycrypt.StatusSupported, "")
 	f := newFixture(t, fixtureOpts{})
@@ -133,8 +138,11 @@ func TestAWriteUnderAnUnknownSuiteIsRefusedAndNotSubstituted(t *testing.T) {
 	if n := f.medium.uploadCount(); n != 0 {
 		t.Fatalf("%d upload(s) under a suite this build does not know", n)
 	}
-	if !strings.Contains(f.onlyMove().Error, "does not know") {
-		t.Errorf("the move row %q does not say the suite is unknown", f.onlyMove().Error)
+	if _, ok, err := f.journal.PlacementEncryption(f.ctx, f.artifact, testMedium); err != nil || ok {
+		t.Fatalf("a copy was recorded under another suite (err %v)", err)
+	}
+	if !strings.Contains(f.onlyMove().Error, bs.RetainedCopyEncryption.Suite) {
+		t.Errorf("the move row %q does not name the pinned suite", f.onlyMove().Error)
 	}
 }
 

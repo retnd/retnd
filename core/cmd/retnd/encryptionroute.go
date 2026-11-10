@@ -20,8 +20,8 @@ type encryptionRoute interface {
 	ResetEncryptionPolicy(ctx context.Context) (apicontract.EncryptionPolicy, error)
 	SetBackupSetEncryption(ctx context.Context, id string, o apicontract.EncryptionOverride) (apicontract.EncryptionSetPolicy, error)
 	ClearBackupSetEncryption(ctx context.Context, id string) (apicontract.EncryptionSetPolicy, error)
-	CreateEncryptionKey(ctx context.Context) (apicontract.EncryptionKeyStatus, error)
-	RotateEncryptionKey(ctx context.Context) (apicontract.EncryptionKeyStatus, error)
+	CreateEncryptionKey(ctx context.Context, suite string) (apicontract.EncryptionKeyStatus, error)
+	RotateEncryptionKey(ctx context.Context, suite string) (apicontract.EncryptionKeyStatus, error)
 	RetireEncryptionKey(ctx context.Context, id string) (apicontract.EncryptionKeyStatus, error)
 	ExportRecoveryBundleBytes(ctx context.Context, id string) ([]byte, error)
 	ConfirmRecoveryBundle(ctx context.Context, id, digest string) (apicontract.EncryptionKeyStatus, error)
@@ -54,12 +54,12 @@ func (r *engineRoute) ClearBackupSetEncryption(ctx context.Context, id string) (
 	return r.client.ClearBackupSetEncryption(ctx, source, set)
 }
 
-func (r *engineRoute) CreateEncryptionKey(ctx context.Context) (apicontract.EncryptionKeyStatus, error) {
-	return r.client.CreateEncryptionKey(ctx)
+func (r *engineRoute) CreateEncryptionKey(ctx context.Context, suite string) (apicontract.EncryptionKeyStatus, error) {
+	return r.client.CreateEncryptionKey(ctx, suite)
 }
 
-func (r *engineRoute) RotateEncryptionKey(ctx context.Context) (apicontract.EncryptionKeyStatus, error) {
-	return r.client.RotateEncryptionKey(ctx)
+func (r *engineRoute) RotateEncryptionKey(ctx context.Context, suite string) (apicontract.EncryptionKeyStatus, error) {
+	return r.client.RotateEncryptionKey(ctx, suite)
 }
 
 func (r *engineRoute) RetireEncryptionKey(ctx context.Context, id string) (apicontract.EncryptionKeyStatus, error) {

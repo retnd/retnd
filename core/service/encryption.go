@@ -12,8 +12,10 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/retnd/retnd/core/apicontract"
+	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/copycrypt"
 	"github.com/retnd/retnd/core/internal/keycustody"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/obs"
@@ -83,7 +85,8 @@ func classifyEncryption(err error) error {
 		return &refusal{ErrEncryptionKeyNotFound, err}
 	case errors.Is(err, placement.ErrKeyInUse), errors.Is(err, placement.ErrKeyStillActive):
 		return &refusal{ErrEncryptionKeyInUse, err}
-	case errors.Is(err, keycustody.ErrActiveKeyExists), errors.Is(err, keycustody.ErrNoActiveKey), errors.Is(err, keycustody.ErrNoSuchExport), errors.Is(err, keycustody.ErrExternalKeyNotExportable):
+	case errors.Is(err, keycustody.ErrActiveKeyExists), errors.Is(err, keycustody.ErrNoActiveKey), errors.Is(err, keycustody.ErrNoSuchExport), errors.Is(err, keycustody.ErrExternalKeyNotExportable),
+		errors.Is(err, keycustody.ErrUnknownSuite), errors.Is(err, keycustody.ErrRetiredSuite):
 		return &refusal{ErrEncryptionKeyState, err}
 	}
 	return err
@@ -149,12 +152,16 @@ func setPolicyOf(sourceName string, bs config.BackupSet) apicontract.EncryptionS
 
 func encryptionPolicyOf(cfg *config.Config) apicontract.EncryptionPolicy {
 	out := apicontract.EncryptionPolicy{
-		Mode:        cfg.RetainedCopyEncryption.Mode,
-		KeyProvider: providerState(config.RetainedCopyKeyProvider{}),
-		Sets:        []apicontract.EncryptionSetPolicy{},
+		Mode:            cfg.RetainedCopyEncryption.Mode,
+		KeyProvider:     providerState(config.RetainedCopyKeyProvider{}),
+		Sets:            []apicontract.EncryptionSetPolicy{},
+		SuiteConfigured: config.RetainedCopyEncryptionSuiteDefault,
 	}
 	if blk, declared := cfg.DeclaredRetainedCopyEncryption(); declared && blk.KeyProvider != nil {
 		out.KeyProvider = providerState(*blk.KeyProvider)
+	}
+	if id, pinned := cfg.RetainedCopyEncryption.PinnedSuite(); pinned {
+		out.SuiteConfigured = id
 	}
 	for _, src := range cfg.Sources {
 		for _, bs := range src.BackupSets {
@@ -166,17 +173,94 @@ func encryptionPolicyOf(cfg *config.Config) apicontract.EncryptionPolicy {
 
 // EncryptionPolicy is GET /encryption/policy: the deployment's mode and key
 // provider, and what every backup set resolves to and why.
-func (b *BackupService) EncryptionPolicy(_ context.Context) (apicontract.EncryptionPolicy, error) {
-	return encryptionPolicyOf(b.state.Load().inner.Config), nil
+func (b *BackupService) EncryptionPolicy(ctx context.Context) (apicontract.EncryptionPolicy, error) {
+	return b.policyAnswer(ctx, b.state.Load().inner.Config), nil
+}
+
+// policyAnswer is encryptionPolicyOf with the suite new copies go under
+// right now, which needs the key registry (ADR 0033 D4): the pinned suite,
+// or for the default policy the active managed key's suite, or the build's
+// default when there is no active key. It reads the registry only; no key
+// directory is opened.
+func (b *BackupService) policyAnswer(ctx context.Context, cfg *config.Config) apicontract.EncryptionPolicy {
+	out := encryptionPolicyOf(cfg)
+	out.Suite = b.effectiveSuite(ctx, cfg.RetainedCopyEncryption)
+	return out
+}
+
+// effectiveSuite is the suite a copy under policy is written in.
+func (b *BackupService) effectiveSuite(ctx context.Context, policy config.RetainedCopyEncryption) string {
+	if id, pinned := policy.PinnedSuite(); pinned {
+		return id
+	}
+	if suite, ok := b.activeKeySuite(ctx); ok {
+		return suite
+	}
+	return copycrypt.Default().ID()
+}
+
+// activeKeySuite is the active managed key's suite, and false when there is
+// no active managed key (or the registry cannot be read, which reads as
+// none: this is an answer for a surface, and the engine decides for itself).
+func (b *BackupService) activeKeySuite(ctx context.Context) (string, bool) {
+	if b.keys == nil {
+		return "", false
+	}
+	rec, ok, err := b.keys.Active(ctx)
+	if err != nil || !ok {
+		return "", false
+	}
+	if rec.SuiteID == "" {
+		return keycustody.AgeFormatID, true
+	}
+	return rec.SuiteID, true
+}
+
+// ListEncryptionSuites is GET /encryption/suites: every suite this build has,
+// with its one sentence and how many active copies and live keys are under
+// it. It reads the journal only, so a deployment that encrypts nothing
+// answers with zero counts and no key directory is created.
+func (b *BackupService) ListEncryptionSuites(ctx context.Context) (apicontract.ListEncryptionSuitesResponse, error) {
+	copies, err := b.journal.ActiveEncryptedCopiesBySuite(ctx)
+	if err != nil {
+		return apicontract.ListEncryptionSuitesResponse{}, err
+	}
+	keysBySuite := map[string]int{}
+	if b.keys != nil {
+		recs, err := b.keys.Keys(ctx)
+		if err != nil {
+			return apicontract.ListEncryptionSuitesResponse{}, err
+		}
+		for _, k := range recs {
+			if k.Status == keycustody.StatusRetired {
+				continue
+			}
+			suite := k.SuiteID
+			if suite == "" {
+				suite = keycustody.AgeFormatID
+			}
+			keysBySuite[suite]++
+		}
+	}
+	out := apicontract.ListEncryptionSuitesResponse{Suites: []apicontract.EncryptionSuite{}}
+	def := copycrypt.Default().ID()
+	for _, s := range copycrypt.Suites() {
+		out.Suites = append(out.Suites, apicontract.EncryptionSuite{
+			ID: s.ID(), Version: s.Version(), Status: string(s.Status()), Default: s.ID() == def,
+			Describe: string(s.Describe()), ActiveCopies: copies[s.ID()], Keys: keysBySuite[s.ID()],
+			RetirementVersion: copycrypt.RetiredIn(s),
+		})
+	}
+	return out, nil
 }
 
 // PatchEncryptionPolicy is PATCH /encryption/policy: the named fields change
 // and the rest stay. It runs the same config.Validate a hand-edited
 // config.yaml goes through at boot, so `required` with no provider is
 // refused with the words Load would use.
-func (b *BackupService) PatchEncryptionPolicy(_ context.Context, req apicontract.EncryptionPolicyPatch) (apicontract.EncryptionPolicy, error) {
-	if req.Mode == "" && req.KeyProvider == nil {
-		return apicontract.EncryptionPolicy{}, fmt.Errorf("%w: the patch names neither a mode nor a key provider", ErrInvalidRequest)
+func (b *BackupService) PatchEncryptionPolicy(ctx context.Context, req apicontract.EncryptionPolicyPatch) (apicontract.EncryptionPolicy, error) {
+	if req.Mode == "" && req.KeyProvider == nil && req.Suite == "" {
+		return apicontract.EncryptionPolicy{}, fmt.Errorf("%w: the patch names neither a mode, a key provider nor a suite", ErrInvalidRequest)
 	}
 	cfg, err := b.writeEncryptionConfig(func(cfg *config.Config) error {
 		blk, _ := cfg.DeclaredRetainedCopyEncryption()
@@ -186,19 +270,33 @@ func (b *BackupService) PatchEncryptionPolicy(_ context.Context, req apicontract
 		if req.KeyProvider != nil {
 			blk.KeyProvider = configProvider(req.KeyProvider)
 		}
+		if req.Suite != "" {
+			blk.Suite = req.Suite
+		}
 		cfg.SetDeclaredRetainedCopyEncryption(blk)
 		return nil
 	})
 	if err != nil {
 		return apicontract.EncryptionPolicy{}, err
 	}
-	return encryptionPolicyOf(cfg), nil
+	out := b.policyAnswer(ctx, cfg)
+	// A pinned suite with no active key of it: copies are refused until the
+	// operator rotates into it. The patch says so and rotates nothing, so a
+	// suite change is never a key minted behind the operator's back
+	// (ADR 0033 D4, #1315).
+	if id, pinned := cfg.RetainedCopyEncryption.PinnedSuite(); pinned {
+		if have, ok := b.activeKeySuite(ctx); !ok || have != id {
+			out.RotationNeeded = true
+			out.RotateCommand = cliecho.Binary + " encryption key rotate --suite " + id
+		}
+	}
+	return out, nil
 }
 
 // ResetEncryptionPolicy is POST /encryption/policy/reset: the deployment's
 // block is removed, which resolves to off with no provider and writes the
 // bytes a configuration that never mentioned the key would have.
-func (b *BackupService) ResetEncryptionPolicy(_ context.Context) (apicontract.EncryptionPolicy, error) {
+func (b *BackupService) ResetEncryptionPolicy(ctx context.Context) (apicontract.EncryptionPolicy, error) {
 	cfg, err := b.writeEncryptionConfig(func(cfg *config.Config) error {
 		cfg.ClearDeclaredRetainedCopyEncryption()
 		return nil
@@ -206,7 +304,7 @@ func (b *BackupService) ResetEncryptionPolicy(_ context.Context) (apicontract.En
 	if err != nil {
 		return apicontract.EncryptionPolicy{}, err
 	}
-	return encryptionPolicyOf(cfg), nil
+	return b.policyAnswer(ctx, cfg), nil
 }
 
 // SetBackupSetEncryption is PUT /backup-sets/{source}/{set}/encryption: this
@@ -311,6 +409,10 @@ func (b *BackupService) keyStatus(ctx context.Context, store *keycustody.Store, 
 		ID:        rec.ID,
 		Status:    string(rec.Status),
 		CreatedAt: rec.Created.UTC().Format(time.RFC3339),
+		Suite:     rec.SuiteID,
+	}
+	if out.Suite == "" {
+		out.Suite = keycustody.AgeFormatID
 	}
 	if rec.Retired != nil {
 		out.RetiredAt = rec.Retired.UTC().Format(time.RFC3339)
@@ -392,14 +494,19 @@ func (b *BackupService) oneKeyStatus(ctx context.Context, store *keycustody.Stor
 	return apicontract.EncryptionKeyStatus{}, fmt.Errorf("%w: %s", keycustody.ErrUnknownKey, id)
 }
 
-// CreateEncryptionKey is POST /encryption/keys: the first managed key.
-func (b *BackupService) CreateEncryptionKey(ctx context.Context) (_ apicontract.EncryptionKeyStatus, err error) {
+// CreateEncryptionKey is POST /encryption/keys: the first managed key, under
+// suite, or under the policy's pinned suite when suite is empty, or under the
+// build's default when the policy pins none.
+func (b *BackupService) CreateEncryptionKey(ctx context.Context, suite string) (_ apicontract.EncryptionKeyStatus, err error) {
 	defer func() { err = classifyEncryption(err) }()
 	store, err := b.keys.Store(ctx)
 	if err != nil {
 		return apicontract.EncryptionKeyStatus{}, err
 	}
-	rec, err := store.Create(ctx, now())
+	if suite == "" {
+		suite, _ = b.state.Load().inner.Config.RetainedCopyEncryption.PinnedSuite()
+	}
+	rec, err := store.CreateIn(ctx, now(), suite)
 	b.logger.KeyCreated(ctx, rec.ID, resultOfErr(err))
 	if err != nil {
 		return apicontract.EncryptionKeyStatus{}, err
@@ -409,15 +516,21 @@ func (b *BackupService) CreateEncryptionKey(ctx context.Context) (_ apicontract.
 
 // RotateEncryptionKey is POST /encryption/keys/rotate: a new active key, the
 // old one superseded. New copies use the new key; every old copy still
-// decrypts through the id recorded against it.
-func (b *BackupService) RotateEncryptionKey(ctx context.Context) (_ apicontract.EncryptionKeyStatus, err error) {
+// decrypts through the id recorded against it. The new key is under suite,
+// or under the policy's pinned suite when suite is empty, or in the active
+// key's own suite when the policy pins none. Rotating into another suite
+// supersedes the old suite's active key in the same durable write.
+func (b *BackupService) RotateEncryptionKey(ctx context.Context, suite string) (_ apicontract.EncryptionKeyStatus, err error) {
 	defer func() { err = classifyEncryption(err) }()
 	store, err := b.keys.Store(ctx)
 	if err != nil {
 		return apicontract.EncryptionKeyStatus{}, err
 	}
+	if suite == "" {
+		suite, _ = b.state.Load().inner.Config.RetainedCopyEncryption.PinnedSuite()
+	}
 	previous, _, _ := b.keys.Active(ctx)
-	rec, err := store.Rotate(ctx, now())
+	rec, err := store.RotateTo(ctx, now(), suite)
 	b.logger.KeyRotated(ctx, previous.ID, rec.ID, resultOfErr(err))
 	if err != nil {
 		return apicontract.EncryptionKeyStatus{}, err

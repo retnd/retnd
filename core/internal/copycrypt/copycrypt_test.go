@@ -61,7 +61,7 @@ func newKey(t *testing.T) (identity []byte, recipient string) {
 func staged(t *testing.T, plain []byte, recipient string) (dir string, s copycrypt.Staged) {
 	t.Helper()
 	dir = filepath.Join(t.TempDir(), "staging")
-	s, err := copycrypt.EncryptToStaging(context.Background(), dir, "artifact.bin", bytes.NewReader(plain), recipient, sum(plain))
+	s, err := copycrypt.EncryptToStaging(context.Background(), dir, "artifact.bin", bytes.NewReader(plain), copycrypt.AgeX25519{}, recipient, sum(plain))
 	if err != nil {
 		t.Fatalf("EncryptToStaging(%d bytes): %v", len(plain), err)
 	}
@@ -139,7 +139,7 @@ func TestEveryBoundarySizeRoundTripsAndTheDigestsStayApart(t *testing.T) {
 			t.Fatalf("%d bytes: staging holds %v, want exactly artifact.bin", n, got)
 		}
 
-		got, err := copycrypt.DecryptVerify(context.Background(), bytes.NewReader(ct), identity, sum(plain))
+		got, err := copycrypt.DecryptVerify(context.Background(), bytes.NewReader(ct), copycrypt.AgeX25519{}, identity, sum(plain))
 		if err != nil {
 			t.Fatalf("%d bytes: DecryptVerify: %v", n, err)
 		}
@@ -160,7 +160,7 @@ func TestAnEmptyObjectIsOneAuthenticatedFinalChunk(t *testing.T) {
 	}
 	// Dropping that one final chunk must not read as a clean empty file.
 	cut := ct[:headerEnd(t, ct)+nonceLen]
-	_, err := copycrypt.DecryptVerify(context.Background(), bytes.NewReader(cut), identity, sum(nil))
+	_, err := copycrypt.DecryptVerify(context.Background(), bytes.NewReader(cut), copycrypt.AgeX25519{}, identity, sum(nil))
 	if !errors.Is(err, copycrypt.ErrCorrupt) {
 		t.Fatalf("an empty object with its final chunk removed: err = %v, want ErrCorrupt", err)
 	}
@@ -216,7 +216,7 @@ func TestEveryNegativeFailsClosedAndWritesNoPartialPlaintext(t *testing.T) {
 			t.Parallel()
 
 			// The digest-only verifier.
-			n, err := copycrypt.DecryptVerify(context.Background(), bytes.NewReader(c.ct), c.identity, sum(plain))
+			n, err := copycrypt.DecryptVerify(context.Background(), bytes.NewReader(c.ct), copycrypt.AgeX25519{}, c.identity, sum(plain))
 			if !errors.Is(err, c.want) {
 				t.Fatalf("DecryptVerify err = %v, want %v", err, c.want)
 			}
@@ -226,7 +226,7 @@ func TestEveryNegativeFailsClosedAndWritesNoPartialPlaintext(t *testing.T) {
 
 			// The export path: nothing at the final name, and no temporary file either.
 			dir := filepath.Join(t.TempDir(), "out")
-			path, err := copycrypt.DecryptToFile(context.Background(), bytes.NewReader(c.ct), c.identity, sum(plain), dir, "recovered.bin")
+			path, err := copycrypt.DecryptToFile(context.Background(), bytes.NewReader(c.ct), copycrypt.AgeX25519{}, c.identity, sum(plain), dir, "recovered.bin")
 			if !errors.Is(err, c.want) {
 				t.Fatalf("DecryptToFile err = %v, want %v", err, c.want)
 			}
@@ -247,13 +247,13 @@ func TestADecryptWhoseDigestDisagreesWithTheJournalFails(t *testing.T) {
 	_, s := staged(t, plain, recipient)
 
 	altered := sum(append(bytes.Clone(plain), 'x')) // the recorded artifact digest is wrong
-	_, err := copycrypt.DecryptVerify(context.Background(), bytes.NewReader(read(t, s.Path)), identity, altered)
+	_, err := copycrypt.DecryptVerify(context.Background(), bytes.NewReader(read(t, s.Path)), copycrypt.AgeX25519{}, identity, altered)
 	if !errors.Is(err, copycrypt.ErrDigestMismatch) {
 		t.Fatalf("a recorded digest that is not the plaintext's: err = %v, want ErrDigestMismatch", err)
 	}
 
 	dir := filepath.Join(t.TempDir(), "out")
-	if _, err := copycrypt.DecryptToFile(context.Background(), bytes.NewReader(read(t, s.Path)), identity, altered, dir, "recovered.bin"); !errors.Is(err, copycrypt.ErrDigestMismatch) {
+	if _, err := copycrypt.DecryptToFile(context.Background(), bytes.NewReader(read(t, s.Path)), copycrypt.AgeX25519{}, identity, altered, dir, "recovered.bin"); !errors.Is(err, copycrypt.ErrDigestMismatch) {
 		t.Fatalf("DecryptToFile with a wrong recorded digest: err = %v, want ErrDigestMismatch", err)
 	}
 	if left := names(t, dir); len(left) != 0 {
@@ -261,7 +261,7 @@ func TestADecryptWhoseDigestDisagreesWithTheJournalFails(t *testing.T) {
 	}
 
 	// Case is not part of the digest.
-	if _, err := copycrypt.DecryptVerify(context.Background(), bytes.NewReader(read(t, s.Path)), identity, strings.ToUpper(sum(plain))); err != nil {
+	if _, err := copycrypt.DecryptVerify(context.Background(), bytes.NewReader(read(t, s.Path)), copycrypt.AgeX25519{}, identity, strings.ToUpper(sum(plain))); err != nil {
 		t.Fatalf("an upper-case recorded digest: %v", err)
 	}
 }
@@ -272,7 +272,7 @@ func TestEncryptingASourceThatIsNotTheRecordedArtifactIsRefusedAndLeavesNothing(
 	plain := fixture(13, 2*chunk)
 	dir := filepath.Join(t.TempDir(), "staging")
 
-	_, err := copycrypt.EncryptToStaging(context.Background(), dir, "a.bin", bytes.NewReader(plain), recipient, sum([]byte("something else")))
+	_, err := copycrypt.EncryptToStaging(context.Background(), dir, "a.bin", bytes.NewReader(plain), copycrypt.AgeX25519{}, recipient, sum([]byte("something else")))
 	if !errors.Is(err, copycrypt.ErrDigestMismatch) {
 		t.Fatalf("err = %v, want ErrDigestMismatch", err)
 	}
@@ -289,7 +289,7 @@ func TestAnUnresolvableKeyIsKeyUnavailableNotACorruptionOrAWrongKey(t *testing.T
 	ct := read(t, s.Path)
 
 	for _, bad := range []string{"", "   ", "not a key", "AGE-SECRET-KEY-1QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"} {
-		_, err := copycrypt.DecryptVerify(context.Background(), bytes.NewReader(ct), []byte(bad), sum(plain))
+		_, err := copycrypt.DecryptVerify(context.Background(), bytes.NewReader(ct), copycrypt.AgeX25519{}, []byte(bad), sum(plain))
 		if !errors.Is(err, copycrypt.ErrKeyUnavailable) {
 			t.Fatalf("identity %q: err = %v, want ErrKeyUnavailable", bad, err)
 		}
@@ -303,7 +303,7 @@ func TestAnUnresolvableKeyIsKeyUnavailableNotACorruptionOrAWrongKey(t *testing.T
 
 	dir := filepath.Join(t.TempDir(), "staging")
 	for _, bad := range []string{"", "age1notarecipient"} {
-		_, err := copycrypt.EncryptToStaging(context.Background(), dir, "a.bin", bytes.NewReader(plain), bad, sum(plain))
+		_, err := copycrypt.EncryptToStaging(context.Background(), dir, "a.bin", bytes.NewReader(plain), copycrypt.AgeX25519{}, bad, sum(plain))
 		if !errors.Is(err, copycrypt.ErrKeyUnavailable) {
 			t.Fatalf("recipient %q: err = %v, want ErrKeyUnavailable", bad, err)
 		}
@@ -347,11 +347,11 @@ func TestTwoCopiesToOneNameLeaveOneObjectAndTheDigestOfThatObject(t *testing.T) 
 	plain := fixture(23, 2*chunk+3)
 	dir := filepath.Join(t.TempDir(), "staging")
 
-	first, err := copycrypt.EncryptToStaging(context.Background(), dir, "a.bin", bytes.NewReader(plain), recipient, sum(plain))
+	first, err := copycrypt.EncryptToStaging(context.Background(), dir, "a.bin", bytes.NewReader(plain), copycrypt.AgeX25519{}, recipient, sum(plain))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := copycrypt.EncryptToStaging(context.Background(), dir, "a.bin", bytes.NewReader(plain), recipient, sum(plain))
+	second, err := copycrypt.EncryptToStaging(context.Background(), dir, "a.bin", bytes.NewReader(plain), copycrypt.AgeX25519{}, recipient, sum(plain))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +397,7 @@ func TestAnInterruptedEncryptCannotLeaveAGoodLookingObject(t *testing.T) {
 		dir := filepath.Join(t.TempDir(), "staging")
 		ctx, cancel := context.WithCancel(context.Background())
 		src := &interrupting{r: bytes.NewReader(plain), after: chunk + 1, action: cancel}
-		_, err := copycrypt.EncryptToStaging(ctx, dir, "a.bin", src, recipient, want)
+		_, err := copycrypt.EncryptToStaging(ctx, dir, "a.bin", src, copycrypt.AgeX25519{}, recipient, want)
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("err = %v, want context.Canceled", err)
 		}
@@ -411,7 +411,7 @@ func TestAnInterruptedEncryptCannotLeaveAGoodLookingObject(t *testing.T) {
 		dir := filepath.Join(t.TempDir(), "staging")
 		boom := errors.New("disk fell off")
 		src := io.MultiReader(bytes.NewReader(plain[:chunk+7]), &failing{boom})
-		_, err := copycrypt.EncryptToStaging(context.Background(), dir, "a.bin", src, recipient, want)
+		_, err := copycrypt.EncryptToStaging(context.Background(), dir, "a.bin", src, copycrypt.AgeX25519{}, recipient, want)
 		if !errors.Is(err, boom) {
 			t.Fatalf("err = %v, want the source's own error", err)
 		}
@@ -426,13 +426,13 @@ func TestAnInterruptedEncryptCannotLeaveAGoodLookingObject(t *testing.T) {
 	t.Run("a previous good object is not replaced by a failed retry", func(t *testing.T) {
 		t.Parallel()
 		dir := filepath.Join(t.TempDir(), "staging")
-		prev, err := copycrypt.EncryptToStaging(context.Background(), dir, "a.bin", bytes.NewReader(plain), recipient, want)
+		prev, err := copycrypt.EncryptToStaging(context.Background(), dir, "a.bin", bytes.NewReader(plain), copycrypt.AgeX25519{}, recipient, want)
 		if err != nil {
 			t.Fatal(err)
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		src := &interrupting{r: bytes.NewReader(plain), after: 1, action: cancel}
-		if _, err := copycrypt.EncryptToStaging(ctx, dir, "a.bin", src, recipient, want); err == nil {
+		if _, err := copycrypt.EncryptToStaging(ctx, dir, "a.bin", src, copycrypt.AgeX25519{}, recipient, want); err == nil {
 			t.Fatal("expected the cancelled retry to fail")
 		}
 		if got := sum(read(t, prev.Path)); got != prev.StoredHash {
@@ -448,7 +448,7 @@ func TestAnInterruptedEncryptCannotLeaveAGoodLookingObject(t *testing.T) {
 		dir := filepath.Join(t.TempDir(), "staging")
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		if _, err := copycrypt.EncryptToStaging(ctx, dir, "a.bin", bytes.NewReader(plain), recipient, want); !errors.Is(err, context.Canceled) {
+		if _, err := copycrypt.EncryptToStaging(ctx, dir, "a.bin", bytes.NewReader(plain), copycrypt.AgeX25519{}, recipient, want); !errors.Is(err, context.Canceled) {
 			t.Fatalf("err = %v, want context.Canceled", err)
 		}
 		if left := names(t, dir); len(left) != 0 {
@@ -470,7 +470,7 @@ func TestAReadFailureWhileDecryptingIsNotCorruption(t *testing.T) {
 	boom := errors.New("connection reset")
 
 	src := io.MultiReader(bytes.NewReader(ct[:len(ct)/2]), &failing{boom})
-	_, err := copycrypt.DecryptVerify(context.Background(), src, identity, sum(plain))
+	_, err := copycrypt.DecryptVerify(context.Background(), src, copycrypt.AgeX25519{}, identity, sum(plain))
 	if !errors.Is(err, boom) || errors.Is(err, copycrypt.ErrCorrupt) {
 		t.Fatalf("err = %v, want the reader's own error and not ErrCorrupt", err)
 	}
@@ -483,7 +483,7 @@ func TestDecryptToFileExportsOnlyAfterTheFinalChunkAuthenticated(t *testing.T) {
 	_, s := staged(t, plain, recipient)
 
 	dir := filepath.Join(t.TempDir(), "out")
-	path, err := copycrypt.DecryptToFile(context.Background(), bytes.NewReader(read(t, s.Path)), identity, sum(plain), dir, "recovered.bin")
+	path, err := copycrypt.DecryptToFile(context.Background(), bytes.NewReader(read(t, s.Path)), copycrypt.AgeX25519{}, identity, sum(plain), dir, "recovered.bin")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -507,10 +507,10 @@ func TestNamesThatEscapeTheDirectoryAreRefused(t *testing.T) {
 	_, s := staged(t, plain, recipient)
 
 	for _, name := range []string{"", ".", "..", "a/b", "../x", `a\b`} {
-		if _, err := copycrypt.EncryptToStaging(context.Background(), dir, name, bytes.NewReader(plain), recipient, sum(plain)); err == nil {
+		if _, err := copycrypt.EncryptToStaging(context.Background(), dir, name, bytes.NewReader(plain), copycrypt.AgeX25519{}, recipient, sum(plain)); err == nil {
 			t.Fatalf("EncryptToStaging accepted the name %q", name)
 		}
-		if _, err := copycrypt.DecryptToFile(context.Background(), bytes.NewReader(read(t, s.Path)), identity, sum(plain), dir, name); err == nil {
+		if _, err := copycrypt.DecryptToFile(context.Background(), bytes.NewReader(read(t, s.Path)), copycrypt.AgeX25519{}, identity, sum(plain), dir, name); err == nil {
 			t.Fatalf("DecryptToFile accepted the name %q", name)
 		}
 	}
@@ -591,7 +591,7 @@ func TestAMultiGiBObjectEncryptsAndDecryptVerifiesInsideAnAllocationBudget(t *te
 		}
 	}()
 
-	s, err := copycrypt.EncryptToStaging(context.Background(), dir, "huge.bin", &generated{remaining: size}, recipient, want)
+	s, err := copycrypt.EncryptToStaging(context.Background(), dir, "huge.bin", &generated{remaining: size}, copycrypt.AgeX25519{}, recipient, want)
 	if err != nil {
 		close(stop)
 		<-done
@@ -604,7 +604,7 @@ func TestAMultiGiBObjectEncryptsAndDecryptVerifiesInsideAnAllocationBudget(t *te
 		t.Fatal(err)
 	}
 	defer f.Close()
-	n, err := copycrypt.DecryptVerify(context.Background(), f, identity, want)
+	n, err := copycrypt.DecryptVerify(context.Background(), f, copycrypt.AgeX25519{}, identity, want)
 	close(stop)
 	<-done
 	if err != nil {
@@ -636,7 +636,7 @@ func TestDecryptVerifyProgressReportsPlaintextBytesAndEndsAtTheSize_1303(t *test
 
 	var total int64
 	var calls int
-	n, err := copycrypt.DecryptVerifyProgress(context.Background(), bytes.NewReader(read(t, s.Path)), identity, sum(plain), func(delta int64) {
+	n, err := copycrypt.DecryptVerifyProgress(context.Background(), bytes.NewReader(read(t, s.Path)), copycrypt.AgeX25519{}, identity, sum(plain), func(delta int64) {
 		calls++
 		if delta <= 0 {
 			t.Errorf("reading %d is %d, a reading is a positive increment", calls, delta)
@@ -665,7 +665,7 @@ func TestDecryptVerifyProgressOnAWrongDigestStillFailsClosedAndStaysBounded_1303
 	_, s := staged(t, plain, recipient)
 
 	var total int64
-	n, err := copycrypt.DecryptVerifyProgress(context.Background(), bytes.NewReader(read(t, s.Path)), identity, sum([]byte("not it")), func(delta int64) { total += delta })
+	n, err := copycrypt.DecryptVerifyProgress(context.Background(), bytes.NewReader(read(t, s.Path)), copycrypt.AgeX25519{}, identity, sum([]byte("not it")), func(delta int64) { total += delta })
 	if !errors.Is(err, copycrypt.ErrDigestMismatch) || n != 0 {
 		t.Fatalf("got (%d, %v), want (0, ErrDigestMismatch)", n, err)
 	}
@@ -673,7 +673,7 @@ func TestDecryptVerifyProgressOnAWrongDigestStillFailsClosedAndStaysBounded_1303
 		t.Errorf("counted %d, more than the %d plaintext bytes", total, len(plain))
 	}
 	// A nil callback is DecryptVerify exactly.
-	if _, err := copycrypt.DecryptVerifyProgress(context.Background(), bytes.NewReader(read(t, s.Path)), identity, sum(plain), nil); err != nil {
+	if _, err := copycrypt.DecryptVerifyProgress(context.Background(), bytes.NewReader(read(t, s.Path)), copycrypt.AgeX25519{}, identity, sum(plain), nil); err != nil {
 		t.Errorf("nil progress: %v", err)
 	}
 }

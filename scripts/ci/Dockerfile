@@ -33,6 +33,10 @@ FROM golang:${GO_VERSION}-bookworm
 # is the same number, for a build by hand.
 ARG GOLANGCI_LINT_VERSION=v2.15.0
 
+# The age CLI the suite vectors decrypt with (EPIC T, #1313), from
+# scripts/ci/pins.env the same way.
+ARG AGE_VERSION=v1.3.2
+
 # node and npm copied out of the official image rather than installed
 # from a distribution repository, so this and CI are the same build and
 # not merely the same version number.
@@ -51,9 +55,10 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends python3 jq; \
     rm -rf /var/lib/apt/lists/*; \
     go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"; \
+    go install "filippo.io/age/cmd/age@${AGE_VERSION}"; \
     go clean -cache -modcache; \
     go version; node --version; npm --version; docker --version; \
-    docker compose version; golangci-lint --version; python3 --version
+    docker compose version; golangci-lint --version; python3 --version; age --version
 
 # Every checkout this runs against is bind-mounted from the host and is
 # owned by the host user, not by root. Without this git refuses it as

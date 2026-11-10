@@ -13,7 +13,7 @@ import (
 // depends on, with the lifecycle's verdict for it.
 //
 // activeCopies is the count of ACTIVE copies per recorded suite id (the
-// journal's ActiveCopiesBySuite), keys the registry's rows. suites is the
+// journal's ActiveEncryptedCopiesBySuite), keys the registry's rows. suites is the
 // registry (copycrypt.Suites()), handed in so a test can see exactly the
 // table it injected. Nothing here reads key material or a copy's bytes; it
 // is arithmetic over ids and counts, so a health build pays for two reads
@@ -34,10 +34,11 @@ func SuiteHealth(suites []copycrypt.Suite, activeCopies map[string]int, keys []K
 		if k.Status == StatusRetired {
 			continue
 		}
-		t := byKey[k.SuiteID]
+		id := suiteOf(k) // a key from before migration 0020 is age/v1
+		t := byKey[id]
 		t.keys++
 		t.active = t.active || k.Status == StatusActive
-		byKey[k.SuiteID] = t
+		byKey[id] = t
 	}
 
 	var out []health.SuiteHealth
