@@ -14,7 +14,7 @@
  * answers a receipt, so no fixture can leak what it never held.
  */
 import { RetndError } from "@shared/api/contracts";
-import type { AssuranceOperationRecord, RetndApi, ScrubStart } from "@shared/api/contracts";
+import type { ApiErrorCode, AssuranceOperationRecord, RetndApi, ScrubStart } from "@shared/api/contracts";
 import type { BackupArtifact } from "@shared/types/backup";
 import type {
   CopyEncryption,
@@ -53,7 +53,7 @@ const KEY_A = "mk-2026-11-09-a";
 const KEY_OLD = "mk-2026-08-14-a";
 
 const refuse = (code: string, message: string) =>
-  new RetndError({ code: code, message, status: 409 });
+  new RetndError({ code: code as ApiErrorCode, message, status: 409 });
 
 const later = <T,>(v: T): Promise<T> => new Promise((r) => setTimeout(() => r(v), 120));
 
@@ -210,7 +210,7 @@ export function createMockEncryption(scenario: string, setIds: () => string[]) {
           ? { state: k.resolvability, source: "managed key " + k.id, reason: k.reason }
           : { state: "not_declared" as const, source: "managed key " + req.managedKeyId, reason: null });
       }
-      const source = describeReference(req.external);
+      const source = describeReference(req.external) ?? "";
       return later("env" in req.external && req.external.env === "EMPTY"
         ? { state: "unreachable" as const, source, reason: "the variable is set to an empty value" }
         : { state: "resolves" as const, source, reason: null });

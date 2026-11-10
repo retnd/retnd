@@ -13,26 +13,32 @@
  * name, no strength, no "securely".
  */
 import "./encryption.css";
+import { Icon } from "@shared/design-system/icons";
+import type { IconName } from "@shared/design-system/icons";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
 import { stamp } from "@shared/utilities/format";
 import type { CopyEncryptionView, RecoveryChip } from "./encryptionState";
 
-/** Text glyphs, never emoji: an emoji is drawn in its own colours, which would
- *  break "the ink is always --text". */
+/** Text glyphs for the shapes this feature owns, and the repo's approved icon
+ *  artwork for the ones that are marks the whole UI shares (a tick, a cross, a
+ *  hollow dot, the slashed circle). Never emoji: an emoji is drawn in its own
+ *  colours, which would break "the ink is always --text". The icons are
+ *  currentColor, so the ink rule holds for them too. */
+type Glyph = { text: string } | { icons: IconName[] };
 const GLYPH = {
-  plaintext: "▢",
-  encrypted: "▣",
-  verified: "✓✓",
-  "not-verified": "○",
-  "key-missing": "⊘",
-  "decrypt-failed": "✕",
-  live: "▶",
-  resolves: "✓",
-  unreachable: "⊘",
-  "not-declared": "−",
-  "key-active": "⚿"
-} as const;
+  plaintext: { text: "\u25A2" },
+  encrypted: { text: "\u25A3" },
+  verified: { icons: ["success", "success"] },
+  "not-verified": { icons: ["status-idle"] },
+  "key-missing": { icons: ["quarantine"] },
+  "decrypt-failed": { icons: ["failure"] },
+  live: { text: "\u25B6" },
+  resolves: { icons: ["success"] },
+  unreachable: { icons: ["quarantine"] },
+  "not-declared": { text: "\u2212" },
+  "key-active": { text: "\u26BF" }
+} as const satisfies Record<string, Glyph>;
 
 const WORDS: Record<keyof typeof GLYPH, { label: string; tip: TooltipId }> = {
   plaintext: { label: "Plaintext", tip: "encryption.state.plaintext" },
@@ -61,7 +67,9 @@ export function EncryptionChip({ state, age, detail }: { state: ChipState; age?:
         role="group"
         aria-label={w.label + (age ? " " + age : "") + (detail ? ", " + detail : "")}
       >
-        <span className="echip__glyph" aria-hidden="true">{GLYPH[state]}</span>
+        <span className="echip__glyph" aria-hidden="true">
+          {"text" in GLYPH[state] ? (GLYPH[state] as { text: string }).text : (GLYPH[state] as { icons: readonly IconName[] }).icons.map((n, k) => <Icon key={k} name={n} />)}
+        </span>
         <span>{w.label}</span>
         {age ? <span className="echip__age">{age}</span> : null}
       </span>

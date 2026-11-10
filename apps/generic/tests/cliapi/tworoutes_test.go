@@ -907,6 +907,11 @@ var surfaces = []surface{
 		argv: func(f fixture) []string {
 			return []string{"settings", "--config", f.configPath, "patch", "--timezone", "Europe/Berlin"}
 		}},
+	{verb: "encryption", name: "the policy of a deployment that encrypts nothing", mode: "", exit: 0,
+		note: "the encryption READ is this host's own file, as settings is; the writes below are the routed half",
+		argv: func(f fixture) []string { return []string{"encryption", "policy", "--config", f.configPath} }},
+	{verb: "encryption", name: "policy reset", mode: "direct", exit: 0, writes: true, routed: true,
+		argv: func(f fixture) []string { return []string{"encryption", "policy", "reset", "--config", f.configPath} }},
 	{verb: "workflow", name: "run list, on a deployment whose hooks have never run", mode: "", exit: 0,
 		says: "no workflow run is on record here",
 		note: "a workflow run is durable journal rows, written by whichever process executed it and readable by anything that can open the database, so this read needs no route to a serving engine and takes none; workflow.go's own preamble makes that argument and puts it beside `activity` without --follow. What the row pins is the empty answer, which distinguishes a deployment that configures no hooks from one whose hooks have not run yet and names the command that tells them apart",

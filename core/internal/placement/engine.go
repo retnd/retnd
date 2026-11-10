@@ -1042,22 +1042,27 @@ func (e *Engine) verifyCopy(ctx context.Context, mv state.Move, src state.Placem
 	if err != nil {
 		return Result{}, want, err
 	}
+	// observe spends a restore-status call only for a class that needs
+	// one, so a STANDARD destination costs exactly what it cost before. It
+	// is asked here, once, for every kind of destination, because only this
+	// function and two others are allowed to ask it (destructive_test.go).
+	var observed archive.Observation
+	if gated {
+		observed = e.observe(ctx, medium, mv.DestinationKey, medium.StorageClass)
+	}
 	if srcEncrypted {
-		return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated, srcEnc.KeyID)
+		return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated, srcEnc.KeyID, observed)
 	}
 	if on, err := e.encryptedSet(mv.Artifact.Set); err != nil {
 		return Result{}, want, err
 	} else if on {
-		return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated, "")
+		return e.verifyEncrypted(ctx, mv, medium, want, candidate, gated, "", observed)
 	}
 	if !gated {
 		res, err := Verify(ctx, e.Store, medium, candidate, want, e.now())
 		return res, want, err
 	}
-	// observe spends a restore-status call only for a class that needs
-	// one, so a STANDARD destination costs exactly what it cost before.
-	obs := e.observe(ctx, medium, mv.DestinationKey, medium.StorageClass)
-	res, err := VerifyWithAccess(ctx, e.Store, medium, candidate, want, obs, e.now())
+	res, err := VerifyWithAccess(ctx, e.Store, medium, candidate, want, observed, e.now())
 	return res, want, err
 }
 

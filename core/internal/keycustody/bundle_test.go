@@ -251,3 +251,17 @@ func TestABundleWithMismatchedMaterialIsRefusedAtDecrypt(t *testing.T) {
 		t.Fatalf("Decrypt ran with material that is not the key the bundle names")
 	}
 }
+
+// #990: an id the registry never minted is ErrUnknownKey, and it is not
+// ErrNoSuchExport, so a caller can tell "no such key" from "that key has no
+// matching export". The unknown key is checked before any export is read.
+func TestConfirmingAnUnknownKeyIsErrUnknownKeyNotErrNoSuchExport_990(t *testing.T) {
+	s := openStore(t, t.TempDir())
+	err := s.Confirm(context.Background(), "knope", "sha256:00", fixedNow)
+	if !errors.Is(err, keycustody.ErrUnknownKey) {
+		t.Fatalf("Confirm on an unknown key err = %v, want ErrUnknownKey", err)
+	}
+	if errors.Is(err, keycustody.ErrNoSuchExport) {
+		t.Fatalf("Confirm on an unknown key err = %v, must not be ErrNoSuchExport", err)
+	}
+}
