@@ -6,7 +6,8 @@
  * activity feed. A standalone decrypt-verify rides the scrub operation and its
  * durable record names no stage, so STAGE_ROWS stays empty for it: a stage this
  * build does not see on the record is never invented. What the decrypt row can
- * do is carry a byte reading when the caller has one for this operation.
+ * do is carry a byte reading when the caller has one for this operation, or
+ * the scrub record's own bytesRead (#1303), the figure `assurance show` prints.
  * Adding a stage row is still one entry in STAGE_ROWS and a line in rowState;
  * no component changes.
  */
@@ -37,13 +38,17 @@ export function verifyRows(record: AssuranceOperationRecord | null, reading: Ver
   for (const s of STAGE_ROWS) {
     rows.push({ id: s.id, label: s.label, state: record && record.stage === s.id && !ended ? "active" : "pending" });
   }
+  // A standalone verify's record carries bytesRead (#1303), the figure the CLI
+  // prints; a reading from the progress feed, when there is one, wins.
+  const figure =
+    reading && reading.stage === "decrypt-verifying"
+      ? " " + bytes(reading.bytesDone) + (reading.bytesTotal !== undefined ? " / " + bytes(reading.bytesTotal) : "")
+      : record?.bytesRead !== undefined && record.bytesRead > 0
+        ? " " + bytes(record.bytesRead)
+        : "";
   rows.push({
     id: "decrypt",
-    label:
-      "Decrypt-verifying" +
-      (reading && reading.stage === "decrypt-verifying"
-        ? " " + bytes(reading.bytesDone) + (reading.bytesTotal !== undefined ? " / " + bytes(reading.bytesTotal) : "")
-        : ""),
+    label: "Decrypt-verifying" + figure,
     state: record === null || record.state === "running" ? "active" : failed ? "failed" : record.state === "passed" ? "done" : "pending"
   });
   rows.push({ id: "compare", label: "Compare digest and record result", state: record?.state === "passed" ? "done" : failed ? "failed" : "pending" });

@@ -250,7 +250,11 @@ func EncryptToStaging(ctx context.Context, dir, name string, src io.Reader, reci
 
 // decrypt authenticates every chunk of src, writes the plaintext to dst and
 // returns its length, requiring its digest to equal want.
-func decrypt(ctx context.Context, src io.Reader, identity []byte, dst io.Writer, want string) (int64, error) {
+//
+// progress, when non-nil, is told the size of each run of plaintext that
+// authenticated, as an increment. It sees lengths only, never bytes, and the
+// sum of what it is told never passes the plaintext length (#1303).
+func decrypt(ctx context.Context, src io.Reader, identity []byte, dst io.Writer, want string, progress func(int64)) (int64, error) {
 	id, err := age.ParseX25519Identity(strings.TrimSpace(string(identity)))
 	if err != nil {
 		// The parse error is dropped on purpose: it can quote the input.
@@ -276,7 +280,11 @@ func decrypt(ctx context.Context, src io.Reader, identity []byte, dst io.Writer,
 		return 0, classify(err, nil)
 	}
 	h := sha256.New()
-	out := &sink{w: io.MultiWriter(h, dst)}
+	w := io.MultiWriter(h, dst)
+	if progress != nil {
+		w = io.MultiWriter(w, progressWriter(progress))
+	}
+	out := &sink{w: w}
 	n, err := io.Copy(out, r)
 	if err != nil {
 		return 0, classify(err, out)
@@ -293,7 +301,24 @@ func decrypt(ctx context.Context, src io.Reader, identity []byte, dst io.Writer,
 // case). It returns the plaintext length on success and 0 on any error.
 // This is what verification_class: content means for an encrypted copy.
 func DecryptVerify(ctx context.Context, src io.Reader, identity []byte, wantPlaintextHash string) (int64, error) {
-	return decrypt(ctx, src, identity, io.Discard, wantPlaintextHash)
+	return decrypt(ctx, src, identity, io.Discard, wantPlaintextHash, nil)
+}
+
+// DecryptVerifyProgress is DecryptVerify that also tells progress, as the
+// plaintext streams past, how many more bytes have authenticated (an
+// increment, never zero). A nil progress is DecryptVerify (#1303).
+func DecryptVerifyProgress(ctx context.Context, src io.Reader, identity []byte, wantPlaintextHash string, progress func(int64)) (int64, error) {
+	return decrypt(ctx, src, identity, io.Discard, wantPlaintextHash, progress)
+}
+
+// progressWriter counts what is written to it and discards it.
+type progressWriter func(int64)
+
+func (f progressWriter) Write(p []byte) (int, error) {
+	if len(p) > 0 {
+		f(int64(len(p)))
+	}
+	return len(p), nil
 }
 
 // DecryptToFile is DecryptVerify that also keeps the plaintext: it writes to
@@ -311,7 +336,7 @@ func DecryptToFile(ctx context.Context, src io.Reader, identity []byte, wantPlai
 	if err != nil {
 		return "", err
 	}
-	if _, err := decrypt(ctx, src, identity, f, wantPlaintextHash); err != nil {
+	if _, err := decrypt(ctx, src, identity, f, wantPlaintextHash, nil); err != nil {
 		f.Close()
 		os.Remove(f.Name())
 		return "", err

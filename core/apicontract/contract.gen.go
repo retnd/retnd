@@ -2169,6 +2169,7 @@ type AssuranceOperationCancelled struct {
 // record holds it (#1200).
 type AssuranceOperationRecord struct {
 	BackupSetID string              `json:"backup_set_id"`
+	BytesRead   int64               `json:"bytes_read,omitempty"`
 	EndedAt     string              `json:"ended_at"`
 	Events      []LiveActivityEvent `json:"events"`
 	Kind        string              `json:"kind"`

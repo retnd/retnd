@@ -3100,6 +3100,7 @@ export interface WireAssuranceOperationCancelled {
  *  record holds it (#1200). */
 export interface WireAssuranceOperationRecord {
   backup_set_id: string;
+  bytes_read?: number;
   ended_at: string;
   events: WireLiveActivityEvent[];
   kind: "scrub" | "recovery_test" | "recovery";

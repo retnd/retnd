@@ -12,6 +12,11 @@
   counters, and no reading carries a key or a key id. The operation checklist shows the two rows only for an
   encrypted copy and the activity strip says how many bytes of which. A standalone `retnd encryption verify`
   still reports `bytes_read` in its result and no live stage.
+- **Live byte progress for a standalone `retnd encryption verify`** (#1303, EPIC N). The
+  `AssuranceOperationRecord` gains an optional `bytes_read` (omitted when there is none), the plaintext a
+  decrypt-verify scrub has read: a live count while it runs, the pass line's total once it has ended. It only
+  grows while the run is going and carries no key or key id. `retnd assurance show` prints it as
+  `bytes read: N` and the Verify recoverable dialog's decrypt row draws the same figure.
 - **The retained-copy encryption policy and its schema, ahead of the cipher** (#989, EPIC N). One new
   top-level `retained_copy_encryption:` key with `mode: off | required` and a `key_provider` that is
   either `managed: true` or an external `file`/`env`/`command` reference, plus a per-set
