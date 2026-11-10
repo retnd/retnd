@@ -298,3 +298,32 @@ func TestExternalRegistryRowsCarryNoMaterialCanary(t *testing.T) {
 		t.Fatal("control: the scan did not catch a planted canary, so the checks above prove nothing")
 	}
 }
+
+// A deployment whose only key is an external one, under `required`, is
+// healthy while its reference resolves: there is no managed key to be
+// active and no bundle to confirm, and Degraded must not read that absence
+// as a problem. Red while Store.Health reports no active key for it.
+func TestAnExternalOnlyDeploymentReadsHealthyWhileItsReferenceResolves_1292(t *testing.T) {
+	ctx := context.Background()
+	ref, _ := externalKeyFile(t)
+	s, _ := externalStore(t, ref)
+	rec, err := s.RegisterExternal(ctx, ref, fixedNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := s.Health(ctx, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Degraded() {
+		t.Fatalf("an external-only deployment reads degraded: %+v", h)
+	}
+	if h.ActiveKeyID != rec.ID {
+		t.Fatalf("ActiveKeyID = %q, want the external key %q", h.ActiveKeyID, rec.ID)
+	}
+	// Control: nothing registered under required is still degraded.
+	empty, _ := externalStore(t)
+	if eh, err := empty.Health(ctx, true); err != nil || !eh.Degraded() {
+		t.Fatalf("control: an empty registry under required = %+v, %v, want degraded", eh, err)
+	}
+}
