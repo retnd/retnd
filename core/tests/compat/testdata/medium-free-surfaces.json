@@ -48,6 +48,18 @@
         "08-assurance-block-omitted.yaml   storage_mediums declared: 0",
         "08-assurance-block-omitted.yaml   deployment assurance: scrub=168h0m0s/auto recovery_test=off/720h0m0s/\"\" staging_ttl=24h0m0s reads=2 per_destination=1",
         "08-assurance-block-omitted.yaml   set production/postgres-primary assurance: scrub=168h0m0s/auto recovery_test=off/720h0m0s/\"\" override=false",
+        "09-encryption-global-and-per-set.yaml validate: accepted",
+        "09-encryption-global-and-per-set.yaml   deployment policy: tz=UTC week_starts=monday protect_lkg=true chain=[daily(gran=day,keep=7,period_days=0,window=-,medium=local) weekly(gran=week,keep=3,period_days=0,window=month,medium=local) monthly(gran=month,keep=12,period_days=0,window=-,medium=local)]",
+        "09-encryption-global-and-per-set.yaml   set production/inherits: tz=UTC week_starts=monday protect_lkg=true chain=[daily(gran=day,keep=7,period_days=0,window=-,medium=local) weekly(gran=week,keep=3,period_days=0,window=month,medium=local) monthly(gran=month,keep=12,period_days=0,window=-,medium=local)] local_path=/backups/production/inherits read_only=false",
+        "09-encryption-global-and-per-set.yaml   set production/explicit-inherit: tz=UTC week_starts=monday protect_lkg=true chain=[daily(gran=day,keep=7,period_days=0,window=-,medium=local) weekly(gran=week,keep=3,period_days=0,window=month,medium=local) monthly(gran=month,keep=12,period_days=0,window=-,medium=local)] local_path=/backups/production/explicit-inherit read_only=false",
+        "09-encryption-global-and-per-set.yaml   set production/opted-out: tz=UTC week_starts=monday protect_lkg=true chain=[daily(gran=day,keep=7,period_days=0,window=-,medium=local) weekly(gran=week,keep=3,period_days=0,window=month,medium=local) monthly(gran=month,keep=12,period_days=0,window=-,medium=local)] local_path=/backups/production/opted-out read_only=false",
+        "09-encryption-global-and-per-set.yaml   set production/own-external-key: tz=UTC week_starts=monday protect_lkg=true chain=[daily(gran=day,keep=7,period_days=0,window=-,medium=local) weekly(gran=week,keep=3,period_days=0,window=month,medium=local) monthly(gran=month,keep=12,period_days=0,window=-,medium=local)] local_path=/backups/production/own-external-key read_only=false",
+        "09-encryption-global-and-per-set.yaml   storage_mediums declared: 0",
+        "09-encryption-global-and-per-set.yaml   deployment retained_copy_encryption: mode=required provider=managed",
+        "09-encryption-global-and-per-set.yaml   set production/inherits retained_copy_encryption: mode=required provider=managed override=false",
+        "09-encryption-global-and-per-set.yaml   set production/explicit-inherit retained_copy_encryption: mode=required provider=managed override=true",
+        "09-encryption-global-and-per-set.yaml   set production/opted-out retained_copy_encryption: mode=off provider=- override=true",
+        "09-encryption-global-and-per-set.yaml   set production/own-external-key retained_copy_encryption: mode=required provider=external(env RETND_MEDIA_COPY_KEY) override=true",
         "50-invalid-no-sources.yaml validate: accepted",
         "50-invalid-no-sources.yaml   deployment policy: tz=UTC week_starts=monday protect_lkg=true chain=[daily(gran=day,keep=7,period_days=0,window=-,medium=local) weekly(gran=week,keep=3,period_days=0,window=month,medium=local) monthly(gran=month,keep=12,period_days=0,window=-,medium=local)]",
         "50-invalid-no-sources.yaml   storage_mediums declared: 0",
@@ -61,7 +73,9 @@
         "58-invalid-legacy-paths.yaml load: REFUSED parsing config \"testdata/configs/58-invalid-legacy-paths.yaml\": yaml: unmarshal errors: | line 25: field legacy_paths not found in type config.Config",
         "59-invalid-assurance-cadence-below-floor.yaml validate: REFUSED invalid config: assurance.scrub.cadence: 5m0s is below the floor of 1h0m0s; a cadence that short would re-read the same bytes continuously",
         "60-invalid-assurance-required-without-validator.yaml validate: REFUSED invalid config: sources[0].backup_sets[0].assurance.recovery_test.validator_id: mode required needs a validator, on the set or on the deployment",
-        "61-invalid-assurance-unknown-key.yaml load: REFUSED parsing config \"testdata/configs/61-invalid-assurance-unknown-key.yaml\": yaml: unmarshal errors: | line 10: field cadance not found in type config.AssuranceScrub"
+        "61-invalid-assurance-unknown-key.yaml load: REFUSED parsing config \"testdata/configs/61-invalid-assurance-unknown-key.yaml\": yaml: unmarshal errors: | line 10: field cadance not found in type config.AssuranceScrub",
+        "62-invalid-inline-key-material.yaml load: REFUSED parsing config \"testdata/configs/62-invalid-inline-key-material.yaml\": yaml: unmarshal errors: | line 15: field identity not found in type config.RetainedCopyKeyProvider",
+        "63-invalid-encryption-required-without-provider.yaml validate: REFUSED invalid config: sources[0].backup_sets[0].retained_copy_encryption.key_provider: mode required needs a key provider, on the set or on the deployment"
       ]
     },
     "02-artifact-rows-after-migration": {
