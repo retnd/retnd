@@ -555,6 +555,7 @@ type EncryptionSetPolicy struct {
 	IsOverride           bool                       `json:"is_override"`
 	KeyProvider          EncryptionKeyProviderState `json:"key_provider"`
 	Mode                 string                     `json:"mode"`
+	SatisfiedBy          string                     `json:"satisfied_by,omitempty"`
 }
 
 // Endpoint is one operation of the contract, with the requirements a

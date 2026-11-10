@@ -101,9 +101,18 @@ incremental set among forty should not have their config refused for it, and I d
 make it silently double-encrypt because the second layer would add a key to lose and
 protect nothing the first does not.
 
-What is not proven: the configuration still accepts `required` on a kopia set without
-comment, and I did not find a test that pins the sentence in the engine path rather than
-in the UI. That belongs to whoever next touches that seam.
+The decision has one home in the code, `config.BackupSet.EncryptsRetainedCopies()`
+(resolves to `required` and is not a `kopia` set). The placement engine, the key-custody
+health section, the metrics gauge and the key alert read it, so none of them counts a kopia
+set as one a managed key guards. `GET /encryption/policy` and `retnd encryption policy show`
+say so with `satisfied_by: "repository"` on the set, in the sentence the web UI draws.
+`required` is still accepted at load, on the deployment and as a per-set override. Pinned by
+`TestRequiredOnAKopiaSetIsAcceptedAndDoesNotEncryptRetainedCopies_1296` (config),
+`TestARequiredKopiaSetNeverAsksKeyCustody_1296` and
+`TestAKopiaOnlyDeploymentUnderRequiredIsNotDegradedKeyCustody_1296` (app),
+`TestAKopiaSetUnderRequiredIsNotAnEncryptedSetToTheCopyPath_1296` (placement),
+`TestSetPolicyOfAKopiaSetSaysSatisfiedByTheRepository_1296` (service) and the compat fixture
+`10-encryption-kopia-set-under-required.yaml`.
 
 ## Consequences
 

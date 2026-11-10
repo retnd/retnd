@@ -3794,6 +3794,10 @@ export interface WireEncryptionSetPolicy {
   is_override: boolean;
   key_provider: WireEncryptionKeyProviderState;
   mode: string;
+  /** "repository" for a kopia-engine set, whose repository kopia
+   *  always encrypts, so required on it layers nothing. Absent for
+   *  every other set. */
+  satisfied_by?: string;
 }
 
 /** POST /auth/enroll. The credentials, and optionally the two things

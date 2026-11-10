@@ -32,7 +32,7 @@ section says so instead of describing the plan.
 | The object **name** on the medium | **No.** It stays `<prefix>/<source>/<backup set>/<artifact name>`. |
 | The sidecar object beside each copy (`.manifest/<name>.json`) | **No.** It is plain JSON. For an encrypted copy it adds the format, the key id (never a key), the plaintext digest and size, the stored-bytes digest and size, and when the copy last decrypted to the artifact. |
 | A copy that was already on a medium in plaintext before you turned this on | **No, and it stays that way.** Turning the policy on does not encrypt existing copies. |
-| An incremental (`kopia`) set | Not by this feature. Its repository is already encrypted by its own format under the repository passphrase, and `required` on it layers nothing on top (ADR 0028). |
+| An incremental (`kopia`) set | Not by this feature. Its repository is already encrypted by its own format under the repository passphrase, and `required` on it layers nothing on top (ADR 0028). The policy answers `satisfied_by: "repository"` for such a set (`GET /encryption/policy`, `retnd encryption policy show`), and key-custody health and the metrics gauge do not count it. |
 
 ### Object names are visible, and that matters when you choose a destination
 

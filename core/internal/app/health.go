@@ -222,7 +222,7 @@ func (s *Service) keyCustodyHealth(ctx context.Context) (health.KeyCustodyHealth
 	enabled := false
 	for _, src := range s.Config.Sources {
 		for _, bs := range src.BackupSets {
-			if bs.RetainedCopyEncryption.Enabled() {
+			if bs.EncryptsRetainedCopies() {
 				enabled = true
 			}
 		}

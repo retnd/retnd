@@ -114,6 +114,16 @@ func providerState(p config.RetainedCopyKeyProvider) apicontract.EncryptionKeyPr
 	}
 }
 
+// SatisfiedByRepository is EncryptionSetPolicy.SatisfiedBy for a kopia-engine
+// set, and SatisfiedByRepositoryStatement is the sentence every surface says
+// for it. The web UI draws the same sentence (SetEncryptionCard.tsx), and a
+// test pins the two together (#1296, ADR 0028 decision 4). Both have two
+// readers: setPolicyOf and the CLI's `encryption policy show`.
+const (
+	SatisfiedByRepository          = "repository"
+	SatisfiedByRepositoryStatement = "This set's repository is already encrypted by the kopia engine under its repository passphrase. Required on such a set is satisfied by that and layers nothing."
+)
+
 func setPolicyOf(sourceName string, bs config.BackupSet) apicontract.EncryptionSetPolicy {
 	out := apicontract.EncryptionSetPolicy{
 		BackupSetID:          sourceName + "/" + bs.Name,
@@ -122,6 +132,9 @@ func setPolicyOf(sourceName string, bs config.BackupSet) apicontract.EncryptionS
 		IsOverride:           bs.RetainedCopyEncryptionIsOverride(),
 		KeyProvider:          providerState(config.RetainedCopyKeyProvider{}),
 		EffectiveKeyProvider: providerState(bs.RetainedCopyEncryption.KeyProvider),
+	}
+	if bs.Engine == model.EngineKopia {
+		out.SatisfiedBy = SatisfiedByRepository
 	}
 	if o := bs.RetainedCopyEncryptionConfig; o != nil {
 		if o.Mode != "" {

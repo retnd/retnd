@@ -792,6 +792,13 @@ Five error codes arrive with them: `ENCRYPTION_KEY_NOT_FOUND`,
 `ENCRYPTION_KEY_IN_USE` (the message names the copies), `ENCRYPTION_KEY_STATE`,
 `ENCRYPTION_KEY_UNRESOLVABLE` and `ENCRYPTION_UNAVAILABLE`.
 
+### A kopia set says it is satisfied by the repository
+
+`EncryptionSetPolicy.satisfied_by` is `"repository"` for a set on the `kopia` engine and absent
+for every other set (an additive field). That set's repository is always encrypted by kopia under
+the repository passphrase, so `required` on it layers nothing and no managed key is consulted
+(ADR 0028 decision 4).
+
 ### The key-reference field is write-only
 
 A request declares an external key as `{file | env | command}`

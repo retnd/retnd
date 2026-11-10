@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`required` on a `kopia` set no longer reads as degraded key custody** (#1296, EPIC N follow-up).
+  A deployment whose only encrypted-by-policy sets are incremental ones, with a managed provider and no
+  key created, showed key custody as degraded and `retnd_retained_copy_encryption_enabled 1`, though no
+  managed key will ever encrypt anything for it. Health, the gauge and the copy path now read one
+  method, `config.BackupSet.EncryptsRetainedCopies()`. `EncryptionSetPolicy` gains an additive
+  `satisfied_by: "repository"` for a kopia set, and `retnd encryption policy show` prints the sentence
+  the web UI already drew. `required` is still accepted on a kopia set.
+
 ### Added
 
 - **The retained-copy encryption policy and its schema, ahead of the cipher** (#989, EPIC N). One new
