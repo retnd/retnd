@@ -293,16 +293,23 @@ func TestADecryptThatFailsLeavesNothingBehindAndSaysWhy_1289(t *testing.T) {
 		})
 	}
 
-	// The refusals for a wrong key, a wrong digest and a failed
-	// authentication are three different sentences, so an operator can tell
-	// which thing to go and fix.
-	distinct := map[string]bool{}
-	for _, name := range []string{"a bundle holding another key", "the wrong plaintext digest", "tampered payload"} {
-		first, _, _ := strings.Cut(seen[name], "\n")
-		distinct[first] = true
+	// A wrong key, a wrong digest and a failed authentication are three
+	// different refusals, so an operator can tell which thing to go and fix:
+	// each carries its own phrase and neither of the other two.
+	phrases := map[string]string{
+		"a bundle holding another key": "does not open this object",
+		"the wrong plaintext digest":   "plaintext digest differs",
+		"tampered payload":             "failed authentication",
 	}
-	if len(distinct) != 3 {
-		t.Errorf("wrong key, wrong digest and a failed authentication did not produce three distinct refusals: %v", distinct)
+	for name, own := range phrases {
+		for otherName, other := range phrases {
+			if name != otherName && strings.Contains(seen[name], other) {
+				t.Errorf("the refusal for %q also says %q", name, other)
+			}
+		}
+		if !strings.Contains(seen[name], own) {
+			t.Errorf("the refusal for %q does not say %q", name, own)
+		}
 	}
 }
 
@@ -566,3 +573,73 @@ func TestTheDecryptAndImportVerbsAreDocumentedWhereOperatorsLook_1289(t *testing
 }
 
 func b64(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
+
+// Nothing the operator reads still says there is no command that decrypts a
+// copy, or that the bundle's instructions are ahead of the code. Those
+// sentences were true before #1289 and are the ones that would stay behind.
+func TestNoPageStillSaysNoCommandDecryptsACopy_1289(t *testing.T) {
+	stale := []string{
+		"no `retnd` command that decrypts",
+		"no `retnd` command decrypts",
+		"has no command of its own that decrypts",
+		"product has no command that decrypts",
+		"ahead of the code today",
+		"and `retnd recover` will not do it for you",
+	}
+	pages := []string{
+		"README.md", "docs/encrypted-copies.md", "docs/recovery.md", "docs/recovery-without-a-terminal.md",
+		"docs/compliance/recovery-egress.md", "docs/site/index.html", "docs/site/reference.html",
+	}
+	for _, page := range pages {
+		raw, err := os.ReadFile(filepath.Join("../../..", page))
+		if err != nil {
+			t.Fatalf("%s: %v", page, err)
+		}
+		text := strings.Join(strings.Fields(string(raw)), " ")
+		for _, phrase := range stale {
+			if strings.Contains(text, phrase) {
+				t.Errorf("%s still says %q", page, phrase)
+			}
+		}
+	}
+
+	// The changelog keeps its history, so only [Unreleased] is held to it.
+	raw, err := os.ReadFile("../../../CHANGELOG.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unreleased, _, _ := strings.Cut(string(raw), "\n## [0.")
+	text := strings.Join(strings.Fields(unreleased), " ")
+	for _, phrase := range stale {
+		if strings.Contains(text, phrase) {
+			t.Errorf("CHANGELOG [Unreleased] still says %q", phrase)
+		}
+	}
+	if !strings.Contains(text, "encryption decrypt") || !strings.Contains(text, "key import") {
+		t.Errorf("CHANGELOG [Unreleased] does not mention the two new verbs")
+	}
+}
+
+// The parity matrix says, in a row of its own, that the two verbs have no API
+// twin and why, so the reverse direction of N1.16 is a recorded decision and
+// not a gap nobody looked at.
+func TestTheMatrixRecordsTheTwoVerbsWithNoAPITwin_1289(t *testing.T) {
+	raw, err := os.ReadFile("../../../docs/conformance/epic-n-matrix.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.Contains(line, "encryption decrypt") && strings.Contains(line, "key import") {
+			row = line
+		}
+	}
+	if row == "" {
+		t.Fatal("epic-n-matrix.md has no row naming `encryption decrypt` and `key import`")
+	}
+	for _, want := range []string{"no API route", "encryptiondecrypt_1289_test.go"} {
+		if !strings.Contains(row, want) {
+			t.Errorf("the matrix row does not say %q:\n%s", want, row)
+		}
+	}
+}

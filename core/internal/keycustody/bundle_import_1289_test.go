@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -356,4 +357,26 @@ func redigest(t *testing.T, b keycustody.Bundle) string {
 		h.Write([]byte{'\n'})
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// The bundle's printed instructions name what now exists: the verb that
+// decrypts, the verb that imports, and the age CLI as the way that needs
+// nothing of this product. A person holding only the file reads these, so a
+// verb the binary does not have, or a missing one, is a defect.
+func TestTheBundleInstructionsNameTheVerbsThatExistAndKeepTheAgeFallback_1289(t *testing.T) {
+	s := openStore(t, t.TempDir())
+	_, bundleBytes, _, _ := exportBundle(t, s)
+	text := strings.Join(readBundle(t, bundleBytes).Instructions, "\n")
+	for _, want := range []string{
+		"retnd encryption decrypt",
+		"--bundle",
+		"--sidecar",
+		"retnd encryption key import",
+		"age -d -i identity.txt",
+		"recovery-without-a-terminal",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the bundle instructions do not mention %q:\n%s", want, text)
+		}
+	}
 }
