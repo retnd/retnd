@@ -46,6 +46,7 @@ import (
 
 	"github.com/retnd/retnd/core/internal/artifactstore"
 	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/copycrypt"
 	"github.com/retnd/retnd/core/internal/keycustody"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/placement"
@@ -123,9 +124,18 @@ func run() error {
 		killDuringEncrypt    = flag.Bool("kill-during-encrypt", false, "die part-way through reading the local artifact into the encrypting pass")
 		killBeforeUpload     = flag.Bool("kill-before-upload", false, "die the instant before a local file is handed to the medium upload, after anything was written for it")
 		suppressKillRequests = flag.Bool("suppress-kill", false, "turn every self-kill into a no-op, to prove the suite's own kill assertion is not vacuous")
+		encryptSuite         = flag.String("encrypt-suite", "", "the suite policy the set resolves to (an id, or empty for the build's default), with -encrypt-dir")
+		retiredSuite         = flag.String("test-retire-suite", "", "mark this registered suite retired in this process only, through the registry's test hook (#1319)")
 	)
 	flag.Parse()
 	suppressKill = *suppressKillRequests
+	if *retiredSuite != "" {
+		restore, err := copycrypt.SetStatusForTest(*retiredSuite, copycrypt.StatusRetired)
+		if err != nil {
+			return fmt.Errorf("retiring %s for this run: %w", *retiredSuite, err)
+		}
+		defer restore()
+	}
 
 	ctx := context.Background()
 	setID := model.BackupSetID{Source: *source, Set: *set}
@@ -176,6 +186,12 @@ func run() error {
 		bs.RetainedCopyEncryption = config.RetainedCopyEncryption{
 			Mode:        config.RetainedCopyEncryptionRequired,
 			KeyProvider: config.RetainedCopyKeyProvider{Managed: true},
+			Suite:       *encryptSuite,
+		}
+		if bs.RetainedCopyEncryption.Suite == "" {
+			// What Validate resolves "default" to; consumers read a
+			// concrete id only (T1.4).
+			bs.RetainedCopyEncryption.Suite = copycrypt.Default().ID()
 		}
 	}
 
