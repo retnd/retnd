@@ -3,7 +3,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Retained-copy encryption: encrypted is not recoverable, keys are never shown, the bundle is the only thing that changes the threat model (issue #994)</title>
 <style>
-/* Tokens copied from ui/shared/src/design-system/tokens.css at 6d0d6978 (the tip of #1266). Nothing below declares a colour literal of its own.
+/* Tokens copied from ui/shared/src/design-system/tokens.css at 283fd457. Nothing below declares a colour literal of its own.
    --text-3 is the tertiary TEXT ink (#1235 moved it to 4.5:1 on every surface it sits on); --edge-3 is the ink for an edge that
    has to be found by its edge (a chip, a button, a segmented control, a bar, a text box): 3.35:1 light and 3.85:1 dark on
    --surface. --border-strong is 1.69:1 and 1.81:1 on --surface, so it is kept for the decorative frames and card rules only.
@@ -62,7 +62,7 @@ code{font-family:var(--font-mono);font-size:12px}
 .chip{display:inline-flex;align-items:center;gap:6px;min-height:24px;padding:2px 9px;border-radius:var(--radius-md);font-size:12px;font-weight:600;color:var(--text);background:var(--surface);border:1.5px solid var(--edge-3);white-space:nowrap}
 .chip .g{font-weight:800;font-size:13px;min-width:14px;text-align:center}
 .chip .age{font-weight:500;color:var(--text-2)}
-.s-plain{border-style:dashed;border-color:var(--edge-3);background:var(--surface-3)}
+.s-plain{border-style:dashed;border-color:var(--edge-3);background:var(--surface-2)}
 .s-enc{border-style:solid;border-color:var(--edge-3);background:var(--surface-2)}
 .s-recov{border-style:solid;border-color:var(--ok);background:var(--ok-quiet)}.s-recov .g{color:var(--ok)}
 .s-unver{border-style:dotted;border-color:var(--edge-3);background:var(--surface)}
@@ -70,7 +70,7 @@ code{font-family:var(--font-mono);font-size:12px}
 .s-fail{border-style:solid;border-color:var(--danger);background:var(--danger-quiet)}.s-fail .g{color:var(--danger)}
 .s-degraded{border-style:solid;border-color:var(--warn);background:var(--warn-quiet)}.s-degraded .g{color:var(--text)}
 .s-key-ok{border-style:solid;border-color:var(--ok);background:var(--ok-quiet)}.s-key-ok .g{color:var(--ok)}
-.s-key-off{border-style:solid;border-color:var(--edge-3);background:var(--surface-3)}
+.s-key-off{border-style:solid;border-color:var(--edge-3);background:var(--surface-2)}
 .s-key-retired{border-style:dashed;border-color:var(--edge-3);background:var(--surface)}
 .s-cost{border-style:dotted;border-color:var(--warn);background:var(--warn-quiet)}.s-cost .g{color:var(--text)}
 .s-live{border-style:solid;border-left-width:6px;border-color:var(--accent);background:var(--accent-quiet)}.s-live .g{color:var(--accent)}
@@ -83,13 +83,14 @@ table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
 .btn{min-height:30px;padding:3px 12px;border:1px solid var(--edge-3);border-radius:var(--radius-md);background:var(--surface);color:var(--text);font:inherit;font-size:12.5px;cursor:pointer}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--surface)}
 .btn.danger{border-color:var(--danger);color:var(--danger)}
+.notice .btn:not(.primary):not([disabled]){border-color:var(--text-2)}
 .btn[disabled],.btn.primary[disabled]{background:var(--surface-3);color:var(--text-3);border-color:var(--border);cursor:not-allowed}
 .seg{display:inline-flex;border:1px solid var(--edge-3);border-radius:var(--radius-md);overflow:hidden}
 .seg span{padding:4px 12px;font-size:12.5px;border-right:1px solid var(--edge-3);background:var(--surface);color:var(--text)}
 .seg span:last-child{border-right:0}
 .seg .on{background:var(--accent);color:var(--surface);font-weight:600}
 .seg.off span{color:var(--text-2);background:var(--surface-3)}
-.knob{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:baseline;padding:6px 8px;background:var(--surface-3);border-radius:var(--radius-md);border:1px dashed var(--edge-3)}
+.knob{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:baseline;padding:6px 8px;background:var(--surface-2);border-radius:var(--radius-md);border:1px dashed var(--edge-3)}
 .knob b{font-family:var(--font-mono);font-size:12px}
 .lock{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text)}
 .notice{border:1px solid var(--warn);background:var(--warn-quiet);border-radius:var(--radius-md);padding:var(--space-3);color:var(--text)}
@@ -97,7 +98,7 @@ table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
 .notice.refused{border:2px solid var(--danger);background:var(--danger-quiet)}
 .notice.info{border-color:var(--accent);background:var(--accent-quiet)}
 .notice .muted{color:var(--text)}
-.bar{height:10px;border-radius:var(--radius-pill);background:var(--surface-3);border:1px solid var(--edge-3);overflow:hidden}
+.bar{height:10px;border-radius:var(--radius-pill);background:var(--surface-2);border:1px solid var(--edge-3);overflow:hidden}
 .bar>i{display:block;height:100%;background:var(--accent)}
 .stages{display:flex;flex-direction:column;gap:4px;margin:0;padding:0;list-style:none;font-size:12.5px}
 .stages li{display:flex;gap:8px;align-items:baseline}
@@ -112,7 +113,7 @@ table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
 .input{font:inherit;font-size:12.5px;background:var(--surface);color:var(--text);border:1px solid var(--edge-3);border-radius:var(--radius-sm);padding:4px 8px;min-width:0}
 .input.mono{font-family:var(--font-mono);font-size:12px}
 .toggle{display:inline-flex;align-items:center;gap:8px;font-size:12.5px}
-.toggle i{display:inline-block;width:34px;height:18px;border-radius:var(--radius-pill);border:1px solid var(--edge-3);background:var(--surface-3);position:relative}
+.toggle i{display:inline-block;width:34px;height:18px;border-radius:var(--radius-pill);border:1px solid var(--edge-3);background:var(--surface-2);position:relative}
 .toggle i::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--text-2)}
 .toggle.on i{background:var(--accent);border-color:var(--accent)}
 .toggle.on i::after{left:18px;background:var(--surface)}
@@ -135,7 +136,7 @@ table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
 <div class="wrap">
 <header>
   <h1>Retained-copy encryption: encrypted is not recoverable, keys are never shown, the bundle is the only thing that changes the threat model</h1>
-  <p class="sub">Issue #994 (N2.1), dated 2026-11-09. Parent epic #967, FR-59 and FR-66. I started this ahead of the written order, in parallel with #989 (the ADR and the config model), because the design needs the spec and what already ships, not the Phase 1 code. Section 15 lists what it leans on, so a change in #989 to #993 can be traced back to the picture it moves. Drawn against the screens that ship today (<code>docs/design/Backup Manager.dc.html</code> is the authority where this note and the build disagree) and in the token set from <code>ui/shared/src/design-system/tokens.css</code>. Every surface below is drawn four times: light, dark, and the narrow layout in each. This note writes no TypeScript and no tooltip copy. It records the decisions N2.2 (#995) implements rather than reinterprets, and it was drawn by hand in the per-issue note form that <code>814-workflow-ui.html</code>, <code>815-step-terminal.html</code> and <code>984-recovery-assurance.html</code> already follow.</p>
+  <p class="sub">Issue #994 (N2.1), dated 2026-11-09. Parent epic #967, FR-59 and FR-66. I drew it ahead of the Phase 1 code, against the EPIC N specification (#968, PR #1266) and what already ships, because the design needs those and not the implementation. Section 15 lists what it leans on, so a change in #989 to #993 can be traced back to the picture it moves. Drawn against the screens that ship today (<code>docs/design/Backup Manager.dc.html</code> is the authority where this note and the build disagree) and in the token set from <code>ui/shared/src/design-system/tokens.css</code>. Every surface below is drawn four times: light, dark, and the narrow layout in each. This note writes no TypeScript and no tooltip copy. It records the decisions N2.2 (#995) implements rather than reinterprets, and it was drawn by hand in the per-issue note form that <code>814-workflow-ui.html</code>, <code>815-step-terminal.html</code> and <code>984-recovery-assurance.html</code> already follow.</p>
   <p class="sub"><strong>Vocabulary.</strong> The labels are <em>Encrypted</em>, <em>Verified recoverable</em>, <em>Plaintext</em>, <em>Not decrypt-verified</em>, <em>Key missing</em>, <em>Recovery bundle</em>, <em>Managed key</em>, <em>External key reference</em>, <em>Rotate</em>, <em>Verify recoverable</em>. "Verified" on its own is not a label for anything in this note, because the Backup detail page already uses that word for the producer-manifest checksum on the lifecycle rail, and <em>Encrypted</em> is never qualified with "securely", "strongly" or an algorithm name, because the format is a property of the build and no sentence here may claim more than the code states.</p>
   <div class="notice" role="note" id="status">
     <b>Status: a mock-up, superseded where the product differs.</b>
@@ -292,16 +293,16 @@ table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
 <section class="sec" id="contrast">
   <h2>14. Measured contrast</h2>
   <div class="reason">
-    <p>I computed these from the token values in the style block above (the same values as <code>ui/shared/src/design-system/tokens.css</code> at <code>6d0d6978</code>), converting the <code>oklch()</code> tokens to sRGB and applying the WCAG 2.x relative-luminance formula. Text needs 4.5:1, a component edge or graphic needs 3:1. Every pair below is one the picture actually draws.</p>
+    <p>I computed these from the token values in the style block above (the same values as <code>ui/shared/src/design-system/tokens.css</code> at <code>283fd457</code>), converting the <code>oklch()</code> tokens to sRGB and applying the WCAG 2.x relative-luminance formula. Text needs 4.5:1, a component edge or graphic needs 3:1. Every pair below is one the picture actually draws.</p>
     <table class="t" id="contrast-table">
       <tr><th>Pair</th><th>Light</th><th>Dark</th><th>Needs</th></tr>
       <tr><td>--text on --surface (chip ink, body, dialog text)</td><td data-pair="text/surface"></td><td data-pair="text/surface"></td><td>4.5</td></tr>
-      <tr><td>--text on --surface-2 (the Encrypted chip fill)</td><td data-pair="text/surface-2"></td><td data-pair="text/surface-2"></td><td>4.5</td></tr>
-      <tr><td>--text on --surface-3 (the Plaintext chip fill, readouts)</td><td data-pair="text/surface-3"></td><td data-pair="text/surface-3"></td><td>4.5</td></tr>
+      <tr><td>--text on --surface-2 (the Encrypted and Plaintext chip fill, readouts)</td><td data-pair="text/surface-2"></td><td data-pair="text/surface-2"></td><td>4.5</td></tr>
+      <tr><td>--text on --surface-3 (disabled controls)</td><td data-pair="text/surface-3"></td><td data-pair="text/surface-3"></td><td>4.5</td></tr>
       <tr><td>--text on ok, warn, danger and accent quiet fills (worst)</td><td data-pair="text/quiet-worst"></td><td data-pair="text/quiet-worst"></td><td>4.5</td></tr>
       <tr><td>--text-2 on --surface (labels, ages, echo lines)</td><td data-pair="text-2/surface"></td><td data-pair="text-2/surface"></td><td>4.5</td></tr>
       <tr><td>--text-2 on --surface-2 (echo lines, card headings)</td><td data-pair="text-2/surface-2"></td><td data-pair="text-2/surface-2"></td><td>4.5</td></tr>
-      <tr><td>--text-2 on --surface-3 (disabled segments, readouts)</td><td data-pair="text-2/surface-3"></td><td data-pair="text-2/surface-3"></td><td>4.5</td></tr>
+      <tr><td>--text-2 on --surface-3 (disabled segments)</td><td data-pair="text-2/surface-3"></td><td data-pair="text-2/surface-3"></td><td>4.5</td></tr>
       <tr><td>--text-3 on --surface-3 (a disabled button, as <code>.btn:disabled</code> draws it)</td><td data-pair="text-3/surface-3"></td><td data-pair="text-3/surface-3"></td><td>4.5</td></tr>
       <tr><td>--text-2 on the quiet fills (worst)</td><td data-pair="text-2/quiet-worst"></td><td data-pair="text-2/quiet-worst"></td><td>4.5</td></tr>
       <tr><td>--surface on --accent (primary button, selected segment)</td><td data-pair="surface/accent"></td><td data-pair="surface/accent"></td><td>4.5</td></tr>
@@ -309,13 +310,12 @@ table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
       <tr><td>terminal text, info, ok, warn, danger, accent on --term-bg (worst)</td><td data-pair="term-worst"></td><td data-pair="term-worst"></td><td>4.5</td></tr>
       <tr><td>terminal timestamp --term-time on --term-bg</td><td data-pair="term-time"></td><td data-pair="term-time"></td><td>4.5</td></tr>
       <tr><td>chip, button, text box and bar edge --edge-3 on --surface</td><td data-pair="edge-3/surface"></td><td data-pair="edge-3/surface"></td><td>3</td></tr>
-      <tr><td>chip edge --edge-3 on --surface-2 (Encrypted, against its own fill)</td><td data-pair="edge-3/surface-2"></td><td data-pair="edge-3/surface-2"></td><td>3</td></tr>
-      <tr><td>chip edge --edge-3 on --surface-3 (Plaintext, against its own fill)</td><td data-pair="edge-3/surface-3"></td><td data-pair="edge-3/surface-3"></td><td>3</td></tr>
+      <tr><td>chip, readout and bar edge --edge-3 on --surface-2 (Encrypted, Plaintext, against their own fill)</td><td data-pair="edge-3/surface-2"></td><td data-pair="edge-3/surface-2"></td><td>3</td></tr>
       <tr><td>chip edge --ok, --warn, --danger, --accent on --surface (worst)</td><td data-pair="status-edge/surface-worst"></td><td data-pair="status-edge/surface-worst"></td><td>3</td></tr>
       <tr><td>glyph --ok, --danger, --accent on its own quiet fill (worst)</td><td data-pair="glyph/quiet-worst"></td><td data-pair="glyph/quiet-worst"></td><td>3</td></tr>
     </table>
-    <p id="contrast-note"><strong>What the numbers say.</strong> The figures above are filled in by the script at the bottom of this file from the token values in the style block, so the table and the picture cannot disagree. The one pair under its bar is the Plaintext chip's dashed <code>--edge-3</code> edge measured against its own <code>--surface-3</code> fill in the light theme, 2.93:1; against the surface the chip sits on it is 3.35:1, and the state is also carried by the dashed edge, the hollow-box glyph and the word <em>Plaintext</em>, so nothing depends on that edge alone. This is the same pair #984 kept for the same reason and the shipped assurance CSS draws it the same way. <code>--term-time</code> is 5.26:1 on the terminal surface after #1235 and is used for the timestamps here. A disabled button (<em>I have stored the bundle safely</em> before a bundle exists, <em>Download bundle</em> and <em>Verify now</em> before their checkbox is ticked) is drawn at 55% opacity, which puts its edge at 2.96:1 light and 3.14:1 dark against the surface; an inactive component is exempt from the 3:1 bar and the button becomes a full-contrast control the moment it is enabled, but the number is recorded rather than left out.</p>
-    <p><strong>How the render was checked.</strong> I rendered this file in Chromium (Playwright 1.62.1 from the pinned gate checkout, 1280 px wide) and read the computed colour of every text node against its composited background, and of every chip, button, segmented control, bar, text box, notice and health row edge against the surface around it and against its own fill, converting <code>oklch()</code> through a canvas because Chromium reports those tokens unconverted. Result: 897 text nodes in each theme frame, lowest 4.61:1 in light (the double check and the key glyph on their quiet fills) and 4.53:1 in dark (the slashed circle and the cross on the danger fill), none under 4.5:1; 553 text nodes outside the frames (headings, the status note, the reasoning), lowest 5.93:1. Every enabled component edge is at least 3.35:1 in light and 3.85:1 in dark against the surface it sits on; the only edges under 3:1 are the Plaintext chip against its own fill (above) and the disabled buttons (above). No narrow frame scrolls horizontally at 360 px. I did not run an automated accessibility scanner and did not check forced-colours mode.</p>
+    <p id="contrast-note"><strong>What the numbers say.</strong> The figures above are filled in by the script at the bottom of this file from the token values in the style block, so the table and the picture cannot disagree. Every pair clears its bar. The first draft put the Plaintext chip, the deployment-wide readout, the progress bar and the Unresolvable key chip on <code>--surface-3</code>, where the <code>--edge-3</code> edge measured 2.93:1 in light, so I moved those fills to <code>--surface-2</code> (3.20:1 light, 3.64:1 dark). The state is also carried by the dashed edge, the hollow-box glyph and the word <em>Plaintext</em>, so nothing depends on the edge alone. A disabled button (<em>I have stored the bundle safely</em> before a bundle exists, <em>Download bundle</em> and <em>Verify now</em> before their checkbox is ticked) is drawn as <code>.btn:disabled</code> draws it, <code>--text-3</code> on <code>--surface-3</code> with the <code>--border</code> edge, with no opacity; its text clears 4.5:1 (row above) and an inactive component is exempt from the 3:1 edge bar.</p>
+        <p><strong>How the render was checked.</strong> I rendered this file in Chromium through the workspace Playwright lock at 1280 px wide and read the table above back from the page, so every figure in it is the script's own output for the token values in the style block (the <code>oklch()</code> tokens are converted by painting them to a canvas, because Chromium reports them unconverted). I also checked that no narrow frame scrolls sideways at 360 px. I did not scan every text node, did not run an automated accessibility scanner and did not check forced-colours mode, so a pair that is not in the table is not claimed.</p>
   </div>
 </section>
 
@@ -358,7 +358,7 @@ const plain=()=>chip("s-plain",G.open,"Plaintext");
 const unver=()=>chip("s-unver",G.hollow,"Not decrypt-verified");
 const nokey=(age)=>chip("s-nokey",G.nolock,"Key missing",age);
 const dfail=(why)=>chip("s-fail",G.fail,"Decrypt failed",why);
-const KEY1="rce-2026-11-09-a", KEY0="rce-2026-08-14-a";
+const KEY1="mk-2026-11-09-a", KEY0="mk-2026-08-14-a";
 const S={
  states(){const rows=[
   ["Plaintext copy","s-plain",G.open,"Plaintext","no encryption on this copy"],
@@ -412,7 +412,7 @@ const S={
  bundle(){return `
   <div class="card"><h3>Export recovery bundle</h3><div class="body">
    <div class="notice blocking"><b>${G.shield} This is the one time the key leaves this deployment.</b>
-    <div class="muted">The bundle is a file holding the key for <span class="mono">${KEY1}</span>, integrity metadata and the instructions for decrypting a copy on a clean machine with nothing but the shipped binary. Whoever holds the file can read every copy made under this key. Store it away from this host.</div></div>
+    <div class="muted">The bundle is a file holding the key for <span class="mono">${KEY1}</span>, integrity metadata and the instructions for decrypting a copy on a clean machine with the shipped binary or the age command-line tool. Whoever holds the file can read every copy made under this key. Store it away from this host.</div></div>
    <label class="row"><input type="checkbox"> I understand this file can decrypt every copy made under this key</label>
    <div class="muted">Nothing is shown on screen. The key goes into the downloaded file and nowhere else.</div>
    ${echo("retnd encryption bundle export --out <path>")}
@@ -457,7 +457,7 @@ const S={
   </div></div>
   <div class="card"><h3>Backup detail <span class="grow"></span><span class="muted">2 durable copies</span></h3><div class="body">
    <b class="mono">postgres-prod-20261108.dump.zst</b>
-   <dl class="kv"><dt>Plaintext digest</dt><dd class="mono">sha256:&hellip;a04 <span class="muted">(artifacts.local_hash)</span></dd><dt>Stored-bytes digest, offsite-b2</dt><dd class="mono">sha256:&hellip;f17 <span class="muted">(format rce/1, key ${KEY1})</span></dd></dl>
+   <dl class="kv"><dt>Plaintext digest</dt><dd class="mono">sha256:&hellip;a04 <span class="muted">(artifacts.local_hash)</span></dd><dt>Stored-bytes digest, offsite-b2</dt><dd class="mono">sha256:&hellip;f17 <span class="muted">(format age v1, key ${KEY1})</span></dd></dl>
    <table class="t hide-narrow"><tr><th>Where</th><th>Encryption</th><th>Verification</th><th></th></tr>
     <tr><td class="mono">nas-mirror</td><td>${plain()}</td><td>Content verified<br><span class="muted">plaintext digest matched</span></td><td></td></tr>
     <tr><td class="mono">offsite-b2</td><td>${enc()}<br>${recov("3d ago")}</td><td>Content verified<br><span class="muted">decrypted, plaintext digest matched</span></td><td><button class="btn">Verify recoverable</button></td></tr></table>
@@ -473,7 +473,7 @@ const S={
   </div></div>
   <div class="card"><h3>Keys</h3><div class="body">
    <table class="t"><tr><th>Key</th><th>Created</th><th>Status</th><th class="hide-narrow">Copies</th><th></th></tr>
-    <tr><td class="mono">rce-2026-11-09-b</td><td>2026-11-09</td><td>${chip("s-key-ok",G.key,"Active")}</td><td class="hide-narrow">0</td><td></td></tr>
+    <tr><td class="mono">mk-2026-11-09-b</td><td>2026-11-09</td><td>${chip("s-key-ok",G.key,"Active")}</td><td class="hide-narrow">0</td><td></td></tr>
     <tr><td class="mono">${KEY1}</td><td>2026-11-09</td><td>${chip("s-key-retired",G.dash,"Retired")}</td><td class="hide-narrow">41</td><td><button class="btn danger">Retire</button></td></tr>
     <tr><td class="mono">${KEY0}</td><td>2026-08-14</td><td>${chip("s-key-off",G.nolock,"Unresolvable")}</td><td class="hide-narrow">7</td><td></td></tr></table>
    <div class="notice refused" role="alert"><b>${G.fail} Cannot retire ${KEY1}: 41 copies still need it.</b>
@@ -526,7 +526,7 @@ const S={
     <div><span class="t">02:00:53</span> [engine] <span class="o">committed</span> postgres-prod-20261108.dump.zst 14.2 GB</div>
     <div><span class="t">02:00:54</span> [engine] <span class="a">encrypting</span> postgres-prod-20261108.dump.zst to offsite-b2 under key ${KEY1}: 6.1 of 14.2 GB</div>
     <div><span class="t">02:04:10</span> [engine] uploading postgres-prod-20261108.dump.zst to offsite-b2: 9.0 of 14.2 GB</div>
-    <div><span class="t">02:07:31</span> [engine] <span class="o">stored</span> offsite-b2/production/postgres-primary/postgres-prod-20261108.dump.zst, stored-bytes digest recorded, format rce/1</div>
+    <div><span class="t">02:07:31</span> [engine] <span class="o">stored</span> offsite-b2/production/postgres-primary/postgres-prod-20261108.dump.zst, stored-bytes digest recorded, format age v1</div>
     <div><span class="t">02:07:31</span> [engine] <span class="w">not decrypt-verified</span>: verification class existence; run Verify recoverable to prove it reads back</div>
     <div><span class="t">02:10:02</span> [admin] <span class="a">decrypt-verifying</span> billing-20261108.sql.zst from offsite-b2 under key ${KEY1}: 2.2 of 3.1 GB</div>
     <div><span class="t">02:11:40</span> [admin] <span class="o">verified recoverable</span> billing-20261108.sql.zst: plaintext digest matches</div>
@@ -574,7 +574,6 @@ document.querySelectorAll("[data-surface]").forEach(g=>{
    "term-time":t=>R(t,"--term-time","--term-bg"),
    "edge-3/surface":t=>R(t,"--edge-3","--surface"),
    "edge-3/surface-2":t=>R(t,"--edge-3","--surface-2"),
-   "edge-3/surface-3":t=>R(t,"--edge-3","--surface-3"),
    "status-edge/surface-worst":t=>Math.min(...status.map(s=>R(t,s,"--surface"))),
    "glyph/quiet-worst":t=>Math.min(R(t,"--ok","--ok-quiet"),R(t,"--danger","--danger-quiet"),R(t,"--accent","--accent-quiet"))
   };
