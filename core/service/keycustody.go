@@ -49,6 +49,11 @@ type KeyCustody struct {
 
 	mu    sync.Mutex
 	store *keycustody.Store
+
+	// probed is the last external key probe and probeAt when it ran (#1304).
+	probeMu sync.Mutex
+	probed  []health.ExternalKeyAtRisk
+	probeAt time.Time
 }
 
 // UseConfig tells custody where to find the declared external references
@@ -190,7 +195,41 @@ func (c *KeyCustody) AlertConditions(ctx context.Context, policies []keycustody.
 // stores no reference, so this is how a dropped one is noticed. With no
 // external key on record it reads the registry and opens nothing, so a
 // deployment that uses none stays byte identical.
+//
+// It resolves references (a command reference is executed), so it is for the
+// alert tick only, never for a request. The answer is kept for
+// externalProbeTTL, so two asks in one tick resolve once, and
+// LastExternalKeysAtRisk hands it to a health build without resolving.
 func (c *KeyCustody) ExternalKeysAtRisk(ctx context.Context) ([]health.ExternalKeyAtRisk, error) {
+	c.probeMu.Lock()
+	if !c.probeAt.IsZero() && time.Since(c.probeAt) < externalProbeTTL {
+		out := c.probed
+		c.probeMu.Unlock()
+		return out, nil
+	}
+	c.probeMu.Unlock()
+	out, err := c.probeExternalKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c.probeMu.Lock()
+	c.probed, c.probeAt = out, time.Now()
+	c.probeMu.Unlock()
+	return out, nil
+}
+
+// externalProbeTTL is how long an external key probe stands.
+const externalProbeTTL = time.Minute
+
+// LastExternalKeysAtRisk is the last ExternalKeysAtRisk answer, without
+// resolving anything: nil until the alert tick has probed once.
+func (c *KeyCustody) LastExternalKeysAtRisk() []health.ExternalKeyAtRisk {
+	c.probeMu.Lock()
+	defer c.probeMu.Unlock()
+	return c.probed
+}
+
+func (c *KeyCustody) probeExternalKeys(ctx context.Context) ([]health.ExternalKeyAtRisk, error) {
 	keys, err := c.Keys(ctx)
 	if err != nil {
 		return nil, err

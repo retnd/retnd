@@ -25,6 +25,8 @@ type riskCustody struct {
 	err   error
 }
 
+func (c *riskCustody) LastExternalKeysAtRisk() []health.ExternalKeyAtRisk { return c.risks }
+
 func (c *riskCustody) ExternalKeysAtRisk(context.Context) ([]health.ExternalKeyAtRisk, error) {
 	return c.risks, c.err
 }

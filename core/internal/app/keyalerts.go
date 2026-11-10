@@ -41,6 +41,7 @@ type externalKeyRegistrar interface {
 // without it simply raises nothing.
 type externalKeyRisks interface {
 	ExternalKeysAtRisk(ctx context.Context) ([]health.ExternalKeyAtRisk, error)
+	LastExternalKeysAtRisk() []health.ExternalKeyAtRisk
 }
 
 // ExternalKeyAlertConditions raises ENCRYPTION_KEY_UNRESOLVABLE for each

@@ -232,11 +232,11 @@ func (s *Service) keyCustodyHealth(ctx context.Context) (health.KeyCustodyHealth
 		return health.KeyCustodyHealth{}, fmt.Errorf("app: health: key custody: %w", err)
 	}
 	// A dropped external reference strands the copies under its key (#1304).
-	// A look that fails is a failed report, never "nothing at risk".
+	// This is the alert tick's last probe, read as it stands: a health build
+	// runs on every request and must never resolve a reference, a command
+	// reference least of all.
 	if r, ok := s.Keys.(externalKeyRisks); ok {
-		if h.ExternalKeysAtRisk, err = r.ExternalKeysAtRisk(ctx); err != nil {
-			return health.KeyCustodyHealth{}, fmt.Errorf("app: health: external keys: %w", err)
-		}
+		h.ExternalKeysAtRisk = r.LastExternalKeysAtRisk()
 	}
 	return h, nil
 }
