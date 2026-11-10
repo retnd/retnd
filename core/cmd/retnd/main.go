@@ -501,6 +501,15 @@ commands:
                                                   copy's key does not resolve. Beside a serving engine it starts that
                                                   engine's operation (stop it with assurance cancel); otherwise it runs
                                                   here. POST /api/v1/encryption/verify
+  encryption encrypt-existing <source/backup-set> --to MEDIUM [--artifact <source/backup-set/backup>] [--dry-run] [--json]
+                                                  encrypt the retained copies that sit on a medium in the clear, under a set
+                                                  whose encryption is required, onto MEDIUM (another medium: the journal
+                                                  holds one copy per medium). Only when you run it, never because a policy
+                                                  changed. A plaintext copy is retired only after its replacement
+                                                  decrypt-verifies; --dry-run says what would happen to each copy and why
+                                                  not. Beside a serving engine it starts that engine's operation (stop it
+                                                  with assurance cancel); otherwise it runs here and an interrupt stops it.
+                                                  POST and GET /api/v1/encryption/encrypt-existing
   auth enroll --username U --token-stdin --password-stdin
                           [--recovery-email ADDR --smtp-host H [--smtp-port N] [--smtp-security starttls|tls|none]
                           [--smtp-username U] [--smtp-from ADDR] [--smtp-password-stdin]]

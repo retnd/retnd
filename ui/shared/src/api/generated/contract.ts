@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "cfc78fcee709d1346c070adc8cf971fb3d675c6b22f444b2a077b8480f0f954f";
+export const CONTRACT_SHA256 = "f391c0ddc60ebe83251db8f5e6185f2b76f230f054d3e6fcc88edd25a5bfb762";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -1631,6 +1631,48 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       401: ["UNAUTHENTICATED"],
       403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
       500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "planEncryptExisting",
+    method: "GET",
+    path: "/encryption/encrypt-existing",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "EncryptExistingPlan",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "startEncryptExisting",
+    method: "POST",
+    path: "/encryption/encrypt-existing",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "StartEncryptExistingRequest",
+    responseSchema: "ScrubStarted",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND"],
+      409: ["OPERATION_ALREADY_RUNNING", "ENCRYPTION_KEY_UNRESOLVABLE"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
     }
   },
   {
@@ -3689,6 +3731,30 @@ export interface WireDestructiveOperationsStatus {
   step_up_required: boolean;
 }
 
+/** One plaintext copy and what a run would do with it. verdict is
+ *  would_encrypt or refused; refusal is the stable reason code of a
+ *  refusal (not_required, already_encrypted, no_plaintext_copy,
+ *  key_unavailable, destination_unverifiable, no_room,
+ *  source_unreadable or not_eligible) and reason is the sentence the
+ *  run would refuse with. */
+export interface WireEncryptExistingCandidate {
+  artifact_id: string;
+  reason?: string;
+  refusal?: string;
+  source_medium: string;
+  verdict: string;
+}
+
+/** GET /encryption/encrypt-existing. The dry run: every backup of the
+ *  set with a copy on a medium, whether a run would encrypt it onto
+ *  the destination, and why not when it would not. It changes and
+ *  reads nothing. */
+export interface WireEncryptExistingPlan {
+  candidates: WireEncryptExistingCandidate[];
+  refused: number;
+  would_encrypt: number;
+}
+
 /** One copy's encryption state. A plaintext copy says encrypted false
  *  and nothing else. */
 export interface WireEncryptionCopy {
@@ -5391,6 +5457,20 @@ export interface WireStartDecryptVerifyRequest {
   acknowledge_egress?: boolean;
   artifact_id: string;
   medium?: string;
+}
+
+/** POST /encryption/encrypt-existing. Encrypt the plaintext retained
+ *  copies that already sit on a medium, under a backup set whose
+ *  retained-copy encryption is required, onto destination_medium.
+ *  backup_set_id is source/set; artifact_id narrows the run to one
+ *  backup of that set. Nothing runs unless this request is made: a
+ *  policy change never encrypts an existing copy, and each plaintext
+ *  copy is retired only after its encrypted replacement has been
+ *  decrypt-verified. */
+export interface WireStartEncryptExistingRequest {
+  artifact_id?: string;
+  backup_set_id: string;
+  destination_medium: string;
 }
 
 /** POST /backup-sets/{source}/{set}/recovery-test. Starts a recovery

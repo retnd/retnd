@@ -787,6 +787,7 @@ changes shape, and every new field on a request is optional.
 | `testEncryptionProvider` | `POST /encryption/providers/test` |
 | `listEncryptionCopies` | `GET /encryption/copies?artifact=` |
 | `startDecryptVerify` | `POST /encryption/verify` (answers `ScrubStarted`; cancel is the existing `POST /assurance/operations/{op}/cancel`) |
+| `planEncryptExisting`, `startEncryptExisting` | `GET`, `POST /encryption/encrypt-existing` (the dry run answers `EncryptExistingPlan`; the run answers `ScrubStarted` and is stopped by the same assurance cancel) |
 
 Five error codes arrive with them: `ENCRYPTION_KEY_NOT_FOUND`,
 `ENCRYPTION_KEY_IN_USE` (the message names the copies), `ENCRYPTION_KEY_STATE`,

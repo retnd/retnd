@@ -1138,3 +1138,22 @@ func (c *Client) StartDecryptVerify(ctx context.Context, req apicontract.StartDe
 	err := c.call(ctx, "startDecryptVerify", nil, req, &out)
 	return out, err
 }
+
+// PlanEncryptExisting is GET /encryption/encrypt-existing, the dry run of
+// encrypting a set's existing plaintext copies. artifact may be empty.
+func (c *Client) PlanEncryptExisting(ctx context.Context, set, artifact, destination string) (apicontract.EncryptExistingPlan, error) {
+	q := url.Values{"set": {set}, "destination": {destination}}
+	if artifact != "" {
+		q.Set("artifact", artifact)
+	}
+	var out apicontract.EncryptExistingPlan
+	err := c.callQuery(ctx, "planEncryptExisting", nil, q, nil, &out)
+	return out, err
+}
+
+// StartEncryptExisting is POST /encryption/encrypt-existing.
+func (c *Client) StartEncryptExisting(ctx context.Context, req apicontract.StartEncryptExistingRequest) (apicontract.ScrubStarted, error) {
+	var out apicontract.ScrubStarted
+	err := c.call(ctx, "startEncryptExisting", nil, req, &out)
+	return out, err
+}
