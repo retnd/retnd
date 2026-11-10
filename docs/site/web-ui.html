@@ -195,6 +195,15 @@
   </section>
 
   <section>
+    <h2 id="encryption">Encrypting the copies you send away</h2>
+    <p>This section has no clip yet, so it describes the screens rather than showing them. Everything here is about copies written to a storage destination; your local copy is not touched. The background, and what encryption does not hide, is on <a href="index.html#encrypted-copies">the front page</a>.</p>
+    <p><strong>Settings, Retained-copy encryption.</strong> One switch, <em>Encrypt copies sent to destinations</em>, and a choice of who holds the key: the product, or a key you point at. There is no cipher or chunk-size control and the card says so. Turning it on with the product holding the key creates a key if there is none (the dialog echoes the commands it runs), then offers <strong>Download bundle</strong>; until you confirm you are keeping that file somewhere that is not this machine, the card keeps saying the deployment has no confirmed recovery bundle. <strong>Rotate</strong> lists what changes before you press it: new copies use the new key, every copy so far stays readable, nothing is re-encrypted.</p>
+    <p><strong>A set&rsquo;s own page.</strong> Under Retention, <em>Inherit</em>, <em>Off</em> or <em>Required</em>. Inherit shows what it resolves to. An incremental set shows the control disabled with the reason: its repository is already encrypted.</p>
+    <p><strong>A backup&rsquo;s page.</strong> Each copy shows <em>Plaintext</em>, or <em>Encrypted</em> beside a second chip that says whether it has been proved to open. Those are two statements, drawn as two chips. <strong>Verify recoverable</strong> reads the copy back and compares it with the artifact, which may cost egress, so it asks first.</p>
+    <p><strong>The Backups list</strong> gets an Encryption column, with the same chips, only when a copy on the list is encrypted, and a key&rsquo;s &ldquo;N in Backups&rdquo; link narrows the list to the backups under that key. What this build does not show: a live &ldquo;Encrypting&rdquo; stage in the terminal or the activity feed (a run reports its usual stages). Every control echoes its <code>retnd encryption</code> command; the list is in <a href="reference.html#cli-commands">the reference</a>.</p>
+  </section>
+
+  <section>
     <h2 id="theme">Dark mode</h2>
     <p>The defect <a href="https://github.com/retnd/retnd/issues/618">#618</a> fixed was not that dark mode looked bad. It was that the application painted its own surfaces dark and left every native control at the browser's default, so a <code>select</code>, a number input and a file field drew black text on a dark field. It read correctly in light mode, where the browser's default happens to match, which is why it survived so long.</p>
   <figure class="wide">

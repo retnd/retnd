@@ -49,6 +49,11 @@ On the NAS, in locations the administrator picks at install time:
   SMTP settings used to reach it. The SMTP password is held as a secret reference rather
   than a value, so the record itself never contains it and no log or API response carries
   it.
+- If the administrator turns on retained-copy encryption: a managed key as an owner-only
+  file beside the configuration, and in the catalog the key's id, public recipient, status
+  and times. The key is never in the catalog, a log or an API response. The administrator
+  exports a recovery bundle (the key, in a file they choose) and keeps it elsewhere; it is
+  the only moment the key leaves the NAS and nothing sends it anywhere.
 - Credentials for the configured sources: an SSH private key and a pinned `known_hosts`
   file, both supplied by the administrator, both mounted read-only, and neither ever
   written into the package, the image or any log.

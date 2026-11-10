@@ -410,6 +410,13 @@ so an unbounded pile is an installer that multiplies private key material every 
 runs. Past five, `install` refuses and names them: deleting one for you would take back
 the recoverability that moving rather than deleting is there to provide.
 
+One thing the archive does not list: if you turned on retained-copy encryption with a managed
+key, that key is a file under `config/retained_copy_keys`, and the installer's archive list
+(`config.yaml`, `ssh_keys`, `known_hosts.d` and the state files) does not name it. I have not
+traced what a factory reset does to that directory. The recovery bundle you exported is the
+copy of the key that matters, so before any upgrade or reset on a deployment that encrypts, check
+that you can put your hand on it. See [encrypted copies](encrypted-copies.md).
+
 ## It will not adopt a layout you did not ask for
 
 Every directory the installer archives, destroys or rewrites used to come from the

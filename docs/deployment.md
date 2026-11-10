@@ -293,8 +293,10 @@ is owned by uid 65532 specifically, not by whatever `PUID` you set.
 - `/data/state` (writable): the SQLite journal directory, see above.
 - `/data/backups` (writable): the NAS backup volume/share completed artifacts land on.
 - `/etc/retnd/config` (writable): the DIRECTORY holding the manager's YAML
-  config (FR-5), and the two stores the engine creates beside it, `ssh_keys/` and
-  `known_hosts.d/`.
+  config (FR-5), and the stores the engine creates beside it, `ssh_keys/` and
+  `known_hosts.d/`, plus `retained_copy_keys/` once you create a managed key for encrypted
+  retained copies (see [encrypted copies](encrypted-copies.md); the directory is `0700` and
+  the key file `0600`, and neither belongs on a volume a share exports).
 - `/etc/retnd/id_ed25519` (`:ro`): the SFTP client private key.
 - `/etc/retnd/known_hosts` (`:ro`): the pinned host keys (FR-6).
 

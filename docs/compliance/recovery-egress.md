@@ -91,7 +91,11 @@ retained copy, and the only thing kept beside the state directory is a small
 chunk-digest file per artifact (`<state dir>/recovery-index`, 32 bytes per 4 MiB,
 no content). If the
 backup is encrypted at rest by the operator's own tooling, the staged copy is
-whatever that tooling produced. This product does not decrypt anything.
+whatever that tooling produced. A recovery does not decrypt anything. That includes a copy
+this product encrypted itself (retained-copy encryption): a recovery reads the stored
+object and compares it with the artifact's plaintext digest, and in this build an encrypted
+copy is opened with the key and the stock `age` tool instead, as
+[encrypted copies](../encrypted-copies.md) describes.
 
 ## What this does not claim
 

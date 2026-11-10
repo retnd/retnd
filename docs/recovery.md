@@ -1185,8 +1185,9 @@ the format (`age/v1`), the **id** of the key it needs, the plaintext and stored 
 sizes, and when it last decrypted to the artifact. It never carries a key. `retnd catalog
 rebuild` reads it and tells you, per encrypted copy, which key it needs and whether this
 deployment knows that key: either the backup set has no key provider configured, or the
-managed key is not in the key registry (restore it from its recovery bundle first), or the
-set names an external provider. The rebuild never opens the key file and never runs an
+managed key is not in the key registry (a fresh deployment does not have it, and this build has
+no command that imports a key back from its recovery bundle), or the set names an external
+provider. The rebuild never opens the key file and never runs an
 external key command, so it works on a machine that has no keys. It also does not adopt the
 copy into the journal; a medium copy comes back only through the sidecar's say-so, and a
 sidecar is a proposal.
@@ -1195,12 +1196,19 @@ Whether a key actually opens a copy is a different question, and `retnd validate
 --content` answers it. With the key unavailable it says it could not check. It does not
 report an existence check in its place.
 
+On a machine that cannot get the key back into a deployment, which today is every machine
+after a lost host, the copy is opened with the stock `age` tool and the key from the recovery
+bundle, as [recovery without a terminal](recovery-without-a-terminal.md#6-an-encrypted-copy-has-to-be-opened-on-a-machine-with-no-state)
+walks through, and `retnd recover` will not do it for you: it does not decrypt. The operations
+guide, [encrypted copies](encrypted-copies.md), covers keeping the bundle and what losing it
+means.
+
 ## When a scrub or a recovery test fails
 
 | What you see | What it means | What to do |
 |---|---|---|
 | Scrub: `failed`, `existence` class | An object of the wrong size, or none, is at that key | Run `retnd validate <artifact> --content` for a read of the bytes; if the copy is damaged, recover from another copy |
-| Scrub `--content` of an encrypted copy: `could not complete`, "the key it needs cannot be resolved here" | This deployment cannot open the key the copy was written under. It says nothing about the copy | Restore the key (managed: from its recovery bundle; external: make the reference resolve), then run it again. An unattended scrub does not need the key and keeps checking the stored size |
+| Scrub `--content` of an encrypted copy: `could not complete`, "the key it needs cannot be resolved here" | This deployment cannot open the key the copy was written under. It says nothing about the copy | Get the key back (managed: its file in the `retained_copy_keys` directory beside `config.yaml`, owner-only, because this build cannot import a key from a bundle; external: make the reference resolve), then run it again. An unattended scrub does not need the key and keeps checking the stored size |
 | Scrub: `could not complete` | The endpoint did not answer. It says nothing about the copy | Fix reachability. Three failed or incomplete checks in a row degrade the set's health and raise `SCRUB_FAILING` once through your alert channels, and it clears on a later pass |
 | Scrub: `requires_restore` | The copy is archived | `retnd restore` (billed, hours), then `recover`. A scrub never starts that for you |
 | Scrub skipped for a set | The set is under an edit hold | The skip is visible; release the hold |

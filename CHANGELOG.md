@@ -10,23 +10,6 @@
   the unchanged gate, returns its exit status and removes what it created. A remote `DOCKER_HOST` without `--host` is
   now refused. See `docs/reference/local-gate.md`.
 
-## [0.7.2] - 2026-10-24
-
-0.7.2 is a patch release on top of 0.7.1. The CLI now has a command for every route the web UI calls, guarded by
-route-to-verb parity checks. The source preflight default changed, and a whole-set restore without `all: true` is now
-refused with a 400 unless it is narrowed.
-
-### Added
-
-- **Managed key custody for encrypted retained copies** (#990). A new `core/internal/keycustody` package generates
-  the age X25519 identity that ADR 0027 selects, holds it as a 0600 file in a 0700 directory beside `config.yaml`
-  under the same custody rule `secretref` enforces, and gives every key a stable id with creation and retirement
-  times and a status. An external key is declared in `secretref`'s own shape and probed for whether it resolves,
-  never for what it is. A one-time recovery bundle carries the key with integrity metadata and plain instructions
-  (the stock `age` CLI opens a copy from it), and until someone confirms holding one the health report says so in a
-  new key custody section. A `required` set whose key cannot be resolved raises the new `ENCRYPTION_KEY_UNRESOLVABLE`
-  alert. Key create, rotate, bundle export and bundle confirm are new log events, each with a result. Nothing calls
-  it yet: the byte path, the routes and the CLI verbs are the issues after this one.
 - **The retained-copy encryption policy and its schema, ahead of the cipher** (#989, EPIC N). One new
   top-level `retained_copy_encryption:` key with `mode: off | required` and a `key_provider` that is
   either `managed: true` or an external `file`/`env`/`command` reference, plus a per-set
@@ -37,10 +20,72 @@ refused with a 400 unless it is narrowed.
   encryption record with its stored-bytes digest, the recovery bundle exports and the durable
   confirmation of a bundle by its digest (a key may be active, superseded by a rotation, or retired); every
   existing copy reads as unencrypted and `placements.hash` is untouched. ADR 0027 picks the age v1
-  format and `filippo.io/age` for the cipher that lands in #991; nothing here encrypts anything yet.
+  format and `filippo.io/age` for the cipher that lands in #991; nothing in this entry encrypts anything, the entries below do.
   **One-way door:** a `config.yaml` carrying `retained_copy_encryption:` at either scope cannot be
   read by any build before this one, which refuses it as an unknown field, so write the key only once
   a rollback below this version is off the table.
+- **Managed key custody for encrypted retained copies** (#990). A new `core/internal/keycustody` package generates
+  the age X25519 identity that ADR 0027 selects, holds it as a 0600 file in a 0700 directory beside `config.yaml`
+  under the same custody rule `secretref` enforces, and gives every key a stable id with creation and retirement
+  times and a status. An external key is declared in `secretref`'s own shape and probed for whether it resolves,
+  never for what it is. A one-time recovery bundle carries the key with integrity metadata and plain instructions
+  (the stock `age` CLI opens a copy from it), and until someone confirms holding one the health report says so in a
+  new key custody section. A `required` set whose key cannot be resolved has a new `ENCRYPTION_KEY_UNRESOLVABLE`
+  alert kind and a condition builder for it; nothing feeds that builder to the dispatcher yet, so what an operator
+  sees today is the refusal itself. Key create, rotate, bundle export and bundle confirm are new log events, each
+  with a result. The byte path, the routes and the CLI verbs landed in the entries below.
+- **The byte path for encrypted retained copies** (#991). For a backup set whose resolved
+  `retained_copy_encryption` is `required` and whose key is the managed one, a local-to-medium copy is
+  encrypted into the set's `.moves` staging directory as an age v1 file (64 KiB chunks, no setting for any of it),
+  and that staged file is what is uploaded. The copy is accepted only by a streaming decrypt whose plaintext digest
+  equals `artifacts.local_hash`; the digest of the stored bytes goes in `placement_encryption.stored_hash`, written
+  in the same transaction as the placement row, and the plaintext digest is never written there. An unresolvable
+  key refuses the copy before anything is encrypted or uploaded. A set that is `off`, or a deployment that never
+  mentions the key, writes the bytes it always did. A key declared as an external reference can be saved and
+  tested but cannot yet write copies. Not yet: progress stages for encrypting and decrypt-verifying, and
+  encrypting copies that already exist in plaintext.
+- **Lifecycle, retention, catalog rebuild and rotation for encrypted copies** (#992). Retention deletes an
+  encrypted object by its stored size and checksum and needs no key. A medium-to-medium move copies the ciphertext
+  as it is and accepts the destination only after a decrypt through the key id recorded on the source copy, and a
+  move back to local disk is refused, since that is a restore. A rotation changes the key for new copies only;
+  retiring a key an active copy still records, or the active key, is refused and names the copies. The recovery
+  sidecar of an encrypted copy now carries its non-secret description (format, key id, both digests and sizes, and
+  when it last decrypted), and `retnd catalog rebuild` says per encrypted copy which key it needs and whether this
+  deployment knows it, without opening a key. An unattended scrub never decrypts. An existing deployment's
+  sidecars are unchanged until it encrypts something.
+- **`retnd encryption` and `/api/v1/encryption`** (#993). Policy show, patch and reset, a set's `inherit | off |
+  required`, key list, create, rotate and retire, bundle export and confirm, provider test, per-copy state and a
+  decrypt-verify, each as a CLI verb and an API operation that land on one service method, so a refusal reads the
+  same on both. Fourteen operations and five error codes (`ENCRYPTION_KEY_NOT_FOUND`, `ENCRYPTION_KEY_IN_USE`,
+  `ENCRYPTION_KEY_STATE`, `ENCRYPTION_KEY_UNRESOLVABLE`, `ENCRYPTION_UNAVAILABLE`), all additive. A key reference is
+  write-only and reads back as a description of its source. The bundle export route returns key material (gated
+  like a validator upload, never cached); whether the API should return it at all is an open decision recorded in
+  `docs/api/contract.md`. Four unlabelled metric gauges and `health.Report.KeyCustody` report whether encryption is
+  on, degraded, and whether the active key has a confirmed bundle; none carries a key id.
+- **The web interface for encrypted copies** (#995). A "Retained-copy encryption" card on Settings, an Inherit /
+  Off / Required card under Retention on each set's page, Encrypted and Verified recoverable as two separate chips
+  on a backup's copies (and an Encryption column on the Backups list when a copy on it is encrypted), a Verify
+  recoverable dialog that asks before a read that may be billed, and two Dashboard warnings: no confirmed recovery
+  bundle, and a required key that cannot be resolved. Every control echoes its `retnd encryption` command. An
+  existing deployment sees none of it drawn until a key exists.
+- **Documentation for encrypted retained copies** (#997). A new operations guide,
+  `docs/encrypted-copies.md`, and ADR 0028 (what an encrypted copy proves, why object names stay visible, why the
+  bundle warning is a health fact and not an alert, and what `required` means for a `kopia` set). It states what is
+  encrypted and what is not, object names included, the two digests under their column names, loss of the key
+  (there is no recovery path), and how to open a copy with the `age` tool and the bundle on a machine with no
+  deployment. It says plainly what this build does not do: no `retnd` command decrypts a copy, `retnd recover` does
+  not decrypt, no external key can write copies yet, nothing raises the unresolvable-key alert, and there are no
+  progress stages for encrypting. README, the site pages, recovery, storage-mediums, install, deployment,
+  runtime-contract, the compliance and submission pages and the config inventory carry the matching changes.
+
+## [0.7.2] - 2026-10-24
+
+0.7.2 is a patch release on top of 0.7.1. The CLI now has a command for every route the web UI calls, guarded by
+route-to-verb parity checks. The source preflight default changed, and a whole-set restore without `all: true` is now
+refused with a 400 unless it is narrowed.
+
+### Added
+
 - **Enrolment, the reset flow and `whoami` from a terminal** (#1253). The enrollment page, the two
   reset pages and the session read a browser makes on load had no terminal twin. `retnd auth enroll
   --username U --token-stdin --password-stdin` makes the first administrator through the serving engine
