@@ -181,9 +181,11 @@ func (b *BackupService) EncryptionPolicy(ctx context.Context) (apicontract.Encry
 // right now (ADR 0033 D4): the pinned suite; or for the default policy, the
 // suite of the deployment's external key when its provider is external, or
 // the active managed key's suite, or the build's default when there is no
-// active key. A managed provider reads the registry only; an external one
-// resolves its reference (writing nothing) because nothing else says which
-// suite that key is.
+// active key. A managed provider reads the registry; an external one takes
+// the suite custody saw the last time it resolved the reference (the alert
+// tick's probe, a registration, a patch). A read never resolves a
+// reference itself: a command reference would run the operator's command
+// on every Settings load (the rule app/health.go states for health).
 func (b *BackupService) policyAnswer(ctx context.Context, cfg *config.Config) apicontract.EncryptionPolicy {
 	out := encryptionPolicyOf(cfg)
 	out.Suite = b.effectiveSuite(ctx, cfg.RetainedCopyEncryption)
@@ -192,15 +194,18 @@ func (b *BackupService) policyAnswer(ctx context.Context, cfg *config.Config) ap
 
 // effectiveSuite is the suite a copy under policy is written in.
 //
-// For an external provider whose reference does not resolve the answer is
-// empty: the engine refuses every copy until it does, and naming a suite
-// here would be a claim nothing stands behind.
+// For an external provider whose reference has not been resolved yet in
+// this process, or did not resolve, the answer is empty: naming a suite
+// would be a claim nothing stands behind.
 func (b *BackupService) effectiveSuite(ctx context.Context, policy config.RetainedCopyEncryption) string {
 	if id, pinned := policy.PinnedSuite(); pinned {
 		return id
 	}
 	if policy.KeyProvider.External != nil {
-		suite, _ := b.externalKeySuite(ctx, policy.KeyProvider.ExternalRef())
+		if b.keys == nil {
+			return ""
+		}
+		suite, _ := b.keys.LastExternalKeySuite(policy.KeyProvider.ExternalRef())
 		return suite
 	}
 	if suite, ok := b.activeKeySuite(ctx); ok {
@@ -209,8 +214,9 @@ func (b *BackupService) effectiveSuite(ctx context.Context, policy config.Retain
 	return copycrypt.Default().ID()
 }
 
-// externalKeySuite is the suite of the key ref yields, resolved and
-// registered nowhere, and false when it does not resolve.
+// externalKeySuite resolves ref (registering nothing) and is the suite of
+// the key it yields, and false when it does not resolve. Only the policy
+// patch, an explicit write, calls it.
 func (b *BackupService) externalKeySuite(ctx context.Context, ref secretref.Ref) (string, bool) {
 	if b.keys == nil {
 		return "", false
