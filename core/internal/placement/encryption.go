@@ -81,6 +81,12 @@ import (
 // is the operator's explicit act, EncryptExisting (retroencrypt.go, #1291),
 // and it reuses this file's encrypting pass and verification unchanged: the
 // plaintext object is the source of the same copyEncryptedToMedium.
+//
+// Re-encrypting an encrypted copy under the active suite and key (#1317) is
+// the same opted-in move with an encrypted source: the old ciphertext is
+// opened under the suite and key its own record names and streamed into the
+// same encrypting pass, and the destination is verified, like a fresh copy,
+// through the active key. A move with no opt-in stays a re-home.
 
 // Keys is the slice of key custody the byte path uses. *keycustody.Store
 // satisfies it. The identity is only ever handed to a callback, which is
@@ -213,7 +219,9 @@ func refuseEncryptedMove(artifact model.ArtifactID, from string) error {
 }
 
 // copyEncryptedToMedium is the copy phase for a local source going to a
-// medium under a set that requires encryption.
+// medium under a set that requires encryption, and for a move an operator
+// opted in to: a plaintext medium copy (#1291) or an encrypted one under an
+// older suite or key (#1317), both written under the active suite and key.
 func (e *Engine) copyEncryptedToMedium(ctx context.Context, mv state.Move, src state.Placement) (int64, error) {
 	if e.Store == nil {
 		return 0, fmt.Errorf("no medium store is configured")
@@ -262,10 +270,6 @@ func (e *Engine) copyEncryptedToMedium(ctx context.Context, mv state.Move, src s
 		return 0, err
 	}
 
-	rc, err := e.openEncryptionSource(ctx, src)
-	if err != nil {
-		return 0, err
-	}
 	// The artifact's size is the total of the encrypting stage: what is read
 	// is the plaintext, so the ciphertext's extra header and tags do not
 	// bend the bar. It is the journal's number when it has one and the
@@ -276,10 +280,27 @@ func (e *Engine) copyEncryptedToMedium(ctx context.Context, mv state.Move, src s
 	} else if st, statErr := e.Local.Stat(ctx, src.Location); statErr == nil && st.Size != nil {
 		total = *st.Size
 	}
-	m := e.newMeter(StageEncrypting, mv.Artifact, total)
-	pass, encErr := copycrypt.EncryptToStaging(ctx, dir, filepath.Base(staged), m.wrap(rc), suite, key.Recipient, src.Hash)
-	_ = rc.Close()
-	m.end()
+	// The source is plaintext (local, or #1291's medium copy) or, for #1317's
+	// re-encryption, an older ciphertext opened under its own suite and key;
+	// either way what reaches the encrypting pass is the artifact's plaintext,
+	// checked against src.Hash as it goes, and nothing plaintext touches disk.
+	var pass copycrypt.Staged
+	var encErr error
+	srcErr := e.withEncryptionSource(ctx, mv, src, func(plaintext io.Reader) error {
+		m := e.newMeter(StageEncrypting, mv.Artifact, total)
+		pass, encErr = copycrypt.EncryptToStaging(ctx, dir, filepath.Base(staged), m.wrap(plaintext), suite, key.Recipient, src.Hash)
+		m.end()
+		return encErr
+	})
+	if encErr == nil && srcErr != nil {
+		// Nothing was encrypted: the source could not be opened.
+		return 0, srcErr
+	}
+	if srcErr != nil && !errors.Is(srcErr, encErr) {
+		// The encrypting pass failed because its source did (a medium read,
+		// or an old ciphertext that would not open); that is the reason.
+		encErr = srcErr
+	}
 	e.Logger.CopyEncrypting(ctx, mv.Artifact.String(), mv.DestinationMedium, resultOf(encErr))
 	if encErr != nil {
 		if errors.Is(encErr, copycrypt.ErrKeyUnavailable) {

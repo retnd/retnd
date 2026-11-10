@@ -1173,3 +1173,32 @@ func (c *Client) StartEncryptExisting(ctx context.Context, req apicontract.Start
 	err := c.call(ctx, "startEncryptExisting", nil, req, &out)
 	return out, err
 }
+
+// PlanReencrypt is GET /encryption/reencrypt, the dry run of re-encrypting
+// the selected copies under the active suite and key. Exactly one of the
+// request's selectors is set; the destination may be empty.
+func (c *Client) PlanReencrypt(ctx context.Context, req apicontract.StartReencryptRequest) (apicontract.ReencryptPlan, error) {
+	q := url.Values{}
+	if req.SuiteID != "" {
+		q.Set("suite", req.SuiteID)
+	}
+	if req.KeyID != "" {
+		q.Set("key", req.KeyID)
+	}
+	if req.Deprecated {
+		q.Set("deprecated", "true")
+	}
+	if req.DestinationMedium != "" {
+		q.Set("destination", req.DestinationMedium)
+	}
+	var out apicontract.ReencryptPlan
+	err := c.callQuery(ctx, "planReencrypt", nil, q, nil, &out)
+	return out, err
+}
+
+// StartReencrypt is POST /encryption/reencrypt.
+func (c *Client) StartReencrypt(ctx context.Context, req apicontract.StartReencryptRequest) (apicontract.ScrubStarted, error) {
+	var out apicontract.ScrubStarted
+	err := c.call(ctx, "startReencrypt", nil, req, &out)
+	return out, err
+}
