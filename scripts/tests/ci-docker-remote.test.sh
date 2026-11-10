@@ -47,11 +47,13 @@ SH
 cat > "$bin/rsync" <<'SH'
 #!/usr/bin/env bash
 echo "rsync $*" >> "$FAKE_LOG/rsync"
+case "$*" in *--files-from=-*) tr '\0' '\n' >> "$FAKE_LOG/rsync-list" ;; esac
 exit 0
 SH
 cat > "$bin/tar" <<'SH'
 #!/usr/bin/env bash
 echo "tar $*" >> "$FAKE_LOG/tar"
+case "$*" in *" -T -"*) tr '\0' '\n' >> "$FAKE_LOG/tar-list" ;; esac
 exit 0
 SH
 cat > "$bin/ssh" <<'SH'
@@ -72,7 +74,7 @@ chmod +x "$bin"/*
 # Runs the real script with the stand-ins first on PATH. $1.. are the
 # script's arguments; the environment is whatever the caller exports.
 run_script() {
-  : > "$log/docker"; : > "$log/rsync"; : > "$log/tar"; : > "$log/ssh"; : > "$log/ssh-stdin"
+  : > "$log/docker"; : > "$log/rsync"; : > "$log/tar"; : > "$log/ssh"; : > "$log/ssh-stdin"; : > "$log/rsync-list"; : > "$log/tar-list"
   env -u DOCKER_HOST -u CI_DOCKER_HOST FAKE_LOG="$log" PATH="$bin:$PATH" "$@" > "$work/out" 2>&1
   echo $? > "$work/rc"
 }
@@ -176,36 +178,55 @@ else
 fi
 
 # --- R5 nothing secret travels, nothing secret stays ------------------------
-run_script env GITHUB_TOKEN=tok-should-not-travel NPM_TOKEN=npm-should-not-travel bash "$script" --host "$host"
-sent="$(cat "$log/rsync")"
-missing=""
-for pat in node_modules '.env' '.npmrc' '.netrc' '.git-credentials' '*.pem' '*.key' '*token*'; do
-  printf '%s' "$sent" | grep -qF -- "--exclude=$pat" || missing="$missing $pat"
-done
-if [ -z "$missing" ]; then
-  pass "R5a rsync excludes node_modules and the usual credential files"
+# A fixture checkout, so the file list is known: a tracked source file whose
+# name contains "token", a tracked .npmrc, an untracked .env, and an ignored
+# node_modules. The script copy sits in the fixture because it finds the
+# Dockerfile and pins beside itself.
+fx="$work/fx"
+mkdir -p "$fx/scripts/ci" "$fx/src" "$fx/node_modules/dep"
+cp "$script" "$fx/scripts/ci-docker.sh"
+cp "$repo_root/scripts/ci/Dockerfile" "$repo_root/scripts/ci/pins.env" "$fx/scripts/ci/"
+printf 'package x\n' > "$fx/src/token.go"
+printf '//registry:_authToken=abc\n' > "$fx/.npmrc"
+printf 'SECRET=1\n' > "$fx/.env"
+printf 'x\n' > "$fx/node_modules/dep/index.js"
+printf 'node_modules/\n' > "$fx/.gitignore"
+git -C "$fx" init -q
+git -C "$fx" add scripts src .npmrc .gitignore
+git -C "$fx" -c user.name=t -c user.email=t@t commit -q -m fixture --no-verify
+fx_script="$fx/scripts/ci-docker.sh"
+
+run_script env GITHUB_TOKEN=tok-should-not-travel NPM_TOKEN=npm-should-not-travel bash "$fx_script" --host "$host"
+list="$(cat "$log/rsync-list")"
+if printf '%s\n' "$list" | grep -qx 'src/token.go' && printf '%s\n' "$list" | grep -qx 'scripts/ci-docker.sh'; then
+  pass "R5a the file list comes from git, so a source file called token.go is sent"
 else
-  fail "R5a rsync excludes" "not excluded:$missing"
+  fail "R5a the file list comes from git" "rc=$(rc) list=[$list] $(head -c 300 "$work/out")"
 fi
-if ! cat "$log"/* | grep -q 'should-not-travel'; then
-  pass "R5b a token in the caller's environment appears in no ssh, rsync or docker argument"
+if ! printf '%s\n' "$list" | grep -qE '^(\.env|\.npmrc|node_modules/.*)$'; then
+  pass "R5b .env (untracked), .npmrc (tracked) and the ignored node_modules are left out of the list"
 else
-  fail "R5b token leaked into an argument" "$(grep -l should-not-travel "$log"/*)"
+  fail "R5b secrets and node_modules are left out" "$list"
 fi
-if ! grep -qE -- '-(e|-env|-env-file) ' "$log/docker" && ! grep -q -- '--env' "$log/docker"; then
+if ! cat "$log"/ssh "$log"/ssh-stdin "$log"/rsync "$log"/docker | grep -q should-not-travel; then
+  pass "R5f a token in the caller's environment appears in no ssh, rsync or docker argument"
+else
+  fail "R5f token leaked into an argument" "$(grep -l should-not-travel "$log"/*)"
+fi
+if ! grep -qE -- ' (-e|--env|--env-file)[ =]' "$log/docker"; then
   pass "R5c the gate container is given no environment variables"
 else
-  fail "R5c the gate container is given no environment" "$(grep -- '-e\|--env' "$log/docker" | head -2)"
+  fail "R5c the gate container is given no environment" "$(grep -- "--env" "$log/docker" | head -2)"
 fi
 if grep -q 'gitdir: ' "$log/ssh-stdin" && ! grep -q 'url = ' "$log/ssh-stdin"; then
   pass "R5d the remote git config is a minimal one written fresh, so remote URLs and credentials in .git/config do not travel"
 else
   fail "R5d remote git config is written fresh" "$(cat "$log/ssh-stdin")"
 fi
-if printf '%s' "$sent" | grep -qF -- '--exclude=config' ; then
-  pass "R5e the local .git/config is excluded from the sync"
+if grep -F -- '--exclude=config' "$log/rsync" | grep -qF -- '--exclude=hooks'; then
+  pass "R5e the local .git/config and hooks are excluded from the sync"
 else
-  fail "R5e the local .git/config is excluded from the sync" "$sent"
+  fail "R5e the local .git/config and hooks are excluded from the sync" "$(cat "$log/rsync")"
 fi
 
 # --- R6 the host string is validated ----------------------------------------
@@ -261,7 +282,7 @@ fi
 
 # --- R9 transfer without rsync on the host ----------------------------------
 run_script env CI_DOCKER_SYNC=tar bash "$script" --host u@h
-if [ -s "$log/tar" ] && [ ! -s "$log/rsync" ] && [ "$(rc)" = 0 ]; then
+if [ -s "$log/tar" ] && [ -s "$log/tar-list" ] && [ ! -s "$log/rsync" ] && [ "$(rc)" = 0 ]; then
   pass "R9 CI_DOCKER_SYNC=tar ships the tree with tar over ssh and never calls rsync"
 else
   fail "R9 CI_DOCKER_SYNC=tar" "rc=$(rc) tar=$(wc -c < "$log/tar") rsync=$(wc -c < "$log/rsync")"
