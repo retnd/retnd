@@ -126,6 +126,11 @@ func RetireKey(ctx context.Context, j KeyJournal, log *obs.Logger, keyID string,
 		if late, lerr := j.ActivePlacementsRecordingKey(ctx, keyID); lerr == nil && len(late) > 0 {
 			return &KeyInUseError{KeyID: keyID, Copies: late}
 		}
+		if errors.Is(err, state.ErrEncryptionKeyInUse) {
+			// The journal says the key became the active one (or is recorded)
+			// between the read and the write, with no copy to name.
+			return fmt.Errorf("%w: %s: %w", ErrKeyStillActive, keyID, err)
+		}
 		return fmt.Errorf("placement: retiring key %s: %w", keyID, err)
 	}
 	log.KeyRetired(ctx, keyID, obs.ResultSuccess)
