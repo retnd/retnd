@@ -199,7 +199,7 @@ func newWorld(t *testing.T) *world {
 	if err != nil {
 		t.Fatalf("state.Open: %v", err)
 	}
-	defer j.Close()
+	defer func() { _ = j.Close() }()
 	set, err := model.NewBackupSetID("production", "postgres-primary")
 	if err != nil {
 		t.Fatal(err)
@@ -298,7 +298,7 @@ var surfaces = []surface{
 			if err != nil {
 				w.t.Fatalf("state.Open: %v", err)
 			}
-			defer j.Close()
+			defer func() { _ = j.Close() }()
 			store, err := keycustody.Open(keycustody.DirBeside(w.cfg), keycustody.NewJournalRegistry(j), keycustody.AgeFormat{})
 			if err != nil {
 				w.t.Fatalf("keycustody.Open: %v", err)
@@ -337,7 +337,7 @@ var surfaces = []surface{
 			if err != nil {
 				w.t.Fatalf("state.Open: %v", err)
 			}
-			defer j.Close()
+			defer func() { _ = j.Close() }()
 			store, err := keycustody.Open(keycustody.DirBeside(w.cfg), keycustody.NewJournalRegistry(j), keycustody.AgeFormat{})
 			if err != nil {
 				w.t.Fatalf("keycustody.Open: %v", err)

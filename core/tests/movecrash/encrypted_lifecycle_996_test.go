@@ -235,10 +235,20 @@ func TestTheRecoveryBundleOpensWhatARealEncryptedMoveLeftOnTheMediumWithNoStateA
 		finish(t, tmp, filepath.Join(clean, "age-lib.out"))
 	})
 
-	t.Run("the age command line tool", func(t *testing.T) {
+	t.Run("the stock age command line tool", func(t *testing.T) {
+		// The age on this host if there is one, otherwise the same program
+		// built from the module the repository already depends on
+		// (filippo.io/age/cmd/age, v1.x, from the module cache), so the claim
+		// "the stock tool opens a bundle's copy" is exercised on every host
+		// and a missing binary is a build failure here, not a skip.
 		bin, err := exec.LookPath("age")
 		if err != nil {
-			t.Skip("no age command line tool on this host; the two subtests above cover the same format")
+			bin = filepath.Join(t.TempDir(), "age")
+			build := exec.Command("go", "build", "-o", bin, "filippo.io/age/cmd/age")
+			build.Env = append(os.Environ(), "GOWORK=off")
+			if out, berr := build.CombinedOutput(); berr != nil {
+				t.Fatalf("building the stock age tool from the module cache: %v\n%s", berr, out)
+			}
 		}
 		identity := filepath.Join(clean, "key.txt")
 		if err := os.WriteFile(identity, []byte(read().Material+"\n"), 0o600); err != nil {

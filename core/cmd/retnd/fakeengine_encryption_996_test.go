@@ -51,7 +51,7 @@ func (e *fakeEngine) serveEncryption(w http.ResponseWriter, r *http.Request, pat
 		return true
 	case path == keys && r.Method == http.MethodPost:
 		got, err := e.svc.CreateEncryptionKey(r.Context())
-		answerEncryption(w, "createEncryptionKey", got, err)
+		answerEncryptionAs(w, http.StatusCreated, "createEncryptionKey", got, err)
 		return true
 	case path == keys+"/rotate" && r.Method == http.MethodPost:
 		got, err := e.svc.RotateEncryptionKey(r.Context())
@@ -89,6 +89,15 @@ func (e *fakeEngine) serveEncryption(w http.ResponseWriter, r *http.Request, pat
 		got, err := e.svc.ConfirmRecoveryBundle(r.Context(), id, body.Digest)
 		answerEncryption(w, "confirmRecoveryBundle", got, err)
 		return true
+	case path == "/encryption/verify" && r.Method == http.MethodPost:
+		var body apicontract.StartDecryptVerifyRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			refuse(w, http.StatusBadRequest, apicontract.ErrorCodeInvalidRequest, err.Error())
+			return true
+		}
+		got, err := e.svc.StartDecryptVerify(r.Context(), body)
+		answerEncryptionAs(w, http.StatusAccepted, "startDecryptVerify", apicontract.ScrubStarted{BackupSetID: got.BackupSetID, OperationID: got.OperationID}, err)
+		return true
 	case path == "/encryption/providers/test" && r.Method == http.MethodPost:
 		var body apicontract.EncryptionProviderTestRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -118,9 +127,16 @@ func (e *fakeEngine) fakeSetEncryption(w http.ResponseWriter, r *http.Request, i
 }
 
 func answerEncryption(w http.ResponseWriter, operation string, body any, err error) {
+	answerEncryptionAs(w, http.StatusOK, operation, body, err)
+}
+
+// answerEncryptionAs answers with the status the contract declares for the
+// operation: the client refuses any other (api/v1/openapi.json), and the real
+// handler answers 201 for a key create and 202 for a decrypt-verify.
+func answerEncryptionAs(w http.ResponseWriter, status int, operation string, body any, err error) {
 	if err != nil {
 		refuseServiceError(w, operation, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, body)
+	writeJSON(w, status, body)
 }

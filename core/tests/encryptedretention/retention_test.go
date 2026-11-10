@@ -270,10 +270,14 @@ func TestEveryCryptoNegativeFailsClosedThroughCustodyWithNoPartialPlaintextOnDis
 	hdr := headerEnd(t, good)
 	payload := hdr + nonceLen
 
-	// A copy of the same plaintext sealed under another key, for the swapped
-	// header, and that other key's own custody for the wrong-key case.
+	// A second deployment: its key is the wrong key, and it stages a second
+	// encryption of the same plaintext for the swapped header.
 	foreign := newRig(t)
-	foreignObj, _ := foreign.encryptOffsite("artifact.dump", plain, foreign.key)
+	// The same plaintext sealed to the SAME recipient as the object under
+	// test: a header staged to another recipient cannot be opened by the key
+	// under test and reads as a wrong key, which would test nothing about a
+	// swapped header. foreign's custody supplies only the wrong-key case.
+	foreignObj, _ := foreign.encryptOffsite("artifact.dump", plain, base.key)
 	foreignHdr := headerEnd(t, foreignObj)
 
 	swapped := bytes.Clone(good)
@@ -456,7 +460,7 @@ func TestRotationLeavesEveryPreRotationCopyRecoverableAndNewCopiesOnTheNewKey_99
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			path, err := r.recoverTo(filepath.Join(r.root, "out-"+c.id), "x.dump", c.id, c.obj, sum(plain))
-			if !errors.Is(err, c.want) && !(c.want == nil && err == nil) {
+			if !errors.Is(err, c.want) && (c.want != nil || err != nil) {
 				t.Fatalf("err = %v, want %v", err, c.want)
 			}
 			if c.want == nil {
