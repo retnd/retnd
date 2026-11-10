@@ -1,8 +1,8 @@
 # ADR 0033: Suite agility for encrypted retained copies, the default suite, and where encryption can enter
 
-- Status: accepted for the documents; the code lands in EPIC T phase 1 (#1312 to #1315) and
-  phase 2 (#1316 to #1320). Until those merge this ADR describes behaviour that is specified
-  and not yet shipped.
+- Status: accepted. The code lands in EPIC T phase 1 (#1312 to #1315) and phase 2 (#1316 to
+  #1320), which merge together; `docs/encrypted-copies.md` and the recovery pages describe it as
+  shipped (#1320). The owner decisions below stand as recorded until the owner answers them.
 - Date: 2026-11-10
 - Scope: EPIC T (#1310), FR-83 through FR-90. Recorded by T1.1 (#1311), measured on `main` at
   `477aec5a` (the whole EPIC N stack merged).

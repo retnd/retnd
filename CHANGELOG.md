@@ -31,9 +31,9 @@
   ChaCha20-Poly1305 payload: post-quantum hybrid key establishment, 128-bit security level, not AES, not
   FIPS-validated; opens with age 1.3 or newer." `age/v1` stays supported. `retnd encryption suites` and
   `GET /api/v1/encryption/suites` list them with their status.
-  - **A key belongs to a suite** (migration 0020 adds `encryption_keys.suite_id`; every existing key reads
-    `age/v1`). There is one active managed key per suite, and a copy is written only under the active key
-    of the policy's suite. Changing the suite is choose, rotate, export, confirm: `policy patch --suite`
+  - **A key belongs to a suite** (migration 0020 adds the side table `encryption_key_suites`; a key with
+    no row there, which is every existing key, reads `age/v1`). There is still one active managed key at a
+    time, and a copy is written only when that key belongs to the policy's suite. Changing the suite is choose, rotate, export, confirm: `policy patch --suite`
     answers `rotation_needed` and writes no key, `key rotate --suite <id>` mints the new suite's key and
     supersedes the old suite's in one write, and the new bundle is unconfirmed until you confirm it. Until
     the rotation, a `required` set's new copies are refused before anything destructive, never written

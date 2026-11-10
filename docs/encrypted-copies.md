@@ -127,7 +127,7 @@ decides how the copy is opened, never the policy of the day. This build ships tw
 | Suite | Status | What the product says about it (its `Describe()` sentence, word for word) |
 |---|---|---|
 | `age-pq/v1` | supported, **the default** | "age v1 file with a hybrid ML-KEM-768 + X25519 recipient and ChaCha20-Poly1305 payload: post-quantum hybrid key establishment, 128-bit security level, not AES, not FIPS-validated; opens with age 1.3 or newer." |
-| `age/v1` | supported | "age v1 file with an X25519 recipient and ChaCha20-Poly1305 payload: 128-bit security level, no post-quantum key establishment, not AES, not FIPS-validated; opens with any age release." |
+| `age/v1` | supported | "age v1 file, one X25519 recipient, ChaCha20-Poly1305 in 64 KiB authenticated chunks. 128-bit security level. Not post-quantum. Opens with `age -d -i key.txt`." |
 
 That sentence is the only thing any surface says about a suite: `retnd encryption suites`,
 `GET /api/v1/encryption/suites`, the tooltip on the Settings select and this table print the
@@ -173,9 +173,9 @@ nothing you already stored is orphaned.
 
 ### Changing the suite: choose, rotate, export, confirm
 
-A key belongs to one suite, and there is one active managed key per suite. New copies go under
-the active key **of the policy's suite**, never under whatever key happens to be active, and the
-product never mints a key behind your back. So a change of suite is four steps, and the Settings
+A key belongs to one suite, and there is still one active managed key at a time. New copies go
+under the active key only when it belongs to **the policy's suite**, never under whatever key
+happens to be active, and the product never mints a key behind your back. So a change of suite is four steps, and the Settings
 card walks you through them in this order:
 
 1. **Choose.** `retnd encryption policy patch --suite age-pq/v1` (or the select on the card). The
