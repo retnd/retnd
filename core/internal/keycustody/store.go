@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/retnd/retnd/core/internal/copycrypt"
@@ -73,6 +74,34 @@ type Store struct {
 	// an external key by id and recipient and never the reference, so this is
 	// how an id becomes material again. Nil means none are declared.
 	externals func() []secretref.Ref
+
+	// lastSuites remembers, per external reference (its description), the
+	// suite of the key it yielded the last time something here resolved it
+	// (the alert tick's probe, a registration, an explicit write). A read
+	// surface takes the suite from here and never resolves a reference
+	// itself (EPIC T, #1315). It holds suite ids only, never material.
+	suitesMu   sync.Mutex
+	lastSuites map[string]string
+}
+
+// noteExternalSuite records what resolving ref just showed.
+func (s *Store) noteExternalSuite(ref secretref.Ref, suiteID string) {
+	s.suitesMu.Lock()
+	defer s.suitesMu.Unlock()
+	if s.lastSuites == nil {
+		s.lastSuites = map[string]string{}
+	}
+	s.lastSuites[ref.String()] = suiteID
+}
+
+// LastExternalKeySuite is the suite of the key ref yielded the last time it
+// was resolved in this process, and false when it has not been. It resolves
+// nothing: it is the answer for a read surface.
+func (s *Store) LastExternalKeySuite(ref secretref.Ref) (string, bool) {
+	s.suitesMu.Lock()
+	defer s.suitesMu.Unlock()
+	id, ok := s.lastSuites[ref.String()]
+	return id, ok
 }
 
 // Open opens the managed key store at dir, creating the directory 0700 if
@@ -384,7 +413,10 @@ func (s *Store) Resolvability(ctx context.Context, p Provider) Probe {
 		// It resolves; it must also be a key of a registered suite, or a
 		// copy written under it could never be opened.
 		if err := WithExternalKey(ctx, p.External, func(key []byte) error {
-			_, _, err := s.recipientOfAnySuite(key)
+			_, suiteID, err := s.recipientOfAnySuite(key)
+			if err == nil {
+				s.noteExternalSuite(p.External, suiteID)
+			}
 			return err
 		}); err != nil {
 			return Probe{State: Unreachable, Source: probe.Source, Reason: err.Error()}
