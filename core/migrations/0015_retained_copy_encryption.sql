@@ -77,17 +77,27 @@ CREATE TABLE encryption_keys (
     -- resolved. Never the private half; see the header.
     recipient   TEXT NOT NULL DEFAULT '',
 
-    -- status is 'active' (new copies may be written under it) or 'retired'
-    -- (historical copies still decrypt through it, new ones are not
-    -- written). A retired key has a retirement time and an active one has
-    -- none; the CHECK below keeps the two columns from disagreeing.
-    status      TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'retired')),
+    -- status is 'active' (new copies are written under it), 'superseded' (a
+    -- rotation moved it out of the active slot, every copy recorded against
+    -- it still decrypts through it, so it is held under the same custody as
+    -- the active key) or 'retired' (no active copy names it any more).
+    -- Only a retired key has a retirement time; the CHECK below keeps the
+    -- two columns from disagreeing.
+    status      TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'superseded', 'retired')),
 
     created_at  TEXT NOT NULL,
     retired_at  TEXT,
 
     CHECK ((status = 'retired') = (retired_at IS NOT NULL))
 );
+
+-- At most one ACTIVE managed key, so a rotation that supersedes the old key
+-- and adds the new one in a single write can never leave two or none. An
+-- external key is an operator's own reference and a per-set override may
+-- name a different one, so the rule is not stated for them.
+CREATE UNIQUE INDEX idx_encryption_keys_one_active_managed
+    ON encryption_keys (provider)
+    WHERE provider = 'managed' AND status = 'active';
 
 -- ---------------------------------------------------------------------
 -- THE PER-COPY ENCRYPTION RECORD (FR-60, FR-61)
@@ -132,20 +142,36 @@ CREATE TABLE placement_encryption (
 CREATE INDEX idx_placement_encryption_key ON placement_encryption (key_id);
 
 -- ---------------------------------------------------------------------
--- THE DURABLE BUNDLE CONFIRMATION (FR-66)
+-- RECOVERY BUNDLE EXPORTS AND THEIR CONFIRMATION (FR-66)
 -- ---------------------------------------------------------------------
 
--- One row per key whose disaster-recovery bundle the operator has confirmed
--- holding. Absence is the degraded state: a managed key with no row here is
--- a deployment whose off-site copies are one disk failure from
--- unreadable, and health renders that for as long as the row is missing,
--- across restarts, because it is read from here and not computed.
+-- One row per recovery bundle written for a key, identified by the digest
+-- the bundle carries. The digest covers the key id, the format and the
+-- material but is not secret; the bundle itself is never stored here. The
+-- digest includes the export time, so re-exporting makes a new row.
+CREATE TABLE recovery_bundle_exports (
+    key_id      TEXT NOT NULL REFERENCES encryption_keys (id),
+    digest      TEXT NOT NULL CHECK (digest <> ''),
+    exported_at TEXT NOT NULL,
+    PRIMARY KEY (key_id, digest)
+);
+
+-- One row per bundle an operator has confirmed holding. A confirmation is
+-- accepted only against an export of the same key with the same digest
+-- (the composite foreign key), so confirming is a proof of possession and
+-- not a tick. Absence for every export of a managed key is the degraded
+-- state: its off-site copies are one disk failure from unreadable, and
+-- health renders that for as long as no row exists, across restarts,
+-- because it is read from here and not computed.
 CREATE TABLE recovery_bundle_confirmations (
-    key_id        TEXT PRIMARY KEY REFERENCES encryption_keys (id),
+    key_id        TEXT NOT NULL,
+    bundle_digest TEXT NOT NULL,
     confirmed_at  TEXT NOT NULL,
 
-    -- Who said so and which bundle they were holding, so a confirmation is
-    -- a statement somebody can be asked about rather than a tick.
+    -- Who said so, so a confirmation is a statement somebody can be asked
+    -- about rather than a tick.
     confirmed_by  TEXT NOT NULL DEFAULT '',
-    bundle_digest TEXT NOT NULL DEFAULT ''
+
+    PRIMARY KEY (key_id, bundle_digest),
+    FOREIGN KEY (key_id, bundle_digest) REFERENCES recovery_bundle_exports (key_id, digest)
 );

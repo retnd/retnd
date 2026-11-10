@@ -17,7 +17,8 @@ refused with a 400 unless it is narrowed.
   else. A config that never mentions the key resolves every set to `off` and re-marshals byte for byte
   as before. `mode: required` with no usable provider is refused at load naming the key at fault, and
   inline key material has no field to land in. Migration 0015 adds the key registry, the per-copy
-  encryption record with its stored-bytes digest, and the durable recovery-bundle confirmation; every
+  encryption record with its stored-bytes digest, the recovery bundle exports and the durable
+  confirmation of a bundle by its digest (a key may be active, superseded by a rotation, or retired); every
   existing copy reads as unencrypted and `placements.hash` is untouched. ADR 0027 picks the age v1
   format and `filippo.io/age` for the cipher that lands in #991; nothing here encrypts anything yet.
   **One-way door:** a `config.yaml` carrying `retained_copy_encryption:` at either scope cannot be
