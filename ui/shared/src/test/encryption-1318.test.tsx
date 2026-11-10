@@ -275,9 +275,16 @@ describe("the health rows (#1318)", () => {
     expect(plan).toHaveBeenCalledWith(expect.objectContaining({ suite: "age/v1" }));
     expect(start).not.toHaveBeenCalled();
     const dialog = await screen.findByRole("dialog", { name: "Re-encrypt under current suite" });
-    const run = await within(dialog).findByRole("button", { name: /^Re-encrypt \d+ copies$/ });
+    // Nothing is armed, and no medium is assumed, until the operator picks one.
+    const destination = await within(dialog).findByRole("radio", { name: "offsite_cold" });
+    expect(within(dialog).getByRole("button", { name: "Choose a destination" })).toBeDisabled();
+    expect(plan).toHaveBeenCalledTimes(1);
+    await user.click(destination);
+    await waitFor(() => expect(plan).toHaveBeenLastCalledWith({ suite: "age/v1", to: "offsite_cold" }));
+    // 12 copies, 2 already on the chosen medium's backup: the count is 10, not 12.
+    const run = await within(dialog).findByRole("button", { name: "Re-encrypt 10 copies" });
     await user.click(run);
-    expect(start).toHaveBeenCalledWith(expect.objectContaining({ suite: "age/v1", to: "offsite_cold" }));
+    expect(start).toHaveBeenCalledWith({ suite: "age/v1", to: "offsite_cold" });
   });
 
   it("draws nothing when every recorded suite is supported", async () => {

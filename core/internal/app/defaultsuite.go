@@ -21,8 +21,9 @@ type defaultSuiteNoter interface {
 // deployment last ran under, once per change and never on a steady build
 // (EPIC T, #1314). It mints no key and changes no policy: a deployment
 // with an active key keeps that key's suite (ADR 0033 D4). A journal that
-// cannot answer is logged as an error and the cycle goes on, because an
-// announcement is not worth a backup.
+// cannot answer announces nothing and the cycle goes on: an announcement is
+// not worth a backup, and an event saying the default changed when nobody
+// could tell would repeat on every cycle the read keeps failing.
 func (s *Service) noteDefaultSuite(ctx context.Context, at time.Time) {
 	n, ok := s.Journal.(defaultSuiteNoter)
 	if !ok {
@@ -30,10 +31,7 @@ func (s *Service) noteDefaultSuite(ctx context.Context, at time.Time) {
 	}
 	current := copycrypt.Default().ID()
 	previous, changed, err := n.NoteDefaultSuite(ctx, current, at)
-	switch {
-	case err != nil:
-		s.logger().EncryptionDefaultSuiteChanged(ctx, previous, current, obs.ResultError)
-	case changed:
+	if err == nil && changed {
 		s.logger().EncryptionDefaultSuiteChanged(ctx, previous, current, obs.ResultSuccess)
 	}
 }

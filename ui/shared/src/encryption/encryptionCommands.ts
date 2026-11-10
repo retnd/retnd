@@ -35,8 +35,8 @@
  *   Verify recoverable                        POST  /encryption/verify                verifyCommand
  *   Suite choice (Settings card, #1318)       PATCH /encryption/policy                policyPatchCommand({ suite })
  *   Rotate key, suite change step             POST  /encryption/keys/rotate           keyRotateCommand(suite)
- *   Re-encrypt under current suite            POST  /encryption/reencrypt             reencryptCommand
- *   (its dry run, the same route)             POST  /encryption/reencrypt dry_run     reencryptCommand({ dryRun })
+ *   Re-encrypt under current suite            POST  /encryption/reencrypt             reencryptCommand({ to })
+ *   (its dry run, a read)                     GET   /encryption/reencrypt             reencryptCommand({ dryRun })
  *
  * The reads (policy, key list, copies, suites) have verbs too
  * (policyShowCommand, keyListCommand, copiesCommand, suitesCommand) and are

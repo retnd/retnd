@@ -172,14 +172,19 @@ test.describe("#1318 health-tile-shows-deprecated-counts", () => {
     );
   });
 
-  test("Re-encrypt under current suite runs the dry run first and arms the run only after it", async ({ page }) => {
+  test("Re-encrypt under current suite runs the dry run first, makes the operator choose the medium, and counts only what moves", async ({ page }) => {
     await open(page, "/", "encryption-suite-lifecycle");
     await page.locator('[data-suite-health="age/v1"]').getByRole("button", { name: "Re-encrypt under current suite" }).click();
     const dlg = page.getByRole("dialog", { name: "Re-encrypt under current suite" });
     await expect(dlg.getByText("retnd encryption reencrypt --suite age/v1 --dry-run")).toBeVisible();
     await expect(dlg.locator("[data-reencrypt-plan]")).toBeVisible();
+    // The engine never picks the medium: nothing is armed until one is chosen.
+    await expect(dlg.getByRole("button", { name: "Choose a destination" })).toBeDisabled();
+    await dlg.getByRole("radiogroup", { name: "Destination" }).getByRole("radio", { name: "offsite_cold" }).check();
+    await expect(dlg.getByText("retnd encryption reencrypt --suite age/v1 --to offsite_cold --dry-run")).toBeVisible();
     await expect(dlg.getByText(/same medium only/)).toBeVisible();
-    const run = dlg.getByRole("button", { name: /^Re-encrypt \d+ copies$/ });
+    // Only the copies the scoped dry run says will move are counted.
+    const run = dlg.getByRole("button", { name: "Re-encrypt 10 copies" });
     await expect(run).toBeEnabled();
     await expect(dlg.getByText("retnd encryption reencrypt --suite age/v1 --to offsite_cold", { exact: true })).toBeVisible();
     await run.click();
@@ -235,6 +240,7 @@ for (const theme of ["light", "dark"] as const) {
       expect(await measureContrast(page, "1318 health " + theme, "[data-encryption-health]"), theme).toEqual([]);
       await page.locator('[data-suite-health="age/v1"]').getByRole("button", { name: "Re-encrypt under current suite" }).click();
       await expect(page.locator("[data-reencrypt-plan]")).toBeVisible();
+      await page.getByRole("radio", { name: "offsite_cold" }).check();
       expect(await measureContrast(page, "1318 reencrypt " + theme, '[role="dialog"]'), theme).toEqual([]);
     });
   });

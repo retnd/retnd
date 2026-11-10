@@ -128,8 +128,8 @@ I argued the design from seven angles and let the skeptic's objections shape it.
   identity lives on the host for decrypt-verify. Downgrade must be refused at the policy, at the key, at the
   copy record and at the bundle.
 - **Storage architect.** Format id per copy already exists. What does not exist is a suite per key, and
-  one-active-managed-key is deployment-wide. The additive change is a key side column (or side table) and a
-  per-suite active-key rule. Re-encryption in place is blocked by one-placement-per-artifact-per-medium; the
+  one-active-managed-key is deployment-wide. The additive change is a side table recording a key's suite,
+  and the deployment-wide rule stays. Re-encryption in place is blocked by one-placement-per-artifact-per-medium; the
   medium-to-medium path exists.
 - **Performance.** The PQ recipient adds about 1.2 KB per copy and one ML-KEM operation per file; the
   payload cost is unchanged. Tink's 1 MiB segment is a 1 MiB buffer. ChaCha20 stays the right payload
@@ -142,7 +142,7 @@ I argued the design from seven angles and let the skeptic's objections shape it.
   1. "A registry for two suites is ceremony." Accepted in part: the registry is a compile-time table and
      an interface that already exists, not a plugin system. No dynamic loading, no `algorithm: auto`.
   2. "Per-set suite means per-set keys and per-set bundles." Accepted: per-set suite is deferred, the suite
-     is global, and the per-suite active-key rule is the only schema change.
+     is global, and a key's suite (a side table) is the only schema change.
   3. "Tink drags protobuf into the graph for a suite nobody asked for." Accepted: Tink is not in phase 1.
      It is the one suite that can honestly carry "AES-256" and a FIPS-primitives story, so it is a named
      owner decision, not a default.
@@ -205,29 +205,28 @@ construction (segment nonces, final-segment binding, header authentication), whi
 0027 C9. The same goes for wrapping a Tink key under an HPKE recipient to get a public half: the envelope
 that carries the wrapped key beside the ciphertext would be a format of this project's own.
 
-### D3. A key belongs to a suite; the active managed key is per suite
+### D3. A key belongs to a suite; one active managed key, whatever its suite
 
-Migration 0020 (additive): `ALTER TABLE encryption_keys ADD COLUMN suite_id TEXT NOT NULL DEFAULT
-'age/v1'`, drop `idx_encryption_keys_one_active_managed`, create it again over `(provider, suite_id)` with
-the same partial predicate. Every existing key reads as `age/v1`, which is what it is. `KeyRecord` gains
-`SuiteID`; the bundle's `format` field already holds it; `Bundle.Decrypt` already refuses a mismatch.
+A key records the suite it belongs to: migration 0020's side table `encryption_key_suites(key_id PRIMARY
+KEY, suite_id)`, written in the key's own transaction, with absence meaning `age/v1` (every key written
+before 0020 is one). `KeyRecord` gains `SuiteID`; the bundle's `format` field already holds it;
+`Bundle.Decrypt` already refuses a mismatch.
 
-The rule "one active managed key" becomes "one active managed key **per suite**". New copies are written
-under the active key of the **policy's** suite (D4), never under "whatever key is active". A rotation
-within a suite supersedes within that suite. Changing the suite is a rotation to a new suite: the old
-suite's active key becomes superseded, so there is still exactly one key new copies go under.
+The rule stays "one active managed key", deployment-wide, whatever its suite: 0015's index is untouched.
+New copies are written only under an active key of the **policy's** suite (D4), never under "whatever key
+is active", so a pinned suite with no active key of its own refuses the copy. Changing the suite is a
+rotation into the new suite: the old suite's active key becomes superseded in the same durable write, so
+there is always exactly one key new copies go under.
 
-Open check for the implementer: whether compat cell `03-migrated-schema` treats an index drop as additive.
-If it does not, the alternative is a side table `encryption_key_suites(key_id PRIMARY KEY, suite_id)` with
-absence meaning `age/v1`, and the per-suite active rule enforced in `state` on the write path, the way
-`registry.go` already enforces the status vocabulary.
+The first draft of this decision added `encryption_keys.suite_id` and recreated the index over
+`(provider, suite_id)`, allowing one active managed key per suite, with the side table as the fallback if
+compat cell `03-migrated-schema` refused an index drop.
 
 **Outcome (#1312): the side table.** The cell is additive-only over `sqlite_master`, and both `ADD COLUMN`
 (which rewrites the stored `CREATE TABLE` text) and the index drop change a line an existing deployment has.
 Migration `0020` creates `encryption_key_suites` and nothing else; `state` writes a key's suite in the key's
 own transaction and refuses a suite the registry does not know. 0015's index stays, so the rule is one
-active managed key deployment-wide, stricter than one per suite and exactly what the rotation flow above
-produces.
+active managed key deployment-wide, which is exactly what the rotation flow above produces.
 
 ### D4. One global `suite` policy field; fail closed; no auto-rotation
 
@@ -438,7 +437,7 @@ changes scope, not code already written.
 |---|---|---|---|
 | D2 | Default suite: `age-pq/v1` (PQ-hybrid, 128-bit level, no new module, `age` CLI recovery) or the Tink AES-256 suite (256-bit, FIPS-shaped primitives, protobuf, JVM or Go reader) | `age-pq/v1`; Tink only if the product must print "AES-256" | not answered; the epic implements `age-pq/v1` |
 | D2' | Whether to ship the Tink suite at all in this epic | no; reserve the id, decide after phase 1 | not answered; not shipped, id reserved |
-| D3 | Index change vs side table for the key's suite, pending the compat cell check | index change if the cell allows it | an implementation call, made and stated in #1312's pull request |
+| D3 | Index change vs side table for the key's suite, pending the compat cell check | index change if the cell allows it | made in #1312: the side table, because the cell refuses the index change; one active managed key stays deployment-wide |
 | D4 | Per-set `suite` override | not in this epic | not answered; not in this epic |
 | D6 | Same-medium re-encryption | Later, with its own crash matrix | not answered; Later |
 | D10 | Ciphertext-only local copy (`local_copy: ciphertext`) as a product definition | a separate epic, after this one, only if the owner wants the key to be required for source deletion | not answered; out of this epic |

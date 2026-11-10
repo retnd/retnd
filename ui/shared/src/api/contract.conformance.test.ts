@@ -566,7 +566,12 @@ describe("every request the shared client makes is a declared operation", () => 
       ["confirmRecoveryBundle", () => httpApi.confirmRecoveryBundle("k0123")],
       ["testEncryptionProvider", () => httpApi.testEncryptionProvider({ external: { file: "/run/secrets/key" } })],
       ["listEncryptionCopies", () => httpApi.listEncryptionCopies("src/set-1/a.tar.gz")],
-      ["startDecryptVerify", () => httpApi.startDecryptVerify({ artifactId: "src/set-1/a.tar.gz", medium: "offsite", acknowledgeEgress: true })]
+      ["startDecryptVerify", () => httpApi.startDecryptVerify({ artifactId: "src/set-1/a.tar.gz", medium: "offsite", acknowledgeEgress: true })],
+      // EPIC T's suites (#1318): the registry, and the re-encrypt dry run
+      // (GET with a selector) and run (POST with the chosen destination).
+      ["listEncryptionSuites", () => httpApi.listEncryptionSuites()],
+      ["planReencrypt", () => httpApi.planReencrypt({ suite: "age/v1" })],
+      ["startReencrypt", () => httpApi.startReencrypt({ suite: "age/v1", to: "offsite" })]
     ];
     for (const [, call] of calls) {
       await call().catch(() => undefined);
@@ -721,11 +726,12 @@ describe("every request the shared client makes is a declared operation", () => 
     // out. They were never a standing permission — nothing in ui/shared
     // could call them without this list shrinking, which is the property
     // the exact assertion below enforces in both directions.
-    "getSession",
-    // EPIC T's suite listing (#1315) lands its route and verb before any
-    // screen; the Settings suite select (#1318) calls it and takes it out of
-    // this list in the same commit.
-    "listEncryptionSuites"
+    "getSession"
+    //
+    // EPIC T's suite listing (#1315) landed its route and verb before any
+    // screen and was pinned here; the Settings suite choice (#1318) calls
+    // it, so it left this list in the same commit, with the re-encrypt pair
+    // (#1317) that the Dashboard's Re-encrypt dialog calls.
     //
     // EPIC Q's recovery pair (#976), mintRecovery and redeemRecovery, used to
     // be pinned here as "unreached until a screen calls them". The Recover

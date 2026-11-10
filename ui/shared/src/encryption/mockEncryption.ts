@@ -339,13 +339,19 @@ export function createMockEncryption(scenario: string, setIds: () => string[]) {
       const under = suites.find((x) => x.id === req.suite);
       const n = under?.activeCopies ?? 0;
       const key = req.suite === AGE ? KEY_OLD : "mk-2026-05-02-a";
-      const copies: ReencryptPlanCopy[] = Array.from({ length: n }, (_, i) => ({
-        artifactId: "production/postgres-primary/postgres-prod-202608" + String(10 + i) + ".dump.zst",
-        medium: "offsite_s3", suite: req.suite ?? "", keyId: key,
-        to: i < n - 2 || req.suite !== AGE ? req.to ?? "offsite_cold" : null,
-        refusal: i < n - 2 || req.suite !== AGE ? null : "same_medium",
-        reason: i < n - 2 || req.suite !== AGE ? null : "same medium only: offsite_cold already holds this backup, and a copy is never rewritten in place"
-      }));
+      // Every copy here sits on offsite_s3, so a run onto offsite_s3 refuses
+      // them all; onto anything else the last two age/v1 copies are refused
+      // because that medium already holds their backup.
+      const copies: ReencryptPlanCopy[] = Array.from({ length: n }, (_, i) => {
+        const sameMedium = req.to === "offsite_s3" || (req.suite === AGE && i >= n - 2);
+        return {
+          artifactId: "production/postgres-primary/postgres-prod-202608" + String(10 + i) + ".dump.zst",
+          medium: "offsite_s3", suite: req.suite ?? "", keyId: key,
+          to: sameMedium ? null : req.to ?? "offsite_cold",
+          refusal: sameMedium ? "same_medium" : null,
+          reason: sameMedium ? "same medium only: " + (req.to ?? "offsite_cold") + " already holds this backup, and a copy is never rewritten in place" : null
+        };
+      });
       return later({ copies });
     },
     startReencrypt: (req) => {
