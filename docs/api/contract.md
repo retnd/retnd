@@ -833,6 +833,11 @@ copy. `EncryptionCopy` gains `stored_digest` (the ciphertext bytes) and
 construction. `EncryptionKeyStatus` gains `copies_recording` (ACTIVE copies
 that record the key) and `bundle_exported_at` (absent if never exported).
 
+`Placement` also gains `encryption_suite` (#1318): the suite the copy's record
+names, which is its format id read back, never the policy's current suite.
+Absent for a plaintext copy and from an older server, so the Encrypted chip
+draws no id rather than a guessed one.
+
 ### Progress stages for an encrypted copy
 
 `OperationProgress.stage` and `LiveActivitySet.stage` gain `encrypting` and

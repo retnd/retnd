@@ -20,7 +20,7 @@
  * yesterday, and the chip must say so.
  */
 import type { BackupPlacement } from "@shared/types/backup";
-import type { CopyEncryption } from "@shared/types/encryption";
+import type { CopyEncryption, EncryptionKey, EncryptionPolicy, EncryptionSuite } from "@shared/types/encryption";
 
 export type RecoveryChip =
   /** A plaintext copy has no recovery question. */
@@ -40,15 +40,21 @@ export interface CopyEncryptionView {
   /** When the matching decrypt-verify was recorded, only for "verified". */
   verifiedAt: string | null;
   keyId: string | null;
+  /** The suite the copy's record names, drawn on the Encrypted chip
+   *  (EPIC T, #1318). Null or absent when the record names none, and then
+   *  the chip draws no id rather than a guessed one. */
+  suite?: string | null;
 }
 
 export function copyEncryptionView(
   copy: CopyEncryption,
-  placement: Pick<BackupPlacement, "verificationClass" | "verifiedAt"> | undefined,
+  placement: (Pick<BackupPlacement, "verificationClass" | "verifiedAt"> & { encryptionSuite?: string | null }) | undefined,
   failedVerify = false
 ): CopyEncryptionView {
-  if (!copy.encrypted) return { sealed: false, recovery: "none", verifiedAt: null, keyId: null };
-  const base = { sealed: true, keyId: copy.keyId };
+  if (!copy.encrypted) return { sealed: false, recovery: "none", verifiedAt: null, keyId: null, suite: null };
+  // The copies read's format IS the suite id (ADR 0031); the placement's own
+  // field says the same thing where the page has only the placement.
+  const base = { sealed: true, keyId: copy.keyId, suite: copy.format ?? placement?.encryptionSuite ?? null };
   // The key does not resolve: that is its own state, never a weaker class
   // wearing a stronger name. An unreported answer (null) is not "resolves".
   if (copy.keyResolvable === false) return { ...base, recovery: "key-missing", verifiedAt: null };
@@ -103,15 +109,15 @@ export function encryptionConditions(keys: { id: string; status: string; resolva
 /**
  * A placement's own encryption fields as a CopyEncryption, for the surfaces
  * that have the placement and not the copies read (the Backups list). Only the
- * three fields the placement carries are filled; the rest are null, and a
+ * four fields the placement carries are filled (its suite is the format id); the rest are null, and a
  * resolvability the server did not state stays null, never "resolves".
  */
-export function placementEncryption(p: Pick<BackupPlacement, "medium" | "encrypted" | "encryptionKeyId" | "encryptionKeyResolvable">): CopyEncryption {
+export function placementEncryption(p: Pick<BackupPlacement, "medium" | "encrypted" | "encryptionKeyId" | "encryptionKeyResolvable" | "encryptionSuite">): CopyEncryption {
   const encrypted = p.encrypted === true;
   return {
     medium: p.medium,
     encrypted,
-    format: null,
+    format: encrypted ? p.encryptionSuite ?? null : null,
     formatVersion: null,
     keyId: encrypted ? p.encryptionKeyId ?? null : null,
     keyResolvable: encrypted ? p.encryptionKeyResolvable ?? null : null,
@@ -133,4 +139,36 @@ export function artifactsUnderKey<T extends { placements: readonly Pick<BackupPl
 ): T[] {
   if (keyId === "") return [...artifacts];
   return artifacts.filter((a) => a.placements.some((p) => p.encrypted === true && p.encryptionKeyId === keyId));
+}
+
+/**
+ * T2.1's health sentence for one suite (EPIC T, #1318), or null when the
+ * suite says nothing: a supported suite, or a deprecated or retired one that
+ * no active copy and no key records any more. `activeKeyUnderIt` is whether
+ * the active managed key belongs to this suite.
+ */
+export function suiteHealthSentence(s: EncryptionSuite, activeKeyUnderIt: boolean): string | null {
+  if (s.status !== "deprecated" && s.status !== "retired") return null;
+  if (s.activeCopies === 0 && s.keys === 0) return null;
+  const copies = s.activeCopies + (s.activeCopies === 1 ? " active copy" : " active copies");
+  const subject = activeKeyUnderIt && s.status === "deprecated" ? copies + " and the active key are" : copies + (s.activeCopies === 1 ? " is" : " are");
+  if (s.status === "deprecated") {
+    return subject + " under a deprecated suite (" + s.id + ")" + (s.retiredIn ? "; retirement is announced for version " + s.retiredIn : "") + ".";
+  }
+  return subject + " under a retired suite (" + s.id + "); it reads and never writes.";
+}
+
+/**
+ * The suite the policy names when it has no active key under it (EPIC T,
+ * T1.4's refusal): copies under a required managed policy are refused, before
+ * anything is deleted, until a rotation. Null when there is nothing owed, and
+ * null when the server is older than the suite fields (a key with no suite is
+ * not evidence of a mismatch).
+ */
+export function suiteWithoutKey(policy: Pick<EncryptionPolicy, "mode" | "keyProvider" | "suite"> | null, keys: Pick<EncryptionKey, "status" | "suite">[]): string | null {
+  if (!policy || policy.mode !== "required" || policy.keyProvider.kind !== "managed" || !policy.suite) return null;
+  const active = keys.find((k) => k.status === "active");
+  if (!active) return policy.suite;
+  if (active.suite === undefined || active.suite === null) return null;
+  return active.suite === policy.suite ? null : policy.suite;
 }

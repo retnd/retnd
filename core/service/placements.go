@@ -105,6 +105,11 @@ type Placement struct {
 	EncryptionKeyID         string
 	EncryptionKeyResolvable *bool
 
+	// EncryptionSuite is the suite the copy's record names (#1318): its
+	// format_id, which is the suite id (ADR 0031), read back and never the
+	// policy's current suite. Empty for a plaintext copy.
+	EncryptionSuite string
+
 	// ScrubState, ScrubNextDueAt and ScrubLastCheckedAt are this copy's own
 	// scrub record (migration 0016), read back from the journal. ScrubState
 	// is "unknown" for a copy nobody has scrubbed, and the two times are the

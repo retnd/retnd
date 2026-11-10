@@ -135,7 +135,7 @@ table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
 .suites{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;border:0}
 .suites legend{font-weight:600;font-size:12.5px;margin-bottom:4px}
 .sopt{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;padding:8px;border:1px solid var(--edge-3);border-radius:var(--radius-md);background:var(--surface)}
-.sopt.on{border-width:2px;border-color:var(--accent);background:var(--accent-quiet)}
+.sopt.on{border-width:2px;border-color:var(--accent)}
 .sopt.off{border-style:dashed}
 .sopt .id{font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--text)}
 .sopt .d{grid-column:2;color:var(--text-2);font-size:12px}
@@ -168,7 +168,7 @@ table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
   <div class="reason">
     <p><strong>Decision.</strong> The card gains one group, <em>Suite</em>, listing every suite the registry has, in registry order, each with its id in mono, a status badge and the suite's own <code>Describe()</code> sentence under it. The default carries a <em>Default</em> badge (ok edge and fill), a supported suite <em>Supported</em> (neutral edge), a deprecated suite <em>Deprecated, retiring in V</em> (warn edge and fill), and a retired suite is shown, dashed and disabled, with <em>Retired</em> and the reason it cannot be chosen. The current choice is the policy's resolved <code>suite</code>; when the configuration says <code>default</code> the line under the group says so, because "follows the build's default" and "pinned to age-pq/v1" are different promises across an upgrade.</p>
     <p><strong>Why a radio group and not a native select.</strong> A native <code>&lt;option&gt;</code> cannot carry a sentence under it, a badge beside it or a reason next to a disabled entry, and its disabled ink is the browser's, which cannot be measured or held to 4.5:1. The issue asks for the status beside each option and the reason beside a retired one, so every option is a row that can show them, measured in section 8. It is still one choice with one value, and the keyboard moves through it as a radio group does.</p>
-    <p><strong>Off is unchanged.</strong> With encryption off the group is still shown, read-only, so an operator can see what would be used, and choosing a suite there only patches the policy: there is no key to rotate until encryption is on.</p>
+    <p><strong>Off is unchanged.</strong> With encryption off the card stays one switch and one sentence, as #994 decided: no Suite group is drawn, because there is nothing to write under a suite until encryption is on. Enabling creates the first key under the policy's suite, which reads as the default unless a configuration pins one.</p>
   </div>
 </section>
 
@@ -242,7 +242,8 @@ table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
       <tr><td>Retired badge: --text-2 on --surface-2</td><td>6.36</td><td>6.51</td><td>4.5</td></tr>
       <tr><td>Disabled (retired) option id and reason: --text-2 on --surface</td><td>6.64</td><td>6.89</td><td>4.5</td></tr>
       <tr><td>Describe() sentence: --text-2 on --surface</td><td>6.64</td><td>6.89</td><td>4.5</td></tr>
-      <tr><td>Selected option text: --text on --accent-quiet</td><td>15.10</td><td>11.68</td><td>4.5</td></tr>
+      <tr><td>Selected option edge: --accent on --surface (the row keeps the plain surface)</td><td>5.51</td><td>6.36</td><td>3</td></tr>
+      <tr><td>Current step: --text on --accent-quiet</td><td>15.10</td><td>11.68</td><td>4.5</td></tr>
       <tr><td>Tooltip body: --text-2 on --surface</td><td>6.64</td><td>6.89</td><td>4.5</td></tr>
       <tr><td>Tooltip strong and code: --text on --surface-3</td><td>15.29</td><td>12.73</td><td>4.5</td></tr>
       <tr><td>Still-owed note and health rows: --text on --warn-quiet</td><td>15.46</td><td>11.80</td><td>4.5</td></tr>
@@ -250,6 +251,7 @@ table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
       <tr><td>Default badge edge and done-step glyph: --ok on --surface</td><td>5.24</td><td>7.16</td><td>3</td></tr>
       <tr><td>Deprecated badge edge: --warn on --surface</td><td>4.76</td><td>8.34</td><td>3</td></tr>
     </table>
+    <p>The first draft filled the selected option with <code>--accent-quiet</code>. A neutral badge edge (<code>--edge-3</code>) on that fill measures 2.90:1 in light, under the 3:1 a control edge needs, so the selected row keeps the plain surface and is marked by a 2px <code>--accent</code> edge (5.51:1 and 6.36:1) and by its checked radio.</p>
     <p>The disabled option is not faded with opacity, which is how a disabled control usually loses its contrast: it keeps <code>--text-2</code>, a dashed edge and the word <em>Retired</em>, so it reads as unavailable by its shape and its words rather than by being hard to read.</p>
   </div>
 </section>
@@ -281,7 +283,7 @@ const S={
   ${echo("retnd encryption suites")}
  </div></div>`},
  flow(){return `<div class="card"><h3>Change the suite</h3><div class="body">
-  <ol class="steps"><li class="done"><span class="g">${G.pass}</span>Patch</li><li class="now"><span class="g">2</span>Rotate key</li><li><span class="g">3</span>Download bundle</li><li><span class="g">4</span>Confirm</li></ol>
+  <ol class="steps"><li class="done"><span class="g">${G.pass}</span>Change suite</li><li class="now"><span class="g">2</span>Rotate key</li><li><span class="g">3</span>Download bundle</li><li><span class="g">4</span>Confirm</li></ol>
   <div class="muted">The policy now says age-pq/v1 and there is no active key under it, so copies under the policy are refused, before anything is deleted, until you rotate.</div>
   ${echo("retnd encryption key rotate --suite age-pq/v1")}
   <div class="row"><button class="btn">Cancel</button><button class="btn primary">Rotate key</button></div>

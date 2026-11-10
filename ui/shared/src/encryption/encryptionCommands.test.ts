@@ -81,7 +81,7 @@ describe("no browser action without a command, and no command without an action 
 
   it("gives each control a real retnd encryption command", () => {
     for (const [id, c] of Object.entries(CONTROLS)) {
-      expect(c.echo(), id).toMatch(/^retnd encryption (policy|backup-set|key|provider|verify)/);
+      expect(c.echo(), id).toMatch(/^retnd encryption (policy|backup-set|key|provider|verify|reencrypt)/);
     }
   });
 });

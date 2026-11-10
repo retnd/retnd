@@ -56,7 +56,9 @@ PAIRS: list[tuple[str, str, str, str, str, float]] = [
     # The options: the sentence, the selected row and the disabled (retired) row.
     ("encryption/encryption.css", ".esuite", "border-color", "edge-3", "surface", EDGE),
     ("encryption/encryption.css", ".esuite__desc", "color", "text-2", "surface", NORMAL),
-    ("encryption/encryption.css", ".esuite[data-selected]", "background", "text", "accent-quiet", NORMAL),
+    # The selected row keeps the plain surface (a neutral badge edge on the
+    # accent fill measured 2.90:1 in light) and is marked by a 2px accent edge.
+    ("encryption/encryption.css", ".esuite[data-selected]", "border-color", "accent", "surface", EDGE),
     ("encryption/encryption.css", ".esuite[data-disabled] .esuite__id", "color", "text-2", "surface", NORMAL),
     ("encryption/encryption.css", ".esuite__reason", "color", "text-2", "surface", NORMAL),
     # The step strip of the change dialog.
@@ -139,6 +141,7 @@ def rule_declares(sheet: str, selector: str, prop: str, token: str) -> bool:
     """Whether `sheet` has a rule for `selector` (alone or in a list) that
     declares `prop` with var(--token), or for a pair painted on a fill
     (prop "background"), a background of var(--token-of-the-fill)."""
+    sheet = re.sub(r"/\*.*?\*/", "", sheet, flags=re.S)
     for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", sheet):
         names = [s.strip() for s in sel.split(",")]
         if selector not in names:

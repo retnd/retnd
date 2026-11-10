@@ -33,9 +33,14 @@
  *   Inherit / Off / Required (set card)       PUT   /backup-sets/{s}/{s}/encryption   setEncryptionCommand
  *   Follow the deployment (set card)          DELETE /backup-sets/{s}/{s}/encryption  setEncryptionResetCommand
  *   Verify recoverable                        POST  /encryption/verify                verifyCommand
+ *   Suite choice (Settings card, #1318)       PATCH /encryption/policy                policyPatchCommand({ suite })
+ *   Rotate key, suite change step             POST  /encryption/keys/rotate           keyRotateCommand(suite)
+ *   Re-encrypt under current suite            POST  /encryption/reencrypt             reencryptCommand
+ *   (its dry run, the same route)             POST  /encryption/reencrypt dry_run     reencryptCommand({ dryRun })
  *
- * The reads (policy, key list, copies) have verbs too (policyShowCommand,
- * keyListCommand, copiesCommand) and are shown where the page reads them.
+ * The reads (policy, key list, copies, suites) have verbs too
+ * (policyShowCommand, keyListCommand, copiesCommand, suitesCommand) and are
+ * shown where the page reads them.
  */
 import { shellQuote } from "@shared/assurance/assuranceCommands";
 import type { EncryptionMode, ExternalKeyReference, KeyProviderInput, SetEncryptionMode } from "@shared/types/encryption";
@@ -58,12 +63,16 @@ function referenceFlags(r: ExternalKeyReference): string[] {
 
 export const policyShowCommand = () => "retnd encryption policy";
 
-export function policyPatchCommand(patch: { mode?: EncryptionMode; keyProvider?: KeyProviderInput }): string {
+export function policyPatchCommand(patch: { mode?: EncryptionMode; keyProvider?: KeyProviderInput; suite?: string }): string {
   const parts = ["retnd encryption policy patch"];
   if (patch.mode) parts.push("--mode " + patch.mode);
   parts.push(...providerFlags(patch.keyProvider));
+  if (patch.suite) parts.push("--suite " + shellQuote(patch.suite));
   return parts.join(" ");
 }
+
+/** The registry with statuses, sentences and counts (EPIC T, #1318). */
+export const suitesCommand = () => "retnd encryption suites";
 
 export const policyResetCommand = () => "retnd encryption policy reset";
 
@@ -74,8 +83,9 @@ export function setEncryptionCommand(setId: string, mode: SetEncryptionMode, key
 export const setEncryptionResetCommand = (setId: string) => "retnd encryption backup-set " + shellQuote(setId) + " --reset";
 
 export const keyListCommand = () => "retnd encryption key list";
-export const keyCreateCommand = () => "retnd encryption key create";
-export const keyRotateCommand = () => "retnd encryption key rotate";
+/** With a suite (EPIC T), the key belongs to it; without, to the policy's. */
+export const keyCreateCommand = (suite?: string) => "retnd encryption key create" + (suite ? " --suite " + shellQuote(suite) : "");
+export const keyRotateCommand = (suite?: string) => "retnd encryption key rotate" + (suite ? " --suite " + shellQuote(suite) : "");
 export const keyRetireCommand = (id: string) => "retnd encryption key retire " + shellQuote(id);
 export const keyExportCommand = (id: string) => "retnd encryption key export " + shellQuote(id) + " --out " + shellQuote(EXPORT_STAND_IN);
 
@@ -98,4 +108,19 @@ export function verifyCommand(artifactId: string, opts: { medium?: string; allow
     (opts.medium ? " --medium " + shellQuote(opts.medium) : "") +
     (opts.allowEgress ? " --allow-egress" : "")
   );
+}
+
+/**
+ * Re-encrypt under the active suite and key (EPIC T, T2.2): selects by suite,
+ * by key or every deprecated suite, optionally to a named medium. The dry run
+ * is the same line with --dry-run, and is what the browser runs first.
+ */
+export function reencryptCommand(sel: { suite?: string; key?: string; deprecated?: boolean; to?: string; dryRun?: boolean }): string {
+  const parts = ["retnd encryption reencrypt"];
+  if (sel.suite) parts.push("--suite " + shellQuote(sel.suite));
+  if (sel.key) parts.push("--key " + shellQuote(sel.key));
+  if (sel.deprecated) parts.push("--deprecated");
+  if (sel.to) parts.push("--to " + shellQuote(sel.to));
+  if (sel.dryRun) parts.push("--dry-run");
+  return parts.join(" ");
 }

@@ -758,6 +758,7 @@ func (b *BackupService) annotateEncryption(ctx context.Context, arts []Artifact)
 				resolves[enc.KeyID] = r
 			}
 			p.Encrypted, p.EncryptionKeyID, p.EncryptionKeyResolvable = true, enc.KeyID, &r
+			p.EncryptionSuite = enc.FormatID
 		}
 	}
 }

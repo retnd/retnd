@@ -28,7 +28,7 @@ import { createMockApi } from "@shared/api/mock";
 import { httpApi } from "@shared/api/client";
 import type { RetndApi } from "@shared/api/contracts";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
-import { Row } from "@shared/components/Definitions";
+import { Rows } from "@shared/components/Definitions";
 import { EncryptionCard } from "@shared/encryption/EncryptionCard";
 import { CopyChips } from "@shared/encryption/EncryptionChips";
 import { EncryptionDigests } from "@shared/encryption/EncryptionDigests";
@@ -213,10 +213,8 @@ describe("the suite on every encrypted copy (#1318)", () => {
       medium: "offsite", encrypted: true, format: "age-pq/v1", formatVersion: 1, keyId: "mk-1", keyResolvable: true,
       storedDigestAlgorithm: "sha256", storedSize: 10, storedDigest: "sha256:f17", plaintextDigest: "sha256:a04"
     };
-    render(<MemoryRouter><dl><EncryptionDigests copies={[copy]} /></dl></MemoryRouter>);
+    render(<MemoryRouter><Rows><EncryptionDigests copies={[copy]} /></Rows></MemoryRouter>);
     expect(screen.getByText(/\(suite age-pq\/v1 v1, key mk-1\)/)).toBeInTheDocument();
-    // Row is imported so the shape the digests render into stays the one the page uses.
-    expect(Row).toBeTypeOf("function");
   });
 });
 
