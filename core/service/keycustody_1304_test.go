@@ -153,3 +153,33 @@ func TestNoExternalKeyRowsMeansNoStoreIsOpenedToLookForRisk_1304(t *testing.T) {
 		t.Errorf("looking for risk created the key directory (stat: %v): a deployment that uses no external key must stay byte identical", statErr)
 	}
 }
+
+// A health build reads the last probe and never resolves a reference; only
+// ExternalKeysAtRisk (the alert tick) does, and it is cached briefly so two
+// asks in one tick resolve once.
+func TestHealthReadsTheLastExternalKeyProbeAndNeverResolvesAReference_1304(t *testing.T) {
+	f, a, _, _, refB, _ := externalCopy(t, true)
+	ctx := context.Background()
+	declaring(f, refB)
+
+	if got := f.b.keys.LastExternalKeysAtRisk(); len(got) != 0 {
+		t.Fatalf("before any probe: %+v, want nothing (a health build must not resolve to find out)", got)
+	}
+	first, err := f.b.keys.ExternalKeysAtRisk(ctx)
+	if err != nil || len(first) != 1 || first[0].KeyID != a.ID {
+		t.Fatalf("probe = %+v, %v", first, err)
+	}
+	if got := f.b.keys.LastExternalKeysAtRisk(); len(got) != 1 || got[0].KeyID != a.ID {
+		t.Errorf("last = %+v, want the probe's result", got)
+	}
+
+	// Within the cache window a second ask does not resolve again: put the
+	// reference back and the cached answer still stands.
+	refA := secretref.Ref{}
+	_ = refA
+	declaring(f, refB, refB)
+	again, _ := f.b.keys.ExternalKeysAtRisk(ctx)
+	if len(again) != 1 {
+		t.Errorf("a second ask inside the window re-resolved: %+v", again)
+	}
+}

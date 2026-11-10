@@ -31,8 +31,8 @@ func (c *riskCustody) ExternalKeysAtRisk(context.Context) ([]health.ExternalKeyA
 
 // healthCustody answers the health section's two questions.
 type healthCustody struct {
+	t     *testing.T
 	risks []health.ExternalKeyAtRisk
-	err   error
 }
 
 func (c *healthCustody) Keys(context.Context) ([]keycustody.KeyRecord, error) { return nil, nil }
@@ -41,9 +41,15 @@ func (c *healthCustody) Health(context.Context, bool) (health.KeyCustodyHealth, 
 	return health.KeyCustodyHealth{}, nil
 }
 
+// ExternalKeysAtRisk resolves references, which a health build must never do
+// (it runs on every GET /health).
 func (c *healthCustody) ExternalKeysAtRisk(context.Context) ([]health.ExternalKeyAtRisk, error) {
-	return c.risks, c.err
+	c.t.Error("a health build resolved external key references")
+	return nil, nil
 }
+
+// LastExternalKeysAtRisk is the last probe's result, read without resolving.
+func (c *healthCustody) LastExternalKeysAtRisk() []health.ExternalKeyAtRisk { return c.risks }
 
 func atRisk(set string, n int) health.ExternalKeyAtRisk {
 	r := health.ExternalKeyAtRisk{KeyID: "x0123456789abcdef", Reason: "no external reference is declared"}
@@ -135,7 +141,7 @@ func TestACopyOfADisabledSetIsNotAlertedAboutAndASetAlreadyAlertedIsNotAlertedTw
 
 func TestKeyCustodyHealthCarriesTheExternalKeysNoReferenceYields_1304(t *testing.T) {
 	bs := testBackupSet(t, t.TempDir())
-	keys := &healthCustody{risks: []health.ExternalKeyAtRisk{atRisk("postgres-primary", 1)}}
+	keys := &healthCustody{t: t, risks: []health.ExternalKeyAtRisk{atRisk("postgres-primary", 1)}}
 	svc := New(alertingConfig(t, testSource("production", bs)), openJournal(t), newFakeTransport(), nil)
 	svc.Keys = keys
 
@@ -145,11 +151,5 @@ func TestKeyCustodyHealthCarriesTheExternalKeysNoReferenceYields_1304(t *testing
 	}
 	if len(got.ExternalKeysAtRisk) != 1 || got.ExternalKeysAtRisk[0].KeyID != "x0123456789abcdef" || !got.Degraded() {
 		t.Errorf("health = %+v, want the key listed and the section degraded", got)
-	}
-
-	// A failed look is a failed report, never "nothing at risk".
-	keys.err = errors.New("database is locked")
-	if _, err := svc.keyCustodyHealth(context.Background()); err == nil {
-		t.Error("a risk look that failed produced a report")
 	}
 }
