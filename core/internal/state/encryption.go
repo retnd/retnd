@@ -75,6 +75,11 @@ var (
 	// what every copy made under it records.
 	ErrEncryptionKeyExists = errors.New("state: encryption key already registered")
 
+	// ErrEncryptionKeyInUse is returned by RetireEncryptionKey for a key
+	// that is still active or that an ACTIVE copy still records. Use
+	// ActivePlacementsRecordingKey to name the copies.
+	ErrEncryptionKeyInUse = errors.New("state: encryption key is still in use")
+
 	// ErrRecoveryBundleExportNotFound is returned when a confirmation names
 	// a bundle digest no export of that key recorded.
 	ErrRecoveryBundleExportNotFound = errors.New("state: no recovery bundle export with that digest")
@@ -234,6 +239,91 @@ func (j *Journal) EncryptionKey(ctx context.Context, id string) (EncryptionKey, 
 		return EncryptionKey{}, fmt.Errorf("state: read encryption key %s: %w", id, err)
 	}
 	return k, nil
+}
+
+// ActivePlacementsRecordingKey lists the ACTIVE copies whose encryption
+// record names keyID, in a stable order. Copies that are delete-pending or
+// gone are not listed: nothing needs a key to read what is no longer meant
+// to be there.
+func (j *Journal) ActivePlacementsRecordingKey(ctx context.Context, keyID string) ([]model.CopyRef, error) {
+	return activePlacementsRecordingKey(ctx, j.db, keyID)
+}
+
+func activePlacementsRecordingKey(ctx context.Context, q interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, keyID string) ([]model.CopyRef, error) {
+	rows, err := q.QueryContext(ctx, `
+		SELECT a.source, a.backup_set, a.artifact_name, p.medium
+		  FROM placement_encryption pe
+		  JOIN placements p ON p.id = pe.placement_id
+		  JOIN artifacts a ON a.id = p.artifact_id
+		 WHERE pe.key_id = ? AND p.status = ?
+		 ORDER BY a.source, a.backup_set, a.artifact_name, p.medium`, keyID, PlacementActive)
+	if err != nil {
+		return nil, fmt.Errorf("state: list active copies recording key %s: %w", keyID, err)
+	}
+	defer rows.Close()
+	var out []model.CopyRef
+	for rows.Next() {
+		var source, set, name, medium string
+		if err := rows.Scan(&source, &set, &name, &medium); err != nil {
+			return nil, fmt.Errorf("state: list active copies recording key %s: %w", keyID, err)
+		}
+		out = append(out, model.CopyRef{
+			Artifact: model.ArtifactID{Set: model.BackupSetID{Source: source, Set: set}, Name: name},
+			Medium:   medium,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("state: list active copies recording key %s: %w", keyID, err)
+	}
+	return out, nil
+}
+
+// RetireEncryptionKey moves a key to EncryptionKeyRetired at time at, in
+// its own transaction that re-checks the rules first: an unknown key is
+// ErrEncryptionKeyNotFound, a key that is still active, already retired, or
+// still recorded by any ACTIVE copy is ErrEncryptionKeyInUse (or an error
+// for the already retired case) and nothing changes. status and retired_at
+// are written together so the schema's pairing constraint holds.
+func (j *Journal) RetireEncryptionKey(ctx context.Context, keyID string, at time.Time) error {
+	if at.IsZero() {
+		return fmt.Errorf("state: retire encryption key %s: the retirement time must be set", keyID)
+	}
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("state: retire encryption key %s: %w", keyID, err)
+	}
+	defer tx.Rollback() //nolint:errcheck // rolled back unless committed
+
+	k, err := scanEncryptionKey(tx.QueryRowContext(ctx, `SELECT `+encryptionKeyColumns+` FROM encryption_keys WHERE id = ?`, keyID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: %s", ErrEncryptionKeyNotFound, keyID)
+	}
+	if err != nil {
+		return fmt.Errorf("state: retire encryption key %s: %w", keyID, err)
+	}
+	switch k.Status {
+	case EncryptionKeyActive:
+		return fmt.Errorf("%w: %s is the active key", ErrEncryptionKeyInUse, keyID)
+	case EncryptionKeyRetired:
+		return fmt.Errorf("state: retire encryption key %s: already retired", keyID)
+	}
+	copies, err := activePlacementsRecordingKey(ctx, tx, keyID)
+	if err != nil {
+		return err
+	}
+	if len(copies) > 0 {
+		return fmt.Errorf("%w: %s is recorded by %d active copies, first %s", ErrEncryptionKeyInUse, keyID, len(copies), copies[0])
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE encryption_keys SET status = ?, retired_at = ? WHERE id = ?`,
+		EncryptionKeyRetired, formatTime(at), keyID); err != nil {
+		return fmt.Errorf("state: retire encryption key %s: %w", keyID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("state: retire encryption key %s: %w", keyID, err)
+	}
+	return nil
 }
 
 // PlacementEncryption is the per-copy record: how one encrypted copy was

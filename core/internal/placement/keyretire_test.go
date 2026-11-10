@@ -275,3 +275,43 @@ func TestRetirementIsLoggedWithAResult_992(t *testing.T) {
 		t.Errorf("retirement events = %#v, want one error then one success naming kold", events)
 	}
 }
+
+// The same refusal over the real journal: a rotation supersedes the key, an
+// ACTIVE encrypted copy still records it, so retiring it is refused naming
+// that copy; once the copy is not ACTIVE any more the same call succeeds.
+// Written by reading; not run.
+func TestRetiringARotatedKeyOverTheRealJournalNamesTheCopy_992(t *testing.T) {
+	f := newEncryptedFixture(t, fixtureOpts{})
+	encryptedCopy(t, f)
+	if _, err := f.keys.Rotate(f.ctx, testNow2); err != nil {
+		t.Fatalf("Rotate: %v", err)
+	}
+
+	err := placement.RetireKey(f.ctx, f.journal, nil, f.ck.ID, testNow2)
+	var inUse *placement.KeyInUseError
+	if !errors.As(err, &inUse) || len(inUse.Copies) != 1 || inUse.Copies[0].Artifact != f.artifact || inUse.Copies[0].Medium != testMedium {
+		t.Fatalf("err = %v, want the one copy on %s named", err, testMedium)
+	}
+	if k, e := f.journal.EncryptionKey(f.ctx, f.ck.ID); e != nil || k.Status != state.EncryptionKeySuperseded {
+		t.Errorf("key after a refused retirement = %+v (%v), want superseded", k, e)
+	}
+
+	r := &placement.Reclaimer{Store: f.medium, Mediums: f.engine.Mediums, Encryption: f.journal, Now: func() time.Time { return testNow2 }}
+	if e := r.DeleteFromMedium(f.ctx, f.record(), testMedium); e != nil {
+		t.Fatalf("delete: %v", e)
+	}
+	// Reclaim leaves the placement for retention's own journal write; mark it
+	// gone the way that write does so the key has no ACTIVE copy left.
+	if _, e := f.journal.RecordTransition(f.ctx, state.Transition{
+		Artifact: f.artifact, Key: "gone-for-retire-992", From: "COMPLETE", To: "COMPLETE", OccurredAt: testNow2,
+		Placement: &state.PlacementUpdate{Medium: testMedium, Location: f.key, Status: state.PlacementGone},
+	}); e != nil {
+		t.Fatalf("RecordTransition: %v", e)
+	}
+	if err := placement.RetireKey(f.ctx, f.journal, nil, f.ck.ID, testNow2); err != nil {
+		t.Fatalf("retiring a key whose last copy is GONE: %v", err)
+	}
+	if k, _ := f.journal.EncryptionKey(f.ctx, f.ck.ID); k.Status != state.EncryptionKeyRetired {
+		t.Errorf("key status = %q, want retired", k.Status)
+	}
+}
