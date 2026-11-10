@@ -816,6 +816,15 @@ all. The browser keeps the download for now. If the answer is no, the route is
 removed, the browser's export becomes an instruction to run the echoed command,
 and nothing else in this surface depends on it.
 
+### Fields the Backups list and the key card read (additive)
+
+`Placement` (so `GET /backups` and the artifact detail) gains `encrypted`,
+`encryption_key_id` and `encryption_key_resolvable`, all absent for a plaintext
+copy. `EncryptionCopy` gains `stored_digest` (the ciphertext bytes) and
+`plaintext_digest` (`artifacts.local_hash`), two different values by
+construction. `EncryptionKeyStatus` gains `copies_recording` (ACTIVE copies
+that record the key) and `bundle_exported_at` (absent if never exported).
+
 ### Not decided here
 
 Progress stages for encrypting and decrypt-verifying are a published contract
