@@ -36,7 +36,7 @@ def ui_playwright(spec: str, grep: str = "") -> list[str]:
 def ui_vitest(files: str, name: str = "") -> list[str]:
     t = f' -t "{name}"' if name else ""
     return ["sh", "-c",
-            'w=$(cd ../.. && pwd -P); docker run --rm --cpus 3 --memory 4g --user 501:20 -e HOME=/tmp/h -e CI=1 '
+            'w=$(cd ../.. && pwd -P); docker run --rm --cpus 3 --memory 4g --user 501:20 -e HOME=/tmp/h -e CI=1 -e NO_COLOR=1 -e FORCE_COLOR=0 '
             f'{_mounts()} {UI_NODE_IMAGE} npx vitest run {files}{t}']
 
 

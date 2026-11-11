@@ -44,10 +44,10 @@ CONTROLS = [
         timeout="30m",
     ),
     Control(
-        "RT the policy line reports the build default and not the suite in force, under Suite A",
+        "RT the policy line always reports age-pq/v1 as the suite in force, under Suite A",
         ("T2.4",),
         [("core/cmd/retnd/encryption.go", "fmt.Printf(\"  suite: %s (configured: %s)\\n\", p.Suite, p.SuiteConfigured)",
-          "fmt.Printf(\"  suite: %s (configured: %s)\\n\", copycrypt.Default().ID(), p.SuiteConfigured) " + PLANT.strip())],
+          "fmt.Printf(\"  suite: %s (configured: %s)\\n\", \"age-pq/v1\", p.SuiteConfigured) " + PLANT.strip())],
         "",
         cmd=["bash", CASE, "a", "encryption/a-key-created-under-age-v1-stays-age-v1"],
         needles=["--- FAIL: TestCLIContract/encryption/a-key-created-under-age-v1-stays-age-v1"],
