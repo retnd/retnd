@@ -285,7 +285,7 @@ func isCalled(t *testing.T, root string, ep externalProducer) bool {
 				}
 				id, isIdent := x.X.(*ast.Ident)
 				switch {
-				case ep.method && !(isIdent && imported[id.Name]):
+				case ep.method && (!isIdent || !imported[id.Name]):
 					found = true
 				case !ep.method && isIdent && id.Name == ep.pkg && imported[id.Name]:
 					found = true
