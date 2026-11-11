@@ -321,13 +321,15 @@ func TestRetiringASupersededKeyNoCopyRecordsSucceeds_993(t *testing.T) {
 }
 
 // encryptedFixture seeds one COMPLETE backup with an encrypted copy on warm,
-// written under key.
+// written under key. The key is minted in age/v1, the suite the copy is
+// recorded under: since #1312 the build default is age-pq/v1, and a key of
+// another suite is refused before the copy is ever opened.
 func encryptedFixture(t *testing.T) (*recoveryFixture, model.ArtifactID, apicontract.EncryptionKeyStatus) {
 	t.Helper()
 	f := newRecoveryFixture(t, fixtureOpts{})
 	fileBacked(t, f)
 	ctx := context.Background()
-	key, err := f.b.CreateEncryptionKey(ctx, "")
+	key, err := f.b.CreateEncryptionKey(ctx, "age/v1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,7 +353,7 @@ func TestEncryptionCopiesSaysWhichCopiesAreEncryptedAndWhetherTheirKeyResolves_9
 		t.Fatalf("copies = %+v", got.Copies)
 	}
 	c := got.Copies[0]
-	if !c.Encrypted || c.KeyID != key.ID || c.Format != "age" || c.KeyResolvable == nil || !*c.KeyResolvable {
+	if !c.Encrypted || c.KeyID != key.ID || c.Format != "age/v1" || c.KeyResolvable == nil || !*c.KeyResolvable {
 		t.Errorf("the encrypted copy reads %+v", c)
 	}
 	raw, _ := json.Marshal(got)
