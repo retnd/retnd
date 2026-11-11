@@ -1212,13 +1212,6 @@ var routes = map[string]entry{
 		examples: []Action{{}},
 	},
 
-	// ------------------------------------------------------------- ssh ---
-	//
-	// The key store and the host-key probe had no verb until #1153, and
-	// each of these five entries was a written gap saying so. They name
-	// their verbs now. Key material and the passphrase are in the body
-	// and stay there: the key is a FILE on the command line and the
-	// passphrase is the first line of stdin, so the line is exportable.
 	// ------------------------------------------------------- agent ---
 	// EPIC U (#1345). The three token routes are session-only; the verbs are
 	// `retnd agent token ...`.
@@ -1253,6 +1246,14 @@ var routes = map[string]entry{
 		},
 		examples: []Action{{Params: map[string]string{"id": "agt_0123456789abcdef"}}},
 	},
+
+	// ------------------------------------------------------------- ssh ---
+	//
+	// The key store and the host-key probe had no verb until #1153, and
+	// each of these five entries was a written gap saying so. They name
+	// their verbs now. Key material and the passphrase are in the body
+	// and stay there: the key is a FILE on the command line and the
+	// passphrase is the first line of stdin, so the line is exportable.
 	key("POST", "/ssh-keys"): {
 		build: func(a Action) *cmd {
 			var req struct {
