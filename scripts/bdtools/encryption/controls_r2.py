@@ -59,4 +59,13 @@ CONTROLS = [
         cmd=["sh", "-c", AS_REPO_R2 + "bash scripts/rename/check-brand-drift.sh"],
         needles=[OLD_BRAND_R2],
     ),
+    Control(
+        "N2 the Synology store screenshot row recorded as done",
+        ("N2.8",),
+        [("docs/conformance/submission-preflight.md",
+          "| Store screenshots | OPERATOR | docs/acceptance/store-submission-preflight.md's Synology DSM section",
+          "| Store screenshots | PASS | docs/acceptance/store-submission-preflight.md's Synology DSM section")],
+        "./tests/encryptiongate/",
+        ["TestTheSubmissionAndCompliancePagesSayWhatEncryptionChanged_1331"],
+    ),
 ]
