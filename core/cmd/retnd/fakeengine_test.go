@@ -327,6 +327,8 @@ func (e *fakeEngine) api(w http.ResponseWriter, r *http.Request, path, token str
 	}
 
 	switch {
+	// The agent token routes (#1345), for the reason fakeengine_agent_1345_test.go gives.
+	case e.serveAgentTokens(w, r, path):
 	// The encryption writes (#993), for the reason fakeengine_encryption_996_test.go gives.
 	case e.serveEncryption(w, r, path):
 	// The eight config writes #1148 routes, ahead of everything below

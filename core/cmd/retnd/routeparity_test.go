@@ -207,6 +207,24 @@ var refusingInputs = []refusingInput{
 	// #1317: re-encrypting copies under the active suite and key. A suite
 	// this build does not know is the service's own refusal on both routes.
 	{
+		name: "mint an agent token with a scope that is not one",
+		args: func(configPath, _ string) []string {
+			return []string{"agent", "token", "create", "triage", "--scope", "admin", "--config", configPath}
+		},
+	},
+	{
+		name: "mint an agent token that outlives a year",
+		args: func(configPath, _ string) []string {
+			return []string{"agent", "token", "create", "triage", "--expires-in", "366d", "--config", configPath}
+		},
+	},
+	{
+		name: "revoke an agent token this deployment does not have",
+		args: func(configPath, _ string) []string {
+			return []string{"agent", "token", "revoke", "agt_nosuchtoken", "--config", configPath}
+		},
+	},
+	{
 		name: "dry-run re-encrypting the copies under a suite this build does not know",
 		args: func(configPath, _ string) []string {
 			return []string{"encryption", "reencrypt", "--suite", "nosuch/v9", "--dry-run", "--config", configPath}
