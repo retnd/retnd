@@ -60,6 +60,12 @@ places so they cannot be mixed up:
 | plaintext | `artifacts.local_hash` (and `placements.hash` on every copy) | The artifact. What a restore has to reproduce. Never overwritten by an encryption step. |
 | stored bytes | `placement_encryption.stored_hash`, with `stored_hash_alg` and `stored_size` | The bytes at the object key: the age header plus the ciphertext. Written only by the attempt that finished and committed the copy. |
 
+The sizes follow the same split: `placements.size_bytes` is the plaintext size on every
+copy, and `stored_size` is the size of the object at the key. Anything that checks an
+encrypted copy's object against the journal (the existence check, the identity check before
+an old copy is deleted after a move or a re-encryption) compares it with `stored_size`,
+never with the plaintext size (ADR 0033, "The size of an encrypted copy").
+
 Encryption is not deterministic, so two encryptions of one artifact never produce the same
 stored bytes. A retry is a new encryption, never a resumed one, and nothing compares a
 recorded stored-bytes digest to a freshly encrypted object.
@@ -108,14 +114,13 @@ The Backups list gets an Encryption column only when a copy on it is encrypted.
 
 ### A change you cannot take back by rolling back the version
 
-A `config.yaml` that carries `retained_copy_encryption:` cannot be read at all by a build that
-predates the feature: the config reader refuses an unknown field. That is the one-way door
-the [changelog](../CHANGELOG.md) names. Do not write the key until going back below this
-version is off the table, and keep a copy of the previous `config.yaml` if you want a way
-out.
+A `config.yaml` that carries `retained_copy_encryption:` needs 0.8.0 or newer. 0.7.2 and every
+earlier build cannot read it at all: the config reader refuses an unknown field. That is the
+one-way door the [changelog](../CHANGELOG.md) names. Do not write the key until going back to
+0.7.2 is off the table, and keep a copy of the previous `config.yaml` if you want a way out.
 
 `suite:` is a second door of the same kind. A file that writes it cannot be read by a build
-that predates suites (anything up to and including 0.7.2, and any build of EPIC N alone). If
+that predates suites (0.7.2 and older, and any development build of EPIC N alone). If
 you never write the field you get the build's default and no door at all.
 
 ## Encryption suites
@@ -518,9 +523,10 @@ ever carries a key or a key id. A plaintext copy never reports either stage.
 
 ## What this does not do yet
 
-- No live byte progress for a standalone `retnd encryption verify`. It is a scrub operation and
-  reports `bytes_read` in its result. The Decrypt-verifying stage above is the check a copy
-  goes through when it is made.
+- No live stage for a standalone `retnd encryption verify`. It is a scrub operation, so it shows
+  a live `bytes_read` count instead (`retnd assurance show` prints `bytes read: N`, and the Verify
+  recoverable dialog draws the same figure), and the pass line's total once it ends. The
+  Decrypt-verifying stage above is the check a copy goes through when it is made.
 - No KMS or Vault provider (an external `command` can reach either).
 - No re-encryption onto the same medium. `reencrypt` and `encrypt-existing` both write the new
   copy to another medium, and only when you run them.
@@ -529,10 +535,13 @@ ever carries a key or a key id. A plaintext copy never reports either stage.
 - `retnd encryption decrypt` opens one copy at a time. There is no bulk "decrypt everything" verb,
   and no API route for it or for key import.
 - `ENCRYPTION_KEY_UNRESOLVABLE` fires when a `required` set's copies are being refused for want
-  of a key (a missing or unreadable managed key file, no active managed key, or, until external
-  providers can write copies, an external reference), once, and clears when the key resolves
-  again. It reaches the notifier only if alerts are enabled in `config.yaml`. Key custody health
-  on the Dashboard still does not show resolvability; the key list does.
+  of a key (a missing or unreadable managed key file, no active managed key, an active key that
+  is not of the pinned suite, or an external reference that does not resolve or yields a key of
+  another suite), and when ACTIVE copies record an external key that no declared reference
+  yields any more. It fires once and clears when the key resolves again. It reaches the notifier
+  only if alerts are enabled in `config.yaml`. The health report's key-custody section names
+  those external keys and reads degraded; the Dashboard's "cannot be resolved" warning comes from
+  the key list.
 
 ## Where encryption enters, and how to have it earlier
 

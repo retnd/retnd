@@ -329,8 +329,8 @@ SOURCE_PORT_ENV_LEGACY = "RCLONE_MANAGER_SOURCE_PORT"
 # It proves exactly one version: this one. A release cut after this
 # installer was written has no digest here and cannot get one, which is
 # the reason the --image default is pinned rather than floating.
-CARRIED_RELEASE = "0.7.2"
-CARRIED_RELEASE_DIGEST = "sha256:544f3699f98acae638d61292a2eaf85dd0da3cf9980e7ce4e620f67504e22232"
+CARRIED_RELEASE = "0.8.0"
+CARRIED_RELEASE_DIGEST = None
 
 # Where that release lives. Split into two halves rather than written as
 # one reference on purpose: the --image default is the one literal
@@ -6832,8 +6832,8 @@ def cmd_uninstall(args) -> int:
         say(f"  {label:<14} {path}")
     if args.workflows_dir.is_dir():
         say(f"  {'--workflows':<14} {args.workflows_dir}")
-    say("They hold the SQLite journal, the administrator record, the backups themselves, the managed")
-    say("encryption keys (config/retained_copy_keys), and any hook scripts you wrote.")
+    say("They hold the SQLite journal, the administrator record, the backups themselves,")
+    say("the managed encryption keys (config/retained_copy_keys), and any hook scripts you wrote.")
     say("Remove them by hand if that is really what you want.")
     say("")
     say("NOT removed by this command: if `install` or `network-doctor` ever repaired this host's")
@@ -7407,7 +7407,7 @@ def _add_install_prereq_groups(sp: argparse.ArgumentParser) -> None:
                               "test, so this installer needs no checkout on the host. Supply it to install "
                               "a locally modified runtime from a checkout; naming a path that does not "
                               "exist is still a refusal.")
-    runtime.add_argument("--image", default="ghcr.io/retnd/retnd:0.7.2",
+    runtime.add_argument("--image", default="ghcr.io/retnd/retnd:0.8.0",
                          action=_RecordsThatItWasSupplied,
                          help="Image reference both services run.")
     runtime.add_argument("--release", default=CARRIED_RELEASE,
@@ -7581,7 +7581,7 @@ def build_parser() -> argparse.ArgumentParser:
             "      --prefix /volume1/retnd \\\n"
             "      --ssh-key /volume1/retnd/secrets/id_ed25519 \\\n"
             "      --known-hosts /volume1/retnd/secrets/known_hosts \\\n"
-            "      --image ghcr.io/retnd/retnd:0.7.2\n"
+            "      --image ghcr.io/retnd/retnd:0.8.0\n"
         ),
     )
     _add_shared_groups(sp_install)

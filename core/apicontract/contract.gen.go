@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "29e8bad06ac6e40608cf53fad446c274537e3bbf062c225ee56ff3c7372d9fb7"
+const ContractSHA256 = "1ff70ad8e9fc6025454af1b2fe26270397241bd245d7da29e46ddc0c05bd0e58"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -1280,6 +1280,32 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "planEncryptExisting", Method: "GET", Path: "/encryption/encrypt-existing",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "EncryptExistingPlan", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "startEncryptExisting", Method: "POST", Path: "/encryption/encrypt-existing",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "StartEncryptExistingRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound},
+			409: {ErrorCodeOperationAlreadyRunning, ErrorCodeEncryptionKeyUnresolvable},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "listEncryptionKeys", Method: "GET", Path: "/encryption/keys",
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListEncryptionKeysResponse", SuccessStatus: 200,
@@ -1398,6 +1424,30 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "planReencrypt", Method: "GET", Path: "/encryption/reencrypt",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ReencryptPlan", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "startReencrypt", Method: "POST", Path: "/encryption/reencrypt",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "StartReencryptRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			409: {ErrorCodeOperationAlreadyRunning},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "listEncryptionSuites", Method: "GET", Path: "/encryption/suites",
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListEncryptionSuitesResponse", SuccessStatus: 200,
@@ -1417,56 +1467,6 @@ var Endpoints = []Endpoint{
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
 			404: {ErrorCodeArtifactNotFound, ErrorCodeBackupSetNotFound},
 			409: {ErrorCodeOperationAlreadyRunning, ErrorCodeEncryptionKeyUnresolvable},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "planEncryptExisting", Method: "GET", Path: "/encryption/encrypt-existing",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "EncryptExistingPlan", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest},
-			401: {ErrorCodeUnauthenticated},
-			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "startEncryptExisting", Method: "POST", Path: "/encryption/encrypt-existing",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "StartEncryptExistingRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
-		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest},
-			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCsrfTokenMissing, ErrorCodeCsrfTokenMismatch},
-			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound},
-			409: {ErrorCodeOperationAlreadyRunning, ErrorCodeEncryptionKeyUnresolvable},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "planReencrypt", Method: "GET", Path: "/encryption/reencrypt",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "ReencryptPlan", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest},
-			401: {ErrorCodeUnauthenticated},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "startReencrypt", Method: "POST", Path: "/encryption/reencrypt",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "StartReencryptRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
-		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest},
-			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCsrfTokenMissing, ErrorCodeCsrfTokenMismatch},
-			409: {ErrorCodeOperationAlreadyRunning},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
 		},

@@ -248,8 +248,10 @@ func TestAnExternalKeyIsNotExportable(t *testing.T) {
 	}
 }
 
-// An external key has no bundle to confirm, so it is neither the active key
-// nor an unconfirmed one in the health section.
+// An external key has no bundle to confirm, so it never reads as awaiting a
+// confirmation. On an external-only deployment it IS the active key (#1292,
+// TestAnExternalOnlyDeploymentReadsHealthyWhileItsReferenceResolves_1292),
+// with the bundle question answered rather than left degraded.
 func TestAnExternalKeyDoesNotDegradeKeyCustodyHealth(t *testing.T) {
 	ctx := context.Background()
 	ref, _ := externalKeyFile(t)
@@ -262,8 +264,8 @@ func TestAnExternalKeyDoesNotDegradeKeyCustodyHealth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if h.ActiveKeyID == rec.ID {
-		t.Fatal("the external key is reported as the active managed key")
+	if !h.BundleConfirmed {
+		t.Fatal("an external-only deployment reads as awaiting a bundle confirmation")
 	}
 	for _, id := range h.UnconfirmedKeyIDs {
 		if id == rec.ID {

@@ -235,13 +235,14 @@ Three things to know before you do:
 - **Losing the key loses the encrypted copies.** There is no reset and no support path that
   recreates a key. You export a recovery bundle and keep it somewhere that is neither the backup
   volume nor the bucket, and the health report says so until you confirm you did.
-- **It is a one-way door.** A `config.yaml` that carries `retained_copy_encryption:` is refused by
-  any build that predates it. See the [changelog](CHANGELOG.md).
+- **It is a one-way door.** A `config.yaml` that carries `retained_copy_encryption:` needs 0.8.0 or
+  newer; 0.7.2 and older refuse it. See the [changelog](CHANGELOG.md).
 
 The web interface shows each copy as Plaintext, or Encrypted beside a second chip that says
 whether it has been proved to open, and the Backups list gains an Encryption column only when a
-copy on it is encrypted. What this build does not do yet: no live byte count for a standalone decrypt-verify, no retroactive encryption of copies already stored in plaintext. An external
-key provider writes copies, but its key is not in the bundle. `retnd encryption decrypt` opens a copy into a file from the bundle and
+copy on it is encrypted. Copies already stored in plaintext are encrypted only when you run
+`retnd encryption encrypt-existing`, and older copies move to a new suite only when you run
+`retnd encryption reencrypt`. An external key provider writes copies, but its key is not in the bundle. `retnd encryption decrypt` opens a copy into a file from the bundle and
 the sidecar (the stock `age` tool still works as the independent fallback), and
 `retnd encryption key import` registers a key from a bundle on a rebuilt host. The whole picture is in
 [`docs/encrypted-copies.md`](docs/encrypted-copies.md), the recovery steps are in

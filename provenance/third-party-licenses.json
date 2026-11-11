@@ -129,7 +129,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2",
-      "version": "v1.47.3",
+      "version": "v1.47.4",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -141,7 +141,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream",
-      "version": "v1.7.22",
+      "version": "v1.7.24",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -165,7 +165,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/credentials",
-      "version": "v1.20.9",
+      "version": "v1.20.11",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -177,7 +177,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/feature/ec2/imds",
-      "version": "v1.20.3",
+      "version": "v1.20.4",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -201,7 +201,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/internal/configsources",
-      "version": "v1.5.6",
+      "version": "v1.5.7",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -213,7 +213,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/internal/endpoints/v2",
-      "version": "v2.8.6",
+      "version": "v2.8.7",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -225,7 +225,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/internal/v4a",
-      "version": "v1.5.6",
+      "version": "v1.5.7",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -237,7 +237,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding",
-      "version": "v1.13.21",
+      "version": "v1.13.22",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -249,7 +249,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/service/internal/checksum",
-      "version": "v1.11.7",
+      "version": "v1.11.8",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -261,7 +261,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/service/internal/presigned-url",
-      "version": "v1.14.6",
+      "version": "v1.14.7",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -273,7 +273,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/service/internal/s3shared",
-      "version": "v1.20.6",
+      "version": "v1.20.7",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -285,7 +285,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/service/s3",
-      "version": "v1.114.3",
+      "version": "v1.114.5",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -297,7 +297,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/service/signin",
-      "version": "v1.10.4",
+      "version": "v1.11.0",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -309,7 +309,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/service/sso",
-      "version": "v1.38.4",
+      "version": "v1.38.5",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -321,7 +321,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/service/ssooidc",
-      "version": "v1.43.4",
+      "version": "v1.43.5",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -333,7 +333,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/service/sts",
-      "version": "v1.51.4",
+      "version": "v1.51.5",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -345,7 +345,7 @@
     },
     {
       "name": "github.com/aws/smithy-go",
-      "version": "v1.28.5",
+      "version": "v1.28.6",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
@@ -453,7 +453,7 @@
     },
     {
       "name": "github.com/dustin/go-humanize",
-      "version": "v1.0.1",
+      "version": "v1.1.0",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE",
@@ -1447,7 +1447,7 @@
     },
     {
       "name": "modernc.org/libc",
-      "version": "v1.77.1",
+      "version": "v1.79.0",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",
@@ -1483,7 +1483,7 @@
     },
     {
       "name": "modernc.org/sqlite",
-      "version": "v1.60.1",
+      "version": "v1.61.0",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",

@@ -402,7 +402,14 @@ gate_boot_id() {
 # gate_lock_age <dir> -> seconds since the lock directory was created, or
 # 0 when that cannot be read.
 gate_lock_age() {
-  gate_lock_mtime="$(stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0)"
+  # GNU first (#1331). GNU stat reads `-f %m` as "filesystem status of the
+  # files %m and <lock>": it prints a block about the lock's filesystem on
+  # stdout and only then fails on %m, so the BSD-first order captured that
+  # block plus the GNU answer, the arithmetic below broke, and on every
+  # Linux host a lock that could only be reclaimed by age was never
+  # reclaimed at all (the waiter sat out GATE_LOCK_TIMEOUT). BSD stat
+  # refuses -c without printing anything, so this order is safe on macOS.
+  gate_lock_mtime="$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0)"
   echo $(( $(date +%s) - gate_lock_mtime ))
 }
 

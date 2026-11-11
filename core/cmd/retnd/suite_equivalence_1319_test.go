@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -97,10 +98,24 @@ func TestEverySuiteVerbAnswersAndWritesTheSameOnBothRoutes_1319(t *testing.T) {
 	direct := writeTestConfig(t)
 	directRuns := runSuiteFlow(t, suiteFlow, direct, direct, filepath.Dir(direct))
 
+	// The engine's file sits beside the CLI's, not in a directory of its own
+	// the way startFakeEngineFor puts it. Managed key files live beside the
+	// configuration (keycustody.DirBeside), so they are part of the
+	// deployment the way the journal is: with the engine in its own
+	// directory the routed create and rotate wrote the key files there, and
+	// the direct reads below (key list, the dry run) looked for them beside
+	// the CLI's file and reported both keys unreachable. A real CLI and
+	// engine share one config.yaml, so one directory is the truthful
+	// arrangement; the second file name is still what lets the engine route's
+	// writes be watched apart from the CLI's.
 	cliSide := writeTestConfig(t)
-	engine := startFakeEngineFor(t, cliSide)
+	engineConfig := filepath.Join(filepath.Dir(cliSide), "engine.yaml")
+	if err := os.WriteFile(engineConfig, []byte(readFile(t, cliSide)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	engine := startFakeEngine(t, engineConfig)
 	engine.attach(t)
-	engineRuns := runSuiteFlow(t, suiteFlow, cliSide, engine.configPath, filepath.Dir(engine.configPath), filepath.Dir(cliSide))
+	engineRuns := runSuiteFlow(t, suiteFlow, cliSide, engine.configPath, filepath.Dir(cliSide))
 
 	if len(directRuns) != len(suiteFlow) || len(engineRuns) != len(suiteFlow) {
 		t.Fatalf("ran %d direct and %d engine steps, want %d each", len(directRuns), len(engineRuns), len(suiteFlow))
