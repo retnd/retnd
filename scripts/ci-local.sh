@@ -445,6 +445,28 @@ bash scripts/docs/check-package-doc.sh
 gate_step "docs site colour tokens meet WCAG AA in both themes, and the checker can still fail (#1054)"
 bash scripts/contrast/check.sh
 
+# The docs-site media capture tooling (#926). Two unrelated breaks (an unbound
+# FFMPEG in Clip.write, a placeholder SSH port the wizard refuses since #864)
+# meant nothing could be re-recorded and no gate said so. This runs the harness
+# far enough to encode a clip, checks EXAMPLE.port against the wizard's own
+# isPort, and checks every label a capture script drives still exists in
+# ui/shared/src (the stale step names #788 left behind). No browser, no
+# server, about a second. Exit 3 is "no ffmpeg or no node here", a ledgered
+# skip like the other host-dependent steps.
+gate_step "the docs-site capture tooling still encodes a clip and drives labels the UI has (#926)"
+if command -v node >/dev/null 2>&1; then
+  _cap_rc=0
+  node --test docs/site/tools/check-tools.test.mjs || _cap_rc=$?
+  [ "$_cap_rc" -eq 0 ] && { node docs/site/tools/check-tools.mjs || _cap_rc=$?; }
+  if [ "$_cap_rc" -eq 3 ]; then
+    gate_note_skip "the docs-site capture tooling check (#926): no ffmpeg on PATH. Install it and re-run."
+  elif [ "$_cap_rc" -ne 0 ]; then
+    exit "$_cap_rc"
+  fi
+else
+  gate_note_skip "the docs-site capture tooling check (#926): node is not on PATH."
+fi
+
 # The same blind spot, for the checks that actually find bugs (#417). Being
 # outside every module does not only cost those two files their formatting:
 # this gate vets and lints per module too, so nothing has ever vetted or
