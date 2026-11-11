@@ -1,7 +1,7 @@
 {
   "schema": "retnd.encryption-captures/1",
   "issue": 998,
-  "note": "The list of media EPIC N owes, and since #1320 the media EPIC T owes (ids encryption-25 onwards), and the one place #997 looks up an id, a file name and its alt text. A still has four variants (variants[].suffix). state needs-ui-state means the stack has no UI state to photograph; the release gate counts its files as missing until the state exists and the entry becomes capturable. Store-submission screenshots are not here and are never generated.",
+  "note": "The list of media EPIC N owes, and since #1320 the media EPIC T owes (ids encryption-25 onwards), and the one place #997 looks up an id, a file name and its alt text. A still has four variants (variants[].suffix). state needs-ui-state means the stack has no UI state to photograph; the release gate counts its files as missing until the state exists and the entry becomes capturable. Store-submission screenshots are not here and are never generated. The 360px variants (-narrow, -narrow-dark) show the photographed card or dialog in a 360px content column (360px less two 16px gutters, the width the 995 spec holds the card to), not the whole 360px shell: the shell has no 360px layout yet (#1337) and squeezes every Settings card under 50px. capture-encryption.mjs (contentColumn) says how.",
   "clock": "2026-08-29T06:15:00+02:00 (harness FROZEN_TIME)",
   "variants": [
     {
