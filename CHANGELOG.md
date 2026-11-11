@@ -133,7 +133,8 @@ A few things are worth reading before you upgrade:
   another medium (one placement per backup per medium). `--dry-run` names, per backup, whether a run would
   encrypt it or the refusal and its reason. A cancel from the terminal and from the browser (the existing
   assurance cancel) both discard an unverified copy and leave the plaintext untouched. A policy change and the
-  retention cycle still never rewrite an existing copy. No screen has a button for it.
+  retention cycle still never rewrite an existing copy. Retroactive encryption is API and CLI only in this
+  release, so no screen has a button for it.
 - **Progress stages for encrypted copies** (#1290, EPIC N). `OperationProgress.stage` and
   `LiveActivitySet.stage` gain `encrypting` and `decrypt-verifying` (appended after the original five, so
   existing clients are unaffected), each with byte progress that starts at a measured zero, never goes
