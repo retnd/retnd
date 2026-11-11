@@ -520,6 +520,34 @@ func TestEveryBlockedRowCitesAnIssueThatIsStillOpen(t *testing.T) {
 				return
 			}
 
+			// The one way this check stands down, and it is not quiet. The
+			// gate sets CI_LOCAL_GITHUB_LEDGER to a file when its own probe
+			// found no usable gh (the pinned container image has none, and
+			// carries no credential on purpose, #1331). The rows that went
+			// unresolved are written there and the gate puts them in its
+			// skip ledger, so the run ends INCOMPLETE naming them. Outside
+			// the gate the variable is unset and a missing gh still FAILS.
+			if ledger := os.Getenv("CI_LOCAL_GITHUB_LEDGER"); ledger != "" {
+				ids := make([]string, 0, len(rows))
+				for _, row := range rows {
+					ids = append(ids, row.id)
+				}
+				note := fmt.Sprintf("the BLOCKED-row citation check in core/tests/compat (%s): %d BLOCKED row(s) (%s) cite issues nobody asked GitHub about, because this host has no usable gh",
+					pair.matrix, len(rows), strings.Join(ids, ", "))
+				f, err := os.OpenFile(ledger, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+				if err != nil {
+					t.Fatalf("the gate asked for unresolved citations to be ledgered in %s and it cannot be opened, so this cannot stand down: %v", ledger, err)
+				}
+				_, werr := fmt.Fprintln(f, note)
+				if cerr := f.Close(); werr == nil {
+					werr = cerr
+				}
+				if werr != nil {
+					t.Fatalf("writing the ledger entry to %s: %v", ledger, werr)
+				}
+				t.Skip(note)
+			}
+
 			for _, complaint := range blockedCitationComplaints(rows, ghIssueState) {
 				t.Error(complaint)
 			}
