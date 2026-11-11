@@ -2439,6 +2439,62 @@ run_gate "$tree"
 assert_contains "R4 the run says which Go it used" '==> toolchain: go ' "$out"
 assert_contains "R4 and which golangci-lint" "==> toolchain: golangci-lint ${pinned_lint:-0.0.0}" "$out"
 
+# ------------- Group U: a host with no usable gh ledgers, it does not fail (#1331)
+
+echo "==> U. checks that need GitHub, on a host with no usable gh"
+
+# core/tests/compat asks GitHub, through gh, whether every BLOCKED
+# conformance row still cites an open issue. The pinned container image has
+# no gh and no credential, so under scripts/ci-docker.sh that check used to
+# FAIL. The gate now probes gh and, when it is missing or logged out, hands
+# the Go tests a file (CI_LOCAL_GITHUB_LEDGER) to write the rows they could
+# not resolve into, and ledgers each line. The stub test below plays the
+# compat check. gh is made unusable with an empty GH_CONFIG_DIR and no
+# token rather than a stub alone, because the gate puts Homebrew's bin
+# first on PATH and a real gh there would shadow a stub.
+add_github_stub() { # <tree>
+  cat >"$1/core/github_test.go" <<'GOSTUB'
+package stub
+
+import (
+	"os"
+	"testing"
+)
+
+func TestGitHubCitations(t *testing.T) {
+	ledger := os.Getenv("CI_LOCAL_GITHUB_LEDGER")
+	if ledger == "" || os.Getenv("FIXTURE_BLOCKED") != "1" {
+		return
+	}
+	if err := os.WriteFile(ledger, []byte("FIXTURE row P9.9 cites an issue nobody asked GitHub about\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Skip("ledgered")
+}
+GOSTUB
+  printf '#!/bin/sh\nexit 1\n' >"$1/bin/gh"
+  chmod +x "$1/bin/gh"
+  mkdir -p "$1/.gh-config-empty"
+}
+
+tree="$(make_full_tree)"
+add_github_stub "$tree"
+set_golangci "$tree" "${pinned_lint:-0.0.0}" "1.27.0"
+run_gate "$tree" GH_CONFIG_DIR="$tree/.gh-config-empty" GH_TOKEN= GITHUB_TOKEN= FIXTURE_BLOCKED=1
+assert_eq "U1 a BLOCKED row nobody could check ends the run INCOMPLETE" "$INCOMPLETE" "$status"
+assert_contains "U1 the ledger names the row" 'FIXTURE row P9.9' "$out"
+assert_contains "U1 and says how to check it" 'gh auth status' "$out"
+assert_not_contains "U1 it cannot report success" 'ci-local: ok' "$out"
+
+# U2: the control. With no BLOCKED row nothing is written, and a host
+# without gh loses nothing, so the run is still ok.
+tree="$(make_full_tree)"
+add_github_stub "$tree"
+set_golangci "$tree" "${pinned_lint:-0.0.0}" "1.27.0"
+run_gate "$tree" GH_CONFIG_DIR="$tree/.gh-config-empty" GH_TOKEN= GITHUB_TOKEN= FIXTURE_BLOCKED=0
+assert_eq "U2 with no BLOCKED row a host without gh still ends ok" 0 "$status"
+assert_contains "U2 and says so" 'ci-local: ok' "$out"
+
 # ------------------------------------------------------------------ result
 
 echo
