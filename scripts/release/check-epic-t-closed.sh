@@ -13,7 +13,10 @@
 #      distribution/packaging/*.json and apps/common/platform/capabilities/.
 #      A suite is a property of the bytes a copy holds, so nothing this epic
 #      ships changes how a container is run, and an untracked file in one of
-#      those places counts as a change;
+#      those places counts as a change. The release version is set aside
+#      (#1331): a cut moves the image tag in all of them and canonical.json's
+#      release record (image.tag, reference, published, note), and that is
+#      not a change to how a container runs, so a cut alone passes;
 #   2. the epic added exactly its two migrations, 0020_encryption_key_suites.sql
 #      (T1.2, the key's suite) and 0021_encryption_default_suite.sql (T1.4, the
 #      build default it last ran under), and nothing else under core/migrations/
@@ -60,10 +63,48 @@ paths=(
   apps/common/platform/capabilities
 )
 changed="$(git diff --name-only "$base" -- "${paths[@]}"; git ls-files --others --exclude-standard -- "${paths[@]}")"
-if [ -n "$changed" ]; then
-  bad "the canonical container contract moved since $base:$(printf '\n         %s' $changed)"
+# A release cut moves the image tag in every one of these files and
+# canonical.json's release record (image.tag, image.reference,
+# image.published, image.note), and none of that changes how a container is
+# run (#1331). So a file counts as moved when it is new, gone, or differs from
+# its base once those are set aside: every ghcr.io/retnd/retnd:X.Y.Z (or
+# retnd/retnd:X.Y.Z) reference reads as one placeholder, and canonical.json's
+# four release fields are dropped before the two sides are compared. Anything
+# else, a port, a path, a registry, a tag that is not a release version, a
+# field outside the release record, is still a move and is named.
+moved=""
+for f in $changed; do
+  if ! git cat-file -e "$base:$f" 2>/dev/null || [ ! -e "$f" ]; then
+    moved="$moved $f"
+    continue
+  fi
+  if ! git show "$base:$f" | python3 -c '
+import json, re, sys
+release = re.compile(r"((?:ghcr\.io/)?retnd/retnd):[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?(?![0-9A-Za-z.-])")
+def norm(text, name):
+    if name.endswith("distribution/packaging/canonical.json"):
+        try:
+            doc = json.loads(text)
+        except ValueError:
+            return text
+        image = doc.get("image")
+        if isinstance(image, dict):
+            for k in ("tag", "reference", "published", "note"):
+                image.pop(k, None)
+        text = json.dumps(doc, sort_keys=True, indent=1)
+    return release.sub(r"\1:<release>", text)
+name = sys.argv[1]
+with open(name, encoding="utf-8", errors="surrogateescape") as fh:
+    now = fh.read()
+sys.exit(0 if norm(sys.stdin.read(), name) == norm(now, name) else 1)
+' "$f"; then
+    moved="$moved $f"
+  fi
+done
+if [ -n "$moved" ]; then
+  bad "the canonical container contract moved since $base (a release version bump alone is not a move):$(printf '\n         %s' $moved)"
 else
-  ok "the canonical container contract is an empty diff against $base"
+  ok "the canonical container contract is an empty diff against $base, apart from the release version"
 fi
 
 # 2. The epic's two migrations, and no other.
