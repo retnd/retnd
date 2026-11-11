@@ -58,6 +58,8 @@ var selfTests = []string{
 	"scripts/tests/epic-t-closure.test.sh",
 	"core/tests/encryptiongate/matrix_test.go",
 	"scripts/bdtools/encryption/selftest.py",
+	"scripts/bdtools/encryption/controls_n_a.py",
+	"scripts/bdtools/encryption/controls_n_b.py",
 }
 
 var (

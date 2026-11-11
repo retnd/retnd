@@ -79,6 +79,7 @@ class Control:
     names: list[str] = field(default_factory=list)
     build: str = ""
     timeout: str = "15m"
+    module: str = "core"
 
 
 # ---------------------------------------------------------------- EPIC T
@@ -327,9 +328,9 @@ CONTROLS: list[Control] = [
 ]
 
 
-# Controls drafted beside this file (controls_*.py, each defining CONTROLS)
-# are folded in while they are being written; the labels a matrix row cites
-# end up in this file, which is the one core/tests/encryptiongate reads.
+# EPIC N's controls sit beside this file (controls_n_a.py for N1.n and NC-nn,
+# controls_n_b.py for NV.n and N2.n), each defining CONTROLS, and are folded in
+# here. core/tests/encryptiongate reads all three files for labels.
 for _extra in sorted(Path(__file__).resolve().parent.glob("controls_*.py")):
     _ns: dict[str, object] = {"Control": Control, "PLANT": PLANT}
     exec(compile(_extra.read_text(), str(_extra), "exec"), _ns)
@@ -355,7 +356,7 @@ def gate(work: Path, c: Control, race: bool) -> tuple[int, str]:
     if race:
         argv.append("-race")
     argv += ["-run", pattern, c.pkg]
-    proc = harness.sh(argv, check=False, capture=True, cwd=work / "core", env=env)
+    proc = harness.sh(argv, check=False, capture=True, cwd=work / c.module, env=env)
     return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
 
 
