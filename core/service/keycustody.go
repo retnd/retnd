@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -51,13 +52,12 @@ type KeyCustody struct {
 	mu    sync.Mutex
 	store *keycustody.Store
 
-	// probed is the last external key probe and probeAt when it ran (#1304).
-	// probedRefs is the declared references that probe saw, so a reload that
-	// drops or adds one is not answered from a probe of the old list.
-	probeMu    sync.Mutex
-	probed     []health.ExternalKeyAtRisk
-	probeAt    time.Time
-	probedRefs string
+	// probed is the last external key probe, probeAt when it ran and
+	// probeRefs the declared references it ran over (#1304).
+	probeMu   sync.Mutex
+	probed    []health.ExternalKeyAtRisk
+	probeAt   time.Time
+	probeRefs []secretref.Ref
 }
 
 // UseConfig tells custody where to find the declared external references
@@ -235,14 +235,14 @@ func (c *KeyCustody) AlertConditions(ctx context.Context, policies []keycustody.
 // alert tick only, never for a request. The answer is kept for
 // externalProbeTTL, so two asks in one tick resolve once, and
 // LastExternalKeysAtRisk hands it to a health build without resolving.
+//
+// The answer is a function of the declared references, so a reload that
+// changes them (a reference dropped, or one added back) is probed again at
+// once rather than read from a probe over the old set.
 func (c *KeyCustody) ExternalKeysAtRisk(ctx context.Context) ([]health.ExternalKeyAtRisk, error) {
-	// The declared references are read from the running configuration, which
-	// resolves nothing, so asking for them on every call is free. A probe of
-	// a different list answers a different question: a reference dropped by
-	// a reload is reported now, not when the TTL runs out.
-	refs := fmt.Sprintf("%q", c.externalRefs())
+	refs := c.externalRefs()
 	c.probeMu.Lock()
-	if !c.probeAt.IsZero() && time.Since(c.probeAt) < externalProbeTTL && c.probedRefs == refs {
+	if !c.probeAt.IsZero() && time.Since(c.probeAt) < externalProbeTTL && reflect.DeepEqual(refs, c.probeRefs) {
 		out := c.probed
 		c.probeMu.Unlock()
 		return out, nil
@@ -253,7 +253,7 @@ func (c *KeyCustody) ExternalKeysAtRisk(ctx context.Context) ([]health.ExternalK
 		return nil, err
 	}
 	c.probeMu.Lock()
-	c.probed, c.probeAt, c.probedRefs = out, time.Now(), refs
+	c.probed, c.probeAt, c.probeRefs = out, time.Now(), refs
 	c.probeMu.Unlock()
 	return out, nil
 }

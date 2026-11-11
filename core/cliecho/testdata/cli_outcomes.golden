@@ -137,11 +137,20 @@ GET /backups/{source}/{set}/{name}
 GET /encryption/copies
 	example ?artifact=api-server%2Fvar-backups%2FMANIFEST-20260902T153521Z.txt: command
 
+GET /encryption/encrypt-existing
+	example ?destination=offsite&set=api-server%2Fvar-backups: command
+	example ?artifact=api-server%2Fvar-backups%2FMANIFEST-20260902T153521Z.txt&destination=offsite&set=api-server%2Fvar-backups: command
+
 GET /encryption/keys
 	example: command
 
 GET /encryption/policy
 	example: command
+
+GET /encryption/reencrypt
+	example ?suite=age%2Fv1: command
+	example ?destination=offsite&key=k0123456789abcdef: command
+	example ?deprecated=true&destination=offsite: command
 
 GET /encryption/suites
 	example: command
@@ -441,6 +450,12 @@ POST /catalog/scan
 	example: command
 	body that isn't JSON: command
 
+POST /encryption/encrypt-existing
+	corpus: command
+	example {"backup_set_id":"api-server/var-backups","destination_medium":"offsite"}: command
+	example {"backup_set_id":"api-server/var-backups","artifact_id":"api-server/var-backups/MANIFEST-20260902T153521Z.txt","destination_medium":"offsite"}: command
+	body that isn't JSON: malformed: there is no verb that encrypts existing copies from a request body that does not decode
+
 POST /encryption/keys
 	example: command
 	example ?suite=age-pq%2Fv1: command
@@ -474,6 +489,13 @@ POST /encryption/providers/test
 	example {"managed_key_id":"k0123456789abcdef"}: command
 	example {"external":{"env":"RETAINED_COPY_KEY"}}: command
 	body that isn't JSON: malformed: there is no verb that tests a key provider from a request body that does not decode
+
+POST /encryption/reencrypt
+	corpus: command
+	example {"suite_id":"age/v1","destination_medium":"offsite"}: command
+	example {"key_id":"k0123456789abcdef","destination_medium":"offsite"}: command
+	example {"deprecated":true,"destination_medium":"offsite"}: command
+	body that isn't JSON: malformed: there is no verb that re-encrypts copies from a request body that does not decode
 
 POST /encryption/verify
 	corpus: command

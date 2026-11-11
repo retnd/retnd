@@ -388,8 +388,10 @@ printf 'ok-with-paths\n' >"$SANDBOX/scrubbed.verdict"
 run_recorder "$repo"
 expect "a log with home paths is still recorded" 0 "local-gate: recorded"
 log="$repo/provenance/local-gate.log"
+# "$HOME/" and not "$HOME": in the pinned CI image HOME is /ci, and every
+# "scripts/ci-local.sh" in the log contains that (#1331).
 case "$(cat "$log" 2>/dev/null)" in
-  *"$HOME"*) fail "the published log carries no home path" "$(grep -n "$HOME" "$log" | head -3)" ;;
+  *"$HOME/"*) fail "the published log carries no home path" "$(grep -n "$HOME/" "$log" | head -3)" ;;
   *) pass "the published log carries no home path" ;;
 esac
 assert_scrubbed() { case "$(cat "$log" 2>/dev/null)" in *"$1"*) fail "the published log does not carry $2" ;; *) pass "the published log does not carry $2" ;; esac; }

@@ -1791,7 +1791,7 @@ class TestWhatEachModeTouches(unittest.TestCase):
         names = {p.name for p in plan}
         self.assertIn("retained_copy_keys", names,
                       "a factory reset would leave the keys behind while the registry that names them moves out")
-        keys = [p for p in plan if p.name == "retained_copy_keys"][0]
+        keys = next(p for p in plan if p.name == "retained_copy_keys")
         self.assertEqual(keys.parent.name, "config", "it lives beside config.yaml, not under state")
 
     def test_the_retained_artifacts_are_never_archived(self):
