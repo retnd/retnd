@@ -326,9 +326,17 @@ export async function withDevServer(body) {
   // different port than the one this script then navigates to, and an
   // explicit --host because Vite's default `localhost` binds ::1 only on
   // macOS, which the 127.0.0.1 probe above cannot then reach.
+  //
+  // In its own process group (detached), so the teardown can stop the whole
+  // group by its id. npm runs the script through `sh -c vite`, and a SIGTERM
+  // to npm alone left vite holding the port: capture-encryption-all.sh runs
+  // two of these scripts back to back, and its second step then refused to
+  // start with "port 8080 is busy" (#1331). Still a kill by the id this holds,
+  // never by name.
   const dev = spawn("npm", ["run", "dev", "--", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {
     cwd: UI_DIR,
-    stdio: ["ignore", "ignore", "inherit"]
+    stdio: ["ignore", "ignore", "inherit"],
+    detached: true
   });
 
   const { chromium } = loadPlaywright();
@@ -344,7 +352,11 @@ export async function withDevServer(body) {
     torn = true;
     try {
       if (dev.exitCode === null && dev.signalCode === null) {
-        dev.kill("SIGTERM");
+        try {
+          process.kill(-dev.pid, "SIGTERM");
+        } catch {
+          dev.kill("SIGTERM");
+        }
         // Wait for it to actually go. Returning while the child is still
         // shutting down leaves the port held for a moment, and the next
         // run's assertPortFree is what trips over it.
@@ -475,6 +487,41 @@ export async function shot(page, name, clipSel, { pad = 28, log = true, tries = 
     page.screenshot({ animations: "disabled", ...(clip ? { clip } : { fullPage: true }) }), tries);
   if (log) console.log("  " + name + ".png");
   return name;
+}
+
+/**
+ * Waits until the page's markup has stopped changing: three samples 250ms apart
+ * with the same hash of document.body.innerHTML, or it throws after `within` ms.
+ *
+ * writeStable below makes sure a still is not taken mid-change, and that is not
+ * enough on its own for a screen that loads several resources, each a mock read
+ * with its own delay: it can sit in either of two states that each hold still
+ * for 250ms (a dialog with the page behind it before or after a card above
+ * grew, say), and which one the shutter sees depends on how busy the machine
+ * was. capture-encryption.mjs --check moved 13 to 19 of its 120 files between
+ * two passes before it waited for this, and none after. shot() does not call
+ * it, so the scripts that never needed it behave as they did.
+ */
+export async function quiet(page, { within = 15_000 } = {}) {
+  const sample = () =>
+    page.evaluate(() => {
+      const t = document.body.innerHTML;
+      let h = 2166136261;
+      for (let i = 0; i < t.length; i++) h = Math.imul(h ^ t.charCodeAt(i), 16777619);
+      return t.length + ":" + (h >>> 0);
+    });
+  let last = await sample();
+  let same = 0;
+  const deadline = Date.now() + within;
+  while (same < 2) {
+    if (Date.now() > deadline) {
+      throw new Error("the page never stopped changing for 750ms within " + within / 1000 + "s, so no picture of it can be re-taken");
+    }
+    await page.waitForTimeout(250);
+    const now = await sample();
+    same = now === last ? same + 1 : 0;
+    last = now;
+  }
 }
 
 /**

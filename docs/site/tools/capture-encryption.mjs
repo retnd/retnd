@@ -48,7 +48,10 @@
 // Every still is taken four times: light and dark at the standard 1280px
 // window, and light and dark at 360px (the narrowest phone width the epic's own
 // Playwright specs hold the card to). Windows are tall on purpose so the pinned
-// terminal dock never sits on the region being photographed. GIFs are one
+// terminal dock never sits on the region being photographed. Every still is
+// driven at 1280px and only narrowed for the shutter, and the 360px pictures are
+// of the photographed element in a 360px content column, because the shell
+// itself has no 360px layout (#1337); contentColumn says how. GIFs are one
 // variant, light at the standard window.
 //
 // # No key material, no canary, no real host
@@ -70,10 +73,10 @@
 // shows the one running state the UI has.
 
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Clip, loadPlaywright, mb, openApp, optimise, SCREENS, screensTotal, settle, shot, VIEWPORT, withDevServer } from "./harness.mjs";
+import { Clip, loadPlaywright, mb, openApp, optimise, quiet, SCREENS, screensTotal, settle, shot, VIEWPORT, withDevServer } from "./harness.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const manifest = JSON.parse(readFileSync(resolve(HERE, "encryption-captures.json"), "utf8"));
@@ -84,7 +87,10 @@ const flagValue = (f) => (args.includes(f) ? args[args.indexOf(f) + 1] : null);
 const ONLY = flagValue("--only");
 const EMBEDS = flagValue("--embeds");
 
-const SET = "/sets/production/postgres-primary";
+// An artifact-engine set. postgres-primary is a kopia set in the mock (#788),
+// and since #1296 a kopia set's card is the "already encrypted by the kopia
+// engine" statement with its radios disabled, which is not what 12 to 14 show.
+const SET = "/sets/production/auth-config";
 const DETAIL = "/backups/production/postgres-primary/postgres-prod-20260828.dump.zst";
 const CARD = "[data-encryption-card]";
 const DIALOG = '[role="dialog"]';
@@ -135,8 +141,12 @@ if (EMBEDS) {
 
 // age1pq1 is the age-pq/v1 recipient (#1320): public like the X25519 one, and
 // kept out of a picture for the same reason, with about 2000 characters where
-// the X25519 recipient has 58 after its prefix.
-const KEY_MATERIAL = /AGE-SECRET-KEY|BEGIN [A-Z ]*PRIVATE KEY|PRIVATE KEY-----|CANARY|\bage1[a-z0-9]{58}\b|\bage1pq1[a-z0-9]{100,}/i;
+// the X25519 recipient has 58 after its prefix. Matched on its prefix and a
+// short run, not on its full length: ClippedText (#1318) draws any long value
+// as its first 80 characters and an ellipsis, so a recipient that reached a
+// page would be in the DOM as 80 characters, which a {100,} rule never sees
+// (and the canary tail the mock plants would be clipped off with it).
+const KEY_MATERIAL = /AGE-SECRET-KEY|AGE-PLUGIN-|BEGIN [A-Z ]*PRIVATE KEY|PRIVATE KEY-----|CANARY|\bage1pq1[a-z0-9]{8,}|\bage1[a-z0-9]{20,}/i;
 const HOSTISH = /\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|dev|app|cloud|de|eu|uk|us|ch|nl|fr|se|info|biz|co)\b/gi;
 const SAFE_HOST = /(^|\.)(example\.(com|net|org)|retnd\.[a-z]+|github\.com|ghcr\.io)$/i;
 
@@ -175,8 +185,19 @@ async function assertClean(page, label) {
 const card = (page) => page.locator(CARD);
 const dialog = (page, name) => page.getByRole("dialog", name ? { name } : {});
 
+/** The action row's Rotate key, once the card has its keys. While the keys are
+ *  still loading the card can briefly draw the "No active key for suite"
+ *  banner, which has its own Rotate key, beside a disabled action-row one; a
+ *  click then either hit the wrong button or failed on two matches. */
+async function rotateButton(page) {
+  await card(page).locator("[data-key-id]").first().waitFor();
+  const button = card(page).locator('button:not([role="alert"] button)', { hasText: /^Rotate key$/ });
+  await button.waitFor();
+  return button;
+}
+
 async function rotate(page) {
-  await card(page).getByRole("button", { name: "Rotate key" }).click();
+  await (await rotateButton(page)).click();
   await dialog(page, "Rotate the managed key?").getByRole("button", { name: "Rotate key" }).click();
 }
 
@@ -187,7 +208,9 @@ async function openRetire(page) {
 }
 
 async function selectedMode(page, label) {
-  await page.getByRole("radiogroup", { name: "Encryption for this set" }).getByLabel(label, { exact: true }).check();
+  // click, not check: the radio is controlled and only reads checked once the
+  // write has landed, which check() treats as a click that did nothing.
+  await page.getByRole("radiogroup", { name: "Encryption for this set" }).getByLabel(label, { exact: true }).click();
   await page.waitForFunction(
     (want) => document.querySelector("[data-set-encryption] input[type=radio]:checked")?.closest("label")?.textContent?.trim() === want,
     label
@@ -227,8 +250,49 @@ async function endedVerify(page, chip) {
 
 /** Picks a suite on the Settings card (#1318), which opens the change dialog. */
 async function openSuiteChange(page, id) {
-  await card(page).locator(`[data-suite-option="${id}"] input[type=radio]`).check();
+  // click, not check: the radio is controlled and stays unchecked until the
+  // patch lands, by design (SuiteControls.tsx), so check() would throw.
+  await card(page).locator(`[data-suite-option="${id}"] input[type=radio]`).click();
   await dialog(page, "Change the suite").waitFor();
+}
+
+/** The Backups table is wider than its card (1503px in a 1016px scroller at
+ *  1280px) and the Encryption column is near its right end, and the Copies
+ *  table does the same inside a 360px column. A clip of the table shows a strip
+ *  of it, and a clip of the scroller left where it starts shows no Encryption
+ *  column at all. So the scroller is scrolled the way a reader would, until the
+ *  right edge of the encryption cells' contents (the chips are wider than the
+ *  header) is in view, and the scroller is photographed. It is marked with the
+ *  cell selector so contentColumn can scroll its copy the same way, since a
+ *  clone does not keep a scroll position. Where the cells already fit, this
+ *  scrolls nothing. */
+async function revealEncryption(page, region, cells) {
+  await page.evaluate(({ region, cells }) => {
+    window.__captureReveal = (scroller) => {
+      // An original under the hidden root in a 360px picture has no layout.
+      if (scroller.offsetParent === null) return;
+      const inside = scroller.querySelectorAll(scroller.getAttribute("data-capture-reveal"));
+      if (!inside.length) throw new Error("no encryption cell inside the table being photographed");
+      const edge = Math.max(...[...inside].map((e) => e.getBoundingClientRect().right));
+      // Absolute, so running it again once the page has settled lands on the
+      // same position whatever the first run saw.
+      scroller.scrollLeft = Math.max(0, Math.ceil(scroller.scrollLeft + edge - scroller.getBoundingClientRect().right + 16));
+    };
+    const scroller = document.querySelector(region + " .table-scroll");
+    if (!scroller) throw new Error("no .table-scroll in " + region);
+    scroller.setAttribute("data-capture-reveal", cells + " *");
+    window.__captureReveal(scroller);
+  }, { region, cells });
+}
+
+async function revealEncryptionColumn(page) {
+  await revealEncryption(page, "main", "[data-encryption-list-cell]");
+  return ["main .table-scroll"];
+}
+
+async function revealCopiesEncryption(page) {
+  await revealEncryption(page, '[aria-label="Copies"]', "[data-encryption-cell]");
+  return ['[aria-label="Copies"]'];
 }
 
 const steps = {
@@ -285,7 +349,7 @@ const steps = {
   "rotate-confirm": {
     path: "/settings",
     async prep(page) {
-      await card(page).getByRole("button", { name: "Rotate key" }).click();
+      await (await rotateButton(page)).click();
       await dialog(page, "Rotate the managed key?").waitFor();
       return [DIALOG];
     }
@@ -348,7 +412,7 @@ const steps = {
       const copies = page.getByRole("region", { name: "Copies" });
       await copies.locator('[data-encryption-cell="local"]').getByRole("group", { name: "Plaintext" }).waitFor();
       await copies.locator('[data-encryption-cell="offsite_s3"]').getByRole("group", { name: "Not decrypt-verified" }).waitFor();
-      return ['[aria-label="Copies"]'];
+      return revealCopiesEncryption(page);
     }
   },
   "copies-key-missing": {
@@ -356,7 +420,7 @@ const steps = {
     async prep(page) {
       const copies = page.getByRole("region", { name: "Copies" });
       await copies.locator('[data-encryption-cell="offsite_s3"]').getByRole("group", { name: /^Key missing/ }).waitFor();
-      return ['[aria-label="Copies"]'];
+      return revealCopiesEncryption(page);
     }
   },
   "verify-dialog": {
@@ -373,7 +437,7 @@ const steps = {
     async prep(page) {
       await page.locator('[data-list-copy="offsite_s3"]').first().waitFor();
       await page.getByRole("columnheader", { name: /Encryption/ }).waitFor();
-      return ["main table"];
+      return revealEncryptionColumn(page);
     }
   },
   "settings-exported": {
@@ -396,7 +460,7 @@ const steps = {
       const off = page.getByRole("region", { name: "Copies" }).locator('[data-encryption-cell="offsite_s3"]');
       await off.getByRole("group", { name: /^Encrypted/ }).waitFor();
       await off.getByRole("group", { name: /^Verified recoverable/ }).waitFor();
-      return ['[aria-label="Copies"]'];
+      return revealCopiesEncryption(page);
     }
   },
   "verify-matched": {
@@ -432,7 +496,7 @@ const steps = {
     async prep(page) {
       await page.locator("[data-echip-suite]", { hasText: "age/v1" }).first().waitFor();
       await page.locator("[data-echip-suite]", { hasText: "age-pq/v1" }).first().waitFor();
-      return ["main table"];
+      return revealEncryptionColumn(page);
     }
   },
   "suite-deprecated-health": {
@@ -470,8 +534,18 @@ const steps = {
 const WINDOW = { x: 0, y: 0, width: VIEWPORT.width, height: VIEWPORT.height };
 const GIF_WIDTH = 900;
 
+/** Scrolls the thing into view at once. Without behavior "instant" the app's
+ *  smooth scrolling animates it, and a frame taken 120ms later photographed the
+ *  page halfway there (the first frame of enable-flow showed the top of
+ *  Settings and a strip of empty background instead of the card). */
+async function intoView(page, selector, block) {
+  await page.evaluate(({ s, block }) => {
+    document.querySelector(s)?.scrollIntoView({ block, behavior: "instant" });
+  }, { s: selector, block });
+}
+
 async function toTop(page, selector) {
-  await page.evaluate((s) => document.querySelector(s)?.scrollIntoView({ block: "start" }), selector);
+  await intoView(page, selector, "start");
 }
 
 const gifs = {
@@ -479,6 +553,9 @@ const gifs = {
     path: "/settings",
     async run(page, clip) {
       await card(page).getByRole("switch").waitFor();
+      // The cards above this one finish loading after the switch is there and
+      // push it down, so scroll once the page has settled, not before.
+      await settle(page, 800);
       await toTop(page, CARD);
       await clip.frame(0.9);
       await card(page).getByRole("switch").click();
@@ -512,7 +589,8 @@ const gifs = {
     scenario: "encryption-suite-change",
     async run(page, clip) {
       await card(page).locator("[data-suite-group]").waitFor();
-      await page.evaluate(() => document.querySelector("[data-suite-group]")?.scrollIntoView({ block: "center" }));
+      await settle(page, 800);
+      await intoView(page, "[data-suite-group]", "center");
       await clip.frame(1.0);
       await openSuiteChange(page, "age-pq/v1");
       await clip.frame(1.3);
@@ -576,18 +654,48 @@ try {
 
 const TALL = 2400;
 
+/** Settings scrolls smoothly (components.css), so where the page behind a
+ *  dialog sits when the shutter opens depended on how far an animation had got,
+ *  and the strip of page around a dialog moved between two runs. Captures
+ *  scroll at once. */
+async function noSmoothScroll(page) {
+  await page.addStyleTag({ content: "html, main { scroll-behavior: auto !important; }" });
+}
+
+/** Re-run the column reveal once the page has settled, because a column that
+ *  finished loading after the first reveal moved the chips under it. */
+async function revealAgain(page) {
+  await page.evaluate(() => {
+    for (const e of document.querySelectorAll("[data-capture-reveal]")) window.__captureReveal?.(e);
+  });
+}
+
 async function openStill(app, id, scenario, v) {
   const { context, page } = await openApp(app, {
     path: steps[id].path,
     scenario,
-    viewport: { width: v.width, height: TALL }
+    // Every still is driven in the standard window, and a narrow variant is
+    // narrowed only for the shutter (contentColumn). Driving the controls in
+    // the squeezed 360px shell let a click land on the wrong thing.
+    viewport: { width: VIEWPORT.width, height: TALL }
   });
   await page.evaluate((t) => document.documentElement.setAttribute("data-theme", t), v.theme);
+  await noSmoothScroll(page);
   await settle(page, 400);
-  // The dock would sit on top of whatever is photographed.
-  const hide = page.getByRole("button", { name: "Hide terminal" });
-  if (await hide.count()) await hide.click();
+  await hideDock(page);
+  await quiet(page);
   return { context, page };
+}
+
+/** The dock would sit on top of whatever is photographed. Waited for rather
+ *  than counted: the dock renders a moment after the page, and a count() that
+ *  ran first left it open in one run of two (encryption-08's first pass had the
+ *  dock across the bottom of the card). */
+async function hideDock(page) {
+  const hide = page.getByRole("button", { name: "Hide terminal" });
+  await hide.waitFor({ timeout: 5000 }).catch(() => {});
+  if (await hide.count()) await hide.click();
+  await page.getByRole("button", { name: "Show terminal" }).waitFor({ timeout: 5000 }).catch(() => {});
 }
 
 /** A picture of the wrong thing is worse than no picture. The first batch run
@@ -603,19 +711,85 @@ async function assertFramed(page, clip, v, label) {
   }
 }
 
+/**
+ * The 360px variants.
+ *
+ * The shell has no narrow layout (no breakpoint in ui/shared, see
+ * capture-recovery-assurance.mjs): at 360px it leaves the Settings column about
+ * 150px wide and every card in it is squeezed under 50px, in the default
+ * scenario too. That is older than this epic and tracked in #1337. What the
+ * epic holds the card to is the 995 spec's rule: given the width a 360px
+ * screen's content column has (360 less two 16px gutters), the card fits its
+ * own content. So that is what these variants show. The real rendered nodes are
+ * cloned, live form state included, into a 360px column with 16px gutters on
+ * the page background, and the application root is taken out of layout for
+ * the shutter. Dialogs get the same treatment: the dialog box asks for a
+ * minimum width wider than a 360px window (449px measured), so it is cloned
+ * into the column and laid out in flow at the column's width.
+ */
+async function contentColumn(page, clip, v) {
+  if (v.width !== 360) return clip;
+  await page.setViewportSize({ width: v.width, height: TALL });
+  await page.evaluate(({ sels, width }) => {
+    const states = [];
+    const column = document.createElement("div");
+    column.setAttribute("data-capture-column", "");
+    column.style.cssText =
+      "width:" + width + "px;padding:16px;box-sizing:border-box;display:flex;flex-direction:column;gap:16px;background:var(--bg);color:var(--text)";
+    for (const sel of sels) {
+      for (const el of document.querySelectorAll(sel)) {
+        const copy = el.cloneNode(true);
+        // cloneNode copies attributes, and React keeps checked and value as
+        // properties, so carry those across or every radio reads unset.
+        // The copy's radios are renamed first, or they would share a group
+        // with the originals and checking one would uncheck the other.
+        const from = el.querySelectorAll("input,textarea,select");
+        copy.querySelectorAll("input,textarea,select").forEach((c, i) => {
+          if (c.name) c.name = c.name + "-capture";
+          states.push([c, from[i].checked, from[i].value]);
+        });
+        copy.style.width = "100%";
+        copy.style.maxWidth = "100%";
+        copy.style.flex = "none";
+        copy.style.margin = "0";
+        // A dialog is positioned over the page and given a minimum width
+        // wider than a 360px window, so in the column it sits in flow.
+        copy.style.position = "static";
+        copy.style.transform = "none";
+        copy.style.inset = "auto";
+        copy.style.minWidth = "0";
+        copy.style.maxHeight = "none";
+        column.append(copy);
+      }
+    }
+    document.getElementById("root").style.display = "none";
+    document.body.prepend(column);
+    for (const [c, checked, value] of states) {
+      if ("checked" in c) c.checked = checked;
+      if ("value" in c && c.type !== "radio" && c.type !== "checkbox") c.value = value;
+    }
+    for (const e of column.querySelectorAll("[data-capture-reveal]")) window.__captureReveal(e);
+    window.scrollTo(0, 0);
+  }, { sels: clip, width: v.width });
+  return ["[data-capture-column]"];
+}
+
 async function shootStills(app) {
   const written = [];
   for (const s of capturable) {
     if (ONLY && ONLY !== s.id) continue;
     for (const v of manifest.variants) {
       const { context, page } = await openStill(app, s.id, s.scenario, v);
-      const clip = await steps[s.id].prep(page);
       // A hover tooltip from the last click would sit over the picture.
       await page.mouse.move(0, 0);
+      const prepared = await steps[s.id].prep(page);
+      await quiet(page);
+      const clip = await contentColumn(page, prepared, v);
       await settle(page, 400);
+      await revealAgain(page);
       await assertClean(page, s.name + v.suffix);
       await assertFramed(page, clip, v, s.name + v.suffix);
-      await shot(page, s.name + v.suffix, clip, { pad: 16 });
+      await shot(page, s.name + v.suffix, clip, { pad: clip[0] === "[data-capture-column]" ? 0 : 16 });
       written.push(s.name + v.suffix);
       await context.close();
     }
@@ -623,10 +797,12 @@ async function shootStills(app) {
   return written;
 }
 
-/** Wraps frame() so every frame is scanned before it is taken. */
+/** Wraps frame() so every frame waits for a quiet page and is scanned before it is taken. */
 function scanned(page, clip, label) {
   const frame = clip.frame.bind(clip);
   clip.frame = async (...a) => {
+    // Settled first, for the reason quiet() gives: a frame is a still too.
+    await quiet(page);
     await assertClean(page, label);
     return frame(...a);
   };
@@ -644,7 +820,11 @@ async function shootGifs(app) {
       viewport: VIEWPORT
     });
     await page.evaluate(() => document.documentElement.setAttribute("data-theme", "light"));
+    await noSmoothScroll(page);
     await settle(page, 400);
+    // The same as the stills: the dock would cover the lower third of every frame.
+    await hideDock(page);
+    await quiet(page);
     const clip = scanned(page, new Clip(page, g.name, { clip: WINDOW, width: GIF_WIDTH }), g.name);
     await spec.run(page, clip);
     await page.mouse.move(0, 0);
@@ -694,6 +874,14 @@ if (!CHECK) {
     names = await shootAll(app);
     optimise(names.stills);
     first = digests(names);
+    // CAPTURE_FIRST_PASS_DIR keeps the first pass's files, so a file that moves
+    // can be compared with what it moved from rather than only reported.
+    if (process.env.CAPTURE_FIRST_PASS_DIR) {
+      mkdirSync(process.env.CAPTURE_FIRST_PASS_DIR, { recursive: true });
+      for (const n of [...names.stills.map((x) => x + ".png"), ...names.gifNames.map((x) => x + ".gif")]) {
+        copyFileSync(join(SCREENS, n), join(process.env.CAPTURE_FIRST_PASS_DIR, n));
+      }
+    }
     await shootAll(app);
     optimise(names.stills);
     second = digests(names);
