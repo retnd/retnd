@@ -48,10 +48,13 @@ PAIRS: list[tuple[str, str, str, str, str, float]] = [
     # Status badges beside each suite option.
     ("encryption/encryption.css", ".esuite__badge", "color", "text", "surface-2", NORMAL),
     ("encryption/encryption.css", ".esuite__badge", "border-color", "edge-3", "surface", EDGE),
-    ("encryption/encryption.css", '.esuite__badge[data-suite-badge="default"]', "background", "text", "ok-quiet", NORMAL),
+    ("encryption/encryption.css", '.esuite__badge[data-suite-badge="default"]', "background", "text", "ok-quiet",
+     NORMAL),
     ("encryption/encryption.css", '.esuite__badge[data-suite-badge="default"]', "border-color", "ok", "surface", EDGE),
-    ("encryption/encryption.css", '.esuite__badge[data-suite-badge="deprecated"]', "background", "text", "warn-quiet", NORMAL),
-    ("encryption/encryption.css", '.esuite__badge[data-suite-badge="deprecated"]', "border-color", "warn", "surface", EDGE),
+    ("encryption/encryption.css", '.esuite__badge[data-suite-badge="deprecated"]', "background", "text", "warn-quiet",
+     NORMAL),
+    ("encryption/encryption.css", '.esuite__badge[data-suite-badge="deprecated"]', "border-color", "warn", "surface",
+     EDGE),
     ("encryption/encryption.css", '.esuite__badge[data-suite-badge="retired"]', "color", "text-2", "surface-2", NORMAL),
     # The options: the sentence, the selected row and the disabled (retired) row.
     ("encryption/encryption.css", ".esuite", "border-color", "edge-3", "surface", EDGE),
@@ -70,11 +73,11 @@ PAIRS: list[tuple[str, str, str, str, str, float]] = [
 ]
 
 
-def oklch_to_linear(l: float, c: float, h: float) -> tuple[float, float, float]:
+def oklch_to_linear(lightness: float, c: float, h: float) -> tuple[float, float, float]:
     a, b = c * math.cos(math.radians(h)), c * math.sin(math.radians(h))
-    l_ = l + 0.3963377774 * a + 0.2158037573 * b
-    m_ = l - 0.1055613458 * a - 0.0638541728 * b
-    s_ = l - 0.0894841775 * a - 1.2914855480 * b
+    l_ = lightness + 0.3963377774 * a + 0.2158037573 * b
+    m_ = lightness - 0.1055613458 * a - 0.0638541728 * b
+    s_ = lightness - 0.0894841775 * a - 1.2914855480 * b
     lc, mc, sc = l_**3, m_**3, s_**3
     rgb = (
         4.0767416621 * lc - 3.3077115913 * mc + 0.2309699292 * sc,
