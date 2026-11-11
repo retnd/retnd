@@ -371,6 +371,23 @@ func TestRevokeIsASessionPostAndTheNextBearerRequestIsRefused(t *testing.T) {
 	}
 }
 
+// Falsify: only consult the deny list when a token store is wired. The
+// first-run router has none, and /system/first-run is the route it serves.
+func TestABearerOnADeniedPrefixIsRefusedWithNoTokenStore(t *testing.T) {
+	h := authMiddleware(allowingPlatform("alice"), nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	for _, p := range []string{"/api/v1/system/first-run", "/api/v1/system/first-run/skip", "/api/v1/recoveries"} {
+		rec := serve(h, bearer(http.MethodPost, p, "{}", readToken))
+		if rec.Code != http.StatusForbidden || responseErrorCode(rec.Body.String()) != "AGENT_ROUTE_DENIED" {
+			t.Errorf("%s with no token store = %d %s, want 403 AGENT_ROUTE_DENIED", p, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := serve(h, bearer(http.MethodGet, "/api/v1/system/version", "", readToken)); rec.Code != http.StatusNoContent {
+		t.Errorf("an open route with no token store = %d, want the header ignored as before", rec.Code)
+	}
+}
+
 // A deployment that never minted a token: no Authorization header means the
 // request meets exactly the checks it met before.
 func TestARequestWithNoBearerHeaderIsUntouched(t *testing.T) {
