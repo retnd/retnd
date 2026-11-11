@@ -99,7 +99,7 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
         subtitle="Service behaviour, platform integration and build information"
       />
 
-      <div ref={grid} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.3fr) minmax(0, 1fr)", gap: 14, alignItems: "start" }}>
+      <div ref={grid} className="settings-grid">
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {/* Issue #845. A "Service" card stood here once (#299) holding
               two decorative controls — a "Polling interval" picklist in

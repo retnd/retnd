@@ -526,3 +526,43 @@ input, select, textarea, button {
 }
 .setchip__clear:hover { background: var(--surface-3); color: var(--text); }
 .setchip__back { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+
+/* The app shell and the Settings grid (issue #1337). These were inline
+   styles, which cannot answer to a screen width. Wide screens keep the side
+   navigation and two Settings columns. Under 720px the navigation becomes a
+   strip of rows above the content that scrolls on its own, the content takes
+   the whole width with a 16px gutter, and Settings is one column, so a 360px
+   screen leaves 328px for the cards instead of about 150px. */
+.shell-header {
+  flex: none; min-height: 52px; display: flex; align-items: center; gap: 16px;
+  padding: 0 18px; background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.shell-header__brand { display: flex; align-items: center; gap: 10px; min-width: 206px; }
+.shell-body { flex: 1; display: flex; align-items: stretch; min-height: 0; }
+.shell-nav {
+  flex: none; width: 206px; padding: 14px 10px; background: var(--surface);
+  border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px;
+}
+.shell-nav__spacer { flex: 1; min-height: 20px; }
+.shell-nav__platform { padding: 12px 10px; border-top: 1px solid var(--border); }
+.shell-main { flex: 1; min-width: 0; overflow: auto; }
+.shell-main__inner {
+  max-width: 1240px; margin: 0 auto; padding: 24px 28px 64px;
+  display: flex; flex-direction: column; gap: 18px;
+}
+.settings-grid {
+  display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 14px; align-items: start;
+}
+@media (max-width: 720px) {
+  .shell-header { padding: 0 16px; flex-wrap: wrap; row-gap: 4px; padding-block: 6px; }
+  .shell-header__brand { min-width: 0; }
+  .shell-body { flex-direction: column; }
+  .shell-nav {
+    width: auto; flex-direction: row; overflow-x: auto; padding: 6px 16px; gap: 4px;
+    border-right: 0; border-bottom: 1px solid var(--border);
+  }
+  .shell-nav > * { flex: none; }
+  .shell-nav__spacer, .shell-nav__platform { display: none; }
+  .shell-main__inner { padding: 20px 16px 64px; }
+  .settings-grid { grid-template-columns: minmax(0, 1fr); }
+}
