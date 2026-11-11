@@ -229,7 +229,7 @@ def main(argv: list[str]) -> int:
     for b in bad:
         print("check-ui-pairs: " + b, file=sys.stderr)
     if not bad:
-        for sheet, selector, prop, fg, bg, need in PAIRS:
+        for _sheet, selector, _prop, fg, bg, need in PAIRS:
             backgrounds = [bg] + ([b for b in EDGE_BACKGROUNDS if b != bg] if fg in EDGE_TOKENS else [])
             for b in backgrounds:
                 light = ratio(resolve(t["light"], fg), resolve(t["light"], b))
