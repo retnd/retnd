@@ -80,6 +80,9 @@ PAIRS: list[tuple[str, str, str, str, str, float]] = [
     ("encryption/encryption.css", ".esteps__step", "border-color", "edge-3", "surface", EDGE),
     ("encryption/encryption.css", '.esteps__step[data-state="now"]', "background", "text", "accent-quiet", NORMAL),
     ("encryption/encryption.css", '.esteps__step[data-state="done"] .esteps__glyph', "color", "ok", "surface", EDGE),
+    # The Settings card's secondary buttons draw the control edge, and the
+    # recovery bundle ones sit on the warning banner's fill, the lowest pair.
+    ("design-system/components.css", ".btn--strong-edge", "border-color", "control-edge", "warn-quiet", EDGE),
     # The still-owed list.
     ("encryption/encryption.css", ".eowed", "background", "text", "warn-quiet", NORMAL),
 ]
