@@ -277,7 +277,7 @@ CONTROLS += [
     ),
     Control(
         "key_encryption extended with a retained-copy field",
-        ("NC-05",),
+        ("NC-05", "NV.4"),
         [(CONFIG_GO_N, "\tCommand []string `yaml:\"command\"`\n}\n\n// isZero reports whether none of KeyEncryption's three sources are set:",
           "\tCommand []string `yaml:\"command\"`\n\n\tRetainedCopies bool `yaml:\"retained_copies,omitempty\"` " + PLANT.strip() + "\n}\n\n// isZero reports whether none of KeyEncryption's three sources are set:")],
         "./internal/config/",
