@@ -80,6 +80,14 @@ class Control:
     build: str = ""
     timeout: str = "15m"
     module: str = "core"
+    # A guard that is not a Go test (a shell checker, the contrast script, a
+    # Playwright spec): `cmd` runs from the copy's root (or `module`, when it
+    # is not core), and every string in `needles` must appear in its output
+    # for the red run to count. `links` are paths symlinked from the real tree
+    # into the copy first (node_modules, which git does not list).
+    cmd: list[str] = field(default_factory=list)
+    needles: list[str] = field(default_factory=list)
+    links: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------- EPIC T
@@ -348,6 +356,10 @@ def gate(work: Path, c: Control, race: bool) -> tuple[int, str]:
     expected failure has to become a value this file inspects."""
     env = dict(os.environ)
     env["GOWORK"] = "off"
+    if c.cmd:
+        cwd = work if c.module == "core" else work / c.module
+        proc = harness.sh(c.cmd, check=False, capture=True, cwd=cwd, env=env)
+        return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
     tops = sorted({n.split("/", 1)[0] for n in c.names})
     pattern = "^(" + "|".join(re.escape(t) for t in tops) + ")$" if tops else "^$"
     if EXPLORE:
@@ -365,6 +377,12 @@ def caught(c: Control, code: int, out: str) -> tuple[bool, str]:
     every named test reported as failing."""
     if code == 0:
         return False, "the narrowed test PASSED against a planted violation"
+    if c.cmd:
+        missing = [n for n in c.needles if n not in out]
+        if missing:
+            return False, "it failed, but never said " + ", ".join(missing)
+        line = next((x.strip() for x in out.splitlines() if c.needles and c.needles[0] in x), "")
+        return True, line[:400]
     if c.build:
         if c.build in out and ("build failed" in out or "setup failed" in out or "FAIL" in out):
             line = next((x.strip() for x in out.splitlines() if c.build in x), "")
@@ -405,6 +423,11 @@ def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | 
         tmp = Path(tmp_name)
         tracker = selftest_swap.AnchorTracker(dry_run=dry_run, root=root, tmp=tmp)
         work = selftest_swap.mutant(root, tmp, "work", dry_run=dry_run)
+        if not dry_run:
+            for rel in sorted({x for c in controls for x in c.links}):
+                if (root / rel).exists() and not (work / rel).exists():
+                    (work / rel).parent.mkdir(parents=True, exist_ok=True)
+                    (work / rel).symlink_to(root / rel)
 
         for c in controls:
             print()
@@ -444,7 +467,7 @@ def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | 
                 with record.open("a") as fh:
                     fh.write(
                         f"{stamp}\t{host}\t{commit}\t{' '.join(c.rows)}\t{c.label}\t{verdict}\t"
-                        f"go test -count=1{' -race' if race else ''} -run <{','.join(c.names) or c.build}> {c.pkg}\t"
+                        (" ".join(c.cmd) if c.cmd else f"go test -count=1{' -race' if race else ''} -run <{','.join(c.names) or c.build}> {c.pkg}") + "\t"
                         f"RED: {why}\tGREEN: {green}\n"
                     )
 
