@@ -2158,6 +2158,11 @@ mkdir -p "$lock_dir"
 # macOS and Linux.
 printf '2147483646\n' >"$lock_dir/pid"
 printf '%s\n' "$SANDBOX/gone" >"$lock_dir/where"
+# Taken on this host and this boot, which is what lets gate_lock_dead judge
+# the pid at all (#1331): without the two records the lock is unjudgeable and
+# only age reclaims it, so this case waited out GATE_LOCK_TIMEOUT instead.
+hostname >"$lock_dir/host"
+sh -c ". '$GATE_LIB' && gate_boot_id" >"$lock_dir/boot"
 q3_out="$(CI_LOCAL_LOCK_DIR="$lock_dir" GATE_LOCK_POLL=1 sh -c ". '$GATE_LIB' && gate_lock_acquire && echo RECLAIMED-AND-HELD && gate_lock_release" 2>&1)"
 assert_contains "Q3 a lock whose holder is gone is reclaimed" 'RECLAIMED-AND-HELD' "$q3_out"
 assert_contains "Q3 and the run says so" 'no longer exists' "$q3_out"
