@@ -44,10 +44,10 @@ CONTROLS = [
         timeout="30m",
     ),
     Control(
-        "RT a rotation with no suite named moves to the default, under Suite A",
+        "RT the policy line reports the build default and not the suite in force, under Suite A",
         ("T2.4",),
-        [(KEYSTORE_RT, "\tif suiteID == \"\" {\n\t\tsuiteID = suiteOf(active)\n\t}",
-          "\tif suiteID == \"\" {\n\t\tsuiteID = copycrypt.Default().ID() " + PLANT.strip() + "\n\t}")],
+        [("core/cmd/retnd/encryption.go", "fmt.Printf(\"  suite: %s (configured: %s)\\n\", p.Suite, p.SuiteConfigured)",
+          "fmt.Printf(\"  suite: %s (configured: %s)\\n\", copycrypt.Default().ID(), p.SuiteConfigured) " + PLANT.strip())],
         "",
         cmd=["bash", CASE, "a", "encryption/a-key-created-under-age-v1-stays-age-v1"],
         needles=["--- FAIL: TestCLIContract/encryption/a-key-created-under-age-v1-stays-age-v1"],
