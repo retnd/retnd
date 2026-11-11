@@ -236,6 +236,11 @@
 # landing a four-byte dangling link and exec'ing it. They pass `-L` now, which
 # is a no-op against a pre-rename image. The same defect was in this
 # repository's own release scripts and is fixed on the image branch.
+# Moved to the head of retnd-tests#99, which refreshes the web-ui specs that had
+# drifted from the product (#913). Re-pin to that pull request's merge commit
+# once it lands: the pin has to be an ancestor of their main (#1074), and a
+# branch head is not.
+#
 TESTS_REPO_URL=https://github.com/retnd/retnd-tests.git
 #
 # Moved to 1b79f8d, retnd-tests#60, off their merged main and not
@@ -274,7 +279,7 @@ TESTS_REPO_URL=https://github.com/retnd/retnd-tests.git
 # `git cat-file -p` on both: tree 24832df8), so no suite sees a difference.
 # bump_tests_pin.py and the gate now both refuse a sha that is not an
 # ancestor of their main, so this cannot happen again.
-TESTS_REPO_SHA=acdc5e0dbc07e979551b11a293d3bfbd2d8d076e
+TESTS_REPO_SHA=95ac42f12beebe0109593f15cb9e96d138e91a89
 #
 # Moved to bccd71c, retnd-tests#65, off their merged main and not
 # off the branch, for the reason the paragraph about a794c38 above already
