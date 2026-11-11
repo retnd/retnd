@@ -1073,6 +1073,28 @@ func (c *Client) ClearBackupSetEncryption(ctx context.Context, source, set strin
 	return out, err
 }
 
+// MintAgentToken is POST /agent/tokens. The answer carries the token itself,
+// once; nothing afterwards returns it.
+func (c *Client) MintAgentToken(ctx context.Context, req apicontract.MintAgentTokenRequest) (apicontract.MintedAgentToken, error) {
+	var out apicontract.MintedAgentToken
+	err := c.call(ctx, "mintAgentToken", nil, req, &out)
+	return out, err
+}
+
+// ListAgentTokens is GET /agent/tokens.
+func (c *Client) ListAgentTokens(ctx context.Context) (apicontract.ListAgentTokensResponse, error) {
+	var out apicontract.ListAgentTokensResponse
+	err := c.call(ctx, "listAgentTokens", nil, nil, &out)
+	return out, err
+}
+
+// RevokeAgentToken is POST /agent/tokens/{id}/revoke.
+func (c *Client) RevokeAgentToken(ctx context.Context, id string) (apicontract.AgentToken, error) {
+	var out apicontract.AgentToken
+	err := c.call(ctx, "revokeAgentToken", []string{id}, nil, &out)
+	return out, err
+}
+
 // ListEncryptionKeys is GET /encryption/keys.
 func (c *Client) ListEncryptionKeys(ctx context.Context) (apicontract.ListEncryptionKeysResponse, error) {
 	var out apicontract.ListEncryptionKeysResponse

@@ -49,6 +49,9 @@ GET /activity/live
 	example ?scope=deployment: command
 	example ?backup_set=api-server%2Fvar-backups&scope=deployment: command
 
+GET /agent/tokens
+	example: command
+
 GET /assurance/default-validator-script
 	example: command
 
@@ -300,6 +303,16 @@ PATCH /settings/workflow
 	example {"disabled":true}: command
 	example {"disabled":false}: command
 	body that isn't JSON: malformed: there is no verb that patches the deployment's workflow configuration from a request body
+
+POST /agent/tokens
+	corpus: command
+	example {"name":"triage"}: command
+	example {"name":"triage","scope":"read","expires_in":"30d"}: command
+	body that isn't JSON: malformed: the request body would not decode, so there is no command that says which token it minted
+
+POST /agent/tokens/{id}/revoke
+	example: command
+	body that isn't JSON: command
 
 POST /assurance/operations/{op}/cancel
 	example: command

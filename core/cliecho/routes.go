@@ -1219,6 +1219,40 @@ var routes = map[string]entry{
 	// their verbs now. Key material and the passphrase are in the body
 	// and stay there: the key is a FILE on the command line and the
 	// passphrase is the first line of stdin, so the line is exportable.
+	// ------------------------------------------------------- agent ---
+	// EPIC U (#1345). The three token routes are session-only; the verbs are
+	// `retnd agent token ...`.
+	key("GET", "/agent/tokens"): {
+		build:    func(Action) *cmd { return newCmd("agent", "token", "list") },
+		examples: []Action{{}},
+	},
+	key("POST", "/agent/tokens"): {
+		build: func(a Action) *cmd {
+			var req apicontract.MintAgentTokenRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("agent", "token", "create", req.Name)
+			if req.Scope != "" {
+				c.flag("scope", req.Scope)
+			}
+			if req.ExpiresIn != "" {
+				c.flag("expires-in", req.ExpiresIn)
+			}
+			return c
+		},
+		why: "the request body would not decode, so there is no command that says which token it minted",
+		examples: []Action{
+			{Body: []byte(`{"name":"triage"}`)},
+			{Body: []byte(`{"name":"triage","scope":"read","expires_in":"30d"}`)},
+		},
+	},
+	key("POST", "/agent/tokens/{id}/revoke"): {
+		build: func(a Action) *cmd {
+			return newCmd("agent", "token", "revoke", a.Params["id"])
+		},
+		examples: []Action{{Params: map[string]string{"id": "agt_0123456789abcdef"}}},
+	},
 	key("POST", "/ssh-keys"): {
 		build: func(a Action) *cmd {
 			var req struct {

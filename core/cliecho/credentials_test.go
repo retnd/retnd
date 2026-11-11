@@ -208,6 +208,11 @@ func TestNoRequestFieldReachesTheArgv_MutationANewRouteReusingAnExemptFlagIsCaug
 // secret can arrive in is not knowable, and the set of flags this package
 // prints is right here.
 var flagsThatEchoWhatTheRequestSaid = map[string]string{
+	// An agent token's scope and lifetime (#1345): one of three closed words
+	// and a duration. They are what the operator chose, and neither is
+	// material; the token itself is never in a request.
+	"--scope":      "an agent token's scope, one of read, operate or configure",
+	"--expires-in": "an agent token's lifetime, a duration such as 90d",
 	// The artifact a recovery test was asked about: a backup's own id
 	// (source/set/name), which an operator retyping the command has to say
 	// and which is a name, not material.
@@ -389,6 +394,8 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 // is added here, which is where a reviewer reads whether the reason still
 // holds for it.
 var flagRoutes = map[string][]string{
+	"--scope":                       {"POST /agent/tokens"},
+	"--expires-in":                  {"POST /agent/tokens"},
 	"--username":                    {"POST /auth/enroll", "POST /auth/forgot-password"},
 	"--until":                       {"POST /recoveries"},
 	"--after-dir":                   {"PATCH /backup-sets/{source}/{set}/workflow", "PATCH /settings/workflow"},
@@ -468,6 +475,7 @@ var flagRoutes = map[string][]string{
 // operand has no flag name in front of it to say what it is, so the only
 // place the claim can be made is against the route that prints it.
 var operandsThatNameTheSubject = map[string]string{
+	"POST /agent/tokens":                "the token's own name, which becomes the agent:<name> principal (#1345)",
 	"POST /system/first-run":            "source/name, the backup set being created",
 	"POST /backup-sets":                 "source/name, the backup set being created",
 	"POST /backup-sets/test-connection": "source/name, the backup set being checked (issue #624)",

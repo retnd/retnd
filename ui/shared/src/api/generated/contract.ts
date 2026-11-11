@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "29e8bad06ac6e40608cf53fad446c274537e3bbf062c225ee56ff3c7372d9fb7";
+export const CONTRACT_SHA256 = "cdc25e03580c859b9e13fbd4504fd9afdd3761561ec804cb6266ae52683dceba";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -132,6 +132,11 @@ export const WIRE_ERROR_CODES = [
   "ENCRYPTION_KEY_STATE",
   "ENCRYPTION_KEY_UNRESOLVABLE",
   "ENCRYPTION_UNAVAILABLE",
+  "AGENT_TOKEN_INVALID",
+  "AGENT_SCOPE_INSUFFICIENT",
+  "AGENT_ROUTE_DENIED",
+  "AGENT_CONFIRMATION_REQUIRED",
+  "AGENT_TOKEN_NOT_FOUND",
 ] as const;
 
 /** This UI's own presentation vocabulary. No endpoint emits these;
@@ -276,6 +281,11 @@ export const API_ERROR_CODES = [
   "ENCRYPTION_KEY_STATE",
   "ENCRYPTION_KEY_UNRESOLVABLE",
   "ENCRYPTION_UNAVAILABLE",
+  "AGENT_TOKEN_INVALID",
+  "AGENT_SCOPE_INSUFFICIENT",
+  "AGENT_ROUTE_DENIED",
+  "AGENT_CONFIRMATION_REQUIRED",
+  "AGENT_TOKEN_NOT_FOUND",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -283,11 +293,11 @@ export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 /** Codes grouped by the refusal they represent, so a caller can assert
  *  the RIGHT refusal rather than any refusal. */
 export const API_ERROR_CLASSES = {
-  "authentication": ["UNAUTHENTICATED", "BOOTSTRAP_TOKEN_INVALID", "RESET_TOKEN_INVALID", "VERIFY_TOKEN_INVALID"],
-  "authorization": ["ENROLLMENT_CLOSED", "DESTRUCTIVE_OPERATIONS_DISABLED", "CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "RECOVERY_GRANT_SESSION_ENDED", "STEP_UP_REQUIRED", "STEP_UP_FAILED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
-  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED", "RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED", "RECOVERY_TARGET_EXISTS", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_BUSY", "DIRECTORY_NOT_READABLE", "RESTORE_TARGET_NOT_ACKNOWLEDGED", "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_UNAVAILABLE", "RECOVERY_SOURCE_HOST_READ_ONLY", "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE", "VALIDATOR_EXISTS", "VALIDATOR_PATTERN_CONFLICT", "VALIDATOR_LIMIT_REACHED", "VALIDATOR_SCRIPT_CHANGED", "ENCRYPTION_KEY_IN_USE", "ENCRYPTION_KEY_STATE", "ENCRYPTION_KEY_UNRESOLVABLE"],
+  "authentication": ["UNAUTHENTICATED", "BOOTSTRAP_TOKEN_INVALID", "RESET_TOKEN_INVALID", "VERIFY_TOKEN_INVALID", "AGENT_TOKEN_INVALID"],
+  "authorization": ["ENROLLMENT_CLOSED", "DESTRUCTIVE_OPERATIONS_DISABLED", "CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "RECOVERY_GRANT_SESSION_ENDED", "STEP_UP_REQUIRED", "STEP_UP_FAILED", "INSECURE_TRANSPORT_ACK_REQUIRED", "AGENT_SCOPE_INSUFFICIENT", "AGENT_ROUTE_DENIED"],
+  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED", "RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED", "RECOVERY_TARGET_EXISTS", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_BUSY", "DIRECTORY_NOT_READABLE", "RESTORE_TARGET_NOT_ACKNOWLEDGED", "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_UNAVAILABLE", "RECOVERY_SOURCE_HOST_READ_ONLY", "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE", "VALIDATOR_EXISTS", "VALIDATOR_PATTERN_CONFLICT", "VALIDATOR_LIMIT_REACHED", "VALIDATOR_SCRIPT_CHANGED", "ENCRYPTION_KEY_IN_USE", "ENCRYPTION_KEY_STATE", "ENCRYPTION_KEY_UNRESOLVABLE", "AGENT_CONFIRMATION_REQUIRED"],
   "internal": ["INTERNAL", "INTERNAL_ERROR", "RECOVERY_LOCAL_COPY_CORRUPT", "RECOVERY_REMOTE_COPY_CORRUPT", "RECOVERY_NO_SPACE", "RECOVERY_BELOW_RESERVE", "RECOVERY_FAILED", "RECOVERY_SOURCE_HOST_NO_SPACE"],
-  "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN", "DIRECTORY_NOT_FOUND", "VALIDATOR_NOT_FOUND", "ENCRYPTION_KEY_NOT_FOUND"],
+  "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN", "DIRECTORY_NOT_FOUND", "VALIDATOR_NOT_FOUND", "ENCRYPTION_KEY_NOT_FOUND", "AGENT_TOKEN_NOT_FOUND"],
   "throttling": ["RATE_LIMITED", "RECOVERY_TOO_MANY_GRANTS", "RECOVERY_READS_BUSY", "RECOVERY_DESTINATION_BUSY", "RECOVERY_DOWNLOADS_BUSY"],
   "unavailable": ["NOT_CONFIGURED", "SMTP_SEND_FAILED", "WORKFLOW_ENGINE_UNAVAILABLE", "RECOVERY_UNAVAILABLE", "RECOVERY_INTERRUPTED", "STEP_UP_UNAVAILABLE", "RECOVERY_SOURCE_HOST_UNREACHABLE", "VALIDATORS_UNAVAILABLE", "ENCRYPTION_UNAVAILABLE"],
   "validation": ["INVALID_REQUEST", "INVALID_EMAIL", "SSH_KEY_NOT_FOUND", "HOST_KEY_PROBE_FAILED", "MEDIUM_DISCLOSURE_REQUIRED", "BACKUP_SET_NOT_INCREMENTAL", "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED", "RECOVERY_TARGET_INVALID"],
@@ -359,6 +369,62 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       404: ["BACKUP_SET_NOT_FOUND"],
       500: ["INTERNAL"],
       503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "listAgentTokens",
+    method: "GET",
+    path: "/agent/tokens",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListAgentTokensResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["AGENT_ROUTE_DENIED"],
+      500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "mintAgentToken",
+    method: "POST",
+    path: "/agent/tokens",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "MintAgentTokenRequest",
+    responseSchema: "MintedAgentToken",
+    successStatus: 201,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "AGENT_ROUTE_DENIED"],
+      500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "revokeAgentToken",
+    method: "POST",
+    path: "/agent/tokens/{id}/revoke",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AgentToken",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "AGENT_ROUTE_DENIED"],
+      404: ["AGENT_TOKEN_NOT_FOUND"],
+      500: ["INTERNAL"],
     }
   },
   {
@@ -3099,6 +3165,24 @@ export interface WireAdoptedPath {
   what: string;
 }
 
+/** One agent token as every surface after the mint shows it: its
+ *  name, the first eight characters of the token, scope, owner and
+ *  times, never the hash and never more of the token than the prefix.
+ *  status is active, expired or revoked, read from the token row on
+ *  this request. The principal it authenticates as is agent:<name>. */
+export interface WireAgentToken {
+  created_at: string;
+  expires_at: string;
+  id: string;
+  last_used_at: string | null;
+  name: string;
+  owner: string;
+  prefix: string;
+  revoked_at: string | null;
+  scope: "read" | "operate" | "configure";
+  status: "active" | "expired" | "revoked";
+}
+
 /** POST /backup-sets/{source}/{set}/retention/apply. */
 export interface WireApplyRetentionRequest {
   plan_id: string;
@@ -4085,6 +4169,12 @@ export interface WireListActivityResponse {
   next_cursor?: string;
 }
 
+/** GET /agent/tokens. Every token, revoked and expired ones included,
+ *  with their status. */
+export interface WireListAgentTokensResponse {
+  tokens: WireAgentToken[];
+}
+
 /** GET /backups and GET /quarantine. An object with one array field,
  *  never a bare top-level array. */
 export interface WireListArtifactsResponse {
@@ -4463,6 +4553,25 @@ export interface WireMediumPreflightResponse {
   checks: WireMediumPreflightCheck[];
   medium: string;
   ok: boolean;
+}
+
+/** POST /agent/tokens. name becomes the agent:<name> principal. scope
+ *  defaults to read, the only default. expires_in is a number of days
+ *  such as 90d or a Go duration such as 720h; it defaults to 90d, may
+ *  not exceed 365d, and there is no non-expiring token. */
+export interface WireMintAgentTokenRequest {
+  expires_in?: string;
+  name: string;
+  scope?: "read" | "operate" | "configure";
+}
+
+/** The one answer that carries the token itself. token is shown
+ *  exactly once, here: the deployment stores its SHA-256 and the
+ *  eight-character prefix, so a lost token is revoked and minted
+ *  again, never recovered. */
+export interface WireMintedAgentToken {
+  agent_token: WireAgentToken;
+  token: string;
 }
 
 /** One durable operation record. Timestamp fields are omitted, not

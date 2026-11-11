@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "29e8bad06ac6e40608cf53fad446c274537e3bbf062c225ee56ff3c7372d9fb7"
+const ContractSHA256 = "cdc25e03580c859b9e13fbd4504fd9afdd3761561ec804cb6266ae52683dceba"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -169,6 +169,11 @@ const (
 	ErrorCodeEncryptionKeyState                     ErrorCode = "ENCRYPTION_KEY_STATE"
 	ErrorCodeEncryptionKeyUnresolvable              ErrorCode = "ENCRYPTION_KEY_UNRESOLVABLE"
 	ErrorCodeEncryptionUnavailable                  ErrorCode = "ENCRYPTION_UNAVAILABLE"
+	ErrorCodeAgentTokenInvalid                      ErrorCode = "AGENT_TOKEN_INVALID"
+	ErrorCodeAgentScopeInsufficient                 ErrorCode = "AGENT_SCOPE_INSUFFICIENT"
+	ErrorCodeAgentRouteDenied                       ErrorCode = "AGENT_ROUTE_DENIED"
+	ErrorCodeAgentConfirmationRequired              ErrorCode = "AGENT_CONFIRMATION_REQUIRED"
+	ErrorCodeAgentTokenNotFound                     ErrorCode = "AGENT_TOKEN_NOT_FOUND"
 )
 
 // WireErrorCodes is codes a server may put on the wire. Every one of these is emitted by real handler code, and apps/common/webhost's TestContract_EveryWireErrorCodeIsRegistered holds that both ways.
@@ -285,6 +290,11 @@ var WireErrorCodes = []ErrorCode{
 	ErrorCodeEncryptionKeyState,
 	ErrorCodeEncryptionKeyUnresolvable,
 	ErrorCodeEncryptionUnavailable,
+	ErrorCodeAgentTokenInvalid,
+	ErrorCodeAgentScopeInsufficient,
+	ErrorCodeAgentRouteDenied,
+	ErrorCodeAgentConfirmationRequired,
+	ErrorCodeAgentTokenNotFound,
 }
 
 // UIErrorCodes is the shared UI's own presentation vocabulary. No endpoint emits these; they are registered here so there is one registry rather than a second hand-maintained list in ui/shared.
@@ -425,16 +435,21 @@ var ErrorCodes = []ErrorCode{
 	ErrorCodeEncryptionKeyState,
 	ErrorCodeEncryptionKeyUnresolvable,
 	ErrorCodeEncryptionUnavailable,
+	ErrorCodeAgentTokenInvalid,
+	ErrorCodeAgentScopeInsufficient,
+	ErrorCodeAgentRouteDenied,
+	ErrorCodeAgentConfirmationRequired,
+	ErrorCodeAgentTokenNotFound,
 }
 
 // ErrorClasses groups codes by the refusal they represent, so a caller (or
 // a red team) can assert the RIGHT refusal rather than any refusal.
 var ErrorClasses = map[string][]ErrorCode{
-	"authentication": {ErrorCodeUnauthenticated, ErrorCodeBootstrapTokenInvalid, ErrorCodeResetTokenInvalid, ErrorCodeVerifyTokenInvalid},
-	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeRecoveryGrantSessionEnded, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired},
-	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy, ErrorCodeDirectoryNotReadable, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged, ErrorCodeRecoverySourceHostUnavailable, ErrorCodeRecoverySourceHostReadOnly, ErrorCodeRecoverySourceHostNotAcknowledged, ErrorCodeRecoverySourceHostProbeLeftFile, ErrorCodeValidatorExists, ErrorCodeValidatorPatternConflict, ErrorCodeValidatorLimitReached, ErrorCodeValidatorScriptChanged, ErrorCodeEncryptionKeyInUse, ErrorCodeEncryptionKeyState, ErrorCodeEncryptionKeyUnresolvable},
+	"authentication": {ErrorCodeUnauthenticated, ErrorCodeBootstrapTokenInvalid, ErrorCodeResetTokenInvalid, ErrorCodeVerifyTokenInvalid, ErrorCodeAgentTokenInvalid},
+	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeRecoveryGrantSessionEnded, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired, ErrorCodeAgentScopeInsufficient, ErrorCodeAgentRouteDenied},
+	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy, ErrorCodeDirectoryNotReadable, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged, ErrorCodeRecoverySourceHostUnavailable, ErrorCodeRecoverySourceHostReadOnly, ErrorCodeRecoverySourceHostNotAcknowledged, ErrorCodeRecoverySourceHostProbeLeftFile, ErrorCodeValidatorExists, ErrorCodeValidatorPatternConflict, ErrorCodeValidatorLimitReached, ErrorCodeValidatorScriptChanged, ErrorCodeEncryptionKeyInUse, ErrorCodeEncryptionKeyState, ErrorCodeEncryptionKeyUnresolvable, ErrorCodeAgentConfirmationRequired},
 	"internal":       {ErrorCodeInternal, ErrorCodeInternalError, ErrorCodeRecoveryLocalCopyCorrupt, ErrorCodeRecoveryRemoteCopyCorrupt, ErrorCodeRecoveryNoSpace, ErrorCodeRecoveryBelowReserve, ErrorCodeRecoveryFailed, ErrorCodeRecoverySourceHostNoSpace},
-	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown, ErrorCodeDirectoryNotFound, ErrorCodeValidatorNotFound, ErrorCodeEncryptionKeyNotFound},
+	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown, ErrorCodeDirectoryNotFound, ErrorCodeValidatorNotFound, ErrorCodeEncryptionKeyNotFound, ErrorCodeAgentTokenNotFound},
 	"throttling":     {ErrorCodeRateLimited, ErrorCodeRecoveryTooManyGrants, ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy},
 	"unavailable":    {ErrorCodeNotConfigured, ErrorCodeSmtpSendFailed, ErrorCodeWorkflowEngineUnavailable, ErrorCodeRecoveryUnavailable, ErrorCodeRecoveryInterrupted, ErrorCodeStepUpUnavailable, ErrorCodeRecoverySourceHostUnreachable, ErrorCodeValidatorsUnavailable, ErrorCodeEncryptionUnavailable},
 	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired, ErrorCodeRecoveryTargetInvalid},
@@ -481,6 +496,38 @@ var Endpoints = []Endpoint{
 			404: {ErrorCodeBackupSetNotFound},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "listAgentTokens", Method: "GET", Path: "/agent/tokens",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListAgentTokensResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeAgentRouteDenied},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "mintAgentToken", Method: "POST", Path: "/agent/tokens",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "MintAgentTokenRequest", ResponseSchema: "MintedAgentToken", SuccessStatus: 201,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeAgentRouteDenied},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "revokeAgentToken", Method: "POST", Path: "/agent/tokens/{id}/revoke",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AgentToken", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeAgentRouteDenied},
+			404: {ErrorCodeAgentTokenNotFound},
+			500: {ErrorCodeInternal},
 		},
 	},
 	{
@@ -2128,6 +2175,24 @@ type AdoptedPath struct {
 	What    string `json:"what"`
 }
 
+// AgentToken is one agent token as every surface after the mint shows it: its
+// name, the first eight characters of the token, scope, owner and
+// times, never the hash and never more of the token than the prefix.
+// status is active, expired or revoked, read from the token row on
+// this request. The principal it authenticates as is agent:<name>.
+type AgentToken struct {
+	CreatedAt  string  `json:"created_at"`
+	ExpiresAt  string  `json:"expires_at"`
+	ID         string  `json:"id"`
+	LastUsedAt *string `json:"last_used_at"`
+	Name       string  `json:"name"`
+	Owner      string  `json:"owner"`
+	Prefix     string  `json:"prefix"`
+	RevokedAt  *string `json:"revoked_at"`
+	Scope      string  `json:"scope"`
+	Status     string  `json:"status"`
+}
+
 // ApplyRetentionRequest is POST /backup-sets/{source}/{set}/retention/apply.
 type ApplyRetentionRequest struct {
 	PlanID string `json:"plan_id"`
@@ -3116,6 +3181,12 @@ type ListActivityResponse struct {
 	NextCursor string          `json:"next_cursor,omitempty"`
 }
 
+// ListAgentTokensResponse is GET /agent/tokens. Every token, revoked and expired ones included,
+// with their status.
+type ListAgentTokensResponse struct {
+	Tokens []AgentToken `json:"tokens"`
+}
+
 // ListArtifactsResponse is GET /backups and GET /quarantine. An object with one array field,
 // never a bare top-level array.
 type ListArtifactsResponse struct {
@@ -3494,6 +3565,25 @@ type MediumPreflightResponse struct {
 	Checks []MediumPreflightCheck `json:"checks"`
 	Medium string                 `json:"medium"`
 	OK     bool                   `json:"ok"`
+}
+
+// MintAgentTokenRequest is POST /agent/tokens. name becomes the agent:<name> principal. scope
+// defaults to read, the only default. expires_in is a number of days
+// such as 90d or a Go duration such as 720h; it defaults to 90d, may
+// not exceed 365d, and there is no non-expiring token.
+type MintAgentTokenRequest struct {
+	ExpiresIn string `json:"expires_in,omitempty"`
+	Name      string `json:"name"`
+	Scope     string `json:"scope,omitempty"`
+}
+
+// MintedAgentToken is the one answer that carries the token itself. token is shown
+// exactly once, here: the deployment stores its SHA-256 and the
+// eight-character prefix, so a lost token is revoked and minted
+// again, never recovered.
+type MintedAgentToken struct {
+	AgentToken AgentToken `json:"agent_token"`
+	Token      string     `json:"token"`
 }
 
 // Operation is one durable operation record. Timestamp fields are omitted, not
@@ -5379,6 +5469,7 @@ type WorkflowValidationResponse struct {
 var SchemaTypes = map[string]any{
 	"ActivityEvent":                      ActivityEvent{},
 	"AdoptedPath":                        AdoptedPath{},
+	"AgentToken":                         AgentToken{},
 	"ApplyRetentionRequest":              ApplyRetentionRequest{},
 	"Artifact":                           Artifact{},
 	"ArtifactCheckResponse":              ArtifactCheckResponse{},
@@ -5458,6 +5549,7 @@ var SchemaTypes = map[string]any{
 	"ImportStorageCredentialsRequest":    ImportStorageCredentialsRequest{},
 	"ImportStorageCredentialsResponse":   ImportStorageCredentialsResponse{},
 	"ListActivityResponse":               ListActivityResponse{},
+	"ListAgentTokensResponse":            ListAgentTokensResponse{},
 	"ListArtifactsResponse":              ListArtifactsResponse{},
 	"ListBackendsResponse":               ListBackendsResponse{},
 	"ListBackupSetsResponse":             ListBackupSetsResponse{},
@@ -5489,6 +5581,8 @@ var SchemaTypes = map[string]any{
 	"MediumFieldValue":                   MediumFieldValue{},
 	"MediumPreflightCheck":               MediumPreflightCheck{},
 	"MediumPreflightResponse":            MediumPreflightResponse{},
+	"MintAgentTokenRequest":              MintAgentTokenRequest{},
+	"MintedAgentToken":                   MintedAgentToken{},
 	"Operation":                          Operation{},
 	"OperationProgress":                  OperationProgress{},
 	"OperationRestore":                   OperationRestore{},

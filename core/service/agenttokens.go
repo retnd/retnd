@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/internal/state"
 )
 
@@ -82,6 +83,24 @@ type AgentToken struct {
 	RevokedAt  *time.Time `json:"revoked_at"`
 	// Status is active, expired or revoked, derived from the row at read time.
 	Status string `json:"status"`
+}
+
+// Contract is the token as /api/v1 shows it. The web host and the terminal's
+// direct door both answer with it, so the two cannot format a time differently.
+func (t AgentToken) Contract() apicontract.AgentToken {
+	out := apicontract.AgentToken{
+		ID: t.ID, Name: t.Name, Prefix: t.Prefix, Scope: t.Scope, Owner: t.Owner, Status: t.Status,
+		CreatedAt: t.CreatedAt.UTC().Format(time.RFC3339), ExpiresAt: t.ExpiresAt.UTC().Format(time.RFC3339),
+	}
+	if t.LastUsedAt != nil {
+		s := t.LastUsedAt.UTC().Format(time.RFC3339)
+		out.LastUsedAt = &s
+	}
+	if t.RevokedAt != nil {
+		s := t.RevokedAt.UTC().Format(time.RFC3339)
+		out.RevokedAt = &s
+	}
+	return out
 }
 
 // MintedAgentToken is the one answer that carries the plaintext token.
