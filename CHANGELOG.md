@@ -14,8 +14,9 @@ A few things are worth reading before you upgrade:
 
 - Upgrading adds seven tables to `state.db` (migrations 0015, 0019, 0020 and 0021 create `encryption_keys`,
   `placement_encryption`, `recovery_bundle_exports`, `recovery_bundle_confirmations`, `encrypt_existing_consents`,
-  `encryption_key_suites` and `encryption_default_suite`) and changes no existing table or row, so every copy you already have reads as unencrypted. Like every release with a migration, 0.7.2 refuses a
-  `state.db` this build has opened, so keep the upgrade archive if you might roll back.
+  `encryption_key_suites` and `encryption_default_suite`) and changes no existing table or row, so every copy
+  you already have reads as unencrypted. Like every release with a migration, 0.7.2 refuses a `state.db` this
+  build has opened, so keep the upgrade archive if you might roll back.
 - Writing `retained_copy_encryption:` (and, separately, its `suite:`) into `config.yaml` is a one-way door:
   0.7.2 and older refuse the file as an unknown field. Keep the previous `config.yaml` if you want a way out.
 - If you lose the key and every copy of its recovery bundle, the encrypted copies are gone for good. Export
