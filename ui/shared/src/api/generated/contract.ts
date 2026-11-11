@@ -1694,6 +1694,48 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "planEncryptExisting",
+    method: "GET",
+    path: "/encryption/encrypt-existing",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "EncryptExistingPlan",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "startEncryptExisting",
+    method: "POST",
+    path: "/encryption/encrypt-existing",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "StartEncryptExistingRequest",
+    responseSchema: "ScrubStarted",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND"],
+      409: ["OPERATION_ALREADY_RUNNING", "ENCRYPTION_KEY_UNRESOLVABLE"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
     id: "listEncryptionKeys",
     method: "GET",
     path: "/encryption/keys",
@@ -1892,88 +1934,6 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
-    id: "listEncryptionSuites",
-    method: "GET",
-    path: "/encryption/suites",
-    authenticated: true,
-    csrfRequired: false,
-    idempotencyKey: "none",
-    destructiveGate: false,
-    concurrency: "",
-    requestSchema: "",
-    responseSchema: "ListEncryptionSuitesResponse",
-    successStatus: 200,
-    errorCodes: {
-      401: ["UNAUTHENTICATED"],
-      500: ["INTERNAL"],
-      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
-    }
-  },
-  {
-    id: "startDecryptVerify",
-    method: "POST",
-    path: "/encryption/verify",
-    authenticated: true,
-    csrfRequired: true,
-    idempotencyKey: "none",
-    destructiveGate: false,
-    concurrency: "",
-    requestSchema: "StartDecryptVerifyRequest",
-    responseSchema: "ScrubStarted",
-    successStatus: 202,
-    errorCodes: {
-      400: ["INVALID_REQUEST"],
-      401: ["UNAUTHENTICATED"],
-      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
-      404: ["ARTIFACT_NOT_FOUND", "BACKUP_SET_NOT_FOUND"],
-      409: ["OPERATION_ALREADY_RUNNING", "ENCRYPTION_KEY_UNRESOLVABLE"],
-      500: ["INTERNAL"],
-      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
-    }
-  },
-  {
-    id: "planEncryptExisting",
-    method: "GET",
-    path: "/encryption/encrypt-existing",
-    authenticated: true,
-    csrfRequired: false,
-    idempotencyKey: "none",
-    destructiveGate: false,
-    concurrency: "",
-    requestSchema: "",
-    responseSchema: "EncryptExistingPlan",
-    successStatus: 200,
-    errorCodes: {
-      400: ["INVALID_REQUEST"],
-      401: ["UNAUTHENTICATED"],
-      404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND"],
-      500: ["INTERNAL"],
-      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
-    }
-  },
-  {
-    id: "startEncryptExisting",
-    method: "POST",
-    path: "/encryption/encrypt-existing",
-    authenticated: true,
-    csrfRequired: true,
-    idempotencyKey: "none",
-    destructiveGate: false,
-    concurrency: "",
-    requestSchema: "StartEncryptExistingRequest",
-    responseSchema: "ScrubStarted",
-    successStatus: 202,
-    errorCodes: {
-      400: ["INVALID_REQUEST"],
-      401: ["UNAUTHENTICATED"],
-      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
-      404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND"],
-      409: ["OPERATION_ALREADY_RUNNING", "ENCRYPTION_KEY_UNRESOLVABLE"],
-      500: ["INTERNAL"],
-      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
-    }
-  },
-  {
     id: "planReencrypt",
     method: "GET",
     path: "/encryption/reencrypt",
@@ -2009,6 +1969,46 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       401: ["UNAUTHENTICATED"],
       403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
       409: ["OPERATION_ALREADY_RUNNING"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "listEncryptionSuites",
+    method: "GET",
+    path: "/encryption/suites",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListEncryptionSuitesResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "startDecryptVerify",
+    method: "POST",
+    path: "/encryption/verify",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "StartDecryptVerifyRequest",
+    responseSchema: "ScrubStarted",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["ARTIFACT_NOT_FOUND", "BACKUP_SET_NOT_FOUND"],
+      409: ["OPERATION_ALREADY_RUNNING", "ENCRYPTION_KEY_UNRESOLVABLE"],
       500: ["INTERNAL"],
       503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
     }
@@ -3925,9 +3925,6 @@ export interface WireEncryptionSetPolicy {
   is_override: boolean;
   key_provider: WireEncryptionKeyProviderState;
   mode: string;
-  /** "repository" for a kopia-engine set, whose repository kopia
-   *  always encrypts, so required on it layers nothing. Absent for
-   *  every other set. */
   satisfied_by?: string;
 }
 
