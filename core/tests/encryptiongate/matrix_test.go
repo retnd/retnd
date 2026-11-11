@@ -49,11 +49,15 @@ const (
 )
 
 // selfTests are the files whose planted violations a PASS row may cite, by the
-// verbatim label of the mutation in double quotes.
+// verbatim label of the mutation in double quotes. The product guards' own
+// falsifications live in scripts/bdtools/encryption/selftest.py, which plants
+// each one in a real file, runs the test the row cites, and needs it red and
+// then green again (#1331).
 var selfTests = []string{
 	"scripts/tests/epic-n-closure.test.sh",
 	"scripts/tests/epic-t-closure.test.sh",
 	"core/tests/encryptiongate/matrix_test.go",
+	"scripts/bdtools/encryption/selftest.py",
 }
 
 var (
