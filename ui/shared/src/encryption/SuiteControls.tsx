@@ -34,6 +34,7 @@ import { describeFailure } from "@shared/api/failure";
 import { ConfirmationDialog } from "@shared/components/ConfirmationDialog";
 import { FieldHelp } from "@shared/components/FieldHelp";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
+import { Icon } from "@shared/design-system/icons";
 import { CommandEcho } from "@shared/pages/CommandEcho";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { EncryptionSuite } from "@shared/types/encryption";
@@ -140,7 +141,7 @@ function StepStrip({ now }: { now: Step }) {
         const state = i < at ? "done" : i === at ? "now" : "todo";
         return (
           <li key={s.id} className="esteps__step" data-suite-step={s.id} data-state={state} aria-current={state === "now" ? "step" : undefined}>
-            <span className="esteps__glyph" aria-hidden="true">{state === "done" ? "✓" : String(i + 1)}</span>
+            <span className="esteps__glyph" aria-hidden="true">{state === "done" ? <Icon name="success" /> : String(i + 1)}</span>
             {s.label}
           </li>
         );
