@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -67,8 +69,10 @@ func TestListNeverShowsTheTokenOrItsHash(t *testing.T) {
 		if code != exitOK {
 			t.Fatalf("list --json exit %d\n%s", code, stderr)
 		}
+		sum := sha256.Sum256([]byte(token))
+		hash := hex.EncodeToString(sum[:])
 		for name, out := range map[string]string{"text": text, "json": raw} {
-			if strings.Contains(out, token) || strings.Contains(strings.ToLower(out), "hash") {
+			if strings.Contains(out, token) || strings.Contains(out, hash) || strings.Contains(out, `"hash"`) {
 				t.Errorf("%s list carries the token or its hash:\n%s", name, out)
 			}
 		}

@@ -90,6 +90,7 @@ var commands = map[string]func([]string) int{
 	"encryption":      cmdEncryption,
 	"auth":            cmdAuth,
 	"ssh-key":         cmdSSHKey,
+	"agent":           cmdAgent,
 	"ssh":             cmdSSH,
 	"operation":       cmdOperation,
 	"system":          cmdSystem,
@@ -619,6 +620,24 @@ commands:
                                                   their fingerprints. The places are listed even when empty, so "no
                                                   keys" and "could not look where your keys are" read differently.
                                                   The same as GET /api/v1/ssh/key-candidates
+  agent token create NAME [--scope read|operate|configure] [--expires-in D]
+                                                  mint a token an AI agent presents as a bearer credential, and print
+                                                  it alone on standard output, once: this deployment keeps only its
+                                                  hash and an eight-character prefix. NAME becomes the principal
+                                                  agent:NAME wherever an actor is named. The scope is read unless told
+                                                  otherwise; D is days such as 90d or a duration such as 720h, 90d by
+                                                  default and 365d at most, and there is no token that never expires.
+                                                  No verb takes a token on its command line. Beside a serving engine
+                                                  this is POST /api/v1/agent/tokens, which a signed-in user makes and
+                                                  a token cannot
+  agent token list [--json]
+                                                  every token: name, prefix, scope, status (active, expired or
+                                                  revoked), owner, expiry and when it last authenticated. Never the
+                                                  token and never its hash. The same as GET /api/v1/agent/tokens
+  agent token revoke ID
+                                                  end a token. The very next request that presents it is refused, so
+                                                  there is nothing to wait for. ID is the one agent token list
+                                                  prints. The same as POST /api/v1/agent/tokens/{id}/revoke
   ssh host-key-probe HOST [--port N] [--json]
                                                   connect to HOST (port 22 unless told) and print the host key that
                                                   answers, its fingerprint and the known_hosts line for it. Nothing
