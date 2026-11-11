@@ -5,6 +5,14 @@
 PLACE_ENC_R2 = "core/internal/placement/encryption.go"
 AGEX_R2 = "core/internal/copycrypt/agex25519.go"
 KC_AGE_R2 = "core/internal/keycustody/age.go"
+GATE_TEST_R2 = "scripts/tests/ci-local-gate.test.sh"
+
+# The copy has no .git (the selftest copies what git lists), and both shell
+# guards ask git what is tracked, so the command makes the copy a repository
+# first. Nothing is pushed or fetched; it lives and dies with the copy.
+# Built from fragments so this file is not itself an old-brand occurrence.
+OLD_BRAND_R2 = "R" + "M_KEY_DIR"
+AS_REPO_R2 = "git init -q . && git add -A >/dev/null && git -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m copy && "
 
 CONTROLS = [
     Control(
@@ -31,5 +39,24 @@ CONTROLS = [
           "import (\n\t\"github.com/retnd/retnd/core/internal/copycrypt\"\n\t\"github.com/retnd/retnd/core/internal/obs\"\n)\n\n" + PLANT + "material held in a renderable wrapper.\ntype plantedHeldKey struct{ material obs.Secret }\n\nvar _ = plantedHeldKey{}\n")],
         "./tests/encryptiongate/",
         ["TestNoKeyCustodyTypeHoldsAnObsSecret_1331"],
+    ),
+    Control(
+        "N2 the epic closure stubs dropped from the gate fixture",
+        ("N2.12",),
+        [(GATE_TEST_R2, "publish-image-guards published-provenance-guards epic-n-closure epic-t-closure; do",
+          "publish-image-guards published-provenance-guards; do  # " + PLANT.strip())],
+        "",
+        cmd=["sh", "-c", AS_REPO_R2 + "GATE_LOCK_TIMEOUT=60 bash scripts/tests/ci-local-gate.test.sh"],
+        needles=["epic-n-closure.test.sh"],
+        timeout="60m",
+    ),
+    Control(
+        "N2 a first-brand environment variable added to key custody",
+        ("N2.12",),
+        [(KC_AGE_R2, "const AgeFormatID = copycrypt.AgeX25519ID\n",
+          "const AgeFormatID = copycrypt.AgeX25519ID\n\n" + PLANT + "an old-brand name.\nconst plantedKeyDirEnv = \"" + OLD_BRAND_R2 + "\"\n")],
+        "",
+        cmd=["sh", "-c", AS_REPO_R2 + "bash scripts/rename/check-brand-drift.sh"],
+        needles=[OLD_BRAND_R2],
     ),
 ]
