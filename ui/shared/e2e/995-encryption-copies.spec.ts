@@ -6,7 +6,7 @@
  */
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { measureContrast, measureEdges, open, row, setTheme } from "./helpers";
+import { measureContrast, measureEdges, open, row, setTheme, spaGo } from "./helpers";
 
 const PG = "postgres-prod-20260828.dump.zst";
 
@@ -70,7 +70,9 @@ test.describe("#995 Backup detail, Copies", () => {
 
 test.describe("#995 the per-set control", () => {
   async function setPage(page: Page, scenario: string) {
-    await open(page, "/sets/production/postgres-primary", scenario);
+    // auth-config is an artifact-engine set. A kopia set (postgres-primary)
+    // gets its own branch since #1296, with the radios disabled.
+    await open(page, "/sets/production/auth-config", scenario);
     const card = page.locator("[data-set-encryption]");
     await expect(card).toBeVisible();
     return card;
@@ -86,9 +88,17 @@ test.describe("#995 the per-set control", () => {
 
   test("an explicit Off stays distinguishable from Inherit after the write", async ({ page }) => {
     const card = await setPage(page, "encryption-confirmed");
-    await card.getByLabel("Off").check();
+    // The radio is controlled and flips only after the write round trip, so
+    // click and then assert, rather than check().
+    await card.getByLabel("Off").click();
+    await expect(card.getByLabel("Off")).toBeChecked();
     await expect(card.getByText(/written as plaintext whatever the deployment says/)).toBeVisible();
-    await page.reload();
+    // The mock keeps overrides in memory, so a reload would reset them. Leave
+    // the page in-app and come back instead.
+    await spaGo(page, "/settings");
+    await expect(page.locator("[data-set-encryption]")).toHaveCount(0);
+    await spaGo(page, "/sets/production/auth-config");
+    await expect(page.locator("[data-set-encryption]")).toBeVisible();
     await expect(page.locator("[data-set-encryption]").getByLabel("Off")).toBeChecked();
     await expect(page.locator("[data-set-encryption]").getByLabel("Inherit")).not.toBeChecked();
   });
