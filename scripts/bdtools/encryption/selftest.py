@@ -467,7 +467,7 @@ def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | 
                 with record.open("a") as fh:
                     fh.write(
                         f"{stamp}\t{host}\t{commit}\t{' '.join(c.rows)}\t{c.label}\t{verdict}\t"
-                        (" ".join(c.cmd) if c.cmd else f"go test -count=1{' -race' if race else ''} -run <{','.join(c.names) or c.build}> {c.pkg}") + "\t"
+                        + (" ".join(c.cmd) if c.cmd else f"go test -count=1{' -race' if race else ''} -run <{','.join(c.names) or c.build}> {c.pkg}") + "\t"
                         f"RED: {why}\tGREEN: {green}\n"
                     )
 
