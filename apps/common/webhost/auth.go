@@ -36,6 +36,12 @@ type actorContextKey struct{}
 
 type authContextKey struct{}
 
+// authContextForAgent is the AuthContext an authenticated agent carries. It
+// holds no session expiry and no mode: a token has neither.
+func authContextForAgent(actor string) capabilities.AuthContext {
+	return capabilities.AuthContext{Authenticated: true, Username: actor}
+}
+
 // authContextFrom is the full AuthContext the request authenticated with.
 // Recovery binds a grant to it: the context carries who and when that
 // authentication lapses, and nothing else is a session id here.
@@ -70,9 +76,23 @@ func actorFromContext(ctx context.Context) string {
 // This is what makes the whole /api/v1 surface fail closed the moment a
 // provider has not wired a real Authenticator in yet, which today is
 // every provider (see router_test.go's noAuthWiredAdapter).
-func authMiddleware(platform capabilities.PlatformAdapter) func(http.Handler) http.Handler {
+func authMiddleware(platform capabilities.PlatformAdapter, agents AgentAccess) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// A request that presents a bearer token is an agent's, and is
+			// decided here alone. It never falls through to the session: a
+			// token that is unknown, expired or revoked is refused, not
+			// quietly authenticated by a cookie it also happens to carry.
+			// See agentaccess.go.
+			if presented, ok := bearerToken(r); ok && agents != nil {
+				authenticated, ok := authenticateBearer(w, r, agents, presented)
+				if !ok {
+					return
+				}
+				next.ServeHTTP(w, authenticated)
+				return
+			}
+
 			if platform == nil {
 				writeError(w, http.StatusUnauthorized, "UNAUTHENTICATED", "no platform adapter is configured")
 				return
