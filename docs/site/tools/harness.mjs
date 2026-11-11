@@ -478,6 +478,41 @@ export async function shot(page, name, clipSel, { pad = 28, log = true, tries = 
 }
 
 /**
+ * Waits until the page's markup has stopped changing: three samples 250ms apart
+ * with the same hash of document.body.innerHTML, or it throws after `within` ms.
+ *
+ * writeStable below makes sure a still is not taken mid-change, and that is not
+ * enough on its own for a screen that loads several resources, each a mock read
+ * with its own delay: it can sit in either of two states that each hold still
+ * for 250ms (a dialog with the page behind it before or after a card above
+ * grew, say), and which one the shutter sees depends on how busy the machine
+ * was. capture-encryption.mjs --check moved 13 to 19 of its 120 files between
+ * two passes before it waited for this, and none after. shot() does not call
+ * it, so the scripts that never needed it behave as they did.
+ */
+export async function quiet(page, { within = 15_000 } = {}) {
+  const sample = () =>
+    page.evaluate(() => {
+      const t = document.body.innerHTML;
+      let h = 2166136261;
+      for (let i = 0; i < t.length; i++) h = Math.imul(h ^ t.charCodeAt(i), 16777619);
+      return t.length + ":" + (h >>> 0);
+    });
+  let last = await sample();
+  let same = 0;
+  const deadline = Date.now() + within;
+  while (same < 2) {
+    if (Date.now() > deadline) {
+      throw new Error("the page never stopped changing for 750ms within " + within / 1000 + "s, so no picture of it can be re-taken");
+    }
+    await page.waitForTimeout(250);
+    const now = await sample();
+    same = now === last ? same + 1 : 0;
+    last = now;
+  }
+}
+
+/**
  * The stabilising shutter itself, so a capture that photographs a
  * LOCATOR rather than the page gets the same property.
  *
