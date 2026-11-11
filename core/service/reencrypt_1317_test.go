@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/retnd/retnd/core/apicontract"
+	"github.com/retnd/retnd/core/internal/copycrypt"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/state"
 )
@@ -19,6 +20,13 @@ import (
 //
 // They were written by reading the service and the fixtures and have not been
 // run. Each one names the defect that turns it red in its own comment.
+
+// fixtureSuite is the suite both of the fixture's keys are minted under: a
+// key created or rotated with no suite named takes the default (age-pq/v1
+// since EPIC T), and a copy is always recorded under its key's own suite (ADR
+// 0033 D3). Recording "age/v1" over an age-pq/v1 key made the copy under the
+// active key look like one under another suite, so the dry run offered it.
+var fixtureSuite = copycrypt.Default().ID()
 
 // reencryptFixture is a deployment that requires encryption with two managed
 // keys (the first superseded by a rotation, the second active) and two
@@ -45,7 +53,7 @@ func reencryptFixture(t *testing.T) (f *recoveryFixture, old, current model.Arti
 	current = seedComplete(t, f, "current.dump", "warm")
 	for a, key := range map[model.ArtifactID]string{old: oldKey, current: activeKey} {
 		if err := f.b.journal.RecordPlacementEncryption(ctx, a, "warm", state.PlacementEncryption{
-			FormatID: "age/v1", FormatVersion: 1, KeyID: key,
+			FormatID: fixtureSuite, FormatVersion: 1, KeyID: key,
 			StoredHash: strings.Repeat("e", 64), StoredHashAlg: "sha256", StoredSize: int64(len(f.data)) + 200,
 		}); err != nil {
 			t.Fatalf("seeding the encrypted copy of %s: %v", a, err)
@@ -65,17 +73,17 @@ func TestReencryptDryRunGroupsBySuiteAndKey_1317(t *testing.T) {
 	ctx := context.Background()
 	opensBefore := f.store.opens.Load()
 
-	plan, err := f.b.PlanReencrypt(ctx, apicontract.StartReencryptRequest{SuiteID: "age/v1", DestinationMedium: "other"})
+	plan, err := f.b.PlanReencrypt(ctx, apicontract.StartReencryptRequest{SuiteID: fixtureSuite, DestinationMedium: "other"})
 	if err != nil {
 		t.Fatalf("PlanReencrypt: %v", err)
 	}
 	if len(plan.Groups) != 2 {
-		t.Fatalf("%d groups, want one per key under age/v1: %+v", len(plan.Groups), plan.Groups)
+		t.Fatalf("%d groups, want one per key under %s: %+v", len(plan.Groups), fixtureSuite, plan.Groups)
 	}
 	byKey := map[string]apicontract.ReencryptGroup{}
 	for _, g := range plan.Groups {
-		if g.SuiteID != "age/v1" {
-			t.Errorf("a group under suite %q, want only age/v1", g.SuiteID)
+		if g.SuiteID != fixtureSuite {
+			t.Errorf("a group under suite %q, want only %s", g.SuiteID, fixtureSuite)
 		}
 		if len(g.Candidates) != 1 {
 			t.Fatalf("group %s/%s holds %d copies, want one", g.SuiteID, g.KeyID, len(g.Candidates))
@@ -141,14 +149,14 @@ func TestACopyWhoseKeyIsUnavailableIsNamedAndRefused_1317(t *testing.T) {
 	f, old, _, _, _ := reencryptFixture(t)
 	ctx := context.Background()
 	if err := f.b.journal.RecordPlacementEncryption(ctx, old, "warm", state.PlacementEncryption{
-		FormatID: "age/v1", FormatVersion: 1, KeyID: "knosuchkey000000",
+		FormatID: fixtureSuite, FormatVersion: 1, KeyID: "knosuchkey000000",
 		StoredHash: strings.Repeat("e", 64), StoredHashAlg: "sha256", StoredSize: int64(len(f.data)) + 200,
 	}); err != nil {
 		// A journal that refuses a record naming an unregistered key cannot
 		// hold this state at all, which is the stronger answer.
 		t.Skipf("the journal refuses a record under an unregistered key: %v", err)
 	}
-	plan, err := f.b.PlanReencrypt(ctx, apicontract.StartReencryptRequest{SuiteID: "age/v1", DestinationMedium: "other"})
+	plan, err := f.b.PlanReencrypt(ctx, apicontract.StartReencryptRequest{SuiteID: fixtureSuite, DestinationMedium: "other"})
 	if err != nil {
 		t.Fatalf("PlanReencrypt: %v", err)
 	}
@@ -179,9 +187,9 @@ func TestReencryptRefusesBadInputsBeforePlanningAnything_1317(t *testing.T) {
 		req  apicontract.StartReencryptRequest
 	}{
 		{"no selector", apicontract.StartReencryptRequest{DestinationMedium: "other"}},
-		{"two selectors", apicontract.StartReencryptRequest{SuiteID: "age/v1", KeyID: oldKey, DestinationMedium: "other"}},
+		{"two selectors", apicontract.StartReencryptRequest{SuiteID: fixtureSuite, KeyID: oldKey, DestinationMedium: "other"}},
 		{"an unknown suite", apicontract.StartReencryptRequest{SuiteID: "nosuch/v9", DestinationMedium: "other"}},
-		{"a destination that is not configured", apicontract.StartReencryptRequest{SuiteID: "age/v1", DestinationMedium: "nowhere"}},
+		{"a destination that is not configured", apicontract.StartReencryptRequest{SuiteID: fixtureSuite, DestinationMedium: "nowhere"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := f.b.PlanReencrypt(ctx, tc.req); !errors.Is(err, ErrInvalidRequest) {
