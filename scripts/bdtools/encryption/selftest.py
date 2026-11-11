@@ -327,6 +327,15 @@ CONTROLS: list[Control] = [
 ]
 
 
+# Controls drafted beside this file (controls_*.py, each defining CONTROLS)
+# are folded in while they are being written; the labels a matrix row cites
+# end up in this file, which is the one core/tests/encryptiongate reads.
+for _extra in sorted(Path(__file__).resolve().parent.glob("controls_*.py")):
+    _ns: dict[str, object] = {"Control": Control, "PLANT": PLANT}
+    exec(compile(_extra.read_text(), str(_extra), "exec"), _ns)
+    CONTROLS.extend(_ns.get("CONTROLS", []))  # type: ignore[arg-type]
+
+
 # ---------------------------------------------------------------- the run
 
 
