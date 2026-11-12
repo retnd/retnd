@@ -106,7 +106,12 @@ func agentAudit(args []string) int {
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	rows := []string{"AT\tTOKEN\tTOOL\tVIA\tSTATUS\tCODE\tCORRELATION\tARGUMENTS"}
 	for _, e := range got.Entries {
+		// FR-91: the principal is agent:<name> wherever an actor is named.
+		// A row whose token matched nothing has no name, so it keeps the id.
 		token := e.TokenID
+		if e.TokenName != nil {
+			token = "agent:" + *e.TokenName
+		}
 		if token == "" {
 			token = "-"
 		}

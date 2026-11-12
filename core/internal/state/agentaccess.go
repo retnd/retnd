@@ -38,9 +38,12 @@ type AgentToken struct {
 // AgentAudit is one row of agent_audit. TokenID is empty when the presented
 // token matched no row.
 type AgentAudit struct {
-	Seq            int64
-	At             time.Time
-	TokenID        string
+	Seq     int64
+	At      time.Time
+	TokenID string
+	// TokenName is joined from agent_tokens when a page is read and is empty
+	// for a row whose token matched nothing. It is never written.
+	TokenName      string
 	Tool           string
 	Transport      string
 	Arguments      string

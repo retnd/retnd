@@ -9981,6 +9981,13 @@
           "token_id": {
             "type": "string"
           },
+          "token_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The token's name, joined from the token row when the page is read, so a surface can show agent:<name> (FR-91). Null for a refusal of a token that matched no row."
+          },
           "tool": {
             "type": "string"
           },
@@ -10016,6 +10023,7 @@
           "seq",
           "at",
           "token_id",
+          "token_name",
           "tool",
           "transport",
           "arguments",

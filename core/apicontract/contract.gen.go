@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "3609bd412870355e7e7de344982c9fd4269cca83922499996fb5b11134007621"
+const ContractSHA256 = "95a35843427d7b427b755dece7be46e76904d1a0ad2b398397ddd62f2992ec06"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -2193,16 +2193,17 @@ type AdoptedPath struct {
 // worth keeping. tool is empty for a refusal made before any tool
 // was named. transport is stdio, http or api.
 type AgentAuditEntry struct {
-	Arguments      string `json:"arguments"`
-	At             string `json:"at"`
-	Code           string `json:"code"`
-	ConfirmationID string `json:"confirmation_id"`
-	CorrelationID  string `json:"correlation_id"`
-	Seq            int64  `json:"seq"`
-	Status         int    `json:"status"`
-	TokenID        string `json:"token_id"`
-	Tool           string `json:"tool"`
-	Transport      string `json:"transport"`
+	Arguments      string  `json:"arguments"`
+	At             string  `json:"at"`
+	Code           string  `json:"code"`
+	ConfirmationID string  `json:"confirmation_id"`
+	CorrelationID  string  `json:"correlation_id"`
+	Seq            int64   `json:"seq"`
+	Status         int     `json:"status"`
+	TokenID        string  `json:"token_id"`
+	TokenName      *string `json:"token_name"`
+	Tool           string  `json:"tool"`
+	Transport      string  `json:"transport"`
 }
 
 // AgentToken is one agent token as every surface after the mint shows it: its

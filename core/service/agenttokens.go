@@ -273,7 +273,7 @@ func (b *BackupService) RecordAgentRefusal(ctx context.Context, r AgentRefusal) 
 			Status: r.Status, Code: r.Code, CorrelationID: r.CorrelationID, held: held,
 		})
 	}
-	return b.journal.InsertAgentAudit(ctx, state.AgentAudit{
+	it := agentAuditItem{row: state.AgentAudit{
 		At:            now(),
 		TokenID:       r.TokenID,
 		Transport:     "api",
@@ -281,7 +281,17 @@ func (b *BackupService) RecordAgentRefusal(ctx context.Context, r AgentRefusal) 
 		Status:        r.Status,
 		Code:          r.Code,
 		CorrelationID: r.CorrelationID,
-	})
+	}}
+	if r.TokenID != "" {
+		return b.audit.enqueueNamed(ctx, it)
+	}
+	// Anyone can cause this row, so it never makes the caller wait: a full
+	// queue drops it and the feed's summary line counts it.
+	stored, err := b.audit.enqueueOrDrop(it)
+	if !stored && err == nil {
+		b.unattributedRefusals.hold()
+	}
+	return err
 }
 
 func agentTokenHash(token string) string {

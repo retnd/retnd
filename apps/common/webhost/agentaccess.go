@@ -131,11 +131,6 @@ func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAcce
 		}
 	}
 
-	if agentRouteDenied(r) {
-		audit("", "", http.StatusForbidden, "AGENT_ROUTE_DENIED",
-			writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route"))
-		return nil, false
-	}
 	principal, err := agents.AuthenticateAgentToken(r.Context(), presented)
 	if err != nil {
 		// Fail closed, the way a session lookup that errors does: a token
@@ -145,6 +140,15 @@ func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAcce
 		}
 		audit("", "", http.StatusUnauthorized, "AGENT_TOKEN_INVALID",
 			writeError(w, http.StatusUnauthorized, "AGENT_TOKEN_INVALID", "the agent token is not valid"))
+		return nil, false
+	}
+
+	// The deny list is checked once the token is known, so a valid token's
+	// probe of a denied route is audited with its id. An invalid token on a
+	// denied route is refused as an invalid token, which tells it nothing new.
+	if agentRouteDenied(r) {
+		audit(principal.TokenID, principal.Name, http.StatusForbidden, "AGENT_ROUTE_DENIED",
+			writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route"))
 		return nil, false
 	}
 
