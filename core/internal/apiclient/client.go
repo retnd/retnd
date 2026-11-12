@@ -154,6 +154,13 @@ type Config struct {
 	// on their behalf: cmd/retnd sets it only when RETND_API_INSECURE_TRANSPORT
 	// says so.
 	AcknowledgeInsecureTransport bool
+
+	// BearerToken, when set, authenticates every request as an agent token
+	// (EPIC U): no sign-in, no cookie jar session and no CSRF pair, because a
+	// header is not a credential a browser sends by itself. It is held in
+	// memory and never printed. It excludes Username and Password; a client
+	// is one principal or the other.
+	BearerToken string
 }
 
 // Client talks to one engine. Safe for concurrent use: the sign-in is
@@ -170,6 +177,9 @@ type Client struct {
 
 	// ackInsecure is Config.AcknowledgeInsecureTransport.
 	ackInsecure bool
+
+	// bearer is Config.BearerToken.
+	bearer string
 
 	// sleep waits between attempts. It is a field so the suite can prove
 	// this client sits out a full rate-limit window without spending a
@@ -255,6 +265,10 @@ func New(cfg Config) (*Client, error) {
 		return nil, &ConfigError{Field: "BaseURL", Value: cfg.BaseURL, Reason: fmt.Sprintf("it already ends in %s, and this takes the engine's address and appends %s itself", apicontract.BasePath, apicontract.BasePath)}
 	}
 
+	if cfg.BearerToken != "" && (cfg.Username != "" || cfg.Password != "") {
+		return nil, &ConfigError{Field: "BearerToken", Reason: "a client is signed in as a person or presents an agent token, never both"}
+	}
+
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		return nil, &ConfigError{Reason: "the session cookie jar could not be built: " + err.Error(), Err: err}
@@ -294,6 +308,7 @@ func New(cfg Config) (*Client, error) {
 		password:    cfg.Password,
 		userAgent:   userAgent,
 		ackInsecure: cfg.AcknowledgeInsecureTransport,
+		bearer:      cfg.BearerToken,
 		sleep:       waitFor,
 		http:        &transport,
 	}, nil
@@ -334,7 +349,7 @@ func (c *Client) callQuery(ctx context.Context, operation string, pathArgs []str
 	if err != nil {
 		return err
 	}
-	if !ep.Authenticated {
+	if !ep.Authenticated || c.bearer != "" {
 		return c.do(ctx, ep, pathArgs, query, body, out)
 	}
 
@@ -484,7 +499,10 @@ func (c *Client) newRequest(ctx context.Context, ep apicontract.Endpoint, target
 	if hasBody {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if ep.CSRFRequired {
+	if c.bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+c.bearer)
+	}
+	if ep.CSRFRequired && c.bearer == "" {
 		token := c.csrfToken()
 		if token == "" {
 			// The runtime issues this cookie in front of every response it
@@ -710,7 +728,7 @@ func (c *Client) receive(ep apicontract.Endpoint, path string, resp *http.Respon
 	}
 
 	declared, ok := ep.ErrorCodes[resp.StatusCode]
-	if !ok {
+	if !ok && c.bearer == "" {
 		return violation(fmt.Sprintf("the operation declares %d on success and %s on failure", ep.SuccessStatus, statusList(ep)))
 	}
 
@@ -718,7 +736,12 @@ func (c *Client) receive(ep apicontract.Endpoint, path string, resp *http.Respon
 	if err != nil {
 		return violation(err.Error())
 	}
-	if !slices.Contains(declared, code) {
+	// An agent token meets refusals no operation declares one by one (the
+	// token is checked before the handler is reached), so under a bearer the
+	// AGENT_ family is accepted at any status; anything else must still be
+	// declared.
+	agentRefusal := c.bearer != "" && strings.HasPrefix(string(code), "AGENT_")
+	if !slices.Contains(declared, code) && !agentRefusal {
 		return violation(fmt.Sprintf("the code %q is not one of the %d the operation declares at %d (%s)",
 			code, len(declared), resp.StatusCode, codeList(declared)))
 	}
