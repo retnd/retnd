@@ -518,6 +518,18 @@ func TestTheViolationLedgerIsHeldToTheSpecsGuardTable(t *testing.T) {
 // `gh` wiring by scripts/conformance/selftest.sh, which points a PASS row
 // at #235 and requires this to say so.
 func TestEveryBlockedRowCitesAnIssueThatIsStillOpen(t *testing.T) {
+	// Release run only (#1361). This is the one test in the package whose
+	// verdict depends on something that is not in the tree: an issue closed
+	// by hand turned main red with no commit at all (#1310, one minute after
+	// the last EPIC T merge), and every lane's next commit inherited it.
+	// The fast tier (scripts/ci-fast.sh, which the pre-commit hook and
+	// scripts/merge-gate.sh run) says so in CI_LOCAL_TIER and stands this
+	// down, out loud. The full gate (scripts/ci-local.sh) sets "full", and
+	// run by hand it is unset, so both still ask GitHub. The offline half,
+	// TestTheBlockedCitationGuardCanFail, runs everywhere.
+	if os.Getenv("CI_LOCAL_TIER") == "fast" {
+		t.Skip("CI_LOCAL_TIER=fast: the live BLOCKED-row citation check runs in the full gate on the release PR (docs/reference/local-gate.md, Tiers)")
+	}
 	for _, pair := range matrixPairs {
 		t.Run(pair.name, func(t *testing.T) {
 			blob, err := os.ReadFile(pair.matrix)
