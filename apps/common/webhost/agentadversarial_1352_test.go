@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -61,6 +60,13 @@ func (b *plantedBackend) ListStorageMediums(context.Context) ([]service.StorageM
 		Endpoint: "https://" + b.plant("host", "backup.example.internal") + ":9000"}}, nil
 }
 
+// GetOperation is an operation whose error carries a validator's captured
+// output, which is where a failed recovery test's words reach operation_show.
+func (b *plantedBackend) GetOperation(_ context.Context, id string) (service.Operation, error) {
+	return service.Operation{ID: id, Action: "recovery_test", Status: "failed", BackupSetID: "production/postgres-primary",
+		Error: b.plant("validator", "checksum ok")}, nil
+}
+
 func (b *plantedBackend) RecoveryTestOutput(_ context.Context, id string) (service.RecoveryTestOutput, error) {
 	return service.RecoveryTestOutput{BackupSetID: id, Recorded: true, OperationID: "op-1", State: "SUCCEEDED",
 		Records: []service.RecoveryTestOutputRecord{{Kind: "output", Text: b.plant("validator", "checksum ok")}}}, nil
@@ -71,27 +77,17 @@ func (b *plantedBackend) WorkflowStepLogs(_ context.Context, req service.Workflo
 		Records: []service.WorkflowStepLogRecord{{Seq: 7, StepID: "step-1", Stream: "stdout", Kind: "output", Text: b.plant("steplog", "step finished")}}}, nil
 }
 
-// enableAgentTransport turns on what `agents.http_transport: on` resolves to
-// in the router's configuration. U1.4 (#1347) names that field; until it is
-// merged here the adapter looks it up by the candidates below and fails with a
-// message that names this function, so the one place to edit is this one.
-func enableAgentTransport(t *testing.T, cfg *RouterConfig) {
-	t.Helper()
-	v := reflect.ValueOf(cfg).Elem()
-	for _, name := range []string{"AgentHTTPTransport", "AgentMCP", "AgentsHTTPTransport", "AgentTransportHTTP"} {
-		if f := v.FieldByName(name); f.IsValid() && f.Kind() == reflect.Bool {
-			f.SetBool(true)
-			return
-		}
-	}
-	t.Fatal("RouterConfig has no switch for the agent HTTP transport yet; point enableAgentTransport (agentadversarial_1352_test.go) at U1.4's field")
+// AgentPolicy is what `agents.http_transport: on` resolves to, with the
+// default rate limit: the router reads the transport switch off the backend
+// (U1.4, #1347), so the planted deployment turns it on there.
+func (b *plantedBackend) AgentPolicy() service.AgentPolicy {
+	return service.AgentPolicy{HTTPTransport: true, RateLimitPerMinute: 60}
 }
 
 func mcpServer(t *testing.T, plan agentcorpus.Plan) (*httptest.Server, *plantedBackend) {
 	t.Helper()
 	b := &plantedBackend{syncFakeBackend: newSyncFakeBackend(), fakeAgentAccess: newFakeAgentAccess(), plan: plan}
 	cfg := RouterConfig{Platform: allowingPlatform("alice"), Backend: b, BinaryVersion: "test", Commit: "test"}
-	enableAgentTransport(t, &cfg)
 	srv := httptest.NewServer(NewRouter(cfg))
 	t.Cleanup(srv.Close)
 	return srv, b
@@ -121,7 +117,7 @@ func TestAnUntrustedStringArrivesOnlyAsData_HTTP(t *testing.T) {
 					}
 				}
 			}
-			if !arrived {
+			if len(o.Tools) > 0 && !arrived {
 				t.Errorf("none of %v returned the instruction planted in %s inside `untrusted`; the row is vacuous", o.Tools, o.Name)
 			}
 			if len(b.minted) != 0 || len(b.revoked) != 0 {
@@ -186,6 +182,8 @@ func TestARevokedTokenMidStreamIsRefusedAndTheStreamCloses(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodGet, conn.URL, nil)
 	req.Header.Set("Authorization", "Bearer "+readToken)
 	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Mcp-Session-Id", conn.Session())
+	req.Header.Set("MCP-Protocol-Version", "2025-06-18")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -222,7 +220,7 @@ func TestARevokedTokenMidStreamIsRefusedAndTheStreamCloses(t *testing.T) {
 
 // The limiter trips at the sixty-first call, and the audit row says so.
 func TestTheSixtyFirstCallInAMinuteIsRefusedAndRecorded(t *testing.T) {
-	srv, _ := mcpServer(t, agentcorpus.Plan{})
+	srv, b := mcpServer(t, agentcorpus.Plan{})
 	conn := mcpConn(t, srv, readToken)
 	call := func() (string, bool) {
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
@@ -245,11 +243,14 @@ func TestTheSixtyFirstCallInAMinuteIsRefusedAndRecorded(t *testing.T) {
 		t.Fatalf("call 61 was not refused AGENT_RATE_LIMITED: %s", got)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/audit", nil)
-	rec := httptest.NewRecorder()
-	srv.Config.Handler.ServeHTTP(rec, req)
-	if !strings.Contains(rec.Body.String(), "AGENT_RATE_LIMITED") {
-		t.Errorf("the audit trail does not say the 61st call was limited:\n%s", rec.Body.String())
+	// The refusal is the audit's: the authenticator records it through
+	// AgentAccess.RecordAgentRefusal, which this backend keeps.
+	limited := false
+	for _, r := range b.refusals {
+		limited = limited || r.Code == "AGENT_RATE_LIMITED"
+	}
+	if !limited {
+		t.Errorf("the audit trail does not say the 61st call was limited: %+v", b.refusals)
 	}
 }
 

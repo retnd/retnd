@@ -133,13 +133,14 @@ func Token() string { return "rat_" + nonce + "_" + fmt.Sprint(time.Now().UnixNa
 
 // StartStdio starts the stdio transport against apiURL as token and performs
 // the MCP handshake. The child is killed when the test ends.
-func StartStdio(t *testing.T, bin, config, apiURL, token string) *Stdio {
+func StartStdio(t *testing.T, bin, apiURL, token string) *Stdio {
 	t.Helper()
 	tokenFile := filepath.Join(t.TempDir(), "agent.token")
 	if err := os.WriteFile(tokenFile, []byte(token+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(bin, "agent", "serve", "--stdio", "--token-file", tokenFile, "--config", config)
+	// agent serve opens nothing of this host, so it takes no --config.
+	cmd := exec.Command(bin, "agent", "serve", "--stdio", "--token-file", tokenFile)
 	cmd.Env = append(os.Environ(), "RETND_API_URL="+apiURL)
 	in, err := cmd.StdinPipe()
 	if err != nil {
@@ -285,6 +286,15 @@ type HTTP struct {
 
 func (h *HTTP) Transport() string { return "http" }
 
+// Session is the Mcp-Session-Id the endpoint gave at initialize, which a
+// client sends on every later request of the session, the event stream's GET
+// included.
+func (h *HTTP) Session() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.session
+}
+
 // Notify posts a notification; the endpoint answers 202 with no body.
 func (h *HTTP) Notify(method string, params any) error {
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "method": method, "params": params})
@@ -338,12 +348,15 @@ func (h *HTTP) Call(ctx context.Context, method string, params any) (json.RawMes
 	}
 	if resp.StatusCode >= 400 {
 		raw, _ := io.ReadAll(resp.Body)
+		// The router's refusal body, {"error":{"code","message"}}.
 		var e struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
+			Error struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
 		}
 		_ = json.Unmarshal(raw, &e)
-		return nil, &RPCError{Code: resp.StatusCode, Message: e.Code + ": " + e.Message, Data: raw}, nil
+		return nil, &RPCError{Code: resp.StatusCode, Message: e.Error.Code + ": " + e.Error.Message, Data: raw}, nil
 	}
 	sc := bufio.NewReaderSize(resp.Body, 1<<20)
 	for {

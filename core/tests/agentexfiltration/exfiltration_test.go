@@ -37,7 +37,7 @@ func TestMain(m *testing.M) {
 func capture(t *testing.T, plan agentcorpus.Plan) (surfaces []agentcorpus.Surface, stderr string) {
 	t.Helper()
 	api := agentcorpus.NewAPI(t, plan)
-	conn := agentcorpus.StartStdio(t, agentcorpus.BuildRetnd(t), agentcorpus.WriteConfig(t), api.Server.URL, agentcorpus.Token())
+	conn := agentcorpus.StartStdio(t, agentcorpus.BuildRetnd(t), api.Server.URL, agentcorpus.Token())
 	surfaces = agentcorpus.Walk(t, conn)
 	return surfaces, conn.StderrText()
 }

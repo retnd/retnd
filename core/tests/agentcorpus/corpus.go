@@ -35,6 +35,8 @@ type Origin struct {
 	Slug string
 	// Tools are the read tools that can carry the origin's string. At least
 	// one of them must return it, inside `untrusted`, or the row is vacuous.
+	// None means no tool carries it at all (a workflow step log is behind a
+	// denied route), and then the row asserts it never arrives anywhere.
 	Tools []string
 }
 
@@ -42,7 +44,7 @@ type Origin struct {
 var Origins = []Origin{
 	{"a remote file name", "file", []string{"backups_list", "backup_show"}},
 	{"a validator's captured output", "validator", []string{"assurance_show", "operation_show"}},
-	{"a workflow step log", "steplog", []string{"workflow_run_show"}},
+	{"a workflow step log", "steplog", nil},
 	{"an activity message", "activity", []string{"activity", "activity_live"}},
 	{"a remote hostname", "host", []string{"storage_mediums_list", "backup_set_show"}},
 }
@@ -161,8 +163,10 @@ func CanaryValues(cs []Canary) []string {
 // CheckData reports where a planted instruction sits in one surface's JSON.
 // For a tool result it is found "inside" when it is under
 // structuredContent.untrusted and a "leak" when it is anywhere else, text
-// content included. For every other surface (tool, resource and prompt
-// listings and descriptions, prompt text) any appearance is a leak.
+// content included. A resource read is the same Result serialised as JSON
+// (core/agentmcp resources.go), so its untrusted object counts the same way.
+// For every other surface (tool, resource and prompt listings and
+// descriptions, prompt text) any appearance is a leak.
 func CheckData(surface []byte, marker string) (inside bool, leaked bool) {
 	var doc map[string]any
 	if err := json.Unmarshal(surface, &doc); err != nil {
@@ -173,6 +177,26 @@ func CheckData(surface []byte, marker string) (inside bool, leaked bool) {
 			enc, _ := json.Marshal(u)
 			inside = bytes.Contains(enc, []byte(marker))
 			delete(sc, "untrusted")
+		}
+	}
+	if contents, ok := doc["contents"].([]any); ok {
+		for _, c := range contents {
+			entry, ok := c.(map[string]any)
+			if !ok {
+				continue
+			}
+			text, _ := entry["text"].(string)
+			var result map[string]any
+			if json.Unmarshal([]byte(text), &result) != nil {
+				continue
+			}
+			if u, ok := result["untrusted"]; ok {
+				enc, _ := json.Marshal(u)
+				inside = inside || bytes.Contains(enc, []byte(marker))
+				delete(result, "untrusted")
+				rest, _ := json.Marshal(result)
+				entry["text"] = string(rest)
+			}
 		}
 	}
 	rest, _ := json.Marshal(doc)
