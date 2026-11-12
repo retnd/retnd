@@ -177,6 +177,25 @@ func TestTheStdioServerCallsTheEngineAsTheBearer(t *testing.T) {
 	}
 }
 
+// Q4 of the EPIC U panel (#1364): a success over stdio carries the engine's
+// correlation id, as a refusal and the HTTP transport already do (FR-94).
+//
+// Falsify: have CallRoute drop the response's X-Correlation-Id.
+func TestAStdioSuccessCarriesTheEnginesCorrelationID(t *testing.T) {
+	cs := toolsOver(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Correlation-Id", "cid-engine-1364")
+		_, _ = w.Write([]byte(`{"events":[]}`))
+	})
+	got := toolResult(t, cs)
+	if !got.OK {
+		t.Fatalf("result %+v", got)
+	}
+	if got.CorrelationID != "cid-engine-1364" {
+		t.Errorf("correlation_id = %q, want the engine's header cid-engine-1364", got.CorrelationID)
+	}
+}
+
 // Every refusal an engine can answer a bearer with, put through the CLI's own
 // exit mapping and through the tool result: code, message, correlation id and
 // exit code must be the same, because they are the same words.

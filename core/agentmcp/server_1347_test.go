@@ -45,7 +45,12 @@ var testTools = []agenttools.Row{
 
 func connect(t *testing.T, caller Caller, maxBytes int) *mcp.ClientSession {
 	t.Helper()
-	srv := New(Config{Tools: testTools, Caller: caller, Version: "test", MaxResultBytes: maxBytes})
+	return connectTools(t, testTools, caller, maxBytes)
+}
+
+func connectTools(t *testing.T, tools []agenttools.Row, caller Caller, maxBytes int) *mcp.ClientSession {
+	t.Helper()
+	srv := New(Config{Tools: tools, Caller: caller, Version: "test", MaxResultBytes: maxBytes})
 	serverSide, clientSide := mcp.NewInMemoryTransports()
 	ctx := context.Background()
 	ss, err := srv.Connect(ctx, serverSide, nil)
@@ -265,6 +270,38 @@ func TestAnOversizeAnswerFromARouteWithNoPageIsRefusedNotCut(t *testing.T) {
 	res, got := call(t, connect(t, caller, 4096), "status", nil)
 	if !res.IsError || got.Code != CodeResultTooLarge || got.Data != nil {
 		t.Fatalf("result = %+v, want AGENT_RESULT_TOO_LARGE and no data", got)
+	}
+}
+
+// Q3 of the EPIC U panel (#1364). workflow_runs_list takes a limit and has no
+// cursor, so halving the page would hand back a short list that reads as
+// complete. Only a route whose answer carries next_cursor is paged smaller.
+//
+// Falsify: halve the limit on any route that answers a list.
+func TestAnOverCapAnswerWithoutACursorIsRefusedNotCut(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`{"runs":[`)
+	for i := 0; i < 70; i++ {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		b.WriteString(`{"id":"run-` + strconv.Itoa(i) + `","failed_step":"` + strings.Repeat("x", 1000) + `"}`)
+	}
+	b.WriteString(`]}`)
+	if b.Len() < 70<<10 {
+		t.Fatalf("the planted answer is %d bytes, want at least 70 KiB", b.Len())
+	}
+	caller := okBody(b.String())
+	tools := append(append([]agenttools.Row{}, testTools...), row("workflow_runs_list", "GET", "/workflow-runs", "Runs.", "runs[].failed_step"))
+	res, got := call(t, connectTools(t, tools, caller, 0), "workflow_runs_list", nil)
+	if !res.IsError || got.OK || got.Code != CodeResultTooLarge || got.Data != nil || got.NextCursor != "" {
+		t.Fatalf("result = %+v, want AGENT_RESULT_TOO_LARGE and no data", got)
+	}
+	if len(caller.calls) != 1 {
+		t.Errorf("the server asked the route %d times, want once: a route with no cursor has no smaller page to ask for", len(caller.calls))
+	}
+	if got.ExitCode != ExitFailure || got.CorrelationID != "cid_ok" {
+		t.Errorf("exit %d, correlation %q", got.ExitCode, got.CorrelationID)
 	}
 }
 
