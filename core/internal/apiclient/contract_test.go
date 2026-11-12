@@ -152,6 +152,15 @@ func TestContract_EveryCallThisClientMakesIsAnOperationTheContractDeclares(t *te
 				switch {
 				case in == ctxType:
 					args = append(args, reflect.ValueOf(context.Background()))
+				case in.Kind() == reflect.String && method.Name == "CallRoute":
+					// The agent transports' dispatcher takes the method and
+					// the route as data (#1364): drive it with a registered
+					// pair, so the request it makes is checked like any
+					// other call's.
+					args = append(args, reflect.ValueOf([]string{"GET", "/activity"}[p-2]))
+				case in.Kind() == reflect.Slice || in.Kind() == reflect.Map:
+					// CallRoute's path arguments, query and body: none.
+					args = append(args, reflect.Zero(in))
 				case in.Kind() == reflect.String:
 					// A path parameter. Deliberately something that has to
 					// be escaped: a client that pastes it in raw builds a
