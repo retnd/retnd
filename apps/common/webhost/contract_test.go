@@ -1275,8 +1275,14 @@ func TestContract_CapabilitiesAreDataAboutThePlatform(t *testing.T) {
 		if _, ok := body["destructive_operations"].(map[string]any); !ok {
 			t.Errorf("%s: the response has no destructive_operations object: %v", tc.wantPlatform, body)
 		}
-		if len(body) != len(apicontract.CapabilityFields)+2 {
-			t.Errorf("%s: the response carries %d fields; the contract declares %d capabilities plus platform and destructive_operations. An undeclared field on this endpoint is drift.", tc.wantPlatform, len(body), len(apicontract.CapabilityFields)+2)
+		// And (#1347) agents_http_transport: the agents: block's transport
+		// switch, again the deployment's and not the platform's. A router
+		// with no policy answers off.
+		if body["agents_http_transport"] != "off" {
+			t.Errorf("%s: agents_http_transport = %v, want off for a deployment with no agents: block", tc.wantPlatform, body["agents_http_transport"])
+		}
+		if len(body) != len(apicontract.CapabilityFields)+3 {
+			t.Errorf("%s: the response carries %d fields; the contract declares %d capabilities plus platform, destructive_operations and agents_http_transport. An undeclared field on this endpoint is drift.", tc.wantPlatform, len(body), len(apicontract.CapabilityFields)+3)
 		}
 	}
 }

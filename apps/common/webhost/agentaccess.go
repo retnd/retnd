@@ -248,7 +248,11 @@ func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAcce
 		return nil, false
 	}
 
-	if !agentReadOffered(r) {
+	// What is left is a safe method, or one of the MCP endpoint's own frames.
+	// A read reaches only what the catalogue offers; the frames were let
+	// through above, and every call inside them is checked as the request it
+	// becomes.
+	if safeMethod(r.Method) && !agentReadOffered(r) {
 		audit(principal.TokenID, http.StatusForbidden, "AGENT_ROUTE_DENIED",
 			writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route"))
 		return nil, false

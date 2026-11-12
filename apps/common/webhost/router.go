@@ -863,8 +863,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// EPIC U (#1347): the streamable HTTP transport. Bearer only and off
 		// unless agents.http_transport is on; see agentmcp.go. No requireCSRF:
 		// a cookie never reaches it, and a bearer is not a credential a browser
-		// sends by itself.
-		r.Handle("/agent/mcp", h.mcpEndpoint(root, policy, guard))
+		// sends by itself. The three methods the transport speaks and no
+		// others, so the route table, the contract and cliecho agree on what
+		// is served.
+		mcp := h.mcpEndpoint(root, policy, guard)
+		r.Post("/agent/mcp", mcp)
+		r.Get("/agent/mcp", mcp)
+		r.Delete("/agent/mcp", mcp)
 
 		// EPIC U (#1346): the catalogue. Static, so a token may read it.
 		r.Get("/agent/tools", h.listAgentTools)
