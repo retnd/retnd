@@ -4,10 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/retnd/retnd/core/internal/copycrypt"
-	"github.com/retnd/retnd/core/internal/recovery"
 	"github.com/retnd/retnd/core/internal/state"
 )
 
@@ -21,34 +19,12 @@ import (
 //
 // Written by reading; not run (the suites run on the release PR).
 
-func suiteSidecar(t *testing.T, localDir, formatID string) {
-	t.Helper()
-	at := time.Date(2026, 11, 1, 3, 5, 0, 0, time.UTC)
-	m := recovery.Manifest{
-		FormatVersion: recovery.CurrentFormatVersion, Source: "production", BackupSet: "postgres-primary",
-		ArtifactName: "backup.dump", RemotePath: "/backups/backup.dump",
-		ReceivedTimestamp: at, RetentionTimestamp: at, SizeBytes: 1024, Checksum: "deadbeef", ChecksumAlgorithm: "sha256",
-		Placements: []recovery.ManifestPlacement{{
-			Medium: "offsite_s3", Location: "retnd/production/postgres-primary/backup.dump", Status: "ACTIVE", VerificationClass: "content",
-			Checksum: "deadbeef", ChecksumAlgorithm: "sha256",
-			Encryption: &recovery.ManifestEncryption{
-				FormatID: formatID, FormatVersion: 1, KeyID: "k0123456789abcdef",
-				PlaintextDigest: "deadbeef", PlaintextDigestAlgorithm: "sha256", PlaintextSize: 1024,
-				StoredDigest: "cafef00d", StoredDigestAlgorithm: "sha256", StoredSize: 2730,
-			},
-		}},
-	}
-	if err := recovery.WriteManifest(localDir, m); err != nil {
-		t.Fatalf("WriteManifest: %v", err)
-	}
-}
-
 // rebuildSuite runs a real (not dry) rebuild over one sidecar naming
 // formatID and returns the report and the journal it wrote to.
 func rebuildSuite(t *testing.T, formatID string) (CatalogRebuildReport, *state.Journal) {
 	t.Helper()
 	localDir := t.TempDir()
-	suiteSidecar(t, localDir, formatID)
+	suiteSidecar(t, localDir, "backup.dump", formatID, "k0123456789abcdef")
 	bs := testBackupSet(t, localDir)
 	bs.RetainedCopyEncryption = managed()
 	j := openJournal(t)

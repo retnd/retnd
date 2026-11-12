@@ -131,6 +131,13 @@ func TestTheHealthSectionHasNoFieldThatCouldHoldMaterial(t *testing.T) {
 			if f.Type == reflect.TypeFor[[]byte]() {
 				t.Errorf("KeyCustodyHealth.%s is []byte", f.Name)
 			}
+		case reflect.Map:
+			// A count per id (EncryptedCopiesBySuite, #1316): string keys and
+			// integer values, so nothing in it can hold material either.
+			k, v := f.Type.Key().Kind(), f.Type.Elem().Kind()
+			if k != reflect.String || (v != reflect.Int && v != reflect.Int64) {
+				t.Errorf("KeyCustodyHealth.%s is a %s; a map in this section is a count per id and nothing else", f.Name, f.Type)
+			}
 		default:
 			t.Errorf("KeyCustodyHealth.%s is a %s; the section carries ids, times and verdicts only", f.Name, f.Type)
 		}

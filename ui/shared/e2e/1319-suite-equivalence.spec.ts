@@ -65,6 +65,8 @@ test.describe("#1319 suite equivalence, browser half", () => {
     const c = await card(page, "encryption-suite-change");
     const group = c.getByRole("radiogroup", { name: "Suite" });
     const options = group.locator("[data-suite-option]");
+    // The card shows before the suite list arrives, so wait for it.
+    await expect(options.first()).toBeVisible();
     const ids = await options.evaluateAll((els) => els.map((e) => e.getAttribute("data-suite-option") ?? ""));
     expect(ids).toEqual(expect.arrayContaining(["age/v1", "age-pq/v1"]));
     await expect(group.locator('[data-suite-option="age/v1"]')).toHaveAttribute("data-suite-status", "supported");
@@ -87,7 +89,7 @@ test.describe("#1319 suite equivalence, browser half", () => {
     };
     const c = await card(page, "encryption-suite-change");
     await collect(); // the card's own `retnd encryption suites`
-    await c.getByRole("radio", { name: /^age-pq\/v1/ }).check();
+    await c.getByRole("radio", { name: /^age-pq\/v1/ }).click();
     const dlg = page.getByRole("dialog", { name: "Change the suite" });
     await collect(); // policy patch
     await dlg.getByRole("button", { name: "Change suite" }).click();
@@ -112,13 +114,17 @@ test.describe("#1319 suite equivalence, browser half", () => {
         if (CLI_WRITES.includes(e) && !order.includes(e)) order.push(e);
       }
     };
-    await c.getByRole("radio", { name: /^age-pq\/v1/ }).check();
+    await c.getByRole("radio", { name: /^age-pq\/v1/ }).click();
     const dlg = page.getByRole("dialog", { name: "Change the suite" });
     await note();
     await dlg.getByRole("button", { name: "Change suite" }).click();
     await expect(dlg.locator('[data-suite-step="rotate"]')).toHaveAttribute("data-state", "now");
     await note();
     await dlg.getByRole("button", { name: "Rotate key" }).click();
+    // The pointer is still where Rotate key was, over the new step's
+    // content, and a tooltip opened there can sit over the checkbox.
+    await page.mouse.move(0, 0);
+    await expect(page.locator(".tooltip__pop:visible")).toHaveCount(0);
     await dlg.getByRole("checkbox", { name: /I understand this file can decrypt every copy/ }).check();
     await dlg.getByRole("button", { name: "Download bundle" }).click();
     await dlg.getByRole("button", { name: "I have stored the bundle safely" }).click();

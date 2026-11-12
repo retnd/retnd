@@ -109,11 +109,11 @@ health section, the metrics gauge and the key alert read it, so none of them cou
 set as one a managed key guards. `GET /encryption/policy` and `retnd encryption policy show`
 say so with `satisfied_by: "repository"` on the set, in the sentence the web UI draws.
 `required` is still accepted at load, on the deployment and as a per-set override. Pinned by
-`TestRequiredOnAKopiaSetIsAcceptedAndDoesNotEncryptRetainedCopies_1296` (config),
+`TestRequiredOnARepositoryEncryptedSetIsAcceptedAndDoesNotEncryptRetainedCopies_1296` (config),
 `TestARequiredKopiaSetNeverAsksKeyCustody_1296` and
 `TestAKopiaOnlyDeploymentUnderRequiredIsNotDegradedKeyCustody_1296` (app),
 `TestAKopiaSetUnderRequiredIsNotAnEncryptedSetToTheCopyPath_1296` (placement),
-`TestSetPolicyOfAKopiaSetSaysSatisfiedByTheRepository_1296` (service) and the compat fixture
+`TestSetPolicyOfARepositoryEncryptedSetSaysSatisfiedByTheRepository_1296` (service) and the compat fixture
 `10-encryption-kopia-set-under-required.yaml`.
 
 ## Consequences
