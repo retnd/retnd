@@ -74,6 +74,29 @@ test.describe("#1395 (A) agents-mint-dropped: the request was lost and nothing w
   });
 });
 
+test.describe("#1395 (A) the notice does not point at a token this request did not make", () => {
+  test("#1395 a lost request for a name a live token already carries says so, and does not send the user to revoke that token", async ({ page }) => {
+    await openAgents(page, "agents-mint-dropped");
+    const dlg = await openMint(page);
+    await dlg.getByLabel("Name", { exact: true }).fill("nightly-triage");
+    await create(dlg).click();
+    const notice = lostNotice(dlg);
+    await expect(notice).toContainText("agent:nightly-triage already had a live token (rat_q7Hn)");
+    await expect(notice).toContainText(/could not have made another/);
+    await expect(notice).not.toContainText(/is in the list now/);
+    await expect(tokenRow(page, "nightly-triage")).toHaveCount(1);
+  });
+
+  test("#1395 a revoked token with the same name is not taken for the one this request made", async ({ page }) => {
+    await openAgents(page, "agents-mint-lost");
+    const dlg = await openMint(page);
+    await dlg.getByLabel("Name", { exact: true }).fill("laptop-experiment");
+    await create(dlg).click();
+    await expect(lostNotice(dlg)).toContainText(/agent:laptop-experiment is in the list now \(rat_/);
+    await expect(lostNotice(dlg)).not.toContainText("rat_k3Pd");
+  });
+});
+
 test.describe("#1395 (B) focus stays in the dialog after a refusal", () => {
   test("#1395 a refused expiry puts focus on the expiry field, and Create token is enabled", async ({ page }) => {
     await openAgents(page, "default");

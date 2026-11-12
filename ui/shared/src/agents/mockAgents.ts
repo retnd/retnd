@@ -202,6 +202,11 @@ export function createMockAgents(scenario: string, deps: MockAgentsDeps) {
     listAgentTokens: () => later(structuredClone(tokens)),
     mintAgentToken: async (req) => {
       await deps.transport(false);
+      // #1395: a dropped request never reaches the engine, so nothing is checked and nothing is made.
+      if (scenario === "agents-mint-dropped") {
+        await later(null);
+        throw new RequestFailure({ kind: "no-response", path: "/agent/tokens", cause: new TypeError("Failed to fetch") });
+      }
       if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(req.name)) {
         throw refuse("INVALID_REQUEST", "name: must be 1 to 40 lowercase letters, digits or hyphens, starting with a letter or digit.");
       }
@@ -217,11 +222,7 @@ export function createMockAgents(scenario: string, deps: MockAgentsDeps) {
         createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + ms).toISOString(),
         lastUsedAt: null, revokedAt: null
       };
-      // #1395: the answer is what gets lost. The token is made (or, for dropped, is not) and the secret never reaches the page.
-      if (scenario === "agents-mint-dropped") {
-        await later(null);
-        throw new RequestFailure({ kind: "no-response", path: "/agent/tokens", cause: new TypeError("Failed to fetch") });
-      }
+      // #1395: the answer is what gets lost. The token is made and the secret never reaches the page.
       tokens.unshift(token);
       await later(null);
       if (scenario === "agents-mint-lost") {

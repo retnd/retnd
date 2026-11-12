@@ -76,8 +76,8 @@ export function MintDialog({ tokens, onMinted, onUncertain, onClose }: {
   const [minted, setMinted] = useState<{ answer: MintedAgentToken; command: string } | null>(null);
   const nameId = useId();
   const expiryId = useId();
-  // The name whose create ended with no usable answer.
-  const [unanswered, setUnanswered] = useState<string | null>(null);
+  // The name whose create ended with no usable answer, and the ids of the live tokens the list already held under that name when it was sent (null: the list had not been read). The engine allows one live token per name, so a token in that set is not the one this request made, and the list that has not been read again yet still holds only those.
+  const [unanswered, setUnanswered] = useState<{ name: string; held: string[] | null } | null>(null);
   const nameInput = useRef<HTMLInputElement>(null);
   const expiryInput = useRef<HTMLInputElement>(null);
   const scopeBox = useRef<HTMLFieldSetElement>(null);
@@ -111,6 +111,7 @@ export function MintDialog({ tokens, onMinted, onUncertain, onClose }: {
       setBusy(false);
       return;
     }
+    const held = tokens ? tokens.filter((t) => t.name === name.trim() && t.status !== "revoked").map((t) => t.id) : null;
     try {
       const answer = await api.mintAgentToken({ name: name.trim(), scope, expiresIn: expiresIn.trim() });
       setMinted({ answer, command: echo ?? "" });
@@ -119,7 +120,7 @@ export function MintDialog({ tokens, onMinted, onUncertain, onClose }: {
       const message = describeFailure(e, "the token was not created").message;
       // No typed answer (no reply, an unreadable one): the token may exist, so re-read the list.
       if (apiErrorOf(e) === null) {
-        setUnanswered(name.trim());
+        setUnanswered({ name: name.trim(), held });
         onUncertain();
       } else {
         setUnanswered(null);
@@ -243,7 +244,13 @@ export function MintDialog({ tokens, onMinted, onUncertain, onClose }: {
         {error && error.field === null ? (
           <div ref={message} tabIndex={-1} role="alert" data-mint-error="form" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <p className="ag-err" style={{ margin: 0 }}>{error.message}</p>
-            {unanswered !== null ? <UnansweredNotice name={unanswered} token={tokens?.find((t) => t.name === unanswered && t.status === "active")} /> : null}
+            {unanswered !== null ? (
+              <UnansweredNotice
+                name={unanswered.name}
+                held={unanswered.held === null ? undefined : tokens?.find((t) => unanswered.held!.includes(t.id) && t.status !== "revoked")}
+                token={unanswered.held === null ? undefined : tokens?.find((t) => t.name === unanswered.name && t.status === "active" && !unanswered.held!.includes(t.id))}
+              />
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -252,10 +259,15 @@ export function MintDialog({ tokens, onMinted, onUncertain, onClose }: {
 }
 
 /** What to do when the answer to a create never came. The sentences are the design note's voice: plain, about the one thing that cannot be undone. */
-function UnansweredNotice({ name, token }: { name: string; token: AgentToken | undefined }) {
+function UnansweredNotice({ name, held, token }: { name: string; held: AgentToken | undefined; token: AgentToken | undefined }) {
   return (
     <p className="ag-statement" data-mint-unanswered="">
-      {token ? (
+      {held ? (
+        <>
+          <code className="mono">agent:{name}</code> already had a live token ({held.prefix}) when this was sent, and only one can carry a name, so this
+          request could not have made another. Do not revoke that one for this. Pick another name, or revoke it on purpose first.
+        </>
+      ) : token ? (
         <>
           <code className="mono">agent:{name}</code> is in the list now ({token.prefix}), so it was created, and its token cannot be shown again.
           Cancel this dialog and revoke it in the list, then create the token again.
