@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/retnd/retnd/core/agentmcp"
@@ -84,7 +85,19 @@ func (h *handlers) mcpEndpoint(root http.Handler, policy service.AgentPolicy, gu
 		r.Header.Set(mcpPeerHeader, r.RemoteAddr)
 		build.Do(func() {
 			srv := agentmcp.New(agentmcp.Config{Tools: agentToolRows, Caller: routerCaller{root: root}, Version: h.binaryVersion})
-			served = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, &mcp.StreamableHTTPOptions{JSONResponse: true})
+			streamable := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, &mcp.StreamableHTTPOptions{JSONResponse: true, SessionTimeout: agentMCPSessionTimeout})
+			// A session belongs to the token that opened it: the SDK refuses a
+			// frame naming a session another token opened, which it does only
+			// when the request carries its TokenInfo. The token was checked by
+			// authMiddleware already, so this reads the principal rather than
+			// checking anything twice.
+			served = auth.RequireBearerToken(func(_ context.Context, _ string, req *http.Request) (*auth.TokenInfo, error) {
+				p, ok := agentPrincipalFrom(req.Context())
+				if !ok {
+					return nil, auth.ErrInvalidToken
+				}
+				return &auth.TokenInfo{UserID: p.TokenID}, nil
+			}, &auth.RequireBearerTokenOptions{AllowMissingExpiration: true})(streamable)
 		})
 		served.ServeHTTP(w, r)
 	}
@@ -227,3 +240,9 @@ func endStreamWithToken(ctx context.Context, cancel context.CancelFunc, agents A
 		}
 	}
 }
+
+// agentMCPSessionTimeout is how long an MCP session may sit idle before the
+// transport ends it. The JSON-RPC envelope is not a call the limiter counts,
+// so without it a token could open sessions and leave them, each held in
+// memory for as long as the engine runs. A variable so a test can shorten it.
+var agentMCPSessionTimeout = 30 * time.Minute
