@@ -24,7 +24,7 @@ func policyOfOneSet(satisfiedBy string) apicontract.EncryptionSetPolicy {
 	}
 }
 
-func TestPolicyShowEchoesThatAKopiaSetIsSatisfiedByTheRepository_1296(t *testing.T) {
+func TestPolicyShowEchoesThatARepositoryEncryptedSetIsSatisfiedByTheRepository_1296(t *testing.T) {
 	out := captureStdout(t, func() { printEncryptionSet("", policyOfOneSet("repository")) })
 	if !strings.Contains(out, service.SatisfiedByRepositoryStatement) {
 		t.Errorf("the line for a kopia set does not carry the statement:\n%s", out)

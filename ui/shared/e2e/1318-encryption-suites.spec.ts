@@ -72,7 +72,7 @@ test.describe("#1318 retired-option-disabled-with-reason", () => {
 test.describe("#1318 suite-change-leads-through-rotate-bundle-confirm", () => {
   test("patch, rotate, download and confirm, in that order, with the degraded state between", async ({ page }) => {
     const c = await card(page, "encryption-suite-change");
-    await c.getByRole("radio", { name: /^age-pq\/v1/ }).check();
+    await c.getByRole("radio", { name: /^age-pq\/v1/ }).click();
     const dlg = page.getByRole("dialog", { name: "Change the suite" });
     await expect(dlg.getByText("retnd encryption policy patch --suite age-pq/v1")).toBeVisible();
     await expect(dlg.locator('[data-suite-step="patch"]')).toHaveAttribute("data-state", "now");
@@ -89,6 +89,10 @@ test.describe("#1318 suite-change-leads-through-rotate-bundle-confirm", () => {
     await expect(c.getByText("No active key for suite age-pq/v1")).toHaveCount(0);
     await expect(c.getByText("No confirmed recovery bundle")).toBeVisible();
     await expect(dlg.getByRole("button", { name: "Download bundle" })).toBeDisabled();
+    // The pointer is still where Rotate key was, over the new step's
+    // content, and a tooltip opened there can sit over the checkbox.
+    await page.mouse.move(0, 0);
+    await expect(page.locator(".tooltip__pop:visible")).toHaveCount(0);
     await dlg.getByRole("checkbox", { name: /I understand this file can decrypt every copy/ }).check();
     await dlg.getByRole("button", { name: "Download bundle" }).click();
 
@@ -104,7 +108,7 @@ test.describe("#1318 suite-change-leads-through-rotate-bundle-confirm", () => {
 
   test("leaving early says what is still owed, keeps the policy patched, and the health state shows it", async ({ page }) => {
     const c = await card(page, "encryption-suite-change");
-    await c.getByRole("radio", { name: /^age-pq\/v1/ }).check();
+    await c.getByRole("radio", { name: /^age-pq\/v1/ }).click();
     const dlg = page.getByRole("dialog", { name: "Change the suite" });
     await dlg.getByRole("button", { name: "Change suite" }).click();
     await expect(dlg.locator('[data-suite-step="rotate"]')).toHaveAttribute("data-state", "now");
@@ -131,7 +135,7 @@ test.describe("#1318 suite-change-leads-through-rotate-bundle-confirm", () => {
 
   test("cancelling before the patch writes nothing and needs no owed list", async ({ page }) => {
     const c = await card(page, "encryption-suite-change");
-    await c.getByRole("radio", { name: /^age-pq\/v1/ }).check();
+    await c.getByRole("radio", { name: /^age-pq\/v1/ }).click();
     const dlg = page.getByRole("dialog", { name: "Change the suite" });
     await dlg.getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -223,7 +227,7 @@ for (const theme of ["light", "dark"] as const) {
     test(`the change dialog and its step strip meet WCAG AA in ${theme}`, async ({ page }) => {
       const c = await card(page, "encryption-suite-change");
       await setTheme(page, theme);
-      await c.getByRole("radio", { name: /^age-pq\/v1/ }).check();
+      await c.getByRole("radio", { name: /^age-pq\/v1/ }).click();
       expect(await measureContrast(page, "1318 change dialog " + theme, '[role="dialog"]'), theme).toEqual([]);
       expect(await measureEdges(page, "1318 steps " + theme, "[data-suite-step]"), theme).toEqual([]);
     });

@@ -88,7 +88,8 @@ describe("encrypted copy progress stages (#1290)", () => {
   });
 
   it("draws the bar indeterminate when an encrypted stage has no total", () => {
-    const { bytesTotal: _omit, ...unsized } = READING;
+    const unsized: typeof READING = { ...READING };
+    delete unsized.bytesTotal;
     render(<OperationProgress operation={operation(unsized)} />);
 
     expect(screen.getByRole("progressbar").hasAttribute("aria-valuenow")).toBe(false);

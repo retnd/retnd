@@ -117,7 +117,9 @@ func TestKeyRotateAcrossSuitesIsOneWrite(t *testing.T) {
 func TestKeyCreateRefusesAnUnknownSuite(t *testing.T) {
 	clearTheRoute(t)
 	cfg := writeTestConfig(t)
-	code, out := runCapturing(t, "encryption", "key", "create", "--suite", "aes-256-military-grade", "--config", cfg)
+	// Both streams: a refusal goes to stderr, and stdout alone carries only
+	// the mode line, so reading it never saw the suite named.
+	code, out := runCapturingBothStreams(t, []string{"encryption", "key", "create", "--suite", "aes-256-military-grade", "--config", cfg})
 	if code == exitOK || !strings.Contains(out, "aes-256-military-grade") {
 		t.Fatalf("an unknown suite = exit %d: %s; want a refusal naming it", code, out)
 	}
