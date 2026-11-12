@@ -139,6 +139,13 @@ the stored body through the handler the browser would have hit, with the token a
 recorded actor and the approver in `decided_by`. A body supplied at approval is refused. A
 token may have at most `agents.max_pending_confirmations` (5) open.
 
+A `run_cycle` or `run_backup_set` proposal that names no `config_revision` is recorded against the
+revision the engine holds when it is proposed, so the agent never has to read one and the record is
+still what the person approves; one the agent named is kept. The replay then meets the engine's own
+revision check, so a configuration that changed before the approval ends `CONFIG_REVISION_STALE`
+(exit 1) instead of running, and the confirmation view shows the revision it was recorded against.
+A body at approval is still refused.
+
 The replay meets every refusal the original would have: the shut operation gate answers
 `DESTRUCTIVE_OPERATIONS_DISABLED` and exit 50 for `run_cycle` exactly as `retnd run` does.
 This epic opens no gate.

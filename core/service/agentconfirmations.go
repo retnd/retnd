@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -131,6 +132,18 @@ func (c AgentConfirmation) Contract() apicontract.AgentConfirmation {
 		ID: c.ID, TokenID: c.TokenID, TokenName: c.TokenName, Tool: c.Tool, Route: c.Route, Method: c.Method,
 		Command: c.Command, BackupSet: c.BackupSet, State: c.State,
 		CreatedAt: c.CreatedAt.UTC().Format(time.RFC3339), ExpiresAt: c.ExpiresAt.UTC().Format(time.RFC3339),
+	}
+	// Only a run carries the revision it was recorded against (#1387). Any
+	// other body is the agent's own words, so a config_revision in one is not
+	// shown to the person as if the engine had put it there.
+	var recorded struct {
+		Action         string `json:"action"`
+		ConfigRevision string `json:"config_revision"`
+	}
+	route, _, _ := strings.Cut(c.Route, "?")
+	if c.Method == "POST" && route == "/operations" && json.Unmarshal(c.Body, &recorded) == nil &&
+		(recorded.Action == ActionRunCycle || recorded.Action == ActionRunBackupSet) {
+		out.ConfigRevision = recorded.ConfigRevision
 	}
 	if c.DecidedAt != nil {
 		s := c.DecidedAt.UTC().Format(time.RFC3339)
