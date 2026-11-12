@@ -37,6 +37,7 @@ import datetime
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass, field
@@ -159,6 +160,32 @@ def commit_of(root: Path) -> str:
     return head + ("+dirty" if (dirty.stdout or "").strip() else "")
 
 
+def mutant(root: Path, tmp: Path, name: str, *, dry_run: bool) -> Path:
+    """selftest_swap.mutant, except that a file git lists and the tree does not
+    have is skipped when it is a .env* template: scripts/ci-docker.sh --host
+    leaves those out of the copy on purpose (credentials), and git still lists
+    container/.env.example."""
+    if dry_run:
+        return root
+    dest = tmp / name
+    dest.mkdir(parents=True, exist_ok=True)
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        cwd=root, stdout=subprocess.PIPE, check=True,
+    ).stdout
+    for raw in listed.split(b"\0"):
+        if not raw:
+            continue
+        rel = raw.decode("utf-8", "surrogateescape")
+        src = root / rel
+        if not os.path.lexists(src) and Path(rel).name.startswith(".env"):
+            continue
+        dst = dest / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst, follow_symlinks=False)
+    return dest
+
+
 def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | None) -> int:
     tally = selftest_swap.Tally()
     controls = [c for c in CONTROLS if selected(c, only)]
@@ -172,7 +199,7 @@ def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | 
     with tempfile.TemporaryDirectory(prefix="retnd-agents-selftest.") as tmp_name:
         tmp = Path(tmp_name)
         tracker = selftest_swap.AnchorTracker(dry_run=dry_run, root=root, tmp=tmp)
-        work = selftest_swap.mutant(root, tmp, "work", dry_run=dry_run)
+        work = mutant(root, tmp, "work", dry_run=dry_run)
         if not dry_run:
             for rel in sorted({x for c in controls for x in c.links}):
                 if (root / rel).exists() and not (work / rel).exists():
