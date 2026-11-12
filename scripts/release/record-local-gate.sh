@@ -278,12 +278,18 @@ ledger_json="$(sed -n '/^==> ci-local: INCOMPLETE/,/^==> For a run/p' "$log" | s
 # conscience.
 mkdir -p provenance
 python3 - "$log" provenance/local-gate.log <<'PY'
+import os
 import re
 import sys
 
 src, dst = sys.argv[1], sys.argv[2]
 data = open(src, "rb").read()
-# Home paths: this user's, and anybody's under /Users or /home.
+# Home paths: this user's, and anybody's under /Users or /home. This user's
+# first and by value, because it is not always under either: the pinned CI
+# image runs the gate with HOME=/ci (#1331).
+home = os.environ.get("HOME", "").rstrip("/")
+if home:
+    data = re.sub(re.escape(home.encode()) + rb"(?=/|[\s\"']|$)", b"~", data)
 data = re.sub(rb"/Users/[^/\s\"']+", b"~", data)
 data = re.sub(rb"/home/[^/\s\"']+", b"~", data)
 secret_shapes = [

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -396,7 +397,17 @@ func (e *Engine) roomToStage(staged string, src state.Placement) error {
 		return fmt.Errorf("the source placement on %q records no size, so nothing here can say whether a staging copy of it fits on local disk", src.Medium)
 	}
 	dir := filepath.Dir(staged)
-	free, err := e.stagingFreeBytes(dir)
+	// The staging area need not exist yet: the move path makes it just
+	// before this, but CheckEncryptExisting, which the dry run shares, writes
+	// nothing, so on a fresh deployment it asks about a directory nobody has
+	// made (#1331). A directory that does not exist yet will be made on the
+	// filesystem of its nearest existing ancestor (nothing can be mounted on
+	// a path that is not there), so that ancestor is what gets measured.
+	measured, err := nearestExistingDir(dir)
+	if err != nil {
+		return fmt.Errorf("the staging area %q could not be measured, so nothing here can say whether a staging copy fits: %w", dir, err)
+	}
+	free, err := e.stagingFreeBytes(measured)
 	if err != nil {
 		return fmt.Errorf("the staging area %q could not be measured, so nothing here can say whether a staging copy fits: %w", dir, err)
 	}
@@ -406,6 +417,28 @@ func (e *Engine) roomToStage(staged string, src state.Placement) error {
 			*src.Size, dir, free)
 	}
 	return nil
+}
+
+// nearestExistingDir is dir if it exists, otherwise its closest ancestor
+// that does. Anything other than "does not exist" (a permission error, a
+// file where a directory should be) is returned, not walked past.
+func nearestExistingDir(dir string) (string, error) {
+	for d := filepath.Clean(dir); ; {
+		info, err := os.Stat(d)
+		switch {
+		case err == nil && info.IsDir():
+			return d, nil
+		case err == nil:
+			return "", fmt.Errorf("%q is not a directory", d)
+		case !errors.Is(err, fs.ErrNotExist):
+			return "", err
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return "", fmt.Errorf("no ancestor of %q exists", dir)
+		}
+		d = parent
+	}
 }
 
 // stagingFreeBytes reports how many bytes are available where a staging

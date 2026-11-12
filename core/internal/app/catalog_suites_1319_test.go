@@ -27,6 +27,8 @@ import (
 // accident the day that suite ships.
 const unknownSuite = "never-registered/v9"
 
+// suiteSidecar writes one sidecar for artifact name whose single placement is
+// encrypted under suite with keyID. The #1316 tests use it too.
 func suiteSidecar(t *testing.T, localDir, name, suite, keyID string) {
 	t.Helper()
 	at := time.Date(2026, 11, 10, 3, 5, 0, 0, time.UTC)

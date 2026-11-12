@@ -60,6 +60,12 @@ places so they cannot be mixed up:
 | plaintext | `artifacts.local_hash` (and `placements.hash` on every copy) | The artifact. What a restore has to reproduce. Never overwritten by an encryption step. |
 | stored bytes | `placement_encryption.stored_hash`, with `stored_hash_alg` and `stored_size` | The bytes at the object key: the age header plus the ciphertext. Written only by the attempt that finished and committed the copy. |
 
+The sizes follow the same split: `placements.size_bytes` is the plaintext size on every
+copy, and `stored_size` is the size of the object at the key. Anything that checks an
+encrypted copy's object against the journal (the existence check, the identity check before
+an old copy is deleted after a move or a re-encryption) compares it with `stored_size`,
+never with the plaintext size (ADR 0033, "The size of an encrypted copy").
+
 Encryption is not deterministic, so two encryptions of one artifact never produce the same
 stored bytes. A retry is a new encryption, never a resumed one, and nothing compares a
 recorded stored-bytes digest to a freshly encrypted object.
@@ -210,6 +216,10 @@ Moving them to the new suite is `reencrypt`, below, and is optional while their 
 supported.
 
 ### Re-encrypting copies under the active suite
+
+Over HTTP, `encrypt-existing` and `reencrypt` (the dry runs too) sit behind the same destructive gate as
+retention apply: shut on a gateway profile until #92, open on a local-account profile. The terminal
+verbs below have no gate.
 
 `retnd encryption reencrypt` takes the encrypted copies you select, across every backup set,
 and writes them again under the active suite and key. It is the same journaled move

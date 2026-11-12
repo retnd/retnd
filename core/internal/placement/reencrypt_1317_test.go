@@ -331,8 +331,12 @@ func TestReencryptRetiresTheSourceOnlyAfterDecryptVerify_1317(t *testing.T) {
 		if report.Completed != 1 {
 			t.Fatalf("control: the run did not complete: %+v", report)
 		}
-		if len(reads) < 2 {
-			t.Fatalf("the new object was read %d time(s); the verify and the re-read before the delete are two", len(reads))
+		// On the nominal path the verify is the only read: the pre-delete proof
+		// (#439, predelete.go) replaces the second full read with a metadata check
+		// of the same key, and a resumed move reads again. Either way every read
+		// there is has to find the source still in place.
+		if len(reads) < 1 {
+			t.Fatal("the new object was never read, so it was never decrypt-verified")
 		}
 		for i, r := range reads {
 			if !r.objectThere {
