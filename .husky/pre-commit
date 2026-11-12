@@ -1,28 +1,40 @@
 #!/usr/bin/env sh
-# The gate, on every commit. The only gate (#1260).
+# The hook: the fast tier on every commit (#1361), the full gate on the
+# release PR.
 #
 # GitHub Actions gates nothing in this repository: ci.yml is gone, and no
 # workflow produces a check that stands in front of `main` or `release`.
-# This hook, via scripts/ci-local.sh, IS the CI, and a release is refused
-# unless a full green run of that script is recorded on the tree it
-# publishes (scripts/release/record-local-gate.sh). It is installed with
-# `bash scripts/install-hooks.sh`, once per clone, which sets
-# core.hooksPath=.husky in the shared config so every worktree runs it.
+# This hook is installed with `bash scripts/install-hooks.sh`, once per
+# clone, which sets core.hooksPath=.husky in the shared config so every
+# worktree runs it.
 #
-# This makes commits slow (the full core/ suite includes the Docker-backed
-# crash matrix and SFTP integration tests, plus two cross-compiles, three
-# frontend installs/builds, and the dependency-rules worktree-deletion
-# proofs). That's the deliberate tradeoff of relying on this instead of
-# GitHub Actions: see scripts/ci-local.sh's own header for the CI_LOCAL_FAST
-# escape hatch for iteration, and never rely on it before a merge.
+# What it runs is scripts/ci-fast.sh --staged: the anchors check, the
+# contract drift check, gofmt, and vet, lint and tests on the packages the
+# staged files are in (read that script's header for the whole list). It
+# used to run scripts/ci-local.sh, the full gate, on every commit: the
+# Docker crash matrix, the cross-compiles, three frontend builds. That took
+# the better part of an hour, so the way people committed became
+# --no-verify, and 144 of the 146 stamped commits on main said so (#1361).
+# A gate people keep switched on and that checks less beats one they skip.
 #
-# In a fresh clone or a new `git worktree`, the first commit stops before it
-# runs anything: node_modules/ is gitignored, and since #160 the gate refuses
-# to report on frontend and conformance checks it cannot perform instead of
-# skipping them and printing "ci-local: ok" anyway. It names every
-# uninstalled workspace and the command that fixes it. Run those, or set
-# CI_LOCAL_SKIP_JS=1 to leave them out on purpose. The same now goes for a
-# stopped Docker daemon and CI_LOCAL_SKIP_DOCKER=1.
+# The full gate is still the thing a release is refused without
+# (scripts/release/record-local-gate.sh writes the record the release
+# reads), and it is still available here: CI_LOCAL_FULL=1 git commit ...
+# runs it, and a green full run is the only thing that leaves a commit
+# with no Local-Gate trailer.
+#
+# THE HOOKS PATH. This hook refuses to run when core.hooksPath is an
+# absolute path, or resolves to some other checkout's .husky, or when the
+# file being run is not this checkout's own .husky/pre-commit. That is how
+# a stale checkout's September hook ended up running in every worktree,
+# with no red-tests route and no stamping (#1361). The fix is one command,
+# and the refusal names it: bash scripts/install-hooks.sh.
+#
+# In a fresh clone or a new `git worktree` the first commit no longer stops
+# for missing node_modules/: the fast tier only needs a JS workspace when
+# a staged path is in it (ci-fast.sh names the command that installs it, or
+# CI_LOCAL_SKIP_JS=1 leaves it out on purpose). The full gate, under
+# CI_LOCAL_FULL=1, still refuses as it always did (#160).
 #
 # Three outcomes, and this hook has to make its own decision about the
 # middle one rather than inherit it by accident:
@@ -83,6 +95,39 @@
 # all (an `ok` would outlive the tree it described).
 
 set -e
+
+# The hooks path guard (#1361). Git resolves a relative core.hooksPath
+# against each worktree's own root, which is what install-hooks.sh sets. An
+# absolute one points every worktree at one checkout's hook, possibly a
+# stale one, and nothing about running it says so.
+hooks_top="$(git rev-parse --show-toplevel)"
+hooks_want="$(cd "$hooks_top/.husky" 2>/dev/null && pwd -P || true)"
+hooks_here="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P || true)"
+hooks_cfg="$(git config --get core.hooksPath || true)"
+hooks_bad=""
+case "$hooks_cfg" in
+  /* | "~"*) hooks_bad="core.hooksPath is an absolute path ($hooks_cfg)" ;;
+  "") ;;
+  *)
+    hooks_got="$(cd "$hooks_top" && cd "$hooks_cfg" 2>/dev/null && pwd -P || true)"
+    if [ "$hooks_got" != "$hooks_want" ]; then
+      hooks_bad="core.hooksPath ($hooks_cfg) does not resolve to this checkout's .husky"
+    fi
+    ;;
+esac
+if [ -z "$hooks_bad" ] && [ -z "$hooks_want" ]; then
+  hooks_bad="this checkout has no .husky directory"
+fi
+if [ -z "$hooks_bad" ] && [ "$hooks_here" != "$hooks_want" ]; then
+  hooks_bad="this hook is $hooks_here/pre-commit, not $hooks_top/.husky/pre-commit"
+fi
+if [ -n "$hooks_bad" ]; then
+  echo "==> pre-commit: refusing to run. $hooks_bad." >&2
+  echo "    A hook from another checkout can be a stale one: it may have no red-tests route and no" >&2
+  echo "    Local-Gate stamping, and nothing it prints would say so. Fix, once per clone (covers every" >&2
+  echo "    worktree): bash scripts/install-hooks.sh" >&2
+  exit 1
+fi
 
 # The tree git is about to commit. Written before anything else, so the
 # marker names exactly what this hook was asked about.
@@ -148,10 +193,19 @@ fi
 # through a file of its own.
 gate_log="$(git rev-parse --git-path local-gate-last.log)"
 gate_status_file="$(git rev-parse --git-path local-gate-last.status)"
+if [ "${CI_LOCAL_FULL:-0}" = "1" ]; then
+  gate_tier=full
+  gate_cmd="scripts/ci-local.sh"
+else
+  gate_tier=fast
+  gate_cmd="scripts/ci-fast.sh --staged"
+fi
 # set +e inside the group, or `set -e` above ends the group on the gate's
 # own non-zero status before the echo runs (the group is a subshell of the
-# pipe, so the setting does not leak out).
-{ set +e; bash scripts/ci-local.sh 2>&1; echo "$?" >"$gate_status_file"; } | tee "$gate_log"
+# pipe, so the setting does not leak out). $gate_cmd is two words on
+# purpose.
+# shellcheck disable=SC2086
+{ set +e; bash $gate_cmd 2>&1; echo "$?" >"$gate_status_file"; } | tee "$gate_log"
 gate_status="$(cat "$gate_status_file" 2>/dev/null || echo 1)"
 
 # The gate ran on the working tree; the commit is the index. When the two
@@ -170,7 +224,13 @@ if [ "$gate_status" -eq 0 ] || [ "$gate_status" -eq 3 ]; then
 fi
 
 if [ "$gate_status" -eq 0 ]; then
-  printf 'verified %s\n' "$tree" >"$marker"
+  # Only the full gate vouches for a tree. The fast tier passing is a
+  # fact about how the commit was checked, and it is stamped as one.
+  if [ "$gate_tier" = full ]; then
+    printf 'verified %s\n' "$tree" >"$marker"
+  else
+    printf 'fast %s\n' "$tree" >"$marker"
+  fi
   exit 0
 fi
 

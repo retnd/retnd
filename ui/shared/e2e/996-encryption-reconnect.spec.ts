@@ -30,6 +30,7 @@ async function copiesOf(page: Page, scenario: string) {
 async function chipsOf(page: Page): Promise<string[]> {
   const copies = page.getByRole("region", { name: "Copies" });
   const cells = copies.locator("[data-encryption-cell]");
+  await expect(cells.first()).toBeVisible();
   const n = await cells.count();
   const out: string[] = [];
   for (let i = 0; i < n; i++) {
@@ -52,9 +53,10 @@ test.describe("#996 browser reconnect and CLI equivalence", () => {
 
     await context.setOffline(true);
     await context.setOffline(false);
-    await page.reload();
-    const copies = page.getByRole("region", { name: "Copies" });
-    await expect(copies).toBeVisible();
+    // Opening the row navigated to the artifact path and dropped ?scenario=,
+    // so a bare reload would boot the default mock. Open it again instead.
+    const copies = await copiesOf(page, "encryption-on");
+    await expect(copies.locator("[data-encryption-cell]")).toHaveCount(before.length);
     expect(await chipsOf(page)).toEqual(before);
   });
 
