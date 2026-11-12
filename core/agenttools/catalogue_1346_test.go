@@ -245,25 +245,31 @@ func TestEveryDeniedRouteIsAStatedRefusal(t *testing.T) {
 	}
 }
 
-// A change reaches a route only through a tool row.
+// A change reaches a route only through a tool row, and a route several acts
+// share only through the acts that have one.
 func TestAMutationIsOfferedOnlyOverAToolRoute(t *testing.T) {
 	for _, c := range []struct {
-		method, path string
-		want         bool
+		method, path, action string
+		want                 bool
 	}{
-		{"POST", "/backup-sets/src/set/enabled", true},
-		{"PUT", "/backup-sets/src/set/retention", true},
-		{"DELETE", "/backup-sets/src/set/retention", true},
-		{"PATCH", "/backup-sets/src/set/assurance", true},
-		{"POST", "/operations", true},
-		{"POST", "/backups/src/set/name/retry", true},
-		{"PATCH", "/backup-sets/src/set", false},
-		{"POST", "/encryption/reencrypt", false},
-		{"DELETE", "/backup-sets/src/set/encryption", false},
-		{"POST", "/backup-sets/src/set/enabled/extra", false},
+		{"POST", "/backup-sets/src/set/enabled", "", true},
+		{"PUT", "/backup-sets/src/set/retention", "", true},
+		{"DELETE", "/backup-sets/src/set/retention", "", true},
+		{"PATCH", "/backup-sets/src/set/assurance", "", true},
+		{"POST", "/operations", "run_cycle", true},
+		{"POST", "/operations", "run_backup_set", true},
+		{"POST", "/operations", "restore_placement", false},
+		{"POST", "/operations", "restore_snapshot", false},
+		{"POST", "/operations", "hold_snapshot", false},
+		{"POST", "/operations", "", false},
+		{"POST", "/backups/src/set/name/retry", "", true},
+		{"PATCH", "/backup-sets/src/set", "", false},
+		{"POST", "/encryption/reencrypt", "", false},
+		{"DELETE", "/backup-sets/src/set/encryption", "", false},
+		{"POST", "/backup-sets/src/set/enabled/extra", "", false},
 	} {
-		if got := Offered(c.method, c.path); got != c.want {
-			t.Errorf("Offered(%s %s) = %v, want %v", c.method, c.path, got, c.want)
+		if got := Offered(c.method, c.path, c.action); got != c.want {
+			t.Errorf("Offered(%s %s %q) = %v, want %v", c.method, c.path, c.action, got, c.want)
 		}
 	}
 }

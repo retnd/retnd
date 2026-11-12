@@ -2,6 +2,7 @@ package webhost
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -222,10 +223,53 @@ func TestAChangeThatHasAToolStillAsksForAPerson(t *testing.T) {
 		{http.MethodPost, "/api/v1/backups/src/set-1/dump.tar/retry"},
 	} {
 		router, _ := agentRouter()
-		rec := serve(router, bearer(tc.method, tc.path, "{}", operateToken))
+		body := "{}"
+		if strings.HasSuffix(tc.path, "/operations") {
+			body = `{"action":"run_cycle"}`
+		}
+		rec := serve(router, bearer(tc.method, tc.path, body, operateToken))
 		if rec.Code != http.StatusConflict || responseErrorCode(rec.Body.String()) != "AGENT_CONFIRMATION_REQUIRED" {
 			t.Errorf("%s %s = %d %s, want 409 AGENT_CONFIRMATION_REQUIRED", tc.method, tc.path, rec.Code, rec.Body.String())
 		}
+	}
+}
+
+// The operations route carries seven acts and the catalogue has a tool for two.
+// A restore or a hold sent to it by a token is refused outright, not offered to
+// a person, and the body is still there for the handler after the peek.
+//
+// Falsify: offer the whole route to a token that is allowed any of it.
+func TestOnlyTheOperationsWithAToolAreOfferedOnTheSharedRoute(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		code string
+		want int
+	}{
+		{`{"action":"run_cycle","config_revision":"r1"}`, "AGENT_CONFIRMATION_REQUIRED", http.StatusConflict},
+		{`{"action":"run_backup_set","backup_set_id":"src/set-1"}`, "AGENT_CONFIRMATION_REQUIRED", http.StatusConflict},
+		{`{"action":"restore_placement","restore":{"artifact_id":"src/set-1/a","medium":"m"}}`, "AGENT_ROUTE_DENIED", http.StatusForbidden},
+		{`{"action":"restore_snapshot"}`, "AGENT_ROUTE_DENIED", http.StatusForbidden},
+		{`{"action":"hold_snapshot"}`, "AGENT_ROUTE_DENIED", http.StatusForbidden},
+		{`{}`, "AGENT_ROUTE_DENIED", http.StatusForbidden},
+		{`not json`, "AGENT_ROUTE_DENIED", http.StatusForbidden},
+	} {
+		router, _ := agentRouter()
+		rec := serve(router, bearer(http.MethodPost, "/api/v1/operations", tc.body, operateToken))
+		if rec.Code != tc.want || responseErrorCode(rec.Body.String()) != tc.code {
+			t.Errorf("%s = %d %s, want %d %s", tc.body, rec.Code, rec.Body.String(), tc.want, tc.code)
+		}
+	}
+}
+
+func TestThePeekAtAnActionLeavesTheBodyForTheNextReader(t *testing.T) {
+	const body = `{"action":"run_cycle","config_revision":"r1"}`
+	req := bearer(http.MethodPost, "/api/v1/operations", body, operateToken)
+	if !agentChangeOffered(req) {
+		t.Fatal("run_cycle was not offered")
+	}
+	left, err := io.ReadAll(req.Body)
+	if err != nil || string(left) != body {
+		t.Errorf("the body after the peek = %q (%v), want it whole", left, err)
 	}
 }
 

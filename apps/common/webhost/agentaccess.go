@@ -1,8 +1,11 @@
 package webhost
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"path"
@@ -101,15 +104,35 @@ func agentRouteDenied(r *http.Request) bool {
 }
 
 // agentChangeOffered reports whether a change reaches a route the catalogue
-// has a tool over, on every form of the path the request carries.
+// has a tool over, on every form of the path the request carries. The one
+// route several acts share (POST /operations) is told apart by the body's
+// action word, read from at most agentActionPeek bytes of it, and the body is
+// put back for whoever reads it next. A body that cannot be read, or has no
+// action, is the empty action, which no shared route offers.
 func agentChangeOffered(r *http.Request) bool {
+	var action struct {
+		Action string `json:"action"`
+	}
+	if r.Body != nil && r.Body != http.NoBody {
+		peeked, _ := io.ReadAll(io.LimitReader(r.Body, agentActionPeek))
+		r.Body = struct {
+			io.Reader
+			io.Closer
+		}{io.MultiReader(bytes.NewReader(peeked), r.Body), r.Body}
+		// A body that is not an object leaves the action empty, which is a
+		// refusal on a shared route and nothing on any other.
+		_ = json.Unmarshal(peeked, &action)
+	}
 	for _, p := range agentPaths(r) {
-		if !agenttools.Offered(r.Method, p) {
+		if !agenttools.Offered(r.Method, p, action.Action) {
 			return false
 		}
 	}
 	return true
 }
+
+// agentActionPeek bounds how much of a body is read to find its action word.
+const agentActionPeek = 1 << 20
 
 // AgentDeniedByMount refuses a bearer request before it reaches a handler
 // mounted outside the API router (the /api/v1/auth routes), whatever the token

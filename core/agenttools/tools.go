@@ -97,11 +97,15 @@ func Routes() []string {
 
 // Offered reports whether a mutating request to a concrete path below
 // /api/v1 reaches a route that has a tool, which is the only kind of change an
-// agent can ask for (and, from U2.1, a person confirm). A safe method is not a
-// question here: the deny list (Denied) is what holds back the reads.
-func Offered(method, path string) bool {
+// agent can ask for (and, from U2.1, a person confirm). action is the body's
+// own action word for the route several acts share (POST /operations) and ""
+// anywhere else: a tool row that names an action is offered only for that
+// action, so a restore sent to the operations route is not a run_cycle. A safe
+// method is not a question here: the deny list (Denied) is what holds back the
+// reads.
+func Offered(method, path, action string) bool {
 	for _, r := range rows {
-		if r.Tool != "" && r.Method == method && matches(r.Route, path) {
+		if r.Tool != "" && r.Method == method && matches(r.Route, path) && (r.Action == "" || r.Action == action) {
 			return true
 		}
 	}
