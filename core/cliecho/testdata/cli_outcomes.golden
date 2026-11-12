@@ -49,6 +49,9 @@ GET /activity/live
 	example ?scope=deployment: command
 	example ?backup_set=api-server%2Fvar-backups&scope=deployment: command
 
+GET /agent/confirmations
+	example: command
+
 GET /agent/tokens
 	example: command
 
@@ -303,6 +306,14 @@ PATCH /settings/workflow
 	example {"disabled":true}: command
 	example {"disabled":false}: command
 	body that isn't JSON: malformed: there is no verb that patches the deployment's workflow configuration from a request body
+
+POST /agent/confirmations/{id}/approve
+	example: command
+	body that isn't JSON: command
+
+POST /agent/confirmations/{id}/deny
+	example: command
+	body that isn't JSON: command
 
 POST /agent/tokens
 	corpus: command

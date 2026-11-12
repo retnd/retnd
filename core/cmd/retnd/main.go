@@ -638,6 +638,21 @@ commands:
                                                   end a token. The very next request that presents it is refused, so
                                                   there is nothing to wait for. ID is the one agent token list
                                                   prints. The same as POST /api/v1/agent/tokens/{id}/revoke
+  agent confirmations list [--json]
+                                                  the changes agents have asked for, newest first: pending, approved,
+                                                  denied and expired, with the command each one echoes. A call an agent
+                                                  makes under the operate or configure scope runs nothing until a person
+                                                  approves it. The same as GET /api/v1/agent/confirmations
+  agent confirmations approve ID [--json]
+                                                  approve one pending confirmation and replay the request that was
+                                                  recorded, unchanged, as the token that asked. The password this
+                                                  command already signs in with is the step-up. It needs a serving
+                                                  engine, because the replay goes through the engine's own handlers; a
+                                                  shut destructive gate refuses it with exit code 50, as it refuses
+                                                  retnd run. The same as POST /api/v1/agent/confirmations/{id}/approve
+  agent confirmations deny ID [--json]
+                                                  deny one pending confirmation: nothing runs and the agent reads it as
+                                                  denied. The same as POST /api/v1/agent/confirmations/{id}/deny
   ssh host-key-probe HOST [--port N] [--json]
                                                   connect to HOST (port 22 unless told) and print the host key that
                                                   answers, its fingerprint and the known_hosts line for it. Nothing

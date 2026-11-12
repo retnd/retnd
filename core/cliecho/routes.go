@@ -1247,6 +1247,26 @@ var routes = map[string]entry{
 		examples: []Action{{Params: map[string]string{"id": "agt_0123456789abcdef"}}},
 	},
 
+	// EPIC U (#1349). The confirmations an agent's operate and configure calls
+	// become. Session-only; approve asks for the password again, which the verb
+	// reads from the same place a restore's does, and takes no body.
+	key("GET", "/agent/confirmations"): {
+		build:    func(Action) *cmd { return newCmd("agent", "confirmations", "list") },
+		examples: []Action{{}},
+	},
+	key("POST", "/agent/confirmations/{id}/approve"): {
+		build: func(a Action) *cmd {
+			return newCmd("agent", "confirmations", "approve", a.Params["id"])
+		},
+		examples: []Action{{Params: map[string]string{"id": "cnf_0123456789abcdef"}}},
+	},
+	key("POST", "/agent/confirmations/{id}/deny"): {
+		build: func(a Action) *cmd {
+			return newCmd("agent", "confirmations", "deny", a.Params["id"])
+		},
+		examples: []Action{{Params: map[string]string{"id": "cnf_0123456789abcdef"}}},
+	},
+
 	// ------------------------------------------------------------- ssh ---
 	//
 	// The key store and the host-key probe had no verb until #1153, and

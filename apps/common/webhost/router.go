@@ -242,6 +242,11 @@ func debugShortcutEnv() bool {
 // handlers_operations.go need, built once by NewRouter.
 type handlers struct {
 	agents        AgentAccess
+	confirmations AgentConfirmations
+	// router is the handler a confirmation's recorded request is replayed
+	// through (agentconfirmations.go): the whole /api/v1 chain, set once NewRouter
+	// has built it.
+	router        http.Handler
 	platform      capabilities.PlatformAdapter
 	backend       BackupServiceClient
 	binaryVersion string
@@ -317,9 +322,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// The backend keeps agent tokens when it can; one that cannot has no
 	// agent access, and a bearer request meets AGENT_TOKEN_INVALID.
 	agents, _ := cfg.Backend.(AgentAccess)
+	confirmations, _ := cfg.Backend.(AgentConfirmations)
 
 	h := &handlers{
 		agents:        agents,
+		confirmations: confirmations,
 		platform:      cfg.Platform,
 		backend:       cfg.Backend,
 		binaryVersion: cfg.BinaryVersion,
@@ -842,6 +849,14 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Get("/agent/tokens", h.listAgentTokens)
 		r.With(requireCSRF).Post("/agent/tokens", h.mintAgentToken)
 		r.With(requireCSRF).Post("/agent/tokens/{id}/revoke", h.revokeAgentToken)
+
+		// EPIC U (#1349): the confirmations an agent's operate and configure
+		// calls become. Session only, for the same reason: the whole prefix is in
+		// agentDeniedPrefixes. Approve replays the recorded request through this
+		// router, so the gate and every other refusal apply to it as to a person.
+		r.Get("/agent/confirmations", h.listAgentConfirmations)
+		r.With(requireCSRF).Post("/agent/confirmations/{id}/approve", h.approveAgentConfirmation)
+		r.With(requireCSRF).Post("/agent/confirmations/{id}/deny", h.denyAgentConfirmation)
 		r.Get("/ssh/key-candidates", h.listSSHKeyCandidates)
 
 		// Issue #140 (B3.7): the one generic settings surface — a read
@@ -1063,5 +1078,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(requireCSRF).Post("/workflow-recovery/{run}/acknowledge", h.acknowledgeWorkflowRecovery)
 	})
 
+	// Last, so the router a replay goes through is the finished one.
+	h.router = r
 	return r
 }

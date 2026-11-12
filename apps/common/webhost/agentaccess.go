@@ -27,8 +27,9 @@ import (
 //     before the scope is looked at;
 //   - a bearer reaches no route that changes anything. A read token is told
 //     so (AGENT_SCOPE_INSUFFICIENT); an operate or configure token is told a
-//     person has to confirm the change (AGENT_CONFIRMATION_REQUIRED), which is
-//     how U2.1 will take it. Until then nothing a token can do mutates;
+//     person has to confirm the change (AGENT_CONFIRMATION_REQUIRED). That
+//     refusal is the whole effect of the request: a raw bearer request never
+//     creates a confirmation, only an MCP tool call does (U2.1, #1349);
 //   - requireCSRF passes a bearer principal and nobody else. CSRF defends a
 //     credential a browser sends by itself, and a header is not one.
 
@@ -47,7 +48,12 @@ type AgentAccess interface {
 // agentDeniedPrefixes are the routes no token reaches under any scope. They
 // are paths below /api/v1. /auth/* is mounted beside the router rather than
 // inside it, so serve's mount refuses it too (AgentDeniedByMount).
-var agentDeniedPrefixes = []string{"/auth", "/system/first-run", "/recoveries", "/agent/tokens"}
+//
+// /agent/confirmations is there so an agent can never approve, deny or list
+// its own confirmations (U2.1, #1349): a person reads them in a session, and a
+// token reads the state of its own through the confirmation_status tool, which
+// is not this route.
+var agentDeniedPrefixes = []string{"/auth", "/system/first-run", "/recoveries", "/agent/tokens", "/agent/confirmations"}
 
 type principalContextKey struct{}
 
