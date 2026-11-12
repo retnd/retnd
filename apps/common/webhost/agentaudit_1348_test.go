@@ -141,7 +141,7 @@ func TestARefusedAndAMutatingCallAreMarkedAsSuch(t *testing.T) {
 	}
 }
 
-// Falsify: take /agent/audit off agentDeniedPrefixes. A token never reads the
+// Falsify: take /agent/audit off core/agenttools' deny list. A token never reads the
 // record of what tokens did.
 func TestATokenCannotReadTheAuditTrail(t *testing.T) {
 	router, spy := auditRouter()
@@ -234,5 +234,28 @@ func TestTheRowNamesTheToolAndTransportTheCallSaysAndNothingElse(t *testing.T) {
 		if len(spy.calls) != 1 || spy.calls[0].Tool != tc.wantTool || spy.calls[0].Transport != tc.wantTransport {
 			t.Errorf("tool %q transport %q: recorded %+v, want tool %q transport %q", tc.tool, tc.transport, spy.calls, tc.wantTool, tc.wantTransport)
 		}
+	}
+}
+
+// Falsify: check the deny list before the token. A valid token's probe of a
+// route it may never reach is a row with its id; an invalid one is refused as
+// an invalid token, which tells it nothing about the route.
+func TestADeniedRouteProbeNamesTheToken(t *testing.T) {
+	router, access := agentRouter()
+	rec := serve(router, bearer(http.MethodGet, "/api/v1/agent/tokens", "", readToken))
+	if rec.Code != http.StatusForbidden || !bodyHasCode(rec, "AGENT_ROUTE_DENIED") {
+		t.Fatalf("= %d %s, want 403 AGENT_ROUTE_DENIED", rec.Code, rec.Body.String())
+	}
+	if len(access.refusals) != 1 || access.refusals[0].TokenID != "agt_read" || access.refusals[0].TokenName != "triage" {
+		t.Fatalf("the probe was audited as %+v, want a refusal that names agt_read", access.refusals)
+	}
+
+	router, access = agentRouter()
+	rec = serve(router, bearer(http.MethodGet, "/api/v1/agent/tokens", "", "rat_not_a_token_000000000000000000000000000"))
+	if rec.Code != http.StatusUnauthorized || !bodyHasCode(rec, "AGENT_TOKEN_INVALID") {
+		t.Fatalf("an invalid token on a denied route = %d %s, want 401 AGENT_TOKEN_INVALID", rec.Code, rec.Body.String())
+	}
+	if len(access.refusals) != 1 || access.refusals[0].TokenID != "" {
+		t.Errorf("audited refusals = %+v, want one with no token", access.refusals)
 	}
 }

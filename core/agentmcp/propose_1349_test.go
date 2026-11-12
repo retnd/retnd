@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/retnd/retnd/core/agenttools"
 )
 
 // U2.1 (#1349): the tools that propose a change. Each test names the mutation
@@ -21,14 +23,14 @@ func (c *recordingCaller) Call(_ context.Context, call Call) (Response, error) {
 	return c.resp, c.err
 }
 
-var runCycle = Tool{Name: "run_cycle", Method: "POST", Route: "/operations", Scope: "operate", Action: "run_cycle", Description: "Propose running one backup cycle."}
+var runCycle = agenttools.Row{Tool: "run_cycle", Method: "POST", Route: "/operations", Scope: agenttools.ScopeOperate, Action: "run_cycle", Description: "Propose running one backup cycle."}
 
-var setEnabled = Tool{Name: "backup_set_enabled", Method: "POST", Route: "/backup-sets/{source}/{set}/enabled", Scope: "configure", Description: "Propose enabling or disabling a set."}
+var setEnabled = agenttools.Row{Tool: "backup_set_enabled", Method: "POST", Route: "/backup-sets/{source}/{set}/enabled", Scope: agenttools.ScopeConfigure, Description: "Propose enabling or disabling a set."}
 
-func proposalServer(c Caller, tools ...Tool) *server {
-	s := &server{cfg: Config{Caller: c, Tools: tools}, tools: map[string]Tool{}}
+func proposalServer(c Caller, tools ...agenttools.Row) *server {
+	s := &server{cfg: Config{Caller: c, Tools: tools}, tools: map[string]agenttools.Row{}}
 	for _, t := range tools {
-		s.tools[t.Name] = t
+		s.tools[t.Tool] = t
 	}
 	return s
 }
@@ -104,12 +106,12 @@ func TestAnEngineThatRanAProposalIsReportedAsNotConfirmed(t *testing.T) {
 }
 
 func TestAProposingToolIsNotMarkedReadOnlyAndAReadToolIs(t *testing.T) {
-	if !runCycle.proposes() || !setEnabled.proposes() {
+	if !proposes(runCycle) || !proposes(setEnabled) {
 		t.Error("an operate or configure tool does not propose")
 	}
-	read := Tool{Name: "status", Method: "GET", Route: "/system/health", Scope: "read"}
-	none := Tool{Name: "status", Method: "GET", Route: "/system/health"}
-	if read.proposes() || none.proposes() {
+	read := agenttools.Row{Tool: "status", Method: "GET", Route: "/system/health", Scope: agenttools.ScopeRead}
+	none := agenttools.Row{Tool: "status", Method: "GET", Route: "/system/health"}
+	if proposes(read) || proposes(none) {
 		t.Error("a read tool proposes")
 	}
 	if _, ok := inputSchema(runCycle)["properties"].(map[string]any)["body"]; !ok {

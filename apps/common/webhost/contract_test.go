@@ -277,8 +277,15 @@ var contractBindings = map[string]contractBinding{
 	// own types so the declared shape and the served shape cannot part.
 	"listAgentTokens":  {nil, apicontract.ListAgentTokensResponse{}, "/api/v1/agent/tokens"},
 	"mintAgentToken":   {apicontract.MintAgentTokenRequest{}, apicontract.MintedAgentToken{}, "/api/v1/agent/tokens"},
-	"listAgentAudit":   {nil, apicontract.ListAgentAuditResponse{}, "/api/v1/agent/audit"},
 	"revokeAgentToken": {nil, apicontract.AgentToken{}, "/api/v1/agent/tokens/agt_1/revoke"},
+	// EPIC U (#1348): the audit trail.
+	"listAgentAudit": {nil, apicontract.ListAgentAuditResponse{}, "/api/v1/agent/audit"},
+	"listAgentTools": {nil, apicontract.AgentToolsResponse{}, "/api/v1/agent/tools"},
+	// EPIC U (#1347): the MCP transport. A frame is free-form JSON-RPC, so
+	// there is no Go type to bind beyond the contract's own.
+	"postAgentMcp":   {apicontract.AgentMcpFrame{}, apicontract.AgentMcpFrame{}, "/api/v1/agent/mcp"},
+	"getAgentMcp":    {nil, nil, "/api/v1/agent/mcp"},
+	"deleteAgentMcp": {nil, nil, "/api/v1/agent/mcp"},
 	// EPIC U (#1349): the three confirmation routes.
 	"listAgentConfirmations":   {nil, apicontract.ListAgentConfirmationsResponse{}, "/api/v1/agent/confirmations"},
 	"getAgentConfirmation":     {nil, apicontract.AgentConfirmation{}, "/api/v1/agent/confirmations/cnf_1"},

@@ -60,22 +60,25 @@ func (j *Journal) AgentAuditPage(ctx context.Context, f AgentAuditFilter) ([]Age
 		args  []any
 	)
 	if f.TokenID != "" {
-		where = append(where, "token_id = ?")
+		where = append(where, "a.token_id = ?")
 		args = append(args, f.TokenID)
 	}
 	if !f.Since.IsZero() {
-		where = append(where, "at >= ?")
+		where = append(where, "a.at >= ?")
 		args = append(args, formatTime(f.Since))
 	}
 	if f.Before > 0 {
-		where = append(where, "seq < ?")
+		where = append(where, "a.seq < ?")
 		args = append(args, f.Before)
 	}
-	q := `SELECT seq, at, token_id, tool, transport, arguments, status, code, correlation_id, confirmation_id FROM agent_audit`
+	// The name is a read-time join (tokens are never deleted, so it is stable),
+	// NULL when the row's token matched nothing.
+	q := `SELECT a.seq, a.at, a.token_id, COALESCE(t.name, ''), a.tool, a.transport, a.arguments, a.status, a.code, a.correlation_id, a.confirmation_id
+		FROM agent_audit a LEFT JOIN agent_tokens t ON t.id = a.token_id`
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
-	q += " ORDER BY seq DESC LIMIT ?"
+	q += " ORDER BY a.seq DESC LIMIT ?"
 	args = append(args, f.Limit)
 	rows, err := j.db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -88,7 +91,7 @@ func (j *Journal) AgentAuditPage(ctx context.Context, f AgentAuditFilter) ([]Age
 			a  AgentAudit
 			at string
 		)
-		if err := rows.Scan(&a.Seq, &at, &a.TokenID, &a.Tool, &a.Transport, &a.Arguments, &a.Status, &a.Code, &a.CorrelationID, &a.ConfirmationID); err != nil {
+		if err := rows.Scan(&a.Seq, &at, &a.TokenID, &a.TokenName, &a.Tool, &a.Transport, &a.Arguments, &a.Status, &a.Code, &a.CorrelationID, &a.ConfirmationID); err != nil {
 			return nil, fmt.Errorf("state: read agent audit: %w", err)
 		}
 		if a.At, err = parseTime(at); err != nil {

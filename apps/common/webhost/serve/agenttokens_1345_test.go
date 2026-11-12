@@ -69,7 +69,7 @@ func TestASessionMintsATokenThatThenAuthenticatesAloneUntilItIsRevoked(t *testin
 	// The bearer alone, with no cookie jar: a fresh client.
 	bearer := map[string]string{"Authorization": "Bearer " + minted.Token}
 	bare := &http.Client{}
-	if status, body := agentCall(t, bare, http.MethodGet, base+"/api/v1/system/version", "", bearer); status != http.StatusOK {
+	if status, body := agentCall(t, bare, http.MethodGet, base+"/api/v1/system/health", "", bearer); status != http.StatusOK {
 		t.Fatalf("a valid token = %d %s, want 200", status, body)
 	}
 
@@ -95,7 +95,7 @@ func TestASessionMintsATokenThatThenAuthenticatesAloneUntilItIsRevoked(t *testin
 	if status, body := agentCall(t, session, http.MethodPost, base+"/api/v1/agent/tokens/"+minted.AgentToken.ID+"/revoke", "", pair); status != http.StatusOK {
 		t.Fatalf("revoke = %d %s", status, body)
 	}
-	if status, body := agentCall(t, bare, http.MethodGet, base+"/api/v1/system/version", "", bearer); status != http.StatusUnauthorized || !strings.Contains(body, "AGENT_TOKEN_INVALID") {
+	if status, body := agentCall(t, bare, http.MethodGet, base+"/api/v1/system/health", "", bearer); status != http.StatusUnauthorized || !strings.Contains(body, "AGENT_TOKEN_INVALID") {
 		t.Errorf("a revoked token = %d %s, want 401 AGENT_TOKEN_INVALID", status, body)
 	}
 }
@@ -118,7 +118,7 @@ func TestAnUnknownBearerIsRefusedAndACookieSessionBesideItIsNotConsulted(t *test
 	enrollAndLogIn(t, h, h.client, h.server.URL)
 	// h.client carries a valid session cookie, and the bearer is garbage:
 	// the request is the agent's, and it is refused.
-	status, body := agentCall(t, h.client, http.MethodGet, h.server.URL+"/api/v1/system/version", "", map[string]string{"Authorization": "Bearer rat_unknown_00000000000000000000000000000"})
+	status, body := agentCall(t, h.client, http.MethodGet, h.server.URL+"/api/v1/system/health", "", map[string]string{"Authorization": "Bearer rat_unknown_00000000000000000000000000000"})
 	if status != http.StatusUnauthorized || !strings.Contains(body, "AGENT_TOKEN_INVALID") {
 		t.Errorf("= %d %s, want 401 AGENT_TOKEN_INVALID", status, body)
 	}

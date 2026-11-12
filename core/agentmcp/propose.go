@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/retnd/retnd/core/agenttools"
 	"github.com/retnd/retnd/core/cliecho"
 )
 
@@ -26,7 +27,7 @@ import (
 // parseProposal reads a proposing tool's arguments: the route's placeholders
 // as strings, and an optional body object. A tool that names an action sends
 // it in the body, and a body that names a different one is refused.
-func parseProposal(t Tool, raw json.RawMessage) ([]string, json.RawMessage, error) {
+func parseProposal(t agenttools.Row, raw json.RawMessage) ([]string, json.RawMessage, error) {
 	args := map[string]any{}
 	if len(bytes.TrimSpace(raw)) > 0 {
 		dec := json.NewDecoder(bytes.NewReader(raw))
@@ -81,7 +82,7 @@ func parseProposal(t Tool, raw json.RawMessage) ([]string, json.RawMessage, erro
 // propose makes the call and reads its answer. The engine's refusal is the
 // expected one; an answer that says the change ran, which it never should, is
 // reported as what it is rather than as a success.
-func (s *server) propose(ctx context.Context, t Tool, raw json.RawMessage) Result {
+func (s *server) propose(ctx context.Context, t agenttools.Row, raw json.RawMessage) Result {
 	pathArgs, body, err := parseProposal(t, raw)
 	if err != nil {
 		return invalidArguments(err.Error())
@@ -92,7 +93,7 @@ func (s *server) propose(ctx context.Context, t Tool, raw json.RawMessage) Resul
 	}
 	command := cliecho.Echo(cliecho.Action{Method: t.Method, Route: t.Route, Params: named, Query: url.Values{}, Body: body}).Shell()
 
-	resp, err := s.cfg.Caller.Call(ctx, Call{Tool: t.Name, Method: t.Method, Route: t.Route, PathArgs: pathArgs, Body: body})
+	resp, err := s.cfg.Caller.Call(ctx, Call{Tool: t.Tool, Method: t.Method, Route: t.Route, PathArgs: pathArgs, Body: body})
 	if err != nil {
 		return refusalResult(err, command)
 	}

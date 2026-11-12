@@ -211,12 +211,15 @@ func TestATokenCannotApproveItsOwnAsk(t *testing.T) {
 	}
 }
 
-func TestTheConfirmationRoutesAreOnTheDeniedPrefixList(t *testing.T) {
-	for _, path := range []string{
-		"/api/v1/agent/confirmations", "/api/v1/agent/confirmations/x/approve", "/api/v1/agent/confirmations/x/deny",
-		"/api/v1/agent/confirmations/../confirmations/x/approve", "/api/v1/agent/%63onfirmations/x/approve",
+// Falsify: take the confirmation routes off core/agenttools' deny list.
+func TestTheConfirmationRoutesAreOnTheDenyList(t *testing.T) {
+	for _, c := range []struct{ method, path string }{
+		{http.MethodGet, "/api/v1/agent/confirmations"},
+		{http.MethodPost, "/api/v1/agent/confirmations"}, {http.MethodPost, "/api/v1/agent/confirmations/x/approve"}, {http.MethodPost, "/api/v1/agent/confirmations/x/deny"},
+		{http.MethodPost, "/api/v1/agent/confirmations/../confirmations/x/approve"}, {http.MethodPost, "/api/v1/agent/%63onfirmations/x/approve"},
 	} {
-		req := httptest.NewRequest(http.MethodPost, path, nil)
+		method, path := c.method, c.path
+		req := httptest.NewRequest(method, path, nil)
 		req.Header.Set("Authorization", "Bearer rat_whatever_0000000000000000000000000000")
 		if !agentRouteDenied(req) {
 			t.Errorf("%s is not refused to a bearer", path)

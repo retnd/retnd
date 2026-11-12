@@ -138,7 +138,13 @@ var destructiveGateExemptRoutes = map[string]bool{
 	// AsAPersonWould). Session only, behind a step-up for approve.
 	"POST /api/v1/agent/confirmations/{id}/approve": true,
 	"POST /api/v1/agent/confirmations/{id}/deny":    true,
-	"POST /api/v1/ssh/host-key-probe":               true,
+	// EPIC U (#1347): the MCP transport's own frames. The endpoint changes
+	// nothing itself and is bearer only; every call inside it is an /api/v1
+	// request that meets this router's checks, the gate included, as the
+	// request it becomes.
+	"POST /api/v1/agent/mcp":          true,
+	"DELETE /api/v1/agent/mcp":        true,
+	"POST /api/v1/ssh/host-key-probe": true,
 
 	// Issue #1203. Removing a custom validator stops a script from running
 	// and deletes no backup datum: the class of clearing a stage directory

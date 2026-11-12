@@ -38,7 +38,11 @@ import (
 // happened anyway. An audit row is the record that it happened, so a full
 // queue makes the caller wait instead. The limiter is upstream of the writer,
 // which keeps that wait short; a writer that is behind slows the agent and
-// loses nothing.
+// loses nothing. That holds for a call that names a token, which waits up to
+// agentAuditEnqueueWait and is then reported lost (ErrAgentAuditStalled and an
+// agent_audit_lost log line). A refusal that names no token is anyone's to
+// cause, so it never waits: a full queue drops it and the feed's summary line
+// counts it.
 //
 // # The bound
 //
@@ -61,13 +65,22 @@ const (
 	agentAuditQueueSize  = 1024
 	agentAuditBatchMax   = 128
 	agentAuditFlushEvery = 500 * time.Millisecond
-	agentAuditPruneEvery = time.Hour
+	// agentAuditPruneEvery is short on purpose: three tokens at the default 60
+	// calls a minute write 10,800 rows an hour, and a prune that comes round
+	// hourly cannot hold a cap that insertion outruns.
+	agentAuditPruneEvery = 5 * time.Minute
 	agentAuditPruneBatch = 500
-	// agentAuditPruneBatches bounds one pass, so a backlog is worked off over
-	// several passes rather than in one long hold of the journal.
+	// agentAuditPruneBatches bounds the age step of one pass, so a backlog of
+	// old rows is worked off over several passes rather than in one long hold
+	// of the journal. The over-count step has no ceiling: it loops until the
+	// table is at its cap, yielding between batches.
 	agentAuditPruneBatches = 20
-	agentAuditMaxRows      = 1_000_000
-	agentAuditStatement    = 5 * time.Second
+	agentAuditPruneYield   = 10 * time.Millisecond
+	// agentAuditEnqueueWait is how long a call that names a token waits for
+	// room in the queue before the row is reported lost.
+	agentAuditEnqueueWait = 5 * time.Second
+	agentAuditMaxRows     = 1_000_000
+	agentAuditStatement   = 5 * time.Second
 	// agentAuditRetainFailed is how many rows a writer whose journal is failing
 	// holds for the retry before it reports the rest lost.
 	agentAuditRetainFailed = 10_000
@@ -81,15 +94,16 @@ const (
 	// reach the feed. Those are written for a caller with no credential, so
 	// the feed gets one line that says how many there were, and the table
 	// keeps every one.
-	agentRefusalFeedEvery = 10 * time.Second
+	agentRefusalFeedEvery = time.Minute
 )
 
 // The headers a transport puts on the /api/v1 request it makes for a tool
 // call, so the audit row for that request can name the tool and the transport.
 // They are the transport's own statement and are checked on the way in
 // (AgentCallHeaders): a tool name that is not a plain identifier is dropped,
-// and a transport is stdio or http and otherwise api. Neither changes what the
-// request may do, which is decided by the token alone.
+// and a transport is stdio or http and otherwise api. The headers name the
+// audit row and, on a mutating route, select the tool to propose; they never
+// widen scope.
 const (
 	AgentToolHeader      = "X-Retnd-Agent-Tool"
 	AgentTransportHeader = "X-Retnd-Agent-Transport"
@@ -113,6 +127,10 @@ func AgentCallHeaders(h http.Header) (tool, transport string) {
 // ErrAgentAuditClosed is returned when a call is recorded after the service
 // has shut down its writer.
 var ErrAgentAuditClosed = errors.New("service: the agent audit writer has stopped")
+
+// ErrAgentAuditStalled is returned when the writer stayed full for
+// agentAuditEnqueueWait, so the row was not stored.
+var ErrAgentAuditStalled = errors.New("service: the audit could not be written")
 
 // AgentCall is one tool call, or one refusal of a call, for the audit trail.
 type AgentCall struct {
@@ -198,6 +216,35 @@ func (w *agentAuditWriter) enqueue(ctx context.Context, it agentAuditItem) error
 	}
 }
 
+// enqueueNamed is enqueue for a row that names a token: it waits for room, but
+// only agentAuditEnqueueWait, and a row that did not fit is logged as lost.
+func (w *agentAuditWriter) enqueueNamed(ctx context.Context, it agentAuditItem) error {
+	wctx, cancel := context.WithTimeout(ctx, agentAuditEnqueueWait)
+	defer cancel()
+	err := w.enqueue(wctx, it)
+	if err != nil && ctx.Err() == nil && wctx.Err() != nil {
+		err = fmt.Errorf("%w: the writer stayed full for %s", ErrAgentAuditStalled, agentAuditEnqueueWait)
+		w.logger.Error(ctx, "agent_audit_lost", err)
+	}
+	return err
+}
+
+// enqueueOrDrop is enqueue for a row no credential stands behind. It never
+// waits, and reports false when the queue had no room.
+func (w *agentAuditWriter) enqueueOrDrop(it agentAuditItem) (stored bool, err error) {
+	select {
+	case <-w.stopped:
+		return false, ErrAgentAuditClosed
+	default:
+	}
+	select {
+	case w.queue <- it:
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
 func (w *agentAuditWriter) run(ctx context.Context) {
 	defer close(w.stopped)
 	tick := time.NewTicker(agentAuditFlushEvery)
@@ -272,23 +319,27 @@ func (w *agentAuditWriter) pruneIfDue(ctx context.Context) {
 }
 
 // prune removes what is past the retention and what is over the row cap, in
-// batches, a bounded number per pass. It reports how many rows went.
+// batches. The age step is bounded per pass; the over-count step runs until
+// the table is at its cap. It reports how many rows went.
 func (w *agentAuditWriter) prune(ctx context.Context) (int64, error) {
 	w.mu.Lock()
 	cutoff, keep := w.now().Add(-w.retention), w.maxRows
 	w.mu.Unlock()
 	var total int64
-	for _, step := range []func(context.Context) (int64, error){
-		func(c context.Context) (int64, error) {
+	for _, step := range []struct {
+		run     func(context.Context) (int64, error)
+		ceiling int
+	}{
+		{func(c context.Context) (int64, error) {
 			return w.journal.PruneAgentAuditByAge(c, cutoff, agentAuditPruneBatch)
-		},
-		func(c context.Context) (int64, error) {
+		}, agentAuditPruneBatches},
+		{func(c context.Context) (int64, error) {
 			return w.journal.PruneAgentAuditOverCount(c, keep, agentAuditPruneBatch)
-		},
+		}, 0},
 	} {
-		for i := 0; i < agentAuditPruneBatches; i++ {
+		for i := 0; step.ceiling == 0 || i < step.ceiling; i++ {
 			sctx, cancel := context.WithTimeout(ctx, agentAuditStatement)
-			n, err := step(sctx)
+			n, err := step.run(sctx)
 			cancel()
 			total += n
 			if err != nil {
@@ -296,6 +347,12 @@ func (w *agentAuditWriter) prune(ctx context.Context) (int64, error) {
 			}
 			if n < agentAuditPruneBatch {
 				break
+			}
+			// Yield, so the journal is free for the writer between batches.
+			select {
+			case <-time.After(agentAuditPruneYield):
+			case <-ctx.Done():
+				return total, fmt.Errorf("service: prune agent audit: %w", ctx.Err())
 			}
 		}
 	}
@@ -342,7 +399,7 @@ func (b *BackupService) RecordAgentCall(ctx context.Context, c AgentCall) error 
 	if c.Mutating || c.Refused || c.ConfirmationState != "" {
 		b.emitAgentAction(ctx, c)
 	}
-	return b.audit.enqueue(ctx, agentAuditItem{row: state.AgentAudit{
+	return b.audit.enqueueNamed(ctx, agentAuditItem{row: state.AgentAudit{
 		At: now(), TokenID: c.TokenID, Tool: c.Tool, Transport: c.Transport,
 		Arguments: agentAuditArguments(c.Arguments), Status: c.Status, Code: c.Code,
 		CorrelationID: c.CorrelationID, ConfirmationID: c.ConfirmationID,
@@ -467,6 +524,14 @@ type refusalFeed struct {
 	suppressed int
 }
 
+// hold counts a refusal whose audit row was dropped, so the next line that
+// reaches the feed says so with the others.
+func (f *refusalFeed) hold() {
+	f.mu.Lock()
+	f.suppressed++
+	f.mu.Unlock()
+}
+
 // allow reports whether a line may be emitted at t and how many were held
 // back since the last one.
 func (f *refusalFeed) allow(t time.Time) (bool, int) {
@@ -483,9 +548,12 @@ func (f *refusalFeed) allow(t time.Time) (bool, int) {
 
 // AgentAuditEntry is one row of the trail.
 type AgentAuditEntry struct {
-	Seq            int64
-	At             time.Time
-	TokenID        string
+	Seq     int64
+	At      time.Time
+	TokenID string
+	// TokenName is the token's name, joined when the page is read. Empty for a
+	// row whose token matched nothing.
+	TokenName      string
 	Tool           string
 	Transport      string
 	Arguments      string
@@ -498,9 +566,13 @@ type AgentAuditEntry struct {
 // Contract is the entry as /api/v1 shows it, for the web host and the
 // terminal's direct door alike, so the two cannot format a time differently.
 func (e AgentAuditEntry) Contract() apicontract.AgentAuditEntry {
+	var name *string
+	if e.TokenName != "" {
+		name = &e.TokenName
+	}
 	return apicontract.AgentAuditEntry{
 		Seq: e.Seq, At: e.At.UTC().Format(time.RFC3339),
-		TokenID: e.TokenID, Tool: e.Tool, Transport: e.Transport, Arguments: e.Arguments,
+		TokenID: e.TokenID, TokenName: name, Tool: e.Tool, Transport: e.Transport, Arguments: e.Arguments,
 		Status: e.Status, Code: e.Code, CorrelationID: e.CorrelationID, ConfirmationID: e.ConfirmationID,
 	}
 }
@@ -543,7 +615,7 @@ func (b *BackupService) ListAgentAudit(ctx context.Context, q AgentAuditQuery) (
 	out := make([]AgentAuditEntry, 0, len(rows))
 	for _, a := range rows {
 		out = append(out, AgentAuditEntry{
-			Seq: a.Seq, At: a.At, TokenID: a.TokenID, Tool: a.Tool, Transport: a.Transport,
+			Seq: a.Seq, At: a.At, TokenID: a.TokenID, TokenName: a.TokenName, Tool: a.Tool, Transport: a.Transport,
 			Arguments: a.Arguments, Status: a.Status, Code: a.Code,
 			CorrelationID: a.CorrelationID, ConfirmationID: a.ConfirmationID,
 		})

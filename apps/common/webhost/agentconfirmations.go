@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/retnd/retnd/core/agenttools"
 	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/service"
@@ -25,16 +26,18 @@ import (
 //
 // A tool call under operate or configure becomes a pending confirmation, and
 // these three routes are how a person lists, approves and denies them. They
-// are session-only: the whole /agent/confirmations prefix is in
-// agentDeniedPrefixes, so a bearer is AGENT_ROUTE_DENIED before its scope is
-// looked at, and an agent can never approve its own ask.
+// are session-only: core/agenttools' deny list holds them, so a bearer is
+// AGENT_ROUTE_DENIED before its scope is looked at, and an agent can never
+// approve its own ask. The one route under the prefix a token reads is GET
+// /agent/confirmations/{id}, the confirmation_status tool, which answers a
+// token only for its own.
 //
 // # Approval replays the record
 //
 // Approve asks for the administrator's password (the step-up, #1163), claims
 // the confirmation, and then runs the recorded request through the same
 // router the browser would have hit, as the token that asked. So the shut
-// operation gate, the denied prefixes, CSRF for a bearer, validation and
+// operation gate, the deny list, CSRF for a bearer, validation and
 // every other refusal apply to it exactly as they would to the original, and
 // the action log gets an api_action from agent:<name> beside the approval's
 // own from the person. Nothing the approve request carries is replayed: a body
@@ -54,14 +57,21 @@ type AgentConfirmations interface {
 
 // AgentToolResolver is how the router learns what an agent's tool call stands
 // for. The catalogue (core/agenttools) is the table that answers it; the
-// router takes it as an interface so this package does not own a second copy
-// of that table, and so a router built without one (a test, a deployment whose
-// catalogue is not wired) simply never proposes a change.
+// router takes it as an interface so a test can name a table of its own.
 type AgentToolResolver interface {
 	// ResolveAgentTool reports the scope a tool needs, when the request it
 	// would make (method, the path below /api/v1, and the body's action word
 	// for the route several acts share) is the one that tool is a name for.
 	ResolveAgentTool(tool, method, path, action string) (scope string, ok bool)
+}
+
+// catalogueTools answers ResolveAgentTool from core/agenttools' own table, the
+// one the wire's deny list and the MCP server read too.
+type catalogueTools struct{}
+
+func (catalogueTools) ResolveAgentTool(tool, method, path, action string) (string, bool) {
+	scope, ok := agenttools.Proposes(tool, method, path, action)
+	return string(scope), ok
 }
 
 // Headers a refused-pending answer carries, so a tool result can name the

@@ -59,6 +59,16 @@ and a revocation checked on every request. The principal is `agent:<name>` where
 today, so a feed can tell two operators and three agents apart. The owner of a token
 minted at the terminal with no session is recorded as `cli`.
 
+The token comes back in the mint response, so over plain HTTP from another machine it is
+exposed the way an exported key is. The engine therefore refuses `POST /agent/tokens` there
+with `403 INSECURE_TRANSPORT_ACK_REQUIRED` unless the request carries the insecure-transport
+acknowledgement, the one key export already asks. It reads the connection and not the
+destructive gate, so it holds on a gateway profile too. The mint dialog asks the person first
+and the engine asks the request, so the browser and a remote `retnd agent token create`
+behave the same: the latter exits 52 until `RETND_API_INSECURE_TRANSPORT=acknowledged` is
+set. Loopback and HTTPS need nothing. The owner chose enforcement over browser-only consent,
+knowing it changes 0.8.0 behaviour for a remote mint.
+
 The store is not in `apps/common/auth/local`: that package is a pattern I copied, not a home.
 The table accessors live in `core/internal/state` and the mint, check and revoke in
 `core/service`, which keeps `core` free of `apps` and lets the CLI and the HTTP routes share
@@ -69,7 +79,8 @@ A bearer is an agent token only if it carries the `rat_` prefix (owner decision 
 untouched, a login behind it works as before, and a deployment with no tokens stays
 byte-identical.
 
-Scope is a closed vocabulary: `read`, `operate`, `configure`. `read` is the default and the
+Scope is a closed vocabulary: `read`, `operate`, `configure`, and the scopes nest: `operate`
+includes `read`, and `configure` includes `operate`. `read` is the default and the
 only scope anything suggests. A `read` token can start nothing and change nothing. No scope
 reaches authentication, first-run, key export, import, decrypt, bundle confirmation, recovery
 grants, SSH keys, storage credentials, workflow secrets, catalog rebuild, quarantine
