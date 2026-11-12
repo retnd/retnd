@@ -1306,8 +1306,8 @@
       "versionInfo": "v1.20.3",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
-      "licenseConcluded": "Apache-2.0",
-      "licenseDeclared": "Apache-2.0",
+      "licenseConcluded": "Apache-2.0 AND MIT",
+      "licenseDeclared": "Apache-2.0 AND MIT",
       "supplier": "NOASSERTION",
       "externalRefs": [
         {
@@ -1697,8 +1697,8 @@
       "versionInfo": "v1.8.0",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
-      "licenseConcluded": "Apache-2.0",
-      "licenseDeclared": "Apache-2.0",
+      "licenseConcluded": "Apache-2.0 AND MIT",
+      "licenseDeclared": "Apache-2.0 AND MIT",
       "supplier": "NOASSERTION",
       "externalRefs": [
         {
@@ -2548,8 +2548,8 @@
       "versionInfo": "v3.0.5",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
-      "licenseConcluded": "Apache-2.0",
-      "licenseDeclared": "Apache-2.0",
+      "licenseConcluded": "Apache-2.0 AND MIT",
+      "licenseDeclared": "Apache-2.0 AND MIT",
       "supplier": "NOASSERTION",
       "externalRefs": [
         {
@@ -2870,8 +2870,8 @@
       "versionInfo": "v3.0.1",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
-      "licenseConcluded": "Apache-2.0",
-      "licenseDeclared": "Apache-2.0",
+      "licenseConcluded": "Apache-2.0 AND MIT",
+      "licenseDeclared": "Apache-2.0 AND MIT",
       "supplier": "NOASSERTION",
       "externalRefs": [
         {
@@ -3031,8 +3031,8 @@
       "versionInfo": "v1.6.0",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
-      "licenseConcluded": "Apache-2.0",
-      "licenseDeclared": "Apache-2.0",
+      "licenseConcluded": "Apache-2.0 AND MIT",
+      "licenseDeclared": "Apache-2.0 AND MIT",
       "supplier": "NOASSERTION",
       "externalRefs": [
         {
