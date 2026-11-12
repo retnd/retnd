@@ -512,7 +512,7 @@ func TestAnOperateToolCallCreatesAConfirmationRecordingTheRequestAndRunsNothing(
 
 func TestAConfigureToolCallRecordsTheSetItConcerns(t *testing.T) {
 	rig := newConfirmationsRig(t, nil)
-	rig.backend.fakeAgentAccess.known[operateToken] = service.AgentPrincipal{TokenID: "agt_op", Name: "runner", Scope: "configure"}
+	rig.backend.known[operateToken] = service.AgentPrincipal{TokenID: "agt_op", Name: "runner", Scope: "configure"}
 	rec := serve(rig.router, toolCall(http.MethodPost, "/api/v1/backup-sets/production/postgres/enabled", `{"enabled":false}`, operateToken, "backup_set_enabled"))
 	if rec.Code != http.StatusConflict || len(rig.backend.created) != 1 {
 		t.Fatalf("tool call = %d %s, created %d", rec.Code, rec.Body.String(), len(rig.backend.created))
