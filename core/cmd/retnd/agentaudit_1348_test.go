@@ -154,3 +154,48 @@ func TestAuditRefusesASinceThatIsNoTime(t *testing.T) {
 		}
 	})
 }
+
+// Falsify: print the id alone. FR-91: the principal is agent:<name> wherever an
+// actor is named, so the trail prints the name the engine joined.
+func TestAuditPrintsTheTokenAsAgentColonName(t *testing.T) {
+	bothDoorsWithNamedToken := func(t *testing.T, body func(t *testing.T, configPath string)) {
+		seed := func(svc *service.BackupService) {
+			minted, err := svc.MintAgentToken(context.Background(), service.MintAgentTokenRequest{Name: "triage", Owner: "alice"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := svc.RecordAgentCall(context.Background(), service.AgentCall{TokenID: minted.AgentToken.ID, Tool: "status", Transport: "stdio", Status: 200}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		t.Run("direct", func(t *testing.T) {
+			configPath := writeTestConfig(t)
+			svc, closeFn, err := service.Open(t.Context(), configPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			seed(svc)
+			if err := closeFn(); err != nil {
+				t.Fatal(err)
+			}
+			body(t, configPath)
+		})
+		t.Run("through the engine", func(t *testing.T) {
+			configPath := writeTestConfig(t)
+			e := startFakeEngineFor(t, configPath)
+			seed(e.svc)
+			e.attach(t)
+			body(t, configPath)
+		})
+	}
+	bothDoorsWithNamedToken(t, func(t *testing.T, configPath string) {
+		code, text, stderr := runCLI(t, "agent", "audit", "--config", configPath)
+		if code != exitOK || !strings.Contains(text, "agent:triage") {
+			t.Fatalf("exit %d, output %q (%s), want the token printed as agent:triage", code, text, stderr)
+		}
+		got := auditJSON(t, "--config", configPath)
+		if len(got.Entries) != 1 || got.Entries[0].TokenName == nil || *got.Entries[0].TokenName != "triage" {
+			t.Errorf("--json entries = %+v, want token_name triage", got.Entries)
+		}
+	})
+}
