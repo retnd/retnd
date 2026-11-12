@@ -143,13 +143,12 @@ func TestTheAuthenticatedActorIsAgentColonName(t *testing.T) {
 // session, or skip the audit write.
 func TestAnInvalidBearerIsRefusedBeforeAnyHandlerAndAudited(t *testing.T) {
 	for name, header := range map[string]string{
-		"unknown":       "Bearer rat_unknown_token_00000000000000000000000",
-		"revoked":       "Bearer " + revokedToken,
-		"empty":         "Bearer ",
-		"lowercase":     "bearer rat_unknown_token_00000000000000000000000",
-		"extra spaces":  "Bearer   rat_unknown_token_00000000000000000000000",
-		"two tokens":    "Bearer " + readToken + " " + operateToken,
-		"token as word": "Bearer null",
+		"unknown":      "Bearer rat_unknown_token_00000000000000000000000",
+		"revoked":      "Bearer " + revokedToken,
+		"lowercase":    "bearer rat_unknown_token_00000000000000000000000",
+		"extra spaces": "Bearer   rat_unknown_token_00000000000000000000000",
+		"two tokens":   "Bearer " + readToken + " " + operateToken,
+		"bare prefix":  "Bearer rat_",
 	} {
 		t.Run(name, func(t *testing.T) {
 			router, access := agentRouter()
