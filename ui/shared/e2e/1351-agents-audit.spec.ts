@@ -14,7 +14,7 @@ const rows = (page: Parameters<typeof region>[0]) => region(page, "audit").locat
 test.describe("#1351 the audit table", () => {
   test("#1351 has the six columns the design names, newest first, reads included", async ({ page }) => {
     await openAgents(page);
-    const heads = (await region(page, "audit").locator("thead th").allInnerTexts()).map((h) => h.trim());
+    const heads = (await region(page, "audit").locator("thead th").allTextContents()).map((h) => h.trim());
     expect(heads.slice(0, 6)).toEqual(["Time", "Token", "Tool", "Needs", "Outcome", "Correlation id"]);
     await expect(rows(page)).toHaveCount(8);
     await expect(rows(page).first()).toContainText("status");

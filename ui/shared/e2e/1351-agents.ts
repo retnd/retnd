@@ -15,6 +15,11 @@ export const pending = (page: Page, id: string) => card(page).locator('[data-con
 export async function openAgents(page: Page, scenario = "agents-tokens") {
   await open(page, "/settings", scenario);
   await card(page).waitFor();
+  // Every region reads on its own; a spec that counts rows or reads headers
+  // has to start after the reads have answered, or it counts nothing.
+  for (const reading of ["Reading tokens...", "Reading the audit...", "Reading what is waiting..."]) {
+    await card(page).getByText(reading, { exact: true }).waitFor({ state: "detached" });
+  }
 }
 
 /** Opens the Create token dialog and returns it. */
