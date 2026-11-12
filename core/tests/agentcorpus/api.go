@@ -142,15 +142,24 @@ func (a *API) payload(path string) any {
 	case strings.HasSuffix(path, "/steps"):
 		return map[string]any{"steps": []any{map[string]any{"id": "step-1", "name": "dump", "state": "SUCCEEDED", "detail": a.plant("steplog", "step finished")}}}
 	case strings.HasPrefix(path, "/workflow-runs/"):
-		return withCanaries(map[string]any{"id": "run-1", "state": "SUCCEEDED", "started_at": at,
-			"steps": []any{map[string]any{"id": "step-1", "name": "dump", "state": "SUCCEEDED", "output": a.plant("steplog", "step finished")}}}, a)
+		// WorkflowRun carries no log: a step's output is behind the denied
+		// logs route, so the steplog plant above is never reached by a tool.
+		return withCanaries(map[string]any{"run_id": "run-1", "backup_set_id": "production/postgres-primary", "state": "SUCCEEDED", "started_at": at,
+			"failed_step": "", "failed_script": "",
+			"steps": []any{map[string]any{"step_id": "step-1", "order": 1, "script_name": "dump", "state": "SUCCEEDED"}}}, a)
 	case path == "/workflow-runs":
 		return map[string]any{"runs": []any{map[string]any{"id": "run-1", "state": "SUCCEEDED", "started_at": at}}}
 	case path == "/backups", path == "/quarantine":
 		return map[string]any{"artifacts": []any{artifact}}
 	case strings.HasPrefix(path, "/backups/"):
 		return artifact
-	case path == "/activity", path == "/activity/live":
+	case path == "/activity/live":
+		return map[string]any{"observed_at": at, "epoch": "e1", "poll_after_ms": 1000, "sets": []any{map[string]any{
+			"backup_set_id": "production/postgres-primary", "active": false, "artifacts_completed": 0, "progress_basis": "none", "failures": 0,
+			"events": []any{map[string]any{"sequence": 1, "at": at, "level": "info", "event": "validation", "scope": "set",
+				"message": a.plant("activity", "validated"), "fields": []any{}}},
+			"unfinished_actions": []any{}, "truncated": false, "dropped": false, "oldest_sequence": 1, "latest_sequence": 1}}}
+	case path == "/activity":
 		return map[string]any{"events": []any{map[string]any{"artifact_id": "production/postgres-primary/backup.dump", "backup_set_id": "production/postgres-primary",
 			"artifact_name": "backup.dump", "from": "DISCOVERED", "to": "COMPLETE", "occurred_at": at, "detail": a.plant("activity", "validated")}},
 			"next_cursor": "", "readings": []any{}}
@@ -158,11 +167,21 @@ func (a *API) payload(path string) any {
 		return map[string]any{"mediums": []any{withCanaries(map[string]any{"id": "offsite", "type": "s3", "bucket": "retnd-offsite", "region": "us-east-1",
 			"endpoint": "https://" + host + ":9000", "prefix": "retnd/"}, a)}}
 	case strings.HasPrefix(path, "/storage-mediums/"):
-		return withCanaries(map[string]any{"id": "offsite", "endpoint": "https://" + host + ":9000", "used_bytes": 2097152}, a)
+		return withCanaries(map[string]any{"medium": "offsite", "placements": 1,
+			"backup_sets": []any{map[string]any{"set": "production/postgres-primary", "placements": 1, "only_copy_here": 0}}}, a)
 	case path == "/backup-sets":
 		return map[string]any{"backup_sets": []any{map[string]any{"id": "production/postgres-primary", "source_name": "production", "name": "postgres-primary", "host": host}}}
 	case strings.HasSuffix(path, "/source-host"):
 		return map[string]any{"set_id": "production/postgres-primary", "available": true, "host": host, "port": 22, "user": "backup", "remote_path": "/dumps"}
+	case strings.HasSuffix(path, "/assurance"):
+		return withCanaries(map[string]any{"backup_set_id": "production/postgres-primary", "is_override": false,
+			"scrub": map[string]any{"cadence_seconds": 604800, "strategy": "full"}, "recovery_test": map[string]any{"mode": "off"}}, a)
+	case strings.HasSuffix(path, "/retention/preview"):
+		return withCanaries(map[string]any{"plan_id": "plan-1", "backup_set_id": "production/postgres-primary", "keep_count": 1, "delete_count": 0,
+			"verdicts": []any{map[string]any{"artifact": "production/postgres-primary/" + file, "action": "keep", "reason": "newest"}}}, a)
+	case strings.HasPrefix(path, "/operations/"):
+		return withCanaries(map[string]any{"operation_id": "op-1", "status": "failed", "action": "recovery_test",
+			"backup_set_id": "production/postgres-primary", "error": a.plant("validator", "checksum ok")}, a)
 	case strings.HasPrefix(path, "/backup-sets/"):
 		return withCanaries(map[string]any{"id": "production/postgres-primary", "source_name": "production", "name": "postgres-primary", "host": host, "state": "HEALTHY"}, a)
 	case path == "/encryption/keys":

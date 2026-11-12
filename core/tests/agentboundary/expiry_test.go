@@ -65,19 +65,23 @@ func seedConfirmations(t *testing.T, bin string, rows []confirmationRow) (config
 	now := time.Now().UTC()
 	if _, err := db.Exec(`INSERT INTO agent_tokens (id, name, prefix, hash, scope, owner, created_at, expires_at)
 		VALUES ('agt_drill', 'drill', 'rat_dril', ?, 'operate', 'alice', ?, ?)`,
-		hex.EncodeToString(h), now.Add(-24*time.Hour), now.Add(24*time.Hour)); err != nil {
+		hex.EncodeToString(h), stamp(now.Add(-24*time.Hour)), stamp(now.Add(24*time.Hour))); err != nil {
 		t.Fatalf("seeding the token: %v", err)
 	}
 	for _, r := range rows {
 		if _, err := db.Exec(`INSERT INTO agent_confirmations
 			(id, token_id, tool, route, method, body, command, backup_set, state, created_at, expires_at)
 			VALUES (?, 'agt_drill', 'run_cycle', '/operations', 'POST', ?, 'retnd run', '', 'pending', ?, ?)`,
-			r.id, []byte(`{}`), now.Add(-time.Hour), now.Add(r.expires)); err != nil {
+			r.id, []byte(`{}`), stamp(now.Add(-time.Hour)), stamp(now.Add(r.expires))); err != nil {
 			t.Fatalf("seeding %s: %v", r.id, err)
 		}
 	}
 	return config, db
 }
+
+// stamp is a time as the state package writes one, RFC 3339 text; the driver
+// would otherwise store time.Time's String form, which the reader refuses.
+func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
 
 func decided(t *testing.T, db *sql.DB, id string) (state string, by sql.NullString) {
 	t.Helper()

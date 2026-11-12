@@ -43,7 +43,10 @@ func root(t *testing.T) string {
 // reason core/tests/deploymentdiff builds its own the same way.
 var canonical = []string{
 	"container/compose.yaml",
-	strings.Join([]string{"apps", "*", "compose"}, "/"),
+	// Every file under each app's compose directory, tracked or not: a
+	// pathspec with a wildcard matches whole paths, so the bare directory
+	// would miss a file added beside the compose files.
+	strings.Join([]string{"apps", "*", "compose", "*"}, "/"),
 	strings.Join([]string{"apps", "unraid", "template"}, "/"),
 	strings.Join([]string{"apps", "truenas", "catalog"}, "/"),
 	"distribution/packaging/canonical.json",

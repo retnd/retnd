@@ -527,17 +527,24 @@ func TestAConfigureToolCallRecordsTheSetItConcerns(t *testing.T) {
 
 // Falsify: create a confirmation from a request that names no tool.
 func TestARequestThatNamesNoToolOrTheWrongOneCreatesNothing(t *testing.T) {
-	for name, req := range map[string]*http.Request{
-		"no tool header":          bearer(http.MethodPost, "/api/v1/operations", `{"action":"run_cycle"}`, operateToken),
-		"an unknown tool":         toolCall(http.MethodPost, "/api/v1/operations", `{"action":"run_cycle"}`, operateToken, "format_disk"),
-		"a tool for other work":   toolCall(http.MethodPost, "/api/v1/operations", `{"action":"restore_snapshot"}`, operateToken, "run_cycle"),
-		"a tool on another route": toolCall(http.MethodPost, "/api/v1/backup-sets/production/postgres/read-only", `{"read_only":true}`, operateToken, "run_cycle"),
-		"a malformed tool name":   toolCall(http.MethodPost, "/api/v1/operations", `{"action":"run_cycle"}`, operateToken, "Run Cycle;"),
+	// A change no catalogue tool sits over (another action on the shared
+	// route, or a route with no tool) is refused by the change floor before
+	// any tool is looked at; the rest are the plain refusal.
+	for name, c := range map[string]struct {
+		req  *http.Request
+		want string
+	}{
+		"no tool header":          {bearer(http.MethodPost, "/api/v1/operations", `{"action":"run_cycle"}`, operateToken), "AGENT_CONFIRMATION_REQUIRED"},
+		"an unknown tool":         {toolCall(http.MethodPost, "/api/v1/operations", `{"action":"run_cycle"}`, operateToken, "format_disk"), "AGENT_CONFIRMATION_REQUIRED"},
+		"a tool for other work":   {toolCall(http.MethodPost, "/api/v1/operations", `{"action":"restore_snapshot"}`, operateToken, "run_cycle"), "AGENT_ROUTE_DENIED"},
+		"a tool on another route": {toolCall(http.MethodPost, "/api/v1/backup-sets/production/postgres/read-only", `{"read_only":true}`, operateToken, "run_cycle"), "AGENT_ROUTE_DENIED"},
+		"a malformed tool name":   {toolCall(http.MethodPost, "/api/v1/operations", `{"action":"run_cycle"}`, operateToken, "Run Cycle;"), "AGENT_CONFIRMATION_REQUIRED"},
 	} {
+		req := c.req
 		rig := newConfirmationsRig(t, alwaysPassGate{})
 		rec := serve(rig.router, req)
-		if rec.Code != http.StatusConflict || responseErrorCode(rec.Body.String()) != "AGENT_CONFIRMATION_REQUIRED" {
-			t.Errorf("%s = %d %s, want the plain refusal", name, rec.Code, rec.Body.String())
+		if got := responseErrorCode(rec.Body.String()); got != c.want {
+			t.Errorf("%s = %d %s, want %s", name, rec.Code, rec.Body.String(), c.want)
 		}
 		if len(rig.backend.created) != 0 || rec.Header().Get(ConfirmationIDHeader) != "" || len(rig.backend.ops) != 0 {
 			t.Errorf("%s created %d confirmations or ran something", name, len(rig.backend.created))
@@ -612,6 +619,9 @@ func TestATokenReadsTheStateOfItsOwnConfirmationAndNobodyElses(t *testing.T) {
 	}
 }
 
+// Driven through the router: the deny list holds the routes a person decides
+// with, and the read floor and the change floor refuse everything else under
+// the prefix that is not confirmation_status.
 func TestOnlyTheStatusReadIsOpenToATokenUnderTheConfirmationsPrefix(t *testing.T) {
 	for _, tc := range []struct {
 		method, path string
@@ -627,9 +637,11 @@ func TestOnlyTheStatusReadIsOpenToATokenUnderTheConfirmationsPrefix(t *testing.T
 		{"DELETE", "/api/v1/agent/confirmations/cnf_1", true},
 		{"GET", "/api/v1/agent/confirmations/../confirmations", true},
 	} {
-		req := httptest.NewRequest(tc.method, tc.path, nil)
-		if got := agentRouteDenied(req); got != tc.denied {
-			t.Errorf("%s %s denied = %v, want %v", tc.method, tc.path, got, tc.denied)
+		rig := newConfirmationsRig(t, nil, pendingConfirmation("cnf_1", "POST", "/operations", `{"action":"run_cycle"}`))
+		rec := serve(rig.router, bearer(tc.method, tc.path, "", operateToken))
+		got := rec.Code == http.StatusForbidden && responseErrorCode(rec.Body.String()) == "AGENT_ROUTE_DENIED"
+		if got != tc.denied {
+			t.Errorf("%s %s = %d %s, denied = %v, want %v", tc.method, tc.path, rec.Code, rec.Body.String(), got, tc.denied)
 		}
 	}
 }
