@@ -121,8 +121,9 @@ a cookie session keeps the pair. A planted "skip for everyone" turns
 
 A bearer on a mutating route is refused with a status that says why: `403
 AGENT_SCOPE_INSUFFICIENT` for a `read` token, `409 AGENT_CONFIRMATION_REQUIRED` for an
-`operate` or `configure` one. A raw bearer request never creates a confirmation; only an MCP
-tool call does (U2.1), so the refusal is the whole effect of the request.
+`operate` or `configure` one. A bearer request creates a confirmation only when it names a catalogue tool whose method,
+route and action match it exactly (U2.1); any other is refused and records nothing, so the
+refusal is the whole effect of the request.
 
 The MCP endpoint is bearer-only in the other direction too: a cookie session presented to
 `/api/v1/agent/mcp` is refused, so a browser tab can never be an MCP client by accident.

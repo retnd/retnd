@@ -121,11 +121,13 @@ var _ agentTokens = (*apiclient.Client)(nil)
 
 func cmdAgent(args []string) int {
 	if len(args) == 0 {
-		return usageError("agent: expected `agent token create|list|revoke`, `agent audit`, `agent tools` or `agent serve --stdio --token-file PATH`")
+		return usageError("agent: expected `agent token create|list|revoke`, `agent confirmations list|approve|deny`, `agent audit`, `agent tools` or `agent serve --stdio --token-file PATH`")
 	}
 	switch args[0] {
 	case "token":
 		return cmdAgentToken(args[1:])
+	case "confirmations":
+		return cmdAgentConfirmations(args[1:])
 	case "audit":
 		return agentAudit(args[1:])
 	case "serve":
@@ -133,7 +135,7 @@ func cmdAgent(args []string) int {
 	case "tools":
 		return agentTools(args[1:])
 	default:
-		return usageError("agent: unknown subcommand %q (token, audit, serve and tools exist)", args[0])
+		return usageError("agent: unknown subcommand %q (token, confirmations, audit, serve and tools exist)", args[0])
 	}
 }
 

@@ -30,6 +30,8 @@ var denied = []struct{ method, pattern string }{
 	{"POST", "/backups/{source}/{set}/{name}/recovery"},
 	{"", "/agent/tokens/*"},
 	{"", "/agent/audit/*"},
+	{"GET", "/agent/confirmations"},
+	{"POST", "/agent/confirmations/*"},
 
 	// Key custody and key providers.
 	{"", "/encryption/keys/*"},

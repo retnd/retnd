@@ -203,6 +203,12 @@
           "AGENT_ROUTE_DENIED",
           "AGENT_CONFIRMATION_REQUIRED",
           "AGENT_TOKEN_NOT_FOUND",
+          "AGENT_CONFIRMATION_EXPIRED",
+          "AGENT_CONFIRMATION_DECIDED",
+          "AGENT_CONFIRMATION_TOKEN_ENDED",
+          "AGENT_CONFIRMATION_LIMIT",
+          "AGENT_CONFIRMATION_BODY_SUBSTITUTED",
+          "AGENT_CONFIRMATION_NOT_FOUND",
           "AGENT_HTTP_TRANSPORT_OFF",
           "AGENT_RATE_LIMITED",
           "AGENT_AUDIT_UNAVAILABLE"
@@ -335,6 +341,12 @@
           "AGENT_ROUTE_DENIED": "wire",
           "AGENT_CONFIRMATION_REQUIRED": "wire",
           "AGENT_TOKEN_NOT_FOUND": "wire",
+          "AGENT_CONFIRMATION_EXPIRED": "wire",
+          "AGENT_CONFIRMATION_DECIDED": "wire",
+          "AGENT_CONFIRMATION_TOKEN_ENDED": "wire",
+          "AGENT_CONFIRMATION_LIMIT": "wire",
+          "AGENT_CONFIRMATION_BODY_SUBSTITUTED": "wire",
+          "AGENT_CONFIRMATION_NOT_FOUND": "wire",
           "AGENT_HTTP_TRANSPORT_OFF": "wire",
           "AGENT_RATE_LIMITED": "wire",
           "AGENT_AUDIT_UNAVAILABLE": "wire"
@@ -368,7 +380,8 @@
             "MEDIUM_DISCLOSURE_REQUIRED",
             "BACKUP_SET_NOT_INCREMENTAL",
             "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED",
-            "RECOVERY_TARGET_INVALID"
+            "RECOVERY_TARGET_INVALID",
+            "AGENT_CONFIRMATION_BODY_SUBSTITUTED"
           ],
           "conflict": [
             "RETENTION_PLAN_STALE",
@@ -418,7 +431,10 @@
             "ENCRYPTION_KEY_IN_USE",
             "ENCRYPTION_KEY_STATE",
             "ENCRYPTION_KEY_UNRESOLVABLE",
-            "AGENT_CONFIRMATION_REQUIRED"
+            "AGENT_CONFIRMATION_REQUIRED",
+            "AGENT_CONFIRMATION_EXPIRED",
+            "AGENT_CONFIRMATION_DECIDED",
+            "AGENT_CONFIRMATION_TOKEN_ENDED"
           ],
           "not-found": [
             "BACKUP_SET_NOT_FOUND",
@@ -437,7 +453,8 @@
             "DIRECTORY_NOT_FOUND",
             "VALIDATOR_NOT_FOUND",
             "ENCRYPTION_KEY_NOT_FOUND",
-            "AGENT_TOKEN_NOT_FOUND"
+            "AGENT_TOKEN_NOT_FOUND",
+            "AGENT_CONFIRMATION_NOT_FOUND"
           ],
           "throttling": [
             "RATE_LIMITED",
@@ -445,6 +462,7 @@
             "RECOVERY_READS_BUSY",
             "RECOVERY_DESTINATION_BUSY",
             "RECOVERY_DOWNLOADS_BUSY",
+            "AGENT_CONFIRMATION_LIMIT",
             "AGENT_RATE_LIMITED"
           ],
           "internal": [
@@ -10070,6 +10088,142 @@
         },
         "required": [
           "entries"
+        ]
+      },
+      "AgentExecution": {
+        "type": "object",
+        "description": "How the replay of an approved confirmation ended: the status and error code the API answered with (code is empty for a success), its message, the correlation id of the request and the exit code retnd would have used for the same answer. A replay the shut destructive gate refused reads DESTRUCTIVE_OPERATIONS_DISABLED with exit code 50, exactly as retnd run does.",
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "type": "integer"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "correlation_id": {
+            "type": "string"
+          },
+          "exit_code": {
+            "type": "integer"
+          },
+          "outcome": {
+            "type": "string",
+            "description": "completed when the replay ran to an answer (status and code say which), interrupted when the engine stopped between the approval and the replay's end. An interrupted one has status 0 and exit code 1, and was never run again: check the activity feed for the command before asking for it twice.",
+            "enum": [
+              "completed",
+              "interrupted"
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "code",
+          "message",
+          "correlation_id",
+          "exit_code",
+          "outcome"
+        ]
+      },
+      "AgentConfirmation": {
+        "type": "object",
+        "description": "A change an agent asked for, waiting for a person. The request body it will replay is kept byte for byte and is never shown here; command is the retnd command an operator would have typed for the same change. A pending confirmation has run nothing. state is pending, approved, denied or expired; an approved one carries execution once its replay has finished.",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "token_id": {
+            "type": "string"
+          },
+          "token_name": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string"
+          },
+          "route": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string"
+          },
+          "backup_set": {
+            "type": "string",
+            "description": "The backup set the change concerns, or empty."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "denied",
+              "expired"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decided_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "decided_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "execution": {
+            "$ref": "#/components/schemas/AgentExecution",
+            "x-go-omitempty": true,
+            "x-go-pointer": true
+          }
+        },
+        "required": [
+          "id",
+          "token_id",
+          "token_name",
+          "tool",
+          "route",
+          "method",
+          "command",
+          "backup_set",
+          "state",
+          "created_at",
+          "expires_at",
+          "decided_at",
+          "decided_by"
+        ]
+      },
+      "ListAgentConfirmationsResponse": {
+        "type": "object",
+        "description": "GET /agent/confirmations. The newest confirmations first, pending ones whose time has passed already read expired.",
+        "additionalProperties": false,
+        "properties": {
+          "confirmations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentConfirmation"
+            }
+          }
+        },
+        "required": [
+          "confirmations"
         ]
       },
       "AgentTool": {
@@ -25729,6 +25883,451 @@
             },
             "x-error-codes": [
               "INTERNAL"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      }
+    },
+    "/agent/confirmations": {
+      "get": {
+        "operationId": "listAgentConfirmations",
+        "summary": "List the changes agents have asked for: pending, approved, denied and expired, newest first, with the retnd command each one echoes and, for an approved one, how its replay ended. A bearer token is refused AGENT_ROUTE_DENIED: an agent can never approve, deny or list its own confirmations.",
+        "tags": [
+          "agent"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAgentConfirmationsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: AGENT_ROUTE_DENIED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_ROUTE_DENIED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      }
+    },
+    "/agent/confirmations/{id}/approve": {
+      "post": {
+        "operationId": "approveAgentConfirmation",
+        "summary": "Approve a pending confirmation. It asks for the administrator's password again (the step-up, in the X-Retnd-Step-Up-Password header) and then replays the recorded request, unchanged, through the handler the browser would have hit, with the agent's token as the recorded actor and the approver in decided_by. A body on this request is refused AGENT_CONFIRMATION_BODY_SUBSTITUTED: what runs is what was recorded and nothing else. Every refusal the original request would have met applies to the replay, so a run_cycle approved while the destructive gate is shut answers 200 with an execution of DESTRUCTIVE_OPERATIONS_DISABLED and exit code 50. A bearer token is refused AGENT_ROUTE_DENIED: an agent can never approve, deny or list its own confirmations.",
+        "tags": [
+          "agent"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The confirmation id, as GET /agent/confirmations lists it."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success. The confirmation is approved and execution says how its replay ended, whether it ran or was refused.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentConfirmation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: AGENT_CONFIRMATION_BODY_SUBSTITUTED. A body was sent with the approval.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_CONFIRMATION_BODY_SUBSTITUTED"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, AGENT_ROUTE_DENIED, STEP_UP_REQUIRED, STEP_UP_FAILED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH",
+              "AGENT_ROUTE_DENIED",
+              "STEP_UP_REQUIRED",
+              "STEP_UP_FAILED"
+            ]
+          },
+          "404": {
+            "description": "Refused: AGENT_CONFIRMATION_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_CONFIRMATION_NOT_FOUND"
+            ]
+          },
+          "409": {
+            "description": "Refused: AGENT_CONFIRMATION_EXPIRED, AGENT_CONFIRMATION_DECIDED, AGENT_CONFIRMATION_BODY_SUBSTITUTED, AGENT_CONFIRMATION_TOKEN_ENDED. Includes a recorded request that no longer matches the digest taken when it was recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_CONFIRMATION_EXPIRED",
+              "AGENT_CONFIRMATION_DECIDED",
+              "AGENT_CONFIRMATION_BODY_SUBSTITUTED",
+              "AGENT_CONFIRMATION_TOKEN_ENDED"
+            ]
+          },
+          "429": {
+            "description": "Refused: RATE_LIMITED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RATE_LIMITED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: STEP_UP_UNAVAILABLE, NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "STEP_UP_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/agent/confirmations/{id}/deny": {
+      "post": {
+        "operationId": "denyAgentConfirmation",
+        "summary": "Deny a pending confirmation. Nothing runs and the agent reads it as denied. A bearer token is refused AGENT_ROUTE_DENIED: an agent can never approve, deny or list its own confirmations.",
+        "tags": [
+          "agent"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The confirmation id, as GET /agent/confirmations lists it."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentConfirmation"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, AGENT_ROUTE_DENIED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH",
+              "AGENT_ROUTE_DENIED"
+            ]
+          },
+          "404": {
+            "description": "Refused: AGENT_CONFIRMATION_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_CONFIRMATION_NOT_FOUND"
+            ]
+          },
+          "409": {
+            "description": "Refused: AGENT_CONFIRMATION_EXPIRED, AGENT_CONFIRMATION_DECIDED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_CONFIRMATION_EXPIRED",
+              "AGENT_CONFIRMATION_DECIDED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/agent/confirmations/{id}": {
+      "get": {
+        "operationId": "getAgentConfirmation",
+        "summary": "Read the state of one confirmation and, once an approved one has run, how its replay ended. A person reads any confirmation. A bearer token reads only the ones that token made (anyone else's id is AGENT_CONFIRMATION_NOT_FOUND), which is how an agent learns what became of its own ask; it is the one route under /agent/confirmations a token reaches.",
+        "tags": [
+          "agent"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The confirmation id, as GET /agent/confirmations lists it."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentConfirmation"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "404": {
+            "description": "Refused: AGENT_CONFIRMATION_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_CONFIRMATION_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
             ]
           }
         },

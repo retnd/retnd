@@ -17,6 +17,7 @@ storage_usage	read	Read what one storage medium holds: how many placements, and 
 retention_preview	read	Preview what retention would keep and delete for one backup set, with the reason for each verdict. It deletes nothing.
 workflow_runs_list	read	List workflow runs with their state, the step that failed and how long each took. Never a step's log.
 workflow_run_show	read	Read one workflow run and each of its steps: state, exit code and timing. Never a step's log.
+confirmation_status	read	Read the state of a change this token proposed, by the confirmation id the proposal answered with: pending, approved, denied or expired, and once it ran, how it ended.
 run_cycle	operate	Propose running one backup cycle across every enabled backup set. A person confirms it before anything starts.
 run_backup_set	operate	Propose running one backup cycle over a single backup set. A person confirms it before anything starts.
 recovery_test_start	operate	Propose a recovery test of a backup set's newest known good copy. A person confirms it before anything starts.

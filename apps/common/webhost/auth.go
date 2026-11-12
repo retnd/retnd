@@ -76,9 +76,20 @@ func actorFromContext(ctx context.Context) string {
 // This is what makes the whole /api/v1 surface fail closed the moment a
 // provider has not wired a real Authenticator in yet, which today is
 // every provider (see router_test.go's noAuthWiredAdapter).
-func authMiddleware(platform capabilities.PlatformAdapter, agents AgentAccess, guard *agentGuard) func(http.Handler) http.Handler {
+func authMiddleware(platform capabilities.PlatformAdapter, agents AgentAccess, guard *agentGuard, proposer *agentProposer) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// A confirmation being replayed (agentconfirmations.go) carries the
+			// principal that asked on a context key only this package can set,
+			// so no request that arrived over the wire reaches this branch.
+			if p, ok := agentReplayFrom(r.Context()); ok {
+				replayed, ok := replayAgent(w, r, p)
+				if !ok {
+					return
+				}
+				next.ServeHTTP(w, replayed)
+				return
+			}
 			// A request that presents an agent token (a rat_ bearer) is an agent's, and is
 			// decided here alone. It never falls through to the session: a
 			// token that is unknown, expired or revoked is refused, not
@@ -94,7 +105,7 @@ func authMiddleware(platform capabilities.PlatformAdapter, agents AgentAccess, g
 						return
 					}
 				} else {
-					authenticated, ok := authenticateBearer(w, r, agents, guard, presented)
+					authenticated, ok := authenticateBearer(w, r, agents, guard, proposer, presented)
 					if !ok {
 						return
 					}

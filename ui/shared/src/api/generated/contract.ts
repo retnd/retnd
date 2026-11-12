@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "bb4f81ec7acf7224274db08b382b825cdcb565d6190d5c611269cbdac13a4b11";
+export const CONTRACT_SHA256 = "26b219161e3c6f4e5de3aa1d8844b305b0fa455095b1adfafc7426a6ceafd86f";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -137,6 +137,12 @@ export const WIRE_ERROR_CODES = [
   "AGENT_ROUTE_DENIED",
   "AGENT_CONFIRMATION_REQUIRED",
   "AGENT_TOKEN_NOT_FOUND",
+  "AGENT_CONFIRMATION_EXPIRED",
+  "AGENT_CONFIRMATION_DECIDED",
+  "AGENT_CONFIRMATION_TOKEN_ENDED",
+  "AGENT_CONFIRMATION_LIMIT",
+  "AGENT_CONFIRMATION_BODY_SUBSTITUTED",
+  "AGENT_CONFIRMATION_NOT_FOUND",
   "AGENT_HTTP_TRANSPORT_OFF",
   "AGENT_RATE_LIMITED",
   "AGENT_AUDIT_UNAVAILABLE",
@@ -289,6 +295,12 @@ export const API_ERROR_CODES = [
   "AGENT_ROUTE_DENIED",
   "AGENT_CONFIRMATION_REQUIRED",
   "AGENT_TOKEN_NOT_FOUND",
+  "AGENT_CONFIRMATION_EXPIRED",
+  "AGENT_CONFIRMATION_DECIDED",
+  "AGENT_CONFIRMATION_TOKEN_ENDED",
+  "AGENT_CONFIRMATION_LIMIT",
+  "AGENT_CONFIRMATION_BODY_SUBSTITUTED",
+  "AGENT_CONFIRMATION_NOT_FOUND",
   "AGENT_HTTP_TRANSPORT_OFF",
   "AGENT_RATE_LIMITED",
   "AGENT_AUDIT_UNAVAILABLE",
@@ -301,12 +313,12 @@ export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 export const API_ERROR_CLASSES = {
   "authentication": ["UNAUTHENTICATED", "BOOTSTRAP_TOKEN_INVALID", "RESET_TOKEN_INVALID", "VERIFY_TOKEN_INVALID", "AGENT_TOKEN_INVALID"],
   "authorization": ["ENROLLMENT_CLOSED", "DESTRUCTIVE_OPERATIONS_DISABLED", "CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "RECOVERY_GRANT_SESSION_ENDED", "STEP_UP_REQUIRED", "STEP_UP_FAILED", "INSECURE_TRANSPORT_ACK_REQUIRED", "AGENT_SCOPE_INSUFFICIENT", "AGENT_ROUTE_DENIED", "AGENT_HTTP_TRANSPORT_OFF"],
-  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED", "RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED", "RECOVERY_TARGET_EXISTS", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_BUSY", "DIRECTORY_NOT_READABLE", "RESTORE_TARGET_NOT_ACKNOWLEDGED", "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_UNAVAILABLE", "RECOVERY_SOURCE_HOST_READ_ONLY", "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE", "VALIDATOR_EXISTS", "VALIDATOR_PATTERN_CONFLICT", "VALIDATOR_LIMIT_REACHED", "VALIDATOR_SCRIPT_CHANGED", "ENCRYPTION_KEY_IN_USE", "ENCRYPTION_KEY_STATE", "ENCRYPTION_KEY_UNRESOLVABLE", "AGENT_CONFIRMATION_REQUIRED"],
+  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED", "RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED", "RECOVERY_TARGET_EXISTS", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_BUSY", "DIRECTORY_NOT_READABLE", "RESTORE_TARGET_NOT_ACKNOWLEDGED", "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_UNAVAILABLE", "RECOVERY_SOURCE_HOST_READ_ONLY", "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE", "VALIDATOR_EXISTS", "VALIDATOR_PATTERN_CONFLICT", "VALIDATOR_LIMIT_REACHED", "VALIDATOR_SCRIPT_CHANGED", "ENCRYPTION_KEY_IN_USE", "ENCRYPTION_KEY_STATE", "ENCRYPTION_KEY_UNRESOLVABLE", "AGENT_CONFIRMATION_REQUIRED", "AGENT_CONFIRMATION_EXPIRED", "AGENT_CONFIRMATION_DECIDED", "AGENT_CONFIRMATION_TOKEN_ENDED"],
   "internal": ["INTERNAL", "INTERNAL_ERROR", "AGENT_AUDIT_UNAVAILABLE", "RECOVERY_LOCAL_COPY_CORRUPT", "RECOVERY_REMOTE_COPY_CORRUPT", "RECOVERY_NO_SPACE", "RECOVERY_BELOW_RESERVE", "RECOVERY_FAILED", "RECOVERY_SOURCE_HOST_NO_SPACE"],
-  "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN", "DIRECTORY_NOT_FOUND", "VALIDATOR_NOT_FOUND", "ENCRYPTION_KEY_NOT_FOUND", "AGENT_TOKEN_NOT_FOUND"],
-  "throttling": ["RATE_LIMITED", "RECOVERY_TOO_MANY_GRANTS", "RECOVERY_READS_BUSY", "RECOVERY_DESTINATION_BUSY", "RECOVERY_DOWNLOADS_BUSY", "AGENT_RATE_LIMITED"],
+  "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN", "DIRECTORY_NOT_FOUND", "VALIDATOR_NOT_FOUND", "ENCRYPTION_KEY_NOT_FOUND", "AGENT_TOKEN_NOT_FOUND", "AGENT_CONFIRMATION_NOT_FOUND"],
+  "throttling": ["RATE_LIMITED", "RECOVERY_TOO_MANY_GRANTS", "RECOVERY_READS_BUSY", "RECOVERY_DESTINATION_BUSY", "RECOVERY_DOWNLOADS_BUSY", "AGENT_CONFIRMATION_LIMIT", "AGENT_RATE_LIMITED"],
   "unavailable": ["NOT_CONFIGURED", "SMTP_SEND_FAILED", "WORKFLOW_ENGINE_UNAVAILABLE", "RECOVERY_UNAVAILABLE", "RECOVERY_INTERRUPTED", "STEP_UP_UNAVAILABLE", "RECOVERY_SOURCE_HOST_UNREACHABLE", "VALIDATORS_UNAVAILABLE", "ENCRYPTION_UNAVAILABLE"],
-  "validation": ["INVALID_REQUEST", "INVALID_EMAIL", "SSH_KEY_NOT_FOUND", "HOST_KEY_PROBE_FAILED", "MEDIUM_DISCLOSURE_REQUIRED", "BACKUP_SET_NOT_INCREMENTAL", "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED", "RECOVERY_TARGET_INVALID"],
+  "validation": ["INVALID_REQUEST", "INVALID_EMAIL", "SSH_KEY_NOT_FOUND", "HOST_KEY_PROBE_FAILED", "MEDIUM_DISCLOSURE_REQUIRED", "BACKUP_SET_NOT_INCREMENTAL", "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED", "RECOVERY_TARGET_INVALID", "AGENT_CONFIRMATION_BODY_SUBSTITUTED"],
 } as const satisfies Record<string, readonly ApiErrorCode[]>;
 
 /** The platform-capability set GET /system/capabilities reports, as wire
@@ -398,6 +410,91 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       401: ["UNAUTHENTICATED"],
       403: ["AGENT_ROUTE_DENIED"],
       500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "listAgentConfirmations",
+    method: "GET",
+    path: "/agent/confirmations",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListAgentConfirmationsResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["AGENT_ROUTE_DENIED"],
+      500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "getAgentConfirmation",
+    method: "GET",
+    path: "/agent/confirmations/{id}",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AgentConfirmation",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["AGENT_CONFIRMATION_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "approveAgentConfirmation",
+    method: "POST",
+    path: "/agent/confirmations/{id}/approve",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AgentConfirmation",
+    successStatus: 200,
+    errorCodes: {
+      400: ["AGENT_CONFIRMATION_BODY_SUBSTITUTED"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "AGENT_ROUTE_DENIED", "STEP_UP_REQUIRED", "STEP_UP_FAILED"],
+      404: ["AGENT_CONFIRMATION_NOT_FOUND"],
+      409: ["AGENT_CONFIRMATION_EXPIRED", "AGENT_CONFIRMATION_DECIDED", "AGENT_CONFIRMATION_BODY_SUBSTITUTED", "AGENT_CONFIRMATION_TOKEN_ENDED"],
+      429: ["RATE_LIMITED"],
+      500: ["INTERNAL"],
+      503: ["STEP_UP_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "denyAgentConfirmation",
+    method: "POST",
+    path: "/agent/confirmations/{id}/deny",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AgentConfirmation",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "AGENT_ROUTE_DENIED"],
+      404: ["AGENT_CONFIRMATION_NOT_FOUND"],
+      409: ["AGENT_CONFIRMATION_EXPIRED", "AGENT_CONFIRMATION_DECIDED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
     }
   },
   {
@@ -3435,6 +3532,44 @@ export interface WireAgentAuditEntry {
   transport: "stdio" | "http" | "api";
 }
 
+/** A change an agent asked for, waiting for a person. The request
+ *  body it will replay is kept byte for byte and is never shown here;
+ *  command is the retnd command an operator would have typed for the
+ *  same change. A pending confirmation has run nothing. state is
+ *  pending, approved, denied or expired; an approved one carries
+ *  execution once its replay has finished. */
+export interface WireAgentConfirmation {
+  backup_set: string;
+  command: string;
+  created_at: string;
+  decided_at: string | null;
+  decided_by: string | null;
+  execution?: WireAgentExecution;
+  expires_at: string;
+  id: string;
+  method: string;
+  route: string;
+  state: "pending" | "approved" | "denied" | "expired";
+  token_id: string;
+  token_name: string;
+  tool: string;
+}
+
+/** How the replay of an approved confirmation ended: the status and
+ *  error code the API answered with (code is empty for a success),
+ *  its message, the correlation id of the request and the exit code
+ *  retnd would have used for the same answer. A replay the shut
+ *  destructive gate refused reads DESTRUCTIVE_OPERATIONS_DISABLED
+ *  with exit code 50, exactly as retnd run does. */
+export interface WireAgentExecution {
+  code: string;
+  correlation_id: string;
+  exit_code: number;
+  message: string;
+  outcome: "completed" | "interrupted";
+  status: number;
+}
+
 /** One JSON-RPC 2.0 message of the Model Context Protocol. The
  *  engine's streamable HTTP transport speaks the protocol revision
  *  `retnd agent tools` prints; this contract does not restate it. */
@@ -4500,6 +4635,12 @@ export interface WireListActivityResponse {
 export interface WireListAgentAuditResponse {
   entries: WireAgentAuditEntry[];
   next_cursor?: string;
+}
+
+/** GET /agent/confirmations. The newest confirmations first, pending
+ *  ones whose time has passed already read expired. */
+export interface WireListAgentConfirmationsResponse {
+  confirmations: WireAgentConfirmation[];
 }
 
 /** GET /agent/tokens. Every token, revoked and expired ones included,

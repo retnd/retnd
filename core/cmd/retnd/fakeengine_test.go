@@ -331,6 +331,8 @@ func (e *fakeEngine) api(w http.ResponseWriter, r *http.Request, path, token str
 	case e.serveAgentTokens(w, r, path):
 	// The audit trail (#1348), for the reason fakeengine_agent_1348_test.go gives.
 	case e.serveAgentAudit(w, r, path):
+	// The agent confirmation routes (#1349), for the reason fakeengine_agentconfirmations_1349_test.go gives.
+	case e.serveAgentConfirmations(w, r, path):
 	// The encryption writes (#993), for the reason fakeengine_encryption_996_test.go gives.
 	case e.serveEncryption(w, r, path):
 	// The eight config writes #1148 routes, ahead of everything below

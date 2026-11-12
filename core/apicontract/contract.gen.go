@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "bb4f81ec7acf7224274db08b382b825cdcb565d6190d5c611269cbdac13a4b11"
+const ContractSHA256 = "26b219161e3c6f4e5de3aa1d8844b305b0fa455095b1adfafc7426a6ceafd86f"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -174,6 +174,12 @@ const (
 	ErrorCodeAgentRouteDenied                       ErrorCode = "AGENT_ROUTE_DENIED"
 	ErrorCodeAgentConfirmationRequired              ErrorCode = "AGENT_CONFIRMATION_REQUIRED"
 	ErrorCodeAgentTokenNotFound                     ErrorCode = "AGENT_TOKEN_NOT_FOUND"
+	ErrorCodeAgentConfirmationExpired               ErrorCode = "AGENT_CONFIRMATION_EXPIRED"
+	ErrorCodeAgentConfirmationDecided               ErrorCode = "AGENT_CONFIRMATION_DECIDED"
+	ErrorCodeAgentConfirmationTokenEnded            ErrorCode = "AGENT_CONFIRMATION_TOKEN_ENDED"
+	ErrorCodeAgentConfirmationLimit                 ErrorCode = "AGENT_CONFIRMATION_LIMIT"
+	ErrorCodeAgentConfirmationBodySubstituted       ErrorCode = "AGENT_CONFIRMATION_BODY_SUBSTITUTED"
+	ErrorCodeAgentConfirmationNotFound              ErrorCode = "AGENT_CONFIRMATION_NOT_FOUND"
 	ErrorCodeAgentHttpTransportOff                  ErrorCode = "AGENT_HTTP_TRANSPORT_OFF"
 	ErrorCodeAgentRateLimited                       ErrorCode = "AGENT_RATE_LIMITED"
 	ErrorCodeAgentAuditUnavailable                  ErrorCode = "AGENT_AUDIT_UNAVAILABLE"
@@ -298,6 +304,12 @@ var WireErrorCodes = []ErrorCode{
 	ErrorCodeAgentRouteDenied,
 	ErrorCodeAgentConfirmationRequired,
 	ErrorCodeAgentTokenNotFound,
+	ErrorCodeAgentConfirmationExpired,
+	ErrorCodeAgentConfirmationDecided,
+	ErrorCodeAgentConfirmationTokenEnded,
+	ErrorCodeAgentConfirmationLimit,
+	ErrorCodeAgentConfirmationBodySubstituted,
+	ErrorCodeAgentConfirmationNotFound,
 	ErrorCodeAgentHttpTransportOff,
 	ErrorCodeAgentRateLimited,
 	ErrorCodeAgentAuditUnavailable,
@@ -446,6 +458,12 @@ var ErrorCodes = []ErrorCode{
 	ErrorCodeAgentRouteDenied,
 	ErrorCodeAgentConfirmationRequired,
 	ErrorCodeAgentTokenNotFound,
+	ErrorCodeAgentConfirmationExpired,
+	ErrorCodeAgentConfirmationDecided,
+	ErrorCodeAgentConfirmationTokenEnded,
+	ErrorCodeAgentConfirmationLimit,
+	ErrorCodeAgentConfirmationBodySubstituted,
+	ErrorCodeAgentConfirmationNotFound,
 	ErrorCodeAgentHttpTransportOff,
 	ErrorCodeAgentRateLimited,
 	ErrorCodeAgentAuditUnavailable,
@@ -456,12 +474,12 @@ var ErrorCodes = []ErrorCode{
 var ErrorClasses = map[string][]ErrorCode{
 	"authentication": {ErrorCodeUnauthenticated, ErrorCodeBootstrapTokenInvalid, ErrorCodeResetTokenInvalid, ErrorCodeVerifyTokenInvalid, ErrorCodeAgentTokenInvalid},
 	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeRecoveryGrantSessionEnded, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired, ErrorCodeAgentScopeInsufficient, ErrorCodeAgentRouteDenied, ErrorCodeAgentHttpTransportOff},
-	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy, ErrorCodeDirectoryNotReadable, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged, ErrorCodeRecoverySourceHostUnavailable, ErrorCodeRecoverySourceHostReadOnly, ErrorCodeRecoverySourceHostNotAcknowledged, ErrorCodeRecoverySourceHostProbeLeftFile, ErrorCodeValidatorExists, ErrorCodeValidatorPatternConflict, ErrorCodeValidatorLimitReached, ErrorCodeValidatorScriptChanged, ErrorCodeEncryptionKeyInUse, ErrorCodeEncryptionKeyState, ErrorCodeEncryptionKeyUnresolvable, ErrorCodeAgentConfirmationRequired},
+	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy, ErrorCodeDirectoryNotReadable, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged, ErrorCodeRecoverySourceHostUnavailable, ErrorCodeRecoverySourceHostReadOnly, ErrorCodeRecoverySourceHostNotAcknowledged, ErrorCodeRecoverySourceHostProbeLeftFile, ErrorCodeValidatorExists, ErrorCodeValidatorPatternConflict, ErrorCodeValidatorLimitReached, ErrorCodeValidatorScriptChanged, ErrorCodeEncryptionKeyInUse, ErrorCodeEncryptionKeyState, ErrorCodeEncryptionKeyUnresolvable, ErrorCodeAgentConfirmationRequired, ErrorCodeAgentConfirmationExpired, ErrorCodeAgentConfirmationDecided, ErrorCodeAgentConfirmationTokenEnded},
 	"internal":       {ErrorCodeInternal, ErrorCodeInternalError, ErrorCodeAgentAuditUnavailable, ErrorCodeRecoveryLocalCopyCorrupt, ErrorCodeRecoveryRemoteCopyCorrupt, ErrorCodeRecoveryNoSpace, ErrorCodeRecoveryBelowReserve, ErrorCodeRecoveryFailed, ErrorCodeRecoverySourceHostNoSpace},
-	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown, ErrorCodeDirectoryNotFound, ErrorCodeValidatorNotFound, ErrorCodeEncryptionKeyNotFound, ErrorCodeAgentTokenNotFound},
-	"throttling":     {ErrorCodeRateLimited, ErrorCodeRecoveryTooManyGrants, ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy, ErrorCodeAgentRateLimited},
+	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown, ErrorCodeDirectoryNotFound, ErrorCodeValidatorNotFound, ErrorCodeEncryptionKeyNotFound, ErrorCodeAgentTokenNotFound, ErrorCodeAgentConfirmationNotFound},
+	"throttling":     {ErrorCodeRateLimited, ErrorCodeRecoveryTooManyGrants, ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy, ErrorCodeAgentConfirmationLimit, ErrorCodeAgentRateLimited},
 	"unavailable":    {ErrorCodeNotConfigured, ErrorCodeSmtpSendFailed, ErrorCodeWorkflowEngineUnavailable, ErrorCodeRecoveryUnavailable, ErrorCodeRecoveryInterrupted, ErrorCodeStepUpUnavailable, ErrorCodeRecoverySourceHostUnreachable, ErrorCodeValidatorsUnavailable, ErrorCodeEncryptionUnavailable},
-	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired, ErrorCodeRecoveryTargetInvalid},
+	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired, ErrorCodeRecoveryTargetInvalid, ErrorCodeAgentConfirmationBodySubstituted},
 }
 
 // Endpoint is one operation of the contract, with the requirements a
@@ -520,6 +538,55 @@ var Endpoints = []Endpoint{
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeAgentRouteDenied},
 			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "listAgentConfirmations", Method: "GET", Path: "/agent/confirmations",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListAgentConfirmationsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeAgentRouteDenied},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "getAgentConfirmation", Method: "GET", Path: "/agent/confirmations/{id}",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AgentConfirmation", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeAgentConfirmationNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "approveAgentConfirmation", Method: "POST", Path: "/agent/confirmations/{id}/approve",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AgentConfirmation", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeAgentConfirmationBodySubstituted},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeAgentRouteDenied, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed},
+			404: {ErrorCodeAgentConfirmationNotFound},
+			409: {ErrorCodeAgentConfirmationExpired, ErrorCodeAgentConfirmationDecided, ErrorCodeAgentConfirmationBodySubstituted, ErrorCodeAgentConfirmationTokenEnded},
+			429: {ErrorCodeRateLimited},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeStepUpUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "denyAgentConfirmation", Method: "POST", Path: "/agent/confirmations/{id}/deny",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AgentConfirmation", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeAgentRouteDenied},
+			404: {ErrorCodeAgentConfirmationNotFound},
+			409: {ErrorCodeAgentConfirmationExpired, ErrorCodeAgentConfirmationDecided},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
 		},
 	},
 	{
@@ -2263,6 +2330,44 @@ type AgentAuditEntry struct {
 	Transport      string  `json:"transport"`
 }
 
+// AgentConfirmation is A change an agent asked for, waiting for a person. The request
+// body it will replay is kept byte for byte and is never shown here;
+// command is the retnd command an operator would have typed for the
+// same change. A pending confirmation has run nothing. state is
+// pending, approved, denied or expired; an approved one carries
+// execution once its replay has finished.
+type AgentConfirmation struct {
+	BackupSet string          `json:"backup_set"`
+	Command   string          `json:"command"`
+	CreatedAt string          `json:"created_at"`
+	DecidedAt *string         `json:"decided_at"`
+	DecidedBy *string         `json:"decided_by"`
+	Execution *AgentExecution `json:"execution,omitempty"`
+	ExpiresAt string          `json:"expires_at"`
+	ID        string          `json:"id"`
+	Method    string          `json:"method"`
+	Route     string          `json:"route"`
+	State     string          `json:"state"`
+	TokenID   string          `json:"token_id"`
+	TokenName string          `json:"token_name"`
+	Tool      string          `json:"tool"`
+}
+
+// AgentExecution is how the replay of an approved confirmation ended: the status and
+// error code the API answered with (code is empty for a success),
+// its message, the correlation id of the request and the exit code
+// retnd would have used for the same answer. A replay the shut
+// destructive gate refused reads DESTRUCTIVE_OPERATIONS_DISABLED
+// with exit code 50, exactly as retnd run does.
+type AgentExecution struct {
+	Code          string `json:"code"`
+	CorrelationID string `json:"correlation_id"`
+	ExitCode      int    `json:"exit_code"`
+	Message       string `json:"message"`
+	Outcome       string `json:"outcome"`
+	Status        int    `json:"status"`
+}
+
 // AgentMcpFrame is one JSON-RPC 2.0 message of the Model Context Protocol. The
 // engine's streamable HTTP transport speaks the protocol revision
 // `retnd agent tools` prints; this contract does not restate it.
@@ -3331,6 +3436,12 @@ type ListActivityResponse struct {
 type ListAgentAuditResponse struct {
 	Entries    []AgentAuditEntry `json:"entries"`
 	NextCursor string            `json:"next_cursor,omitempty"`
+}
+
+// ListAgentConfirmationsResponse is GET /agent/confirmations. The newest confirmations first, pending
+// ones whose time has passed already read expired.
+type ListAgentConfirmationsResponse struct {
+	Confirmations []AgentConfirmation `json:"confirmations"`
 }
 
 // ListAgentTokensResponse is GET /agent/tokens. Every token, revoked and expired ones included,
@@ -5622,6 +5733,8 @@ var SchemaTypes = map[string]any{
 	"ActivityEvent":                      ActivityEvent{},
 	"AdoptedPath":                        AdoptedPath{},
 	"AgentAuditEntry":                    AgentAuditEntry{},
+	"AgentConfirmation":                  AgentConfirmation{},
+	"AgentExecution":                     AgentExecution{},
 	"AgentMcpFrame":                      AgentMcpFrame{},
 	"AgentPrompt":                        AgentPrompt{},
 	"AgentResource":                      AgentResource{},
@@ -5709,6 +5822,7 @@ var SchemaTypes = map[string]any{
 	"ImportStorageCredentialsResponse":   ImportStorageCredentialsResponse{},
 	"ListActivityResponse":               ListActivityResponse{},
 	"ListAgentAuditResponse":             ListAgentAuditResponse{},
+	"ListAgentConfirmationsResponse":     ListAgentConfirmationsResponse{},
 	"ListAgentTokensResponse":            ListAgentTokensResponse{},
 	"ListArtifactsResponse":              ListArtifactsResponse{},
 	"ListBackendsResponse":               ListBackendsResponse{},

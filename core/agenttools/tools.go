@@ -112,6 +112,18 @@ func Offered(method, path, action string) bool {
 	return false
 }
 
+// Proposes reports the scope a tool needs when the request it would make is
+// exactly the one that tool proposes: the tool's own method, a concrete path
+// below /api/v1 that fits its route, and, on the route several acts share, its
+// action word. A read tool proposes nothing.
+func Proposes(tool, method, p, action string) (Scope, bool) {
+	r, ok := Lookup(tool)
+	if !ok || r.Scope == ScopeRead || r.Method != method || !matches(r.Route, p) || (r.Action != "" && r.Action != action) {
+		return "", false
+	}
+	return r.Scope, true
+}
+
 // The reasons. Many routes share one, and a reason that is written twice is a
 // reason that says two things.
 const (
@@ -150,6 +162,8 @@ const (
 	whyTransport = "this is the transport an agent already speaks to reach its tools, so a tool over it would be the agent calling itself"
 
 	whyCatalogue = "the catalogue is read by an operator from a terminal or the browser, and an agent already has it as the list of its own tools"
+
+	whyConfirmDecide = "a person lists and decides confirmations; an agent only proposes one and reads its own by id"
 
 	whyAudit = "the audit trail is read by an operator from a terminal or the browser; an agent's own calls are in it and it never reads it back"
 
@@ -294,6 +308,11 @@ var toolRows = []Row{
 		Description: "Read one workflow run and each of its steps: state, exit code and timing. Never a step's log.",
 		Untrusted:   []string{"failed_step", "failed_script", "steps[].script_name", "steps[].target"},
 	},
+	{
+		Tool: "confirmation_status", Method: "GET", Route: "/agent/confirmations/{id}", Scope: ScopeRead,
+		Description: "Read the state of a change this token proposed, by the confirmation id the proposal answered with: pending, approved, denied or expired, and once it ran, how it ended.",
+		Untrusted:   []string{"execution.message"},
+	},
 
 	// --------------------------------------------------------- operate ---
 	{
@@ -413,6 +432,7 @@ var refusalRows = join(
 		"POST /repositories", "POST /workflow-recovery/{run}/resume-cleanup", "POST /workflow-recovery/{run}/acknowledge"),
 	no(whyCatalogue, "GET /agent/tools"),
 	no(whyAudit, "GET /agent/audit"),
+	no(whyConfirmDecide, "GET /agent/confirmations", "POST /agent/confirmations/{id}/approve", "POST /agent/confirmations/{id}/deny"),
 	no(whyTransport, "POST /agent/mcp", "GET /agent/mcp", "DELETE /agent/mcp"),
 	no(whyRead,
 		"GET /system/version", "GET /system/capabilities", "GET /system/staging-directories", "GET /system/storage",

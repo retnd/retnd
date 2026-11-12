@@ -622,6 +622,9 @@ var stepUpOperations = map[string]bool{
 	// The bundle export (#993): the terminal that holds the password has
 	// already proved what the step-up asks a browser session to prove again.
 	"exportRecoveryBundle": true,
+	// Approving an agent's change (#1349): the terminal that holds the password
+	// has already proved what the step-up asks a browser session to prove again.
+	"approveAgentConfirmation": true,
 }
 
 // The rate limit this client is on the wrong side of, and why waiting is
@@ -772,6 +775,7 @@ func (c *Client) receive(ep apicontract.Endpoint, path string, resp *http.Respon
 		Code:          code,
 		Message:       message,
 		CorrelationID: correlationID,
+		Header:        resp.Header.Clone(),
 	}
 }
 

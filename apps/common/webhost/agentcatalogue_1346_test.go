@@ -173,7 +173,7 @@ func TestABearerCannotReadKeyMaterialOrAnythingLikeIt(t *testing.T) {
 
 // Falsify: consult the list only when a token store is wired.
 func TestTheDenyListHoldsWithNoTokenStoreToo(t *testing.T) {
-	h := authMiddleware(allowingPlatform("alice"), nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := authMiddleware(allowingPlatform("alice"), nil, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	for _, p := range []string{"/api/v1/encryption/keys", "/api/v1/ssh-keys", "/api/v1/storage-credentials"} {

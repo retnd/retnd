@@ -105,10 +105,13 @@ func (c engineCaller) Call(ctx context.Context, call agentmcp.Call) (agentmcp.Re
 		service.AgentToolHeader:      {call.Tool},
 		service.AgentTransportHeader: {"stdio"},
 	})
-	body, correlationID, err := c.client.CallRoute(ctx, call.Method, call.Route, call.PathArgs, call.Query, nil)
+	body, correlationID, err := c.client.CallRoute(ctx, call.Method, call.Route, call.PathArgs, call.Query, call.Body)
 	var refused *apiclient.Error
 	if errors.As(err, &refused) {
-		return agentmcp.Response{}, &agentmcp.Refusal{Status: refused.Status, Code: string(refused.Code), Message: refused.Message, CorrelationID: refused.CorrelationID}
+		return agentmcp.Response{}, &agentmcp.Refusal{
+			Status: refused.Status, Code: string(refused.Code), Message: refused.Message, CorrelationID: refused.CorrelationID,
+			ConfirmationID: refused.Header.Get("X-Retnd-Confirmation-Id"), ConfirmationExpires: refused.Header.Get("X-Retnd-Confirmation-Expires"),
+		}
 	}
 	return agentmcp.Response{Body: body, CorrelationID: correlationID}, err
 }

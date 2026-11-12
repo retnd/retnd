@@ -102,8 +102,9 @@ const (
 // call, so the audit row for that request can name the tool and the transport.
 // They are the transport's own statement and are checked on the way in
 // (AgentCallHeaders): a tool name that is not a plain identifier is dropped,
-// and a transport is stdio or http and otherwise api. Neither changes what the
-// request may do, which is decided by the token alone.
+// and a transport is stdio or http and otherwise api. The headers name the
+// audit row and, on a mutating route, select the tool to propose; they never
+// widen scope.
 const (
 	AgentToolHeader      = "X-Retnd-Agent-Tool"
 	AgentTransportHeader = "X-Retnd-Agent-Transport"
@@ -160,7 +161,7 @@ type AgentCall struct {
 	Code           string
 	CorrelationID  string
 	ConfirmationID string
-	// ConfirmationState is pending, approved, denied or expired when this
+	// ConfirmationState is pending, approved, denied, expired or interrupted when this
 	// record is a confirmation changing state, and empty for a call.
 	ConfirmationState string
 
@@ -539,6 +540,8 @@ func agentActionResultAndMessage(c AgentCall) (obs.Result, string) {
 		return obs.ResultSuccess, "a person approved " + what + " for " + who
 	case "denied", "expired":
 		return obs.ResultWarn, what + " for " + who + " was " + c.ConfirmationState
+	case "interrupted":
+		return obs.ResultWarn, what + " for " + who + " was approved but the engine stopped before it finished; check this feed before running it again"
 	}
 	switch {
 	case c.Refused:

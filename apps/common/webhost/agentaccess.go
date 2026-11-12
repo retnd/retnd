@@ -23,27 +23,30 @@ import (
 //
 // Only a bearer that carries the rat_ prefix is an agent token; any other
 // Authorization header is ignored, as it always was. A token is a second way
-// to be authenticated here, never a way around the first. It is checked against its row on every request, a request that
-// presents one is never also given the benefit of a cookie, and it reaches
-// strictly less than a session does:
+// to be authenticated here, never a way around the first. It is checked
+// against its row on every request, a request that presents one is never
+// also given the benefit of a cookie, and it reaches strictly less than a
+// session does:
 //
 //   - the routes on core/agenttools' deny list refuse a bearer whatever its
 //     scope, once the token is known, so a valid token's probe is audited
-//     with its id. The list is the catalogue's, read
-//     here on the wire, because a token works against raw /api/v1 and a deny
-//     list held only by a transport would hold nothing back (#1346);
+//     with its id. The list is the catalogue's, read here on the wire,
+//     because a token works against raw /api/v1 and a deny list held only by
+//     a transport would hold nothing back (#1346);
 //   - a bearer reads only what the catalogue offers it: a GET to the route a
-//     read tool sits on, and nothing else, whatever the scope (Q1 of the EPIC
-//     U panel, #1368). The router resolves the pattern of the request and
+//     read tool sits on, the state of a confirmation it proposed (by id, its
+//     own only) and the MCP endpoint, and nothing else, whatever the scope
+//     (Q1 of the EPIC U panel, #1368). The router resolves the pattern of the request and
 //     core/agenttools.BearerReadable compares it whole, so a route that is
 //     not a tool is AGENT_ROUTE_DENIED even though it is only a read;
 //   - a bearer reaches no route that changes anything. A read token is told
 //     so (AGENT_SCOPE_INSUFFICIENT); an operate or configure token is told a
-//     person has to confirm the change (AGENT_CONFIRMATION_REQUIRED), which is
-//     how U2.1 will take it, and only for a route the catalogue has a tool
-//     over. Any other change is AGENT_ROUTE_DENIED, so nothing outside the
-//     catalogue is ever put in front of a person to approve. Until U2.1
-//     nothing a token can do mutates;
+//     person has to confirm the change (AGENT_CONFIRMATION_REQUIRED), and
+//     only for a route the catalogue has a tool over. Any other change is
+//     AGENT_ROUTE_DENIED, so nothing outside the catalogue is ever put in
+//     front of a person to approve. A bearer request creates a confirmation
+//     only when it names a catalogue tool whose method, route and action
+//     match exactly; any other is refused and records nothing (U2.1, #1349);
 //   - requireCSRF passes a bearer principal and nobody else. CSRF defends a
 //     credential a browser sends by itself, and a header is not one.
 
@@ -184,7 +187,7 @@ func AgentDeniedByMount(next http.Handler) http.Handler {
 // authenticateBearer is authMiddleware's branch for a request that presents a
 // bearer token. It returns the request to serve, or false after writing a
 // refusal.
-func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAccess, guard *agentGuard, presented string) (*http.Request, bool) {
+func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAccess, guard *agentGuard, proposer *agentProposer, presented string) (*http.Request, bool) {
 	// audit records a refusal that was just written. The refusal stands
 	// whether or not the row lands, so a failure to write it is logged and
 	// nothing else.
@@ -246,6 +249,13 @@ func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAcce
 		if !agentChangeOffered(r) {
 			audit(principal.TokenID, principal.Name, http.StatusForbidden, "AGENT_ROUTE_DENIED",
 				writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route"))
+			return nil, false
+		}
+		// A tool call, which names its tool, is recorded as a pending
+		// confirmation (U2.1). A raw request, which does not, is refused and
+		// nothing is recorded: the refusal is the whole effect of it.
+		if status, code, correlationID, handled := proposer.propose(w, r, principal); handled {
+			audit(principal.TokenID, principal.Name, status, code, correlationID)
 			return nil, false
 		}
 		audit(principal.TokenID, principal.Name, http.StatusConflict, "AGENT_CONFIRMATION_REQUIRED",

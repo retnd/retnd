@@ -283,12 +283,17 @@ var contractBindings = map[string]contractBinding{
 	"listAgentTools": {nil, apicontract.AgentToolsResponse{}, "/api/v1/agent/tools"},
 	// EPIC U (#1347): the MCP transport. A frame is free-form JSON-RPC, so
 	// there is no Go type to bind beyond the contract's own.
-	"postAgentMcp":         {apicontract.AgentMcpFrame{}, apicontract.AgentMcpFrame{}, "/api/v1/agent/mcp"},
-	"getAgentMcp":          {nil, nil, "/api/v1/agent/mcp"},
-	"deleteAgentMcp":       {nil, nil, "/api/v1/agent/mcp"},
-	"listEncryptionSuites": {nil, apicontract.ListEncryptionSuitesResponse{}, "/api/v1/encryption/suites"},
-	"listEncryptionCopies": {nil, apicontract.ListEncryptionCopiesResponse{}, "/api/v1/encryption/copies"},
-	"startDecryptVerify":   {apicontract.StartDecryptVerifyRequest{}, apicontract.ScrubStarted{}, "/api/v1/encryption/verify"},
+	"postAgentMcp":   {apicontract.AgentMcpFrame{}, apicontract.AgentMcpFrame{}, "/api/v1/agent/mcp"},
+	"getAgentMcp":    {nil, nil, "/api/v1/agent/mcp"},
+	"deleteAgentMcp": {nil, nil, "/api/v1/agent/mcp"},
+	// EPIC U (#1349): the three confirmation routes.
+	"listAgentConfirmations":   {nil, apicontract.ListAgentConfirmationsResponse{}, "/api/v1/agent/confirmations"},
+	"getAgentConfirmation":     {nil, apicontract.AgentConfirmation{}, "/api/v1/agent/confirmations/cnf_1"},
+	"approveAgentConfirmation": {nil, apicontract.AgentConfirmation{}, "/api/v1/agent/confirmations/cnf_1/approve"},
+	"denyAgentConfirmation":    {nil, apicontract.AgentConfirmation{}, "/api/v1/agent/confirmations/cnf_1/deny"},
+	"listEncryptionSuites":     {nil, apicontract.ListEncryptionSuitesResponse{}, "/api/v1/encryption/suites"},
+	"listEncryptionCopies":     {nil, apicontract.ListEncryptionCopiesResponse{}, "/api/v1/encryption/copies"},
+	"startDecryptVerify":       {apicontract.StartDecryptVerifyRequest{}, apicontract.ScrubStarted{}, "/api/v1/encryption/verify"},
 	// Issues #1291 and #1317. The dry runs and the runs are bound to the
 	// same two paths, one method each.
 	"planEncryptExisting":  {nil, apicontract.EncryptExistingPlan{}, "/api/v1/encryption/encrypt-existing"},
@@ -734,7 +739,9 @@ func TestContract_DeclaredRequirementsMatchWhatTheRoutesEnforce(t *testing.T) {
 // ----------------------------------------------------------- error codes ---
 
 var (
-	writeErrorCode = regexp.MustCompile(`write(?:Auth)?Error\([^,]+,\s*[^,]+,\s*"([A-Z][A-Z0-9_]+)"`)
+	// refuse is agentconfirmations.go's: it writes the error and reports
+	// the refusal to the audit in one call, with writeError's arguments.
+	writeErrorCode = regexp.MustCompile(`(?:write(?:Auth)?Error|refuse)\([^,]+,\s*[^,]+,\s*"([A-Z][A-Z0-9_]+)"`)
 	// gate_profile.go's one refusal constructor: status first, then the code.
 	gateRefusalCode = regexp.MustCompile(`newGateRefusal\([^,]+,\s*"([A-Z][A-Z0-9_]+)"`)
 	assignedCode    = regexp.MustCompile(`\.Code\s*=\s*"([A-Z][A-Z0-9_]+)"`)

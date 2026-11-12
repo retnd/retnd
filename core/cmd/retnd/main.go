@@ -642,6 +642,26 @@ commands:
                                                   end a token. The very next request that presents it is refused, so
                                                   there is nothing to wait for. ID is the one agent token list
                                                   prints. The same as POST /api/v1/agent/tokens/{id}/revoke
+  agent confirmations list [--json]
+                                                  the changes agents have asked for, newest first: pending, approved,
+                                                  denied and expired, with the command each one echoes. A call an agent
+                                                  makes under the operate or configure scope runs nothing until a person
+                                                  approves it. The same as GET /api/v1/agent/confirmations
+  agent confirmations show ID [--json]
+                                                  one confirmation: its state, the command it echoes and, once approved
+                                                  and run, how it ended: the API's code and message, the correlation id
+                                                  and the exit code retnd gives the same answer. The same as GET
+                                                  /api/v1/agent/confirmations/{id}
+  agent confirmations approve ID [--json]
+                                                  approve one pending confirmation and replay the request that was
+                                                  recorded, unchanged, as the token that asked. The password this
+                                                  command already signs in with is the step-up. It needs a serving
+                                                  engine, because the replay goes through the engine's own handlers; a
+                                                  shut destructive gate refuses it with exit code 50, as it refuses
+                                                  retnd run. The same as POST /api/v1/agent/confirmations/{id}/approve
+  agent confirmations deny ID [--json]
+                                                  deny one pending confirmation: nothing runs and the agent reads it as
+                                                  denied. The same as POST /api/v1/agent/confirmations/{id}/deny
   agent serve --stdio --token-file PATH
                                                   serve the read tools, resources and prompts of the agent catalogue to
                                                   an MCP client on standard input and output, calling the engine at
