@@ -52,9 +52,12 @@ type KeyCustody struct {
 	store *keycustody.Store
 
 	// probed is the last external key probe and probeAt when it ran (#1304).
-	probeMu sync.Mutex
-	probed  []health.ExternalKeyAtRisk
-	probeAt time.Time
+	// probedRefs is the declared references that probe saw, so a reload that
+	// drops or adds one is not answered from a probe of the old list.
+	probeMu    sync.Mutex
+	probed     []health.ExternalKeyAtRisk
+	probeAt    time.Time
+	probedRefs string
 }
 
 // UseConfig tells custody where to find the declared external references
@@ -233,8 +236,13 @@ func (c *KeyCustody) AlertConditions(ctx context.Context, policies []keycustody.
 // externalProbeTTL, so two asks in one tick resolve once, and
 // LastExternalKeysAtRisk hands it to a health build without resolving.
 func (c *KeyCustody) ExternalKeysAtRisk(ctx context.Context) ([]health.ExternalKeyAtRisk, error) {
+	// The declared references are read from the running configuration, which
+	// resolves nothing, so asking for them on every call is free. A probe of
+	// a different list answers a different question: a reference dropped by
+	// a reload is reported now, not when the TTL runs out.
+	refs := fmt.Sprintf("%q", c.externalRefs())
 	c.probeMu.Lock()
-	if !c.probeAt.IsZero() && time.Since(c.probeAt) < externalProbeTTL {
+	if !c.probeAt.IsZero() && time.Since(c.probeAt) < externalProbeTTL && c.probedRefs == refs {
 		out := c.probed
 		c.probeMu.Unlock()
 		return out, nil
@@ -245,7 +253,7 @@ func (c *KeyCustody) ExternalKeysAtRisk(ctx context.Context) ([]health.ExternalK
 		return nil, err
 	}
 	c.probeMu.Lock()
-	c.probed, c.probeAt = out, time.Now()
+	c.probed, c.probeAt, c.probedRefs = out, time.Now(), refs
 	c.probeMu.Unlock()
 	return out, nil
 }

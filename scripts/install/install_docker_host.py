@@ -6832,8 +6832,8 @@ def cmd_uninstall(args) -> int:
         say(f"  {label:<14} {path}")
     if args.workflows_dir.is_dir():
         say(f"  {'--workflows':<14} {args.workflows_dir}")
-    say("They hold the SQLite journal, the administrator record, the backups themselves, the managed")
-    say("encryption keys (config/retained_copy_keys), and any hook scripts you wrote.")
+    say("They hold the SQLite journal, the administrator record, the backups themselves,")
+    say("the managed encryption keys (config/retained_copy_keys), and any hook scripts you wrote.")
     say("Remove them by hand if that is really what you want.")
     say("")
     say("NOT removed by this command: if `install` or `network-doctor` ever repaired this host's")
