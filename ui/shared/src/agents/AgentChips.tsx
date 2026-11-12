@@ -63,7 +63,7 @@ export function OutcomeChip({ row }: { row: Pick<AgentAuditRow, "status" | "code
   const mark: Mark = waiting ? { text: "◷" } : state === "ok" ? { icon: "success" } : { icon: "failure" };
   return (
     <InfoTooltip id="agents.audit.outcome">
-      <span className="agchip" data-chip="outcome" data-state={state}>
+      <span className="agchip" data-chip="outcome" data-state={state} {...(state === "refused" ? { "data-agent-refusal": "" } : {})}>
         <MarkGlyph mark={mark} />
         {row.status}
         {row.code !== "" ? " " + row.code : ""}

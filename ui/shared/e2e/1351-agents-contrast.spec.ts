@@ -92,10 +92,25 @@ test.describe("#1351 contrast, light and dark", () => {
   });
 
   test("#1351 the narrow layout keeps every pair and drops no column name", async ({ page }) => {
-    await page.setViewportSize({ width: 360, height: 800 });
+    // Narrow for the card means its own container under 640px (agents.css). The app shell keeps a 206px sidebar, so
+    // at a 360px window the card gets 47px and the page's other cards overflow it (#1337); 760px puts the card's
+    // container at about 500px, which is the layout this row is about, inside a shell that can hold it.
+    await page.setViewportSize({ width: 760, height: 800 });
     await openAgents(page, "agents-pending");
     await expect(tokenRow(page, "nightly-triage").locator("td[data-label='Expires']")).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+    // Nothing of the card pokes out of the column it lives in (the visually hidden header row is clipped, not drawn).
+    expect(
+      await page.evaluate(() => {
+        const limit = document.querySelector("main")!.getBoundingClientRect().right + 1;
+        const card = document.querySelector("[data-agents-card]")!;
+        return [card, ...Array.from(card.querySelectorAll("*"))]
+          .filter((e) => !e.closest("thead"))
+          .every((e) => {
+            const r = e.getBoundingClientRect();
+            return r.width <= 1 || r.right <= limit;
+          });
+      })
+    ).toBe(true);
     await bothThemes(page, "narrow", "[data-agents-card]");
   });
 });

@@ -23,7 +23,15 @@ import { OutcomeChip } from "./AgentChips";
 import { auditCommand } from "./agentCommands";
 import "./agents.css";
 
-type Failure = { message: string; remediation?: string; correlationId?: string };
+type Failure = { message: string; remediation?: string; correlationId?: string; detail?: string };
+
+/** The design note (section 8) says an audit failure shows the engine's message and code as sent, so an
+ *  engine refusal is drawn as it came; describeFailure only speaks for failures that never reached the engine. */
+function engineFailure(e: unknown, fallback: string): Failure {
+  const err = apiErrorOf(e);
+  if (err) return { message: err.message, remediation: err.remediation, correlationId: err.correlationId, detail: `code ${err.code}` };
+  return { message: describeFailure(e, fallback).message };
+}
 
 export function AuditRegion({ tokens, tools, revision }: { tokens: AgentToken[]; tools: AgentTool[]; revision: number }) {
   const api = useApi();
@@ -53,9 +61,7 @@ export function AuditRegion({ tokens, tools, revision }: { tokens: AgentToken[];
       },
       (e) => {
         if (mine !== latest.current) return;
-        const err = apiErrorOf(e);
-        const f = describeFailure(e, "the audit could not be read");
-        setFailure({ message: f.message, remediation: err?.remediation, correlationId: err?.correlationId });
+        setFailure(engineFailure(e, "the audit could not be read"));
       }
     );
   }, [api, tokenId, since, revision, nonce]);
@@ -68,8 +74,7 @@ export function AuditRegion({ tokens, tools, revision }: { tokens: AgentToken[];
       setRows((r) => [...(r ?? []), ...page.rows]);
       setCursor(page.nextCursor);
     } catch (e) {
-      const err = apiErrorOf(e);
-      setFailure({ message: describeFailure(e, "older calls could not be read").message, correlationId: err?.correlationId });
+      setFailure(engineFailure(e, "older calls could not be read"));
     } finally {
       setOlder(false);
     }
@@ -81,7 +86,7 @@ export function AuditRegion({ tokens, tools, revision }: { tokens: AgentToken[];
   const commitSince = () => setSince(sinceDraft.trim());
 
   return (
-    <div className="ag-region" data-agents-region="audit">
+    <div className="ag-region" data-agents-region="audit" data-surface="audit">
       <div className="ag-region__head">
         <InfoTooltip id="agents.audit"><h3 className="ag-region__title">Audit</h3></InfoTooltip>
       </div>
@@ -120,7 +125,7 @@ export function AuditRegion({ tokens, tools, revision }: { tokens: AgentToken[];
       <CommandEcho label="Equivalent command" commands={[auditCommand({ tokenId: tokenId || undefined, since: since || undefined })]} />
 
       {failure && rows === null ? (
-        <ErrorState message={failure.message} remediation={failure.remediation} correlationId={failure.correlationId} onRetry={() => { setFailure(null); setNonce((n) => n + 1); }} />
+        <ErrorState message={failure.message} remediation={failure.remediation} correlationId={failure.correlationId} detail={failure.detail} onRetry={() => { setFailure(null); setNonce((n) => n + 1); }} />
       ) : rows === null ? (
         <p className="ag-note">Reading the audit...</p>
       ) : rows.length === 0 ? (

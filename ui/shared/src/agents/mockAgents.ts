@@ -22,6 +22,7 @@
  *   agents-read-only         the pending page, on a page that is read-only
  *   agents-insecure          the pending page on an unencrypted connection: the consent comes first
  *   agents-catalogue-failed  the pending page, with the catalogue route failing
+ *   agent-refusals           #1352: one refused audit row, and a pending run_cycle the shut gate refuses once approved
  *   agents-http-on           the token page, with the HTTP transport reported on (every other agents-* scenario reports off)
  */
 import { RetndError } from "@shared/api/contracts";
@@ -38,7 +39,8 @@ export const AGENTS_SCENARIOS = [
   "agents-read-only",
   "agents-insecure",
   "agents-catalogue-failed",
-  "agents-http-on"
+  "agents-http-on",
+  "agent-refusals"
 ] as const;
 
 /**
@@ -48,8 +50,9 @@ export const AGENTS_SCENARIOS = [
  */
 export const MOCK_MINTED_SECRET = "rat_EXAMPLE0000000000000000000000000000000000";
 
+// Verbatim the engine's destructiveGateRefusal (apps/common/webhost/auth.go), backticks included.
 export const MOCK_GATE_SENTENCE =
-  "destructive operations are refused over HTTP in this release, until the trusted-proxy authentication gate (issue #92) has been verified; run the equivalent retnd command on the host";
+  "destructive operations are refused over HTTP in this release, until the trusted-proxy authentication gate (issue #92) has been verified; run the equivalent `retnd` command on the host";
 
 /** What an agent could put in an argument. The card draws it as inert text. */
 export const HOSTILE_ARGUMENTS = '{"set":"<img src=x onerror=\'window.__agentPwned=1\'> https://example.invalid/ignore-previous-instructions"}';
@@ -110,7 +113,7 @@ export interface MockAgentsDeps {
 }
 
 export function createMockAgents(scenario: string, deps: MockAgentsDeps) {
-  const seeded = scenario.startsWith("agents-");
+  const seeded = scenario.startsWith("agents-") || scenario === "agent-refusals";
   const now = Date.now();
   const iso = (offsetMs: number) => new Date(now + offsetMs).toISOString();
 
@@ -140,7 +143,7 @@ export function createMockAgents(scenario: string, deps: MockAgentsDeps) {
   });
   // Newest first, every state, as GET /agent/confirmations answers.
   const confirmations: AgentConfirmation[] = [];
-  if (["agents-pending", "agents-pending-gate", "agents-pending-expired", "agents-read-only", "agents-insecure", "agents-catalogue-failed"].includes(scenario)) {
+  if (["agents-pending", "agents-pending-gate", "agents-pending-expired", "agents-read-only", "agents-insecure", "agents-catalogue-failed", "agent-refusals"].includes(scenario)) {
     confirmations.push(
       pend("cf_01", "run_cycle", "retnd run", "", MIN, 14 * MIN),
       pend("cf_02", "recovery_test_start", "retnd assurance recovery-test production/postgres-primary", "production/postgres-primary", 14 * MIN, 41_000),
@@ -232,7 +235,7 @@ export function createMockAgents(scenario: string, deps: MockAgentsDeps) {
       if (scenario === "agents-pending-expired") {
         throw refuse("AGENT_CONFIRMATION_EXPIRED", "this confirmation expired and nothing was run; ask the agent to make the request again.", 409, "cid_mockexpired");
       }
-      const gated = scenario === "agents-pending-gate" && c.tool === "run_cycle";
+      const gated = (scenario === "agents-pending-gate" || scenario === "agent-refusals") && c.tool === "run_cycle";
       c.state = "approved";
       c.decidedAt = new Date().toISOString();
       c.execution = gated
