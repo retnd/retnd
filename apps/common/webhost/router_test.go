@@ -131,7 +131,14 @@ var destructiveGateExemptRoutes = map[string]bool{
 	// is consulted), and a revoke is the safe direction.
 	"POST /api/v1/agent/tokens":             true,
 	"POST /api/v1/agent/tokens/{id}/revoke": true,
-	"POST /api/v1/ssh/host-key-probe":       true,
+	// EPIC U (#1349): approving and denying an agent's confirmation. Neither
+	// touches backup data itself: deny runs nothing, and approve replays the
+	// recorded request through this same router, where the gate is applied to
+	// the replay as it would be to the original (TestRunCycleApprovedMeetsTheShutGate
+	// AsAPersonWould). Session only, behind a step-up for approve.
+	"POST /api/v1/agent/confirmations/{id}/approve": true,
+	"POST /api/v1/agent/confirmations/{id}/deny":    true,
+	"POST /api/v1/ssh/host-key-probe":               true,
 
 	// Issue #1203. Removing a custom validator stops a script from running
 	// and deletes no backup datum: the class of clearing a stage directory

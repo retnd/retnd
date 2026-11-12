@@ -275,12 +275,16 @@ var contractBindings = map[string]contractBinding{
 	"testEncryptionProvider":   {apicontract.EncryptionProviderTestRequest{}, apicontract.EncryptionProviderProbe{}, "/api/v1/encryption/providers/test"},
 	// EPIC U (#1345): the three agent token routes, bound to the contract's
 	// own types so the declared shape and the served shape cannot part.
-	"listAgentTokens":      {nil, apicontract.ListAgentTokensResponse{}, "/api/v1/agent/tokens"},
-	"mintAgentToken":       {apicontract.MintAgentTokenRequest{}, apicontract.MintedAgentToken{}, "/api/v1/agent/tokens"},
-	"revokeAgentToken":     {nil, apicontract.AgentToken{}, "/api/v1/agent/tokens/agt_1/revoke"},
-	"listEncryptionSuites": {nil, apicontract.ListEncryptionSuitesResponse{}, "/api/v1/encryption/suites"},
-	"listEncryptionCopies": {nil, apicontract.ListEncryptionCopiesResponse{}, "/api/v1/encryption/copies"},
-	"startDecryptVerify":   {apicontract.StartDecryptVerifyRequest{}, apicontract.ScrubStarted{}, "/api/v1/encryption/verify"},
+	"listAgentTokens":  {nil, apicontract.ListAgentTokensResponse{}, "/api/v1/agent/tokens"},
+	"mintAgentToken":   {apicontract.MintAgentTokenRequest{}, apicontract.MintedAgentToken{}, "/api/v1/agent/tokens"},
+	"revokeAgentToken": {nil, apicontract.AgentToken{}, "/api/v1/agent/tokens/agt_1/revoke"},
+	// EPIC U (#1349): the three confirmation routes.
+	"listAgentConfirmations":   {nil, apicontract.ListAgentConfirmationsResponse{}, "/api/v1/agent/confirmations"},
+	"approveAgentConfirmation": {nil, apicontract.AgentConfirmation{}, "/api/v1/agent/confirmations/cnf_1/approve"},
+	"denyAgentConfirmation":    {nil, apicontract.AgentConfirmation{}, "/api/v1/agent/confirmations/cnf_1/deny"},
+	"listEncryptionSuites":     {nil, apicontract.ListEncryptionSuitesResponse{}, "/api/v1/encryption/suites"},
+	"listEncryptionCopies":     {nil, apicontract.ListEncryptionCopiesResponse{}, "/api/v1/encryption/copies"},
+	"startDecryptVerify":       {apicontract.StartDecryptVerifyRequest{}, apicontract.ScrubStarted{}, "/api/v1/encryption/verify"},
 	// Issue #1203. The handlers write apicontract's own types, so the
 	// bindings are those types.
 	"listCustomValidators":        {nil, apicontract.ListCustomValidatorsResponse{}, "/api/v1/assurance/validators"},

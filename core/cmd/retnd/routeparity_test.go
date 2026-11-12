@@ -222,6 +222,12 @@ var refusingInputs = []refusingInput{
 			return []string{"agent", "token", "revoke", "agt_nosuchtoken", "--config", configPath}
 		},
 	},
+	{
+		name: "deny an agent confirmation this deployment does not have",
+		args: func(configPath, _ string) []string {
+			return []string{"agent", "confirmations", "deny", "cnf_nosuchconfirmation", "--config", configPath}
+		},
+	},
 	// #1317: re-encrypting copies under the active suite and key. A suite
 	// this build does not know is the service's own refusal on both routes.
 	{
