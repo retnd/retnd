@@ -8,6 +8,7 @@ import (
 
 	"github.com/retnd/retnd/apps/common/platform/profile"
 	"github.com/retnd/retnd/core/apicontract"
+	"github.com/retnd/retnd/core/service"
 )
 
 // #1385: an approved confirmation is replayed on the approver's connection,
@@ -135,4 +136,44 @@ func TestForwardedHeadersOnAnApprovalAreTrustedNoFurtherThanTheRuleTrustsThem(t 
 		r.Header.Set("X-Forwarded-For", "198.51.100.7, 127.0.0.1")
 	})
 	wantTransportRefusal(t, rig, got)
+}
+
+// What the replay may carry from the approver is the connection and nothing
+// else: still agent:<name>, no bearer, no step-up, no cookie.
+func TestTheReplayCarriesTheApproversConnectionAndNothingElse(t *testing.T) {
+	var seen *http.Request
+	capture := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r
+		w.WriteHeader(http.StatusAccepted)
+	})
+	approver := session(http.MethodPost, approveCnf1, "", stepUpPassword)
+	approver.RemoteAddr = "192.0.2.9:4000"
+	approver.TLS = &tls.ConnectionState{}
+	approver.Header.Set("Authorization", "Bearer rat_x")
+	approver.Header.Set("X-Forwarded-For", "198.51.100.7")
+	approver.Header.Set("X-Forwarded-Proto", "https")
+	approver.Header.Set(BrowserTransportHeader, BrowserTransportHTTPS)
+	approver.Header.Set(InsecureTransportHeader, InsecureTransportAcknowledged)
+	approver.Header.Set("X-Other", "leak")
+
+	replayAgentRequest(approver, capture, pendingConfirmation("cnf_1", "POST", "/operations", `{"action":"run_cycle"}`), service.AgentPrincipal{TokenID: "agt_op", Name: "runner", Scope: service.AgentScopeOperate})
+	if seen == nil {
+		t.Fatal("nothing was replayed")
+	}
+	if seen.RemoteAddr != approver.RemoteAddr || seen.TLS == nil {
+		t.Errorf("replay connection = %q tls %v, want the approver's", seen.RemoteAddr, seen.TLS != nil)
+	}
+	for h, want := range map[string]string{
+		"X-Forwarded-For": "198.51.100.7", "X-Forwarded-Proto": "https",
+		BrowserTransportHeader: BrowserTransportHTTPS, InsecureTransportHeader: InsecureTransportAcknowledged,
+	} {
+		if got := seen.Header.Get(h); got != want {
+			t.Errorf("replay %s = %q, want %q", h, got, want)
+		}
+	}
+	for _, h := range []string{StepUpHeader, "Authorization", "Cookie", "X-Other", "X-Csrf-Token"} {
+		if v := seen.Header.Get(h); v != "" {
+			t.Errorf("the replay carries %s = %q", h, v)
+		}
+	}
 }
