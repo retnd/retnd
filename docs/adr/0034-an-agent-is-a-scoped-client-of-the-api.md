@@ -159,6 +159,12 @@ Q, 2026-10-11) and one agent at the default rate limit could write 86,000 rows i
 trail is pruned past `agents.audit_retention_days` (90) and read by `retnd agent audit`,
 `GET /api/v1/agent/audit` and the Agents card.
 
+The trail fails closed. The writer tracks whether its database writes are failing (a full or
+read-only disk, a schema error), not only whether its queue is full. While that is set, a call
+that needs an audit row is refused with 503 `AGENT_AUDIT_UNAVAILABLE` and nothing runs, and that
+includes a raw bearer call that names no tool. The next successful write, a probe, clears it. I
+chose losing availability during a journal fault over serving calls whose rows are gone.
+
 ## Decision 7: one projection at the tool boundary, and untrusted text is data
 
 Every tool result passes `agenttools.Project` before it leaves: a field-name denylist
@@ -196,11 +202,12 @@ says so.
 
 ## Decision 10: one new module
 
-The server speaks MCP through `github.com/modelcontextprotocol/go-sdk`, pinned, MIT, declared in
+The server speaks MCP through `github.com/modelcontextprotocol/go-sdk` v1.8.0 (the version in
+`go.mod`), pinned, licensed Apache-2.0 and MIT (its LICENSE carries both texts), declared in
 NOTICE and the licence inventory. A hand-rolled JSON-RPC subset was the alternative; it drifts
 from a protocol with a published schema. If the module graph or the size gate refuses the SDK,
-the fallback is a minimal implementation of `initialize`, `tools/*`, `resources/*` and
-`prompts/*`, and #1347 says which it used and why (D6).
+the fallback would have been a minimal implementation of `initialize`, `tools/*`, `resources/*`
+and `prompts/*`. Neither refused it, so the SDK is what ships (D6).
 
 ## What this ADR does not decide
 
@@ -210,9 +217,9 @@ drives.
 
 ## Owner decisions
 
-Each row was answered by taking the recommended default, and nothing was changed from it. D10 was
-not in the scaffold: it came up while phase 1 was built and was answered the same way, and
-decision 2 reads it into the token rule.
+D1 to D9 were answered by taking the recommended default, and nothing was changed from them. D10
+was not in the scaffold: it came up while phase 1 was built and the owner answered it on #1357
+(the `rat_` prefix), and decision 2 reads it into the token rule.
 
 | ID | Question | Recommended | Answer |
 |---|---|---|---|
@@ -221,7 +228,7 @@ decision 2 reads it into the token rule.
 | D3 | Token for the stdio verb | `--token-file` (0600), `RETND_AGENT_TOKEN` as the alternative | As recommended, and no `--token` flag |
 | D4 | Bearer skips CSRF? | Yes, bearer only | Yes, bearer only, as recommended |
 | D5 | Reads on the activity feed? | No, `agent_audit` only | No, as recommended |
-| D6 | MCP implementation | The official Go SDK, minimal JSON-RPC as the fallback | As recommended; #1347 records which of the two it used |
+| D6 | MCP implementation | The official Go SDK, minimal JSON-RPC as the fallback | As recommended; #1347 used the official Go SDK, `github.com/modelcontextprotocol/go-sdk` v1.8.0, with no fallback needed |
 | D7 | Does `configure` ship? | Yes, minimal: enabled, retention, assurance | Yes, minimal, as recommended |
 | D8 | Step-up on approve? | Yes | Yes, as recommended |
 | D9 | Token expiry | 90 days default, one year ceiling | As recommended |

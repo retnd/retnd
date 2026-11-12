@@ -71,8 +71,8 @@
     cannot act without a person reading the command, not that it will not happen. The HTTP transport is not
     confidential, which is why it is off. Equal answers across surfaces were checked against the clients the
     end-to-end suite drives (CLI, browser, both transports), not against every MCP client. The MCP
-    implementation is the one new dependency (ADR 0034 D6; #1347 records whether it is the official Go SDK or
-    the minimal fallback). `scripts/release/check-epic-u-closed.sh` is the
+    implementation is the one new dependency (ADR 0034 D6): the official Go SDK,
+    `github.com/modelcontextprotocol/go-sdk` v1.8.0. `scripts/release/check-epic-u-closed.sh` is the
     release's check that the epic is closed.
 
 - **Encryption suites for retained copies** (EPIC T, #1310: #1311 to #1320). Every encrypted copy now

@@ -68,12 +68,18 @@ export function AuditRegion({ tokens, tools, revision }: { tokens: AgentToken[];
 
   const showOlder = useCallback(async () => {
     if (!cursor) return;
+    // The cursor belongs to the filter it was issued under. If the filter or
+    // the revision moves while this is in flight, the first-page read bumps
+    // `latest` and this page is from the wrong list, so it is dropped.
+    const mine = latest.current;
     setOlder(true);
     try {
       const page = await api.listAgentAudit({ tokenId: tokenId || undefined, since: since || undefined, cursor });
+      if (mine !== latest.current) return;
       setRows((r) => [...(r ?? []), ...page.rows]);
       setCursor(page.nextCursor);
     } catch (e) {
+      if (mine !== latest.current) return;
       setFailure(engineFailure(e, "older calls could not be read"));
     } finally {
       setOlder(false);
