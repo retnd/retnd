@@ -218,9 +218,9 @@ Dependency order: T1.1 > T1.2 > T1.3 > T1.4 > T1.5; T2.1 and T2.2 on T1.5; T2.3 
 
 - [x] Marking a suite deprecated in the table turns health degraded with the count of active copies under it; marking it retired makes `Load` refuse the pinned id and the engine refuse a write, while decrypt-verify, recover and `decrypt` still work on its copies.
 - [x] `retnd encryption reencrypt --suite <id> [--dry-run]` lists and re-encrypts copies under another suite through the #1291 path; the source is retired only after decrypt-verify; a kill at each phase boundary reconciles.
-- [ ] The Settings card shows the suite, its `Describe()` sentence and status, and changing it leads through rotate, export and confirm; per-copy chips show the suite id; every new text pair meets WCAG AA in both themes with ratios recorded.
+- [x] The Settings card shows the suite, its `Describe()` sentence and status, and changing it leads through rotate, export and confirm; per-copy chips show the suite id; every new text pair meets WCAG AA in both themes with ratios recorded.
 - [ ] retnd-tests suites cover two suites end to end, the crypto negatives per suite, the cross-suite key refusal, rotation across suites, catalog loss and rebuild, and a clean-machine recovery per suite, and the pin moves in lockstep.
-- [ ] `docs/encrypted-copies.md`, `recovery-without-a-terminal.md`, ADR 0027's one-line note, the CHANGELOG one-way door, captures and the `gate_step` are in; the matrix has no `BLOCKED` row and the canonical deployment is byte-identical.
+- [x] `docs/encrypted-copies.md`, `recovery-without-a-terminal.md`, ADR 0027's one-line note, the CHANGELOG one-way door, captures and the `gate_step` are in; the matrix has no `BLOCKED` row and the canonical deployment is byte-identical.
 
 ---
 

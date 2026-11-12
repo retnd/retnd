@@ -427,7 +427,7 @@ def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | 
             for rel in sorted({x for c in controls for x in c.links}):
                 if (root / rel).exists() and not (work / rel).exists():
                     (work / rel).parent.mkdir(parents=True, exist_ok=True)
-                    (work / rel).symlink_to(root / rel)
+                    (work / rel).symlink_to((root / rel).resolve())
 
         for c in controls:
             print()
