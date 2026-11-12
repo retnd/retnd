@@ -157,6 +157,9 @@ func TestClassifyLicense(t *testing.T) {
 		{"MPL-2.0 as HashiCorp spells it", mplHashiCorpText, "MPL-2.0", true},
 		{"Apache-2.0", apacheText, "Apache-2.0", false},
 		{"MIT", mitText, "MIT", false},
+		// The Go MCP SDK's LICENSE is mid-transition: an Apache-2.0 text, then
+		// the MIT text that still covers contributions nobody relicensed.
+		{"Apache-2.0 and MIT in one file", apacheText + "\n---\n" + mitText, "Apache-2.0 AND MIT", false},
 		{"BSD-3-Clause", bsd3Text, "BSD-3-Clause", false},
 		{"BSD-2-Clause", bsd2Text, "BSD-2-Clause", false},
 		{"ISC", iscText, "ISC", false},

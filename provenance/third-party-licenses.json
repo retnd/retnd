@@ -693,7 +693,7 @@
       "name": "github.com/klauspost/compress",
       "version": "v1.20.3",
       "ecosystem": "go",
-      "licenseId": "Apache-2.0",
+      "licenseId": "Apache-2.0 AND MIT",
       "licenseFile": "LICENSE",
       "licenseSha256": "0d9e582ee4bff57bf1189c9e514e6da7ce277f9cd3bc2d488b22fbb39a6d87cf",
       "linkedInto": [
@@ -897,7 +897,7 @@
       "name": "github.com/modelcontextprotocol/go-sdk",
       "version": "v1.8.0",
       "ecosystem": "go",
-      "licenseId": "Apache-2.0",
+      "licenseId": "Apache-2.0 AND MIT",
       "licenseFile": "LICENSE",
       "licenseSha256": "af679003d933f045393a6a029f43da113f9ae364eac651d9ae268392985580f5",
       "linkedInto": [
@@ -1341,7 +1341,7 @@
       "name": "go.yaml.in/yaml/v3",
       "version": "v3.0.5",
       "ecosystem": "go",
-      "licenseId": "Apache-2.0",
+      "licenseId": "Apache-2.0 AND MIT",
       "licenseFile": "LICENSE",
       "licenseSha256": "d18f6323b71b0b768bb5e9616e36da390fbd39369a81807cca352de4e4e6aa0b",
       "linkedInto": [
@@ -1509,7 +1509,7 @@
       "name": "gopkg.in/yaml.v3",
       "version": "v3.0.1",
       "ecosystem": "go",
-      "licenseId": "Apache-2.0",
+      "licenseId": "Apache-2.0 AND MIT",
       "licenseFile": "LICENSE",
       "licenseSha256": "d18f6323b71b0b768bb5e9616e36da390fbd39369a81807cca352de4e4e6aa0b",
       "linkedInto": [
@@ -1593,7 +1593,7 @@
       "name": "sigs.k8s.io/yaml",
       "version": "v1.6.0",
       "ecosystem": "go",
-      "licenseId": "Apache-2.0",
+      "licenseId": "Apache-2.0 AND MIT",
       "licenseFile": "LICENSE",
       "licenseSha256": "5dc79da695aea39a47245008a168e3f7d461b686da8bec299fd55fee0393cbcc",
       "linkedInto": [

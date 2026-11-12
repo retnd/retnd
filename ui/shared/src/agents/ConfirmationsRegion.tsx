@@ -230,10 +230,10 @@ function ConfirmationRow({
       ) : (
         <div className="ag-actions">
           <InfoTooltip id="agents.confirm.approve">
-            <button type="button" className="btn btn--strong-edge" disabled={busy} onClick={() => setAsking(true)}>Approve</button>
+            <button type="button" className="btn btn--strong-edge" disabled={busy} aria-label={"Approve " + c.tool + " for agent:" + c.tokenName} onClick={() => setAsking(true)}>Approve</button>
           </InfoTooltip>
           <InfoTooltip id="agents.confirm.deny">
-            <button type="button" className="btn btn--strong-edge" disabled={busy} onClick={() => void deny()}>Deny</button>
+            <button type="button" className="btn btn--strong-edge" disabled={busy} aria-label={"Deny " + c.tool + " for agent:" + c.tokenName} onClick={() => void deny()}>Deny</button>
           </InfoTooltip>
         </div>
       )}

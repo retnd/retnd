@@ -42,20 +42,36 @@ test.describe("#1351 the pending rows", () => {
     await expect(urgent).toHaveAttribute("data-urgent", "");
     await expect(urgent.locator("[data-confirmation-expires]")).toContainText("◷");
     expect(await urgent.evaluate((e) => getComputedStyle(e).borderTopWidth)).toBe("2px");
-    await expect(urgent.getByRole("button", { name: "Approve", exact: true })).toBeEnabled();
+    await expect(urgent.getByRole("button", { name: /^Approve (?!and run)/ })).toBeEnabled();
     await expect(pending(page, "cf_01")).not.toHaveAttribute("data-urgent", "");
   });
 
   test("#1351 Approve and Deny are the same size and neutral, so the row never recommends running it", async ({ page }) => {
     await openAgents(page, "agents-pending");
     const row = pending(page, "cf_01");
-    const a = await row.getByRole("button", { name: "Approve", exact: true }).boundingBox();
-    const d = await row.getByRole("button", { name: "Deny", exact: true }).boundingBox();
+    const a = await row.getByRole("button", { name: /^Approve (?!and run)/ }).boundingBox();
+    const d = await row.getByRole("button", { name: /^Deny / }).boundingBox();
     expect(a!.width).toBeCloseTo(d!.width, 0);
     expect(a!.height).toBeCloseTo(d!.height, 0);
-    const cls = (name: string) => row.getByRole("button", { name, exact: true }).getAttribute("class");
-    expect(await cls("Approve")).not.toContain("btn--primary");
-    expect(await cls("Deny")).not.toContain("btn--destructive");
+    const cls = (name: RegExp) => row.getByRole("button", { name }).getAttribute("class");
+    expect(await cls(/^Approve (?!and run)/)).not.toContain("btn--primary");
+    expect(await cls(/^Deny /)).not.toContain("btn--destructive");
+  });
+
+  test("#1351 every Approve and Deny button has a name of its own, with the tool and the token", async ({ page }) => {
+    await openAgents(page, "agents-pending");
+    const names: string[] = [];
+    for (const id of ["cf_01", "cf_02"]) {
+      const row = pending(page, id);
+      const tool = (await row.getAttribute("data-tool"))!;
+      const token = (await row.locator("[data-confirmation-token]").innerText()).trim();
+      for (const verb of ["Approve", "Deny"]) {
+        const b = row.getByRole("button", { name: new RegExp("^" + verb + " " + tool + " for " + token) });
+        await expect(b).toHaveCount(1);
+        names.push((await b.getAttribute("aria-label"))!);
+      }
+    }
+    expect(new Set(names).size).toBe(names.length);
   });
 
   test("#1351 the order is not changed by something waiting: the tokens region is still first", async ({ page }) => {
@@ -70,7 +86,7 @@ test.describe("#1351 Approve is a step-up, and runs the recorded request", () =>
     await openAgents(page, "agents-pending");
     const auditBefore = await region(page, "audit").locator("tbody tr").count();
     const row = pending(page, "cf_01");
-    await row.getByRole("button", { name: "Approve", exact: true }).click();
+    await row.getByRole("button", { name: /^Approve (?!and run)/ }).click();
     await expect(row.getByLabel("Your password")).toBeVisible();
     await expect(row).toContainText("sent once with this request and not kept");
     await expect(row.getByRole("button", { name: "Approve and run" })).toBeDisabled();
@@ -81,13 +97,13 @@ test.describe("#1351 Approve is a step-up, and runs the recorded request", () =>
     // Cancel collapses it and the row is as it was.
     await row.getByRole("button", { name: "Cancel" }).click();
     await expect(row.getByLabel("Your password")).toHaveCount(0);
-    await expect(row.getByRole("button", { name: "Approve", exact: true })).toBeVisible();
+    await expect(row.getByRole("button", { name: /^Approve (?!and run)/ })).toBeVisible();
   });
 
   test("#1351 a correct password runs it: the row leaves the list and the call is in the audit", async ({ page }) => {
     await openAgents(page, "agents-pending");
     const row = pending(page, "cf_02");
-    await row.getByRole("button", { name: "Approve", exact: true }).click();
+    await row.getByRole("button", { name: /^Approve (?!and run)/ }).click();
     await row.getByLabel("Your password").fill(PASSWORD);
     await row.getByRole("button", { name: "Approve and run" }).click();
     await expect(row).toHaveCount(0);
@@ -99,7 +115,7 @@ test.describe("#1351 Approve is a step-up, and runs the recorded request", () =>
   test("#1351 a wrong password runs nothing, says so, keeps the row, and forgets what was typed", async ({ page }) => {
     await openAgents(page, "agents-pending");
     const row = pending(page, "cf_01");
-    await row.getByRole("button", { name: "Approve", exact: true }).click();
+    await row.getByRole("button", { name: /^Approve (?!and run)/ }).click();
     await row.getByLabel("Your password").fill("not-the-password");
     await row.getByRole("button", { name: "Approve and run" }).click();
     const err = row.locator("[data-approve-error]");
@@ -113,7 +129,7 @@ test.describe("#1351 Approve is a step-up, and runs the recorded request", () =>
   test("#1351 on an unencrypted connection the question comes before the password is sent", async ({ page }) => {
     await openAgents(page, "agents-insecure");
     const row = pending(page, "cf_01");
-    await row.getByRole("button", { name: "Approve", exact: true }).click();
+    await row.getByRole("button", { name: /^Approve (?!and run)/ }).click();
     await row.getByLabel("Your password").fill(PASSWORD);
     await row.getByRole("button", { name: "Approve and run" }).click();
     const ask = page.getByRole("dialog", { name: "This connection is not encrypted" });
@@ -129,7 +145,7 @@ test.describe("#1351 Approve is a step-up, and runs the recorded request", () =>
   test("#1351 the engine's expiry refusal is shown as written, and the button never locked itself", async ({ page }) => {
     await openAgents(page, "agents-pending-expired");
     const row = pending(page, "cf_02");
-    await row.getByRole("button", { name: "Approve", exact: true }).click();
+    await row.getByRole("button", { name: /^Approve (?!and run)/ }).click();
     await row.getByLabel("Your password").fill(PASSWORD);
     await expect(row.getByRole("button", { name: "Approve and run" })).toBeEnabled();
     await row.getByRole("button", { name: "Approve and run" }).click();
@@ -142,7 +158,7 @@ test.describe("#1351 Approve is a step-up, and runs the recorded request", () =>
   test("#1351 the shut gate is a strip in the gate's own words, with code, exit 50 and correlation id, and no control", async ({ page }) => {
     await openAgents(page, "agents-pending-gate");
     const row = pending(page, "cf_01");
-    await row.getByRole("button", { name: "Approve", exact: true }).click();
+    await row.getByRole("button", { name: /^Approve (?!and run)/ }).click();
     await row.getByLabel("Your password").fill(PASSWORD);
     await row.getByRole("button", { name: "Approve and run" }).click();
     const strip = card(page).locator("[data-result-strip]");
@@ -164,7 +180,7 @@ test.describe("#1351 Deny", () => {
     await openAgents(page, "agents-pending");
     const auditBefore = await region(page, "audit").locator("tbody tr").count();
     const row = pending(page, "cf_01");
-    await row.getByRole("button", { name: "Deny", exact: true }).click();
+    await row.getByRole("button", { name: /^Deny / }).click();
     await expect(row).toHaveCount(0);
     await expect(page.getByLabel("Your password")).toHaveCount(0);
     await expect(region(page, "audit").locator("tbody tr")).toHaveCount(auditBefore);
@@ -174,7 +190,7 @@ test.describe("#1351 Deny", () => {
 
   test("#1351 denying the last one leaves the plain empty sentence", async ({ page }) => {
     await openAgents(page, "agents-pending");
-    for (const id of ["cf_01", "cf_02"]) await pending(page, id).getByRole("button", { name: "Deny", exact: true }).click();
+    for (const id of ["cf_01", "cf_02"]) await pending(page, id).getByRole("button", { name: /^Deny / }).click();
     await expect(card(page).locator('[data-agents-empty="confirmations"]')).toHaveText("Nothing is waiting for you.");
     await expect(card(page).locator("[data-agents-waiting]")).toHaveCount(0);
   });
