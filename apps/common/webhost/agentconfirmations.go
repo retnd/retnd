@@ -94,6 +94,41 @@ type agentProposer struct {
 	confirmations AgentConfirmations
 	resolver      AgentToolResolver
 	root          *chi.Mux
+	// revision is the configuration revision the engine holds now. A run
+	// proposal that names none is recorded against it (see stampRevision).
+	revision func() string
+}
+
+// stampRevision puts the engine's current configuration revision into the
+// body of a run_cycle or run_backup_set proposal that names none (#1387).
+// The CLI and the dashboard read the revision before they post, an agent has
+// no tool that returns it, and the replay sends the record byte for byte, so
+// without this the approved run ends 400 for lack of one. Stamping at
+// proposal time records what the person is asked to approve: the replay
+// still meets the engine's own check, so a configuration that changed before
+// the approval is refused CONFIG_REVISION_STALE, never run against a world
+// the person did not see. A revision the agent supplied is kept as it is.
+// Any other request, and a body that is not a JSON object, is returned as
+// it came.
+func stampRevision(method, rel, action string, body []byte, revision string) []byte {
+	if method != http.MethodPost || rel != "/operations" || revision == "" ||
+		(action != apicontract.ActionRunCycle && action != apicontract.ActionRunBackupSet) {
+		return body
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(body, &fields) != nil || fields == nil {
+		return body
+	}
+	var have string
+	if json.Unmarshal(fields["config_revision"], &have) == nil && have != "" {
+		return body
+	}
+	fields["config_revision"], _ = json.Marshal(revision)
+	stamped, err := json.Marshal(fields)
+	if err != nil {
+		return body
+	}
+	return stamped
 }
 
 // propose records the request as a confirmation and writes the answer. It
@@ -128,6 +163,9 @@ func (p *agentProposer) propose(w http.ResponseWriter, r *http.Request, principa
 	scope, ok := p.resolver.ResolveAgentTool(tool, r.Method, rel, act.Action)
 	if !ok {
 		return 0, "", "", false
+	}
+	if p.revision != nil {
+		body = stampRevision(r.Method, rel, act.Action, body, p.revision())
 	}
 
 	rctx := chi.NewRouteContext()

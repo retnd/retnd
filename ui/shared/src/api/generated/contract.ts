@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "c71ae2006cc1357b7e548b1202e6915fe5fde0c5919bcb87f8f3d95bd6e17faa";
+export const CONTRACT_SHA256 = "bc9117f81fa46b78ed80a772e827ddcff958dae4c234ac2b75e718c13fe03708";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -3533,14 +3533,16 @@ export interface WireAgentAuditEntry {
 }
 
 /** A change an agent asked for, waiting for a person. The request
- *  body it will replay is kept byte for byte and is never shown here;
- *  command is the retnd command an operator would have typed for the
- *  same change. A pending confirmation has run nothing. state is
- *  pending, approved, denied or expired; an approved one carries
- *  execution once its replay has finished. */
+ *  body it will replay is kept byte for byte and is never shown here,
+ *  except for config_revision; command is the retnd command an
+ *  operator would have typed for the same change. A pending
+ *  confirmation has run nothing. state is pending, approved, denied
+ *  or expired; an approved one carries execution once its replay has
+ *  finished. */
 export interface WireAgentConfirmation {
   backup_set: string;
   command: string;
+  config_revision?: string;
   created_at: string;
   decided_at: string | null;
   decided_by: string | null;
