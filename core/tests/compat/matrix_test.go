@@ -196,7 +196,8 @@ var matrixPairs = []matrixPair{
 			{prefix: "U1", heading: "### Phase 1 exit gate"},
 			{prefix: "U2", heading: "### Phase 2 exit gate"},
 		},
-		ledger: ledgerRowPerGuard,
+		ledger:   ledgerRowPerGuard,
+		whereCol: 2,
 	},
 }
 
