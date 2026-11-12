@@ -68,9 +68,11 @@ export function TokensRegion({
       </div>
 
       <details data-agents-scopes="">
-        <InfoTooltip id="agents.scopes.list">
-          <summary style={{ cursor: "pointer", fontSize: "var(--text-sm)", fontWeight: 600 }}>What each scope can call</summary>
-        </InfoTooltip>
+        {/* The summary has to be the details' own first child to toggle it, so
+            the tooltip goes inside it rather than around it. */}
+        <summary style={{ cursor: "pointer", fontSize: "var(--text-sm)", fontWeight: 600 }}>
+          <InfoTooltip id="agents.scopes.list"><span>What each scope can call</span></InfoTooltip>
+        </summary>
         {catalogue.error ? (
           <ErrorState message={catalogue.error.message} remediation={catalogue.error.remediation} correlationId={catalogue.error.correlationId} onRetry={catalogue.reload} />
         ) : catalogue.data === null ? (

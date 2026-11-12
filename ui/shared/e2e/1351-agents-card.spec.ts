@@ -56,7 +56,7 @@ test.describe("#1351 the card and its place", () => {
 test.describe("#1351 the tokens table", () => {
   test("#1351 has the nine columns, one row per token, newest data as the engine gave it", async ({ page }) => {
     await openAgents(page);
-    const heads = await region(page, "tokens").locator("thead th").allInnerTexts();
+    const heads = await region(page, "tokens").locator("thead th").allTextContents();
     expect(heads.map((h) => h.trim())).toEqual(["Name", "Prefix", "Scope", "Owner", "Created", "Expires", "Last used", "Status", "Actions"]);
     await expect(region(page, "tokens").locator("tbody tr")).toHaveCount(5);
     const nightly = tokenRow(page, "nightly-triage");
@@ -146,7 +146,7 @@ test.describe("#1351 what each scope can call, and the transport line", () => {
 
   test("#1351 a catalogue that fails is the engine's error in the disclosure, and the tokens still draw", async ({ page }) => {
     await openAgents(page, "agents-catalogue-failed");
-    await card(page).locator("[data-agents-scopes] summary").click();
+    await card(page).locator("[data-agents-scopes] > summary").click();
     await expect(card(page).locator("[data-agents-scopes]")).toContainText("the catalogue could not be read.");
     await expect(region(page, "tokens").locator("tbody tr")).toHaveCount(5);
   });

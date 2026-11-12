@@ -27,7 +27,7 @@ async function bothThemes(page: Page, label: string, selector: string) {
 test.describe("#1351 contrast, light and dark", () => {
   test("#1351 the tokens region, the scope list and the transport line", async ({ page }) => {
     await openAgents(page);
-    await card(page).locator("[data-agents-scopes] summary").click();
+    await card(page).locator("[data-agents-scopes] > summary").click();
     await bothThemes(page, "tokens", "[data-agents-card]");
   });
 
