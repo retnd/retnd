@@ -469,6 +469,26 @@ var destructiveGateExemptRoutes = map[string]bool{
 	// has to work on a deployment whose destructive gate is shut.
 	"POST /api/v1/backup-sets/{source}/{set}/scrub": true,
 	"POST /api/v1/assurance/operations/{op}/cancel": true,
+
+	// Retained-copy encryption (#993, #1296). The owner decided which of
+	// these are destructive (#1361): encrypt-existing and reencrypt are,
+	// because each retires an old copy, and carry the gate (router.go). The
+	// rest stay CSRF-only, each for one reason. Policy, set override and
+	// provider test change what the NEXT copy does and touch no copy that
+	// exists. Key create and confirm add or acknowledge a key. Rotate makes
+	// a new key active and keeps the old one readable. Retire is refused
+	// while any copy still needs the key (ErrEncryptionKeyInUse). Verify
+	// only reads. Export is not here: it carries its own gate and step-up.
+	"PATCH /api/v1/encryption/policy":                      true,
+	"POST /api/v1/encryption/policy/reset":                 true,
+	"PUT /api/v1/backup-sets/{source}/{set}/encryption":    true,
+	"DELETE /api/v1/backup-sets/{source}/{set}/encryption": true,
+	"POST /api/v1/encryption/keys":                         true,
+	"POST /api/v1/encryption/keys/rotate":                  true,
+	"POST /api/v1/encryption/keys/{id}/retire":             true,
+	"POST /api/v1/encryption/keys/{id}/confirm":            true,
+	"POST /api/v1/encryption/providers/test":               true,
+	"POST /api/v1/encryption/verify":                       true,
 }
 
 // destructiveGateTargetKindRoutes names the routes that are gated for some
