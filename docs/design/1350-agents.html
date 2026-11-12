@@ -500,7 +500,7 @@ const S={
      <label class="radio"><input type="radio"><span><b><code>configure</code></b><div class="muted">Can ask for a backup set to be enabled or disabled, or its retention or assurance settings changed. Nothing changes until you approve each request here.</div></span></label>`:""}</div></div>`+
    field("Expires in",`<input class="input mono ${err?"bad":""}" value="${err?"3y":"90d"}">`,err?"":"Default 90 days. The longest is one year.")+
    (err?`<div class="notice refused" role="alert"><b>${G.fail} The engine refused this expiry</b><div class="muted"><span class="mono">AGENT_TOKEN_EXPIRY_TOO_LONG</span>: example of the engine's own message and code, shown as written. Nothing was created.</div></div>`:"")+
-   echo("retnd agent token create --name nightly-triage --scope read --expires-in "+(err?"3y":"90d"))+
+   echo("retnd agent token create nightly-triage --scope read --expires-in "+(err?"3y":"90d"))+
    `<div class="row"><span class="grow"></span><button class="btn">Cancel</button><button class="btn primary">Create token</button></div>`);
   return `<div class="card"><h3>Create token, scope fold closed</h3><div class="body">${base(false,false)}</div></div>
    <div class="card"><h3>Create token, fold open</h3><div class="body">${base(true,false)}</div></div>
@@ -511,7 +511,7 @@ const S={
     `<div class="field"><span class="lab">Token</span><div class="secret" tabindex="0">EXAMPLEx-this-is-a-stand-in-not-a-token-the-format-is-1345s</div></div>`+
     `<div class="row"><button class="btn">Copy</button><span class="muted" aria-live="polite">Copied</span></div>`+
     `<div class="muted">Use it with <code>retnd agent serve --stdio --token-file PATH</code> (a file only you can read) or the <code>RETND_AGENT_TOKEN</code> environment variable. Never on a command line.</div>`+
-    echo("retnd agent token create --name nightly-triage --scope read --expires-in 90d")+
+    echo("retnd agent token create nightly-triage --scope read --expires-in 90d")+
     `<div class="row"><span class="grow"></span><button class="btn primary">I have stored it</button></div>`)}</div></div>
   <div class="card"><h3>After the click: the prefix is all the card shows</h3><div class="body">
    ${tokTable([{n:"nightly-triage",p:"EXAMPLEx",s:"read",o:"admin",c:"2026-11-11",e:"2027-02-09",er:"in 90 days",u:"never",st:"active"}])}
