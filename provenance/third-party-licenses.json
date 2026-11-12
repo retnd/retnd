@@ -618,6 +618,18 @@
       ]
     },
     {
+      "name": "github.com/google/jsonschema-go",
+      "version": "v0.4.3",
+      "ecosystem": "go",
+      "licenseId": "MIT",
+      "licenseFile": "LICENSE",
+      "licenseSha256": "2d56c53449691d85d9aea245eb8dac12713e9075d70d5557b82ae1e94805b357",
+      "linkedInto": [
+        "retnd",
+        "retnd-web"
+      ]
+    },
+    {
       "name": "github.com/google/uuid",
       "version": "v1.6.0",
       "ecosystem": "go",
@@ -882,6 +894,18 @@
       ]
     },
     {
+      "name": "github.com/modelcontextprotocol/go-sdk",
+      "version": "v1.8.0",
+      "ecosystem": "go",
+      "licenseId": "Apache-2.0",
+      "licenseFile": "LICENSE",
+      "licenseSha256": "af679003d933f045393a6a029f43da113f9ae364eac651d9ae268392985580f5",
+      "linkedInto": [
+        "retnd",
+        "retnd-web"
+      ]
+    },
+    {
       "name": "github.com/munnerz/goautoneg",
       "version": "v0.0.0-20191010083416-a7dc8b61c822",
       "ecosystem": "go",
@@ -1098,6 +1122,30 @@
       ]
     },
     {
+      "name": "github.com/segmentio/asm",
+      "version": "v1.1.3",
+      "ecosystem": "go",
+      "licenseId": "MIT",
+      "licenseFile": "LICENSE",
+      "licenseSha256": "e2a78de21d6d8ded2dff0f3189cd32e011630d785da127ebfbc8949012c0947b",
+      "linkedInto": [
+        "retnd",
+        "retnd-web"
+      ]
+    },
+    {
+      "name": "github.com/segmentio/encoding",
+      "version": "v0.5.4",
+      "ecosystem": "go",
+      "licenseId": "MIT",
+      "licenseFile": "LICENSE",
+      "licenseSha256": "d6d71a1f7dc6539e371120cc7af6e3257e55ca79634d473211f217b8965b0f16",
+      "linkedInto": [
+        "retnd",
+        "retnd-web"
+      ]
+    },
+    {
       "name": "github.com/shirou/gopsutil/v4",
       "version": "v4.26.6",
       "ecosystem": "go",
@@ -1152,6 +1200,18 @@
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
       "licenseSha256": "c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08",
+      "linkedInto": [
+        "retnd",
+        "retnd-web"
+      ]
+    },
+    {
+      "name": "github.com/yosida95/uritemplate/v3",
+      "version": "v3.0.2",
+      "ecosystem": "go",
+      "licenseId": "BSD-3-Clause",
+      "licenseFile": "LICENSE",
+      "licenseSha256": "0761aadfb1921103752869ee942d4a71bdd54494697684d4b13dc17ad9781191",
       "linkedInto": [
         "retnd",
         "retnd-web"
@@ -1316,6 +1376,18 @@
     {
       "name": "golang.org/x/net",
       "version": "v0.60.0",
+      "ecosystem": "go",
+      "licenseId": "BSD-3-Clause",
+      "licenseFile": "LICENSE",
+      "licenseSha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+      "linkedInto": [
+        "retnd",
+        "retnd-web"
+      ]
+    },
+    {
+      "name": "golang.org/x/oauth2",
+      "version": "v0.36.0",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",

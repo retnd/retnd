@@ -90,7 +90,7 @@ IBM Plex Mono 2.5.0
 Components by licence
 ---------------------
 
-Apache-2.0 (52)
+Apache-2.0 (53)
   go github.com/IBM/go-sdk-core/v5@v5.23.1
   go github.com/abbot/go-http-auth@v0.4.0
   go github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.24
@@ -125,6 +125,7 @@ Apache-2.0 (52)
   go github.com/minio/crc64nvme@v1.1.1
   go github.com/minio/md5-simd@v1.1.2
   go github.com/minio/minio-go/v7@v7.2.1
+  go github.com/modelcontextprotocol/go-sdk@v1.8.0
   go github.com/oklog/ulid/v2@v2.1.1
   go github.com/prometheus/client_golang@v1.23.2
   go github.com/prometheus/client_model@v0.6.2
@@ -150,7 +151,7 @@ BSD-2-Clause (4)
   go github.com/pkg/xattr@v0.4.12
   go github.com/zeebo/xxh3@v1.1.0
 
-BSD-3-Clause (28)
+BSD-3-Clause (30)
   go filippo.io/age@v1.3.2
   go filippo.io/hpke@v0.4.0
   go github.com/bahlo/generic-list-go@v0.2.0
@@ -165,9 +166,11 @@ BSD-3-Clause (28)
   go github.com/remyoudompheng/bigfft@v0.0.0-20230129092748-24d4a6f8daec
   go github.com/shirou/gopsutil/v4@v4.26.6
   go github.com/spf13/pflag@v1.0.10
+  go github.com/yosida95/uritemplate/v3@v3.0.2
   go golang.org/x/crypto@v0.58.0
   go golang.org/x/exp@v0.0.0-20260813180055-c1d0aacb2297
   go golang.org/x/net@v0.60.0
+  go golang.org/x/oauth2@v0.36.0
   go golang.org/x/sync@v0.24.0
   go golang.org/x/sys@v0.49.0
   go golang.org/x/term@v0.47.0
@@ -183,7 +186,7 @@ BSD-3-Clause (28)
 CC0-1.0 (1)
   go github.com/zeebo/blake3@v0.2.4
 
-MIT (48)
+MIT (51)
   go github.com/Azure/azure-sdk-for-go/sdk/azcore@v1.23.1
   go github.com/Azure/azure-sdk-for-go/sdk/internal@v1.12.0
   go github.com/Azure/azure-sdk-for-go/sdk/storage/azblob@v1.8.1
@@ -202,6 +205,7 @@ MIT (48)
   go github.com/go-playground/universal-translator@v0.18.1
   go github.com/go-playground/validator/v10@v10.30.3
   go github.com/go-viper/mapstructure/v2@v2.5.0
+  go github.com/google/jsonschema-go@v0.4.3
   go github.com/klauspost/cpuid/v2@v2.4.0
   go github.com/klauspost/pgzip@v1.2.6
   go github.com/klauspost/reedsolomon@v1.14.0
@@ -218,6 +222,8 @@ MIT (48)
   go github.com/rclone/rclone@v1.75.2
   go github.com/rfjakob/eme@v1.2.0
   go github.com/rs/xid@v1.6.0
+  go github.com/segmentio/asm@v1.1.3
+  go github.com/segmentio/encoding@v0.5.4
   go github.com/tinylib/msgp@v1.6.4
   go github.com/youmark/pkcs8@v0.0.0-20240726163527-a2c0da244d78
   go go.uber.org/multierr@v1.11.0

@@ -32,4 +32,11 @@ describe("sectionForHash (#1188)", () => {
     expect(sectionForHash("#encryption")).toBe("encryption");
     expect(settingsLink("encryption")).toBe("/settings#encryption");
   });
+
+  it("knows the Agents card (#1351), directly after encryption", () => {
+    expect(sectionForHash("#agents")).toBe("agents");
+    expect(settingsLink("agents")).toBe("/settings#agents");
+    const order = Object.keys(SETTINGS_SECTIONS);
+    expect(order.indexOf("agents")).toBe(order.indexOf("encryption") + 1);
+  });
 });

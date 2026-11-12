@@ -125,7 +125,26 @@ var destructiveGateExemptRoutes = map[string]bool{
 	"POST /api/v1/backup-sets/test-connection": true,
 	"POST /api/v1/ssh-keys":                    true,
 	"POST /api/v1/ssh-keys/from-candidate":     true,
-	"POST /api/v1/ssh/host-key-probe":          true,
+	// EPIC U (#1345): minting and revoking an agent token changes who may
+	// read this deployment and touches no backup data. The routes are
+	// session-only (a bearer is refused AGENT_ROUTE_DENIED before the gate
+	// is consulted), and a revoke is the safe direction.
+	"POST /api/v1/agent/tokens":             true,
+	"POST /api/v1/agent/tokens/{id}/revoke": true,
+	// EPIC U (#1349): approving and denying an agent's confirmation. Neither
+	// touches backup data itself: deny runs nothing, and approve replays the
+	// recorded request through this same router, where the gate is applied to
+	// the replay as it would be to the original (TestRunCycleApprovedMeetsTheShutGate
+	// AsAPersonWould). Session only, behind a step-up for approve.
+	"POST /api/v1/agent/confirmations/{id}/approve": true,
+	"POST /api/v1/agent/confirmations/{id}/deny":    true,
+	// EPIC U (#1347): the MCP transport's own frames. The endpoint changes
+	// nothing itself and is bearer only; every call inside it is an /api/v1
+	// request that meets this router's checks, the gate included, as the
+	// request it becomes.
+	"POST /api/v1/agent/mcp":          true,
+	"DELETE /api/v1/agent/mcp":        true,
+	"POST /api/v1/ssh/host-key-probe": true,
 
 	// Issue #1203. Removing a custom validator stops a script from running
 	// and deletes no backup datum: the class of clearing a stage directory

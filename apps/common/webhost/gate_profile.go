@@ -511,6 +511,29 @@ func (e gateEnforcement) decide(r *http.Request, act gatedAct) (gateRefusal, boo
 	return gateRefusal{}, false
 }
 
+// requireMintTransportAck is the insecure-transport acknowledgement for
+// POST /agent/tokens. The response carries the token, so over plain HTTP from
+// another machine it is exposed the way an exported key is, and the engine
+// asks the same consent, so the browser and a remote `retnd agent token
+// create` behave alike. It is not an act of the destructive gate: the mint
+// touches no backup data, so a gateway profile with the gate shut is asked the
+// same and no gate state is read. It is a consent prompt, not an access
+// control, for the reason insecureTransportAckNeeded gives.
+func requireMintTransportAck(e gateEnforcement) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if v := e.browserTransport(r); v != BrowserTransportHTTPS && v != BrowserTransportLoopback && !insecureTransportAcknowledged(r) {
+				ref := newGateRefusal(http.StatusForbidden, "INSECURE_TRANSPORT_ACK_REQUIRED",
+					"the new token comes back over this connection, which is not encrypted and is not from this machine; open retnd over HTTPS, or acknowledge it in the request with the "+InsecureTransportHeader+" header",
+					"", "the mint's connection is not encrypted and not from this machine, and the request did not acknowledge that")
+				ref.write(w, r, "mint an agent token")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // newGateRefusal is every refusal decide makes. One constructor, with the
 // code in the position writeError takes it, so the contract test that reads
 // the source for emitted codes (contract_test.go) sees these too.

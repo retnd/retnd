@@ -1163,6 +1163,29 @@
       ]
     },
     {
+      "SPDXID": "SPDXRef-Package-go-github.com-google-jsonschema-go-v0.4.3",
+      "name": "github.com/google/jsonschema-go",
+      "versionInfo": "v0.4.3",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "supplier": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/google/jsonschema-go@v0.4.3"
+        }
+      ],
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "2d56c53449691d85d9aea245eb8dac12713e9075d70d5557b82ae1e94805b357"
+        }
+      ]
+    },
+    {
       "SPDXID": "SPDXRef-Package-go-github.com-google-uuid-v1.6.0",
       "name": "github.com/google/uuid",
       "versionInfo": "v1.6.0",
@@ -1669,6 +1692,29 @@
       ]
     },
     {
+      "SPDXID": "SPDXRef-Package-go-github.com-modelcontextprotocol-go-sdk-v1.8.0",
+      "name": "github.com/modelcontextprotocol/go-sdk",
+      "versionInfo": "v1.8.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "supplier": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/modelcontextprotocol/go-sdk@v1.8.0"
+        }
+      ],
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "af679003d933f045393a6a029f43da113f9ae364eac651d9ae268392985580f5"
+        }
+      ]
+    },
+    {
       "SPDXID": "SPDXRef-Package-go-github.com-munnerz-goautoneg-v0.0.0-20191010083416-a7dc8b61c822",
       "name": "github.com/munnerz/goautoneg",
       "versionInfo": "v0.0.0-20191010083416-a7dc8b61c822",
@@ -2083,6 +2129,52 @@
       ]
     },
     {
+      "SPDXID": "SPDXRef-Package-go-github.com-segmentio-asm-v1.1.3",
+      "name": "github.com/segmentio/asm",
+      "versionInfo": "v1.1.3",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "supplier": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/segmentio/asm@v1.1.3"
+        }
+      ],
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "e2a78de21d6d8ded2dff0f3189cd32e011630d785da127ebfbc8949012c0947b"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-go-github.com-segmentio-encoding-v0.5.4",
+      "name": "github.com/segmentio/encoding",
+      "versionInfo": "v0.5.4",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "supplier": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/segmentio/encoding@v0.5.4"
+        }
+      ],
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "d6d71a1f7dc6539e371120cc7af6e3257e55ca79634d473211f217b8965b0f16"
+        }
+      ]
+    },
+    {
       "SPDXID": "SPDXRef-Package-go-github.com-shirou-gopsutil-v4-v4.26.6",
       "name": "github.com/shirou/gopsutil/v4",
       "versionInfo": "v4.26.6",
@@ -2194,6 +2286,29 @@
         {
           "algorithm": "SHA256",
           "checksumValue": "c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-go-github.com-yosida95-uritemplate-v3-v3.0.2",
+      "name": "github.com/yosida95/uritemplate/v3",
+      "versionInfo": "v3.0.2",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "supplier": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/yosida95/uritemplate/v3@v3.0.2"
+        }
+      ],
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "0761aadfb1921103752869ee942d4a71bdd54494697684d4b13dc17ad9781191"
         }
       ]
     },
@@ -2510,6 +2625,29 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:golang/golang.org/x/net@v0.60.0"
+        }
+      ],
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-go-golang.org-x-oauth2-v0.36.0",
+      "name": "golang.org/x/oauth2",
+      "versionInfo": "v0.36.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "supplier": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/golang.org/x/oauth2@v0.36.0"
         }
       ],
       "checksums": [
@@ -3318,6 +3456,11 @@
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-google-jsonschema-go-v0.4.3"
+    },
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
       "relatedSpdxElement": "SPDXRef-Package-go-github.com-google-uuid-v1.6.0"
     },
     {
@@ -3428,6 +3571,11 @@
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-modelcontextprotocol-go-sdk-v1.8.0"
+    },
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
       "relatedSpdxElement": "SPDXRef-Package-go-github.com-munnerz-goautoneg-v0.0.0-20191010083416-a7dc8b61c822"
     },
     {
@@ -3518,6 +3666,16 @@
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-segmentio-asm-v1.1.3"
+    },
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-segmentio-encoding-v0.5.4"
+    },
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
       "relatedSpdxElement": "SPDXRef-Package-go-github.com-shirou-gopsutil-v4-v4.26.6"
     },
     {
@@ -3539,6 +3697,11 @@
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
       "relatedSpdxElement": "SPDXRef-Package-go-github.com-xanzy-ssh-agent-v0.3.3"
+    },
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-yosida95-uritemplate-v3-v3.0.2"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
@@ -3609,6 +3772,11 @@
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
       "relatedSpdxElement": "SPDXRef-Package-go-golang.org-x-net-v0.60.0"
+    },
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-go-golang.org-x-oauth2-v0.36.0"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",

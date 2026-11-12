@@ -1,0 +1,617 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The Agents card: tokens, a token shown once, confirmations a person approves, and the audit, drawn before any code (issue #1350)</title>
+<style>
+/* Tokens copied from ui/shared/src/design-system/tokens.css at 5760aa59 (the last commit that touched the file). The contrast
+   generator that filled the table in section 13 reads this block, refuses to run if any value differs from tokens.css, and so
+   the table and the picture cannot disagree. The one colour literal below is the dialog scrim, copied from components.css
+   (.dialog-scrim), and no text sits on it. --text-3 is the tertiary TEXT ink; --edge-3 is the ink for an edge that has to be
+   found by its edge (chip, button, text box): --border-strong is 1.69:1 and 1.81:1 on --surface, so it stays for decorative
+   frames and card rules only. */
+:root,.th-light{
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;--space-8:32px;--space-10:40px;
+  --radius-sm:4px;--radius-md:6px;--radius-lg:8px;--radius-xl:10px;--radius-pill:999px;
+  --bg:#f2f2f0;--surface:#ffffff;--surface-2:#fafaf9;--surface-3:#f0f0ed;
+  --border:#e0dfdc;--border-strong:#c8c7c3;--edge-3:#8b8d8a;
+  --text:#191a19;--text-2:#5b5d5b;--text-3:#696b68;
+  --accent:oklch(0.52 0.09 255);--accent-quiet:oklch(0.95 0.02 255);
+  --ok:oklch(0.52 0.10 155);--ok-quiet:oklch(0.955 0.025 155);
+  --warn:oklch(0.56 0.11 70);--warn-quiet:oklch(0.96 0.035 75);
+  --danger:oklch(0.52 0.15 25);--danger-quiet:oklch(0.955 0.03 25);
+  --shadow:0 1px 2px rgba(20,20,18,0.05),0 1px 1px rgba(20,20,18,0.04);
+  --shadow-lg:0 14px 40px rgba(20,20,18,0.14),0 2px 6px rgba(20,20,18,0.07);
+  --font-mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.th-dark{
+  --bg:#121312;--surface:#1b1d1b;--surface-2:#202220;--surface-3:#262826;
+  --border:#313331;--border-strong:#454745;--edge-3:#767976;
+  --text:#eceeeb;--text-2:#a3a6a2;--text-3:#959892;
+  --accent:oklch(0.70 0.09 255);--accent-quiet:oklch(0.30 0.045 255);
+  --ok:oklch(0.72 0.11 155);--ok-quiet:oklch(0.28 0.05 155);
+  --warn:oklch(0.78 0.12 75);--warn-quiet:oklch(0.30 0.055 70);
+  --danger:oklch(0.68 0.15 25);--danger-quiet:oklch(0.30 0.07 25);
+  --shadow:0 1px 2px rgba(0,0,0,0.4);
+  --shadow-lg:0 16px 44px rgba(0,0,0,0.55);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:var(--space-6)}
+.wrap{max-width:1240px;margin:0 auto;display:flex;flex-direction:column;gap:var(--space-6)}
+h1{font-size:18px;font-weight:640;margin:0 0 var(--space-1);letter-spacing:-.01em}
+h2{font-size:15px;margin:0 0 var(--space-1)}
+.sub{color:var(--text-2);margin:0;max-width:96ch}
+code{font-family:var(--font-mono);font-size:12px}
+.sec{border-top:1px solid var(--border);padding-top:var(--space-5)}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-4);margin-top:var(--space-3)}
+.grid.one{grid-template-columns:minmax(0,1fr)}
+.frame{background:var(--bg);color:var(--text);border:1px solid var(--border-strong);border-radius:var(--radius-xl);padding:var(--space-3);container-type:inline-size;min-width:0}
+.frame>.tag{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);margin-bottom:var(--space-2)}
+.frame.narrow{max-width:360px}
+.reason{display:grid;grid-template-columns:1fr;gap:var(--space-2);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:var(--space-4);margin-top:var(--space-3);color:var(--text)}
+.reason p,.reason li{margin:0;color:var(--text-2);max-width:110ch}
+.reason strong{color:var(--text)}
+.reason ol,.reason ul{margin:0;padding-left:1.4em}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);box-shadow:var(--shadow);overflow:hidden;margin-bottom:var(--space-3)}
+.card h3{margin:0;padding:var(--space-2) var(--space-3);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);border-bottom:1px solid var(--border);background:var(--surface-2);display:flex;gap:var(--space-2);align-items:center}
+.card h3 .grow{flex:1}
+.card .body{padding:var(--space-3);display:flex;flex-direction:column;gap:var(--space-3)}
+.region{display:flex;flex-direction:column;gap:var(--space-2);padding-top:var(--space-3);border-top:1px solid var(--border)}
+.region:first-child{border-top:0;padding-top:0}
+.region>.eyebrow{display:flex;gap:var(--space-2);align-items:center}
+.row{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center}
+.grow{flex:1}
+.muted{color:var(--text-2);font-size:12.5px}
+.mono{font-family:var(--font-mono);font-size:12px}
+.eyebrow{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2)}
+.chip{display:inline-flex;align-items:center;gap:6px;min-height:24px;padding:2px 9px;border-radius:var(--radius-md);font-size:12px;font-weight:600;color:var(--text);background:var(--surface);border:1.5px solid var(--edge-3);white-space:nowrap}
+.chip .g{font-weight:800;font-size:13px;min-width:14px;text-align:center}
+.chip .age{font-weight:500;color:var(--text)}
+/* scope: the word is the signal, the edge style is the second cue, colour is the third */
+.sc-read{border-style:solid;border-color:var(--edge-3);background:var(--surface-2)}
+.sc-operate{border-style:solid;border-color:var(--warn);background:var(--warn-quiet)}
+.sc-configure{border-style:dashed;border-width:2px;border-color:var(--warn);background:var(--warn-quiet)}
+/* status of a token */
+.st-active{border-style:solid;border-color:var(--ok);background:var(--ok-quiet)}.st-active .g{color:var(--ok)}
+.st-expired{border-style:dashed;border-color:var(--edge-3);background:var(--surface-2)}
+.st-revoked{border-style:solid;border-color:var(--danger);background:var(--danger-quiet)}.st-revoked .g{color:var(--danger)}
+/* outcome of a call */
+.o-ok{border-style:solid;border-color:var(--ok);background:var(--ok-quiet)}.o-ok .g{color:var(--ok)}
+.o-wait{border-style:solid;border-color:var(--accent);background:var(--accent-quiet)}.o-wait .g{color:var(--accent)}
+.o-refused{border-style:solid;border-color:var(--danger);background:var(--danger-quiet)}.o-refused .g{color:var(--danger)}
+.o-soon{border-style:solid;border-width:2px;border-color:var(--warn);background:var(--warn-quiet)}
+table.t{width:100%;border-collapse:collapse;font-size:12.5px}
+table.t th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-2);text-align:left;padding:6px 8px;border-bottom:1px solid var(--border)}
+table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
+.btn{min-height:30px;padding:3px 12px;border:1px solid var(--edge-3);border-radius:var(--radius-md);background:var(--surface);color:var(--text);font:inherit;font-size:12.5px;cursor:pointer}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+.btn.danger{border-color:var(--danger);color:var(--danger)}
+.btn.primary.danger{background:var(--danger);border-color:var(--danger);color:var(--surface)}
+.btn[disabled],.btn.primary[disabled]{background:var(--surface-3);color:var(--text-3);border-color:var(--border);cursor:not-allowed}
+.input{font:inherit;font-size:12.5px;background:var(--surface);color:var(--text);border:1px solid var(--edge-3);border-radius:var(--radius-sm);padding:4px 8px;min-width:0}
+.input.mono{font-family:var(--font-mono);font-size:12px}
+.input.bad{border:2px solid var(--danger)}
+.field{display:flex;flex-direction:column;gap:4px}
+.field>.lab{font-size:12.5px;font-weight:600}
+.radio{display:flex;gap:8px;align-items:flex-start;padding:8px;border:1px solid var(--edge-3);border-radius:var(--radius-md)}
+.radio.on{border-color:var(--accent);border-width:2px;background:var(--accent-quiet)}
+.radio.on .muted{color:var(--text)}
+.radio input{margin-top:3px}
+.fold{border:1px dashed var(--edge-3);border-radius:var(--radius-md);padding:6px 8px;display:flex;flex-direction:column;gap:var(--space-2)}
+.fold>.hd{font-size:12.5px;font-weight:600}
+.notice{border:1px solid var(--warn);background:var(--warn-quiet);border-radius:var(--radius-md);padding:var(--space-3);color:var(--text)}
+.notice.blocking{border-width:2px}
+.notice.refused{border:2px solid var(--danger);background:var(--danger-quiet)}
+.notice.info{border-color:var(--accent);background:var(--accent-quiet)}
+.notice .muted{color:var(--text)}
+.notice>*+*{margin-top:var(--space-2)}
+.tipid{font-family:var(--font-mono);font-size:11px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);padding:0 4px;color:var(--text);background:var(--surface-3)}
+.nopop{font-size:11px;border:1px dashed var(--border-strong);border-radius:var(--radius-sm);padding:0 4px;color:var(--text)}
+.echo{display:flex;flex-direction:column;gap:4px}
+.echo code{display:block;font-size:11.5px;color:var(--text-2);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-md);padding:5px 8px;overflow-x:auto;white-space:pre}
+.cmd{display:block;font-family:var(--font-mono);font-size:12px;color:var(--text);background:var(--surface-2);border:1px solid var(--edge-3);border-radius:var(--radius-md);padding:5px 8px;overflow-x:auto;white-space:pre}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:2px var(--space-3);font-size:12.5px;margin:0}
+.kv dt{color:var(--text-2)}
+.notice .kv dt{color:var(--text)}.kv dd{margin:0;color:var(--text)}
+.secret{font-family:var(--font-mono);font-size:13px;background:var(--surface-2);color:var(--text);border:2px solid var(--accent);border-radius:var(--radius-md);padding:8px 10px;overflow-wrap:anywhere}
+.names{display:flex;flex-wrap:wrap;gap:4px}
+.names code{background:var(--surface-2);color:var(--text);border:1px solid var(--edge-3);border-radius:var(--radius-sm);padding:0 5px;font-size:11.5px}
+.scrim{background:rgba(12,12,11,0.45);padding:var(--space-4);border-radius:var(--radius-lg);display:grid;grid-template-columns:minmax(0,1fr);place-items:center}
+.dialog{min-width:0;width:100%;max-width:480px;background:var(--surface);color:var(--text);border:1px solid var(--border-strong);border-radius:11px;box-shadow:var(--shadow-lg)}
+.dialog.destructive{border-color:var(--danger)}
+.dialog>.dh{padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--border);font-weight:640}
+.dialog>.dh .eyebrow{display:block;margin-bottom:2px}
+.dialog>.db>*{min-width:0}
+.dialog>.db{padding:var(--space-4);display:flex;flex-direction:column;gap:var(--space-3)}
+.pend{border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--space-3);background:var(--surface);display:flex;flex-direction:column;gap:var(--space-2)}
+.pend.soon{border:2px solid var(--warn)}
+.pend.done{border:2px solid var(--danger)}
+.sentence{font-weight:600}
+@container (max-width:640px){
+  table.resp thead{display:none}
+  table.resp,table.resp tbody,table.resp tr,table.resp td{display:block}
+  table.resp tr{border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--space-2);margin-bottom:var(--space-2);background:var(--surface)}
+  table.resp td{border:0;padding:2px 0;display:flex;gap:var(--space-2);align-items:baseline;flex-wrap:wrap}
+  table.resp td::before{content:attr(data-l);min-width:92px;flex:none;color:var(--text-2);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+  .stack-narrow{flex-direction:column;align-items:stretch}
+  .kv{grid-template-columns:1fr}
+}
+table.resp td[data-l=""]::before{display:none}
+@media (max-width:900px){.grid{grid-template-columns:1fr}}
+</style>
+
+<div class="wrap">
+<header>
+  <h1>The Agents card: tokens, a token shown once, confirmations a person approves, and the audit</h1>
+  <p class="sub">Issue #1350 (U2.2), dated 2026-11-11. Parent epic #1343 (EPIC U), FR-93 and FR-97. I drew it against the EPIC U specification (<code>docs/EPIC-U-mcp-server.md</code>, PR #1354, section 12 for the names) and against what already ships, because the design needs those and not the implementation, which does not exist yet: there is no <code>core/agenttools</code> and no agent route on <code>main</code> today. #1351 (U2.3) builds the card from this note and from nothing else, so every sentence below that a build would have to take on trust is listed in section 14 with the issue that owns it. Drawn on the shipped screens (the first design canvas in this directory (the oldest <code>.dc.html</code>, introduced in <code>docs/design/README.md</code>) is the authority where this note and the build disagree) and in the token set from <code>ui/shared/src/design-system/tokens.css</code>. Every surface is drawn four times: light, dark, and the narrow layout in each. This note writes no TypeScript and no tooltip copy that ships; the field-help sentences in section 10 are proposals U2.3 checks against the code it lands beside.</p>
+  <p class="sub"><strong>Vocabulary.</strong> The words are <em>Agent</em>, <em>Token</em>, <em>Scope</em> (<code>read</code>, <code>operate</code>, <code>configure</code>, always in code type, always lower case, because they are the closed words the API and the CLI use), <em>Active</em>, <em>Expired</em>, <em>Revoked</em>, <em>Waiting for you</em>, <em>Approve</em>, <em>Deny</em>, <em>Audit</em>. A token is never <em>a key</em> on this card, because "key" already means key material in this product (EPIC N) and nothing here is that. An agent is never <em>trusted</em> or <em>verified</em> anywhere on the card: the whole epic exists because it is neither.</p>
+  <div class="notice" role="note" id="status">
+    <b>Status: a mock-up, superseded where the product differs.</b>
+    <p class="sub" style="color:var(--text)">This is a picture drawn on 2026-11-11 to settle decisions for U2.3 (#1351). It is not the product and it is not kept in step with it, so where the two disagree the product wins, and the build's own CSS and strings win over anything drawn here. Tokens, names, dates, ids and command lines are examples of what the named field would hold. The command lines in the echo blocks are the <em>shape</em> <code>core/cliecho</code> will print: <code>CommandEcho</code> shows what the response carries, so none of the strings drawn here are copied into the build. The token itself, in section 4, is a stand-in: the format is #1345's, and the string in the picture is not one.</p>
+  </div>
+</header>
+
+<section class="sec" id="card">
+  <h2>1. The card, at rest: a statement, then four regions</h2>
+  <div class="grid one" data-surface="card" data-wide></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> One card on the Settings page, titled <em>Agents</em>, in the shape of the Retained-copy encryption card (<code>EncryptionCard.tsx</code>): an eyebrow heading carrying its <code>TooltipId</code>, a body of regions separated by rules, and a <code>CommandEcho</code> under every action. It sits directly after <em>Retained-copy encryption</em> and before <em>Workflow</em>, with its own anchor (<code>#agents</code>, a new <code>SETTINGS_SECTIONS</code> entry). The reason for the place: encryption is "what a copy is", workflow is "what runs around a copy", and agents are "who else can ask"... which belongs after the things they would be asking about and before the housekeeping at the bottom (Interface, Catalog recovery, Platform, Password). It is not a page of its own because the issue is about a card, and because a second place to find "who can reach this deployment" would sit beside the Administrator password card, which is where an operator already looks for that sentence.</p>
+    <p><strong>The statement comes first and says three things.</strong> What an agent is (a client of this deployment with a token of its own), what it can do by default (look, and nothing else), and what it can never do without you (anything an <code>operate</code> or <code>configure</code> token asks for waits in the confirmations list until you approve it with your password). The fourth sentence is the limit I would rather state than leave out: an agent is not given key material, recipients, credentials or secrets, and the audit records every call it makes, reads included. That sentence is FR-98 and FR-97 in the card's own words, and it is only allowed to stay on the card while U1.5 and U2.4 prove it (section 14, row 1). I did not write "safe", "protected", "secure" or "trusted" anywhere on this card: the spec's own closing paragraph says what it does not prove, and a word that says more than that would be the invented claim the checklist warns about.</p>
+    <p><strong>Four regions in the order a person uses them.</strong> <em>Tokens</em> first (who can connect), <em>Pending confirmations</em> second (what needs me now), <em>Audit</em> third (what happened), and the HTTP transport statement last, because it is a fact about the deployment and not a task. The mint button lives in the Tokens region heading row, not as its own region: minting is the one act in the card that changes who can connect, and it sits where the list it extends is. When something is waiting, the confirmations region is not reordered above the tokens ("the dangerous thing jumps to the top" was considered and rejected: a list that reorders itself moves the Approve button under a cursor that was already travelling to it). Instead the card heading row carries a count, <em>1 waiting for you</em>, that is a link to the region, and the Dashboard health card is not touched (the epic names no health fact for agents, so I draw none).</p>
+    <p><strong>Not a table of everything.</strong> The tokens table carries exactly the nine columns the issue names. The audit table carries exactly its six, plus a per-row <em>Details</em> disclosure for the two fields FR-97 also names (arguments after projection, and transport). Nothing is added "because it would be nice": a column the response does not carry is a column somebody computes in the browser, and the checklist's engine rule (section 3) forbids that.</p>
+  </div>
+</section>
+
+<section class="sec" id="scopes">
+  <h2>2. What each scope can call: read from the catalogue, never copied</h2>
+  <div class="grid one" data-surface="scopes" data-wide></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> A disclosure under the Tokens heading, <em>What each scope can call</em>, closed by default, that lists the tool names by scope exactly as <code>GET /api/v1/agent/tools</code> returns them. The names drawn in section 2 are the ones in section 12 of the spec at <code>9cd53e1f</code> plus PR #1354: 19 read tools, 7 operate tools and 4 configure tools. They are a stand-in for the response and U2.3 renders the response (<code>TestTheCardListsWhatTheCatalogueLists</code> is #1351's guard). If U1.3 lands a catalogue with a different set, this picture is the one that is wrong, and it stays wrong on purpose: the note is dated.</p>
+    <p><strong>Why it is on the card at all.</strong> A scope word means nothing until you can see what it lets an agent reach, and the mint dialog's one-sentence descriptions (section 3) are deliberately generic ("ask for backups to be started or checked") so they cannot drift from the catalogue. This is where the specific list lives. It is a closed disclosure so the card is short by default, and it is plain text in code type: no buttons beside the names, no per-tool toggle (the spec's non-goals rule out per-tool and per-set restriction, so a toggle would promise a thing the code cannot do).</p>
+    <p><strong>What it does not say.</strong> It does not say whether an <code>operate</code> token can also call the read tools. The spec says a <code>read</code> token starts nothing and changes nothing, and does not say the other direction in words; the catalogue row carries one scope per tool. So the disclosure is a table of "tools whose scope is X" and carries no sentence about inclusion until #1345 or #1346 states it (section 14, row 4). The same goes for the routes the catalogue refuses (key export, authentication, credentials, recovery grants, token minting): they are refusals with a stated reason in the catalogue, and the card does not list them, because a list of what is refused is a list of what to try.</p>
+  </div>
+</section>
+
+<section class="sec" id="mint">
+  <h2>3. Mint: a name, a scope that defaults to read, an expiry that defaults to 90 days</h2>
+  <div class="grid" data-surface="mint"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> <em>Create token</em> opens a dialog with three fields and nothing else: <em>Name</em>, <em>Scope</em>, <em>Expires in</em>. The scope group shows <code>read</code> selected with its sentence (it can look, and it cannot start or change anything), and a fold underneath, <em>Allow more than reading</em>, closed by default, that holds the other two radios with one sentence each. The fold is a real fold and not a nag: the epic says <code>read</code> is the only default and "nothing in a wizard, a setting or a prompt suggests more" (core invariants), so the dialog never recommends, pre-selects or sorts <code>operate</code> and <code>configure</code> above it. Opening the fold changes nothing but visibility; a token minted with the fold closed is a <code>read</code> token.</p>
+    <p><strong>The two sentences are honest about the human in the loop.</strong> <code>operate</code>: "Can ask for backups and checks to be started. Nothing runs until you approve each request here." <code>configure</code>: "Can ask for a backup set to be enabled or disabled, or its retention or assurance settings changed. Nothing changes until you approve each request here." Both are statements of FR-95, neither names a tool (so neither can disagree with the catalogue) and neither contains the word "safe". The sentences live in the tooltip registry under <code>agents.mint.scope.operate</code> and <code>agents.mint.scope.configure</code> and the dialog reads them from there.</p>
+    <p><strong>Expiry is a duration the engine judges.</strong> The field takes the same duration word the CLI takes (<code>--expires-in 90d</code>), starts at <code>90d</code>, and the browser validates nothing: the ceiling (one year) and the shape are U1.2's refusals, and the dialog shows the engine's message as written, in the field's own error slot, with the field's edge turned to a two-pixel danger line plus the words, never colour alone. I considered a date picker or a select of 30, 90 and 365 days. A select would be a second copy of the ceiling in TypeScript and would be silently wrong the day the ceiling moves; a date picker invents a timezone question the CLI does not have. The refusal row in the picture shows the shape: the message and code are the server's.</p>
+    <p><strong>The name.</strong> It becomes <code>agent:&lt;name&gt;</code> in every actor field (FR-91), so the dialog says that under the field. What characters a name may hold is #1345's rule, not mine; the dialog shows its refusal as written. No "generate a name" button.</p>
+    <p><strong>The transport consent.</strong> A token is the longest-lived secret this product hands to a browser, and the mint response is the one time it crosses the connection. The existing insecure-transport consent (<code>acknowledgeInsecureTransport</code>, <code>ui/shared/src/api/client.ts</code>) only guards the step-up password today. I propose the mint submit asks the same question first, from the same function, when the capabilities say the connection is not encrypted: no new control, no new copy, the prompt that already exists. This is a decision for review (section 14, row 7), not a given: if the reviewer thinks the existing prompt's wording is about passwords only, the wording needs one more sentence and that is #1351's to write.</p>
+  </div>
+</section>
+
+<section class="sec" id="reveal">
+  <h2>4. The token, shown once, and the only way out of that dialog</h2>
+  <div class="grid" data-surface="reveal"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> On success the dialog changes in place to show the token in a read-only mono field with a <em>Copy</em> button beside it, a plain sentence that this is the only time it is shown, the command that made it (<code>retnd agent token create ...</code>, composed in the browser), and one button, <em>I have stored it</em>. That button is the only way out: there is no close glyph, no <em>Cancel</em>, the backdrop does not dismiss, and Escape does nothing. Focus is trapped in the dialog and lands on the copy field on open, so a keyboard user can copy before anything else, and the selection is not changed by the dialog closing in a way that loses it (nothing closes it). Dismissal by any other route would let the token vanish unread, and the only recovery would be to revoke and mint again. The cost of this rule is real and I am stating it: an operator who reloads the page, or whose browser crashes, with the dialog open has lost a token they never saw. The dialog says so ("If this page is closed before you store it, revoke the token and make another"), because the alternative, a recoverable token, would mean the plaintext is stored or can be re-derived, and FR-91 says it is neither.</p>
+    <p><strong>After the click, the prefix is all the card ever shows.</strong> The new row appears in the tokens table with its eight-character prefix and nothing else of the secret. #1351's falsification is the picture's rule: the token string is in the DOM for the life of this one dialog and in no list row, tooltip, toast, live region, <code>title</code> attribute, error message or browser storage, before or after. The copy button writes to the clipboard and announces "Copied" in a polite live region that does not contain the token. The echo line shows the command with the name, scope and expiry the dialog was given, and it is already there while the form is being filled in (it is composed, so it needs no response); the token is not in it and cannot be: the CLI prints the token to the terminal once, and the web echo shows only the twin of the act.</p>
+    <p><strong>What the dialog tells the operator to do with it.</strong> One line of plain text, not a control: use it with <code>retnd agent serve --stdio --token-file PATH</code> (a file readable only by you) or the <code>RETND_AGENT_TOKEN</code> environment variable, and never on a command line. That is FR-96 and D3 of the spec. The line has no copy button, because there is no way to type a real path for the operator; it is a statement of how the token is used.</p>
+    <p><strong>Considered and rejected.</strong> A checkbox that arms <em>I have stored it</em>, as the bundle export dialog does (<code>I understand this file can decrypt every copy</code>). The bundle checkbox exists to make a person read a risk before a download. Here the button's own label is the acknowledgement, the issue says it is the only way to close, and a checkbox would add a second control to a dialog whose point is that there is one way out. Also rejected: showing the token masked with a reveal toggle, because a mask invites a screenshot of the unmasked state and a toggle is a control the code cannot give a different effect to.</p>
+  </div>
+</section>
+
+<section class="sec" id="tokens">
+  <h2>5. The tokens list, every state, and revoke</h2>
+  <div class="grid one" data-surface="tokens" data-wide></div>
+  <div class="grid" data-surface="revoke"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> One row per token, nine columns in the order the issue names: name, prefix, scope badge, owner, created, expires, last used, status, and the action cell. The name column shows the name and, beneath it in the secondary ink, the principal as it appears everywhere else, <code>agent:nightly-triage</code>, so an operator reading the audit can match the two without a lookup. The <em>Expires</em> cell shows the date and, beneath it, the time left ("in 76 days") or, for an expired token, how long ago ("49 days ago"). The relative wording is display only: the date is the server's, the browser formats the difference, and nothing is decided from it.</p>
+    <p><strong>Three statuses, three renderings, none of them only colour.</strong> As in #984 and #994: the ink is always the body text, the state is carried by the glyph shape, the edge style and the word, and colour is the redundant fourth cue. <em>Active</em> is a check on a solid green edge. <em>Expired</em> is a clock on a dashed neutral edge (a token that ran out of time, nothing wrong with it). <em>Revoked</em> is a slashed circle on a solid red edge (a person ended it). Expired and revoked rows stay listed, in the same ink as active ones: dimming them with opacity would take their text below 4.5:1, so the distinction is the chip and not the row. <em>Last used</em> reads <em>never</em> for a token nothing has presented.</p>
+    <p><strong>Revoke is one button on an active row, and it asks.</strong> Revoke opens the existing <code>ConfirmationDialog</code> with the consequence in the button: <em>Revoke agent:nightly-triage</em>, and a sentence that its next request is refused (the engine checks revocation on every request, FR-91) and that a revoked token cannot be brought back, only replaced. No typed phrase: the shipped component reserves that for confirmations reached from a list where the near-miss is the danger, and the near-miss here is cheap, since a wrong revoke costs one mint. The row does not offer Revoke when the status is already expired or revoked: there is nothing the code does for it that the status has not already done. The echo, <code>retnd agent token revoke ID</code>, is read from the list response beside the row (section 14, row 6).</p>
+    <p><strong>No edit.</strong> A token's name, scope and expiry cannot be changed after minting: the spec has no verb for it ("Token rotation. Mint a new one, revoke the old one", section 8). So the row has no pencil, no extend button and no scope switcher. The honest path to a longer-lived token is the same two clicks as the CLI's.</p>
+  </div>
+</section>
+
+<section class="sec" id="confirm">
+  <h2>6. Pending confirmations: who asked, what, until when, and Approve or Deny</h2>
+  <div class="grid one" data-surface="confirm" data-wide></div>
+  <div class="grid" data-surface="confirm2"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> One row per <code>pending</code> record, newest first. A row says, in this order: the sentence (the catalogue's static description of the tool, in the product's own words), who asked (<code>agent:recovery-drill</code>), the exact <code>retnd</code> command the request will run, drawn as a copyable code line (the record's own <code>command</code>, never composed in the browser), the backup set it is about, when it was asked, and when it expires, with the buttons <em>Approve</em> and <em>Deny</em>. It does not draw the request body or any JSON: the command is the words an operator already reads, and the spec (expert 4) is explicit that a dialog showing a blob is a dialog that gets approved by reflex.</p>
+    <p><strong>Approve opens the step-up and calls nothing.</strong> Pressing <em>Approve</em> expands the row to a password field ("Your password", the shipped <code>StepUpPassword</code> wording: sent once with this request and not kept) and a primary button, <em>Approve and run</em>, disabled until the field has text, and a <em>Cancel</em> that collapses it. The route is not called until the password button is pressed (#1351's network-watching spec). The password travels as the existing step-up header and is held for that one request, as the bundle dialog does; on a connection the capabilities call unencrypted the existing consent prompt runs first, so the password is never the first thing to cross. The button says <em>run</em> because that is what approval does: it replays the recorded request byte for byte (FR-95), and no body is supplied at approval, so the UI sends none.</p>
+    <p><strong>Deny is one click and no password.</strong> Denying executes nothing and cannot hurt, so it asks for nothing. It sits beside Approve as a neutral button, not a danger one: Deny is the safe answer and must not look like the risky one. Both buttons are the same size and the same weight apart from the primary fill that appears only after Approve has been pressed, so the row never visually recommends running the request.</p>
+    <p><strong>Seconds from expiry.</strong> The expiry reads <em>expires 09:53 (in 0:41)</em> and, under a minute, the row takes the two-pixel warning edge and the clock glyph. The countdown is the browser formatting a server time. It does <em>not</em> disable Approve when it reaches zero: the browser's clock can be wrong, and the server is the judge. If the operator presses it late, the engine refuses with <code>AGENT_CONFIRMATION_EXPIRED</code> and the row shows that sentence as written, then falls out of the list on the next load into the audit. A client that locked the button on its own clock would be a second implementation of expiry.</p>
+    <p><strong>Refusals are shown in the row, in the engine's words.</strong> Four things can come back at approval, and each is drawn: the step-up refused (wrong password, or the step-up rate limit), the confirmation expired, the engine unreachable, and the one the issue singles out, the shut operation gate. For the gate the row switches to a result strip with a two-pixel danger edge: the gate's own sentence verbatim (<em>destructive operations are refused over HTTP in this release, until the trusted-proxy authentication gate (issue #92) has been verified; run the equivalent <code>retnd</code> command on the host</em>), the code <code>DESTRUCTIVE_OPERATIONS_DISABLED</code>, <code>exit 50</code> (what the CLI would have exited with for the same refusal, FR-94), and the correlation id. It is not a toast and it is not a generic "could not approve". The strip stays until the list is next loaded, then the record lives in the audit. It has no control: nothing to dismiss, nothing to retry (the gate is shut by construction, not by a transient fault).</p>
+    <p><strong>What leaves the list.</strong> Approved, denied and expired records fall out of the list and into the audit; the list never shows a decided record except the result strip above for the one the operator just decided. There is no "history" tab: the audit is the history, and it is on the same card.</p>
+    <p><strong>Not drawn:</strong> a per-token pending count, the cap (<code>agents.max_pending_confirmations</code>), and the confirmation TTL. The cap is the agent's refusal (<code>AGENT_CONFIRMATION_LIMIT</code>, which lands in the audit), the TTL is a config value this card cannot change, and neither is a control.</p>
+  </div>
+</section>
+
+<section class="sec" id="audit">
+  <h2>7. The audit: newest first, filtered by token and time, reads included, paged</h2>
+  <div class="grid one" data-surface="audit" data-wide></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> A table of calls, newest first, with six columns: time, token, tool, the scope the tool needs, the outcome (the HTTP status and the API's code, in a chip with a glyph), and the correlation id in mono. Above it two filters: <em>Token</em> (a select of the listed tokens plus <em>All tokens</em>) and <em>Since</em> (a duration word, as <code>retnd agent audit --since D</code> takes), and the echo under the table shows the twin for the current filter (<code>retnd agent audit --token ID --since 24h</code>). Reads are rows like any other (FR-97); a read token's day is mostly <code>200</code> chips, and that is the point of the table.</p>
+    <p><strong>Paged the way the feed is.</strong> The table asks the route for a page and shows <em>Show older</em> at the foot while the route says there is more (the cursor the API gives, as the Activity feed uses <code>before</code> and <code>next_cursor</code>). It is never truncated and never infinite-scrolls: the append is explicit, so the row under the cursor does not move. There is no total count and no page number, because the route is a cursor, not an offset. A footer sentence says the trail is bounded and older rows are pruned; it does not state the number of days, because the retention (<code>agents.audit_retention_days</code>) is deployment config the card does not read.</p>
+    <p><strong>Outcome, not exit code, in the row.</strong> The row shows what the API answered. The exit code the CLI would have used is the tool result's (FR-94) and the audit row does not store it (the table in the spec has <code>status</code>, <code>code</code> and <code>correlation_id</code>), so I did not draw a column the record cannot fill. The one place the card shows an exit code is the gate-refusal strip in section 6, where the approval response carries it.</p>
+    <p><strong>Details is a disclosure, not a page.</strong> Each row has a <em>Details</em> button that expands the two fields the table has no room for: the transport (<code>stdio</code> or <code>http</code>) and the arguments after projection. The arguments are text an agent supplied, so they are rendered as inert text in a mono block with a bounded height, never as HTML, never linkified, never evaluated; a set name or a file name an agent put there is data and is drawn as data (the same rule the spec holds the tool results to, UC-02). If the audit route does not return the arguments in a form the browser can show, the disclosure goes and nothing replaces it (section 14, row 9).</p>
+    <p><strong>A read token that tried to change something is the row to notice.</strong> <code>AGENT_SCOPE_INSUFFICIENT</code> is drawn as a refusal chip like any other: same glyph, same edge, no extra alarm. The audit is a log, not an alerting surface, and the epic names no alert for it.</p>
+  </div>
+</section>
+
+<section class="sec" id="states">
+  <h2>8. Empty, error and read-only states</h2>
+  <div class="grid" data-surface="states"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> Every region has an empty state that says what is true and what the next act is, a load-failure state that shows the engine's code and correlation id, and a read-only state. The empty tokens region says <em>No agent has a token. Nothing can connect to this deployment as an agent.</em> and offers <em>Create token</em>: it is the default state of every deployment, so it must read as normal and not as a missing setup step (the epic: a deployment with no token has no agent access and behaves as before). The empty confirmations region says <em>Nothing is waiting for you.</em> and nothing more. The empty audit says <em>No agent has called anything yet.</em>; when a filter is the cause it says <em>No calls match this filter</em> and offers <em>Clear filters</em>, because the two are different facts.</p>
+    <p><strong>Errors are the engine's.</strong> A failed load shows the message and code from the response, the correlation id in mono, and the shipped <em>Retry</em> (<code>common.error-retry</code>). It does not invent a friendlier sentence. A region fails on its own: a failed audit load leaves the tokens and confirmations drawn, since they are separate routes (<code>/agent/tokens</code>, <code>/agent/confirmations</code>, <code>/agent/audit</code>, and <code>/agent/tools</code> for the scope list). A mint that fails keeps the dialog open with the field values kept and the refusal beside the field it is about; the failure of the approve step-up is in section 6.</p>
+    <p><strong>Read-only.</strong> When the page is read-only (<code>readOnly</code>, the version mismatch the other cards already follow), the lists stay readable and every mutating control is absent, as <code>EncryptionCard.tsx</code> does with <code>readOnly ? null : ...</code>: no Create token, no Revoke, no Approve, no Deny. A pending row still reads in full, with the sentence that approving needs a writable page, so an operator who can see something waiting is not left to wonder why they cannot answer it.</p>
+  </div>
+</section>
+
+<section class="sec" id="transport">
+  <h2>9. The HTTP transport: an honest statement, not a switch</h2>
+  <div class="grid" data-surface="transport"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> The last line of the card says whether the streamable HTTP transport is off or on, as text, and when it is off, the one configuration line that turns it on. It has no toggle, no checkbox and no button, and it gets no tooltip: a statement of fact is not a control (checklist section 5, "an honest non-interactive statement of fact"). The reason is in the code and in the spec. <code>agents.http_transport</code> is a field of a config block with <code>KnownFields(true)</code>, so a configuration that writes it cannot be read by an older build; that is a one-way door, and a web toggle would walk an operator through it on a single click with no way back. Nothing in the planned routes patches <code>agents:</code> from the browser (the routes are tokens, tools, audit, confirmations and the MCP endpoint itself), so a toggle is a control whose effect the code cannot state, which is the checklist's hardest rule. It is also the example the issue gives for the falsification table, and I have drawn the opposite of it.</p>
+    <p><strong>Off is the default and the picture says what that means.</strong> Agents connect with <code>retnd agent serve --stdio</code>, which runs beside this engine. The sentence to turn HTTP on is a configuration line (<code>agents:</code> then <code>http_transport: on</code>) and the line that follows it says what the line costs: the older-build refusal. When it is on, the statement says where it listens (<code>/api/v1/agent/mcp</code>) and what that means on a connection that is not encrypted, in the same words the epic's risk 2 uses: the token travels in a header on whatever connection reaches the engine, so on plain HTTP it is readable on the network, as the session cookie already is.</p>
+    <p><strong>Where the card learns on or off.</strong> From <code>agents_http_transport</code> (<code>on</code> or <code>off</code>) on <code>GET /system/capabilities</code>, which the card already reads for the insecure-transport gate (settled in #1364, section 14 row 3). The line starts with the picture's <em>HTTP transport: on</em> or <em>HTTP transport: off</em>, then the how-to sentence.</p>
+  </div>
+</section>
+
+<section class="sec" id="tips">
+  <h2>10. Tooltips and field help: each control names an id, or is refused one with the reason</h2>
+  <div class="reason">
+    <p>The rule is <code>docs/epic-checklist.md</code> section 5: a control gets a registry entry and, if it is an input, a three-part <code>fieldHelpCopy.ts</code> entry only when its effect can be stated from the code. The prefix is <code>agents.*</code>, which nothing in <code>ui/shared/src/tooltips/tooltips.json</code> uses today (28 entries under <code>encryption.*</code> are the closest precedent). Phase 1 is not written, so every id below is conditional: it exists only if, when #1351 writes the copy, the effect can be read out of the code #1345 to #1349 land. An id whose effect cannot be read then moves to the refusal rows and #1351 records that in its pull request. The Retry buttons reuse <code>common.error-retry</code> and the echo blocks reuse <code>wizard.command-echo</code>; neither is new.</p>
+    <table class="t">
+      <tr><th>Control</th><th>TooltipId, or the refusal</th></tr>
+      <tr><td>Agents card heading</td><td><span class="tipid">agents.card</span></td></tr>
+      <tr><td>Tokens, Pending confirmations and Audit region headings</td><td><span class="tipid">agents.tokens</span>, <span class="tipid">agents.confirmations</span>, <span class="tipid">agents.audit</span></td></tr>
+      <tr><td>What each scope can call (disclosure)</td><td><span class="tipid">agents.scopes.list</span> States that the list is the catalogue the engine holds and that a tool not on it cannot be called.</td></tr>
+      <tr><td>Create token (button)</td><td><span class="tipid">agents.token.create</span></td></tr>
+      <tr><td>Name (text input)</td><td><span class="tipid">agents.mint.name</span> with a field-help triple (below).</td></tr>
+      <tr><td>Scope: read / operate / configure (radio group); Allow more than reading (fold)</td><td><span class="tipid">agents.mint.scope</span>, <span class="tipid">agents.mint.scope.more</span>, and the two sentences as <span class="tipid">agents.mint.scope.operate</span>, <span class="tipid">agents.mint.scope.configure</span></td></tr>
+      <tr><td>Expires in (text input)</td><td><span class="tipid">agents.mint.expiry</span> with a field-help triple (below).</td></tr>
+      <tr><td>Copy (button on the shown-once field)</td><td><span class="tipid">agents.mint.copy</span> Its effect is the clipboard write and nothing else.</td></tr>
+      <tr><td>I have stored it (button)</td><td><span class="tipid">agents.mint.stored</span> States that the token cannot be shown again after this.</td></tr>
+      <tr><td>Column heading: Prefix</td><td><span class="tipid">agents.token.prefix</span> The first eight characters identify a token and are not the token.</td></tr>
+      <tr><td>Scope badges: read, operate, configure</td><td><span class="tipid">agents.scope.read</span>, <span class="tipid">agents.scope.operate</span>, <span class="tipid">agents.scope.configure</span></td></tr>
+      <tr><td>Status chips: Active, Expired, Revoked</td><td><span class="tipid">agents.status.active</span>, <span class="tipid">agents.status.expired</span>, <span class="tipid">agents.status.revoked</span> Each states what the record holds: an expiry in the future, an expiry passed, a revocation time set.</td></tr>
+      <tr><td>Revoke (button), and its confirm</td><td><span class="tipid">agents.token.revoke</span> The confirm dialog's body is the dialog's own copy.</td></tr>
+      <tr><td>Expires (readout on a pending row)</td><td><span class="tipid">agents.confirm.expires</span> A pending record that passes its expiry is refused at approval and ends.</td></tr>
+      <tr><td>Approve (button); Your password (input); Approve and run (button); Deny (button)</td><td><span class="tipid">agents.confirm.approve</span>, <span class="tipid">agents.confirm.stepup</span> with a field-help triple (below), <span class="tipid">agents.confirm.run</span>, <span class="tipid">agents.confirm.deny</span></td></tr>
+      <tr><td>Audit filter: Token (select); Since (text input)</td><td><span class="tipid">agents.audit.token</span>, <span class="tipid">agents.audit.since</span>, each with a field-help triple (below).</td></tr>
+      <tr><td>Show older (button); Details (button)</td><td><span class="tipid">agents.audit.older</span>, <span class="tipid">agents.audit.details</span></td></tr>
+      <tr><td>Outcome chips in the audit</td><td><span class="tipid">agents.audit.outcome</span> One id for the column: the chip shows the API's status and code, the same code the CLI prints.</td></tr>
+      <tr><td>HTTP transport line (off or on)</td><td><span class="nopop">no pop-up</span> A non-interactive statement of fact. It is not a control and has nothing to explain beyond what the sentence says.</td></tr>
+      <tr><td>Token name under the row; owner; created; expires; last used (readouts)</td><td><span class="nopop">no pop-up</span> Facts from the record, drawn as text.</td></tr>
+      <tr><td>Correlation id, time, tool name, scope-needed (audit cells)</td><td><span class="nopop">no pop-up</span> Facts from the record. The id is the same one in the response header and the terminal.</td></tr>
+      <tr><td>The statement at the top of the card</td><td><span class="nopop">no pop-up</span> It is the explanation.</td></tr>
+      <tr><td>A toggle for the HTTP transport; a per-tool switch; a per-set restriction; an extend or edit action on a token; a "trust this agent" or "always allow" on a confirmation; a pre-approve option on mint; a "copy command" on the audit row</td><td><span class="nopop">not drawn</span> Refused as controls, so there is nothing to explain. The code cannot state an effect for any of them: nothing patches <code>agents:</code> from the browser, the catalogue has one scope per tool and the epic cuts per-tool and per-set restriction, there is no verb that edits a token, and D2 says no pre-approved mutations in this epic.</td></tr>
+    </table>
+    <p><strong>The field-help triples</strong> (what it is for, something an operator could type, what typing that causes). These are proposals; #1351 checks each effect against the code beside it and drops any it cannot read out.</p>
+    <table class="t">
+      <tr><th>Field</th><th>What it is for</th><th>An example</th><th>What typing that causes</th></tr>
+      <tr><td><span class="tipid">agents.mint.name</span></td><td>The name this agent goes by wherever the product names who did something.</td><td><code>nightly-triage</code></td><td>The token is minted as <code>agent:nightly-triage</code>, and that is the name on its rows here, in the audit, in the activity feed and in <code>retnd agent audit</code>.</td></tr>
+      <tr><td><span class="tipid">agents.mint.expiry</span></td><td>How long the token works before it is refused.</td><td><code>90d</code></td><td>From the moment you create it, requests with this token are accepted for 90 days and refused after that. The longest the engine allows is one year, and it says so if you ask for more.</td></tr>
+      <tr><td><span class="tipid">agents.confirm.stepup</span></td><td>Your own password, asked again before a request an agent made is run.</td><td>(your account password)</td><td>It is sent once with the approval and not kept. A correct password runs the recorded request exactly as the agent asked; a wrong one runs nothing.</td></tr>
+      <tr><td><span class="tipid">agents.audit.token</span></td><td>Show the calls of one token, or of all of them.</td><td><code>agent:nightly-triage</code></td><td>The table asks the engine for that token's calls only, newest first. It hides nothing from the trail; All tokens shows it all again.</td></tr>
+      <tr><td><span class="tipid">agents.audit.since</span></td><td>Show only calls from the last stretch of time.</td><td><code>24h</code></td><td>The table asks the engine for calls from the last 24 hours. Calls older than the trail's retention are no longer there to show.</td></tr>
+    </table>
+  </div>
+</section>
+
+<section class="sec" id="divergence">
+  <h2>11. Reviewed against the first design canvas and the build: what follows them and what deliberately does not</h2>
+  <div class="reason">
+    <p><strong>Follows the canvas and the build.</strong> Card shape (eyebrow heading on <code>--surface-2</code>, body in regions), the button weights (primary, neutral, danger), the <code>dialog-scrim</code> and <code>dialog</code> shapes from <code>components.css</code> (the scrim is the one colour literal in this note, copied from <code>.dialog-scrim</code>), <code>ConfirmationDialog</code> for revoke (the consequence in the button, as its own comment requires), <code>StepUpPassword</code> for the approval password, <code>CommandEcho</code> under every action, the chip-with-glyph pattern of #984 and #994 for every state, and the token set, all unchanged. The canvas has no dialog that shows a secret once and no list of principals (the word "agent" occurs in it only as ordinary copy), so the card, the shown-once dialog and the confirmation row are additions in its shape rather than reinterpretations of anything it draws.</p>
+    <p><strong>Diverges, and why.</strong> The canvas draws text boxes and segmented controls with <code>--border-strong</code>, which is 1.69:1 on the light surface; this note uses <code>--edge-3</code> as the shipped assurance and encryption CSS does, so a control edge meets 3:1 (section 13). The build's <code>--text-3</code> is a text ink at 4.5:1 since #1235; this note uses it for exactly one thing, the text of a disabled button. And one rule here is stricter than any card in the build: the mint dialog has no way to close except the act it exists for. The Retained-copy bundle dialog has a Cancel; this one cannot, because cancelling a shown-once secret is losing it.</p>
+    <p><strong>What a dialog on this page does about the narrow layout.</strong> Tables become labelled blocks below a 640px container (each cell carries its column name in the secondary ink), the pending row's buttons stack, and the key/value lists go single-column. The shown-once token wraps rather than scrolling, so the whole of it is on screen to be read and copied.</p>
+  </div>
+</section>
+
+<section class="sec" id="absent">
+  <h2>12. Drawn as absent</h2>
+  <div class="reason">
+    <p>No HTTP transport toggle. No per-tool or per-set restriction. No token edit, extend, rename or rotate. No "show token again", no reveal toggle, no masked token, no export of a token, no QR code. No pre-approve, "always allow", "trust" or "remember this choice" on a confirmation. No bulk approve, no approve-all. No request body or JSON in a confirmation. No confirmation count or cap control. No "disable the audit". No clearing, deleting or exporting of audit rows (they are bounded by retention, and there is no verb that deletes one). No exit-code column in the audit. No agent health fact on the Dashboard. No catalogue refusals listed. No tool outside the catalogue: the scope list is read from <code>GET /api/v1/agent/tools</code>, and a tool that response lacks cannot appear. Where a value is not known (a token never used, an audit row with no confirmation), the cell says <em>never</em> or is absent, rather than showing a placeholder.</p>
+  </div>
+</section>
+
+<section class="sec" id="contrast">
+  <h2>13. Measured contrast</h2>
+  <div class="reason">
+    <p>I computed these from the token values in the style block above, which this generator checked equal <code>ui/shared/src/design-system/tokens.css</code> at <code>5760aa59</code> in both themes before it wrote a number (it refuses to write if one differs). The <code>oklch()</code> tokens are converted to linear sRGB with the same function <code>scripts/contrast/check-ui-pairs.py</code> uses, and the ratio is the WCAG 2.x relative-luminance one, (L1 + 0.05) / (L2 + 0.05). Text needs 4.5:1 (nothing on this card is large text: the biggest type is the 15px card heading in this note, and the product card heading is 12px), a component edge or graphic needs 3:1. Every pair below is one the picture actually draws, the figures are static text, and the script is reproduced at the end of the section so any row can be recomputed from the token values in the style block.</p>
+    <table class="t" id="contrast-table">
+      <tr><th>Pair</th><th>Light</th><th>Dark</th><th>Needs</th></tr>
+      <tr><td>--text on --surface (body, table cells, dialog text, chip ink)</td><td>17.45</td><td>14.53</td><td>4.5</td></tr>
+      <tr><td>--text on --surface-2 (scope badge read, copy lines, token field, tool names, expired chip)</td><td>16.71</td><td>13.73</td><td>4.5</td></tr>
+      <tr><td>--text on --surface-3 (the TooltipId marks in this note)</td><td>15.29</td><td>12.73</td><td>4.5</td></tr>
+      <tr><td>--text on --bg (text set directly on the page)</td><td>15.57</td><td>15.96</td><td>4.5</td></tr>
+      <tr><td>--text on --ok-quiet (Active chip, outcome 200)</td><td>15.45</td><td>12.27</td><td>4.5</td></tr>
+      <tr><td>--text on --warn-quiet (operate and configure badges, expiry warning, notices)</td><td>15.46</td><td>11.80</td><td>4.5</td></tr>
+      <tr><td>--text on --danger-quiet (Revoked chip, refusal chips, refusal strips, incl. the gate sentence)</td><td>15.00</td><td>12.02</td><td>4.5</td></tr>
+      <tr><td>--text on --accent-quiet (selected scope radio and its sentence, 202 chip, waiting chip)</td><td>15.10</td><td>11.68</td><td>4.5</td></tr>
+      <tr><td>--text-2 on --surface (labels, relative times, column heads, field notes)</td><td>6.64</td><td>6.89</td><td>4.5</td></tr>
+      <tr><td>--text-2 on --surface-2 (card heading, copy-line echo)</td><td>6.36</td><td>6.51</td><td>4.5</td></tr>
+      <tr><td>--text-2 on --bg (frame tag, text on the page)</td><td>5.93</td><td>7.57</td><td>4.5</td></tr>
+      <tr><td>--text-3 on --surface-3 (a disabled button, as .btn:disabled draws it)</td><td>4.71</td><td>5.08</td><td>4.5</td></tr>
+      <tr><td>--surface on --accent (primary button: Create token, Approve and run, I have stored it)</td><td>5.51</td><td>6.36</td><td>4.5</td></tr>
+      <tr><td>--surface on --danger (primary danger button: Revoke agent:NAME)</td><td>5.95</td><td>5.50</td><td>4.5</td></tr>
+      <tr><td>--danger on --surface (Revoke button text)</td><td>5.95</td><td>5.50</td><td>4.5</td></tr>
+      <tr><td>--accent on --surface-2 (the waiting link in the card heading)</td><td>5.27</td><td>6.01</td><td>4.5</td></tr>
+      <tr><td>--accent on --surface (links and the focus ring)</td><td>5.51</td><td>6.36</td><td>4.5</td></tr>
+      <tr><td>--edge-3 on --surface (button, text box, select, scope badge read, chip, fold edge)</td><td>3.35</td><td>3.85</td><td>3</td></tr>
+      <tr><td>--edge-3 on --surface-2 (chip edge against its own fill; command lines)</td><td>3.20</td><td>3.64</td><td>3</td></tr>
+      <tr><td>--ok edge on --surface (Active chip, 200 chip)</td><td>5.24</td><td>7.16</td><td>3</td></tr>
+      <tr><td>--warn edge on --surface (operate and configure badges, expiring row)</td><td>4.76</td><td>8.34</td><td>3</td></tr>
+      <tr><td>--danger edge on --surface (Revoked chip, refusal chips and strips, bad input)</td><td>5.95</td><td>5.50</td><td>3</td></tr>
+      <tr><td>--accent edge on --surface (selected radio, waiting chip, token field)</td><td>5.51</td><td>6.36</td><td>3</td></tr>
+      <tr><td>--accent edge on --surface-2 (token field on the dialog&#x27;s second surface)</td><td>5.27</td><td>6.01</td><td>3</td></tr>
+      <tr><td>glyph --ok on --ok-quiet (check in Active and 200)</td><td>4.64</td><td>6.05</td><td>3</td></tr>
+      <tr><td>glyph --danger on --danger-quiet (slashed circle, cross)</td><td>5.11</td><td>4.55</td><td>3</td></tr>
+      <tr><td>glyph --accent on --accent-quiet (diamond in Waiting and 202)</td><td>4.77</td><td>5.11</td><td>3</td></tr>
+    </table>
+    <p><strong>What the numbers say.</strong> Every pair clears its bar in both themes. The tightest text pair is --text-3 on --surface-3 at 4.71:1 in light (needs 4.5). The tightest edge or graphic pair is --edge-3 on --surface-2 at 3.20:1 in light (needs 3). Two choices keep it that way. First, the ink of every chip, badge and notice is <code>--text</code>, never a status colour: scope, status and outcome are carried by the word, the glyph shape and the edge style, with colour as a redundant fourth cue, so no status hue ever has to clear 4.5:1 as text on a tinted fill. Second, expired and revoked rows are not dimmed: opacity on their text would put it below 4.5:1, and the chip already says what the row is. Inactive controls (the disabled <em>Approve and run</em> before a password is typed) are drawn as <code>.btn:disabled</code> draws them, <code>--text-3</code> on <code>--surface-3</code>, which clears 4.5:1 in the row above, and an inactive component is exempt from the 3:1 edge bar. The only colour literal in the note is the dialog scrim, which no text sits on.</p>
+    <p><strong>How I checked it.</strong> I ran the generator below from the repository root. It read the two token blocks out of this file's own style element, compared every colour to <code>tokens.css</code>, converted and measured each pair, and wrote this table into the file. I rendered the finished file in Chromium through the workspace Playwright lock at 1280 px and at 360 px and looked at every surface in both themes; the captures stayed in my scratch directory and are not committed. I did not scan every text node in the render the way <code>docs/site/tools/check-contrast.mjs</code> does for the docs site (its walker is tied to that site's pages), did not run an automated accessibility scanner, and did not check hover, focus or forced-colours states beyond the focus-ring row. A pair that is not in the table is not claimed. #1351 measures the built card with the same rule and puts the ratios in its pull request.</p>
+    <details>
+      <summary class="muted">The script that produced the table (the same arithmetic as <code>scripts/contrast/check-ui-pairs.py</code>)</summary>
+      <pre class="mono" style="overflow-x:auto;background:var(--surface-2);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--space-3)">import math, re
+# oklch(L C h) -&gt; linear sRGB, then WCAG relative luminance, then (L1+0.05)/(L2+0.05).
+def oklch_to_linear(l, c, h):
+    a, b = c*math.cos(math.radians(h)), c*math.sin(math.radians(h))
+    l_, m_, s_ = l+0.3963377774*a+0.2158037573*b, l-0.1055613458*a-0.0638541728*b, l-0.0894841775*a-1.2914855480*b
+    lc, mc, sc = l_**3, m_**3, s_**3
+    rgb = (4.0767416621*lc-3.3077115913*mc+0.2309699292*sc,
+           -1.2684380046*lc+2.6097574011*mc-0.3413193965*sc,
+           -0.0041960863*lc-0.7034186147*mc+1.7076147010*sc)
+    return tuple(min(1.0, max(0.0, x)) for x in rgb)
+def hex_to_linear(v):
+    h = v.lstrip(&quot;#&quot;); out = []
+    for i in (0, 2, 4):
+        x = int(h[i:i+2], 16)/255
+        out.append(x/12.92 if x &lt;= 0.04045 else ((x+0.055)/1.055)**2.4)
+    return tuple(out)
+def lum(c): return 0.2126*c[0]+0.7152*c[1]+0.0722*c[2]
+def ratio(a, b):
+    hi, lo = sorted((lum(a), lum(b)), reverse=True)
+    return (hi+0.05)/(lo+0.05)
+def colour(v):
+    m = re.fullmatch(r&quot;oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\)&quot;, v)
+    return oklch_to_linear(*map(float, m.groups())) if m else hex_to_linear(v)
+# usage: ratio(colour(&quot;#191a19&quot;), colour(&quot;#ffffff&quot;))  -&gt;  17.8 (text on surface, light)
+</pre>
+    </details>
+  </div>
+</section>
+
+<section class="sec" id="assumptions">
+  <h2>14. What this note leans on, so a change in #1345 to #1349 can be traced back to it</h2>
+  <div class="reason">
+    <p>Phase 1 and U2.1 are not written, and the owner chose that on purpose: U2.2 waits on U1.3 only for the catalogue, and U2.3 waits on this note. The spec (<code>docs/EPIC-U-mcp-server.md</code>) is what I drew against. Each line is an assumption in it that a picture depends on. If an issue changes one, the section named is the one to revisit; the Settled column records how each one was settled against the code before this note merged (the echo placement and the transport line are the only pictures that changed); after merge, this note is not edited and a later note supersedes it. The review of this note is recorded on #1350 before #1351 opens, and a point the review raises that changes a picture is a reason to supersede, not to patch.</p>
+    <table class="t">
+      <tr><th>#</th><th>Assumption</th><th>Owner</th><th>Sections</th><th>Settled</th></tr>
+      <tr><td>1</td><td>The statement's claims (a read token starts nothing and changes nothing; nothing an agent asks for runs without a person; no key material, recipient, credential or secret reaches an agent; every call is in the audit, reads included) are FR-92, FR-95, FR-98 and FR-97. The card may keep each sentence only while the guard for it is green</td><td>#1345, #1346, #1348, #1349, #1352</td><td>1</td><td>Holds as drawn (no change). Spec FR-92, FR-95, FR-97, FR-98, #1354.</td></tr>
+      <tr><td>2</td><td><code>GET /api/v1/agent/tools</code> returns the tools by scope, with each name; the browser renders it and holds no copy. The names drawn are the spec's section 12 list at <code>9cd53e1f</code> plus PR #1354, not a prediction of the final catalogue</td><td>#1346</td><td>2, 10</td><td>Holds. The catalogue route and its tool list landed in #1368.</td></tr>
+      <tr><td>3</td><td>The browser can learn whether the HTTP transport is on from some route. None of the routes the spec names carries it, and no route patches <code>agents:</code>. If none will, the transport line is drawn only from the <code>AGENT_HTTP_TRANSPORT_OFF</code> refusal or not at all</td><td>#1347, #1349</td><td>9</td><td>Settled: <code>CapabilitiesResponse.agents_http_transport</code>, <code>on</code> or <code>off</code>, filled from <code>config.Agents.HTTPTransport</code> (#1364); the card states it (#1367).</td></tr>
+      <tr><td>4</td><td>The catalogue row holds one scope per tool. Whether an <code>operate</code> or <code>configure</code> token may also call a read tool is not stated in the spec, so the scope list claims nothing about inclusion and the mint sentences do not either</td><td>#1345, #1346</td><td>2, 3</td><td>Settled: scopes nest, read &lt; operate &lt; configure, so operate includes read and configure includes operate (FR-92 in #1354; the mint sentences in #1367).</td></tr>
+      <tr><td>5</td><td>A token record carries name, 8-character prefix, scope, owner, created, expires, last used, and a status of <code>active</code>, <code>expired</code> or <code>revoked</code> (the spec's <code>agent_tokens</code> columns plus a status the route derives). Whether the engine derives <code>expired</code> or the browser would is open; the engine, per the engine rule</td><td>#1345</td><td>5</td><td>Holds: the engine derives it, <code>AgentToken.status</code> (#1357).</td></tr>
+      <tr><td>6</td><td>A confirmation row carries the CLI twin the card shows (the agent's own command, and the approve and deny twins). The token and audit surfaces have no such field, so the browser composes the three fixed twins (token create, token revoke, audit), which may therefore show before any response: the mint dialog draws its echo while the form is filled in</td><td>#1345, #1349</td><td>3, 4, 5, 6</td><td>Changed: the browser composes the three fixed twins (token create, token revoke, audit), pinned to <code>core/cliecho/testdata/cli_outcomes.golden</code> by vitest (#1367), so they may show before any response. Confirmations keep the engine's <code>command</code> (#1372).</td></tr>
+      <tr><td>7</td><td>The mint submit asks the existing insecure-transport consent before sending, on a connection the capabilities call unencrypted. This is a proposal for the review to accept or reject, and if accepted it is one call in #1351 and possibly a sentence in the prompt</td><td>#1351 (review of this note)</td><td>3</td><td>Settled: kept, and the engine enforces it as well. <code>POST /agent/tokens</code> is refused over plain HTTP without the insecure-transport ack, so a remote <code>retnd agent token create</code> exits 52 until <code>RETND_API_INSECURE_TRANSPORT=acknowledged</code> is set (#1357). The consent copy says why: the token comes back over this connection (#1367).</td></tr>
+      <tr><td>8</td><td>A pending record carries the tool, the recorded <code>command</code>, the backup set, the token, the created and expiry times, and enough for the card to write the sentence: the catalogue's static description of the tool (a string held in the catalogue, not built from data). The approve and deny routes return the engine's refusal with <code>code</code>, <code>message</code> and a correlation id, and an approval refused by the gate also carries the CLI exit code (50 for <code>DESTRUCTIVE_OPERATIONS_DISABLED</code>)</td><td>#1346, #1349</td><td>6</td><td>Holds: <code>AgentExecution.exit_code</code> and the refusal fields (#1349, #1372).</td></tr>
+      <tr><td>9</td><td>An audit row carries time, token, tool, the scope the tool needs, status, code and correlation id; the arguments after projection and the transport are available to show in a disclosure. The scope column means the scope the tool requires, not the token's own; U1.5 confirms which. How a success is spelled (a status with no code) is U1.5's</td><td>#1348</td><td>7</td><td>Settled: the scope column is the scope the tool needs, a browser join from the catalogue. The token name is read from <code>token_name</code> on the audit entry (#1365, #1367).</td></tr>
+      <tr><td>10</td><td>The audit route takes a token and a duration (<code>--token ID --since D</code>) and pages by a cursor, like <code>GET /api/v1/activity</code>; the order is newest first</td><td>#1348</td><td>7</td><td>Holds: the audit route pages by <code>next_cursor</code>, newest first (#1365).</td></tr>
+      <tr><td>11</td><td>Revoke is refused or meaningless on a token that is not active, so the card offers it only on active rows; if the route accepts revoking an expired token and that is useful, the button appears on expired rows too</td><td>#1345</td><td>5</td><td>Settled: Revoke is offered only on active rows (#1357, #1367).</td></tr>
+      <tr><td>12</td><td>The step-up header and the 15-minute default expiry are as in #1163 and the spec; <code>StepUpAct</code> gains a value for this act and its words are the shape of the existing four</td><td>#1349, #1351</td><td>6</td><td>Holds: <code>StepUpFields.tsx</code> gained the act (#1372).</td></tr>
+    </table>
+    <p><strong>Not decided here, on purpose.</strong> The wording of any shipped tooltip, the real command names and flags, the token's format, the name rules, and where the tooltip registry keeps the two scope sentences. None of these changes a picture; each would change a label.</p>
+  </div>
+</section>
+</div>
+
+<script>
+// Text glyphs only, never emoji: an emoji is drawn in its own colours, which would break "the ink is always --text".
+const G={ok:"✓",fail:"✕",clock:"◷",nolock:"⊘",play:"▶",cog:"≡",read:"○",wait:"◇"};
+const chip=(cls,g,label,extra)=>`<span class="chip ${cls}"><span class="g" aria-hidden="true">${g}</span>${label}${extra?` <span class="age">${extra}</span>`:""}</span>`;
+const SC={read:()=>chip("sc-read",G.read,"read"),operate:()=>chip("sc-operate",G.play,"operate"),configure:()=>chip("sc-configure",G.cog,"configure")};
+const ST={active:()=>chip("st-active",G.ok,"active"),expired:()=>chip("st-expired",G.clock,"expired"),revoked:()=>chip("st-revoked",G.nolock,"revoked")};
+const echo=(...cmds)=>`<div class="echo"><span class="eyebrow">Equivalent command</span>${cmds.map(c=>`<code>${c}</code>`).join("")}</div>`;
+const dlg=(eyebrow,title,body,cls)=>`<div class="scrim"><div class="dialog ${cls||""}" role="dialog" aria-modal="true"><div class="dh"><span class="eyebrow">${eyebrow}</span>${title}</div><div class="db">${body}</div></div></div>`;
+const field=(lab,input,note)=>`<label class="field"><span class="lab">${lab}</span>${input}${note?`<span class="muted">${note}</span>`:""}</label>`;
+
+const READ=["status","backup_sets_list","backup_set_show","backups_list","backup_show","copies_show","encryption_state","assurance_due","assurance_show","activity","activity_live","quarantine_list","operations_list","operation_show","storage_mediums_list","storage_usage","retention_preview","workflow_runs_list","workflow_run_show"];
+const OPERATE=["run_cycle","run_backup_set","recovery_test_start","verify_copy","scrub_start","retry_backup","quarantine_revalidate"];
+const CONFIGURE=["backup_set_enabled","backup_set_retention_set","backup_set_retention_clear","backup_set_assurance_set"];
+const names=a=>`<div class="names">${a.map(n=>`<code>${n}</code>`).join("")}</div>`;
+
+const GATE="destructive operations are refused over HTTP in this release, until the trusted-proxy authentication gate (issue #92) has been verified; run the equivalent <code>retnd</code> command on the host";
+
+const TOK=[
+ {n:"nightly-triage",p:"q7Hn3xKd",s:"read",o:"admin",c:"2026-10-28",e:"2027-01-26",er:"in 76 days",u:"2026-11-11 09:41",st:"active"},
+ {n:"recovery-drill",p:"b2Vw9mRt",s:"operate",o:"admin",c:"2026-11-02",e:"2026-11-16",er:"in 5 days",u:"2026-11-11 09:38",st:"active"},
+ {n:"settings-helper",p:"x4Lc8eQa",s:"configure",o:"admin",c:"2026-11-09",e:"2027-02-07",er:"in 88 days",u:"never",st:"active"},
+ {n:"old-weekly-report",p:"m9Zr1tUy",s:"read",o:"admin",c:"2026-07-01",e:"2026-09-29",er:"43 days ago",u:"2026-09-28 06:00",st:"expired"},
+ {n:"laptop-experiment",p:"k3Pd6fWs",s:"operate",o:"admin",c:"2026-10-02",e:"2027-01-02",er:"in 52 days",u:"2026-10-14 17:22",st:"revoked"}
+];
+const tokRow=(t,opts)=>`<tr><td data-l="Name"><div><b>${t.n}</b><div class="muted mono">agent:${t.n}</div></div></td><td data-l="Prefix" class="mono">${t.p}</td><td data-l="Scope">${SC[t.s]()}</td><td data-l="Owner">${t.o}</td><td data-l="Created">${t.c}</td><td data-l="Expires"><div>${t.e}<div class="muted">${t.er}</div></div></td><td data-l="Last used">${t.u}</td><td data-l="Status">${ST[t.st]()}</td><td data-l="">${t.st==="active"&&!(opts&&opts.ro)?`<button class="btn danger">Revoke</button>`:""}</td></tr>`;
+const tokTable=(rows,opts)=>`<table class="t resp"><thead><tr><th>Name</th><th>Prefix</th><th>Scope</th><th>Owner</th><th>Created</th><th>Expires</th><th>Last used</th><th>Status</th><th></th></tr></thead><tbody>${rows.map(r=>tokRow(r,opts)).join("")}</tbody></table>`;
+
+const OUT={
+ ok:s=>chip("o-ok",G.ok,s),
+ wait:(c)=>chip("o-wait",G.wait,"202",c),
+ ref:(s,c)=>chip("o-refused",G.fail,s,c)
+};
+const AUD=[
+ ["2026-11-11 09:41:07","nightly-triage","status","read",OUT.ok("200"),"7f3a91d2e0b4c855"],
+ ["2026-11-11 09:40:55","nightly-triage","backup_sets_list","read",OUT.ok("200"),"1c0be4a7d9f26b30"],
+ ["2026-11-11 09:38:12","recovery-drill","run_cycle","operate",OUT.wait("AGENT_CONFIRMATION_REQUIRED"),"a98e5d1b3c72f604"],
+ ["2026-11-11 09:36:30","settings-helper","backup_set_enabled","configure",OUT.wait("AGENT_CONFIRMATION_REQUIRED"),"5e2d7c60b1a48f93"],
+ ["2026-11-11 09:21:44","nightly-triage","backup_set_enabled","configure",OUT.ref("403","AGENT_SCOPE_INSUFFICIENT"),"e04b8f16a52d9c77"],
+ ["2026-11-11 09:02:10","recovery-drill","run_cycle","operate",OUT.ref("403","DESTRUCTIVE_OPERATIONS_DISABLED"),"3b7f1a9e6c0d4528"],
+ ["2026-11-11 08:59:02","nightly-triage","encryption_state","read",OUT.ref("429","AGENT_RATE_LIMITED"),"c6d3e8a014f7b952"],
+ ["2026-11-11 08:14:49","nightly-triage","activity","read",OUT.ok("200"),"92a5b0f7c3e18d46"]
+];
+const audRow=r=>`<tr><td data-l="Time" class="mono">${r[0]}</td><td data-l="Token">${r[1]}</td><td data-l="Tool" class="mono">${r[2]}</td><td data-l="Scope needed">${SC[r[3]]()}</td><td data-l="Outcome">${r[4]}</td><td data-l="Correlation id" class="mono">${r[5]}</td><td data-l=""><button class="btn">Details</button></td></tr>`;
+const audTable=rows=>`<table class="t resp"><thead><tr><th>Time</th><th>Token</th><th>Tool</th><th>Scope needed</th><th>Outcome</th><th>Correlation id</th><th></th></tr></thead><tbody>${rows.map(audRow).join("")}</tbody></table>`;
+
+const pend=(o)=>`<div class="pend ${o.cls||""}">
+  <div class="row"><span class="grow sentence">${o.sentence}</span>${o.soon?chip("o-soon",G.clock,"Expires in "+o.left):chip("o-wait",G.wait,"Waiting for you")}</div>
+  <div class="muted"><b style="color:var(--text)">agent:${o.who}</b> asked at ${o.at} about <span class="mono">${o.set}</span></div>
+  <code class="cmd">${o.cmd}</code>
+  <div class="muted">Expires ${o.exp}${o.soon?"":" (in "+o.left+")"}</div>
+  ${o.body||""}
+</div>`;
+const btnsIdle=`<div class="row"><button class="btn">Approve</button><button class="btn">Deny</button></div>`;
+const stepup=(extra,bad)=>`<div class="field"><label class="lab">Your password</label><input class="input ${bad?"bad":""}" type="password" value="${extra?"••••••••":""}" aria-label="Your password"><span class="muted">Approving asks for your password again. It is sent once with this request and not kept.</span>${bad||""}</div>`;
+
+const S={
+ card(){return `
+  <div class="card"><h3>Agents <span class="grow"></span><a href="#confirmations" style="color:var(--accent)">2 waiting for you</a></h3><div class="body">
+   <div>
+    <div>An agent is a client of this deployment with a token of its own. By default it can look at your backups and nothing more: a <code>read</code> token starts nothing and changes nothing. Anything an <code>operate</code> or <code>configure</code> token asks for waits below until you approve it with your password.</div>
+    <div class="muted" style="margin-top:6px">An agent is never given key material, recipients, credentials or secrets, and every call it makes, reads included, is in the audit below.</div>
+   </div>
+   <div class="region"><div class="eyebrow">Tokens <span class="grow"></span><button class="btn primary" style="text-transform:none;letter-spacing:0;font-weight:400">Create token</button></div>
+    ${tokTable(TOK.slice(0,4))}
+    <div class="muted"><button class="btn" style="margin-right:8px">What each scope can call</button>Read from this engine's catalogue.</div>
+   </div>
+   <div class="region"><div class="eyebrow">Pending confirmations</div>
+    ${pend({sentence:"Start a backup run for one backup set.",who:"recovery-drill",at:"09:38",set:"api-server/var-backups",cmd:"retnd operation run --backup-set api-server/var-backups",exp:"09:53",left:"11:42",body:btnsIdle+echo("retnd agent confirmations approve conf_01","retnd agent confirmations deny conf_01")})}
+    ${pend({sentence:"Enable or disable a backup set.",who:"settings-helper",at:"09:36",set:"production/billing-mysql",cmd:"retnd backup-set enabled production/billing-mysql off",exp:"09:51",left:"9:40",body:btnsIdle})}
+   </div>
+   <div class="region"><div class="eyebrow">Audit</div>
+    ${audTable(AUD.slice(0,4))}
+    <div class="row"><button class="btn">Show older</button><span class="muted">The trail is bounded; older rows are pruned.</span></div>
+   </div>
+   <div class="region"><div class="eyebrow">HTTP transport</div>
+    <div><b>HTTP transport: off</b></div><div class="muted">Agents connect with <code>retnd agent serve --stdio</code> beside this engine. To allow connections over HTTP, set <code>http_transport: on</code> under <code>agents:</code> in the configuration file.</div>
+   </div>
+  </div></div>`},
+ scopes(){return `
+  <div class="card"><h3>Agents</h3><div class="body">
+   <div class="region"><div class="eyebrow">Tokens</div>
+    <div class="fold"><div class="hd">What each scope can call</div>
+     <div class="muted">Read from this engine's catalogue. A tool that is not listed cannot be called by any token.</div>
+     <div><div class="row">${SC.read()}<span class="muted">${READ.length} tools</span></div>${names(READ)}</div>
+     <div><div class="row">${SC.operate()}<span class="muted">${OPERATE.length} tools, each waits for your approval</span></div>${names(OPERATE)}</div>
+     <div><div class="row">${SC.configure()}<span class="muted">${CONFIGURE.length} tools, each waits for your approval</span></div>${names(CONFIGURE)}</div>
+    </div>
+   </div>
+  </div></div>`},
+ mint(){const base=(fold,err)=>dlg("Create token","Create an agent token",
+   field("Name",`<input class="input" value="nightly-triage">`,"It becomes <span class='mono'>agent:nightly-triage</span> wherever this product names who did something.")+
+   `<div class="field"><span class="lab">Scope</span>
+     <label class="radio on"><input type="radio" checked><span><b><code>read</code></b> <span class="muted">(default)</span><div class="muted">Can look at your backups. Cannot start or change anything.</div></span></label>
+     <div class="fold"><div class="hd">${fold?"Allow more than reading (open)":"Allow more than reading"}</div>
+     ${fold?`<label class="radio"><input type="radio"><span><b><code>operate</code></b><div class="muted">Can ask for backups and checks to be started. Nothing runs until you approve each request here.</div></span></label>
+     <label class="radio"><input type="radio"><span><b><code>configure</code></b><div class="muted">Can ask for a backup set to be enabled or disabled, or its retention or assurance settings changed. Nothing changes until you approve each request here.</div></span></label>`:""}</div></div>`+
+   field("Expires in",`<input class="input mono ${err?"bad":""}" value="${err?"3y":"90d"}">`,err?"":"Default 90 days. The longest is one year.")+
+   (err?`<div class="notice refused" role="alert"><b>${G.fail} The engine refused this expiry</b><div class="muted"><span class="mono">AGENT_TOKEN_EXPIRY_TOO_LONG</span>: example of the engine's own message and code, shown as written. Nothing was created.</div></div>`:"")+
+   echo("retnd agent token create nightly-triage --scope read --expires-in "+(err?"3y":"90d"))+
+   `<div class="row"><span class="grow"></span><button class="btn">Cancel</button><button class="btn primary">Create token</button></div>`);
+  return `<div class="card"><h3>Create token, scope fold closed</h3><div class="body">${base(false,false)}</div></div>
+   <div class="card"><h3>Create token, fold open</h3><div class="body">${base(true,false)}</div></div>
+   <div class="card" style="grid-column:1/-1"><h3>Create token, refused by the engine (the field keeps what was typed)</h3><div class="body">${base(false,true)}</div></div>`},
+ reveal(){return `
+  <div class="card"><h3>Token created, shown once</h3><div class="body">${dlg("Create token","Your token for agent:nightly-triage",
+    `<div class="notice blocking" role="alert"><b>${G.wait} This is the only time it is shown.</b><div class="muted">Copy it now. After you press <em>I have stored it</em> only its first eight characters are ever shown again. If this page is closed before you store it, revoke the token and make another.</div></div>`+
+    `<div class="field"><span class="lab">Token</span><div class="secret" tabindex="0">EXAMPLEx-this-is-a-stand-in-not-a-token-the-format-is-1345s</div></div>`+
+    `<div class="row"><button class="btn">Copy</button><span class="muted" aria-live="polite">Copied</span></div>`+
+    `<div class="muted">Use it with <code>retnd agent serve --stdio --token-file PATH</code> (a file only you can read) or the <code>RETND_AGENT_TOKEN</code> environment variable. Never on a command line.</div>`+
+    echo("retnd agent token create nightly-triage --scope read --expires-in 90d")+
+    `<div class="row"><span class="grow"></span><button class="btn primary">I have stored it</button></div>`)}</div></div>
+  <div class="card"><h3>After the click: the prefix is all the card shows</h3><div class="body">
+   ${tokTable([{n:"nightly-triage",p:"EXAMPLEx",s:"read",o:"admin",c:"2026-11-11",e:"2027-02-09",er:"in 90 days",u:"never",st:"active"}])}
+   <div class="muted">The token is not in this row, a tooltip, a toast, a live region or browser storage. The first eight characters identify it and are not the token.</div>
+  </div></div>`},
+ tokens(){return `
+  <div class="card"><h3>Tokens: every status</h3><div class="body">${tokTable(TOK)}
+   <div class="muted">Expired and revoked tokens stay listed in the same ink as active ones; the chip carries the state. Revoke is offered only on an active row.</div>
+  </div></div>`},
+ revoke(){return `
+  <div class="card"><h3>Revoke, asked first</h3><div class="body">${dlg("Revoke token","Revoke agent:recovery-drill?",
+    `<div>Its next request is refused. A revoked token cannot be brought back; make a new one if the agent still needs access.</div>`+
+    `<div class="row"><span class="grow"></span><button class="btn">Cancel</button><button class="btn primary danger">Revoke agent:recovery-drill</button></div>`,"destructive")}</div></div>
+  <div class="card"><h3>Revoked, and the echo</h3><div class="body">
+   ${tokTable([TOK[4]])}
+   ${echo("retnd agent token revoke tok_04")}
+  </div></div>`},
+ confirm(){return `
+  <div class="card"><h3>Pending confirmations: idle, step-up open, and the late and refused cases</h3><div class="body">
+   <div class="muted">1. Waiting. Approve calls nothing yet.</div>
+   ${pend({sentence:"Start a backup run for one backup set.",who:"recovery-drill",at:"09:38",set:"api-server/var-backups",cmd:"retnd operation run --backup-set api-server/var-backups",exp:"09:53",left:"11:42",body:btnsIdle+echo("retnd agent confirmations approve conf_01","retnd agent confirmations deny conf_01")})}
+   <div class="muted">2. Approve pressed: the password field opens, the route is not called until Approve and run.</div>
+   ${pend({sentence:"Start a backup run for one backup set.",who:"recovery-drill",at:"09:38",set:"api-server/var-backups",cmd:"retnd operation run --backup-set api-server/var-backups",exp:"09:53",left:"10:58",body:stepup(true)+`<div class="row"><button class="btn primary">Approve and run</button><button class="btn">Cancel</button></div>`})}
+   <div class="muted">3. Approve pressed, nothing typed yet: the button is off.</div>
+   ${pend({sentence:"Enable or disable a backup set.",who:"settings-helper",at:"09:36",set:"production/billing-mysql",cmd:"retnd backup-set enabled production/billing-mysql off",exp:"09:51",left:"9:12",body:stepup(false)+`<div class="row"><button class="btn primary" disabled>Approve and run</button><button class="btn">Cancel</button></div>`})}
+   <div class="muted">4. Seconds from expiry: the two-pixel warning edge. Approve is still live; the server judges.</div>
+   ${pend({sentence:"Enable or disable a backup set.",who:"settings-helper",at:"09:36",set:"production/billing-mysql",cmd:"retnd backup-set enabled production/billing-mysql off",exp:"09:51:00",left:"0:41",soon:true,cls:"soon",body:btnsIdle})}
+  </div></div>`},
+ confirm2(){return `
+  <div class="card"><h3>Refused at approval: the password</h3><div class="body">
+   ${pend({sentence:"Start a backup run for one backup set.",who:"recovery-drill",at:"09:38",set:"api-server/var-backups",cmd:"retnd operation run --backup-set api-server/var-backups",exp:"09:53",left:"8:30",body:stepup(true,`<div class="notice refused" role="alert"><b>${G.fail} Password not accepted. Nothing was run.</b><div class="muted">Example of the engine's own message, shown as written, with its code and correlation id.</div></div>`)+`<div class="row"><button class="btn primary">Approve and run</button><button class="btn">Cancel</button></div>`})}
+  </div></div>
+  <div class="card"><h3>Refused at approval: expired</h3><div class="body">
+   ${pend({sentence:"Enable or disable a backup set.",who:"settings-helper",at:"09:36",set:"production/billing-mysql",cmd:"retnd backup-set enabled production/billing-mysql off",exp:"09:51",left:"0:00",soon:true,cls:"soon",body:`<div class="notice refused" role="alert"><b>${G.fail} This request expired before it was approved. Nothing was run.</b><div class="muted"><span class="mono">AGENT_CONFIRMATION_EXPIRED</span>, as the engine words it. It leaves this list on the next load and is in the audit.</div></div>`})}
+  </div></div>
+  <div class="card" style="grid-column:1/-1"><h3>Approved, then refused by the shut gate: the gate's own words</h3><div class="body">
+   ${pend({sentence:"Start a backup run for every set.",who:"recovery-drill",at:"09:02",set:"all backup sets",cmd:"retnd operation run",exp:"09:17",left:"approved 09:04",cls:"done",body:`<div class="notice refused" role="alert"><b>${G.fail} Approved, and refused: the operation did not run.</b>
+      <div>${GATE}</div>
+      <div class="kv"><dt>Code</dt><dd class="mono">DESTRUCTIVE_OPERATIONS_DISABLED</dd><dt>Exit code</dt><dd class="mono">50</dd><dt>Correlation id</dt><dd class="mono">3b7f1a9e6c0d4528</dd></div>
+      <div class="muted">This stays until the list is next loaded. The record is in the audit.</div></div>`})}
+  </div></div>`},
+ audit(){return `
+  <div class="card"><h3>Audit</h3><div class="body">
+   <div class="row stack-narrow">
+    ${field("Token",`<select class="input"><option>All tokens</option><option>agent:nightly-triage</option></select>`)}
+    ${field("Since",`<input class="input mono" value="24h">`)}
+    <button class="btn">Clear filters</button>
+   </div>
+   ${audTable(AUD)}
+   <div class="row"><button class="btn">Show older</button><span class="muted">Newest first. The trail is bounded; older rows are pruned.</span></div>
+   ${echo("retnd agent audit --token tok_04 --since 24h")}
+   <div class="region"><div class="eyebrow">One row, Details open</div>
+    <table class="t resp"><tbody>${audRow(AUD[2])}</tbody></table>
+    <dl class="kv"><dt>Transport</dt><dd class="mono">stdio</dd><dt>Confirmation</dt><dd class="mono">conf_02</dd><dt>Arguments</dt><dd><code class="cmd">{ "backup_set": "api-server/var-backups" }</code><span class="muted">Text the agent supplied, drawn as text.</span></dd></dl>
+   </div>
+  </div></div>`},
+ states(){return `
+  <div class="card"><h3>Empty: the default for every deployment</h3><div class="body">
+   <div class="region"><div class="eyebrow">Tokens <span class="grow"></span><button class="btn primary" style="text-transform:none;letter-spacing:0;font-weight:400">Create token</button></div>
+    <div>No agent has a token. Nothing can connect to this deployment as an agent.</div></div>
+   <div class="region"><div class="eyebrow">Pending confirmations</div><div class="muted">Nothing is waiting for you.</div></div>
+   <div class="region"><div class="eyebrow">Audit</div><div class="muted">No agent has called anything yet.</div></div>
+  </div></div>
+  <div class="card"><h3>Empty because of a filter</h3><div class="body">
+   <div class="region"><div class="eyebrow">Audit</div>
+    <div class="row">${field("Token",`<select class="input"><option>agent:old-weekly-report</option></select>`)}${field("Since",`<input class="input mono" value="1h">`)}</div>
+    <div>No calls match this filter.</div><div class="row"><button class="btn">Clear filters</button></div></div>
+  </div></div>
+  <div class="card"><h3>A region failed to load; the others still draw</h3><div class="body">
+   <div class="region"><div class="eyebrow">Audit</div>
+    <div class="notice refused" role="alert"><b>${G.fail} The audit could not be read.</b>
+     <div class="kv"><dt>Code</dt><dd class="mono">INTERNAL_ERROR</dd><dt>Correlation id</dt><dd class="mono">d17c4e9a0b6f3852</dd></div>
+     <div class="muted">Example of the engine's own message, shown as written.</div>
+     <div class="row"><button class="btn">Retry</button></div></div></div>
+  </div></div>
+  <div class="card"><h3>Read-only page: lists readable, no mutating control</h3><div class="body">
+   <div class="region"><div class="eyebrow">Tokens</div>${tokTable(TOK.slice(0,2),{ro:true})}</div>
+   <div class="region"><div class="eyebrow">Pending confirmations</div>
+    ${pend({sentence:"Start a backup run for one backup set.",who:"recovery-drill",at:"09:38",set:"api-server/var-backups",cmd:"retnd operation run --backup-set api-server/var-backups",exp:"09:53",left:"11:42",body:`<div class="muted">Approving needs a writable page.</div>`})}
+   </div>
+  </div></div>`},
+ transport(){return `
+  <div class="card"><h3>HTTP transport: off (the default)</h3><div class="body">
+   <div class="region"><div class="eyebrow">HTTP transport</div>
+    <div><b>HTTP transport: off</b></div><div>Agents connect with <code>retnd agent serve --stdio</code> beside this engine.</div>
+    <div class="muted">To allow connections over HTTP at <code>/api/v1/agent/mcp</code>, set <code>http_transport: on</code> under <code>agents:</code> in the configuration file. A build older than this one refuses a configuration file that has an <code>agents:</code> block, so that line cannot be taken back by going back a version.</div></div>
+  </div></div>
+  <div class="card"><h3>HTTP transport: on</h3><div class="body">
+   <div class="region"><div class="eyebrow">HTTP transport</div>
+    <div><b>HTTP transport: on</b></div><div>Listening at <code>/api/v1/agent/mcp</code>. Agents can also connect over HTTP with a token.</div>
+    <div class="muted">A token travels in a header on whatever connection reaches this engine. On plain HTTP it can be read on the network, as the session cookie can.</div></div>
+  </div></div>`}
+};
+document.querySelectorAll("[data-surface]").forEach(g=>{
+  const fn=S[g.dataset.surface];
+  const mk=(theme,narrow)=>`<div class="frame th-${theme}${narrow?" narrow":""}"><div class="tag">${theme}${narrow?", narrow":""}</div>${fn()}</div>`;
+  if(g.hasAttribute("data-wide")){
+    g.outerHTML=`<div class="grid one">${mk("light",false)}${mk("dark",false)}</div><div class="grid">${mk("light",true)}${mk("dark",true)}</div>`;
+  }else{
+    g.innerHTML=mk("light",false)+mk("dark",false)+mk("light",true)+mk("dark",true);
+  }
+});
+</script>

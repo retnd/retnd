@@ -273,6 +273,24 @@ var contractBindings = map[string]contractBinding{
 	"exportRecoveryBundle":     {nil, apicontract.RecoveryBundle{}, "/api/v1/encryption/keys/k0123456789abcdef/export"},
 	"confirmRecoveryBundle":    {apicontract.ConfirmRecoveryBundleRequest{}, apicontract.EncryptionKeyStatus{}, "/api/v1/encryption/keys/k0123456789abcdef/confirm"},
 	"testEncryptionProvider":   {apicontract.EncryptionProviderTestRequest{}, apicontract.EncryptionProviderProbe{}, "/api/v1/encryption/providers/test"},
+	// EPIC U (#1345): the three agent token routes, bound to the contract's
+	// own types so the declared shape and the served shape cannot part.
+	"listAgentTokens":  {nil, apicontract.ListAgentTokensResponse{}, "/api/v1/agent/tokens"},
+	"mintAgentToken":   {apicontract.MintAgentTokenRequest{}, apicontract.MintedAgentToken{}, "/api/v1/agent/tokens"},
+	"revokeAgentToken": {nil, apicontract.AgentToken{}, "/api/v1/agent/tokens/agt_1/revoke"},
+	// EPIC U (#1348): the audit trail.
+	"listAgentAudit": {nil, apicontract.ListAgentAuditResponse{}, "/api/v1/agent/audit"},
+	"listAgentTools": {nil, apicontract.AgentToolsResponse{}, "/api/v1/agent/tools"},
+	// EPIC U (#1347): the MCP transport. A frame is free-form JSON-RPC, so
+	// there is no Go type to bind beyond the contract's own.
+	"postAgentMcp":   {apicontract.AgentMcpFrame{}, apicontract.AgentMcpFrame{}, "/api/v1/agent/mcp"},
+	"getAgentMcp":    {nil, nil, "/api/v1/agent/mcp"},
+	"deleteAgentMcp": {nil, nil, "/api/v1/agent/mcp"},
+	// EPIC U (#1349): the three confirmation routes.
+	"listAgentConfirmations":   {nil, apicontract.ListAgentConfirmationsResponse{}, "/api/v1/agent/confirmations"},
+	"getAgentConfirmation":     {nil, apicontract.AgentConfirmation{}, "/api/v1/agent/confirmations/cnf_1"},
+	"approveAgentConfirmation": {nil, apicontract.AgentConfirmation{}, "/api/v1/agent/confirmations/cnf_1/approve"},
+	"denyAgentConfirmation":    {nil, apicontract.AgentConfirmation{}, "/api/v1/agent/confirmations/cnf_1/deny"},
 	"listEncryptionSuites":     {nil, apicontract.ListEncryptionSuitesResponse{}, "/api/v1/encryption/suites"},
 	"listEncryptionCopies":     {nil, apicontract.ListEncryptionCopiesResponse{}, "/api/v1/encryption/copies"},
 	"startDecryptVerify":       {apicontract.StartDecryptVerifyRequest{}, apicontract.ScrubStarted{}, "/api/v1/encryption/verify"},

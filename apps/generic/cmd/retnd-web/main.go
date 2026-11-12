@@ -930,6 +930,16 @@ func openWorkflowEngineOn(ctx context.Context, backend *service.BackupService, p
 		fmt.Fprintf(os.Stderr, cliecho.WebBinary+": reconciling the recovery staging area: %v\n", err)
 	}
 
+	// Q21 of EPIC U: an approval whose replay never wrote its result down is
+	// marked interrupted and put on the feed, once, and never run again. Like
+	// the staging pass above it is this process's to do, and a failure is
+	// reported rather than fatal.
+	if n, err := backend.ReconcileAgentConfirmations(ctx, time.Now()); err != nil {
+		fmt.Fprintf(os.Stderr, cliecho.WebBinary+": reconciling agent confirmations: %v\n", err)
+	} else if n > 0 {
+		fmt.Fprintf(os.Stderr, cliecho.WebBinary+": %d approved agent confirmation(s) were interrupted by the last stop; each is marked interrupted and was not run again\n", n)
+	}
+
 	return nil
 }
 
