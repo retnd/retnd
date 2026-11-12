@@ -31,6 +31,11 @@ import (
 //     scope, before the token is looked at. The list is the catalogue's, read
 //     here on the wire, because a token works against raw /api/v1 and a deny
 //     list held only by a transport would hold nothing back (#1346);
+//   - a bearer reads only what the catalogue offers it: a GET to the route a
+//     read tool sits on, and nothing else, whatever the scope (Q1 of the EPIC
+//     U panel, #1368). The router resolves the pattern of the request and
+//     core/agenttools.BearerReadable compares it whole, so a route that is
+//     not a tool is AGENT_ROUTE_DENIED even though it is only a read;
 //   - a bearer reaches no route that changes anything. A read token is told
 //     so (AGENT_SCOPE_INSUFFICIENT); an operate or configure token is told a
 //     person has to confirm the change (AGENT_CONFIRMATION_REQUIRED), which is
@@ -107,6 +112,28 @@ func agentRouteDenied(r *http.Request) bool {
 		}
 	}
 	return false
+}
+
+// agentReadOffered reports whether a safe request reaches a route a read tool
+// sits on, on every form of the path the request carries. The pattern is what
+// the root router resolves the path to, so a catch-all and a deeper route are
+// told apart by the router and not by a prefix. A request the router cannot
+// resolve, or one that arrives with no router at all, is not offered.
+func agentReadOffered(r *http.Request) bool {
+	rctx := chi.RouteContext(r.Context())
+	if rctx == nil || rctx.Routes == nil {
+		return false
+	}
+	for _, p := range agentPaths(r) {
+		resolved := chi.NewRouteContext()
+		if !rctx.Routes.Match(resolved, r.Method, "/api/v1"+p) {
+			return false
+		}
+		if !agenttools.BearerReadable(r.Method, strings.TrimPrefix(resolved.RoutePattern(), "/api/v1")) {
+			return false
+		}
+	}
+	return true
 }
 
 // agentChangeOffered reports whether a change reaches a route the catalogue
@@ -221,6 +248,12 @@ func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAcce
 		return nil, false
 	}
 
+	if !agentReadOffered(r) {
+		audit(principal.TokenID, http.StatusForbidden, "AGENT_ROUTE_DENIED",
+			writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route"))
+		return nil, false
+	}
+
 	actor := "agent:" + principal.Name
 	ctx := context.WithValue(r.Context(), actorContextKey{}, actor)
 	ctx = context.WithValue(ctx, authContextKey{}, authContextForAgent(actor))
@@ -272,7 +305,10 @@ func (h *handlers) mintAgentToken(w http.ResponseWriter, r *http.Request) {
 		Name: body.Name, Scope: body.Scope, ExpiresIn: body.ExpiresIn, Owner: actorFromContext(r.Context()),
 	})
 	if errors.Is(err, service.ErrInvalidRequest) {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+		// The sentinel's own words come off, so the message starts with the
+		// request field it is about (name:, scope: or expires_in:), which is
+		// what the mint dialog routes it by.
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", strings.TrimPrefix(err.Error(), service.ErrInvalidRequest.Error()+": "))
 		return
 	}
 	if err != nil {
@@ -302,7 +338,8 @@ func (h *handlers) revokeAgentToken(w http.ResponseWriter, r *http.Request) {
 
 // listAgentTools is GET /api/v1/agent/tools: the catalogue, from the same
 // function retnd agent tools prints. It reads nothing of this deployment, so it
-// needs no token store, and a session and a bearer token may both read it.
+// needs no token store. A token does not read it: its row is a refusal, and an
+// agent already has the catalogue as the list of its own tools.
 func (h *handlers) listAgentTools(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, agenttools.Document())
 }

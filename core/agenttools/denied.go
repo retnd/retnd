@@ -85,6 +85,35 @@ func Denied(method, p string) bool {
 	return false
 }
 
+// BearerReadable reports whether a bearer token may make a safe request to the
+// route the router resolved it to. pattern is the router's own pattern below
+// /api/v1 (what chi reports for the request, "/backup-sets/*" for the one
+// catch-all), not the path the client sent, and it is compared whole: a read is
+// offered when a read tool sits on exactly that route, so a deeper route that
+// shares a tool's prefix is not. Everything else a token does not read.
+func BearerReadable(method, pattern string) bool {
+	if method != "GET" {
+		return false
+	}
+	for _, r := range rows {
+		if r.Tool != "" && r.Method == method && r.Route == pattern {
+			return true
+		}
+	}
+	for _, e := range bearerExtras {
+		if e.method == method && e.pattern == pattern {
+			return true
+		}
+	}
+	return false
+}
+
+// bearerExtras are the reads a token makes that no tool wraps, each named:
+// the MCP endpoint's own GET, which the transport answers itself.
+var bearerExtras = []struct{ method, pattern string }{
+	{"GET", "/agent/mcp"},
+}
+
 // matches reports whether a concrete path fits a route pattern.
 func matches(pattern, p string) bool {
 	p = path.Clean("/" + p)

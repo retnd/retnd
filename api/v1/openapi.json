@@ -25288,7 +25288,7 @@
       },
       "post": {
         "operationId": "mintAgentToken",
-        "summary": "Mint an agent token for a named principal. The plaintext token is in this response and nowhere else, ever; the deployment keeps its SHA-256 and an eight-character prefix. Scope defaults to read and a token lives 90 days unless told otherwise, never more than 365. A bearer token is refused AGENT_ROUTE_DENIED: a token never mints, lists or revokes a token.",
+        "summary": "Mint an agent token for a named principal. The plaintext token is in this response and nowhere else, ever; the deployment keeps its SHA-256 and an eight-character prefix. Scope defaults to read and a token lives 90 days unless told otherwise, never more than 365. The token comes back in this response, so over plain HTTP from another machine it needs X-Retnd-Insecure-Transport-Ack: acknowledged, refused 403 INSECURE_TRANSPORT_ACK_REQUIRED otherwise (the same acknowledgement a key export asks, whether or not the destructive gate is open). A bearer token is refused AGENT_ROUTE_DENIED: a token never mints, lists or revokes a token.",
         "tags": [
           "agent"
         ],
@@ -25321,7 +25321,7 @@
             }
           },
           "400": {
-            "description": "Refused: INVALID_REQUEST. Includes an unknown scope, a lifetime past 365 days and a name a live token already holds.",
+            "description": "Refused: INVALID_REQUEST. Includes an unknown scope, a lifetime past 365 days and a name a live token already holds. The message always starts with the request field it is about and a colon (name:, scope: or expires_in:).",
             "content": {
               "application/json": {
                 "schema": {
@@ -25347,7 +25347,7 @@
             ]
           },
           "403": {
-            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, AGENT_ROUTE_DENIED.",
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, INSECURE_TRANSPORT_ACK_REQUIRED, AGENT_ROUTE_DENIED.",
             "content": {
               "application/json": {
                 "schema": {
@@ -25358,6 +25358,7 @@
             "x-error-codes": [
               "CSRF_TOKEN_MISSING",
               "CSRF_TOKEN_MISMATCH",
+              "INSECURE_TRANSPORT_ACK_REQUIRED",
               "AGENT_ROUTE_DENIED"
             ]
           },
@@ -25376,10 +25377,16 @@
           }
         },
         "x-destructive-gate": false,
+        "x-insecure-transport-ack": true,
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": true,
-        "x-authenticated": true
+        "x-authenticated": true,
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/InsecureTransportAck"
+          }
+        ]
       }
     },
     "/agent/tokens/{id}/revoke": {

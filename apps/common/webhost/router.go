@@ -858,7 +858,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// refuses a bearer here (core/agenttools' deny list), so a token can never
 		// mint, list or revoke a token.
 		r.Get("/agent/tokens", h.listAgentTokens)
-		r.With(requireCSRF).Post("/agent/tokens", h.mintAgentToken)
+		r.With(requireCSRF, requireMintTransportAck(h.enforce)).Post("/agent/tokens", h.mintAgentToken)
 		r.With(requireCSRF).Post("/agent/tokens/{id}/revoke", h.revokeAgentToken)
 		// EPIC U (#1347): the streamable HTTP transport. Bearer only and off
 		// unless agents.http_transport is on; see agentmcp.go. No requireCSRF:

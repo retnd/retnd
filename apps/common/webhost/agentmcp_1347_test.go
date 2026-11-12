@@ -93,11 +93,11 @@ func TestAReadTokenMayPostMCPFramesButStillStartsNothing(t *testing.T) {
 // answers the same Result the stdio transport does.
 func TestAToolCallOverHTTPAnswersTheResultObject(t *testing.T) {
 	prev := agentToolRows
-	agentToolRows = []agenttools.Row{{Tool: "version", Method: http.MethodGet, Route: "/system/version", Scope: agenttools.ScopeRead, Description: "The engine's version."}}
+	agentToolRows = []agenttools.Row{{Tool: "status", Method: http.MethodGet, Route: "/system/health", Scope: agenttools.ScopeRead, Description: "The engine's health."}}
 	t.Cleanup(func() { agentToolRows = prev })
 
 	router, _ := mcpRouter(service.AgentPolicy{HTTPTransport: true, RateLimitPerMinute: 60})
-	call := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"version","arguments":{}}}`
+	call := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"status","arguments":{}}}`
 
 	// A stateful session wants initialize first, then the id it was given.
 	rec := serve(router, mcpPost(readToken, initializeFrame))
@@ -133,11 +133,11 @@ func TestAToolCallOverHTTPAnswersTheResultObject(t *testing.T) {
 func TestTheSixtyFirstCallInAMinuteIsRefused(t *testing.T) {
 	router, access := mcpRouter(service.AgentPolicy{RateLimitPerMinute: 60})
 	for i := 1; i <= 60; i++ {
-		if rec := serve(router, bearer(http.MethodGet, "/api/v1/system/version", "", readToken)); rec.Code != http.StatusOK {
+		if rec := serve(router, bearer(http.MethodGet, "/api/v1/system/health", "", readToken)); rec.Code != http.StatusOK {
 			t.Fatalf("call %d = %d %s, want 200", i, rec.Code, rec.Body.String())
 		}
 	}
-	rec := serve(router, bearer(http.MethodGet, "/api/v1/system/version", "", readToken))
+	rec := serve(router, bearer(http.MethodGet, "/api/v1/system/health", "", readToken))
 	if rec.Code != http.StatusTooManyRequests || responseErrorCode(rec.Body.String()) != "AGENT_RATE_LIMITED" {
 		t.Fatalf("call 61 = %d %s, want 429 AGENT_RATE_LIMITED", rec.Code, rec.Body.String())
 	}
@@ -150,7 +150,7 @@ func TestTheSixtyFirstCallInAMinuteIsRefused(t *testing.T) {
 	}
 
 	// The line is per token: another token has its own minute.
-	if rec := serve(router, bearer(http.MethodGet, "/api/v1/system/version", "", operateToken)); rec.Code != http.StatusOK {
+	if rec := serve(router, bearer(http.MethodGet, "/api/v1/system/health", "", operateToken)); rec.Code != http.StatusOK {
 		t.Errorf("a second token was limited by the first: %d %s", rec.Code, rec.Body.String())
 	}
 }
@@ -158,11 +158,11 @@ func TestTheSixtyFirstCallInAMinuteIsRefused(t *testing.T) {
 func TestTheConfiguredRateIsTheOneThatApplies(t *testing.T) {
 	router, _ := mcpRouter(service.AgentPolicy{RateLimitPerMinute: 3})
 	for i := 1; i <= 3; i++ {
-		if rec := serve(router, bearer(http.MethodGet, "/api/v1/system/version", "", readToken)); rec.Code != http.StatusOK {
+		if rec := serve(router, bearer(http.MethodGet, "/api/v1/system/health", "", readToken)); rec.Code != http.StatusOK {
 			t.Fatalf("call %d = %d", i, rec.Code)
 		}
 	}
-	if rec := serve(router, bearer(http.MethodGet, "/api/v1/system/version", "", readToken)); rec.Code != http.StatusTooManyRequests {
+	if rec := serve(router, bearer(http.MethodGet, "/api/v1/system/health", "", readToken)); rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("call 4 = %d, want 429", rec.Code)
 	}
 }
@@ -171,7 +171,7 @@ func TestTheConfiguredRateIsTheOneThatApplies(t *testing.T) {
 func TestInvalidTokenAuditRowsAreBoundedPerAddress(t *testing.T) {
 	router, access := mcpRouter(service.AgentPolicy{RateLimitPerMinute: 60})
 	from := func(addr string) {
-		req := bearer(http.MethodGet, "/api/v1/system/version", "", "rat_garbage_token_000000000000000000000000")
+		req := bearer(http.MethodGet, "/api/v1/system/health", "", "rat_garbage_token_000000000000000000000000")
 		req.RemoteAddr = addr
 		rec := serve(router, req)
 		if rec.Code != http.StatusUnauthorized || responseErrorCode(rec.Body.String()) != "AGENT_TOKEN_INVALID" {

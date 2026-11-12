@@ -133,7 +133,7 @@ type AgentRefusal struct {
 // MintAgentToken creates a token and returns its plaintext, once.
 func (b *BackupService) MintAgentToken(ctx context.Context, req MintAgentTokenRequest) (MintedAgentToken, error) {
 	if !agentNamePattern.MatchString(req.Name) {
-		return MintedAgentToken{}, fmt.Errorf("%w: a token name is 1 to 64 letters, digits, dots, dashes or underscores", ErrInvalidRequest)
+		return MintedAgentToken{}, fmt.Errorf("%w: name: a token name is 1 to 64 letters, digits, dots, dashes or underscores", ErrInvalidRequest)
 	}
 	if strings.TrimSpace(req.Owner) == "" {
 		return MintedAgentToken{}, fmt.Errorf("%w: a token needs the owner who minted it", ErrInvalidRequest)
@@ -145,7 +145,7 @@ func (b *BackupService) MintAgentToken(ctx context.Context, req MintAgentTokenRe
 	switch scope {
 	case AgentScopeRead, AgentScopeOperate, AgentScopeConfigure:
 	default:
-		return MintedAgentToken{}, fmt.Errorf("%w: the scope %q is not one of read, operate or configure", ErrInvalidRequest, req.Scope)
+		return MintedAgentToken{}, fmt.Errorf("%w: scope: the scope %q is not one of read, operate or configure", ErrInvalidRequest, req.Scope)
 	}
 	lifetime, err := parseAgentLifetime(req.ExpiresIn)
 	if err != nil {
@@ -175,7 +175,7 @@ func (b *BackupService) MintAgentToken(ctx context.Context, req MintAgentTokenRe
 	}
 	if err := b.journal.InsertAgentToken(ctx, row); err != nil {
 		if errors.Is(err, state.ErrAgentTokenNameTaken) {
-			return MintedAgentToken{}, fmt.Errorf("%w: a live token is already named %q; revoke it first or pick another name", ErrInvalidRequest, req.Name)
+			return MintedAgentToken{}, fmt.Errorf("%w: name: a live token is already named %q; revoke it first or pick another name", ErrInvalidRequest, req.Name)
 		}
 		return MintedAgentToken{}, fmt.Errorf("service: mint agent token: %w", err)
 	}
@@ -297,24 +297,24 @@ func parseAgentLifetime(s string) (time.Duration, error) {
 	if days, ok := strings.CutSuffix(s, "d"); ok {
 		n, err := strconv.Atoi(days)
 		if err != nil {
-			return 0, fmt.Errorf("%w: %q is not a lifetime; use a number of days such as 90d or a duration such as 720h", ErrInvalidRequest, s)
+			return 0, fmt.Errorf("%w: expires_in: %q is not a lifetime; use a number of days such as 90d or a duration such as 720h", ErrInvalidRequest, s)
 		}
 		if n > int(MaxAgentTokenLifetime/(24*time.Hour)) {
-			return 0, fmt.Errorf("%w: a token lives at most 365 days", ErrInvalidRequest)
+			return 0, fmt.Errorf("%w: expires_in: a token lives at most 365 days", ErrInvalidRequest)
 		}
 		d = time.Duration(n) * 24 * time.Hour
 	} else {
 		parsed, err := time.ParseDuration(s)
 		if err != nil {
-			return 0, fmt.Errorf("%w: %q is not a lifetime; use a number of days such as 90d or a duration such as 720h", ErrInvalidRequest, s)
+			return 0, fmt.Errorf("%w: expires_in: %q is not a lifetime; use a number of days such as 90d or a duration such as 720h", ErrInvalidRequest, s)
 		}
 		d = parsed
 	}
 	if d <= 0 {
-		return 0, fmt.Errorf("%w: a token must expire in the future; there is no non-expiring token", ErrInvalidRequest)
+		return 0, fmt.Errorf("%w: expires_in: a token must expire in the future; there is no non-expiring token", ErrInvalidRequest)
 	}
 	if d > MaxAgentTokenLifetime {
-		return 0, fmt.Errorf("%w: a token lives at most 365 days", ErrInvalidRequest)
+		return 0, fmt.Errorf("%w: expires_in: a token lives at most 365 days", ErrInvalidRequest)
 	}
 	return d, nil
 }
