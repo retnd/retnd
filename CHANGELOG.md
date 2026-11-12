@@ -48,6 +48,13 @@
     contract (`container/compose.yaml`, the per-platform compose files, the Unraid template and TrueNAS catalogue, the
     packaging JSON and the capability contract) is byte-identical to the commit before the epic. Migration `0022`
     adds three tables (`agent_tokens`, `agent_confirmations`, `agent_audit`) and touches nothing that exists.
+  - **A remote `retnd agent token create` over plain HTTP now exits 52 until you acknowledge it.** The token comes
+    back in the mint response, so the engine refuses `POST /api/v1/agent/tokens` over plain HTTP from another machine
+    with `403 INSECURE_TRANSPORT_ACK_REQUIRED` unless the request carries the insecure-transport acknowledgement, the
+    same one key export asks. The browser's mint dialog asks the person first, so both behave alike. Set
+    `RETND_API_INSECURE_TRANSPORT=acknowledged` for the CLI, or use HTTPS. Loopback needs nothing, and nothing changes
+    for a deployment that never mints a token. The scopes nest: `operate` includes `read`, and `configure` includes
+    `operate`.
   - **One one-way door: a `config.yaml` that carries `agents:` cannot be parsed by an older build.** Configuration
     is read with `KnownFields(true)`, so a build from before 0.8.0 refuses the file at load, and it meets migration
     `0022` with `ErrUnknownSchemaVersion` and fails closed. A deployment that never writes `agents:` can still go back.
