@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "66d4297730a0b95722aafeeac17fb53a9eb439c5acf8aa3e2379fb5bf6a62e3a"
+const ContractSHA256 = "cea6ba0aa0b87e1f10b71a2b538ff903449eaeffd6b33931c91b0bd94f9787a1"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -535,6 +535,17 @@ var Endpoints = []Endpoint{
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeAgentRouteDenied},
 			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "getAgentConfirmation", Method: "GET", Path: "/agent/confirmations/{id}",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AgentConfirmation", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeAgentConfirmationNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
 		},
 	},
 	{

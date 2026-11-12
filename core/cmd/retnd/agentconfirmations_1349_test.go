@@ -97,6 +97,46 @@ func assertListed(t *testing.T, configPath string, c service.AgentConfirmation) 
 	}
 }
 
+func TestShowReadsOneConfirmationOnBothDoorsIncludingHowItEnded(t *testing.T) {
+	for name, door := range map[string]func(t *testing.T) (string, *service.BackupService, func()){
+		"direct": func(t *testing.T) (string, *service.BackupService, func()) {
+			configPath := writeTestConfig(t)
+			svc, closeSvc := openSeedService(t, configPath)
+			return configPath, svc, closeSvc
+		},
+		"through the engine": func(t *testing.T) (string, *service.BackupService, func()) {
+			configPath := writeTestConfig(t)
+			e := startFakeEngineFor(t, configPath)
+			e.attach(t)
+			return configPath, e.svc, func() {}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			configPath, svc, done := door(t)
+			c := askToRun(t, svc, "run_cycle", "/operations", `{"action":"run_cycle"}`)
+			approved, _, err := svc.ApproveAgentConfirmation(context.Background(), c.ID, "alice")
+			if err != nil {
+				t.Fatal(err)
+			}
+			exec := service.AgentExecution{Status: 403, Code: "DESTRUCTIVE_OPERATIONS_DISABLED", Message: "refused over HTTP", CorrelationID: "cid_1"}
+			if err := svc.FinishAgentApproval(context.Background(), approved, exec); err != nil {
+				t.Fatal(err)
+			}
+			done()
+
+			code, text, stderr := runCLI(t, "agent", "confirmations", "show", c.ID, "--config", configPath)
+			if code != exitOK || !strings.Contains(text, "approved") || !strings.Contains(text, "DESTRUCTIVE_OPERATIONS_DISABLED") || !strings.Contains(text, "exit code 50") {
+				t.Fatalf("show exit %d\n%s\n%s", code, text, stderr)
+			}
+			code, raw, _ := runCLI(t, "agent", "confirmations", "show", c.ID, "--json", "--config", configPath)
+			var got apicontract.AgentConfirmation
+			if err := json.Unmarshal([]byte(raw), &got); code != exitOK || err != nil || got.Execution == nil || got.Execution.ExitCode != 50 {
+				t.Errorf("show --json = %s (%v)", raw, err)
+			}
+		})
+	}
+}
+
 func TestAnEmptyListSaysSo(t *testing.T) {
 	code, stdout, _ := runCLI(t, "agent", "confirmations", "list", "--config", writeTestConfig(t))
 	if code != exitOK || !strings.Contains(stdout, "no agent confirmations") {
@@ -203,6 +243,8 @@ func TestTheConfirmationVerbsRefuseTheWayTheServiceDoes(t *testing.T) {
 	}{
 		{"no subcommand", []string{"agent", "confirmations"}, exitUsage},
 		{"unknown subcommand", []string{"agent", "confirmations", "expire"}, exitUsage},
+		{"show with no id", []string{"agent", "confirmations", "show"}, exitUsage},
+		{"show an unknown id", []string{"agent", "confirmations", "show", "cnf_nope"}, exitFailure},
 		{"approve with no id", []string{"agent", "confirmations", "approve"}, exitUsage},
 		{"deny with two ids", []string{"agent", "confirmations", "deny", "a", "b"}, exitUsage},
 		{"list with an operand", []string{"agent", "confirmations", "list", "x"}, exitUsage},

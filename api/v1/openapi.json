@@ -25978,6 +25978,100 @@
         "x-csrf-required": true,
         "x-authenticated": true
       }
+    },
+    "/agent/confirmations/{id}": {
+      "get": {
+        "operationId": "getAgentConfirmation",
+        "summary": "Read the state of one confirmation and, once an approved one has run, how its replay ended. A person reads any confirmation. A bearer token reads only the ones that token made (anyone else's id is AGENT_CONFIRMATION_NOT_FOUND), which is how an agent learns what became of its own ask; it is the one route under /agent/confirmations a token reaches.",
+        "tags": [
+          "agent"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The confirmation id, as GET /agent/confirmations lists it."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentConfirmation"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "404": {
+            "description": "Refused: AGENT_CONFIRMATION_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_CONFIRMATION_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      }
     }
   },
   "x-go-package": "apicontract",

@@ -1123,6 +1123,13 @@ func (c *Client) ListAgentConfirmations(ctx context.Context) (apicontract.ListAg
 	return out, err
 }
 
+// GetAgentConfirmation is GET /agent/confirmations/{id}.
+func (c *Client) GetAgentConfirmation(ctx context.Context, id string) (apicontract.AgentConfirmation, error) {
+	var out apicontract.AgentConfirmation
+	err := c.call(ctx, "getAgentConfirmation", []string{id}, nil, &out)
+	return out, err
+}
+
 // ApproveAgentConfirmation is POST /agent/confirmations/{id}/approve. It sends
 // no body, because the request that runs is the one that was recorded, and the
 // password step-up goes in its header (stepUpOperations).

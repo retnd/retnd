@@ -50,9 +50,10 @@ type AgentAccess interface {
 // inside it, so serve's mount refuses it too (AgentDeniedByMount).
 //
 // /agent/confirmations is there so an agent can never approve, deny or list
-// its own confirmations (U2.1, #1349): a person reads them in a session, and a
-// token reads the state of its own through the confirmation_status tool, which
-// is not this route.
+// its own confirmations (U2.1, #1349). The one thing under it a token may
+// read is the state of a confirmation it made, GET /agent/confirmations/{id},
+// which agentConfirmationReadable lets through and which answers a token only
+// for its own.
 var agentDeniedPrefixes = []string{"/auth", "/system/first-run", "/recoveries", "/agent/tokens", "/agent/audit", "/agent/confirmations"}
 
 type principalContextKey struct{}
@@ -87,6 +88,13 @@ func bearerToken(r *http.Request) (string, bool) {
 // agentRouteDenied reports whether a path below /api/v1 is one a bearer may
 // never reach. Both the decoded and the raw form are checked, because the
 // router matches on whichever the request carries.
+// agentConfirmationReadable is the one exception to the confirmations prefix:
+// a GET of /agent/confirmations/{id}, exactly.
+func agentConfirmationReadable(method, rel string) bool {
+	rest, ok := strings.CutPrefix(rel, "/agent/confirmations/")
+	return ok && method == http.MethodGet && rest != "" && !strings.Contains(rest, "/")
+}
+
 func agentRouteDenied(r *http.Request) bool {
 	candidates := []string{r.URL.Path}
 	if r.URL.RawPath != "" {
@@ -95,7 +103,7 @@ func agentRouteDenied(r *http.Request) bool {
 	for _, c := range candidates {
 		rel := strings.TrimPrefix(path.Clean("/"+c), "/api/v1")
 		for _, p := range agentDeniedPrefixes {
-			if rel == p || strings.HasPrefix(rel, p+"/") {
+			if (rel == p || strings.HasPrefix(rel, p+"/")) && !agentConfirmationReadable(r.Method, rel) {
 				return true
 			}
 		}
@@ -119,7 +127,7 @@ func AgentDeniedByMount(next http.Handler) http.Handler {
 // authenticateBearer is authMiddleware's branch for a request that presents a
 // bearer token. It returns the request to serve, or false after writing a
 // refusal.
-func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAccess, guard *agentGuard, presented string) (*http.Request, bool) {
+func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAccess, guard *agentGuard, proposer *agentProposer, presented string) (*http.Request, bool) {
 	// audit records a refusal that was just written. The refusal stands
 	// whether or not the row lands, so a failure to write it is logged and
 	// nothing else.
@@ -172,6 +180,13 @@ func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAcce
 		if principal.Scope == service.AgentScopeRead {
 			audit(principal.TokenID, principal.Name, http.StatusForbidden, "AGENT_SCOPE_INSUFFICIENT",
 				writeError(w, http.StatusForbidden, "AGENT_SCOPE_INSUFFICIENT", "a read token cannot start or change anything"))
+			return nil, false
+		}
+		// A tool call, which names its tool, is recorded as a pending
+		// confirmation (U2.1). A raw request, which does not, is refused and
+		// nothing is recorded: the refusal is the whole effect of it.
+		if status, code, correlationID, handled := proposer.propose(w, r, principal); handled {
+			audit(principal.TokenID, principal.Name, status, code, correlationID)
 			return nil, false
 		}
 		audit(principal.TokenID, principal.Name, http.StatusConflict, "AGENT_CONFIRMATION_REQUIRED",

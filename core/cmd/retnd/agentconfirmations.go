@@ -43,6 +43,7 @@ import (
 // *apiclient.Client satisfies it as it stands.
 type agentConfirmations interface {
 	ListAgentConfirmations(ctx context.Context) (apicontract.ListAgentConfirmationsResponse, error)
+	GetAgentConfirmation(ctx context.Context, id string) (apicontract.AgentConfirmation, error)
 	ApproveAgentConfirmation(ctx context.Context, id string) (apicontract.AgentConfirmation, error)
 	DenyAgentConfirmation(ctx context.Context, id string) (apicontract.AgentConfirmation, error)
 }
@@ -67,6 +68,14 @@ func (l localAgentConfirmations) ListAgentConfirmations(ctx context.Context) (ap
 		out.Confirmations = append(out.Confirmations, c.Contract())
 	}
 	return out, nil
+}
+
+func (l localAgentConfirmations) GetAgentConfirmation(ctx context.Context, id string) (apicontract.AgentConfirmation, error) {
+	c, err := l.svc.AgentConfirmationStatus(ctx, "", id)
+	if err != nil {
+		return apicontract.AgentConfirmation{}, err
+	}
+	return c.Contract(), nil
 }
 
 func (l localAgentConfirmations) ApproveAgentConfirmation(context.Context, string) (apicontract.AgentConfirmation, error) {
@@ -101,17 +110,19 @@ func openAgentConfirmations(ctx context.Context, cfgPath string, asJSON bool) (a
 
 func cmdAgentConfirmations(args []string) int {
 	if len(args) == 0 {
-		return usageError("agent confirmations: expected `agent confirmations list`, `agent confirmations approve ID` or `agent confirmations deny ID`")
+		return usageError("agent confirmations: expected `agent confirmations list`, `show ID`, `approve ID` or `deny ID`")
 	}
 	switch args[0] {
 	case "list":
 		return agentConfirmationsList(args[1:])
+	case "show":
+		return agentConfirmationsShow(args[1:])
 	case "approve":
 		return agentConfirmationsDecide("approve", args[1:])
 	case "deny":
 		return agentConfirmationsDecide("deny", args[1:])
 	default:
-		return usageError("agent confirmations: unknown subcommand %q (list, approve and deny exist)", args[0])
+		return usageError("agent confirmations: unknown subcommand %q (list, show, approve and deny exist)", args[0])
 	}
 }
 
@@ -154,6 +165,38 @@ func agentConfirmationsList(args []string) int {
 	}
 	if err := w.Flush(); err != nil {
 		return fail(fmt.Errorf("writing the list: %w", err))
+	}
+	return exitOK
+}
+
+func agentConfirmationsShow(args []string) int {
+	fs, cfgPath := newFlagSet("agent confirmations show")
+	asJSON := fs.Bool("json", false, "print the object the API returns instead of text")
+	operands, err := parseFlagsAroundOperands(fs, args)
+	if err != nil {
+		return exitUsage
+	}
+	if len(operands) != 1 {
+		return usageError("agent confirmations show: expected exactly one ID, as `agent confirmations list` prints it")
+	}
+
+	ctx := context.Background()
+	route, cleanup, err := openAgentConfirmations(ctx, *cfgPath, *asJSON)
+	if err != nil {
+		return fail(err)
+	}
+	defer cleanup()
+
+	got, err := route.GetAgentConfirmation(ctx, strings.TrimSpace(operands[0]))
+	if err != nil {
+		return fail(err)
+	}
+	if *asJSON {
+		return emitWireJSON(got)
+	}
+	fmt.Printf("%s: %s, asked by %s for %s, expires %s\n  %s\n", got.ID, got.State, got.TokenName, got.Tool, got.ExpiresAt, got.Command)
+	if e := got.Execution; e != nil {
+		fmt.Printf("  ran: %d %s %s (correlation id %s, exit code %d)\n", e.Status, e.Code, e.Message, e.CorrelationID, e.ExitCode)
 	}
 	return exitOK
 }

@@ -71,7 +71,7 @@ func TestAnOperateCallCreatesAConfirmationAndRunsNothing(t *testing.T) {
 	for _, f := range lines[0].Fields {
 		fields[f.Key] = f.Value
 	}
-	if fields["state"] != "pending" || fields["confirmation_id"] != got.ID || fields["tool"] != "run_cycle" || fields["command"] != "retnd run" || lines[0].Result == "" {
+	if fields["state"] != "pending" || fields["confirmation_id"] != got.ID || fields["tool"] != "run_cycle" || lines[0].Result == "" {
 		t.Errorf("agent_action fields = %v, result %q", fields, lines[0].Result)
 	}
 }
@@ -136,8 +136,9 @@ func TestTheSixthPendingConfirmationIsRefused(t *testing.T) {
 
 func TestTheLimitsAreTheConfiguredOnes(t *testing.T) {
 	pinAgentClock(t, confirmationClock)
-	svc := newTestService(t)
-	svc.SetAgentConfirmationLimits(time.Minute, 1)
+	cfg := testConfig()
+	cfg.Agents = config.Agents{ConfirmationTTL: time.Minute, MaxPendingConfirmations: 1}
+	svc := New(cfg, openTestJournal(t), nil, nil)
 	p := runnerToken(t, svc, AgentScopeOperate)
 	got, err := svc.CreateAgentConfirmation(context.Background(), askToRunACycle(p))
 	if err != nil || !got.ExpiresAt.Equal(confirmationClock.Add(time.Minute)) {
@@ -288,7 +289,7 @@ func TestDenyEndsAConfirmationAndEmitsIt(t *testing.T) {
 	for _, f := range last.Fields {
 		fields[f.Key] = f.Value
 	}
-	if fields["state"] != "denied" || fields["decided_by"] != "alice" || last.Result == "" {
+	if fields["state"] != "denied" || fields["confirmation_id"] != made.ID || last.Result != "warn" {
 		t.Errorf("the denial on the feed = %v, result %q", fields, last.Result)
 	}
 }
@@ -322,7 +323,7 @@ func TestAnApprovalRecordsItsExecutionAndTheStatusToolReadsItBack(t *testing.T) 
 		t.Fatal(err)
 	}
 	exec := AgentExecution{Status: 403, Code: "DESTRUCTIVE_OPERATIONS_DISABLED", Message: "refused over HTTP", CorrelationID: "cid_abc"}
-	if err := svc.FinishAgentApproval(context.Background(), approved, "alice", exec); err != nil {
+	if err := svc.FinishAgentApproval(context.Background(), approved, exec); err != nil {
 		t.Fatal(err)
 	}
 

@@ -760,6 +760,7 @@ func (c *Client) receive(ep apicontract.Endpoint, path string, resp *http.Respon
 		Code:          code,
 		Message:       message,
 		CorrelationID: correlationID,
+		Header:        resp.Header.Clone(),
 	}
 }
 

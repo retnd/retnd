@@ -28,12 +28,19 @@ const DefaultMaxResultBytes = 64 << 10
 // smaller page.
 const maxPageAttempts = 6
 
-// Tool is one read tool of the catalogue, as this server needs it.
+// Tool is one tool of the catalogue, as this server needs it.
 type Tool struct {
 	Name        string
 	Method      string
 	Route       string
 	Description string
+	// Scope is empty or "read" for a read tool. "operate" and "configure" mark
+	// a tool that proposes a change: calling it runs nothing, it asks the engine
+	// to record the request as a confirmation a person approves (U2.1, #1349).
+	Scope string
+	// Action is the body's action word for the route several acts share
+	// (POST /operations), which a proposing tool puts in the body it sends.
+	Action string
 	// Untrusted names the result fields whose values come from outside the
 	// deployment.
 	Untrusted []string
@@ -49,6 +56,9 @@ type Call struct {
 	Route    string
 	PathArgs []string
 	Query    url.Values
+	// Body is the request body of a tool that proposes a change, exactly as
+	// the engine will record it. Empty for a read.
+	Body json.RawMessage
 }
 
 // Response is what a successful call answered.
@@ -99,13 +109,16 @@ func New(cfg Config) *mcp.Server {
 			Name:        t.Name,
 			Description: t.Description,
 			InputSchema: inputSchema(t),
-			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: !t.proposes()},
 		}, s.handler(t))
 	}
 	s.addResources(srv)
 	addPrompts(srv)
 	return srv
 }
+
+// proposes reports whether the tool asks for a change instead of reading.
+func (t Tool) proposes() bool { return t.Scope == "operate" || t.Scope == "configure" }
 
 // inputSchema is the arguments a tool takes: one string per route
 // placeholder, and an optional query of strings (limit, before and the
@@ -117,6 +130,14 @@ func inputSchema(t Tool) map[string]any {
 			"description":          "Optional query parameters for the route, such as limit or before (a next_cursor from an earlier answer).",
 			"additionalProperties": map[string]any{"type": "string"},
 		},
+	}
+	if t.proposes() {
+		props = map[string]any{
+			"body": map[string]any{
+				"type":        "object",
+				"description": "The request body the route takes, when it takes one. It is recorded as given and a person approves exactly that.",
+			},
+		}
 	}
 	required := []string{}
 	for _, p := range routeParams(t.Route) {
@@ -217,6 +238,9 @@ func toToolResult(tool string, r Result) *mcp.CallToolResult {
 
 // run makes the call, projects the answer and bounds it.
 func (s *server) run(ctx context.Context, t Tool, raw json.RawMessage) Result {
+	if t.proposes() {
+		return s.propose(ctx, t, raw)
+	}
 	pathArgs, query, err := parseArguments(t, raw)
 	if err != nil {
 		return invalidArguments(err.Error())

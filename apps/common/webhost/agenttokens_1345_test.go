@@ -130,7 +130,7 @@ func TestTheAuthenticatedActorIsAgentColonName(t *testing.T) {
 		actor = actorFromContext(r.Context())
 		w.WriteHeader(http.StatusNoContent)
 	})
-	h := authMiddleware(allowingPlatform("alice"), access, nil)(next)
+	h := authMiddleware(allowingPlatform("alice"), access, nil, nil)(next)
 	if rec := serve(h, bearer(http.MethodGet, "/api/v1/system/version", "", readToken)); rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d", rec.Code)
 	}
@@ -373,7 +373,7 @@ func TestRevokeIsASessionPostAndTheNextBearerRequestIsRefused(t *testing.T) {
 // Falsify: only consult the deny list when a token store is wired. The
 // first-run router has none, and /system/first-run is the route it serves.
 func TestABearerOnADeniedPrefixIsRefusedWithNoTokenStore(t *testing.T) {
-	h := authMiddleware(allowingPlatform("alice"), nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := authMiddleware(allowingPlatform("alice"), nil, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	for _, p := range []string{"/api/v1/system/first-run", "/api/v1/system/first-run/skip", "/api/v1/recoveries"} {

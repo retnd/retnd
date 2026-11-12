@@ -98,9 +98,16 @@ func (c routerCaller) Call(ctx context.Context, call agentmcp.Call) (agentmcp.Re
 	stop := context.AfterFunc(ctx, cancel)
 	defer stop()
 
-	req, err := http.NewRequestWithContext(inner, call.Method, target, nil)
+	var requestBody io.Reader
+	if len(call.Body) > 0 {
+		requestBody = bytes.NewReader(call.Body)
+	}
+	req, err := http.NewRequestWithContext(inner, call.Method, target, requestBody)
 	if err != nil {
 		return agentmcp.Response{}, err
+	}
+	if len(call.Body) > 0 {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("Authorization", authorization)
 	req.Header.Set("Accept", "application/json")
@@ -169,7 +176,10 @@ func refusalFrom(rec *bufferedResponse) error {
 	if err := json.Unmarshal(rec.body.Bytes(), &envelope); err != nil || envelope.Error.Code == "" {
 		return errors.New("the engine answered " + http.StatusText(rec.status) + " with a body that is not the API's error envelope")
 	}
-	return &agentmcp.Refusal{Status: rec.status, Code: envelope.Error.Code, Message: envelope.Error.Message, CorrelationID: rec.header.Get("X-Correlation-Id")}
+	return &agentmcp.Refusal{
+		Status: rec.status, Code: envelope.Error.Code, Message: envelope.Error.Message, CorrelationID: rec.header.Get("X-Correlation-Id"),
+		ConfirmationID: rec.header.Get(ConfirmationIDHeader), ConfirmationExpires: rec.header.Get(ConfirmationExpiresHeader),
+	}
 }
 
 // bufferedResponse is a ResponseWriter that keeps the answer in memory, capped

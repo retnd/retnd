@@ -643,6 +643,11 @@ commands:
                                                   denied and expired, with the command each one echoes. A call an agent
                                                   makes under the operate or configure scope runs nothing until a person
                                                   approves it. The same as GET /api/v1/agent/confirmations
+  agent confirmations show ID [--json]
+                                                  one confirmation: its state, the command it echoes and, once approved
+                                                  and run, how it ended: the API's code and message, the correlation id
+                                                  and the exit code retnd gives the same answer. The same as GET
+                                                  /api/v1/agent/confirmations/{id}
   agent confirmations approve ID [--json]
                                                   approve one pending confirmation and replay the request that was
                                                   recorded, unchanged, as the token that asked. The password this

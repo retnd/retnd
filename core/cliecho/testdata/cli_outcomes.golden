@@ -56,6 +56,9 @@ GET /agent/audit
 GET /agent/confirmations
 	example: command
 
+GET /agent/confirmations/{id}
+	example: command
+
 GET /agent/tokens
 	example: command
 

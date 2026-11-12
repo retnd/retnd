@@ -41,6 +41,7 @@ const (
 	CodeInvalidRequest  = "INVALID_REQUEST"
 	CodeUnreachable     = "ENGINE_UNREACHABLE"
 	CodeResultTooLarge  = "AGENT_RESULT_TOO_LARGE"
+	CodeUnexpected      = "AGENT_UNEXPECTED_ANSWER"
 	codeUnknownRefusal  = "UNKNOWN"
 	staticOKMessage     = "ok"
 	maxQueryKeyLength   = 64
@@ -65,6 +66,11 @@ type Result struct {
 	Untrusted map[string]any `json:"untrusted,omitempty"`
 	// NextCursor is where a paged answer ended: send it back as before.
 	NextCursor string `json:"next_cursor,omitempty"`
+	// ConfirmationID and ExpiresAt are set when a tool that proposes a change
+	// was recorded as a pending confirmation: the id confirmation_status reads,
+	// and when it lapses if nobody decides it.
+	ConfirmationID string `json:"confirmation_id,omitempty"`
+	ExpiresAt      string `json:"expires_at,omitempty"`
 }
 
 // Refusal is an answer from the engine that refuses: the API's status, code,
@@ -74,6 +80,10 @@ type Refusal struct {
 	Code          string
 	Message       string
 	CorrelationID string
+	// ConfirmationID and ConfirmationExpires are the engine's answer to a
+	// tool that proposed a change (AGENT_CONFIRMATION_REQUIRED).
+	ConfirmationID      string
+	ConfirmationExpires string
 }
 
 func (r *Refusal) Error() string { return r.Code + ": " + r.Message }
@@ -91,7 +101,10 @@ func refusalResult(err error, command string) Result {
 		if !codeShape.MatchString(code) {
 			code = codeUnknownRefusal
 		}
-		return Result{Code: code, Message: refusal.Message, CorrelationID: refusal.CorrelationID, Command: command, ExitCode: ExitCode(code)}
+		return Result{
+			Code: code, Message: refusal.Message, CorrelationID: refusal.CorrelationID, Command: command, ExitCode: ExitCode(code),
+			ConfirmationID: refusal.ConfirmationID, ExpiresAt: refusal.ConfirmationExpires,
+		}
 	}
 	return Result{Code: CodeUnreachable, Message: err.Error(), Command: command, ExitCode: ExitFailure}
 }

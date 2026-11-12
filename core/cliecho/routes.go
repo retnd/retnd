@@ -1274,6 +1274,12 @@ var routes = map[string]entry{
 		build:    func(Action) *cmd { return newCmd("agent", "confirmations", "list") },
 		examples: []Action{{}},
 	},
+	key("GET", "/agent/confirmations/{id}"): {
+		build: func(a Action) *cmd {
+			return newCmd("agent", "confirmations", "show", a.Params["id"])
+		},
+		examples: []Action{{Params: map[string]string{"id": "cnf_0123456789abcdef"}}},
+	},
 	key("POST", "/agent/confirmations/{id}/approve"): {
 		build: func(a Action) *cmd {
 			return newCmd("agent", "confirmations", "approve", a.Params["id"])

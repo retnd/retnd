@@ -9,12 +9,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/retnd/retnd/core/apicontract"
-	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/state"
 )
 
@@ -43,13 +44,6 @@ import (
 // confirmation_status reads back.
 
 const (
-	// DefaultAgentConfirmationTTL is how long a confirmation waits for a
-	// person (agents.confirmation_ttl).
-	DefaultAgentConfirmationTTL = 15 * time.Minute
-	// DefaultMaxPendingAgentConfirmations is how many a token may have open
-	// at once (agents.max_pending_confirmations).
-	DefaultMaxPendingAgentConfirmations = 5
-
 	maxAgentConfirmationBody = 64 << 10
 	maxAgentExecutionMessage = 512
 	agentConfirmationListMax = 200
@@ -155,20 +149,17 @@ type CreateAgentConfirmationRequest struct {
 	BackupSet string
 }
 
-// SetAgentConfirmationLimits sets agents.confirmation_ttl and
-// agents.max_pending_confirmations. It is called once while the engine is
-// wired, before anything is served; zero keeps the default.
-func (b *BackupService) SetAgentConfirmationLimits(ttl time.Duration, maxPending int) {
-	b.agentConfirmationTTL, b.agentMaxPending = ttl, maxPending
-}
-
+// agentConfirmationLimits are agents.confirmation_ttl and
+// agents.max_pending_confirmations as the configuration resolved them. A
+// configuration that was never resolved (one built by hand) gets the defaults.
 func (b *BackupService) agentConfirmationLimits() (time.Duration, int) {
-	ttl, maxPending := b.agentConfirmationTTL, b.agentMaxPending
+	agents := b.state.Load().inner.Config.Agents
+	ttl, maxPending := agents.ConfirmationTTL, agents.MaxPendingConfirmations
 	if ttl <= 0 {
-		ttl = DefaultAgentConfirmationTTL
+		ttl = config.DefaultAgentConfirmationTTL
 	}
 	if maxPending <= 0 {
-		maxPending = DefaultMaxPendingAgentConfirmations
+		maxPending = config.DefaultMaxPendingConfirmations
 	}
 	return ttl, maxPending
 }
@@ -227,7 +218,7 @@ func (b *BackupService) CreateAgentConfirmation(ctx context.Context, req CreateA
 		return AgentConfirmation{}, fmt.Errorf("service: create agent confirmation: %w", err)
 	}
 	out := confirmationView(row, tok.Name, nil)
-	b.emitAgentConfirmation(ctx, out, "agent:"+tok.Name, obs.ResultInfo)
+	b.emitAgentConfirmation(ctx, out)
 	return out, nil
 }
 
@@ -257,11 +248,11 @@ func (b *BackupService) ListAgentConfirmations(ctx context.Context) ([]AgentConf
 // AgentConfirmationStatus is what the confirmation_status tool reads: the
 // state of one confirmation and, once an approval has executed, its result. A
 // token reads only its own; another token's id answers not found, so ids
-// cannot be probed.
+// cannot be probed. An empty tokenID is a person reading, who may read any.
 func (b *BackupService) AgentConfirmationStatus(ctx context.Context, tokenID, id string) (AgentConfirmation, error) {
 	b.sweepAgentConfirmations(ctx)
 	row, err := b.journal.GetAgentConfirmation(ctx, id)
-	if errors.Is(err, state.ErrAgentConfirmationNotFound) || (err == nil && row.TokenID != tokenID) {
+	if errors.Is(err, state.ErrAgentConfirmationNotFound) || (err == nil && tokenID != "" && row.TokenID != tokenID) {
 		return AgentConfirmation{}, fmt.Errorf("%w: %q", ErrAgentConfirmationNotFound, id)
 	}
 	if err != nil {
@@ -329,16 +320,17 @@ func (b *BackupService) ApproveAgentConfirmation(ctx context.Context, id, approv
 	}
 	row.State, row.DecidedBy, row.DecidedAt = state.AgentConfirmationApproved, approver, &at
 	b.auditAgentDecision(ctx, row, "approved by "+approver)
-	return confirmationView(row, tok.Name, nil), AgentPrincipal{TokenID: tok.ID, Name: tok.Name, Scope: tok.Scope}, nil
+	view := confirmationView(row, tok.Name, nil)
+	b.emitAgentConfirmation(ctx, view)
+	return view, AgentPrincipal{TokenID: tok.ID, Name: tok.Name, Scope: tok.Scope}, nil
 }
 
-// FinishAgentApproval records how an approved confirmation's replay ended and
-// puts the approval on the feed, with a result that follows the replay's: a
-// replay that was refused is a warning, one that failed is an error. The
-// approval itself already stands; a replay that was refused by the gate does
-// not make it pending again.
-func (b *BackupService) FinishAgentApproval(ctx context.Context, c AgentConfirmation, approver string, exec AgentExecution) error {
-	exec.ExitCode = AgentExecutionExitCode(exec.Status, exec.Code)
+// FinishAgentApproval records how an approved confirmation's replay ended, as
+// the audit row confirmation_status reads back. The approval itself already
+// stands and is already on the feed; a replay that was refused by the gate does
+// not make it pending again, and the refusal is in the action log as the
+// api_action the replayed request made.
+func (b *BackupService) FinishAgentApproval(ctx context.Context, c AgentConfirmation, exec AgentExecution) error {
 	message := exec.Message
 	if len(message) > maxAgentExecutionMessage {
 		message = strings.ToValidUTF8(message[:maxAgentExecutionMessage], "") + "..."
@@ -350,15 +342,6 @@ func (b *BackupService) FinishAgentApproval(ctx context.Context, c AgentConfirma
 	if err != nil {
 		return fmt.Errorf("service: record agent execution: %w", err)
 	}
-	result := obs.ResultSuccess
-	switch {
-	case exec.Status >= 500:
-		result = obs.ResultError
-	case exec.Status >= 400:
-		result = obs.ResultWarn
-	}
-	c.Execution = &exec
-	b.emitAgentConfirmation(ctx, c, approver, result)
 	return nil
 }
 
@@ -384,7 +367,7 @@ func (b *BackupService) DenyAgentConfirmation(ctx context.Context, id, by string
 	}
 	out := confirmationView(row, names[row.TokenID], nil)
 	b.auditAgentDecision(ctx, row, "denied by "+by)
-	b.emitAgentConfirmation(ctx, out, by, obs.ResultInfo)
+	b.emitAgentConfirmation(ctx, out)
 	return out, nil
 }
 
@@ -429,7 +412,7 @@ func (b *BackupService) sweepAgentConfirmations(ctx context.Context) {
 	}
 	for _, row := range expired {
 		b.auditAgentDecision(ctx, row, "expired")
-		b.emitAgentConfirmation(ctx, confirmationView(row, names[row.TokenID], nil), "system", obs.ResultWarn)
+		b.emitAgentConfirmation(ctx, confirmationView(row, names[row.TokenID], nil))
 	}
 }
 
@@ -446,36 +429,19 @@ func (b *BackupService) auditAgentDecision(ctx context.Context, row state.AgentC
 }
 
 // emitAgentConfirmation puts a state change on the feed as agent_action, with
-// a result, on the strip of the set it concerns.
-func (b *BackupService) emitAgentConfirmation(ctx context.Context, c AgentConfirmation, actor string, result obs.Result) {
-	attrs := []slog.Attr{
-		slog.String("actor", actor),
-		slog.String("token", c.TokenName),
-		slog.String("tool", c.Tool),
-		slog.String("state", c.State),
-		slog.String("confirmation_id", c.ID),
-		slog.String("route", c.Method+" /api/v1"+c.Route),
-		slog.String("command", c.Command),
-		slog.String("expires_at", c.ExpiresAt.UTC().Format(time.RFC3339)),
+// a result, on the strip of the set it concerns. The line is the audit
+// trail's own (emitAgentAction), so a confirmation reads the way every other
+// thing an agent did reads; the command and the approver are on the
+// confirmation and in its audit rows.
+func (b *BackupService) emitAgentConfirmation(ctx context.Context, c AgentConfirmation) {
+	status := http.StatusOK
+	if c.State == state.AgentConfirmationPending {
+		status = http.StatusConflict
 	}
-	if c.DecidedBy != "" {
-		attrs = append(attrs, slog.String("decided_by", c.DecidedBy))
-	}
-	// Only a set this deployment configures, for the reason RecordAPIAction
-	// gives: the id is whatever the request said.
-	if c.BackupSet != "" && b.configuresBackupSetID(c.BackupSet) {
-		attrs = append(attrs, slog.String("backup_set", c.BackupSet))
-	}
-	if e := c.Execution; e != nil {
-		attrs = append(attrs, slog.Int("status", e.Status), slog.Int("exit_code", e.ExitCode))
-		if e.Code != "" {
-			attrs = append(attrs, slog.String("error_code", e.Code))
-		}
-		if e.CorrelationID != "" {
-			attrs = append(attrs, slog.String("correlation_id", e.CorrelationID))
-		}
-	}
-	b.logger.Completed(ctx, result, obs.EventAgentAction, "confirmation "+c.State+": "+c.Tool, attrs...)
+	b.emitAgentAction(ctx, AgentCall{
+		TokenID: c.TokenID, TokenName: c.TokenName, Tool: c.Tool, Transport: "api", BackupSetID: c.BackupSet,
+		Mutating: true, Status: status, ConfirmationID: c.ID, ConfirmationState: c.State,
+	})
 }
 
 // agentExecution reads the result the replay of an approved confirmation

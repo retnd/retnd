@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "66d4297730a0b95722aafeeac17fb53a9eb439c5acf8aa3e2379fb5bf6a62e3a";
+export const CONTRACT_SHA256 = "cea6ba0aa0b87e1f10b71a2b538ff903449eaeffd6b33931c91b0bd94f9787a1";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -418,6 +418,25 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       401: ["UNAUTHENTICATED"],
       403: ["AGENT_ROUTE_DENIED"],
       500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "getAgentConfirmation",
+    method: "GET",
+    path: "/agent/confirmations/{id}",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AgentConfirmation",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["AGENT_CONFIRMATION_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
     }
   },
   {

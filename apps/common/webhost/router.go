@@ -43,6 +43,12 @@ import (
 
 // RouterConfig is everything NewRouter needs to build the /api/v1 surface.
 type RouterConfig struct {
+	// AgentTools says what an agent's tool call stands for: the catalogue,
+	// core/agenttools, behind an adapter (agentconfirmations.go). Nil means no
+	// tool call is ever recorded as a confirmation, and every mutating bearer
+	// request is refused AGENT_CONFIRMATION_REQUIRED as before.
+	AgentTools AgentToolResolver
+
 	// Platform supplies both the Authenticator every /api/v1 request is
 	// checked against (auth.go) and the capabilities GET
 	// /api/v1/system/capabilities reports.
@@ -378,8 +384,12 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	r.Get("/health/ready", h.healthReady)
 
 	root := r
+	var proposer *agentProposer
+	if confirmations != nil && cfg.AgentTools != nil {
+		proposer = &agentProposer{confirmations: confirmations, resolver: cfg.AgentTools, root: root}
+	}
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(authMiddleware(cfg.Platform, agents, guard))
+		r.Use(authMiddleware(cfg.Platform, agents, guard, proposer))
 		// After authentication, so a recorded line can name the actor,
 		// and over the WHOLE group, so it covers the refusals that never
 		// reach a handler at all: a CSRF failure and a
@@ -879,6 +889,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// agentDeniedPrefixes. Approve replays the recorded request through this
 		// router, so the gate and every other refusal apply to it as to a person.
 		r.Get("/agent/confirmations", h.listAgentConfirmations)
+		r.Get("/agent/confirmations/{id}", h.getAgentConfirmation)
 		r.With(requireCSRF).Post("/agent/confirmations/{id}/approve", h.approveAgentConfirmation)
 		r.With(requireCSRF).Post("/agent/confirmations/{id}/deny", h.denyAgentConfirmation)
 		r.Get("/ssh/key-candidates", h.listSSHKeyCandidates)

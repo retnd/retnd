@@ -281,6 +281,7 @@ var contractBindings = map[string]contractBinding{
 	"revokeAgentToken": {nil, apicontract.AgentToken{}, "/api/v1/agent/tokens/agt_1/revoke"},
 	// EPIC U (#1349): the three confirmation routes.
 	"listAgentConfirmations":   {nil, apicontract.ListAgentConfirmationsResponse{}, "/api/v1/agent/confirmations"},
+	"getAgentConfirmation":     {nil, apicontract.AgentConfirmation{}, "/api/v1/agent/confirmations/cnf_1"},
 	"approveAgentConfirmation": {nil, apicontract.AgentConfirmation{}, "/api/v1/agent/confirmations/cnf_1/approve"},
 	"denyAgentConfirmation":    {nil, apicontract.AgentConfirmation{}, "/api/v1/agent/confirmations/cnf_1/deny"},
 	"listEncryptionSuites":     {nil, apicontract.ListEncryptionSuitesResponse{}, "/api/v1/encryption/suites"},
