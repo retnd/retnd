@@ -52,6 +52,9 @@ GET /activity/live
 GET /agent/tokens
 	example: command
 
+GET /agent/tools
+	example: command
+
 GET /assurance/default-validator-script
 	example: command
 

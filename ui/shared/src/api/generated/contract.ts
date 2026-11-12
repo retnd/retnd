@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "d3c567ba0ca026fd77568d0d46192ca01a984d1c7beeeda5135e03cc5a9c9076";
+export const CONTRACT_SHA256 = "a9f02d7c0e1ed84320eb583737a6df268705bf217dc805ef012fd77491b002af";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -430,6 +430,24 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       401: ["UNAUTHENTICATED"],
       403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "AGENT_ROUTE_DENIED"],
       404: ["AGENT_TOKEN_NOT_FOUND"],
+      500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "listAgentTools",
+    method: "GET",
+    path: "/agent/tools",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AgentToolsResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
       500: ["INTERNAL"],
     }
   },
@@ -3311,6 +3329,22 @@ export interface WireAdoptedPath {
   what: string;
 }
 
+/** One prompt: a static description, the arguments it takes and the
+ *  read tools it draws on. */
+export interface WireAgentPrompt {
+  arguments: string[];
+  description: string;
+  name: string;
+  tools: string[];
+}
+
+/** One resource, backed by a read tool. */
+export interface WireAgentResource {
+  description: string;
+  tool: string;
+  uri: string;
+}
+
 /** One agent token as every surface after the mint shows it: its
  *  name, the first eight characters of the token, scope, owner and
  *  times, never the hash and never more of the token than the prefix.
@@ -3327,6 +3361,41 @@ export interface WireAgentToken {
   revoked_at: string | null;
   scope: "read" | "operate" | "configure";
   status: "active" | "expired" | "revoked";
+}
+
+/** One tool an agent may call. untrusted names the result fields
+ *  whose values originate outside the deployment (file names,
+ *  validator output, workflow logs, activity messages, remote
+ *  hostnames); a transport puts them under an untrusted object and
+ *  never in text. */
+export interface WireAgentTool {
+  action?: string;
+  description: string;
+  method: string;
+  name: string;
+  route: string;
+  scope: "read" | "operate" | "configure";
+  twin: string;
+  untrusted: string[];
+}
+
+/** A route with no tool, and why. */
+export interface WireAgentToolRefusal {
+  action?: string;
+  denied: boolean;
+  method: string;
+  route: string;
+  why: string;
+}
+
+/** GET /agent/tools. The whole catalogue. denied_fields are the keys
+ *  the one projection at the tool boundary drops at every depth. */
+export interface WireAgentToolsResponse {
+  denied_fields: string[];
+  prompts: WireAgentPrompt[];
+  refusals: WireAgentToolRefusal[];
+  resources: WireAgentResource[];
+  tools: WireAgentTool[];
 }
 
 /** POST /backup-sets/{source}/{set}/retention/apply. */

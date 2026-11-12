@@ -1,0 +1,30 @@
+status	read	Read the health of every backup set: its state and the reason for it, the newest good backup, quarantined and stale counts, free space and copies away from home.
+backup_sets_list	read	List the configured backup sets with their source, schedule, completion strategy, retention flags and whether each is disabled or read only.
+backup_set_show	read	Read one backup set by its source and name: where it comes from, how it is checked and how long it is kept.
+backups_list	read	List the backups this deployment holds, each with its state, size, validation result, quarantine flag and the placements that hold a copy.
+backup_show	read	Read one backup by source, set and name: its state, validation, checksum, retention tier and every placement that holds a copy.
+copies_show	read	Read how each stored copy of one backup is encrypted: the format, whether the key resolves and the stored size. Never a key.
+encryption_state	read	Read the encryption policy: the mode, the suite, each set's effective mode and whether a rotation is due. Never a key or a recipient.
+assurance_due	read	List the backups whose scrub or recovery test is due or overdue, with when each was last assured and when it is next due.
+assurance_show	read	Read one backup set's assurance settings: the scrub cadence and strategy and how its recovery test is run.
+activity	read	Page through the activity journal, newest first: what changed, to which backup, when and who did it.
+activity_live	read	Read one snapshot of the live activity feed: what is happening on this deployment right now.
+quarantine_list	read	List the backups held in quarantine and the reason each was held back.
+operations_list	read	List recent operations: what was started, by whom, how far it got and how it ended.
+operation_show	read	Read one operation by its id: its status, progress and result.
+storage_mediums_list	read	List the storage mediums copies are kept on: type, region, storage class and which is the default.
+storage_usage	read	Read what one storage medium holds: how many placements, and per backup set how many are the only copy there.
+retention_preview	read	Preview what retention would keep and delete for one backup set, with the reason for each verdict. It deletes nothing.
+workflow_runs_list	read	List workflow runs with their state, the step that failed and how long each took. Never a step's log.
+workflow_run_show	read	Read one workflow run and each of its steps: state, exit code and timing. Never a step's log.
+run_cycle	operate	Propose running one backup cycle across every enabled backup set. A person confirms it before anything starts.
+run_backup_set	operate	Propose running one backup cycle over a single backup set. A person confirms it before anything starts.
+recovery_test_start	operate	Propose a recovery test of a backup set's newest known good copy. A person confirms it before anything starts.
+verify_copy	operate	Propose decrypt-verifying one backup's encrypted copy against its recorded digest. A person confirms it before anything starts.
+scrub_start	operate	Propose scrubbing a backup set's copies for corruption. A person confirms it before anything starts.
+retry_backup	operate	Propose retrying one backup that failed. A person confirms it before anything starts.
+quarantine_revalidate	operate	Propose validating a quarantined backup again. A person confirms it before anything starts.
+backup_set_enabled	configure	Propose enabling or disabling one backup set. A person confirms it before it changes.
+backup_set_retention_set	configure	Propose a retention override for one backup set. A person confirms it before it changes.
+backup_set_retention_clear	configure	Propose removing one backup set's retention override so it follows the deployment default. A person confirms it before it changes.
+backup_set_assurance_set	configure	Propose changing one backup set's scrub and recovery test settings. A person confirms it before it changes.

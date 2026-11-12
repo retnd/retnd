@@ -1246,6 +1246,12 @@ var routes = map[string]entry{
 		},
 		examples: []Action{{Params: map[string]string{"id": "agt_0123456789abcdef"}}},
 	},
+	key("GET", "/agent/tools"): {
+		// #1346. The catalogue is fixed in the binary, so the verb that
+		// prints it asks no engine.
+		build:    func(Action) *cmd { return newCmd("agent", "tools") },
+		examples: []Action{{}},
+	},
 
 	// ------------------------------------------------------------- ssh ---
 	//

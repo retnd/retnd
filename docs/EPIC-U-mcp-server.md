@@ -166,6 +166,7 @@ The agent never receives key material, a recipient, an identity, a bundle, a cre
 ## Core invariants
 
 - An agent token authenticates nothing but `/api/v1`. The browser's session, the CSRF pair and the first-run flow are untouched; a token presented to a cookie-only route is refused, and a cookie presented to the MCP endpoint is refused.
+- A token reaches only the routes the catalogue offers it: a `GET` on the route a read tool sits on, and nothing else, whatever its scope. A route with no tool is `AGENT_ROUTE_DENIED` even when it only reads, and the engine says so on the wire and not only in a transport.
 - `read` is the only default. Nothing in a wizard, a setting or a prompt suggests more.
 - The shut operation gate is a refusal for an agent exactly as it is for a person, after approval, with the same code and the same exit code.
 - A deployment with no token has no agent access and behaves byte-identically to `9cd53e1f`.

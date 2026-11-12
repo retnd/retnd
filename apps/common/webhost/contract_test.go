@@ -278,6 +278,7 @@ var contractBindings = map[string]contractBinding{
 	"listAgentTokens":      {nil, apicontract.ListAgentTokensResponse{}, "/api/v1/agent/tokens"},
 	"mintAgentToken":       {apicontract.MintAgentTokenRequest{}, apicontract.MintedAgentToken{}, "/api/v1/agent/tokens"},
 	"revokeAgentToken":     {nil, apicontract.AgentToken{}, "/api/v1/agent/tokens/agt_1/revoke"},
+	"listAgentTools":       {nil, apicontract.AgentToolsResponse{}, "/api/v1/agent/tools"},
 	"listEncryptionSuites": {nil, apicontract.ListEncryptionSuitesResponse{}, "/api/v1/encryption/suites"},
 	"listEncryptionCopies": {nil, apicontract.ListEncryptionCopiesResponse{}, "/api/v1/encryption/copies"},
 	"startDecryptVerify":   {apicontract.StartDecryptVerifyRequest{}, apicontract.ScrubStarted{}, "/api/v1/encryption/verify"},
