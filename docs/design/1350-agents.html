@@ -547,6 +547,9 @@ const S={
   <div class="card"><h3>Refused at approval: expired</h3><div class="body">
    ${pend({sentence:"Enable or disable a backup set.",who:"settings-helper",at:"09:36",set:"production/billing-mysql",cmd:"retnd backup-set enabled production/billing-mysql off",exp:"09:51",left:"0:00",soon:true,cls:"soon",body:`<div class="notice refused" role="alert"><b>${G.fail} This request expired before it was approved. Nothing was run.</b><div class="muted"><span class="mono">AGENT_CONFIRMATION_EXPIRED</span>, as the engine words it. It leaves this list on the next load and is in the audit.</div></div>`})}
   </div></div>
+  <div class="card"><h3>Denied: the person said no</h3><div class="body">
+   ${pend({sentence:"Enable or disable a backup set.",who:"settings-helper",at:"09:36",set:"production/billing-mysql",cmd:"retnd backup-set enabled production/billing-mysql off",exp:"09:51",left:"denied 09:40",cls:"done",body:`<div class="notice refused" role="alert"><b>${G.fail} Denied. Nothing was run.</b><div class="muted">The agent is told the request was denied. The record is in the audit.</div></div>`})}
+  </div></div>
   <div class="card" style="grid-column:1/-1"><h3>Approved, then refused by the shut gate: the gate's own words</h3><div class="body">
    ${pend({sentence:"Start a backup run for every set.",who:"recovery-drill",at:"09:02",set:"all backup sets",cmd:"retnd operation run",exp:"09:17",left:"approved 09:04",cls:"done",body:`<div class="notice refused" role="alert"><b>${G.fail} Approved, and refused: the operation did not run.</b>
       <div>${GATE}</div>
