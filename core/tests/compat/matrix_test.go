@@ -182,6 +182,22 @@ var matrixPairs = []matrixPair{
 		ledger:   ledgerRowPerGuard,
 		whereCol: 2,
 	},
+	{
+		// EPIC U (#1343) follows EPIC N's and T's shape: its matrix lands
+		// with every row BLOCKED and the pair registers here in #1345's
+		// first commit. One ledger row per guard in the spec's section 6
+		// table, because each agent guard is a separate way in.
+		name:     "EPIC U",
+		spec:     "../../../docs/EPIC-U-mcp-server.md",
+		matrix:   "../../../docs/conformance/epic-u-matrix.md",
+		gateID:   regexp.MustCompile(`^U[12]\.\d+$`),
+		ledgerID: regexp.MustCompile(`^UV\.\d+$`),
+		gates: []gatePhase{
+			{prefix: "U1", heading: "### Phase 1 exit gate"},
+			{prefix: "U2", heading: "### Phase 2 exit gate"},
+		},
+		ledger: ledgerRowPerGuard,
+	},
 }
 
 // matrixRepo is the repository whose issues a BLOCKED row cites. It is

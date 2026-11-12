@@ -197,7 +197,12 @@
           "ENCRYPTION_KEY_IN_USE",
           "ENCRYPTION_KEY_STATE",
           "ENCRYPTION_KEY_UNRESOLVABLE",
-          "ENCRYPTION_UNAVAILABLE"
+          "ENCRYPTION_UNAVAILABLE",
+          "AGENT_TOKEN_INVALID",
+          "AGENT_SCOPE_INSUFFICIENT",
+          "AGENT_ROUTE_DENIED",
+          "AGENT_CONFIRMATION_REQUIRED",
+          "AGENT_TOKEN_NOT_FOUND"
         ],
         "x-code-origins": {
           "authentication-failed": "ui",
@@ -321,14 +326,20 @@
           "ENCRYPTION_KEY_IN_USE": "wire",
           "ENCRYPTION_KEY_STATE": "wire",
           "ENCRYPTION_KEY_UNRESOLVABLE": "wire",
-          "ENCRYPTION_UNAVAILABLE": "wire"
+          "ENCRYPTION_UNAVAILABLE": "wire",
+          "AGENT_TOKEN_INVALID": "wire",
+          "AGENT_SCOPE_INSUFFICIENT": "wire",
+          "AGENT_ROUTE_DENIED": "wire",
+          "AGENT_CONFIRMATION_REQUIRED": "wire",
+          "AGENT_TOKEN_NOT_FOUND": "wire"
         },
         "x-error-classes": {
           "authentication": [
             "UNAUTHENTICATED",
             "BOOTSTRAP_TOKEN_INVALID",
             "RESET_TOKEN_INVALID",
-            "VERIFY_TOKEN_INVALID"
+            "VERIFY_TOKEN_INVALID",
+            "AGENT_TOKEN_INVALID"
           ],
           "authorization": [
             "ENROLLMENT_CLOSED",
@@ -338,7 +349,9 @@
             "RECOVERY_GRANT_SESSION_ENDED",
             "STEP_UP_REQUIRED",
             "STEP_UP_FAILED",
-            "INSECURE_TRANSPORT_ACK_REQUIRED"
+            "INSECURE_TRANSPORT_ACK_REQUIRED",
+            "AGENT_SCOPE_INSUFFICIENT",
+            "AGENT_ROUTE_DENIED"
           ],
           "validation": [
             "INVALID_REQUEST",
@@ -397,7 +410,8 @@
             "VALIDATOR_SCRIPT_CHANGED",
             "ENCRYPTION_KEY_IN_USE",
             "ENCRYPTION_KEY_STATE",
-            "ENCRYPTION_KEY_UNRESOLVABLE"
+            "ENCRYPTION_KEY_UNRESOLVABLE",
+            "AGENT_CONFIRMATION_REQUIRED"
           ],
           "not-found": [
             "BACKUP_SET_NOT_FOUND",
@@ -415,7 +429,8 @@
             "RECOVERY_GRANT_UNKNOWN",
             "DIRECTORY_NOT_FOUND",
             "VALIDATOR_NOT_FOUND",
-            "ENCRYPTION_KEY_NOT_FOUND"
+            "ENCRYPTION_KEY_NOT_FOUND",
+            "AGENT_TOKEN_NOT_FOUND"
           ],
           "throttling": [
             "RATE_LIMITED",
@@ -9818,6 +9833,135 @@
           "groups",
           "would_reencrypt",
           "refused"
+        ]
+      },
+      "AgentToken": {
+        "type": "object",
+        "description": "One agent token as every surface after the mint shows it: its name, the first eight characters of the token, scope, owner and times, never the hash and never more of the token than the prefix. status is active, expired or revoked, read from the token row on this request. The principal it authenticates as is agent:<name>.",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "read",
+              "operate",
+              "configure"
+            ]
+          },
+          "owner": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Null when the token has never authenticated a request."
+          },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "expired",
+              "revoked"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "prefix",
+          "scope",
+          "owner",
+          "created_at",
+          "expires_at",
+          "last_used_at",
+          "revoked_at",
+          "status"
+        ]
+      },
+      "MintAgentTokenRequest": {
+        "type": "object",
+        "description": "POST /agent/tokens. name becomes the agent:<name> principal. scope defaults to read, the only default. expires_in is a number of days such as 90d or a Go duration such as 720h; it defaults to 90d, may not exceed 365d, and there is no non-expiring token.",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "read",
+              "operate",
+              "configure"
+            ],
+            "x-go-omitempty": true
+          },
+          "expires_in": {
+            "type": "string",
+            "x-go-omitempty": true
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "MintedAgentToken": {
+        "type": "object",
+        "description": "The one answer that carries the token itself. token is shown exactly once, here: the deployment stores its SHA-256 and the eight-character prefix, so a lost token is revoked and minted again, never recovered.",
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "agent_token": {
+            "$ref": "#/components/schemas/AgentToken"
+          }
+        },
+        "required": [
+          "token",
+          "agent_token"
+        ]
+      },
+      "ListAgentTokensResponse": {
+        "type": "object",
+        "description": "GET /agent/tokens. Every token, revoked and expired ones included, with their status.",
+        "additionalProperties": false,
+        "properties": {
+          "tokens": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentToken"
+            }
+          }
+        },
+        "required": [
+          "tokens"
         ]
       }
     },
@@ -24903,6 +25047,276 @@
           }
         },
         "x-destructive-gate": true,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/agent/tokens": {
+      "get": {
+        "operationId": "listAgentTokens",
+        "summary": "List agent tokens: name, prefix, scope, owner, created, expires, last used and status. Never the hash. A bearer token is refused AGENT_ROUTE_DENIED: a token never mints, lists or revokes a token.",
+        "tags": [
+          "agent"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAgentTokensResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: AGENT_ROUTE_DENIED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_ROUTE_DENIED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      },
+      "post": {
+        "operationId": "mintAgentToken",
+        "summary": "Mint an agent token for a named principal. The plaintext token is in this response and nowhere else, ever; the deployment keeps its SHA-256 and an eight-character prefix. Scope defaults to read and a token lives 90 days unless told otherwise, never more than 365. The token comes back in this response, so over plain HTTP from another machine it needs X-Retnd-Insecure-Transport-Ack: acknowledged, refused 403 INSECURE_TRANSPORT_ACK_REQUIRED otherwise (the same acknowledgement a key export asks, whether or not the destructive gate is open). A bearer token is refused AGENT_ROUTE_DENIED: a token never mints, lists or revokes a token.",
+        "tags": [
+          "agent"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MintAgentTokenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MintedAgentToken"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. Includes an unknown scope, a lifetime past 365 days and a name a live token already holds. The message always starts with the request field it is about and a colon (name:, scope: or expires_in:).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, INSECURE_TRANSPORT_ACK_REQUIRED, AGENT_ROUTE_DENIED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH",
+              "INSECURE_TRANSPORT_ACK_REQUIRED",
+              "AGENT_ROUTE_DENIED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-insecure-transport-ack": true,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true,
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/InsecureTransportAck"
+          }
+        ]
+      }
+    },
+    "/agent/tokens/{id}/revoke": {
+      "post": {
+        "operationId": "revokeAgentToken",
+        "summary": "Revoke an agent token. The very next request that presents it is refused AGENT_TOKEN_INVALID. Revoking twice keeps the first time. A bearer token is refused AGENT_ROUTE_DENIED: a token never mints, lists or revokes a token.",
+        "tags": [
+          "agent"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The token id, as GET /agent/tokens lists it."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentToken"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, AGENT_ROUTE_DENIED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH",
+              "AGENT_ROUTE_DENIED"
+            ]
+          },
+          "404": {
+            "description": "Refused: AGENT_TOKEN_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_TOKEN_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": true,

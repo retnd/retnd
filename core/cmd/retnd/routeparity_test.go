@@ -204,6 +204,24 @@ var refusingInputs = []refusingInput{
 			return []string{"encryption", "encrypt-existing", "nosuch/set", "--to", "offsite", "--dry-run", "--config", configPath}
 		},
 	},
+	{
+		name: "mint an agent token with a scope that is not one",
+		args: func(configPath, _ string) []string {
+			return []string{"agent", "token", "create", "triage", "--scope", "admin", "--config", configPath}
+		},
+	},
+	{
+		name: "mint an agent token that outlives a year",
+		args: func(configPath, _ string) []string {
+			return []string{"agent", "token", "create", "triage", "--expires-in", "366d", "--config", configPath}
+		},
+	},
+	{
+		name: "revoke an agent token this deployment does not have",
+		args: func(configPath, _ string) []string {
+			return []string{"agent", "token", "revoke", "agt_nosuchtoken", "--config", configPath}
+		},
+	},
 	// #1317: re-encrypting copies under the active suite and key. A suite
 	// this build does not know is the service's own refusal on both routes.
 	{

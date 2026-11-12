@@ -148,7 +148,8 @@ type Config struct {
 
 	// AcknowledgeInsecureTransport sends the insecure-transport
 	// acknowledgement on every operation behind the destructive gate
-	// (#1250's review). The engine refuses a gated act over plain http to
+	// and on the ones the contract marks InsecureTransportAck (#1250's
+	// review; the agent token mint). The engine refuses a gated act over plain http to
 	// anything but loopback unless the request carries it, and this is the
 	// operator saying, once and on purpose, that they know. Nothing sets it
 	// on their behalf: cmd/retnd sets it only when RETND_API_INSECURE_TRANSPORT
@@ -510,7 +511,7 @@ func (c *Client) newRequest(ctx context.Context, ep apicontract.Endpoint, target
 	if key := idempotencyKeyFrom(ctx); key != "" && (ep.IdempotencyKey == "required" || ep.IdempotencyKey == "optional") {
 		req.Header.Set(idempotencyKeyHeaderName, key)
 	}
-	if c.ackInsecure && ep.DestructiveGate {
+	if c.ackInsecure && (ep.DestructiveGate || ep.InsecureTransportAck) {
 		req.Header.Set(insecureTransportHeaderName, insecureTransportAcknowledged)
 	}
 	// Only the one operation that is authorised by it: a token left on a

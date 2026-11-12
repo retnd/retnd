@@ -125,7 +125,13 @@ var destructiveGateExemptRoutes = map[string]bool{
 	"POST /api/v1/backup-sets/test-connection": true,
 	"POST /api/v1/ssh-keys":                    true,
 	"POST /api/v1/ssh-keys/from-candidate":     true,
-	"POST /api/v1/ssh/host-key-probe":          true,
+	// EPIC U (#1345): minting and revoking an agent token changes who may
+	// read this deployment and touches no backup data. The routes are
+	// session-only (a bearer is refused AGENT_ROUTE_DENIED before the gate
+	// is consulted), and a revoke is the safe direction.
+	"POST /api/v1/agent/tokens":             true,
+	"POST /api/v1/agent/tokens/{id}/revoke": true,
+	"POST /api/v1/ssh/host-key-probe":       true,
 
 	// Issue #1203. Removing a custom validator stops a script from running
 	// and deletes no backup datum: the class of clearing a stage directory

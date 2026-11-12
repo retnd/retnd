@@ -36,6 +36,12 @@ type actorContextKey struct{}
 
 type authContextKey struct{}
 
+// authContextForAgent is the AuthContext an authenticated agent carries. It
+// holds no session expiry and no mode: a token has neither.
+func authContextForAgent(actor string) capabilities.AuthContext {
+	return capabilities.AuthContext{Authenticated: true, Username: actor}
+}
+
 // authContextFrom is the full AuthContext the request authenticated with.
 // Recovery binds a grant to it: the context carries who and when that
 // authentication lapses, and nothing else is a session id here.
@@ -70,9 +76,42 @@ func actorFromContext(ctx context.Context) string {
 // This is what makes the whole /api/v1 surface fail closed the moment a
 // provider has not wired a real Authenticator in yet, which today is
 // every provider (see router_test.go's noAuthWiredAdapter).
-func authMiddleware(platform capabilities.PlatformAdapter) func(http.Handler) http.Handler {
+func authMiddleware(platform capabilities.PlatformAdapter, agents AgentAccess) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// A request that presents an agent token (a rat_ bearer) is an agent's, and is
+			// decided here alone. It never falls through to the session: a
+			// token that is unknown, expired or revoked is refused, not
+			// quietly authenticated by a cookie it also happens to carry.
+			// See agentaccess.go.
+			if presented, ok := bearerToken(r); ok {
+				if agents == nil {
+					// No token store, so nothing to check the token against,
+					// but the session-only routes still refuse a header that
+					// claims to be an agent's. Anywhere else it is ignored.
+					if agentRouteDenied(r) {
+						writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route")
+						return
+					}
+				} else {
+					authenticated, ok := authenticateBearer(w, r, agents, presented)
+					if !ok {
+						return
+					}
+					next.ServeHTTP(w, authenticated)
+					return
+				}
+			}
+			// With no token store (the first-run router, a backend that keeps
+			// no tokens) a bearer header is still ignored everywhere except
+			// the denied prefixes, which refuse it whatever it is. That is
+			// what keeps /system/first-run shut to a token before the
+			// deployment has a journal to check one against.
+			if _, ok := bearerToken(r); ok && agentRouteDenied(r) {
+				writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route")
+				return
+			}
+
 			if platform == nil {
 				writeError(w, http.StatusUnauthorized, "UNAUTHENTICATED", "no platform adapter is configured")
 				return

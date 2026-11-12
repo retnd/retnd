@@ -241,6 +241,7 @@ func debugShortcutEnv() bool {
 // handlers bundles what the HTTP methods in handlers_system.go and
 // handlers_operations.go need, built once by NewRouter.
 type handlers struct {
+	agents        AgentAccess
 	platform      capabilities.PlatformAdapter
 	backend       BackupServiceClient
 	binaryVersion string
@@ -313,7 +314,12 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		logger = newStdoutLogger()
 	}
 
+	// The backend keeps agent tokens when it can; one that cannot has no
+	// agent access, and a bearer request meets AGENT_TOKEN_INVALID.
+	agents, _ := cfg.Backend.(AgentAccess)
+
 	h := &handlers{
+		agents:        agents,
 		platform:      cfg.Platform,
 		backend:       cfg.Backend,
 		binaryVersion: cfg.BinaryVersion,
@@ -352,7 +358,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	r.Get("/health/ready", h.healthReady)
 
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(authMiddleware(cfg.Platform))
+		r.Use(authMiddleware(cfg.Platform, agents))
 		// After authentication, so a recorded line can name the actor,
 		// and over the WHOLE group, so it covers the refusals that never
 		// reach a handler at all: a CSRF failure and a
@@ -829,6 +835,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// in core, never a caller-supplied path, so there is no request
 		// shape that turns it into a filesystem oracle.
 		r.Get("/ssh-keys", h.listSSHKeys)
+
+		// EPIC U (#1345): the agent token routes. Session only: authMiddleware
+		// refuses a bearer here (agentDeniedPrefixes), so a token can never
+		// mint, list or revoke a token.
+		r.Get("/agent/tokens", h.listAgentTokens)
+		r.With(requireCSRF, requireMintTransportAck(h.enforce)).Post("/agent/tokens", h.mintAgentToken)
+		r.With(requireCSRF).Post("/agent/tokens/{id}/revoke", h.revokeAgentToken)
 		r.Get("/ssh/key-candidates", h.listSSHKeyCandidates)
 
 		// Issue #140 (B3.7): the one generic settings surface — a read
