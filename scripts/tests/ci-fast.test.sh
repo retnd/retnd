@@ -415,6 +415,46 @@ fx "$fix" STUB_HEAD="0000000000000000000000000000000000000000" -- bash scripts/m
 assert_eq "C4 a PR that moved while it was fetched is refused" 2 "$status"
 assert_not_contains "C4 and nothing is posted" 'statuses' "$(calls "$fix")"
 
+# C6/C7: the check judges the MERGE RESULT, not the head on its own. A PR
+# that is green by itself must fail once the base has moved under it, whether
+# the move breaks a check without touching the PR's files (C6) or conflicts
+# with the PR's own edit (C7).
+move_main() { # <fix> <file> <content> <break:0|1>
+  (
+    cd "$1" || exit 1
+    printf '%s\n' "$3" >>"$2"
+    if [ "$4" = 1 ]; then printf '#!/usr/bin/env bash\nexit 1\n' >scripts/selftest/check-anchors.sh; fi
+    git add -A
+    git commit -q --no-verify -m "main moves"
+    git push -q origin main
+  ) >/dev/null 2>&1
+}
+
+fix="$(pr_repo 0)"
+head="$(pr_head "$fix")"
+move_main "$fix" docs/other.md "main only" 1
+fx "$fix" STUB_HEAD="$head" -- bash scripts/merge-gate.sh 7
+assert_eq "C6 green on its own head, red on the merge with a moved base: exits 1" 1 "$status"
+assert_contains "C6 and says it checked the merge result" 'base merged into the head' "$out"
+assert_contains "C6 and posts failure on the PR head" "repos/o/r/statuses/$head" "$(calls "$fix")"
+assert_not_contains "C6 and never success" 'state=success' "$(calls "$fix")"
+
+fix="$(pr_repo 0)"
+head="$(pr_head "$fix")"
+move_main "$fix" docs/x.md "main edits the same spot" 0
+fx "$fix" STUB_HEAD="$head" -- bash scripts/merge-gate.sh 7
+assert_eq "C7 a base that conflicts with the PR exits 1" 1 "$status"
+assert_contains "C7 and says so" 'does not merge cleanly' "$out"
+assert_contains "C7 and posts failure" 'state=failure' "$(calls "$fix")"
+assert_not_contains "C7 and runs no check" 'check check-anchors.sh' "$(calls "$fix")"
+
+fix="$(pr_repo 0)"
+head="$(pr_head "$fix")"
+move_main "$fix" docs/other.md "main only" 0
+fx "$fix" STUB_HEAD="$head" -- bash scripts/merge-gate.sh 7
+assert_eq "C8 a moved base that stays green still passes" 0 "$status"
+assert_contains "C8 and the anchors check ran on the merge result" 'check check-anchors.sh' "$(calls "$fix")"
+
 # C5: the worktree is gone afterwards, whatever the outcome.
 left="$(cd "$fix" && git worktree list | grep -c merge-gate || true)"
 assert_eq "C5 no merge-gate worktree is left registered" 0 "$left"

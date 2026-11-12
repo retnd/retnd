@@ -9,8 +9,15 @@ EPIC N and EPIC T went in through the merge button with
 `scripts/merge-gate.sh <pr>` is the one check that stands between a PR and
 `main` without Actions. It runs on a machine of ours, runs the fast tier
 (`scripts/ci-fast.sh`, see "Tiers" in `docs/reference/local-gate.md`) over
-what the PR changed, and posts the result as a commit status through `gh`.
+what the PR changes, and posts the result as a commit status through `gh`.
 Branch protection can then require that status.
+
+It checks the merge result, not the head on its own: the script merges the
+PR's base branch into a throwaway worktree of the PR head and runs the fast
+tier on that, so a PR that is green alone but breaks once the base has moved
+(or once another PR landed) is red. A base that does not merge cleanly is a
+failure without running anything. The status itself is posted against the PR
+head commit, which is the one protection looks at.
 
 ## Running it
 
@@ -20,10 +27,9 @@ scripts/merge-gate.sh 1363 --dry-run      # run, print what would be posted
 ```
 
 It fetches `pull/<n>/head`, checks it out in a throwaway worktree (removed on
-every exit), and runs the checks from this checkout's copy of
+every exit), merges the base into it, and runs the checks from this checkout's copy of
 `scripts/ci-fast.sh`, so a PR cannot loosen the gate that judges it. The
-paths it checks are the ones the PR changed against its merge base with the
-target branch; the anchors check and the contract drift check run whatever
+paths it checks are the ones the PR changes relative to the target branch; the anchors check and the contract drift check run whatever
 they are. A JS workspace the PR touches is installed in that worktree first
 (`CI_LOCAL_FAST_JS_INSTALL=1`).
 
@@ -50,7 +56,7 @@ requirement, admins can still override with the merge button):
 ```
 gh api -X PUT repos/retnd/retnd/branches/main/protection --input - <<'JSON'
 {
-  "required_status_checks": { "strict": false, "contexts": ["retnd/local-gate"] },
+  "required_status_checks": { "strict": true, "contexts": ["retnd/local-gate"] },
   "enforce_admins": false,
   "required_pull_request_reviews": null,
   "restrictions": null
@@ -63,6 +69,13 @@ status checks to pass before merging", and add `retnd/local-gate`. (The
 status only appears in the picker after the script has posted it once.)
 
 Things worth knowing before you do:
+
+- Keep `"strict": true` (the "Require branches to be up to date before
+  merging" box in the web UI). The status was earned by a merge with the
+  base as it was when the script ran. Without strict, two stacked or parallel
+  PRs that are each green can still break `main` together, which is the
+  pattern #1361 describes. With it, GitHub refuses the merge button until the
+  PR is current with `main`, and you run the script again on the new head.
 
 - Nothing posts the status by itself. Whoever is about to merge runs
   `scripts/merge-gate.sh <pr>` first, after the PR's last push. A PR with no
