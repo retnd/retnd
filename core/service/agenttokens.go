@@ -41,7 +41,10 @@ const (
 	// MaxAgentTokenLifetime is the ceiling. There is no non-expiring token.
 	MaxAgentTokenLifetime = 365 * 24 * time.Hour
 
-	agentTokenPrefix = "rat_"
+	// AgentTokenPrefix is what every agent token starts with. The bearer
+	// authenticator treats an Authorization: Bearer value as an agent token
+	// only if it carries it; any other value is not ours.
+	AgentTokenPrefix = "rat_"
 	// agentTokenPrefixLen is the length of the stored prefix: "rat_" and four
 	// characters of the secret part.
 	agentTokenPrefixLen = 8
@@ -157,7 +160,7 @@ func (b *BackupService) MintAgentToken(ctx context.Context, req MintAgentTokenRe
 	if _, err := rand.Read(idBytes); err != nil {
 		return MintedAgentToken{}, fmt.Errorf("service: mint agent token: %w", err)
 	}
-	token := agentTokenPrefix + base64.RawURLEncoding.EncodeToString(secret)
+	token := AgentTokenPrefix + base64.RawURLEncoding.EncodeToString(secret)
 
 	at := now()
 	row := state.AgentToken{

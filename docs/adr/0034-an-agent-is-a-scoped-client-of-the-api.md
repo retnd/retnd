@@ -56,7 +56,18 @@ An agent token is minted by a signed-in operator, named, hashed at rest (SHA-256
 `VerificationTokenHash` pattern, `apps/common/auth/local/store.go:89-112`), shown once, with an
 owner, an expiry (90 days default, one year ceiling, no non-expiring token), a last-used time
 and a revocation checked on every request. The principal is `agent:<name>` wherever `Actor` is
-today, so a feed can tell two operators and three agents apart.
+today, so a feed can tell two operators and three agents apart. The owner of a token
+minted at the terminal with no session is recorded as `cli`.
+
+The store is not in `apps/common/auth/local`: that package is a pattern I copied, not a home.
+The table accessors live in `core/internal/state` and the mint, check and revoke in
+`core/service`, which keeps `core` free of `apps` and lets the CLI and the HTTP routes share
+one implementation. The bearer authenticator itself is in `apps/common/webhost`.
+
+A bearer is an agent token only if it carries the `rat_` prefix (owner decision D10). Any other
+`Authorization` header is ignored, so a front proxy that adds its own `Bearer` header is
+untouched, a login behind it works as before, and a deployment with no tokens stays
+byte-identical.
 
 Scope is a closed vocabulary: `read`, `operate`, `configure`. `read` is the default and the
 only scope anything suggests. A `read` token can start nothing and change nothing. No scope
@@ -65,6 +76,12 @@ grants, SSH keys, storage credentials, workflow secrets, catalog rebuild, quaran
 reinstate, retention apply, the creation or deletion of a set or a medium, or token minting.
 Those routes are catalogue rows with a stated reason, and a planted tool over one fails a
 guard.
+
+On the server-side bearer path the denied prefixes are `/auth`, `/system/first-run`,
+`/recoveries` and `/agent/tokens`, refused `403 AGENT_ROUTE_DENIED` before the scope is looked
+at, with or without a token store. U2.1's `/agent/confirmations/{id}/approve` and `/deny` get
+the same treatment, so an agent cannot approve its own confirmation. U1.3 owns the catalogue's
+deny list and has to make the bearer path read it, so the two cannot drift.
 
 Scopes rather than a permission matrix because three words an operator can hold in their head
 are what gets configured correctly; the mapping from scope to route is the catalogue's and is
@@ -90,6 +107,11 @@ browser sends by itself; a token in an `Authorization` header is not one. So the
 marks the principal kind on the request context, `requireCSRF` passes a bearer principal, and
 a cookie session keeps the pair. A planted "skip for everyone" turns
 `TestACookieSessionStillNeedsTheCSRFPair` red.
+
+A bearer on a mutating route is refused with a status that says why: `403
+AGENT_SCOPE_INSUFFICIENT` for a `read` token, `409 AGENT_CONFIRMATION_REQUIRED` for an
+`operate` or `configure` one. A raw bearer request never creates a confirmation; only an MCP
+tool call does (U2.1), so the refusal is the whole effect of the request.
 
 The MCP endpoint is bearer-only in the other direction too: a cookie session presented to
 `/api/v1/agent/mcp` is refused, so a browser tab can never be an MCP client by accident.
@@ -189,11 +211,14 @@ answers here.
 | D7 | Does `configure` ship? | Yes, minimal: enabled, retention, assurance | |
 | D8 | Step-up on approve? | Yes | |
 | D9 | Token expiry | 90 days default, one year ceiling | |
+| D10 | What makes a bearer an agent token? | The `rat_` prefix; any other `Authorization` header is ignored | Answered by the owner on #1357: the `rat_` prefix |
 
 ## Consequences
 
 An agent is a caller this tree can name, with less authority than a person, whose reads are
 recorded and whose writes pass through a person. The cost is a bearer credential in a tree
 that had none, a confirmation queue an operator has to read, one migration, one module, and a
-config block that is a one-way door. The container contract does not move, and a release gate
+config block that is a one-way door. Two things are owed before 0.8.0: the audit rows an
+unauthenticated invalid-token request writes need a bound (a per-IP limit or pruning, U1.4 and
+U1.5), because anyone who can reach the port can mint them. The container contract does not move, and a release gate
 proves it.
