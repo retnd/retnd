@@ -272,3 +272,47 @@ func TestAnIdleMCPSessionEnds(t *testing.T) {
 		}
 	}
 }
+
+// The frames that are not tool calls (initialize, tools/list, ping and the
+// notifications) each authenticate and touch the token, so they count against
+// the token's minute like a call does, and a tool call is still counted once,
+// by the request it becomes.
+// Falsify: stop counting the frames that are not calls, or count a tool call twice.
+func TestTheFramesThatAreNotCallsAreRateLimitedToo(t *testing.T) {
+	router, _ := mcpRouter(service.AgentPolicy{HTTPTransport: true, RateLimitPerMinute: 3})
+	for i := 1; i <= 3; i++ {
+		if rec := serve(router, mcpPost(readToken, initializeFrame)); rec.Code != http.StatusOK {
+			t.Fatalf("initialize %d = %d %s", i, rec.Code, rec.Body.String())
+		}
+	}
+	for _, frame := range []string{initializeFrame, `{"jsonrpc":"2.0","id":9,"method":"ping"}`, `{"jsonrpc":"2.0","id":9,"method":"tools/list"}`} {
+		rec := serve(router, mcpPost(readToken, frame))
+		if rec.Code != http.StatusTooManyRequests || responseErrorCode(rec.Body.String()) != "AGENT_RATE_LIMITED" || rec.Header().Get("Retry-After") == "" {
+			t.Errorf("frame %.40s over the line = %d %s, want 429 AGENT_RATE_LIMITED with Retry-After", frame, rec.Code, rec.Body.String())
+		}
+	}
+	// Another token has its own minute.
+	if rec := serve(router, mcpPost(operateToken, initializeFrame)); rec.Code != http.StatusOK {
+		t.Errorf("a second token was limited by the first: %d", rec.Code)
+	}
+
+	// A tool call is counted once: initialize, the notification and the call
+	// are three, so the fourth frame is the first one refused.
+	router, _ = mcpRouter(service.AgentPolicy{HTTPTransport: true, RateLimitPerMinute: 4})
+	rec := serve(router, mcpPost(readToken, initializeFrame))
+	session := rec.Header().Get("Mcp-Session-Id")
+	frames := []string{`{"jsonrpc":"2.0","method":"notifications/initialized"}`, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"status","arguments":{}}}`, `{"jsonrpc":"2.0","id":3,"method":"ping"}`}
+	for i, frame := range frames {
+		req := mcpPost(readToken, frame)
+		req.Header.Set("Mcp-Session-Id", session)
+		req.Header.Set("MCP-Protocol-Version", "2025-06-18")
+		if rec = serve(router, req); rec.Code == http.StatusTooManyRequests {
+			t.Fatalf("frame %d (%.30s) was refused, a tool call counted twice: %s", i+2, frame, rec.Body.String())
+		}
+	}
+	req := mcpPost(readToken, `{"jsonrpc":"2.0","id":4,"method":"ping"}`)
+	req.Header.Set("Mcp-Session-Id", session)
+	if rec = serve(router, req); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("the fifth frame = %d, want 429", rec.Code)
+	}
+}
