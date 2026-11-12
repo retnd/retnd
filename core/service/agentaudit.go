@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/retnd/retnd/core/agenttools"
@@ -131,6 +132,11 @@ var ErrAgentAuditClosed = errors.New("service: the agent audit writer has stoppe
 // agentAuditEnqueueWait, so the row was not stored.
 var ErrAgentAuditStalled = errors.New("service: the audit could not be written")
 
+// ErrAgentAuditFailing is returned by a reservation while the journal is
+// refusing the audit writer's rows (a full or read-only disk, a schema error).
+// It clears when a write lands.
+var ErrAgentAuditFailing = errors.New("service: the audit trail cannot be written to the journal")
+
 // AgentCall is one tool call, or one refusal of a call, for the audit trail.
 type AgentCall struct {
 	TokenID   string
@@ -174,7 +180,12 @@ type agentAuditItem struct {
 
 type agentAuditWriter struct {
 	journal *state.Journal
-	logger  *obs.Logger
+	// insert stores a batch; the journal's own InsertAgentAudits, a field so a
+	// test can stand a failing disk in front of it.
+	insert func(context.Context, []state.AgentAudit) error
+	logger *obs.Logger
+	// failing is set when a write was refused and cleared when one lands.
+	failing atomic.Bool
 	queue   chan agentAuditItem
 	// stopped is closed when run has drained and returned.
 	stopped chan struct{}
@@ -195,7 +206,7 @@ type agentAuditWriter struct {
 
 func newAgentAuditWriter(j *state.Journal, logger *obs.Logger) *agentAuditWriter {
 	return &agentAuditWriter{
-		journal: j, logger: logger, now: time.Now,
+		journal: j, insert: j.InsertAgentAudits, logger: logger, now: time.Now,
 		queue:     make(chan agentAuditItem, agentAuditQueueSize),
 		stopped:   make(chan struct{}),
 		retention: DefaultAgentAuditRetentionDays * 24 * time.Hour,
@@ -296,8 +307,9 @@ func (w *agentAuditWriter) add(it agentAuditItem) {
 func (w *agentAuditWriter) write() {
 	if len(w.batch) > 0 {
 		wctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		err := w.journal.InsertAgentAudits(wctx, w.batch)
+		err := w.insert(wctx, w.batch)
 		if err != nil {
+			w.failing.Store(true)
 			w.logger.Error(wctx, "agent_audit_write", err)
 			if over := len(w.batch) - agentAuditRetainFailed; over > 0 {
 				w.logger.Error(wctx, "agent_audit_lost",
@@ -305,6 +317,7 @@ func (w *agentAuditWriter) write() {
 				w.batch = w.batch[over:]
 			}
 		} else {
+			w.failing.Store(false)
 			w.batch = w.batch[:0]
 		}
 		cancel()
@@ -403,12 +416,21 @@ func (b *BackupService) PruneAgentAudit(ctx context.Context) (int64, error) {
 // fail, but the caller learns the trail has a hole.
 // ReserveAgentAudit is asked before an agent's tool call is dispatched. It
 // proves the audit writer can take the row the call will leave, waiting up to
-// five seconds for room, and returns ErrAgentAuditStalled when it cannot, so
-// the caller refuses the call: an unaudited call is the worse failure. It is
-// only for a call that names a token; a row with no token never waits.
+// five seconds for room, and returns ErrAgentAuditStalled when it cannot, or
+// ErrAgentAuditFailing at once while the journal is refusing the writer's rows,
+// so the caller refuses the call: an unaudited call is the worse failure. It is
+// for every call that carries a token, a raw bearer call included; a row with
+// no token never waits.
 func (b *BackupService) ReserveAgentAudit(ctx context.Context) error {
 	if b == nil {
 		return nil
+	}
+	// A journal that refuses writes still drains the queue, so a reservation
+	// that only asked for room would succeed while the rows were lost. The
+	// writer says so, and the call is refused until a write lands.
+	if b.audit.failing.Load() {
+		b.audit.logger.Error(ctx, "agent_audit_unavailable", ErrAgentAuditFailing)
+		return ErrAgentAuditFailing
 	}
 	return b.audit.enqueueNamed(ctx, agentAuditItem{probe: true})
 }
