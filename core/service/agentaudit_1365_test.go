@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -137,5 +138,59 @@ func TestAnAuditReservationFailsClosedAfterItsDeadline(t *testing.T) {
 	}
 	if err := newDurableRig(t).svc.ReserveAgentAudit(context.Background()); err != nil {
 		t.Errorf("an idle writer refused a reservation: %v", err)
+	}
+}
+
+// Falsify: stop setting the failing state on a refused write, or never clear
+// it. The journal refuses writes outright (a full or read-only disk, a schema
+// error) while the queue keeps draining, so a queue-only reservation would
+// serve calls whose rows are lost. While writes fail a reservation is refused
+// at once, with nothing waiting on the queue, and the next write that lands
+// (the retained batch is retried) clears it and the row is in the table.
+func TestAFailingJournalRefusesReservationsUntilAWriteLands(t *testing.T) {
+	r := newDurableRig(t)
+	w := newAgentAuditWriter(r.journal, r.svc.logger)
+	var broken atomic.Bool
+	broken.Store(true)
+	w.insert = func(ctx context.Context, rows []state.AgentAudit) error {
+		if broken.Load() {
+			return errors.New("disk I/O error: no space left on device")
+		}
+		return r.journal.InsertAgentAudits(ctx, rows)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go w.run(ctx)
+	t.Cleanup(func() { cancel(); <-w.stopped })
+	svc := &BackupService{audit: w}
+
+	if err := svc.ReserveAgentAudit(ctx); err != nil {
+		t.Fatalf("a writer that has not failed yet refused a reservation: %v", err)
+	}
+	if err := svc.RecordAgentCall(ctx, AgentCall{TokenID: "agt_1", Tool: "status", Transport: "stdio", Status: 200, Code: "OK"}); err != nil {
+		t.Fatalf("RecordAgentCall: %v", err)
+	}
+	if err := w.flush(ctx); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+
+	start := time.Now()
+	err := svc.ReserveAgentAudit(ctx)
+	if !errors.Is(err, ErrAgentAuditFailing) {
+		t.Fatalf("a journal that refuses writes gave %v, want ErrAgentAuditFailing", err)
+	}
+	if took := time.Since(start); took > time.Second {
+		t.Errorf("the refusal took %s, want it at once and not after the queue wait", took)
+	}
+
+	broken.Store(false)
+	if err := w.flush(ctx); err != nil {
+		t.Fatalf("flush after recovery: %v", err)
+	}
+	if err := svc.ReserveAgentAudit(ctx); err != nil {
+		t.Fatalf("the writer stayed failing after a write landed: %v", err)
+	}
+	rows, err := r.journal.AgentAuditPage(ctx, state.AgentAuditFilter{TokenID: "agt_1", Limit: 10})
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("the row held back during the fault is not in the table: %d rows, %v", len(rows), err)
 	}
 }

@@ -133,3 +133,27 @@ func TestEachCanaryShapeSeesItsOwnCanary(t *testing.T) {
 		t.Error("the bare prefix, which a refusal quotes, matches the identity shape")
 	}
 }
+
+// Where a key is kept is not what it is, but an agent has no use for it
+// either: encryption_state loses the provider's source (an identity file path,
+// a variable name or an executable) at both places it appears, and
+// backup_set_show loses ssh_key_id. Host, user and remote path stay.
+// Falsify: delete the source rule or the ssh_key_id rule from Project.
+func TestTheProjectionDropsWhereAKeyIsKept(t *testing.T) {
+	in := decode(t, `{
+		"key_provider": {"kind": "external", "source": "/home/u/.age/id.txt"},
+		"sets": [{"name": "s", "effective_key_provider": {"kind": "env", "source": "AGE_IDENTITY"}}],
+		"set": {"host": "h", "user": "u", "remote_path": "/r", "ssh_key_id": "k1", "source": "src"}
+	}`)
+	got := render(t, Project(in))
+	for _, gone := range []string{"/home/u/.age/id.txt", "AGE_IDENTITY", "ssh_key_id", "k1"} {
+		if strings.Contains(got, gone) {
+			t.Errorf("%q survived the projection: %s", gone, got)
+		}
+	}
+	for _, kept := range []string{`"kind":"external"`, `"kind":"env"`, `"host":"h"`, `"user":"u"`, `"remote_path":"/r"`, `"source":"src"`} {
+		if !strings.Contains(got, kept) {
+			t.Errorf("the projection lost %s, which an agent may read: %s", kept, got)
+		}
+	}
+}
