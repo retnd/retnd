@@ -72,6 +72,8 @@ const ONLY = flagValue("--only");
 const EMBEDS = flagValue("--embeds");
 
 const CARD = "[data-agents-card]";
+// The mock's step-up password (agents/mockAgents.ts); it opens nothing.
+const PASSWORD = "correct-horse-battery";
 const DIALOG = '[role="dialog"]';
 
 // ---------------------------------------------------------------------------
@@ -143,66 +145,86 @@ async function assertClean(page, label) {
 
 const card = (page) => page.locator(CARD);
 const dialog = (page, name) => page.getByRole("dialog", name ? { name } : {});
+// Puts an element at the top of the window, so the clip frames it and not
+// whatever the page had above it. scrollIntoViewIfNeeded leaves a tall card
+// where it is as soon as any of it shows.
+// "instant", because the page scrolls smoothly and a frame taken mid-glide is
+// a different picture on every run.
+// The other Settings cards are still reading when the Agents card first draws,
+// and each that finishes pushes it down, so the page settles first.
+const top = async (locator) => {
+  await settle(locator.page(), 1500);
+  await locator.evaluate((e) => e.scrollIntoView({ block: "start", behavior: "instant" }));
+  await settle(locator.page(), 300);
+};
 
 const gifs = {
   mint: {
-    path: "/settings#agents",
+    // No #fragment: openApp appends ?scenario= and a fragment would swallow it.
+    path: "/settings",
     async run(page, clip) {
       await card(page).getByRole("heading", { name: "Agents" }).waitFor();
+      await card(page).locator('[data-agents-table="tokens"]').waitFor();
+      await top(card(page));
       await clip.frame(1.2);
-      await card(page).getByRole("button", { name: /Mint a token|New token/ }).click();
-      const dlg = dialog(page);
-      await dlg.getByLabel("Name").fill("triage");
+      await card(page).locator('[data-agents-region="tokens"]').getByRole("button", { name: "Create token" }).click();
+      const form = dialog(page, "Create token");
+      await form.getByLabel("Name", { exact: true }).fill("triage");
       await clip.frame(1.0);
-      await dlg.getByRole("button", { name: /Mint token|Create token/ }).click();
-      await dlg.getByText(/shown once|only time/i).waitFor();
+      await form.getByRole("button", { name: "Create token" }).click();
+      const shown = dialog(page, /^Your token for agent:/);
+      await shown.getByText(/only time this token is shown/).waitFor();
       await clip.frame(2.0);
-      await dlg.getByRole("checkbox", { name: /stored|saved/i }).check();
-      await clip.frame(1.0);
-      await dlg.getByRole("button", { name: "Done" }).click();
-      await card(page).getByText("triage").first().waitFor();
+      await shown.getByRole("button", { name: "I have stored it" }).click();
+      await card(page).locator('[data-token="triage"]').waitFor();
       await clip.frame(1.8);
     }
   },
   approve: {
-    path: "/settings#agents",
+    // No #fragment: openApp appends ?scenario= and a fragment would swallow it.
+    path: "/settings",
     async run(page, clip) {
-      const waiting = card(page).getByRole("region", { name: /Waiting for you|Pending confirmations/ });
-      await waiting.waitFor();
+      const row = card(page).locator('[data-confirmation="cf_02"]');
+      await row.waitFor();
+      await top(card(page).locator('[data-agents-region="confirmations"]'));
       await clip.frame(1.6);
-      await waiting.getByRole("button", { name: "Approve" }).first().click();
-      const dlg = dialog(page);
-      await dlg.getByLabel(/Password/).waitFor();
+      await row.getByRole("button", { name: "Approve", exact: true }).click();
+      await row.getByLabel("Your password").waitFor();
       await clip.frame(1.2);
-      await dlg.getByLabel(/Password/).fill("example-password");
-      await dlg.getByRole("button", { name: "Approve" }).click();
-      await waiting.getByText(/Approved/).first().waitFor();
+      await row.getByLabel("Your password").fill(PASSWORD);
+      await row.getByRole("button", { name: "Approve and run" }).click();
+      await card(page).locator("[data-agents-notice]").getByText("Approved. The request ran.").waitFor();
+      // The audit reloads after a decision; the frame waits for the replay's row.
+      await card(page).locator('[data-agents-region="audit"] tr[data-tool="recovery_test_start"]').first().waitFor();
+      await settle(page, 400);
       await clip.frame(1.8);
     }
   },
   refused: {
-    path: "/settings#agents",
+    // No #fragment: openApp appends ?scenario= and a fragment would swallow it.
+    path: "/settings",
     async run(page, clip) {
-      const waiting = card(page).getByRole("region", { name: /Waiting for you|Pending confirmations/ });
-      await waiting.waitFor();
+      const row = card(page).locator('[data-confirmation="cf_01"]');
+      await row.waitFor();
+      await top(card(page).locator('[data-agents-region="confirmations"]'));
       await clip.frame(1.2);
-      await waiting.getByRole("button", { name: "Approve" }).first().click();
-      const dlg = dialog(page);
-      await dlg.getByLabel(/Password/).fill("example-password");
-      await dlg.getByRole("button", { name: "Approve" }).click();
-      await page.getByText(/DESTRUCTIVE_OPERATIONS_DISABLED/).first().waitFor();
+      await row.getByRole("button", { name: "Approve", exact: true }).click();
+      await row.getByLabel("Your password").fill(PASSWORD);
+      await row.getByRole("button", { name: "Approve and run" }).click();
+      await card(page).locator("[data-result-strip] [data-strip-code]").getByText("DESTRUCTIVE_OPERATIONS_DISABLED").waitFor();
       await clip.frame(2.4);
     }
   },
   audit: {
-    path: "/settings#agents",
+    // No #fragment: openApp appends ?scenario= and a fragment would swallow it.
+    path: "/settings",
     async run(page, clip) {
-      const audit = card(page).getByRole("region", { name: "Audit" });
-      await audit.scrollIntoViewIfNeeded();
-      await audit.getByRole("table").waitFor();
+      const audit = card(page).locator('[data-agents-region="audit"]');
+      await audit.locator('[data-agents-table="audit"]').waitFor();
+      await top(audit);
       await clip.frame(1.6);
-      await audit.getByLabel(/Token/).selectOption({ index: 1 });
-      await audit.getByRole("table").waitFor();
+      await audit.getByLabel("Token", { exact: true }).selectOption({ label: "agent:recovery-drill" });
+      await audit.locator('tbody tr[data-tool="run_cycle"]').first().waitFor();
       await clip.frame(1.8);
     }
   }
@@ -249,6 +271,9 @@ const GIF_WIDTH = 900;
 function scanned(page, clip, label) {
   const frame = clip.frame.bind(clip);
   clip.frame = async (...a) => {
+    // Off every control, so a tooltip the last click left open is not in the
+    // picture: the blank margin right of the content column.
+    await page.mouse.move(VIEWPORT.width - 10, VIEWPORT.height / 2);
     await assertClean(page, label);
     return frame(...a);
   };

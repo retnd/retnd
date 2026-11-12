@@ -7,28 +7,28 @@
     {
       "id": "mint",
       "name": "agents-mint",
-      "scenario": "agents",
-      "alt": "Settings, Agents: the mint dialog takes a name and a scope, shows the token once, and will not close until the operator confirms it is stored",
-      "caption": "Minting a token. read is preselected, the token is shown once, and Done stays disabled until you say you stored it. Afterwards the list holds the prefix and never the token."
+      "scenario": "agents-tokens",
+      "alt": "Settings, Agents: the Create token dialog takes a name, shows the token once, and closes only when the operator says it is stored",
+      "caption": "Minting a token. read is the scope it opens on, the token is shown once, and the dialog's one way out is I have stored it. Afterwards the list holds the prefix and never the token."
     },
     {
       "id": "approve",
       "name": "agents-approve",
-      "scenario": "agents-confirmation",
+      "scenario": "agents-pending",
       "alt": "A pending confirmation on the Agents card with the exact retnd command on it, approved after the password is entered",
       "caption": "A confirmation waiting for you, with the command it will run. Approve asks for your password, then replays the recorded request and nothing else."
     },
     {
       "id": "refused",
       "name": "agents-refused",
-      "scenario": "agents-confirmation-gate-shut",
+      "scenario": "agents-pending-gate",
       "alt": "Approving a run_cycle confirmation while the operation gate is shut: the card shows the same refusal a person would get",
       "caption": "Approving run_cycle with the operation gate shut. The refusal is the one retnd run gives, DESTRUCTIVE_OPERATIONS_DISABLED, and the confirmation records that it was refused."
     },
     {
       "id": "audit",
       "name": "agents-audit",
-      "scenario": "agents",
+      "scenario": "agents-tokens",
       "alt": "The Agents card's audit table filtered to one token, one row per call, reads included",
       "caption": "The audit: one row per call, reads included, filtered by token and time."
     }
