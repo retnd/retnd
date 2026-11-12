@@ -133,10 +133,16 @@ func (c AgentConfirmation) Contract() apicontract.AgentConfirmation {
 		Command: c.Command, BackupSet: c.BackupSet, State: c.State,
 		CreatedAt: c.CreatedAt.UTC().Format(time.RFC3339), ExpiresAt: c.ExpiresAt.UTC().Format(time.RFC3339),
 	}
+	// Only a run carries the revision it was recorded against (#1387). Any
+	// other body is the agent's own words, so a config_revision in one is not
+	// shown to the person as if the engine had put it there.
 	var recorded struct {
+		Action         string `json:"action"`
 		ConfigRevision string `json:"config_revision"`
 	}
-	if json.Unmarshal(c.Body, &recorded) == nil {
+	route, _, _ := strings.Cut(c.Route, "?")
+	if c.Method == "POST" && route == "/operations" && json.Unmarshal(c.Body, &recorded) == nil &&
+		(recorded.Action == ActionRunCycle || recorded.Action == ActionRunBackupSet) {
 		out.ConfigRevision = recorded.ConfigRevision
 	}
 	if c.DecidedAt != nil {
