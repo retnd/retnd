@@ -36,6 +36,10 @@ import (
 // where it is authenticated, scope-checked, rate limited and audited, exactly
 // as it would be from stdio.
 
+// agentCatalogue is where the endpoint reads the tools it offers. It is a
+// variable so a test can offer a table of its own.
+var agentCatalogue = agentmcp.Catalogue
+
 // mcpEndpoint answers /agent/mcp. root is the router that serves the whole
 // /api/v1 surface; a tool call re-enters it.
 func (h *handlers) mcpEndpoint(root http.Handler, policy service.AgentPolicy, guard *agentGuard) http.HandlerFunc {
@@ -67,7 +71,7 @@ func (h *handlers) mcpEndpoint(root http.Handler, policy service.AgentPolicy, gu
 		// call, and a client cannot choose it: whatever one sent is replaced.
 		r.Header.Set(mcpPeerHeader, r.RemoteAddr)
 		build.Do(func() {
-			tools, project := agentmcp.Catalogue()
+			tools, project := agentCatalogue()
 			srv := agentmcp.New(agentmcp.Config{Tools: tools, Project: project, Caller: routerCaller{root: root}, Version: h.binaryVersion})
 			served = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, &mcp.StreamableHTTPOptions{JSONResponse: true})
 		})
