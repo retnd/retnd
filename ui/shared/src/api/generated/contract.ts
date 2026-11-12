@@ -3394,8 +3394,7 @@ export interface WireAdoptedPath {
 /** One JSON-RPC 2.0 message of the Model Context Protocol. The
  *  engine's streamable HTTP transport speaks the protocol revision
  *  `retnd agent tools` prints; this contract does not restate it. */
-export interface WireAgentMcpFrame {
-}
+export type WireAgentMcpFrame = Record<string, unknown>;
 
 /** One prompt: a static description, the arguments it takes and the
  *  read tools it draws on. */
