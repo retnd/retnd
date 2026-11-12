@@ -716,6 +716,15 @@ type surface struct {
 	// operand it names exists.
 	needsArtifacts bool
 
+	// seed is a top-level block appended to the fixture's config before the
+	// row runs, for a write whose subject the stock fixture does not have.
+	// `encryption policy reset` removes the deployment's encryption block,
+	// and on a deployment with none it has nothing to remove: it exits 0,
+	// says the policy is off, and the engine's configuration is the same
+	// one it served before, which is the right answer and not a lost write
+	// (#1361).
+	seed string
+
 	// skipDirect is for the one command that does not exit on its own.
 	skipDirect bool
 
@@ -911,6 +920,7 @@ var surfaces = []surface{
 		note: "the encryption READ is this host's own file, as settings is; the writes below are the routed half",
 		argv: func(f fixture) []string { return []string{"encryption", "policy", "--config", f.configPath} }},
 	{verb: "encryption", name: "policy reset", mode: "direct", exit: 0, writes: true, routed: true,
+		seed: "retained_copy_encryption:\n  mode: required\n  key_provider:\n    managed: true\n",
 		argv: func(f fixture) []string { return []string{"encryption", "policy", "reset", "--config", f.configPath} }},
 	{verb: "workflow", name: "run list, on a deployment whose hooks have never run", mode: "", exit: 0,
 		says: "no workflow run is on record here",
@@ -943,6 +953,18 @@ func newFixture(t *testing.T, bin string, s surface) fixture {
 		setID:      "production/pg",
 		artifactID: "production/pg/db-2026-08-01.dump",
 		keyPath:    writePrivateKey(t),
+	}
+	if s.seed != "" {
+		cfg, err := os.OpenFile(configPath, os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			t.Fatalf("opening the fixture config: %v", err)
+		}
+		if _, err := cfg.WriteString("\n" + s.seed); err != nil {
+			t.Fatalf("seeding the fixture config: %v", err)
+		}
+		if err := cfg.Close(); err != nil {
+			t.Fatalf("closing the fixture config: %v", err)
+		}
 	}
 	if s.needsArtifacts {
 		// One real cycle, so the operand this row names is a backup that

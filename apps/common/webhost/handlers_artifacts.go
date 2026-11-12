@@ -130,7 +130,7 @@ type placementResponse struct {
 	EncryptionKeyID         string `json:"encryption_key_id,omitempty"`
 	EncryptionKeyResolvable *bool  `json:"encryption_key_resolvable,omitempty"`
 	// EncryptionSuite is the suite the copy's record names (#1318).
-	EncryptionSuite         string `json:"encryption_suite,omitempty"`
+	EncryptionSuite string `json:"encryption_suite,omitempty"`
 }
 
 // listArtifactsResponse is the body of both GET /api/v1/backups and GET

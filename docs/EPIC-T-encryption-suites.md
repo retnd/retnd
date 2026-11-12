@@ -192,14 +192,14 @@ Dependency order: T1.1 > T1.2 > T1.3 > T1.4 > T1.5; T2.1 and T2.2 on T1.5; T2.3 
 
 ### Phase 1 exit gate
 
-- [ ] `copycrypt.Suites()` lists `age/v1` (supported) and `age-pq/v1` (default); a test pins the table and that exactly one default exists.
-- [ ] Every row in `placement_encryption` written by this build carries the suite id the registry's constant names; planting a config string there turns a row red.
-- [ ] A copy encrypted under `age-pq/v1` decrypts with the stock `age` CLI pinned in `scripts/ci/pins.env` using the exported bundle's material, and an `age/v1` identity cannot open it.
-- [ ] Every key carries a suite (migration `0020`'s `encryption_key_suites`, written in the key's own transaction), every pre-migration key reads `age/v1`, a key under an unregistered suite is refused, and two active managed keys are impossible whatever their suites while a rotation across suites is one write.
-- [ ] `suite: nonsense` and `suite: <retired>` fail `Load`; `suite: default` and a known id load; a config that writes nothing is byte-identical in behaviour to EPIC N.
-- [ ] A `required` set whose policy suite has no active key refuses the copy before `SOURCE_DELETE_PENDING`, the local copy is untouched, health shows the reason, and nothing is written under another suite.
-- [ ] `retnd encryption suites [--json]`, `GET /api/v1/encryption/suites`, `policy` showing the suite, `key create|rotate --suite` exist with `cliecho` entries, regenerated `openapi.json`, and the route-to-verb guard green.
-- [ ] The shared vector suite is red against a planted broken adapter (truncation accepted) and green against both shipped suites.
+- [x] `copycrypt.Suites()` lists `age/v1` (supported) and `age-pq/v1` (default); a test pins the table and that exactly one default exists.
+- [x] Every row in `placement_encryption` written by this build carries the suite id the registry's constant names; planting a config string there turns a row red.
+- [x] A copy encrypted under `age-pq/v1` decrypts with the stock `age` CLI pinned in `scripts/ci/pins.env` using the exported bundle's material, and an `age/v1` identity cannot open it.
+- [x] Every key carries a suite (migration `0020`'s `encryption_key_suites`, written in the key's own transaction), every pre-migration key reads `age/v1`, a key under an unregistered suite is refused, and two active managed keys are impossible whatever their suites while a rotation across suites is one write.
+- [x] `suite: nonsense` and `suite: <retired>` fail `Load`; `suite: default` and a known id load; a config that writes nothing is byte-identical in behaviour to EPIC N.
+- [x] A `required` set whose policy suite has no active key refuses the copy before `SOURCE_DELETE_PENDING`, the local copy is untouched, health shows the reason, and nothing is written under another suite.
+- [x] `retnd encryption suites [--json]`, `GET /api/v1/encryption/suites`, `policy` showing the suite, `key create|rotate --suite` exist with `cliecho` entries, regenerated `openapi.json`, and the route-to-verb guard green.
+- [x] The shared vector suite is red against a planted broken adapter (truncation accepted) and green against both shipped suites.
 
 ## Phase 2, replacing a suite, and the surfaces (`T:phase-2`)
 
@@ -216,11 +216,11 @@ Dependency order: T1.1 > T1.2 > T1.3 > T1.4 > T1.5; T2.1 and T2.2 on T1.5; T2.3 
 
 ### Phase 2 exit gate
 
-- [ ] Marking a suite deprecated in the table turns health degraded with the count of active copies under it; marking it retired makes `Load` refuse the pinned id and the engine refuse a write, while decrypt-verify, recover and `decrypt` still work on its copies.
-- [ ] `retnd encryption reencrypt --suite <id> [--dry-run]` lists and re-encrypts copies under another suite through the #1291 path; the source is retired only after decrypt-verify; a kill at each phase boundary reconciles.
-- [ ] The Settings card shows the suite, its `Describe()` sentence and status, and changing it leads through rotate, export and confirm; per-copy chips show the suite id; every new text pair meets WCAG AA in both themes with ratios recorded.
+- [x] Marking a suite deprecated in the table turns health degraded with the count of active copies under it; marking it retired makes `Load` refuse the pinned id and the engine refuse a write, while decrypt-verify, recover and `decrypt` still work on its copies.
+- [x] `retnd encryption reencrypt --suite <id> [--dry-run]` lists and re-encrypts copies under another suite through the #1291 path; the source is retired only after decrypt-verify; a kill at each phase boundary reconciles.
+- [x] The Settings card shows the suite, its `Describe()` sentence and status, and changing it leads through rotate, export and confirm; per-copy chips show the suite id; every new text pair meets WCAG AA in both themes with ratios recorded.
 - [ ] retnd-tests suites cover two suites end to end, the crypto negatives per suite, the cross-suite key refusal, rotation across suites, catalog loss and rebuild, and a clean-machine recovery per suite, and the pin moves in lockstep.
-- [ ] `docs/encrypted-copies.md`, `recovery-without-a-terminal.md`, ADR 0027's one-line note, the CHANGELOG one-way door, captures and the `gate_step` are in; the matrix has no `BLOCKED` row and the canonical deployment is byte-identical.
+- [x] `docs/encrypted-copies.md`, `recovery-without-a-terminal.md`, ADR 0027's one-line note, the CHANGELOG one-way door, captures and the `gate_step` are in; the matrix has no `BLOCKED` row and the canonical deployment is byte-identical.
 
 ---
 
