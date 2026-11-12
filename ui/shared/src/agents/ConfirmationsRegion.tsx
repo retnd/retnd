@@ -27,8 +27,12 @@
  *
  * # Nothing here is composed
  *
- * The sentence is the catalogue's static description carried by the record,
- * and the command is the record's own `command`. The browser builds neither.
+ * The sentence is the catalogue's static description of the tool, looked up by
+ * the tool name the record carries, and the command is the record's own
+ * `command`. The browser builds neither. Which records are listed is the
+ * engine's `state`: the route answers every state, newest first, and the card
+ * keeps the pending ones (a pending record past its time already reads
+ * expired, so the browser never decides it).
  */
 import { useRef, useState } from "react";
 import { useApi } from "@shared/api/ApiContext";
@@ -40,7 +44,7 @@ import type { AsyncState } from "@shared/hooks/useAsync";
 import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
 import { CommandEcho } from "@shared/pages/CommandEcho";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
-import type { AgentConfirmation, AgentOutcome } from "@shared/types/agents";
+import type { AgentCatalogue, AgentConfirmation, AgentExecution } from "@shared/types/agents";
 import { clock, stamp } from "@shared/utilities/format";
 import { countdown, useNow } from "./agentTime";
 import "./agents.css";
@@ -48,19 +52,22 @@ import "./agents.css";
 type Failure = { message: string; code: string | null; correlationId: string | null };
 
 export function ConfirmationsRegion({
-  confirmations, readOnly, onDecided
+  confirmations, catalogue, readOnly, onDecided
 }: {
   confirmations: AsyncState<AgentConfirmation[]>;
+  /** For the static sentence of each tool. */
+  catalogue: AsyncState<AgentCatalogue>;
   readOnly: boolean;
   /** Called after an approval or a denial landed, so the rest re-reads. */
   onDecided(): void;
 }) {
-  const list = confirmations.data;
+  const list = confirmations.data === null ? null : confirmations.data.filter((c) => c.state === "pending");
+  const sentence = (tool: string) => catalogue.data?.tools.find((t) => t.name === tool)?.description ?? null;
   const now = useNow((list?.length ?? 0) > 0);
   // The result of a request the operator just decided, kept until the page is
   // next loaded: the record has left the list and is in the audit, but the
   // engine's refusal is what the operator needs to read.
-  const [strips, setStrips] = useState<Array<{ id: string; confirmation: AgentConfirmation; outcome: AgentOutcome }>>([]);
+  const [strips, setStrips] = useState<Array<{ id: string; confirmation: AgentConfirmation; execution: AgentExecution }>>([]);
   const [notice, setNotice] = useState("");
 
   return (
@@ -80,13 +87,13 @@ export function ConfirmationsRegion({
         <ul className="ag-list" data-agents-list="confirmations">
           {strips.map((s) => (
             <li key={"strip-" + s.id} className="ag-row" data-confirmation-result={s.id}>
-              <p className="ag-row__sentence">{s.confirmation.description}</p>
+              <p className="ag-row__sentence">{sentence(s.confirmation.tool) ?? s.confirmation.tool}</p>
               <div className="ag-strip" role="alert" data-result-strip="">
-                <span>{s.outcome.message ?? "The engine refused the request after approval."}</span>
+                <span>{s.execution.message}</span>
                 <span className="ag-strip__facts">
-                  {s.outcome.code ? <span data-strip-code="">{s.outcome.code}</span> : null}
-                  {s.outcome.exitCode !== null ? <span data-strip-exit="">exit {s.outcome.exitCode}</span> : null}
-                  {s.outcome.correlationId ? <span data-strip-cid="">{s.outcome.correlationId}</span> : null}
+                  <span data-strip-code="">{s.execution.code}</span>
+                  <span data-strip-exit="">exit {s.execution.exitCode}</span>
+                  <span data-strip-cid="">{s.execution.correlationId}</span>
                 </span>
               </div>
             </li>
@@ -95,11 +102,13 @@ export function ConfirmationsRegion({
             <ConfirmationRow
               key={c.id}
               c={c}
+              sentence={sentence(c.tool)}
               now={now}
               readOnly={readOnly}
-              onApproved={(outcome) => {
-                const refused = outcome !== null && (outcome.status >= 400 || outcome.code !== null);
-                if (refused) setStrips((s) => [...s, { id: c.id, confirmation: c, outcome }]);
+              onApproved={(decided) => {
+                const execution = decided.execution;
+                const refused = execution !== null && (execution.status >= 400 || execution.code !== "");
+                if (refused) setStrips((s) => [...s, { id: c.id, confirmation: c, execution }]);
                 setNotice(refused ? "The request was approved and the engine refused it." : "Approved. The request ran.");
                 confirmations.reload();
                 onDecided();
@@ -118,12 +127,14 @@ export function ConfirmationsRegion({
 }
 
 function ConfirmationRow({
-  c, now, readOnly, onApproved, onDenied
+  c, sentence, now, readOnly, onApproved, onDenied
 }: {
   c: AgentConfirmation;
+  /** The catalogue's static sentence for the tool, or null when it is not known. */
+  sentence: string | null;
   now: number;
   readOnly: boolean;
-  onApproved(outcome: AgentOutcome | null): void;
+  onApproved(decided: AgentConfirmation): void;
   onDenied(): void;
 }) {
   const api = useApi();
@@ -153,7 +164,7 @@ function ConfirmationRow({
     forget();
     try {
       const decision = await api.approveAgentConfirmation(c.id, { stepUpPassword });
-      onApproved(decision.outcome);
+      onApproved(decision);
     } catch (e) {
       const err = apiErrorOf(e);
       const own = stepUpMessage(err?.code, "agent");
@@ -181,10 +192,10 @@ function ConfirmationRow({
 
   return (
     <li className="ag-row" data-confirmation={c.id} data-tool={c.tool} data-urgent={urgent ? "" : undefined}>
-      <p className="ag-row__sentence">{c.description}</p>
+      <p className="ag-row__sentence">{sentence ?? c.tool}</p>
       <div className="ag-row__meta">
         <span>asked by <span className="mono" data-confirmation-token="">agent:{c.tokenName}</span></span>
-        {c.backupSet ? <span>backup set <span className="mono">{c.backupSet}</span></span> : null}
+        {c.backupSet !== null ? <span>backup set <span className="mono">{c.backupSet}</span></span> : null}
         <span>asked {stamp(c.createdAt)}</span>
         <InfoTooltip id="agents.confirm.expires">
           <span data-confirmation-expires="">
@@ -193,10 +204,9 @@ function ConfirmationRow({
           </span>
         </InfoTooltip>
       </div>
-      <code className="ag-code" data-confirmation-command="">{c.command}</code>
-      {c.approveCommand || c.denyCommand ? (
-        <CommandEcho label="Equivalent command" commands={[c.approveCommand, c.denyCommand].filter((x): x is string => x !== null)} />
-      ) : null}
+      <div data-confirmation-command="">
+        <CommandEcho label="Equivalent command" commands={[c.command]} />
+      </div>
 
       {readOnly ? (
         <p className="ag-note" data-readonly-note="">Approving or denying a request needs a page that can be written to.</p>

@@ -15,23 +15,21 @@ import { describeFailure, apiErrorOf } from "@shared/api/failure";
 import { ErrorState } from "@shared/components/EmptyState";
 import { FieldHelp } from "@shared/components/FieldHelp";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
-import { CommandEcho } from "@shared/pages/CommandEcho";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
-import type { AgentAuditRow, AgentToken } from "@shared/types/agents";
+import type { AgentAuditRow, AgentTool, AgentToken } from "@shared/types/agents";
 import { stamp } from "@shared/utilities/format";
 import { OutcomeChip } from "./AgentChips";
 import "./agents.css";
 
 type Failure = { message: string; remediation?: string; correlationId?: string };
 
-export function AuditRegion({ tokens, revision }: { tokens: AgentToken[]; revision: number }) {
+export function AuditRegion({ tokens, tools, revision }: { tokens: AgentToken[]; tools: AgentTool[]; revision: number }) {
   const api = useApi();
   const [tokenId, setTokenId] = useState("");
   const [sinceDraft, setSinceDraft] = useState("");
   const [since, setSince] = useState("");
   const [rows, setRows] = useState<AgentAuditRow[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
-  const [command, setCommand] = useState<string | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [older, setOlder] = useState(false);
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set());
@@ -48,7 +46,6 @@ export function AuditRegion({ tokens, revision }: { tokens: AgentToken[]; revisi
         if (mine !== latest.current) return;
         setRows(page.rows);
         setCursor(page.nextCursor);
-        setCommand(page.command);
         setFailure(null);
         setOpen(new Set());
       },
@@ -149,7 +146,14 @@ export function AuditRegion({ tokens, revision }: { tokens: AgentToken[]; revisi
             </thead>
             <tbody>
               {rows.map((r) => (
-                <AuditRow key={r.seq} r={r} open={open.has(r.seq)} onToggle={() => toggle(r.seq)} />
+                <AuditRow
+                  key={r.seq}
+                  r={r}
+                  who={r.tokenId === "" ? "no token matched" : tokens.some((t) => t.id === r.tokenId) ? "agent:" + tokens.find((t) => t.id === r.tokenId)!.name : r.tokenId}
+                  needs={tools.find((t) => t.name === r.tool)?.scope ?? ""}
+                  open={open.has(r.seq)}
+                  onToggle={() => toggle(r.seq)}
+                />
               ))}
             </tbody>
           </table>
@@ -159,7 +163,6 @@ export function AuditRegion({ tokens, revision }: { tokens: AgentToken[]; revisi
               <button type="button" className="btn btn--strong-edge" style={{ alignSelf: "flex-start" }} disabled={older} onClick={() => void showOlder()}>Show older</button>
             </InfoTooltip>
           ) : null}
-          {command ? <CommandEcho label="Equivalent command" commands={[command]} /> : null}
         </>
       )}
       <p className="ag-note">The trail is bounded: older rows are pruned.</p>
@@ -167,15 +170,15 @@ export function AuditRegion({ tokens, revision }: { tokens: AgentToken[]; revisi
   );
 }
 
-function AuditRow({ r, open, onToggle }: { r: AgentAuditRow; open: boolean; onToggle(): void }) {
+function AuditRow({ r, who, needs, open, onToggle }: { r: AgentAuditRow; who: string; needs: string; open: boolean; onToggle(): void }) {
   const rowId = "audit-details-" + r.seq;
   return (
     <>
       <tr data-audit-row={r.seq} data-tool={r.tool}>
         <td data-label="Time">{stamp(r.at)}</td>
-        <td data-label="Token" className="mono">agent:{r.tokenName}</td>
-        <td data-label="Tool" className="ag-cell-mono">{r.tool}</td>
-        <td data-label="Needs">{r.scope ?? ""}</td>
+        <td data-label="Token" className="mono">{who}</td>
+        <td data-label="Tool" className="ag-cell-mono">{r.tool === "" ? "no tool" : r.tool}</td>
+        <td data-label="Needs">{needs}</td>
         <td data-label="Outcome"><OutcomeChip row={r} /></td>
         <td data-label="Correlation id" className="ag-cell-mono">{r.correlationId}</td>
         <td>
@@ -192,7 +195,7 @@ function AuditRow({ r, open, onToggle }: { r: AgentAuditRow; open: boolean; onTo
             <div className="ag-row__meta">
               <span>transport <span className="mono" data-audit-transport="">{r.transport}</span></span>
             </div>
-            {r.arguments !== null ? <pre className="ag-args" data-audit-arguments="">{r.arguments}</pre> : null}
+            {r.arguments !== "" ? <pre className="ag-args" data-audit-arguments="">{r.arguments}</pre> : null}
           </td>
         </tr>
       ) : null}

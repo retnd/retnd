@@ -43,14 +43,14 @@ export function StatusChip({ status }: { status: AgentTokenStatus }) {
 /** What the API answered for a call: a success, a call waiting for a person, or a refusal. */
 export function OutcomeChip({ row }: { row: Pick<AgentAuditRow, "status" | "code"> }) {
   const waiting = row.code === "AGENT_CONFIRMATION_REQUIRED";
-  const state = waiting ? "waiting" : row.status < 400 && !row.code ? "ok" : "refused";
+  const state = waiting ? "waiting" : row.status < 400 && row.code === "" ? "ok" : "refused";
   const glyph = waiting ? "◇" : state === "ok" ? "✓" : "✕";
   return (
     <InfoTooltip id="agents.audit.outcome">
       <span className="agchip" data-chip="outcome" data-state={state}>
         <span className="agchip__glyph" aria-hidden="true">{glyph}</span>
         {row.status}
-        {row.code ? " " + row.code : ""}
+        {row.code !== "" ? " " + row.code : ""}
       </span>
     </InfoTooltip>
   );

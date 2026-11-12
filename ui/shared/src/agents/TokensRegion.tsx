@@ -11,7 +11,6 @@ import { describeFailure } from "@shared/api/failure";
 import { ConfirmationDialog } from "@shared/components/ConfirmationDialog";
 import { ErrorState } from "@shared/components/EmptyState";
 import type { AsyncState } from "@shared/hooks/useAsync";
-import { CommandEcho } from "@shared/pages/CommandEcho";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { AgentCatalogue, AgentScope, AgentToken } from "@shared/types/agents";
 import { stamp } from "@shared/utilities/format";
@@ -151,7 +150,6 @@ export function TokensRegion({
         <p style={{ margin: 0 }}>
           Its next request is refused. A revoked token cannot be brought back, only replaced by minting another.
         </p>
-        {revoking?.revokeCommand ? <CommandEcho label="Equivalent command" commands={[revoking.revokeCommand]} /> : null}
         {failure ? <p className="ag-err" role="alert" data-revoke-error="">{failure}</p> : null}
       </ConfirmationDialog>
     </div>

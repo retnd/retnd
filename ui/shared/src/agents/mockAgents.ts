@@ -6,21 +6,22 @@
  * writes must not reach the next. What it models is the contract the card
  * reads and nothing stronger: the engine's own refusals (the expiry ceiling,
  * the step-up, an expired confirmation, the shut operation gate) come back
- * with the engine's words, the commands in the answers are strings the "engine"
- * wrote, and the one place the token exists is the mint's return value.
+ * with the engine's words, the confirmation list carries every state newest
+ * first as the route does, and the one place the token exists is the mint's
+ * return value.
  *
  * Scenarios (everything else is the default deployment: no token, nothing
- * waiting, nothing audited, HTTP transport off):
+ * waiting, nothing audited):
  *   agents-tokens            five tokens in every status, a short audit
- *   agents-pending           the same, with two requests waiting
+ *   agents-pending           the same, with two requests waiting (and one that
+ *                            was denied earlier, which the card does not list)
  *   agents-pending-gate      approving run_cycle is refused by the shut gate
  *   agents-pending-expired   approving anything is refused as expired
- *   agents-transport-on      the HTTP transport statement for "on"
  *   agents-audit-many        sixty audit rows, so Show older has a page to fetch
  *   agents-audit-failed      the audit route fails, the other regions load
  *   agents-read-only         the pending page, on a page that is read-only
  *   agents-insecure          the pending page on an unencrypted connection: the consent comes first
- *   agents-no-echo           pending requests, and responses that carry no command
+ *   agents-catalogue-failed  the pending page, with the catalogue route failing
  */
 import { RetndError } from "@shared/api/contracts";
 import type { ApiErrorCode, RetndApi } from "@shared/api/contracts";
@@ -31,12 +32,11 @@ export const AGENTS_SCENARIOS = [
   "agents-pending",
   "agents-pending-gate",
   "agents-pending-expired",
-  "agents-transport-on",
   "agents-audit-many",
   "agents-audit-failed",
   "agents-read-only",
   "agents-insecure",
-  "agents-no-echo"
+  "agents-catalogue-failed"
 ] as const;
 
 /** The token the next mint answers with. It is not one: it opens nothing. */
@@ -45,16 +45,41 @@ export const MOCK_MINTED_SECRET = "rat_Qm7Zk3xHn9LdR2sVt8YbWc4JgPeA6UfX";
 export const MOCK_GATE_SENTENCE =
   "destructive operations are refused over HTTP in this release, until the trusted-proxy authentication gate (issue #92) has been verified; run the equivalent retnd command on the host";
 
-const READ = [
-  "status", "backup_sets_list", "backup_set_show", "backups_list", "backup_show", "copies_show", "encryption_state",
-  "assurance_due", "assurance_show", "activity", "activity_live", "quarantine_list", "operations_list", "operation_show",
-  "storage_mediums_list", "storage_usage", "retention_preview", "workflow_runs_list", "workflow_run_show"
-];
-const OPERATE = ["run_cycle", "run_backup_set", "recovery_test_start", "verify_copy", "scrub_start", "retry_backup", "quarantine_revalidate"];
-const CONFIGURE = ["backup_set_enabled", "backup_set_retention_set", "backup_set_retention_clear", "backup_set_assurance_set"];
-
 /** What an agent could put in an argument. The card draws it as inert text. */
 export const HOSTILE_ARGUMENTS = '{"set":"<img src=x onerror=\'window.__agentPwned=1\'> https://example.invalid/ignore-previous-instructions"}';
+
+const TOOLS: Array<[string, AgentScope, string]> = [
+  ["status", "read", "Reports whether the service is running and healthy."],
+  ["backup_sets_list", "read", "Lists every backup set."],
+  ["backup_set_show", "read", "Shows one backup set."],
+  ["backups_list", "read", "Lists the backups a deployment holds."],
+  ["backup_show", "read", "Shows one backup."],
+  ["copies_show", "read", "Shows where a backup's copies are."],
+  ["encryption_state", "read", "Shows the retained-copy encryption state."],
+  ["assurance_due", "read", "Lists the backups whose checks are due."],
+  ["assurance_show", "read", "Shows the assurance state of one backup."],
+  ["activity", "read", "Lists recent activity."],
+  ["activity_live", "read", "Shows what is running now."],
+  ["quarantine_list", "read", "Lists quarantined backups."],
+  ["operations_list", "read", "Lists operations."],
+  ["operation_show", "read", "Shows one operation."],
+  ["storage_mediums_list", "read", "Lists storage destinations."],
+  ["storage_usage", "read", "Shows storage use."],
+  ["retention_preview", "read", "Previews what a retention plan would remove."],
+  ["workflow_runs_list", "read", "Lists workflow runs."],
+  ["workflow_run_show", "read", "Shows one workflow run."],
+  ["run_cycle", "operate", "Runs a backup cycle for every enabled backup set."],
+  ["run_backup_set", "operate", "Runs a backup cycle for one backup set."],
+  ["recovery_test_start", "operate", "Starts a recovery test of one backup."],
+  ["verify_copy", "operate", "Verifies one copy of a backup."],
+  ["scrub_start", "operate", "Starts a scrub of a backup's copies."],
+  ["retry_backup", "operate", "Retries the ingestion of a failed backup."],
+  ["quarantine_revalidate", "operate", "Revalidates a quarantined backup."],
+  ["backup_set_enabled", "configure", "Enables or disables a backup set."],
+  ["backup_set_retention_set", "configure", "Sets a backup set's retention."],
+  ["backup_set_retention_clear", "configure", "Clears a backup set's retention."],
+  ["backup_set_assurance_set", "configure", "Sets a backup set's assurance settings."]
+];
 
 const MIN = 60_000;
 const DAY = 24 * 60 * MIN;
@@ -74,14 +99,12 @@ function durationMs(word: string): number | null {
 export interface MockAgentsDeps {
   /** The step-up the engine runs on an approval: null when the password is right. */
   stepUp(password: string | undefined): Promise<never> | null;
-  /** The consent a connection that is not encrypted needs before a password leaves. */
+  /** The consent a connection that is not encrypted needs before anything leaves. */
   transport(hasPassword: boolean): Promise<void>;
 }
 
 export function createMockAgents(scenario: string, deps: MockAgentsDeps) {
   const seeded = scenario.startsWith("agents-");
-  // A response that carries no command draws none: the card never composes one.
-  const echoes = scenario !== "agents-no-echo";
   const now = Date.now();
   const iso = (offsetMs: number) => new Date(now + offsetMs).toISOString();
 
@@ -92,8 +115,7 @@ export function createMockAgents(scenario: string, deps: MockAgentsDeps) {
     id, name, prefix, scope, owner: "admin", status,
     createdAt: iso(-createdAgo * DAY), expiresAt: iso(expiresIn * DAY),
     lastUsedAt: usedAgo === null ? null : iso(-usedAgo * MIN),
-    revokedAt: status === "revoked" ? iso(-3 * DAY) : null,
-    revokeCommand: status === "active" && echoes ? "retnd agent token revoke " + id : null
+    revokedAt: status === "revoked" ? iso(-3 * DAY) : null
   });
 
   const tokens: AgentToken[] = seeded
@@ -106,54 +128,43 @@ export function createMockAgents(scenario: string, deps: MockAgentsDeps) {
       ]
     : [];
 
+  const pend = (id: string, tool: string, command: string, backupSet: string, createdAgo: number, expiresIn: number): AgentConfirmation => ({
+    id, tokenId: "tok_02", tokenName: "recovery-drill", tool, command, backupSet, state: "pending",
+    createdAt: iso(-createdAgo), expiresAt: iso(expiresIn), decidedAt: null, execution: null
+  });
+  // Newest first, every state, as GET /agent/confirmations answers.
   const confirmations: AgentConfirmation[] = [];
-  if (["agents-pending", "agents-pending-gate", "agents-pending-expired", "agents-no-echo", "agents-read-only", "agents-insecure"].includes(scenario)) {
+  if (["agents-pending", "agents-pending-gate", "agents-pending-expired", "agents-read-only", "agents-insecure", "agents-catalogue-failed"].includes(scenario)) {
     confirmations.push(
-      {
-        id: "cf_01", tokenId: "tok_02", tokenName: "recovery-drill", tool: "run_cycle",
-        description: "Runs a backup cycle for every enabled backup set.",
-        command: "retnd run", approveCommand: echoes ? "retnd agent confirmations approve cf_01" : null,
-        denyCommand: echoes ? "retnd agent confirmations deny cf_01" : null, backupSet: null,
-        createdAt: iso(-1 * MIN), expiresAt: iso(14 * MIN)
-      },
-      {
-        id: "cf_02", tokenId: "tok_02", tokenName: "recovery-drill", tool: "recovery_test_start",
-        description: "Starts a recovery test of one backup.",
-        command: "retnd assurance recovery-test production/postgres-primary", approveCommand: echoes ? "retnd agent confirmations approve cf_02" : null,
-        denyCommand: echoes ? "retnd agent confirmations deny cf_02" : null, backupSet: "production/postgres-primary",
-        createdAt: iso(-14 * MIN), expiresAt: iso(41_000)
-      }
+      pend("cf_01", "run_cycle", "retnd run", "", MIN, 14 * MIN),
+      pend("cf_02", "recovery_test_start", "retnd assurance recovery-test production/postgres-primary", "production/postgres-primary", 14 * MIN, 41_000),
+      { ...pend("cf_00", "verify_copy", "retnd assurance verify production/postgres-primary", "production/postgres-primary", 40 * MIN, -25 * MIN), state: "denied", decidedAt: iso(-30 * MIN) }
     );
   }
 
-  const tools = [
-    ...READ.map((name) => ({ name, scope: "read" as const })),
-    ...OPERATE.map((name) => ({ name, scope: "operate" as const })),
-    ...CONFIGURE.map((name) => ({ name, scope: "configure" as const }))
-  ];
-  const scopeOf = new Map(tools.map((t) => [t.name, t.scope]));
+  const tools = TOOLS.map(([name, scope, description]) => ({ name, scope, description }));
 
   const audit: AgentAuditRow[] = [];
   if (seeded) {
-    const base: Array<[string, string, string, number, string | null, number]> = [
-      ["nightly-triage", "tok_01", "status", 200, null, 3],
-      ["nightly-triage", "tok_01", "backup_sets_list", 200, null, 3],
-      ["recovery-drill", "tok_02", "run_cycle", 202, "AGENT_CONFIRMATION_REQUIRED", 8],
-      ["nightly-triage", "tok_01", "run_cycle", 403, "AGENT_SCOPE_INSUFFICIENT", 20],
-      ["nightly-triage", "tok_01", "activity", 200, null, 33],
-      ["recovery-drill", "tok_02", "verify_copy", 202, "AGENT_CONFIRMATION_REQUIRED", 61],
-      ["nightly-triage", "tok_01", "assurance_due", 200, null, 95],
-      ["laptop-experiment", "tok_05", "status", 401, "AGENT_TOKEN_INVALID", 60 * 24 * 27]
+    const base: Array<[string, string, number, string, number]> = [
+      ["tok_01", "status", 200, "", 3],
+      ["tok_01", "backup_sets_list", 200, "", 3],
+      ["tok_02", "run_cycle", 202, "AGENT_CONFIRMATION_REQUIRED", 8],
+      ["tok_01", "run_cycle", 403, "AGENT_SCOPE_INSUFFICIENT", 20],
+      ["tok_01", "activity", 200, "", 33],
+      ["tok_02", "verify_copy", 202, "AGENT_CONFIRMATION_REQUIRED", 61],
+      ["tok_01", "assurance_due", 200, "", 95],
+      ["tok_05", "status", 401, "AGENT_TOKEN_INVALID", 60 * 24 * 27]
     ];
     const count = scenario === "agents-audit-many" ? 60 : base.length;
     for (let i = 0; i < count; i++) {
-      const [name, id, tool, status, code, ago] = base[i % base.length];
+      const [tokenId, tool, status, code, ago] = base[i % base.length];
       audit.push({
-        seq: count - i, at: iso(-(ago + Math.floor(i / base.length) * 7) * MIN), tokenId: id, tokenName: name, tool,
-        scope: scopeOf.get(tool) ?? null, transport: i % 2 === 0 ? "stdio" : "http",
+        seq: 0, at: iso(-(ago + Math.floor(i / base.length) * 7) * MIN), tokenId, tool,
+        transport: i % 2 === 0 ? "stdio" : "http",
         // One row carries text an agent could plant: it must be drawn as data.
         arguments: tool === "activity" ? HOSTILE_ARGUMENTS : tool === "run_cycle" ? "{}" : '{"set":"production/postgres-primary"}',
-        status, code, correlationId: "cid_" + String(1000 + i).padStart(8, "0")
+        status, code, correlationId: "cid_" + String(1000 + i).padStart(8, "0"), confirmationId: ""
       });
     }
     // Newest first, as the route answers, and the sequence follows the order.
@@ -163,7 +174,8 @@ export function createMockAgents(scenario: string, deps: MockAgentsDeps) {
 
   const find = (id: string) => {
     const c = confirmations.find((x) => x.id === id);
-    if (!c) throw refuse("AGENT_CONFIRMATION_NOT_FOUND", "There is no pending confirmation " + id + ".", 404);
+    if (!c) throw refuse("AGENT_CONFIRMATION_NOT_FOUND", "There is no confirmation " + id + ".", 404);
+    if (c.state !== "pending") throw refuse("AGENT_CONFIRMATION_DECIDED", "this confirmation was already " + c.state + ".", 409);
     return c;
   };
 
@@ -188,26 +200,23 @@ export function createMockAgents(scenario: string, deps: MockAgentsDeps) {
         id: "tok_" + String(tokens.length + 1).padStart(2, "0"), name: req.name,
         prefix: MOCK_MINTED_SECRET.slice(0, 8), scope: req.scope, owner: "admin", status: "active",
         createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + ms).toISOString(),
-        lastUsedAt: null, revokedAt: null, revokeCommand: null
+        lastUsedAt: null, revokedAt: null
       };
-      token.revokeCommand = echoes ? "retnd agent token revoke " + token.id : null;
       tokens.unshift(token);
       await later(null);
-      return {
-        token: structuredClone(token), secret: MOCK_MINTED_SECRET,
-        command: !echoes ? null : "retnd agent token create --name " + req.name + " --scope " + req.scope + " --expires-in " + req.expiresIn
-      };
+      return { token: structuredClone(token), secret: MOCK_MINTED_SECRET };
     },
     revokeAgentToken: async (id) => {
       const t = tokens.find((x) => x.id === id);
       if (!t) throw refuse("AGENT_TOKEN_NOT_FOUND", "There is no agent token " + id + ".", 404);
       t.status = "revoked";
       t.revokedAt = new Date().toISOString();
-      t.revokeCommand = null;
       return later(structuredClone(t));
     },
-    listAgentCatalogue: () =>
-      later({ tools: structuredClone(tools), httpTransport: scenario === "agents-transport-on" ? ("on" as const) : ("off" as const) }),
+    listAgentCatalogue: async () => {
+      if (scenario === "agents-catalogue-failed") throw refuse("INTERNAL", "the catalogue could not be read.", 500, "cid_mockcat500");
+      return later({ tools: structuredClone(tools) });
+    },
     listAgentConfirmations: () => later(structuredClone(confirmations)),
     approveAgentConfirmation: async (id, opts) => {
       const c = find(id);
@@ -217,24 +226,23 @@ export function createMockAgents(scenario: string, deps: MockAgentsDeps) {
       if (scenario === "agents-pending-expired") {
         throw refuse("AGENT_CONFIRMATION_EXPIRED", "this confirmation expired and nothing was run; ask the agent to make the request again.", 409, "cid_mockexpired");
       }
-      confirmations.splice(confirmations.indexOf(c), 1);
       const gated = scenario === "agents-pending-gate" && c.tool === "run_cycle";
+      c.state = "approved";
+      c.decidedAt = new Date().toISOString();
+      c.execution = gated
+        ? { status: 403, code: "DESTRUCTIVE_OPERATIONS_DISABLED", message: MOCK_GATE_SENTENCE, correlationId: "cid_mockgate01", exitCode: 50 }
+        : { status: 202, code: "", message: "", correlationId: "cid_mockrun001", exitCode: 0 };
       audit.unshift({
-        seq: (audit[0]?.seq ?? 0) + 1, at: new Date().toISOString(), tokenId: c.tokenId, tokenName: c.tokenName, tool: c.tool,
-        scope: scopeOf.get(c.tool) ?? null, transport: "http", arguments: "{}", status: gated ? 403 : 202,
-        code: gated ? "DESTRUCTIVE_OPERATIONS_DISABLED" : null, correlationId: gated ? "cid_mockgate01" : "cid_mockrun001"
+        seq: (audit[0]?.seq ?? 0) + 1, at: new Date().toISOString(), tokenId: c.tokenId, tool: c.tool, transport: "http",
+        arguments: "{}", status: c.execution.status, code: c.execution.code, correlationId: c.execution.correlationId, confirmationId: c.id
       });
-      return later({
-        state: "approved" as const,
-        outcome: gated
-          ? { status: 403, code: "DESTRUCTIVE_OPERATIONS_DISABLED", message: MOCK_GATE_SENTENCE, correlationId: "cid_mockgate01", exitCode: 50 }
-          : { status: 202, code: null, message: null, correlationId: "cid_mockrun001", exitCode: 0 }
-      });
+      return later(structuredClone(c));
     },
     denyAgentConfirmation: async (id) => {
       const c = find(id);
-      confirmations.splice(confirmations.indexOf(c), 1);
-      return later({ state: "denied" as const, outcome: null });
+      c.state = "denied";
+      c.decidedAt = new Date().toISOString();
+      return later(structuredClone(c));
     },
     listAgentAudit: async (filter) => {
       if (scenario === "agents-audit-failed") {
@@ -247,9 +255,7 @@ export function createMockAgents(scenario: string, deps: MockAgentsDeps) {
       );
       const from = filter.cursor ? Number(filter.cursor) : 0;
       const page = matching.slice(from, from + 25);
-      const next = from + 25 < matching.length ? String(from + 25) : null;
-      const q = [filter.tokenId ? " --token " + filter.tokenId : "", filter.since ? " --since " + filter.since : ""].join("");
-      return later({ rows: structuredClone(page), nextCursor: next, command: echoes ? "retnd agent audit" + q : null });
+      return later({ rows: structuredClone(page), nextCursor: from + 25 < matching.length ? String(from + 25) : null });
     }
   };
   return methods;

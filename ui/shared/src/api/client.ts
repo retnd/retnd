@@ -189,17 +189,18 @@ import type {
   WireListCustomValidatorsResponse,
   WireValidatorScriptResponse,
   WireVersionResponse,
+  WireAgentConfirmation,
+  WireAgentToken,
+  WireListAgentConfirmationsResponse,
   WireListAgentTokensResponse,
-  WireMintAgentTokenRequest
+  WireMintAgentTokenRequest,
+  WireMintedAgentToken
 } from "./generated/contract";
 import {
-  fromWireAgentAudit, fromWireAgentConfirmation, fromWireAgentDecision, fromWireAgentToken,
-  fromWireAgentTools, fromWireMintedAgentToken
+  fromWireAgentAudit, fromWireAgentConfirmation, fromWireAgentToken, fromWireAgentTools,
+  fromWireMintedAgentToken
 } from "@shared/agents/agentWire";
-import type {
-  WireAgentAuditPage, WireAgentConfirmation, WireAgentDecision, WireAgentTokenRow, WireAgentTools,
-  WireMintedAgentTokenRow
-} from "@shared/agents/agentWire";
+import type { WireAgentToolsResponse, WireListAgentAuditResponse } from "@shared/agents/agentWire";
 import type {
   AppSettings,
   Capabilities,
@@ -4663,35 +4664,30 @@ export const httpApi: RetndApi = {
     ),
   // EPIC U (#1351). The token never leaves mintAgentToken's return value, and
   // the password rides the step-up header of the one approve request.
-  listAgentTokens: () =>
-    request<WireListAgentTokensResponse>("/agent/tokens").then((r) =>
-      ((r.tokens ?? []) as WireAgentTokenRow[]).map(fromWireAgentToken)
-    ),
+  listAgentTokens: () => request<WireListAgentTokensResponse>("/agent/tokens").then((r) => (r.tokens ?? []).map(fromWireAgentToken)),
   mintAgentToken: (req) => {
     const body: WireMintAgentTokenRequest = { name: req.name, scope: req.scope, expires_in: req.expiresIn };
-    return request<WireMintedAgentTokenRow>("/agent/tokens", { method: "POST", body: JSON.stringify(body) }).then(
+    return request<WireMintedAgentToken>("/agent/tokens", { method: "POST", body: JSON.stringify(body) }).then(
       fromWireMintedAgentToken
     );
   },
   revokeAgentToken: (id) =>
-    request<WireAgentTokenRow>("/agent/tokens/" + encodeURIComponent(id) + "/revoke", { method: "POST" }).then(
-      fromWireAgentToken
-    ),
-  listAgentCatalogue: () => request<WireAgentTools>("/agent/tools").then(fromWireAgentTools),
+    request<WireAgentToken>("/agent/tokens/" + encodeURIComponent(id) + "/revoke", { method: "POST" }).then(fromWireAgentToken),
+  listAgentCatalogue: () => request<WireAgentToolsResponse>("/agent/tools").then(fromWireAgentTools),
   listAgentConfirmations: () =>
-    request<{ confirmations?: WireAgentConfirmation[] }>("/agent/confirmations").then((r) =>
+    request<WireListAgentConfirmationsResponse>("/agent/confirmations").then((r) =>
       (r.confirmations ?? []).map(fromWireAgentConfirmation)
     ),
   // No body: approval replays the recorded request, and the engine refuses a
   // body supplied at approval (AGENT_CONFIRMATION_BODY_SUBSTITUTED).
   approveAgentConfirmation: (id, opts) =>
-    request<WireAgentDecision>("/agent/confirmations/" + encodeURIComponent(id) + "/approve", {
+    request<WireAgentConfirmation>("/agent/confirmations/" + encodeURIComponent(id) + "/approve", {
       method: "POST",
       ...stepUpHeaders(opts)
-    }).then((r) => fromWireAgentDecision(r, "approved")),
+    }).then(fromWireAgentConfirmation),
   denyAgentConfirmation: (id) =>
-    request<WireAgentDecision>("/agent/confirmations/" + encodeURIComponent(id) + "/deny", { method: "POST" }).then(
-      (r) => fromWireAgentDecision(r, "denied")
+    request<WireAgentConfirmation>("/agent/confirmations/" + encodeURIComponent(id) + "/deny", { method: "POST" }).then(
+      fromWireAgentConfirmation
     ),
   listAgentAudit: (filter) => {
     const q = new URLSearchParams();
@@ -4699,7 +4695,7 @@ export const httpApi: RetndApi = {
     if (filter.since) q.set("since", filter.since);
     if (filter.cursor) q.set("before", filter.cursor);
     const qs = q.toString();
-    return request<WireAgentAuditPage>("/agent/audit" + (qs ? "?" + qs : "")).then(fromWireAgentAudit);
+    return request<WireListAgentAuditResponse>("/agent/audit" + (qs ? "?" + qs : "")).then(fromWireAgentAudit);
   },
   listEncryptionKeys: () =>
     request<WireListEncryptionKeysResponse>("/encryption/keys").then((r) => (r.keys ?? []).map(fromWireEncryptionKey)),

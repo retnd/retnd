@@ -85,7 +85,6 @@ PAIRS: list[tuple[str, str, str, str, str, float]] = [
     ("agents/agents.css", ".ag-row", "color", "text", "surface", NORMAL),
     ("agents/agents.css", ".ag-row[data-urgent]", "border-color", "warn", "surface", EDGE),
     ("agents/agents.css", ".ag-row__meta", "color", "text-2", "surface", NORMAL),
-    ("agents/agents.css", ".ag-code", "color", "text", "surface-2", NORMAL),
     ("agents/agents.css", ".ag-args", "color", "text", "surface-2", NORMAL),
     ("agents/agents.css", ".ag-strip", "background", "text", "danger-quiet", NORMAL),
     ("agents/agents.css", ".ag-strip", "border-color", "danger", "surface", EDGE),

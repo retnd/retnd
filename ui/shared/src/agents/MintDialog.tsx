@@ -28,7 +28,6 @@ import { ConfirmationDialog } from "@shared/components/ConfirmationDialog";
 import { FieldHelp } from "@shared/components/FieldHelp";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
 import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
-import { CommandEcho } from "@shared/pages/CommandEcho";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { TOOLTIPS } from "@shared/tooltips/tooltips";
 import { copyText } from "@shared/utilities/copyText";
@@ -250,7 +249,6 @@ function RevealDialog({ minted, onStored }: { minted: MintedAgentToken; onStored
             Use it with <code className="mono">retnd agent serve --stdio --token-file PATH</code> (a file readable only by you) or the{" "}
             <code className="mono">RETND_AGENT_TOKEN</code> environment variable, and never on a command line.
           </p>
-          {minted.command ? <CommandEcho label="Equivalent command" commands={[minted.command]} /> : null}
         </div>
         <div className="card__footer" style={{ display: "flex", justifyContent: "flex-end", borderRadius: "0 0 10px 10px" }}>
           <InfoTooltip id="agents.mint.stored">

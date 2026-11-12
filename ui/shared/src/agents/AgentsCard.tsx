@@ -23,6 +23,14 @@
  * edit, no "always allow", no bulk approve, no request body. See section 12 of
  * the design note.
  *
+ * # The transport line says no more than the code can read
+ *
+ * No route carries whether the HTTP transport is on, and the MCP endpoint
+ * refuses a browser's cookie for another reason, so the card cannot probe it.
+ * Design 1350 section 9 allows drawing neither state in that case, and the one
+ * sentence it draws is true in both: off is the default, and the configuration
+ * file is where it turns on.
+ *
  * # No claim the engine has not earned
  *
  * The statement says what an agent is, what it can do by default, what it can
@@ -69,25 +77,18 @@ export function AgentsCard({ readOnly }: { readOnly: boolean }) {
         <TokensRegion tokens={tokens} catalogue={catalogue} readOnly={readOnly} onChanged={() => { confirmations.reload(); changed(); }} />
         <ConfirmationsRegion
           confirmations={confirmations}
+          catalogue={catalogue}
           readOnly={readOnly}
           onDecided={() => { tokens.reload(); changed(); }}
         />
-        <AuditRegion tokens={tokens.data ?? []} revision={auditRevision} />
+        <AuditRegion tokens={tokens.data ?? []} tools={catalogue.data?.tools ?? []} revision={auditRevision} />
 
-        {catalogue.data?.httpTransport === "off" ? (
-          <p className="ag-note" data-agents-transport="off">
-            The HTTP transport is off. Agents connect with <code className="mono">retnd agent serve --stdio</code>, which
-            runs beside this deployment. To turn the HTTP transport on, set <code className="mono">http_transport: on</code>{" "}
-            under <code className="mono">agents:</code> in the configuration file; a configuration that writes it cannot
-            be read by an older build.
-          </p>
-        ) : catalogue.data?.httpTransport === "on" ? (
-          <p className="ag-note" data-agents-transport="on">
-            The HTTP transport is on, at <code className="mono">/api/v1/agent/mcp</code>. A token travels in a header on
-            whatever connection reaches this deployment, so on plain HTTP it is readable on the network, as the session
-            cookie already is.
-          </p>
-        ) : null}
+        <p className="ag-note" data-agents-transport="">
+          Agents connect with <code className="mono">retnd agent serve --stdio</code>, which runs beside this deployment.
+          The HTTP transport is off unless the configuration file sets <code className="mono">http_transport: on</code>{" "}
+          under <code className="mono">agents:</code>. This page does not change it: a configuration that writes it cannot
+          be read by an older build.
+        </p>
       </div>
     </section>
   );

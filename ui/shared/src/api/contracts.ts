@@ -31,7 +31,7 @@ import type {
 } from "./generated/contract";
 import type { BackupArtifact, BackupSet, CompletionMethod, RetentionPlan } from "@shared/types/backup";
 import type {
-  AgentAuditFilter, AgentAuditPage, AgentCatalogue, AgentConfirmation, AgentDecision, AgentToken,
+  AgentAuditFilter, AgentAuditPage, AgentCatalogue, AgentConfirmation, AgentToken,
   MintAgentTokenRequest, MintedAgentToken
 } from "@shared/types/agents";
 import type {
@@ -4189,8 +4189,10 @@ export interface RetndApi {
   revokeAgentToken(id: string): Promise<AgentToken>;
   listAgentCatalogue(): Promise<AgentCatalogue>;
   listAgentConfirmations(): Promise<AgentConfirmation[]>;
-  approveAgentConfirmation(id: string, opts: StepUpOptions): Promise<AgentDecision>;
-  denyAgentConfirmation(id: string): Promise<AgentDecision>;
+  /** Answers the confirmation as it now stands: approved, with `execution` once
+   *  the replay has finished, or denied. REJECTS with the engine's refusal. */
+  approveAgentConfirmation(id: string, opts: StepUpOptions): Promise<AgentConfirmation>;
+  denyAgentConfirmation(id: string): Promise<AgentConfirmation>;
   listAgentAudit(filter: AgentAuditFilter): Promise<AgentAuditPage>;
 
   /**

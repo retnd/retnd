@@ -58,10 +58,6 @@
 .ag-row[data-urgent] { border-color: var(--warn); border-width: 2px; }
 .ag-row__sentence { margin: 0; font-size: var(--text-base); font-weight: 600; color: var(--text); }
 .ag-row__meta { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: var(--text-sm); color: var(--text-2); }
-.ag-code {
-  display: block; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text); background: var(--surface-2);
-  border: 1px solid var(--border); border-radius: var(--radius-md); padding: 5px 8px; overflow-x: auto; white-space: pre;
-}
 .ag-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: flex-end; }
 .ag-actions .btn { min-width: 120px; }
 .ag-stepup { display: flex; flex-direction: column; gap: var(--space-2); max-width: 520px; }
