@@ -5,7 +5,7 @@
  * cannot change after minting, so the row has no pencil, no extend button and
  * no scope switcher.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import { describeFailure } from "@shared/api/failure";
 import { ConfirmationDialog } from "@shared/components/ConfirmationDialog";
@@ -35,6 +35,14 @@ export function TokensRegion({
   const api = useApi();
   const now = useNow((tokens.data?.length ?? 0) > 0, 30_000);
   const [minting, setMinting] = useState(false);
+  // The reveal is a modal; when it closes (stored, or cancelled) the operator is
+  // back where they pressed, not at the top of the page.
+  const createButton = useRef<HTMLButtonElement>(null);
+  const wasMinting = useRef(false);
+  useEffect(() => {
+    if (wasMinting.current && !minting) createButton.current?.focus();
+    wasMinting.current = minting;
+  }, [minting]);
   const [revoking, setRevoking] = useState<AgentToken | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -62,7 +70,7 @@ export function TokensRegion({
         <InfoTooltip id="agents.tokens"><h3 className="ag-region__title">Tokens</h3></InfoTooltip>
         {readOnly ? null : (
           <InfoTooltip id="agents.token.create">
-            <button type="button" className="btn btn--primary btn--sm" onClick={() => setMinting(true)}>Create token</button>
+            <button ref={createButton} type="button" className="btn btn--primary btn--sm" onClick={() => setMinting(true)}>Create token</button>
           </InfoTooltip>
         )}
       </div>
