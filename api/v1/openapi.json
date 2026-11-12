@@ -10130,7 +10130,7 @@
       },
       "AgentConfirmation": {
         "type": "object",
-        "description": "A change an agent asked for, waiting for a person. The request body it will replay is kept byte for byte and is never shown here; command is the retnd command an operator would have typed for the same change. A pending confirmation has run nothing. state is pending, approved, denied or expired; an approved one carries execution once its replay has finished.",
+        "description": "A change an agent asked for, waiting for a person. The request body it will replay is kept byte for byte and is never shown here, except for config_revision; command is the retnd command an operator would have typed for the same change. A pending confirmation has run nothing. state is pending, approved, denied or expired; an approved one carries execution once its replay has finished.",
         "additionalProperties": false,
         "properties": {
           "id": {
@@ -10187,6 +10187,11 @@
               "string",
               "null"
             ]
+          },
+          "config_revision": {
+            "type": "string",
+            "description": "The configuration revision a run_cycle or run_backup_set was recorded against: the engine's own at proposal time when the agent named none. Absent for every other change. If the configuration has changed by the time a person approves, the replay is refused CONFIG_REVISION_STALE.",
+            "x-go-omitempty": true
           },
           "execution": {
             "$ref": "#/components/schemas/AgentExecution",
