@@ -20,7 +20,7 @@ import { expect, test } from "@playwright/test";
 import { PASSWORD, card, openAgents, pending, region } from "./1351-agents";
 
 const GATE =
-  "destructive operations are refused over HTTP in this release, until the trusted-proxy authentication gate (issue #92) has been verified; run the equivalent retnd command on the host";
+  "destructive operations are refused over HTTP in this release, until the trusted-proxy authentication gate (issue #92) has been verified; run the equivalent `retnd` command on the host";
 
 test.describe("#1351 the pending rows", () => {
   test("#1351 say who asked, what, for which set, the recorded command, and when it expires", async ({ page }) => {
