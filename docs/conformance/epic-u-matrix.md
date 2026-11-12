@@ -83,6 +83,7 @@ This is the list of claims EPIC U makes, each tied to the test that will go red 
 | UV.19 | No `--token` flag exists and `--token-file` refuses a readable file | `core/cmd/retnd/exitcodes_test.go` (the usage-block reader the flag guard reuses) | Add the flag, or accept mode `0644` | BLOCKED (#1343) | #1347 (U1.4) |
 | UV.20 | The HTTP transport is off by default | `core/internal/config/config.go`, beside which the `agents:` defaults test lands | Default `agents.http_transport` to on | BLOCKED (#1343) | #1347 (U1.4) |
 | UV.21 | A token surface never renders the hash | `core/internal/keycustody/surfaces_test.go` (the enumerating shape the tokens surfaces test copies) | Return the hash from `GET /api/v1/agent/tokens` | BLOCKED (#1343) | #1345 (U1.2) |
+| UV.22 | A run proposal is recorded against the engine's revision when the agent names none (#1387) | `apps/common/webhost/agentconfirmationrevision_1387_test.go`, whose `TestAnApprovedRunWithNoRevisionSuppliedIsQueued` and `TestAConfigChangeBetweenProposeAndApproveIsRefusedAsStale` hold it | Record the body as sent; stamp the revision at approval instead | BLOCKED (#1343) | #1387 |
 
 ## The limits of this matrix
 
