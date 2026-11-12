@@ -125,6 +125,22 @@ CONTROLS = [
         ["TestRoutedReview1250_TheGateExitsFiftyOnEveryRoutedCall", "TestAnExecutionsExitCodeIsTheOneEngineRefusalExitGives"],
     ),
     Control(
+        "a destructive gate refusal mapped to exit 1 in the tool result, compared with the CLI",
+        ("U1.5", "UV.8", "UC-03"),
+        [(RESULT_GO, "\tcase \"DESTRUCTIVE_OPERATIONS_DISABLED\":\n\t\treturn ExitEngineGateShut",
+          "\tcase \"DESTRUCTIVE_OPERATIONS_DISABLED\":\n\t\treturn ExitFailure " + PLANT.strip())],
+        "./cmd/retnd/",
+        ["TestAToolResultAnswersAsTheCLIWouldOnTheGateAndTransportExits_1378"],
+    ),
+    Control(
+        "an insecure transport refusal mapped to exit 1 by the CLI, compared with the tool result",
+        ("U1.5", "UV.8", "UC-03"),
+        [(SETUP_GO, "\tcase apicontract.ErrorCodeInsecureTransportAckRequired:\n\t\treturn exitInsecureTransport, fmt.Sprintf(",
+          "\tcase apicontract.ErrorCodeInsecureTransportAckRequired:\n\t\treturn exitFailure, fmt.Sprintf(")],
+        "./cmd/retnd/",
+        ["TestAToolResultAnswersAsTheCLIWouldOnTheGateAndTransportExits_1378"],
+    ),
+    Control(
         "the per token rate limiter removed",
         ("U1.6", "UV.13"),
         [(AGENTACCESS_GO, "if ok, wait := guard.allowCall(principal.TokenID); !ok {",

@@ -131,4 +131,13 @@ CONTROLS = [
         "./service/",
         ["TestAConfirmationThatExpiresDuringTheApprovalIsNotApproved"],
     ),
+    Control(
+        "Proposes accepting any catalogue tool name on any route",
+        ("U2.1b",),
+        [("core/agenttools/tools.go",
+          "if !ok || r.Scope == ScopeRead || r.Method != method || !matches(r.Route, p) || (r.Action != \"\" && r.Action != action) {",
+          "if !ok || r.Scope == ScopeRead { " + PLANT.strip())],
+        "./agenttools/",
+        ["TestProposesAnswersOnlyForTheToolsOwnRoute"],
+    ),
 ]
