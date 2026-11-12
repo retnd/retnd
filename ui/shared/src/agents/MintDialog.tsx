@@ -17,7 +17,10 @@
  * attribute, an error message, or browser storage. The reveal has one way out,
  * "I have stored it": no close glyph, no Cancel, the backdrop does not
  * dismiss and Escape does nothing, because dismissing a shown-once secret is
- * losing it. Unmounting the reveal drops the secret with it.
+ * losing it. Unmounting the reveal drops the secret with it. The same holds
+ * before the reveal: once Create token is pressed, Cancel, Escape and the
+ * backdrop do nothing until the answer comes (a failure keeps the form, a
+ * success opens the reveal), because a closed form would drop the response.
  */
 import { useEffect, useId, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
@@ -92,7 +95,7 @@ export function MintDialog({ onMinted, onClose }: { onMinted(): void; onClose():
       title="Create token"
       confirmLabel="Create token"
       disabled={busy || name.trim() === "" || expiresIn.trim() === ""}
-      onCancel={onClose}
+      onCancel={() => { if (!busy) onClose(); }}
       onConfirm={() => void create()}
     >
       <div data-mint-form="" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -136,7 +139,11 @@ export function MintDialog({ onMinted, onClose }: { onMinted(): void; onClose():
               className="btn btn--quiet btn--sm ag-fold"
               aria-expanded={fold}
               aria-controls="agent-scope-more"
-              onClick={() => setFold((f) => !f)}
+              onClick={() => {
+                // Closed means read (design 1350 section 3): a wider scope must not outlive the fold that offered it.
+                if (fold) setScope("read");
+                setFold((f) => !f);
+              }}
             >
               Allow more than reading
             </button>
