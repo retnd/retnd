@@ -43,9 +43,16 @@ retnd agent token revoke <token-id>
 
 Minting a token is session-only. No token, whatever its scope, can mint another.
 
+Minting over plain HTTP wants the same acknowledgement key export does, because the token comes back
+in the response. The engine refuses `POST /agent/tokens` over plain HTTP until it is acknowledged
+(`INSECURE_TRANSPORT_ACK_REQUIRED`), so a remote `retnd agent token create` over plain HTTP exits 52
+until `RETND_API_INSECURE_TRANSPORT=acknowledged` is set. The browser asks for the same consent in
+the mint dialog, so the CLI and the browser behave alike. A loopback address needs neither.
+
 ## Scopes
 
-There are three words, and they are closed (a config or a request with any other word is refused):
+There are three words, and they are closed (a config or a request with any other word is refused).
+They nest: `operate` includes `read`, and `configure` includes `operate`.
 
 | Scope | What a token can do |
 |---|---|
@@ -116,6 +123,15 @@ The other four `agents:` settings, all optional, and what they default to:
 | `agents.max_pending_confirmations` | 5 | open confirmations one token may have; the next is `AGENT_CONFIRMATION_LIMIT` |
 | `agents.audit_retention_days` | 90 | how long `agent_audit` rows are kept before they are pruned |
 
+## Result codes that are not API errors
+
+A tool result can carry a code that never comes out of `/api/v1`: `INVALID_REQUEST`,
+`ENGINE_UNREACHABLE` and `AGENT_RESULT_TOO_LARGE`, all with exit code 1. The last one is the one
+result with no CLI twin, because the CLI would simply print the whole answer. A result is capped at
+64 KiB. On a route that pages (it answers with a `next_cursor`) the server shrinks the page to fit.
+On a route that does not, an answer over the cap is refused with `AGENT_RESULT_TOO_LARGE` rather than
+cut, so an agent never mistakes a partial list for a complete one.
+
 ## Confirmations, from both sides
 
 A tool call under `operate` or `configure` executes nothing.
@@ -139,6 +155,11 @@ replays the stored request body byte for byte through the handler a person would
 token as the recorded actor and you as the approver. A body supplied at approval is refused
 (`AGENT_CONFIRMATION_BODY_SUBSTITUTED`), so what you read is what runs. Denying ends it, and so does
 the 15-minute expiry (`AGENT_CONFIRMATION_EXPIRED` if the agent comes back late).
+
+Three more codes tell you what to do next: `AGENT_CONFIRMATION_NOT_FOUND` (404, there is no such
+confirmation), `AGENT_CONFIRMATION_DECIDED` (409, somebody already approved or denied it) and
+`AGENT_CONFIRMATION_TOKEN_ENDED` (409, the token that asked was revoked or expired before you
+decided). Like the other refusals here they exit 1 from the CLI.
 
 The replay meets every refusal the original would have met. The operation gate is shut by default
 and this feature opens nothing: approving `run_cycle` on a deployment whose gate is shut gives

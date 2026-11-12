@@ -18,7 +18,10 @@
 #   3. no row of docs/conformance/epic-u-matrix.md is BLOCKED (named here, row
 #      by row), and the closing mode of core/tests/agentgate passes: every proof
 #      a row cites resolves, every PASS is dated and names a mutation that
-#      exists.
+#      exists;
+#   4. every gifs[].name in docs/site/tools/agents-captures.json exists as a
+#      .gif under docs/site/screens/ (the same check EPIC N holds for its
+#      pictures), so the four agent clips cannot be missing at a release.
 #
 # It needs a checkout with history back to EPIC_U_BASE.
 # scripts/tests/epic-u-closure.test.sh drives this script in throwaway
@@ -98,6 +101,27 @@ else
     ok "every proof the EPIC U matrix cites resolves, and every PASS is dated and names a mutation"
   else
     bad "the EPIC U closing check in core/tests/agentgate did not pass (output above)"
+  fi
+fi
+
+# 4. The captures the manifest promises.
+manifest=docs/site/tools/agents-captures.json
+if [ ! -f "$manifest" ]; then
+  bad "$manifest does not exist"
+else
+  names="$(jq -r '.gifs[].name' "$manifest" 2>/dev/null)"
+  if [ -z "$names" ]; then
+    bad "$manifest lists no gifs[].name, so there is nothing to hold the site to"
+  else
+    missing=""
+    for n in $names; do
+      [ -f "docs/site/screens/$n.gif" ] || missing="$missing $n.gif"
+    done
+    if [ -n "$missing" ]; then
+      bad "docs/site/screens/ is missing clips that $manifest lists:$missing"
+    else
+      ok "every clip in $manifest exists under docs/site/screens/"
+    fi
   fi
 fi
 

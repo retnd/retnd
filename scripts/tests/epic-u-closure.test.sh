@@ -68,6 +68,9 @@ make_repo() {
   git add -A && git commit -q -m base
   git rev-parse HEAD > "$SANDBOX/$1.base"
   matrix_table "PASS" > docs/conformance/epic-u-matrix.md
+  mkdir -p docs/site/tools docs/site/screens
+  echo '{"gifs":[{"name":"agents-mint"},{"name":"agents-audit"}]}' > docs/site/tools/agents-captures.json
+  : > docs/site/screens/agents-mint.gif; : > docs/site/screens/agents-audit.gif
   cd "$SANDBOX" || return 1
   printf '%s' "$dir"
 }
@@ -135,6 +138,12 @@ r="$(make_repo g3-blocked-ledger)"; add_0022 "$r"
 expect_fail "the matrix: a BLOCKED row in the violation ledger is refused, and named" "$r" "UV.7"
 r="$(make_repo g3-absent)"; add_0022 "$r"; rm "$r/docs/conformance/epic-u-matrix.md"; (cd "$r" && git commit -qam x)
 expect_fail "the matrix: a missing matrix file is refused" "$r" "docs/conformance/epic-u-matrix.md does not exist"
+
+# Guard 4, the captures: a clip the manifest lists but the screens folder lacks.
+r="$(make_repo g4-missing-clip)"; add_0022 "$r"; rm "$r/docs/site/screens/agents-audit.gif"
+expect_fail "the captures: a manifest clip missing from docs/site/screens is refused, and named" "$r" "missing clips"
+r="$(make_repo g4-no-manifest)"; add_0022 "$r"; rm "$r/docs/site/tools/agents-captures.json"
+expect_fail "the captures: a missing manifest is refused" "$r" "agents-captures.json does not exist"
 
 # The base commit.
 r="$(make_repo nobase)"
