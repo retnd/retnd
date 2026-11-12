@@ -141,7 +141,7 @@ func TestARefusedAndAMutatingCallAreMarkedAsSuch(t *testing.T) {
 	}
 }
 
-// Falsify: take /agent/audit off agentDeniedPrefixes. A token never reads the
+// Falsify: take /agent/audit off core/agenttools' deny list. A token never reads the
 // record of what tokens did.
 func TestATokenCannotReadTheAuditTrail(t *testing.T) {
 	router, spy := auditRouter()

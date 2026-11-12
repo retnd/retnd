@@ -5,6 +5,9 @@
 #
 # Re-pin with: UPDATE_CLI_OUTCOMES=1 go test ./cliecho -run TestEveryRouteOutcomeIsInTheGolden (from core/)
 
+DELETE /agent/mcp
+	no command: an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `retnd agent serve --stdio` serves the same tools without this route
+
 DELETE /assurance/validators/{name}
 	example: command
 	body that isn't JSON: command
@@ -52,8 +55,13 @@ GET /activity/live
 GET /agent/audit
 	example: command
 	example ?before=120&limit=50&since=7d&token=agt_0123456789abcdef: command
+GET /agent/mcp
+	no command: an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `retnd agent serve --stdio` serves the same tools without this route
 
 GET /agent/tokens
+	example: command
+
+GET /agent/tools
 	example: command
 
 GET /assurance/default-validator-script
@@ -307,6 +315,9 @@ PATCH /settings/workflow
 	example {"disabled":true}: command
 	example {"disabled":false}: command
 	body that isn't JSON: malformed: there is no verb that patches the deployment's workflow configuration from a request body
+
+POST /agent/mcp
+	no command: an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `retnd agent serve --stdio` serves the same tools without this route
 
 POST /agent/tokens
 	corpus: command

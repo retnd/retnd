@@ -19,7 +19,7 @@ import (
 // because the action log skips every GET. And GET /api/v1/agent/audit pages
 // the table back to a signed-in person. A token never reads it: the trail
 // names every other token and what each did, which is an operator's record,
-// so the route is on agentDeniedPrefixes beside the token routes.
+// so the route is on core/agenttools' deny list beside the token routes.
 
 // AgentCallRecorder is what auditAgentCalls writes through.
 // *service.BackupService satisfies it, found by assertion on the backend like

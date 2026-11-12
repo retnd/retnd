@@ -7,6 +7,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/retnd/retnd/core/agenttools"
 	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/internal/apiclient"
@@ -108,7 +109,7 @@ var _ agentTokens = (*apiclient.Client)(nil)
 
 func cmdAgent(args []string) int {
 	if len(args) == 0 {
-		return usageError("agent: expected `agent token create|list|revoke`, `agent audit` or `agent serve --stdio --token-file PATH`")
+		return usageError("agent: expected `agent token create|list|revoke`, `agent audit`, `agent tools` or `agent serve --stdio --token-file PATH`")
 	}
 	switch args[0] {
 	case "token":
@@ -117,8 +118,10 @@ func cmdAgent(args []string) int {
 		return agentAudit(args[1:])
 	case "serve":
 		return agentServe(args[1:])
+	case "tools":
+		return agentTools(args[1:])
 	default:
-		return usageError("agent: unknown subcommand %q (token, audit and serve exist)", args[0])
+		return usageError("agent: unknown subcommand %q (token, audit, serve and tools exist)", args[0])
 	}
 }
 
@@ -243,5 +246,67 @@ func agentTokenRevoke(args []string) int {
 		return emitWireJSON(got)
 	}
 	fmt.Printf("revoked agent token %s (%s): the next request that presents it is refused\n", got.Name, got.ID)
+	return exitOK
+}
+
+// agentTools is `retnd agent tools [--json]` (U1.3, #1346; FR-93): the
+// catalogue an agent is offered, printed from the table compiled into this
+// binary. It is the same object GET /api/v1/agent/tools answers, built by the
+// same function, and it reads nothing of this deployment, so it opens no
+// service and needs no engine, no token and no configuration.
+func agentTools(args []string) int {
+	fs, _ := newFlagSet("agent tools")
+	asJSON := fs.Bool("json", false, "print the object the API returns instead of text")
+	operands, err := parseFlagsAroundOperands(fs, args)
+	if err != nil {
+		return exitUsage
+	}
+	if len(operands) != 0 {
+		return usageError("agent tools: takes no operands")
+	}
+
+	doc := agenttools.Document()
+	if *asJSON {
+		return emitWireJSON(doc)
+	}
+
+	row := func(cells ...string) string { return strings.Join(cells, "\t") }
+	routeOf := func(method, route, action string) string {
+		if action != "" {
+			return method + " " + route + " (" + action + ")"
+		}
+		return method + " " + route
+	}
+	rows := []string{row("TOOL", "SCOPE", "ROUTE", "UNTRUSTED", "TWIN")}
+	for _, t := range doc.Tools {
+		untrusted := "-"
+		if len(t.Untrusted) > 0 {
+			untrusted = strings.Join(t.Untrusted, ",")
+		}
+		rows = append(rows, row(t.Name, t.Scope, routeOf(t.Method, t.Route, t.Action), untrusted, t.Twin))
+	}
+	rows = append(rows, "", row("RESOURCE", "TOOL"))
+	for _, r := range doc.Resources {
+		rows = append(rows, row(r.Uri, r.Tool))
+	}
+	rows = append(rows, "", row("PROMPT", "ARGUMENTS", "TOOLS"))
+	for _, p := range doc.Prompts {
+		rows = append(rows, row(p.Name, strings.Join(p.Arguments, ","), strings.Join(p.Tools, ",")))
+	}
+	rows = append(rows, "", row("NO TOOL", "REFUSED", "WHY"))
+	for _, r := range doc.Refusals {
+		refused := "no"
+		if r.Denied {
+			refused = "on the wire"
+		}
+		rows = append(rows, row(routeOf(r.Method, r.Route, r.Action), refused, r.Why))
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	if _, err := fmt.Fprintln(w, strings.Join(rows, "\n")); err != nil {
+		return fail(fmt.Errorf("writing the catalogue: %w", err))
+	}
+	if err := w.Flush(); err != nil {
+		return fail(fmt.Errorf("writing the catalogue: %w", err))
+	}
 	return exitOK
 }

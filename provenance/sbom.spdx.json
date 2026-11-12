@@ -220,9 +220,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-v1.47.3",
+      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-v1.47.4",
       "name": "github.com/aws/aws-sdk-go-v2",
-      "versionInfo": "v1.47.3",
+      "versionInfo": "v1.47.4",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -232,7 +232,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2@v1.47.3"
+          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2@v1.47.4"
         }
       ],
       "checksums": [
@@ -243,9 +243,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-aws-protocol-eventstream-v1.7.22",
+      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-aws-protocol-eventstream-v1.7.24",
       "name": "github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream",
-      "versionInfo": "v1.7.22",
+      "versionInfo": "v1.7.24",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -255,7 +255,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.22"
+          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.24"
         }
       ],
       "checksums": [
@@ -289,9 +289,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-credentials-v1.20.9",
+      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-credentials-v1.20.11",
       "name": "github.com/aws/aws-sdk-go-v2/credentials",
-      "versionInfo": "v1.20.9",
+      "versionInfo": "v1.20.11",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -301,7 +301,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/credentials@v1.20.9"
+          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/credentials@v1.20.11"
         }
       ],
       "checksums": [
@@ -312,9 +312,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-feature-ec2-imds-v1.20.3",
+      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-feature-ec2-imds-v1.20.4",
       "name": "github.com/aws/aws-sdk-go-v2/feature/ec2/imds",
-      "versionInfo": "v1.20.3",
+      "versionInfo": "v1.20.4",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -324,7 +324,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/feature/ec2/imds@v1.20.3"
+          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/feature/ec2/imds@v1.20.4"
         }
       ],
       "checksums": [
@@ -358,9 +358,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-internal-configsources-v1.5.6",
+      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-internal-configsources-v1.5.7",
       "name": "github.com/aws/aws-sdk-go-v2/internal/configsources",
-      "versionInfo": "v1.5.6",
+      "versionInfo": "v1.5.7",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -370,7 +370,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/internal/configsources@v1.5.6"
+          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/internal/configsources@v1.5.7"
         }
       ],
       "checksums": [
@@ -381,9 +381,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-internal-endpoints-v2-v2.8.6",
+      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-internal-endpoints-v2-v2.8.7",
       "name": "github.com/aws/aws-sdk-go-v2/internal/endpoints/v2",
-      "versionInfo": "v2.8.6",
+      "versionInfo": "v2.8.7",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -393,7 +393,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/internal/endpoints/v2@v2.8.6"
+          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/internal/endpoints/v2@v2.8.7"
         }
       ],
       "checksums": [
@@ -404,9 +404,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-internal-v4a-v1.5.6",
+      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-internal-v4a-v1.5.7",
       "name": "github.com/aws/aws-sdk-go-v2/internal/v4a",
-      "versionInfo": "v1.5.6",
+      "versionInfo": "v1.5.7",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -416,7 +416,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/internal/v4a@v1.5.6"
+          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/internal/v4a@v1.5.7"
         }
       ],
       "checksums": [
@@ -427,9 +427,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-internal-accept-encoding-v1.13.21",
+      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-internal-accept-encoding-v1.13.22",
       "name": "github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding",
-      "versionInfo": "v1.13.21",
+      "versionInfo": "v1.13.22",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -439,7 +439,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding@v1.13.21"
+          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding@v1.13.22"
         }
       ],
       "checksums": [
@@ -450,9 +450,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-internal-checksum-v1.11.7",
+      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-internal-checksum-v1.11.8",
       "name": "github.com/aws/aws-sdk-go-v2/service/internal/checksum",
-      "versionInfo": "v1.11.7",
+      "versionInfo": "v1.11.8",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -462,7 +462,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/service/internal/checksum@v1.11.7"
+          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/service/internal/checksum@v1.11.8"
         }
       ],
       "checksums": [
@@ -473,9 +473,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-internal-presigned-url-v1.14.6",
+      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-internal-presigned-url-v1.14.7",
       "name": "github.com/aws/aws-sdk-go-v2/service/internal/presigned-url",
-      "versionInfo": "v1.14.6",
+      "versionInfo": "v1.14.7",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -485,7 +485,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/service/internal/presigned-url@v1.14.6"
+          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/service/internal/presigned-url@v1.14.7"
         }
       ],
       "checksums": [
@@ -496,9 +496,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-internal-s3shared-v1.20.6",
+      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-internal-s3shared-v1.20.7",
       "name": "github.com/aws/aws-sdk-go-v2/service/internal/s3shared",
-      "versionInfo": "v1.20.6",
+      "versionInfo": "v1.20.7",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -508,7 +508,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/service/internal/s3shared@v1.20.6"
+          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/service/internal/s3shared@v1.20.7"
         }
       ],
       "checksums": [
@@ -519,9 +519,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-s3-v1.114.3",
+      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-s3-v1.114.5",
       "name": "github.com/aws/aws-sdk-go-v2/service/s3",
-      "versionInfo": "v1.114.3",
+      "versionInfo": "v1.114.5",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -531,7 +531,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/service/s3@v1.114.3"
+          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/service/s3@v1.114.5"
         }
       ],
       "checksums": [
@@ -542,9 +542,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-signin-v1.10.4",
+      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-signin-v1.11.0",
       "name": "github.com/aws/aws-sdk-go-v2/service/signin",
-      "versionInfo": "v1.10.4",
+      "versionInfo": "v1.11.0",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -554,7 +554,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/service/signin@v1.10.4"
+          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/service/signin@v1.11.0"
         }
       ],
       "checksums": [
@@ -565,9 +565,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-sso-v1.38.4",
+      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-sso-v1.38.5",
       "name": "github.com/aws/aws-sdk-go-v2/service/sso",
-      "versionInfo": "v1.38.4",
+      "versionInfo": "v1.38.5",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -577,7 +577,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/service/sso@v1.38.4"
+          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/service/sso@v1.38.5"
         }
       ],
       "checksums": [
@@ -588,9 +588,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-ssooidc-v1.43.4",
+      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-ssooidc-v1.43.5",
       "name": "github.com/aws/aws-sdk-go-v2/service/ssooidc",
-      "versionInfo": "v1.43.4",
+      "versionInfo": "v1.43.5",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -600,7 +600,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/service/ssooidc@v1.43.4"
+          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/service/ssooidc@v1.43.5"
         }
       ],
       "checksums": [
@@ -611,9 +611,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-sts-v1.51.4",
+      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-sts-v1.51.5",
       "name": "github.com/aws/aws-sdk-go-v2/service/sts",
-      "versionInfo": "v1.51.4",
+      "versionInfo": "v1.51.5",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -623,7 +623,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/service/sts@v1.51.4"
+          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2/service/sts@v1.51.5"
         }
       ],
       "checksums": [
@@ -634,9 +634,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-github.com-aws-smithy-go-v1.28.5",
+      "SPDXID": "SPDXRef-Package-go-github.com-aws-smithy-go-v1.28.6",
       "name": "github.com/aws/smithy-go",
-      "versionInfo": "v1.28.5",
+      "versionInfo": "v1.28.6",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -646,7 +646,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/aws/smithy-go@v1.28.5"
+          "referenceLocator": "pkg:golang/github.com/aws/smithy-go@v1.28.6"
         }
       ],
       "checksums": [
@@ -841,9 +841,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-github.com-dustin-go-humanize-v1.0.1",
+      "SPDXID": "SPDXRef-Package-go-github.com-dustin-go-humanize-v1.1.0",
       "name": "github.com/dustin/go-humanize",
-      "versionInfo": "v1.0.1",
+      "versionInfo": "v1.1.0",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "MIT",
@@ -853,7 +853,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/dustin/go-humanize@v1.0.1"
+          "referenceLocator": "pkg:golang/github.com/dustin/go-humanize@v1.1.0"
         }
       ],
       "checksums": [
@@ -1159,6 +1159,29 @@
         {
           "algorithm": "SHA256",
           "checksumValue": "f4c7b0fbdba9660126feab6388ceed10ff744b2c772a63132f64f9ab2ee5fa29"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-go-github.com-google-jsonschema-go-v0.4.3",
+      "name": "github.com/google/jsonschema-go",
+      "versionInfo": "v0.4.3",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "supplier": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/google/jsonschema-go@v0.4.3"
+        }
+      ],
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "2d56c53449691d85d9aea245eb8dac12713e9075d70d5557b82ae1e94805b357"
         }
       ]
     },
@@ -1669,6 +1692,29 @@
       ]
     },
     {
+      "SPDXID": "SPDXRef-Package-go-github.com-modelcontextprotocol-go-sdk-v1.8.0",
+      "name": "github.com/modelcontextprotocol/go-sdk",
+      "versionInfo": "v1.8.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "supplier": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/modelcontextprotocol/go-sdk@v1.8.0"
+        }
+      ],
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "af679003d933f045393a6a029f43da113f9ae364eac651d9ae268392985580f5"
+        }
+      ]
+    },
+    {
       "SPDXID": "SPDXRef-Package-go-github.com-munnerz-goautoneg-v0.0.0-20191010083416-a7dc8b61c822",
       "name": "github.com/munnerz/goautoneg",
       "versionInfo": "v0.0.0-20191010083416-a7dc8b61c822",
@@ -2083,6 +2129,52 @@
       ]
     },
     {
+      "SPDXID": "SPDXRef-Package-go-github.com-segmentio-asm-v1.1.3",
+      "name": "github.com/segmentio/asm",
+      "versionInfo": "v1.1.3",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "supplier": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/segmentio/asm@v1.1.3"
+        }
+      ],
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "e2a78de21d6d8ded2dff0f3189cd32e011630d785da127ebfbc8949012c0947b"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-go-github.com-segmentio-encoding-v0.5.4",
+      "name": "github.com/segmentio/encoding",
+      "versionInfo": "v0.5.4",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "supplier": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/segmentio/encoding@v0.5.4"
+        }
+      ],
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "d6d71a1f7dc6539e371120cc7af6e3257e55ca79634d473211f217b8965b0f16"
+        }
+      ]
+    },
+    {
       "SPDXID": "SPDXRef-Package-go-github.com-shirou-gopsutil-v4-v4.26.6",
       "name": "github.com/shirou/gopsutil/v4",
       "versionInfo": "v4.26.6",
@@ -2194,6 +2286,29 @@
         {
           "algorithm": "SHA256",
           "checksumValue": "c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-go-github.com-yosida95-uritemplate-v3-v3.0.2",
+      "name": "github.com/yosida95/uritemplate/v3",
+      "versionInfo": "v3.0.2",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "supplier": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/yosida95/uritemplate/v3@v3.0.2"
+        }
+      ],
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "0761aadfb1921103752869ee942d4a71bdd54494697684d4b13dc17ad9781191"
         }
       ]
     },
@@ -2520,6 +2635,29 @@
       ]
     },
     {
+      "SPDXID": "SPDXRef-Package-go-golang.org-x-oauth2-v0.36.0",
+      "name": "golang.org/x/oauth2",
+      "versionInfo": "v0.36.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "supplier": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/golang.org/x/oauth2@v0.36.0"
+        }
+      ],
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+        }
+      ]
+    },
+    {
       "SPDXID": "SPDXRef-Package-go-golang.org-x-sync-v0.24.0",
       "name": "golang.org/x/sync",
       "versionInfo": "v0.24.0",
@@ -2750,9 +2888,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-modernc.org-libc-v1.77.1",
+      "SPDXID": "SPDXRef-Package-go-modernc.org-libc-v1.79.0",
       "name": "modernc.org/libc",
-      "versionInfo": "v1.77.1",
+      "versionInfo": "v1.79.0",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "BSD-3-Clause",
@@ -2762,7 +2900,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/modernc.org/libc@v1.77.1"
+          "referenceLocator": "pkg:golang/modernc.org/libc@v1.79.0"
         }
       ],
       "checksums": [
@@ -2819,9 +2957,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-modernc.org-sqlite-v1.60.1",
+      "SPDXID": "SPDXRef-Package-go-modernc.org-sqlite-v1.61.0",
       "name": "modernc.org/sqlite",
-      "versionInfo": "v1.60.1",
+      "versionInfo": "v1.61.0",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "BSD-3-Clause",
@@ -2831,7 +2969,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/modernc.org/sqlite@v1.60.1"
+          "referenceLocator": "pkg:golang/modernc.org/sqlite@v1.61.0"
         }
       ],
       "checksums": [
@@ -3113,12 +3251,12 @@
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-v1.47.3"
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-v1.47.4"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-aws-protocol-eventstream-v1.7.22"
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-aws-protocol-eventstream-v1.7.24"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
@@ -3128,12 +3266,12 @@
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-credentials-v1.20.9"
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-credentials-v1.20.11"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-feature-ec2-imds-v1.20.3"
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-feature-ec2-imds-v1.20.4"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
@@ -3143,67 +3281,67 @@
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-internal-configsources-v1.5.6"
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-internal-configsources-v1.5.7"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-internal-endpoints-v2-v2.8.6"
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-internal-endpoints-v2-v2.8.7"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-internal-v4a-v1.5.6"
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-internal-v4a-v1.5.7"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-internal-accept-encoding-v1.13.21"
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-internal-accept-encoding-v1.13.22"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-internal-checksum-v1.11.7"
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-internal-checksum-v1.11.8"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-internal-presigned-url-v1.14.6"
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-internal-presigned-url-v1.14.7"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-internal-s3shared-v1.20.6"
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-internal-s3shared-v1.20.7"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-s3-v1.114.3"
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-s3-v1.114.5"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-signin-v1.10.4"
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-signin-v1.11.0"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-sso-v1.38.4"
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-sso-v1.38.5"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-ssooidc-v1.43.4"
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-ssooidc-v1.43.5"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-sts-v1.51.4"
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-service-sts-v1.51.5"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-smithy-go-v1.28.5"
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-smithy-go-v1.28.6"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
@@ -3248,7 +3386,7 @@
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-github.com-dustin-go-humanize-v1.0.1"
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-dustin-go-humanize-v1.1.0"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
@@ -3314,6 +3452,11 @@
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
       "relatedSpdxElement": "SPDXRef-Package-go-github.com-gofrs-flock-v0.13.0"
+    },
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-google-jsonschema-go-v0.4.3"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
@@ -3428,6 +3571,11 @@
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-modelcontextprotocol-go-sdk-v1.8.0"
+    },
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
       "relatedSpdxElement": "SPDXRef-Package-go-github.com-munnerz-goautoneg-v0.0.0-20191010083416-a7dc8b61c822"
     },
     {
@@ -3518,6 +3666,16 @@
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-segmentio-asm-v1.1.3"
+    },
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-segmentio-encoding-v0.5.4"
+    },
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
       "relatedSpdxElement": "SPDXRef-Package-go-github.com-shirou-gopsutil-v4-v4.26.6"
     },
     {
@@ -3539,6 +3697,11 @@
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
       "relatedSpdxElement": "SPDXRef-Package-go-github.com-xanzy-ssh-agent-v0.3.3"
+    },
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-yosida95-uritemplate-v3-v3.0.2"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
@@ -3613,6 +3776,11 @@
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-go-golang.org-x-oauth2-v0.36.0"
+    },
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
       "relatedSpdxElement": "SPDXRef-Package-go-golang.org-x-sync-v0.24.0"
     },
     {
@@ -3663,7 +3831,7 @@
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-modernc.org-libc-v1.77.1"
+      "relatedSpdxElement": "SPDXRef-Package-go-modernc.org-libc-v1.79.0"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
@@ -3678,7 +3846,7 @@
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-modernc.org-sqlite-v1.60.1"
+      "relatedSpdxElement": "SPDXRef-Package-go-modernc.org-sqlite-v1.61.0"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",

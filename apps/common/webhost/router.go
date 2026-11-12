@@ -242,7 +242,10 @@ func debugShortcutEnv() bool {
 // handlers bundles what the HTTP methods in handlers_system.go and
 // handlers_operations.go need, built once by NewRouter.
 type handlers struct {
-	agents        AgentAccess
+	agents AgentAccess
+	// agentPolicy is the agents: block as it resolved, for GET
+	// /system/capabilities.
+	agentPolicy   service.AgentPolicy
 	platform      capabilities.PlatformAdapter
 	backend       BackupServiceClient
 	binaryVersion string
@@ -333,6 +336,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	h := &handlers{
 		agents:        agents,
+		agentPolicy:   policy,
 		platform:      cfg.Platform,
 		backend:       cfg.Backend,
 		binaryVersion: cfg.BinaryVersion,
@@ -854,10 +858,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Get("/ssh-keys", h.listSSHKeys)
 
 		// EPIC U (#1345): the agent token routes. Session only: authMiddleware
-		// refuses a bearer here (agentDeniedPrefixes), so a token can never
+		// refuses a bearer here (core/agenttools' deny list), so a token can never
 		// mint, list or revoke a token.
 		r.Get("/agent/tokens", h.listAgentTokens)
-		r.With(requireCSRF).Post("/agent/tokens", h.mintAgentToken)
+		r.With(requireCSRF, requireMintTransportAck(h.enforce)).Post("/agent/tokens", h.mintAgentToken)
 		r.With(requireCSRF).Post("/agent/tokens/{id}/revoke", h.revokeAgentToken)
 		// The audit trail (#1348): session only for the same reason.
 		r.Get("/agent/audit", h.listAgentAudit)
@@ -866,6 +870,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// a cookie never reaches it, and a bearer is not a credential a browser
 		// sends by itself.
 		r.Handle("/agent/mcp", h.mcpEndpoint(root, policy, guard))
+
+		// EPIC U (#1346): the catalogue. Static, so a token may read it.
+		r.Get("/agent/tools", h.listAgentTools)
 		r.Get("/ssh/key-candidates", h.listSSHKeyCandidates)
 
 		// Issue #140 (B3.7): the one generic settings surface — a read

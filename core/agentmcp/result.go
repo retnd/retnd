@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/retnd/retnd/core/agenttools"
 	"github.com/retnd/retnd/core/cliecho"
 )
 
@@ -119,8 +120,20 @@ func routeParams(route string) []string {
 	}
 }
 
+// callRoute is the contract's path for a catalogue row. The catalogue keys a
+// row by the router's own pattern, as cliecho does, and the router serves one
+// route through a catch-all (GET /backup-sets/*), whose contract path spells
+// the two segments it carries. The command is echoed from the router's
+// pattern and the call is made on the contract's.
+func callRoute(t agenttools.Row) string {
+	if t.Route == "/backup-sets/*" {
+		return "/backup-sets/{source}/{set}"
+	}
+	return t.Route
+}
+
 // echo is the command the CLI would have for this call.
-func echo(t Tool, params []string, args []string, query url.Values) string {
+func echo(t agenttools.Row, params []string, args []string, query url.Values) string {
 	named := make(map[string]string, len(params))
 	for i, p := range params {
 		named[p] = args[i]
