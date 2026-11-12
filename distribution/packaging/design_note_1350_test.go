@@ -14,7 +14,7 @@ import (
 // token state and every confirmation state, with the contrast ratio of each
 // text pair recorded. Nothing read the note before this file, so a state
 // dropped from it, a ratio left out or a ratio under its line went unnoticed.
-// scripts/bdtools/agents/controls_ui.py plants each of the three.
+// scripts/bdtools/agents/controls_design.py plants each of the three.
 
 const (
 	agentsNoteHTML = "../../docs/design/1350-agents.html"
