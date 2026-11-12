@@ -57,10 +57,16 @@ func TestTheTokenNeverTravelsOnTheCommandLine(t *testing.T) {
 	}
 
 	usage := captureStderr(t, usage)
+	// The synopsis line is what documents flags. The prose under it says
+	// "there is no --token flag", and the next entry (agent audit, since
+	// #1348) has a --token ID that is a token id, so neither is read.
 	start := strings.Index(usage, "agent serve --stdio")
-	end := strings.Index(usage, "ssh host-key-probe")
-	if start < 0 || end < start || strings.Contains(usage[start:end], "--token ") {
-		t.Errorf("the usage entry for agent serve is missing or documents a --token flag")
+	if start < 0 {
+		t.Fatal("the usage has no agent serve entry")
+	}
+	synopsis, _, _ := strings.Cut(usage[start:], "\n")
+	if strings.Contains(synopsis, "--token ") || strings.Contains(synopsis, "--token]") {
+		t.Errorf("the usage entry for agent serve documents a --token flag: %q", synopsis)
 	}
 }
 
