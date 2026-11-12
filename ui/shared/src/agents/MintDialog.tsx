@@ -21,12 +21,24 @@
  * before the reveal: once Create token is pressed, Cancel, Escape and the
  * backdrop do nothing until the answer comes (a failure keeps the form, a
  * success opens the reveal), because a closed form would drop the response.
+ *
+ * # An answer that never came is not a refusal (#1395)
+ *
+ * A request that got no reply, or a reply nobody could read, may have made
+ * the token: only the answer was lost, and the secret cannot be shown again.
+ * So the dialog refreshes the list, says that, names the agent, and sends
+ * the user to revoke it before making another. There is no client timeout on
+ * purpose: it could drop a secret that is still arriving, so a stuck request
+ * ends with a reload and the message says so.
+ *
+ * After any refusal focus goes to the field it names, or to the message, so a
+ * keyboard user is never left on the page behind the dialog.
  */
 import { useEffect, useId, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import { acknowledgeInsecureTransport } from "@shared/api/client";
-import { describeFailure } from "@shared/api/failure";
+import { apiErrorOf, describeFailure } from "@shared/api/failure";
 import { ConfirmationDialog } from "@shared/components/ConfirmationDialog";
 import { FieldHelp } from "@shared/components/FieldHelp";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
@@ -35,14 +47,21 @@ import { CommandEcho } from "@shared/pages/CommandEcho";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { TOOLTIPS } from "@shared/tooltips/tooltips";
 import { copyText } from "@shared/utilities/copyText";
-import type { AgentScope, MintedAgentToken } from "@shared/types/agents";
+import type { AgentScope, AgentToken, MintedAgentToken } from "@shared/types/agents";
 import { mintCommand } from "./agentCommands";
 import { mintRefusalField } from "./agentWire";
 import "./agents.css";
 
 const DEFAULT_EXPIRY = "90d";
 
-export function MintDialog({ onMinted, onClose }: { onMinted(): void; onClose(): void }) {
+export function MintDialog({ tokens, onMinted, onUncertain, onClose }: {
+  /** The list as it stands, so a token whose answer was lost can be pointed at once the list is read again. */
+  tokens: AgentToken[] | null | undefined;
+  onMinted(): void;
+  /** The answer to a create never arrived: re-read the list. */
+  onUncertain(): void;
+  onClose(): void;
+}) {
   const api = useApi();
   const gate = useDestructiveGate();
   const [name, setName] = useState("");
@@ -57,12 +76,29 @@ export function MintDialog({ onMinted, onClose }: { onMinted(): void; onClose():
   const [minted, setMinted] = useState<{ answer: MintedAgentToken; command: string } | null>(null);
   const nameId = useId();
   const expiryId = useId();
+  // The name whose create ended with no usable answer.
+  const [unanswered, setUnanswered] = useState<string | null>(null);
+  const nameInput = useRef<HTMLInputElement>(null);
+  const expiryInput = useRef<HTMLInputElement>(null);
+  const scopeBox = useRef<HTMLFieldSetElement>(null);
+  const message = useRef<HTMLDivElement>(null);
+
+  // The Create button is disabled while the answer is awaited, which drops focus to the page behind the modal. When a refusal lands, focus comes back inside: the field it names, else the message.
+  useEffect(() => {
+    if (!error) return;
+    const target = error.field === "name" ? nameInput.current
+      : error.field === "expires_in" ? expiryInput.current
+      : error.field === "scope" ? scopeBox.current?.querySelector<HTMLElement>("input:checked") ?? null
+      : message.current;
+    target?.focus();
+  }, [error]);
 
   if (minted) return <RevealDialog minted={minted.answer} command={minted.command} onStored={onClose} />;
 
   const create = async () => {
     setBusy(true);
     setError(null);
+    setUnanswered(null);
     // A token is the longest-lived secret this product hands to a browser and
     // the answer is the one time it crosses the connection, so a connection
     // that is not encrypted gets the same question a password gets.
@@ -81,6 +117,13 @@ export function MintDialog({ onMinted, onClose }: { onMinted(): void; onClose():
       onMinted();
     } catch (e) {
       const message = describeFailure(e, "the token was not created").message;
+      // No typed answer (no reply, an unreadable one): the token may exist, so re-read the list.
+      if (apiErrorOf(e) === null) {
+        setUnanswered(name.trim());
+        onUncertain();
+      } else {
+        setUnanswered(null);
+      }
       // Q16: every mint refusal starts with the request's field name and a colon.
       setError({ message, field: mintRefusalField(message) });
     } finally {
@@ -105,6 +148,7 @@ export function MintDialog({ onMinted, onClose }: { onMinted(): void; onClose():
               <label htmlFor={nameId}><InfoTooltip id="agents.mint.name"><span className="field__label">Name</span></InfoTooltip></label>
               <input
                 id={nameId}
+                ref={nameInput}
                 className={"input input--mono input--strong-edge" + (error?.field === "name" ? " ag-input-error" : "")}
                 value={name}
                 autoComplete="off"
@@ -122,7 +166,7 @@ export function MintDialog({ onMinted, onClose }: { onMinted(): void; onClose():
           )}
         </FieldHelp>
 
-        <fieldset className="ag-radios" aria-label="Scope">
+        <fieldset ref={scopeBox} className="ag-radios" aria-label="Scope">
           <legend>
             <InfoTooltip id="agents.mint.scope"><span>Scope</span></InfoTooltip>
           </legend>
@@ -175,6 +219,7 @@ export function MintDialog({ onMinted, onClose }: { onMinted(): void; onClose():
               <label htmlFor={expiryId}><InfoTooltip id="agents.mint.expiry"><span className="field__label">Expires in</span></InfoTooltip></label>
               <input
                 id={expiryId}
+                ref={expiryInput}
                 className={"input input--mono input--strong-edge" + (error?.field === "expires_in" ? " ag-input-error" : "")}
                 value={expiresIn}
                 autoComplete="off"
@@ -196,10 +241,33 @@ export function MintDialog({ onMinted, onClose }: { onMinted(): void; onClose():
         </span>
 
         {error && error.field === null ? (
-          <p className="ag-err" role="alert" data-mint-error="form">{error.message}</p>
+          <div ref={message} tabIndex={-1} role="alert" data-mint-error="form" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <p className="ag-err" style={{ margin: 0 }}>{error.message}</p>
+            {unanswered !== null ? <UnansweredNotice name={unanswered} token={tokens?.find((t) => t.name === unanswered && t.status === "active")} /> : null}
+          </div>
         ) : null}
       </div>
     </ConfirmationDialog>
+  );
+}
+
+/** What to do when the answer to a create never came. The sentences are the design note's voice: plain, about the one thing that cannot be undone. */
+function UnansweredNotice({ name, token }: { name: string; token: AgentToken | undefined }) {
+  return (
+    <p className="ag-statement" data-mint-unanswered="">
+      {token ? (
+        <>
+          <code className="mono">agent:{name}</code> is in the list now ({token.prefix}), so it was created, and its token cannot be shown again.
+          Cancel this dialog and revoke it in the list, then create the token again.
+        </>
+      ) : (
+        <>
+          No answer came back, so there is no telling whether <code className="mono">agent:{name}</code> was created. If it was, its token cannot be
+          shown again. Cancel this dialog, check the list for it and revoke it, then create the token again.
+        </>
+      )}{" "}
+      If the request seems stuck, reload the page.
+    </p>
   );
 }
 
