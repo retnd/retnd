@@ -90,7 +90,9 @@ def excerpt(red: str) -> str:
     # "RED: --- FAIL: TestX; --- FAIL: TestY | foo_test.go:12: detail"
     detail = red.split(" | ", 1)[1] if " | " in red else ""
     detail = re.sub(r"^\S+_test\.go:\d+:\s*", "", detail).strip()
-    return detail.replace("|", "/")[:200]
+    # Single quotes and no backticks: the guard reads double-quoted runs as mutation
+    # labels and backticked ones as paths, so an excerpt must not make either.
+    return detail.replace("|", "/").replace('"', "'").replace("`", "")[:200]
 
 
 def self_test_files() -> list[str]:
@@ -202,8 +204,10 @@ def main() -> int:
     if "TC-05" in rows and BLOCKED in lines[rows["TC-05"]]:
         if ledger and all(r in flipped or "PASS" in lines[rows[r]].split(" | ")[4] for r in ledger):
             ids = ", ".join(sorted(ledger, key=lambda r: int(r.split(".")[1])))
-            flip("TC-05", f"Every `TV.n` guard was run and watched to fail ({ids}); the date is the last of those runs.",
-                 max(r["stamp"] for rr in by_row.values() for r in rr)[:10])
+            eg = [latest[lab]["label"] for r in sorted(ledger, key=lambda r: int(r.split(".")[1])) for lab in [x["label"] for x in by_row.get(r, [])][:1]][:2]
+            quoted = " and ".join('"' + lab + '"' for lab in eg)
+            last = max(r["stamp"] for rr in by_row.values() for r in rr)[:10]
+            flip("TC-05", f"Every `TV.n` guard was run and watched to fail ({ids}), for example {quoted}; the last of those runs was {last}.", last)
             flipped.append("TC-05")
         else:
             skipped.append("TC-05: some TV.n row is still not PASS")
