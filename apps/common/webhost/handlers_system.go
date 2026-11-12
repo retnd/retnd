@@ -234,8 +234,10 @@ type destructiveOperationsResponse struct {
 
 	// InsecureTransportAckRequired says the browser behind THIS request
 	// reached retnd over plain HTTP from another machine, as the hop facing
-	// it judged (gate_profile.go), so a gated act needs the extra
-	// acknowledgement. It is computed from the request that asked, which is
+	// it judged (gate_profile.go), so an act that sends or returns a secret
+	// over that connection (a gated act, and the mint of an agent token) needs
+	// the extra acknowledgement. It does not depend on the gate's state: the
+	// mint asks with the gate shut. It is computed from the request that asked, which is
 	// why the read is answered Cache-Control: no-store.
 	InsecureTransportAckRequired bool `json:"insecure_transport_ack_required"`
 }
@@ -270,7 +272,7 @@ func (h *handlers) systemCapabilities(w http.ResponseWriter, r *http.Request) {
 			State:                        gateState,
 			Reason:                       gateReason,
 			StepUpRequired:               stepUp,
-			InsecureTransportAckRequired: h.enforce.insecureTransportAckNeeded(r),
+			InsecureTransportAckRequired: h.enforce.plainHTTPFromElsewhere(r),
 		},
 		AgentsHTTPTransport: agentsHTTPTransport,
 	})

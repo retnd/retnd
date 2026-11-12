@@ -4633,7 +4633,8 @@ export function createMockApi(
                   ? "gateway profile: its identity is a header this build cannot verify, so the gate stays shut until #92"
                   : "gate shut until #92",
               stepUpRequired: false,
-              insecureTransportAckRequired: false
+              // The engine reports the connection, not the gate (the agent mint asks with the gate shut).
+              insecureTransportAckRequired: insecureTransport
             }
       });
     },

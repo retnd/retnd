@@ -63,7 +63,9 @@ The token comes back in the mint response, so over plain HTTP from another machi
 exposed the way an exported key is. The engine therefore refuses `POST /agent/tokens` there
 with `403 INSECURE_TRANSPORT_ACK_REQUIRED` unless the request carries the insecure-transport
 acknowledgement, the one key export already asks. It reads the connection and not the
-destructive gate, so it holds on a gateway profile too. The mint dialog asks the person first
+destructive gate, so it holds on a gateway profile too, and `GET /system/capabilities` reports
+`insecure_transport_ack_required` from the connection alone (plain HTTP from another machine),
+whatever the gate says, so the dialog asks exactly when the engine would refuse. The mint dialog asks the person first
 and the engine asks the request, so the browser and a remote `retnd agent token create`
 behave the same: the latter exits 52 until `RETND_API_INSECURE_TRANSPORT=acknowledged` is
 set. Loopback and HTTPS need nothing. The owner chose enforcement over browser-only consent,
