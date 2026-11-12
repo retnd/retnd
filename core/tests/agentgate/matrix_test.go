@@ -44,6 +44,12 @@ const matrixPath = "docs/conformance/epic-u-matrix.md"
 var selfTests = []string{
 	"scripts/tests/epic-u-closure.test.sh",
 	"core/tests/agentgate/matrix_test.go",
+	"scripts/bdtools/agents/controls_tokens.py",
+	"scripts/bdtools/agents/controls_catalogue.py",
+	"scripts/bdtools/agents/controls_audit.py",
+	"scripts/bdtools/agents/controls_design.py",
+	"scripts/bdtools/agents/controls_confirm.py",
+	"scripts/bdtools/agents/controls_ui.py",
 }
 
 var (
