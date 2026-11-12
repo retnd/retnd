@@ -911,6 +911,13 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
 		if d := s.Description; d != "" {
 			fmt.Fprintf(&b, "/** %s */\n", strings.ReplaceAll(wrapComment(d), "\n// ", "\n *  "))
 		}
+		// A free-form object (additionalProperties: true and nothing
+		// declared, as an MCP frame is) is a record, not an empty
+		// interface: TypeScript reads {} as "any non-nullish value".
+		if len(props) == 0 && len(embeds) == 0 && s.AdditionalProps != nil && *s.AdditionalProps {
+			fmt.Fprintf(&b, "export type Wire%s = Record<string, unknown>;\n\n", name)
+			continue
+		}
 		fmt.Fprintf(&b, "export interface Wire%s", name)
 		if len(embeds) > 0 {
 			ext := make([]string, 0, len(embeds))
