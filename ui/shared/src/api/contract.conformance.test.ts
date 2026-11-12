@@ -714,6 +714,13 @@ describe("every request the shared client makes is a declared operation", () => 
    * Asserted EXACTLY, like its counterpart, so the list can only shrink.
    */
   const UNREACHED_SERVER_OPERATIONS = [
+    // EPIC U: the MCP endpoint's three methods are the agent's protocol and
+    // never the browser's (#1347), and GET /agent/confirmations/{id} is the
+    // confirmation_status tool a token reads its own ask through (#1349);
+    // the Agents card lists every confirmation instead.
+    "deleteAgentMcp",
+    "getAgentConfirmation",
+    "getAgentMcp",
     // getSession is read by something that is not this client: the platform
     // bridge's own call (platform/localSession.ts, which reads the envelope
     // itself rather than going through httpApi). getSystemCapabilities left
@@ -735,7 +742,8 @@ describe("every request the shared client makes is a declared operation", () => 
     // out. They were never a standing permission — nothing in ui/shared
     // could call them without this list shrinking, which is the property
     // the exact assertion below enforces in both directions.
-    "getSession"
+    "getSession",
+    "postAgentMcp"
     //
     // EPIC T's suite listing (#1315) landed its route and verb before any
     // screen and was pinned here; the Settings suite choice (#1318) calls

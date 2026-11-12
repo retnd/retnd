@@ -19,17 +19,20 @@ test.describe("#1351 the audit table", () => {
     await expect(rows(page)).toHaveCount(8);
     await expect(rows(page).first()).toContainText("status");
     // Reads are rows like any other: a 200 chip.
-    await expect(rows(page).first().locator('[data-chip="outcome"]')).toHaveText("✓200");
+    await expect(rows(page).first().locator('[data-chip="outcome"]')).toHaveText("200");
   });
 
   test("#1351 draws a success, a call waiting for a person and a refusal as different chips, none by colour alone", async ({ page }) => {
     await openAgents(page);
     const chip = (tool: string, n = 0) => region(page, "audit").locator('tr[data-tool="' + tool + '"] [data-chip="outcome"]').nth(n);
-    await expect(chip("status")).toHaveText("✓200");
-    await expect(chip("run_cycle", 0)).toContainText("◇");
+    // The success and refusal marks are the design system's icon artwork,
+    // the waiting one a clock glyph: three different marks beside the words.
+    await expect(chip("status")).toHaveText("200");
+    await expect(chip("status").locator(".agchip__glyph svg")).toHaveCount(1);
+    await expect(chip("run_cycle", 0)).toContainText("◷");
     await expect(chip("run_cycle", 0)).toContainText("AGENT_CONFIRMATION_REQUIRED");
     const refused = region(page, "audit").locator('[data-chip="outcome"][data-state="refused"]').first();
-    await expect(refused).toContainText("✕");
+    await expect(refused.locator(".agchip__glyph svg")).toHaveCount(1);
     await expect(refused).toContainText("AGENT_SCOPE_INSUFFICIENT");
     // A read token that tried to change something is a refusal chip like any other: no extra alarm.
     const border = (c: ReturnType<typeof chip>) => c.evaluate((e) => getComputedStyle(e).borderTopWidth);
