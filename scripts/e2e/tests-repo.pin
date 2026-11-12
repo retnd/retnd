@@ -638,6 +638,6 @@ TESTS_REPO_SHA=36e018bdca96579b1a0444e31201a05f9a1ba6ad
 # retnd#1352. This replaces acdc5e0. #100 is one spec file and a MATRIX.md
 # row, but the range also carries retnd-tests#99 (95ac42f, the web-ui spec
 # refresh for retnd#913), which main had not pinned yet: on cut/0.8.0, #1342
-# pinned it and took the drifted entries off known-red.txt. Here known-red.txt
-# only moved its pin= header (bump_tests_pin.py does that), so the browser
-# suite at this pin has not been judged against the list.
+# pinned it and took the drifted entries off known-red.txt. This change does
+# the same (cap 2, the two flaky entries kept), and the 9 refreshed spec files
+# plus the two still listed ran green through the lock at this pin.
