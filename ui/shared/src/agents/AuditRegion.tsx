@@ -15,10 +15,12 @@ import { describeFailure, apiErrorOf } from "@shared/api/failure";
 import { ErrorState } from "@shared/components/EmptyState";
 import { FieldHelp } from "@shared/components/FieldHelp";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
+import { CommandEcho } from "@shared/pages/CommandEcho";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { AgentAuditRow, AgentTool, AgentToken } from "@shared/types/agents";
 import { stamp } from "@shared/utilities/format";
 import { OutcomeChip } from "./AgentChips";
+import { auditCommand } from "./agentCommands";
 import "./agents.css";
 
 type Failure = { message: string; remediation?: string; correlationId?: string };
@@ -115,6 +117,7 @@ export function AuditRegion({ tokens, tools, revision }: { tokens: AgentToken[];
           )}
         </FieldHelp>
       </form>
+      <CommandEcho label="Equivalent command" commands={[auditCommand({ tokenId: tokenId || undefined, since: since || undefined })]} />
 
       {failure && rows === null ? (
         <ErrorState message={failure.message} remediation={failure.remediation} correlationId={failure.correlationId} onRetry={() => { setFailure(null); setNonce((n) => n + 1); }} />
@@ -149,7 +152,7 @@ export function AuditRegion({ tokens, tools, revision }: { tokens: AgentToken[];
                 <AuditRow
                   key={r.seq}
                   r={r}
-                  who={r.tokenId === "" ? "no token matched" : tokens.some((t) => t.id === r.tokenId) ? "agent:" + tokens.find((t) => t.id === r.tokenId)!.name : r.tokenId}
+                  who={r.tokenId === "" ? "no token matched" : r.tokenName === "" ? r.tokenId : "agent:" + r.tokenName}
                   needs={tools.find((t) => t.name === r.tool)?.scope ?? ""}
                   open={open.has(r.seq)}
                   onToggle={() => toggle(r.seq)}

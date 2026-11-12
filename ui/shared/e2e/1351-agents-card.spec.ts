@@ -117,11 +117,11 @@ test.describe("#1351 the tokens table", () => {
     await expect(tokenRow(page, "nightly-triage").locator('[data-chip="status"]')).toHaveText("⊘revoked");
   });
 
-  test("#1351 the revoke dialog draws no command: the response carries none and the browser composes none", async ({ page }) => {
+  test("#1351 the revoke dialog draws the revoke twin the browser composes", async ({ page }) => {
     await openAgents(page);
     await tokenRow(page, "nightly-triage").getByRole("button", { name: "Revoke agent:nightly-triage" }).click();
-    await expect(page.getByRole("dialog")).not.toContainText("retnd agent token");
-    await expect(page.getByRole("dialog")).not.toContainText("Equivalent command");
+    // Q13: the revoke twin is composed in the browser and pinned to cliecho.
+    await expect(page.getByRole("dialog")).toContainText("retnd agent token revoke tok_01");
   });
 });
 
@@ -152,12 +152,20 @@ test.describe("#1351 what each scope can call, and the transport line", () => {
   test("#1351 states how agents connect and where the HTTP transport is set, as text with no control", async ({ page }) => {
     await openAgents(page);
     const line = card(page).locator("[data-agents-transport]");
+    await expect(line).toContainText("HTTP transport: off");
     await expect(line).toContainText("retnd agent serve --stdio");
     await expect(line).toContainText("http_transport: on");
     await expect(line).toContainText("cannot be read by an older build");
     await expect(line.getByRole("button")).toHaveCount(0);
     await expect(card(page).getByRole("switch")).toHaveCount(0);
     await expect(card(page).getByRole("checkbox")).toHaveCount(0);
+  });
+});
+
+test.describe("#1367 the transport line follows the capabilities", () => {
+  test("#1367 says HTTP transport: on when the engine reports it on", async ({ page }) => {
+    await openAgents(page, "agents-http-on");
+    await expect(card(page).locator("[data-agents-transport]")).toContainText("HTTP transport: on");
   });
 });
 

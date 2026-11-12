@@ -180,7 +180,7 @@ test.describe("#1351 Deny", () => {
   });
 });
 
-test.describe("#1351 the echo is never composed in the browser", () => {
+test.describe("#1351 a confirmation row draws the engine's command, never one the browser composed", () => {
   test("#1351 the only command a row draws is the one the record carries, byte for byte", async ({ page }) => {
     await openAgents(page, "agents-pending");
     await expect(pending(page, "cf_01").locator("[data-confirmation-command] code")).toHaveText("retnd run");

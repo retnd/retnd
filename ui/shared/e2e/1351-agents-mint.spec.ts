@@ -82,7 +82,7 @@ test.describe("#1351 the mint form", () => {
     await dlg.getByLabel("Expires in", { exact: true }).fill("400d");
     await dlg.getByRole("button", { name: "Create token" }).click();
     const err = dlg.locator('[data-mint-error="expiry"]');
-    await expect(err).toHaveText("expires_in may not exceed 365d.");
+    await expect(err).toHaveText("expires_in: may not exceed 365d.");
     await expect(dlg.getByLabel("Name", { exact: true })).toHaveValue("too-long");
     await expect(dlg.getByLabel("Expires in", { exact: true })).toHaveValue("400d");
     await expect(dlg.getByLabel("Expires in", { exact: true })).toHaveAttribute("aria-invalid", "true");
@@ -97,7 +97,7 @@ test.describe("#1351 the mint form", () => {
     const dlg = await openMint(page);
     await dlg.getByLabel("Name", { exact: true }).fill("Bad Name");
     await dlg.getByRole("button", { name: "Create token" }).click();
-    await expect(dlg.locator('[data-mint-error="name"]')).toContainText("name must be 1 to 40 lowercase letters");
+    await expect(dlg.locator('[data-mint-error="name"]')).toContainText("name: must be 1 to 40 lowercase letters");
   });
 
   test("#1351 on an unencrypted connection the question comes before the token is requested", async ({ page }) => {
@@ -128,9 +128,9 @@ test.describe("#1351 the token is shown once", () => {
     await expect(dlg).toContainText("revoke the token and make another");
     await expect(dlg).toContainText("retnd agent serve --stdio --token-file PATH");
     await expect(dlg).toContainText("RETND_AGENT_TOKEN");
-    // The mint response carries no command, so none is drawn: the browser does not compose one.
-    await expect(dlg).not.toContainText("Equivalent command");
-    await expect(dlg).not.toContainText("retnd agent token create");
+    // Q13: the browser composes the create twin (pinned to cliecho by agentCommands.1367.test.ts), so the reveal keeps the line the form showed.
+    await expect(dlg).toContainText("retnd agent token create nightly-triage --scope read --expires-in 90d");
+    await expect(dlg).not.toContainText(SECRET);
   });
 
   test("#1351 has exactly one way out: no close glyph, no Cancel, Escape and the backdrop do nothing", async ({ page }) => {
@@ -185,7 +185,7 @@ test.describe("#1351 the token is shown once", () => {
     await dlg.getByRole("button", { name: "I have stored it" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     const row = tokenRow(page, "weekly-digest");
-    await expect(row.locator("[data-token-prefix]")).toHaveText("rat_Qm7Z");
+    await expect(row.locator("[data-token-prefix]")).toHaveText("rat_EXAM");
     await expect(row).toContainText("in 90 days");
     await expectNowhere(page);
     // Hovering the new row's controls opens tooltips; none of them holds it either.

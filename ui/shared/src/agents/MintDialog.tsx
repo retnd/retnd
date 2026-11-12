@@ -28,10 +28,13 @@ import { ConfirmationDialog } from "@shared/components/ConfirmationDialog";
 import { FieldHelp } from "@shared/components/FieldHelp";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
 import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
+import { CommandEcho } from "@shared/pages/CommandEcho";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { TOOLTIPS } from "@shared/tooltips/tooltips";
 import { copyText } from "@shared/utilities/copyText";
 import type { AgentScope, MintedAgentToken } from "@shared/types/agents";
+import { mintCommand } from "./agentCommands";
+import { mintRefusalField } from "./agentWire";
 import "./agents.css";
 
 const DEFAULT_EXPIRY = "90d";
@@ -44,12 +47,13 @@ export function MintDialog({ onMinted, onClose }: { onMinted(): void; onClose():
   const [fold, setFold] = useState(false);
   const [expiresIn, setExpiresIn] = useState(DEFAULT_EXPIRY);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<{ message: string; field: "name" | "expiry" | null } | null>(null);
-  const [minted, setMinted] = useState<MintedAgentToken | null>(null);
+  const [error, setError] = useState<{ message: string; field: "name" | "expires_in" | "scope" | null } | null>(null);
+  const echo = name.trim() === "" ? null : mintCommand({ name: name.trim(), scope, expiresIn: expiresIn.trim() });
+  const [minted, setMinted] = useState<{ answer: MintedAgentToken; command: string } | null>(null);
   const nameId = useId();
   const expiryId = useId();
 
-  if (minted) return <RevealDialog minted={minted} onStored={onClose} />;
+  if (minted) return <RevealDialog minted={minted.answer} command={minted.command} onStored={onClose} />;
 
   const create = async () => {
     setBusy(true);
@@ -58,17 +62,18 @@ export function MintDialog({ onMinted, onClose }: { onMinted(): void; onClose():
     // the answer is the one time it crosses the connection, so a connection
     // that is not encrypted gets the same question a password gets.
     if (gate.insecureTransportAckRequired && !(await acknowledgeInsecureTransport())) {
-      setError({ message: "Nothing was created. This connection is not encrypted, and the token would come back over it, so the request was not sent.", field: null });
+      setError({ message: "Nothing was created. This connection is not encrypted, and the token comes back over this connection, so the request was not sent.", field: null });
       setBusy(false);
       return;
     }
     try {
       const answer = await api.mintAgentToken({ name: name.trim(), scope, expiresIn: expiresIn.trim() });
-      setMinted(answer);
+      setMinted({ answer, command: echo ?? "" });
       onMinted();
     } catch (e) {
       const message = describeFailure(e, "the token was not created").message;
-      setError({ message, field: /^expires_in\b/.test(message) ? "expiry" : /^name\b/.test(message) ? "name" : null });
+      // Q16: every mint refusal starts with the request's field name and a colon.
+      setError({ message, field: mintRefusalField(message) });
     } finally {
       setBusy(false);
     }
@@ -116,7 +121,7 @@ export function MintDialog({ onMinted, onClose }: { onMinted(): void; onClose():
             <input type="radio" name="agent-scope" checked={scope === "read"} onChange={() => setScope("read")} />
             <span>
               <code className="mono">read</code>
-              <span className="ag-secondary">It can look, and it cannot start or change anything.</span>
+              <span className="ag-secondary">It can look, and it cannot start or change anything. Every scope includes it.</span>
             </span>
           </label>
           <InfoTooltip id="agents.mint.scope.more">
@@ -148,6 +153,7 @@ export function MintDialog({ onMinted, onClose }: { onMinted(): void; onClose():
               </label>
             </div>
           ) : null}
+          {error?.field === "scope" ? <span className="ag-fielderr" role="alert" data-mint-error="scope">{error.message}</span> : null}
         </fieldset>
 
         <FieldHelp label="Expires in" help={FIELD_HELP.agentsMintExpiry}>
@@ -156,18 +162,20 @@ export function MintDialog({ onMinted, onClose }: { onMinted(): void; onClose():
               <label htmlFor={expiryId}><InfoTooltip id="agents.mint.expiry"><span className="field__label">Expires in</span></InfoTooltip></label>
               <input
                 id={expiryId}
-                className={"input input--mono input--strong-edge" + (error?.field === "expiry" ? " ag-input-error" : "")}
+                className={"input input--mono input--strong-edge" + (error?.field === "expires_in" ? " ag-input-error" : "")}
                 value={expiresIn}
                 autoComplete="off"
                 spellCheck={false}
                 aria-describedby={helpId}
-                aria-invalid={error?.field === "expiry" ? true : undefined}
+                aria-invalid={error?.field === "expires_in" ? true : undefined}
                 onChange={(e) => setExpiresIn(e.target.value)}
               />
-              {error?.field === "expiry" ? <span className="ag-fielderr" role="alert" data-mint-error="expiry">{error.message}</span> : null}
+              {error?.field === "expires_in" ? <span className="ag-fielderr" role="alert" data-mint-error="expiry">{error.message}</span> : null}
             </div>
           )}
         </FieldHelp>
+
+        {echo ? <CommandEcho label="Equivalent command" commands={[echo]} /> : null}
 
         {error && error.field === null ? (
           <p className="ag-err" role="alert" data-mint-error="form">{error.message}</p>
@@ -180,7 +188,7 @@ export function MintDialog({ onMinted, onClose }: { onMinted(): void; onClose():
 const FOCUSABLE = "textarea, button:not(:disabled)";
 
 /** The token, once. The only way out is the button at the foot. */
-function RevealDialog({ minted, onStored }: { minted: MintedAgentToken; onStored(): void }) {
+function RevealDialog({ minted, command, onStored }: { minted: MintedAgentToken; command: string; onStored(): void }) {
   const field = useRef<HTMLTextAreaElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
@@ -249,6 +257,7 @@ function RevealDialog({ minted, onStored }: { minted: MintedAgentToken; onStored
             Use it with <code className="mono">retnd agent serve --stdio --token-file PATH</code> (a file readable only by you) or the{" "}
             <code className="mono">RETND_AGENT_TOKEN</code> environment variable, and never on a command line.
           </p>
+          {command ? <CommandEcho label="Equivalent command" commands={[command]} /> : null}
         </div>
         <div className="card__footer" style={{ display: "flex", justifyContent: "flex-end", borderRadius: "0 0 10px 10px" }}>
           <InfoTooltip id="agents.mint.stored">

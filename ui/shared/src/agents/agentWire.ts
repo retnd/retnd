@@ -31,10 +31,26 @@ export interface WireListAgentAuditResponse {
     seq: number;
     status: number;
     token_id: string;
+    /**
+     * Q15 (#1365): the name, joined at read time by the engine, empty for a row
+     * with no token. Optional here only until #1365's generated binding is merged
+     * in (TODO at integration: delete `?` and this note).
+     */
+    token_name?: string;
     tool: string;
     transport: string;
   }>;
   next_cursor?: string;
+}
+
+/**
+ * Which form field a mint refusal belongs to (Q16, #1367). The engine's contract
+ * is that every mint INVALID_REQUEST message starts with the request's JSON
+ * field name and a colon; anything else is the form's own error.
+ */
+export function mintRefusalField(message: string): "name" | "expires_in" | "scope" | null {
+  const m = /^(name|expires_in|scope):/.exec(message);
+  return m ? (m[1] as "name" | "expires_in" | "scope") : null;
 }
 
 export const fromWireAgentToken = (w: WireAgentToken): AgentToken => ({
@@ -85,6 +101,7 @@ const fromWireAuditRow = (w: WireListAgentAuditResponse["entries"][number]): Age
   seq: w.seq,
   at: w.at,
   tokenId: w.token_id,
+  tokenName: w.token_name ?? "",
   tool: w.tool,
   transport: w.transport,
   arguments: w.arguments,

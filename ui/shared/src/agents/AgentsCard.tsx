@@ -23,13 +23,12 @@
  * edit, no "always allow", no bulk approve, no request body. See section 12 of
  * the design note.
  *
- * # The transport line says no more than the code can read
+ * # The transport line
  *
- * No route carries whether the HTTP transport is on, and the MCP endpoint
- * refuses a browser's cookie for another reason, so the card cannot probe it.
- * Design 1350 section 9 allows drawing neither state in that case, and the one
- * sentence it draws is true in both: off is the default, and the configuration
- * file is where it turns on.
+ * It opens with "HTTP transport: on" or "HTTP transport: off", read from
+ * agents_http_transport on GET /system/capabilities (Q14), then the how-to
+ * sentence, which is true in both states. When the engine does not say, the
+ * state is left out and only the sentence is drawn.
  *
  * # No claim the engine has not earned
  *
@@ -51,6 +50,9 @@ export function AgentsCard({ readOnly }: { readOnly: boolean }) {
   const tokens = useAsync(() => api.listAgentTokens(), [api]);
   const catalogue = useAsync(() => api.listAgentCatalogue(), [api]);
   const confirmations = useAsync(() => api.listAgentConfirmations(), [api]);
+  // Q14 (#1367): the engine says whether the HTTP transport is on; unknown (an older engine, or the read failed) draws no state.
+  const capabilities = useAsync(() => api.getCapabilities(), [api]);
+  const transport = capabilities.data?.agentsHttpTransport;
   // Bumped when something the audit shows has changed.
   const [auditRevision, setAuditRevision] = useState(0);
   const changed = () => setAuditRevision((n) => n + 1);
@@ -84,6 +86,7 @@ export function AgentsCard({ readOnly }: { readOnly: boolean }) {
         <AuditRegion tokens={tokens.data ?? []} tools={catalogue.data?.tools ?? []} revision={auditRevision} />
 
         <p className="ag-note" data-agents-transport="">
+          {transport ? <><strong>HTTP transport: {transport}.</strong>{" "}</> : null}
           Agents connect with <code className="mono">retnd agent serve --stdio</code>, which runs beside this deployment.
           The HTTP transport is off unless the configuration file sets <code className="mono">http_transport: on</code>{" "}
           under <code className="mono">agents:</code>. This page does not change it: a configuration that writes it cannot

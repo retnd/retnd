@@ -22,6 +22,7 @@
  *   agents-read-only         the pending page, on a page that is read-only
  *   agents-insecure          the pending page on an unencrypted connection: the consent comes first
  *   agents-catalogue-failed  the pending page, with the catalogue route failing
+ *   agents-http-on           the token page, with the HTTP transport reported on (every other agents-* scenario reports off)
  */
 import { RetndError } from "@shared/api/contracts";
 import type { ApiErrorCode, RetndApi } from "@shared/api/contracts";
@@ -36,11 +37,16 @@ export const AGENTS_SCENARIOS = [
   "agents-audit-failed",
   "agents-read-only",
   "agents-insecure",
-  "agents-catalogue-failed"
+  "agents-catalogue-failed",
+  "agents-http-on"
 ] as const;
 
-/** The token the next mint answers with. It is not one: it opens nothing. */
-export const MOCK_MINTED_SECRET = "rat_Qm7Zk3xHn9LdR2sVt8YbWc4JgPeA6UfX";
+/**
+ * The token the next mint answers with. It is not one: it carries the rat_
+ * prefix but is two characters short of a minted token, so the engine refuses
+ * it (mockAgents.1367.test.ts pins the shape).
+ */
+export const MOCK_MINTED_SECRET = "rat_EXAMPLE0000000000000000000000000000000000";
 
 export const MOCK_GATE_SENTENCE =
   "destructive operations are refused over HTTP in this release, until the trusted-proxy authentication gate (issue #92) has been verified; run the equivalent retnd command on the host";
@@ -160,7 +166,7 @@ export function createMockAgents(scenario: string, deps: MockAgentsDeps) {
     for (let i = 0; i < count; i++) {
       const [tokenId, tool, status, code, ago] = base[i % base.length];
       audit.push({
-        seq: 0, at: iso(-(ago + Math.floor(i / base.length) * 7) * MIN), tokenId, tool,
+        seq: 0, at: iso(-(ago + Math.floor(i / base.length) * 7) * MIN), tokenId, tokenName: tokens.find((t) => t.id === tokenId)?.name ?? "", tool,
         transport: i % 2 === 0 ? "stdio" : "http",
         // One row carries text an agent could plant: it must be drawn as data.
         arguments: tool === "activity" ? HOSTILE_ARGUMENTS : tool === "run_cycle" ? "{}" : '{"set":"production/postgres-primary"}',
@@ -188,14 +194,14 @@ export function createMockAgents(scenario: string, deps: MockAgentsDeps) {
     mintAgentToken: async (req) => {
       await deps.transport(false);
       if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(req.name)) {
-        throw refuse("INVALID_REQUEST", "name must be 1 to 40 lowercase letters, digits or hyphens, starting with a letter or digit.");
+        throw refuse("INVALID_REQUEST", "name: must be 1 to 40 lowercase letters, digits or hyphens, starting with a letter or digit.");
       }
       if (tokens.some((t) => t.name === req.name && t.status === "active")) {
-        throw refuse("INVALID_REQUEST", "an active token named " + req.name + " already exists.", 409);
+        throw refuse("INVALID_REQUEST", "name: an active token named " + req.name + " already exists.", 409);
       }
       const ms = durationMs(req.expiresIn);
-      if (ms === null) throw refuse("INVALID_REQUEST", "expires_in must be a number of days such as 90d, or a duration such as 720h.");
-      if (ms > 365 * DAY) throw refuse("INVALID_REQUEST", "expires_in may not exceed 365d.");
+      if (ms === null) throw refuse("INVALID_REQUEST", "expires_in: must be a number of days such as 90d, or a duration such as 720h.");
+      if (ms > 365 * DAY) throw refuse("INVALID_REQUEST", "expires_in: may not exceed 365d.");
       const token: AgentToken = {
         id: "tok_" + String(tokens.length + 1).padStart(2, "0"), name: req.name,
         prefix: MOCK_MINTED_SECRET.slice(0, 8), scope: req.scope, owner: "admin", status: "active",
@@ -233,7 +239,7 @@ export function createMockAgents(scenario: string, deps: MockAgentsDeps) {
         ? { status: 403, code: "DESTRUCTIVE_OPERATIONS_DISABLED", message: MOCK_GATE_SENTENCE, correlationId: "cid_mockgate01", exitCode: 50 }
         : { status: 202, code: "", message: "", correlationId: "cid_mockrun001", exitCode: 0 };
       audit.unshift({
-        seq: (audit[0]?.seq ?? 0) + 1, at: new Date().toISOString(), tokenId: c.tokenId, tool: c.tool, transport: "http",
+        seq: (audit[0]?.seq ?? 0) + 1, at: new Date().toISOString(), tokenId: c.tokenId, tokenName: c.tokenName, tool: c.tool, transport: "http",
         arguments: "{}", status: c.execution.status, code: c.execution.code, correlationId: c.execution.correlationId, confirmationId: c.id
       });
       return later(structuredClone(c));

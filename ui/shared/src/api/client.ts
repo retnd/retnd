@@ -1741,8 +1741,11 @@ function fromWireRepositoryMaintenance(m: WireRepositoryMaintenance): Repository
   };
 }
 
-function fromWireCapabilities(body: WireCapabilitiesResponse): Capabilities {
+// TODO(integration, #1364): the generated WireCapabilitiesResponse gains
+// agents_http_transport; until it is merged in, the field is declared here.
+function fromWireCapabilities(body: WireCapabilitiesResponse & { agents_http_transport?: "on" | "off" }): Capabilities {
   return {
+    ...(body.agents_http_transport === "on" || body.agents_http_transport === "off" ? { agentsHttpTransport: body.agents_http_transport } : {}),
     platform: body.platform,
     nativeAuth: body.native_auth,
     nativeNotifications: body.native_notifications,

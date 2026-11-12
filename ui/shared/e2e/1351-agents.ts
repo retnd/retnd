@@ -4,7 +4,7 @@ import { open } from "./helpers";
 
 export const PASSWORD = "correct-horse-battery";
 /** MOCK_MINTED_SECRET in src/agents/mockAgents.ts. It opens nothing. */
-export const SECRET = "rat_Qm7Zk3xHn9LdR2sVt8YbWc4JgPeA6UfX";
+export const SECRET = "rat_EXAMPLE0000000000000000000000000000000000";
 
 export const card = (page: Page) => page.getByRole("region", { name: "Agents", exact: true });
 export const region = (page: Page, name: "tokens" | "confirmations" | "audit") =>

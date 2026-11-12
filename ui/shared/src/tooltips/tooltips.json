@@ -2213,11 +2213,11 @@
   },
   "agents.mint.scope.operate": {
     "label": "operate",
-    "html": "Can ask for backups and checks to be started. Nothing runs until you approve each request here."
+    "html": "Includes read, and can also ask for backups and checks to be started. Nothing runs until you approve each request here."
   },
   "agents.mint.scope.configure": {
     "label": "configure",
-    "html": "Can ask for a backup set to be enabled or disabled, or its retention or assurance settings changed. Nothing changes until you approve each request here."
+    "html": "Includes operate, and so read, and can also ask for a backup set to be enabled or disabled, or its retention or assurance settings changed. Nothing changes until you approve each request here."
   },
   "agents.mint.expiry": {
     "label": "Expires in",

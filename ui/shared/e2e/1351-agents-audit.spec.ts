@@ -36,14 +36,13 @@ test.describe("#1351 the audit table", () => {
     expect(await border(refused)).toBe(await border(chip("status")));
   });
 
-  test("#1351 names the token and the scope the tool needs from what the engine listed, and draws no command", async ({ page }) => {
+  test("#1351 names the token from the engine's token_name and the scope the tool needs from the catalogue, and echoes the audit twin", async ({ page }) => {
     await openAgents(page);
     const run = region(page, "audit").locator('tr[data-tool="run_cycle"]').first();
     await expect(run.locator("td[data-label='Token']")).toHaveText("agent:recovery-drill");
     await expect(run.locator("td[data-label='Needs']")).toHaveText("operate");
     await expect(region(page, "audit").locator('tr[data-tool="status"]').first().locator("td[data-label='Needs']")).toHaveText("read");
-    await expect(region(page, "audit")).not.toContainText("Equivalent command");
-    await expect(region(page, "audit")).not.toContainText("retnd agent audit");
+    await expect(region(page, "audit")).toContainText("retnd agent audit");
   });
 
   test("#1351 has no exit-code column, no total and no page number", async ({ page }) => {

@@ -9,10 +9,11 @@
  * state never sees. A token row carries the eight-character prefix and
  * nothing more of the secret.
  *
- * No command is composed in the browser. The only `command` below is the one
- * the engine recorded with a request an agent made, carried by the response
- * as it is. The token and audit responses carry no command, so those
- * surfaces draw none, and there is no function in this module that builds one.
+ * A confirmation's `command` is the one the engine recorded with a request an
+ * agent made, carried as it is. The token and audit responses carry no
+ * command, so the browser composes their three fixed twins in
+ * agents/agentCommands.ts, held to the CLI by a test (Q13). Nothing here
+ * builds one.
  */
 
 export type AgentScope = "read" | "operate" | "configure";
@@ -91,6 +92,8 @@ export interface AgentAuditRow {
   at: string;
   /** Empty for a refusal of a token that matched no row. */
   tokenId: string;
+  /** The token's name, joined by the engine; empty when no token matched. */
+  tokenName: string;
   /** Empty for a refusal made before any tool was named. */
   tool: string;
   transport: string;
