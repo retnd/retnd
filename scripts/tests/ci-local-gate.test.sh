@@ -275,6 +275,10 @@ make_full_tree() {
   # a reason unrelated to what it measured, Group D's own control included.
   printf '#!/usr/bin/env bash\nexit 0\n' \
     >"$tree/scripts/tests/record-release-hashes-guards.test.sh"
+  # The fast tier's own suite (#1361), stubbed like its neighbours: it builds
+  # fixture repositories of its own and drives real git commits.
+  printf '#!/usr/bin/env bash\nexit 0\n' \
+    >"$tree/scripts/tests/ci-fast.test.sh"
 
   # .husky/pre-commit is the one caller that has to act on the exit status
   # rather than read the prose, so Group F drives the real hook in this tree.
@@ -620,15 +624,17 @@ status=0
 scrub_env() {
   env -u CI_LOCAL_FAST -u CI_LOCAL_SKIP_JS -u CI_LOCAL_SKIP_DOCKER \
     -u CI_LOCAL_SELFTEST -u CI_LOCAL_SKIP_E2E -u CI_LOCAL_SKIP_TWO_MACHINE \
-    -u CI_LOCAL_RED -u CI -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
+    -u CI_LOCAL_RED -u CI_LOCAL_FULL -u CI_LOCAL_TIER -u CI -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
     -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_PREFIX "$@"
 }
 
 run_hook() { # <tree> [VAR=VAL ...]
   hook_tree="$1"
   shift
+  # CI_LOCAL_FULL=1: this suite measures the hook acting on the FULL gate's
+  # exit status. What the default fast tier does is scripts/tests/ci-fast.test.sh's.
   out="$(cd "$hook_tree" && scrub_env CI_LOCAL_LOCK_DIR="$hook_tree/.gate-lock" \
-    PATH="$hook_tree/bin:$PATH" "$@" sh .husky/pre-commit 2>&1)"
+    CI_LOCAL_FULL=1 PATH="$hook_tree/bin:$PATH" "$@" sh .husky/pre-commit 2>&1)"
   status=$?
 }
 
@@ -661,7 +667,7 @@ run_git_commit() { # <tree> [VAR=VAL ...] -- <git commit args...>
   done
   [ "${1:-}" = "--" ] && shift
   out="$(cd "$commit_tree" && scrub_env CI_LOCAL_LOCK_DIR="$commit_tree/.gate-lock" \
-    PATH="$commit_tree/bin:$PATH" "${commit_vars[@]}" git commit "$@" 2>&1)"
+    CI_LOCAL_FULL=1 PATH="$commit_tree/bin:$PATH" "${commit_vars[@]}" git commit "$@" 2>&1)"
   status=$?
 }
 
