@@ -269,10 +269,23 @@ func TestAnExecutionsExitCodeIsTheOneEngineRefusalExitGives(t *testing.T) {
 		apicontract.ErrorCodeInvalidRequest,
 		apicontract.ErrorCodeInternal,
 		apicontract.ErrorCodeAgentRouteDenied,
+		// The confirmation refusals are all exit 1 (Q20).
+		apicontract.ErrorCodeAgentConfirmationNotFound,
+		apicontract.ErrorCodeAgentConfirmationDecided,
+		apicontract.ErrorCodeAgentConfirmationTokenEnded,
 	} {
 		want, _ := engineRefusalExit(&apiclient.Error{Code: code, Status: 403})
 		if got := service.AgentExecutionExitCode(403, string(code)); got != want {
 			t.Errorf("%s: the service says exit %d, the CLI exits %d", code, got, want)
+		}
+	}
+	for code, status := range map[apicontract.ErrorCode]int{
+		apicontract.ErrorCodeAgentConfirmationNotFound:   404,
+		apicontract.ErrorCodeAgentConfirmationDecided:    409,
+		apicontract.ErrorCodeAgentConfirmationTokenEnded: 409,
+	} {
+		if exit, _ := engineRefusalExit(&apiclient.Error{Code: code, Status: status}); exit != exitFailure {
+			t.Errorf("%s exits %d, want 1", code, exit)
 		}
 	}
 	if service.AgentExecutionExitCode(500, "") != 1 {

@@ -630,3 +630,29 @@ func TestOnlyTheStatusReadIsOpenToATokenUnderTheConfirmationsPrefix(t *testing.T
 		}
 	}
 }
+
+// Falsify: accept any catalogue tool name on any mutating route. The header
+// selects the tool to propose, so a tool that exists but belongs to another
+// route (or another method, or a read) creates nothing and records nothing,
+// even for the widest scope.
+func TestAToolHeaderNamingAnotherRouteCreatesNothing(t *testing.T) {
+	for name, req := range map[string]*http.Request{
+		"a configure tool on the operations route": toolCall(http.MethodPost, "/api/v1/operations", `{"action":"run_cycle"}`, operateToken, "backup_set_enabled"),
+		"the operations tool on a set route":       toolCall(http.MethodPost, "/api/v1/backup-sets/production/postgres/enabled", `{"enabled":false}`, operateToken, "run_cycle"),
+		"a read tool on a mutating route":          toolCall(http.MethodPost, "/api/v1/operations", `{"action":"run_cycle"}`, operateToken, "status"),
+		"a mutating tool on the wrong method":      toolCall(http.MethodDelete, "/api/v1/operations", `{"action":"run_cycle"}`, operateToken, "run_cycle"),
+	} {
+		rig := newConfirmationsRig(t, alwaysPassGate{})
+		rig.backend.known[operateToken] = service.AgentPrincipal{TokenID: "agt_op", Name: "runner", Scope: "configure"}
+		rec := serve(rig.router, req)
+		if rec.Code == http.StatusCreated || rec.Code == http.StatusAccepted || rec.Header().Get(ConfirmationIDHeader) != "" {
+			t.Errorf("%s = %d: a confirmation was offered", name, rec.Code)
+		}
+		if len(rig.backend.created) != 0 || len(rig.backend.ops) != 0 {
+			t.Errorf("%s created %d confirmations and ran %d operations", name, len(rig.backend.created), len(rig.backend.ops))
+		}
+		if code := responseErrorCode(rec.Body.String()); code != "AGENT_CONFIRMATION_REQUIRED" && code != "AGENT_ROUTE_DENIED" {
+			t.Errorf("%s = %d %s, want a plain refusal", name, rec.Code, rec.Body.String())
+		}
+	}
+}
