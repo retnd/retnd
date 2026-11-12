@@ -113,11 +113,16 @@ func AgentDeniedByMount(next http.Handler) http.Handler {
 // authenticateBearer is authMiddleware's branch for a request that presents a
 // bearer token. It returns the request to serve, or false after writing a
 // refusal.
-func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAccess, presented string) (*http.Request, bool) {
+func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAccess, guard *agentGuard, presented string) (*http.Request, bool) {
 	// audit records a refusal that was just written. The refusal stands
 	// whether or not the row lands, so a failure to write it is logged and
 	// nothing else.
 	audit := func(tokenID string, status int, code, correlationID string) {
+		// A refusal that names no valid token is anyone's to cause, so the row
+		// it writes is bounded per address. The refusal was already sent.
+		if tokenID == "" && !guard.allowAuditRow(r) {
+			return
+		}
 		err := agents.RecordAgentRefusal(r.Context(), service.AgentRefusal{
 			TokenID: tokenID, Method: r.Method, Path: r.URL.Path, Status: status, Code: code, CorrelationID: correlationID,
 		})
@@ -143,7 +148,21 @@ func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAcce
 		return nil, false
 	}
 
-	if !safeMethod(r.Method) {
+	// The call is counted here, after the token is known and before anything
+	// is done for it, so a token over its minute is refused whatever it
+	// asked for. The MCP envelope is not a call: the calls inside it are
+	// requests of their own and are counted when they arrive.
+	if !isAgentMCP(r) {
+		if ok, wait := guard.allowCall(principal.TokenID); !ok {
+			audit(principal.TokenID, http.StatusTooManyRequests, "AGENT_RATE_LIMITED", guard.refuseRateLimited(w, wait))
+			return nil, false
+		}
+	}
+
+	// The MCP endpoint takes POST and DELETE as the transport's own frames. It
+	// changes nothing itself; every call inside it is checked as the request
+	// it becomes.
+	if !safeMethod(r.Method) && !isAgentMCP(r) {
 		if principal.Scope == service.AgentScopeRead {
 			audit(principal.TokenID, http.StatusForbidden, "AGENT_SCOPE_INSUFFICIENT",
 				writeError(w, http.StatusForbidden, "AGENT_SCOPE_INSUFFICIENT", "a read token cannot start or change anything"))

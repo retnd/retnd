@@ -12,6 +12,7 @@ import (
 	"github.com/retnd/retnd/apps/common/platform/capabilities"
 	"github.com/retnd/retnd/core/envcompat"
 	"github.com/retnd/retnd/core/legacypath"
+	"github.com/retnd/retnd/core/service"
 )
 
 // The route table, which is where this package's security tiering
@@ -318,6 +319,18 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// agent access, and a bearer request meets AGENT_TOKEN_INVALID.
 	agents, _ := cfg.Backend.(AgentAccess)
 
+	// The agents: block as it resolved, for the limits and the transport. A
+	// backend that does not report one gets the defaults: transport off, sixty
+	// calls a minute.
+	policy := service.AgentPolicy{RateLimitPerMinute: 60}
+	if p, ok := cfg.Backend.(interface{ AgentPolicy() service.AgentPolicy }); ok {
+		policy = p.AgentPolicy()
+	}
+	var guard *agentGuard
+	if agents != nil {
+		guard = newAgentGuard(policy, cfg.TrustForwardedHeaders)
+	}
+
 	h := &handlers{
 		agents:        agents,
 		platform:      cfg.Platform,
@@ -357,8 +370,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	r.Get("/health/live", healthLive)
 	r.Get("/health/ready", h.healthReady)
 
+	root := r
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(authMiddleware(cfg.Platform, agents))
+		r.Use(authMiddleware(cfg.Platform, agents, guard))
 		// After authentication, so a recorded line can name the actor,
 		// and over the WHOLE group, so it covers the refusals that never
 		// reach a handler at all: a CSRF failure and a
@@ -842,6 +856,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Get("/agent/tokens", h.listAgentTokens)
 		r.With(requireCSRF).Post("/agent/tokens", h.mintAgentToken)
 		r.With(requireCSRF).Post("/agent/tokens/{id}/revoke", h.revokeAgentToken)
+		// EPIC U (#1347): the streamable HTTP transport. Bearer only and off
+		// unless agents.http_transport is on; see agentmcp.go. No requireCSRF:
+		// a cookie never reaches it, and a bearer is not a credential a browser
+		// sends by itself.
+		r.Handle("/agent/mcp", h.mcpEndpoint(root, policy, guard))
 		r.Get("/ssh/key-candidates", h.listSSHKeyCandidates)
 
 		// Issue #140 (B3.7): the one generic settings surface — a read

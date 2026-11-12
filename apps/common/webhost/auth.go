@@ -76,7 +76,7 @@ func actorFromContext(ctx context.Context) string {
 // This is what makes the whole /api/v1 surface fail closed the moment a
 // provider has not wired a real Authenticator in yet, which today is
 // every provider (see router_test.go's noAuthWiredAdapter).
-func authMiddleware(platform capabilities.PlatformAdapter, agents AgentAccess) func(http.Handler) http.Handler {
+func authMiddleware(platform capabilities.PlatformAdapter, agents AgentAccess, guard *agentGuard) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// A request that presents an agent token (a rat_ bearer) is an agent's, and is
@@ -94,7 +94,7 @@ func authMiddleware(platform capabilities.PlatformAdapter, agents AgentAccess) f
 						return
 					}
 				} else {
-					authenticated, ok := authenticateBearer(w, r, agents, presented)
+					authenticated, ok := authenticateBearer(w, r, agents, guard, presented)
 					if !ok {
 						return
 					}
