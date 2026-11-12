@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/retnd/retnd/core/agentmcp"
 	"github.com/retnd/retnd/core/agenttools"
@@ -211,5 +212,63 @@ func TestATokenHoldsAtMostTwoStreams(t *testing.T) {
 	releases[0]()
 	if _, ok := guard.openStream("agt_read"); !ok {
 		t.Error("a released slot was not given back")
+	}
+}
+
+// Review of the EPIC U stack: an MCP session belongs to the token that opened
+// it. Another token that learns the session id cannot post into it, read its
+// stream or end it. Falsify: drop the token binding from mcpEndpoint.
+func TestAnMCPSessionIsBoundToTheTokenThatOpenedIt(t *testing.T) {
+	router, _ := mcpRouter(service.AgentPolicy{HTTPTransport: true, RateLimitPerMinute: 60})
+	rec := serve(router, mcpPost(readToken, initializeFrame))
+	session := rec.Header().Get("Mcp-Session-Id")
+	if rec.Code != http.StatusOK || session == "" {
+		t.Fatalf("initialize = %d %s, session %q", rec.Code, rec.Body.String(), session)
+	}
+
+	for _, method := range []string{http.MethodPost, http.MethodDelete} {
+		req := mcpPost(operateToken, `{"jsonrpc":"2.0","method":"notifications/initialized"}`)
+		req.Method = method
+		req.Header.Set("Mcp-Session-Id", session)
+		req.Header.Set("MCP-Protocol-Version", "2025-06-18")
+		if rec := serve(router, req); rec.Code != http.StatusForbidden {
+			t.Errorf("%s by another token into the session = %d %s, want 403", method, rec.Code, rec.Body.String())
+		}
+	}
+
+	req := mcpPost(readToken, `{"jsonrpc":"2.0","method":"notifications/initialized"}`)
+	req.Header.Set("Mcp-Session-Id", session)
+	req.Header.Set("MCP-Protocol-Version", "2025-06-18")
+	if rec := serve(router, req); rec.Code >= 300 {
+		t.Errorf("the owning token into its own session = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// An idle session ends, so a token that opens sessions and walks away cannot
+// hold engine memory for ever (the envelope is not counted by the limiter).
+// Falsify: leave StreamableHTTPOptions.SessionTimeout at zero.
+func TestAnIdleMCPSessionEnds(t *testing.T) {
+	prev := agentMCPSessionTimeout
+	agentMCPSessionTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { agentMCPSessionTimeout = prev })
+
+	router, _ := mcpRouter(service.AgentPolicy{HTTPTransport: true, RateLimitPerMinute: 60})
+	rec := serve(router, mcpPost(readToken, initializeFrame))
+	session := rec.Header().Get("Mcp-Session-Id")
+	if session == "" {
+		t.Fatalf("initialize = %d %s", rec.Code, rec.Body.String())
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		req := mcpPost(readToken, `{"jsonrpc":"2.0","id":9,"method":"ping"}`)
+		req.Header.Set("Mcp-Session-Id", session)
+		req.Header.Set("MCP-Protocol-Version", "2025-06-18")
+		time.Sleep(200 * time.Millisecond)
+		if rec := serve(router, req); rec.Code == http.StatusNotFound {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("an idle session was still served after five seconds")
+		}
 	}
 }
