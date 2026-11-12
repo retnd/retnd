@@ -212,6 +212,9 @@ func agentConfirmationsShow(args []string) int {
 		return emitWireJSON(got)
 	}
 	fmt.Printf("%s: %s, asked by %s for %s, expires %s\n  %s\n", got.ID, got.State, got.TokenName, got.Tool, got.ExpiresAt, got.Command)
+	if got.ConfigRevision != "" {
+		fmt.Printf("  recorded against configuration revision %s\n", got.ConfigRevision)
+	}
 	if e := got.Execution; e != nil && e.Outcome == "interrupted" {
 		fmt.Printf("  interrupted: %s\n", e.Message)
 	} else if e != nil {
