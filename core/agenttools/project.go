@@ -1,6 +1,7 @@
 package agenttools
 
 import (
+	"maps"
 	"regexp"
 	"strings"
 	"unicode"
@@ -36,8 +37,8 @@ var (
 // fixed marker, so the result says something was removed and never what.
 const Withheld = "[withheld]"
 
-// Project walks a decoded JSON value and returns a copy with every denied key
-// removed at every depth and every string that carries a canary shape replaced
+// Project walks a decoded JSON value and returns a copy with every denied key,
+// every ssh_key_id and the source of every key_provider object removed at every depth and every string that carries a canary shape replaced
 // by Withheld. It is the one projection a tool result passes through at the
 // tool boundary, over a result as decoded from the API and before anything
 // else sees it. It never changes its argument, and a value that is not a
@@ -47,8 +48,15 @@ func Project(v any) any {
 	case map[string]any:
 		out := make(map[string]any, len(x))
 		for k, val := range x {
-			if deniedField(k) {
+			if deniedField(k) || snake(k) == "ssh_key_id" {
 				continue
+			}
+			// Where a key is kept: the provider's source is a path, a variable
+			// name or a command, so it goes whatever the object holding it is.
+			if m, ok := val.(map[string]any); ok && strings.HasSuffix(snake(k), "key_provider") {
+				m = maps.Clone(m)
+				delete(m, "source")
+				val = m
 			}
 			out[k] = Project(val)
 		}
