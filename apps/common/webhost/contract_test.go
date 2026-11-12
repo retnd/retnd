@@ -733,7 +733,9 @@ func TestContract_DeclaredRequirementsMatchWhatTheRoutesEnforce(t *testing.T) {
 // ----------------------------------------------------------- error codes ---
 
 var (
-	writeErrorCode = regexp.MustCompile(`write(?:Auth)?Error\([^,]+,\s*[^,]+,\s*"([A-Z][A-Z0-9_]+)"`)
+	// refuse is agentconfirmations.go's: it writes the error and reports
+	// the refusal to the audit in one call, with writeError's arguments.
+	writeErrorCode = regexp.MustCompile(`(?:write(?:Auth)?Error|refuse)\([^,]+,\s*[^,]+,\s*"([A-Z][A-Z0-9_]+)"`)
 	// gate_profile.go's one refusal constructor: status first, then the code.
 	gateRefusalCode = regexp.MustCompile(`newGateRefusal\([^,]+,\s*"([A-Z][A-Z0-9_]+)"`)
 	assignedCode    = regexp.MustCompile(`\.Code\s*=\s*"([A-Z][A-Z0-9_]+)"`)

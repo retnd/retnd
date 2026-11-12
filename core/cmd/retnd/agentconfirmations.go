@@ -78,7 +78,24 @@ func (l localAgentConfirmations) GetAgentConfirmation(ctx context.Context, id st
 	return c.Contract(), nil
 }
 
-func (l localAgentConfirmations) ApproveAgentConfirmation(context.Context, string) (apicontract.AgentConfirmation, error) {
+// ApproveAgentConfirmation cannot approve here, but it can still say why a
+// confirmation could not be approved anywhere: one that has expired, or that
+// somebody already decided, is refused with the code the engine would give,
+// so the answer does not depend on whether an engine is running.
+func (l localAgentConfirmations) ApproveAgentConfirmation(ctx context.Context, id string) (apicontract.AgentConfirmation, error) {
+	c, err := l.svc.AgentConfirmationStatus(ctx, "", id)
+	if errors.Is(err, service.ErrAgentConfirmationNotFound) {
+		return apicontract.AgentConfirmation{}, fmt.Errorf("%s: %w", apicontract.ErrorCodeAgentConfirmationNotFound, err)
+	}
+	if err != nil {
+		return apicontract.AgentConfirmation{}, err
+	}
+	switch c.Contract().State {
+	case "expired":
+		return apicontract.AgentConfirmation{}, fmt.Errorf("%s: %w", apicontract.ErrorCodeAgentConfirmationExpired, service.ErrAgentConfirmationExpired)
+	case "approved", "denied":
+		return apicontract.AgentConfirmation{}, fmt.Errorf("%s: %w", apicontract.ErrorCodeAgentConfirmationDecided, service.ErrAgentConfirmationNotPending)
+	}
 	return apicontract.AgentConfirmation{}, errApproveNeedsEngine
 }
 
