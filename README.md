@@ -266,7 +266,7 @@ retnd agent audit --since 24h                        # every call, reads include
 
 The verbs are `agent token create|list|revoke`, `agent serve`, `agent tools`, `agent audit` and
 `agent confirmations list|approve|deny`; `serve` needs `RETND_API_URL` like the other verbs that sit
-beside a serving engine. There is no `--token` flag, the HTTP transport is off until
+beside a serving engine. No flag takes a token, the HTTP transport is off until
 `agents.http_transport: on`, and no scope reaches key material, credentials, authentication or token
 minting. What this does not prove: a model can still be persuaded by what it reads (it cannot act on
 that without you reading the command), the HTTP transport is not confidential on plain HTTP, and the
