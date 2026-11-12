@@ -67,6 +67,35 @@ PAIRS: list[tuple[str, str, str, str, str, float]] = [
     ("encryption/encryption.css", '.esteps__step[data-state="done"] .esteps__glyph', "color", "ok", "surface", EDGE),
     # The still-owed list.
     ("encryption/encryption.css", ".eowed", "background", "text", "warn-quiet", NORMAL),
+    # EPIC U (#1351), the Agents card (design 1350 section 13). The ink is --text
+    # on every chip and row; a state is a glyph, an edge style and a word.
+    ("agents/agents.css", ".agchip", "color", "text", "surface-2", NORMAL),
+    ("agents/agents.css", ".agchip", "border-color", "edge-3", "surface", EDGE),
+    ("agents/agents.css", '.agchip[data-state="active"]', "border-color", "ok", "surface", EDGE),
+    ("agents/agents.css", '.agchip[data-state="revoked"]', "border-color", "danger", "surface", EDGE),
+    ("agents/agents.css", '.agchip[data-state="ok"]', "border-color", "ok", "surface", EDGE),
+    ("agents/agents.css", '.agchip[data-state="refused"]', "border-color", "danger", "surface", EDGE),
+    ("agents/agents.css", ".ag-secondary", "color", "text-2", "surface", NORMAL),
+    ("agents/agents.css", ".ag-note", "color", "text-2", "surface", NORMAL),
+    ("agents/agents.css", ".ag-statement", "color", "text", "surface", NORMAL),
+    ("agents/agents.css", ".ag-link", "color", "accent", "surface-2", NORMAL),
+    ("agents/agents.css", ".ag-table th", "color", "text-2", "surface", NORMAL),
+    ("agents/agents.css", ".ag-table", "color", "text", "surface", NORMAL),
+    ("agents/agents.css", ".ag-row", "border-color", "edge-3", "surface", EDGE),
+    ("agents/agents.css", ".ag-row", "color", "text", "surface", NORMAL),
+    ("agents/agents.css", ".ag-row[data-urgent]", "border-color", "warn", "surface", EDGE),
+    ("agents/agents.css", ".ag-row__meta", "color", "text-2", "surface", NORMAL),
+    ("agents/agents.css", ".ag-code", "color", "text", "surface-2", NORMAL),
+    ("agents/agents.css", ".ag-args", "color", "text", "surface-2", NORMAL),
+    ("agents/agents.css", ".ag-strip", "background", "text", "danger-quiet", NORMAL),
+    ("agents/agents.css", ".ag-strip", "border-color", "danger", "surface", EDGE),
+    ("agents/agents.css", ".ag-err", "color", "danger", "surface", NORMAL),
+    ("agents/agents.css", ".ag-fielderr", "color", "danger", "surface", NORMAL),
+    ("agents/agents.css", ".ag-input-error", "border-color", "danger", "surface", EDGE),
+    ("agents/agents.css", ".ag-token", "color", "text", "surface", NORMAL),
+    ("agents/agents.css", ".ag-radios label", "color", "text", "surface", NORMAL),
+    ("agents/agents.css", ".ag-radios legend", "color", "text-2", "surface", NORMAL),
+    ("agents/agents.css", ".ag-tools code", "color", "text", "surface", NORMAL),
 ]
 
 

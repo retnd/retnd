@@ -73,6 +73,7 @@ import { createMockRecoverMany } from "@shared/assurance/mockRecoverMany";
 import { createMockHostBrowse } from "@shared/assurance/mockHostBrowse";
 import { BUILTIN_ARTIFACT, DEFAULT_POLICY_NEWEST, DEFAULT_POLICY_TESTED, INGEST_FAILED_SCENARIO, followsDefault, untestedScenario, assuranceLiveEvents, assuranceStoredLines, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
 import { createHttpAssurance } from "@shared/assurance/realAssurance";
+import { AGENTS_SCENARIOS, createMockAgents } from "@shared/agents/mockAgents";
 import { ENCRYPTION_SCENARIOS, createMockEncryption, encryptionOperationRecord, overlayEncryption } from "@shared/encryption/mockEncryption";
 import { HISTORY_IDS, HISTORY_RUNNING, LATE_MISSES, OFF_TAIL_SCENARIO, OPERATION_HISTORY_SCENARIO, RETENTION_DAYS, durableRecordOf, historyLines, historyValidatorResult } from "@shared/assurance/mockOperationHistory";
 import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
@@ -292,6 +293,9 @@ export const SCENARIOS = [
   // recorded key does not resolve, and "encryption-in-use" refuses a retire
   // because copies still record the key.
   ...ENCRYPTION_SCENARIOS,
+  // Issue #1351 (EPIC U): the Agents card. The default scenario has no token;
+  // see agents/mockAgents.ts for what each of these holds.
+  ...AGENTS_SCENARIOS,
 ] as const;
 
 export type Scenario = (typeof SCENARIOS)[number];
@@ -4221,8 +4225,8 @@ export function createMockApi(
   // Issue #1157: see the scenario's own note.
   const gateShut = scenario === "gate-shut" || scenario === "gateway-profile";
   const localAccount =
-    scenario === "local-account-profile" || scenario === "insecure-transport" || scenario === "step-up-limited";
-  const insecureTransport = scenario === "insecure-transport";
+    scenario === "local-account-profile" || scenario === "insecure-transport" || scenario === "step-up-limited" || scenario === "agents-insecure";
+  const insecureTransport = scenario === "insecure-transport" || scenario === "agents-insecure";
   // What the engine and api/client.ts do together on an unencrypted
   // connection: refuse with INSECURE_TRANSPORT_ACK_REQUIRED, ask, and let the
   // act through once the operator has said so. The yes is the client's own
@@ -4412,6 +4416,15 @@ export function createMockApi(
   // which is what the real backend's hot reload does, and a write in one
   // test must not be visible to the next.
   const workflowSettings = defaultWorkflowSettings();
+  const mockAgents = createMockAgents(scenario, {
+    stepUp: (password) => mockStepUp(password, true, "validator", scenario === "step-up-limited"),
+    transport: async (hasPassword) => {
+      if (hasPassword) {
+        const unsent = insecureTransportPasswordCheck();
+        if (unsent) await unsent;
+      } else await insecureTransportCheck();
+    }
+  });
   const mockEncryption = createMockEncryption(scenario, () => SETS.map((x) => x.id));
   if (scenario === "workflow-no-globals") {
     workflowSettings.beforeDir = "";
@@ -4625,7 +4638,7 @@ export function createMockApi(
     },
     getVersion: () =>
       delay(
-        scenario === "version-mismatch"
+        scenario === "version-mismatch" || scenario === "agents-read-only"
           ? { ...VERSION, service: "1.2.0", api: "v0", compatible: false }
           : VERSION
       ),
@@ -6233,6 +6246,7 @@ export function createMockApi(
       delay(mockEnvUnset(workflowEnv, source + "/" + set, name), 300),
 
     ...mockEncryption,
+    ...mockAgents,
 
     getBackupSetWorkflowValidation: (source, set) => {
       const id = source + "/" + set;

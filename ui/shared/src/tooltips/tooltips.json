@@ -2174,5 +2174,133 @@
   "encryption.reencrypt": {
     "label": "Re-encrypt under current suite",
     "html": "Asks for a dry run first: each copy under the suite, the medium it would move to, and every copy the engine will not move with its reason (same medium only, key unavailable, already current). Running it moves each copy to another medium under the active suite and key, and retires the old copy only after the new one decrypt-verifies. No plaintext is written to local disk. It is never automatic."
+  },
+  "agents.card": {
+    "label": "Agents",
+    "html": "A client of this deployment with a token of its own. By default a token can <strong>look</strong> and nothing else. Anything an <code>operate</code> or <code>configure</code> token asks for waits in <strong>Pending confirmations</strong> until you approve it with your password. An agent is never handed key material, recipients, credentials or secrets, and every call it makes is recorded in the audit, reads included."
+  },
+  "agents.tokens": {
+    "label": "Tokens",
+    "html": "Every token this deployment has minted, revoked and expired ones included. A token is stored as a hash: the deployment keeps only the first eight characters so you can tell tokens apart."
+  },
+  "agents.confirmations": {
+    "label": "Pending confirmations",
+    "html": "Requests an <code>operate</code> or <code>configure</code> agent has made that have not run. Nothing here has executed. Approving replays the recorded request exactly as the agent made it; denying or letting it expire ends it."
+  },
+  "agents.audit": {
+    "label": "Audit",
+    "html": "One row per call an agent made, newest first, reads included. The trail is bounded: older rows are pruned by the deployment's retention."
+  },
+  "agents.scopes.list": {
+    "label": "What each scope can call",
+    "html": "The tools the deployment's catalogue lists for each scope, read from the engine. A tool that is not on this list cannot be called by an agent."
+  },
+  "agents.token.create": {
+    "label": "Create token",
+    "html": "Opens the dialog that mints a token. A token is created with a name, a scope and an expiry, and is shown once."
+  },
+  "agents.mint.name": {
+    "label": "Name",
+    "html": "The name the agent goes by. The token authenticates as <code>agent:name</code>, and that is the name on its rows here, in the audit and in the activity feed."
+  },
+  "agents.mint.scope": {
+    "label": "Scope",
+    "html": "What the token may ask for. <code>read</code> is the default and can look at this deployment and start or change nothing."
+  },
+  "agents.mint.scope.more": {
+    "label": "Allow more than reading",
+    "html": "Shows the two scopes that let an agent ask for changes. Opening it changes nothing but what you can see: a token created with it closed is a <code>read</code> token."
+  },
+  "agents.mint.scope.operate": {
+    "label": "operate",
+    "html": "Can ask for backups and checks to be started. Nothing runs until you approve each request here."
+  },
+  "agents.mint.scope.configure": {
+    "label": "configure",
+    "html": "Can ask for a backup set to be enabled or disabled, or its retention or assurance settings changed. Nothing changes until you approve each request here."
+  },
+  "agents.mint.expiry": {
+    "label": "Expires in",
+    "html": "How long the token works before it is refused, as a number of days such as <code>90d</code> or a duration such as <code>720h</code>. The engine judges it: the longest it allows is one year, and there is no token that never expires."
+  },
+  "agents.mint.copy": {
+    "label": "Copy",
+    "html": "Writes the token to your clipboard. It does nothing else."
+  },
+  "agents.mint.stored": {
+    "label": "I have stored it",
+    "html": "Closes this dialog. The token cannot be shown again after this: the deployment keeps only a hash. If it is lost, revoke the token and make another."
+  },
+  "agents.token.prefix": {
+    "label": "Prefix",
+    "html": "The first eight characters of the token. They identify it and are not the token."
+  },
+  "agents.scope.read": {
+    "label": "read",
+    "html": "This token can look at the deployment and cannot start or change anything."
+  },
+  "agents.scope.operate": {
+    "label": "operate",
+    "html": "This token can ask for backups and checks to be started. Each request waits for your approval."
+  },
+  "agents.scope.configure": {
+    "label": "configure",
+    "html": "This token can ask for a backup set's settings to be changed. Each request waits for your approval."
+  },
+  "agents.status.active": {
+    "label": "Active",
+    "html": "The token's expiry is in the future and it has not been revoked."
+  },
+  "agents.status.expired": {
+    "label": "Expired",
+    "html": "The token's expiry has passed, so every request with it is refused. It stays listed."
+  },
+  "agents.status.revoked": {
+    "label": "Revoked",
+    "html": "A person ended this token. Its next request was refused, and it cannot be brought back, only replaced."
+  },
+  "agents.token.revoke": {
+    "label": "Revoke",
+    "html": "Ends the token. Its next request is refused, because the engine checks revocation on every request. It asks first."
+  },
+  "agents.confirm.expires": {
+    "label": "Expires",
+    "html": "A pending request that passes its expiry is refused if you approve it, and ends. The time shown is the deployment's; this page does not decide when a request has expired."
+  },
+  "agents.confirm.approve": {
+    "label": "Approve",
+    "html": "Opens the password field. Nothing is sent to the engine until you press <strong>Approve and run</strong>."
+  },
+  "agents.confirm.stepup": {
+    "label": "Your password",
+    "html": "Your own password, asked again before a request an agent made is run. It is sent once with the approval and not kept."
+  },
+  "agents.confirm.run": {
+    "label": "Approve and run",
+    "html": "Sends your password and runs the recorded request exactly as the agent asked, with no change. If the deployment refuses it, the refusal is shown here in its own words."
+  },
+  "agents.confirm.deny": {
+    "label": "Deny",
+    "html": "Ends the request without running it. It asks for no password, because denying changes nothing."
+  },
+  "agents.audit.token": {
+    "label": "Token",
+    "html": "Show the calls of one token, or of all of them. It hides nothing from the trail."
+  },
+  "agents.audit.since": {
+    "label": "Since",
+    "html": "Show only calls from the last stretch of time, as a duration such as <code>24h</code> or <code>7d</code>."
+  },
+  "agents.audit.older": {
+    "label": "Show older",
+    "html": "Asks the engine for the next page of older calls. The rows already shown do not move."
+  },
+  "agents.audit.details": {
+    "label": "Details",
+    "html": "Shows the transport the call came in on and its arguments after projection, as text. The arguments are what an agent supplied and are never run or followed."
+  },
+  "agents.audit.outcome": {
+    "label": "Outcome",
+    "html": "The status and code the engine answered with, the same code the command line prints."
   }
 }

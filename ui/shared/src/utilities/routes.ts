@@ -120,6 +120,7 @@ export const SETTINGS_SECTIONS = {
   retention: "retention",
   storageDestinations: "storage-destinations",
   encryption: "encryption",
+  agents: "agents",
   workflow: "workflow",
   assurance: "assurance",
   validators: "validators",
