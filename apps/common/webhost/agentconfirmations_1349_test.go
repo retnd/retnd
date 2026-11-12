@@ -364,7 +364,7 @@ func TestTheReplayRequestIsTheRecordAndNothingTheApproveRequestCarried(t *testin
 	})
 	record := "{ \"action\" :\"run_cycle\",\n\"z\":1 }\n"
 	c := pendingConfirmation("cnf_1", "POST", "/operations", record)
-	exec := replayAgentRequest(context.Background(), capture, c, service.AgentPrincipal{TokenID: "agt_op", Name: "runner", Scope: "operate"})
+	exec := replayAgentRequest(session(http.MethodPost, approveCnf1, "", stepUpPassword), capture, c, service.AgentPrincipal{TokenID: "agt_op", Name: "runner", Scope: "operate"})
 	if seen == nil {
 		t.Fatal("nothing was replayed")
 	}
