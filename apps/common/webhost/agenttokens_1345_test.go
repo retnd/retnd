@@ -138,7 +138,7 @@ func TestTheAuthenticatedActorIsAgentColonName(t *testing.T) {
 	// middleware is mounted the way NewRouter mounts it.
 	h := chi.NewRouter()
 	h.Route("/api/v1", func(r chi.Router) {
-		r.Use(authMiddleware(allowingPlatform("alice"), access))
+		r.Use(authMiddleware(allowingPlatform("alice"), access, nil))
 		r.Get("/system/health", next)
 	})
 	if rec := serve(h, bearer(http.MethodGet, "/api/v1/system/health", "", readToken)); rec.Code != http.StatusNoContent {
@@ -386,7 +386,7 @@ func TestRevokeIsASessionPostAndTheNextBearerRequestIsRefused(t *testing.T) {
 // Falsify: only consult the deny list when a token store is wired. The
 // first-run router has none, and /system/first-run is the route it serves.
 func TestABearerOnADeniedPrefixIsRefusedWithNoTokenStore(t *testing.T) {
-	h := authMiddleware(allowingPlatform("alice"), nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := authMiddleware(allowingPlatform("alice"), nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	for _, p := range []string{"/api/v1/system/first-run", "/api/v1/system/first-run/skip", "/api/v1/recoveries"} {

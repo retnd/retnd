@@ -14,6 +14,9 @@ import (
 // Falsify: match by prefix, or answer true for a refusal row.
 func TestBearerReadableIsTheReadToolRoutesAndNothingElse(t *testing.T) {
 	for _, r := range Rows() {
+		if isBearerExtra(r.Method, r.Route) {
+			continue
+		}
 		got := BearerReadable(r.Method, r.Route)
 		want := r.Tool != "" && r.Method == "GET"
 		if got != want {
@@ -41,10 +44,26 @@ func TestBearerReadableIsTheReadToolRoutesAndNothingElse(t *testing.T) {
 // refusals cannot overlap.
 func TestNoRefusalRowIsBearerReadable(t *testing.T) {
 	for _, r := range Rows() {
-		if r.Tool == "" && BearerReadable(r.Method, r.Route) {
+		if r.Tool == "" && !isBearerExtra(r.Method, r.Route) && BearerReadable(r.Method, r.Route) {
 			t.Errorf("%s is a refusal and bearer readable", r.Key())
 		}
 	}
+	for _, e := range bearerExtras {
+		if !BearerReadable(e.method, e.pattern) {
+			t.Errorf("the named extra %s %s is not bearer readable", e.method, e.pattern)
+		}
+	}
+}
+
+// isBearerExtra reports whether a row is one of the named reads no tool wraps.
+// Each still has a refusal row, which says why no tool sits on it.
+func isBearerExtra(method, pattern string) bool {
+	for _, e := range bearerExtras {
+		if e.method == method && e.pattern == pattern {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------- the response schemas ---

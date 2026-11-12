@@ -147,6 +147,8 @@ const (
 
 	whyRead = "no tool reads this: the status, backup set, backup and activity tools carry what an agent needs, and the rest is configuration an operator reads in the browser"
 
+	whyTransport = "this is the transport an agent already speaks to reach its tools, so a tool over it would be the agent calling itself"
+
 	whyCatalogue = "the catalogue is read by an operator from a terminal or the browser, and an agent already has it as the list of its own tools"
 
 	whyOperationAction = "this action on the operations route is a restore, a hold or a snapshot check, each a person's decision about data, and no tool starts it"
@@ -408,6 +410,7 @@ var refusalRows = join(
 		"POST /encryption/encrypt-existing", "POST /encryption/reencrypt",
 		"POST /repositories", "POST /workflow-recovery/{run}/resume-cleanup", "POST /workflow-recovery/{run}/acknowledge"),
 	no(whyCatalogue, "GET /agent/tools"),
+	no(whyTransport, "POST /agent/mcp", "GET /agent/mcp", "DELETE /agent/mcp"),
 	no(whyRead,
 		"GET /system/version", "GET /system/capabilities", "GET /system/staging-directories", "GET /system/storage",
 		"GET /backup-sets/{source}/{set}/snapshots", "GET /backup-sets/{source}/{set}/snapshots/{run}",

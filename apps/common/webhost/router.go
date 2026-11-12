@@ -12,6 +12,7 @@ import (
 	"github.com/retnd/retnd/apps/common/platform/capabilities"
 	"github.com/retnd/retnd/core/envcompat"
 	"github.com/retnd/retnd/core/legacypath"
+	"github.com/retnd/retnd/core/service"
 )
 
 // The route table, which is where this package's security tiering
@@ -241,7 +242,10 @@ func debugShortcutEnv() bool {
 // handlers bundles what the HTTP methods in handlers_system.go and
 // handlers_operations.go need, built once by NewRouter.
 type handlers struct {
-	agents        AgentAccess
+	agents AgentAccess
+	// agentPolicy is the agents: block as it resolved, for GET
+	// /system/capabilities.
+	agentPolicy   service.AgentPolicy
 	platform      capabilities.PlatformAdapter
 	backend       BackupServiceClient
 	binaryVersion string
@@ -318,8 +322,21 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// agent access, and a bearer request meets AGENT_TOKEN_INVALID.
 	agents, _ := cfg.Backend.(AgentAccess)
 
+	// The agents: block as it resolved, for the limits and the transport. A
+	// backend that does not report one gets the defaults: transport off, sixty
+	// calls a minute.
+	policy := service.AgentPolicy{RateLimitPerMinute: 60}
+	if p, ok := cfg.Backend.(interface{ AgentPolicy() service.AgentPolicy }); ok {
+		policy = p.AgentPolicy()
+	}
+	var guard *agentGuard
+	if agents != nil {
+		guard = newAgentGuard(policy, cfg.TrustForwardedHeaders)
+	}
+
 	h := &handlers{
 		agents:        agents,
+		agentPolicy:   policy,
 		platform:      cfg.Platform,
 		backend:       cfg.Backend,
 		binaryVersion: cfg.BinaryVersion,
@@ -357,8 +374,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	r.Get("/health/live", healthLive)
 	r.Get("/health/ready", h.healthReady)
 
+	root := r
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(authMiddleware(cfg.Platform, agents))
+		r.Use(authMiddleware(cfg.Platform, agents, guard))
 		// After authentication, so a recorded line can name the actor,
 		// and over the WHOLE group, so it covers the refusals that never
 		// reach a handler at all: a CSRF failure and a
@@ -842,6 +860,16 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Get("/agent/tokens", h.listAgentTokens)
 		r.With(requireCSRF, requireMintTransportAck(h.enforce)).Post("/agent/tokens", h.mintAgentToken)
 		r.With(requireCSRF).Post("/agent/tokens/{id}/revoke", h.revokeAgentToken)
+		// EPIC U (#1347): the streamable HTTP transport. Bearer only and off
+		// unless agents.http_transport is on; see agentmcp.go. No requireCSRF:
+		// a cookie never reaches it, and a bearer is not a credential a browser
+		// sends by itself. The three methods the transport speaks and no
+		// others, so the route table, the contract and cliecho agree on what
+		// is served.
+		mcp := h.mcpEndpoint(root, policy, guard)
+		r.Post("/agent/mcp", mcp)
+		r.Get("/agent/mcp", mcp)
+		r.Delete("/agent/mcp", mcp)
 
 		// EPIC U (#1346): the catalogue. Static, so a token may read it.
 		r.Get("/agent/tools", h.listAgentTools)

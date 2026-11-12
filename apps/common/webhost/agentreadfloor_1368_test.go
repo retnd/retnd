@@ -18,7 +18,7 @@ import (
 func refusedReads() []agenttools.Row {
 	var out []agenttools.Row
 	for _, r := range agenttools.Rows() {
-		if r.Tool == "" && r.Method == http.MethodGet {
+		if r.Tool == "" && r.Method == http.MethodGet && !agenttools.BearerReadable(r.Method, r.Route) {
 			out = append(out, r)
 		}
 	}
@@ -126,5 +126,18 @@ func TestTheFloorHoldsForHeadOptionsAndSpelledPaths(t *testing.T) {
 				t.Fatalf("%s %s = %d %s, want 403 AGENT_ROUTE_DENIED", tc.method, tc.path, rec.Code, rec.Body.String())
 			}
 		})
+	}
+}
+
+// The MCP endpoint's own GET is a named extra on the floor: with the transport
+// off it reaches the handler, which says so, rather than the floor refusing it
+// as a route no tool sits on.
+//
+// Falsify: drop GET /agent/mcp from agenttools' bearer extras.
+func TestTheMCPEndpointsGetPassesTheFloor(t *testing.T) {
+	router, _ := agentRouter()
+	rec := serve(router, bearer(http.MethodGet, "/api/v1/agent/mcp", "", readToken))
+	if rec.Code != http.StatusForbidden || responseErrorCode(rec.Body.String()) != "AGENT_HTTP_TRANSPORT_OFF" {
+		t.Fatalf("GET /api/v1/agent/mcp = %d %s, want 403 AGENT_HTTP_TRANSPORT_OFF", rec.Code, rec.Body.String())
 	}
 }

@@ -202,7 +202,9 @@
           "AGENT_SCOPE_INSUFFICIENT",
           "AGENT_ROUTE_DENIED",
           "AGENT_CONFIRMATION_REQUIRED",
-          "AGENT_TOKEN_NOT_FOUND"
+          "AGENT_TOKEN_NOT_FOUND",
+          "AGENT_HTTP_TRANSPORT_OFF",
+          "AGENT_RATE_LIMITED"
         ],
         "x-code-origins": {
           "authentication-failed": "ui",
@@ -331,7 +333,9 @@
           "AGENT_SCOPE_INSUFFICIENT": "wire",
           "AGENT_ROUTE_DENIED": "wire",
           "AGENT_CONFIRMATION_REQUIRED": "wire",
-          "AGENT_TOKEN_NOT_FOUND": "wire"
+          "AGENT_TOKEN_NOT_FOUND": "wire",
+          "AGENT_HTTP_TRANSPORT_OFF": "wire",
+          "AGENT_RATE_LIMITED": "wire"
         },
         "x-error-classes": {
           "authentication": [
@@ -351,7 +355,8 @@
             "STEP_UP_FAILED",
             "INSECURE_TRANSPORT_ACK_REQUIRED",
             "AGENT_SCOPE_INSUFFICIENT",
-            "AGENT_ROUTE_DENIED"
+            "AGENT_ROUTE_DENIED",
+            "AGENT_HTTP_TRANSPORT_OFF"
           ],
           "validation": [
             "INVALID_REQUEST",
@@ -437,7 +442,8 @@
             "RECOVERY_TOO_MANY_GRANTS",
             "RECOVERY_READS_BUSY",
             "RECOVERY_DESTINATION_BUSY",
-            "RECOVERY_DOWNLOADS_BUSY"
+            "RECOVERY_DOWNLOADS_BUSY",
+            "AGENT_RATE_LIMITED"
           ],
           "internal": [
             "INTERNAL",
@@ -648,6 +654,14 @@
           },
           "destructive_operations": {
             "$ref": "#/components/schemas/DestructiveOperationsStatus"
+          },
+          "agents_http_transport": {
+            "type": "string",
+            "description": "Whether the streamable HTTP transport of the agent endpoint, POST, GET and DELETE /api/v1/agent/mcp, answers on this deployment: on when agents.http_transport is on in config.yaml, off otherwise (EPIC U). Like destructive_operations it is this deployment's own setting and not a platform capability. The stdio transport, retnd agent serve --stdio, works in both states.",
+            "enum": [
+              "on",
+              "off"
+            ]
           }
         },
         "required": [
@@ -657,7 +671,8 @@
           "storage_picker",
           "embedded_window",
           "app_store_packaging",
-          "destructive_operations"
+          "destructive_operations",
+          "agents_http_transport"
         ],
         "x-capability-fields": [
           "native_auth",
@@ -10144,6 +10159,11 @@
           "refusals",
           "denied_fields"
         ]
+      },
+      "AgentMcpFrame": {
+        "type": "object",
+        "description": "One JSON-RPC 2.0 message of the Model Context Protocol. The engine's streamable HTTP transport speaks the protocol revision `retnd agent tools` prints; this contract does not restate it.",
+        "additionalProperties": true
       }
     },
     "responses": {}
@@ -25501,6 +25521,260 @@
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/agent/mcp": {
+      "post": {
+        "operationId": "postAgentMcp",
+        "summary": "Send one JSON-RPC message of the Model Context Protocol to the engine's MCP server and read its answer. Bearer token only, and off unless agents.http_transport is on in config.yaml: the default answer is AGENT_HTTP_TRANSPORT_OFF. A signed-in session is refused AGENT_TOKEN_INVALID. Every tool call inside is an ordinary /api/v1 request made as the token, so it is scoped, rate limited and audited as one.",
+        "tags": [
+          "agent"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentMcpFrame"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentMcpFrame"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED, AGENT_TOKEN_INVALID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED",
+              "AGENT_TOKEN_INVALID"
+            ]
+          },
+          "403": {
+            "description": "Refused: AGENT_HTTP_TRANSPORT_OFF, AGENT_ROUTE_DENIED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_HTTP_TRANSPORT_OFF",
+              "AGENT_ROUTE_DENIED"
+            ]
+          },
+          "429": {
+            "description": "Refused: AGENT_RATE_LIMITED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_RATE_LIMITED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      },
+      "get": {
+        "operationId": "getAgentMcp",
+        "summary": "Open the server-to-client event stream of an MCP session (text/event-stream). Bearer token only; a token may hold two streams at once.",
+        "tags": [
+          "agent"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED, AGENT_TOKEN_INVALID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED",
+              "AGENT_TOKEN_INVALID"
+            ]
+          },
+          "403": {
+            "description": "Refused: AGENT_HTTP_TRANSPORT_OFF, AGENT_ROUTE_DENIED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_HTTP_TRANSPORT_OFF",
+              "AGENT_ROUTE_DENIED"
+            ]
+          },
+          "429": {
+            "description": "Refused: AGENT_RATE_LIMITED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_RATE_LIMITED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      },
+      "delete": {
+        "operationId": "deleteAgentMcp",
+        "summary": "End an MCP session. Bearer token only.",
+        "tags": [
+          "agent"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success."
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED, AGENT_TOKEN_INVALID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED",
+              "AGENT_TOKEN_INVALID"
+            ]
+          },
+          "403": {
+            "description": "Refused: AGENT_HTTP_TRANSPORT_OFF, AGENT_ROUTE_DENIED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_HTTP_TRANSPORT_OFF",
+              "AGENT_ROUTE_DENIED"
+            ]
+          },
+          "429": {
+            "description": "Refused: AGENT_RATE_LIMITED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_RATE_LIMITED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
         "x-authenticated": true
       }
     },

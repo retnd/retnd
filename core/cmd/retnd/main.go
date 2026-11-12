@@ -642,6 +642,17 @@ commands:
                                                   end a token. The very next request that presents it is refused, so
                                                   there is nothing to wait for. ID is the one agent token list
                                                   prints. The same as POST /api/v1/agent/tokens/{id}/revoke
+  agent serve --stdio --token-file PATH
+                                                  serve the read tools, resources and prompts of the agent catalogue to
+                                                  an MCP client on standard input and output, calling the engine at
+                                                  RETND_API_URL as the token's principal. It starts no engine and opens
+                                                  nothing of this host's. The token is in the file (mode 0600, refused
+                                                  otherwise) or in RETND_AGENT_TOKEN, and there is no --token flag. Logs
+                                                  go to standard error. Every tool answers ok, code, message,
+                                                  correlation_id, command and exit_code, the last being what this binary
+                                                  would have exited with for the same call. The engine's own streamable
+                                                  HTTP transport at POST, GET and DELETE /api/v1/agent/mcp is off unless
+                                                  agents.http_transport is on in config.yaml
   agent tools [--json]
                                                   the catalogue an AI agent is offered: every tool with its scope, its
                                                   route, the command that does the same from a terminal and the result

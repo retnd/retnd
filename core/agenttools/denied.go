@@ -100,7 +100,18 @@ func BearerReadable(method, pattern string) bool {
 			return true
 		}
 	}
+	for _, e := range bearerExtras {
+		if e.method == method && e.pattern == pattern {
+			return true
+		}
+	}
 	return false
+}
+
+// bearerExtras are the reads a token makes that no tool wraps, each named:
+// the MCP endpoint's own GET, which the transport answers itself.
+var bearerExtras = []struct{ method, pattern string }{
+	{"GET", "/agent/mcp"},
 }
 
 // matches reports whether a concrete path fits a route pattern.

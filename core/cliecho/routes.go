@@ -1253,6 +1253,21 @@ var routes = map[string]entry{
 		examples: []Action{{}},
 	},
 
+	// EPIC U (#1347). The streamable HTTP transport is a protocol endpoint, so
+	// the three methods have no verb of their own.
+	key("DELETE", "/agent/mcp"): {
+		why:               "an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `" + Binary + " agent serve --stdio` serves the same tools without this route",
+		namesShippedVerbs: []string{"agent"},
+	},
+	key("GET", "/agent/mcp"): {
+		why:               "an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `" + Binary + " agent serve --stdio` serves the same tools without this route",
+		namesShippedVerbs: []string{"agent"},
+	},
+	key("POST", "/agent/mcp"): {
+		why:               "an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `" + Binary + " agent serve --stdio` serves the same tools without this route",
+		namesShippedVerbs: []string{"agent"},
+	},
+
 	// ------------------------------------------------------------- ssh ---
 	//
 	// The key store and the host-key probe had no verb until #1153, and
