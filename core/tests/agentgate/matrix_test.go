@@ -49,6 +49,7 @@ var selfTests = []string{
 	"scripts/bdtools/agents/controls_audit.py",
 	"scripts/bdtools/agents/controls_design.py",
 	"scripts/bdtools/agents/controls_confirm.py",
+	"scripts/bdtools/agents/controls_revision.py",
 	"scripts/bdtools/agents/controls_ui.py",
 }
 

@@ -51,7 +51,13 @@ for rid in args.row:
         if r["label"] not in seen:
             seen.add(r["label"])
             labels.append(r)
-    hosts = sorted({"mars" if r["host"].upper() == "MARS" else "the MacBook (Mac.lan, through the workspace lock)" for r in labels})
+    def where(h):
+        if h.upper() == "MARS":
+            return "mars"
+        if h.upper() == "HIGARA":
+            return "the NAS (HIGARA, in a throwaway container)"
+        return "the MacBook (Mac.lan, through the workspace lock)"
+    hosts = sorted({where(r["host"]) for r in labels})
     date = min(r["stamp"] for r in labels)[:10]
     commits = sorted({r["commit"].split("+")[0] for r in labels})
     sentence = (
