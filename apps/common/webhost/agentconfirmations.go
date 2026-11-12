@@ -241,9 +241,15 @@ func (w *replayWriter) Write(p []byte) (int, error) {
 // as the principal that asked, and reports how it ended. The request is built
 // from the record alone, on a context of its own: the approver's cookies,
 // headers (the step-up password among them), route match and cancellation
-// are not the replay's. The correlation id is the approval's, so one id finds
-// both the approval and what it ran.
-func replayAgentRequest(ctx context.Context, handler http.Handler, c service.AgentConfirmation, p service.AgentPrincipal) service.AgentExecution {
+// are not the replay's. The one thing it takes from approver is the
+// connection the transport rule reads: the peer address, the TLS state, the
+// forwarded headers and the insecure-transport acknowledgement. The rule is
+// about the person who approved, so it judges them the way it would judge
+// their own call, and it believes the forwarded headers exactly when it
+// would on the approve request. The correlation id is the approval's, so one
+// id finds both the approval and what it ran.
+func replayAgentRequest(approver *http.Request, handler http.Handler, c service.AgentConfirmation, p service.AgentPrincipal) service.AgentExecution {
+	ctx := approver.Context()
 	inner, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	defer context.AfterFunc(ctx, cancel)()
@@ -259,6 +265,16 @@ func replayAgentRequest(ctx context.Context, handler http.Handler, c service.Age
 	}
 	if len(c.Body) > 0 {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	// POST /operations refuses a request without a key, and the recorded one
+	// has none to give. The confirmation's id is unique across the deployment
+	// and is claimed once, so it names this replay and no other.
+	req.Header.Set("Idempotency-Key", "agent-confirmation:"+c.ID)
+	req.RemoteAddr, req.TLS = approver.RemoteAddr, approver.TLS
+	for _, h := range []string{"X-Forwarded-For", "X-Forwarded-Proto", BrowserTransportHeader, InsecureTransportHeader} {
+		if v := approver.Header.Get(h); v != "" {
+			req.Header.Set(h, v)
+		}
 	}
 
 	rw := &replayWriter{header: http.Header{}}
@@ -386,7 +402,7 @@ func (h *handlers) approveAgentConfirmation(w http.ResponseWriter, r *http.Reque
 		h.writeConfirmationError(w, r, err)
 		return
 	}
-	exec := replayAgentRequest(r.Context(), h.router, c, principal)
+	exec := replayAgentRequest(r, h.router, c, principal)
 	// The replay has happened whatever this write does, so a failure to record
 	// it is logged and the person still gets the answer.
 	if err := cs.FinishAgentApproval(r.Context(), c, exec); err != nil {
