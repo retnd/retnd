@@ -57,7 +57,8 @@ export function AgentsCard({ readOnly }: { readOnly: boolean }) {
   // Bumped when something the audit shows has changed.
   const [auditRevision, setAuditRevision] = useState(0);
   const changed = () => setAuditRevision((n) => n + 1);
-  const waiting = confirmations.data?.length ?? 0;
+  // The route answers every state; only a pending one is waiting.
+  const waiting = confirmations.data?.filter((c) => c.state === "pending").length ?? 0;
 
   return (
     <section className="card" aria-labelledby="agents-heading" data-agents-card="">
