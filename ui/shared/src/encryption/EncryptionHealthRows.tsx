@@ -8,7 +8,9 @@
  * key (copies under it are refused until a rotation), and a row per deprecated
  * or retired suite still recorded by an active copy or a key, in T2.1's
  * sentence, with Re-encrypt under current suite, which runs its dry run first
- * (ReencryptDialog.tsx).
+ * (ReencryptDialog.tsx). While the destructive gate is shut the button is
+ * disabled with a short reason, since the engine would only refuse it in the
+ * dialog; an unread gate leaves it enabled (the engine's refusal is right).
  *
  * A deployment that encrypts nothing has no keys and no recorded suites, so
  * nothing here is drawn and nothing else on the Dashboard changes, which is
@@ -21,6 +23,7 @@ import { Link } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { WarningBanner } from "@shared/components/WarningBanner";
 import { useAsync } from "@shared/hooks/useAsync";
+import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { EncryptionSuite } from "@shared/types/encryption";
 import { settingsLink } from "@shared/utilities/routes";
@@ -31,6 +34,7 @@ import { ReencryptDialog } from "./ReencryptDialog";
 
 export function EncryptionHealthRows() {
   const api = useApi();
+  const gate = useDestructiveGate();
   const keys = useAsync(() => readKeys(api), [api]);
   const suites = useAsync(() => readSuites(api), [api]);
   // A policy that cannot be read is not a condition (see above).
@@ -70,11 +74,24 @@ export function EncryptionHealthRows() {
             dismissible={false}
             actions={
               s.activeCopies > 0 ? (
-                <InfoTooltip id="encryption.reencrypt">
-                  <button type="button" className="btn btn--sm" onClick={() => setReencrypt(s.id)}>
-                    Re-encrypt under current suite
-                  </button>
-                </InfoTooltip>
+                <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
+                  <InfoTooltip id="encryption.reencrypt">
+                    <button
+                      type="button"
+                      className="btn btn--sm"
+                      disabled={gate.state === "shut"}
+                      aria-describedby={gate.state === "shut" ? "reencrypt-gate-" + s.id : undefined}
+                      onClick={() => setReencrypt(s.id)}
+                    >
+                      Re-encrypt under current suite
+                    </button>
+                  </InfoTooltip>
+                  {gate.state === "shut" ? (
+                    <span id={"reencrypt-gate-" + s.id} data-reencrypt-gate="" style={{ fontSize: "var(--text-xs)", color: "var(--text)" }}>
+                      Turned off on this deployment: run it on the host.
+                    </span>
+                  ) : null}
+                </span>
               ) : null
             }
           >
