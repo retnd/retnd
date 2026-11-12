@@ -138,7 +138,9 @@ A tool call under `operate` or `configure` executes nothing.
 
 **What the agent sees.** The call returns `AGENT_CONFIRMATION_REQUIRED` with a confirmation id and
 the exact `retnd` command the request is equivalent to. That is an ordinary tool result, not a
-protocol error, so the agent can tell its user what it asked for.
+protocol error, so the agent can tell its user what it asked for. Later it can call
+`confirmation_status` with that id to read what you decided and, once it ran, how it ended. It only
+ever sees its own.
 
 **What you see.** A pending confirmation appears on the Agents card ("waiting for you") and in
 `retnd agent confirmations list`. It shows the command, the set it concerns, the token that asked and
