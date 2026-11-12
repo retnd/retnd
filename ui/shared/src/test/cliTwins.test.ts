@@ -145,6 +145,16 @@ function cases(module: string, list: Array<[string, string, ...unknown[]]>) {
   CASES[module] = list.map(([fn, name, ...args]) => [fn, name, () => call(module, fn, ...args)] as Case);
 }
 
+cases("agents/agentCommands", [
+  ["mintCommand", "a name alone", { name: "nightly-triage", scope: "", expiresIn: "" }],
+  ["mintCommand", "every flag", { name: "nightly-triage", scope: "operate", expiresIn: "720h" }],
+  ["mintCommand", "a hostile name", { name: HOSTILE, scope: "read", expiresIn: "" }],
+  ["revokeCommand", "one token", "agt_0123456789abcdef"],
+  ["revokeCommand", "a hostile id", HOSTILE],
+  ["auditCommand", "the whole trail", {}],
+  ["auditCommand", "one token since a week", { tokenId: "agt_0123456789abcdef", since: "7d" }]
+]);
+
 cases("assurance/assuranceCommands", [
   ["scrubCommand", "a set", SET],
   ["scrubCommand", "a hostile set id", HOSTILE_SET],
@@ -360,6 +370,9 @@ const NOT_TWINS: Record<string, Record<string, string>> = {
 const INLINE_ALLOWED: Record<string, string> = {
   "api/mock.ts: retnd backup-set patch": "the mock's copy of an action-log row, which is the engine's echo and not a line this UI builds",
   "assurance/mockAssurance.ts: retnd recovery-test ": "the mock's copy of an action-log row, as above",
+  "agents/mockAgents.ts: retnd run": "the mock engine's confirmation record, whose command the engine echoed when it recorded the ask; the card shows it verbatim and builds nothing",
+  "agents/mockAgents.ts: retnd assurance recovery-test ": "the mock engine's confirmation record, as above",
+  "agents/mockAgents.ts: retnd assurance verify ": "the mock engine's confirmation record, as above",
   "pages/RepositoryDomainNewPage.tsx: retnd repository create --passphrase-command":
     "the name of a flag, shown as a field label, and not a line to paste",
   "hooks/useRunControls.ts: localRunCommand(...) + ...":

@@ -67,3 +67,20 @@ export function useDestructiveGate(): GateReading {
 
   return reading;
 }
+
+/**
+ * Whether the connection needs the insecure-transport consent NOW. A press that
+ * lands before the page's first capabilities read has come back (the reading is
+ * still `unknown`) must not skip the question, because the secret it is about
+ * to send or receive would cross the connection first, so it asks the engine
+ * itself. A read that fails is "does not need": the engine's own refusal and
+ * the client's retry take it from there.
+ */
+export async function insecureAckRequiredNow(api: ReturnType<typeof useApi>, gate: GateReading): Promise<boolean> {
+  if (gate.state !== "unknown" || typeof api.getCapabilities !== "function") return gate.insecureTransportAckRequired;
+  try {
+    return (await api.getCapabilities()).destructiveOperations.insecureTransportAckRequired;
+  } catch {
+    return false;
+  }
+}

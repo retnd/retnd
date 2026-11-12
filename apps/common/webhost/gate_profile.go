@@ -391,13 +391,20 @@ func (e gateEnforcement) browserTransport(r *http.Request) string {
 
 // insecureTransportAckNeeded reports whether a gated act on this request
 // needs the insecure-transport acknowledgement (whether or not it carries
-// it). It is what GET /system/capabilities reports, so a screen asks exactly
-// when the router would refuse.
+// it). GET /system/capabilities reports the wider plainHTTPFromElsewhere, which
+// is true whenever this is.
 func (e gateEnforcement) insecureTransportAckNeeded(r *http.Request) bool {
 	secureTransport, _ := conditionsOf(e.gate)
-	if !secureTransport {
-		return false
-	}
+	return secureTransport && e.plainHTTPFromElsewhere(r)
+}
+
+// plainHTTPFromElsewhere is the transport half of the rule on its own: the
+// browser reached retnd over plain HTTP from another machine. It does not
+// read the gate, because the mint of an agent token (requireMintTransportAck)
+// asks the same consent with the destructive gate shut, and
+// GET /system/capabilities reports this, not the gated acts' narrower
+// answer, so a screen asks exactly when the router would refuse (Q17).
+func (e gateEnforcement) plainHTTPFromElsewhere(r *http.Request) bool {
 	v := e.browserTransport(r)
 	return v != BrowserTransportHTTPS && v != BrowserTransportLoopback
 }
@@ -522,7 +529,7 @@ func (e gateEnforcement) decide(r *http.Request, act gatedAct) (gateRefusal, boo
 func requireMintTransportAck(e gateEnforcement) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if v := e.browserTransport(r); v != BrowserTransportHTTPS && v != BrowserTransportLoopback && !insecureTransportAcknowledged(r) {
+			if e.plainHTTPFromElsewhere(r) && !insecureTransportAcknowledged(r) {
 				ref := newGateRefusal(http.StatusForbidden, "INSECURE_TRANSPORT_ACK_REQUIRED",
 					"the new token comes back over this connection, which is not encrypted and is not from this machine; open retnd over HTTPS, or acknowledge it in the request with the "+InsecureTransportHeader+" header",
 					"", "the mint's connection is not encrypted and not from this machine, and the request did not acknowledge that")

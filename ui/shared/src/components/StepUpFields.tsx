@@ -19,7 +19,7 @@
 import { Acknowledgement } from "@shared/components/Acknowledgement";
 
 /** The act a password check is for, which decides the words. */
-export type StepUpAct = "restore" | "source" | "validator" | "bundle";
+export type StepUpAct = "restore" | "source" | "validator" | "bundle" | "agent";
 
 const WORDS: Record<StepUpAct, { help: string; nothing: string; start: string; terminal: string }> = {
   restore: {
@@ -49,6 +49,13 @@ const WORDS: Record<StepUpAct, { help: string; nothing: string; start: string; t
     nothing: "No bundle was written.",
     start: "Enter your password to export the recovery bundle.",
     terminal: "export a recovery bundle from the web interface. Run retnd encryption key export on the host."
+  },
+  // EPIC U (#1351): approving a request an agent made runs it as you.
+  agent: {
+    help: "Approving a request an agent made asks for your password again. It is sent once with this request and not kept.",
+    nothing: "Nothing was run.",
+    start: "Enter your password to approve the request.",
+    terminal: "approve a request from the web interface. Run retnd agent confirmations approve on the host."
   }
 };
 

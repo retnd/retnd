@@ -726,7 +726,7 @@
           },
           "insecure_transport_ack_required": {
             "type": "boolean",
-            "description": "True when the gate is open and the browser that asked reached retnd over plain HTTP from another machine: a gated act then also needs X-Retnd-Insecure-Transport-Ack: acknowledged. Decided at the hop that faces the browser: serve-ui stamps its verdict on every request it proxies, because the engine behind it only ever sees serve-ui. Computed from the request that asked, so GET /system/capabilities is answered Cache-Control: no-store."
+            "description": "True when the browser that asked reached retnd over plain HTTP from another machine, whatever the gate's state (the mint of an agent token asks the same consent with the gate shut, issue #1351): a gated act, and POST /agent/tokens, then also need X-Retnd-Insecure-Transport-Ack: acknowledged. Decided at the hop that faces the browser: serve-ui stamps its verdict on every request it proxies, because the engine behind it only ever sees serve-ui. Computed from the request that asked, so GET /system/capabilities is answered Cache-Control: no-store."
           }
         },
         "required": [
