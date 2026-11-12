@@ -345,14 +345,16 @@ func TestImportRefusesMaterialThatIsNotTheNamedKey_1289(t *testing.T) {
 }
 
 // redigest recomputes a bundle's digest the way an editor who knew the
-// scheme would: SHA-256 over version, key id, format, recipient, created
-// (RFC 3339 nano, UTC) and material, each followed by a newline, as bundle.go
-// documents. It is spelled out here on purpose, so a change to the scheme
+// scheme would: SHA-256 over version, key id, format, recipient, created and
+// exported (RFC 3339 nano, UTC) and material, each followed by a newline, as
+// bundle.go documents. (It once left out the export time, so every bundle it
+// built failed the integrity check first and the refusals after it were never
+// reached; #1331.) It is spelled out here on purpose, so a change to the scheme
 // has to touch this test too.
 func redigest(t *testing.T, b keycustody.Bundle) string {
 	t.Helper()
 	h := sha256.New()
-	for _, f := range []string{b.Version, b.KeyID, b.FormatID, b.Recipient, b.Created.UTC().Format(time.RFC3339Nano), b.Material} {
+	for _, f := range []string{b.Version, b.KeyID, b.FormatID, b.Recipient, b.Created.UTC().Format(time.RFC3339Nano), b.Exported.UTC().Format(time.RFC3339Nano), b.Material} {
 		h.Write([]byte(f))
 		h.Write([]byte{'\n'})
 	}
