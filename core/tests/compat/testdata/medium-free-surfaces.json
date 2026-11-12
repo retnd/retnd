@@ -60,6 +60,11 @@
         "09-encryption-global-and-per-set.yaml   set production/explicit-inherit retained_copy_encryption: mode=required provider=managed override=true",
         "09-encryption-global-and-per-set.yaml   set production/opted-out retained_copy_encryption: mode=off provider=- override=true",
         "09-encryption-global-and-per-set.yaml   set production/own-external-key retained_copy_encryption: mode=required provider=external(env RETND_MEDIA_COPY_KEY) override=true",
+        "12-agent-access.yaml validate: accepted",
+        "12-agent-access.yaml   deployment policy: tz=UTC week_starts=monday protect_lkg=true chain=[daily(gran=day,keep=7,period_days=0,window=-,medium=local) weekly(gran=week,keep=3,period_days=0,window=month,medium=local) monthly(gran=month,keep=12,period_days=0,window=-,medium=local)]",
+        "12-agent-access.yaml   set production/postgres-primary: tz=UTC week_starts=monday protect_lkg=true chain=[daily(gran=day,keep=7,period_days=0,window=-,medium=local) weekly(gran=week,keep=3,period_days=0,window=month,medium=local) monthly(gran=month,keep=12,period_days=0,window=-,medium=local)] local_path=/backups/production/postgres read_only=false",
+        "12-agent-access.yaml   storage_mediums declared: 0",
+        "12-agent-access.yaml   deployment agents: http_transport=on rate_limit_per_minute=120 confirmation_ttl=10m0s audit_retention_days=30 max_pending_confirmations=3",
         "50-invalid-no-sources.yaml validate: accepted",
         "50-invalid-no-sources.yaml   deployment policy: tz=UTC week_starts=monday protect_lkg=true chain=[daily(gran=day,keep=7,period_days=0,window=-,medium=local) weekly(gran=week,keep=3,period_days=0,window=month,medium=local) monthly(gran=month,keep=12,period_days=0,window=-,medium=local)]",
         "50-invalid-no-sources.yaml   storage_mediums declared: 0",
@@ -75,7 +80,8 @@
         "60-invalid-assurance-required-without-validator.yaml validate: REFUSED invalid config: sources[0].backup_sets[0].assurance.recovery_test.validator_id: mode required needs a validator, on the set or on the deployment",
         "61-invalid-assurance-unknown-key.yaml load: REFUSED parsing config \"testdata/configs/61-invalid-assurance-unknown-key.yaml\": yaml: unmarshal errors: | line 10: field cadance not found in type config.AssuranceScrub",
         "62-invalid-inline-key-material.yaml load: REFUSED parsing config \"testdata/configs/62-invalid-inline-key-material.yaml\": yaml: unmarshal errors: | line 15: field identity not found in type config.RetainedCopyKeyProvider",
-        "63-invalid-encryption-required-without-provider.yaml validate: REFUSED invalid config: sources[0].backup_sets[0].retained_copy_encryption.key_provider: mode required needs a key provider, on the set or on the deployment"
+        "63-invalid-encryption-required-without-provider.yaml validate: REFUSED invalid config: sources[0].backup_sets[0].retained_copy_encryption.key_provider: mode required needs a key provider, on the set or on the deployment",
+        "66-invalid-agent-unknown-scope.yaml load: REFUSED parsing config \"testdata/configs/66-invalid-agent-unknown-scope.yaml\": yaml: unmarshal errors: | line 13: field scope not found in type config.AgentsBlock"
       ]
     },
     "02-artifact-rows-after-migration": {
