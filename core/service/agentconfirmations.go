@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -131,6 +132,12 @@ func (c AgentConfirmation) Contract() apicontract.AgentConfirmation {
 		ID: c.ID, TokenID: c.TokenID, TokenName: c.TokenName, Tool: c.Tool, Route: c.Route, Method: c.Method,
 		Command: c.Command, BackupSet: c.BackupSet, State: c.State,
 		CreatedAt: c.CreatedAt.UTC().Format(time.RFC3339), ExpiresAt: c.ExpiresAt.UTC().Format(time.RFC3339),
+	}
+	var recorded struct {
+		ConfigRevision string `json:"config_revision"`
+	}
+	if json.Unmarshal(c.Body, &recorded) == nil {
+		out.ConfigRevision = recorded.ConfigRevision
 	}
 	if c.DecidedAt != nil {
 		s := c.DecidedAt.UTC().Format(time.RFC3339)

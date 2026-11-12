@@ -393,7 +393,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		if resolver == nil {
 			resolver = catalogueTools{}
 		}
-		proposer = &agentProposer{confirmations: confirmations, resolver: resolver, root: root}
+		proposer = &agentProposer{confirmations: confirmations, resolver: resolver, root: root, revision: cfg.Backend.ConfigRevision}
 	}
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(authMiddleware(cfg.Platform, agents, guard, proposer))
