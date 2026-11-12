@@ -390,3 +390,35 @@ func TestNoRowCarriesTheToken(t *testing.T) {
 		t.Error("an audit row carries the plaintext token")
 	}
 }
+
+// Falsify: store the arguments as they came. A secret planted in a tool's
+// arguments never reaches the table (FR-98), at any depth, by field name or by
+// shape.
+func TestAPlantedSecretInTheArgumentsNeverReachesTheTable(t *testing.T) {
+	r := newDurableRig(t)
+	const identity = "AGE-SECRET-KEY-1QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"
+	if err := r.svc.RecordAgentCall(context.Background(), AgentCall{
+		TokenID: "agt_1", Tool: "backup_set_show", Transport: "stdio", Status: 200,
+		Arguments: map[string]any{
+			"set":      "alpha/nightly",
+			"password": "hunter2",
+			"nested":   map[string]any{"deep": []any{map[string]any{"private_key_pem": "x"}, "note " + identity}},
+			"query":    map[string][]string{"q": {identity}},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rows := recordedRows(t, r.svc, AgentAuditQuery{})
+	if len(rows) != 1 {
+		t.Fatalf("%d rows", len(rows))
+	}
+	got := rows[0].Arguments
+	for _, leak := range []string{"hunter2", identity, "private_key_pem", "AGE-SECRET-KEY"} {
+		if strings.Contains(got, leak) {
+			t.Errorf("the stored arguments carry %q: %s", leak, got)
+		}
+	}
+	if !strings.Contains(got, "alpha/nightly") {
+		t.Errorf("the projection removed the product's own noun: %s", got)
+	}
+}

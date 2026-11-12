@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/retnd/retnd/core/agenttools"
 	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/internal/obs"
 	"github.com/retnd/retnd/core/internal/state"
@@ -121,9 +122,8 @@ type AgentCall struct {
 	Tool string
 	// Transport is stdio, http or api.
 	Transport string
-	// Arguments is what the caller asked with. It is stored as JSON, so what
-	// is passed here must already have been through the projection at the tool
-	// boundary; the writer bounds its size and nothing else.
+	// Arguments is what the caller asked with. It is stored as JSON after
+	// agenttools.Project and cut at a size cap, whatever the caller did.
 	Arguments any
 	// BackupSetID is "source/set" when the call concerns one set, which puts
 	// its feed line on that set's strip. A set the configuration does not
@@ -349,20 +349,34 @@ func (b *BackupService) RecordAgentCall(ctx context.Context, c AgentCall) error 
 	}})
 }
 
-// agentAuditArguments renders arguments as stored: JSON, bounded.
+// agentAuditArguments renders arguments as stored: JSON that has been through
+// agenttools.Project, bounded. The projection is applied here, to every row,
+// rather than left to each transport, so a call that reaches the table by any
+// door has its arguments cleaned by the one thing that knows how (FR-98): a
+// denied field name is dropped at every depth and a string that carries a
+// canary shape is replaced by a marker. Arguments that do not render as JSON
+// are not stored at all.
 func agentAuditArguments(v any) string {
+	const unrecorded = `{"unrecorded":"the arguments could not be rendered"}`
 	if v == nil {
 		return ""
 	}
-	var s string
-	if str, ok := v.(string); ok {
-		s = str
-	} else {
-		raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return unrecorded
+	}
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return unrecorded
+	}
+	projected := agenttools.Project(decoded)
+	s, ok := projected.(string)
+	if !ok {
+		out, err := json.Marshal(projected)
 		if err != nil {
-			return `{"unrecorded":"the arguments could not be rendered"}`
+			return unrecorded
 		}
-		s = string(raw)
+		s = string(out)
 	}
 	if len(s) > maxAgentAuditArguments {
 		s = strings.ToValidUTF8(s[:maxAgentAuditArguments], "") + "..."
