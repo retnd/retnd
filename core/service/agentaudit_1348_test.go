@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +27,18 @@ func recordedRows(t *testing.T, svc *BackupService, q AgentAuditQuery) []AgentAu
 
 // feedEvents is what an operator reading the deployment's strip and one set's
 // strip would see, by event name.
+// newAgentFeedRig is newDurableRig with a logger: agent_action reaches the
+// feed through the service's logger tap, and the durable rig's service is
+// built with none, so nothing it emitted would ever arrive.
+func newAgentFeedRig(t *testing.T) *durableRig {
+	t.Helper()
+	r := newDurableRig(t)
+	r.svc.cancel()
+	<-r.svc.activityDone
+	r.svc = New(r.cfg, r.journal, nil, obs.New(io.Discard, obs.LevelDebug))
+	return r
+}
+
 func feedEvents(t *testing.T, svc *BackupService) (deployment, set []LiveActivityEvent) {
 	t.Helper()
 	live, err := svc.LiveActivity(context.Background(), LiveActivityRequest{Limit: liveActivityMaxLimit})
@@ -55,7 +68,7 @@ func agentActions(events []LiveActivityEvent) []LiveActivityEvent {
 
 // Falsify: skip reads. Every call, reads included, is one row.
 func TestAReadIsAnAuditRow(t *testing.T) {
-	r := newDurableRig(t)
+	r := newAgentFeedRig(t)
 	ctx := context.Background()
 	if err := r.svc.RecordAgentCall(ctx, AgentCall{
 		TokenID: "agt_1", TokenName: "triage", Tool: "status", Transport: "stdio",
@@ -78,7 +91,7 @@ func TestAReadIsAnAuditRow(t *testing.T) {
 
 // Falsify: write two rows for one call, or one row for two calls.
 func TestEachCallIsExactlyOneRow(t *testing.T) {
-	r := newDurableRig(t)
+	r := newAgentFeedRig(t)
 	ctx := context.Background()
 	for i := 0; i < 7; i++ {
 		tool := "status"
@@ -100,7 +113,7 @@ func TestEachCallIsExactlyOneRow(t *testing.T) {
 // Falsify: skip refusals before the handler. A refusal the authenticator made
 // is a row with its code, and it reaches the feed.
 func TestARefusalBeforeTheHandlerIsStillAudited(t *testing.T) {
-	r := newDurableRig(t)
+	r := newAgentFeedRig(t)
 	ctx := context.Background()
 	minted := mintForTest(t, r.svc, MintAgentTokenRequest{Name: "triage"})
 	if err := r.svc.RecordAgentRefusal(ctx, AgentRefusal{
@@ -122,7 +135,7 @@ func TestARefusalBeforeTheHandlerIsStillAudited(t *testing.T) {
 
 // Falsify: emit it without a Result, or for a read.
 func TestAMutationIsOnTheFeedWithAResultAndAReadIsNot(t *testing.T) {
-	r := newDurableRig(t)
+	r := newAgentFeedRig(t)
 	ctx := context.Background()
 	calls := []AgentCall{
 		{TokenID: "agt_1", TokenName: "triage", Tool: "status", Transport: "stdio", Status: 200},
@@ -160,7 +173,7 @@ func TestAMutationIsOnTheFeedWithAResultAndAReadIsNot(t *testing.T) {
 
 // Falsify: blank BackupSetID, or put it on a set the configuration lacks.
 func TestAnAgentActionAboutASetLandsOnThatSetsStrip(t *testing.T) {
-	r := newDurableRig(t)
+	r := newAgentFeedRig(t)
 	ctx := context.Background()
 	if err := r.svc.RecordAgentCall(ctx, AgentCall{
 		TokenID: "agt_1", TokenName: "triage", Tool: "run_backup_set", Transport: "http",
@@ -185,7 +198,7 @@ func TestAnAgentActionAboutASetLandsOnThatSetsStrip(t *testing.T) {
 
 // Falsify: emit nothing for a confirmation state change, or emit it with no Result.
 func TestAConfirmationChangingStateIsOnTheFeed(t *testing.T) {
-	r := newDurableRig(t)
+	r := newAgentFeedRig(t)
 	ctx := context.Background()
 	want := map[string]string{"pending": "info", "approved": "success", "denied": "warn", "expired": "warn"}
 	for state := range want {
@@ -214,7 +227,7 @@ func TestAConfirmationChangingStateIsOnTheFeed(t *testing.T) {
 
 // Falsify: let an unattributed refusal through every time.
 func TestRefusalsThatNameNoTokenCannotFillTheFeed(t *testing.T) {
-	r := newDurableRig(t)
+	r := newAgentFeedRig(t)
 	ctx := context.Background()
 	for i := 0; i < 200; i++ {
 		if err := r.svc.RecordAgentRefusal(ctx, AgentRefusal{Method: "GET", Path: "/api/v1/x", Status: 401, Code: "AGENT_TOKEN_INVALID"}); err != nil {
@@ -232,7 +245,7 @@ func TestRefusalsThatNameNoTokenCannotFillTheFeed(t *testing.T) {
 
 // Falsify: store the arguments whole.
 func TestStoredArgumentsAreBounded(t *testing.T) {
-	r := newDurableRig(t)
+	r := newAgentFeedRig(t)
 	if err := r.svc.RecordAgentCall(context.Background(), AgentCall{
 		TokenID: "agt_1", Tool: "status", Transport: "stdio", Arguments: map[string]string{"q": strings.Repeat("a", 64<<10)}, Status: 200,
 	}); err != nil {
@@ -247,7 +260,7 @@ func TestStoredArgumentsAreBounded(t *testing.T) {
 // Falsify: drop rows when the queue is full. A writer that cannot keep up
 // slows the caller and loses nothing.
 func TestAFullQueueSlowsTheCallerAndLosesNothing(t *testing.T) {
-	r := newDurableRig(t)
+	r := newAgentFeedRig(t)
 	ctx := context.Background()
 	const calls = agentAuditQueueSize*3 + 17
 	for i := 0; i < calls; i++ {
@@ -276,7 +289,7 @@ func TestAFullQueueSlowsTheCallerAndLosesNothing(t *testing.T) {
 // Falsify: a context that has ended must not be written through; a closed
 // writer reports it rather than dropping silently.
 func TestARowAfterShutdownIsReportedNotDropped(t *testing.T) {
-	r := newDurableRig(t)
+	r := newAgentFeedRig(t)
 	r.svc.cancel()
 	<-r.svc.auditDone
 	err := r.svc.RecordAgentCall(context.Background(), AgentCall{TokenID: "agt_1", Tool: "status", Transport: "stdio", Status: 200})
@@ -287,7 +300,7 @@ func TestARowAfterShutdownIsReportedNotDropped(t *testing.T) {
 
 // Falsify: ignore the cursor, the token or the since.
 func TestThePageFiltersByTokenAndTimeAndWalksBackByCursor(t *testing.T) {
-	r := newDurableRig(t)
+	r := newAgentFeedRig(t)
 	ctx := context.Background()
 	clock := pinAgentClock(t, time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC))
 	for i := 0; i < 6; i++ {
@@ -326,7 +339,7 @@ func TestThePageFiltersByTokenAndTimeAndWalksBackByCursor(t *testing.T) {
 // Falsify: leave the prune out. Retention 0 empties the table, and a row
 // inside the retention stays.
 func TestRowsPastTheRetentionArePruned(t *testing.T) {
-	r := newDurableRig(t)
+	r := newAgentFeedRig(t)
 	ctx := context.Background()
 	clock := pinAgentClock(t, time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC))
 	record := func() {
@@ -359,7 +372,7 @@ func TestRowsPastTheRetentionArePruned(t *testing.T) {
 
 // Falsify: prune by age only. A refusal flood inside a day must still be bounded.
 func TestTheTableIsBoundedByRowsAsWellAsByAge(t *testing.T) {
-	r := newDurableRig(t)
+	r := newAgentFeedRig(t)
 	ctx := context.Background()
 	r.svc.audit.maxRows = 50
 	for i := 0; i < 80; i++ {
@@ -377,7 +390,7 @@ func TestTheTableIsBoundedByRowsAsWellAsByAge(t *testing.T) {
 
 // Falsify: put the plaintext token, or anything of it, in a row.
 func TestNoRowCarriesTheToken(t *testing.T) {
-	r := newDurableRig(t)
+	r := newAgentFeedRig(t)
 	ctx := context.Background()
 	minted := mintForTest(t, r.svc, MintAgentTokenRequest{Name: "triage"})
 	if err := r.svc.RecordAgentCall(ctx, AgentCall{
@@ -395,7 +408,7 @@ func TestNoRowCarriesTheToken(t *testing.T) {
 // arguments never reaches the table (FR-98), at any depth, by field name or by
 // shape.
 func TestAPlantedSecretInTheArgumentsNeverReachesTheTable(t *testing.T) {
-	r := newDurableRig(t)
+	r := newAgentFeedRig(t)
 	const identity = "AGE-SECRET-KEY-1QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"
 	if err := r.svc.RecordAgentCall(context.Background(), AgentCall{
 		TokenID: "agt_1", Tool: "backup_set_show", Transport: "stdio", Status: 200,

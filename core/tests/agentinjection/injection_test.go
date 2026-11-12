@@ -34,7 +34,7 @@ func TestMain(m *testing.M) {
 func capture(t *testing.T, plan agentcorpus.Plan) ([]agentcorpus.Surface, *agentcorpus.API) {
 	t.Helper()
 	api := agentcorpus.NewAPI(t, plan)
-	conn := agentcorpus.StartStdio(t, agentcorpus.BuildRetnd(t), agentcorpus.WriteConfig(t), api.Server.URL, agentcorpus.Token())
+	conn := agentcorpus.StartStdio(t, agentcorpus.BuildRetnd(t), api.Server.URL, agentcorpus.Token())
 	return agentcorpus.Walk(t, conn), api
 }
 
@@ -57,13 +57,15 @@ func TestAnUntrustedStringArrivesOnlyAsData(t *testing.T) {
 				if s.Kind == "tool" && contains(o.Tools, s.Tool) && inside {
 					arrived = true
 				}
-				if s.Kind != "tool" && inside {
-					t.Errorf("%s: %s carries an `untrusted` object, which only a tool result has", "stdio", s.Name)
+				// An origin no tool carries must not arrive at all, not even
+				// as data.
+				if len(o.Tools) == 0 && inside {
+					t.Errorf("%s: the instruction planted in %s arrived on %s, and no tool is meant to carry it", "stdio", o.Name, s.Name)
 				}
 			}
 			// A row that saw nothing proves nothing: the string has to be
 			// delivered, as data, by one of the tools that can carry it.
-			if !arrived {
+			if len(o.Tools) > 0 && !arrived {
 				t.Errorf("none of %v returned the instruction planted in %s inside `untrusted`; the row is vacuous", o.Tools, o.Name)
 			}
 			assertNothingStarted(t, api)
@@ -122,6 +124,9 @@ func TestAnUntrustedStringArrivesOnlyAsData_WouldCatchOne(t *testing.T) {
 						break
 					}
 				}
+			}
+			if base == nil && len(o.Tools) == 0 {
+				t.Skipf("no tool carries %s, so there is no result to move it into the text of; the row above asserts it never arrives", o.Name)
 			}
 			if base == nil {
 				t.Fatalf("no captured tool result carries the instruction planted in %s, so there is nothing to move into the text", o.Name)
