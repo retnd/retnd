@@ -79,6 +79,13 @@ type matrixPair struct {
 	// ledger is the promise this matrix's own opening paragraph makes about
 	// its section 4 ledger.
 	ledger ledgerRule
+	// whereCol is the zero-based column of a gate row that names the files
+	// the row certifies. EPIC E and R lay their gate tables out as
+	// `# | Outcome | Certifies | Where | Falsification` (3); EPIC N and T as
+	// `ID | Claim | Executable proof | Falsification | Status | Waits on` (2).
+	// Reading a fixed column handed N and T rows' falsification text to the
+	// existence check, so N2.6 and T2.4 "cited no file at all" (#1360).
+	whereCol int
 }
 
 // gatePhase is one exit gate: the prefix its matrix rows are numbered with,
@@ -118,7 +125,8 @@ var matrixPairs = []matrixPair{
 			{prefix: "P1", heading: "### Phase 1 exit gate"},
 			{prefix: "P2", heading: "### Phase 2 exit gate"},
 		},
-		ledger: ledgerRowPerGuard,
+		ledger:   ledgerRowPerGuard,
+		whereCol: 3,
 	},
 	{
 		name:     "EPIC R",
@@ -130,7 +138,8 @@ var matrixPairs = []matrixPair{
 			{prefix: "R1", heading: "### Phase 1 exit gate"},
 			{prefix: "R2", heading: "### Phase 2 exit gate"},
 		},
-		ledger: ledgerRowPerUncoveredGuard,
+		ledger:   ledgerRowPerUncoveredGuard,
+		whereCol: 3,
 	},
 	{
 		// EPIC N (#967) lands its matrix with every row BLOCKED and
@@ -151,7 +160,8 @@ var matrixPairs = []matrixPair{
 			{prefix: "N1", heading: "### Phase 1 exit gate"},
 			{prefix: "N2", heading: "### Phase 2 exit gate"},
 		},
-		ledger: ledgerRowPerGuard,
+		ledger:   ledgerRowPerGuard,
+		whereCol: 2,
 	},
 	{
 		// EPIC T (#1310) follows EPIC N's shape on purpose: it lands its
@@ -169,7 +179,8 @@ var matrixPairs = []matrixPair{
 			{prefix: "T1", heading: "### Phase 1 exit gate"},
 			{prefix: "T2", heading: "### Phase 2 exit gate"},
 		},
-		ledger: ledgerRowPerGuard,
+		ledger:   ledgerRowPerGuard,
+		whereCol: 2,
 	},
 }
 
@@ -777,9 +788,9 @@ func gateRows(md string, pair matrixPair) []matrixRow {
 		if !pair.gateID.MatchString(id) {
 			continue
 		}
-		// Both matrices put Where fourth; the outcome is found rather than
-		// counted, for the reason outcomeOf gives.
-		out = append(out, matrixRow{id: id, outcome: outcomeOf(cols), where: cols[3]})
+		// Where is the pair's own column, and the outcome is found rather
+		// than counted, for the reason outcomeOf gives.
+		out = append(out, matrixRow{id: id, outcome: outcomeOf(cols), where: cols[pair.whereCol]})
 	}
 	return out
 }
