@@ -79,6 +79,17 @@ func actorFromContext(ctx context.Context) string {
 func authMiddleware(platform capabilities.PlatformAdapter, agents AgentAccess) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// A confirmation being replayed (agentconfirmations.go) carries the
+			// principal that asked on a context key only this package can set,
+			// so no request that arrived over the wire reaches this branch.
+			if p, ok := agentReplayFrom(r.Context()); ok {
+				replayed, ok := replayAgent(w, r, p)
+				if !ok {
+					return
+				}
+				next.ServeHTTP(w, replayed)
+				return
+			}
 			// A request that presents a bearer token is an agent's, and is
 			// decided here alone. It never falls through to the session: a
 			// token that is unknown, expired or revoked is refused, not

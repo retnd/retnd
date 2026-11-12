@@ -108,6 +108,12 @@ type BackupService struct {
 	rootDefault WorkflowRootDefault
 	logger      *obs.Logger
 
+	// agentConfirmationTTL and agentMaxPending are agents.confirmation_ttl and
+	// agents.max_pending_confirmations, set once by SetAgentConfirmationLimits
+	// while the engine is wired. Zero means the default (agentconfirmations.go).
+	agentConfirmationTTL time.Duration
+	agentMaxPending      int
+
 	// recovery is the artifact-recovery machinery (recover.go): the grant
 	// table, the staging area and the verifying engine. Zero until first
 	// used, so a process that never recovers anything creates nothing.
