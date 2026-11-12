@@ -57,6 +57,15 @@ const (
 	// CLI would have used. A test over there holds the two equal.
 	agentExitGateShut          = 50
 	agentExitInsecureTransport = 52
+
+	// AgentOutcomeInterrupted is the Outcome of an execution the engine never
+	// saw finish. The empty Outcome is a replay that ran to an answer.
+	AgentOutcomeInterrupted = "interrupted"
+	// agentInterruptedMessage is what an interrupted execution says. A
+	// restart never replays an approval: a second run_cycle or a second
+	// retention change is worse than a gap, so the person is pointed at the
+	// feed, which holds the replay's own api_action if it got that far.
+	agentInterruptedMessage = "the engine stopped before the replay finished; check the activity feed for this command before running it again"
 )
 
 var (
@@ -90,6 +99,9 @@ type AgentExecution struct {
 	Message       string
 	CorrelationID string
 	ExitCode      int
+	// Outcome is empty for a replay that ran to an answer, and
+	// AgentOutcomeInterrupted for one the engine stopped in the middle of.
+	Outcome string
 }
 
 // AgentConfirmation is a confirmation as every surface shows it. Body is the
@@ -130,6 +142,10 @@ func (c AgentConfirmation) Contract() apicontract.AgentConfirmation {
 	if e := c.Execution; e != nil {
 		out.Execution = &apicontract.AgentExecution{
 			Status: e.Status, Code: e.Code, Message: e.Message, CorrelationID: e.CorrelationID, ExitCode: e.ExitCode,
+			Outcome: "completed",
+		}
+		if e.Outcome == AgentOutcomeInterrupted {
+			out.Execution.Outcome = AgentOutcomeInterrupted
 		}
 	}
 	return out
@@ -345,6 +361,41 @@ func (b *BackupService) FinishAgentApproval(ctx context.Context, c AgentConfirma
 	return nil
 }
 
+// ReconcileAgentConfirmations is the startup pass of the process that serves.
+// An approved confirmation decided before the process started, with no replay
+// row, is one whose replay may or may not have run: the operator at 3am cannot
+// tell from the record. So each gets a replay row saying interrupted, and a
+// line on the feed, and is never run again. It returns how many it marked.
+//
+// It belongs to the serving process, not to New: a terminal command opened
+// beside a running engine would see that engine's in-flight replays as lost.
+func (b *BackupService) ReconcileAgentConfirmations(ctx context.Context, startedAt time.Time) (int, error) {
+	rows, err := b.journal.ApprovedAgentConfirmationsWithoutReplay(ctx, startedAt)
+	if err != nil {
+		return 0, fmt.Errorf("service: reconcile agent confirmations: %w", err)
+	}
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	names, err := b.agentTokenNames(ctx)
+	if err != nil {
+		return 0, err
+	}
+	for _, row := range rows {
+		err := b.journal.InsertAgentAudit(ctx, state.AgentAudit{
+			At: now(), TokenID: row.TokenID, Tool: row.Tool, Transport: auditTransportReplay,
+			Arguments: agentInterruptedMessage, Code: AgentOutcomeInterrupted, ConfirmationID: row.ID,
+		})
+		if err != nil {
+			return 0, fmt.Errorf("service: record interrupted agent execution: %w", err)
+		}
+		view := confirmationView(row, names[row.TokenID], nil)
+		view.State = AgentOutcomeInterrupted
+		b.emitAgentConfirmation(ctx, view)
+	}
+	return len(rows), nil
+}
+
 // DenyAgentConfirmation ends a pending confirmation without running it.
 func (b *BackupService) DenyAgentConfirmation(ctx context.Context, id, by string) (AgentConfirmation, error) {
 	b.sweepAgentConfirmations(ctx)
@@ -456,6 +507,9 @@ func (b *BackupService) agentExecution(ctx context.Context, row state.AgentConfi
 		return nil, fmt.Errorf("service: read agent execution: %w", err)
 	}
 	for _, r := range slices.Backward(rows) {
+		if r.Transport == auditTransportReplay && r.Code == AgentOutcomeInterrupted {
+			return &AgentExecution{Message: r.Arguments, ExitCode: 1, Outcome: AgentOutcomeInterrupted}, nil
+		}
 		if r.Transport == auditTransportReplay {
 			return &AgentExecution{
 				Status: r.Status, Code: r.Code, Message: r.Arguments, CorrelationID: r.CorrelationID,

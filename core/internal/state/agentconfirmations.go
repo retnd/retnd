@@ -148,6 +148,17 @@ func (j *Journal) DecideAgentConfirmation(ctx context.Context, id, to, by string
 	return n > 0, nil
 }
 
+// ApprovedAgentConfirmationsWithoutReplay returns the approved confirmations
+// decided before the given time that have no replay row in agent_audit: an
+// approval whose replay never wrote its result down.
+func (j *Journal) ApprovedAgentConfirmationsWithoutReplay(ctx context.Context, before time.Time) ([]AgentConfirmation, error) {
+	return j.queryAgentConfirmations(ctx,
+		`SELECT `+agentConfirmationColumns+` FROM agent_confirmations c
+		 WHERE c.state = ? AND c.decided_at < ?
+		   AND NOT EXISTS (SELECT 1 FROM agent_audit a WHERE a.confirmation_id = c.id AND a.transport = 'replay')
+		 ORDER BY c.created_at, c.id`, AgentConfirmationApproved, formatTime(before))
+}
+
 // ExpireAgentConfirmations marks every pending confirmation whose time has
 // come as expired and returns them, so the caller can say so once.
 func (j *Journal) ExpireAgentConfirmations(ctx context.Context, at time.Time) ([]AgentConfirmation, error) {

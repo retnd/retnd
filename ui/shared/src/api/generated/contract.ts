@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "cea6ba0aa0b87e1f10b71a2b538ff903449eaeffd6b33931c91b0bd94f9787a1";
+export const CONTRACT_SHA256 = "9de3cba06ac2613bfde439fd04a6fe5cd2dad1ffeddcd3cf3812a083a588c146";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -3330,6 +3330,7 @@ export interface WireAgentExecution {
   correlation_id: string;
   exit_code: number;
   message: string;
+  outcome: "completed" | "interrupted";
   status: number;
 }
 

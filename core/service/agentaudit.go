@@ -137,7 +137,7 @@ type AgentCall struct {
 	Code           string
 	CorrelationID  string
 	ConfirmationID string
-	// ConfirmationState is pending, approved, denied or expired when this
+	// ConfirmationState is pending, approved, denied, expired or interrupted when this
 	// record is a confirmation changing state, and empty for a call.
 	ConfirmationState string
 
@@ -439,6 +439,8 @@ func agentActionResultAndMessage(c AgentCall) (obs.Result, string) {
 		return obs.ResultSuccess, "a person approved " + what + " for " + who
 	case "denied", "expired":
 		return obs.ResultWarn, what + " for " + who + " was " + c.ConfirmationState
+	case "interrupted":
+		return obs.ResultWarn, what + " for " + who + " was approved but the engine stopped before it finished; check this feed before running it again"
 	}
 	switch {
 	case c.Refused:

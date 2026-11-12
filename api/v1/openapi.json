@@ -10083,6 +10083,14 @@
           },
           "exit_code": {
             "type": "integer"
+          },
+          "outcome": {
+            "type": "string",
+            "description": "completed when the replay ran to an answer (status and code say which), interrupted when the engine stopped between the approval and the replay's end. An interrupted one has status 0 and exit code 1, and was never run again: check the activity feed for the command before asking for it twice.",
+            "enum": [
+              "completed",
+              "interrupted"
+            ]
           }
         },
         "required": [
@@ -10090,7 +10098,8 @@
           "code",
           "message",
           "correlation_id",
-          "exit_code"
+          "exit_code",
+          "outcome"
         ]
       },
       "AgentConfirmation": {

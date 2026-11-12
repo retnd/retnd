@@ -195,7 +195,9 @@ func agentConfirmationsShow(args []string) int {
 		return emitWireJSON(got)
 	}
 	fmt.Printf("%s: %s, asked by %s for %s, expires %s\n  %s\n", got.ID, got.State, got.TokenName, got.Tool, got.ExpiresAt, got.Command)
-	if e := got.Execution; e != nil {
+	if e := got.Execution; e != nil && e.Outcome == "interrupted" {
+		fmt.Printf("  interrupted: %s\n", e.Message)
+	} else if e != nil {
 		fmt.Printf("  ran: %d %s %s (correlation id %s, exit code %d)\n", e.Status, e.Code, e.Message, e.CorrelationID, e.ExitCode)
 	}
 	return exitOK

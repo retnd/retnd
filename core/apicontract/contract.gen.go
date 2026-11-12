@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "cea6ba0aa0b87e1f10b71a2b538ff903449eaeffd6b33931c91b0bd94f9787a1"
+const ContractSHA256 = "9de3cba06ac2613bfde439fd04a6fe5cd2dad1ffeddcd3cf3812a083a588c146"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -2306,6 +2306,7 @@ type AgentExecution struct {
 	CorrelationID string `json:"correlation_id"`
 	ExitCode      int    `json:"exit_code"`
 	Message       string `json:"message"`
+	Outcome       string `json:"outcome"`
 	Status        int    `json:"status"`
 }
 
