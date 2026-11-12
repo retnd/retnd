@@ -102,6 +102,15 @@ func authMiddleware(platform capabilities.PlatformAdapter, agents AgentAccess) f
 					return
 				}
 			}
+			// With no token store (the first-run router, a backend that keeps
+			// no tokens) a bearer header is still ignored everywhere except
+			// the denied prefixes, which refuse it whatever it is. That is
+			// what keeps /system/first-run shut to a token before the
+			// deployment has a journal to check one against.
+			if _, ok := bearerToken(r); ok && agentRouteDenied(r) {
+				writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route")
+				return
+			}
 
 			if platform == nil {
 				writeError(w, http.StatusUnauthorized, "UNAUTHENTICATED", "no platform adapter is configured")

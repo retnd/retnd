@@ -776,7 +776,7 @@
         "  err|                                                   every token: name, prefix, scope, status (active, expired or",
         "  err|                                                   revoked), owner, expiry and when it last authenticated. Never the",
         "  err|                                                   token and never its hash. The same as GET /api/v1/agent/tokens",
-        "  err|   agent token revoke ID",
+        "  err|   agent token revoke ID [--json]",
         "  err|                                                   end a token. The very next request that presents it is refused, so",
         "  err|                                                   there is nothing to wait for. ID is the one agent token list",
         "  err|                                                   prints. The same as POST /api/v1/agent/tokens/{id}/revoke",

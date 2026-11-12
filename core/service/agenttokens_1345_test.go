@@ -308,3 +308,22 @@ func TestARefusalIsRecordedInTheAuditTable(t *testing.T) {
 		t.Error("the audit row carries the plaintext token")
 	}
 }
+
+// Falsify: store the refused path whole. A refusal can come from a caller
+// that never authenticated, so its row has to be bounded.
+func TestARefusalRowDoesNotGrowWithTheURL(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	if err := svc.RecordAgentRefusal(ctx, AgentRefusal{
+		Method: "GET", Path: "/api/v1/" + strings.Repeat("a", 64<<10), Status: 401, Code: "AGENT_TOKEN_INVALID",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := svc.journal.ListAgentAudit(ctx, 1)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("audit rows = %d, %v; want one", len(rows), err)
+	}
+	if n := len(rows[0].Arguments); n > 600 {
+		t.Errorf("the refusal row keeps %d bytes of the URL", n)
+	}
+}

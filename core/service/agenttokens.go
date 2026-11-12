@@ -248,12 +248,19 @@ func (b *BackupService) AuthenticateAgentToken(ctx context.Context, presented st
 
 // RecordAgentRefusal writes a refusal the bearer authenticator made into
 // agent_audit. It never carries the presented token.
+// The path is cut at 512 bytes: the caller may not be authenticated at all,
+// and a row per refused request must not be a row of whatever size the URL is.
 func (b *BackupService) RecordAgentRefusal(ctx context.Context, r AgentRefusal) error {
+	const maxAuditPath = 512
+	p := r.Path
+	if len(p) > maxAuditPath {
+		p = strings.ToValidUTF8(p[:maxAuditPath], "") + "..."
+	}
 	return b.journal.InsertAgentAudit(ctx, state.AgentAudit{
 		At:            now(),
 		TokenID:       r.TokenID,
 		Transport:     "api",
-		Arguments:     r.Method + " " + r.Path,
+		Arguments:     r.Method + " " + p,
 		Status:        r.Status,
 		Code:          r.Code,
 		CorrelationID: r.CorrelationID,

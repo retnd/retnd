@@ -49,16 +49,13 @@ type agentTokens interface {
 // localAgentTokens answers the three acts from this host's own service,
 // converting its types to the contract's. It is what runs when nothing is
 // serving this deployment, where there is no session and so no signed-in user:
-// the owner is recorded as cliOwner.
+// the owner is recorded as cliActor, the name every other terminal write
+// already uses for itself.
 type localAgentTokens struct{ svc *service.BackupService }
-
-// cliOwner is the owner a token minted on this host's terminal carries when no
-// engine, and so no session, was involved.
-const cliOwner = "cli"
 
 func (l localAgentTokens) MintAgentToken(ctx context.Context, req apicontract.MintAgentTokenRequest) (apicontract.MintedAgentToken, error) {
 	minted, err := l.svc.MintAgentToken(ctx, service.MintAgentTokenRequest{
-		Name: req.Name, Scope: req.Scope, ExpiresIn: req.ExpiresIn, Owner: cliOwner,
+		Name: req.Name, Scope: req.Scope, ExpiresIn: req.ExpiresIn, Owner: cliActor,
 	})
 	if err != nil {
 		return apicontract.MintedAgentToken{}, err

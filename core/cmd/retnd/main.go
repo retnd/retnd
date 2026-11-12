@@ -634,7 +634,7 @@ commands:
                                                   every token: name, prefix, scope, status (active, expired or
                                                   revoked), owner, expiry and when it last authenticated. Never the
                                                   token and never its hash. The same as GET /api/v1/agent/tokens
-  agent token revoke ID
+  agent token revoke ID [--json]
                                                   end a token. The very next request that presents it is refused, so
                                                   there is nothing to wait for. ID is the one agent token list
                                                   prints. The same as POST /api/v1/agent/tokens/{id}/revoke
