@@ -37,11 +37,31 @@ test.describe("#1392 a create in flight cannot be cancelled", () => {
     });
   }
 
+  test("#1392 while the create is in flight the form says so to assistive tech", async ({ page }) => {
+    await openAgents(page, "default");
+    const dlg = await openMint(page);
+    await dlg.getByLabel("Name", { exact: true }).fill("busy");
+    // Hold the mock's reply so the in-flight state can be read.
+    await page.clock.install();
+    await page.clock.pauseAt(Date.now() + 60_000);
+    await dlg.getByRole("button", { name: "Create token" }).click();
+    await expect(dlg.getByRole("status")).toHaveText(/^Creating the token\./);
+    await expect(dlg.locator("[data-mint-form]")).toHaveAttribute("aria-busy", "true");
+    await page.keyboard.press("Escape");
+    await expect(dlg).toBeVisible();
+    await page.clock.resume();
+    await expect(reveal(page)).toBeVisible();
+  });
+
   test("#1392 before Create is pressed, Escape and Cancel still close the form and make nothing", async ({ page }) => {
     await openAgents(page, "default");
     const dlg = await openMint(page);
     await dlg.getByLabel("Name", { exact: true }).fill("never");
     await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    const again = await openMint(page);
+    await again.getByLabel("Name", { exact: true }).fill("never");
+    await again.getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(card(page).locator('[data-agents-empty="tokens"]')).toBeVisible();
   });

@@ -98,7 +98,7 @@ export function MintDialog({ onMinted, onClose }: { onMinted(): void; onClose():
       onCancel={() => { if (!busy) onClose(); }}
       onConfirm={() => void create()}
     >
-      <div data-mint-form="" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div data-mint-form="" aria-busy={busy || undefined} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <FieldHelp label="Name" help={FIELD_HELP.agentsMintName}>
           {(helpId) => (
             <div className="field">
@@ -189,6 +189,11 @@ export function MintDialog({ onMinted, onClose }: { onMinted(): void; onClose():
         </FieldHelp>
 
         {echo ? <CommandEcho label="Equivalent command" commands={[echo]} /> : null}
+
+        {/* Cancel, Escape and the backdrop do nothing while the create is in flight (#1392), so say why. Always mounted, so the change is announced. */}
+        <span role="status" className={busy && !asking ? "ag-secondary" : "visually-hidden"} data-mint-busy="">
+          {busy && !asking ? "Creating the token. This stays open until the answer comes, so the token can be shown." : ""}
+        </span>
 
         {error && error.field === null ? (
           <p className="ag-err" role="alert" data-mint-error="form">{error.message}</p>
