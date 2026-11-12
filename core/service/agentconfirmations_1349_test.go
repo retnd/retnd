@@ -467,3 +467,40 @@ func TestAnApprovalThatNeverFinishedIsMarkedInterruptedAtStartAndNeverRerun(t *t
 		t.Errorf("a second reconcile = %d, %v; the row is written once", n, err)
 	}
 }
+
+// Review of the EPIC U stack: the expiry passes between the sweep at the top
+// of ApproveAgentConfirmation and the decision. The sweep saw a pending row,
+// so only the decision's own time can refuse it. Falsify: decide without
+// comparing the decision time with expires_at.
+func TestAConfirmationThatExpiresDuringTheApprovalIsNotApproved(t *testing.T) {
+	pinAgentClock(t, confirmationClock)
+	svc := newRecordingService(t)
+	p := runnerToken(t, svc, AgentScopeOperate)
+	made, err := svc.CreateAgentConfirmation(context.Background(), askToRunACycle(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The first reading (the sweep) is a second before the expiry, every
+	// later one a second after it.
+	before, after := made.ExpiresAt.Add(-time.Second), made.ExpiresAt.Add(time.Second)
+	calls := 0
+	now = func() time.Time {
+		calls++
+		if calls == 1 {
+			return before
+		}
+		return after
+	}
+
+	if _, _, err := svc.ApproveAgentConfirmation(context.Background(), made.ID, "alice"); !errors.Is(err, ErrAgentConfirmationExpired) {
+		t.Fatalf("approving across the expiry = %v, want ErrAgentConfirmationExpired", err)
+	}
+	row, err := svc.journal.GetAgentConfirmation(context.Background(), made.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.State == "approved" {
+		t.Errorf("the confirmation was approved at %s, after it expired at %s", after, made.ExpiresAt)
+	}
+}
