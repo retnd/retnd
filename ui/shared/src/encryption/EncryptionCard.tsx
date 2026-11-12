@@ -221,7 +221,7 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
                 actions={
                   readOnly ? null : (
                     <InfoTooltip id="encryption.key.rotate">
-                      <button type="button" className="btn btn--sm" disabled={busy} onClick={() => setDialog({ kind: "suite", suite: owedSuite, start: "rotate" })}>
+                      <button type="button" className="btn btn--sm btn--strong-edge" disabled={busy} onClick={() => setDialog({ kind: "suite", suite: owedSuite, start: "rotate" })}>
                         Rotate key
                       </button>
                     </InfoTooltip>
@@ -244,14 +244,14 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
                   readOnly ? null : (
                     <span style={{ display: "inline-flex", gap: 8, flexWrap: "wrap" }}>
                       <InfoTooltip id="encryption.bundle.export">
-                        <button type="button" className="btn btn--sm" disabled={busy} onClick={() => setDialog({ kind: "bundle", key: k })}>
+                        <button type="button" className="btn btn--sm btn--strong-edge" disabled={busy} onClick={() => setDialog({ kind: "bundle", key: k })}>
                           Export recovery bundle
                         </button>
                       </InfoTooltip>
                       <InfoTooltip id="encryption.bundle.confirm">
                         <button
                           type="button"
-                          className="btn btn--sm"
+                          className="btn btn--sm btn--strong-edge"
                           disabled={busy}
                           onClick={() => void act(() => api.confirmRecoveryBundle(k.id), "the bundle was not confirmed")}
                         >
@@ -289,13 +289,13 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {active ? (
                   <InfoTooltip id="encryption.bundle.export">
-                    <button type="button" className="btn btn--sm" disabled={busy} onClick={() => setDialog({ kind: "bundle", key: active })}>
+                    <button type="button" className="btn btn--sm btn--strong-edge" disabled={busy} onClick={() => setDialog({ kind: "bundle", key: active })}>
                       Export recovery bundle
                     </button>
                   </InfoTooltip>
                 ) : null}
                 <InfoTooltip id="encryption.key.rotate">
-                  <button type="button" className="btn btn--sm" disabled={busy || !active} onClick={() => setDialog({ kind: "rotate" })}>
+                  <button type="button" className="btn btn--sm btn--strong-edge" disabled={busy || !active} onClick={() => setDialog({ kind: "rotate" })}>
                     Rotate key
                   </button>
                 </InfoTooltip>

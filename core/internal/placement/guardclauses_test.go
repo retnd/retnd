@@ -163,6 +163,38 @@ func (w *guardWorld) onMediumSource(t *testing.T) {
 	w.move.SourceMedium = guardSrcMedium
 }
 
+// encryptedMediumSource makes the source end an encrypted copy on a medium:
+// the journal holds a per-copy record whose StoredSize is the ciphertext's
+// byte count, and the placement row keeps the plaintext size, which is the
+// invariant ADR 0033 D7 writes down. storedSize is what the record holds.
+func (w *guardWorld) encryptedMediumSource(t *testing.T, storedSize int64) *guardJournal {
+	t.Helper()
+	w.onMediumSource(t)
+	j := &guardJournal{enc: state.PlacementEncryption{
+		FormatID: "age-x25519/v1", FormatVersion: 1, KeyID: "k1",
+		StoredHash: guardHash, StoredHashAlg: "sha256", StoredSize: storedSize,
+	}}
+	w.engine.Journal = j
+	return j
+}
+
+// guardJournal answers the one question the guard asks a journal: the
+// per-copy encryption record of the source. Everything else the engine's
+// journal does is unused here, so the embedded interface stays nil and a
+// call to it panics.
+type guardJournal struct {
+	MoveJournal
+	enc state.PlacementEncryption
+	err error
+}
+
+func (j *guardJournal) PlacementEncryption(_ context.Context, _ model.ArtifactID, medium string) (state.PlacementEncryption, bool, error) {
+	if j.err != nil {
+		return state.PlacementEncryption{}, false, j.err
+	}
+	return j.enc, medium == guardSrcMedium, nil
+}
+
 func (w *guardWorld) run() (deleteTarget, error) {
 	return w.engine.guardSourceDelete(context.Background(), w.move, w.rec, Content)
 }
@@ -391,6 +423,27 @@ var guardClauses = []guardClause{
 		wantErr: "and the placement records",
 	},
 	{
+		// An encrypted copy's object is ciphertext, so its size is the
+		// record's StoredSize and never the plaintext size the placement
+		// row carries. An object that happens to be exactly the plaintext
+		// size is the wrong object (#1331).
+		name: "7 an encrypted source object is the stored size its encryption record holds",
+		break_: func(t *testing.T, w *guardWorld) {
+			plain := *w.placement(t, state.MediumLocal).Size
+			w.encryptedMediumSource(t, plain+248)
+			w.store.size = plain
+		},
+		wantErr: "and its encryption record holds",
+	},
+	{
+		name: "7 the source's encryption record could be read",
+		break_: func(t *testing.T, w *guardWorld) {
+			j := w.encryptedMediumSource(t, w.store.size)
+			j.err = errors.New("the journal is locked")
+		},
+		wantErr: "encryption record could not be read",
+	},
+	{
 		name: "8 every copy is on a class this build can reason about",
 		break_: func(_ *testing.T, w *guardWorld) {
 			w.engine.Mediums = guardMediums{class: map[string]string{guardDstMedium: "GLACIER_DEEP_MAYBE"}}
@@ -437,6 +490,27 @@ func TestEveryClauseOfTheSourceDeleteGuardRefuses(t *testing.T) {
 				t.Errorf("the source copy is gone after a refusal: %v", statErr)
 			}
 		})
+	}
+}
+
+// TestTheGuardApprovesAnEncryptedSourceAtItsStoredSize is the encrypted
+// half of row 0's negative control: an encrypted source whose object is the
+// ciphertext size the record holds, and not the plaintext size, is the right
+// object and the delete goes ahead. Before #1331 this was refused, so every
+// re-home and re-encrypt of an encrypted copy stopped at
+// SOURCE_DELETE_PENDING with the old ciphertext still on the medium.
+func TestTheGuardApprovesAnEncryptedSourceAtItsStoredSize(t *testing.T) {
+	w := newGuardWorld(t)
+	stored := *w.placement(t, state.MediumLocal).Size + 248
+	w.encryptedMediumSource(t, stored)
+	w.store.size = stored
+
+	target, err := w.run()
+	if err != nil {
+		t.Fatalf("an encrypted source at its recorded stored size was refused: %v", err)
+	}
+	if target.key != "archive/pg/a.dump" {
+		t.Errorf("the guard approved the delete and named %+v, which is not the encrypted source object", target)
 	}
 }
 

@@ -40,8 +40,11 @@ echo "DOCKER_HOST=${DOCKER_HOST:-} docker $*" >> "$FAKE_LOG/docker"
 case "$1 ${2:-}" in
   "image inspect") [ "${FAKE_IMAGE:-0}" = 1 ]; exit $? ;;
   "volume ls") printf '%s' "${FAKE_VOLUMES:-}"; exit 0 ;;
+  "info --format") printf '%s\n' "${FAKE_DAEMON_OS-Docker Desktop}"; exit 0 ;;
 esac
-case "$*" in *scripts/ci-local.sh*) exit "${FAKE_GATE_RC:-0}" ;; esac
+case "$*" in *"stat -c %g /var/run/docker.sock"*) printf '%s\n' "${FAKE_SOCK_GID-0}"; exit 0 ;; esac
+case "$*" in *"test -f "*"/scripts/ci-local.sh"*) [ "${FAKE_MOUNT_EMPTY:-0}" != 1 ]; exit $? ;; esac
+case "$*" in *"bash scripts/ci-local.sh"*) exit "${FAKE_GATE_RC:-0}" ;; esac
 exit 0
 SH
 cat > "$bin/rsync" <<'SH'
@@ -61,6 +64,7 @@ cat > "$bin/ssh" <<'SH'
 cmd="${*: -1}"
 echo "ssh $*" >> "$FAKE_LOG/ssh"
 case "$cmd" in
+  *"command -v docker"*) echo "${FAKE_REMOTE_DOCKER:-docker}" ;;
   *"id -u"*) echo "${FAKE_UID:-1000}" ;;
   *"id -g"*) echo "${FAKE_GID:-1000}" ;;
   *'$HOME'*) printf '%s' "/home/fake" ;;
@@ -79,7 +83,7 @@ run_script() {
   echo $? > "$work/rc"
 }
 rc() { cat "$work/rc"; }
-gate_line() { grep 'scripts/ci-local.sh' "$log/docker" || true; }
+gate_line() { grep 'bash scripts/ci-local.sh' "$log/docker" || true; }
 
 host="ssh://runner@builder.example"
 
@@ -100,10 +104,12 @@ if [ "$(rc)" = 0 ] && [ -n "$gl" ]; then
 else
   fail "R1a a remote run reaches the gate" "rc=$(rc) $(head -c 400 "$work/out")"
 fi
-if ! grep -v '^DOCKER_HOST=ssh://runner@builder.example ' "$log/docker" | grep -q .; then
+# One line per call starts with DOCKER_HOST=; the others are the rest of a
+# multi-line `bash -c` script (prepare, bootstrap) and name no daemon.
+if grep -q '^DOCKER_HOST=' "$log/docker" && ! grep '^DOCKER_HOST=' "$log/docker" | grep -v '^DOCKER_HOST=ssh://runner@builder.example ' | grep -q .; then
   pass "R1b every docker call is made against the remote daemon"
 else
-  fail "R1b every docker call is made against the remote daemon" "$(grep -v '^DOCKER_HOST=ssh://runner@builder.example ' "$log/docker" | head -3)"
+  fail "R1b every docker call is made against the remote daemon" "$(grep '^DOCKER_HOST=' "$log/docker" | grep -v '^DOCKER_HOST=ssh://runner@builder.example ' | head -3)"
 fi
 if ! printf '%s' "$gl" | grep -q -- "$repo_root"; then
   pass "R1c the gate mounts the copy on the remote disk, never the local repo path"
@@ -288,8 +294,128 @@ else
   fail "R9 CI_DOCKER_SYNC=tar" "rc=$(rc) tar=$(wc -c < "$log/tar") rsync=$(wc -c < "$log/rsync")"
 fi
 
+# --- R11 Linux daemons: the socket's group, the host's network and /tmp (#1331)
+# Docker Desktop: the socket arrives as root:root, so group 0, and nothing
+# else changes. This is the Mac path and it has to stay exactly as it was.
+run_script env FAKE_SOCK_GID=0 "FAKE_DAEMON_OS=Docker Desktop" bash "$script" --fast
+gl="$(gate_line)"
+if [ "$(rc)" = 0 ] && printf '%s' "$gl" | grep -q -- '--group-add 0 ' \
+   && ! printf '%s' "$gl" | grep -q -- '--network' && ! printf '%s' "$gl" | grep -q -- '-v /tmp:/tmp'; then
+  pass "R11a Docker Desktop: group 0 for the socket, no host network, no shared /tmp"
+else
+  fail "R11a Docker Desktop is unchanged" "rc=$(rc) $gl"
+fi
+# A Linux host: root:docker with that machine's own gid.
+run_script env FAKE_SOCK_GID=116 "FAKE_DAEMON_OS=Debian GNU/Linux 13 (trixie)" bash "$script" --host "$host" --fast
+gl="$(gate_line)"
+if [ "$(rc)" = 0 ] && printf '%s' "$gl" | grep -q -- '--group-add 116 ' && ! printf '%s' "$gl" | grep -q -- '--group-add 0 ' \
+   && printf '%s' "$gl" | grep -q -- '--network host' && printf '%s' "$gl" | grep -q -- '-v /tmp:/tmp'; then
+  pass "R11b a Linux daemon: the socket's own gid, the host's network and the host's /tmp"
+else
+  fail "R11b a Linux daemon gets the socket gid, host network and /tmp" "rc=$(rc) $gl"
+fi
+run_script env FAKE_SOCK_GID=121 "FAKE_DAEMON_OS=Debian GNU/Linux 12 (bookworm)" bash "$script" --host "$host" --exec true
+el="$(grep -E 'docker run .* true$' "$log/docker" | grep -v -- '--user 0:0' || true)"
+if [ "$(rc)" = 0 ] && printf '%s' "$el" | grep -q -- '--group-add 121 ' && printf '%s' "$el" | grep -q -- '--network host'; then
+  pass "R11c --exec gets the same group and network as the gate"
+else
+  fail "R11c --exec gets the same group and network" "rc=$(rc) $el"
+fi
+run_script env CI_DOCKER_SHARE_HOST=0 FAKE_SOCK_GID=116 "FAKE_DAEMON_OS=Debian GNU/Linux 13 (trixie)" bash "$script" --host "$host" --fast
+gl="$(gate_line)"
+if [ "$(rc)" = 0 ] && ! printf '%s' "$gl" | grep -q -- '--network' && ! printf '%s' "$gl" | grep -q -- '-v /tmp:/tmp' \
+   && printf '%s' "$gl" | grep -q -- '--group-add 116 '; then
+  pass "R11d CI_DOCKER_SHARE_HOST=0 turns the host network and /tmp off and keeps the socket group"
+else
+  fail "R11d CI_DOCKER_SHARE_HOST=0" "rc=$(rc) $gl"
+fi
+run_script env CI_DOCKER_SHARE_HOST=1 FAKE_SOCK_GID=0 "FAKE_DAEMON_OS=Docker Desktop" bash "$script" --fast
+gl="$(gate_line)"
+if [ "$(rc)" = 0 ] && printf '%s' "$gl" | grep -q -- '--network host'; then
+  pass "R11e CI_DOCKER_SHARE_HOST=1 forces it on"
+else
+  fail "R11e CI_DOCKER_SHARE_HOST=1" "rc=$(rc) $gl"
+fi
+run_script env CI_DOCKER_SHARE_HOST=yes bash "$script" --fast
+if [ "$(rc)" != 0 ] && [ -z "$(gate_line)" ]; then
+  pass "R11f a CI_DOCKER_SHARE_HOST that is not auto, 1 or 0 is refused before the gate runs"
+else
+  fail "R11f bad CI_DOCKER_SHARE_HOST is refused" "rc=$(rc) $(head -c 300 "$work/out")"
+fi
+run_script env FAKE_SOCK_GID= bash "$script" --host "$host" --fast
+if [ "$(rc)" != 0 ] && [ -z "$(gate_line)" ] && grep -q 'socket' "$work/out"; then
+  pass "R11g a socket group that cannot be read is refused, not guessed"
+else
+  fail "R11g unreadable socket group is refused" "rc=$(rc) $(head -c 300 "$work/out")"
+fi
+
+# --- R12 the scratch copy is not group-writable on a umask-002 host (#1331)
+run_script bash "$script" --host "$host" --fast
+if grep -q "umask 022 && mkdir -p '.*/repo' '.*/git'" "$log/ssh" && grep -qE "chmod go-w '[^']*/ci-docker-[^']*' '[^']*/repo' '[^']*/git'" "$log/ssh"; then
+  pass "R12 the scratch directories are made under umask 022 and chmod go-w after the copy, so the key-directory checks do not refuse them"
+else
+  fail "R12 scratch directories are not group-writable" "$(grep -E 'mkdir|chmod' "$log/ssh" | head -3)"
+fi
+
+# --- R13 a remote whose docker is not on a non-interactive PATH (#1331)
+# Compared before and after rather than "none there": /tmp can be shared
+# with other runs (it is, under ci-docker on a Linux daemon).
+shims() { ls -d "${TMPDIR:-/tmp}"/ci-docker-ssh.* 2>/dev/null | sort; }
+shims_before="$(shims)"
+run_script env FAKE_REMOTE_DOCKER=/opt/homebrew/bin/docker bash "$script" --host "$host" --fast
+if [ "$(rc)" = 0 ] && grep -q 'calling it by that path' "$work/out" && [ "$(shims)" = "$shims_before" ]; then
+  pass "R13 a docker found only at /opt/homebrew/bin is called by that path, and the stand-in ssh is removed afterwards"
+else
+  fail "R13 remote docker by full path" "rc=$(rc) $(head -c 300 "$work/out")"
+fi
+# The stand-in rewrites the dial-stdio command docker's ssh helper sends,
+# in both of the shapes CLIs have used, and leaves everything else alone.
+shim_dir="$work/shimcheck"; mkdir -p "$shim_dir"
+sed -n '/^      cat >"\$ssh_shim\/ssh" <<SHIM$/,/^SHIM$/p' "$script" | sed '1d;$d' |
+  sed -e 's/\$remote_docker/\/opt\/homebrew\/bin\/docker/g' -e "s#\$real_ssh#$bin/echo-args#" -e 's/\\\$/$/g' >"$shim_dir/ssh"
+printf '#!/usr/bin/env bash\nprintf "[%%s]" "$@"\n' >"$bin/echo-args"; chmod +x "$shim_dir/ssh" "$bin/echo-args"
+got_a="$("$shim_dir/ssh" -o X -- u@h docker system dial-stdio)"
+got_b="$("$shim_dir/ssh" -- u@h "docker system dial-stdio")"
+got_c="$("$shim_dir/ssh" u@h "mkdir -p '/x/dockerish'")"
+if [ "$got_a" = "[-o][X][--][u@h][/opt/homebrew/bin/docker][system][dial-stdio]" ] \
+   && [ "$got_b" = "[--][u@h][/opt/homebrew/bin/docker system dial-stdio]" ] && [ "$got_c" = "[u@h][mkdir -p '/x/dockerish']" ]; then
+  pass "R13b the stand-in ssh rewrites only the docker word, split or quoted"
+else
+  fail "R13b the stand-in ssh rewrite" "a=$got_a b=$got_b c=$got_c"
+fi
+rm -f "$bin/echo-args"
+
+# The cleanup's own ssh goes through the stand-in too, so it has to outlive
+# it: MERCURY (Homebrew docker, colima's empty mounts) is that case exactly.
+run_script env FAKE_REMOTE_DOCKER=/opt/homebrew/bin/docker FAKE_MOUNT_EMPTY=1 bash "$script" --host "$host" --fast
+if [ "$(rc)" != 0 ] && grep -q "rm -rf -- '.*/ci-docker-" "$log/ssh" && [ "$(shims)" = "$shims_before" ]; then
+  pass "R13c with the stand-in ssh in place the scratch copy is still removed over ssh, and the stand-in goes last"
+else
+  fail "R13c cleanup through the stand-in ssh" "rc=$(rc) $(grep -c 'rm -rf' "$log/ssh") $(head -c 300 "$work/out")"
+fi
+
+# --- R15 a linked worktree's admin dir points at the copy, not the local path
+run_script bash "$script" --host "$host" --fast
+if grep -q -- "--- stdin for: cat > '.*/git/worktrees/[^']*/gitdir'" "$log/ssh-stdin" \
+   && grep -A1 -- "/gitdir'" "$log/ssh-stdin" | grep -qE '/ci-docker-[^/]*/repo/\.git$'; then
+  pass "R15 the copied worktree's gitdir names the copy, so a git worktree prune there keeps it"
+elif [ "$(git -C "$repo_root" rev-parse --git-dir)" = "$(git -C "$repo_root" rev-parse --git-common-dir)" ]; then
+  pass "R15 (not a linked worktree here, so there is no admin dir to point back)"
+else
+  fail "R15 the copied worktree's gitdir is rewritten" "$(grep -A1 gitdir "$log/ssh-stdin" | head -4)"
+fi
+
+# --- R14 a daemon that sees the copy as empty is refused before the gate runs
+run_script env FAKE_MOUNT_EMPTY=1 bash "$script" --host "$host" --fast
+if [ "$(rc)" != 0 ] && [ -z "$(gate_line)" ] && grep -q 'empty directory' "$work/out" \
+   && ! grep -qE 'rm -rf -- /ws/ci-docker-' "$log/docker" && grep -q "rm -rf -- '.*/ci-docker-" "$log/ssh"; then
+  pass "R14 an empty bind mount is a named refusal, and the real copy is removed over ssh rather than through the daemon"
+else
+  fail "R14 empty bind mount refused" "rc=$(rc) $(head -c 300 "$work/out")"
+fi
+
 # --- R10 the page documents the knobs ---------------------------------------
-for v in CI_DOCKER_HOST CI_DOCKER_REMOTE_DIR CI_DOCKER_MIN_FREE_MB CI_DOCKER_KEEP_CACHE CI_DOCKER_SYNC; do
+for v in CI_DOCKER_HOST CI_DOCKER_REMOTE_DIR CI_DOCKER_MIN_FREE_MB CI_DOCKER_KEEP_CACHE CI_DOCKER_SYNC CI_DOCKER_SHARE_HOST; do
   if grep -q "\`$v\`" "$repo_root/docs/reference/local-gate.md"; then
     pass "R10 docs/reference/local-gate.md documents $v"
   else

@@ -22,7 +22,7 @@ func requiredPolicy() config.RetainedCopyEncryption {
 	}
 }
 
-func TestSetPolicyOfAKopiaSetSaysSatisfiedByTheRepository_1296(t *testing.T) {
+func TestSetPolicyOfARepositoryEncryptedSetSaysSatisfiedByTheRepository_1296(t *testing.T) {
 	kopia := setPolicyOf("production", config.BackupSet{Name: "uploads-tree", Engine: model.EngineKopia, RetainedCopyEncryption: requiredPolicy()})
 	if kopia.SatisfiedBy != "repository" {
 		t.Errorf("a kopia set's SatisfiedBy = %q, want %q", kopia.SatisfiedBy, "repository")
@@ -43,7 +43,7 @@ func TestSetPolicyOfAKopiaSetSaysSatisfiedByTheRepository_1296(t *testing.T) {
 // engine on the client). This pins that sentence to the one the CLI prints
 // from the API's field, so the two cannot drift: a reworded statement on one
 // side fails here until the other side follows.
-func TestTheKopiaStatementTheCLIPrintsIsTheOneTheWebUIDraws_1296(t *testing.T) {
+func TestTheRepositoryEncryptionStatementTheCLIPrintsIsTheOneTheWebUIDraws_1296(t *testing.T) {
 	src, err := os.ReadFile(filepath.Join("..", "..", "ui", "shared", "src", "encryption", "SetEncryptionCard.tsx"))
 	if err != nil {
 		t.Fatal(err)

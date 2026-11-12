@@ -8,7 +8,7 @@ import "testing"
 //
 // Written by reading; not run.
 
-func TestRequiredOnAKopiaSetIsAcceptedAndDoesNotEncryptRetainedCopies_1296(t *testing.T) {
+func TestRequiredOnARepositoryEncryptedSetIsAcceptedAndDoesNotEncryptRetainedCopies_1296(t *testing.T) {
 	c := incrementalConfig()
 	c.RetainedCopyEncryptionBlock = &RetainedCopyEncryptionBlock{
 		Mode: RetainedCopyEncryptionRequired, KeyProvider: managed(),
@@ -33,7 +33,7 @@ func TestRequiredOnAKopiaSetIsAcceptedAndDoesNotEncryptRetainedCopies_1296(t *te
 	}
 }
 
-func TestRequiredAsAPerSetOverrideOnAKopiaSetIsAcceptedToo_1296(t *testing.T) {
+func TestRequiredAsAPerSetOverrideOnARepositoryEncryptedSetIsAcceptedToo_1296(t *testing.T) {
 	c := incrementalConfig()
 	c.Sources[0].BackupSets[1].RetainedCopyEncryptionConfig = &RetainedCopyEncryptionOverride{
 		Mode: RetainedCopyEncryptionRequired, KeyProvider: managed(),
