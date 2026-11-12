@@ -276,6 +276,12 @@ var contractBindings = map[string]contractBinding{
 	"listEncryptionSuites":     {nil, apicontract.ListEncryptionSuitesResponse{}, "/api/v1/encryption/suites"},
 	"listEncryptionCopies":     {nil, apicontract.ListEncryptionCopiesResponse{}, "/api/v1/encryption/copies"},
 	"startDecryptVerify":       {apicontract.StartDecryptVerifyRequest{}, apicontract.ScrubStarted{}, "/api/v1/encryption/verify"},
+	// Issues #1291 and #1317. The dry run answers with the plan, the start
+	// with the same ScrubStarted the other long operations return.
+	"planEncryptExisting":  {nil, apicontract.EncryptExistingPlan{}, "/api/v1/encryption/encrypt-existing"},
+	"startEncryptExisting": {apicontract.StartEncryptExistingRequest{}, apicontract.ScrubStarted{}, "/api/v1/encryption/encrypt-existing"},
+	"planReencrypt":        {nil, apicontract.ReencryptPlan{}, "/api/v1/encryption/reencrypt"},
+	"startReencrypt":       {apicontract.StartReencryptRequest{}, apicontract.ScrubStarted{}, "/api/v1/encryption/reencrypt"},
 	// Issue #1203. The handlers write apicontract's own types, so the
 	// bindings are those types.
 	"listCustomValidators":        {nil, apicontract.ListCustomValidatorsResponse{}, "/api/v1/assurance/validators"},

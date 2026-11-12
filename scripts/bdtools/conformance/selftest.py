@@ -982,16 +982,14 @@ def body(root: Path, dry_run: bool) -> int:
             "\t\tres, err := Verify(ctx, e.Store, medium, candidate, want, e.now())\n"
             "\t\treturn res, want, err\n"
             "\t}\n"
-            "\t// observe spends a restore-status call only for a class that needs\n"
-            "\t// one, so a STANDARD destination costs exactly what it cost before.\n"
-            "\tobs := e.observe(ctx, medium, mv.DestinationKey, medium.StorageClass)\n"
-            "\tres, err := VerifyWithAccess(ctx, e.Store, medium, candidate, want, obs, e.now())\n"
+            "\tres, err := VerifyWithAccess(ctx, e.Store, medium, candidate, want, observed, e.now())\n"
             "\treturn res, want, err",
             "\t// PLANTED VIOLATION (scripts/conformance/selftest.sh): trust the\n"
             "\t// upload rather than reading it back, on both paths.\n"
             "\t_ = gated\n"
             "\t_ = medium\n"
             "\t_ = candidate\n"
+            "\t_ = observed\n"
             '\treturn Result{Passed: true, Class: want, Detail: "planted"}, want, nil',
         )
         expect_check_fails(

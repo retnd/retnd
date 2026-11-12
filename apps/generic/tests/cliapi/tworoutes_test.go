@@ -716,6 +716,14 @@ type surface struct {
 	// operand it names exists.
 	needsArtifacts bool
 
+	// seed is the configuration this row needs to exist before it runs, as
+	// argv for the CLI (without --config, which the fixture adds). A write
+	// that undoes something has to have something to undo: `encryption
+	// policy reset` removes the deployment's block, and on a fixture that
+	// never had one it changes nothing, so the engine rightly serves the
+	// same configuration afterwards.
+	seed []string
+
 	// skipDirect is for the one command that does not exit on its own.
 	skipDirect bool
 
@@ -911,6 +919,7 @@ var surfaces = []surface{
 		note: "the encryption READ is this host's own file, as settings is; the writes below are the routed half",
 		argv: func(f fixture) []string { return []string{"encryption", "policy", "--config", f.configPath} }},
 	{verb: "encryption", name: "policy reset", mode: "direct", exit: 0, writes: true, routed: true,
+		seed: []string{"encryption", "policy", "patch", "--mode", "required", "--managed"},
 		argv: func(f fixture) []string { return []string{"encryption", "policy", "reset", "--config", f.configPath} }},
 	{verb: "workflow", name: "run list, on a deployment whose hooks have never run", mode: "", exit: 0,
 		says: "no workflow run is on record here",
@@ -943,6 +952,11 @@ func newFixture(t *testing.T, bin string, s surface) fixture {
 		setID:      "production/pg",
 		artifactID: "production/pg/db-2026-08-01.dump",
 		keyPath:    writePrivateKey(t),
+	}
+	if len(s.seed) > 0 {
+		if got := runCLI(t, bin, nil, append(append([]string{}, s.seed...), "--config", configPath)...); got.code != 0 {
+			t.Fatalf("the configuration this row needs before it runs was refused:\n%s", got)
+		}
 	}
 	if s.needsArtifacts {
 		// One real cycle, so the operand this row names is a backup that

@@ -303,6 +303,10 @@ if [ -n "$target" ]; then
       while IFS= read -r -d '' f; do
         [ -e "$f" ] || [ -L "$f" ] || continue
         case "$f" in
+          # The tracked template holds no secret and about twenty-five
+          # distribution tests read it, so it goes across. Any other .env
+          # file is a real one and stays here.
+          .env.example|*/.env.example) ;;
           .env|.env.*|*/.env|*/.env.*|.npmrc|*/.npmrc|.netrc|*/.netrc|.git-credentials|*/.git-credentials) continue ;;
         esac
         printf '%s\0' "$f"
