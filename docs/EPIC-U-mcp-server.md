@@ -157,11 +157,11 @@ Both transports are clients of `/api/v1` and nothing else; no new process, socke
 
 ## FR-97, Everything is audited
 
-Every tool call, reads included, writes an audit row naming the token, the tool, the arguments after projection, the outcome, the correlation id and the transport (the outcome is the code, never the engine's message: the message is free text that can carry outside-origin or secret-adjacent words, so the audit stores the code and the response carries the sentence); mutating calls, refusals and confirmations also reach the activity feed as `agent_action` events with a `Result`; the trail is readable from the CLI, the API and the browser and is bounded.
+Every tool call, reads included, writes an audit row naming the token, the tool, the arguments after projection, the outcome, the correlation id and the transport (the outcome is the code, never the engine's message: the message is free text that can carry outside-origin or secret-adjacent words, so the audit stores the code and the response carries the sentence); mutating calls, refusals and confirmations also reach the activity feed as `agent_action` events with a `Result`; the trail is readable from the CLI, the API and the browser and is bounded. The trail fails closed: while the audit writer cannot write a row (a full or read-only disk, a schema error, as well as a full queue), any call that needs an audit row, including a raw bearer call that names no tool, is refused with 503 `AGENT_AUDIT_UNAVAILABLE` and nothing runs; the next successful write (a probe) clears the state.
 
 ## FR-98, Nothing leaves that should not
 
-The agent never receives key material, a recipient, an identity, a bundle, a credential or a secret, through one projection at the tool boundary that the canary corpus holds per surface; and no string from outside the deployment reaches the agent in a position a model reads as an instruction.
+The agent never receives key material, a recipient, an identity, a bundle, a credential or a secret, through one projection at the tool boundary that the canary corpus holds per surface; and no string from outside the deployment reaches the agent in a position a model reads as an instruction. The projection also drops where a key is kept, not only what it is: `encryption_state` loses `key_provider.source` (and `effective_key_provider.source` per set) and `backup_set_show` loses `ssh_key_id`, while host, user and remote path stay.
 
 ## Core invariants
 

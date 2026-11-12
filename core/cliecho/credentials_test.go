@@ -211,7 +211,7 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	// The artifact a recovery test was asked about: a backup's own id
 	// (source/set/name), which an operator retyping the command has to say
 	// and which is a name, not material.
-	"--artifact": "the backup the test was asked about, by its id",
+	"--artifact": "the backup a recovery test was asked about, or the one backup an encrypt-existing run is narrowed to (#1291), by its id",
 	// A whole-set recovery (#1106). The set is named by its own id and the
 	// date narrows it; both are names and a date, and an operator retyping
 	// the command has to say them.
@@ -305,12 +305,20 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	"--managed-key":   "an id this deployment minted for a managed key, never the key",
 	"--digest":        "the digest an export printed, which names a bundle and is not the key",
 
+	// Encryption suites (EPIC T, #1315 and #1317). A suite id is a word from
+	// the registry's closed list (or the word default), and a key is named by
+	// the id this deployment minted for it. An operator choosing a suite, or
+	// re-encrypting the copies under one suite or one key, has to name it, and
+	// neither is key material.
+	"--suite": "a suite id from the registry's closed list, or default: the suite a policy pins or a re-encrypt run selects, never key material",
+	"--key":   "an id this deployment minted for a managed key, which a re-encrypt run selects copies by, never the key",
+
 	// EPIC K's snapshot verbs (#788). Every one of these is a value the
 	// operator themselves supplied and has to be able to retype: a
 	// restore that landed somewhere they cannot name is a restore they
 	// cannot find, and the durable operation row already records the
 	// destination for exactly that reason.
-	"--to":       "where a restore or a recovery writes, which the operator named and has to be able to find afterwards: a directory, a name under the staging root, or a destination id and key",
+	"--to":       "where a restore, a recovery, an encrypt-existing or a re-encrypt run writes, which the operator named and has to be able to find afterwards: a directory, a name under the staging root, or a destination id (and key)",
 	"--snapshot": "the engine's opaque manifest id, which is neither a path nor a secret",
 	"--path":     "one path INSIDE the snapshot, which is a path in the operator's own source tree and is what they asked to get back",
 	"--conflict": "what happens to a file already at the destination. The UI sends one of three words, but the builder prints whatever the request said and the engine refuses anything else",
@@ -392,7 +400,7 @@ var flagRoutes = map[string][]string{
 	"--username":                    {"POST /auth/enroll", "POST /auth/forgot-password"},
 	"--until":                       {"POST /recoveries"},
 	"--after-dir":                   {"PATCH /backup-sets/{source}/{set}/workflow", "PATCH /settings/workflow"},
-	"--artifact":                    {"POST /backup-sets/{source}/{set}/recovery-test"},
+	"--artifact":                    {"POST /backup-sets/{source}/{set}/recovery-test", "POST /encryption/encrypt-existing"},
 	"--backend":                     {"POST /storage-mediums/{id}/configuration/preflight", "PUT /storage-mediums/{id}/configuration"},
 	"--backup-set":                  {"POST /assurance/validator-preview", "POST /assurance/validators", "POST /operations", "PUT /assurance/validators/{name}"},
 	"--before-dir":                  {"PATCH /backup-sets/{source}/{set}/workflow", "PATCH /settings/workflow"},
@@ -445,7 +453,7 @@ var flagRoutes = map[string][]string{
 	"--staging-root":                {"PATCH /settings/assurance"},
 	"--storage-class":               {"POST /storage-mediums", "POST /storage-mediums/preflight", "PUT /storage-mediums/{id}"},
 	"--timezone":                    {"PATCH /settings", "PUT /backup-sets/{source}/{set}/retention"},
-	"--to":                          {"POST /backups/{source}/{set}/{name}/recovery", "POST /operations", "POST /recoveries"},
+	"--to":                          {"POST /backups/{source}/{set}/{name}/recovery", "POST /encryption/encrypt-existing", "POST /encryption/reencrypt", "POST /operations", "POST /recoveries"},
 	"--type":                        {"POST /storage-mediums", "POST /storage-mediums/preflight", "PUT /storage-mediums/{id}"},
 	"--upload-verification":         {"POST /storage-mediums", "POST /storage-mediums/preflight", "PUT /storage-mediums/{id}"},
 	"--user":                        {"PATCH /backup-sets/{source}/{set}", "POST /backup-sets", "POST /backup-sets/test-connection", "POST /system/first-run"},
@@ -458,6 +466,8 @@ var flagRoutes = map[string][]string{
 	"--external-file":               {"PATCH /encryption/policy", "POST /encryption/providers/test", "PUT /backup-sets/{source}/{set}/encryption"},
 	"--managed-key":                 {"POST /encryption/providers/test"},
 	"--mode":                        {"PATCH /encryption/policy", "PUT /backup-sets/{source}/{set}/encryption"},
+	"--suite":                       {"PATCH /encryption/policy", "POST /encryption/reencrypt"},
+	"--key":                         {"POST /encryption/reencrypt"},
 }
 
 // operandsThatNameTheSubject is the same list for the positional argument
@@ -471,6 +481,7 @@ var operandsThatNameTheSubject = map[string]string{
 	"POST /system/first-run":            "source/name, the backup set being created",
 	"POST /backup-sets":                 "source/name, the backup set being created",
 	"POST /backup-sets/test-connection": "source/name, the backup set being checked (issue #624)",
+	"POST /encryption/encrypt-existing": "source/set, the backup set whose existing plaintext copies are encrypted (#1291)",
 	"POST /operations":                  "the artifact id a restore names, and the source/set id that snapshot verify, hold and unhold take, plus the hold id unhold takes",
 	"POST /storage-mediums":             "the destination's own id",
 	"POST /storage-mediums/preflight":   "the candidate destination's id",

@@ -22,7 +22,7 @@ failures=0
 pass() { checks=$((checks + 1)); echo "    ok   $1"; }
 fail() { checks=$((checks + 1)); failures=$((failures + 1)); echo "    FAIL $1"; [ -z "${2:-}" ] || echo "         | $2"; }
 
-sources="scripts/ci-local.sh scripts/lib/ci-local-gate.sh scripts/ci-docker.sh scripts/install-hooks.sh \
+sources="scripts/ci-local.sh scripts/ci-fast.sh scripts/merge-gate.sh scripts/lib/ci-local-gate.sh scripts/ci-docker.sh scripts/install-hooks.sh \
   scripts/release/record-local-gate.sh scripts/release/verify-local-gate.sh scripts/release/gate-tree.sh \
   scripts/bdtools/release/verify_local_gate.py .husky/pre-commit .husky/prepare-commit-msg \
   core/tests/dockerlease/dockerlease.go scripts/ci/pins.env"
@@ -47,7 +47,7 @@ for v in $vars; do
   fi
 done
 
-for want in 'Local-Gate:' 'Release-Gate-Override:' 'retnd.local-gate/1' 'ci-local.lock' \
+for want in 'Local-Gate:' 'Local-Gate: fast' 'scripts/ci-fast.sh' 'scripts/merge-gate.sh' 'Release-Gate-Override:' 'retnd.local-gate/1' 'ci-local.lock' \
   'provenance/local-gate.json' 'provenance/local-gate.log' 'scripts/ci/pins.env'; do
   if grep -qF "$want" "$doc"; then
     pass "the page names $want"

@@ -1001,14 +1001,16 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(requireCSRF).Post("/encryption/verify", h.startDecryptVerify)
 		// Encrypting plaintext copies that already exist (#1291): the dry run
 		// reads, the run is a CSRF write that answers 202 with an operation
-		// the existing assurance cancel route stops.
-		r.Get("/encryption/encrypt-existing", h.planEncryptExisting)
-		r.With(requireCSRF).Post("/encryption/encrypt-existing", h.startEncryptExisting)
+		// the existing assurance cancel route stops. The run retires each
+		// plaintext copy, so both verbs sit behind the destructive gate
+		// (#1361), like retention apply.
+		r.With(requireRouteGate(h.enforce)).Get("/encryption/encrypt-existing", h.planEncryptExisting)
+		r.With(requireCSRF, requireRouteGate(h.enforce)).Post("/encryption/encrypt-existing", h.startEncryptExisting)
 		// Re-encrypting copies under the active suite and key (#1317): the
 		// same shape, selected by suite, key or deprecation across the
 		// deployment, and stopped by the same assurance cancel.
-		r.Get("/encryption/reencrypt", h.planReencrypt)
-		r.With(requireCSRF).Post("/encryption/reencrypt", h.startReencrypt)
+		r.With(requireRouteGate(h.enforce)).Get("/encryption/reencrypt", h.planReencrypt)
+		r.With(requireCSRF, requireRouteGate(h.enforce)).Post("/encryption/reencrypt", h.startReencrypt)
 
 		// EPIC L's workflow runs and recovery (#813).
 		//
