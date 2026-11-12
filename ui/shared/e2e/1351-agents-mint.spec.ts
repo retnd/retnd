@@ -62,7 +62,7 @@ test.describe("#1351 the mint form", () => {
     await dlg.getByRole("button", { name: "Create token" }).click();
     dlg = reveal(page);
     await dlg.getByRole("button", { name: "I have stored it" }).click();
-    await expect(tokenRow(page, "fold-test").locator('[data-chip="scope"]')).toHaveText("○read");
+    await expect(tokenRow(page, "fold-test").locator('[data-chip="scope"]')).toHaveText("read");
   });
 
   test("#1351 Create token stays off until there is a name, and Cancel makes nothing", async ({ page }) => {

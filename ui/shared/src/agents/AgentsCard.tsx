@@ -38,6 +38,7 @@
  */
 import { useState } from "react";
 import { useApi } from "@shared/api/ApiContext";
+import { isNotConfigured } from "@shared/api/failure";
 import { useAsync } from "@shared/hooks/useAsync";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { AuditRegion } from "./AuditRegion";
@@ -76,14 +77,25 @@ export function AgentsCard({ readOnly }: { readOnly: boolean }) {
           recipients, credentials or secrets, and the audit records every call it makes, reads included.
         </p>
 
-        <TokensRegion tokens={tokens} catalogue={catalogue} readOnly={readOnly} onChanged={() => { confirmations.reload(); changed(); }} />
-        <ConfirmationsRegion
-          confirmations={confirmations}
-          catalogue={catalogue}
-          readOnly={readOnly}
-          onDecided={() => { tokens.reload(); changed(); }}
-        />
-        <AuditRegion tokens={tokens.data ?? []} tools={catalogue.data?.tools ?? []} revision={auditRevision} />
+        {isNotConfigured(tokens.error) ? (
+          // An instance with no configuration keeps no tokens yet. That is a
+          // step not taken, not a read that failed (#275's rule), so it is a
+          // sentence and not a red banner quoting a route.
+          <p className="ag-note" data-agents-unconfigured="">
+            Agent tokens are kept by a configured deployment. Finish setup first, then mint one here.
+          </p>
+        ) : (
+          <>
+            <TokensRegion tokens={tokens} catalogue={catalogue} readOnly={readOnly} onChanged={() => { confirmations.reload(); changed(); }} />
+            <ConfirmationsRegion
+              confirmations={confirmations}
+              catalogue={catalogue}
+              readOnly={readOnly}
+              onDecided={() => { tokens.reload(); changed(); }}
+            />
+            <AuditRegion tokens={tokens.data ?? []} tools={catalogue.data?.tools ?? []} revision={auditRevision} />
+          </>
+        )}
 
         <p className="ag-note" data-agents-transport="">
           {transport ? <><strong>HTTP transport: {transport}.</strong>{" "}</> : null}
