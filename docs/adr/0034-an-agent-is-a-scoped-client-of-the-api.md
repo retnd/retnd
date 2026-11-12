@@ -159,6 +159,12 @@ Q, 2026-10-11) and one agent at the default rate limit could write 86,000 rows i
 trail is pruned past `agents.audit_retention_days` (90) and read by `retnd agent audit`,
 `GET /api/v1/agent/audit` and the Agents card.
 
+The trail fails closed. The writer tracks whether its database writes are failing (a full or
+read-only disk, a schema error), not only whether its queue is full. While that is set, a call
+that needs an audit row is refused with 503 `AGENT_AUDIT_UNAVAILABLE` and nothing runs, and that
+includes a raw bearer call that names no tool. The next successful write, a probe, clears it. I
+chose losing availability during a journal fault over serving calls whose rows are gone.
+
 ## Decision 7: one projection at the tool boundary, and untrusted text is data
 
 Every tool result passes `agenttools.Project` before it leaves: a field-name denylist

@@ -63,7 +63,8 @@ type Canary struct {
 	Origin string
 	Slug   string
 	Value  string
-	// Field is the denylisted JSON field the value is planted under.
+	// Field is the JSON field the value is planted under: a denylisted name, or
+	// key_provider.source for the one place-based rule.
 	Field string
 }
 
@@ -91,6 +92,10 @@ func Canaries() []Canary {
 		{"a storage credential", "storage", "storage-" + nonce + "-" + r(12), "credential"},
 		{"a passphrase", "passphrase", "passphrase-" + nonce + "-" + r(12), "passphrase"},
 		{"a token", "token", "tok-" + nonce + "-" + r(12), "token"},
+		// Where a key is kept: not a denylisted name, so the projection holds
+		// these by their place (the source of a key_provider, an ssh_key_id).
+		{"an external key provider's source", "keysource", "keysource-" + nonce + "-" + r(12), "key_provider.source"},
+		{"a backup set's ssh key id", "sshkeyid", "sshkeyid-" + nonce + "-" + r(12), "ssh_key_id"},
 	}
 }
 
