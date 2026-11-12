@@ -438,6 +438,13 @@ export async function acknowledgeInsecureTransport(): Promise<boolean> {
   return false;
 }
 
+/** The init for a read behind the destructive gate (#1361): once the operator
+ *  has said go on over this connection, the read carries the acknowledgement
+ *  from its first attempt, as a write does. */
+function gatedReadInit(): RequestInit | undefined {
+  return insecureTransportAcknowledged ? { headers: { [INSECURE_TRANSPORT_HEADER]: "acknowledged" } } : undefined;
+}
+
 /** Records what a capabilities read said about this connection. */
 export function rememberInsecureTransportRequired(required: boolean): void {
   insecureTransportRequired = required;
@@ -468,6 +475,12 @@ async function request<T>(
       readCookie(CSRF_COOKIE_NAME) || CSRF_LEGACY_COOKIE_NAMES.map(readCookie).find(Boolean) || "";
     if (csrf) headers[CSRF_HEADER_NAME] = csrf;
     if (insecureTransportAcknowledged) headers[INSECURE_TRANSPORT_HEADER] = "acknowledged";
+  } else if (retriedAfterAcknowledgement && insecureTransportAcknowledged) {
+    // A read the engine gates (#1361: the re-encrypt dry run) is refused
+    // without the acknowledgement too, so the retry the operator just said
+    // yes to carries it. A gated read asks for it up front through
+    // gatedReadInit; a plain read never carries it.
+    headers[INSECURE_TRANSPORT_HEADER] = "acknowledged";
   }
 
   // The password never crosses a connection the operator has not been told
@@ -4703,7 +4716,7 @@ export const httpApi: RetndApi = {
     request<WireListEncryptionSuitesResponse>("/encryption/suites").then((r) => (r.suites ?? []).map(fromWireEncryptionSuite)),
   planReencrypt: (req) => {
     const q = reencryptQuery(req);
-    return request<WireReencryptPlan>("/encryption/reencrypt" + (q ? "?" + q : "")).then(fromWireReencryptPlan);
+    return request<WireReencryptPlan>("/encryption/reencrypt" + (q ? "?" + q : ""), gatedReadInit()).then(fromWireReencryptPlan);
   },
   startReencrypt: (req) => {
     const body: WireStartReencryptRequest = {
