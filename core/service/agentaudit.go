@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -80,6 +82,32 @@ const (
 	// keeps every one.
 	agentRefusalFeedEvery = 10 * time.Second
 )
+
+// The headers a transport puts on the /api/v1 request it makes for a tool
+// call, so the audit row for that request can name the tool and the transport.
+// They are the transport's own statement and are checked on the way in
+// (AgentCallHeaders): a tool name that is not a plain identifier is dropped,
+// and a transport is stdio or http and otherwise api. Neither changes what the
+// request may do, which is decided by the token alone.
+const (
+	AgentToolHeader      = "X-Retnd-Agent-Tool"
+	AgentTransportHeader = "X-Retnd-Agent-Transport"
+)
+
+var agentToolName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+
+// AgentCallHeaders reads the tool and the transport a request says it is for.
+func AgentCallHeaders(h http.Header) (tool, transport string) {
+	tool = h.Get(AgentToolHeader)
+	if !agentToolName.MatchString(tool) {
+		tool = ""
+	}
+	switch t := h.Get(AgentTransportHeader); t {
+	case "stdio", "http":
+		return tool, t
+	}
+	return tool, "api"
+}
 
 // ErrAgentAuditClosed is returned when a call is recorded after the service
 // has shut down its writer.
@@ -288,17 +316,6 @@ func (w *agentAuditWriter) flush(ctx context.Context) error {
 	case <-w.stopped:
 		return nil
 	}
-}
-
-// SetAgentAuditRetentionDays sets agents.audit_retention_days. Zero keeps
-// nothing past the next prune; a negative value is ignored.
-func (b *BackupService) SetAgentAuditRetentionDays(days int) {
-	if b == nil || b.audit == nil || days < 0 {
-		return
-	}
-	b.audit.mu.Lock()
-	b.audit.retention = time.Duration(days) * 24 * time.Hour
-	b.audit.mu.Unlock()
 }
 
 // PruneAgentAudit runs one prune pass now, for the cases a caller wants the

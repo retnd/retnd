@@ -211,3 +211,28 @@ func TestABackendWithoutAnAuditTrailSaysSo(t *testing.T) {
 		t.Fatalf("status = %d, want 503 NOT_CONFIGURED", rec.Code)
 	}
 }
+
+// Falsify: copy the headers through unchecked. A tool is a plain identifier and
+// a transport is stdio or http; anything else is recorded as no tool and api.
+func TestTheRowNamesTheToolAndTransportTheCallSaysAndNothingElse(t *testing.T) {
+	for _, tc := range []struct{ tool, transport, wantTool, wantTransport string }{
+		{"status", "stdio", "status", "stdio"},
+		{"backup_set_show", "http", "backup_set_show", "http"},
+		{"../etc/passwd", "stdio", "", "stdio"},
+		{"Status", "carrier-pigeon", "", "api"},
+		{"", "", "", "api"},
+	} {
+		router, spy := auditRouter()
+		req := bearer(http.MethodGet, "/api/v1/system/version", "", readToken)
+		if tc.tool != "" {
+			req.Header.Set(service.AgentToolHeader, tc.tool)
+		}
+		if tc.transport != "" {
+			req.Header.Set(service.AgentTransportHeader, tc.transport)
+		}
+		serve(router, req)
+		if len(spy.calls) != 1 || spy.calls[0].Tool != tc.wantTool || spy.calls[0].Transport != tc.wantTransport {
+			t.Errorf("tool %q transport %q: recorded %+v, want tool %q transport %q", tc.tool, tc.transport, spy.calls, tc.wantTool, tc.wantTransport)
+		}
+	}
+}

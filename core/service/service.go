@@ -412,6 +412,10 @@ func New(cfg *config.Config, journal *state.Journal, tr transport.Transport, log
 	// The agent audit writer (agentaudit.go): one goroutine, its own channel
 	// for the reason the activity writer has one.
 	b.audit = newAgentAuditWriter(journal, logger.WithSink(nil))
+	// agents.audit_retention_days, read at start like the rest of the block.
+	if days := cfg.Agents.AuditRetentionDays; days > 0 {
+		b.audit.retention = time.Duration(days) * 24 * time.Hour
+	}
 	auditDone := make(chan struct{})
 	b.auditDone = auditDone
 	go func() {

@@ -347,7 +347,7 @@ func TestRowsPastTheRetentionArePruned(t *testing.T) {
 	if rows := recordedRows(t, r.svc, AgentAuditQuery{}); len(rows) != 1 {
 		t.Fatalf("%d rows left, want the young one", len(rows))
 	}
-	r.svc.SetAgentAuditRetentionDays(0)
+	r.svc.audit.retention = 0
 	*clock = clock.Add(time.Minute)
 	if _, err := r.svc.PruneAgentAudit(ctx); err != nil {
 		t.Fatal(err)

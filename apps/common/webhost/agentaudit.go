@@ -58,8 +58,9 @@ func auditAgentCalls(backend any) func(http.Handler) http.Handler {
 			next.ServeHTTP(capture, r)
 
 			code, _ := capture.refusal()
+			tool, transport := service.AgentCallHeaders(r.Header)
 			call := service.AgentCall{
-				TokenID: principal.TokenID, TokenName: principal.Name, Transport: "api",
+				TokenID: principal.TokenID, TokenName: principal.Name, Tool: tool, Transport: transport,
 				Arguments: map[string]any{
 					"method": r.Method,
 					"path":   routePatternOf(r),
