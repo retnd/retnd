@@ -1280,6 +1280,32 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "planEncryptExisting", Method: "GET", Path: "/encryption/encrypt-existing",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "EncryptExistingPlan", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "startEncryptExisting", Method: "POST", Path: "/encryption/encrypt-existing",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "StartEncryptExistingRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound},
+			409: {ErrorCodeOperationAlreadyRunning, ErrorCodeEncryptionKeyUnresolvable},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "listEncryptionKeys", Method: "GET", Path: "/encryption/keys",
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListEncryptionKeysResponse", SuccessStatus: 200,
@@ -1398,6 +1424,30 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "planReencrypt", Method: "GET", Path: "/encryption/reencrypt",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ReencryptPlan", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "startReencrypt", Method: "POST", Path: "/encryption/reencrypt",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "StartReencryptRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			409: {ErrorCodeOperationAlreadyRunning},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "listEncryptionSuites", Method: "GET", Path: "/encryption/suites",
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListEncryptionSuitesResponse", SuccessStatus: 200,
@@ -1417,56 +1467,6 @@ var Endpoints = []Endpoint{
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
 			404: {ErrorCodeArtifactNotFound, ErrorCodeBackupSetNotFound},
 			409: {ErrorCodeOperationAlreadyRunning, ErrorCodeEncryptionKeyUnresolvable},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "planEncryptExisting", Method: "GET", Path: "/encryption/encrypt-existing",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "EncryptExistingPlan", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest},
-			401: {ErrorCodeUnauthenticated},
-			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "startEncryptExisting", Method: "POST", Path: "/encryption/encrypt-existing",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "StartEncryptExistingRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
-		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest},
-			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCsrfTokenMissing, ErrorCodeCsrfTokenMismatch},
-			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound},
-			409: {ErrorCodeOperationAlreadyRunning, ErrorCodeEncryptionKeyUnresolvable},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "planReencrypt", Method: "GET", Path: "/encryption/reencrypt",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "ReencryptPlan", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest},
-			401: {ErrorCodeUnauthenticated},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "startReencrypt", Method: "POST", Path: "/encryption/reencrypt",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "StartReencryptRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
-		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest},
-			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCsrfTokenMissing, ErrorCodeCsrfTokenMismatch},
-			409: {ErrorCodeOperationAlreadyRunning},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
 		},
@@ -2956,7 +2956,7 @@ type EncryptionSetPolicy struct {
 	IsOverride           bool                       `json:"is_override"`
 	KeyProvider          EncryptionKeyProviderState `json:"key_provider"`
 	Mode                 string                     `json:"mode"`
-	SatisfiedBy          string                     `json:"satisfied_by,omitempty"`
+	SatisfiedBy          string                     `json:"satisfied_by"`
 }
 
 // EncryptionSuite is one encryption suite this build has. describe is the only sentence
