@@ -41,7 +41,10 @@ const (
 	// MaxAgentTokenLifetime is the ceiling. There is no non-expiring token.
 	MaxAgentTokenLifetime = 365 * 24 * time.Hour
 
-	agentTokenPrefix = "rat_"
+	// AgentTokenPrefix is what every agent token starts with. The bearer
+	// authenticator treats an Authorization: Bearer value as an agent token
+	// only if it carries it; any other value is not ours.
+	AgentTokenPrefix = "rat_"
 	// agentTokenPrefixLen is the length of the stored prefix: "rat_" and four
 	// characters of the secret part.
 	agentTokenPrefixLen = 8
@@ -119,7 +122,10 @@ type AgentPrincipal struct {
 // AgentRefusal is a refusal the authenticator made, for the audit table.
 // TokenID is empty when the presented token matched nothing.
 type AgentRefusal struct {
-	TokenID       string
+	TokenID string
+	// TokenName is the token's name when the refusal knows it, for the feed
+	// line; the table keeps only the id.
+	TokenName     string
 	Method        string
 	Path          string
 	Status        int
@@ -157,7 +163,7 @@ func (b *BackupService) MintAgentToken(ctx context.Context, req MintAgentTokenRe
 	if _, err := rand.Read(idBytes); err != nil {
 		return MintedAgentToken{}, fmt.Errorf("service: mint agent token: %w", err)
 	}
-	token := agentTokenPrefix + base64.RawURLEncoding.EncodeToString(secret)
+	token := AgentTokenPrefix + base64.RawURLEncoding.EncodeToString(secret)
 
 	at := now()
 	row := state.AgentToken{
@@ -252,6 +258,20 @@ func (b *BackupService) RecordAgentRefusal(ctx context.Context, r AgentRefusal) 
 	p := r.Path
 	if len(p) > maxAuditPath {
 		p = strings.ToValidUTF8(p[:maxAuditPath], "") + "..."
+	}
+	// The refusal reaches the feed as agent_action (FR-97). One that names no
+	// token was written for a caller with no credential, so it is let through
+	// a few times a minute and counted, never one line per request.
+	emit := true
+	var held int
+	if r.TokenID == "" {
+		emit, held = b.unattributedRefusals.allow(now())
+	}
+	if emit {
+		b.emitAgentAction(ctx, AgentCall{
+			TokenID: r.TokenID, TokenName: r.TokenName, Transport: "api", Refused: true,
+			Status: r.Status, Code: r.Code, CorrelationID: r.CorrelationID, held: held,
+		})
 	}
 	return b.journal.InsertAgentAudit(ctx, state.AgentAudit{
 		At:            now(),

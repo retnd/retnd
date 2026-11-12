@@ -277,6 +277,7 @@ var contractBindings = map[string]contractBinding{
 	// own types so the declared shape and the served shape cannot part.
 	"listAgentTokens":  {nil, apicontract.ListAgentTokensResponse{}, "/api/v1/agent/tokens"},
 	"mintAgentToken":   {apicontract.MintAgentTokenRequest{}, apicontract.MintedAgentToken{}, "/api/v1/agent/tokens"},
+	"listAgentAudit":   {nil, apicontract.ListAgentAuditResponse{}, "/api/v1/agent/audit"},
 	"revokeAgentToken": {nil, apicontract.AgentToken{}, "/api/v1/agent/tokens/agt_1/revoke"},
 	// EPIC U (#1349): the three confirmation routes.
 	"listAgentConfirmations":   {nil, apicontract.ListAgentConfirmationsResponse{}, "/api/v1/agent/confirmations"},

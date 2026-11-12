@@ -12,6 +12,7 @@ import (
 	"github.com/retnd/retnd/apps/common/platform/capabilities"
 	"github.com/retnd/retnd/core/envcompat"
 	"github.com/retnd/retnd/core/legacypath"
+	"github.com/retnd/retnd/core/service"
 )
 
 // The route table, which is where this package's security tiering
@@ -324,6 +325,18 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	agents, _ := cfg.Backend.(AgentAccess)
 	confirmations, _ := cfg.Backend.(AgentConfirmations)
 
+	// The agents: block as it resolved, for the limits and the transport. A
+	// backend that does not report one gets the defaults: transport off, sixty
+	// calls a minute.
+	policy := service.AgentPolicy{RateLimitPerMinute: 60}
+	if p, ok := cfg.Backend.(interface{ AgentPolicy() service.AgentPolicy }); ok {
+		policy = p.AgentPolicy()
+	}
+	var guard *agentGuard
+	if agents != nil {
+		guard = newAgentGuard(policy, cfg.TrustForwardedHeaders)
+	}
+
 	h := &handlers{
 		agents:        agents,
 		confirmations: confirmations,
@@ -364,8 +377,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	r.Get("/health/live", healthLive)
 	r.Get("/health/ready", h.healthReady)
 
+	root := r
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(authMiddleware(cfg.Platform, agents))
+		r.Use(authMiddleware(cfg.Platform, agents, guard))
 		// After authentication, so a recorded line can name the actor,
 		// and over the WHOLE group, so it covers the refusals that never
 		// reach a handler at all: a CSRF failure and a
@@ -374,6 +388,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// handler body. See actionlog.go for why this is middleware
 		// rather than a line in every handler.
 		r.Use(recordActions(cfg.Recorder))
+		// Every request an agent made, reads included, which the action log
+		// above skips (EPIC U, #1348).
+		r.Use(auditAgentCalls(cfg.Backend))
 
 		r.Get("/system/version", h.systemVersion)
 		r.Get("/system/capabilities", h.systemCapabilities)
@@ -849,6 +866,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Get("/agent/tokens", h.listAgentTokens)
 		r.With(requireCSRF).Post("/agent/tokens", h.mintAgentToken)
 		r.With(requireCSRF).Post("/agent/tokens/{id}/revoke", h.revokeAgentToken)
+		// The audit trail (#1348): session only for the same reason.
+		r.Get("/agent/audit", h.listAgentAudit)
+		// EPIC U (#1347): the streamable HTTP transport. Bearer only and off
+		// unless agents.http_transport is on; see agentmcp.go. No requireCSRF:
+		// a cookie never reaches it, and a bearer is not a credential a browser
+		// sends by itself.
+		r.Handle("/agent/mcp", h.mcpEndpoint(root, policy, guard))
 
 		// EPIC U (#1349): the confirmations an agent's operate and configure
 		// calls become. Session only, for the same reason: the whole prefix is in

@@ -1095,6 +1095,27 @@ func (c *Client) RevokeAgentToken(ctx context.Context, id string) (apicontract.A
 	return out, err
 }
 
+// ListAgentAudit is GET /agent/audit: a page of the agent audit trail, newest
+// first. before is a next_cursor an earlier answer named; empty arguments send
+// nothing, so a filter that was not asked for is not sent as an empty one.
+func (c *Client) ListAgentAudit(ctx context.Context, tokenID, since, before string, limit int) (apicontract.ListAgentAuditResponse, error) {
+	query := url.Values{}
+	for k, v := range map[string]string{"token": tokenID, "since": since, "before": before} {
+		if v != "" {
+			query.Set(k, v)
+		}
+	}
+	if limit > 0 {
+		query.Set("limit", strconv.Itoa(limit))
+	}
+	if len(query) == 0 {
+		query = nil
+	}
+	var out apicontract.ListAgentAuditResponse
+	err := c.callQuery(ctx, "listAgentAudit", nil, query, nil, &out)
+	return out, err
+}
+
 // ListAgentConfirmations is GET /agent/confirmations.
 func (c *Client) ListAgentConfirmations(ctx context.Context) (apicontract.ListAgentConfirmationsResponse, error) {
 	var out apicontract.ListAgentConfirmationsResponse

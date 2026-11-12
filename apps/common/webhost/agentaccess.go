@@ -17,8 +17,8 @@ import (
 // The agent principal: a bearer token that authenticates /api/v1 as
 // agent:<name> (EPIC U, FR-91 and FR-92; ADR 0034 decisions 2 and 4).
 //
-// A deployment whose backend keeps no tokens ignores an Authorization header
-// altogether, as it always did. A token is a second way to be authenticated here, never a way around the
+// Only a bearer that carries the rat_ prefix is an agent token; any other
+// Authorization header is ignored, as it always was. A token is a second way to be authenticated here, never a way around the
 // first. It is checked against its row on every request, a request that
 // presents one is never also given the benefit of a cookie, and it reaches
 // strictly less than a session does:
@@ -53,7 +53,7 @@ type AgentAccess interface {
 // its own confirmations (U2.1, #1349): a person reads them in a session, and a
 // token reads the state of its own through the confirmation_status tool, which
 // is not this route.
-var agentDeniedPrefixes = []string{"/auth", "/system/first-run", "/recoveries", "/agent/tokens", "/agent/confirmations"}
+var agentDeniedPrefixes = []string{"/auth", "/system/first-run", "/recoveries", "/agent/tokens", "/agent/audit", "/agent/confirmations"}
 
 type principalContextKey struct{}
 
@@ -68,14 +68,20 @@ func agentPrincipalFrom(ctx context.Context) (service.AgentPrincipal, bool) {
 	return p, ok
 }
 
-// bearerToken reports whether the request presents a bearer token and, if so,
-// what it is. Any other Authorization scheme is not ours and is ignored.
+// bearerToken reports whether the request presents an agent token and, if so,
+// what it is. A bearer is an agent token only if it carries the rat_ prefix;
+// any other Authorization header, Bearer or not, is not ours and is ignored,
+// so a front proxy's own Bearer header is left alone.
 func bearerToken(r *http.Request) (string, bool) {
 	scheme, rest, ok := strings.Cut(r.Header.Get("Authorization"), " ")
 	if !ok || !strings.EqualFold(scheme, "Bearer") {
 		return "", false
 	}
-	return strings.TrimSpace(rest), true
+	token := strings.TrimSpace(rest)
+	if !strings.HasPrefix(token, service.AgentTokenPrefix) {
+		return "", false
+	}
+	return token, true
 }
 
 // agentRouteDenied reports whether a path below /api/v1 is one a bearer may
@@ -113,13 +119,18 @@ func AgentDeniedByMount(next http.Handler) http.Handler {
 // authenticateBearer is authMiddleware's branch for a request that presents a
 // bearer token. It returns the request to serve, or false after writing a
 // refusal.
-func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAccess, presented string) (*http.Request, bool) {
+func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAccess, guard *agentGuard, presented string) (*http.Request, bool) {
 	// audit records a refusal that was just written. The refusal stands
 	// whether or not the row lands, so a failure to write it is logged and
 	// nothing else.
-	audit := func(tokenID string, status int, code, correlationID string) {
+	audit := func(tokenID, tokenName string, status int, code, correlationID string) {
+		// A refusal that names no valid token is anyone's to cause, so the row
+		// it writes is bounded per address. The refusal was already sent.
+		if tokenID == "" && !guard.allowAuditRow(r) {
+			return
+		}
 		err := agents.RecordAgentRefusal(r.Context(), service.AgentRefusal{
-			TokenID: tokenID, Method: r.Method, Path: r.URL.Path, Status: status, Code: code, CorrelationID: correlationID,
+			TokenID: tokenID, TokenName: tokenName, Method: r.Method, Path: r.URL.Path, Status: status, Code: code, CorrelationID: correlationID,
 		})
 		if err != nil {
 			slog.WarnContext(r.Context(), "agent refusal was not recorded", "code", code, "error", err)
@@ -127,7 +138,7 @@ func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAcce
 	}
 
 	if agentRouteDenied(r) {
-		audit("", http.StatusForbidden, "AGENT_ROUTE_DENIED",
+		audit("", "", http.StatusForbidden, "AGENT_ROUTE_DENIED",
 			writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route"))
 		return nil, false
 	}
@@ -138,18 +149,32 @@ func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAcce
 		if !errors.Is(err, service.ErrAgentTokenInvalid) {
 			slog.ErrorContext(r.Context(), "the agent token could not be checked", "error", err)
 		}
-		audit("", http.StatusUnauthorized, "AGENT_TOKEN_INVALID",
+		audit("", "", http.StatusUnauthorized, "AGENT_TOKEN_INVALID",
 			writeError(w, http.StatusUnauthorized, "AGENT_TOKEN_INVALID", "the agent token is not valid"))
 		return nil, false
 	}
 
-	if !safeMethod(r.Method) {
+	// The call is counted here, after the token is known and before anything
+	// is done for it, so a token over its minute is refused whatever it
+	// asked for. The MCP envelope is not a call: the calls inside it are
+	// requests of their own and are counted when they arrive.
+	if !isAgentMCP(r) {
+		if ok, wait := guard.allowCall(principal.TokenID); !ok {
+			audit(principal.TokenID, principal.Name, http.StatusTooManyRequests, "AGENT_RATE_LIMITED", guard.refuseRateLimited(w, wait))
+			return nil, false
+		}
+	}
+
+	// The MCP endpoint takes POST and DELETE as the transport's own frames. It
+	// changes nothing itself; every call inside it is checked as the request
+	// it becomes.
+	if !safeMethod(r.Method) && !isAgentMCP(r) {
 		if principal.Scope == service.AgentScopeRead {
-			audit(principal.TokenID, http.StatusForbidden, "AGENT_SCOPE_INSUFFICIENT",
+			audit(principal.TokenID, principal.Name, http.StatusForbidden, "AGENT_SCOPE_INSUFFICIENT",
 				writeError(w, http.StatusForbidden, "AGENT_SCOPE_INSUFFICIENT", "a read token cannot start or change anything"))
 			return nil, false
 		}
-		audit(principal.TokenID, http.StatusConflict, "AGENT_CONFIRMATION_REQUIRED",
+		audit(principal.TokenID, principal.Name, http.StatusConflict, "AGENT_CONFIRMATION_REQUIRED",
 			writeError(w, http.StatusConflict, "AGENT_CONFIRMATION_REQUIRED", "a change made with an agent token has to be confirmed by a person"))
 		return nil, false
 	}

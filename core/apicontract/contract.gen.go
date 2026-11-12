@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "475f00c8d92315100cf7619590d096ca870bfb686996bfb997d5b4c95e3f1683"
+const ContractSHA256 = "66d4297730a0b95722aafeeac17fb53a9eb439c5acf8aa3e2379fb5bf6a62e3a"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -514,6 +514,17 @@ var Endpoints = []Endpoint{
 			404: {ErrorCodeBackupSetNotFound},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "listAgentAudit", Method: "GET", Path: "/agent/audit",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListAgentAuditResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeAgentRouteDenied},
+			500: {ErrorCodeInternal},
 		},
 	},
 	{
@@ -2231,6 +2242,25 @@ type AdoptedPath struct {
 	What    string `json:"what"`
 }
 
+// AgentAuditEntry is one row of the agent audit trail. arguments is what the call asked
+// with, stored after the projection that strips key material and
+// secrets, as JSON text and cut at 4096 bytes. token_id is empty for
+// a refusal of a token that matched no row, which is itself a fact
+// worth keeping. tool is empty for a refusal made before any tool
+// was named. transport is stdio, http or api.
+type AgentAuditEntry struct {
+	Arguments      string `json:"arguments"`
+	At             string `json:"at"`
+	Code           string `json:"code"`
+	ConfirmationID string `json:"confirmation_id"`
+	CorrelationID  string `json:"correlation_id"`
+	Seq            int64  `json:"seq"`
+	Status         int    `json:"status"`
+	TokenID        string `json:"token_id"`
+	Tool           string `json:"tool"`
+	Transport      string `json:"transport"`
+}
+
 // AgentConfirmation is A change an agent asked for, waiting for a person. The request
 // body it will replay is kept byte for byte and is never shown here;
 // command is the retnd command an operator would have typed for the
@@ -3272,6 +3302,12 @@ type ImportStorageCredentialsResponse struct {
 type ListActivityResponse struct {
 	Events     []ActivityEvent `json:"events"`
 	NextCursor string          `json:"next_cursor,omitempty"`
+}
+
+// ListAgentAuditResponse is GET /agent/audit, newest first.
+type ListAgentAuditResponse struct {
+	Entries    []AgentAuditEntry `json:"entries"`
+	NextCursor string            `json:"next_cursor,omitempty"`
 }
 
 // ListAgentConfirmationsResponse is GET /agent/confirmations. The newest confirmations first, pending
@@ -5568,6 +5604,7 @@ type WorkflowValidationResponse struct {
 var SchemaTypes = map[string]any{
 	"ActivityEvent":                      ActivityEvent{},
 	"AdoptedPath":                        AdoptedPath{},
+	"AgentAuditEntry":                    AgentAuditEntry{},
 	"AgentConfirmation":                  AgentConfirmation{},
 	"AgentExecution":                     AgentExecution{},
 	"AgentToken":                         AgentToken{},
@@ -5650,6 +5687,7 @@ var SchemaTypes = map[string]any{
 	"ImportStorageCredentialsRequest":    ImportStorageCredentialsRequest{},
 	"ImportStorageCredentialsResponse":   ImportStorageCredentialsResponse{},
 	"ListActivityResponse":               ListActivityResponse{},
+	"ListAgentAuditResponse":             ListAgentAuditResponse{},
 	"ListAgentConfirmationsResponse":     ListAgentConfirmationsResponse{},
 	"ListAgentTokensResponse":            ListAgentTokensResponse{},
 	"ListArtifactsResponse":              ListArtifactsResponse{},

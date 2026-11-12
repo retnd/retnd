@@ -49,6 +49,10 @@ GET /activity/live
 	example ?scope=deployment: command
 	example ?backup_set=api-server%2Fvar-backups&scope=deployment: command
 
+GET /agent/audit
+	example: command
+	example ?before=120&limit=50&since=7d&token=agt_0123456789abcdef: command
+
 GET /agent/confirmations
 	example: command
 

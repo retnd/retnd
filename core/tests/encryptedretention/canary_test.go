@@ -7,6 +7,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -104,6 +107,9 @@ type world struct {
 	bundle    []byte
 	refusals  []string
 	answers   []byte
+	// agentToken is the plaintext of a token minted in the world (#1348). It
+	// is a credential, so it joins materials: no surface may carry it either.
+	agentToken string
 }
 
 func newWorld(t *testing.T) *world {
@@ -176,6 +182,31 @@ func newWorld(t *testing.T) *world {
 	list, err := svc.ListEncryptionKeys(ctx)
 	must("list", list, err)
 	w.keyIDs = []string{k1.ID, k2.ID}
+
+	// EPIC U (#1348): an agent token and a trail of calls built from what the
+	// key surfaces really said, so the token list and the audit page have
+	// real rows to be scanned. The calls are a read, a mutation and a
+	// refusal, over the three transports.
+	minted, err := svc.MintAgentToken(ctx, service.MintAgentTokenRequest{Name: "triage", Owner: "cli"})
+	must("mint an agent token", minted.AgentToken, err)
+	w.agentToken = minted.Token
+	for _, c := range []service.AgentCall{
+		{TokenID: minted.AgentToken.ID, TokenName: "triage", Tool: "encryption_state", Transport: "stdio", Status: 200, CorrelationID: "cid_canary_1",
+			Arguments: map[string]string{"key_id": k2.ID, "provider": keycustody.Provider{Managed: k2.ID}.Describe()}},
+		{TokenID: minted.AgentToken.ID, TokenName: "triage", Tool: "run_backup_set", Transport: "http", Mutating: true, Status: 202, CorrelationID: "cid_canary_2",
+			BackupSetID: "production/postgres-primary", Arguments: map[string]string{"backup_set": "production/postgres-primary"}},
+		{TokenID: minted.AgentToken.ID, TokenName: "triage", Transport: "api", Refused: true, Status: 403, Code: "AGENT_SCOPE_INSUFFICIENT", CorrelationID: "cid_canary_3",
+			Arguments: map[string]string{"method": "POST", "path": "/backup-sets"}},
+	} {
+		if err := svc.RecordAgentCall(ctx, c); err != nil {
+			t.Fatalf("recording an agent call: %v", err)
+		}
+	}
+	// ListAgentAudit waits for the writer, so the rows are on disk before the
+	// journal row below is scanned.
+	if _, _, err := svc.ListAgentAudit(ctx, service.AgentAuditQuery{}); err != nil {
+		t.Fatalf("flushing the audit trail: %v", err)
+	}
 	w.answers, err = json.Marshal(answers)
 	if err != nil {
 		t.Fatal(err)
@@ -192,6 +223,8 @@ func newWorld(t *testing.T) *world {
 		}
 		w.materials = append(w.materials, strings.TrimSpace(string(raw)))
 	}
+
+	w.materials = append(w.materials, w.agentToken)
 
 	// A journal transition whose detail is built from what the operator-facing
 	// surfaces really said: the refusals' own text and a provider's description.
@@ -402,6 +435,44 @@ var surfaces = []surface{
 		},
 		leaks: anyMaterial,
 	},
+	// EPIC U (#1348, UV.16): the surfaces an agent's calls leave behind. The
+	// two transports and the confirmation record are rows of their own once
+	// U1.4's transports and U2.1's confirmations produce bytes to scan; these
+	// two are the ones this branch can produce.
+	{
+		row: "UV.16 token list", name: "the agent token list, as GET /agent/tokens answers it",
+		marker: func(*world) string { return `"prefix"` },
+		collect: func(w *world) []byte {
+			tokens, err := w.svc.ListAgentTokens(w.ctx)
+			if err != nil {
+				w.t.Fatalf("ListAgentTokens: %v", err)
+			}
+			out := apicontract.ListAgentTokensResponse{Tokens: make([]apicontract.AgentToken, 0, len(tokens))}
+			for _, tk := range tokens {
+				out.Tokens = append(out.Tokens, tk.Contract())
+			}
+			b, _ := json.Marshal(out)
+			return b
+		},
+		leaks: anyMaterial,
+	},
+	{
+		row: "UV.16 audit page", name: "the agent audit trail, as GET /agent/audit and retnd agent audit answer it",
+		marker: func(*world) string { return "cid_canary_1" },
+		collect: func(w *world) []byte {
+			entries, _, err := w.svc.ListAgentAudit(w.ctx, service.AgentAuditQuery{Limit: service.MaxAgentAuditLimit})
+			if err != nil {
+				w.t.Fatalf("ListAgentAudit: %v", err)
+			}
+			out := apicontract.ListAgentAuditResponse{Entries: make([]apicontract.AgentAuditEntry, 0, len(entries))}
+			for _, e := range entries {
+				out.Entries = append(out.Entries, e.Contract())
+			}
+			b, _ := json.Marshal(out)
+			return b
+		},
+		leaks: anyMaterial,
+	},
 	{
 		row: "NV.31", name: "the committed compat corpus and configuration fixtures",
 		marker: func(*world) string { return "encryption" },
@@ -494,6 +565,68 @@ func TestAPlantingTurnsExactlyItsOwnRowRed_996_WouldCatchOne(t *testing.T) {
 		}
 		if len(red) != 1 || red[0] != planted.row {
 			t.Errorf("a canary planted on %s turned %v red, want exactly [%s]", planted.row, red, planted.row)
+		}
+	}
+}
+
+// UV.16 (#1348): a canary planted in a tool's arguments is stored, so it
+// reaches the audit page and turns that row red and no other. This is the
+// control for the row: the detector can see a value in the one field an
+// agent chooses. That the projection removes such a value before it is stored
+// is agenttools.Project's own test and the transports'.
+func TestAPlantedToolArgumentTurnsTheAuditRowRedAndNoOther_1348_WouldCatchOne(t *testing.T) {
+	w := newWorld(t)
+	canary := "AGE-SECRET-KEY-1" + strings.ToUpper(hex.EncodeToString([]byte("arg-"+fmt.Sprint(time.Now().UnixNano()))))
+	w.materials = append(w.materials, canary)
+	if err := w.svc.RecordAgentCall(w.ctx, service.AgentCall{
+		TokenID: "agt_x", Tool: "backup_set_show", Transport: "stdio", Status: 200,
+		Arguments: map[string]string{"set": canary},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var red []string
+	for _, s := range surfaces {
+		if strings.HasPrefix(s.row, "UV.16") && s.leaks(w, s.collect(w)) {
+			red = append(red, s.row)
+		}
+	}
+	if len(red) != 1 || red[0] != "UV.16 audit page" {
+		t.Fatalf("a canary in a tool argument turned %v red, want exactly [UV.16 audit page]", red)
+	}
+}
+
+// Every row of the corpus is held by the control tests above, and a row with
+// no detector would pass them by never failing. The error names the row.
+func TestEveryCanaryRowHasADetectorAndItsControlsExist_1348(t *testing.T) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "canary_test.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	have := map[string]bool{}
+	for _, d := range f.Decls {
+		if fn, ok := d.(*ast.FuncDecl); ok {
+			have[fn.Name.Name] = true
+		}
+	}
+	for _, control := range []string{"TestNoKeyMaterialOnAnySurface_996_WouldCatchOne", "TestAPlantingTurnsExactlyItsOwnRowRed_996_WouldCatchOne"} {
+		if !have[control] {
+			t.Errorf("the corpus's control %s is gone, so no row has a _WouldCatchOne", control)
+		}
+	}
+	seen := map[string]bool{}
+	for _, s := range surfaces {
+		if s.leaks == nil || s.collect == nil {
+			t.Errorf("row %s has no detector or no collector, so it cannot catch a planted value", s.row)
+		}
+		if seen[s.row] {
+			t.Errorf("row %s appears twice, so a planting would turn two rows red under one name", s.row)
+		}
+		seen[s.row] = true
+	}
+	for _, want := range []string{"UV.16 token list", "UV.16 audit page"} {
+		if !seen[want] {
+			t.Errorf("the corpus has no %s row", want)
 		}
 	}
 }

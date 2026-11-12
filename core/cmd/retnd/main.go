@@ -653,6 +653,25 @@ commands:
   agent confirmations deny ID [--json]
                                                   deny one pending confirmation: nothing runs and the agent reads it as
                                                   denied. The same as POST /api/v1/agent/confirmations/{id}/deny
+  agent serve --stdio --token-file PATH
+                                                  serve the read tools, resources and prompts of the agent catalogue to
+                                                  an MCP client on standard input and output, calling the engine at
+                                                  RETND_API_URL as the token's principal. It starts no engine and opens
+                                                  nothing of this host's. The token is in the file (mode 0600, refused
+                                                  otherwise) or in RETND_AGENT_TOKEN, and there is no --token flag. Logs
+                                                  go to standard error. Every tool answers ok, code, message,
+                                                  correlation_id, command and exit_code, the last being what this binary
+                                                  would have exited with for the same call. The engine's own streamable
+                                                  HTTP transport at POST, GET and DELETE /api/v1/agent/mcp is off unless
+                                                  agents.http_transport is on in config.yaml
+  agent audit [--token ID] [--since D] [--limit N] [--before CURSOR] [--json]
+                                                  every call an AI agent made, reads included, newest first: when,
+                                                  token, tool, transport, status, refusal code, correlation id and the
+                                                  arguments as stored after the projection that strips key material.
+                                                  ID is a token id from agent token list, never the token. D is days
+                                                  such as 7d, a duration such as 36h or an RFC 3339 time; N is 100 by
+                                                  default and 1000 at most. A full page prints the cursor for the next
+                                                  one. The same as GET /api/v1/agent/audit
   ssh host-key-probe HOST [--port N] [--json]
                                                   connect to HOST (port 22 unless told) and print the host key that
                                                   answers, its fingerprint and the known_hosts line for it. Nothing

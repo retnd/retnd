@@ -312,6 +312,31 @@ describe("the line each event renders as", () => {
   });
 });
 
+describe("an agent's action on the feed (#1348)", () => {
+  it("reads as the engine's sentence with the ids that find its row in the audit trail", () => {
+    const line = activityLine(
+      event({
+        sequence: 1,
+        event: "agent_action",
+        result: "warn",
+        level: "warn",
+        message: "agent:triage was refused run_cycle: AGENT_CONFIRMATION_REQUIRED",
+        fields: { actor: "agent:triage", tool: "run_cycle", correlation_id: "cid_abc", confirmation_id: "cnf_1", state: "pending" }
+      })
+    );
+    expect(line.text).toContain("agent:triage was refused run_cycle");
+    expect(line.text).toContain("correlation id cid_abc");
+    expect(line.text).toContain("confirmation cnf_1 (pending)");
+    expect(line.tone).toBe("warn");
+  });
+
+  it("is green for a served mutation and does not print fields it does not have", () => {
+    const line = activityLine(event({ sequence: 2, event: "agent_action", result: "success", message: "agent:triage run_cycle", fields: { actor: "agent:triage" } }));
+    expect(line.tone).toBe("ok");
+    expect(line.text).toBe("agent:triage run_cycle");
+  });
+});
+
 /**
  * How a line is coloured, once the engine says how the thing it reports
  * went (issue #625).

@@ -130,7 +130,7 @@ func TestTheAuthenticatedActorIsAgentColonName(t *testing.T) {
 		actor = actorFromContext(r.Context())
 		w.WriteHeader(http.StatusNoContent)
 	})
-	h := authMiddleware(allowingPlatform("alice"), access)(next)
+	h := authMiddleware(allowingPlatform("alice"), access, nil)(next)
 	if rec := serve(h, bearer(http.MethodGet, "/api/v1/system/version", "", readToken)); rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d", rec.Code)
 	}
@@ -143,13 +143,12 @@ func TestTheAuthenticatedActorIsAgentColonName(t *testing.T) {
 // session, or skip the audit write.
 func TestAnInvalidBearerIsRefusedBeforeAnyHandlerAndAudited(t *testing.T) {
 	for name, header := range map[string]string{
-		"unknown":       "Bearer rat_unknown_token_00000000000000000000000",
-		"revoked":       "Bearer " + revokedToken,
-		"empty":         "Bearer ",
-		"lowercase":     "bearer rat_unknown_token_00000000000000000000000",
-		"extra spaces":  "Bearer   rat_unknown_token_00000000000000000000000",
-		"two tokens":    "Bearer " + readToken + " " + operateToken,
-		"token as word": "Bearer null",
+		"unknown":      "Bearer rat_unknown_token_00000000000000000000000",
+		"revoked":      "Bearer " + revokedToken,
+		"lowercase":    "bearer rat_unknown_token_00000000000000000000000",
+		"extra spaces": "Bearer   rat_unknown_token_00000000000000000000000",
+		"two tokens":   "Bearer " + readToken + " " + operateToken,
+		"bare prefix":  "Bearer rat_",
 	} {
 		t.Run(name, func(t *testing.T) {
 			router, access := agentRouter()
@@ -374,7 +373,7 @@ func TestRevokeIsASessionPostAndTheNextBearerRequestIsRefused(t *testing.T) {
 // Falsify: only consult the deny list when a token store is wired. The
 // first-run router has none, and /system/first-run is the route it serves.
 func TestABearerOnADeniedPrefixIsRefusedWithNoTokenStore(t *testing.T) {
-	h := authMiddleware(allowingPlatform("alice"), nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := authMiddleware(allowingPlatform("alice"), nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	for _, p := range []string{"/api/v1/system/first-run", "/api/v1/system/first-run/skip", "/api/v1/recoveries"} {
