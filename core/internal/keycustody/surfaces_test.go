@@ -293,6 +293,60 @@ func TestNoKeyReachesTheActivityFeed_WouldCatchOne(t *testing.T) {
 	}
 }
 
+// Surface 5 (#1348, FR-98): the agent audit table. A row records what an agent
+// asked with, so the key id and a provider's description reach it as a tool's
+// arguments, and the material must not. The whole database file (WAL
+// included) is scanned.
+func TestNoKeyReachesAnAgentAuditRow(t *testing.T) {
+	s, rec, material := mintedKeyAndMaterial(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	j, err := state.Open(ctx, filepath.Join(dir, "state.db"))
+	if err != nil {
+		t.Fatalf("state.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = j.Close() })
+
+	args, _ := json.Marshal(map[string]string{
+		"key_id": rec.ID, "provider": keycustody.Provider{Managed: rec.ID}.Describe(), "probe": fmt.Sprint(s.Probe(ctx, rec.ID)),
+	})
+	if err := j.InsertAgentAudits(ctx, []state.AgentAudit{
+		{At: fixedNow, TokenID: "agt_1", Tool: "encryption_state", Transport: "stdio", Arguments: string(args), Status: 200, CorrelationID: "cid_1"},
+		{At: fixedNow, TokenID: "agt_1", Transport: "api", Arguments: "GET /encryption/keys", Status: 403, Code: "AGENT_ROUTE_DENIED", CorrelationID: "cid_2"},
+	}); err != nil {
+		t.Fatalf("InsertAgentAudits: %v", err)
+	}
+	rows, err := j.AgentAuditPage(ctx, state.AgentAuditFilter{Limit: 10})
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("rows = %+v (%v), want the two calls", rows, err)
+	}
+	scanned := append(readAllFiles(t, dir), []byte(fmt.Sprintf("%+v", rows))...)
+	if carriesMaterial(scanned, material) {
+		t.Fatalf("the agent audit table carries key material")
+	}
+	if !bytes.Contains(scanned, []byte(rec.ID)) {
+		t.Fatalf("the key id did not reach the table, so the row records nothing an operator can match a key to")
+	}
+}
+
+func TestNoKeyReachesAnAgentAuditRow_WouldCatchOne(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	j, err := state.Open(ctx, filepath.Join(dir, "state.db"))
+	if err != nil {
+		t.Fatalf("state.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = j.Close() })
+	if err := j.InsertAgentAudits(ctx, []state.AgentAudit{
+		{At: fixedNow, TokenID: "agt_1", Tool: "planted", Transport: "stdio", Arguments: `{"set":"` + string(canary) + `"}`, Status: 200},
+	}); err != nil {
+		t.Fatalf("InsertAgentAudits: %v", err)
+	}
+	if !carriesMaterial(readAllFiles(t, dir), canary) {
+		t.Fatalf("the scan did not catch a canary written into an agent audit row")
+	}
+}
+
 // Surface 4: the operator-facing export. There is no support-bundle verb in
 // this tree today; what a support transcript carries from this package is
 // the health section and the export receipt rendered as JSON, which is

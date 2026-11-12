@@ -1,0 +1,26 @@
+# EPIC U (#1347): the agents block has no place to widen what a token may do.
+# A token's scope is read, operate or configure, chosen when it is minted and
+# never by the configuration, so a `scope` key here is refused by name and the
+# file does not load. A build that accepted any key would let a typo in this
+# block quietly stop meaning anything.
+poll_interval: 15m
+
+state:
+  database: /var/lib/retnd/state.db
+
+agents:
+  http_transport: "on"
+  scope: configure
+
+sources:
+  - id: production
+    backup_sets:
+      - id: postgres-primary
+        remote:
+          type: local
+        remote_path: /srv/exports/postgres
+        local_path: /backups/production/postgres
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h

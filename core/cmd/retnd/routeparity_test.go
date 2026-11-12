@@ -217,9 +217,21 @@ var refusingInputs = []refusingInput{
 		},
 	},
 	{
+		name: "read the agent audit trail since a moment that is not one",
+		args: func(configPath, _ string) []string {
+			return []string{"agent", "audit", "--since", "banana", "--config", configPath}
+		},
+	},
+	{
 		name: "revoke an agent token this deployment does not have",
 		args: func(configPath, _ string) []string {
 			return []string{"agent", "token", "revoke", "agt_nosuchtoken", "--config", configPath}
+		},
+	},
+	{
+		name: "deny an agent confirmation this deployment does not have",
+		args: func(configPath, _ string) []string {
+			return []string{"agent", "confirmations", "deny", "cnf_nosuchconfirmation", "--config", configPath}
 		},
 	},
 	// #1317: re-encrypting copies under the active suite and key. A suite

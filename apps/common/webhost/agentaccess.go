@@ -1,8 +1,11 @@
 package webhost
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"path"
@@ -10,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/retnd/retnd/core/agenttools"
 	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/service"
 )
@@ -17,18 +21,32 @@ import (
 // The agent principal: a bearer token that authenticates /api/v1 as
 // agent:<name> (EPIC U, FR-91 and FR-92; ADR 0034 decisions 2 and 4).
 //
-// A deployment whose backend keeps no tokens ignores an Authorization header
-// altogether, as it always did. A token is a second way to be authenticated here, never a way around the
-// first. It is checked against its row on every request, a request that
-// presents one is never also given the benefit of a cookie, and it reaches
-// strictly less than a session does:
+// Only a bearer that carries the rat_ prefix is an agent token; any other
+// Authorization header is ignored, as it always was. A token is a second way
+// to be authenticated here, never a way around the first. It is checked
+// against its row on every request, a request that presents one is never
+// also given the benefit of a cookie, and it reaches strictly less than a
+// session does:
 //
-//   - the routes in agentDeniedPrefixes refuse a bearer whatever its scope,
-//     before the scope is looked at;
+//   - the routes on core/agenttools' deny list refuse a bearer whatever its
+//     scope, once the token is known, so a valid token's probe is audited
+//     with its id. The list is the catalogue's, read here on the wire,
+//     because a token works against raw /api/v1 and a deny list held only by
+//     a transport would hold nothing back (#1346);
+//   - a bearer reads only what the catalogue offers it: a GET to the route a
+//     read tool sits on, the state of a confirmation it proposed (by id, its
+//     own only) and the MCP endpoint, and nothing else, whatever the scope
+//     (Q1 of the EPIC U panel, #1368). The router resolves the pattern of the request and
+//     core/agenttools.BearerReadable compares it whole, so a route that is
+//     not a tool is AGENT_ROUTE_DENIED even though it is only a read;
 //   - a bearer reaches no route that changes anything. A read token is told
 //     so (AGENT_SCOPE_INSUFFICIENT); an operate or configure token is told a
-//     person has to confirm the change (AGENT_CONFIRMATION_REQUIRED), which is
-//     how U2.1 will take it. Until then nothing a token can do mutates;
+//     person has to confirm the change (AGENT_CONFIRMATION_REQUIRED), and
+//     only for a route the catalogue has a tool over. Any other change is
+//     AGENT_ROUTE_DENIED, so nothing outside the catalogue is ever put in
+//     front of a person to approve. A bearer request creates a confirmation
+//     only when it names a catalogue tool whose method, route and action
+//     match exactly; any other is refused and records nothing (U2.1, #1349);
 //   - requireCSRF passes a bearer principal and nobody else. CSRF defends a
 //     credential a browser sends by itself, and a header is not one.
 
@@ -44,11 +62,6 @@ type AgentAccess interface {
 	RevokeAgentToken(ctx context.Context, id string) (service.AgentToken, error)
 }
 
-// agentDeniedPrefixes are the routes no token reaches under any scope. They
-// are paths below /api/v1. /auth/* is mounted beside the router rather than
-// inside it, so serve's mount refuses it too (AgentDeniedByMount).
-var agentDeniedPrefixes = []string{"/auth", "/system/first-run", "/recoveries", "/agent/tokens"}
-
 type principalContextKey struct{}
 
 // withAgentPrincipal marks ctx as carrying an authenticated agent. It is
@@ -62,34 +75,101 @@ func agentPrincipalFrom(ctx context.Context) (service.AgentPrincipal, bool) {
 	return p, ok
 }
 
-// bearerToken reports whether the request presents a bearer token and, if so,
-// what it is. Any other Authorization scheme is not ours and is ignored.
+// bearerToken reports whether the request presents an agent token and, if so,
+// what it is. A bearer is an agent token only if it carries the rat_ prefix;
+// any other Authorization header, Bearer or not, is not ours and is ignored,
+// so a front proxy's own Bearer header is left alone.
 func bearerToken(r *http.Request) (string, bool) {
 	scheme, rest, ok := strings.Cut(r.Header.Get("Authorization"), " ")
 	if !ok || !strings.EqualFold(scheme, "Bearer") {
 		return "", false
 	}
-	return strings.TrimSpace(rest), true
+	token := strings.TrimSpace(rest)
+	if !strings.HasPrefix(token, service.AgentTokenPrefix) {
+		return "", false
+	}
+	return token, true
 }
 
-// agentRouteDenied reports whether a path below /api/v1 is one a bearer may
-// never reach. Both the decoded and the raw form are checked, because the
-// router matches on whichever the request carries.
-func agentRouteDenied(r *http.Request) bool {
+// agentPaths are the paths below /api/v1 a request can be said to carry: the
+// decoded one and, when the client sent an encoded form, the raw one, each
+// cleaned. The router matches on whichever the request carries, so a check
+// reads both.
+func agentPaths(r *http.Request) []string {
 	candidates := []string{r.URL.Path}
 	if r.URL.RawPath != "" {
 		candidates = append(candidates, r.URL.RawPath)
 	}
-	for _, c := range candidates {
-		rel := strings.TrimPrefix(path.Clean("/"+c), "/api/v1")
-		for _, p := range agentDeniedPrefixes {
-			if rel == p || strings.HasPrefix(rel, p+"/") {
-				return true
-			}
+	out := make([]string, len(candidates))
+	for i, c := range candidates {
+		out[i] = strings.TrimPrefix(path.Clean("/"+c), "/api/v1")
+	}
+	return out
+}
+
+// agentRouteDenied reports whether a request is one a bearer may never make,
+// by the catalogue's deny list (agenttools.Denied).
+func agentRouteDenied(r *http.Request) bool {
+	for _, p := range agentPaths(r) {
+		if agenttools.Denied(r.Method, p) {
+			return true
 		}
 	}
 	return false
 }
+
+// agentReadOffered reports whether a safe request reaches a route a read tool
+// sits on, on every form of the path the request carries. The pattern is what
+// the root router resolves the path to, so a catch-all and a deeper route are
+// told apart by the router and not by a prefix. A request the router cannot
+// resolve, or one that arrives with no router at all, is not offered.
+func agentReadOffered(r *http.Request) bool {
+	rctx := chi.RouteContext(r.Context())
+	if rctx == nil || rctx.Routes == nil {
+		return false
+	}
+	for _, p := range agentPaths(r) {
+		resolved := chi.NewRouteContext()
+		if !rctx.Routes.Match(resolved, r.Method, "/api/v1"+p) {
+			return false
+		}
+		if !agenttools.BearerReadable(r.Method, strings.TrimPrefix(resolved.RoutePattern(), "/api/v1")) {
+			return false
+		}
+	}
+	return true
+}
+
+// agentChangeOffered reports whether a change reaches a route the catalogue
+// has a tool over, on every form of the path the request carries. The one
+// route several acts share (POST /operations) is told apart by the body's
+// action word, read from at most agentActionPeek bytes of it, and the body is
+// put back for whoever reads it next. A body that cannot be read, or has no
+// action, is the empty action, which no shared route offers.
+func agentChangeOffered(r *http.Request) bool {
+	var action struct {
+		Action string `json:"action"`
+	}
+	if r.Body != nil && r.Body != http.NoBody {
+		peeked, _ := io.ReadAll(io.LimitReader(r.Body, agentActionPeek))
+		r.Body = struct {
+			io.Reader
+			io.Closer
+		}{io.MultiReader(bytes.NewReader(peeked), r.Body), r.Body}
+		// A body that is not an object leaves the action empty, which is a
+		// refusal on a shared route and nothing on any other.
+		_ = json.Unmarshal(peeked, &action)
+	}
+	for _, p := range agentPaths(r) {
+		if !agenttools.Offered(r.Method, p, action.Action) {
+			return false
+		}
+	}
+	return true
+}
+
+// agentActionPeek bounds how much of a body is read to find its action word.
+const agentActionPeek = 1 << 20
 
 // AgentDeniedByMount refuses a bearer request before it reaches a handler
 // mounted outside the API router (the /api/v1/auth routes), whatever the token
@@ -107,24 +187,24 @@ func AgentDeniedByMount(next http.Handler) http.Handler {
 // authenticateBearer is authMiddleware's branch for a request that presents a
 // bearer token. It returns the request to serve, or false after writing a
 // refusal.
-func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAccess, presented string) (*http.Request, bool) {
+func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAccess, guard *agentGuard, proposer *agentProposer, presented string) (*http.Request, bool) {
 	// audit records a refusal that was just written. The refusal stands
 	// whether or not the row lands, so a failure to write it is logged and
 	// nothing else.
-	audit := func(tokenID string, status int, code, correlationID string) {
+	audit := func(tokenID, tokenName string, status int, code, correlationID string) {
+		// A refusal that names no valid token is anyone's to cause, so the row
+		// it writes is bounded per address. The refusal was already sent.
+		if tokenID == "" && !guard.allowAuditRow(r) {
+			return
+		}
 		err := agents.RecordAgentRefusal(r.Context(), service.AgentRefusal{
-			TokenID: tokenID, Method: r.Method, Path: r.URL.Path, Status: status, Code: code, CorrelationID: correlationID,
+			TokenID: tokenID, TokenName: tokenName, Method: r.Method, Path: r.URL.Path, Status: status, Code: code, CorrelationID: correlationID,
 		})
 		if err != nil {
 			slog.WarnContext(r.Context(), "agent refusal was not recorded", "code", code, "error", err)
 		}
 	}
 
-	if agentRouteDenied(r) {
-		audit("", http.StatusForbidden, "AGENT_ROUTE_DENIED",
-			writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route"))
-		return nil, false
-	}
 	principal, err := agents.AuthenticateAgentToken(r.Context(), presented)
 	if err != nil {
 		// Fail closed, the way a session lookup that errors does: a token
@@ -132,19 +212,60 @@ func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAcce
 		if !errors.Is(err, service.ErrAgentTokenInvalid) {
 			slog.ErrorContext(r.Context(), "the agent token could not be checked", "error", err)
 		}
-		audit("", http.StatusUnauthorized, "AGENT_TOKEN_INVALID",
+		audit("", "", http.StatusUnauthorized, "AGENT_TOKEN_INVALID",
 			writeError(w, http.StatusUnauthorized, "AGENT_TOKEN_INVALID", "the agent token is not valid"))
 		return nil, false
 	}
 
-	if !safeMethod(r.Method) {
+	// The deny list is checked once the token is known, so a valid token's
+	// probe of a denied route is audited with its id. An invalid token on a
+	// denied route is refused as an invalid token, which tells it nothing new.
+	if agentRouteDenied(r) {
+		audit(principal.TokenID, principal.Name, http.StatusForbidden, "AGENT_ROUTE_DENIED",
+			writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route"))
+		return nil, false
+	}
+
+	// The call is counted here, after the token is known and before anything
+	// is done for it, so a token over its minute is refused whatever it
+	// asked for. The MCP envelope is not a call: the calls inside it are
+	// requests of their own and are counted when they arrive.
+	if !isAgentMCP(r) {
+		if ok, wait := guard.allowCall(principal.TokenID); !ok {
+			audit(principal.TokenID, principal.Name, http.StatusTooManyRequests, "AGENT_RATE_LIMITED", guard.refuseRateLimited(w, wait))
+			return nil, false
+		}
+	}
+
+	// The MCP endpoint takes POST and DELETE as the transport's own frames. It
+	// changes nothing itself; every call inside it is checked as the request
+	// it becomes.
+	if !safeMethod(r.Method) && !isAgentMCP(r) {
 		if principal.Scope == service.AgentScopeRead {
-			audit(principal.TokenID, http.StatusForbidden, "AGENT_SCOPE_INSUFFICIENT",
+			audit(principal.TokenID, principal.Name, http.StatusForbidden, "AGENT_SCOPE_INSUFFICIENT",
 				writeError(w, http.StatusForbidden, "AGENT_SCOPE_INSUFFICIENT", "a read token cannot start or change anything"))
 			return nil, false
 		}
-		audit(principal.TokenID, http.StatusConflict, "AGENT_CONFIRMATION_REQUIRED",
+		if !agentChangeOffered(r) {
+			audit(principal.TokenID, principal.Name, http.StatusForbidden, "AGENT_ROUTE_DENIED",
+				writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route"))
+			return nil, false
+		}
+		// A tool call, which names its tool, is recorded as a pending
+		// confirmation (U2.1). A raw request, which does not, is refused and
+		// nothing is recorded: the refusal is the whole effect of it.
+		if status, code, correlationID, handled := proposer.propose(w, r, principal); handled {
+			audit(principal.TokenID, principal.Name, status, code, correlationID)
+			return nil, false
+		}
+		audit(principal.TokenID, principal.Name, http.StatusConflict, "AGENT_CONFIRMATION_REQUIRED",
 			writeError(w, http.StatusConflict, "AGENT_CONFIRMATION_REQUIRED", "a change made with an agent token has to be confirmed by a person"))
+		return nil, false
+	}
+
+	if !agentReadOffered(r) {
+		audit(principal.TokenID, principal.Name, http.StatusForbidden, "AGENT_ROUTE_DENIED",
+			writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route"))
 		return nil, false
 	}
 
@@ -199,7 +320,10 @@ func (h *handlers) mintAgentToken(w http.ResponseWriter, r *http.Request) {
 		Name: body.Name, Scope: body.Scope, ExpiresIn: body.ExpiresIn, Owner: actorFromContext(r.Context()),
 	})
 	if errors.Is(err, service.ErrInvalidRequest) {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+		// The sentinel's own words come off, so the message starts with the
+		// request field it is about (name:, scope: or expires_in:), which is
+		// what the mint dialog routes it by.
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", strings.TrimPrefix(err.Error(), service.ErrInvalidRequest.Error()+": "))
 		return
 	}
 	if err != nil {
@@ -225,4 +349,12 @@ func (h *handlers) revokeAgentToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, revoked.Contract())
+}
+
+// listAgentTools is GET /api/v1/agent/tools: the catalogue, from the same
+// function retnd agent tools prints. It reads nothing of this deployment, so it
+// needs no token store. A token does not read it: its row is a refusal, and an
+// agent already has the catalogue as the list of its own tools.
+func (h *handlers) listAgentTools(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, agenttools.Document())
 }

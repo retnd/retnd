@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "cdc25e03580c859b9e13fbd4504fd9afdd3761561ec804cb6266ae52683dceba"
+const ContractSHA256 = "7d0e6ec81f3c9ff488ef883ccd6ffd58d327845537575a22e4e22757e436d7e0"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -174,6 +174,14 @@ const (
 	ErrorCodeAgentRouteDenied                       ErrorCode = "AGENT_ROUTE_DENIED"
 	ErrorCodeAgentConfirmationRequired              ErrorCode = "AGENT_CONFIRMATION_REQUIRED"
 	ErrorCodeAgentTokenNotFound                     ErrorCode = "AGENT_TOKEN_NOT_FOUND"
+	ErrorCodeAgentConfirmationExpired               ErrorCode = "AGENT_CONFIRMATION_EXPIRED"
+	ErrorCodeAgentConfirmationDecided               ErrorCode = "AGENT_CONFIRMATION_DECIDED"
+	ErrorCodeAgentConfirmationTokenEnded            ErrorCode = "AGENT_CONFIRMATION_TOKEN_ENDED"
+	ErrorCodeAgentConfirmationLimit                 ErrorCode = "AGENT_CONFIRMATION_LIMIT"
+	ErrorCodeAgentConfirmationBodySubstituted       ErrorCode = "AGENT_CONFIRMATION_BODY_SUBSTITUTED"
+	ErrorCodeAgentConfirmationNotFound              ErrorCode = "AGENT_CONFIRMATION_NOT_FOUND"
+	ErrorCodeAgentHttpTransportOff                  ErrorCode = "AGENT_HTTP_TRANSPORT_OFF"
+	ErrorCodeAgentRateLimited                       ErrorCode = "AGENT_RATE_LIMITED"
 )
 
 // WireErrorCodes is codes a server may put on the wire. Every one of these is emitted by real handler code, and apps/common/webhost's TestContract_EveryWireErrorCodeIsRegistered holds that both ways.
@@ -295,6 +303,14 @@ var WireErrorCodes = []ErrorCode{
 	ErrorCodeAgentRouteDenied,
 	ErrorCodeAgentConfirmationRequired,
 	ErrorCodeAgentTokenNotFound,
+	ErrorCodeAgentConfirmationExpired,
+	ErrorCodeAgentConfirmationDecided,
+	ErrorCodeAgentConfirmationTokenEnded,
+	ErrorCodeAgentConfirmationLimit,
+	ErrorCodeAgentConfirmationBodySubstituted,
+	ErrorCodeAgentConfirmationNotFound,
+	ErrorCodeAgentHttpTransportOff,
+	ErrorCodeAgentRateLimited,
 }
 
 // UIErrorCodes is the shared UI's own presentation vocabulary. No endpoint emits these; they are registered here so there is one registry rather than a second hand-maintained list in ui/shared.
@@ -440,19 +456,27 @@ var ErrorCodes = []ErrorCode{
 	ErrorCodeAgentRouteDenied,
 	ErrorCodeAgentConfirmationRequired,
 	ErrorCodeAgentTokenNotFound,
+	ErrorCodeAgentConfirmationExpired,
+	ErrorCodeAgentConfirmationDecided,
+	ErrorCodeAgentConfirmationTokenEnded,
+	ErrorCodeAgentConfirmationLimit,
+	ErrorCodeAgentConfirmationBodySubstituted,
+	ErrorCodeAgentConfirmationNotFound,
+	ErrorCodeAgentHttpTransportOff,
+	ErrorCodeAgentRateLimited,
 }
 
 // ErrorClasses groups codes by the refusal they represent, so a caller (or
 // a red team) can assert the RIGHT refusal rather than any refusal.
 var ErrorClasses = map[string][]ErrorCode{
 	"authentication": {ErrorCodeUnauthenticated, ErrorCodeBootstrapTokenInvalid, ErrorCodeResetTokenInvalid, ErrorCodeVerifyTokenInvalid, ErrorCodeAgentTokenInvalid},
-	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeRecoveryGrantSessionEnded, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired, ErrorCodeAgentScopeInsufficient, ErrorCodeAgentRouteDenied},
-	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy, ErrorCodeDirectoryNotReadable, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged, ErrorCodeRecoverySourceHostUnavailable, ErrorCodeRecoverySourceHostReadOnly, ErrorCodeRecoverySourceHostNotAcknowledged, ErrorCodeRecoverySourceHostProbeLeftFile, ErrorCodeValidatorExists, ErrorCodeValidatorPatternConflict, ErrorCodeValidatorLimitReached, ErrorCodeValidatorScriptChanged, ErrorCodeEncryptionKeyInUse, ErrorCodeEncryptionKeyState, ErrorCodeEncryptionKeyUnresolvable, ErrorCodeAgentConfirmationRequired},
+	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeRecoveryGrantSessionEnded, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired, ErrorCodeAgentScopeInsufficient, ErrorCodeAgentRouteDenied, ErrorCodeAgentHttpTransportOff},
+	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy, ErrorCodeDirectoryNotReadable, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged, ErrorCodeRecoverySourceHostUnavailable, ErrorCodeRecoverySourceHostReadOnly, ErrorCodeRecoverySourceHostNotAcknowledged, ErrorCodeRecoverySourceHostProbeLeftFile, ErrorCodeValidatorExists, ErrorCodeValidatorPatternConflict, ErrorCodeValidatorLimitReached, ErrorCodeValidatorScriptChanged, ErrorCodeEncryptionKeyInUse, ErrorCodeEncryptionKeyState, ErrorCodeEncryptionKeyUnresolvable, ErrorCodeAgentConfirmationRequired, ErrorCodeAgentConfirmationExpired, ErrorCodeAgentConfirmationDecided, ErrorCodeAgentConfirmationTokenEnded},
 	"internal":       {ErrorCodeInternal, ErrorCodeInternalError, ErrorCodeRecoveryLocalCopyCorrupt, ErrorCodeRecoveryRemoteCopyCorrupt, ErrorCodeRecoveryNoSpace, ErrorCodeRecoveryBelowReserve, ErrorCodeRecoveryFailed, ErrorCodeRecoverySourceHostNoSpace},
-	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown, ErrorCodeDirectoryNotFound, ErrorCodeValidatorNotFound, ErrorCodeEncryptionKeyNotFound, ErrorCodeAgentTokenNotFound},
-	"throttling":     {ErrorCodeRateLimited, ErrorCodeRecoveryTooManyGrants, ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy},
+	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown, ErrorCodeDirectoryNotFound, ErrorCodeValidatorNotFound, ErrorCodeEncryptionKeyNotFound, ErrorCodeAgentTokenNotFound, ErrorCodeAgentConfirmationNotFound},
+	"throttling":     {ErrorCodeRateLimited, ErrorCodeRecoveryTooManyGrants, ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy, ErrorCodeAgentConfirmationLimit, ErrorCodeAgentRateLimited},
 	"unavailable":    {ErrorCodeNotConfigured, ErrorCodeSmtpSendFailed, ErrorCodeWorkflowEngineUnavailable, ErrorCodeRecoveryUnavailable, ErrorCodeRecoveryInterrupted, ErrorCodeStepUpUnavailable, ErrorCodeRecoverySourceHostUnreachable, ErrorCodeValidatorsUnavailable, ErrorCodeEncryptionUnavailable},
-	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired, ErrorCodeRecoveryTargetInvalid},
+	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired, ErrorCodeRecoveryTargetInvalid, ErrorCodeAgentConfirmationBodySubstituted},
 }
 
 // Endpoint is one operation of the contract, with the requirements a
@@ -468,11 +492,15 @@ type Endpoint struct {
 	CSRFRequired    bool
 	IdempotencyKey  string
 	DestructiveGate bool
-	Concurrency     string
-	RequestSchema   string
-	ResponseSchema  string
-	SuccessStatus   int
-	ErrorCodes      map[int][]ErrorCode
+	// InsecureTransportAck is true for an operation outside the destructive
+	// gate that still needs X-Retnd-Insecure-Transport-Ack over plain http
+	// from another machine.
+	InsecureTransportAck bool
+	Concurrency          string
+	RequestSchema        string
+	ResponseSchema       string
+	SuccessStatus        int
+	ErrorCodes           map[int][]ErrorCode
 }
 
 // Endpoints is every operation the contract declares, ordered by path then
@@ -480,7 +508,7 @@ type Endpoint struct {
 var Endpoints = []Endpoint{
 	{
 		ID: "listActivity", Method: "GET", Path: "/activity",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListActivityResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -489,7 +517,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getLiveActivity", Method: "GET", Path: "/activity/live",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "LiveActivityResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -499,8 +527,101 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "listAgentAudit", Method: "GET", Path: "/agent/audit",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListAgentAuditResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeAgentRouteDenied},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "listAgentConfirmations", Method: "GET", Path: "/agent/confirmations",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListAgentConfirmationsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeAgentRouteDenied},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "getAgentConfirmation", Method: "GET", Path: "/agent/confirmations/{id}",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AgentConfirmation", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeAgentConfirmationNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "approveAgentConfirmation", Method: "POST", Path: "/agent/confirmations/{id}/approve",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AgentConfirmation", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeAgentConfirmationBodySubstituted},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeAgentRouteDenied, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed},
+			404: {ErrorCodeAgentConfirmationNotFound},
+			409: {ErrorCodeAgentConfirmationExpired, ErrorCodeAgentConfirmationDecided, ErrorCodeAgentConfirmationBodySubstituted, ErrorCodeAgentConfirmationTokenEnded},
+			429: {ErrorCodeRateLimited},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeStepUpUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "denyAgentConfirmation", Method: "POST", Path: "/agent/confirmations/{id}/deny",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AgentConfirmation", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeAgentRouteDenied},
+			404: {ErrorCodeAgentConfirmationNotFound},
+			409: {ErrorCodeAgentConfirmationExpired, ErrorCodeAgentConfirmationDecided},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "deleteAgentMcp", Method: "DELETE", Path: "/agent/mcp",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "", SuccessStatus: 204,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated, ErrorCodeAgentTokenInvalid},
+			403: {ErrorCodeAgentHttpTransportOff, ErrorCodeAgentRouteDenied},
+			429: {ErrorCodeAgentRateLimited},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "getAgentMcp", Method: "GET", Path: "/agent/mcp",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated, ErrorCodeAgentTokenInvalid},
+			403: {ErrorCodeAgentHttpTransportOff, ErrorCodeAgentRouteDenied},
+			429: {ErrorCodeAgentRateLimited},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "postAgentMcp", Method: "POST", Path: "/agent/mcp",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "AgentMcpFrame", ResponseSchema: "AgentMcpFrame", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated, ErrorCodeAgentTokenInvalid},
+			403: {ErrorCodeAgentHttpTransportOff, ErrorCodeAgentRouteDenied},
+			429: {ErrorCodeAgentRateLimited},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
 		ID: "listAgentTokens", Method: "GET", Path: "/agent/tokens",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListAgentTokensResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -510,18 +631,18 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "mintAgentToken", Method: "POST", Path: "/agent/tokens",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: true, Concurrency: "",
 		RequestSchema: "MintAgentTokenRequest", ResponseSchema: "MintedAgentToken", SuccessStatus: 201,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeAgentRouteDenied},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeInsecureTransportAckRequired, ErrorCodeAgentRouteDenied},
 			500: {ErrorCodeInternal},
 		},
 	},
 	{
 		ID: "revokeAgentToken", Method: "POST", Path: "/agent/tokens/{id}/revoke",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "AgentToken", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -531,8 +652,17 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "listAgentTools", Method: "GET", Path: "/agent/tools",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AgentToolsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
 		ID: "getDefaultValidatorScript", Method: "GET", Path: "/assurance/default-validator-script",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ValidatorScriptResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -542,7 +672,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listAssuranceDue", Method: "GET", Path: "/assurance/due",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "AssuranceDueResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -554,7 +684,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getAssuranceOperation", Method: "GET", Path: "/assurance/operations/{op}",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "AssuranceOperationRecord", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -565,7 +695,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "cancelAssuranceOperation", Method: "POST", Path: "/assurance/operations/{op}/cancel",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "AssuranceOperationCancelled", SuccessStatus: 202,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -577,7 +707,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listCustomValidatorPatterns", Method: "GET", Path: "/assurance/validator-patterns",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "CustomValidatorPatternsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -588,7 +718,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "previewCustomValidator", Method: "POST", Path: "/assurance/validator-preview",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "PreviewCustomValidatorRequest", ResponseSchema: "CustomValidatorPreview", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -601,7 +731,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listCustomValidators", Method: "GET", Path: "/assurance/validators",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListCustomValidatorsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -613,7 +743,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "createCustomValidator", Method: "POST", Path: "/assurance/validators",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "CreateCustomValidatorRequest", ResponseSchema: "CustomValidator", SuccessStatus: 201,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -628,7 +758,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "removeCustomValidator", Method: "DELETE", Path: "/assurance/validators/{name}",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "CustomValidator", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -640,7 +770,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "updateCustomValidator", Method: "PUT", Path: "/assurance/validators/{name}",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "UpdateCustomValidatorRequest", ResponseSchema: "CustomValidator", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -655,7 +785,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getCustomValidatorScript", Method: "GET", Path: "/assurance/validators/{name}/script",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ValidatorScriptResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -666,7 +796,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "enrollAdministrator", Method: "POST", Path: "/auth/enroll",
-		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "EnrollRequest", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail},
@@ -679,7 +809,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "requestPasswordReset", Method: "POST", Path: "/auth/forgot-password",
-		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "ForgotPasswordRequest", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
@@ -688,7 +818,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "login", Method: "POST", Path: "/auth/login",
-		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "CredentialsRequest", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -700,7 +830,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "logout", Method: "POST", Path: "/auth/logout",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
@@ -708,7 +838,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "rotatePassword", Method: "POST", Path: "/auth/password",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "RotatePasswordRequest", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -720,7 +850,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getRecoverySettings", Method: "GET", Path: "/auth/recovery",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "RecoverySettingsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -729,7 +859,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "updateRecoverySettings", Method: "PATCH", Path: "/auth/recovery",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "RecoverySettingsUpdate", ResponseSchema: "RecoverySettingsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail},
@@ -741,7 +871,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "sendRecoveryTestEmail", Method: "POST", Path: "/auth/recovery/test",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail},
@@ -753,7 +883,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "resetPassword", Method: "POST", Path: "/auth/reset-password",
-		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "ResetPasswordRequest", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -765,7 +895,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getSession", Method: "GET", Path: "/auth/session",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "SessionResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -773,7 +903,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "verifyRecoveryEmail", Method: "POST", Path: "/auth/verify-email",
-		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "VerifyEmailRequest", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -785,7 +915,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "resendRecoveryEmailVerification", Method: "POST", Path: "/auth/verify-email/resend",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail},
@@ -798,7 +928,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listBackends", Method: "GET", Path: "/backends",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListBackendsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -807,7 +937,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listBackupSets", Method: "GET", Path: "/backup-sets",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListBackupSetsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -817,7 +947,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "createBackupSet", Method: "POST", Path: "/backup-sets",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "CreateBackupSetRequest", ResponseSchema: "CreateBackupSetResponse", SuccessStatus: 201,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeSSHKeyNotFound},
@@ -830,7 +960,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "testCandidateConnection", Method: "POST", Path: "/backup-sets/test-connection",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "TestConnectionRequest", ResponseSchema: "TestConnectionResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeSSHKeyNotFound},
@@ -841,7 +971,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "removeBackupSet", Method: "DELETE", Path: "/backup-sets/{source}/{set}",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -853,7 +983,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getBackupSet", Method: "GET", Path: "/backup-sets/{source}/{set}",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "BackupSet", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -864,7 +994,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "updateBackupSet", Method: "PATCH", Path: "/backup-sets/{source}/{set}",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "UpdateBackupSetRequest", ResponseSchema: "BackupSet", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeSSHKeyNotFound},
@@ -877,7 +1007,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "resetBackupSetAssurance", Method: "DELETE", Path: "/backup-sets/{source}/{set}/assurance",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "BackupSetAssurance", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -889,7 +1019,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getBackupSetAssurance", Method: "GET", Path: "/backup-sets/{source}/{set}/assurance",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "BackupSetAssurance", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -900,7 +1030,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "updateBackupSetAssurance", Method: "PATCH", Path: "/backup-sets/{source}/{set}/assurance",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "UpdateBackupSetAssuranceRequest", ResponseSchema: "BackupSetAssurance", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -913,7 +1043,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getBackupSetEditHold", Method: "GET", Path: "/backup-sets/{source}/{set}/edit-hold",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "BackupSetEditHoldState", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -923,7 +1053,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "takeBackupSetEditHold", Method: "POST", Path: "/backup-sets/{source}/{set}/edit-hold",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "BackupSetEditHold", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -934,7 +1064,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "releaseBackupSetEditHold", Method: "POST", Path: "/backup-sets/{source}/{set}/edit-hold/release",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -945,7 +1075,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "setBackupSetEnabled", Method: "POST", Path: "/backup-sets/{source}/{set}/enabled",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "SetEnabledRequest", ResponseSchema: "BackupSet", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -957,7 +1087,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "clearBackupSetEncryption", Method: "DELETE", Path: "/backup-sets/{source}/{set}/encryption",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "EncryptionSetPolicy", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -969,7 +1099,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "setBackupSetEncryption", Method: "PUT", Path: "/backup-sets/{source}/{set}/encryption",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "EncryptionOverride", ResponseSchema: "EncryptionSetPolicy", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -982,7 +1112,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listBackupSetSnapshotHolds", Method: "GET", Path: "/backup-sets/{source}/{set}/holds",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListSnapshotHoldsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeBackupSetNotIncremental},
@@ -995,7 +1125,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "setBackupSetReadOnly", Method: "POST", Path: "/backup-sets/{source}/{set}/read-only",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "SetReadOnlyRequest", ResponseSchema: "BackupSet", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1008,7 +1138,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "startRecoveryTest", Method: "POST", Path: "/backup-sets/{source}/{set}/recovery-test",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "StartRecoveryTestRequest", ResponseSchema: "RecoveryTestStarted", SuccessStatus: 202,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1022,7 +1152,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getRecoveryTestOutput", Method: "GET", Path: "/backup-sets/{source}/{set}/recovery-test/output",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "RecoveryTestOutput", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1033,7 +1163,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "clearBackupSetRetention", Method: "DELETE", Path: "/backup-sets/{source}/{set}/retention",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "BackupSetRetention", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1046,7 +1176,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getBackupSetRetention", Method: "GET", Path: "/backup-sets/{source}/{set}/retention",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "BackupSetRetention", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1057,7 +1187,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "setBackupSetRetention", Method: "PUT", Path: "/backup-sets/{source}/{set}/retention",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "RetentionOverride", ResponseSchema: "BackupSetRetention", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeMediumDisclosureRequired},
@@ -1070,7 +1200,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "applyRetention", Method: "POST", Path: "/backup-sets/{source}/{set}/retention/apply",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, Concurrency: "inventory_revision+config_revision",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, InsecureTransportAck: false, Concurrency: "inventory_revision+config_revision",
 		RequestSchema: "ApplyRetentionRequest", ResponseSchema: "RetentionPlan", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1084,7 +1214,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "previewRetention", Method: "GET", Path: "/backup-sets/{source}/{set}/retention/preview",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "inventory_revision+config_revision",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "inventory_revision+config_revision",
 		RequestSchema: "", ResponseSchema: "RetentionPlan", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1096,7 +1226,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "startScrub", Method: "POST", Path: "/backup-sets/{source}/{set}/scrub",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1110,7 +1240,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getBackupSetSnapshotRetention", Method: "GET", Path: "/backup-sets/{source}/{set}/snapshot-retention",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "SnapshotRetentionResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeBackupSetNotIncremental},
@@ -1123,7 +1253,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listBackupSetSnapshots", Method: "GET", Path: "/backup-sets/{source}/{set}/snapshots",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListSnapshotsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeBackupSetNotIncremental},
@@ -1136,7 +1266,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getBackupSetSnapshot", Method: "GET", Path: "/backup-sets/{source}/{set}/snapshots/{run}",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "SnapshotResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeBackupSetNotIncremental},
@@ -1149,7 +1279,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "describeSourceHost", Method: "GET", Path: "/backup-sets/{source}/{set}/source-host",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "SourceHostDescription", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeRecoveryTargetInvalid},
@@ -1161,7 +1291,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "checkSourceHostWrite", Method: "POST", Path: "/backup-sets/{source}/{set}/source-host/write-check",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "SourceHostDescription", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeRecoveryTargetInvalid},
@@ -1176,7 +1306,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getBackupSetWorkflow", Method: "GET", Path: "/backup-sets/{source}/{set}/workflow",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "BackupSetWorkflowResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1187,7 +1317,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "updateBackupSetWorkflow", Method: "PATCH", Path: "/backup-sets/{source}/{set}/workflow",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "UpdateBackupSetWorkflowRequest", ResponseSchema: "BackupSetWorkflowResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1201,7 +1331,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listBackupSetWorkflowEnvironment", Method: "GET", Path: "/backup-sets/{source}/{set}/workflow/environment",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListWorkflowEnvironmentResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1212,7 +1342,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "unsetBackupSetWorkflowEnvironment", Method: "DELETE", Path: "/backup-sets/{source}/{set}/workflow/environment/{name}",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListWorkflowEnvironmentResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1224,7 +1354,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "setBackupSetWorkflowEnvironment", Method: "PUT", Path: "/backup-sets/{source}/{set}/workflow/environment/{name}",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "WorkflowEnvironmentVariableRequest", ResponseSchema: "ListWorkflowEnvironmentResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1237,7 +1367,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getBackupSetWorkflowValidation", Method: "GET", Path: "/backup-sets/{source}/{set}/workflow/validation",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "WorkflowValidationResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1248,7 +1378,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listArtifacts", Method: "GET", Path: "/backups",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListArtifactsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1258,7 +1388,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getArtifact", Method: "GET", Path: "/backups/{source}/{set}/{name}",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "Artifact", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1268,7 +1398,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "mintRecovery", Method: "POST", Path: "/backups/{source}/{set}/{name}/recovery",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "RecoveryMintRequest", ResponseSchema: "RecoveryMintResponse", SuccessStatus: 202,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeRecoveryTargetInvalid},
@@ -1285,7 +1415,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "retryFailedIngestion", Method: "POST", Path: "/backups/{source}/{set}/{name}/retry",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "RetryFailedRequest", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1297,7 +1427,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "rebuildCatalog", Method: "POST", Path: "/catalog/rebuild",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "CatalogReportResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1307,7 +1437,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "scanCatalog", Method: "POST", Path: "/catalog/scan",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "CatalogReportResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1317,7 +1447,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listEncryptionCopies", Method: "GET", Path: "/encryption/copies",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListEncryptionCopiesResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1328,7 +1458,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "planEncryptExisting", Method: "GET", Path: "/encryption/encrypt-existing",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "EncryptExistingPlan", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1340,7 +1470,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "startEncryptExisting", Method: "POST", Path: "/encryption/encrypt-existing",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "StartEncryptExistingRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1354,7 +1484,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listEncryptionKeys", Method: "GET", Path: "/encryption/keys",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListEncryptionKeysResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1364,7 +1494,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "createEncryptionKey", Method: "POST", Path: "/encryption/keys",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "EncryptionKeyStatus", SuccessStatus: 201,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1376,7 +1506,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "rotateEncryptionKey", Method: "POST", Path: "/encryption/keys/rotate",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "EncryptionKeyStatus", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1388,7 +1518,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "confirmRecoveryBundle", Method: "POST", Path: "/encryption/keys/{id}/confirm",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "ConfirmRecoveryBundleRequest", ResponseSchema: "EncryptionKeyStatus", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1401,7 +1531,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "exportRecoveryBundle", Method: "POST", Path: "/encryption/keys/{id}/export",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "RecoveryBundle", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1414,7 +1544,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "retireEncryptionKey", Method: "POST", Path: "/encryption/keys/{id}/retire",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "EncryptionKeyStatus", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1427,7 +1557,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getEncryptionPolicy", Method: "GET", Path: "/encryption/policy",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "EncryptionPolicy", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1437,7 +1567,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "patchEncryptionPolicy", Method: "PATCH", Path: "/encryption/policy",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "EncryptionPolicyPatch", ResponseSchema: "EncryptionPolicy", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1449,7 +1579,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "resetEncryptionPolicy", Method: "POST", Path: "/encryption/policy/reset",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "EncryptionPolicy", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1460,7 +1590,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "testEncryptionProvider", Method: "POST", Path: "/encryption/providers/test",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "EncryptionProviderTestRequest", ResponseSchema: "EncryptionProviderProbe", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1472,7 +1602,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "planReencrypt", Method: "GET", Path: "/encryption/reencrypt",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ReencryptPlan", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1483,7 +1613,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "startReencrypt", Method: "POST", Path: "/encryption/reencrypt",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "StartReencryptRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1496,7 +1626,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listEncryptionSuites", Method: "GET", Path: "/encryption/suites",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListEncryptionSuitesResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1506,7 +1636,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "startDecryptVerify", Method: "POST", Path: "/encryption/verify",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "StartDecryptVerifyRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1520,7 +1650,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listOperations", Method: "GET", Path: "/operations",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListOperationsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1529,7 +1659,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "submitOperation", Method: "POST", Path: "/operations",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "required", DestructiveGate: true, Concurrency: "config_revision",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "required", DestructiveGate: true, InsecureTransportAck: false, Concurrency: "config_revision",
 		RequestSchema: "SubmitOperationRequest", ResponseSchema: "Operation", SuccessStatus: 202,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeBackupSetNotIncremental},
@@ -1544,7 +1674,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getOperation", Method: "GET", Path: "/operations/{id}",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "Operation", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1555,7 +1685,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listQuarantine", Method: "GET", Path: "/quarantine",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListArtifactsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1564,7 +1694,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "reinstateArtifact", Method: "POST", Path: "/quarantine/{source}/{set}/{name}/reinstate",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ArtifactReinstateResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1576,7 +1706,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "retryArtifactIngestion", Method: "POST", Path: "/quarantine/{source}/{set}/{name}/retry",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1588,7 +1718,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "revalidateArtifact", Method: "POST", Path: "/quarantine/{source}/{set}/{name}/revalidate",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ArtifactCheckResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1600,7 +1730,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "recoverMany", Method: "POST", Path: "/recoveries",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "RecoveryManyRequest", ResponseSchema: "RecoveryManyPlan", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeRecoveryTargetInvalid},
@@ -1617,7 +1747,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "redeemRecovery", Method: "GET", Path: "/recoveries/{grant}",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "RecoveryResult", SuccessStatus: 206,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1636,7 +1766,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listRepositories", Method: "GET", Path: "/repositories",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListRepositoriesResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1647,7 +1777,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "createRepositoryDomain", Method: "POST", Path: "/repositories",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "CreateRepositoryDomainRequest", ResponseSchema: "RepositoryHealth", SuccessStatus: 201,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1660,7 +1790,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getRepositoryMaintenance", Method: "GET", Path: "/repositories/{domain}/maintenance",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "RepositoryMaintenance", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1671,7 +1801,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getSettings", Method: "GET", Path: "/settings",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "SettingsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1681,7 +1811,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "updateSettings", Method: "PATCH", Path: "/settings",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "UpdateSettingsRequest", ResponseSchema: "SettingsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeMediumDisclosureRequired},
@@ -1693,7 +1823,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getAssuranceSettings", Method: "GET", Path: "/settings/assurance",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "AssuranceSettingsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1703,7 +1833,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "updateAssuranceSettings", Method: "PATCH", Path: "/settings/assurance",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "UpdateAssuranceSettingsRequest", ResponseSchema: "AssuranceSettingsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1715,7 +1845,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getWorkflowSettings", Method: "GET", Path: "/settings/workflow",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "WorkflowSettingsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1725,7 +1855,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "updateWorkflowSettings", Method: "PATCH", Path: "/settings/workflow",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "UpdateWorkflowSettingsRequest", ResponseSchema: "WorkflowSettingsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1738,7 +1868,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listWorkflowEnvironment", Method: "GET", Path: "/settings/workflow/environment",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListWorkflowEnvironmentResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1748,7 +1878,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "unsetWorkflowEnvironment", Method: "DELETE", Path: "/settings/workflow/environment/{name}",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListWorkflowEnvironmentResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1760,7 +1890,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "setWorkflowEnvironment", Method: "PUT", Path: "/settings/workflow/environment/{name}",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "WorkflowEnvironmentVariableRequest", ResponseSchema: "ListWorkflowEnvironmentResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1772,7 +1902,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listSSHKeys", Method: "GET", Path: "/ssh-keys",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListSSHKeysResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1781,7 +1911,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "importSSHKey", Method: "POST", Path: "/ssh-keys",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "ImportSSHKeyRequest", ResponseSchema: "ImportSSHKeyResponse", SuccessStatus: 201,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1792,7 +1922,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "importSSHKeyFromCandidate", Method: "POST", Path: "/ssh-keys/from-candidate",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "ImportSSHKeyFromCandidateRequest", ResponseSchema: "ImportSSHKeyResponse", SuccessStatus: 201,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeSSHKeyCandidateNotFound},
@@ -1803,7 +1933,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "probeHostKey", Method: "POST", Path: "/ssh/host-key-probe",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "HostKeyProbeRequest", ResponseSchema: "HostKeyProbeResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeHostKeyProbeFailed},
@@ -1814,7 +1944,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listSSHKeyCandidates", Method: "GET", Path: "/ssh/key-candidates",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListSSHKeyCandidatesResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1823,7 +1953,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "importStorageCredentials", Method: "POST", Path: "/storage-credentials",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "ImportStorageCredentialsRequest", ResponseSchema: "ImportStorageCredentialsResponse", SuccessStatus: 201,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1834,7 +1964,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listStorageMediums", Method: "GET", Path: "/storage-mediums",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListStorageMediumsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1843,7 +1973,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "createStorageMedium", Method: "POST", Path: "/storage-mediums",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "StorageMediumRequest", ResponseSchema: "StorageMediumSummary", SuccessStatus: 201,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1856,7 +1986,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "preflightStorageMediumCandidate", Method: "POST", Path: "/storage-mediums/preflight",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "StorageMediumRequest", ResponseSchema: "MediumPreflightResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1868,7 +1998,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "removeStorageMedium", Method: "DELETE", Path: "/storage-mediums/{id}",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1881,7 +2011,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getStorageMedium", Method: "GET", Path: "/storage-mediums/{id}",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "StorageMediumSummary", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1891,7 +2021,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "updateStorageMedium", Method: "PUT", Path: "/storage-mediums/{id}",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "StorageMediumRequest", ResponseSchema: "StorageMediumSummary", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1904,7 +2034,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getStorageMediumConfiguration", Method: "GET", Path: "/storage-mediums/{id}/configuration",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "MediumConfigurationResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1913,7 +2043,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "configureStorageMedium", Method: "PUT", Path: "/storage-mediums/{id}/configuration",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "MediumConfigurationRequest", ResponseSchema: "StorageMediumSummary", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1925,7 +2055,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "preflightStorageMediumConfiguration", Method: "POST", Path: "/storage-mediums/{id}/configuration/preflight",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "MediumConfigurationRequest", ResponseSchema: "MediumPreflightResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1936,7 +2066,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "setDefaultStorageMedium", Method: "PUT", Path: "/storage-mediums/{id}/default",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "StorageMediumSummary", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1948,7 +2078,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "preflightStorageMedium", Method: "POST", Path: "/storage-mediums/{id}/preflight",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "MediumPreflightResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1959,7 +2089,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getStorageMediumUsage", Method: "GET", Path: "/storage-mediums/{id}/usage",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "StorageMediumUsageResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1968,7 +2098,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getSystemCapabilities", Method: "GET", Path: "/system/capabilities",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "CapabilitiesResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1976,7 +2106,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getFirstRunStatus", Method: "GET", Path: "/system/first-run",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "FirstRunStatusResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1984,7 +2114,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "completeFirstRun", Method: "POST", Path: "/system/first-run",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "BackupSetSpec", ResponseSchema: "CompleteFirstRunResponse", SuccessStatus: 201,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeSSHKeyNotFound},
@@ -1996,7 +2126,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "skipFirstRunStep", Method: "POST", Path: "/system/first-run/skip",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "SkipFirstRunStepRequest", ResponseSchema: "FirstRunStatusResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -2007,7 +2137,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getSystemHealth", Method: "GET", Path: "/system/health",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "HealthResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -2016,7 +2146,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listStagingDirectories", Method: "GET", Path: "/system/staging-directories",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "StagingDirectoryResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -2030,7 +2160,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listStorageStatus", Method: "GET", Path: "/system/storage",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListStorageStatusResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -2040,7 +2170,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getSystemVersion", Method: "GET", Path: "/system/version",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "VersionResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -2048,7 +2178,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listValidators", Method: "GET", Path: "/validators",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListValidatorsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -2057,7 +2187,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listWorkflowRecovery", Method: "GET", Path: "/workflow-recovery",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "WorkflowRecoveryResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -2067,7 +2197,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "acknowledgeWorkflowRecovery", Method: "POST", Path: "/workflow-recovery/{run}/acknowledge",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "WorkflowAcknowledgementRequest", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeWorkflowAcknowledgementReasonRequired},
@@ -2080,7 +2210,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "resumeWorkflowCleanup", Method: "POST", Path: "/workflow-recovery/{run}/resume-cleanup",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "WorkflowRun", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -2093,7 +2223,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listWorkflowRuns", Method: "GET", Path: "/workflow-runs",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListWorkflowRunsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -2103,7 +2233,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getWorkflowRun", Method: "GET", Path: "/workflow-runs/{run}",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "WorkflowRun", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -2114,7 +2244,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listWorkflowRunSteps", Method: "GET", Path: "/workflow-runs/{run}/steps",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListWorkflowStepsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -2125,7 +2255,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getWorkflowStepLogs", Method: "GET", Path: "/workflow-runs/{run}/steps/{step}/logs",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "WorkflowStepLogPage", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -2175,6 +2305,86 @@ type AdoptedPath struct {
 	What    string `json:"what"`
 }
 
+// AgentAuditEntry is one row of the agent audit trail. arguments is what the call asked
+// with, stored after the projection that strips key material and
+// secrets, as JSON text and cut at 4096 bytes. token_id is empty for
+// a refusal of a token that matched no row, which is itself a fact
+// worth keeping. tool is empty for a refusal made before any tool
+// was named. transport is stdio, http or api.
+type AgentAuditEntry struct {
+	Arguments      string  `json:"arguments"`
+	At             string  `json:"at"`
+	Code           string  `json:"code"`
+	ConfirmationID string  `json:"confirmation_id"`
+	CorrelationID  string  `json:"correlation_id"`
+	Seq            int64   `json:"seq"`
+	Status         int     `json:"status"`
+	TokenID        string  `json:"token_id"`
+	TokenName      *string `json:"token_name"`
+	Tool           string  `json:"tool"`
+	Transport      string  `json:"transport"`
+}
+
+// AgentConfirmation is A change an agent asked for, waiting for a person. The request
+// body it will replay is kept byte for byte and is never shown here;
+// command is the retnd command an operator would have typed for the
+// same change. A pending confirmation has run nothing. state is
+// pending, approved, denied or expired; an approved one carries
+// execution once its replay has finished.
+type AgentConfirmation struct {
+	BackupSet string          `json:"backup_set"`
+	Command   string          `json:"command"`
+	CreatedAt string          `json:"created_at"`
+	DecidedAt *string         `json:"decided_at"`
+	DecidedBy *string         `json:"decided_by"`
+	Execution *AgentExecution `json:"execution,omitempty"`
+	ExpiresAt string          `json:"expires_at"`
+	ID        string          `json:"id"`
+	Method    string          `json:"method"`
+	Route     string          `json:"route"`
+	State     string          `json:"state"`
+	TokenID   string          `json:"token_id"`
+	TokenName string          `json:"token_name"`
+	Tool      string          `json:"tool"`
+}
+
+// AgentExecution is how the replay of an approved confirmation ended: the status and
+// error code the API answered with (code is empty for a success),
+// its message, the correlation id of the request and the exit code
+// retnd would have used for the same answer. A replay the shut
+// destructive gate refused reads DESTRUCTIVE_OPERATIONS_DISABLED
+// with exit code 50, exactly as retnd run does.
+type AgentExecution struct {
+	Code          string `json:"code"`
+	CorrelationID string `json:"correlation_id"`
+	ExitCode      int    `json:"exit_code"`
+	Message       string `json:"message"`
+	Outcome       string `json:"outcome"`
+	Status        int    `json:"status"`
+}
+
+// AgentMcpFrame is one JSON-RPC 2.0 message of the Model Context Protocol. The
+// engine's streamable HTTP transport speaks the protocol revision
+// `retnd agent tools` prints; this contract does not restate it.
+type AgentMcpFrame struct {
+}
+
+// AgentPrompt is one prompt: a static description, the arguments it takes and the
+// read tools it draws on.
+type AgentPrompt struct {
+	Arguments   []string `json:"arguments"`
+	Description string   `json:"description"`
+	Name        string   `json:"name"`
+	Tools       []string `json:"tools"`
+}
+
+// AgentResource is one resource, backed by a read tool.
+type AgentResource struct {
+	Description string `json:"description"`
+	Tool        string `json:"tool"`
+	Uri         string `json:"uri"`
+}
+
 // AgentToken is one agent token as every surface after the mint shows it: its
 // name, the first eight characters of the token, scope, owner and
 // times, never the hash and never more of the token than the prefix.
@@ -2191,6 +2401,41 @@ type AgentToken struct {
 	RevokedAt  *string `json:"revoked_at"`
 	Scope      string  `json:"scope"`
 	Status     string  `json:"status"`
+}
+
+// AgentTool is one tool an agent may call. untrusted names the result fields
+// whose values originate outside the deployment (file names,
+// validator output, workflow logs, activity messages, remote
+// hostnames); a transport puts them under an untrusted object and
+// never in text.
+type AgentTool struct {
+	Action      string   `json:"action,omitempty"`
+	Description string   `json:"description"`
+	Method      string   `json:"method"`
+	Name        string   `json:"name"`
+	Route       string   `json:"route"`
+	Scope       string   `json:"scope"`
+	Twin        string   `json:"twin"`
+	Untrusted   []string `json:"untrusted"`
+}
+
+// AgentToolRefusal is A route with no tool, and why.
+type AgentToolRefusal struct {
+	Action string `json:"action,omitempty"`
+	Denied bool   `json:"denied"`
+	Method string `json:"method"`
+	Route  string `json:"route"`
+	Why    string `json:"why"`
+}
+
+// AgentToolsResponse is GET /agent/tools. The whole catalogue. denied_fields are the keys
+// the one projection at the tool boundary drops at every depth.
+type AgentToolsResponse struct {
+	DeniedFields []string           `json:"denied_fields"`
+	Prompts      []AgentPrompt      `json:"prompts"`
+	Refusals     []AgentToolRefusal `json:"refusals"`
+	Resources    []AgentResource    `json:"resources"`
+	Tools        []AgentTool        `json:"tools"`
 }
 
 // ApplyRetentionRequest is POST /backup-sets/{source}/{set}/retention/apply.
@@ -2597,6 +2842,7 @@ type BackupSetWorkflowResponse struct {
 // reported so a client can show the right control or message before
 // anyone presses a gated one.
 type CapabilitiesResponse struct {
+	AgentsHttpTransport   string                      `json:"agents_http_transport"`
 	AppStorePackaging     bool                        `json:"app_store_packaging"`
 	DestructiveOperations DestructiveOperationsStatus `json:"destructive_operations"`
 	EmbeddedWindow        bool                        `json:"embedded_window"`
@@ -3179,6 +3425,18 @@ type ImportStorageCredentialsResponse struct {
 type ListActivityResponse struct {
 	Events     []ActivityEvent `json:"events"`
 	NextCursor string          `json:"next_cursor,omitempty"`
+}
+
+// ListAgentAuditResponse is GET /agent/audit, newest first.
+type ListAgentAuditResponse struct {
+	Entries    []AgentAuditEntry `json:"entries"`
+	NextCursor string            `json:"next_cursor,omitempty"`
+}
+
+// ListAgentConfirmationsResponse is GET /agent/confirmations. The newest confirmations first, pending
+// ones whose time has passed already read expired.
+type ListAgentConfirmationsResponse struct {
+	Confirmations []AgentConfirmation `json:"confirmations"`
 }
 
 // ListAgentTokensResponse is GET /agent/tokens. Every token, revoked and expired ones included,
@@ -5469,7 +5727,16 @@ type WorkflowValidationResponse struct {
 var SchemaTypes = map[string]any{
 	"ActivityEvent":                      ActivityEvent{},
 	"AdoptedPath":                        AdoptedPath{},
+	"AgentAuditEntry":                    AgentAuditEntry{},
+	"AgentConfirmation":                  AgentConfirmation{},
+	"AgentExecution":                     AgentExecution{},
+	"AgentMcpFrame":                      AgentMcpFrame{},
+	"AgentPrompt":                        AgentPrompt{},
+	"AgentResource":                      AgentResource{},
 	"AgentToken":                         AgentToken{},
+	"AgentTool":                          AgentTool{},
+	"AgentToolRefusal":                   AgentToolRefusal{},
+	"AgentToolsResponse":                 AgentToolsResponse{},
 	"ApplyRetentionRequest":              ApplyRetentionRequest{},
 	"Artifact":                           Artifact{},
 	"ArtifactCheckResponse":              ArtifactCheckResponse{},
@@ -5549,6 +5816,8 @@ var SchemaTypes = map[string]any{
 	"ImportStorageCredentialsRequest":    ImportStorageCredentialsRequest{},
 	"ImportStorageCredentialsResponse":   ImportStorageCredentialsResponse{},
 	"ListActivityResponse":               ListActivityResponse{},
+	"ListAgentAuditResponse":             ListAgentAuditResponse{},
+	"ListAgentConfirmationsResponse":     ListAgentConfirmationsResponse{},
 	"ListAgentTokensResponse":            ListAgentTokensResponse{},
 	"ListArtifactsResponse":              ListArtifactsResponse{},
 	"ListBackendsResponse":               ListBackendsResponse{},

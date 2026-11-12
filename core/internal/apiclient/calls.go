@@ -1095,6 +1095,57 @@ func (c *Client) RevokeAgentToken(ctx context.Context, id string) (apicontract.A
 	return out, err
 }
 
+// ListAgentAudit is GET /agent/audit: a page of the agent audit trail, newest
+// first. before is a next_cursor an earlier answer named; empty arguments send
+// nothing, so a filter that was not asked for is not sent as an empty one.
+func (c *Client) ListAgentAudit(ctx context.Context, tokenID, since, before string, limit int) (apicontract.ListAgentAuditResponse, error) {
+	query := url.Values{}
+	for k, v := range map[string]string{"token": tokenID, "since": since, "before": before} {
+		if v != "" {
+			query.Set(k, v)
+		}
+	}
+	if limit > 0 {
+		query.Set("limit", strconv.Itoa(limit))
+	}
+	if len(query) == 0 {
+		query = nil
+	}
+	var out apicontract.ListAgentAuditResponse
+	err := c.callQuery(ctx, "listAgentAudit", nil, query, nil, &out)
+	return out, err
+}
+
+// ListAgentConfirmations is GET /agent/confirmations.
+func (c *Client) ListAgentConfirmations(ctx context.Context) (apicontract.ListAgentConfirmationsResponse, error) {
+	var out apicontract.ListAgentConfirmationsResponse
+	err := c.call(ctx, "listAgentConfirmations", nil, nil, &out)
+	return out, err
+}
+
+// GetAgentConfirmation is GET /agent/confirmations/{id}.
+func (c *Client) GetAgentConfirmation(ctx context.Context, id string) (apicontract.AgentConfirmation, error) {
+	var out apicontract.AgentConfirmation
+	err := c.call(ctx, "getAgentConfirmation", []string{id}, nil, &out)
+	return out, err
+}
+
+// ApproveAgentConfirmation is POST /agent/confirmations/{id}/approve. It sends
+// no body, because the request that runs is the one that was recorded, and the
+// password step-up goes in its header (stepUpOperations).
+func (c *Client) ApproveAgentConfirmation(ctx context.Context, id string) (apicontract.AgentConfirmation, error) {
+	var out apicontract.AgentConfirmation
+	err := c.call(ctx, "approveAgentConfirmation", []string{id}, nil, &out)
+	return out, err
+}
+
+// DenyAgentConfirmation is POST /agent/confirmations/{id}/deny.
+func (c *Client) DenyAgentConfirmation(ctx context.Context, id string) (apicontract.AgentConfirmation, error) {
+	var out apicontract.AgentConfirmation
+	err := c.call(ctx, "denyAgentConfirmation", []string{id}, nil, &out)
+	return out, err
+}
+
 // ListEncryptionKeys is GET /encryption/keys.
 func (c *Client) ListEncryptionKeys(ctx context.Context) (apicontract.ListEncryptionKeysResponse, error) {
 	var out apicontract.ListEncryptionKeysResponse
