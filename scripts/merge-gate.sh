@@ -11,9 +11,12 @@
 # went in through the merge button carrying `Local-Gate: unverified`.
 # Branch protection can only require a status somebody posts, so this is
 # the somebody: it fetches the PR head, checks it out in a throwaway
-# worktree, runs scripts/ci-fast.sh over the paths the PR changed against
-# its merge base (plus the anchors and contract drift checks, which always
-# run), and posts `retnd/local-gate` on the head commit through `gh`.
+# worktree, merges the PR's base branch into that worktree (the MERGE RESULT,
+# which is what the merge button would land, not the head on its own), runs
+# scripts/ci-fast.sh over the paths the PR changes relative to that base
+# (plus the anchors and contract drift checks, which always run), and posts
+# `retnd/local-gate` against the PR head commit through `gh`. A base that does
+# not merge into the head cleanly is a failure without running anything.
 #
 #   success   the fast tier ended "ci-local: ok" (exit 0)
 #   failure   it failed (exit 1), or ended INCOMPLETE (exit 3): a check
@@ -30,7 +33,9 @@
 # Posting needs a `gh` login that can write commit statuses on the repository.
 #
 # The status is on the PR HEAD commit. A push to the PR makes a new head and
-# the old status does not carry over, so run it again after the last push.
+# the old status does not carry over, so run it again after the last push. It
+# also goes stale when the base moves; protection should require strict
+# (up to date) status checks so a PR is re-run against the new base.
 #
 # Exit status: 0 when the state is success, 1 when it is failure, 2 for a
 # usage or environment problem. The worktree is removed on every exit.
@@ -110,17 +115,34 @@ cleanup() {
 trap cleanup EXIT
 
 git worktree add -q --detach "$tree" "$head_sha"
-echo "==> merge-gate: PR #$pr, head ${head_sha:0:12}, base $base_ref (merge base ${merge_base:0:12}), checked out at $tree"
+echo "==> merge-gate: PR #$pr, head ${head_sha:0:12}, base $base_ref ${base_sha:0:12} (merge base ${merge_base:0:12}), checked out at $tree"
 
+# The merge result: the base branch merged into the head, in the throwaway
+# worktree only. Each of several stacked or parallel PRs can be green on its
+# own head and still break once the base has moved; this is the tree that
+# would actually land.
 log="$scratch/run.log"
-set +e
-CI_LOCAL_FAST_JS_INSTALL=1 bash "$here/ci-fast.sh" --root "$tree" --base "$merge_base" 2>&1 | tee "$log"
-status="${PIPESTATUS[0]}"
-set -e
+: >"$log"
+if ! git -C "$tree" -c user.name=merge-gate -c user.email=merge-gate@localhost   merge --no-ff --no-edit -q -m "merge-gate: $base_ref into PR #$pr" "$base_sha" >>"$log" 2>&1; then
+  git -C "$tree" merge --abort >/dev/null 2>&1 || true
+  status=1
+  merged_note="does not merge cleanly with $base_ref"
+  echo "==> merge-gate: PR #$pr $merged_note; nothing to run." | tee -a "$log"
+else
+  echo "==> merge-gate: base merged into the head; checking the merge result at $(git -C "$tree" rev-parse --short=12 HEAD)"
+  merged_note=""
+  set +e
+  CI_LOCAL_FAST_JS_INSTALL=1 bash "$here/ci-fast.sh" --root "$tree" --base "$base_sha" 2>&1 | tee -a "$log"
+  status="${PIPESTATUS[0]}"
+  set -e
+fi
 
-if [ "$status" -eq 0 ]; then
+if [ -n "$merged_note" ]; then
+  gh_state=failure
+  description="Does not merge cleanly with $base_ref (${head_sha:0:12})"
+elif [ "$status" -eq 0 ]; then
   gh_state=success
-  description="Fast tier green on ${head_sha:0:12}"
+  description="Fast tier green on the merge with $base_ref (head ${head_sha:0:12})"
 elif [ "$status" -eq 3 ]; then
   gh_state=failure
   first="$(sed -n 's/^        - //p' "$log" | head -n 1 | tr -d '\r')"
