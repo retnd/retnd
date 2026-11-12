@@ -685,8 +685,29 @@ else
   # derived from this run's own measured pace instead (issue #247's
   # reasoning, one layer out; see core/cmd/gotestwatch/doc.go), so there
   # is no fixed number to outgrow.
+  # core/tests/compat asks GitHub whether every BLOCKED conformance row
+  # still cites an open issue, through gh and gh's own login. The pinned
+  # image in scripts/ci/Dockerfile has no gh and no credential, on purpose,
+  # so under scripts/ci-docker.sh that check cannot run at all (#1331). It
+  # used to FAIL there, which said "broken" about a capability the host
+  # simply lacks. Now the gate probes gh first and, when it is missing or
+  # not logged in, hands the test a file to write the rows it could not
+  # resolve into. Each one lands in the skip ledger, so the run ends
+  # INCOMPLETE naming them, and a matrix with no BLOCKED row costs nothing.
+  github_ledger=""
+  if ! command -v gh >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then
+    github_ledger="$(mktemp "${TMPDIR:-/tmp}/ci-local-github.XXXXXX")"
+    export CI_LOCAL_GITHUB_LEDGER="$github_ledger"
+  fi
   gate_docker_step "core/ go test -race ./... (excluding tests/crashmatrix + tests/sftpintegration + tests/sshexecintegration + tests/miniointegration + tests/conformance + tests/machinegate + tests/containerhooks and cmd/gotestwatch, all run next)"
   (cd core && GOWORK=off go test -race -timeout 45m $(GOWORK=off go list ./... | grep -vE '/(tests/(crashmatrix|sftpintegration|sshexecintegration|miniointegration|conformance|machinegate|containerhooks)|cmd/gotestwatch)$'))
+  if [ -n "$github_ledger" ]; then
+    while IFS= read -r line; do
+      [ -n "$line" ] && gate_note_skip "$line. Run the gate where gh is installed and logged in (gh auth status) to check them."
+    done <"$github_ledger"
+    rm -f "$github_ledger"
+    unset CI_LOCAL_GITHUB_LEDGER
+  fi
 
   # cmd/gotestwatch is compiled and run rather than handed to `go test`,
   # and the reason is the same three-outcome honesty this gate is built on

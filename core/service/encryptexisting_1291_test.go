@@ -264,6 +264,20 @@ func retroState(t *testing.T, f *recoveryFixture, a model.ArtifactID) string {
 	return fmt.Sprintf("phase=%s plaintext=%s placement=%s destination=%s record=%s live=%d", phase, present, status, dest, record, len(live))
 }
 
+// waitForTheRunToReachThePlaintext waits, with a bound, for a started run to
+// open the plaintext copy. A run that is refused before it reads anything
+// (#1331: every copy was refused as "no room" because the staging area did
+// not exist yet) never opens it, and an unbounded wait here hung the whole
+// package until go test's 45-minute timeout killed every test after it.
+func waitForTheRunToReachThePlaintext(t *testing.T, stall *stallOpenStore) {
+	t.Helper()
+	select {
+	case <-stall.opened:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the run never reached the plaintext copy: it was refused or stalled before it read anything")
+	}
+}
+
 // Only one run per backup set at a time, so a double click cannot become two
 // passes over the same copies. Red if a second start is accepted while one is
 // running.
@@ -277,7 +291,7 @@ func TestASecondRunForTheSameSetIsRefusedWhileOneIsRunning_1291(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartEncryptExisting: %v", err)
 	}
-	<-stall.opened
+	waitForTheRunToReachThePlaintext(t, stall)
 	if _, err := f.b.StartEncryptExisting(ctx, retroReq(a)); !errors.Is(err, ErrEncryptExistingRunning) {
 		t.Fatalf("a second start while one runs: err = %v, want ErrEncryptExistingRunning", err)
 	}
@@ -310,7 +324,7 @@ func TestEncryptExistingTakesTheCycleSingleFlightGuard_1291(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartEncryptExisting: %v", err)
 	}
-	<-stall.opened
+	waitForTheRunToReachThePlaintext(t, stall)
 	if f.b.runOnce.TryLock() {
 		f.b.runOnce.Unlock()
 		t.Error("a running encrypt-existing operation does not hold the guard")
