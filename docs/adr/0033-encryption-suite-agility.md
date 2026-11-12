@@ -337,6 +337,18 @@ own crash matrix. When a plaintext local copy still exists, the ordinary path al
 under the active suite on the next move, so the common case needs no verb at all: the verb is for copies
 whose local copy is gone.
 
+**The size of an encrypted copy.** Two sizes describe an encrypted copy and they are never the same
+number: `placements.size_bytes` is the artifact's plaintext size (what a restore reproduces, the same on
+every copy), and `placement_encryption.stored_size` is the byte count at the object key, header and
+per-chunk tags included. Every check that compares an object on a medium with the journal uses
+`stored_size` when the copy has an encryption record and `size_bytes` when it has none: the existence
+check (`placement.VerifyCopy`), the staging of a ciphertext re-home (`staging.go`), and the source delete's
+identity check (`proveMediumSourceSafe`), which is the one a re-home and a re-encryption reach when they
+retire the old copy. A record that cannot be read is a refusal there, never "plaintext". Local disk is
+plaintext by design, so the local source check keeps `size_bytes`. The source delete compared ciphertext
+with the plaintext size until #1331, which stopped every re-home and re-encryption of an encrypted copy at
+`SOURCE_DELETE_PENDING` with the old object still on the medium.
+
 ### D7. Downgrade protection, the whole list
 
 1. Policy: an unknown or retired id is refused at `Load`; `default` cannot name a deprecated suite (the pin

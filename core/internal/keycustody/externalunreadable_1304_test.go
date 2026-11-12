@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/retnd/retnd/core/internal/keycustody"
 	"github.com/retnd/retnd/core/internal/secretref"
 )
 

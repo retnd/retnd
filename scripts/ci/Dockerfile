@@ -37,6 +37,13 @@ ARG GOLANGCI_LINT_VERSION=v2.15.0
 # scripts/ci/pins.env the same way.
 ARG AGE_VERSION=v1.3.2
 
+# ruff and mypy, the gate's Python lint step (#672), from scripts/ci/pins.env
+# the same way (#1331). Without them the gate ledgers that step and a run in
+# this image could never end ok. Installed into their own venv so pip never
+# touches the distribution's python3.
+ARG RUFF_VERSION=0.17.4
+ARG MYPY_VERSION=2.4.1
+
 # node and npm copied out of the official image rather than installed
 # from a distribution repository, so this and CI are the same build and
 # not merely the same version number.
@@ -52,13 +59,18 @@ RUN set -eux; \
     ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm; \
     ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx; \
     apt-get update; \
-    apt-get install -y --no-install-recommends python3 jq; \
+    apt-get install -y --no-install-recommends python3 python3-venv python3-yaml jq; \
     rm -rf /var/lib/apt/lists/*; \
     go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"; \
     go install "filippo.io/age/cmd/age@${AGE_VERSION}"; \
+    python3 -m venv /opt/pylint; \
+    /opt/pylint/bin/pip install --no-cache-dir "ruff==${RUFF_VERSION}" "mypy==${MYPY_VERSION}"; \
+    ln -s /opt/pylint/bin/ruff /usr/local/bin/ruff; \
+    ln -s /opt/pylint/bin/mypy /usr/local/bin/mypy; \
     go clean -cache -modcache; \
     go version; node --version; npm --version; docker --version; \
-    docker compose version; golangci-lint --version; python3 --version; age --version
+    docker compose version; golangci-lint --version; python3 --version; age --version; \
+    python3 -c "import yaml"; ruff --version; mypy --version
 
 # Every checkout this runs against is bind-mounted from the host and is
 # owned by the host user, not by root. Without this git refuses it as
