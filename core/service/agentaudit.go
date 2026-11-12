@@ -167,6 +167,9 @@ type agentAuditItem struct {
 	row state.AgentAudit
 	// barrier, when set, is closed once everything queued before it is stored.
 	barrier chan struct{}
+	// probe marks an item that only proves the queue has room: it is dropped
+	// by the writer and stores nothing.
+	probe bool
 }
 
 type agentAuditWriter struct {
@@ -180,6 +183,9 @@ type agentAuditWriter struct {
 	retention time.Duration
 	maxRows   int
 	now       func() time.Time
+	// wait is how long a row that names a token waits for room. A field so a
+	// test can shorten it.
+	wait time.Duration
 
 	// The rest belongs to run's goroutine.
 	batch    []state.AgentAudit
@@ -194,6 +200,7 @@ func newAgentAuditWriter(j *state.Journal, logger *obs.Logger) *agentAuditWriter
 		stopped:   make(chan struct{}),
 		retention: DefaultAgentAuditRetentionDays * 24 * time.Hour,
 		maxRows:   agentAuditMaxRows,
+		wait:      agentAuditEnqueueWait,
 	}
 }
 
@@ -218,11 +225,11 @@ func (w *agentAuditWriter) enqueue(ctx context.Context, it agentAuditItem) error
 // enqueueNamed is enqueue for a row that names a token: it waits for room, but
 // only agentAuditEnqueueWait, and a row that did not fit is logged as lost.
 func (w *agentAuditWriter) enqueueNamed(ctx context.Context, it agentAuditItem) error {
-	wctx, cancel := context.WithTimeout(ctx, agentAuditEnqueueWait)
+	wctx, cancel := context.WithTimeout(ctx, w.wait)
 	defer cancel()
 	err := w.enqueue(wctx, it)
 	if err != nil && ctx.Err() == nil && wctx.Err() != nil {
-		err = fmt.Errorf("%w: the writer stayed full for %s", ErrAgentAuditStalled, agentAuditEnqueueWait)
+		err = fmt.Errorf("%w: the writer stayed full for %s", ErrAgentAuditStalled, w.wait)
 		w.logger.Error(ctx, "agent_audit_lost", err)
 	}
 	return err
@@ -273,6 +280,9 @@ func (w *agentAuditWriter) run(ctx context.Context) {
 }
 
 func (w *agentAuditWriter) add(it agentAuditItem) {
+	if it.probe {
+		return
+	}
 	if it.barrier != nil {
 		w.barriers = append(w.barriers, it.barrier)
 		return
@@ -391,6 +401,18 @@ func (b *BackupService) PruneAgentAudit(ctx context.Context) (int64, error) {
 // The feed line is emitted whether or not the row is stored, and the error
 // says only that the row was not: describing a call is not a reason for it to
 // fail, but the caller learns the trail has a hole.
+// ReserveAgentAudit is asked before an agent's tool call is dispatched. It
+// proves the audit writer can take the row the call will leave, waiting up to
+// five seconds for room, and returns ErrAgentAuditStalled when it cannot, so
+// the caller refuses the call: an unaudited call is the worse failure. It is
+// only for a call that names a token; a row with no token never waits.
+func (b *BackupService) ReserveAgentAudit(ctx context.Context) error {
+	if b == nil {
+		return nil
+	}
+	return b.audit.enqueueNamed(ctx, agentAuditItem{probe: true})
+}
+
 func (b *BackupService) RecordAgentCall(ctx context.Context, c AgentCall) error {
 	if b == nil {
 		return nil

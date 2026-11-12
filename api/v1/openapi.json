@@ -204,7 +204,8 @@
           "AGENT_CONFIRMATION_REQUIRED",
           "AGENT_TOKEN_NOT_FOUND",
           "AGENT_HTTP_TRANSPORT_OFF",
-          "AGENT_RATE_LIMITED"
+          "AGENT_RATE_LIMITED",
+          "AGENT_AUDIT_UNAVAILABLE"
         ],
         "x-code-origins": {
           "authentication-failed": "ui",
@@ -335,7 +336,8 @@
           "AGENT_CONFIRMATION_REQUIRED": "wire",
           "AGENT_TOKEN_NOT_FOUND": "wire",
           "AGENT_HTTP_TRANSPORT_OFF": "wire",
-          "AGENT_RATE_LIMITED": "wire"
+          "AGENT_RATE_LIMITED": "wire",
+          "AGENT_AUDIT_UNAVAILABLE": "wire"
         },
         "x-error-classes": {
           "authentication": [
@@ -448,6 +450,7 @@
           "internal": [
             "INTERNAL",
             "INTERNAL_ERROR",
+            "AGENT_AUDIT_UNAVAILABLE",
             "RECOVERY_LOCAL_COPY_CORRUPT",
             "RECOVERY_REMOTE_COPY_CORRUPT",
             "RECOVERY_NO_SPACE",
