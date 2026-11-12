@@ -58,7 +58,7 @@ func auditRouter() (http.Handler, *auditSpy) {
 // Falsify: skip reads in the middleware, or record before the handler answers.
 func TestABearerReadIsAnAuditRowWithItsAnswer(t *testing.T) {
 	router, spy := auditRouter()
-	rec := serve(router, bearer(http.MethodGet, "/api/v1/system/version", "", readToken))
+	rec := serve(router, bearer(http.MethodGet, "/api/v1/system/health", "", readToken))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
 	}
@@ -223,7 +223,7 @@ func TestTheRowNamesTheToolAndTransportTheCallSaysAndNothingElse(t *testing.T) {
 		{"", "", "", "api"},
 	} {
 		router, spy := auditRouter()
-		req := bearer(http.MethodGet, "/api/v1/system/version", "", readToken)
+		req := bearer(http.MethodGet, "/api/v1/system/health", "", readToken)
 		if tc.tool != "" {
 			req.Header.Set(service.AgentToolHeader, tc.tool)
 		}
