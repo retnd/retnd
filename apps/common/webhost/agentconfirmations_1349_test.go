@@ -496,7 +496,9 @@ func TestAnOperateToolCallCreatesAConfirmationRecordingTheRequestAndRunsNothing(
 		t.Fatalf("%d confirmations created, want exactly one", len(rig.backend.created))
 	}
 	got := rig.backend.created[0]
-	if string(got.Body) != body || got.Method != "POST" || got.Route != "/operations" || got.Tool != "run_cycle" || got.Scope != "operate" {
+	// A run proposal that names no revision is recorded against the engine's
+	// (#1387), so the body is the one sent plus that one field.
+	if want := `{"action":"run_cycle","config_revision":"rev-1"}`; string(got.Body) != want || got.Method != "POST" || got.Route != "/operations" || got.Tool != "run_cycle" || got.Scope != "operate" {
 		t.Errorf("recorded %+v, want the request as sent", got)
 	}
 	if got.Principal.Name != "runner" || !strings.HasPrefix(got.Command, "retnd") {

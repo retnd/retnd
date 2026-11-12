@@ -96,7 +96,7 @@ A confirmation dialog an operator sees twenty times a day is a dialog they stop 
 
 ### Consensus position: APPROVE AFTER REVISION
 
-A confirmation records the request body at creation, byte for byte, and approval replays that record; a body supplied at approval is refused. The confirmation shows the echoed `retnd` command, the set it is about, who asked (the token name), when it expires (default 15 minutes, `agents.confirmation_ttl`), and the arguments in the words the Settings card already uses, never a JSON blob. Approval is a step-up (the password, through `VerifyStepUp`), so a dialog cannot be approved by reflex. A token can have at most `agents.max_pending_confirmations` (default 5) open at once, so an agent cannot flood the queue. The fatigue argument is accepted and answered by scope: a `read` token never creates one, and `read` is the default and the only scope the first-run path suggests.
+A confirmation records the request body at creation, byte for byte, and approval replays that record; a body supplied at approval is refused. A `run_cycle` or `run_backup_set` proposal that carries no `config_revision` is recorded against the revision the engine holds at that moment (one the agent supplied is kept), so the replay is not refused for lack of one, a configuration change before approval ends `CONFIG_REVISION_STALE`, and the confirmation shows the revision. The confirmation shows the echoed `retnd` command, the set it is about, who asked (the token name), when it expires (default 15 minutes, `agents.confirmation_ttl`), and the arguments in the words the Settings card already uses, never a JSON blob. Approval is a step-up (the password, through `VerifyStepUp`), so a dialog cannot be approved by reflex. A token can have at most `agents.max_pending_confirmations` (default 5) open at once, so an agent cannot flood the queue. The fatigue argument is accepted and answered by scope: a `read` token never creates one, and `read` is the default and the only scope the first-run path suggests.
 
 ## Expert 5, An Exfiltration Surface the Size of the API
 
@@ -243,6 +243,7 @@ Every guard below lands red before the code that turns it green, and each has th
 | Code, message, correlation id, command and exit code equal the CLI's | Map one refusal to a different exit code in the tool result; `TestAToolResultAnswersAsTheCLIWould` must go red |
 | A mutating call creates a confirmation and executes nothing | Execute on the tool call; `TestAnOperateCallCreatesAConfirmationAndRunsNothing` must go red |
 | Approval replays the record byte for byte | Let approval take a body; `TestApprovalRefusesASubstitutedBody` must go red |
+| A run proposal is recorded against the engine's revision when the agent names none (#1387) | Record the body as sent; `TestAnApprovedRunWithNoRevisionSuppliedIsQueued` must go red. Stamp at approval instead; `TestAConfigChangeBetweenProposeAndApproveIsRefusedAsStale` must go red |
 | Approval needs a step-up | Skip `VerifyStepUp`; `TestApprovalWithoutAStepUpIsRefused` must go red |
 | A confirmation expires and is capped per token | Approve an expired one, or let a sixth pend; each must be refused |
 | The limiter trips at the line and is audited | Remove the per-token limiter; `TestTheSixtyFirstCallInAMinuteIsRefusedAndRecorded` must go red |

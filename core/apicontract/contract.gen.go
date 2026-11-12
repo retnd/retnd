@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "bacb1029a5a27e7b2443e3296f8d2d3f4f5c9280989c21676b8f93654b6de6c9"
+const ContractSHA256 = "3bde287639696e1ada6d1a1ebf7eed0cf137609e034bdff198e51fc6fd1d63eb"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -2329,26 +2329,28 @@ type AgentAuditEntry struct {
 }
 
 // AgentConfirmation is A change an agent asked for, waiting for a person. The request
-// body it will replay is kept byte for byte and is never shown here;
-// command is the retnd command an operator would have typed for the
-// same change. A pending confirmation has run nothing. state is
-// pending, approved, denied or expired; an approved one carries
-// execution once its replay has finished.
+// body it will replay is kept byte for byte and is never shown here,
+// except for config_revision; command is the retnd command an
+// operator would have typed for the same change. A pending
+// confirmation has run nothing. state is pending, approved, denied
+// or expired; an approved one carries execution once its replay has
+// finished.
 type AgentConfirmation struct {
-	BackupSet string          `json:"backup_set"`
-	Command   string          `json:"command"`
-	CreatedAt string          `json:"created_at"`
-	DecidedAt *string         `json:"decided_at"`
-	DecidedBy *string         `json:"decided_by"`
-	Execution *AgentExecution `json:"execution,omitempty"`
-	ExpiresAt string          `json:"expires_at"`
-	ID        string          `json:"id"`
-	Method    string          `json:"method"`
-	Route     string          `json:"route"`
-	State     string          `json:"state"`
-	TokenID   string          `json:"token_id"`
-	TokenName string          `json:"token_name"`
-	Tool      string          `json:"tool"`
+	BackupSet      string          `json:"backup_set"`
+	Command        string          `json:"command"`
+	ConfigRevision string          `json:"config_revision,omitempty"`
+	CreatedAt      string          `json:"created_at"`
+	DecidedAt      *string         `json:"decided_at"`
+	DecidedBy      *string         `json:"decided_by"`
+	Execution      *AgentExecution `json:"execution,omitempty"`
+	ExpiresAt      string          `json:"expires_at"`
+	ID             string          `json:"id"`
+	Method         string          `json:"method"`
+	Route          string          `json:"route"`
+	State          string          `json:"state"`
+	TokenID        string          `json:"token_id"`
+	TokenName      string          `json:"token_name"`
+	Tool           string          `json:"tool"`
 }
 
 // AgentExecution is how the replay of an approved confirmation ended: the status and
