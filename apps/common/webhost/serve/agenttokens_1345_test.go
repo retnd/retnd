@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"strings"
 	"testing"
 
@@ -120,5 +121,33 @@ func TestAnUnknownBearerIsRefusedAndACookieSessionBesideItIsNotConsulted(t *test
 	status, body := agentCall(t, h.client, http.MethodGet, h.server.URL+"/api/v1/system/health", "", map[string]string{"Authorization": "Bearer rat_unknown_00000000000000000000000000000"})
 	if status != http.StatusUnauthorized || !strings.Contains(body, "AGENT_TOKEN_INVALID") {
 		t.Errorf("= %d %s, want 401 AGENT_TOKEN_INVALID", status, body)
+	}
+}
+
+// Owner decision on #1345: only a rat_ bearer is an agent's. A proxy in front
+// of retnd may add its own Authorization: Bearer, and the login that follows
+// is untouched. Falsify: refuse every Bearer on the auth mount again.
+func TestALoginWithAForeignBearerHeaderStillWorks(t *testing.T) {
+	h := newEngineHarness(t)
+	enrollAndLogIn(t, h, h.client, h.server.URL)
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := &http.Client{Jar: jar}
+	base := h.server.URL
+	headers := map[string]string{
+		local.CSRFHeaderName: csrfToken(t, fresh, base),
+		"Authorization":      "Bearer proxy-issued-opaque-value",
+	}
+	status, body := agentCall(t, fresh, http.MethodPost, base+"/api/v1/auth/login", `{"username":"bm-admin","password":"correct-horse-battery"}`, headers)
+	if status != http.StatusNoContent {
+		t.Fatalf("login behind a proxy Bearer = %d %s, want 204", status, body)
+	}
+	// The session it made still works with the proxy header present.
+	status, body = agentCall(t, fresh, http.MethodGet, base+"/api/v1/system/version", "", map[string]string{"Authorization": "Bearer proxy-issued-opaque-value"})
+	if status != http.StatusOK {
+		t.Errorf("a cookie session behind a proxy Bearer = %d %s, want 200", status, body)
 	}
 }

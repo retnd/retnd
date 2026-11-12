@@ -630,6 +630,10 @@ commands:
                                                   No verb takes a token on its command line. Beside a serving engine
                                                   this is POST /api/v1/agent/tokens, which a signed-in user makes and
                                                   a token cannot
+                                                  (mint, list or revoke). Over plain http to another machine the
+                                                  engine asks for the insecure-transport acknowledgement first, so
+                                                  a remote mint exits 52 until RETND_API_INSECURE_TRANSPORT=acknowledged
+                                                  is set
   agent token list [--json]
                                                   every token: name, prefix, scope, status (active, expired or
                                                   revoked), owner, expiry and when it last authenticated. Never the

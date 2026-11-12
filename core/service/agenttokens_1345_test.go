@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -325,5 +326,41 @@ func TestARefusalRowDoesNotGrowWithTheURL(t *testing.T) {
 	}
 	if n := len(rows[0].Arguments); n > 600 {
 		t.Errorf("the refusal row keeps %d bytes of the URL", n)
+	}
+}
+
+// Q16 (EPIC U): the mint dialog routes a refusal to its field by the first
+// word of the message, so every INVALID_REQUEST a mint can raise from the
+// request starts with the JSON field name and a colon, once the sentinel's own
+// prefix is taken off the way the handler does. The owner is not in the list:
+// it is the signed-in user, never a field of the body.
+// Falsify: reword any one of the mint messages without its field prefix.
+func TestEveryMintRefusalStartsWithTheFieldItIsAbout(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	mintForTest(t, svc, MintAgentTokenRequest{Name: "taken"})
+	fieldPrefix := regexp.MustCompile(`^(name|scope|expires_in): `)
+	for label, req := range map[string]MintAgentTokenRequest{
+		"empty name":         {Name: "", Owner: "alice"},
+		"bad characters":     {Name: "has space", Owner: "alice"},
+		"too long":           {Name: strings.Repeat("a", 65), Owner: "alice"},
+		"live duplicate":     {Name: "taken", Owner: "alice"},
+		"unknown scope":      {Name: "a", Owner: "alice", Scope: "admin"},
+		"not a lifetime":     {Name: "b", Owner: "alice", ExpiresIn: "soon"},
+		"not a day count":    {Name: "c", Owner: "alice", ExpiresIn: "xd"},
+		"past the ceiling d": {Name: "d", Owner: "alice", ExpiresIn: "366d"},
+		"past the ceiling h": {Name: "e", Owner: "alice", ExpiresIn: "9000h"},
+		"zero":               {Name: "f", Owner: "alice", ExpiresIn: "0h"},
+		"negative":           {Name: "g", Owner: "alice", ExpiresIn: "-5h"},
+	} {
+		_, err := svc.MintAgentToken(ctx, req)
+		if !errors.Is(err, ErrInvalidRequest) {
+			t.Errorf("%s: %v, want ErrInvalidRequest", label, err)
+			continue
+		}
+		msg := strings.TrimPrefix(err.Error(), ErrInvalidRequest.Error()+": ")
+		if !fieldPrefix.MatchString(msg) {
+			t.Errorf("%s: message %q does not start with name:, scope: or expires_in:", label, msg)
+		}
 	}
 }

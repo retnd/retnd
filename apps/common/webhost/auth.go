@@ -79,18 +79,28 @@ func actorFromContext(ctx context.Context) string {
 func authMiddleware(platform capabilities.PlatformAdapter, agents AgentAccess) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// A request that presents a bearer token is an agent's, and is
+			// A request that presents an agent token (a rat_ bearer) is an agent's, and is
 			// decided here alone. It never falls through to the session: a
 			// token that is unknown, expired or revoked is refused, not
 			// quietly authenticated by a cookie it also happens to carry.
 			// See agentaccess.go.
-			if presented, ok := bearerToken(r); ok && agents != nil {
-				authenticated, ok := authenticateBearer(w, r, agents, presented)
-				if !ok {
+			if presented, ok := bearerToken(r); ok {
+				if agents == nil {
+					// No token store, so nothing to check the token against,
+					// but the session-only routes still refuse a header that
+					// claims to be an agent's. Anywhere else it is ignored.
+					if agentRouteDenied(r) {
+						writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route")
+						return
+					}
+				} else {
+					authenticated, ok := authenticateBearer(w, r, agents, presented)
+					if !ok {
+						return
+					}
+					next.ServeHTTP(w, authenticated)
 					return
 				}
-				next.ServeHTTP(w, authenticated)
-				return
 			}
 			// With no token store (the first-run router, a backend that keeps
 			// no tokens) a bearer header is still ignored everywhere except

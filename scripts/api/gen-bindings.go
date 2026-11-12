@@ -154,6 +154,11 @@ type oper struct {
 	RequestBody *body                 `json:"requestBody"`
 	Responses   map[string]*response  `json:"responses"`
 	Gate        bool                  `json:"x-destructive-gate"`
+	// InsecureTransportAck marks an operation that is not behind the
+	// destructive gate but still asks for the insecure-transport
+	// acknowledgement over plain http from another machine (the agent token
+	// mint, whose response carries the token). Clients send the header on it.
+	InsecureTransportAck bool `json:"x-insecure-transport-ack"`
 	// GateExemptActions is read so the contract can say which actions of a
 	// gated route the gate lets by (issue #1164: POST /operations is gated
 	// per action). It is documentation the Go tests hold the router to, and
@@ -193,6 +198,7 @@ type endpoint struct {
 	CSRF           bool
 	Idempotency    string
 	Gate           bool
+	InsecureAck    bool
 	Concurrency    string
 	RequestSchema  string
 	ResponseSchema string
@@ -298,6 +304,7 @@ func flatten(doc document) []endpoint {
 				CSRF:          o.CSRF,
 				Idempotency:   o.Idempotency,
 				Gate:          o.Gate,
+				InsecureAck:   o.InsecureTransportAck,
 				ErrorCodes:    map[int][]string{},
 			}
 			if o.Concurrency != nil {
@@ -604,6 +611,10 @@ type Endpoint struct {
 	CSRFRequired    bool
 	IdempotencyKey  string
 	DestructiveGate bool
+	// InsecureTransportAck is true for an operation outside the destructive
+	// gate that still needs X-Retnd-Insecure-Transport-Ack over plain http
+	// from another machine.
+	InsecureTransportAck bool
 	Concurrency     string
 	RequestSchema   string
 	ResponseSchema  string
@@ -617,8 +628,8 @@ var Endpoints = []Endpoint{
 `)
 	for _, e := range eps {
 		fmt.Fprintf(&b, "\t{\n\t\tID: %q, Method: %q, Path: %q,\n", e.ID, e.Method, e.Path)
-		fmt.Fprintf(&b, "\t\tAuthenticated: %t, CSRFRequired: %t, IdempotencyKey: %q, DestructiveGate: %t, Concurrency: %q,\n",
-			e.Authenticated, e.CSRF, e.Idempotency, e.Gate, e.Concurrency)
+		fmt.Fprintf(&b, "\t\tAuthenticated: %t, CSRFRequired: %t, IdempotencyKey: %q, DestructiveGate: %t, InsecureTransportAck: %t, Concurrency: %q,\n",
+			e.Authenticated, e.CSRF, e.Idempotency, e.Gate, e.InsecureAck, e.Concurrency)
 		fmt.Fprintf(&b, "\t\tRequestSchema: %q, ResponseSchema: %q, SuccessStatus: %d,\n", e.RequestSchema, e.ResponseSchema, e.SuccessStatus)
 		b.WriteString("\t\tErrorCodes: map[int][]ErrorCode{\n")
 		for _, status := range e.ErrorStatuses {
@@ -864,6 +875,7 @@ export interface ContractOperation {
   readonly csrfRequired: boolean;
   readonly idempotencyKey: string;
   readonly destructiveGate: boolean;
+  readonly insecureTransportAck: boolean;
   readonly concurrency: string;
   readonly requestSchema: string;
   readonly responseSchema: string;
@@ -875,8 +887,8 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
 `)
 	for _, e := range eps {
 		fmt.Fprintf(&b, "  {\n    id: %q,\n    method: %q,\n    path: %q,\n", e.ID, e.Method, e.Path)
-		fmt.Fprintf(&b, "    authenticated: %t,\n    csrfRequired: %t,\n    idempotencyKey: %q,\n    destructiveGate: %t,\n    concurrency: %q,\n",
-			e.Authenticated, e.CSRF, e.Idempotency, e.Gate, e.Concurrency)
+		fmt.Fprintf(&b, "    authenticated: %t,\n    csrfRequired: %t,\n    idempotencyKey: %q,\n    destructiveGate: %t,\n    insecureTransportAck: %t,\n    concurrency: %q,\n",
+			e.Authenticated, e.CSRF, e.Idempotency, e.Gate, e.InsecureAck, e.Concurrency)
 		fmt.Fprintf(&b, "    requestSchema: %q,\n    responseSchema: %q,\n    successStatus: %d,\n", e.RequestSchema, e.ResponseSchema, e.SuccessStatus)
 		b.WriteString("    errorCodes: {\n")
 		for _, status := range e.ErrorStatuses {

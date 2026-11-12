@@ -21,8 +21,8 @@ import (
 // The agent principal: a bearer token that authenticates /api/v1 as
 // agent:<name> (EPIC U, FR-91 and FR-92; ADR 0034 decisions 2 and 4).
 //
-// A deployment whose backend keeps no tokens ignores an Authorization header
-// altogether, as it always did. A token is a second way to be authenticated here, never a way around the
+// Only a bearer that carries the rat_ prefix is an agent token; any other
+// Authorization header is ignored, as it always was. A token is a second way to be authenticated here, never a way around the
 // first. It is checked against its row on every request, a request that
 // presents one is never also given the benefit of a cookie, and it reaches
 // strictly less than a session does:
@@ -71,14 +71,20 @@ func agentPrincipalFrom(ctx context.Context) (service.AgentPrincipal, bool) {
 	return p, ok
 }
 
-// bearerToken reports whether the request presents a bearer token and, if so,
-// what it is. Any other Authorization scheme is not ours and is ignored.
+// bearerToken reports whether the request presents an agent token and, if so,
+// what it is. A bearer is an agent token only if it carries the rat_ prefix;
+// any other Authorization header, Bearer or not, is not ours and is ignored,
+// so a front proxy's own Bearer header is left alone.
 func bearerToken(r *http.Request) (string, bool) {
 	scheme, rest, ok := strings.Cut(r.Header.Get("Authorization"), " ")
 	if !ok || !strings.EqualFold(scheme, "Bearer") {
 		return "", false
 	}
-	return strings.TrimSpace(rest), true
+	token := strings.TrimSpace(rest)
+	if !strings.HasPrefix(token, service.AgentTokenPrefix) {
+		return "", false
+	}
+	return token, true
 }
 
 // agentPaths are the paths below /api/v1 a request can be said to carry: the
@@ -280,7 +286,10 @@ func (h *handlers) mintAgentToken(w http.ResponseWriter, r *http.Request) {
 		Name: body.Name, Scope: body.Scope, ExpiresIn: body.ExpiresIn, Owner: actorFromContext(r.Context()),
 	})
 	if errors.Is(err, service.ErrInvalidRequest) {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+		// The sentinel's own words come off, so the message starts with the
+		// request field it is about (name:, scope: or expires_in:), which is
+		// what the mint dialog routes it by.
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", strings.TrimPrefix(err.Error(), service.ErrInvalidRequest.Error()+": "))
 		return
 	}
 	if err != nil {
