@@ -219,11 +219,13 @@ func TestAToolResultAnswersAsTheCLIWould(t *testing.T) {
 			refusal := &apiclient.Error{Operation: "listActivity", Method: "GET", Path: "/activity", Status: 401, Code: code, Message: "words for " + string(code), CorrelationID: "cid_parity"}
 			wantExit, _ := engineRefusalExit(refusal)
 
-			// An undeclared code is the apiclient's contract violation, which
-			// is exit 1 on both sides and has no code of its own.
+			// A code this operation does not declare is the apiclient's
+			// contract violation, on both sides: the CLI's call to the same
+			// operation raises it too and exits 1, whatever exit the code
+			// would have had where it is declared.
 			if got.Code != string(code) {
-				if got.ExitCode != 1 || wantExit != 1 {
-					t.Fatalf("%s: result %+v, CLI exit %d", code, got, wantExit)
+				if got.ExitCode != 1 {
+					t.Fatalf("%s: result %+v, want exit 1 for a code listActivity does not declare", code, got)
 				}
 				return
 			}
