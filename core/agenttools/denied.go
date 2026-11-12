@@ -13,8 +13,8 @@ import (
 // medium.
 //
 // A token works against raw /api/v1, so a list held only by a transport would
-// hold nothing back. apps/common/webhost reads this one on the wire, before
-// the token is looked at, and the guard in this package holds that no tool row
+// hold nothing back. apps/common/webhost reads this one on the wire, once the
+// token is known, and the guard in this package holds that no tool row
 // sits over a route it matches. Every entry here is also a refusal row in the
 // table, which is how the reason is stated.
 //
@@ -29,6 +29,7 @@ var denied = []struct{ method, pattern string }{
 	{"", "/recoveries/*"},
 	{"POST", "/backups/{source}/{set}/{name}/recovery"},
 	{"", "/agent/tokens/*"},
+	{"", "/agent/audit/*"},
 
 	// Key custody and key providers.
 	{"", "/encryption/keys/*"},

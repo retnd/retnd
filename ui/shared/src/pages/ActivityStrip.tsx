@@ -384,6 +384,20 @@ export function activityLine(e: SetActivityEvent): ActivityLine {
       text = parts.join("\n");
       break;
     }
+    case "agent_action": {
+      // Something an agent did or was refused, or a change of its that is
+      // waiting on a person (EPIC U, #1348). The engine composes the
+      // sentence, which already names the agent and the tool; this adds what
+      // an operator needs to find the row behind it in `retnd agent audit`:
+      // the correlation id, and the confirmation when there is one. Reads
+      // never reach this feed (the trail has its own table), so a line here
+      // is always something that changed, was refused or needs deciding.
+      const parts = [e.message || e.event];
+      if (f.confirmation_id) parts.push("  confirmation " + f.confirmation_id + (f.state ? " (" + f.state + ")" : ""));
+      if (f.correlation_id) parts.push("  correlation id " + f.correlation_id);
+      text = parts.join("\n");
+      break;
+    }
     // EPIC Q (issue #985): the events a scrub, a recovery and a recovery test
     // produce. Each has its own sentence (assurance/feedText.ts, shared with
     // the operation panel) rather than the fallback below, because the

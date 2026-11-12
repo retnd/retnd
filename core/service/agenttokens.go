@@ -122,7 +122,10 @@ type AgentPrincipal struct {
 // AgentRefusal is a refusal the authenticator made, for the audit table.
 // TokenID is empty when the presented token matched nothing.
 type AgentRefusal struct {
-	TokenID       string
+	TokenID string
+	// TokenName is the token's name when the refusal knows it, for the feed
+	// line; the table keeps only the id.
+	TokenName     string
 	Method        string
 	Path          string
 	Status        int
@@ -256,7 +259,21 @@ func (b *BackupService) RecordAgentRefusal(ctx context.Context, r AgentRefusal) 
 	if len(p) > maxAuditPath {
 		p = strings.ToValidUTF8(p[:maxAuditPath], "") + "..."
 	}
-	return b.journal.InsertAgentAudit(ctx, state.AgentAudit{
+	// The refusal reaches the feed as agent_action (FR-97). One that names no
+	// token was written for a caller with no credential, so it is let through
+	// a few times a minute and counted, never one line per request.
+	emit := true
+	var held int
+	if r.TokenID == "" {
+		emit, held = b.unattributedRefusals.allow(now())
+	}
+	if emit {
+		b.emitAgentAction(ctx, AgentCall{
+			TokenID: r.TokenID, TokenName: r.TokenName, Transport: "api", Refused: true,
+			Status: r.Status, Code: r.Code, CorrelationID: r.CorrelationID, held: held,
+		})
+	}
+	it := agentAuditItem{row: state.AgentAudit{
 		At:            now(),
 		TokenID:       r.TokenID,
 		Transport:     "api",
@@ -264,7 +281,17 @@ func (b *BackupService) RecordAgentRefusal(ctx context.Context, r AgentRefusal) 
 		Status:        r.Status,
 		Code:          r.Code,
 		CorrelationID: r.CorrelationID,
-	})
+	}}
+	if r.TokenID != "" {
+		return b.audit.enqueueNamed(ctx, it)
+	}
+	// Anyone can cause this row, so it never makes the caller wait: a full
+	// queue drops it and the feed's summary line counts it.
+	stored, err := b.audit.enqueueOrDrop(it)
+	if !stored && err == nil {
+		b.unattributedRefusals.hold()
+	}
+	return err
 }
 
 func agentTokenHash(token string) string {

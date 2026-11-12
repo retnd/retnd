@@ -298,6 +298,10 @@ func TestARefusalIsRecordedInTheAuditTable(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// The row goes through the audit writer, so wait for it.
+	if err := svc.audit.flush(ctx); err != nil {
+		t.Fatal(err)
+	}
 	rows, err := svc.journal.ListAgentAudit(ctx, 10)
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("audit rows = %d, %v; want one", len(rows), err)
@@ -318,6 +322,9 @@ func TestARefusalRowDoesNotGrowWithTheURL(t *testing.T) {
 	if err := svc.RecordAgentRefusal(ctx, AgentRefusal{
 		Method: "GET", Path: "/api/v1/" + strings.Repeat("a", 64<<10), Status: 401, Code: "AGENT_TOKEN_INVALID",
 	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.audit.flush(ctx); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := svc.journal.ListAgentAudit(ctx, 1)

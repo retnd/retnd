@@ -3,6 +3,7 @@ package apiclient
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/url"
 
 	"github.com/retnd/retnd/core/apicontract"
@@ -45,4 +46,14 @@ func (c *Client) CallRoute(ctx context.Context, method, route string, pathArgs [
 		return nil, correlation, err
 	}
 	return out, correlation, nil
+}
+
+type headersKey struct{}
+
+// WithHeaders carries extra request headers for the calls made with ctx. A
+// client authenticating as an agent token sends them; a signed-in client
+// ignores them. It is how the stdio transport names the tool a call is for, so
+// the engine's audit row can say so.
+func WithHeaders(ctx context.Context, h http.Header) context.Context {
+	return context.WithValue(ctx, headersKey{}, h)
 }

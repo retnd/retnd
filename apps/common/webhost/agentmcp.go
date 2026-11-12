@@ -181,6 +181,10 @@ func (c routerCaller) Call(ctx context.Context, call agentmcp.Call) (agentmcp.Re
 	req.Header.Set("Authorization", authorization)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "retnd-mcp-http")
+	// Said again here and never copied from the frame: the audit row for this
+	// request names the tool and the transport that really made it.
+	req.Header.Set(service.AgentToolHeader, call.Tool)
+	req.Header.Set(service.AgentTransportHeader, "http")
 	if h := agentmcp.RequestHeader(ctx); h != nil {
 		if fwd := h.Get("X-Forwarded-For"); fwd != "" {
 			req.Header.Set("X-Forwarded-For", fwd)

@@ -653,6 +653,14 @@ commands:
                                                   would have exited with for the same call. The engine's own streamable
                                                   HTTP transport at POST, GET and DELETE /api/v1/agent/mcp is off unless
                                                   agents.http_transport is on in config.yaml
+  agent audit [--token ID] [--since D] [--limit N] [--before CURSOR] [--json]
+                                                  every call an AI agent made, reads included, newest first: when,
+                                                  token, tool, transport, status, refusal code, correlation id and the
+                                                  arguments as stored after the projection that strips key material.
+                                                  ID is a token id from agent token list, never the token. D is days
+                                                  such as 7d, a duration such as 36h or an RFC 3339 time; N is 100 by
+                                                  default and 1000 at most. A full page prints the cursor for the next
+                                                  one. The same as GET /api/v1/agent/audit
   agent tools [--json]
                                                   the catalogue an AI agent is offered: every tool with its scope, its
                                                   route, the command that does the same from a terminal and the result

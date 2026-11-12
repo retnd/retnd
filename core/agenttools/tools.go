@@ -151,6 +151,8 @@ const (
 
 	whyCatalogue = "the catalogue is read by an operator from a terminal or the browser, and an agent already has it as the list of its own tools"
 
+	whyAudit = "the audit trail is read by an operator from a terminal or the browser; an agent's own calls are in it and it never reads it back"
+
 	whyOperationAction = "this action on the operations route is a restore, a hold or a snapshot check, each a person's decision about data, and no tool starts it"
 )
 
@@ -410,6 +412,7 @@ var refusalRows = join(
 		"POST /encryption/encrypt-existing", "POST /encryption/reencrypt",
 		"POST /repositories", "POST /workflow-recovery/{run}/resume-cleanup", "POST /workflow-recovery/{run}/acknowledge"),
 	no(whyCatalogue, "GET /agent/tools"),
+	no(whyAudit, "GET /agent/audit"),
 	no(whyTransport, "POST /agent/mcp", "GET /agent/mcp", "DELETE /agent/mcp"),
 	no(whyRead,
 		"GET /system/version", "GET /system/capabilities", "GET /system/staging-directories", "GET /system/storage",

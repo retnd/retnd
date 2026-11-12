@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"runtime"
@@ -100,6 +101,10 @@ func readAgentToken(path string, getenv func(string) string) (string, error) {
 type engineCaller struct{ client *apiclient.Client }
 
 func (c engineCaller) Call(ctx context.Context, call agentmcp.Call) (agentmcp.Response, error) {
+	ctx = apiclient.WithHeaders(ctx, http.Header{
+		service.AgentToolHeader:      {call.Tool},
+		service.AgentTransportHeader: {"stdio"},
+	})
 	body, correlationID, err := c.client.CallRoute(ctx, call.Method, call.Route, call.PathArgs, call.Query, nil)
 	var refused *apiclient.Error
 	if errors.As(err, &refused) {

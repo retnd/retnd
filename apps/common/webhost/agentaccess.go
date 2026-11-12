@@ -22,13 +22,14 @@ import (
 // agent:<name> (EPIC U, FR-91 and FR-92; ADR 0034 decisions 2 and 4).
 //
 // Only a bearer that carries the rat_ prefix is an agent token; any other
-// Authorization header is ignored, as it always was. A token is a second way to be authenticated here, never a way around the
-// first. It is checked against its row on every request, a request that
+// Authorization header is ignored, as it always was. A token is a second way
+// to be authenticated here, never a way around the first. It is checked against its row on every request, a request that
 // presents one is never also given the benefit of a cookie, and it reaches
 // strictly less than a session does:
 //
 //   - the routes on core/agenttools' deny list refuse a bearer whatever its
-//     scope, before the token is looked at. The list is the catalogue's, read
+//     scope, once the token is known, so a valid token's probe is audited
+//     with its id. The list is the catalogue's, read
 //     here on the wire, because a token works against raw /api/v1 and a deny
 //     list held only by a transport would hold nothing back (#1346);
 //   - a bearer reads only what the catalogue offers it: a GET to the route a
@@ -187,25 +188,20 @@ func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAcce
 	// audit records a refusal that was just written. The refusal stands
 	// whether or not the row lands, so a failure to write it is logged and
 	// nothing else.
-	audit := func(tokenID string, status int, code, correlationID string) {
+	audit := func(tokenID, tokenName string, status int, code, correlationID string) {
 		// A refusal that names no valid token is anyone's to cause, so the row
 		// it writes is bounded per address. The refusal was already sent.
 		if tokenID == "" && !guard.allowAuditRow(r) {
 			return
 		}
 		err := agents.RecordAgentRefusal(r.Context(), service.AgentRefusal{
-			TokenID: tokenID, Method: r.Method, Path: r.URL.Path, Status: status, Code: code, CorrelationID: correlationID,
+			TokenID: tokenID, TokenName: tokenName, Method: r.Method, Path: r.URL.Path, Status: status, Code: code, CorrelationID: correlationID,
 		})
 		if err != nil {
 			slog.WarnContext(r.Context(), "agent refusal was not recorded", "code", code, "error", err)
 		}
 	}
 
-	if agentRouteDenied(r) {
-		audit("", http.StatusForbidden, "AGENT_ROUTE_DENIED",
-			writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route"))
-		return nil, false
-	}
 	principal, err := agents.AuthenticateAgentToken(r.Context(), presented)
 	if err != nil {
 		// Fail closed, the way a session lookup that errors does: a token
@@ -213,8 +209,17 @@ func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAcce
 		if !errors.Is(err, service.ErrAgentTokenInvalid) {
 			slog.ErrorContext(r.Context(), "the agent token could not be checked", "error", err)
 		}
-		audit("", http.StatusUnauthorized, "AGENT_TOKEN_INVALID",
+		audit("", "", http.StatusUnauthorized, "AGENT_TOKEN_INVALID",
 			writeError(w, http.StatusUnauthorized, "AGENT_TOKEN_INVALID", "the agent token is not valid"))
+		return nil, false
+	}
+
+	// The deny list is checked once the token is known, so a valid token's
+	// probe of a denied route is audited with its id. An invalid token on a
+	// denied route is refused as an invalid token, which tells it nothing new.
+	if agentRouteDenied(r) {
+		audit(principal.TokenID, principal.Name, http.StatusForbidden, "AGENT_ROUTE_DENIED",
+			writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route"))
 		return nil, false
 	}
 
@@ -224,7 +229,7 @@ func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAcce
 	// requests of their own and are counted when they arrive.
 	if !isAgentMCP(r) {
 		if ok, wait := guard.allowCall(principal.TokenID); !ok {
-			audit(principal.TokenID, http.StatusTooManyRequests, "AGENT_RATE_LIMITED", guard.refuseRateLimited(w, wait))
+			audit(principal.TokenID, principal.Name, http.StatusTooManyRequests, "AGENT_RATE_LIMITED", guard.refuseRateLimited(w, wait))
 			return nil, false
 		}
 	}
@@ -234,16 +239,16 @@ func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAcce
 	// it becomes.
 	if !safeMethod(r.Method) && !isAgentMCP(r) {
 		if principal.Scope == service.AgentScopeRead {
-			audit(principal.TokenID, http.StatusForbidden, "AGENT_SCOPE_INSUFFICIENT",
+			audit(principal.TokenID, principal.Name, http.StatusForbidden, "AGENT_SCOPE_INSUFFICIENT",
 				writeError(w, http.StatusForbidden, "AGENT_SCOPE_INSUFFICIENT", "a read token cannot start or change anything"))
 			return nil, false
 		}
 		if !agentChangeOffered(r) {
-			audit(principal.TokenID, http.StatusForbidden, "AGENT_ROUTE_DENIED",
+			audit(principal.TokenID, principal.Name, http.StatusForbidden, "AGENT_ROUTE_DENIED",
 				writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route"))
 			return nil, false
 		}
-		audit(principal.TokenID, http.StatusConflict, "AGENT_CONFIRMATION_REQUIRED",
+		audit(principal.TokenID, principal.Name, http.StatusConflict, "AGENT_CONFIRMATION_REQUIRED",
 			writeError(w, http.StatusConflict, "AGENT_CONFIRMATION_REQUIRED", "a change made with an agent token has to be confirmed by a person"))
 		return nil, false
 	}
@@ -253,7 +258,7 @@ func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAcce
 	// through above, and every call inside them is checked as the request it
 	// becomes.
 	if safeMethod(r.Method) && !agentReadOffered(r) {
-		audit(principal.TokenID, http.StatusForbidden, "AGENT_ROUTE_DENIED",
+		audit(principal.TokenID, principal.Name, http.StatusForbidden, "AGENT_ROUTE_DENIED",
 			writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route"))
 		return nil, false
 	}

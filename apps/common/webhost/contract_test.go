@@ -278,7 +278,9 @@ var contractBindings = map[string]contractBinding{
 	"listAgentTokens":  {nil, apicontract.ListAgentTokensResponse{}, "/api/v1/agent/tokens"},
 	"mintAgentToken":   {apicontract.MintAgentTokenRequest{}, apicontract.MintedAgentToken{}, "/api/v1/agent/tokens"},
 	"revokeAgentToken": {nil, apicontract.AgentToken{}, "/api/v1/agent/tokens/agt_1/revoke"},
-	"listAgentTools":   {nil, apicontract.AgentToolsResponse{}, "/api/v1/agent/tools"},
+	// EPIC U (#1348): the audit trail.
+	"listAgentAudit": {nil, apicontract.ListAgentAuditResponse{}, "/api/v1/agent/audit"},
+	"listAgentTools": {nil, apicontract.AgentToolsResponse{}, "/api/v1/agent/tools"},
 	// EPIC U (#1347): the MCP transport. A frame is free-form JSON-RPC, so
 	// there is no Go type to bind beyond the contract's own.
 	"postAgentMcp":         {apicontract.AgentMcpFrame{}, apicontract.AgentMcpFrame{}, "/api/v1/agent/mcp"},

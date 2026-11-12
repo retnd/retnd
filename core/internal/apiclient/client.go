@@ -506,6 +506,10 @@ func (c *Client) newRequest(ctx context.Context, ep apicontract.Endpoint, target
 	}
 	if c.bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+c.bearer)
+		extra, _ := ctx.Value(headersKey{}).(http.Header)
+		for k, v := range extra {
+			req.Header[k] = v
+		}
 	}
 	if ep.CSRFRequired && c.bearer == "" {
 		token := c.csrfToken()

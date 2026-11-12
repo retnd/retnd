@@ -204,7 +204,8 @@
           "AGENT_CONFIRMATION_REQUIRED",
           "AGENT_TOKEN_NOT_FOUND",
           "AGENT_HTTP_TRANSPORT_OFF",
-          "AGENT_RATE_LIMITED"
+          "AGENT_RATE_LIMITED",
+          "AGENT_AUDIT_UNAVAILABLE"
         ],
         "x-code-origins": {
           "authentication-failed": "ui",
@@ -335,7 +336,8 @@
           "AGENT_CONFIRMATION_REQUIRED": "wire",
           "AGENT_TOKEN_NOT_FOUND": "wire",
           "AGENT_HTTP_TRANSPORT_OFF": "wire",
-          "AGENT_RATE_LIMITED": "wire"
+          "AGENT_RATE_LIMITED": "wire",
+          "AGENT_AUDIT_UNAVAILABLE": "wire"
         },
         "x-error-classes": {
           "authentication": [
@@ -448,6 +450,7 @@
           "internal": [
             "INTERNAL",
             "INTERNAL_ERROR",
+            "AGENT_AUDIT_UNAVAILABLE",
             "RECOVERY_LOCAL_COPY_CORRUPT",
             "RECOVERY_REMOTE_COPY_CORRUPT",
             "RECOVERY_NO_SPACE",
@@ -9977,6 +9980,96 @@
         },
         "required": [
           "tokens"
+        ]
+      },
+      "AgentAuditEntry": {
+        "type": "object",
+        "description": "One row of the agent audit trail. arguments is what the call asked with, stored after the projection that strips key material and secrets, as JSON text and cut at 4096 bytes. token_id is empty for a refusal of a token that matched no row, which is itself a fact worth keeping. tool is empty for a refusal made before any tool was named. transport is stdio, http or api.",
+        "additionalProperties": false,
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The row's position in the trail, which is also what next_cursor carries."
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "token_id": {
+            "type": "string"
+          },
+          "token_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The token's name, joined from the token row when the page is read, so a surface can show agent:<name> (FR-91). Null for a refusal of a token that matched no row."
+          },
+          "tool": {
+            "type": "string"
+          },
+          "transport": {
+            "type": "string",
+            "enum": [
+              "stdio",
+              "http",
+              "api"
+            ]
+          },
+          "arguments": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The HTTP status the call was answered with, whichever transport carried it."
+          },
+          "code": {
+            "type": "string",
+            "description": "The refusal code, empty for a call that was served."
+          },
+          "correlation_id": {
+            "type": "string",
+            "description": "The id the response carried, so a row and the answer an agent was given can be matched."
+          },
+          "confirmation_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "at",
+          "token_id",
+          "token_name",
+          "tool",
+          "transport",
+          "arguments",
+          "status",
+          "code",
+          "correlation_id",
+          "confirmation_id"
+        ]
+      },
+      "ListAgentAuditResponse": {
+        "type": "object",
+        "description": "GET /agent/audit, newest first.",
+        "additionalProperties": false,
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentAuditEntry"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "description": "The position this page ended at, to be sent back verbatim as `before`. Present only when the page came back full, so there may be more behind it; absent means the end of the trail. Echo it, do not parse it.",
+            "x-go-omitempty": true
+          }
+        },
+        "required": [
+          "entries"
         ]
       },
       "AgentTool": {
@@ -25521,6 +25614,128 @@
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/agent/audit": {
+      "get": {
+        "operationId": "listAgentAudit",
+        "summary": "The agent audit trail, newest first: one row per tool call an agent made, reads included, with the token, tool, transport, arguments as stored after projection, status, code, correlation id and confirmation id. A bearer token is refused AGENT_ROUTE_DENIED: an agent never reads the record of what agents did.",
+        "tags": [
+          "agent"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Only rows for this token id, as `agent token list` prints it. A token that matched nothing is not a token id, so its refusals have no filter of their own and are on the unfiltered page."
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Only rows at or after this moment: an RFC 3339 time, or how far back to look as days such as 7d or a duration such as 36h. Anything else is refused INVALID_REQUEST."
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The position echoed from a previous response's next_cursor. Only rows OLDER than it come back. A value this trail did not issue is ignored and answers with the newest page, exactly as the activity feed's cursor does."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "description": "How many rows to return. Omitted or non-positive means the server's default; above its maximum it is clamped. A page that comes back with exactly this many rows carries a next_cursor."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAgentAuditResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. A since that is neither a time nor a duration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: AGENT_ROUTE_DENIED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_ROUTE_DENIED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
         "x-authenticated": true
       }
     },

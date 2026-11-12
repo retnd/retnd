@@ -33,6 +33,9 @@ const maxPageAttempts = 6
 // Call is one request to /api/v1, in the terms of the catalogue: a route
 // pattern, the values of its placeholders in order, and a query.
 type Call struct {
+	// Tool is the catalogue name the call is for, which a caller passes on so
+	// the engine's audit row can name it.
+	Tool     string
 	Method   string
 	Route    string
 	PathArgs []string
@@ -223,7 +226,7 @@ func (s *server) run(ctx context.Context, t agenttools.Row, raw json.RawMessage)
 		prev       int
 	)
 	for attempt := 0; ; attempt++ {
-		resp, err := s.cfg.Caller.Call(ctx, Call{Method: t.Method, Route: callRoute(t), PathArgs: pathArgs, Query: query})
+		resp, err := s.cfg.Caller.Call(ctx, Call{Tool: t.Tool, Method: t.Method, Route: callRoute(t), PathArgs: pathArgs, Query: query})
 		if err != nil {
 			return refusalResult(err, command)
 		}

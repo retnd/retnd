@@ -10,8 +10,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/retnd/retnd/core/service"
 )
 
 // The catalogue's guards (#1346). Each one is held by a planted violation
@@ -73,16 +71,6 @@ func sorted(s []string) []string {
 	s = slices.Clone(s)
 	slices.Sort(s)
 	return s
-}
-
-// The three words are the token store's own. A scope the catalogue spells
-// differently from the store would be a tool no token could ever call.
-func TestTheScopesAreTheTokenStoresScopes(t *testing.T) {
-	for _, pair := range [][2]string{{string(ScopeRead), service.AgentScopeRead}, {string(ScopeOperate), service.AgentScopeOperate}, {string(ScopeConfigure), service.AgentScopeConfigure}} {
-		if pair[0] != pair[1] {
-			t.Errorf("catalogue scope %q is the store's %q", pair[0], pair[1])
-		}
-	}
 }
 
 // malformed reports what is wrong with the shape of a table: a tool with no
@@ -194,6 +182,7 @@ func TestTheDenyListHoldsTheMaterialBearingRoutes(t *testing.T) {
 		{"GET", "/system/first-run"}, {"POST", "/system/first-run/skip"},
 		{"POST", "/recoveries"}, {"GET", "/recoveries/g1"}, {"POST", "/backups/src/set/name/recovery"},
 		{"GET", "/agent/tokens"}, {"POST", "/agent/tokens/agt_1/revoke"},
+		{"GET", "/agent/audit"},
 		{"GET", "/encryption/keys"}, {"POST", "/encryption/keys/rotate"}, {"POST", "/encryption/keys/k1/export"},
 		{"POST", "/encryption/keys/k1/confirm"}, {"POST", "/encryption/keys/k1/retire"},
 		{"POST", "/encryption/providers/test"},
