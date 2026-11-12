@@ -323,6 +323,11 @@ func (b *BackupService) ApproveAgentConfirmation(ctx context.Context, id, approv
 		return AgentConfirmation{}, AgentPrincipal{}, fmt.Errorf("service: approve agent confirmation: %w", err)
 	}
 	at := now()
+	// The sweep above saw it pending, but the expiry can pass while the
+	// approval is being made, so the decision's own time is what counts.
+	if !at.Before(row.ExpiresAt) {
+		return AgentConfirmation{}, AgentPrincipal{}, fmt.Errorf("%w: it was not decided before %s", ErrAgentConfirmationExpired, row.ExpiresAt.UTC().Format(time.RFC3339))
+	}
 	if tok.RevokedAt != nil || !at.Before(tok.ExpiresAt) {
 		return AgentConfirmation{}, AgentPrincipal{}, fmt.Errorf("%w: nothing was run; deny it", ErrAgentConfirmationTokenEnded)
 	}
