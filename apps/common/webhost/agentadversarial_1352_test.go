@@ -234,13 +234,17 @@ func TestTheSixtyFirstCallInAMinuteIsRefusedAndRecorded(t *testing.T) {
 		}
 		return string(raw), strings.Contains(string(raw), "AGENT_RATE_LIMITED")
 	}
-	for i := 1; i <= 60; i++ {
+	// The line counts every request the token makes, and the handshake in
+	// mcpConn made two (initialize and its notification), so 58 tool calls
+	// are the 3rd to the 60th request and the next one is the 61st.
+	const handshake = 2
+	for i := 1; i <= 60-handshake; i++ {
 		if got, limited := call(); limited {
-			t.Fatalf("call %d was refused as rate limited, the line is the 61st: %s", i, got)
+			t.Fatalf("tool call %d was refused as rate limited, the line is the 61st request: %s", i, got)
 		}
 	}
 	if got, limited := call(); !limited {
-		t.Fatalf("call 61 was not refused AGENT_RATE_LIMITED: %s", got)
+		t.Fatalf("the 61st request was not refused AGENT_RATE_LIMITED: %s", got)
 	}
 
 	// The refusal is the audit's: the authenticator records it through
