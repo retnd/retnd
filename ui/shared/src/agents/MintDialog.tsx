@@ -27,7 +27,7 @@ import { describeFailure } from "@shared/api/failure";
 import { ConfirmationDialog } from "@shared/components/ConfirmationDialog";
 import { FieldHelp } from "@shared/components/FieldHelp";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
-import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
+import { insecureAckRequiredNow, useDestructiveGate } from "@shared/hooks/useDestructiveGate";
 import { CommandEcho } from "@shared/pages/CommandEcho";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { TOOLTIPS } from "@shared/tooltips/tooltips";
@@ -47,6 +47,8 @@ export function MintDialog({ onMinted, onClose }: { onMinted(): void; onClose():
   const [fold, setFold] = useState(false);
   const [expiresIn, setExpiresIn] = useState(DEFAULT_EXPIRY);
   const [busy, setBusy] = useState(false);
+  // While the consent question is up the form steps aside (its values are kept here): two aria-modal dialogs at once would hide the question from assistive technology.
+  const [asking, setAsking] = useState(false);
   const [error, setError] = useState<{ message: string; field: "name" | "expires_in" | "scope" | null } | null>(null);
   const echo = name.trim() === "" ? null : mintCommand({ name: name.trim(), scope, expiresIn: expiresIn.trim() });
   const [minted, setMinted] = useState<{ answer: MintedAgentToken; command: string } | null>(null);
@@ -61,7 +63,11 @@ export function MintDialog({ onMinted, onClose }: { onMinted(): void; onClose():
     // A token is the longest-lived secret this product hands to a browser and
     // the answer is the one time it crosses the connection, so a connection
     // that is not encrypted gets the same question a password gets.
-    if (gate.insecureTransportAckRequired && !(await acknowledgeInsecureTransport())) {
+    const ask = await insecureAckRequiredNow(api, gate);
+    if (ask) setAsking(true);
+    const yes = !ask || (await acknowledgeInsecureTransport());
+    setAsking(false);
+    if (!yes) {
       setError({ message: "Nothing was created. This connection is not encrypted, and the token comes back over this connection, so the request was not sent.", field: null });
       setBusy(false);
       return;
@@ -81,7 +87,7 @@ export function MintDialog({ onMinted, onClose }: { onMinted(): void; onClose():
 
   return (
     <ConfirmationDialog
-      open
+      open={!asking}
       eyebrow="Agents"
       title="Create token"
       confirmLabel="Create token"

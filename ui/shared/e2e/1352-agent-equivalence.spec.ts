@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { PASSWORD } from "./1351-agents";
 import { open } from "./helpers";
 
 /**
@@ -49,7 +50,7 @@ test.describe("#1352 the Agents card says what the CLI and both transports say",
       if (row.surface.includes("confirm")) {
         // The refusal is the answer to an approval, so press it with the step-up.
         await card.locator(row.surface).getByRole("button", { name: /^Approve/ }).first().click();
-        await page.getByLabel(/password/i).fill("a-step-up-password");
+        await card.getByLabel("Your password", { exact: true }).fill(PASSWORD);
         await page.getByRole("button", { name: /^Approve and run/ }).click();
       }
       const shown = card.locator(row.surface).locator("[data-agent-refusal]").first();

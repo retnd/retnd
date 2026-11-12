@@ -210,7 +210,8 @@
           "AGENT_CONFIRMATION_BODY_SUBSTITUTED",
           "AGENT_CONFIRMATION_NOT_FOUND",
           "AGENT_HTTP_TRANSPORT_OFF",
-          "AGENT_RATE_LIMITED"
+          "AGENT_RATE_LIMITED",
+          "AGENT_AUDIT_UNAVAILABLE"
         ],
         "x-code-origins": {
           "authentication-failed": "ui",
@@ -347,7 +348,8 @@
           "AGENT_CONFIRMATION_BODY_SUBSTITUTED": "wire",
           "AGENT_CONFIRMATION_NOT_FOUND": "wire",
           "AGENT_HTTP_TRANSPORT_OFF": "wire",
-          "AGENT_RATE_LIMITED": "wire"
+          "AGENT_RATE_LIMITED": "wire",
+          "AGENT_AUDIT_UNAVAILABLE": "wire"
         },
         "x-error-classes": {
           "authentication": [
@@ -466,6 +468,7 @@
           "internal": [
             "INTERNAL",
             "INTERNAL_ERROR",
+            "AGENT_AUDIT_UNAVAILABLE",
             "RECOVERY_LOCAL_COPY_CORRUPT",
             "RECOVERY_REMOTE_COPY_CORRUPT",
             "RECOVERY_NO_SPACE",
@@ -723,7 +726,7 @@
           },
           "insecure_transport_ack_required": {
             "type": "boolean",
-            "description": "True when the gate is open and the browser that asked reached retnd over plain HTTP from another machine: a gated act then also needs X-Retnd-Insecure-Transport-Ack: acknowledged. Decided at the hop that faces the browser: serve-ui stamps its verdict on every request it proxies, because the engine behind it only ever sees serve-ui. Computed from the request that asked, so GET /system/capabilities is answered Cache-Control: no-store."
+            "description": "True when the browser that asked reached retnd over plain HTTP from another machine, whatever the gate's state (the mint of an agent token asks the same consent with the gate shut, issue #1351): a gated act, and POST /agent/tokens, then also need X-Retnd-Insecure-Transport-Ack: acknowledged. Decided at the hop that faces the browser: serve-ui stamps its verdict on every request it proxies, because the engine behind it only ever sees serve-ui. Computed from the request that asked, so GET /system/capabilities is answered Cache-Control: no-store."
           }
         },
         "required": [

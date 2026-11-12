@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -105,5 +106,35 @@ func TestAnAuditPageNamesTheToken(t *testing.T) {
 	}
 	if n := rows[1].Contract().TokenName; n == nil || *n != "triage" {
 		t.Errorf("token_name = %v, want triage", n)
+	}
+}
+
+// Falsify: make a reservation for a token wait without a bound, or fail open.
+// The queue is full and nothing drains it. With the writer's wait cut to 50ms
+// the reservation returns ErrAgentAuditStalled once that deadline passes (not
+// before, not never); the production value is pinned at five seconds.
+func TestAnAuditReservationFailsClosedAfterItsDeadline(t *testing.T) {
+	if agentAuditEnqueueWait != 5*time.Second {
+		t.Fatalf("the wait for a row with a token is %s, want 5s", agentAuditEnqueueWait)
+	}
+	r := newDurableRig(t)
+	w := newAgentAuditWriter(r.journal, r.svc.logger)
+	w.wait = 50 * time.Millisecond
+	r.svc.audit = w
+	for i := 0; i < agentAuditQueueSize; i++ {
+		if stored, err := w.enqueueOrDrop(agentAuditItem{}); !stored || err != nil {
+			t.Fatalf("row %d: stored %v, %v", i, stored, err)
+		}
+	}
+	start := time.Now()
+	err := r.svc.ReserveAgentAudit(context.Background())
+	if !errors.Is(err, ErrAgentAuditStalled) {
+		t.Fatalf("a full queue gave %v, want ErrAgentAuditStalled", err)
+	}
+	if took := time.Since(start); took < 50*time.Millisecond || took > 2*time.Second {
+		t.Errorf("gave up after %s, want the 50ms deadline", took)
+	}
+	if err := newDurableRig(t).svc.ReserveAgentAudit(context.Background()); err != nil {
+		t.Errorf("an idle writer refused a reservation: %v", err)
 	}
 }

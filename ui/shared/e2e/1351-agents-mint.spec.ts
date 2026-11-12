@@ -130,7 +130,8 @@ test.describe("#1351 the token is shown once", () => {
     await expect(dlg).toContainText("RETND_AGENT_TOKEN");
     // Q13: the browser composes the create twin (pinned to cliecho by agentCommands.1367.test.ts), so the reveal keeps the line the form showed.
     await expect(dlg).toContainText("retnd agent token create nightly-triage --scope read --expires-in 90d");
-    await expect(dlg).not.toContainText(SECRET);
+    // The field is a textarea, so its text is its value: the token is in the field and in no other text of the dialog.
+    expect(await dlg.evaluate((d) => { const c = d.cloneNode(true) as HTMLElement; c.querySelectorAll("textarea").forEach((t) => t.remove()); return c.textContent ?? ""; })).not.toContain(SECRET);
   });
 
   test("#1351 has exactly one way out: no close glyph, no Cancel, Escape and the backdrop do nothing", async ({ page }) => {

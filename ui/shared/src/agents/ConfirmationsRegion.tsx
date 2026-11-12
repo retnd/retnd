@@ -41,7 +41,7 @@ import { apiErrorOf, describeFailure } from "@shared/api/failure";
 import { ErrorState } from "@shared/components/EmptyState";
 import { StepUpPassword, stepUpMessage } from "@shared/components/StepUpFields";
 import type { AsyncState } from "@shared/hooks/useAsync";
-import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
+import { insecureAckRequiredNow, useDestructiveGate } from "@shared/hooks/useDestructiveGate";
 import { CommandEcho } from "@shared/pages/CommandEcho";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { AgentCatalogue, AgentConfirmation, AgentExecution } from "@shared/types/agents";
@@ -71,7 +71,7 @@ export function ConfirmationsRegion({
   const [notice, setNotice] = useState("");
 
   return (
-    <div className="ag-region" id="agents-confirmations" data-agents-region="confirmations">
+    <div className="ag-region" id="agents-confirmations" data-agents-region="confirmations" data-surface="confirm">
       <div className="ag-region__head">
         <InfoTooltip id="agents.confirmations"><h3 className="ag-region__title">Pending confirmations</h3></InfoTooltip>
       </div>
@@ -88,7 +88,7 @@ export function ConfirmationsRegion({
           {strips.map((s) => (
             <li key={"strip-" + s.id} className="ag-row" data-confirmation-result={s.id}>
               <p className="ag-row__sentence">{sentence(s.confirmation.tool) ?? s.confirmation.tool}</p>
-              <div className="ag-strip" role="alert" data-result-strip="">
+              <div className="ag-strip" role="alert" data-result-strip="" data-agent-refusal="">
                 <span>{s.execution.message}</span>
                 <span className="ag-strip__facts">
                   <span data-strip-code="">{s.execution.code}</span>
@@ -155,7 +155,7 @@ function ConfirmationRow({
     setFailure(null);
     // The password is never the first thing to cross a connection the
     // operator has not been told about.
-    if (gate.insecureTransportAckRequired && !(await acknowledgeInsecureTransport())) {
+    if ((await insecureAckRequiredNow(api, gate)) && !(await acknowledgeInsecureTransport())) {
       setFailure({ message: stepUpMessage("INSECURE_TRANSPORT_ACK_REQUIRED", "agent") ?? "Nothing was sent.", code: null, correlationId: null });
       setBusy(false);
       return;
