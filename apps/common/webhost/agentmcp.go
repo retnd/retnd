@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -62,6 +63,24 @@ func (h *handlers) mcpEndpoint(root http.Handler, policy service.AgentPolicy, gu
 				"this endpoint takes an agent token and nothing else; a signed-in session is not one")
 			return
 		}
+		// A tool call (and a resource read, which makes one) is counted by the
+		// request it becomes. Every other frame, initialize, tools/list, ping
+		// and the notifications, authenticates and touches the token and is
+		// counted here, so a valid token cannot spend the engine's time on
+		// frames that are not calls for free.
+		if !frameMakesACall(r) {
+			if ok, wait := guard.allowCall(principal.TokenID); !ok {
+				id := guard.refuseRateLimited(w, wait)
+				if h.agents != nil {
+					if err := h.agents.RecordAgentRefusal(r.Context(), service.AgentRefusal{
+						TokenID: principal.TokenID, Method: r.Method, Path: r.URL.Path, Status: http.StatusTooManyRequests, Code: "AGENT_RATE_LIMITED", CorrelationID: id,
+					}); err != nil {
+						slog.WarnContext(r.Context(), "agent refusal was not recorded", "code", "AGENT_RATE_LIMITED", "error", err)
+					}
+				}
+				return
+			}
+		}
 		if r.Method == http.MethodGet {
 			release, ok := guard.openStream(principal.TokenID)
 			if !ok {
@@ -101,6 +120,35 @@ func (h *handlers) mcpEndpoint(root http.Handler, policy service.AgentPolicy, gu
 		})
 		served.ServeHTTP(w, r)
 	}
+}
+
+// maxFramePeek is how much of a frame is read to see which method it names. A
+// frame that is longer, or is not JSON-RPC, is not a tool call as far as the
+// limiter is concerned and is counted.
+const maxFramePeek = 1 << 20
+
+// frameMakesACall reports whether a POST carries a single tools/call or
+// resources/read frame, whose call into /api/v1 the limiter counts on its own.
+// It leaves the body readable for the transport.
+func frameMakesACall(r *http.Request) bool {
+	if r.Method != http.MethodPost || r.Body == nil {
+		return false
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxFramePeek+1))
+	r.Body = struct {
+		io.Reader
+		io.Closer
+	}{io.MultiReader(bytes.NewReader(body), r.Body), r.Body}
+	if err != nil || len(body) > maxFramePeek {
+		return false
+	}
+	var frame struct {
+		Method string `json:"method"`
+	}
+	if json.Unmarshal(body, &frame) != nil {
+		return false
+	}
+	return frame.Method == "tools/call" || frame.Method == "resources/read"
 }
 
 // routerCaller makes a tool call by serving a request through the /api/v1
