@@ -86,7 +86,7 @@ def tests_of(cmd: str) -> list[str]:
     if m:
         return [t for t in m.group(1).split(",") if t]
     # a browser spec or a checker script, not a Go test (T2.3)
-    f = re.search(r"(e2e/[\w.-]+\.spec\.ts|scripts/[\w./-]+\.py)", cmd)
+    f = re.search(r"(e2e/[\w.-]+\.spec\.ts|scripts/[\w./-]+\.(?:py|sh))", cmd)
     return [f.group(1)] if f else []
 
 
