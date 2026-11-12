@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -68,6 +69,15 @@ func (h *handlers) mcpEndpoint(root http.Handler, policy service.AgentPolicy, gu
 				return
 			}
 			defer release()
+			// A revocation takes effect on the next request (FR-91), and an
+			// open event stream makes none, so the stream checks its own
+			// token while it is open and ends when the token does.
+			if presented, ok := bearerToken(r); ok && h.agents != nil {
+				ctx, cancel := context.WithCancel(r.Context())
+				defer cancel()
+				go endStreamWithToken(ctx, cancel, h.agents, presented)
+				r = r.WithContext(ctx)
+			}
 		}
 		// The peer travels in a header the transport hands back with each
 		// call, and a client cannot choose it: whatever one sent is replaced.
@@ -195,4 +205,25 @@ func (b *bufferedResponse) Write(p []byte) (int, error) {
 		return 0, io.ErrShortWrite
 	}
 	return b.body.Write(p)
+}
+
+// agentStreamRecheck is how often an open event stream checks its token.
+const agentStreamRecheck = time.Second
+
+// endStreamWithToken cancels an event stream once its token no longer
+// authenticates (revoked or expired), and returns when the stream ends.
+func endStreamWithToken(ctx context.Context, cancel context.CancelFunc, agents AgentAccess, presented string) {
+	tick := time.NewTicker(agentStreamRecheck)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			if _, err := agents.AuthenticateAgentToken(ctx, presented); errors.Is(err, service.ErrAgentTokenInvalid) {
+				cancel()
+				return
+			}
+		}
+	}
 }
