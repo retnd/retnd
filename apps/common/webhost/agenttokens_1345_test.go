@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -114,7 +116,7 @@ func serve(h http.Handler, req *http.Request) *httptest.ResponseRecorder {
 
 func TestAValidBearerTokenAuthenticatesAsTheAgent(t *testing.T) {
 	router, access := agentRouter()
-	rec := serve(router, bearer(http.MethodGet, "/api/v1/system/version", "", readToken))
+	rec := serve(router, bearer(http.MethodGet, "/api/v1/system/health", "", readToken))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
@@ -130,8 +132,14 @@ func TestTheAuthenticatedActorIsAgentColonName(t *testing.T) {
 		actor = actorFromContext(r.Context())
 		w.WriteHeader(http.StatusNoContent)
 	})
-	h := authMiddleware(allowingPlatform("alice"), access)(next)
-	if rec := serve(h, bearer(http.MethodGet, "/api/v1/system/version", "", readToken)); rec.Code != http.StatusNoContent {
+	// The floor reads the root router's own pattern for the path, so the
+	// middleware is mounted the way NewRouter mounts it.
+	h := chi.NewRouter()
+	h.Route("/api/v1", func(r chi.Router) {
+		r.Use(authMiddleware(allowingPlatform("alice"), access))
+		r.Get("/system/health", next)
+	})
+	if rec := serve(h, bearer(http.MethodGet, "/api/v1/system/health", "", readToken)); rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d", rec.Code)
 	}
 	if actor != "agent:triage" {
@@ -156,7 +164,7 @@ func TestAnInvalidBearerIsRefusedBeforeAnyHandlerAndAudited(t *testing.T) {
 			// The platform below would authenticate this request as alice
 			// if the bearer header were ignored, which is the fall-through
 			// this test exists to forbid.
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/system/version", nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/system/health", nil)
 			req.Header.Set("Authorization", header)
 			rec := serve(router, req)
 			if rec.Code != http.StatusUnauthorized || responseErrorCode(rec.Body.String()) != "AGENT_TOKEN_INVALID" {
@@ -277,7 +285,7 @@ func TestAnOperateTokenCannotMutateDirectly(t *testing.T) {
 
 func TestEveryRefusedBearerRequestStillGetsACorrelationID(t *testing.T) {
 	router, _ := agentRouter()
-	rec := serve(router, bearer(http.MethodGet, "/api/v1/system/version", "", "rat_unknown_token_00000000000000000000000"))
+	rec := serve(router, bearer(http.MethodGet, "/api/v1/system/health", "", "rat_unknown_token_00000000000000000000000"))
 	if rec.Header().Get(CorrelationHeader) == "" {
 		t.Error("no correlation id on a bearer refusal")
 	}
@@ -349,7 +357,7 @@ func TestTheTokenListNeverCarriesTheHashOrMoreThanThePrefix(t *testing.T) {
 
 func TestRevokeIsASessionPostAndTheNextBearerRequestIsRefused(t *testing.T) {
 	router, access := agentRouter()
-	if rec := serve(router, bearer(http.MethodGet, "/api/v1/system/version", "", readToken)); rec.Code != http.StatusOK {
+	if rec := serve(router, bearer(http.MethodGet, "/api/v1/system/health", "", readToken)); rec.Code != http.StatusOK {
 		t.Fatalf("before the revoke: %d", rec.Code)
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/tokens/agt_read/revoke", nil)
@@ -359,7 +367,7 @@ func TestRevokeIsASessionPostAndTheNextBearerRequestIsRefused(t *testing.T) {
 	if len(access.revoked) != 1 {
 		t.Fatalf("revoked = %v", access.revoked)
 	}
-	rec := serve(router, bearer(http.MethodGet, "/api/v1/system/version", "", readToken))
+	rec := serve(router, bearer(http.MethodGet, "/api/v1/system/health", "", readToken))
 	if rec.Code != http.StatusUnauthorized || responseErrorCode(rec.Body.String()) != "AGENT_TOKEN_INVALID" {
 		t.Errorf("after the revoke = %d %s, want 401 AGENT_TOKEN_INVALID", rec.Code, rec.Body.String())
 	}
@@ -383,7 +391,7 @@ func TestABearerOnADeniedPrefixIsRefusedWithNoTokenStore(t *testing.T) {
 			t.Errorf("%s with no token store = %d %s, want 403 AGENT_ROUTE_DENIED", p, rec.Code, rec.Body.String())
 		}
 	}
-	if rec := serve(h, bearer(http.MethodGet, "/api/v1/system/version", "", readToken)); rec.Code != http.StatusNoContent {
+	if rec := serve(h, bearer(http.MethodGet, "/api/v1/system/health", "", readToken)); rec.Code != http.StatusNoContent {
 		t.Errorf("an open route with no token store = %d, want the header ignored as before", rec.Code)
 	}
 }
