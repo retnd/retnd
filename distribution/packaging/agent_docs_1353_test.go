@@ -93,10 +93,25 @@ func TestTheSiteReferenceAgentRowNamesEveryAgentVerb(t *testing.T) {
 	if row == nil {
 		t.Fatal("docs/site/reference.html's command table has no `agent` row to hold to the verbs")
 	}
-	if missing := undocumentedVerbs(row[1], verbs); len(missing) > 0 {
+	if missing := undocumentedAgentVerbs(row[1], verbs); len(missing) > 0 {
 		t.Errorf("docs/site/reference.html's `agent` row does not name these verbs the binary registers: %v.\n"+
 			"Each needs a <code> span in that row that starts with the verb, for a sub-verb as \"token create\" or \"confirmations approve\".", missing)
 	}
+}
+
+// undocumentedAgentVerbs is the verbs no <code> span in the row starts with,
+// read with or without the "agent " the row writes each one with (and an
+// optional "retnd "), so "agent token create NAME" names "token create".
+// The encryption row's reader allows only its own prefix.
+func undocumentedAgentVerbs(row string, verbs []string) []string {
+	var missing []string
+	for _, v := range verbs {
+		named := regexp.MustCompile(`<code>(retnd )?(agent )?` + regexp.QuoteMeta(v) + `(&lt;| |</code>)`)
+		if !named.MatchString(row) {
+			missing = append(missing, v)
+		}
+	}
+	return missing
 }
 
 func TestTheAgentVerbCheckCanActuallyFail(t *testing.T) {
@@ -109,7 +124,7 @@ func TestTheAgentVerbCheckCanActuallyFail(t *testing.T) {
 		t.Fatalf("the reader found %v, want %v", got, want)
 	}
 	row := `<td><code>agent token create NAME</code>, <code>token list</code>, <code>serve --stdio</code></td>`
-	if m := undocumentedVerbs(row, got); len(m) != 1 || m[0] != "confirmations approve" {
+	if m := undocumentedAgentVerbs(row, got); len(m) != 1 || m[0] != "confirmations approve" {
 		t.Fatalf("dropping the confirmations verbs from a row must report exactly them, got %v", m)
 	}
 }
