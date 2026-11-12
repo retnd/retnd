@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/retnd/retnd/core/agentmcp"
 	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/internal/apiclient"
 )
@@ -21,11 +22,19 @@ func TestAgentRefusalsAnswerOneUntilSomeoneDecidesOtherwise_1352(t *testing.T) {
 		apicontract.ErrorCodeAgentScopeInsufficient,
 		apicontract.ErrorCodeAgentRouteDenied,
 		apicontract.ErrorCodeAgentConfirmationRequired,
+		// Q20: the confirmation codes a person meets deciding one.
+		apicontract.ErrorCodeAgentConfirmationNotFound,
+		apicontract.ErrorCodeAgentConfirmationDecided,
+		apicontract.ErrorCodeAgentConfirmationTokenEnded,
 	} {
 		t.Run(string(code), func(t *testing.T) {
 			got, hint := engineRefusalExit(&apiclient.Error{Code: code})
 			if got != exitFailure || hint != "" {
 				t.Errorf("%s = exit %d (%q), want exit %d and no hint", code, got, hint, exitFailure)
+			}
+			// The tool result says the same, so an agent and a script agree.
+			if mcp := agentmcp.ExitCode(string(code)); mcp != exitFailure {
+				t.Errorf("%s: the tool result's exit_code is %d, the CLI's %d", code, mcp, exitFailure)
 			}
 		})
 	}
