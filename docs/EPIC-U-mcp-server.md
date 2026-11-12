@@ -157,7 +157,7 @@ Both transports are clients of `/api/v1` and nothing else; no new process, socke
 
 ## FR-97, Everything is audited
 
-Every tool call, reads included, writes an audit row naming the token, the tool, the arguments after projection, the outcome, the correlation id and the transport; mutating calls, refusals and confirmations also reach the activity feed as `agent_action` events with a `Result`; the trail is readable from the CLI, the API and the browser and is bounded.
+Every tool call, reads included, writes an audit row naming the token, the tool, the arguments after projection, the outcome, the correlation id and the transport (the outcome is the code, never the engine's message: the message is free text that can carry outside-origin or secret-adjacent words, so the audit stores the code and the response carries the sentence); mutating calls, refusals and confirmations also reach the activity feed as `agent_action` events with a `Result`; the trail is readable from the CLI, the API and the browser and is bounded.
 
 ## FR-98, Nothing leaves that should not
 
@@ -335,7 +335,7 @@ Opening the destructive gate. Any tool over key export, import, decrypt, bundle 
 | Configure tools | `backup_set_enabled`, `backup_set_retention_set`, `backup_set_retention_clear`, `backup_set_assurance_set` |
 | Resources | `retnd://status`, `retnd://backup-sets`, `retnd://backup-sets/{source}/{set}`, `retnd://backups/{source}/{set}/{name}`, `retnd://activity`, `retnd://encryption`, `retnd://assurance/due` |
 | Prompts | `triage-health`, `explain-backup`, `prepare-recovery-test` |
-| Errors | `AGENT_TOKEN_INVALID` (401), `AGENT_TOKEN_NOT_FOUND` (404, revoking an id that does not exist), `AGENT_SCOPE_INSUFFICIENT` (403), `AGENT_ROUTE_DENIED` (403), `AGENT_RATE_LIMITED`, `AGENT_HTTP_TRANSPORT_OFF`, `AGENT_CONFIRMATION_REQUIRED` (409, and a raw bearer request to a mutating route never creates a confirmation: only an MCP tool call does), `AGENT_CONFIRMATION_EXPIRED`, `AGENT_CONFIRMATION_LIMIT`, `AGENT_CONFIRMATION_BODY_SUBSTITUTED` |
+| Errors | `AGENT_TOKEN_INVALID` (401), `AGENT_TOKEN_NOT_FOUND` (404, revoking an id that does not exist), `AGENT_SCOPE_INSUFFICIENT` (403), `AGENT_ROUTE_DENIED` (403), `AGENT_RATE_LIMITED`, `AGENT_HTTP_TRANSPORT_OFF`, `AGENT_CONFIRMATION_REQUIRED` (409, and a raw bearer request to a mutating route never creates a confirmation: only an MCP tool call does), `AGENT_CONFIRMATION_EXPIRED`, `AGENT_CONFIRMATION_LIMIT`, `AGENT_CONFIRMATION_BODY_SUBSTITUTED`, `AGENT_AUDIT_UNAVAILABLE` (503, the audit row could not be reserved, so the call fails closed and nothing runs) |
 | Config | `agents.http_transport` (`off`/`on`), `agents.rate_limit_per_minute`, `agents.confirmation_ttl`, `agents.audit_retention_days`, `agents.max_pending_confirmations`; resolved `config.Agents` |
 | Migration | `0022_agent_access.sql`: `agent_tokens(id, name, prefix, hash, scope, owner, created_at, expires_at, last_used_at, revoked_at)`, `agent_confirmations(id, token_id, tool, route, method, body, command, backup_set, state, created_at, expires_at, decided_at, decided_by)`, `agent_audit(seq, at, token_id, tool, transport, arguments, status, code, correlation_id, confirmation_id)` |
 | Events | `EventAgentAction = "agent_action"` with `Result`; confirmation states ride it as `pending`, `approved`, `denied`, `expired` |
