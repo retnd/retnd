@@ -307,6 +307,10 @@ describe("the suite choice and the rotate-then-confirm flow (#1318)", () => {
     expect(within(group.querySelector('[data-suite-option="age/v1"]') as HTMLElement).getByText("Deprecated, retiring in 0.9.0")).toBeInTheDocument();
   });
 
+  /** Finds a control in whichever "Change the suite" dialog is mounted now. */
+  const inLiveDialog = (role: "button" | "checkbox", name: string | RegExp) =>
+    waitFor(() => within(screen.getByRole("dialog", { name: "Change the suite" })).getByRole(role, { name }));
+
   it("patches, then rotates under the new suite, then exports and confirms, in that order", async () => {
     const api = createMockApi("encryption-suite-change");
     const patch = vi.spyOn(api, "patchEncryptionPolicy");
@@ -325,12 +329,14 @@ describe("the suite choice and the rotate-then-confirm flow (#1318)", () => {
     await user.click(await within(dialog).findByRole("button", { name: "Rotate key" }));
     await waitFor(() => expect(rotate).toHaveBeenCalledWith("age-pq/v1"));
 
-    await user.click(await within(dialog).findByRole("checkbox", { name: /I understand this file can decrypt every copy/ }));
-    await user.click(within(dialog).getByRole("button", { name: "Download bundle" }));
+    // The bundle and confirm steps are separate dialog components, so the
+    // dialog node is new at each of them: query the live one every time.
+    await user.click(await inLiveDialog("checkbox", /I understand this file can decrypt every copy/));
+    await user.click(await inLiveDialog("button", "Download bundle"));
     await waitFor(() => expect(exp).toHaveBeenCalledTimes(1));
     expect(confirm).not.toHaveBeenCalled();
 
-    await user.click(await within(dialog).findByRole("button", { name: "I have stored the bundle safely" }));
+    await user.click(await inLiveDialog("button", "I have stored the bundle safely"));
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     // The order is the point.
@@ -381,7 +387,7 @@ describe("the suite choice and the rotate-then-confirm flow (#1318)", () => {
     const dialog = await screen.findByRole("dialog", { name: "Change the suite" });
     await user.click(within(dialog).getByRole("button", { name: "Change suite" }));
     await user.click(await within(dialog).findByRole("button", { name: "Rotate key" }));
-    await within(dialog).findByRole("button", { name: "Download bundle" });
+    await inLiveDialog("button", "Download bundle");
     expect(document.body.innerHTML).not.toMatch(/AGE-SECRET-KEY|age1pq1/);
     expect(document.querySelector('textarea, input[type="file"]')).toBeNull();
   });
@@ -397,9 +403,10 @@ describe("nothing over 80 characters is drawn whole (#1318)", () => {
   });
 
   it("offers Copy for a clipped value and puts the whole value on the clipboard only", async () => {
+    // setup() attaches its own clipboard stub, so the spy goes in after it.
+    const user = userEvent.setup();
     const write = vi.fn(async () => undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText: write }, configurable: true });
-    const user = userEvent.setup();
     render(<ClippedText value={PQ_RECIPIENT} />);
     expect(document.body.innerHTML).not.toContain("CANARY1318TAIL");
     await user.click(screen.getByRole("button", { name: "Copy" }));

@@ -2596,7 +2596,8 @@ function reencryptQuery(req: ReencryptRequest): string {
   return q.toString();
 }
 
-const suiteQuery = (suite?: string) => (suite ? "?suite=" + encodeURIComponent(suite) : "");
+// The "?" stays at the call site, so the client-path gate (#211) reads the whole operation path.
+const suiteQuery = (suite?: string) => (suite ? "suite=" + encodeURIComponent(suite) : "");
 
 function fromWireEncryptionPolicy(w: WireEncryptionPolicy): EncryptionPolicy {
   return {
@@ -4653,10 +4654,14 @@ export const httpApi: RetndApi = {
     ),
   listEncryptionKeys: () =>
     request<WireListEncryptionKeysResponse>("/encryption/keys").then((r) => (r.keys ?? []).map(fromWireEncryptionKey)),
-  createEncryptionKey: (suite) =>
-    request<WireEncryptionKeyStatus>("/encryption/keys" + suiteQuery(suite), { method: "POST" }).then(fromWireEncryptionKey),
-  rotateEncryptionKey: (suite) =>
-    request<WireEncryptionKeyStatus>("/encryption/keys/rotate" + suiteQuery(suite), { method: "POST" }).then(fromWireEncryptionKey),
+  createEncryptionKey: (suite) => {
+    const q = suiteQuery(suite);
+    return request<WireEncryptionKeyStatus>("/encryption/keys" + (q ? "?" + q : ""), { method: "POST" }).then(fromWireEncryptionKey);
+  },
+  rotateEncryptionKey: (suite) => {
+    const q = suiteQuery(suite);
+    return request<WireEncryptionKeyStatus>("/encryption/keys/rotate" + (q ? "?" + q : ""), { method: "POST" }).then(fromWireEncryptionKey);
+  },
   retireEncryptionKey: (id) =>
     request<WireEncryptionKeyStatus>(encryptionKeyPath(id) + "/retire", { method: "POST" }).then(fromWireEncryptionKey),
   exportRecoveryBundle: (id, opts) =>
