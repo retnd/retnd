@@ -208,6 +208,23 @@ const (
 	// to go on.
 	EventAPIAction = "api_action"
 
+	// EventAgentAction records one thing an agent did or was refused, or one
+	// confirmation of an agent's change changing state (EPIC U, #1348; FR-97).
+	//
+	// It is not EventAPIAction with a different actor. That event is what a
+	// request through /api/v1 did and has the route's command beside it; this
+	// one is about a token and a tool, and is the line an operator reads to
+	// answer "what is the agent doing". It is emitted for every mutating call,
+	// every refusal and every confirmation state change, always with a Result,
+	// and never for a read: the feed is bounded to 50,000 rows, reads are the
+	// bulk of an agent's traffic, and they have their own table
+	// (agent_audit) that is paged instead of trimmed.
+	//
+	// Confirmation states ride it as the state field: pending, approved,
+	// denied, expired. The line carries backup_set when the call concerns a
+	// set, so it lands on that set's strip.
+	EventAgentAction = "agent_action"
+
 	// EventSnapshotPhase records one incremental (EPIC K) snapshot run
 	// moving from one durable phase to another: the snapshot engine's
 	// half of what EventLifecycleTransition says about an artifact.
