@@ -196,7 +196,7 @@ var toolRows = []Row{
 		Tool: "backups_list", Method: "GET", Route: "/backups", Scope: ScopeRead,
 		Description: "List the backups this deployment holds, each with its state, size, validation result, quarantine flag and the placements that hold a copy.",
 		Untrusted: []string{
-			"artifacts[].name", "artifacts[].remote_path", "artifacts[].local_path", "artifacts[].validation_detail",
+			"artifacts[].id", "artifacts[].name", "artifacts[].remote_path", "artifacts[].local_path", "artifacts[].validation_detail",
 			"artifacts[].quarantine_reason", "artifacts[].placements[].location",
 			"artifacts[].placements[].last_failure_reason", "artifacts[].placements[].recovery_failure_reason",
 		},
@@ -205,7 +205,7 @@ var toolRows = []Row{
 		Tool: "backup_show", Method: "GET", Route: "/backups/{source}/{set}/{name}", Scope: ScopeRead,
 		Description: "Read one backup by source, set and name: its state, validation, checksum, retention tier and every placement that holds a copy.",
 		Untrusted: []string{
-			"name", "remote_path", "local_path", "validation_detail", "quarantine_reason",
+			"id", "name", "remote_path", "local_path", "validation_detail", "quarantine_reason",
 			"placements[].location", "placements[].last_failure_reason", "placements[].recovery_failure_reason",
 		},
 	},
@@ -232,7 +232,7 @@ var toolRows = []Row{
 	{
 		Tool: "activity", Method: "GET", Route: "/activity", Scope: ScopeRead,
 		Description: "Page through the activity journal, newest first: what changed, to which backup, when and who did it.",
-		Untrusted:   []string{"events[].artifact_name", "events[].detail"},
+		Untrusted:   []string{"events[].artifact_id", "events[].artifact_name", "events[].detail"},
 	},
 	{
 		Tool: "activity_live", Method: "GET", Route: "/activity/live", Scope: ScopeRead,
@@ -246,7 +246,7 @@ var toolRows = []Row{
 		Tool: "quarantine_list", Method: "GET", Route: "/quarantine", Scope: ScopeRead,
 		Description: "List the backups held in quarantine and the reason each was held back.",
 		Untrusted: []string{
-			"artifacts[].name", "artifacts[].remote_path", "artifacts[].local_path", "artifacts[].validation_detail",
+			"artifacts[].id", "artifacts[].name", "artifacts[].remote_path", "artifacts[].local_path", "artifacts[].validation_detail",
 			"artifacts[].quarantine_reason", "artifacts[].placements[].location",
 			"artifacts[].placements[].last_failure_reason", "artifacts[].placements[].recovery_failure_reason",
 		},

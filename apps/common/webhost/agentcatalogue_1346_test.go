@@ -284,9 +284,13 @@ func TestTheCatalogueRouteAnswersTheLibrarysObject(t *testing.T) {
 		t.Fatal(err)
 	}
 	router, _ := agentRouter()
+	// A token does not read the catalogue over the wire: its row is a
+	// refusal (whyCatalogue), and an agent has it as its own list of tools.
+	if rec := serve(router, bearer(http.MethodGet, "/api/v1/agent/tools", "", readToken)); rec.Code != http.StatusForbidden || responseErrorCode(rec.Body.String()) != "AGENT_ROUTE_DENIED" {
+		t.Errorf("bearer: = %d %s, want 403 AGENT_ROUTE_DENIED", rec.Code, rec.Body.String())
+	}
 	for name, req := range map[string]*http.Request{
 		"session": httptest.NewRequest(http.MethodGet, "/api/v1/agent/tools", nil),
-		"bearer":  bearer(http.MethodGet, "/api/v1/agent/tools", "", readToken),
 	} {
 		rec := serve(router, req)
 		if rec.Code != http.StatusOK {
