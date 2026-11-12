@@ -245,7 +245,15 @@ func (s *server) run(ctx context.Context, t agenttools.Row, raw json.RawMessage)
 			return res
 		}
 		// Over the cap: ask the route for a smaller page rather than cut this one.
+		//
+		// Only a route whose answer carries next_cursor can be paged: the
+		// smaller page then says where the rest starts. Halving the limit on
+		// a route with no cursor hands back a short list that reads as the
+		// whole one, so that answer is refused instead (AGENT_RESULT_TOO_LARGE).
 		body, _ = decoded.(map[string]any)
+		if _, paged := body["next_cursor"]; !paged {
+			break
+		}
 		n := listLength(body)
 		if attempt >= maxPageAttempts || n < 2 || (prev > 0 && n >= prev) {
 			break

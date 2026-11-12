@@ -18,7 +18,11 @@ import (
 // does applies (the path is escaped per parameter, the answer is held to the
 // contract's statuses and codes), so this is a second way to name an
 // operation and not a way around the contract.
-func (c *Client) CallRoute(ctx context.Context, method, route string, pathArgs []string, query url.Values, body json.RawMessage) (json.RawMessage, error) {
+//
+// The string is the response's X-Correlation-Id, so a success can name the
+// engine's log line the way a refusal does (FR-94). It is empty when the call
+// never got an answer.
+func (c *Client) CallRoute(ctx context.Context, method, route string, pathArgs []string, query url.Values, body json.RawMessage) (json.RawMessage, string, error) {
 	var ep *apicontract.Endpoint
 	for i := range apicontract.Endpoints {
 		if apicontract.Endpoints[i].Method == method && apicontract.Endpoints[i].Path == route {
@@ -27,15 +31,18 @@ func (c *Client) CallRoute(ctx context.Context, method, route string, pathArgs [
 		}
 	}
 	if ep == nil {
-		return nil, &ContractViolation{Operation: method + " " + route, Method: method, Reason: "api/v1/openapi.json declares no such route, so there is nothing to call"}
+		return nil, "", &ContractViolation{Operation: method + " " + route, Method: method, Reason: "api/v1/openapi.json declares no such route, so there is nothing to call"}
 	}
 	var payload any
 	if len(body) > 0 {
 		payload = body
 	}
-	var out json.RawMessage
-	if err := c.callQuery(ctx, ep.ID, pathArgs, query, payload, &out); err != nil {
-		return nil, err
+	var (
+		out         json.RawMessage
+		correlation string
+	)
+	if err := c.callQuery(withCorrelationOut(ctx, &correlation), ep.ID, pathArgs, query, payload, &out); err != nil {
+		return nil, correlation, err
 	}
-	return out, nil
+	return out, correlation, nil
 }

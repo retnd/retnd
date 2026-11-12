@@ -100,12 +100,12 @@ func readAgentToken(path string, getenv func(string) string) (string, error) {
 type engineCaller struct{ client *apiclient.Client }
 
 func (c engineCaller) Call(ctx context.Context, call agentmcp.Call) (agentmcp.Response, error) {
-	body, err := c.client.CallRoute(ctx, call.Method, call.Route, call.PathArgs, call.Query, nil)
+	body, correlationID, err := c.client.CallRoute(ctx, call.Method, call.Route, call.PathArgs, call.Query, nil)
 	var refused *apiclient.Error
 	if errors.As(err, &refused) {
 		return agentmcp.Response{}, &agentmcp.Refusal{Status: refused.Status, Code: string(refused.Code), Message: refused.Message, CorrelationID: refused.CorrelationID}
 	}
-	return agentmcp.Response{Body: body}, err
+	return agentmcp.Response{Body: body, CorrelationID: correlationID}, err
 }
 
 func agentServe(args []string) int {

@@ -654,6 +654,14 @@
           },
           "destructive_operations": {
             "$ref": "#/components/schemas/DestructiveOperationsStatus"
+          },
+          "agents_http_transport": {
+            "type": "string",
+            "description": "Whether the streamable HTTP transport of the agent endpoint, POST, GET and DELETE /api/v1/agent/mcp, answers on this deployment: on when agents.http_transport is on in config.yaml, off otherwise (EPIC U). Like destructive_operations it is this deployment's own setting and not a platform capability. The stdio transport, retnd agent serve --stdio, works in both states.",
+            "enum": [
+              "on",
+              "off"
+            ]
           }
         },
         "required": [
@@ -663,7 +671,8 @@
           "storage_picker",
           "embedded_window",
           "app_store_packaging",
-          "destructive_operations"
+          "destructive_operations",
+          "agents_http_transport"
         ],
         "x-capability-fields": [
           "native_auth",

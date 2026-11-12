@@ -462,6 +462,10 @@ func (c *Client) do(ctx context.Context, ep apicontract.Endpoint, pathArgs []str
 			return &Unreachable{Operation: ep.ID, BaseURL: c.base.Redacted(), Err: unwrapURLError(err)}
 		}
 
+		if out, ok := ctx.Value(correlationOutCtx{}).(*string); ok {
+			*out = resp.Header.Get("X-Correlation-Id")
+		}
+
 		if wait, ok := rateLimitWait(ep, resp, attempt); ok {
 			drain(resp)
 			if err := c.wait(ctx, wait); err != nil {
@@ -584,6 +588,16 @@ func withBootstrapToken(ctx context.Context, token string) context.Context {
 func bootstrapTokenFrom(ctx context.Context) string {
 	token, _ := ctx.Value(bootstrapTokenCtx{}).(string)
 	return token
+}
+
+type correlationOutCtx struct{}
+
+// withCorrelationOut asks do to leave the answer's X-Correlation-Id in *out. It
+// travels in the context, as the bootstrap token does, so the dozens of calls
+// that do not want it are not touched: for them it is absent and do writes
+// nowhere. Only CallRoute passes one.
+func withCorrelationOut(ctx context.Context, out *string) context.Context {
+	return context.WithValue(ctx, correlationOutCtx{}, out)
 }
 
 // stepUpHeaderName is webhost.StepUpHeader, spelled here because this

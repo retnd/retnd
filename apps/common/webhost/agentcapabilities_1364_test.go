@@ -16,7 +16,7 @@ import (
 // streamable HTTP transport is on, so the Agents card can state it and an
 // operator can ask "is HTTP on?" without reading config.yaml.
 
-func capabilitiesOf(t *testing.T, router http.Handler) map[string]any {
+func capabilitiesDocument(t *testing.T, router http.Handler) map[string]any {
 	t.Helper()
 	rec := serve(router, httptest.NewRequest(http.MethodGet, "/api/v1/system/capabilities", nil))
 	if rec.Code != http.StatusOK {
@@ -43,7 +43,7 @@ func TestCapabilitiesReportTheAgentHTTPTransport(t *testing.T) {
 		"off":                 {off, "off"},
 		"a backend with none": {plain, "off"},
 	} {
-		if got := capabilitiesOf(t, tc.router)["agents_http_transport"]; got != tc.want {
+		if got := capabilitiesDocument(t, tc.router)["agents_http_transport"]; got != tc.want {
 			t.Errorf("%s: agents_http_transport = %v, want %q", name, got, tc.want)
 		}
 	}

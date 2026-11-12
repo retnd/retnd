@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "9976f5e97b0b334d6152f1356138cba423c0f3eae572f366aed3bf984146fbf5"
+const ContractSHA256 = "abec7f3245ca1421716e8824b6dac29709a6ccad54a5d5ee41d69f4422f8c3ae"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -2702,6 +2702,7 @@ type BackupSetWorkflowResponse struct {
 // reported so a client can show the right control or message before
 // anyone presses a gated one.
 type CapabilitiesResponse struct {
+	AgentsHttpTransport   string                      `json:"agents_http_transport"`
 	AppStorePackaging     bool                        `json:"app_store_packaging"`
 	DestructiveOperations DestructiveOperationsStatus `json:"destructive_operations"`
 	EmbeddedWindow        bool                        `json:"embedded_window"`

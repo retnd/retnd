@@ -242,7 +242,10 @@ func debugShortcutEnv() bool {
 // handlers bundles what the HTTP methods in handlers_system.go and
 // handlers_operations.go need, built once by NewRouter.
 type handlers struct {
-	agents        AgentAccess
+	agents AgentAccess
+	// agentPolicy is the agents: block as it resolved, for GET
+	// /system/capabilities.
+	agentPolicy   service.AgentPolicy
 	platform      capabilities.PlatformAdapter
 	backend       BackupServiceClient
 	binaryVersion string
@@ -333,6 +336,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	h := &handlers{
 		agents:        agents,
+		agentPolicy:   policy,
 		platform:      cfg.Platform,
 		backend:       cfg.Backend,
 		binaryVersion: cfg.BinaryVersion,

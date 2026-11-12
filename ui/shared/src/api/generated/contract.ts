@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "9976f5e97b0b334d6152f1356138cba423c0f3eae572f366aed3bf984146fbf5";
+export const CONTRACT_SHA256 = "abec7f3245ca1421716e8824b6dac29709a6ccad54a5d5ee41d69f4422f8c3ae";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -3722,6 +3722,7 @@ export interface WireBackupSetWorkflowResponse {
  *  reported so a client can show the right control or message before
  *  anyone presses a gated one. */
 export interface WireCapabilitiesResponse {
+  agents_http_transport: "on" | "off";
   app_store_packaging: boolean;
   destructive_operations: WireDestructiveOperationsStatus;
   embedded_window: boolean;
