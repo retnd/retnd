@@ -649,6 +649,12 @@ commands:
                                                   would have exited with for the same call. The engine's own streamable
                                                   HTTP transport at POST, GET and DELETE /api/v1/agent/mcp is off unless
                                                   agents.http_transport is on in config.yaml
+  agent tools [--json]
+                                                  the catalogue an AI agent is offered: every tool with its scope, its
+                                                  route, the command that does the same from a terminal and the result
+                                                  fields that come from outside this deployment, then every route no
+                                                  agent reaches and why. It is fixed in the binary, so it needs no
+                                                  engine and no token. The same as GET /api/v1/agent/tools
   ssh host-key-probe HOST [--port N] [--json]
                                                   connect to HOST (port 22 unless told) and print the host key that
                                                   answers, its fingerprint and the known_hosts line for it. Nothing

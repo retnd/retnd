@@ -9,12 +9,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/retnd/retnd/core/agenttools"
 	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/internal/copycrypt"
 	"github.com/retnd/retnd/core/internal/health"
@@ -43,7 +43,9 @@ import (
 // ageIdentityShape is what an age identity looks like on a page. The bare
 // prefix is not enough: the refusal for a secret that is not an identity
 // quotes "AGE-SECRET-KEY-1" as what it expected, and that sentence is allowed.
-var ageIdentityShape = regexp.MustCompile(`AGE-SECRET-KEY-(PQ-)?1[A-Z0-9]{20,}`)
+// It is the shape core/agenttools projects away (#1346), read from there and
+// not copied, so a shape changed for one is changed for both.
+var ageIdentityShape = agenttools.AgeIdentityShape
 
 // renderings is every way material could plausibly reach a text surface.
 func renderings(m string) []string {

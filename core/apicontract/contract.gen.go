@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "420584f6ec47b29db52c965cadba595f232281faa1ecec9b72fc3dd902da42b8"
+const ContractSHA256 = "9976f5e97b0b334d6152f1356138cba423c0f3eae572f366aed3bf984146fbf5"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -566,6 +566,15 @@ var Endpoints = []Endpoint{
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeAgentRouteDenied},
 			404: {ErrorCodeAgentTokenNotFound},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "listAgentTools", Method: "GET", Path: "/agent/tools",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AgentToolsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
 			500: {ErrorCodeInternal},
 		},
 	},
@@ -2220,6 +2229,22 @@ type AdoptedPath struct {
 type AgentMcpFrame struct {
 }
 
+// AgentPrompt is one prompt: a static description, the arguments it takes and the
+// read tools it draws on.
+type AgentPrompt struct {
+	Arguments   []string `json:"arguments"`
+	Description string   `json:"description"`
+	Name        string   `json:"name"`
+	Tools       []string `json:"tools"`
+}
+
+// AgentResource is one resource, backed by a read tool.
+type AgentResource struct {
+	Description string `json:"description"`
+	Tool        string `json:"tool"`
+	Uri         string `json:"uri"`
+}
+
 // AgentToken is one agent token as every surface after the mint shows it: its
 // name, the first eight characters of the token, scope, owner and
 // times, never the hash and never more of the token than the prefix.
@@ -2236,6 +2261,41 @@ type AgentToken struct {
 	RevokedAt  *string `json:"revoked_at"`
 	Scope      string  `json:"scope"`
 	Status     string  `json:"status"`
+}
+
+// AgentTool is one tool an agent may call. untrusted names the result fields
+// whose values originate outside the deployment (file names,
+// validator output, workflow logs, activity messages, remote
+// hostnames); a transport puts them under an untrusted object and
+// never in text.
+type AgentTool struct {
+	Action      string   `json:"action,omitempty"`
+	Description string   `json:"description"`
+	Method      string   `json:"method"`
+	Name        string   `json:"name"`
+	Route       string   `json:"route"`
+	Scope       string   `json:"scope"`
+	Twin        string   `json:"twin"`
+	Untrusted   []string `json:"untrusted"`
+}
+
+// AgentToolRefusal is A route with no tool, and why.
+type AgentToolRefusal struct {
+	Action string `json:"action,omitempty"`
+	Denied bool   `json:"denied"`
+	Method string `json:"method"`
+	Route  string `json:"route"`
+	Why    string `json:"why"`
+}
+
+// AgentToolsResponse is GET /agent/tools. The whole catalogue. denied_fields are the keys
+// the one projection at the tool boundary drops at every depth.
+type AgentToolsResponse struct {
+	DeniedFields []string           `json:"denied_fields"`
+	Prompts      []AgentPrompt      `json:"prompts"`
+	Refusals     []AgentToolRefusal `json:"refusals"`
+	Resources    []AgentResource    `json:"resources"`
+	Tools        []AgentTool        `json:"tools"`
 }
 
 // ApplyRetentionRequest is POST /backup-sets/{source}/{set}/retention/apply.
@@ -5515,7 +5575,12 @@ var SchemaTypes = map[string]any{
 	"ActivityEvent":                      ActivityEvent{},
 	"AdoptedPath":                        AdoptedPath{},
 	"AgentMcpFrame":                      AgentMcpFrame{},
+	"AgentPrompt":                        AgentPrompt{},
+	"AgentResource":                      AgentResource{},
 	"AgentToken":                         AgentToken{},
+	"AgentTool":                          AgentTool{},
+	"AgentToolRefusal":                   AgentToolRefusal{},
+	"AgentToolsResponse":                 AgentToolsResponse{},
 	"ApplyRetentionRequest":              ApplyRetentionRequest{},
 	"Artifact":                           Artifact{},
 	"ArtifactCheckResponse":              ArtifactCheckResponse{},

@@ -1,8 +1,11 @@
 package webhost
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"path"
@@ -10,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/retnd/retnd/core/agenttools"
 	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/service"
 )
@@ -23,12 +27,17 @@ import (
 // presents one is never also given the benefit of a cookie, and it reaches
 // strictly less than a session does:
 //
-//   - the routes in agentDeniedPrefixes refuse a bearer whatever its scope,
-//     before the scope is looked at;
+//   - the routes on core/agenttools' deny list refuse a bearer whatever its
+//     scope, before the token is looked at. The list is the catalogue's, read
+//     here on the wire, because a token works against raw /api/v1 and a deny
+//     list held only by a transport would hold nothing back (#1346);
 //   - a bearer reaches no route that changes anything. A read token is told
 //     so (AGENT_SCOPE_INSUFFICIENT); an operate or configure token is told a
 //     person has to confirm the change (AGENT_CONFIRMATION_REQUIRED), which is
-//     how U2.1 will take it. Until then nothing a token can do mutates;
+//     how U2.1 will take it, and only for a route the catalogue has a tool
+//     over. Any other change is AGENT_ROUTE_DENIED, so nothing outside the
+//     catalogue is ever put in front of a person to approve. Until U2.1
+//     nothing a token can do mutates;
 //   - requireCSRF passes a bearer principal and nobody else. CSRF defends a
 //     credential a browser sends by itself, and a header is not one.
 
@@ -43,11 +52,6 @@ type AgentAccess interface {
 	ListAgentTokens(ctx context.Context) ([]service.AgentToken, error)
 	RevokeAgentToken(ctx context.Context, id string) (service.AgentToken, error)
 }
-
-// agentDeniedPrefixes are the routes no token reaches under any scope. They
-// are paths below /api/v1. /auth/* is mounted beside the router rather than
-// inside it, so serve's mount refuses it too (AgentDeniedByMount).
-var agentDeniedPrefixes = []string{"/auth", "/system/first-run", "/recoveries", "/agent/tokens"}
 
 type principalContextKey struct{}
 
@@ -78,24 +82,63 @@ func bearerToken(r *http.Request) (string, bool) {
 	return token, true
 }
 
-// agentRouteDenied reports whether a path below /api/v1 is one a bearer may
-// never reach. Both the decoded and the raw form are checked, because the
-// router matches on whichever the request carries.
-func agentRouteDenied(r *http.Request) bool {
+// agentPaths are the paths below /api/v1 a request can be said to carry: the
+// decoded one and, when the client sent an encoded form, the raw one, each
+// cleaned. The router matches on whichever the request carries, so a check
+// reads both.
+func agentPaths(r *http.Request) []string {
 	candidates := []string{r.URL.Path}
 	if r.URL.RawPath != "" {
 		candidates = append(candidates, r.URL.RawPath)
 	}
-	for _, c := range candidates {
-		rel := strings.TrimPrefix(path.Clean("/"+c), "/api/v1")
-		for _, p := range agentDeniedPrefixes {
-			if rel == p || strings.HasPrefix(rel, p+"/") {
-				return true
-			}
+	out := make([]string, len(candidates))
+	for i, c := range candidates {
+		out[i] = strings.TrimPrefix(path.Clean("/"+c), "/api/v1")
+	}
+	return out
+}
+
+// agentRouteDenied reports whether a request is one a bearer may never make,
+// by the catalogue's deny list (agenttools.Denied).
+func agentRouteDenied(r *http.Request) bool {
+	for _, p := range agentPaths(r) {
+		if agenttools.Denied(r.Method, p) {
+			return true
 		}
 	}
 	return false
 }
+
+// agentChangeOffered reports whether a change reaches a route the catalogue
+// has a tool over, on every form of the path the request carries. The one
+// route several acts share (POST /operations) is told apart by the body's
+// action word, read from at most agentActionPeek bytes of it, and the body is
+// put back for whoever reads it next. A body that cannot be read, or has no
+// action, is the empty action, which no shared route offers.
+func agentChangeOffered(r *http.Request) bool {
+	var action struct {
+		Action string `json:"action"`
+	}
+	if r.Body != nil && r.Body != http.NoBody {
+		peeked, _ := io.ReadAll(io.LimitReader(r.Body, agentActionPeek))
+		r.Body = struct {
+			io.Reader
+			io.Closer
+		}{io.MultiReader(bytes.NewReader(peeked), r.Body), r.Body}
+		// A body that is not an object leaves the action empty, which is a
+		// refusal on a shared route and nothing on any other.
+		_ = json.Unmarshal(peeked, &action)
+	}
+	for _, p := range agentPaths(r) {
+		if !agenttools.Offered(r.Method, p, action.Action) {
+			return false
+		}
+	}
+	return true
+}
+
+// agentActionPeek bounds how much of a body is read to find its action word.
+const agentActionPeek = 1 << 20
 
 // AgentDeniedByMount refuses a bearer request before it reaches a handler
 // mounted outside the API router (the /api/v1/auth routes), whatever the token
@@ -166,6 +209,11 @@ func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAcce
 		if principal.Scope == service.AgentScopeRead {
 			audit(principal.TokenID, http.StatusForbidden, "AGENT_SCOPE_INSUFFICIENT",
 				writeError(w, http.StatusForbidden, "AGENT_SCOPE_INSUFFICIENT", "a read token cannot start or change anything"))
+			return nil, false
+		}
+		if !agentChangeOffered(r) {
+			audit(principal.TokenID, http.StatusForbidden, "AGENT_ROUTE_DENIED",
+				writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route"))
 			return nil, false
 		}
 		audit(principal.TokenID, http.StatusConflict, "AGENT_CONFIRMATION_REQUIRED",
@@ -250,4 +298,11 @@ func (h *handlers) revokeAgentToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, revoked.Contract())
+}
+
+// listAgentTools is GET /api/v1/agent/tools: the catalogue, from the same
+// function retnd agent tools prints. It reads nothing of this deployment, so it
+// needs no token store, and a session and a bearer token may both read it.
+func (h *handlers) listAgentTools(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, agenttools.Document())
 }

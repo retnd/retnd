@@ -851,7 +851,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Get("/ssh-keys", h.listSSHKeys)
 
 		// EPIC U (#1345): the agent token routes. Session only: authMiddleware
-		// refuses a bearer here (agentDeniedPrefixes), so a token can never
+		// refuses a bearer here (core/agenttools' deny list), so a token can never
 		// mint, list or revoke a token.
 		r.Get("/agent/tokens", h.listAgentTokens)
 		r.With(requireCSRF).Post("/agent/tokens", h.mintAgentToken)
@@ -861,6 +861,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// a cookie never reaches it, and a bearer is not a credential a browser
 		// sends by itself.
 		r.Handle("/agent/mcp", h.mcpEndpoint(root, policy, guard))
+
+		// EPIC U (#1346): the catalogue. Static, so a token may read it.
+		r.Get("/agent/tools", h.listAgentTools)
 		r.Get("/ssh/key-candidates", h.listSSHKeyCandidates)
 
 		// Issue #140 (B3.7): the one generic settings surface — a read

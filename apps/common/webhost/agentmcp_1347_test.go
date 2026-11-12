@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/retnd/retnd/core/agentmcp"
+	"github.com/retnd/retnd/core/agenttools"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -91,11 +92,9 @@ func TestAReadTokenMayPostMCPFramesButStillStartsNothing(t *testing.T) {
 // A tool call over HTTP is an ordinary /api/v1 request made as the token, and
 // answers the same Result the stdio transport does.
 func TestAToolCallOverHTTPAnswersTheResultObject(t *testing.T) {
-	prev := agentCatalogue
-	agentCatalogue = func() ([]agentmcp.Tool, func(any) any) {
-		return []agentmcp.Tool{{Name: "version", Method: http.MethodGet, Route: "/system/version", Description: "The engine's version."}}, func(v any) any { return v }
-	}
-	t.Cleanup(func() { agentCatalogue = prev })
+	prev := agentToolRows
+	agentToolRows = []agenttools.Row{{Tool: "version", Method: http.MethodGet, Route: "/system/version", Scope: agenttools.ScopeRead, Description: "The engine's version."}}
+	t.Cleanup(func() { agentToolRows = prev })
 
 	router, _ := mcpRouter(service.AgentPolicy{HTTPTransport: true, RateLimitPerMinute: 60})
 	call := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"version","arguments":{}}}`

@@ -143,8 +143,7 @@ func agentServe(args []string) int {
 		return fail(err)
 	}
 
-	tools, project := agentmcp.Catalogue()
-	server := agentmcp.New(agentmcp.Config{Tools: tools, Project: project, Caller: engineCaller{client: client}, Version: version})
+	server := agentmcp.New(agentmcp.Config{Caller: engineCaller{client: client}, Version: version})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -14,6 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/retnd/retnd/core/agentmcp"
+	"github.com/retnd/retnd/core/agenttools"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -36,9 +37,10 @@ import (
 // where it is authenticated, scope-checked, rate limited and audited, exactly
 // as it would be from stdio.
 
-// agentCatalogue is where the endpoint reads the tools it offers. It is a
-// variable so a test can offer a table of its own.
-var agentCatalogue = agentmcp.Catalogue
+// agentToolRows are the rows the endpoint offers as tools. Nil means the
+// catalogue's own read tools; it is a variable so a test can offer a table of
+// its own.
+var agentToolRows []agenttools.Row
 
 // mcpEndpoint answers /agent/mcp. root is the router that serves the whole
 // /api/v1 surface; a tool call re-enters it.
@@ -71,8 +73,7 @@ func (h *handlers) mcpEndpoint(root http.Handler, policy service.AgentPolicy, gu
 		// call, and a client cannot choose it: whatever one sent is replaced.
 		r.Header.Set(mcpPeerHeader, r.RemoteAddr)
 		build.Do(func() {
-			tools, project := agentCatalogue()
-			srv := agentmcp.New(agentmcp.Config{Tools: tools, Project: project, Caller: routerCaller{root: root}, Version: h.binaryVersion})
+			srv := agentmcp.New(agentmcp.Config{Tools: agentToolRows, Caller: routerCaller{root: root}, Version: h.binaryVersion})
 			served = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, &mcp.StreamableHTTPOptions{JSONResponse: true})
 		})
 		served.ServeHTTP(w, r)

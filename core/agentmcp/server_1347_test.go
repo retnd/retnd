@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/retnd/retnd/core/agenttools"
 )
 
 // U1.4 (#1347): the MCP server over the catalogue, driven through a real
@@ -26,20 +28,24 @@ func (f *fakeCaller) Call(_ context.Context, c Call) (Response, error) {
 	return f.respond(c)
 }
 
-var testTools = []Tool{
-	{Name: "status", Method: "GET", Route: "/system/health", Description: "Overall health."},
-	{Name: "backup_set_show", Method: "GET", Route: "/backup-sets/{source}/{set}", Description: "One backup set."},
-	{Name: "backups_list", Method: "GET", Route: "/backups", Description: "Backups.", Untrusted: []string{"artifacts[].name"}},
-	{Name: "activity", Method: "GET", Route: "/activity", Description: "Recent events."},
-	{Name: "backup_show", Method: "GET", Route: "/backups/{source}/{set}/{name}", Description: "One backup."},
-	{Name: "backup_sets_list", Method: "GET", Route: "/backup-sets", Description: "Sets."},
-	{Name: "encryption_state", Method: "GET", Route: "/encryption", Description: "Encryption."},
-	{Name: "assurance_due", Method: "GET", Route: "/assurance/due", Description: "Due."},
+func row(name, method, route, description string, untrusted ...string) agenttools.Row {
+	return agenttools.Row{Tool: name, Method: method, Route: route, Scope: agenttools.ScopeRead, Description: description, Untrusted: untrusted}
+}
+
+var testTools = []agenttools.Row{
+	row("status", "GET", "/system/health", "Overall health."),
+	row("backup_sets_list", "GET", "/backup-sets", "Sets."),
+	row("backup_set_show", "GET", "/backup-sets/*", "One backup set."),
+	row("backups_list", "GET", "/backups", "Backups.", "artifacts[].name"),
+	row("backup_show", "GET", "/backups/{source}/{set}/{name}", "One backup."),
+	row("encryption_state", "GET", "/encryption/policy", "Encryption."),
+	row("assurance_due", "GET", "/assurance/due", "Due."),
+	row("activity", "GET", "/activity", "Recent events."),
 }
 
 func connect(t *testing.T, caller Caller, maxBytes int) *mcp.ClientSession {
 	t.Helper()
-	srv := New(Config{Tools: testTools, Project: func(v any) any { return v }, Caller: caller, Version: "test", MaxResultBytes: maxBytes})
+	srv := New(Config{Tools: testTools, Caller: caller, Version: "test", MaxResultBytes: maxBytes})
 	serverSide, clientSide := mcp.NewInMemoryTransports()
 	ctx := context.Background()
 	ss, err := srv.Connect(ctx, serverSide, nil)

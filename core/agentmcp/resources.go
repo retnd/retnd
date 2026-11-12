@@ -7,50 +7,37 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/retnd/retnd/core/agenttools"
 )
 
-// resource is one retnd:// resource and the read tool that answers it. A
-// template's variables bind to the tool's route placeholders in order.
-type resource struct {
-	uri, name, description, tool string
-}
-
-var resources = []resource{
-	{"retnd://status", "status", "Overall backup health: what is stale, failing or fine.", "status"},
-	{"retnd://backup-sets", "backup-sets", "Every backup set with its latest state.", "backup_sets_list"},
-	{"retnd://backup-sets/{source}/{set}", "backup-set", "One backup set: its configuration and state.", "backup_set_show"},
-	{"retnd://backups/{source}/{set}/{name}", "backup", "One backup and its copies.", "backup_show"},
-	{"retnd://activity", "activity", "Recent backup lifecycle events, newest first.", "activity"},
-	{"retnd://encryption", "encryption", "Whether retained copies are encrypted, and which keys are active. Never key material.", "encryption_state"},
-	{"retnd://assurance/due", "assurance-due", "Scrubs and recovery tests that are due.", "assurance_due"},
-}
-
-// addResources registers every resource whose tool is in the catalogue. A
-// resource read is the same call as the tool, answered as the same Result
-// serialised as JSON text, so the two cannot disagree.
+// addResources registers every catalogue resource whose tool this server
+// offers. A resource read is the same call as its tool, answered as the same
+// Result serialised as JSON text, so the two cannot disagree. A template's
+// variables bind to the tool's route placeholders in order.
 func (s *server) addResources(srv *mcp.Server) {
-	for _, r := range resources {
-		t, ok := s.tools[r.tool]
+	for _, r := range agenttools.Resources() {
+		t, ok := s.tools[r.Tool]
 		if !ok {
 			continue
 		}
-		handler := s.resourceHandler(t, r)
-		if strings.Contains(r.uri, "{") {
-			srv.AddResourceTemplate(&mcp.ResourceTemplate{Name: r.name, Description: r.description, URITemplate: r.uri, MIMEType: "application/json"}, handler)
+		handler := s.resourceHandler(t, r.URI)
+		if strings.Contains(r.URI, "{") {
+			srv.AddResourceTemplate(&mcp.ResourceTemplate{Name: r.Tool, Description: r.Description, URITemplate: r.URI, MIMEType: "application/json"}, handler)
 			continue
 		}
-		srv.AddResource(&mcp.Resource{Name: r.name, Description: r.description, URI: r.uri, MIMEType: "application/json"}, handler)
+		srv.AddResource(&mcp.Resource{Name: r.Tool, Description: r.Description, URI: r.URI, MIMEType: "application/json"}, handler)
 	}
 }
 
-func (s *server) resourceHandler(t Tool, r resource) mcp.ResourceHandler {
+func (s *server) resourceHandler(t agenttools.Row, template string) mcp.ResourceHandler {
 	return func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-		values, ok := templateValues(r.uri, req.Params.URI)
+		values, ok := templateValues(template, req.Params.URI)
 		if !ok {
 			return nil, mcp.ResourceNotFoundError(req.Params.URI)
 		}
 		args := map[string]any{}
-		for i, p := range routeParams(t.Route) {
+		for i, p := range routeParams(callRoute(t)) {
 			if i < len(values) {
 				args[p] = values[i]
 			}

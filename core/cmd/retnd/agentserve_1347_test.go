@@ -14,6 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/retnd/retnd/core/agentmcp"
+	"github.com/retnd/retnd/core/agenttools"
 	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/internal/apiclient"
 )
@@ -130,8 +131,7 @@ func toolsOver(t *testing.T, engine http.HandlerFunc) *mcp.ClientSession {
 		t.Fatal(err)
 	}
 	server := agentmcp.New(agentmcp.Config{
-		Tools:   []agentmcp.Tool{{Name: "activity", Method: "GET", Route: "/activity", Description: "Recent events."}},
-		Project: func(v any) any { return v },
+		Tools:   []agenttools.Row{{Tool: "activity", Method: "GET", Route: "/activity", Scope: agenttools.ScopeRead, Description: "Recent events."}},
 		Caller:  engineCaller{client: client},
 		Version: "test",
 	})
