@@ -1,47 +1,17 @@
 /**
- * The wire side of the agent routes the card reads (EPIC U, issue #1351).
- *
- * The token routes (#1345) and the confirmation routes (#1349) are mapped from
- * the generated contract (api/generated/contract.ts). GET /agent/tools (#1346)
- * and GET /agent/audit (#1348) are on sibling branches whose generated
- * contract this branch has not merged, so their response shapes are declared
- * below exactly as those branches generate them (WireAgentToolsResponse and
- * WireListAgentAuditResponse). When the chain is merged, the two interfaces
- * are replaced by the generated ones and nothing else in the card changes: the
- * rest of the UI reads the domain types in types/agents.ts only.
+ * The wire side of the agent routes the card reads (EPIC U, issue #1351),
+ * mapped from the generated contract (api/generated/contract.ts): the token
+ * routes (#1345), the catalogue (#1346), the audit trail (#1348) and the
+ * confirmations (#1349). The rest of the UI reads the domain types in
+ * types/agents.ts only.
  */
-import type { WireAgentConfirmation, WireAgentExecution, WireAgentToken, WireMintedAgentToken } from "@shared/api/generated/contract";
 import type {
-  AgentAuditPage, AgentAuditRow, AgentCatalogue, AgentConfirmation, AgentExecution, AgentScope, AgentToken, MintedAgentToken
+  WireAgentAuditEntry, WireAgentConfirmation, WireAgentExecution, WireAgentToken, WireAgentToolsResponse, WireListAgentAuditResponse,
+  WireMintedAgentToken
+} from "@shared/api/generated/contract";
+import type {
+  AgentAuditPage, AgentAuditRow, AgentCatalogue, AgentConfirmation, AgentExecution, AgentToken, MintedAgentToken
 } from "@shared/types/agents";
-
-/** As generated on feat/1346-catalogue (the fields the card reads). */
-export interface WireAgentToolsResponse {
-  tools: Array<{ name: string; scope: AgentScope; description: string }>;
-}
-
-/** As generated on feat/1348-audit. */
-export interface WireListAgentAuditResponse {
-  entries: Array<{
-    arguments: string;
-    at: string;
-    code: string;
-    confirmation_id: string;
-    correlation_id: string;
-    seq: number;
-    status: number;
-    token_id: string;
-    /**
-     * Q15 (#1365): the name, joined at read time by the engine, empty for a row
-     * with no token. Optional here only until #1365's generated binding is merged
-     * in (TODO at integration: delete `?` and this note).
-     */
-    token_name?: string;
-    tool: string;
-    transport: string;
-  }>;
-  next_cursor?: string;
-}
 
 /**
  * Which form field a mint refusal belongs to (Q16, #1367). The engine's contract
@@ -97,7 +67,7 @@ export const fromWireAgentConfirmation = (w: WireAgentConfirmation): AgentConfir
   execution: w.execution ? fromWireExecution(w.execution) : null
 });
 
-const fromWireAuditRow = (w: WireListAgentAuditResponse["entries"][number]): AgentAuditRow => ({
+const fromWireAuditRow = (w: WireAgentAuditEntry): AgentAuditRow => ({
   seq: w.seq,
   at: w.at,
   tokenId: w.token_id,

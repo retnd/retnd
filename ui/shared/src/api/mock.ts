@@ -4623,7 +4623,7 @@ export function createMockApi(
         storagePicker: false,
         embeddedWindow: false,
         appStorePackaging: false,
-        ...(scenario.startsWith("agents-") ? { agentsHttpTransport: scenario === "agents-http-on" ? "on" as const : "off" as const } : {}),
+        agentsHttpTransport: scenario === "agents-http-on" ? "on" as const : "off" as const,
         destructiveOperations: !gateShut
           ? { state: "open", reason: "", stepUpRequired: localAccount, insecureTransportAckRequired: insecureTransport }
           : {

@@ -20,10 +20,10 @@ describe("mintRefusalField (Q16, #1367)", () => {
 });
 
 describe("fromWireAgentAudit token_name (Q15, #1367)", () => {
-  const entry = { arguments: "{}", at: "2026-11-11T10:00:00Z", code: "", confirmation_id: "", correlation_id: "c1", seq: 1, status: 200, token_id: "agt_1", tool: "status", transport: "stdio" };
+  const entry = { arguments: "{}", at: "2026-11-11T10:00:00Z", code: "", confirmation_id: "", correlation_id: "c1", seq: 1, status: 200, token_id: "agt_1", tool: "status", transport: "stdio" as const };
 
   it("reads the name the engine joined, and leaves it empty for a row with no token", () => {
-    const page = fromWireAgentAudit({ entries: [{ ...entry, token_name: "triage" }, { ...entry, seq: 2, token_id: "", token_name: "" }, { ...entry, seq: 3 }] });
+    const page = fromWireAgentAudit({ entries: [{ ...entry, token_name: "triage" }, { ...entry, seq: 2, token_id: "", token_name: null }, { ...entry, seq: 3, token_name: "" }] });
     expect(page.rows.map((r) => r.tokenName)).toEqual(["triage", "", ""]);
   });
 });

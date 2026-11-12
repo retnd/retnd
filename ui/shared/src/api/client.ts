@@ -193,6 +193,8 @@ import type {
   WireAgentToken,
   WireListAgentConfirmationsResponse,
   WireListAgentTokensResponse,
+  WireAgentToolsResponse,
+  WireListAgentAuditResponse,
   WireMintAgentTokenRequest,
   WireMintedAgentToken
 } from "./generated/contract";
@@ -200,7 +202,6 @@ import {
   fromWireAgentAudit, fromWireAgentConfirmation, fromWireAgentToken, fromWireAgentTools,
   fromWireMintedAgentToken
 } from "@shared/agents/agentWire";
-import type { WireAgentToolsResponse, WireListAgentAuditResponse } from "@shared/agents/agentWire";
 import type {
   AppSettings,
   Capabilities,
@@ -1741,11 +1742,9 @@ function fromWireRepositoryMaintenance(m: WireRepositoryMaintenance): Repository
   };
 }
 
-// TODO(integration, #1364): the generated WireCapabilitiesResponse gains
-// agents_http_transport; until it is merged in, the field is declared here.
-function fromWireCapabilities(body: WireCapabilitiesResponse & { agents_http_transport?: "on" | "off" }): Capabilities {
+function fromWireCapabilities(body: WireCapabilitiesResponse): Capabilities {
   return {
-    ...(body.agents_http_transport === "on" || body.agents_http_transport === "off" ? { agentsHttpTransport: body.agents_http_transport } : {}),
+    agentsHttpTransport: body.agents_http_transport,
     platform: body.platform,
     nativeAuth: body.native_auth,
     nativeNotifications: body.native_notifications,

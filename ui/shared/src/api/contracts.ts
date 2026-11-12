@@ -3213,11 +3213,9 @@ export interface Capabilities {
   destructiveOperations: DestructiveOperations;
   /**
    * Q14 (#1367): whether the streamable HTTP agent transport is on, from
-   * CapabilitiesResponse.agents_http_transport (#1364). Optional only until
-   * #1364's generated binding is merged in, and an engine that does not send it
-   * reads as unknown (TODO at integration: make it required, drop this note).
+   * CapabilitiesResponse.agents_http_transport (#1364).
    */
-  agentsHttpTransport?: "on" | "off";
+  agentsHttpTransport: "on" | "off";
 }
 
 /**
