@@ -65,6 +65,17 @@ test.describe("#1351 the mint form", () => {
     await expect(tokenRow(page, "fold-test").locator('[data-chip="scope"]')).toHaveText("read");
   });
 
+  test("#1351 when the reveal closes, focus returns to the Create token control", async ({ page }) => {
+    await openAgents(page, "default");
+    let dlg = await openMint(page);
+    await dlg.getByLabel("Name", { exact: true }).fill("focus-back");
+    await dlg.getByRole("button", { name: "Create token" }).click();
+    dlg = reveal(page);
+    await dlg.getByRole("button", { name: "I have stored it" }).click();
+    await expect(dlg).toHaveCount(0);
+    await expect(region(page, "tokens").getByRole("button", { name: "Create token" })).toBeFocused();
+  });
+
   test("#1351 Create token stays off until there is a name, and Cancel makes nothing", async ({ page }) => {
     await openAgents(page, "default");
     const dlg = await openMint(page);

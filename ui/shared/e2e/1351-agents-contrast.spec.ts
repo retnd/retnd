@@ -39,7 +39,7 @@ test.describe("#1351 contrast, light and dark", () => {
   test("#1351 pending rows, the urgent row, the step-up and a wrong password", async ({ page }) => {
     await openAgents(page, "agents-pending");
     const row = pending(page, "cf_01");
-    await row.getByRole("button", { name: "Approve", exact: true }).click();
+    await row.getByRole("button", { name: /^Approve (?!and run)/ }).click();
     await row.getByLabel("Your password").fill("not-the-password");
     await row.getByRole("button", { name: "Approve and run" }).click();
     await expect(row.locator("[data-approve-error]")).toBeVisible();
@@ -49,7 +49,7 @@ test.describe("#1351 contrast, light and dark", () => {
   test("#1351 the gate's result strip", async ({ page }) => {
     await openAgents(page, "agents-pending-gate");
     const row = pending(page, "cf_01");
-    await row.getByRole("button", { name: "Approve", exact: true }).click();
+    await row.getByRole("button", { name: /^Approve (?!and run)/ }).click();
     await row.getByLabel("Your password").fill(PASSWORD);
     await row.getByRole("button", { name: "Approve and run" }).click();
     await expect(card(page).locator("[data-result-strip]")).toBeVisible();
