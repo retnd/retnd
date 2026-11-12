@@ -26,8 +26,8 @@ import (
 // AgentAccess is, so a backend without an audit table audits nothing.
 type AgentCallRecorder interface {
 	RecordAgentCall(ctx context.Context, call service.AgentCall) error
-	// ReserveAgentAudit is asked before a tool call is dispatched: nil means
-	// the audit writer has room for the call's row.
+	// ReserveAgentAudit is asked before a call is dispatched: nil means the
+	// audit writer has room for the call's row and the journal is taking rows.
 	ReserveAgentAudit(ctx context.Context) error
 }
 
@@ -57,16 +57,15 @@ func auditAgentCalls(backend any) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			// A tool call (the transport named one) is audited before it is
-			// dispatched: if the writer cannot take its row within five
-			// seconds, nothing is done for it.
-			if tool, _ := service.AgentCallHeaders(r.Header); tool != "" {
-				if err := recorder.ReserveAgentAudit(r.Context()); err != nil {
-					slog.ErrorContext(r.Context(), "agent call refused, the audit could not be written", "token", principal.TokenID, "error", err)
-					writeError(w, http.StatusServiceUnavailable, "AGENT_AUDIT_UNAVAILABLE",
-						"the audit could not be written, so nothing was done; ask again in a moment")
-					return
-				}
+			// Every call an agent makes is audited before it is dispatched, a
+			// raw bearer call that names no tool as much as a tool call: if
+			// the writer cannot take its row (it stayed full for five seconds,
+			// or the journal is refusing writes), nothing is done for it.
+			if err := recorder.ReserveAgentAudit(r.Context()); err != nil {
+				slog.ErrorContext(r.Context(), "agent call refused, the audit could not be written", "token", principal.TokenID, "error", err)
+				writeError(w, http.StatusServiceUnavailable, "AGENT_AUDIT_UNAVAILABLE",
+					"the audit could not be written, so nothing was done; ask again in a moment")
+				return
 			}
 			capture := &capturingWriter{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(capture, r)

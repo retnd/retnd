@@ -271,30 +271,41 @@ func TestADeniedRouteProbeNamesTheToken(t *testing.T) {
 	}
 }
 
-// Falsify: dispatch before reserving the row, or let a stalled writer through.
-// A tool call whose audit row cannot be written is refused AGENT_AUDIT_UNAVAILABLE
-// and the handler never runs; a plain API call (no tool named) is not asked.
-func TestAToolCallIsRefusedWhenItsAuditRowCannotBeWritten(t *testing.T) {
-	spy := &auditSpy{reserveErr: service.ErrAgentAuditStalled}
-	ran := 0
-	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { ran++; w.WriteHeader(http.StatusOK) })
-	h := auditAgentCalls(spy)(next)
-	call := func(tool string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/system/health", nil)
-		if tool != "" {
-			req.Header.Set(service.AgentToolHeader, tool)
+// Falsify: dispatch before reserving the row, let a stalled or failing writer
+// through, or skip the reservation for a raw bearer call that names no tool.
+// A call whose audit row cannot be written is refused AGENT_AUDIT_UNAVAILABLE
+// and the handler never runs, whether or not it names a tool; when the writer
+// is healthy again the same calls are served.
+func TestACallIsRefusedWhenItsAuditRowCannotBeWritten(t *testing.T) {
+	for _, cause := range []error{service.ErrAgentAuditStalled, service.ErrAgentAuditFailing} {
+		spy := &auditSpy{reserveErr: cause}
+		ran := 0
+		next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { ran++; w.WriteHeader(http.StatusOK) })
+		h := auditAgentCalls(spy)(next)
+		call := func(tool string) *httptest.ResponseRecorder {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/system/health", nil)
+			if tool != "" {
+				req.Header.Set(service.AgentToolHeader, tool)
+			}
+			req = req.WithContext(withAgentPrincipal(req.Context(), service.AgentPrincipal{TokenID: "agt_1", Name: "triage", Scope: "read"}))
+			return serve(h, req)
 		}
-		req = req.WithContext(withAgentPrincipal(req.Context(), service.AgentPrincipal{TokenID: "agt_1", Name: "triage", Scope: "read"}))
-		return serve(h, req)
-	}
-	rec := call("status")
-	if rec.Code != http.StatusServiceUnavailable || ran != 0 || !strings.Contains(rec.Body.String(), "AGENT_AUDIT_UNAVAILABLE") {
-		t.Fatalf("stalled tool call: status %d, handler ran %d times, body %s", rec.Code, ran, rec.Body.String())
-	}
-	if rec = call(""); rec.Code != http.StatusOK || ran != 1 {
-		t.Errorf("a call with no tool was refused: status %d, ran %d", rec.Code, ran)
-	}
-	if spy.reserved != 1 {
-		t.Errorf("reserved %d times, want once (only the tool call)", spy.reserved)
+		for _, tool := range []string{"status", ""} {
+			rec := call(tool)
+			if rec.Code != http.StatusServiceUnavailable || ran != 0 || !strings.Contains(rec.Body.String(), "AGENT_AUDIT_UNAVAILABLE") {
+				t.Fatalf("%v, tool %q: status %d, handler ran %d times, body %s", cause, tool, rec.Code, ran, rec.Body.String())
+			}
+		}
+		spy.mu.Lock()
+		spy.reserveErr = nil
+		spy.mu.Unlock()
+		for _, tool := range []string{"status", ""} {
+			if rec := call(tool); rec.Code != http.StatusOK {
+				t.Errorf("%v, tool %q: after recovery status %d, want 200", cause, tool, rec.Code)
+			}
+		}
+		if ran != 2 || spy.reserved != 4 {
+			t.Errorf("%v: handler ran %d times (want 2), reserved %d times (want 4)", cause, ran, spy.reserved)
+		}
 	}
 }
