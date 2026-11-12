@@ -657,6 +657,19 @@ bash scripts/tests/epic-n-closure.test.sh
 gate_step "the EPIC T closing check refuses a moved canonical deployment or a migration other than 0020 and 0021, and can still fail (#1320)"
 bash scripts/tests/epic-t-closure.test.sh
 
+# EPIC U's closing check (#1353), the same shape for the MCP server: the
+# canonical deployment is an empty diff against 9cd53e1f (an agent is a client of
+# /api/v1 and the engine runs exactly as before), the epic adds exactly one
+# migration (0022, the three agent tables), and no row of
+# docs/conformance/epic-u-matrix.md is BLOCKED. This drives the real script
+# against throwaway repositories, one planted violation per guard (a moved
+# compose file, a second migration, a BLOCKED row) and two controls. The matrix
+# half in closing mode is core/tests/agentgate, which runs with the core suite
+# below in open mode and carries its own lie table, and the equivalence suite
+# runs in the retnd-tests lane at the pin. No containers, no browser, no network.
+gate_step "the EPIC U closing check refuses a moved canonical deployment, a migration other than 0022 or a BLOCKED row, and can still fail (#1353)"
+bash scripts/tests/epic-u-closure.test.sh
+
 gate_step "core/ go build"
 (cd core && GOWORK=off go build ./...)
 
