@@ -199,20 +199,66 @@ func mustSuite(t *testing.T, id string) copycrypt.Suite {
 }
 
 // A retired suite refuses a write before any destructive step, and its copies
-// still recover. A test suite over age/v1 (copycrypt.InjectForTest, the same
-// id in this process and in the harness) writes a real copy onto the first
-// medium while supported; the hop to the second medium then runs with the
-// suite retired and is refused, with the first medium's object untouched.
-// Then, retired in this process too, the copy decrypt-verifies through its
-// own record and key, and health degrades with the one active copy and the
-// retirement version. Red if retirement stops reads (every copy of the old
-// suite lost on an upgrade), fails to stop a write, or reads quiet in health.
+// still recover and still move. A test suite over age/v1
+// (copycrypt.InjectForTest, the same id in this process and in the harness)
+// keeps the two halves of #1316's table apart:
+//
+//   - the write: a fresh plaintext artifact, a key minted while the suite
+//     still wrote, and a cycle run with the suite retired. The copy is
+//     refused, saying the suite is retired, with the local copy whole and
+//     nothing on the medium, in staging or in the journal's records.
+//   - the reads: a copy written onto the first medium while the suite was
+//     supported, then a hop to the second medium with the suite retired.
+//     That hop moves the ciphertext as it is (#992), which the table lists
+//     beside decrypt-verify and recover as something a retired suite still
+//     does, so it completes with the same bytes on the second medium. Then,
+//     retired in this process too, the copy decrypt-verifies through its own
+//     record and key, and health degrades with the one active copy and the
+//     retirement version.
+//
+// This cell first asked the hop of the second half to be refused. That only
+// looked true while the source delete compared ciphertext with the plaintext
+// size and stopped every encrypted re-home at SOURCE_DELETE_PENDING (#1331);
+// with that fixed the hop completed, as #1316's acceptance asks.
+//
+// Red if retirement stops reads or moves (every copy of the old suite stranded
+// on an upgrade), fails to stop a write, or reads quiet in health.
 func TestARetiredSuiteRefusesTheWriteAndItsCopiesStillRecover_1319(t *testing.T) {
 	const retiring = copycrypt.TestSuitePrefix + "retiring/v1"
 	ts := copycrypt.InjectForTest(t, copycrypt.AgeX25519{}, retiring, copycrypt.StatusSupported, "")
+
+	// The write.
+	fresh := newWorldOver(t, multiChunkArtifact())
+	fresh.enableEncryptionUnder(retiring)
+	res := fresh.crashTo(crashMedium, "-plan", "-encrypt-suite", retiring, "-test-suite", retiring+"=retired")
+	if res.killed() || !strings.Contains(res.stdout, "FINISHED") || !strings.Contains(res.stdout, `refused="`) || strings.Contains(res.stdout, `refused=""`) {
+		t.Fatalf("a write under a retired suite was not refused:\nstdout:\n%s\nstderr:\n%s", res.stdout, res.stderr)
+	}
+	if !strings.Contains(res.stdout, "retired") {
+		t.Errorf("the refusal does not say the suite is retired:\n%s", res.stdout)
+	}
+	if !fresh.localExists() {
+		t.Fatal("the local copy is gone after a refused write")
+	}
+	if n := fresh.objectCount(t); n != 0 {
+		t.Fatalf("%d object(s) on the medium under a retired suite", n)
+	}
+	if left := fresh.stagingLeftovers(); len(left) != 0 {
+		t.Fatalf("the staging area holds %v after a refused write", left)
+	}
+	fj := fresh.journalNow()
+	if p := lastPhase(t, fresh, fj); pastTheDestructiveStep(p) {
+		t.Fatalf("the refused write reached %s", p)
+	}
+	if _, ok, err := fj.PlacementEncryption(fresh.ctx, fresh.artifact, crashMedium); err != nil || ok {
+		t.Fatalf("an encryption record exists after a refused write (ok=%v err=%v)", ok, err)
+	}
+	_ = fj.Close()
+
+	// The reads, and the move of the ciphertext.
 	w := newWorldOver(t, multiChunkArtifact())
 	key := w.enableEncryptionUnder(retiring)
-	res := w.crashTo(crashMedium, "-plan", "-encrypt-suite", retiring, "-test-suite", retiring+"=supported")
+	res = w.crashTo(crashMedium, "-plan", "-encrypt-suite", retiring, "-test-suite", retiring+"=supported")
 	if res.killed() || !strings.Contains(res.stdout, "FINISHED") || w.localExists() {
 		t.Fatalf("the first hop under the test suite did not finish:\nstdout:\n%s\nstderr:\n%s", res.stdout, res.stderr)
 	}
@@ -222,31 +268,28 @@ func TestARetiredSuiteRefusesTheWriteAndItsCopiesStillRecover_1319(t *testing.T)
 	}
 
 	res = w.crashTo(crashSecondMedium, "-plan", "-encrypt-suite", retiring, "-test-suite", retiring+"=retired")
-	if res.killed() || !strings.Contains(res.stdout, "FINISHED") || !strings.Contains(res.stdout, `refused="`) || strings.Contains(res.stdout, `refused=""`) {
-		t.Fatalf("a write under a retired suite was not refused:\nstdout:\n%s\nstderr:\n%s", res.stdout, res.stderr)
+	if res.killed() || !strings.Contains(res.stdout, "FINISHED") || !strings.Contains(res.stdout, `refused=""`) {
+		t.Fatalf("a move of a retired suite's ciphertext did not complete:\nstdout:\n%s\nstderr:\n%s", res.stdout, res.stderr)
 	}
-	if !strings.Contains(res.stdout, "retired") {
-		t.Errorf("the refusal does not say the suite is retired:\n%s", res.stdout)
+	moved := w.ciphertextObject()
+	if !bytes.Equal(moved, before) {
+		t.Fatal("the object on the second medium is not the ciphertext that was on the first: a move must not re-encrypt, least of all under a retired suite")
 	}
-	if n := w.objectCountOn(t, w.secondBucket); n != 0 {
-		t.Fatalf("%d object(s) on the second medium under a retired suite", n)
-	}
-	if !bytes.Equal(w.objectAtKey(), before) {
-		t.Fatal("the first medium's copy changed under a refused write")
+	if n := w.objectCount(t); n != 0 {
+		t.Fatalf("%d object(s) left on the first medium after a completed move", n)
 	}
 	j := w.journalNow()
-	if p := lastPhase(t, w, j); pastTheDestructiveStep(p) && p != placement.Done {
-		t.Fatalf("the refused move reached %s", p)
+	if p := lastPhase(t, w, j); p != placement.Done {
+		t.Fatalf("the move of the ciphertext ended in %s, want DONE", p)
 	}
-
 	ts.SetStatus(copycrypt.StatusRetired, "9.0.0")
-	rec, ok, err := j.PlacementEncryption(w.ctx, w.artifact, crashMedium)
+	rec, ok, err := j.PlacementEncryption(w.ctx, w.artifact, crashSecondMedium)
 	if err != nil || !ok || rec.FormatID != retiring || rec.KeyID != key.ID {
 		t.Fatalf("the copy's record is %+v (ok=%v err=%v), want %s under %s", rec, ok, err, retiring, key.ID)
 	}
 	keys := w.keysOver(j)
 	if err := keys.WithKey(w.ctx, rec.KeyID, func(k []byte) error {
-		_, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(before), mustSuite(t, rec.FormatID), k, w.hash)
+		_, err := copycrypt.DecryptVerify(w.ctx, bytes.NewReader(moved), mustSuite(t, rec.FormatID), k, w.hash)
 		return err
 	}); err != nil {
 		t.Fatalf("a copy under a retired suite no longer decrypt-verifies: %v", err)

@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/retnd/retnd/core/internal/copycrypt"
+	"github.com/retnd/retnd/core/internal/procseam"
 )
 
 // Chunk is the age STREAM chunk size. The library owns the value; the
@@ -420,7 +421,7 @@ func AgeBinary() string {
 // ageAtLeast reports whether the binary's `age --version` is at least
 // major.minor. An unparseable version is not assumed new enough.
 func ageAtLeast(bin string, major, minor int) bool {
-	out, err := exec.Command(bin, "--version").Output()
+	out, err := procseam.Command(bin, "--version").Output()
 	if err != nil {
 		return false
 	}
@@ -472,7 +473,7 @@ func ExternalReader(suite copycrypt.Suite, bin string) (problems []string, skipp
 		return []string{err.Error()}, ""
 	}
 	var stdout, stderr bytes.Buffer
-	cmd := exec.Command(bin, "-d", "-i", keyPath, ctPath)
+	cmd := procseam.Command(bin, "-d", "-i", keyPath, ctPath)
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
 		return []string{fmt.Sprintf("age -d -i key.txt failed: %v: %s", err, strings.TrimSpace(stderr.String()))}, ""

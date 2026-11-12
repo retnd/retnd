@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "8f0071df449d8ab0fb93dfece21562cfc8ce09de297f0fe8d6163cebf8ca081e"
+const ContractSHA256 = "bba465ebf2e0a6382146b776a4c3f1a625806993d6e6f27447056d29e28cc2d5"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -1380,11 +1380,12 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "planEncryptExisting", Method: "GET", Path: "/encryption/encrypt-existing",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: true, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "EncryptExistingPlan", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeDestructiveOperationsDisabled, ErrorCodeInsecureTransportAckRequired},
 			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
@@ -1392,12 +1393,12 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "startEncryptExisting", Method: "POST", Path: "/encryption/encrypt-existing",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "StartEncryptExistingRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeInsecureTransportAckRequired},
 			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound},
 			409: {ErrorCodeOperationAlreadyRunning, ErrorCodeEncryptionKeyUnresolvable},
 			500: {ErrorCodeInternal},
@@ -1524,23 +1525,24 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "planReencrypt", Method: "GET", Path: "/encryption/reencrypt",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: true, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ReencryptPlan", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeDestructiveOperationsDisabled, ErrorCodeInsecureTransportAckRequired},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
 		},
 	},
 	{
 		ID: "startReencrypt", Method: "POST", Path: "/encryption/reencrypt",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "StartReencryptRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeInsecureTransportAckRequired},
 			409: {ErrorCodeOperationAlreadyRunning},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},

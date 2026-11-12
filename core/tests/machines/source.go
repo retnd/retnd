@@ -76,6 +76,21 @@ const containerUID = "1001"
 // control, not to pin a digest against a registry we do not.
 const serverImage = "atmoz/sftp:alpine"
 
+// sshdNofile is the open-file limit every sshd container here runs with,
+// passed as `--ulimit` rather than inherited from the daemon (#1331).
+//
+// The image's sshd is built with PAM, and its session process closes every
+// descriptor up to RLIMIT_NOFILE before it starts the sftp subsystem. A
+// daemon whose containers inherit LimitNOFILE=infinity (Debian's docker.io
+// package hands them 1073741816; MARS is one) turns that loop into minutes
+// of work per connection: authentication succeeds, the client sends the
+// subsystem request, and the version packet never arrives. rclone reads
+// that as a connection stuck in setup and the suite as a hang. A plain
+// OpenSSH sftp client against the bare image does exactly the same, and
+// the same session completes at once with this limit, so the fixture pins
+// what Docker Desktop and current Docker Engine already default to.
+var sshdNofile = []string{"--ulimit", "nofile=1024:524288"}
+
 // Every subprocess this fixture starts gets a timeout, because the
 // deadline-bounded retry loops further down only re-read their deadline
 // BETWEEN attempts. One `docker` that never returns outruns all of them,
@@ -428,6 +443,7 @@ func startSourceOn(t *testing.T, f *Source, opts sourceOptions) *Source {
 	if !opts.InNetwork {
 		args = append(args, "-p", "127.0.0.1::22")
 	}
+	args = append(args, sshdNofile...)
 	args = append(args, opts.RunArgs...)
 	args = append(args,
 		"-v", hostKeyEd25519+":/etc/ssh/ssh_host_ed25519_key:ro",

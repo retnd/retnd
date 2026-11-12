@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "8f0071df449d8ab0fb93dfece21562cfc8ce09de297f0fe8d6163cebf8ca081e";
+export const CONTRACT_SHA256 = "bba465ebf2e0a6382146b776a4c3f1a625806993d6e6f27447056d29e28cc2d5";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -1921,7 +1921,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     authenticated: true,
     csrfRequired: false,
     idempotencyKey: "none",
-    destructiveGate: false,
+    destructiveGate: true,
     insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
@@ -1930,6 +1930,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     errorCodes: {
       400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
+      403: ["DESTRUCTIVE_OPERATIONS_DISABLED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
       404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND"],
       500: ["INTERNAL"],
       503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
@@ -1942,7 +1943,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     authenticated: true,
     csrfRequired: true,
     idempotencyKey: "none",
-    destructiveGate: false,
+    destructiveGate: true,
     insecureTransportAck: false,
     concurrency: "",
     requestSchema: "StartEncryptExistingRequest",
@@ -1951,7 +1952,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     errorCodes: {
       400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
-      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
       404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND"],
       409: ["OPERATION_ALREADY_RUNNING", "ENCRYPTION_KEY_UNRESOLVABLE"],
       500: ["INTERNAL"],
@@ -2173,7 +2174,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     authenticated: true,
     csrfRequired: false,
     idempotencyKey: "none",
-    destructiveGate: false,
+    destructiveGate: true,
     insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
@@ -2182,6 +2183,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     errorCodes: {
       400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
+      403: ["DESTRUCTIVE_OPERATIONS_DISABLED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
       500: ["INTERNAL"],
       503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
     }
@@ -2193,7 +2195,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     authenticated: true,
     csrfRequired: true,
     idempotencyKey: "none",
-    destructiveGate: false,
+    destructiveGate: true,
     insecureTransportAck: false,
     concurrency: "",
     requestSchema: "StartReencryptRequest",
@@ -2202,7 +2204,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     errorCodes: {
       400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
-      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
       409: ["OPERATION_ALREADY_RUNNING"],
       500: ["INTERNAL"],
       503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],

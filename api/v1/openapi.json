@@ -9294,7 +9294,7 @@
           },
           "satisfied_by": {
             "type": "string",
-            "description": "\"repository\" for a kopia-engine set, whose repository kopia always encrypts, so required on it layers nothing. Absent for every other set."
+            "description": "\"repository\" for a set whose engine is kopia, whose repository the engine always encrypts, so required on it layers nothing. Absent for every other set."
           }
         },
         "required": [
@@ -24038,6 +24038,7 @@
       "post": {
         "operationId": "exportRecoveryBundle",
         "summary": "Export the disaster-recovery bundle for a managed key. This is the one moment key material leaves the deployment, so it asks what a validator upload asks: the destructive gate and, where the gate opens for local accounts, the password. The response is a file to save and is never cached.",
+        "description": "The destructive gate is open on a local-account profile (issue #1163) and shut on a gateway profile until #92 ships a verified gate, where this route refuses with 403 DESTRUCTIVE_OPERATIONS_DISABLED and retnd-web has no setting that opens it. Where it is open the request also needs the account password (STEP_UP_REQUIRED, STEP_UP_FAILED), and X-Retnd-Insecure-Transport-Ack: acknowledged when the session cookie cannot be Secure on this connection and the peer is not loopback. The terminal does the same work with no gate: `retnd encryption key export <key-id> --out <file>`.",
         "tags": [
           "encryption"
         ],
@@ -24715,6 +24716,7 @@
       "get": {
         "operationId": "planEncryptExisting",
         "summary": "Dry run of encrypting a set's existing plaintext copies: for each backup with a copy on a medium, whether a run would encrypt it onto the destination medium and, when it would not, the refusal and its reason. Read-only: nothing is planned, read or written.",
+        "description": "The destructive gate is open on a local-account profile (issue #1163) and shut on a gateway profile until #92 ships a verified gate, where this route refuses with 403 DESTRUCTIVE_OPERATIONS_DISABLED and retnd-web has no setting that opens it. When the session cookie cannot be Secure on this connection and the peer is not loopback it also needs X-Retnd-Insecure-Transport-Ack: acknowledged, refused with 403 INSECURE_TRANSPORT_ACK_REQUIRED otherwise. The terminal does the same work with no gate: `retnd encryption encrypt-existing <source/backup-set> --to <medium> --dry-run`.",
         "tags": [
           "encryption"
         ],
@@ -24789,6 +24791,20 @@
               "UNAUTHENTICATED"
             ]
           },
+          "403": {
+            "description": "Refused: DESTRUCTIVE_OPERATIONS_DISABLED, INSECURE_TRANSPORT_ACK_REQUIRED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "DESTRUCTIVE_OPERATIONS_DISABLED",
+              "INSECURE_TRANSPORT_ACK_REQUIRED"
+            ]
+          },
           "404": {
             "description": "Refused: BACKUP_SET_NOT_FOUND, ARTIFACT_NOT_FOUND.",
             "content": {
@@ -24831,7 +24847,7 @@
             ]
           }
         },
-        "x-destructive-gate": false,
+        "x-destructive-gate": true,
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": false,
@@ -24840,6 +24856,7 @@
       "post": {
         "operationId": "startEncryptExisting",
         "summary": "Encrypt a set's existing plaintext copies onto another medium, in the background. Each plaintext copy is retired only after its encrypted replacement has been decrypt-verified against the recorded plaintext digest; a policy change never does this by itself. It is a cancellable operation: POST /assurance/operations/{op}/cancel from a terminal and from a browser alike, and before the new copy is verified a cancel leaves the plaintext copy exactly as it was.",
+        "description": "The destructive gate is open on a local-account profile (issue #1163) and shut on a gateway profile until #92 ships a verified gate, where this route refuses with 403 DESTRUCTIVE_OPERATIONS_DISABLED and retnd-web has no setting that opens it. When the session cookie cannot be Secure on this connection and the peer is not loopback it also needs X-Retnd-Insecure-Transport-Ack: acknowledged, refused with 403 INSECURE_TRANSPORT_ACK_REQUIRED otherwise. The terminal does the same work with no gate: `retnd encryption encrypt-existing <source/backup-set> --to <medium>`.",
         "tags": [
           "encryption"
         ],
@@ -24898,7 +24915,7 @@
             ]
           },
           "403": {
-            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, DESTRUCTIVE_OPERATIONS_DISABLED, INSECURE_TRANSPORT_ACK_REQUIRED.",
             "content": {
               "application/json": {
                 "schema": {
@@ -24908,7 +24925,9 @@
             },
             "x-error-codes": [
               "CSRF_TOKEN_MISSING",
-              "CSRF_TOKEN_MISMATCH"
+              "CSRF_TOKEN_MISMATCH",
+              "DESTRUCTIVE_OPERATIONS_DISABLED",
+              "INSECURE_TRANSPORT_ACK_REQUIRED"
             ]
           },
           "404": {
@@ -24967,7 +24986,7 @@
             ]
           }
         },
-        "x-destructive-gate": false,
+        "x-destructive-gate": true,
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": true,
@@ -24978,6 +24997,7 @@
       "get": {
         "operationId": "planReencrypt",
         "summary": "Dry run of re-encrypting retained copies under the active suite and key: every encrypted copy the selector matches, grouped by suite and by key, with the destination a run would use and, when it would not rewrite the copy, the refusal and its reason. Read-only: nothing is planned, read or written.",
+        "description": "The destructive gate is open on a local-account profile (issue #1163) and shut on a gateway profile until #92 ships a verified gate, where this route refuses with 403 DESTRUCTIVE_OPERATIONS_DISABLED and retnd-web has no setting that opens it. When the session cookie cannot be Secure on this connection and the peer is not loopback it also needs X-Retnd-Insecure-Transport-Ack: acknowledged, refused with 403 INSECURE_TRANSPORT_ACK_REQUIRED otherwise. The terminal does the same work with no gate: `retnd encryption reencrypt --dry-run`.",
         "tags": [
           "encryption"
         ],
@@ -25061,6 +25081,20 @@
               "UNAUTHENTICATED"
             ]
           },
+          "403": {
+            "description": "Refused: DESTRUCTIVE_OPERATIONS_DISABLED, INSECURE_TRANSPORT_ACK_REQUIRED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "DESTRUCTIVE_OPERATIONS_DISABLED",
+              "INSECURE_TRANSPORT_ACK_REQUIRED"
+            ]
+          },
           "500": {
             "description": "Refused: INTERNAL.",
             "content": {
@@ -25089,7 +25123,7 @@
             ]
           }
         },
-        "x-destructive-gate": false,
+        "x-destructive-gate": true,
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": false,
@@ -25098,6 +25132,7 @@
       "post": {
         "operationId": "startReencrypt",
         "summary": "Re-encrypt the selected retained copies under the active suite and key, onto another medium, in the background. Each old copy is streamed through its own suite and key straight into the active suite, never touching local disk as plaintext, and is retired only after its replacement has been decrypt-verified against the recorded plaintext digest; a key rotation or a suite deprecation never does this by itself. It is a cancellable operation: POST /assurance/operations/{op}/cancel from a terminal and from a browser alike, and before the new copy is verified a cancel leaves the old copy exactly as it was.",
+        "description": "The destructive gate is open on a local-account profile (issue #1163) and shut on a gateway profile until #92 ships a verified gate, where this route refuses with 403 DESTRUCTIVE_OPERATIONS_DISABLED and retnd-web has no setting that opens it. When the session cookie cannot be Secure on this connection and the peer is not loopback it also needs X-Retnd-Insecure-Transport-Ack: acknowledged, refused with 403 INSECURE_TRANSPORT_ACK_REQUIRED otherwise. The terminal does the same work with no gate: `retnd encryption reencrypt --to <medium>`.",
         "tags": [
           "encryption"
         ],
@@ -25156,7 +25191,7 @@
             ]
           },
           "403": {
-            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, DESTRUCTIVE_OPERATIONS_DISABLED, INSECURE_TRANSPORT_ACK_REQUIRED.",
             "content": {
               "application/json": {
                 "schema": {
@@ -25166,7 +25201,9 @@
             },
             "x-error-codes": [
               "CSRF_TOKEN_MISSING",
-              "CSRF_TOKEN_MISMATCH"
+              "CSRF_TOKEN_MISMATCH",
+              "DESTRUCTIVE_OPERATIONS_DISABLED",
+              "INSECURE_TRANSPORT_ACK_REQUIRED"
             ]
           },
           "409": {
@@ -25210,7 +25247,7 @@
             ]
           }
         },
-        "x-destructive-gate": false,
+        "x-destructive-gate": true,
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": true,

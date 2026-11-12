@@ -613,7 +613,7 @@ func TestASidecarThatCannotBeWrittenKeepsTheSourceAndTheNextCycleCompletes_992(t
 	report = f.runCycle()
 	f.guard.fail()
 	if report.Completed != 1 {
-		t.Fatalf("the next cycle did not complete the move: %+v (move error %q)", report, f.moveTo(mediumB).Error)
+		t.Fatalf("the next cycle did not complete the move: %+v (moves %+v)", report, f.moves())
 	}
 	m, err := recovery.ReadManifest(path)
 	if err != nil {
