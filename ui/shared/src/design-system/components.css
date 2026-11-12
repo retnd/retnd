@@ -468,8 +468,8 @@ input, select, textarea, button {
    the large shadow). Two differences, both about contrast. The menu's edge
    and the trigger's edge are a boundary somebody has to find, so they take
    --text-2 (5.96:1 on the light page, 7.09:1 on the dark one) rather than
-   --border-strong (1.69:1) or --control-edge, which is 2.99:1 on the light
-   page background the trigger also sits over. And a disabled item keeps
+   --border-strong (1.69:1) or --control-edge, which is only 3.11:1 on the
+   light page background the trigger also sits over. And a disabled item keeps
    readable ink: it is aria-disabled, not disabled, because its reason is the
    thing an operator came to read. */
 .amenu {

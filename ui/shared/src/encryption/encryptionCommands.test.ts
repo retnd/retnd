@@ -68,8 +68,23 @@ const CONTROLS: Record<string, { control: string; echo: () => string }> = {
   startReencrypt: { control: "Re-encrypt under current suite (Dashboard, #1318)", echo: () => reencryptCommand({ suite: "age/v1", to: "offsite_cold" }) }
 };
 
+/**
+ * Mutating encryption operations with no browser control, on purpose. The
+ * encrypt-existing run (#1291) is API and CLI only in 0.8.0, and the
+ * contract conformance test pins the same pair as unreached, so the two
+ * lists agree and wiring a control has to shrink both.
+ */
+const API_AND_CLI_ONLY = ["startEncryptExisting"];
+
 describe("no browser action without a command, and no command without an action (#995 sweep)", () => {
-  const mutating = API_OPERATIONS.filter((op) => op.method !== "GET" && /encryption/.test(op.path)).map((op) => op.id).sort();
+  const mutating = API_OPERATIONS.filter((op) => op.method !== "GET" && /encryption/.test(op.path) && !API_AND_CLI_ONLY.includes(op.id))
+    .map((op) => op.id)
+    .sort();
+
+  it("excludes only operations the contract still declares", () => {
+    const ids = API_OPERATIONS.map((op) => op.id);
+    for (const id of API_AND_CLI_ONLY) expect(ids, id).toContain(id);
+  });
 
   it("finds the operations at all", () => {
     // An empty scan is not a clean scan.

@@ -133,6 +133,44 @@ esac
 unset DOCKER_DEFAULT_PLATFORM
 rsh=(ssh -o BatchMode=yes -o LogLevel=ERROR)
 [ -z "$port" ] || rsh+=(-p "$port")
+
+# docker on a remote that only has it on an interactive PATH (#1331). The
+# CLI reaches a ssh:// daemon by running `docker system dial-stdio` over
+# ssh, and a non-interactive ssh on a Mac with Homebrew or colima does not
+# have /opt/homebrew/bin on PATH, so every docker call died with 127. When
+# the remote's PATH has no docker but a usual install path does, a stand-in
+# ssh first on this shell's PATH rewrites that one word to the full path.
+# Nothing changes on the remote.
+ssh_shim=""
+if [ -n "$target" ]; then
+  remote_docker="$("${rsh[@]}" "$target" 'command -v docker >/dev/null 2>&1 && echo docker && exit 0; for p in /usr/local/bin/docker /opt/homebrew/bin/docker /usr/bin/docker /snap/bin/docker; do [ -x "$p" ] && { echo "$p"; exit 0; }; done; exit 1' 2>/dev/null)" ||
+    die "there is no docker on $target, neither on a non-interactive PATH nor at /usr/local/bin, /opt/homebrew/bin, /usr/bin or /snap/bin"
+  case "$remote_docker" in
+    docker) : ;;
+    /*[!A-Za-z0-9._/-]*|[!/]*) die "unusable docker path on $target [$remote_docker]" ;;
+    *)
+      ssh_shim="$(mktemp -d "${TMPDIR:-/tmp}/ci-docker-ssh.XXXXXX")"
+      real_ssh="$(command -v ssh)"
+      cat >"$ssh_shim/ssh" <<SHIM
+#!/usr/bin/env bash
+# Written by scripts/ci-docker.sh: the remote docker is $remote_docker.
+args=()
+for a in "\$@"; do
+  case "\$a" in
+    docker) args+=("$remote_docker") ;;
+    "docker "*) args+=("$remote_docker \${a#docker }") ;;
+    *) args+=("\$a") ;;
+  esac
+done
+exec "$real_ssh" "\${args[@]}"
+SHIM
+      chmod +x "$ssh_shim/ssh"
+      trap 'rm -rf -- "$ssh_shim"' EXIT
+      export PATH="$ssh_shim:$PATH"
+      say "docker on $target is $remote_docker, which a non-interactive ssh does not find; calling it by that path"
+      ;;
+  esac
+fi
 if [ -n "$target" ]; then
   # The remote hosts are x86_64, and the emulation warning below is about
   # THIS machine's architecture, which says nothing about theirs.
@@ -180,6 +218,7 @@ run_repo="$repo"
 run_git="$git_common"
 built_here=0
 have_image=0
+mount_ok=0
 scratch_base=""
 scratch_name=""
 vols_before=""
@@ -191,7 +230,9 @@ cleanup() {
   if [ -n "$target" ] && [ -n "$scratch_name" ]; then
     # From inside a container: the gate's containers write into the copy
     # (mount points, build output) and the host account may not own that.
-    if [ "$have_image" = 1 ]; then
+    # Not when the daemon saw the copy as empty: a container would then
+    # remove the daemon's own phantom and leave the real copy behind.
+    if [ "$have_image" = 1 ] && [ "$mount_ok" = 1 ]; then
       docker run --rm --user 0:0 -v "$scratch_base:/ws" "$image" rm -rf -- "/ws/$scratch_name" >/dev/null 2>&1
     else
       # Nothing has run in a container yet, so the ssh account owns it all.
@@ -206,6 +247,9 @@ cleanup() {
     fi
     say "removed $target:$scratch_base/$scratch_name"
   fi
+  # Last: the ssh calls above go through it, and bash has already hashed
+  # its path, so removing it first made them fail silently (#1331).
+  [ -z "$ssh_shim" ] || rm -rf -- "$ssh_shim"
   exit "$st"
 }
 
@@ -239,21 +283,30 @@ if [ -n "$target" ]; then
   remote_root="$scratch_base/$scratch_name"
   run_repo="$remote_root/repo"
   run_git="$remote_root/git"
-  "${rsh[@]}" "$target" "mkdir -p '$run_repo' '$run_git'"
+  # umask 022 and the chmod after the copy, because a Linux account's
+  # default umask is often 002 (MARS's is), which leaves the scratch
+  # directories group-writable. The SSH key and secret-file checks walk
+  # every directory above a key and refuse a group-writable one, so every
+  # SFTP fixture failed with "has a containing directory ... with
+  # permissions 0775" and nothing about the remote copy said why (#1331).
+  "${rsh[@]}" "$target" "umask 022 && mkdir -p '$run_repo' '$run_git'"
 
   # The files git knows about, so what .gitignore keeps out (node_modules,
   # build output, most credential files) stays out, minus the credential
   # files that are tracked or simply not ignored. node_modules would be
   # macOS binaries anyway: the container installs its own.
+  # The existence test runs in the repo too, not in whatever directory the
+  # script was started from: run from elsewhere, it used to drop every file
+  # that did not also happen to exist under the caller's cwd.
   file_list() {
-    ( cd "$repo" && git ls-files -z --cached --others --exclude-standard ) |
-    while IFS= read -r -d '' f; do
-      [ -e "$f" ] || [ -L "$f" ] || continue
-      case "$f" in
-        .env|.env.*|*/.env|*/.env.*|.npmrc|*/.npmrc|.netrc|*/.netrc|.git-credentials|*/.git-credentials) continue ;;
-      esac
-      printf '%s\0' "$f"
-    done
+    ( cd "$repo" && git ls-files -z --cached --others --exclude-standard |
+      while IFS= read -r -d '' f; do
+        [ -e "$f" ] || [ -L "$f" ] || continue
+        case "$f" in
+          .env|.env.*|*/.env|*/.env.*|.npmrc|*/.npmrc|.netrc|*/.netrc|.git-credentials|*/.git-credentials) continue ;;
+        esac
+        printf '%s\0' "$f"
+      done )
   }
   # The git dir without its config (remote URLs can carry credentials), its
   # hooks (they are the local gate) and the local gate lock.
@@ -273,12 +326,22 @@ if [ -n "$target" ]; then
     *) die "CI_DOCKER_SYNC must be rsync or tar" ;;
   esac
 
+  "${rsh[@]}" "$target" "chmod go-w '$remote_root' '$run_repo' '$run_git'"
+
   # A fresh .git pointer and config instead of the local ones, whose paths
   # and remotes mean nothing there.
   abs_gitdir="$(canon "$(cd "$repo" && git rev-parse --absolute-git-dir)")"
   common_canon="$(canon "$git_common")"
   gitdir_rel="${abs_gitdir#"$common_canon"}"
   printf 'gitdir: %s\n' "$run_git$gitdir_rel" | "${rsh[@]}" "$target" "cat > '$run_repo/.git'"
+  # And the way back. A linked worktree's admin dir records where its
+  # checkout lives, and that still named the local path, so the first
+  # `git worktree prune` in the copy (every architecture proof runs one)
+  # judged this checkout gone and deleted its admin dir, and every git call
+  # after it failed with "not a git repository" (#1331).
+  if [ -n "$gitdir_rel" ]; then
+    printf '%s\n' "$run_repo/.git" | "${rsh[@]}" "$target" "cat > '$run_git$gitdir_rel/gitdir'"
+  fi
   printf '[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n' |
     "${rsh[@]}" "$target" "cat > '$run_git/config'"
 
@@ -307,16 +370,16 @@ declare -a mounts=(
   -v "${vol_prefix}-xdg:/ci/.cache/retnd-tests-gate"
 )
 
-# The host's own uid, not root, and group 0 for the socket.
+# The host's own uid, not root, plus the socket's group (set once the image
+# exists, below).
 #
 # Root ignores file modes, and one installer test sets a directory
 # unwritable to check the installer refuses rather than raising: as root
 # it cannot set the case up and skips itself, which is coverage lost with
-# nobody deciding to lose it. Group 0 because the daemon socket arrives
-# inside as root:root 0660, so the group bit is the way in without being
-# root. Docker Desktop maps writes on the bind mount back to the host
-# user whatever uid makes them, so the repository stays owned by you.
-as_user=(--user "$ci_uid:$ci_gid" --group-add 0)
+# nobody deciding to lose it. Docker Desktop maps writes on the bind mount
+# back to the host user whatever uid makes them, so the repository stays
+# owned by you.
+as_user=(--user "$ci_uid:$ci_gid")
 [ -n "$git_common" ] && [ -d "$git_common" ] && mounts+=(-v "$run_git:$run_git")
 
 # node_modules never comes from the host, and this is not an
@@ -339,12 +402,76 @@ if ! docker image inspect "$image" >/dev/null 2>&1; then
     --build-arg "CI_UID=$ci_uid" --build-arg "CI_GID=$ci_gid" \
     --build-arg "GOLANGCI_LINT_VERSION=v$(sed -n 's/^GOLANGCI_LINT_VERSION=//p' "$repo/scripts/ci/pins.env" | head -n 1)" \
     --build-arg "AGE_VERSION=v$(sed -n 's/^AGE_VERSION=//p' "$repo/scripts/ci/pins.env" | head -n 1)" \
+    --build-arg "RUFF_VERSION=$(sed -n 's/^RUFF_VERSION=//p' "$repo/scripts/ci/pins.env" | head -n 1)" \
+    --build-arg "MYPY_VERSION=$(sed -n 's/^MYPY_VERSION=//p' "$repo/scripts/ci/pins.env" | head -n 1)" \
     -t "$image" "$here/ci"
   built_here=1
 else
   say "toolchain image $image is already built"
 fi
 have_image=1
+
+# The empty-mount trap, checked rather than assumed (#1331). A daemon that
+# cannot see the path it is asked to bind (colima's dockerd resolving the
+# Mac's home on its own disk, a Docker Desktop path that is not shared)
+# mounts an EMPTY directory instead of failing, and the gate then runs
+# every step against nothing. One file the copy certainly has must be
+# visible from a container before anything else runs.
+if ! docker run --rm --platform "$platform" -v "$run_repo:$run_repo" --user 0:0 "$image" \
+     test -f "$run_repo/scripts/ci-local.sh"; then
+  die "the Docker daemon${target:+ on $target} sees $run_repo as an empty directory, so every bind mount the gate makes would be empty too. The daemon cannot see that path on its own disk (colima: restart it so dockerd sees the shared home; Docker Desktop: share the path under Settings > Resources > File sharing). Nothing was run."
+fi
+mount_ok=1
+
+# The socket's group, read from inside a container, because that is where
+# the group bit has to let the gate in (#1331). Docker Desktop hands the
+# socket over as root:root 0660, so this is 0 there, exactly as before. A
+# Linux host (MARS, the NAS) has it as root:docker, and the docker group's
+# id is whatever that machine picked (116 on one, 121 on another), so a
+# hard-coded 0 left every Docker-backed test with "permission denied".
+sock_gid="$(docker run --rm --platform "$platform" -v /var/run/docker.sock:/var/run/docker.sock \
+  --user 0:0 "$image" stat -c %g /var/run/docker.sock)" || die "could not read the docker socket's group from inside $image"
+case "$sock_gid" in ""|*[!0-9]*) die "the docker socket's group came back as [$sock_gid], not a number" ;; esac
+as_user+=(--group-add "$sock_gid")
+
+# Docker Desktop, or a daemon that owns this machine's network and /tmp.
+#
+# Everything the gate starts is a sibling on the daemon's host, and two kinds
+# of test reach those siblings through that host rather than through the
+# repository mount (#1331):
+#
+#   - core/tests/machines (and the SFTP fixtures) publish ports on the
+#     daemon host's 127.0.0.1 and dial them there. In a container on the
+#     default bridge, 127.0.0.1 is the container's own loopback and nothing
+#     answers;
+#   - core/tests/containerhooks makes its runner layout under a short /tmp
+#     root (unix socket paths have a length limit) and bind-mounts it into
+#     each hook container, so the daemon has to find the same path on its
+#     own disk. The container's private /tmp is not there.
+#
+# On a Linux daemon the fix is the same rule that mounts the repository at
+# its own path: share the host's network namespace and its /tmp, so a port
+# or a path means the same thing inside and out. Docker Desktop is left
+# exactly as it was. Its daemon lives in a VM, so `--network host` is the
+# VM's loopback and not the one ports are published on, and a /tmp mount
+# would be the Mac's /tmp over the file-sharing layer, where unix sockets
+# cannot be made. CI_DOCKER_SHARE_HOST=1 or 0 overrides the detection.
+share_host="${CI_DOCKER_SHARE_HOST:-auto}"
+case "$share_host" in
+  auto)
+    case "$(docker info --format '{{.OperatingSystem}}' 2>/dev/null || true)" in
+      *"Docker Desktop"*) share_host=0 ;;
+      *) share_host=1 ;;
+    esac
+    ;;
+  0|1) : ;;
+  *) die "CI_DOCKER_SHARE_HOST must be auto, 1 or 0" ;;
+esac
+if [ "$share_host" = 1 ]; then
+  say "sharing the daemon host's network and /tmp with the container (CI_DOCKER_SHARE_HOST=0 turns it off)"
+  as_user+=(--network host)
+  mounts+=(-v /tmp:/tmp)
+fi
 
 # A named volume that shadows a path the IMAGE does not have is created
 # empty and owned by root, and this runs as the host user, so npm's first

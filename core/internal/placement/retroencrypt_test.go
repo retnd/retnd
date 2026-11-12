@@ -4,7 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -197,7 +201,7 @@ func TestAPlaintextHopUnderARequiredSetStillNeedsTheExplicitVerb_1291(t *testing
 
 // Red if the plaintext object or its ACTIVE placement is touched before the
 // decrypt-verify of the new copy has passed. Every read of the new object
-// (the verify, and the re-read before the source delete) checks the plaintext
+// (the verify, and on a resumed move the re-read before the delete) checks the plaintext
 // is still on the medium at that instant, and the first one also checks the
 // plaintext placement is still ACTIVE, not yet DELETE_PENDING.
 func TestThePlaintextSourceSurvivesUntilTheEncryptedCopyHasBeenVerified_1291(t *testing.T) {
@@ -221,8 +225,12 @@ func TestThePlaintextSourceSurvivesUntilTheEncryptedCopyHasBeenVerified_1291(t *
 	if report.Completed != 1 {
 		t.Fatalf("control: the run did not complete: %+v", report)
 	}
-	if len(reads) < 2 {
-		t.Fatalf("the new object was read %d time(s); the verify and the re-read before the delete are two", len(reads))
+	// On the nominal path the verify is the only read: the pre-delete proof
+	// (#439, predelete.go) replaces the second full read with a metadata check
+	// of the same key, and a resumed move reads again. Either way every read
+	// there is has to find the source still in place.
+	if len(reads) < 1 {
+		t.Fatal("the new object was never read, so it was never decrypt-verified")
 	}
 	for i, r := range reads {
 		if !r.objectThere {
@@ -622,5 +630,56 @@ func TestAfterTheRunTheCopyCanBeRehomedLikeAnyEncryptedCopy_1291(t *testing.T) {
 	w.guard.fail()
 	if report.Completed != 1 {
 		t.Fatalf("re-homing the now-encrypted copy back to %s did not complete: %+v", testMedium, report)
+	}
+}
+
+// --- measuring a staging area that does not exist yet (#1331) --------------
+
+// The encrypt-existing check is side-effect free, so on a deployment whose
+// staging area has not been made yet it has to measure the disk that area
+// will be made on rather than the area itself. Before #1331 it statfs'd the
+// missing .moves directory and refused every copy as "no room", which no
+// earlier test saw because none of them had run.
+func TestTheCheckMeasuresAStagingAreaThatDoesNotExistYetWithoutMakingIt_1331(t *testing.T) {
+	w := newRetroWorld(t)
+	staging := filepath.Join(w.localDir, placement.StagingDirName)
+	if _, err := os.Stat(staging); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("control: the staging area %q exists before the check (err=%v), so this world does not reproduce a fresh deployment", staging, err)
+	}
+
+	var measured []string
+	w.engine.StagingFreeBytes = func(dir string) (int64, error) {
+		measured = append(measured, dir)
+		info, err := os.Stat(dir)
+		if err != nil {
+			return 0, err
+		}
+		if !info.IsDir() {
+			return 0, fmt.Errorf("%q is not a directory", dir)
+		}
+		return 1 << 40, nil
+	}
+
+	if err := w.engine.CheckEncryptExisting(w.ctx, w.plan()[0]); err != nil {
+		t.Fatalf("the check refused a copy on a deployment with plenty of room: %v", err)
+	}
+	if len(measured) == 0 {
+		t.Fatal("the check never measured the staging disk")
+	}
+	for _, dir := range measured {
+		if rel, err := filepath.Rel(w.localDir, dir); err != nil || strings.HasPrefix(rel, "..") {
+			t.Errorf("the check measured %q, which is not on the backup set's own disk under %q", dir, w.localDir)
+		}
+	}
+	if _, err := os.Stat(staging); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the check made the staging area %q (err=%v); it is documented to write nothing", staging, err)
+	}
+}
+
+// The real statfs, with no seam: the same fresh deployment, measured for real.
+func TestTheCheckPassesOnAFreshDeploymentWithTheRealStatfs_1331(t *testing.T) {
+	w := newRetroWorld(t)
+	if err := w.engine.CheckEncryptExisting(w.ctx, w.plan()[0]); err != nil {
+		t.Fatalf("the check refused a copy on a fresh deployment: %v", err)
 	}
 }
