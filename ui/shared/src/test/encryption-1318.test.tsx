@@ -259,6 +259,35 @@ describe("the health rows (#1318)", () => {
     expect(suiteHealthSentence(suite({ status: "deprecated", retirementVersion: "0.9.0", activeCopies: 0, keys: 0 }), false)).toBeNull();
   });
 
+  it("disables Re-encrypt with a reason while the destructive gate is shut, and keeps it working when open (#1361)", async () => {
+    const open = createMockApi("encryption-suite-lifecycle");
+    const shut = createMockApi("encryption-suite-lifecycle");
+    const shutApi = { ...shut, getCapabilities: () => createMockApi("gate-shut").getCapabilities() } as typeof shut;
+    const plan = vi.spyOn(shutApi, "planReencrypt");
+    const user = userEvent.setup();
+    const { unmount } = renderWith(shutApi, <EncryptionHealthRows />);
+    const row = await waitFor(() => {
+      const r = document.querySelector('[data-suite-health="age/v1"]');
+      if (!r) throw new Error("no row yet");
+      return r as HTMLElement;
+    });
+    await waitFor(() => expect(within(row).getByRole("button", { name: "Re-encrypt under current suite" })).toBeDisabled());
+    const button = within(row).getByRole("button", { name: "Re-encrypt under current suite" });
+    expect(button).toHaveAccessibleDescription(/Turned off on this deployment/);
+    await user.click(button);
+    expect(plan).not.toHaveBeenCalled();
+    unmount();
+
+    renderWith(open, <EncryptionHealthRows />);
+    const row2 = await waitFor(() => {
+      const r = document.querySelector('[data-suite-health="age/v1"]');
+      if (!r) throw new Error("no row yet");
+      return r as HTMLElement;
+    });
+    expect(within(row2).getByRole("button", { name: "Re-encrypt under current suite" })).toBeEnabled();
+    expect(document.querySelector("[data-reencrypt-gate]")).toBeNull();
+  });
+
   it("draws a row per deprecated or retired suite still recorded, and opens the dry run first", async () => {
     const api = createMockApi("encryption-suite-lifecycle");
     const plan = vi.spyOn(api, "planReencrypt");
