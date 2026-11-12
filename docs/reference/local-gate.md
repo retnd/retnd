@@ -16,7 +16,8 @@ missing from this page.
 ## Running it
 
 ```
-scripts/ci-local.sh                       # the full gate, as pre-commit runs it
+scripts/ci-fast.sh                        # the fast tier on the staged paths, as pre-commit runs it
+scripts/ci-local.sh                       # the full gate (CI_LOCAL_FULL=1 makes pre-commit run it too)
 scripts/ci-docker.sh                      # the same gate inside scripts/ci/Dockerfile
 scripts/ci-docker.sh --host ssh://user@host   # the same, on another machine's Docker daemon (below)
 scripts/release/record-local-gate.sh      # a full run, then provenance/local-gate.json
@@ -45,6 +46,9 @@ at 3. A stray exit 3 from a command the gate did not mark is read as FAILED.
 | `CI_LOCAL` | set to `1` by the gate | tells fixtures they run under the gate: a skip that would be tolerated on a developer's machine is a failure here. Load-bearing in `core/tests`; never rename it |
 | `CI` | set to `1` by the gate | the conventional "non-interactive" flag. vitest picks its non-interactive reporter from it, Playwright refuses a `.only` and stops retrying, and `core/tests/machines` keys a refusal on it |
 | `CI_LOCAL_FAST` | `0` | `1` skips the Docker suites, the cross-compiles, the production builds, the browser suite and the gate's own self-test. Always INCOMPLETE; for an iteration loop, never for evidence |
+| `CI_LOCAL_FULL` | `0` | `1` makes `.husky/pre-commit` run the full gate (`scripts/ci-local.sh`) instead of the fast tier. A green full run is the only thing that leaves a commit with no `Local-Gate` trailer |
+| `CI_LOCAL_TIER` | `full` under `ci-local.sh`, `fast` under `ci-fast.sh`, unset by hand | which tier is running. `core/tests/compat` stands down its live GitHub check under `fast` (see Tiers). Do not set it yourself |
+| `CI_LOCAL_FAST_JS_INSTALL` | `0` | `1` makes the fast tier install an uninstalled JS workspace that a changed path is in, instead of refusing. `scripts/merge-gate.sh` sets it, since its worktree is always fresh |
 | `CI_LOCAL_SKIP_DOCKER` | `0` | `1` runs without a Docker daemon. The Docker-backed steps are ledgered and the run ends INCOMPLETE |
 | `CI_LOCAL_SKIP_JS` | `0` | `1` skips the JS workspaces (lint, typecheck, unit tests, builds). INCOMPLETE |
 | `CI_LOCAL_SKIP_E2E` | `0` | `1` skips the browser suite and the CLI smoke slice from retnd-tests. INCOMPLETE |
@@ -175,14 +179,61 @@ one waiter can; only the winner removes the dead symlink. A plain directory
 at the lock path is a lock an older gate left and is reclaimed by the same
 rules. A run releases the lock on every exit path, including a signal.
 
+## Tiers
+
+There are two, since #1361. The full gate took the better part of an hour,
+so on every commit it was bypassed: all 28 PRs of EPIC N and EPIC T merged
+carrying `Local-Gate: unverified`, and `main` went red with nobody having
+run anything. The split puts a check people keep switched on in front of
+every commit, and the long one where it is merge evidence.
+
+| | fast tier | full gate |
+| --- | --- | --- |
+| script | `scripts/ci-fast.sh` | `scripts/ci-local.sh` |
+| runs | `.husky/pre-commit` (on the staged paths), `scripts/merge-gate.sh` (on a PR's changed paths) | `CI_LOCAL_FULL=1` in the hook, `scripts/ci-docker.sh`, `scripts/release/record-local-gate.sh` on the release PR |
+| checks | the anchors check and the contract drift check; gofmt on the changed Go files; `go vet`, `golangci-lint` and `go test` on the packages those files are in; `core/tests/compat` when `docs/conformance/` or an EPIC spec changed; `bash -n` and shellcheck on changed shell, ruff on changed Python under `scripts/`; typecheck, eslint (and the vitest suite for `ui/shared`) for a JS workspace a changed path is in | everything above for the whole tree, and the Docker suites, `-race`, the cross-compiles, the production builds, the browser and two-machine lanes, the structure proofs and the gate's own self-test |
+| JS deps | only needed when a changed path is in that workspace, so a fresh worktree does not block a Go-only or docs-only commit | every workspace, or a refusal (#160) |
+| trailer | `Local-Gate: fast` | none |
+| merge evidence | no | yes, and the only kind a release accepts |
+
+The fast tier ends in the same three verdicts as the full gate. It goes
+INCOMPLETE (exit 3) when something that applied could not run: no
+`golangci-lint`, a Docker-backed package with no daemon, a `go.mod` or
+`go.sum` change (it vets the module and ledgers the rest), a JS workspace
+skipped with `CI_LOCAL_SKIP_JS=1`. The hook commits on 3 and stamps
+`Local-Gate: incomplete <what>`; `scripts/merge-gate.sh` does not.
+
+`TestEveryBlockedRowCitesAnIssueThatIsStillOpen` (`core/tests/compat`) asks
+GitHub for live issue state, which is nothing a commit changes. #1310 was
+closed by hand a minute after the last EPIC T merge and turned `main` red
+with no commit at all. It now runs in the full gate and not in the fast
+tier, which exports `CI_LOCAL_TIER=fast` and gets an explicit skip. Run by
+hand it still asks, and its offline half, `TestTheBlockedCitationGuardCanFail`,
+runs in both tiers.
+
+## The hooks path
+
+`.husky/pre-commit` refuses to run when `core.hooksPath` is an absolute
+path, resolves to another checkout's `.husky`, or when the hook being run is
+not this checkout's own `.husky/pre-commit`. A stale checkout's hook once
+ran in every worktree: no red-tests route, no stamping. The refusal names
+the fix, `bash scripts/install-hooks.sh`, which sets the relative `.husky`.
+
+## Pre-merge check
+
+`scripts/merge-gate.sh <pr>` and `docs/reference/merge-gate.md`: the fast
+tier run against a PR head and posted as the `retnd/local-gate` status, for
+branch protection to require.
+
 ## Commit trailers
 
 | trailer | written by | meaning |
 | --- | --- | --- |
 | `Local-Gate: unverified` | `.husky/prepare-commit-msg` | the gate never saw this tree: `--no-verify`, a missing hook, or a working tree that differed from the index when the hook ran |
+| `Local-Gate: fast` | `.husky/prepare-commit-msg` | the fast tier passed on this tree; the full gate did not run |
 | `Local-Gate: red <why>` | `.husky/prepare-commit-msg` | a `CI_LOCAL_RED` commit of test files only, with the reason given |
 | `Local-Gate: incomplete <what>` | `.husky/prepare-commit-msg` | the gate ran and ended INCOMPLETE; `<what>` is the first ledger entry |
-| (no trailer) | | the gate ran on this exact tree and said ok |
+| (no trailer) | | the full gate ran on this exact tree and said ok |
 | `Release-Gate-Override: <why>` | a person, on a release commit | lets `verify-local-gate.sh` pass a commit whose record does not. At least 12 characters; permanent, because `release` is append-only |
 
 ## The record
