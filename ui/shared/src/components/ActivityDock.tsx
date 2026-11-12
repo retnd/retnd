@@ -214,6 +214,12 @@ export function dockPrefix(e: SetActivityEvent, viewer: string | null): DockPref
     const label = actor === "" ? "request" : viewer !== null && actor === viewer ? "you" : actor;
     return { label, setId, action: true };
   }
+  if (e.event === "agent_action") {
+    // The actor is already agent:<name>. Never "you": the reader is a
+    // person, and what an agent did is what they most need to see as
+    // somebody else's doing.
+    return { label: e.fields.actor || "agent", setId, action: true };
+  }
   if (e.scope === "deployment") return { label: "engine", setId: "", action: false };
   return { label: setId || "set", setId, action: false };
 }

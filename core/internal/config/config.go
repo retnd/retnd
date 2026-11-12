@@ -140,6 +140,18 @@ type Config struct {
 	RepositoryDomains []RepositoryDomainConfig `yaml:"repository_domains,omitempty"`
 
 	Alerts Alerts `yaml:"alerts"`
+
+	// AgentsBlock is the deployment-wide `agents:` block (EPIC U, U1.4),
+	// global only, see agents.go. Nil means the operator wrote nothing,
+	// which resolves to the defaults, and omitempty keeps a config that
+	// never mentions it byte-identical through a re-marshal. A config
+	// carrying the key is refused by an older build under Load's
+	// KnownFields(true); U2.5's CHANGELOG names that door.
+	AgentsBlock *AgentsBlock `yaml:"agents,omitempty"`
+	// Agents is the resolved block, filled by Validate. Read this, never
+	// the pointer above.
+	Agents Agents `yaml:"-"`
+
 	// AssuranceBlock is the deployment-wide assurance policy (EPIC Q,
 	// Q1.4). Nil means "the operator wrote nothing", which resolves to
 	// good defaults, and omitempty keeps a config that never mentions it

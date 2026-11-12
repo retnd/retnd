@@ -208,7 +208,9 @@
           "AGENT_CONFIRMATION_TOKEN_ENDED",
           "AGENT_CONFIRMATION_LIMIT",
           "AGENT_CONFIRMATION_BODY_SUBSTITUTED",
-          "AGENT_CONFIRMATION_NOT_FOUND"
+          "AGENT_CONFIRMATION_NOT_FOUND",
+          "AGENT_HTTP_TRANSPORT_OFF",
+          "AGENT_RATE_LIMITED"
         ],
         "x-code-origins": {
           "authentication-failed": "ui",
@@ -343,7 +345,9 @@
           "AGENT_CONFIRMATION_TOKEN_ENDED": "wire",
           "AGENT_CONFIRMATION_LIMIT": "wire",
           "AGENT_CONFIRMATION_BODY_SUBSTITUTED": "wire",
-          "AGENT_CONFIRMATION_NOT_FOUND": "wire"
+          "AGENT_CONFIRMATION_NOT_FOUND": "wire",
+          "AGENT_HTTP_TRANSPORT_OFF": "wire",
+          "AGENT_RATE_LIMITED": "wire"
         },
         "x-error-classes": {
           "authentication": [
@@ -363,7 +367,8 @@
             "STEP_UP_FAILED",
             "INSECURE_TRANSPORT_ACK_REQUIRED",
             "AGENT_SCOPE_INSUFFICIENT",
-            "AGENT_ROUTE_DENIED"
+            "AGENT_ROUTE_DENIED",
+            "AGENT_HTTP_TRANSPORT_OFF"
           ],
           "validation": [
             "INVALID_REQUEST",
@@ -455,7 +460,8 @@
             "RECOVERY_READS_BUSY",
             "RECOVERY_DESTINATION_BUSY",
             "RECOVERY_DOWNLOADS_BUSY",
-            "AGENT_CONFIRMATION_LIMIT"
+            "AGENT_CONFIRMATION_LIMIT",
+            "AGENT_RATE_LIMITED"
           ],
           "internal": [
             "INTERNAL",
@@ -666,6 +672,14 @@
           },
           "destructive_operations": {
             "$ref": "#/components/schemas/DestructiveOperationsStatus"
+          },
+          "agents_http_transport": {
+            "type": "string",
+            "description": "Whether the streamable HTTP transport of the agent endpoint, POST, GET and DELETE /api/v1/agent/mcp, answers on this deployment: on when agents.http_transport is on in config.yaml, off otherwise (EPIC U). Like destructive_operations it is this deployment's own setting and not a platform capability. The stdio transport, retnd agent serve --stdio, works in both states.",
+            "enum": [
+              "on",
+              "off"
+            ]
           }
         },
         "required": [
@@ -675,7 +689,8 @@
           "storage_picker",
           "embedded_window",
           "app_store_packaging",
-          "destructive_operations"
+          "destructive_operations",
+          "agents_http_transport"
         ],
         "x-capability-fields": [
           "native_auth",
@@ -9982,6 +9997,96 @@
           "tokens"
         ]
       },
+      "AgentAuditEntry": {
+        "type": "object",
+        "description": "One row of the agent audit trail. arguments is what the call asked with, stored after the projection that strips key material and secrets, as JSON text and cut at 4096 bytes. token_id is empty for a refusal of a token that matched no row, which is itself a fact worth keeping. tool is empty for a refusal made before any tool was named. transport is stdio, http or api.",
+        "additionalProperties": false,
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The row's position in the trail, which is also what next_cursor carries."
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "token_id": {
+            "type": "string"
+          },
+          "token_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The token's name, joined from the token row when the page is read, so a surface can show agent:<name> (FR-91). Null for a refusal of a token that matched no row."
+          },
+          "tool": {
+            "type": "string"
+          },
+          "transport": {
+            "type": "string",
+            "enum": [
+              "stdio",
+              "http",
+              "api"
+            ]
+          },
+          "arguments": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The HTTP status the call was answered with, whichever transport carried it."
+          },
+          "code": {
+            "type": "string",
+            "description": "The refusal code, empty for a call that was served."
+          },
+          "correlation_id": {
+            "type": "string",
+            "description": "The id the response carried, so a row and the answer an agent was given can be matched."
+          },
+          "confirmation_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "at",
+          "token_id",
+          "token_name",
+          "tool",
+          "transport",
+          "arguments",
+          "status",
+          "code",
+          "correlation_id",
+          "confirmation_id"
+        ]
+      },
+      "ListAgentAuditResponse": {
+        "type": "object",
+        "description": "GET /agent/audit, newest first.",
+        "additionalProperties": false,
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentAuditEntry"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "description": "The position this page ended at, to be sent back verbatim as `before`. Present only when the page came back full, so there may be more behind it; absent means the end of the trail. Echo it, do not parse it.",
+            "x-go-omitempty": true
+          }
+        },
+        "required": [
+          "entries"
+        ]
+      },
       "AgentExecution": {
         "type": "object",
         "description": "How the replay of an approved confirmation ended: the status and error code the API answered with (code is empty for a success), its message, the correlation id of the request and the exit code retnd would have used for the same answer. A replay the shut destructive gate refused reads DESTRUCTIVE_OPERATIONS_DISABLED with exit code 50, exactly as retnd run does.",
@@ -10001,6 +10106,14 @@
           },
           "exit_code": {
             "type": "integer"
+          },
+          "outcome": {
+            "type": "string",
+            "description": "completed when the replay ran to an answer (status and code say which), interrupted when the engine stopped between the approval and the replay's end. An interrupted one has status 0 and exit code 1, and was never run again: check the activity feed for the command before asking for it twice.",
+            "enum": [
+              "completed",
+              "interrupted"
+            ]
           }
         },
         "required": [
@@ -10008,7 +10121,8 @@
           "code",
           "message",
           "correlation_id",
-          "exit_code"
+          "exit_code",
+          "outcome"
         ]
       },
       "AgentConfirmation": {
@@ -10108,6 +10222,192 @@
         "required": [
           "confirmations"
         ]
+      },
+      "AgentTool": {
+        "type": "object",
+        "description": "One tool an agent may call. untrusted names the result fields whose values originate outside the deployment (file names, validator output, workflow logs, activity messages, remote hostnames); a transport puts them under an untrusted object and never in text.",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "read",
+              "operate",
+              "configure"
+            ]
+          },
+          "method": {
+            "type": "string"
+          },
+          "route": {
+            "type": "string",
+            "description": "The route pattern below /api/v1, as core/cliecho keys it."
+          },
+          "action": {
+            "type": "string",
+            "description": "The request body's action, for the one route several tools share (POST /operations). Absent otherwise.",
+            "x-go-omitempty": true
+          },
+          "description": {
+            "type": "string",
+            "description": "A static sentence, pinned by a golden test. Never built from data."
+          },
+          "twin": {
+            "type": "string",
+            "description": "The terminal command the browser's command echo shows for this route, composed in Go from core/cliecho."
+          },
+          "untrusted": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "scope",
+          "method",
+          "route",
+          "description",
+          "twin",
+          "untrusted"
+        ]
+      },
+      "AgentToolRefusal": {
+        "type": "object",
+        "description": "A route with no tool, and why.",
+        "additionalProperties": false,
+        "properties": {
+          "method": {
+            "type": "string"
+          },
+          "route": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "x-go-omitempty": true
+          },
+          "why": {
+            "type": "string",
+            "description": "Why no agent reaches this route by a tool."
+          },
+          "denied": {
+            "type": "boolean",
+            "description": "True when a bearer token is refused this route on the wire whatever its scope: it can return key material, a recipient, a bundle, a credential, an SSH key, a workflow secret or a recovery grant, or it creates or deletes a set or a medium."
+          }
+        },
+        "required": [
+          "method",
+          "route",
+          "why",
+          "denied"
+        ]
+      },
+      "AgentResource": {
+        "type": "object",
+        "description": "One resource, backed by a read tool.",
+        "additionalProperties": false,
+        "properties": {
+          "uri": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string",
+            "description": "The read tool that answers it."
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "uri",
+          "tool",
+          "description"
+        ]
+      },
+      "AgentPrompt": {
+        "type": "object",
+        "description": "One prompt: a static description, the arguments it takes and the read tools it draws on.",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "arguments": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "arguments",
+          "tools"
+        ]
+      },
+      "AgentToolsResponse": {
+        "type": "object",
+        "description": "GET /agent/tools. The whole catalogue. denied_fields are the keys the one projection at the tool boundary drops at every depth.",
+        "additionalProperties": false,
+        "properties": {
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentTool"
+            }
+          },
+          "resources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentResource"
+            }
+          },
+          "prompts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentPrompt"
+            }
+          },
+          "refusals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentToolRefusal"
+            }
+          },
+          "denied_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "tools",
+          "resources",
+          "prompts",
+          "refusals",
+          "denied_fields"
+        ]
+      },
+      "AgentMcpFrame": {
+        "type": "object",
+        "description": "One JSON-RPC 2.0 message of the Model Context Protocol. The engine's streamable HTTP transport speaks the protocol revision `retnd agent tools` prints; this contract does not restate it.",
+        "additionalProperties": true
       }
     },
     "responses": {}
@@ -25232,7 +25532,7 @@
       },
       "post": {
         "operationId": "mintAgentToken",
-        "summary": "Mint an agent token for a named principal. The plaintext token is in this response and nowhere else, ever; the deployment keeps its SHA-256 and an eight-character prefix. Scope defaults to read and a token lives 90 days unless told otherwise, never more than 365. A bearer token is refused AGENT_ROUTE_DENIED: a token never mints, lists or revokes a token.",
+        "summary": "Mint an agent token for a named principal. The plaintext token is in this response and nowhere else, ever; the deployment keeps its SHA-256 and an eight-character prefix. Scope defaults to read and a token lives 90 days unless told otherwise, never more than 365. The token comes back in this response, so over plain HTTP from another machine it needs X-Retnd-Insecure-Transport-Ack: acknowledged, refused 403 INSECURE_TRANSPORT_ACK_REQUIRED otherwise (the same acknowledgement a key export asks, whether or not the destructive gate is open). A bearer token is refused AGENT_ROUTE_DENIED: a token never mints, lists or revokes a token.",
         "tags": [
           "agent"
         ],
@@ -25265,7 +25565,7 @@
             }
           },
           "400": {
-            "description": "Refused: INVALID_REQUEST. Includes an unknown scope, a lifetime past 365 days and a name a live token already holds.",
+            "description": "Refused: INVALID_REQUEST. Includes an unknown scope, a lifetime past 365 days and a name a live token already holds. The message always starts with the request field it is about and a colon (name:, scope: or expires_in:).",
             "content": {
               "application/json": {
                 "schema": {
@@ -25291,7 +25591,7 @@
             ]
           },
           "403": {
-            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, AGENT_ROUTE_DENIED.",
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, INSECURE_TRANSPORT_ACK_REQUIRED, AGENT_ROUTE_DENIED.",
             "content": {
               "application/json": {
                 "schema": {
@@ -25302,6 +25602,7 @@
             "x-error-codes": [
               "CSRF_TOKEN_MISSING",
               "CSRF_TOKEN_MISMATCH",
+              "INSECURE_TRANSPORT_ACK_REQUIRED",
               "AGENT_ROUTE_DENIED"
             ]
           },
@@ -25320,10 +25621,16 @@
           }
         },
         "x-destructive-gate": false,
+        "x-insecure-transport-ack": true,
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": true,
-        "x-authenticated": true
+        "x-authenticated": true,
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/InsecureTransportAck"
+          }
+        ]
       }
     },
     "/agent/tokens/{id}/revoke": {
@@ -25421,6 +25728,128 @@
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/agent/audit": {
+      "get": {
+        "operationId": "listAgentAudit",
+        "summary": "The agent audit trail, newest first: one row per tool call an agent made, reads included, with the token, tool, transport, arguments as stored after projection, status, code, correlation id and confirmation id. A bearer token is refused AGENT_ROUTE_DENIED: an agent never reads the record of what agents did.",
+        "tags": [
+          "agent"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Only rows for this token id, as `agent token list` prints it. A token that matched nothing is not a token id, so its refusals have no filter of their own and are on the unfiltered page."
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Only rows at or after this moment: an RFC 3339 time, or how far back to look as days such as 7d or a duration such as 36h. Anything else is refused INVALID_REQUEST."
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The position echoed from a previous response's next_cursor. Only rows OLDER than it come back. A value this trail did not issue is ignored and answers with the newest page, exactly as the activity feed's cursor does."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "description": "How many rows to return. Omitted or non-positive means the server's default; above its maximum it is clamped. A page that comes back with exactly this many rows carries a next_cursor."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAgentAuditResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. A since that is neither a time nor a duration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: AGENT_ROUTE_DENIED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_ROUTE_DENIED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
         "x-authenticated": true
       }
     },
@@ -25772,6 +26201,411 @@
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/agent/confirmations/{id}": {
+      "get": {
+        "operationId": "getAgentConfirmation",
+        "summary": "Read the state of one confirmation and, once an approved one has run, how its replay ended. A person reads any confirmation. A bearer token reads only the ones that token made (anyone else's id is AGENT_CONFIRMATION_NOT_FOUND), which is how an agent learns what became of its own ask; it is the one route under /agent/confirmations a token reaches.",
+        "tags": [
+          "agent"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The confirmation id, as GET /agent/confirmations lists it."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentConfirmation"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "404": {
+            "description": "Refused: AGENT_CONFIRMATION_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_CONFIRMATION_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      }
+    },
+    "/agent/mcp": {
+      "post": {
+        "operationId": "postAgentMcp",
+        "summary": "Send one JSON-RPC message of the Model Context Protocol to the engine's MCP server and read its answer. Bearer token only, and off unless agents.http_transport is on in config.yaml: the default answer is AGENT_HTTP_TRANSPORT_OFF. A signed-in session is refused AGENT_TOKEN_INVALID. Every tool call inside is an ordinary /api/v1 request made as the token, so it is scoped, rate limited and audited as one.",
+        "tags": [
+          "agent"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentMcpFrame"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentMcpFrame"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED, AGENT_TOKEN_INVALID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED",
+              "AGENT_TOKEN_INVALID"
+            ]
+          },
+          "403": {
+            "description": "Refused: AGENT_HTTP_TRANSPORT_OFF, AGENT_ROUTE_DENIED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_HTTP_TRANSPORT_OFF",
+              "AGENT_ROUTE_DENIED"
+            ]
+          },
+          "429": {
+            "description": "Refused: AGENT_RATE_LIMITED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_RATE_LIMITED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      },
+      "get": {
+        "operationId": "getAgentMcp",
+        "summary": "Open the server-to-client event stream of an MCP session (text/event-stream). Bearer token only; a token may hold two streams at once.",
+        "tags": [
+          "agent"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED, AGENT_TOKEN_INVALID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED",
+              "AGENT_TOKEN_INVALID"
+            ]
+          },
+          "403": {
+            "description": "Refused: AGENT_HTTP_TRANSPORT_OFF, AGENT_ROUTE_DENIED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_HTTP_TRANSPORT_OFF",
+              "AGENT_ROUTE_DENIED"
+            ]
+          },
+          "429": {
+            "description": "Refused: AGENT_RATE_LIMITED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_RATE_LIMITED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      },
+      "delete": {
+        "operationId": "deleteAgentMcp",
+        "summary": "End an MCP session. Bearer token only.",
+        "tags": [
+          "agent"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success."
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED, AGENT_TOKEN_INVALID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED",
+              "AGENT_TOKEN_INVALID"
+            ]
+          },
+          "403": {
+            "description": "Refused: AGENT_HTTP_TRANSPORT_OFF, AGENT_ROUTE_DENIED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_HTTP_TRANSPORT_OFF",
+              "AGENT_ROUTE_DENIED"
+            ]
+          },
+          "429": {
+            "description": "Refused: AGENT_RATE_LIMITED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_RATE_LIMITED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      }
+    },
+    "/agent/tools": {
+      "get": {
+        "operationId": "listAgentTools",
+        "summary": "The agent catalogue: every tool with its scope, route, terminal twin and the result fields that come from outside the deployment, every resource and prompt, and every route no agent reaches with the reason. Static: the same object retnd agent tools --json prints. A bearer token may read it.",
+        "tags": [
+          "agent"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentToolsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
         "x-authenticated": true
       }
     }

@@ -71,7 +71,7 @@ func TestAnOperateCallCreatesAConfirmationAndRunsNothing(t *testing.T) {
 	for _, f := range lines[0].Fields {
 		fields[f.Key] = f.Value
 	}
-	if fields["state"] != "pending" || fields["confirmation_id"] != got.ID || fields["tool"] != "run_cycle" || fields["command"] != "retnd run" || lines[0].Result == "" {
+	if fields["state"] != "pending" || fields["confirmation_id"] != got.ID || fields["tool"] != "run_cycle" || lines[0].Result == "" {
 		t.Errorf("agent_action fields = %v, result %q", fields, lines[0].Result)
 	}
 }
@@ -136,8 +136,9 @@ func TestTheSixthPendingConfirmationIsRefused(t *testing.T) {
 
 func TestTheLimitsAreTheConfiguredOnes(t *testing.T) {
 	pinAgentClock(t, confirmationClock)
-	svc := newTestService(t)
-	svc.SetAgentConfirmationLimits(time.Minute, 1)
+	cfg := testConfig()
+	cfg.Agents = config.Agents{ConfirmationTTL: time.Minute, MaxPendingConfirmations: 1}
+	svc := New(cfg, openTestJournal(t), nil, nil)
 	p := runnerToken(t, svc, AgentScopeOperate)
 	got, err := svc.CreateAgentConfirmation(context.Background(), askToRunACycle(p))
 	if err != nil || !got.ExpiresAt.Equal(confirmationClock.Add(time.Minute)) {
@@ -288,7 +289,7 @@ func TestDenyEndsAConfirmationAndEmitsIt(t *testing.T) {
 	for _, f := range last.Fields {
 		fields[f.Key] = f.Value
 	}
-	if fields["state"] != "denied" || fields["decided_by"] != "alice" || last.Result == "" {
+	if fields["state"] != "denied" || fields["confirmation_id"] != made.ID || last.Result != "warn" {
 		t.Errorf("the denial on the feed = %v, result %q", fields, last.Result)
 	}
 }
@@ -322,7 +323,7 @@ func TestAnApprovalRecordsItsExecutionAndTheStatusToolReadsItBack(t *testing.T) 
 		t.Fatal(err)
 	}
 	exec := AgentExecution{Status: 403, Code: "DESTRUCTIVE_OPERATIONS_DISABLED", Message: "refused over HTTP", CorrelationID: "cid_abc"}
-	if err := svc.FinishAgentApproval(context.Background(), approved, "alice", exec); err != nil {
+	if err := svc.FinishAgentApproval(context.Background(), approved, exec); err != nil {
 		t.Fatal(err)
 	}
 
@@ -391,5 +392,78 @@ func agentTokenRowForTest(id, name, scope string) state.AgentToken {
 	return state.AgentToken{
 		ID: id, Name: name, Prefix: "rat_abcd", Hash: strings.Repeat("b", 64), Scope: scope, Owner: "alice",
 		CreatedAt: confirmationClock, ExpiresAt: confirmationClock.Add(90 * 24 * time.Hour),
+	}
+}
+
+// Falsify: leave an approved confirmation with no result silent after a
+// restart, replay it, or touch one that has a result or was decided after the
+// process started (Q21).
+func TestAnApprovalThatNeverFinishedIsMarkedInterruptedAtStartAndNeverRerun(t *testing.T) {
+	clock := pinAgentClock(t, confirmationClock)
+	svc := newRecordingService(t)
+	ctx := context.Background()
+	p := runnerToken(t, svc, AgentScopeOperate)
+
+	approve := func() AgentConfirmation {
+		made, err := svc.CreateAgentConfirmation(ctx, askToRunACycle(p))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, _, err := svc.ApproveAgentConfirmation(ctx, made.ID, "alice")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	lost := approve()
+	finished := approve()
+	if err := svc.FinishAgentApproval(ctx, finished, AgentExecution{Status: 202, Message: "started"}); err != nil {
+		t.Fatal(err)
+	}
+
+	*clock = confirmationClock.Add(time.Hour)
+	started := *clock
+	*clock = started.Add(time.Minute)
+	late := approve()
+
+	n, err := svc.ReconcileAgentConfirmations(ctx, started)
+	if err != nil || n != 1 {
+		t.Fatalf("reconcile = %d, %v; want exactly the one approval with no result", n, err)
+	}
+	got, err := svc.AgentConfirmationStatus(ctx, p.TokenID, lost.ID)
+	if err != nil || got.Execution == nil {
+		t.Fatalf("status = %+v, %v", got, err)
+	}
+	if e := got.Execution; e.Outcome != AgentOutcomeInterrupted || e.ExitCode != 1 ||
+		e.Message != "the engine stopped before the replay finished; check the activity feed for this command before running it again" {
+		t.Errorf("execution = %+v", *e)
+	}
+	if c := got.Contract().Execution; c == nil || c.Outcome != "interrupted" {
+		t.Errorf("the wire shows %+v, want outcome interrupted", c)
+	}
+	if got, _ := svc.AgentConfirmationStatus(ctx, p.TokenID, finished.ID); got.Execution == nil || got.Execution.Outcome == AgentOutcomeInterrupted {
+		t.Errorf("a replay that finished was marked interrupted: %+v", got.Execution)
+	}
+	if got, _ := svc.AgentConfirmationStatus(ctx, p.TokenID, late.ID); got.Execution != nil {
+		t.Errorf("an approval decided after the start was marked: %+v", got.Execution)
+	}
+
+	live, _ := svc.LiveActivity(ctx, LiveActivityRequest{})
+	var lines int
+	for _, e := range agentActions(live.Deployment.Events) {
+		for _, f := range e.Fields {
+			if f.Key == "state" && f.Value == "interrupted" {
+				lines++
+				if e.Result != "warn" {
+					t.Errorf("the interrupted line has result %q", e.Result)
+				}
+			}
+		}
+	}
+	if lines != 1 {
+		t.Errorf("%d interrupted lines on the feed, want one", lines)
+	}
+	if n, err := svc.ReconcileAgentConfirmations(ctx, started); err != nil || n != 0 {
+		t.Errorf("a second reconcile = %d, %v; the row is written once", n, err)
 	}
 }

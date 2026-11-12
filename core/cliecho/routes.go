@@ -1215,6 +1215,26 @@ var routes = map[string]entry{
 	// ------------------------------------------------------- agent ---
 	// EPIC U (#1345). The three token routes are session-only; the verbs are
 	// `retnd agent token ...`.
+	// The audit trail (#1348): GET /agent/audit is `retnd agent audit`. Only the
+	// filters the binary has a flag for are echoed, and a token id is echoed as
+	// the id it is (the route never carries the token).
+	key("GET", "/agent/audit"): {
+		build: func(a Action) *cmd {
+			c := newCmd("agent", "audit")
+			c.flagIfSet("token", a.Query.Get("token"))
+			c.flagIfSet("since", a.Query.Get("since"))
+			if n := positiveQuery(a, "limit"); n > 0 {
+				c.flag("limit", itoa(n))
+			}
+			// Only a cursor the trail could have issued, a positive row
+			// position, as the activity feed's is.
+			if n := positiveQuery(a, "before"); n > 0 {
+				c.flag("before", itoa(n))
+			}
+			return c
+		},
+		examples: []Action{{}, {Query: mustQuery("token=agt_0123456789abcdef&since=7d&limit=50&before=120")}},
+	},
 	key("GET", "/agent/tokens"): {
 		build:    func(Action) *cmd { return newCmd("agent", "token", "list") },
 		examples: []Action{{}},
@@ -1246,6 +1266,27 @@ var routes = map[string]entry{
 		},
 		examples: []Action{{Params: map[string]string{"id": "agt_0123456789abcdef"}}},
 	},
+	key("GET", "/agent/tools"): {
+		// #1346. The catalogue is fixed in the binary, so the verb that
+		// prints it asks no engine.
+		build:    func(Action) *cmd { return newCmd("agent", "tools") },
+		examples: []Action{{}},
+	},
+
+	// EPIC U (#1347). The streamable HTTP transport is a protocol endpoint, so
+	// the three methods have no verb of their own.
+	key("DELETE", "/agent/mcp"): {
+		why:               "an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `" + Binary + " agent serve --stdio` serves the same tools without this route",
+		namesShippedVerbs: []string{"agent"},
+	},
+	key("GET", "/agent/mcp"): {
+		why:               "an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `" + Binary + " agent serve --stdio` serves the same tools without this route",
+		namesShippedVerbs: []string{"agent"},
+	},
+	key("POST", "/agent/mcp"): {
+		why:               "an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `" + Binary + " agent serve --stdio` serves the same tools without this route",
+		namesShippedVerbs: []string{"agent"},
+	},
 
 	// EPIC U (#1349). The confirmations an agent's operate and configure calls
 	// become. Session-only; approve asks for the password again, which the verb
@@ -1253,6 +1294,12 @@ var routes = map[string]entry{
 	key("GET", "/agent/confirmations"): {
 		build:    func(Action) *cmd { return newCmd("agent", "confirmations", "list") },
 		examples: []Action{{}},
+	},
+	key("GET", "/agent/confirmations/{id}"): {
+		build: func(a Action) *cmd {
+			return newCmd("agent", "confirmations", "show", a.Params["id"])
+		},
+		examples: []Action{{Params: map[string]string{"id": "cnf_0123456789abcdef"}}},
 	},
 	key("POST", "/agent/confirmations/{id}/approve"): {
 		build: func(a Action) *cmd {

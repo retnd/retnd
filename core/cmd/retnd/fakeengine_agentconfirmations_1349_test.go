@@ -43,6 +43,15 @@ func (e *fakeEngine) serveAgentConfirmations(w http.ResponseWriter, r *http.Requ
 	}
 
 	rest := strings.TrimPrefix(path, prefix+"/")
+	if r.Method == http.MethodGet && !strings.Contains(rest, "/") {
+		c, err := e.svc.AgentConfirmationStatus(r.Context(), "", rest)
+		if err != nil {
+			refuseConfirmationError(w, err)
+			return true
+		}
+		writeJSON(w, http.StatusOK, c.Contract())
+		return true
+	}
 	id, verb, ok := strings.Cut(rest, "/")
 	if !ok || r.Method != http.MethodPost {
 		return false
@@ -78,7 +87,7 @@ func (e *fakeEngine) serveAgentConfirmations(w http.ResponseWriter, r *http.Requ
 			}
 		}
 		exec.ExitCode = service.AgentExecutionExitCode(exec.Status, exec.Code)
-		if err := e.svc.FinishAgentApproval(r.Context(), c, e.username, exec); err != nil {
+		if err := e.svc.FinishAgentApproval(r.Context(), c, exec); err != nil {
 			refuseServiceError(w, "approveAgentConfirmation", err)
 			return true
 		}

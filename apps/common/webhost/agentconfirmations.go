@@ -8,11 +8,16 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"path"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/retnd/retnd/core/agenttools"
 	"github.com/retnd/retnd/core/apicontract"
+	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -21,16 +26,18 @@ import (
 //
 // A tool call under operate or configure becomes a pending confirmation, and
 // these three routes are how a person lists, approves and denies them. They
-// are session-only: the whole /agent/confirmations prefix is in
-// agentDeniedPrefixes, so a bearer is AGENT_ROUTE_DENIED before its scope is
-// looked at, and an agent can never approve its own ask.
+// are session-only: core/agenttools' deny list holds them, so a bearer is
+// AGENT_ROUTE_DENIED before its scope is looked at, and an agent can never
+// approve its own ask. The one route under the prefix a token reads is GET
+// /agent/confirmations/{id}, the confirmation_status tool, which answers a
+// token only for its own.
 //
 // # Approval replays the record
 //
 // Approve asks for the administrator's password (the step-up, #1163), claims
 // the confirmation, and then runs the recorded request through the same
 // router the browser would have hit, as the token that asked. So the shut
-// operation gate, the denied prefixes, CSRF for a bearer, validation and
+// operation gate, the deny list, CSRF for a bearer, validation and
 // every other refusal apply to it exactly as they would to the original, and
 // the action log gets an api_action from agent:<name> beside the approval's
 // own from the person. Nothing the approve request carries is replayed: a body
@@ -40,11 +47,143 @@ import (
 // *service.BackupService satisfies it; NewRouter finds it by asserting it on
 // the backend, the way it finds AgentAccess.
 type AgentConfirmations interface {
+	CreateAgentConfirmation(ctx context.Context, req service.CreateAgentConfirmationRequest) (service.AgentConfirmation, error)
 	ListAgentConfirmations(ctx context.Context) ([]service.AgentConfirmation, error)
+	AgentConfirmationStatus(ctx context.Context, tokenID, id string) (service.AgentConfirmation, error)
 	ApproveAgentConfirmation(ctx context.Context, id, approver string) (service.AgentConfirmation, service.AgentPrincipal, error)
-	FinishAgentApproval(ctx context.Context, c service.AgentConfirmation, approver string, exec service.AgentExecution) error
+	FinishAgentApproval(ctx context.Context, c service.AgentConfirmation, exec service.AgentExecution) error
 	DenyAgentConfirmation(ctx context.Context, id, by string) (service.AgentConfirmation, error)
 }
+
+// AgentToolResolver is how the router learns what an agent's tool call stands
+// for. The catalogue (core/agenttools) is the table that answers it; the
+// router takes it as an interface so a test can name a table of its own.
+type AgentToolResolver interface {
+	// ResolveAgentTool reports the scope a tool needs, when the request it
+	// would make (method, the path below /api/v1, and the body's action word
+	// for the route several acts share) is the one that tool is a name for.
+	ResolveAgentTool(tool, method, path, action string) (scope string, ok bool)
+}
+
+// catalogueTools answers ResolveAgentTool from core/agenttools' own table, the
+// one the wire's deny list and the MCP server read too.
+type catalogueTools struct{}
+
+func (catalogueTools) ResolveAgentTool(tool, method, path, action string) (string, bool) {
+	scope, ok := agenttools.Proposes(tool, method, path, action)
+	return string(scope), ok
+}
+
+// Headers a refused-pending answer carries, so a tool result can name the
+// confirmation without parsing the message.
+const (
+	ConfirmationIDHeader      = "X-Retnd-Confirmation-Id"
+	ConfirmationExpiresHeader = "X-Retnd-Confirmation-Expires"
+)
+
+// agentProposer turns the mutating request of an agent's tool call into a
+// pending confirmation. A raw bearer request, one that names no tool, never
+// reaches it: that request is refused AGENT_CONFIRMATION_REQUIRED and nothing
+// is recorded (ADR 0034 decision 4).
+//
+// The request is what is recorded: its method, its path as the client sent
+// it, its query and its body, byte for byte. The route pattern the router
+// would match it to is looked up only to build the echoed command and to name
+// the backup set, so what is replayed is never rebuilt from either.
+type agentProposer struct {
+	confirmations AgentConfirmations
+	resolver      AgentToolResolver
+	root          *chi.Mux
+}
+
+// propose records the request as a confirmation and writes the answer. It
+// reports false, having written nothing, when the request is not a tool call
+// it can propose (no tool, a tool the catalogue does not stand behind for this
+// request, or a route the router does not have), so the caller refuses it as it
+// would any raw request.
+func (p *agentProposer) propose(w http.ResponseWriter, r *http.Request, principal service.AgentPrincipal) (status int, code, correlationID string, handled bool) {
+	tool, _ := service.AgentCallHeaders(r.Header)
+	if tool == "" || p == nil || p.resolver == nil {
+		return 0, "", "", false
+	}
+	// One form of the path, or none: a request whose decoded and raw paths
+	// disagree is not one a person is asked to approve.
+	rel := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/api/v1")
+	if r.URL.RawPath != "" && strings.TrimPrefix(path.Clean("/"+r.URL.RawPath), "/api/v1") != rel {
+		return 0, "", "", false
+	}
+
+	var body []byte
+	if r.Body != nil && r.Body != http.NoBody {
+		got, err := io.ReadAll(io.LimitReader(r.Body, maxAgentProposalBody+1))
+		if err != nil || len(got) > maxAgentProposalBody {
+			return refuse(w, http.StatusBadRequest, "INVALID_REQUEST", "the request is too large to put in front of a person")
+		}
+		body = got
+	}
+	var act struct {
+		Action string `json:"action"`
+	}
+	_ = json.Unmarshal(body, &act)
+	scope, ok := p.resolver.ResolveAgentTool(tool, r.Method, rel, act.Action)
+	if !ok {
+		return 0, "", "", false
+	}
+
+	rctx := chi.NewRouteContext()
+	if !p.root.Match(rctx, r.Method, "/api/v1"+rel) {
+		return 0, "", "", false
+	}
+	params := make(map[string]string, len(rctx.URLParams.Keys))
+	for i, k := range rctx.URLParams.Keys {
+		params[k] = rctx.URLParams.Values[i]
+	}
+	line := cliecho.Echo(cliecho.Action{
+		Method: r.Method, Route: strings.TrimPrefix(rctx.RoutePattern(), "/api/v1"), Params: params, Query: r.URL.Query(), Body: body,
+	})
+	command := line.Shell()
+	if command == "" {
+		command = "(no retnd command does this: " + line.Gap + ")"
+	}
+	var set string
+	if params["source"] != "" && params["set"] != "" {
+		set = params["source"] + "/" + params["set"]
+	}
+	route := r.URL.EscapedPath()
+	route = strings.TrimPrefix(route, "/api/v1")
+	if r.URL.RawQuery != "" {
+		route += "?" + r.URL.RawQuery
+	}
+
+	c, err := p.confirmations.CreateAgentConfirmation(r.Context(), service.CreateAgentConfirmationRequest{
+		Principal: principal, Scope: scope, Tool: tool, Method: r.Method, Route: route, Body: body, Command: command, BackupSet: set,
+	})
+	switch {
+	case errors.Is(err, service.ErrAgentConfirmationLimit):
+		return refuse(w, http.StatusTooManyRequests, "AGENT_CONFIRMATION_LIMIT", err.Error())
+	case errors.Is(err, service.ErrAgentScopeInsufficient):
+		return refuse(w, http.StatusForbidden, "AGENT_SCOPE_INSUFFICIENT", err.Error())
+	case errors.Is(err, service.ErrAgentTokenInvalid):
+		return refuse(w, http.StatusUnauthorized, "AGENT_TOKEN_INVALID", "the agent token is not valid")
+	case errors.Is(err, service.ErrInvalidRequest):
+		return refuse(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+	case err != nil:
+		slog.ErrorContext(r.Context(), "an agent's change could not be recorded", "tool", tool, "error", err)
+		return refuse(w, http.StatusInternalServerError, "INTERNAL", "the change could not be recorded, so nothing was asked of a person")
+	}
+	w.Header().Set(ConfirmationIDHeader, c.ID)
+	w.Header().Set(ConfirmationExpiresHeader, c.ExpiresAt.UTC().Format(time.RFC3339))
+	return refuse(w, http.StatusConflict, "AGENT_CONFIRMATION_REQUIRED",
+		"a person has to confirm this before it runs: confirmation "+c.ID+" waits until "+c.ExpiresAt.UTC().Format(time.RFC3339)+" for `"+command+"` to be approved")
+}
+
+// refuse writes one error envelope and reports it as handled.
+func refuse(w http.ResponseWriter, status int, code, message string) (int, string, string, bool) {
+	return status, code, writeError(w, status, code, message), true
+}
+
+// maxAgentProposalBody is the most of a request a confirmation records.
+const maxAgentProposalBody = 64 << 10
 
 // replayContextKey carries the principal a confirmation is being replayed as.
 // It is unexported so nothing outside this package can plant one: a request
@@ -197,6 +336,28 @@ func (h *handlers) listAgentConfirmations(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, out)
 }
 
+// getAgentConfirmation is GET /api/v1/agent/confirmations/{id}: the state of
+// one confirmation and, once an approved one has run, how it ended. It is the
+// one confirmation route a bearer reaches, because it is how an agent reads
+// what became of its own ask (the confirmation_status tool), and it answers a
+// token only for the confirmations that token made. A person reads any.
+func (h *handlers) getAgentConfirmation(w http.ResponseWriter, r *http.Request) {
+	cs, ok := h.agentConfirmationsService(w)
+	if !ok {
+		return
+	}
+	tokenID := ""
+	if p, isAgent := agentPrincipalFrom(r.Context()); isAgent {
+		tokenID = p.TokenID
+	}
+	c, err := cs.AgentConfirmationStatus(r.Context(), tokenID, chi.URLParam(r, "id"))
+	if err != nil {
+		h.writeConfirmationError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, c.Contract())
+}
+
 // approveAgentConfirmation is POST /api/v1/agent/confirmations/{id}/approve.
 func (h *handlers) approveAgentConfirmation(w http.ResponseWriter, r *http.Request) {
 	cs, ok := h.agentConfirmationsService(w)
@@ -228,7 +389,7 @@ func (h *handlers) approveAgentConfirmation(w http.ResponseWriter, r *http.Reque
 	exec := replayAgentRequest(r.Context(), h.router, c, principal)
 	// The replay has happened whatever this write does, so a failure to record
 	// it is logged and the person still gets the answer.
-	if err := cs.FinishAgentApproval(r.Context(), c, approver, exec); err != nil {
+	if err := cs.FinishAgentApproval(r.Context(), c, exec); err != nil {
 		slog.ErrorContext(r.Context(), "an approved confirmation's execution was not recorded", "confirmation", c.ID, "error", err)
 	}
 	c.Execution = &exec

@@ -100,3 +100,45 @@ func TestClient1250Review_TheInsecureTransportAckIsOptInAndGatedOnly(t *testing.
 		}
 	}
 }
+
+// Q17 (EPIC U): the mint is not behind the destructive gate but the engine
+// asks it for the same acknowledgement, so the client sends it on an
+// operation the contract marks InsecureTransportAck, and only when told to.
+func TestClient1250Review_TheInsecureTransportAckGoesOnAnOperationTheContractMarks(t *testing.T) {
+	engine := newFakeEngine(t)
+	target, err := url.Parse(engine.start() + "/api/v1/somewhere")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ack := range []bool{false, true} {
+		client, err := New(Config{BaseURL: engine.start(), Username: engine.username, Password: engine.password, AcknowledgeInsecureTransport: ack})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range []struct {
+			ep   apicontract.Endpoint
+			want bool
+		}{
+			{apicontract.Endpoint{ID: "x", Method: "GET"}, false},
+			{apicontract.Endpoint{ID: "x", Method: "POST", DestructiveGate: true}, true},
+			{apicontract.Endpoint{ID: "x", Method: "POST", InsecureTransportAck: true}, true},
+		} {
+			req, err := client.newRequest(context.Background(), c.ep, target, false, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := ""
+			if ack && c.want {
+				want = "acknowledged"
+			}
+			if got := req.Header.Get(insecureTransportHeaderName); got != want {
+				t.Errorf("ack=%v %+v carried %q, want %q", ack, c.ep, got, want)
+			}
+		}
+	}
+	for _, e := range apicontract.Endpoints {
+		if e.ID == "mintAgentToken" && !e.InsecureTransportAck {
+			t.Error("the contract does not mark mintAgentToken InsecureTransportAck")
+		}
+	}
+}

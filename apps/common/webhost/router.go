@@ -12,6 +12,7 @@ import (
 	"github.com/retnd/retnd/apps/common/platform/capabilities"
 	"github.com/retnd/retnd/core/envcompat"
 	"github.com/retnd/retnd/core/legacypath"
+	"github.com/retnd/retnd/core/service"
 )
 
 // The route table, which is where this package's security tiering
@@ -42,6 +43,11 @@ import (
 
 // RouterConfig is everything NewRouter needs to build the /api/v1 surface.
 type RouterConfig struct {
+	// AgentTools says what an agent's tool call stands for. Nil means the
+	// catalogue itself, core/agenttools (catalogueTools in
+	// agentconfirmations.go); a test names its own table.
+	AgentTools AgentToolResolver
+
 	// Platform supplies both the Authenticator every /api/v1 request is
 	// checked against (auth.go) and the capabilities GET
 	// /api/v1/system/capabilities reports.
@@ -246,7 +252,10 @@ type handlers struct {
 	// router is the handler a confirmation's recorded request is replayed
 	// through (agentconfirmations.go): the whole /api/v1 chain, set once NewRouter
 	// has built it.
-	router        http.Handler
+	router http.Handler
+	// agentPolicy is the agents: block as it resolved, for GET
+	// /system/capabilities.
+	agentPolicy   service.AgentPolicy
 	platform      capabilities.PlatformAdapter
 	backend       BackupServiceClient
 	binaryVersion string
@@ -324,9 +333,22 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	agents, _ := cfg.Backend.(AgentAccess)
 	confirmations, _ := cfg.Backend.(AgentConfirmations)
 
+	// The agents: block as it resolved, for the limits and the transport. A
+	// backend that does not report one gets the defaults: transport off, sixty
+	// calls a minute.
+	policy := service.AgentPolicy{RateLimitPerMinute: 60}
+	if p, ok := cfg.Backend.(interface{ AgentPolicy() service.AgentPolicy }); ok {
+		policy = p.AgentPolicy()
+	}
+	var guard *agentGuard
+	if agents != nil {
+		guard = newAgentGuard(policy, cfg.TrustForwardedHeaders)
+	}
+
 	h := &handlers{
 		agents:        agents,
 		confirmations: confirmations,
+		agentPolicy:   policy,
 		platform:      cfg.Platform,
 		backend:       cfg.Backend,
 		binaryVersion: cfg.BinaryVersion,
@@ -364,8 +386,17 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	r.Get("/health/live", healthLive)
 	r.Get("/health/ready", h.healthReady)
 
+	root := r
+	var proposer *agentProposer
+	if confirmations != nil {
+		resolver := cfg.AgentTools
+		if resolver == nil {
+			resolver = catalogueTools{}
+		}
+		proposer = &agentProposer{confirmations: confirmations, resolver: resolver, root: root}
+	}
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(authMiddleware(cfg.Platform, agents))
+		r.Use(authMiddleware(cfg.Platform, agents, guard, proposer))
 		// After authentication, so a recorded line can name the actor,
 		// and over the WHOLE group, so it covers the refusals that never
 		// reach a handler at all: a CSRF failure and a
@@ -374,6 +405,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// handler body. See actionlog.go for why this is middleware
 		// rather than a line in every handler.
 		r.Use(recordActions(cfg.Recorder))
+		// Every request an agent made, reads included, which the action log
+		// above skips (EPIC U, #1348).
+		r.Use(auditAgentCalls(cfg.Backend))
 
 		r.Get("/system/version", h.systemVersion)
 		r.Get("/system/capabilities", h.systemCapabilities)
@@ -844,19 +878,31 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Get("/ssh-keys", h.listSSHKeys)
 
 		// EPIC U (#1345): the agent token routes. Session only: authMiddleware
-		// refuses a bearer here (agentDeniedPrefixes), so a token can never
+		// refuses a bearer here (core/agenttools' deny list), so a token can never
 		// mint, list or revoke a token.
 		r.Get("/agent/tokens", h.listAgentTokens)
-		r.With(requireCSRF).Post("/agent/tokens", h.mintAgentToken)
+		r.With(requireCSRF, requireMintTransportAck(h.enforce)).Post("/agent/tokens", h.mintAgentToken)
 		r.With(requireCSRF).Post("/agent/tokens/{id}/revoke", h.revokeAgentToken)
+		// The audit trail (#1348): session only for the same reason.
+		r.Get("/agent/audit", h.listAgentAudit)
+		// EPIC U (#1347): the streamable HTTP transport. Bearer only and off
+		// unless agents.http_transport is on; see agentmcp.go. No requireCSRF:
+		// a cookie never reaches it, and a bearer is not a credential a browser
+		// sends by itself.
+		r.Handle("/agent/mcp", h.mcpEndpoint(root, policy, guard))
 
 		// EPIC U (#1349): the confirmations an agent's operate and configure
-		// calls become. Session only, for the same reason: the whole prefix is in
-		// agentDeniedPrefixes. Approve replays the recorded request through this
+		// calls become. A person lists and decides them; core/agenttools' deny
+		// list keeps a token off all of it except GET /agent/confirmations/{id},
+		// which answers a token only for its own. Approve replays the recorded request through this
 		// router, so the gate and every other refusal apply to it as to a person.
 		r.Get("/agent/confirmations", h.listAgentConfirmations)
+		r.Get("/agent/confirmations/{id}", h.getAgentConfirmation)
 		r.With(requireCSRF).Post("/agent/confirmations/{id}/approve", h.approveAgentConfirmation)
 		r.With(requireCSRF).Post("/agent/confirmations/{id}/deny", h.denyAgentConfirmation)
+		// EPIC U (#1346): the catalogue. Static; a person reads it, and a
+		// token has it as the list of its own tools.
+		r.Get("/agent/tools", h.listAgentTools)
 		r.Get("/ssh/key-candidates", h.listSSHKeyCandidates)
 
 		// Issue #140 (B3.7): the one generic settings surface — a read

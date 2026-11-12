@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -25,6 +26,8 @@ import (
 // every call it is asked for, so a test can say a method was never reached.
 type fakeConfirmations struct {
 	mu       sync.Mutex
+	created  []service.CreateAgentConfirmationRequest
+	createFn func(service.CreateAgentConfirmationRequest) error
 	records  map[string]service.AgentConfirmation
 	err      error
 	claimed  []string
@@ -41,6 +44,40 @@ func newFakeConfirmations(records ...service.AgentConfirmation) *fakeConfirmatio
 	return f
 }
 
+func (f *fakeConfirmations) CreateAgentConfirmation(_ context.Context, req service.CreateAgentConfirmationRequest) (service.AgentConfirmation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.createFn != nil {
+		if err := f.createFn(req); err != nil {
+			return service.AgentConfirmation{}, err
+		}
+	}
+	f.created = append(f.created, req)
+	c := service.AgentConfirmation{
+		ID: "cnf_" + strconv.Itoa(len(f.created)), TokenID: req.Principal.TokenID, TokenName: req.Principal.Name, Tool: req.Tool,
+		Route: req.Route, Method: req.Method, Body: req.Body, Command: req.Command, BackupSet: req.BackupSet, State: "pending",
+		CreatedAt: time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC), ExpiresAt: time.Date(2026, 11, 11, 9, 15, 0, 0, time.UTC),
+	}
+	f.records[c.ID] = c
+	return c, nil
+}
+
+// fakeTools is the catalogue's answer for the tools these tests use.
+type fakeTools map[string]struct{ method, path, action, scope string }
+
+func (f fakeTools) ResolveAgentTool(tool, method, path, action string) (string, bool) {
+	t, ok := f[tool]
+	if !ok || t.method != method || t.path != path || t.action != action {
+		return "", false
+	}
+	return t.scope, true
+}
+
+var testTools = fakeTools{
+	"run_cycle":          {"POST", "/operations", "run_cycle", "operate"},
+	"backup_set_enabled": {"POST", "/backup-sets/production/postgres/enabled", "", "configure"},
+}
+
 func (f *fakeConfirmations) ListAgentConfirmations(context.Context) ([]service.AgentConfirmation, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -49,6 +86,16 @@ func (f *fakeConfirmations) ListAgentConfirmations(context.Context) ([]service.A
 		out = append(out, c)
 	}
 	return out, f.err
+}
+
+func (f *fakeConfirmations) AgentConfirmationStatus(_ context.Context, tokenID, id string) (service.AgentConfirmation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	c, ok := f.records[id]
+	if !ok || (tokenID != "" && c.TokenID != tokenID) {
+		return service.AgentConfirmation{}, service.ErrAgentConfirmationNotFound
+	}
+	return c, nil
 }
 
 func (f *fakeConfirmations) ApproveAgentConfirmation(_ context.Context, id, approver string) (service.AgentConfirmation, service.AgentPrincipal, error) {
@@ -68,7 +115,7 @@ func (f *fakeConfirmations) ApproveAgentConfirmation(_ context.Context, id, appr
 	return c, service.AgentPrincipal{TokenID: c.TokenID, Name: c.TokenName, Scope: service.AgentScopeOperate}, nil
 }
 
-func (f *fakeConfirmations) FinishAgentApproval(_ context.Context, c service.AgentConfirmation, _ string, exec service.AgentExecution) error {
+func (f *fakeConfirmations) FinishAgentApproval(_ context.Context, c service.AgentConfirmation, exec service.AgentExecution) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.finished = append(f.finished, exec)
@@ -114,7 +161,7 @@ func newConfirmationsRig(t *testing.T, gate DestructiveGate, records ...service.
 	steps := &stubStepUp{user: "alice", password: stepUpPassword}
 	router := NewRouter(RouterConfig{
 		Platform: allowingPlatform("alice"), Backend: b, Gate: gate, StepUp: steps, Recorder: rec,
-		BinaryVersion: "test", Commit: "test",
+		AgentTools: testTools, BinaryVersion: "test", Commit: "test",
 	})
 	return &confirmationsRig{router: router, backend: b, rec: rec, steps: steps}
 }
@@ -164,12 +211,15 @@ func TestATokenCannotApproveItsOwnAsk(t *testing.T) {
 	}
 }
 
-func TestTheConfirmationRoutesAreOnTheDeniedPrefixList(t *testing.T) {
-	for _, path := range []string{
-		"/api/v1/agent/confirmations", "/api/v1/agent/confirmations/x/approve", "/api/v1/agent/confirmations/x/deny",
-		"/api/v1/agent/confirmations/../confirmations/x/approve", "/api/v1/agent/%63onfirmations/x/approve",
+// Falsify: take the confirmation routes off core/agenttools' deny list.
+func TestTheConfirmationRoutesAreOnTheDenyList(t *testing.T) {
+	for _, c := range []struct{ method, path string }{
+		{http.MethodGet, "/api/v1/agent/confirmations"},
+		{http.MethodPost, "/api/v1/agent/confirmations"}, {http.MethodPost, "/api/v1/agent/confirmations/x/approve"}, {http.MethodPost, "/api/v1/agent/confirmations/x/deny"},
+		{http.MethodPost, "/api/v1/agent/confirmations/../confirmations/x/approve"}, {http.MethodPost, "/api/v1/agent/%63onfirmations/x/approve"},
 	} {
-		req := httptest.NewRequest(http.MethodPost, path, nil)
+		method, path := c.method, c.path
+		req := httptest.NewRequest(method, path, nil)
 		req.Header.Set("Authorization", "Bearer rat_whatever_0000000000000000000000000000")
 		if !agentRouteDenied(req) {
 			t.Errorf("%s is not refused to a bearer", path)
@@ -422,5 +472,190 @@ func TestTheListIsWhatTheServiceHasAndNeverTheBody(t *testing.T) {
 	var got apicontract.ListAgentConfirmationsResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || len(got.Confirmations) != 1 || got.Confirmations[0].Command != "retnd run" {
 		t.Errorf("list = %+v, %v", got, err)
+	}
+}
+
+// toolCall is a bearer request that says which tool it is for, the way both
+// transports make one.
+func toolCall(method, path, body, token, tool string) *http.Request {
+	req := bearer(method, path, body, token)
+	req.Header.Set(service.AgentToolHeader, tool)
+	req.Header.Set(service.AgentTransportHeader, "stdio")
+	return req
+}
+
+// Falsify: execute on the tool call.
+func TestAnOperateToolCallCreatesAConfirmationRecordingTheRequestAndRunsNothing(t *testing.T) {
+	rig := newConfirmationsRig(t, alwaysPassGate{})
+	body := "{ \"action\":\"run_cycle\" }"
+	rec := serve(rig.router, toolCall(http.MethodPost, "/api/v1/operations", body, operateToken, "run_cycle"))
+	if rec.Code != http.StatusConflict || responseErrorCode(rec.Body.String()) != "AGENT_CONFIRMATION_REQUIRED" {
+		t.Fatalf("tool call = %d %s, want 409 AGENT_CONFIRMATION_REQUIRED", rec.Code, rec.Body.String())
+	}
+	if len(rig.backend.created) != 1 {
+		t.Fatalf("%d confirmations created, want exactly one", len(rig.backend.created))
+	}
+	got := rig.backend.created[0]
+	if string(got.Body) != body || got.Method != "POST" || got.Route != "/operations" || got.Tool != "run_cycle" || got.Scope != "operate" {
+		t.Errorf("recorded %+v, want the request as sent", got)
+	}
+	if got.Principal.Name != "runner" || !strings.HasPrefix(got.Command, "retnd") {
+		t.Errorf("principal %+v, command %q", got.Principal, got.Command)
+	}
+	if id := rec.Header().Get(ConfirmationIDHeader); id != "cnf_1" || rec.Header().Get(ConfirmationExpiresHeader) == "" {
+		t.Errorf("headers %q, %q: the answer has to name the confirmation and its expiry", id, rec.Header().Get(ConfirmationExpiresHeader))
+	}
+	if !strings.Contains(rec.Body.String(), "cnf_1") {
+		t.Errorf("the message does not name the confirmation: %s", rec.Body.String())
+	}
+	if len(rig.backend.ops) != 0 {
+		t.Errorf("a tool call ran %d operations", len(rig.backend.ops))
+	}
+}
+
+func TestAConfigureToolCallRecordsTheSetItConcerns(t *testing.T) {
+	rig := newConfirmationsRig(t, nil)
+	rig.backend.known[operateToken] = service.AgentPrincipal{TokenID: "agt_op", Name: "runner", Scope: "configure"}
+	rec := serve(rig.router, toolCall(http.MethodPost, "/api/v1/backup-sets/production/postgres/enabled", `{"enabled":false}`, operateToken, "backup_set_enabled"))
+	if rec.Code != http.StatusConflict || len(rig.backend.created) != 1 {
+		t.Fatalf("tool call = %d %s, created %d", rec.Code, rec.Body.String(), len(rig.backend.created))
+	}
+	if got := rig.backend.created[0]; got.BackupSet != "production/postgres" || got.Scope != "configure" || got.Route != "/backup-sets/production/postgres/enabled" {
+		t.Errorf("recorded %+v", got)
+	}
+}
+
+// Falsify: create a confirmation from a request that names no tool.
+func TestARequestThatNamesNoToolOrTheWrongOneCreatesNothing(t *testing.T) {
+	for name, req := range map[string]*http.Request{
+		"no tool header":          bearer(http.MethodPost, "/api/v1/operations", `{"action":"run_cycle"}`, operateToken),
+		"an unknown tool":         toolCall(http.MethodPost, "/api/v1/operations", `{"action":"run_cycle"}`, operateToken, "format_disk"),
+		"a tool for other work":   toolCall(http.MethodPost, "/api/v1/operations", `{"action":"restore_snapshot"}`, operateToken, "run_cycle"),
+		"a tool on another route": toolCall(http.MethodPost, "/api/v1/backup-sets/production/postgres/read-only", `{"read_only":true}`, operateToken, "run_cycle"),
+		"a malformed tool name":   toolCall(http.MethodPost, "/api/v1/operations", `{"action":"run_cycle"}`, operateToken, "Run Cycle;"),
+	} {
+		rig := newConfirmationsRig(t, alwaysPassGate{})
+		rec := serve(rig.router, req)
+		if rec.Code != http.StatusConflict || responseErrorCode(rec.Body.String()) != "AGENT_CONFIRMATION_REQUIRED" {
+			t.Errorf("%s = %d %s, want the plain refusal", name, rec.Code, rec.Body.String())
+		}
+		if len(rig.backend.created) != 0 || rec.Header().Get(ConfirmationIDHeader) != "" || len(rig.backend.ops) != 0 {
+			t.Errorf("%s created %d confirmations or ran something", name, len(rig.backend.created))
+		}
+	}
+}
+
+func TestAReadTokenCreatesNoConfirmationEvenForANamedTool(t *testing.T) {
+	rig := newConfirmationsRig(t, alwaysPassGate{})
+	rec := serve(rig.router, toolCall(http.MethodPost, "/api/v1/operations", `{"action":"run_cycle"}`, readToken, "run_cycle"))
+	if rec.Code != http.StatusForbidden || responseErrorCode(rec.Body.String()) != "AGENT_SCOPE_INSUFFICIENT" || len(rig.backend.created) != 0 {
+		t.Errorf("read token = %d %s, created %d", rec.Code, rec.Body.String(), len(rig.backend.created))
+	}
+}
+
+func TestTheServicesRefusalsAtCreationKeepTheirCodes(t *testing.T) {
+	for _, tc := range []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{service.ErrAgentConfirmationLimit, 429, "AGENT_CONFIRMATION_LIMIT"},
+		{service.ErrAgentScopeInsufficient, 403, "AGENT_SCOPE_INSUFFICIENT"},
+		{service.ErrAgentTokenInvalid, 401, "AGENT_TOKEN_INVALID"},
+		{service.ErrInvalidRequest, 400, "INVALID_REQUEST"},
+	} {
+		rig := newConfirmationsRig(t, nil)
+		rig.backend.createFn = func(service.CreateAgentConfirmationRequest) error { return tc.err }
+		rec := serve(rig.router, toolCall(http.MethodPost, "/api/v1/operations", `{"action":"run_cycle"}`, operateToken, "run_cycle"))
+		if rec.Code != tc.status || responseErrorCode(rec.Body.String()) != tc.code {
+			t.Errorf("%v = %d %s, want %d %s", tc.err, rec.Code, rec.Body.String(), tc.status, tc.code)
+		}
+	}
+}
+
+// The whole path: a tool call records it, a person approves it, and the gate
+// meets the replay.
+func TestAToolCallThenAnApprovalMeetsTheShutGate(t *testing.T) {
+	rig := newConfirmationsRig(t, nil)
+	rec := serve(rig.router, toolCall(http.MethodPost, "/api/v1/operations", `{"action":"run_cycle"}`, operateToken, "run_cycle"))
+	id := rec.Header().Get(ConfirmationIDHeader)
+	if id == "" {
+		t.Fatalf("no confirmation: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = serve(rig.router, session(http.MethodPost, "/api/v1/agent/confirmations/"+id+"/approve", "", stepUpPassword))
+	var got apicontract.AgentConfirmation
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	if rec.Code != http.StatusOK || got.Execution == nil || got.Execution.Code != "DESTRUCTIVE_OPERATIONS_DISABLED" || got.Execution.ExitCode != 50 {
+		t.Errorf("approve = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestATokenReadsTheStateOfItsOwnConfirmationAndNobodyElses(t *testing.T) {
+	own := pendingConfirmation("cnf_1", "POST", "/operations", `{"action":"run_cycle"}`)
+	other := pendingConfirmation("cnf_2", "POST", "/operations", `{}`)
+	other.TokenID = "agt_other"
+	rig := newConfirmationsRig(t, nil, own, other)
+
+	rec := serve(rig.router, bearer(http.MethodGet, "/api/v1/agent/confirmations/cnf_1", "", operateToken))
+	var got apicontract.AgentConfirmation
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); rec.Code != http.StatusOK || err != nil || got.State != "pending" || got.Command != "retnd run" {
+		t.Fatalf("own = %d %s", rec.Code, rec.Body.String())
+	}
+	rec = serve(rig.router, bearer(http.MethodGet, "/api/v1/agent/confirmations/cnf_2", "", operateToken))
+	if rec.Code != http.StatusNotFound || responseErrorCode(rec.Body.String()) != "AGENT_CONFIRMATION_NOT_FOUND" {
+		t.Errorf("another token's = %d %s, want 404", rec.Code, rec.Body.String())
+	}
+	// A person reads any.
+	rec = serve(rig.router, session(http.MethodGet, "/api/v1/agent/confirmations/cnf_2", "", ""))
+	if rec.Code != http.StatusOK {
+		t.Errorf("a person reading = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestOnlyTheStatusReadIsOpenToATokenUnderTheConfirmationsPrefix(t *testing.T) {
+	for _, tc := range []struct {
+		method, path string
+		denied       bool
+	}{
+		{"GET", "/api/v1/agent/confirmations/cnf_1", false},
+		{"GET", "/api/v1/agent/confirmations", true},
+		{"GET", "/api/v1/agent/confirmations/", true},
+		{"GET", "/api/v1/agent/confirmations/cnf_1/approve", true},
+		{"POST", "/api/v1/agent/confirmations/cnf_1", true},
+		{"POST", "/api/v1/agent/confirmations/cnf_1/approve", true},
+		{"POST", "/api/v1/agent/confirmations/cnf_1/deny", true},
+		{"DELETE", "/api/v1/agent/confirmations/cnf_1", true},
+		{"GET", "/api/v1/agent/confirmations/../confirmations", true},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		if got := agentRouteDenied(req); got != tc.denied {
+			t.Errorf("%s %s denied = %v, want %v", tc.method, tc.path, got, tc.denied)
+		}
+	}
+}
+
+// Falsify: accept any catalogue tool name on any mutating route. The header
+// selects the tool to propose, so a tool that exists but belongs to another
+// route (or another method, or a read) creates nothing and records nothing,
+// even for the widest scope.
+func TestAToolHeaderNamingAnotherRouteCreatesNothing(t *testing.T) {
+	for name, req := range map[string]*http.Request{
+		"a configure tool on the operations route": toolCall(http.MethodPost, "/api/v1/operations", `{"action":"run_cycle"}`, operateToken, "backup_set_enabled"),
+		"the operations tool on a set route":       toolCall(http.MethodPost, "/api/v1/backup-sets/production/postgres/enabled", `{"enabled":false}`, operateToken, "run_cycle"),
+		"a read tool on a mutating route":          toolCall(http.MethodPost, "/api/v1/operations", `{"action":"run_cycle"}`, operateToken, "status"),
+		"a mutating tool on the wrong method":      toolCall(http.MethodDelete, "/api/v1/operations", `{"action":"run_cycle"}`, operateToken, "run_cycle"),
+	} {
+		rig := newConfirmationsRig(t, alwaysPassGate{})
+		rig.backend.known[operateToken] = service.AgentPrincipal{TokenID: "agt_op", Name: "runner", Scope: "configure"}
+		rec := serve(rig.router, req)
+		if rec.Code == http.StatusCreated || rec.Code == http.StatusAccepted || rec.Header().Get(ConfirmationIDHeader) != "" {
+			t.Errorf("%s = %d: a confirmation was offered", name, rec.Code)
+		}
+		if len(rig.backend.created) != 0 || len(rig.backend.ops) != 0 {
+			t.Errorf("%s created %d confirmations and ran %d operations", name, len(rig.backend.created), len(rig.backend.ops))
+		}
+		if code := responseErrorCode(rec.Body.String()); code != "AGENT_CONFIRMATION_REQUIRED" && code != "AGENT_ROUTE_DENIED" {
+			t.Errorf("%s = %d %s, want a plain refusal", name, rec.Code, rec.Body.String())
+		}
 	}
 }

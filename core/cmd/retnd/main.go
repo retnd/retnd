@@ -630,6 +630,10 @@ commands:
                                                   No verb takes a token on its command line. Beside a serving engine
                                                   this is POST /api/v1/agent/tokens, which a signed-in user makes and
                                                   a token cannot
+                                                  (mint, list or revoke). Over plain http to another machine the
+                                                  engine asks for the insecure-transport acknowledgement first, so
+                                                  a remote mint exits 52 until RETND_API_INSECURE_TRANSPORT=acknowledged
+                                                  is set
   agent token list [--json]
                                                   every token: name, prefix, scope, status (active, expired or
                                                   revoked), owner, expiry and when it last authenticated. Never the
@@ -643,6 +647,11 @@ commands:
                                                   denied and expired, with the command each one echoes. A call an agent
                                                   makes under the operate or configure scope runs nothing until a person
                                                   approves it. The same as GET /api/v1/agent/confirmations
+  agent confirmations show ID [--json]
+                                                  one confirmation: its state, the command it echoes and, once approved
+                                                  and run, how it ended: the API's code and message, the correlation id
+                                                  and the exit code retnd gives the same answer. The same as GET
+                                                  /api/v1/agent/confirmations/{id}
   agent confirmations approve ID [--json]
                                                   approve one pending confirmation and replay the request that was
                                                   recorded, unchanged, as the token that asked. The password this
@@ -653,6 +662,31 @@ commands:
   agent confirmations deny ID [--json]
                                                   deny one pending confirmation: nothing runs and the agent reads it as
                                                   denied. The same as POST /api/v1/agent/confirmations/{id}/deny
+  agent serve --stdio --token-file PATH
+                                                  serve the read tools, resources and prompts of the agent catalogue to
+                                                  an MCP client on standard input and output, calling the engine at
+                                                  RETND_API_URL as the token's principal. It starts no engine and opens
+                                                  nothing of this host's. The token is in the file (mode 0600, refused
+                                                  otherwise) or in RETND_AGENT_TOKEN, and there is no --token flag. Logs
+                                                  go to standard error. Every tool answers ok, code, message,
+                                                  correlation_id, command and exit_code, the last being what this binary
+                                                  would have exited with for the same call. The engine's own streamable
+                                                  HTTP transport at POST, GET and DELETE /api/v1/agent/mcp is off unless
+                                                  agents.http_transport is on in config.yaml
+  agent audit [--token ID] [--since D] [--limit N] [--before CURSOR] [--json]
+                                                  every call an AI agent made, reads included, newest first: when,
+                                                  token, tool, transport, status, refusal code, correlation id and the
+                                                  arguments as stored after the projection that strips key material.
+                                                  ID is a token id from agent token list, never the token. D is days
+                                                  such as 7d, a duration such as 36h or an RFC 3339 time; N is 100 by
+                                                  default and 1000 at most. A full page prints the cursor for the next
+                                                  one. The same as GET /api/v1/agent/audit
+  agent tools [--json]
+                                                  the catalogue an AI agent is offered: every tool with its scope, its
+                                                  route, the command that does the same from a terminal and the result
+                                                  fields that come from outside this deployment, then every route no
+                                                  agent reaches and why. It is fixed in the binary, so it needs no
+                                                  engine and no token. The same as GET /api/v1/agent/tools
   ssh host-key-probe HOST [--port N] [--json]
                                                   connect to HOST (port 22 unless told) and print the host key that
                                                   answers, its fingerprint and the known_hosts line for it. Nothing
