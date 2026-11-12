@@ -854,6 +854,55 @@ started with `POST /encryption/verify` still rides the scrub operation and repor
 External key provider support goes beyond the `file | env | command` reference and
 is not extended by this surface; it can be added later without breaking it.
 
+## Recorded decision: agent routes, and the bearer rule (EPIC U, #1343)
+
+EPIC U adds a first principal that is not a person, and with it the routes below and one rule about
+who may present what. The decision record is [ADR 0034](../adr/0034-an-agent-is-a-scoped-client-of-the-api.md);
+this section is what a client of `/api/v1` needs to know.
+
+### The routes
+
+| Route | Who may call it |
+|---|---|
+| `GET /agent/tokens`, `POST /agent/tokens`, `POST /agent/tokens/{id}/revoke` | a signed-in session only. `/agent/tokens` is on the deny list below, so no bearer token, of any scope, mints, lists or revokes a token |
+| `GET /agent/tools` | the catalogue: every tool with its scope and its static description, and every refused route with its reason |
+| `GET /agent/audit` | the audit, one row per call an agent made, paged by cursor |
+| `GET /agent/confirmations`, `POST /agent/confirmations/{id}/approve`, `POST /agent/confirmations/{id}/deny` | the operator's side of a confirmation. Approve needs a step-up (the password again) and takes no request body of its own: a body supplied at approval is refused |
+| `POST /agent/mcp`, `GET /agent/mcp`, `DELETE /agent/mcp` | the MCP endpoint, bearer only: a cookie session is refused. Answers `AGENT_HTTP_TRANSPORT_OFF` until `agents.http_transport: on` |
+
+A token is returned once, by `POST /agent/tokens`, in a field that exists on that response and no
+other. Every other route that mentions a token (the list, the revoke, the audit, the confirmations)
+carries its id and its eight-character prefix and never the token or its hash.
+
+### The bearer rule
+
+- A bearer is an agent token only if it carries the `rat_` prefix. A deployment that keeps no
+  tokens ignores an `Authorization` header altogether, as it always did.
+- A valid agent token authenticates as the principal `agent:<name>`, which is what every `Actor`
+  field records. An unknown, expired or revoked token is `401 AGENT_TOKEN_INVALID` before any
+  handler runs, and the refusal is audited. A token is looked up on every request, so a revocation
+  takes effect on the next one. A request that presents a bearer is never also given the benefit of
+  a cookie.
+- `requireCSRF` passes a bearer principal without cookies, and nobody else: CSRF defends a
+  credential the browser sends by itself, and a header is not one. A cookie session keeps the pair.
+- A bearer presented to `/auth/*`, `/system/first-run`, `/recoveries/*` or `/agent/tokens` is
+  `403 AGENT_ROUTE_DENIED` whatever its scope, before the scope is looked at.
+- A bearer reaches no route that changes anything directly. A `read` token that tries is
+  `403 AGENT_SCOPE_INSUFFICIENT`; an `operate` or `configure` token is told a person has to confirm
+  the change (`409 AGENT_CONFIRMATION_REQUIRED`), and the change is a pending confirmation until
+  one does.
+- A token over `agents.rate_limit_per_minute` is refused `AGENT_RATE_LIMITED`, with the wait.
+
+### The codes, which are compatibility surfaces
+
+`AGENT_TOKEN_INVALID`, `AGENT_SCOPE_INSUFFICIENT`, `AGENT_ROUTE_DENIED`, `AGENT_RATE_LIMITED`,
+`AGENT_HTTP_TRANSPORT_OFF`, `AGENT_CONFIRMATION_REQUIRED`, `AGENT_CONFIRMATION_EXPIRED`,
+`AGENT_CONFIRMATION_LIMIT` and `AGENT_CONFIRMATION_BODY_SUBSTITUTED`. Like the scope words
+(`read`, `operate`, `configure`), the tool names and the `agent_action` event, they are never
+renamed and never removed while a token or an audit row records them. A tool result carries the
+API's own `code`, `message` and correlation id, and an `exit_code` that equals what `retnd` exits
+with for the same call.
+
 ## Migration record: what was removed and what replaced it
 
 | removed | replaced by |

@@ -23,6 +23,43 @@
 
 ### Added
 
+- **An MCP server, so an agent can look at a deployment without being trusted** (EPIC U, #1343: #1344 to #1353;
+  FR-91 to FR-98; ADR 0034). `retnd agent serve --stdio --token-file PATH` and, behind a setting, `/api/v1/agent/mcp`
+  speak the Model Context Protocol and call `/api/v1` with a bearer token, so a tool result carries the API's own code,
+  message and correlation id and the `exit_code` `retnd` would exit with. A token is minted by a signed-in
+  person (`retnd agent token create NAME`, the Agents card on Settings, `POST /api/v1/agent/tokens`), starts `rat_`,
+  is shown once, is stored as a SHA-256 and an eight-character prefix, has an owner and an expiry (90 days
+  by default, one year at most) and is checked on every request, so a revoked one is refused on its next call. The scope
+  is one of `read` (the default: starts nothing, changes nothing), `operate` and `configure`. A call under the last two
+  executes nothing: it becomes a pending confirmation with the exact command on it, and `retnd agent confirmations approve`
+  (or the card) replays the recorded body byte for byte after a step-up. The operation gate stays shut: approving
+  `run_cycle` there is `DESTRUCTIVE_OPERATIONS_DISABLED`, exit 50, as for a person. No scope reaches authentication,
+  first-run, key export, import, decrypt, recovery grants, SSH keys, storage credentials or token minting, and
+  every result passes one projection that strips key material and credentials. Text that came from outside the
+  deployment (file names, validator output, workflow logs, activity messages, remote host names) arrives inside an
+  `untrusted` field, never in a description or a prompt. Every call, reads included, is one row of `agent_audit`
+  (`retnd agent audit`, `GET /api/v1/agent/audit`, the card); only mutations, refusals and confirmation changes
+  reach the activity feed, as `agent_action`. `retnd agent tools` prints the catalogue. The docs are
+  [`docs/agents.md`](docs/agents.md), the README section, `docs/site/reference.html`'s `agent` row, the Agents section of
+  `web-ui.html` and the `index.html#honest` paragraph on what this does not prove.
+  - **What an existing deployment sees: nothing, until a token is minted.** No token means no agent access, the
+    `agents:` block resolves to `http_transport: off`, `rate_limit_per_minute: 60`, `confirmation_ttl: 15m`,
+    `audit_retention_days: 90` and `max_pending_confirmations: 5` when a config writes none of it, and the container
+    contract (`container/compose.yaml`, the per-platform compose files, the Unraid template and TrueNAS catalogue, the
+    packaging JSON and the capability contract) is byte-identical to the commit before the epic. Migration `0022`
+    adds three tables (`agent_tokens`, `agent_confirmations`, `agent_audit`) and touches nothing that exists.
+  - **One one-way door: a `config.yaml` that carries `agents:` cannot be parsed by an older build.** Configuration
+    is read with `KnownFields(true)`, so a build from before 0.8.0 refuses the file at load, and it meets migration
+    `0022` with `ErrUnknownSchemaVersion` and fails closed. A deployment that never writes `agents:` can still go back.
+    Turning the HTTP transport on is such a write.
+  - **What it does not prove.** A model can still be persuaded by what it reads: the tests show that persuasion
+    cannot act without a person reading the command, not that it will not happen. The HTTP transport is not
+    confidential, which is why it is off. Equal answers across surfaces were checked against the clients the
+    end-to-end suite drives (CLI, browser, both transports), not against every MCP client. The MCP
+    implementation is the one new dependency (ADR 0034 D6; #1347 records whether it is the official Go SDK or
+    the minimal fallback). `scripts/release/check-epic-u-closed.sh` is the
+    release's check that the epic is closed.
+
 - **Encryption suites for retained copies** (EPIC T, #1310: #1311 to #1320). Every encrypted copy now
   records the suite it was written under (its existing `format_id`, so `age/v1` keeps its exact meaning and
   no copy record changes), from a registry compiled into the build. Two suites ship, both `filippo.io/age`
