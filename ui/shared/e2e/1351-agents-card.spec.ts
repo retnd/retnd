@@ -79,9 +79,11 @@ test.describe("#1351 the tokens table", () => {
   test("#1351 each status is a glyph, a word and an edge, in the body ink", async ({ page }) => {
     await openAgents(page);
     const chip = (name: string) => tokenRow(page, name).locator('[data-chip="status"]');
-    await expect(chip("nightly-triage")).toHaveText("✓active");
+    await expect(chip("nightly-triage")).toHaveText("active");
+    await expect(chip("nightly-triage").locator(".agchip__glyph svg")).toHaveCount(1);
     await expect(chip("old-weekly-report")).toHaveText("◷expired");
-    await expect(chip("laptop-experiment")).toHaveText("⊘revoked");
+    await expect(chip("laptop-experiment")).toHaveText("revoked");
+    await expect(chip("laptop-experiment").locator(".agchip__glyph svg")).toHaveCount(1);
     const style = (name: string) => chip(name).evaluate((e) => {
       const c = getComputedStyle(e);
       return { border: c.borderTopStyle, color: c.color };
@@ -114,7 +116,7 @@ test.describe("#1351 the tokens table", () => {
     await page.getByRole("dialog").getByRole("button", { name: "Revoke agent:nightly-triage" }).click();
     await expect(tokenRow(page, "nightly-triage")).toHaveAttribute("data-status", "revoked");
     await expect(tokenRow(page, "nightly-triage").getByRole("button")).toHaveCount(0);
-    await expect(tokenRow(page, "nightly-triage").locator('[data-chip="status"]')).toHaveText("⊘revoked");
+    await expect(tokenRow(page, "nightly-triage").locator('[data-chip="status"]')).toHaveText("revoked");
   });
 
   test("#1351 the revoke dialog draws the revoke twin the browser composes", async ({ page }) => {
