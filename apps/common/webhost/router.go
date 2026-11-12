@@ -840,7 +840,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// refuses a bearer here (agentDeniedPrefixes), so a token can never
 		// mint, list or revoke a token.
 		r.Get("/agent/tokens", h.listAgentTokens)
-		r.With(requireCSRF).Post("/agent/tokens", h.mintAgentToken)
+		r.With(requireCSRF, requireMintTransportAck(h.enforce)).Post("/agent/tokens", h.mintAgentToken)
 		r.With(requireCSRF).Post("/agent/tokens/{id}/revoke", h.revokeAgentToken)
 		r.Get("/ssh/key-candidates", h.listSSHKeyCandidates)
 

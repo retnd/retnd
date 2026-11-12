@@ -205,7 +205,10 @@ func (h *handlers) mintAgentToken(w http.ResponseWriter, r *http.Request) {
 		Name: body.Name, Scope: body.Scope, ExpiresIn: body.ExpiresIn, Owner: actorFromContext(r.Context()),
 	})
 	if errors.Is(err, service.ErrInvalidRequest) {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+		// The sentinel's own words come off, so the message starts with the
+		// request field it is about (name:, scope: or expires_in:), which is
+		// what the mint dialog routes it by.
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", strings.TrimPrefix(err.Error(), service.ErrInvalidRequest.Error()+": "))
 		return
 	}
 	if err != nil {
