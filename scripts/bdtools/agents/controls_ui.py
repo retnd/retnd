@@ -3,8 +3,8 @@
 # (U2.3, U2.4, U2.5; #1351, #1352, #1353). Exec'd by selftest.py with Control
 # and PLANT defined.
 #
-# U2.2 has no control here: nothing in the tree reads docs/design/1350-agents.html
-# (no guard, no test), so there is no proof for a planted violation to turn red.
+# U2.2's controls are in controls_design.py: the note is plain HTML and its
+# guard is a Go test in distribution/packaging, so nothing here needs a browser.
 #
 # Playwright runs only through the workspace lock, one run at a time, in the
 # pinned e2e image, with the copy mounted at its own path and the real tree's
