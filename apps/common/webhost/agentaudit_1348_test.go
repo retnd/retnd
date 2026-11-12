@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -24,6 +25,16 @@ type auditSpy struct {
 	asked   []service.AgentAuditQuery
 	entries []service.AgentAuditEntry
 	next    string
+	// reserveErr is what ReserveAgentAudit answers, and reserved counts asks.
+	reserveErr error
+	reserved   int
+}
+
+func (a *auditSpy) ReserveAgentAudit(context.Context) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.reserved++
+	return a.reserveErr
 }
 
 func (a *auditSpy) RecordAgentCall(_ context.Context, c service.AgentCall) error {
@@ -257,5 +268,33 @@ func TestADeniedRouteProbeNamesTheToken(t *testing.T) {
 	}
 	if len(access.refusals) != 1 || access.refusals[0].TokenID != "" {
 		t.Errorf("audited refusals = %+v, want one with no token", access.refusals)
+	}
+}
+
+// Falsify: dispatch before reserving the row, or let a stalled writer through.
+// A tool call whose audit row cannot be written is refused AGENT_AUDIT_UNAVAILABLE
+// and the handler never runs; a plain API call (no tool named) is not asked.
+func TestAToolCallIsRefusedWhenItsAuditRowCannotBeWritten(t *testing.T) {
+	spy := &auditSpy{reserveErr: service.ErrAgentAuditStalled}
+	ran := 0
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { ran++; w.WriteHeader(http.StatusOK) })
+	h := auditAgentCalls(spy)(next)
+	call := func(tool string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/system/health", nil)
+		if tool != "" {
+			req.Header.Set(service.AgentToolHeader, tool)
+		}
+		req = req.WithContext(withAgentPrincipal(req.Context(), service.AgentPrincipal{TokenID: "agt_1", Name: "triage", Scope: "read"}))
+		return serve(h, req)
+	}
+	rec := call("status")
+	if rec.Code != http.StatusServiceUnavailable || ran != 0 || !strings.Contains(rec.Body.String(), "AGENT_AUDIT_UNAVAILABLE") {
+		t.Fatalf("stalled tool call: status %d, handler ran %d times, body %s", rec.Code, ran, rec.Body.String())
+	}
+	if rec = call(""); rec.Code != http.StatusOK || ran != 1 {
+		t.Errorf("a call with no tool was refused: status %d, ran %d", rec.Code, ran)
+	}
+	if spy.reserved != 1 {
+		t.Errorf("reserved %d times, want once (only the tool call)", spy.reserved)
 	}
 }
