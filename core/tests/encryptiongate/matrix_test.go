@@ -62,6 +62,7 @@ var selfTests = []string{
 	"scripts/bdtools/encryption/controls_n_b.py",
 	"scripts/bdtools/encryption/controls_r2.py",
 	"scripts/bdtools/encryption/controls_ui.py",
+	"scripts/bdtools/encryption/controls_t25.py",
 	"scripts/bdtools/encryption/controls_rt.py",
 	"scripts/bdtools/encryption/controls_cap.py",
 }

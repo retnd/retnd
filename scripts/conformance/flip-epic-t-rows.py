@@ -49,7 +49,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SELFTEST = "scripts/bdtools/encryption/selftest.py"
-BLOCKED = "BLOCKED (#1358)"
+BLOCKED = ("BLOCKED (#1358)", "BLOCKED (#1376)")
 PHASE_HEADINGS = {"T1": "### Phase 1 exit gate", "T2": "### Phase 2 exit gate"}
 LOG_FIELDS = 9  # stamp host commit rows label verdict cmd RED: GREEN:
 
@@ -83,7 +83,11 @@ def declared_controls() -> dict[str, list[str]]:
 
 def tests_of(cmd: str) -> list[str]:
     m = re.search(r"-run <([^>]*)>", cmd)
-    return [t for t in m.group(1).split(",") if t] if m else []
+    if m:
+        return [t for t in m.group(1).split(",") if t]
+    # a browser spec or a checker script, not a Go test (T2.3)
+    f = re.search(r"(e2e/[\w.-]+\.spec\.ts|scripts/[\w./-]+\.(?:py|sh))", cmd)
+    return [f.group(1)] if f else []
 
 
 def excerpt(red: str) -> str:
@@ -179,7 +183,7 @@ def main() -> int:
         if rid == "TC-05":
             continue
         line = lines[rows[rid]]
-        if BLOCKED not in line:
+        if not any(b in line for b in BLOCKED):
             continue
         cells = line.split(" | ")
         why = eligible(rid, cells[2] if len(cells) > 2 else "")
@@ -201,7 +205,7 @@ def main() -> int:
         flipped.append(rid)
 
     ledger = [r for r in rows if r.startswith("TV.")]
-    if "TC-05" in rows and BLOCKED in lines[rows["TC-05"]]:
+    if "TC-05" in rows and any(b in lines[rows["TC-05"]] for b in BLOCKED):
         if ledger and all(r in flipped or "PASS" in lines[rows[r]].split(" | ")[4] for r in ledger):
             ids = ", ".join(sorted(ledger, key=lambda r: int(r.split(".")[1])))
             eg = [latest[lab]["label"] for r in sorted(ledger, key=lambda r: int(r.split(".")[1])) for lab in [x["label"] for x in by_row.get(r, [])][:1]][:2]
