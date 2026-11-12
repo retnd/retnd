@@ -56,11 +56,12 @@ assert_nonzero() { # <label> <status>
 
 # ---------------------------------------------------------------- fixture
 
-counter=0
 make_repo() { # -> a repository with one commit on main, a remote, and the stubs
-  counter=$((counter + 1))
-  local fix="$SANDBOX/r$counter"
-  mkdir -p "$fix"
+  # mktemp, not a counter: every caller runs this in $(...), a subshell, so a
+  # counter bumped here never reaches the next call, every fixture was r1, and
+  # each test inherited the last one's tree (its calls.log got committed).
+  local fix
+  fix="$(mktemp -d "$SANDBOX/r.XXXXXX")"
   (
     cd "$fix" || exit 1
     git init -q -b main
@@ -282,7 +283,9 @@ assert_not_contains "B2 and the fast tier did not run" 'ci-fast:' "$out"
 
 # B3: red tests first still works, and is stamped red with its reason.
 fix="$(make_repo)"
-(cd "$fix" && printf 'package a\n' >core/internal/a/a_test.go && git add core/internal/a/a_test.go)
+# On a branch: the hook refuses a red commit on main or release, which is a
+# rule of its own and not this row's.
+(cd "$fix" && git checkout -q -b red-tests && printf 'package a\n' >core/internal/a/a_test.go && git add core/internal/a/a_test.go)
 fx "$fix" CI_LOCAL_RED="#1361: red tests for the tier" -- git commit -qm "red"
 assert_eq "B3 a red commit commits" 0 "$status"
 assert_contains "B3 stamped red with the reason" 'Local-Gate: red #1361: red tests for the tier' "$(last_message "$fix")"
@@ -368,7 +371,6 @@ STUB
 pr_repo() {
   local fix
   fix="$(make_repo)"
-  write_gh "$fix"
   (
     cd "$fix" || exit 1
     git checkout -q -b pr-branch
@@ -379,6 +381,9 @@ pr_repo() {
     git push -q origin pr-branch:refs/pull/7/head
     git checkout -q main
   ) >/dev/null 2>&1
+  # After the checkout back to main: written before, it was committed on the
+  # PR branch by the add -A and gone from main's tree, so the real gh ran.
+  write_gh "$fix"
   printf '%s\n' "$fix"
 }
 pr_head() { (cd "$1" && git rev-parse pr-branch); }
