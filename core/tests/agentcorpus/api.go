@@ -100,9 +100,24 @@ func (a *API) plant(slug, fallback string) string {
 func (a *API) canaries() map[string]any {
 	out := map[string]any{}
 	for _, c := range a.plan.Canaries {
+		if c.Field == "key_provider.source" {
+			// Planted by the route that has a key_provider, below.
+			continue
+		}
 		out[c.Field] = c.Value
 	}
 	return out
+}
+
+// providerSource is the key provider's source: what a deployment with an
+// external provider would show, when the plan plants it.
+func (a *API) providerSource() string {
+	for _, c := range a.plan.Canaries {
+		if c.Field == "key_provider.source" {
+			return c.Value
+		}
+	}
+	return "managed"
 }
 
 func withCanaries(m map[string]any, a *API) map[string]any {
@@ -187,7 +202,7 @@ func (a *API) payload(path string) any {
 	case path == "/encryption/keys":
 		return map[string]any{"keys": []any{withCanaries(map[string]any{"id": "key-1", "state": "active", "suite": "age", "created_at": at}, a)}}
 	case path == "/encryption/policy":
-		return withCanaries(map[string]any{"mode": "required", "suite": "age", "key_provider": map[string]any{"kind": "managed", "source": "managed"}, "rotation_needed": false}, a)
+		return withCanaries(map[string]any{"mode": "required", "suite": "age", "key_provider": map[string]any{"kind": "managed", "source": a.providerSource()}, "rotation_needed": false}, a)
 	case path == "/encryption/copies":
 		return map[string]any{"copies": []any{withCanaries(map[string]any{"artifact_id": "production/postgres-primary/backup.dump", "encrypted": true, "key_id": "key-1"}, a)}}
 	case path == "/settings", path == "/settings/workflow/environment":
