@@ -46,6 +46,7 @@ var selfTests = []string{
 	"core/tests/agentgate/matrix_test.go",
 	"scripts/bdtools/agents/controls_tokens.py",
 	"scripts/bdtools/agents/controls_catalogue.py",
+	"scripts/bdtools/agents/controls_audit.py",
 	"scripts/bdtools/agents/controls_confirm.py",
 	"scripts/bdtools/agents/controls_ui.py",
 }
