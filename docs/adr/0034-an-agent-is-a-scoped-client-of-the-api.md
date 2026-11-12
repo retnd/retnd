@@ -145,6 +145,14 @@ The replay meets every refusal the original would have: the shut operation gate 
 `DESTRUCTIVE_OPERATIONS_DISABLED` and exit 50 for `run_cycle` exactly as `retnd run` does.
 This epic opens no gate.
 
+The transport rule is judged on the approver's connection, the same as for their own call. The
+replay takes the approve request's peer address, TLS state, `X-Forwarded-For`,
+`X-Forwarded-Proto`, `X-Retnd-Browser-Transport` and insecure-transport acknowledgement, and
+nothing else from it, so a loopback or https approver replays as loopback or https, and a
+plain-http approver from another machine still gets `INSECURE_TRANSPORT_ACK_REQUIRED` and exit 52
+unless the approval carried the acknowledgement. Forwarded headers count exactly when the
+deployment trusts them.
+
 A pre-approved `operate` token, which would skip the confirmation for unattended work, is
 owner decision D2 and is not in this epic.
 
