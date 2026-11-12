@@ -39,19 +39,34 @@ TOKENS = UI / "design-system" / "tokens.css"
 NORMAL = 4.5
 EDGE = 3.0
 
+# An edge drawn with these tokens has to make 3:1 against every background a
+# control sits on, not only the one its row names: the card (--surface), the
+# quiet fill (--surface-2) and the page itself (--bg), which is what a chip or
+# a button shows through when it is not on a card. --edge-3 passed at 3.35:1
+# on --surface while it was 2.99:1 on the light --bg, so every edge row is
+# also checked against these.
+EDGE_TOKENS = ("edge-3", "control-edge")
+EDGE_BACKGROUNDS = ("surface", "surface-2", "bg")
+
 # (stylesheet relative to ui/shared/src, selector, foreground property,
 #  foreground token, background token, minimum). The background is the
 # surface the element sits on when the selector paints none of its own.
 PAIRS: list[tuple[str, str, str, str, str, float]] = [
+    # The copy chips' edge (#995). The edge rule also checks it against the
+    # card and the page, which is where it measured 2.99:1 in the browser.
+    ("encryption/encryption.css", ".echip", "border-color", "edge-3", "surface-2", EDGE),
     # The suite id inside the Encrypted chip: secondary ink on the chip fill.
     ("encryption/encryption.css", ".echip__suite", "color", "text-2", "surface-2", NORMAL),
     # Status badges beside each suite option.
     ("encryption/encryption.css", ".esuite__badge", "color", "text", "surface-2", NORMAL),
     ("encryption/encryption.css", ".esuite__badge", "border-color", "edge-3", "surface", EDGE),
-    ("encryption/encryption.css", '.esuite__badge[data-suite-badge="default"]', "background", "text", "ok-quiet", NORMAL),
+    ("encryption/encryption.css", '.esuite__badge[data-suite-badge="default"]', "background", "text", "ok-quiet",
+     NORMAL),
     ("encryption/encryption.css", '.esuite__badge[data-suite-badge="default"]', "border-color", "ok", "surface", EDGE),
-    ("encryption/encryption.css", '.esuite__badge[data-suite-badge="deprecated"]', "background", "text", "warn-quiet", NORMAL),
-    ("encryption/encryption.css", '.esuite__badge[data-suite-badge="deprecated"]', "border-color", "warn", "surface", EDGE),
+    ("encryption/encryption.css", '.esuite__badge[data-suite-badge="deprecated"]', "background", "text", "warn-quiet",
+     NORMAL),
+    ("encryption/encryption.css", '.esuite__badge[data-suite-badge="deprecated"]', "border-color", "warn", "surface",
+     EDGE),
     ("encryption/encryption.css", '.esuite__badge[data-suite-badge="retired"]', "color", "text-2", "surface-2", NORMAL),
     # The options: the sentence, the selected row and the disabled (retired) row.
     ("encryption/encryption.css", ".esuite", "border-color", "edge-3", "surface", EDGE),
@@ -65,6 +80,9 @@ PAIRS: list[tuple[str, str, str, str, str, float]] = [
     ("encryption/encryption.css", ".esteps__step", "border-color", "edge-3", "surface", EDGE),
     ("encryption/encryption.css", '.esteps__step[data-state="now"]', "background", "text", "accent-quiet", NORMAL),
     ("encryption/encryption.css", '.esteps__step[data-state="done"] .esteps__glyph', "color", "ok", "surface", EDGE),
+    # The Settings card's secondary buttons draw the control edge, and the
+    # recovery bundle ones sit on the warning banner's fill, the lowest pair.
+    ("design-system/components.css", ".btn--strong-edge", "border-color", "control-edge", "warn-quiet", EDGE),
     # The still-owed list.
     ("encryption/encryption.css", ".eowed", "background", "text", "warn-quiet", NORMAL),
     # EPIC U (#1351), the Agents card (design 1350 section 13). The ink is --text
@@ -98,11 +116,11 @@ PAIRS: list[tuple[str, str, str, str, str, float]] = [
 ]
 
 
-def oklch_to_linear(l: float, c: float, h: float) -> tuple[float, float, float]:
+def oklch_to_linear(lightness: float, c: float, h: float) -> tuple[float, float, float]:
     a, b = c * math.cos(math.radians(h)), c * math.sin(math.radians(h))
-    l_ = l + 0.3963377774 * a + 0.2158037573 * b
-    m_ = l - 0.1055613458 * a - 0.0638541728 * b
-    s_ = l - 0.0894841775 * a - 1.2914855480 * b
+    l_ = lightness + 0.3963377774 * a + 0.2158037573 * b
+    m_ = lightness - 0.1055613458 * a - 0.0638541728 * b
+    s_ = lightness - 0.0894841775 * a - 1.2914855480 * b
     lc, mc, sc = l_**3, m_**3, s_**3
     rgb = (
         4.0767416621 * lc - 3.3077115913 * mc + 0.2309699292 * sc,
@@ -189,10 +207,17 @@ def check(pairs, theme_tokens, read_sheet) -> list[str]:
         if text is None or not rule_declares(text, selector, prop, declared):
             bad.append(f"{sheet} {selector}: no rule declares {prop} var(--{declared}) (stale or not yet drawn)")
             continue
+        backgrounds = [bg]
+        if fg in EDGE_TOKENS:
+            backgrounds += [b for b in EDGE_BACKGROUNDS if b != bg]
         for theme, tokens in theme_tokens.items():
-            r = ratio(resolve(tokens, fg), resolve(tokens, bg))
-            if r < need:
-                bad.append(f"{selector} --{fg} on --{bg} in {theme}: {r:.2f} < {need}")
+            for b in backgrounds:
+                if b not in tokens:
+                    bad.append(f"{selector} --{fg}: no --{b} token in {theme} to check the edge against")
+                    continue
+                r = ratio(resolve(tokens, fg), resolve(tokens, b))
+                if r < need:
+                    bad.append(f"{selector} --{fg} on --{b} in {theme}: {r:.2f} < {need}")
     return bad
 
 
@@ -212,6 +237,15 @@ def selftest() -> int:
         failures.append("a known-bad pair passed")
     if not check([("s", ".absent", "color", "ink", "paper", NORMAL)], tokens, read):
         failures.append("a row with no rule passed")
+    # The edge that passes on the card and fails on the page: 3.35:1 on
+    # --surface and 2.99:1 on --bg, the light values --edge-3 shipped with.
+    edge = {"t": {"edge-3": "#8b8d8a", "surface": "#ffffff", "surface-2": "#fafaf9", "bg": "#f2f2f0"}}
+    edge_sheet = lambda _rel: ".chip { border: 1px solid var(--edge-3); }\n"  # noqa: E731
+    if not check([("s", ".chip", "border-color", "edge-3", "surface", EDGE)], edge, edge_sheet):
+        failures.append("an edge at 2.99:1 on --bg passed because its row names --surface")
+    edge["t"]["edge-3"] = "#888a87"
+    if check([("s", ".chip", "border-color", "edge-3", "surface", EDGE)], edge, edge_sheet):
+        failures.append("an edge at 3:1 or better on --surface, --surface-2 and --bg was refused")
     for f in failures:
         print("check-ui-pairs selftest: " + f, file=sys.stderr)
     return 1 if failures else 0
@@ -229,10 +263,12 @@ def main(argv: list[str]) -> int:
     for b in bad:
         print("check-ui-pairs: " + b, file=sys.stderr)
     if not bad:
-        for sheet, selector, prop, fg, bg, need in PAIRS:
-            light = ratio(resolve(t["light"], fg), resolve(t["light"], bg))
-            dark = ratio(resolve(t["dark"], fg), resolve(t["dark"], bg))
-            print(f"{selector:58s} --{fg} on --{bg}: light {light:.2f}, dark {dark:.2f} (needs {need})")
+        for _sheet, selector, _prop, fg, bg, need in PAIRS:
+            backgrounds = [bg] + ([b for b in EDGE_BACKGROUNDS if b != bg] if fg in EDGE_TOKENS else [])
+            for b in backgrounds:
+                light = ratio(resolve(t["light"], fg), resolve(t["light"], b))
+                dark = ratio(resolve(t["dark"], fg), resolve(t["dark"], b))
+                print(f"{selector:58s} --{fg} on --{b}: light {light:.2f}, dark {dark:.2f} (needs {need})")
     return 1 if bad else 0
 
 

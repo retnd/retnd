@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Encrypt-existing and re-encrypt are behind the destructive gate over HTTP** (#1361, changes 0.8.0 product
+  behaviour). `GET` and `POST /api/v1/encryption/encrypt-existing` and `/api/v1/encryption/reencrypt` now
+  refuse with `403 DESTRUCTIVE_OPERATIONS_DISABLED` on a gateway profile, as retention apply does, because a
+  run retires the old copy. They are open on a local-account profile, which on a non-loopback connection
+  still needs `X-Retnd-Insecure-Transport-Ack`. The terminal verbs have no gate and are unchanged.
+
 ### Fixed
 
 - **`ENCRYPTION_KEY_UNRESOLVABLE` is now raised** (#1294, EPIC N follow-up). The kind and its condition
@@ -192,7 +200,8 @@
   another medium (one placement per backup per medium). `--dry-run` names, per backup, whether a run would
   encrypt it or the refusal and its reason. A cancel from the terminal and from the browser (the existing
   assurance cancel) both discard an unverified copy and leave the plaintext untouched. A policy change and the
-  retention cycle still never rewrite an existing copy. No screen has a button for it.
+  retention cycle still never rewrite an existing copy. Retroactive encryption is API and CLI only in this
+  release, so no screen has a button for it.
 - **Lifecycle, retention, catalog rebuild and rotation for encrypted copies** (#992). Retention deletes an
   encrypted object by its stored size and checksum and needs no key. A medium-to-medium move copies the ciphertext
   as it is and accepts the destination only after a decrypt through the key id recorded on the source copy, and a

@@ -173,6 +173,13 @@ export CI_LOCAL=1
 # neither depends on the other being the version in the worktree.
 export CI=1
 
+# Which tier this is, for the one test that must not run in the other. The
+# full gate is the release run; scripts/ci-fast.sh sets "fast". core/tests/compat
+# reads it to stand down the check that asks GitHub whether every BLOCKED
+# matrix row still cites an open issue, so closing an issue by hand cannot
+# turn a commit red when no commit changed (#1361).
+export CI_LOCAL_TIER=full
+
 # Running as a git hook (pre-commit) means git has GIT_INDEX_FILE (a path
 # relative to the repo root, e.g. ".git/index"), GIT_DIR, GIT_WORK_TREE, etc.
 # set in the environment for the in-progress commit. The dependency-rules
@@ -509,6 +516,13 @@ bash scripts/tests/web-ui-ratchet.test.sh
 gate_step "docs/reference/local-gate.md documents every knob the gate reads (#1260)"
 bash scripts/tests/local-gate-reference.test.sh
 
+# The fast tier and the pre-merge check (#1361): which paths pick which
+# checks, that a Go-only commit in a fresh worktree is not blocked by missing
+# JS deps, the hooks-path refusal, the Local-Gate: fast stamp, and that
+# scripts/merge-gate.sh posts the right state. Stubs only, no Docker.
+gate_step "the fast tier, the hook's hooks-path refusal and the pre-merge check behave as documented (#1361)"
+bash scripts/tests/ci-fast.test.sh
+
 # ci-docker.sh --host (#1267) ships the tree to another machine's Docker
 # daemon and runs the gate there. This drives it with stand-ins for docker,
 # rsync, tar and ssh: the daemon each call goes to, what is mounted, the exit
@@ -698,8 +712,29 @@ else
   # derived from this run's own measured pace instead (issue #247's
   # reasoning, one layer out; see core/cmd/gotestwatch/doc.go), so there
   # is no fixed number to outgrow.
+  # core/tests/compat asks GitHub whether every BLOCKED conformance row
+  # still cites an open issue, through gh and gh's own login. The pinned
+  # image in scripts/ci/Dockerfile has no gh and no credential, on purpose,
+  # so under scripts/ci-docker.sh that check cannot run at all (#1331). It
+  # used to FAIL there, which said "broken" about a capability the host
+  # simply lacks. Now the gate probes gh first and, when it is missing or
+  # not logged in, hands the test a file to write the rows it could not
+  # resolve into. Each one lands in the skip ledger, so the run ends
+  # INCOMPLETE naming them, and a matrix with no BLOCKED row costs nothing.
+  github_ledger=""
+  if ! command -v gh >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then
+    github_ledger="$(mktemp "${TMPDIR:-/tmp}/ci-local-github.XXXXXX")"
+    export CI_LOCAL_GITHUB_LEDGER="$github_ledger"
+  fi
   gate_docker_step "core/ go test -race ./... (excluding tests/crashmatrix + tests/sftpintegration + tests/sshexecintegration + tests/miniointegration + tests/conformance + tests/machinegate + tests/containerhooks and cmd/gotestwatch, all run next)"
   (cd core && GOWORK=off go test -race -timeout 45m $(GOWORK=off go list ./... | grep -vE '/(tests/(crashmatrix|sftpintegration|sshexecintegration|miniointegration|conformance|machinegate|containerhooks)|cmd/gotestwatch)$'))
+  if [ -n "$github_ledger" ]; then
+    while IFS= read -r line; do
+      [ -n "$line" ] && gate_note_skip "$line. Run the gate where gh is installed and logged in (gh auth status) to check them."
+    done <"$github_ledger"
+    rm -f "$github_ledger"
+    unset CI_LOCAL_GITHUB_LEDGER
+  fi
 
   # cmd/gotestwatch is compiled and run rather than handed to `go test`,
   # and the reason is the same three-outcome honesty this gate is built on

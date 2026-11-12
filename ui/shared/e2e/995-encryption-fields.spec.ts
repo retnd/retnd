@@ -27,7 +27,7 @@ test.describe("#995 follow-up", () => {
   test("Backup detail names the plaintext digest and the stored-bytes digest as two rows", async ({ page }) => {
     await open(page, "/backups", "encryption-on");
     await row(page, PG).click();
-    await expect(page.getByText("Plaintext digest")).toBeVisible();
+    await expect(page.getByText("Plaintext digest", { exact: true })).toBeVisible();
     await expect(page.getByText(/Stored-bytes digest, offsite_s3/)).toBeVisible();
     await expect(page.getByText(/Checksum \(plaintext\)/)).toBeVisible();
   });

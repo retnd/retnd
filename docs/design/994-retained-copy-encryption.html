@@ -5,14 +5,15 @@
 <style>
 /* Tokens copied from ui/shared/src/design-system/tokens.css at 283fd457. Nothing below declares a colour literal of its own.
    --text-3 is the tertiary TEXT ink (#1235 moved it to 4.5:1 on every surface it sits on); --edge-3 is the ink for an edge that
-   has to be found by its edge (a chip, a button, a segmented control, a bar, a text box): 3.35:1 light and 3.85:1 dark on
-   --surface. --border-strong is 1.69:1 and 1.81:1 on --surface, so it is kept for the decorative frames and card rules only.
+   has to be found by its edge (a chip, a button, a segmented control, a bar, a text box): 3.48:1 light and 3.85:1 dark on
+   --surface, and at least 3.11:1 on --surface-2 and --bg in both themes (0.8.0 darkened the light value from #8b8d8a,
+   which was 2.99:1 on the light --bg). --border-strong is 1.69:1 and 1.81:1 on --surface, so it is kept for the decorative frames and card rules only.
    See the contrast table at the end. */
 :root,.th-light{
   --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;--space-8:32px;
   --radius-sm:4px;--radius-md:6px;--radius-lg:8px;--radius-xl:10px;--radius-pill:999px;
   --bg:#f2f2f0;--surface:#fff;--surface-2:#fafaf9;--surface-3:#f0f0ed;
-  --border:#e0dfdc;--border-strong:#c8c7c3;--edge-3:#8b8d8a;
+  --border:#e0dfdc;--border-strong:#c8c7c3;--edge-3:#888a87;
   --text:#191a19;--text-2:#5b5d5b;--text-3:#696b68;
   --accent:oklch(0.52 0.09 255);--accent-quiet:oklch(0.95 0.02 255);
   --ok:oklch(0.52 0.10 155);--ok-quiet:oklch(0.955 0.025 155);
