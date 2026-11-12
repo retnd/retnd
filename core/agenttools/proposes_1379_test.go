@@ -21,6 +21,11 @@ func TestProposesAnswersOnlyForTheToolsOwnRoute(t *testing.T) {
 		{"no action on the shared route", "run_cycle", "POST", "/operations", "", false, ""},
 		{"a read tool", "status", "GET", "/system/health", "", false, ""},
 		{"an unknown tool", "no_such_tool", "POST", "/operations", "run_cycle", false, ""},
+		{"its own parameterised route", "scrub_start", "POST", "/backup-sets/office/docs/scrub", "", true, ScopeOperate},
+		{"a path longer than its own route", "scrub_start", "POST", "/backup-sets/office/docs/scrub/extra", "", false, ""},
+		{"a path shorter than its own route", "scrub_start", "POST", "/backup-sets/office/scrub", "", false, ""},
+		{"a sibling route under the same set", "scrub_start", "POST", "/backup-sets/office/docs/recovery-test", "", false, ""},
+		{"a configure tool on its own route", "backup_set_retention_set", "PUT", "/backup-sets/office/docs/retention", "", true, ScopeConfigure},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
