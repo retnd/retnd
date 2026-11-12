@@ -85,7 +85,7 @@ gate_step() {
   gate_announce "$1"
 }
 
-# gate_lint <module dir>
+# gate_lint <module dir> [package...]
 # Every golangci-lint invocation in ci-local.sh runs through here, because
 # golangci-lint speaks the number 3 (#1260). It refuses to run beside
 # another instance on the same machine ("parallel golangci-lint is
@@ -100,11 +100,16 @@ gate_step() {
 # which ci-local.sh captures before the first module step.
 gate_lint() {
   gate_lint_status=0
-  (cd "$1" && GOWORK=off golangci-lint run --allow-parallel-runners --config "$REPO_ROOT/.golangci.yml" ./...) || gate_lint_status=$?
+  gate_lint_dir="$1"
+  shift
+  # The fast tier (scripts/ci-fast.sh, #1361) names the packages it touched;
+  # the full gate names none and gets the whole module.
+  [ "$#" -gt 0 ] || set -- ./...
+  (cd "$gate_lint_dir" && GOWORK=off golangci-lint run --allow-parallel-runners --config "$REPO_ROOT/.golangci.yml" "$@") || gate_lint_status=$?
   case "$gate_lint_status" in
     0) return 0 ;;
     3)
-      echo "==> golangci-lint exited 3 in $1, which this gate reads as a failure and not as INCOMPLETE: the linter did not run to completion (see its output above)." >&2
+      echo "==> golangci-lint exited 3 in $gate_lint_dir, which this gate reads as a failure and not as INCOMPLETE: the linter did not run to completion (see its output above)." >&2
       return 1
       ;;
     *) return "$gate_lint_status" ;;
@@ -402,7 +407,14 @@ gate_boot_id() {
 # gate_lock_age <dir> -> seconds since the lock directory was created, or
 # 0 when that cannot be read.
 gate_lock_age() {
-  gate_lock_mtime="$(stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0)"
+  # GNU first (#1331). GNU stat reads `-f %m` as "filesystem status of the
+  # files %m and <lock>": it prints a block about the lock's filesystem on
+  # stdout and only then fails on %m, so the BSD-first order captured that
+  # block plus the GNU answer, the arithmetic below broke, and on every
+  # Linux host a lock that could only be reclaimed by age was never
+  # reclaimed at all (the waiter sat out GATE_LOCK_TIMEOUT). BSD stat
+  # refuses -c without printing anything, so this order is safe on macOS.
+  gate_lock_mtime="$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0)"
   echo $(( $(date +%s) - gate_lock_mtime ))
 }
 

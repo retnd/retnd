@@ -275,6 +275,10 @@ make_full_tree() {
   # a reason unrelated to what it measured, Group D's own control included.
   printf '#!/usr/bin/env bash\nexit 0\n' \
     >"$tree/scripts/tests/record-release-hashes-guards.test.sh"
+  # The fast tier's own suite (#1361), stubbed like its neighbours: it builds
+  # fixture repositories of its own and drives real git commits.
+  printf '#!/usr/bin/env bash\nexit 0\n' \
+    >"$tree/scripts/tests/ci-fast.test.sh"
 
   # .husky/pre-commit is the one caller that has to act on the exit status
   # rather than read the prose, so Group F drives the real hook in this tree.
@@ -620,15 +624,17 @@ status=0
 scrub_env() {
   env -u CI_LOCAL_FAST -u CI_LOCAL_SKIP_JS -u CI_LOCAL_SKIP_DOCKER \
     -u CI_LOCAL_SELFTEST -u CI_LOCAL_SKIP_E2E -u CI_LOCAL_SKIP_TWO_MACHINE \
-    -u CI_LOCAL_RED -u CI -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
+    -u CI_LOCAL_RED -u CI_LOCAL_FULL -u CI_LOCAL_TIER -u CI -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
     -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_PREFIX "$@"
 }
 
 run_hook() { # <tree> [VAR=VAL ...]
   hook_tree="$1"
   shift
+  # CI_LOCAL_FULL=1: this suite measures the hook acting on the FULL gate's
+  # exit status. What the default fast tier does is scripts/tests/ci-fast.test.sh's.
   out="$(cd "$hook_tree" && scrub_env CI_LOCAL_LOCK_DIR="$hook_tree/.gate-lock" \
-    PATH="$hook_tree/bin:$PATH" "$@" sh .husky/pre-commit 2>&1)"
+    CI_LOCAL_FULL=1 PATH="$hook_tree/bin:$PATH" "$@" sh .husky/pre-commit 2>&1)"
   status=$?
 }
 
@@ -661,7 +667,7 @@ run_git_commit() { # <tree> [VAR=VAL ...] -- <git commit args...>
   done
   [ "${1:-}" = "--" ] && shift
   out="$(cd "$commit_tree" && scrub_env CI_LOCAL_LOCK_DIR="$commit_tree/.gate-lock" \
-    PATH="$commit_tree/bin:$PATH" "${commit_vars[@]}" git commit "$@" 2>&1)"
+    CI_LOCAL_FULL=1 PATH="$commit_tree/bin:$PATH" "${commit_vars[@]}" git commit "$@" 2>&1)"
   status=$?
 }
 
@@ -2438,6 +2444,62 @@ set_golangci "$tree" "${pinned_lint:-0.0.0}" "1.27.0"
 run_gate "$tree"
 assert_contains "R4 the run says which Go it used" '==> toolchain: go ' "$out"
 assert_contains "R4 and which golangci-lint" "==> toolchain: golangci-lint ${pinned_lint:-0.0.0}" "$out"
+
+# ------------- Group U: a host with no usable gh ledgers, it does not fail (#1331)
+
+echo "==> U. checks that need GitHub, on a host with no usable gh"
+
+# core/tests/compat asks GitHub, through gh, whether every BLOCKED
+# conformance row still cites an open issue. The pinned container image has
+# no gh and no credential, so under scripts/ci-docker.sh that check used to
+# FAIL. The gate now probes gh and, when it is missing or logged out, hands
+# the Go tests a file (CI_LOCAL_GITHUB_LEDGER) to write the rows they could
+# not resolve into, and ledgers each line. The stub test below plays the
+# compat check. gh is made unusable with an empty GH_CONFIG_DIR and no
+# token rather than a stub alone, because the gate puts Homebrew's bin
+# first on PATH and a real gh there would shadow a stub.
+add_github_stub() { # <tree>
+  cat >"$1/core/github_test.go" <<'GOSTUB'
+package stub
+
+import (
+	"os"
+	"testing"
+)
+
+func TestGitHubCitations(t *testing.T) {
+	ledger := os.Getenv("CI_LOCAL_GITHUB_LEDGER")
+	if ledger == "" || os.Getenv("FIXTURE_BLOCKED") != "1" {
+		return
+	}
+	if err := os.WriteFile(ledger, []byte("FIXTURE row P9.9 cites an issue nobody asked GitHub about\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Skip("ledgered")
+}
+GOSTUB
+  printf '#!/bin/sh\nexit 1\n' >"$1/bin/gh"
+  chmod +x "$1/bin/gh"
+  mkdir -p "$1/.gh-config-empty"
+}
+
+tree="$(make_full_tree)"
+add_github_stub "$tree"
+set_golangci "$tree" "${pinned_lint:-0.0.0}" "1.27.0"
+run_gate "$tree" GH_CONFIG_DIR="$tree/.gh-config-empty" GH_TOKEN= GITHUB_TOKEN= FIXTURE_BLOCKED=1
+assert_eq "U1 a BLOCKED row nobody could check ends the run INCOMPLETE" "$INCOMPLETE" "$status"
+assert_contains "U1 the ledger names the row" 'FIXTURE row P9.9' "$out"
+assert_contains "U1 and says how to check it" 'gh auth status' "$out"
+assert_not_contains "U1 it cannot report success" 'ci-local: ok' "$out"
+
+# U2: the control. With no BLOCKED row nothing is written, and a host
+# without gh loses nothing, so the run is still ok.
+tree="$(make_full_tree)"
+add_github_stub "$tree"
+set_golangci "$tree" "${pinned_lint:-0.0.0}" "1.27.0"
+run_gate "$tree" GH_CONFIG_DIR="$tree/.gh-config-empty" GH_TOKEN= GITHUB_TOKEN= FIXTURE_BLOCKED=0
+assert_eq "U2 with no BLOCKED row a host without gh still ends ok" 0 "$status"
+assert_contains "U2 and says so" 'ci-local: ok' "$out"
 
 # ------------------------------------------------------------------ result
 
