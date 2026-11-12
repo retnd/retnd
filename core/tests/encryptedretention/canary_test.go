@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/retnd/retnd/core/agenttools"
 	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/internal/copycrypt"
 	"github.com/retnd/retnd/core/internal/health"
@@ -266,6 +267,22 @@ type surface struct {
 
 func anyMaterial(w *world, b []byte) bool { return carries(b, w.materials) }
 
+// materialOrShape is the detector of the agent rows (UV.16): the key files'
+// own material in every rendering, and the shapes the projection looks for
+// (an identity, a recipient of either suite, a PEM private key marker), which
+// agenttools shares so a shape added for one is looked for by both.
+func materialOrShape(w *world, b []byte) bool {
+	if anyMaterial(w, b) {
+		return true
+	}
+	for _, shape := range agenttools.CanaryShapes {
+		if shape.Match(b) {
+			return true
+		}
+	}
+	return false
+}
+
 func walkAll(t *testing.T, dir string, skip func(path string) bool) []byte {
 	t.Helper()
 	var all []byte
@@ -454,7 +471,7 @@ var surfaces = []surface{
 			b, _ := json.Marshal(out)
 			return b
 		},
-		leaks: anyMaterial,
+		leaks: materialOrShape,
 	},
 	{
 		row: "UV.16 audit page", name: "the agent audit trail, as GET /agent/audit and retnd agent audit answer it",
@@ -471,7 +488,7 @@ var surfaces = []surface{
 			b, _ := json.Marshal(out)
 			return b
 		},
-		leaks: anyMaterial,
+		leaks: materialOrShape,
 	},
 	{
 		row: "NV.31", name: "the committed compat corpus and configuration fixtures",
@@ -569,29 +586,37 @@ func TestAPlantingTurnsExactlyItsOwnRowRed_996_WouldCatchOne(t *testing.T) {
 	}
 }
 
-// UV.16 (#1348): a canary planted in a tool's arguments is stored, so it
-// reaches the audit page and turns that row red and no other. This is the
-// control for the row: the detector can see a value in the one field an
-// agent chooses. That the projection removes such a value before it is stored
-// is agenttools.Project's own test and the transports'.
-func TestAPlantedToolArgumentTurnsTheAuditRowRedAndNoOther_1348_WouldCatchOne(t *testing.T) {
+// UV.16 (#1348, FR-98): a canary planted in a tool's arguments, as an
+// identity and as a recipient of either suite, is projected out before the
+// audit table stores it, so the audit row stays clean and every other row
+// does too. Remove the projection from the writer and the audit row goes red
+// and no other. The row's own detector seeing a planted value is the generic
+// control above.
+func TestAPlantedToolArgumentNeverReachesTheAuditRow_1348(t *testing.T) {
 	w := newWorld(t)
-	canary := "AGE-SECRET-KEY-1" + strings.ToUpper(hex.EncodeToString([]byte("arg-"+fmt.Sprint(time.Now().UnixNano()))))
-	w.materials = append(w.materials, canary)
+	stamp := strings.ToUpper(hex.EncodeToString([]byte(fmt.Sprint(time.Now().UnixNano()))))
+	identity := "AGE-SECRET-KEY-1" + stamp
+	recipient := "age1pq1qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+	w.materials = append(w.materials, identity, recipient)
 	if err := w.svc.RecordAgentCall(w.ctx, service.AgentCall{
 		TokenID: "agt_x", Tool: "backup_set_show", Transport: "stdio", Status: 200,
-		Arguments: map[string]string{"set": canary},
+		Arguments: map[string]any{"set": identity, "also": []string{recipient, "-----BEGIN OPENSSH PRIVATE KEY-----"}},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	var red []string
 	for _, s := range surfaces {
 		if strings.HasPrefix(s.row, "UV.16") && s.leaks(w, s.collect(w)) {
-			red = append(red, s.row)
+			t.Errorf("a canary planted in a tool argument reached %s", s.row)
 		}
 	}
-	if len(red) != 1 || red[0] != "UV.16 audit page" {
-		t.Fatalf("a canary in a tool argument turned %v red, want exactly [UV.16 audit page]", red)
+	var page string
+	for _, s := range surfaces {
+		if s.row == "UV.16 audit page" {
+			page = string(s.collect(w))
+		}
+	}
+	if !strings.Contains(page, agenttools.Withheld) {
+		t.Errorf("the audit page does not show the marker, so the planted call may not have been recorded:\n%.400s", page)
 	}
 }
 

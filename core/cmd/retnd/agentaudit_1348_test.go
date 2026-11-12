@@ -74,7 +74,7 @@ func TestAuditPrintsEveryCallNewestFirst(t *testing.T) {
 			t.Fatalf("exit %d\n%s", code, stderr)
 		}
 		iRefused, iRun, iStatus := strings.Index(text, "AGENT_SCOPE_INSUFFICIENT"), strings.Index(text, "run_cycle"), strings.Index(text, "status")
-		if iRefused < 0 || iRun < 0 || iStatus < 0 || !(iRefused < iRun && iRun < iStatus) {
+		if iRefused < 0 || iRun < 0 || iStatus < 0 || iRefused >= iRun || iRun >= iStatus {
 			t.Fatalf("the trail is not the three calls newest first (refused %d, run_cycle %d, status %d):\n%s", iRefused, iRun, iStatus, text)
 		}
 	})
