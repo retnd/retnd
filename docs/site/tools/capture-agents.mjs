@@ -72,7 +72,7 @@ const ONLY = flagValue("--only");
 const EMBEDS = flagValue("--embeds");
 
 const CARD = "[data-agents-card]";
-// The mock's step-up password (agents/mockAgents.ts); it opens nothing.
+// The mock's step-up password (MOCK_ADMIN_PASSWORD in ui/shared/src/api/mock.ts); it opens nothing.
 const PASSWORD = "correct-horse-battery";
 const DIALOG = '[role="dialog"]';
 

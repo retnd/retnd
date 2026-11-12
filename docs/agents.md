@@ -37,9 +37,9 @@ retnd agent token revoke <token-id>
   is no token that never expires) and a last-used time.
 - Revoking is checked on every request, so a revoked token is refused on its very next call, even
   if an MCP session is still open.
-- There is no `--token` flag anywhere. A secret on a command line lands in your shell history and a
-  process listing, so a token only ever travels in a file, in an environment variable or in an
-  `Authorization` header.
+- No flag takes a token. A secret on a command line lands in your shell history and a process
+  listing, so a token only ever travels in a file, in an environment variable or in an
+  `Authorization` header. (`agent audit --token ID` takes a token's id, never the token.)
 
 Minting a token is session-only. No token, whatever its scope, can mint another.
 
