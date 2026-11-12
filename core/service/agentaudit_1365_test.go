@@ -120,14 +120,15 @@ func TestAnAuditReservationFailsClosedAfterItsDeadline(t *testing.T) {
 	r := newDurableRig(t)
 	w := newAgentAuditWriter(r.journal, r.svc.logger)
 	w.wait = 50 * time.Millisecond
-	r.svc.audit = w
+	// A bare service around a writer nobody drains: swapping r.svc.audit would race the rig's own writer goroutine.
+	svc := &BackupService{audit: w}
 	for i := 0; i < agentAuditQueueSize; i++ {
 		if stored, err := w.enqueueOrDrop(agentAuditItem{}); !stored || err != nil {
 			t.Fatalf("row %d: stored %v, %v", i, stored, err)
 		}
 	}
 	start := time.Now()
-	err := r.svc.ReserveAgentAudit(context.Background())
+	err := svc.ReserveAgentAudit(context.Background())
 	if !errors.Is(err, ErrAgentAuditStalled) {
 		t.Fatalf("a full queue gave %v, want ErrAgentAuditStalled", err)
 	}
