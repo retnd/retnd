@@ -90,6 +90,18 @@ func (l localAgentTokens) RevokeAgentToken(ctx context.Context, id string) (apic
 // writers apart applies here as well. With --json the log goes to standard
 // error so the document is the only thing on standard output.
 func openAgentTokens(ctx context.Context, cfgPath string, asJSON bool) (agentTokens, func(), error) {
+	// From a terminal with no deployment of its own the token verbs go to the
+	// engine named by RETND_API_URL (remote.go), the way the other
+	// engine-only verbs do. A mint over plain HTTP to another machine is
+	// refused there with exit 52 until the transport is acknowledged, because
+	// the token comes back in the answer.
+	remote, err := engineOnlyRemote(ctx, cfgPath, false)
+	if err != nil {
+		return nil, func() {}, err
+	}
+	if remote != nil {
+		return remote.client, func() {}, nil
+	}
 	route, cleanup, err := openEncryptionWrite(ctx, cfgPath, asJSON)
 	if err != nil {
 		return nil, func() {}, err
