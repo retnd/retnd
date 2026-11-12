@@ -159,7 +159,7 @@ func StartStdio(t *testing.T, bin, config, apiURL, token string) *Stdio {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 	})
-	handshake(t, s)
+	Handshake(t, s)
 	return s
 }
 
@@ -249,7 +249,8 @@ func match(raw []byte, id int) (json.RawMessage, *RPCError, bool, error) {
 	return msg.Result, msg.Error, true, nil
 }
 
-func handshake(t *testing.T, c interface {
+// Handshake performs the MCP initialize exchange over any transport.
+func Handshake(t *testing.T, c interface {
 	Conn
 	Notify(string, any) error
 }) {

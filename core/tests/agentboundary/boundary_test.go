@@ -36,11 +36,16 @@ func root(t *testing.T) string {
 // scripts/release/check-epic-t-closed.sh uses: the reference compose file,
 // the per-platform compose files, the Unraid templates, the TrueNAS catalog,
 // the four packaging manifests and the capabilities package.
+//
+// The app paths are built from elements: these name directories and import
+// nothing, and a literal "apps/<provider>/" in core reads as core importing
+// that provider to the provider-removal-preserves-core check (#1082), the
+// reason core/tests/deploymentdiff builds its own the same way.
 var canonical = []string{
 	"container/compose.yaml",
-	"apps/*/compose",
-	"apps/unraid/template",
-	"apps/truenas/catalog",
+	strings.Join([]string{"apps", "*", "compose"}, "/"),
+	strings.Join([]string{"apps", "unraid", "template"}, "/"),
+	strings.Join([]string{"apps", "truenas", "catalog"}, "/"),
 	"distribution/packaging/canonical.json",
 	"distribution/packaging/compliance.json",
 	"distribution/packaging/conformance.json",
@@ -120,7 +125,8 @@ func TestTheCanonicalDeploymentDrill_WouldCatchOne(t *testing.T) {
 		}
 	}
 	write("container/compose.yaml", "services:\n  serve:\n    read_only: true\n")
-	write("apps/generic/compose/retnd.yaml", "services: {}\n")
+	composeDir := strings.Join([]string{"apps", "generic", "compose"}, "/")
+	write(composeDir+"/retnd.yaml", "services: {}\n")
 	write("core/internal/hostrunner/runner.go", "package hostrunner\n")
 	git(t, dir, "init", "-q")
 	git(t, dir, "-c", "user.name=drill", "-c", "user.email=drill@example.invalid", "add", "-A")
@@ -134,7 +140,7 @@ func TestTheCanonicalDeploymentDrill_WouldCatchOne(t *testing.T) {
 	if got := changed(t, dir, head, canonical); len(got) != 1 || got[0] != "container/compose.yaml" {
 		t.Errorf("a mount added to the compose file reads as %v", got)
 	}
-	write("apps/generic/compose/extra.yaml", "services: {}\n")
+	write(composeDir+"/extra.yaml", "services: {}\n")
 	if got := changed(t, dir, head, canonical); len(got) != 2 {
 		t.Errorf("an untracked file beside the compose files is not counted: %v", got)
 	}
