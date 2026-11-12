@@ -26,6 +26,7 @@ const REFUSALS = [
     code: "AGENT_SCOPE_INSUFFICIENT",
     message: "a read token cannot start or change anything",
     surface: '[data-surface="audit"]',
+    carriesMessage: false,
   },
   {
     name: "an approved run_cycle at the shut gate",
@@ -33,6 +34,7 @@ const REFUSALS = [
     message:
       "destructive operations are refused over HTTP in this release, until the trusted-proxy authentication gate (issue #92) has been verified; run the equivalent `retnd` command on the host",
     surface: '[data-surface="confirm"]',
+    carriesMessage: true,
   },
 ] as const;
 
@@ -45,7 +47,7 @@ async function agents(page: Page) {
 
 test.describe("#1352 the Agents card says what the CLI and both transports say", () => {
   for (const row of REFUSALS) {
-    test(`${row.name}: the page draws the engine's code and message`, async ({ page }) => {
+    test(`${row.name}: the page draws the engine's code, and the message where the response carries it`, async ({ page }) => {
       const card = await agents(page);
       if (row.surface.includes("confirm")) {
         // The refusal is the answer to an approval, so press it with the step-up.
@@ -56,7 +58,10 @@ test.describe("#1352 the Agents card says what the CLI and both transports say",
       const shown = card.locator(row.surface).locator("[data-agent-refusal]").first();
       await expect(shown, `the page draws a refusal for ${row.name}`).toBeVisible();
       await expect(shown).toContainText(row.code);
-      await expect(shown).toContainText(row.message);
+      // The audit row stores the outcome code only (FR-97), so the sentence is held
+      // to the surface that carries the response, the approval's result strip.
+      if (row.carriesMessage) await expect(shown).toContainText(row.message);
+      else await expect(shown).not.toContainText(row.message);
     });
   }
 
