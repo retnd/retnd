@@ -367,6 +367,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// handler body. See actionlog.go for why this is middleware
 		// rather than a line in every handler.
 		r.Use(recordActions(cfg.Recorder))
+		// Every request an agent made, reads included, which the action log
+		// above skips (EPIC U, #1348).
+		r.Use(auditAgentCalls(cfg.Backend))
 
 		r.Get("/system/version", h.systemVersion)
 		r.Get("/system/capabilities", h.systemCapabilities)
@@ -842,6 +845,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Get("/agent/tokens", h.listAgentTokens)
 		r.With(requireCSRF).Post("/agent/tokens", h.mintAgentToken)
 		r.With(requireCSRF).Post("/agent/tokens/{id}/revoke", h.revokeAgentToken)
+		// The audit trail (#1348): session only for the same reason.
+		r.Get("/agent/audit", h.listAgentAudit)
 		r.Get("/ssh/key-candidates", h.listSSHKeyCandidates)
 
 		// Issue #140 (B3.7): the one generic settings surface — a read

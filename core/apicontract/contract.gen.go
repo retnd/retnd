@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "cdc25e03580c859b9e13fbd4504fd9afdd3761561ec804cb6266ae52683dceba"
+const ContractSHA256 = "3609bd412870355e7e7de344982c9fd4269cca83922499996fb5b11134007621"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -496,6 +496,17 @@ var Endpoints = []Endpoint{
 			404: {ErrorCodeBackupSetNotFound},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "listAgentAudit", Method: "GET", Path: "/agent/audit",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListAgentAuditResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeAgentRouteDenied},
+			500: {ErrorCodeInternal},
 		},
 	},
 	{
@@ -2175,6 +2186,25 @@ type AdoptedPath struct {
 	What    string `json:"what"`
 }
 
+// AgentAuditEntry is one row of the agent audit trail. arguments is what the call asked
+// with, stored after the projection that strips key material and
+// secrets, as JSON text and cut at 4096 bytes. token_id is empty for
+// a refusal of a token that matched no row, which is itself a fact
+// worth keeping. tool is empty for a refusal made before any tool
+// was named. transport is stdio, http or api.
+type AgentAuditEntry struct {
+	Arguments      string `json:"arguments"`
+	At             string `json:"at"`
+	Code           string `json:"code"`
+	ConfirmationID string `json:"confirmation_id"`
+	CorrelationID  string `json:"correlation_id"`
+	Seq            int64  `json:"seq"`
+	Status         int    `json:"status"`
+	TokenID        string `json:"token_id"`
+	Tool           string `json:"tool"`
+	Transport      string `json:"transport"`
+}
+
 // AgentToken is one agent token as every surface after the mint shows it: its
 // name, the first eight characters of the token, scope, owner and
 // times, never the hash and never more of the token than the prefix.
@@ -3179,6 +3209,12 @@ type ImportStorageCredentialsResponse struct {
 type ListActivityResponse struct {
 	Events     []ActivityEvent `json:"events"`
 	NextCursor string          `json:"next_cursor,omitempty"`
+}
+
+// ListAgentAuditResponse is GET /agent/audit, newest first.
+type ListAgentAuditResponse struct {
+	Entries    []AgentAuditEntry `json:"entries"`
+	NextCursor string            `json:"next_cursor,omitempty"`
 }
 
 // ListAgentTokensResponse is GET /agent/tokens. Every token, revoked and expired ones included,
@@ -5469,6 +5505,7 @@ type WorkflowValidationResponse struct {
 var SchemaTypes = map[string]any{
 	"ActivityEvent":                      ActivityEvent{},
 	"AdoptedPath":                        AdoptedPath{},
+	"AgentAuditEntry":                    AgentAuditEntry{},
 	"AgentToken":                         AgentToken{},
 	"ApplyRetentionRequest":              ApplyRetentionRequest{},
 	"Artifact":                           Artifact{},
@@ -5549,6 +5586,7 @@ var SchemaTypes = map[string]any{
 	"ImportStorageCredentialsRequest":    ImportStorageCredentialsRequest{},
 	"ImportStorageCredentialsResponse":   ImportStorageCredentialsResponse{},
 	"ListActivityResponse":               ListActivityResponse{},
+	"ListAgentAuditResponse":             ListAgentAuditResponse{},
 	"ListAgentTokensResponse":            ListAgentTokensResponse{},
 	"ListArtifactsResponse":              ListArtifactsResponse{},
 	"ListBackendsResponse":               ListBackendsResponse{},

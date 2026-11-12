@@ -155,6 +155,14 @@ type BackupService struct {
 	// flushed and stopped (liveactivity_durable.go).
 	activityDone chan struct{}
 
+	// audit is the agent audit trail's writer (agentaudit.go), and auditDone
+	// is closed when it has flushed and stopped.
+	audit     *agentAuditWriter
+	auditDone chan struct{}
+	// unattributedRefusals holds the feed back for refusals that name no
+	// token (agentaudit.go).
+	unattributedRefusals refusalFeed
+
 	// runOnce enforces this package's single-flight invariant: at most one
 	// executeRunCycle call may be inside internal/app.Service.RunCycle at a
 	// time, restoring on the API side the "no concurrent pass over the
@@ -399,6 +407,16 @@ func New(cfg *config.Config, journal *state.Journal, tr transport.Transport, log
 	go func() {
 		defer close(activityDone)
 		activity.durable.run(ctx)
+	}()
+
+	// The agent audit writer (agentaudit.go): one goroutine, its own channel
+	// for the reason the activity writer has one.
+	b.audit = newAgentAuditWriter(journal, logger.WithSink(nil))
+	auditDone := make(chan struct{})
+	b.auditDone = auditDone
+	go func() {
+		defer close(auditDone)
+		b.audit.run(ctx)
 	}()
 
 	// EPIC L's engine, built here and switched on later. It is
@@ -725,6 +743,15 @@ func (b *BackupService) Close() error {
 		case <-time.After(closeDrainTimeout):
 			b.logger.Error(context.Background(), "close",
 				fmt.Errorf("timed out after %s waiting for the activity writer to flush", closeDrainTimeout))
+		}
+	}
+
+	if b.auditDone != nil {
+		select {
+		case <-b.auditDone:
+		case <-time.After(closeDrainTimeout):
+			b.logger.Error(context.Background(), "close",
+				fmt.Errorf("timed out after %s waiting for the agent audit writer to flush", closeDrainTimeout))
 		}
 	}
 

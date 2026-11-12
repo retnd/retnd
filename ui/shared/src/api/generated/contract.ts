@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "cdc25e03580c859b9e13fbd4504fd9afdd3761561ec804cb6266ae52683dceba";
+export const CONTRACT_SHA256 = "3609bd412870355e7e7de344982c9fd4269cca83922499996fb5b11134007621";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -369,6 +369,25 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       404: ["BACKUP_SET_NOT_FOUND"],
       500: ["INTERNAL"],
       503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "listAgentAudit",
+    method: "GET",
+    path: "/agent/audit",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListAgentAuditResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["AGENT_ROUTE_DENIED"],
+      500: ["INTERNAL"],
     }
   },
   {
@@ -3165,6 +3184,25 @@ export interface WireAdoptedPath {
   what: string;
 }
 
+/** One row of the agent audit trail. arguments is what the call asked
+ *  with, stored after the projection that strips key material and
+ *  secrets, as JSON text and cut at 4096 bytes. token_id is empty for
+ *  a refusal of a token that matched no row, which is itself a fact
+ *  worth keeping. tool is empty for a refusal made before any tool
+ *  was named. transport is stdio, http or api. */
+export interface WireAgentAuditEntry {
+  arguments: string;
+  at: string;
+  code: string;
+  confirmation_id: string;
+  correlation_id: string;
+  seq: number;
+  status: number;
+  token_id: string;
+  tool: string;
+  transport: "stdio" | "http" | "api";
+}
+
 /** One agent token as every surface after the mint shows it: its
  *  name, the first eight characters of the token, scope, owner and
  *  times, never the hash and never more of the token than the prefix.
@@ -4166,6 +4204,12 @@ export interface WireImportStorageCredentialsResponse {
 /** GET /activity, newest first. */
 export interface WireListActivityResponse {
   events: WireActivityEvent[];
+  next_cursor?: string;
+}
+
+/** GET /agent/audit, newest first. */
+export interface WireListAgentAuditResponse {
+  entries: WireAgentAuditEntry[];
   next_cursor?: string;
 }
 

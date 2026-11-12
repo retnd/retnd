@@ -1215,6 +1215,26 @@ var routes = map[string]entry{
 	// ------------------------------------------------------- agent ---
 	// EPIC U (#1345). The three token routes are session-only; the verbs are
 	// `retnd agent token ...`.
+	// The audit trail (#1348): GET /agent/audit is `retnd agent audit`. Only the
+	// filters the binary has a flag for are echoed, and a token id is echoed as
+	// the id it is (the route never carries the token).
+	key("GET", "/agent/audit"): {
+		build: func(a Action) *cmd {
+			c := newCmd("agent", "audit")
+			c.flagIfSet("token", a.Query.Get("token"))
+			c.flagIfSet("since", a.Query.Get("since"))
+			if n := positiveQuery(a, "limit"); n > 0 {
+				c.flag("limit", itoa(n))
+			}
+			// Only a cursor the trail could have issued, a positive row
+			// position, as the activity feed's is.
+			if n := positiveQuery(a, "before"); n > 0 {
+				c.flag("before", itoa(n))
+			}
+			return c
+		},
+		examples: []Action{{}, {Query: mustQuery("token=agt_0123456789abcdef&since=7d&limit=50&before=120")}},
+	},
 	key("GET", "/agent/tokens"): {
 		build:    func(Action) *cmd { return newCmd("agent", "token", "list") },
 		examples: []Action{{}},

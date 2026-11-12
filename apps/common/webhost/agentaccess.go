@@ -47,7 +47,7 @@ type AgentAccess interface {
 // agentDeniedPrefixes are the routes no token reaches under any scope. They
 // are paths below /api/v1. /auth/* is mounted beside the router rather than
 // inside it, so serve's mount refuses it too (AgentDeniedByMount).
-var agentDeniedPrefixes = []string{"/auth", "/system/first-run", "/recoveries", "/agent/tokens"}
+var agentDeniedPrefixes = []string{"/auth", "/system/first-run", "/recoveries", "/agent/tokens", "/agent/audit"}
 
 type principalContextKey struct{}
 
@@ -111,9 +111,9 @@ func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAcce
 	// audit records a refusal that was just written. The refusal stands
 	// whether or not the row lands, so a failure to write it is logged and
 	// nothing else.
-	audit := func(tokenID string, status int, code, correlationID string) {
+	audit := func(tokenID, tokenName string, status int, code, correlationID string) {
 		err := agents.RecordAgentRefusal(r.Context(), service.AgentRefusal{
-			TokenID: tokenID, Method: r.Method, Path: r.URL.Path, Status: status, Code: code, CorrelationID: correlationID,
+			TokenID: tokenID, TokenName: tokenName, Method: r.Method, Path: r.URL.Path, Status: status, Code: code, CorrelationID: correlationID,
 		})
 		if err != nil {
 			slog.WarnContext(r.Context(), "agent refusal was not recorded", "code", code, "error", err)
@@ -121,7 +121,7 @@ func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAcce
 	}
 
 	if agentRouteDenied(r) {
-		audit("", http.StatusForbidden, "AGENT_ROUTE_DENIED",
+		audit("", "", http.StatusForbidden, "AGENT_ROUTE_DENIED",
 			writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route"))
 		return nil, false
 	}
@@ -132,18 +132,18 @@ func authenticateBearer(w http.ResponseWriter, r *http.Request, agents AgentAcce
 		if !errors.Is(err, service.ErrAgentTokenInvalid) {
 			slog.ErrorContext(r.Context(), "the agent token could not be checked", "error", err)
 		}
-		audit("", http.StatusUnauthorized, "AGENT_TOKEN_INVALID",
+		audit("", "", http.StatusUnauthorized, "AGENT_TOKEN_INVALID",
 			writeError(w, http.StatusUnauthorized, "AGENT_TOKEN_INVALID", "the agent token is not valid"))
 		return nil, false
 	}
 
 	if !safeMethod(r.Method) {
 		if principal.Scope == service.AgentScopeRead {
-			audit(principal.TokenID, http.StatusForbidden, "AGENT_SCOPE_INSUFFICIENT",
+			audit(principal.TokenID, principal.Name, http.StatusForbidden, "AGENT_SCOPE_INSUFFICIENT",
 				writeError(w, http.StatusForbidden, "AGENT_SCOPE_INSUFFICIENT", "a read token cannot start or change anything"))
 			return nil, false
 		}
-		audit(principal.TokenID, http.StatusConflict, "AGENT_CONFIRMATION_REQUIRED",
+		audit(principal.TokenID, principal.Name, http.StatusConflict, "AGENT_CONFIRMATION_REQUIRED",
 			writeError(w, http.StatusConflict, "AGENT_CONFIRMATION_REQUIRED", "a change made with an agent token has to be confirmed by a person"))
 		return nil, false
 	}

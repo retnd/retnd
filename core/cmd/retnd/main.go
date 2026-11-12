@@ -638,6 +638,14 @@ commands:
                                                   end a token. The very next request that presents it is refused, so
                                                   there is nothing to wait for. ID is the one agent token list
                                                   prints. The same as POST /api/v1/agent/tokens/{id}/revoke
+  agent audit [--token ID] [--since D] [--limit N] [--before CURSOR] [--json]
+                                                  every call an AI agent made, reads included, newest first: when,
+                                                  token, tool, transport, status, refusal code, correlation id and the
+                                                  arguments as stored after the projection that strips key material.
+                                                  ID is a token id from agent token list, never the token. D is days
+                                                  such as 7d, a duration such as 36h or an RFC 3339 time; N is 100 by
+                                                  default and 1000 at most. A full page prints the cursor for the next
+                                                  one. The same as GET /api/v1/agent/audit
   ssh host-key-probe HOST [--port N] [--json]
                                                   connect to HOST (port 22 unless told) and print the host key that
                                                   answers, its fingerprint and the known_hosts line for it. Nothing
