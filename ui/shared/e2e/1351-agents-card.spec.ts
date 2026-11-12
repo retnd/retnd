@@ -117,10 +117,11 @@ test.describe("#1351 the tokens table", () => {
     await expect(tokenRow(page, "nightly-triage").locator('[data-chip="status"]')).toHaveText("⊘revoked");
   });
 
-  test("#1351 the revoke dialog's echo is the one the response carried", async ({ page }) => {
+  test("#1351 the revoke dialog draws no command: the response carries none and the browser composes none", async ({ page }) => {
     await openAgents(page);
     await tokenRow(page, "nightly-triage").getByRole("button", { name: "Revoke agent:nightly-triage" }).click();
-    await expect(page.getByRole("dialog")).toContainText("retnd agent token revoke tok_01");
+    await expect(page.getByRole("dialog")).not.toContainText("retnd agent token");
+    await expect(page.getByRole("dialog")).not.toContainText("Equivalent command");
   });
 });
 
@@ -141,23 +142,22 @@ test.describe("#1351 what each scope can call, and the transport line", () => {
     await expect(disclosure).not.toContainText(/also|includes|can also call/i);
   });
 
-  test("#1351 says the HTTP transport is off, as text, with no control", async ({ page }) => {
+  test("#1351 a catalogue that fails is the engine's error in the disclosure, and the tokens still draw", async ({ page }) => {
+    await openAgents(page, "agents-catalogue-failed");
+    await card(page).locator("[data-agents-scopes] summary").click();
+    await expect(card(page).locator("[data-agents-scopes]")).toContainText("the catalogue could not be read.");
+    await expect(region(page, "tokens").locator("tbody tr")).toHaveCount(5);
+  });
+
+  test("#1351 states how agents connect and where the HTTP transport is set, as text with no control", async ({ page }) => {
     await openAgents(page);
-    const line = card(page).locator('[data-agents-transport="off"]');
-    await expect(line).toContainText("The HTTP transport is off");
+    const line = card(page).locator("[data-agents-transport]");
     await expect(line).toContainText("retnd agent serve --stdio");
+    await expect(line).toContainText("http_transport: on");
     await expect(line).toContainText("cannot be read by an older build");
     await expect(line.getByRole("button")).toHaveCount(0);
     await expect(card(page).getByRole("switch")).toHaveCount(0);
     await expect(card(page).getByRole("checkbox")).toHaveCount(0);
-  });
-
-  test("#1351 says where the HTTP transport listens when it is on, and what that means on plain HTTP", async ({ page }) => {
-    await openAgents(page, "agents-transport-on");
-    const line = card(page).locator('[data-agents-transport="on"]');
-    await expect(line).toContainText("/api/v1/agent/mcp");
-    await expect(line).toContainText("readable on the network");
-    await expect(card(page).locator('[data-agents-transport="off"]')).toHaveCount(0);
   });
 });
 

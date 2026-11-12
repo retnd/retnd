@@ -14,7 +14,7 @@ import type { Page } from "@playwright/test";
 import { measureBorders, measureContrast, setTheme } from "./helpers";
 import { PASSWORD, card, openAgents, openMint, pending, region, tokenRow } from "./1351-agents";
 
-const EDGES = ".agchip, .ag-row, .ag-strip, .ag-code, .input--strong-edge, .btn--strong-edge, .ag-input-error";
+const EDGES = ".agchip, .ag-row, .ag-strip, .input--strong-edge, .btn--strong-edge, .ag-input-error";
 
 async function bothThemes(page: Page, label: string, selector: string) {
   for (const theme of ["light", "dark"] as const) {

@@ -128,9 +128,9 @@ test.describe("#1351 the token is shown once", () => {
     await expect(dlg).toContainText("revoke the token and make another");
     await expect(dlg).toContainText("retnd agent serve --stdio --token-file PATH");
     await expect(dlg).toContainText("RETND_AGENT_TOKEN");
-    // The command that made it comes from the response, and does not contain the token.
-    await expect(dlg).toContainText("retnd agent token create --name nightly-triage --scope read --expires-in 90d");
-    expect(await dlg.innerText()).not.toMatch(/retnd agent token create[^\n]*rat_/);
+    // The mint response carries no command, so none is drawn: the browser does not compose one.
+    await expect(dlg).not.toContainText("Equivalent command");
+    await expect(dlg).not.toContainText("retnd agent token create");
   });
 
   test("#1351 has exactly one way out: no close glyph, no Cancel, Escape and the backdrop do nothing", async ({ page }) => {

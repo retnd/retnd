@@ -36,6 +36,16 @@ test.describe("#1351 the audit table", () => {
     expect(await border(refused)).toBe(await border(chip("status")));
   });
 
+  test("#1351 names the token and the scope the tool needs from what the engine listed, and draws no command", async ({ page }) => {
+    await openAgents(page);
+    const run = region(page, "audit").locator('tr[data-tool="run_cycle"]').first();
+    await expect(run.locator("td[data-label='Token']")).toHaveText("agent:recovery-drill");
+    await expect(run.locator("td[data-label='Needs']")).toHaveText("operate");
+    await expect(region(page, "audit").locator('tr[data-tool="status"]').first().locator("td[data-label='Needs']")).toHaveText("read");
+    await expect(region(page, "audit")).not.toContainText("Equivalent command");
+    await expect(region(page, "audit")).not.toContainText("retnd agent audit");
+  });
+
   test("#1351 has no exit-code column, no total and no page number", async ({ page }) => {
     await openAgents(page);
     await expect(region(page, "audit")).not.toContainText(/exit code|total|page \d/i);
@@ -69,7 +79,6 @@ test.describe("#1351 the filters", () => {
     await region(page, "audit").getByLabel("Token", { exact: true }).selectOption({ label: "agent:recovery-drill" });
     await expect(rows(page)).toHaveCount(2);
     for (const cell of await rows(page).locator("td:nth-child(2)").allInnerTexts()) expect(cell).toBe("agent:recovery-drill");
-    await expect(region(page, "audit")).toContainText("retnd agent audit --token tok_02");
     await region(page, "audit").getByLabel("Token", { exact: true }).selectOption({ label: "All tokens" });
     await expect(rows(page)).toHaveCount(8);
   });
@@ -80,7 +89,6 @@ test.describe("#1351 the filters", () => {
     await since.fill("40m");
     await since.press("Enter");
     await expect(rows(page)).toHaveCount(5);
-    await expect(region(page, "audit")).toContainText("retnd agent audit --since 40m");
   });
 
   test("#1351 a filter that matches nothing says so and offers Clear filters, which is a different fact from empty", async ({ page }) => {

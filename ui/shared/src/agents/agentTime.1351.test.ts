@@ -28,8 +28,7 @@ describe("a token row (#1351)", () => {
       created_at: "2026-10-28T00:00:00Z", expires_at: "2027-01-26T00:00:00Z", last_used_at: null, revoked_at: null
     });
     expect(Object.keys(row).sort()).toEqual([
-      "createdAt", "expiresAt", "id", "lastUsedAt", "name", "owner", "prefix", "revokeCommand", "revokedAt", "scope", "status"
+      "createdAt", "expiresAt", "id", "lastUsedAt", "name", "owner", "prefix", "revokedAt", "scope", "status"
     ]);
-    expect(row.revokeCommand).toBeNull();
   });
 });

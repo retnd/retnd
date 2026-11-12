@@ -6,7 +6,7 @@
  * run replays the recorded request; Deny is one click and no password; the
  * engine is the judge of expiry; the shut operation gate is a strip in the
  * gate's own words with code, exit code and correlation id; and no command is
- * composed in the browser (agents-no-echo has responses that carry none).
+ * composed in the browser (the only command a row draws is the record's own).
  *
  * "Calls nothing" is asserted through what the engine would have changed: the
  * mock is in-process, so there is no request to watch, and a request that ran
@@ -29,7 +29,7 @@ test.describe("#1351 the pending rows", () => {
     await expect(row).toContainText("Starts a recovery test of one backup.");
     await expect(row.locator("[data-confirmation-token]")).toHaveText("agent:recovery-drill");
     await expect(row).toContainText("production/postgres-primary");
-    await expect(row.locator("[data-confirmation-command]")).toHaveText("retnd assurance recovery-test production/postgres-primary");
+    await expect(row.locator("[data-confirmation-command] code")).toHaveText("retnd assurance recovery-test production/postgres-primary");
     await expect(row.locator("[data-confirmation-expires]")).toContainText(/expires \d\d:\d\d \(in 0:\d\d\)/);
     // No request body, no JSON, and no cap or TTL control.
     expect(await row.innerText()).not.toMatch(/[{}]|"tool"|max_pending|ttl/i);
@@ -181,22 +181,29 @@ test.describe("#1351 Deny", () => {
 });
 
 test.describe("#1351 the echo is never composed in the browser", () => {
-  test("#1351 draws the commands the responses carried", async ({ page }) => {
+  test("#1351 the only command a row draws is the one the record carries, byte for byte", async ({ page }) => {
     await openAgents(page, "agents-pending");
-    await expect(pending(page, "cf_01")).toContainText("retnd agent confirmations approve cf_01");
-    await expect(pending(page, "cf_01")).toContainText("retnd agent confirmations deny cf_01");
+    await expect(pending(page, "cf_01").locator("[data-confirmation-command] code")).toHaveText("retnd run");
+    await expect(pending(page, "cf_02").locator("[data-confirmation-command] code")).toHaveText(
+      "retnd assurance recovery-test production/postgres-primary"
+    );
+    // Approve and deny have no twin in the response, so none is invented for them.
+    await expect(pending(page, "cf_01")).not.toContainText("confirmations approve");
+    await expect(pending(page, "cf_01")).not.toContainText("confirmations deny");
+    await expect(pending(page, "cf_01").locator("code")).toHaveCount(1);
   });
 
-  test("#1351 draws no command where the response carried none, but still the record's own command", async ({ page }) => {
-    await openAgents(page, "agents-no-echo");
-    const row = pending(page, "cf_01");
-    await expect(row.locator("[data-confirmation-command]")).toHaveText("retnd run");
-    await expect(row).not.toContainText("Equivalent command");
-    await expect(row).not.toContainText("confirmations approve");
-    await expect(card(page).getByText("Equivalent command")).toHaveCount(0);
-    await page.getByRole("button", { name: "Revoke agent:nightly-triage" }).click();
-    await expect(page.getByRole("dialog")).not.toContainText("retnd agent token revoke");
-    await expect(page.getByRole("dialog")).not.toContainText("Equivalent command");
+  test("#1351 the sentence is the catalogue's, and a row whose tool the catalogue lacks names the tool instead", async ({ page }) => {
+    await openAgents(page, "agents-pending");
+    await expect(pending(page, "cf_01").locator(".ag-row__sentence")).toHaveText("Runs a backup cycle for every enabled backup set.");
+    await openAgents(page, "agents-catalogue-failed");
+    await expect(pending(page, "cf_01").locator(".ag-row__sentence")).toHaveText("run_cycle");
+  });
+
+  test("#1351 a record that was already decided is not listed as waiting", async ({ page }) => {
+    await openAgents(page, "agents-pending");
+    await expect(pending(page, "cf_00")).toHaveCount(0);
+    await expect(card(page).locator("[data-agents-waiting]")).toHaveText("2 waiting for you");
   });
 });
 
@@ -204,7 +211,7 @@ test.describe("#1351 a read-only page", () => {
   test("#1351 still shows what is waiting, and says why it cannot be answered", async ({ page }) => {
     await openAgents(page, "agents-read-only");
     await expect(pending(page, "cf_01")).toContainText("Runs a backup cycle for every enabled backup set.");
-    await expect(pending(page, "cf_01").locator("[data-confirmation-command]")).toHaveText("retnd run");
+    await expect(pending(page, "cf_01").locator("[data-confirmation-command] code")).toHaveText("retnd run");
     await expect(pending(page, "cf_01").locator("[data-readonly-note]")).toContainText("needs a page that can be written to");
     await expect(card(page).getByRole("button", { name: /Approve|Deny/ })).toHaveCount(0);
   });
