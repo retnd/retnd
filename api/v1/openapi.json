@@ -9963,6 +9963,187 @@
         "required": [
           "tokens"
         ]
+      },
+      "AgentTool": {
+        "type": "object",
+        "description": "One tool an agent may call. untrusted names the result fields whose values originate outside the deployment (file names, validator output, workflow logs, activity messages, remote hostnames); a transport puts them under an untrusted object and never in text.",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "read",
+              "operate",
+              "configure"
+            ]
+          },
+          "method": {
+            "type": "string"
+          },
+          "route": {
+            "type": "string",
+            "description": "The route pattern below /api/v1, as core/cliecho keys it."
+          },
+          "action": {
+            "type": "string",
+            "description": "The request body's action, for the one route several tools share (POST /operations). Absent otherwise.",
+            "x-go-omitempty": true
+          },
+          "description": {
+            "type": "string",
+            "description": "A static sentence, pinned by a golden test. Never built from data."
+          },
+          "twin": {
+            "type": "string",
+            "description": "The terminal command the browser's command echo shows for this route, composed in Go from core/cliecho."
+          },
+          "untrusted": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "scope",
+          "method",
+          "route",
+          "description",
+          "twin",
+          "untrusted"
+        ]
+      },
+      "AgentToolRefusal": {
+        "type": "object",
+        "description": "A route with no tool, and why.",
+        "additionalProperties": false,
+        "properties": {
+          "method": {
+            "type": "string"
+          },
+          "route": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "x-go-omitempty": true
+          },
+          "why": {
+            "type": "string",
+            "description": "Why no agent reaches this route by a tool."
+          },
+          "denied": {
+            "type": "boolean",
+            "description": "True when a bearer token is refused this route on the wire whatever its scope: it can return key material, a recipient, a bundle, a credential, an SSH key, a workflow secret or a recovery grant, or it creates or deletes a set or a medium."
+          }
+        },
+        "required": [
+          "method",
+          "route",
+          "why",
+          "denied"
+        ]
+      },
+      "AgentResource": {
+        "type": "object",
+        "description": "One resource, backed by a read tool.",
+        "additionalProperties": false,
+        "properties": {
+          "uri": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string",
+            "description": "The read tool that answers it."
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "uri",
+          "tool",
+          "description"
+        ]
+      },
+      "AgentPrompt": {
+        "type": "object",
+        "description": "One prompt: a static description, the arguments it takes and the read tools it draws on.",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "arguments": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "arguments",
+          "tools"
+        ]
+      },
+      "AgentToolsResponse": {
+        "type": "object",
+        "description": "GET /agent/tools. The whole catalogue. denied_fields are the keys the one projection at the tool boundary drops at every depth.",
+        "additionalProperties": false,
+        "properties": {
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentTool"
+            }
+          },
+          "resources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentResource"
+            }
+          },
+          "prompts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentPrompt"
+            }
+          },
+          "refusals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentToolRefusal"
+            }
+          },
+          "denied_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "tools",
+          "resources",
+          "prompts",
+          "refusals",
+          "denied_fields"
+        ]
       }
     },
     "responses": {}
@@ -25276,6 +25457,63 @@
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/agent/tools": {
+      "get": {
+        "operationId": "listAgentTools",
+        "summary": "The agent catalogue: every tool with its scope, route, terminal twin and the result fields that come from outside the deployment, every resource and prompt, and every route no agent reaches with the reason. Static: the same object retnd agent tools --json prints. A bearer token may read it.",
+        "tags": [
+          "agent"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentToolsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
         "x-authenticated": true
       }
     }

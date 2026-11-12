@@ -638,6 +638,12 @@ commands:
                                                   end a token. The very next request that presents it is refused, so
                                                   there is nothing to wait for. ID is the one agent token list
                                                   prints. The same as POST /api/v1/agent/tokens/{id}/revoke
+  agent tools [--json]
+                                                  the catalogue an AI agent is offered: every tool with its scope, its
+                                                  route, the command that does the same from a terminal and the result
+                                                  fields that come from outside this deployment, then every route no
+                                                  agent reaches and why. It is fixed in the binary, so it needs no
+                                                  engine and no token. The same as GET /api/v1/agent/tools
   ssh host-key-probe HOST [--port N] [--json]
                                                   connect to HOST (port 22 unless told) and print the host key that
                                                   answers, its fingerprint and the known_hosts line for it. Nothing
