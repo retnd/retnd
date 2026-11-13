@@ -9,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.5
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.5
 	github.com/google/uuid v1.6.0
-	github.com/klauspost/compress v1.20.3
+	github.com/klauspost/compress v1.20.4
 	github.com/kopia/kopia v0.23.1
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/rclone/rclone v1.75.2
