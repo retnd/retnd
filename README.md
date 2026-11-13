@@ -260,12 +260,12 @@ you approve it with your password.
 retnd agent token create triage --expires-in 30d     # shown once, then only a hash is kept
 retnd agent serve --stdio --token-file ~/.config/retnd/triage.token
 retnd agent tools                                    # every tool, its scope, and what is refused
-retnd agent confirmations list|approve|deny
+retnd agent confirmations list|show|approve|deny
 retnd agent audit --since 24h                        # every call, reads included
 ```
 
 The verbs are `agent token create|list|revoke`, `agent serve`, `agent tools`, `agent audit` and
-`agent confirmations list|approve|deny`; `serve` needs `RETND_API_URL` like the other verbs that sit
+`agent confirmations list|show|approve|deny`; `serve` needs `RETND_API_URL` like the other verbs that sit
 beside a serving engine. No flag takes a token, the HTTP transport is off until
 `agents.http_transport: on`, and no scope reaches key material, credentials, authentication or token
 minting. What this does not prove: a model can still be persuaded by what it reads (it cannot act on

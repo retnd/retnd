@@ -148,6 +148,7 @@ when it expires. You can read the request before anything happens:
 
 ```
 retnd agent confirmations list
+retnd agent confirmations show <id> [--json]
 retnd agent confirmations approve <id>       # asks for your password (a step-up)
 retnd agent confirmations deny <id>
 ```
