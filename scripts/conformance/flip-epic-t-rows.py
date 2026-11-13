@@ -49,8 +49,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SELFTEST = "scripts/bdtools/encryption/selftest.py"
-BLOCKED = ("BLOCKED (#1358)", "BLOCKED (#1376)")
-PHASE_HEADINGS = {"T1": "### Phase 1 exit gate", "T2": "### Phase 2 exit gate"}
+BLOCKED = ("BLOCKED (#1358)", "BLOCKED (#1376)", "BLOCKED (#967)")
+PHASE_HEADINGS = {p: f"### Phase {p[1]} exit gate" for p in ("T1", "T2", "N1", "N2")}
 LOG_FIELDS = 9  # stamp host commit rows label verdict cmd RED: GREEN:
 
 
@@ -85,9 +85,11 @@ def tests_of(cmd: str) -> list[str]:
     m = re.search(r"-run <([^>]*)>", cmd)
     if m:
         return [t for t in m.group(1).split(",") if t]
-    # a browser spec or a checker script, not a Go test (T2.3)
-    f = re.search(r"(e2e/[\w.-]+\.spec\.ts|scripts/[\w./-]+\.(?:py|sh))", cmd)
-    return [f.group(1)] if f else []
+    # a browser spec, a vitest file or a checker script, not a Go test (T2.3, N2.n)
+    f = re.search(r"(e2e/[\w.-]+\.spec\.ts|src/test/[\w.-]+\.test\.tsx?|scripts/[\w./-]+\.(?:py|sh))", cmd)
+    if f:
+        return [f.group(1)]
+    return ["tsc --noEmit"] if "tsc --noEmit" in cmd else []
 
 
 def excerpt(red: str) -> str:
@@ -126,6 +128,8 @@ def main() -> int:
     ap.add_argument("--host", help="the machine's name, e.g. mars; the log only holds the container's hostname")
     ap.add_argument("--matrix", type=Path, default=REPO / "docs/conformance/epic-t-matrix.md")
     ap.add_argument("--spec", type=Path, default=REPO / "docs/EPIC-T-encryption-suites.md")
+    ap.add_argument("--row", action="append", default=[],
+                    help="flip only this row (repeatable); every other row is left alone")
     ap.add_argument("--dry-run", action="store_true", help="say what would change, write nothing")
     args = ap.parse_args()
 
@@ -157,7 +161,8 @@ def main() -> int:
             if r["verdict"] != "caught" or green == "" or green == "-" or green.startswith("red"):
                 return f'control "{r["label"]}" is {r["verdict"]}, green: {green or "-"}'
             if not label_listed(r["label"], files):
-                return f'label "{r["label"]}" is in none of selfTests ({", ".join(files)}); matrix_test.go must list {SELFTEST}'
+                return (f'label "{r["label"]}" is in none of selfTests ({", ".join(files)}); '
+                        f'matrix_test.go must list {SELFTEST}')
         if (miss := proofs_resolve(cell_proof)):
             return "proof cell cites paths that do not exist: " + ", ".join(miss)
         return ""
@@ -165,7 +170,7 @@ def main() -> int:
     rows: dict[str, int] = {}
     for i, line in enumerate(lines):
         cells = [c.strip() for c in line.strip().strip("|").split("|")] if line.startswith("| ") else []
-        if len(cells) >= 6 and re.fullmatch(r"T[12]\.\d+|TC-\d\d|TV\.\d+", cells[0]):
+        if len(cells) >= 6 and re.fullmatch(r"[TN][12]\.\d+|TC-\d\d|TV\.\d+|NC-\d\d|NV\.\d+", cells[0]):
             rows[cells[0]] = i
 
     def flip(rid: str, evidence: str, date: str) -> None:
@@ -180,7 +185,7 @@ def main() -> int:
         lines[i] = " | ".join(parts)
 
     for rid in rows:
-        if rid == "TC-05":
+        if rid == "TC-05" or (args.row and rid not in args.row):
             continue
         line = lines[rows[rid]]
         if not any(b in line for b in BLOCKED):
@@ -208,10 +213,13 @@ def main() -> int:
     if "TC-05" in rows and any(b in lines[rows["TC-05"]] for b in BLOCKED):
         if ledger and all(r in flipped or "PASS" in lines[rows[r]].split(" | ")[4] for r in ledger):
             ids = ", ".join(sorted(ledger, key=lambda r: int(r.split(".")[1])))
-            eg = [latest[lab]["label"] for r in sorted(ledger, key=lambda r: int(r.split(".")[1])) for lab in [x["label"] for x in by_row.get(r, [])][:1]][:2]
+            eg = [latest[lab]["label"]
+                  for r in sorted(ledger, key=lambda r: int(r.split(".")[1]))
+                  for lab in [x["label"] for x in by_row.get(r, [])][:1]][:2]
             quoted = " and ".join('"' + lab + '"' for lab in eg)
             last = max(r["stamp"] for rr in by_row.values() for r in rr)[:10]
-            flip("TC-05", f"Every `TV.n` guard was run and watched to fail ({ids}), for example {quoted}; the last of those runs was {last}.", last)
+            flip("TC-05", f"Every `TV.n` guard was run and watched to fail ({ids}), for example {quoted}; "
+                          f"the last of those runs was {last}.", last)
             flipped.append("TC-05")
         else:
             skipped.append("TC-05: some TV.n row is still not PASS")
@@ -219,7 +227,7 @@ def main() -> int:
     # Tick the spec's exit-gate box for each flipped gate row.
     spec = args.spec.read_text().split("\n")
     for rid in flipped:
-        if rid.startswith("TC-") or rid.startswith("TV."):
+        if rid.startswith(("TC-", "TV.", "NC-", "NV.")):
             continue
         phase, n = rid.split(".")
         inside, seen = False, 0
