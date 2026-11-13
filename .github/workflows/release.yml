@@ -55,10 +55,13 @@ name: Release
 # tree it is about to publish. Release prep runs
 # scripts/release/record-local-gate.sh last, which runs the full gate in a
 # clean detached worktree and writes provenance/local-gate.json and
-# provenance/local-gate.log; the require-release-gate job below reads that
+# provenance/local-gate.log, and signs the record with ssh-keygen -Y
+# (namespace retnd-local-gate) into provenance/local-gate.json.sig (#1373);
+# the require-release-gate job below reads that
 # record off the commit being published, recomputes the tree it describes
 # with scripts/release/gate-tree.sh, and refuses `publish` on a mismatch,
-# a missing record, an INCOMPLETE run, a schema it does not read, or a Go
+# a missing record, a missing or invalid signature (checked against the owner's
+# public key in provenance/allowed_signers), an INCOMPLETE run, a schema it does not read, or a Go
 # that is not the one this file builds with. A direct push, a merge of a
 # tree nobody ran the gate on, or main moving after the record was written
 # all stop here instead of shipping. Its own header has the design and the
@@ -114,6 +117,7 @@ on:
     paths-ignore:
       - "container/release-manifest.json"
       - "distribution/packaging/canonical.json"
+      # provenance/** also covers provenance/local-gate.json.sig (#1373)
       - "provenance/**"
       - "scripts/install/install_docker_host.py"
   workflow_dispatch:
@@ -211,9 +215,10 @@ jobs:
   # output before it says "recorded". Its header has what it compares
   # (the tree with the record left out, the ledger, the schema, the log's
   # bytes, the Go of core/go.mod at major.minor) and what it proves,
-  # precisely: that somebody with push rights ran the full suite on these
-  # bytes and it passed. Self-asserted, and the header of this file says
-  # what stands against a forged one.
+  # precisely: that the holder of the key in provenance/allowed_signers
+  # signed a record of a full green run on these bytes (#1373). The
+  # signature is provenance/local-gate.json.sig, verified with
+  # ssh-keygen -Y verify; a missing, invalid or key-less setup refuses.
   #
   # THE ESCAPE HATCH IS A COMMIT TRAILER: `Release-Gate-Override: <why>`
   # as a real trailer of the commit being published (the last paragraph,
@@ -251,6 +256,12 @@ jobs:
       # commit's own tree into a temporary index, which needs no history.
       - name: Checkout
         uses: actions/checkout@v7
+
+      # The check compares provenance/allowed_signers with main's copy, so it
+      # needs main's tip (RETND_TRUST_REF, default origin/main) next to the
+      # commit it judges. Nothing else of main's history is needed.
+      - name: Fetch main for the trust reference
+        run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
 
       - name: Refuse to publish a commit the local gate never recorded
         # Through env, never through a ${{ }} expansion inside the script,

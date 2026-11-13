@@ -71,6 +71,11 @@ at 3. A stray exit 3 from a command the gate did not mark is read as FAILED.
 | `CI_DOCKER_MIN_FREE_MB` | `20480` | a remote run refuses, before sending anything, when the scratch parent has less free space than this |
 | `CI_DOCKER_KEEP_CACHE` | `0` | `1` keeps the toolchain image and the cache volumes on the remote after the run, for a faster next one. By default a remote run removes what it created |
 | `CI_DOCKER_SYNC` | `rsync` | `tar` copies the tree with tar over ssh, for a host that has no rsync or whose rsync cannot write the scratch path (the UGREEN NAS's rsync resolves paths inside the home directory and refuses the copy with `cannot stat destination ... (in home)`, so use `tar` there) |
+| `CI_DOCKER_MEMORY` | `12g` | memory limit of the gate container; memory-swap is set to the same value, so it gets no swap. Clamped to the daemon's total memory (#1373) |
+| `CI_DOCKER_CPUS` | `6` | CPU quota of the gate container. Clamped to the daemon's CPU count, because Docker refuses more (#1373). The container also gets `--pids-limit 4096`. A daemon that cannot limit swap gets one `ci-docker: WARNING` line and the run carries on |
+| `RETND_PW_LOCK` | `/Users/rom/workspace/xdg-pw-lock.sh` | the Playwright lock the browser gate runs through on a Mac. When nothing executable is there the gate runs without it and prints `browser gate running without the Playwright lock` |
+| `RETND_GATE_KEY` | `~/.ssh/retnd-release-attest` | the private key the recorder signs the record with |
+| `RETND_TRUST_REF` | `origin/main` | the reference whose `provenance/allowed_signers` the verifier compares the commit's copy with |
 | `CI_DOCKER_SHARE_HOST` | `auto` | `1` runs the `scripts/ci-docker.sh` container with `--network host` and the daemon host's `/tmp` mounted at `/tmp`; `0` runs it on the default bridge with a private `/tmp`. `auto` picks `0` when `docker info` says Docker Desktop and `1` for any other daemon (below) |
 | `GOTOOLCHAIN` | derived | the gate exports the Go its golangci-lint was built with, so the linter can read the export data. Set it yourself only to run the whole gate on one toolchain |
 | `GOFLAGS` | unset | the recorder refuses a value that narrows tests (`-run`, `-skip`, `-short`, `-count=0`, `-failfast`, `-bench`, `-fuzz`); the gate itself does not read it |
@@ -242,12 +247,20 @@ branch protection to require.
 of HEAD and, only on `==> ci-local: ok`, writes:
 
 - `provenance/local-gate.json`, schema `retnd.local-gate/1`: `gate_tree` (the
-  tree of the commit minus these two files, from `scripts/release/gate-tree.sh`),
+  tree of the commit minus these three files, from `scripts/release/gate-tree.sh`),
   `head`, `result`, the ledger, `started_at`, `duration_s`, the `tools` the
   run printed (`go`, `node`, `golangci_lint`, `docker`), `log_sha256`,
   `web_ui_lane` and the run's `env`;
 - `provenance/local-gate.log`, the gate's full output, with home directories
-  scrubbed. The recorder refuses to write a log that carries a token.
+  scrubbed. The recorder refuses to write a log that carries a token;
+- `provenance/local-gate.json.sig`, the ssh signature over the record
+  (`ssh-keygen -Y sign -n retnd-local-gate`).
+
+**The record run is native, and the container limit does not reach it.** The recorder runs
+`scripts/ci-local.sh` on the Mac, by design, and macOS has no cgroups, so the memory, swap
+and CPU limit of `scripts/ci-docker.sh` cannot apply to that run. The browser part goes
+through the Playwright lock and Docker work is bounded by the Docker Desktop VM. This is a
+documented limit, not something the recorder enforces.
 
 `scripts/release/verify-local-gate.sh <commit>` is what `release.yml` runs:
 the record's `gate_tree` must equal the commit's gate tree, `result` must be
