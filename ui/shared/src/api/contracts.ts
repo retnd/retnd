@@ -31,6 +31,10 @@ import type {
 } from "./generated/contract";
 import type { BackupArtifact, BackupSet, CompletionMethod, RetentionPlan } from "@shared/types/backup";
 import type {
+  AgentAuditFilter, AgentAuditPage, AgentCatalogue, AgentConfirmation, AgentToken,
+  MintAgentTokenRequest, MintedAgentToken
+} from "@shared/types/agents";
+import type {
   ActivityEvent,
   Operation,
   SystemHealth,
@@ -3207,6 +3211,11 @@ export interface Capabilities {
   embeddedWindow: boolean;
   appStorePackaging: boolean;
   destructiveOperations: DestructiveOperations;
+  /**
+   * Q14 (#1367): whether the streamable HTTP agent transport is on, from
+   * CapabilitiesResponse.agents_http_transport (#1364).
+   */
+  agentsHttpTransport: "on" | "off";
 }
 
 /**
@@ -4174,6 +4183,22 @@ export interface RetndApi {
    *  runner socket and an SSH connection, so a dashboard on a timer here
    *  would be probing an operator's source host on a timer. */
   getBackupSetWorkflowValidation(source: string, set: string): Promise<WorkflowValidation>;
+
+  /**
+   * EPIC U (#1351): the Agents card. A token's secret is returned by
+   * `mintAgentToken` and nowhere else, and approving a confirmation replays
+   * the recorded request with no body, so no method here takes one.
+   */
+  listAgentTokens(): Promise<AgentToken[]>;
+  mintAgentToken(req: MintAgentTokenRequest): Promise<MintedAgentToken>;
+  revokeAgentToken(id: string): Promise<AgentToken>;
+  listAgentCatalogue(): Promise<AgentCatalogue>;
+  listAgentConfirmations(): Promise<AgentConfirmation[]>;
+  /** Answers the confirmation as it now stands: approved, with `execution` once
+   *  the replay has finished, or denied. REJECTS with the engine's refusal. */
+  approveAgentConfirmation(id: string, opts: StepUpOptions): Promise<AgentConfirmation>;
+  denyAgentConfirmation(id: string): Promise<AgentConfirmation>;
+  listAgentAudit(filter: AgentAuditFilter): Promise<AgentAuditPage>;
 
   /**
    * EPIC N, retained-copy encryption (#993, issue #995). Every write is

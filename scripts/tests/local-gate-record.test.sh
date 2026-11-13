@@ -25,7 +25,9 @@
 # prints the CI variable it sees, which is how the "the recorder sets CI=1
 # itself" half of #1260's item 7 is measured rather than assumed.
 #
-# Eleven behaviours:
+# Eleven behaviours (plus the signing cases of #1373: the record is signed and
+# the signature verifies, a missing key, an impostor's key and a key-less
+# allowed_signers are refused):
 #
 #    1. a clean checkout with a green gate writes a record whose gate_tree
 #       is what scripts/release/gate-tree.sh says, with an empty ledger, a
@@ -61,7 +63,6 @@ SCRIPTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 REPO_ROOT="$(cd "$SCRIPTS_DIR/.." && pwd)"
 RECORDER="$SCRIPTS_DIR/release/record-local-gate.sh"
 GATE_TREE="$SCRIPTS_DIR/release/gate-tree.sh"
-WORKFLOW="$REPO_ROOT/.github/workflows/release.yml"
 
 echo "==> local-gate recorder: only a full green run on a clean tree becomes a record"
 
@@ -88,6 +89,11 @@ esac
 rm -rf "$SANDBOX"
 mkdir -p "$SANDBOX"
 trap 'rm -rf "$SANDBOX"' EXIT
+
+# Throwaway ed25519 keys (#1373): the owner's stand-in and an impostor's.
+ssh-keygen -q -t ed25519 -N '' -C test -f "$SANDBOX/owner" >/dev/null
+ssh-keygen -q -t ed25519 -N '' -C test -f "$SANDBOX/impostor" >/dev/null
+export RETND_GATE_KEY="$SANDBOX/owner"
 
 for f in "$RECORDER" "$GATE_TREE"; do
   if [ ! -f "$f" ]; then
@@ -188,8 +194,12 @@ new_repo() {
   mkdir -p "$repo/scripts/ci"
   cp "$REPO_ROOT/scripts/ci/pins.env" "$repo/scripts/ci/pins.env"
   printf '{"not": "the record"}\n' >"$repo/provenance/release-provenance.json"
+  printf 'retnd-release namespaces="retnd-local-gate,retnd-e2e-attest" %s\n' "$(cut -d' ' -f1,2 "$SANDBOX/owner.pub")" >"$repo/provenance/allowed_signers"
   git_in "$repo" add -A
   git_in "$repo" commit -qm base
+  # The trust reference the verifier compares allowed_signers with (origin/main
+  # in the real repository).
+  git_in "$repo" update-ref refs/remotes/origin/main HEAD
   git_in "$repo" config core.hooksPath .husky
   printf 'ok\n' >"$SANDBOX/$1.verdict"
   printf '%s\n' "$repo"
@@ -228,7 +238,7 @@ expect() { # <name> <want status> <substring>
 }
 
 no_record() { # <name> <repo>
-  if [ -e "$2/provenance/local-gate.json" ] || [ -e "$2/provenance/local-gate.log" ]; then
+  if [ -e "$2/provenance/local-gate.json" ] || [ -e "$2/provenance/local-gate.log" ] || [ -e "$2/provenance/local-gate.json.sig" ]; then
     fail "$1: a record was written anyway" "$(ls "$2/provenance")"
   else
     pass "$1"
@@ -291,6 +301,12 @@ if [ -f "$record" ]; then
   [ "$(json_field "$record" 'd["web_ui_lane"]["listed_failures"]')" = "33" ] \
     && pass "the record carries the browser lane's result from the worktree the gate ran in" \
     || fail "the record carries the browser lane's result from the worktree the gate ran in" "$(cat "$record")"
+  if [ -f "$record.sig" ] && ssh-keygen -Y verify -f "$repo/provenance/allowed_signers" -I retnd-release \
+      -n retnd-local-gate -s "$record.sig" <"$record" >/dev/null 2>&1; then
+    pass "provenance/local-gate.json.sig exists and verifies against allowed_signers"
+  else
+    fail "provenance/local-gate.json.sig exists and verifies against allowed_signers" "$(ls "$repo/provenance")"
+  fi
   if [ -f "$log" ]; then
     pass "provenance/local-gate.log exists"
     [ "$(json_field "$record" 'd["log_sha256"]')" = "$(sha256_of "$log")" ] \
@@ -322,6 +338,40 @@ worktrees="$(git_in "$repo" worktree list | wc -l | tr -d ' ')"
 dirty="$(git_in "$repo" status --porcelain | grep -v '^?? provenance/local-gate' || true)"
 [ -z "$dirty" ] && pass "nothing but the record and its log is new in the checkout" \
   || fail "nothing but the record and its log is new in the checkout" "$dirty"
+
+# --- signing (#1373) -------------------------------------------------------
+repo="$(new_repo no-key-file)"
+run_recorder "$repo" RETND_GATE_KEY="$SANDBOX/does-not-exist"
+expect "a missing signing key is refused before the gate runs" 2 "signing key"
+no_record "and no record is written for it" "$repo"
+
+repo="$(new_repo impostor-key)"
+run_recorder "$repo" RETND_GATE_KEY="$SANDBOX/impostor"
+if [ "$STATUS" -ne 0 ]; then
+  pass "a record signed with a key that is not in allowed_signers is not accepted"
+else
+  fail "a record signed with a key that is not in allowed_signers is not accepted" "$OUT"
+fi
+no_record "and no record is left behind for it" "$repo"
+
+repo="$(new_repo no-signers)"
+printf '# no key yet\n' >"$repo/provenance/allowed_signers"
+git_in "$repo" commit -qam "empty signers"
+run_recorder "$repo"
+expect "an allowed_signers with no key is refused with a clear message" 1 "has no key in it"
+no_record "and no record is left behind for it" "$repo"
+
+repo="$(new_repo swapped-signers)"
+printf 'retnd-release namespaces="retnd-local-gate,retnd-e2e-attest" %s\n' "$(cut -d' ' -f1,2 "$SANDBOX/impostor.pub")" >"$repo/provenance/allowed_signers"
+git_in "$repo" commit -qam "swap the signers"
+run_recorder "$repo" RETND_GATE_KEY="$SANDBOX/impostor"
+expect "a record signed by a key that only the same commit's allowed_signers trusts is refused" 1 "differs from"
+no_record "and no record is left behind for it" "$repo"
+
+repo="$(new_repo default-key-path)"
+mkdir -p "$SANDBOX/home/.ssh"
+run_recorder "$repo" RETND_GATE_KEY= HOME="$SANDBOX/home"
+expect "the default signing key is ~/.ssh/retnd-release-attest" 2 "retnd-release-attest"
 
 # --- 3: a dirty tree -------------------------------------------------------
 repo="$(new_repo dirty)"
@@ -466,11 +516,12 @@ if [ -f "$GATE_TREE" ]; then
     || fail "with no record in the tree, the gate tree is the commit's own tree" "$t0 vs $raw_tree"
   printf '{"schema":"retnd.local-gate/1"}\n' >"$repo/provenance/local-gate.json"
   printf 'a log\n' >"$repo/provenance/local-gate.log"
+  printf 'a signature\n' >"$repo/provenance/local-gate.json.sig"
   git_in "$repo" add -A
   git_in "$repo" commit -qm "record the gate"
   t1="$(cd "$repo" && bash "$GATE_TREE" HEAD 2>&1)"
-  [ "$t0" = "$t1" ] && pass "committing the record and its log does not move the gate tree" \
-    || fail "committing the record and its log does not move the gate tree" "$t0 vs $t1"
+  [ "$t0" = "$t1" ] && pass "committing the record, its log and its signature does not move the gate tree" \
+    || fail "committing the record, its log and its signature does not move the gate tree" "$t0 vs $t1"
   [ "$t1" != "$(git_in "$repo" rev-parse 'HEAD^{tree}')" ] && pass "and the commit's own tree did move, so the exclusion is doing the work" \
     || fail "and the commit's own tree did move, so the exclusion is doing the work"
   printf '// product change\n' >>"$repo/core/main.go"
@@ -495,9 +546,12 @@ if [ -f "$GATE_TREE" ]; then
   t4="$(cd "$repo" && bash "$GATE_TREE" HEAD 2>&1)"
   [ "$t3" != "$t4" ] && pass "a directory named like the excluded log is not excluded with it" \
     || fail "a directory named like the excluded log is not excluded with it" "$t3 vs $t4"
-  index_leftovers="$(ls "$(git_in "$repo" rev-parse --git-dir)" | grep -c 'gate-tree' || true)"
+  index_leftovers=0
+  for leftover in "$(git_in "$repo" rev-parse --absolute-git-dir)"/*gate-tree*; do
+    [ -e "$leftover" ] && index_leftovers=$((index_leftovers + 1))
+  done
   [ "$index_leftovers" = 0 ] && pass "gate-tree.sh leaves no temporary index behind" \
-    || fail "gate-tree.sh leaves no temporary index behind" "$(ls "$(git_in "$repo" rev-parse --git-dir)")"
+    || fail "gate-tree.sh leaves no temporary index behind" "$(ls "$(git_in "$repo" rev-parse --absolute-git-dir)")"
 fi
 
 # --- 9: the reader accepts what the writer wrote ------------------------------
@@ -508,7 +562,7 @@ fi
 repo="$(new_repo roundtrip)"
 run_recorder "$repo"
 if [ "$STATUS" -eq 0 ] && [ -f "$repo/provenance/local-gate.json" ]; then
-  git_in "$repo" add provenance/local-gate.json provenance/local-gate.log
+  git_in "$repo" add provenance/local-gate.json provenance/local-gate.log provenance/local-gate.json.sig
   git_in "$repo" commit -qm "Record the local gate"
   cp "$REPO_ROOT/core/go.mod" "$repo/core/go.mod"
   SCRIPT="$SCRIPTS_DIR/release/verify-local-gate.sh"

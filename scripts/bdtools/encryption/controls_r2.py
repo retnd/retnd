@@ -43,7 +43,7 @@ CONTROLS = [
     Control(
         "N2 the epic closure stubs dropped from the gate fixture",
         ("N2.12",),
-        [(GATE_TEST_R2, "publish-image-guards published-provenance-guards epic-n-closure epic-t-closure; do",
+        [(GATE_TEST_R2, "publish-image-guards published-provenance-guards epic-n-closure epic-t-closure epic-u-closure; do",
           "publish-image-guards published-provenance-guards; do  # " + PLANT.strip())],
         "",
         cmd=["sh", "-c", AS_REPO_R2 + "GATE_LOCK_TIMEOUT=60 bash scripts/tests/ci-local-gate.test.sh"],

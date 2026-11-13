@@ -57,6 +57,7 @@ func TestEventNamesAreStable(t *testing.T) {
 		{"EventDiskPressure", EventDiskPressure, "disk_pressure"},
 		{"EventAlert", EventAlert, "alert"},
 		{"EventAPIAction", EventAPIAction, "api_action"},
+		{"EventAgentAction", EventAgentAction, "agent_action"},
 		{"EventWorkflowRunStart", EventWorkflowRunStart, "workflow_run_start"},
 		{"EventWorkflowRunEnd", EventWorkflowRunEnd, "workflow_run_end"},
 		{"EventWorkflowStepStart", EventWorkflowStepStart, "workflow_step_start"},

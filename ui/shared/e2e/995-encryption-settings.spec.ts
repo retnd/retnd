@@ -129,7 +129,7 @@ test.describe("#995 Settings, Retained-copy encryption", () => {
       // Only the card. At 360px the shell still leaves the Settings column
       // about 150px wide, so every card on the page (this one included, in the
       // default scenario too) is squeezed to under 50px and the page scrolls
-      // sideways. That is older than this card and is #1337. So the
+      // sideways. That is older than this card and tracked separately. So the
       // card is given the width a 360px screen's content column has (360 less
       // the two 16px gutters) and has to fit its own content inside it.
       const c = page.locator(CARD);

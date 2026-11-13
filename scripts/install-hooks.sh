@@ -32,7 +32,7 @@ toplevel="$(git rev-parse --show-toplevel 2>/dev/null)" || {
 }
 cd "$toplevel"
 
-for hook in pre-commit prepare-commit-msg; do
+for hook in pre-commit prepare-commit-msg pre-merge-commit pre-push; do
   if [ ! -f ".husky/$hook" ]; then
     echo "install-hooks: .husky/$hook is not in this tree, so there is nothing to install. Check out a branch that has it." >&2
     exit 2

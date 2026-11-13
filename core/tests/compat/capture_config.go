@@ -92,6 +92,13 @@ func captureConfigValidation(fixtureDir string) (Cell, error) {
 				}
 			}
 		}
+		// The agents block (EPIC U, #1347), same rule: only the fixtures
+		// named for it print it.
+		if strings.Contains(base, "agent") {
+			a := cfg.Agents
+			lines = append(lines, fmt.Sprintf("%s   deployment agents: http_transport=%s rate_limit_per_minute=%d confirmation_ttl=%s audit_retention_days=%d max_pending_confirmations=%d",
+				base, a.HTTPTransport, a.RateLimitPerMinute, a.ConfirmationTTL, a.AuditRetentionDays, a.MaxPendingConfirmations))
+		}
 		// Assurance (EPIC Q, #982) is printed only for the fixtures that are
 		// about it, so every earlier fixture's lines stay exactly as they
 		// were captured.

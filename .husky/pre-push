@@ -1,0 +1,136 @@
+#!/usr/bin/env sh
+# A push to refs/heads/release needs a valid green e2e stamp for the exact tree (#1375).
+#
+# Judged with the gate files taken from the REMOTE release tip (the old sha git
+# hands this hook), never from the tree being pushed, so a branch that edits the
+# gate cannot vouch for itself. This hook sources nothing from the working tree
+# or the pushed tree before it has decided: the skip parsing and the skip
+# record are inline below. Stdin lines are `<local ref> <local sha> <remote ref>
+# <remote sha>`; the local ref may contain spaces (HEAD^{/some message}), so
+# every field is read from the END of the line, and more than one line naming
+# refs/heads/release is refused outright (a planted line). Refusals:
+#   - no valid stamp (non-empty, exact keys, tree, trusted command, real host,
+#     gate_sha256 of the remote tip's gate) for the pushed tree;
+#   - the push changes a gate file (scripts/release-e2e*, lib/attest/gate-tree,
+#     ci-docker.sh, provenance/allowed_signers, these hooks);
+#   - the push touches release-attest/ beyond e2e.json and its signature;
+#   - the remote has no release branch yet (one-time bootstrap);
+#   - the remote tip is not in this clone (fetch first), or has no gate in it
+#     (an existing release adopting this gate for the first time).
+# Each is lifted only by a skip, which is recorded inline: RELEASE_E2E_SKIP=
+# '<12+ chars>' or the existing Release-Gate-Override trailer on the pushed
+# commit. A skip waives the e2e as well. Other branches pass untouched. This
+# file is read from the working tree: a topic that edits it is the boundary
+# GitHub branch protection on release has to hold.
+set -e
+
+# The hooks path guard, as in .husky/pre-commit (#1361): a relative core.hooksPath
+# is resolved against each worktree's own root, which is what install-hooks.sh
+# sets. An absolute or foreign one points every worktree at one checkout's hook,
+# possibly a stale one, and nothing about running it says so.
+hooks_top="$(git rev-parse --show-toplevel)"
+hooks_want="$(cd "$hooks_top/.husky" 2>/dev/null && pwd -P || true)"
+hooks_here="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P || true)"
+hooks_cfg="$(git config --get core.hooksPath || true)"
+hooks_bad=""
+case "$hooks_cfg" in
+  /* | "~"*) hooks_bad="core.hooksPath is an absolute path ($hooks_cfg)" ;;
+  "") ;;
+  *)
+    hooks_got="$(cd "$hooks_top" && cd "$hooks_cfg" 2>/dev/null && pwd -P || true)"
+    if [ "$hooks_got" != "$hooks_want" ]; then
+      hooks_bad="core.hooksPath ($hooks_cfg) does not resolve to this checkout's .husky"
+    fi
+    ;;
+esac
+if [ -z "$hooks_bad" ] && [ -z "$hooks_want" ]; then
+  hooks_bad="this checkout has no .husky directory"
+fi
+if [ -z "$hooks_bad" ] && [ "$hooks_here" != "$hooks_want" ]; then
+  hooks_bad="this hook is $hooks_here/pre-push, not $hooks_top/.husky/pre-push"
+fi
+if [ -n "$hooks_bad" ]; then
+  echo "==> pre-push: refusing to run. $hooks_bad." >&2
+  echo "    A hook from another checkout can be a stale one. Fix, once per clone (covers every" >&2
+  echo "    worktree): bash scripts/install-hooks.sh" >&2
+  exit 1
+fi
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE DH_UNFENCED
+refs="$(mktemp "${TMPDIR:-/tmp}/release-prepush.XXXXXX")"
+gate="$(mktemp -d "${TMPDIR:-/tmp}/release-prepush-gate.XXXXXX")"
+trap 'rm -rf "$refs" "$gate"' EXIT
+cat >"$refs"
+zeros=0000000000000000000000000000000000000000
+# A line with fewer than four fields can only come from a newline inside the
+# source ref; an injected line could name a local-only commit F whose gate says
+# "exit 0" and have the first-line logic judge F instead of the real push.
+awk 'NF < 4 { bad = 1 } END { exit bad }' "$refs" || { echo "pre-push: refusing the push: a line of the ref list has fewer than four fields (a newline inside a refspec). No skip lifts this." >&2; exit 1; }
+pairs="$(awk '$(NF-1) == "refs/heads/release" { print $(NF-2), $NF }' "$refs")"
+[ -n "$pairs" ] || exit 0
+
+die() { echo "pre-push: refusing to push to release: $*" >&2; exit 1; }
+[ "$(printf '%s\n' "$pairs" | wc -l | tr -d ' ')" = 1 ] \
+  || die "more than one line of this push names refs/heads/release (a refspec with a newline can plant one). No skip lifts this."
+
+# Inline, from this file only: the record of a skip.
+log_skip() { # <reason> <sha> <old tip>
+  d="$(git rev-parse --path-format=absolute --git-common-dir)/release-e2e"; mkdir -p "$d"
+  b="$(git symbolic-ref -q --short HEAD 2>/dev/null || echo detached)"
+  flat="$(printf '%s' "$1" | tr -c '[:print:]' ' ')"   # no newline or escape from a reason can forge a record line
+  printf 'time=%s hook=pre-push reason=%s sha=%s old_tip=%s ref=refs/heads/release waived=e2e-stamp,gate-file-check,release-attest-check,bootstrap-check user=%s branch=%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$flat" "$2" "$3" "$(id -un)" "$b" >>"$d/overrides.log"
+  echo "################################################################" >&2
+  echo "pre-push: release gate SKIPPED. Reason: $flat" >&2
+  echo "          recorded in $d/overrides.log" >&2
+  echo "################################################################" >&2
+}
+reason_for() { # <local sha>: the skip reason, from this hook's own parsing
+  r=""
+  if [ -n "${RELEASE_E2E_SKIP:-}" ]; then
+    [ "${#RELEASE_E2E_SKIP}" -ge 12 ] && r="$RELEASE_E2E_SKIP"
+  elif [ "$1" != "$zeros" ]; then
+    r="$(git log -1 --format=%B "$1" | git interpret-trailers --parse | sed -n 's/^Release-Gate-Override:[[:space:]]*//p' | tail -n 1)"
+    [ "${#r}" -ge 12 ] || r=""
+  fi
+  printf '%s' "$r"
+}
+# Raw blobs from a commit's tree: no .gitattributes (export-ignore, export-subst,
+# eol, filters) is consulted, unlike git archive and checkout-index.
+extract() { # <commit> <dest> <paths...>
+  c="$1"; d="$2"; shift 2
+  git ls-tree -r "$c" -- "$@" >"$d/.list" || return 1
+  [ -s "$d/.list" ] || return 1
+  tab="$(printf '\t')"
+  while IFS="$tab" read -r meta path; do
+    # shellcheck disable=SC2086
+    set -- $meta
+    [ "$2" = blob ] || return 1
+    mkdir -p "$d/$(dirname "$path")"
+    if [ "$1" = 120000 ]; then ln -s "$(git cat-file blob "$3")" "$d/$path" || return 1
+    else git cat-file blob "$3" >"$d/$path" || return 1; [ "$1" != 100755 ] || chmod +x "$d/$path"; fi
+  done <"$d/.list"
+}
+
+gate_files='scripts/release-e2e.sh scripts/release-e2e/lib.sh scripts/release-e2e/attest.sh scripts/release/gate-tree.sh scripts/ci-docker.sh'
+watched="$gate_files provenance/allowed_signers .husky/pre-push .husky/pre-merge-commit"
+
+printf '%s\n' "$pairs" | while read -r lsha tip; do
+  skip="$(reason_for "$lsha")"
+  if [ -n "$skip" ]; then log_skip "$skip" "$lsha" "$tip"; continue; fi
+  [ "$lsha" != "$zeros" ] || die "deleting the release branch needs a skip (RELEASE_E2E_SKIP='<reason>')."
+  case $tip in *[!0]*) ;; *) die "the remote has no release branch (or I cannot see it), so this is the one-time bootstrap. Set RELEASE_E2E_SKIP='<reason>' (recorded) to create it." ;; esac
+  git cat-file -e "$tip^{commit}" 2>/dev/null || die "the remote's release tip $tip is not in this clone. Fetch first, then push again."
+  # shellcheck disable=SC2086
+  extract "$tip" "$gate" $gate_files || die "the remote release tip $tip has no release gate to judge with. An existing release adopting this gate for the first time needs a skip: RELEASE_E2E_SKIP='<reason>' or a Release-Gate-Override trailer on the pushed commit (recorded)."
+  for f in $gate_files; do [ -f "$gate/$f" ] || die "the remote release tip $tip lacks $f. Adopting the gate needs a skip: RELEASE_E2E_SKIP='<reason>' (recorded)."; done
+  # shellcheck disable=SC2086
+  git diff --quiet "$tip" "$lsha" -- $watched \
+    || die "this push changes the release gate files ($watched). A gate change needs a skip: RELEASE_E2E_SKIP='<reason>' or a Release-Gate-Override trailer (recorded)."
+  extra="$(git diff --name-only "$tip" "$lsha" -- release-attest | grep -vxF -e release-attest/e2e.json -e release-attest/e2e.json.sig || true)"
+  [ -z "$extra" ] || die "this push touches release-attest/ beyond the attestation and its signature: $extra"
+  RE_TOOLS="$gate"; export RE_TOOLS
+  # shellcheck disable=SC1091
+  . "$gate/scripts/release-e2e/lib.sh"
+  tree="$(re_tree_id "$lsha")"
+  re_stamp_ok "$tree" || die "no valid green e2e stamp for tree $tree (the tree of $lsha, release-attest/ and provenance/local-gate.* left out). Run: bash scripts/release-e2e.sh on a clean checkout of that commit."
+done

@@ -273,9 +273,33 @@ var contractBindings = map[string]contractBinding{
 	"exportRecoveryBundle":     {nil, apicontract.RecoveryBundle{}, "/api/v1/encryption/keys/k0123456789abcdef/export"},
 	"confirmRecoveryBundle":    {apicontract.ConfirmRecoveryBundleRequest{}, apicontract.EncryptionKeyStatus{}, "/api/v1/encryption/keys/k0123456789abcdef/confirm"},
 	"testEncryptionProvider":   {apicontract.EncryptionProviderTestRequest{}, apicontract.EncryptionProviderProbe{}, "/api/v1/encryption/providers/test"},
+	// EPIC U (#1345): the three agent token routes, bound to the contract's
+	// own types so the declared shape and the served shape cannot part.
+	"listAgentTokens":  {nil, apicontract.ListAgentTokensResponse{}, "/api/v1/agent/tokens"},
+	"mintAgentToken":   {apicontract.MintAgentTokenRequest{}, apicontract.MintedAgentToken{}, "/api/v1/agent/tokens"},
+	"revokeAgentToken": {nil, apicontract.AgentToken{}, "/api/v1/agent/tokens/agt_1/revoke"},
+	// EPIC U (#1348): the audit trail.
+	"listAgentAudit": {nil, apicontract.ListAgentAuditResponse{}, "/api/v1/agent/audit"},
+	"listAgentTools": {nil, apicontract.AgentToolsResponse{}, "/api/v1/agent/tools"},
+	// EPIC U (#1347): the MCP transport. A frame is free-form JSON-RPC, so
+	// there is no Go type to bind beyond the contract's own.
+	"postAgentMcp":   {apicontract.AgentMcpFrame{}, apicontract.AgentMcpFrame{}, "/api/v1/agent/mcp"},
+	"getAgentMcp":    {nil, nil, "/api/v1/agent/mcp"},
+	"deleteAgentMcp": {nil, nil, "/api/v1/agent/mcp"},
+	// EPIC U (#1349): the three confirmation routes.
+	"listAgentConfirmations":   {nil, apicontract.ListAgentConfirmationsResponse{}, "/api/v1/agent/confirmations"},
+	"getAgentConfirmation":     {nil, apicontract.AgentConfirmation{}, "/api/v1/agent/confirmations/cnf_1"},
+	"approveAgentConfirmation": {nil, apicontract.AgentConfirmation{}, "/api/v1/agent/confirmations/cnf_1/approve"},
+	"denyAgentConfirmation":    {nil, apicontract.AgentConfirmation{}, "/api/v1/agent/confirmations/cnf_1/deny"},
 	"listEncryptionSuites":     {nil, apicontract.ListEncryptionSuitesResponse{}, "/api/v1/encryption/suites"},
 	"listEncryptionCopies":     {nil, apicontract.ListEncryptionCopiesResponse{}, "/api/v1/encryption/copies"},
 	"startDecryptVerify":       {apicontract.StartDecryptVerifyRequest{}, apicontract.ScrubStarted{}, "/api/v1/encryption/verify"},
+	// Issues #1291 and #1317. The dry runs and the runs are bound to the
+	// same two paths, one method each.
+	"planEncryptExisting":  {nil, apicontract.EncryptExistingPlan{}, "/api/v1/encryption/encrypt-existing"},
+	"startEncryptExisting": {apicontract.StartEncryptExistingRequest{}, apicontract.ScrubStarted{}, "/api/v1/encryption/encrypt-existing"},
+	"planReencrypt":        {nil, apicontract.ReencryptPlan{}, "/api/v1/encryption/reencrypt"},
+	"startReencrypt":       {apicontract.StartReencryptRequest{}, apicontract.ScrubStarted{}, "/api/v1/encryption/reencrypt"},
 	// Issue #1203. The handlers write apicontract's own types, so the
 	// bindings are those types.
 	"listCustomValidators":        {nil, apicontract.ListCustomValidatorsResponse{}, "/api/v1/assurance/validators"},
@@ -715,7 +739,9 @@ func TestContract_DeclaredRequirementsMatchWhatTheRoutesEnforce(t *testing.T) {
 // ----------------------------------------------------------- error codes ---
 
 var (
-	writeErrorCode = regexp.MustCompile(`write(?:Auth)?Error\([^,]+,\s*[^,]+,\s*"([A-Z][A-Z0-9_]+)"`)
+	// refuse is agentconfirmations.go's: it writes the error and reports
+	// the refusal to the audit in one call, with writeError's arguments.
+	writeErrorCode = regexp.MustCompile(`(?:write(?:Auth)?Error|refuse)\([^,]+,\s*[^,]+,\s*"([A-Z][A-Z0-9_]+)"`)
 	// gate_profile.go's one refusal constructor: status first, then the code.
 	gateRefusalCode = regexp.MustCompile(`newGateRefusal\([^,]+,\s*"([A-Z][A-Z0-9_]+)"`)
 	assignedCode    = regexp.MustCompile(`\.Code\s*=\s*"([A-Z][A-Z0-9_]+)"`)
@@ -1264,8 +1290,14 @@ func TestContract_CapabilitiesAreDataAboutThePlatform(t *testing.T) {
 		if _, ok := body["destructive_operations"].(map[string]any); !ok {
 			t.Errorf("%s: the response has no destructive_operations object: %v", tc.wantPlatform, body)
 		}
-		if len(body) != len(apicontract.CapabilityFields)+2 {
-			t.Errorf("%s: the response carries %d fields; the contract declares %d capabilities plus platform and destructive_operations. An undeclared field on this endpoint is drift.", tc.wantPlatform, len(body), len(apicontract.CapabilityFields)+2)
+		// And (#1347) agents_http_transport: the agents: block's transport
+		// switch, again the deployment's and not the platform's. A router
+		// with no policy answers off.
+		if body["agents_http_transport"] != "off" {
+			t.Errorf("%s: agents_http_transport = %v, want off for a deployment with no agents: block", tc.wantPlatform, body["agents_http_transport"])
+		}
+		if len(body) != len(apicontract.CapabilityFields)+3 {
+			t.Errorf("%s: the response carries %d fields; the contract declares %d capabilities plus platform, destructive_operations and agents_http_transport. An undeclared field on this endpoint is drift.", tc.wantPlatform, len(body), len(apicontract.CapabilityFields)+3)
 		}
 	}
 }
