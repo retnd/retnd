@@ -23,9 +23,12 @@
  *   agents-insecure          the pending page on an unencrypted connection: the consent comes first
  *   agents-catalogue-failed  the pending page, with the catalogue route failing
  *   agent-refusals           #1352: one refused audit row, and a pending run_cycle the shut gate refuses once approved
+ *   agents-mint-lost         the token page, where Create token makes the token and then the answer never arrives (#1395)
+ *   agents-mint-unreadable   the same, where an answer arrives and cannot be read (#1395)
+ *   agents-mint-dropped      the same, where the request is lost and nothing is made (#1395)
  *   agents-http-on           the token page, with the HTTP transport reported on (every other agents-* scenario reports off)
  */
-import { RetndError } from "@shared/api/contracts";
+import { RequestFailure, RetndError } from "@shared/api/contracts";
 import type { ApiErrorCode, RetndApi } from "@shared/api/contracts";
 import type { AgentAuditRow, AgentConfirmation, AgentScope, AgentToken } from "@shared/types/agents";
 
@@ -40,6 +43,9 @@ export const AGENTS_SCENARIOS = [
   "agents-insecure",
   "agents-catalogue-failed",
   "agents-http-on",
+  "agents-mint-lost",
+  "agents-mint-unreadable",
+  "agents-mint-dropped",
   "agent-refusals"
 ] as const;
 
@@ -196,6 +202,11 @@ export function createMockAgents(scenario: string, deps: MockAgentsDeps) {
     listAgentTokens: () => later(structuredClone(tokens)),
     mintAgentToken: async (req) => {
       await deps.transport(false);
+      // #1395: a dropped request never reaches the engine, so nothing is checked and nothing is made.
+      if (scenario === "agents-mint-dropped") {
+        await later(null);
+        throw new RequestFailure({ kind: "no-response", path: "/agent/tokens", cause: new TypeError("Failed to fetch") });
+      }
       if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(req.name)) {
         throw refuse("INVALID_REQUEST", "name: must be 1 to 40 lowercase letters, digits or hyphens, starting with a letter or digit.");
       }
@@ -211,8 +222,15 @@ export function createMockAgents(scenario: string, deps: MockAgentsDeps) {
         createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + ms).toISOString(),
         lastUsedAt: null, revokedAt: null
       };
+      // #1395: the answer is what gets lost. The token is made and the secret never reaches the page.
       tokens.unshift(token);
       await later(null);
+      if (scenario === "agents-mint-lost") {
+        throw new RequestFailure({ kind: "no-response", path: "/agent/tokens", cause: new TypeError("Failed to fetch") });
+      }
+      if (scenario === "agents-mint-unreadable") {
+        throw new RequestFailure({ kind: "unreadable-body", path: "/agent/tokens", status: 200, contentType: "text/html", cause: new SyntaxError("Unexpected token <") });
+      }
       return { token: structuredClone(token), secret: MOCK_MINTED_SECRET };
     },
     revokeAgentToken: async (id) => {

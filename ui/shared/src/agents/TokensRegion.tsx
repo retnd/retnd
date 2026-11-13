@@ -147,7 +147,7 @@ export function TokensRegion({
         </table>
       )}
 
-      {minting ? <MintDialog onMinted={() => { tokens.reload(); onChanged(); }} onClose={() => setMinting(false)} /> : null}
+      {minting ? <MintDialog tokens={tokens.data} onMinted={() => { tokens.reload(); onChanged(); }} onUncertain={tokens.reload} onClose={() => setMinting(false)} /> : null}
 
       <ConfirmationDialog
         open={revoking !== null}
