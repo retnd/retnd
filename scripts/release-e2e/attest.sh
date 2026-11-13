@@ -58,7 +58,7 @@ case "$cmd" in
     while [ $# -gt 0 ]; do case "$1" in --version) version="$2"; shift 2 ;; *) die "unknown option $1" ;; esac; done
     [ -n "$version" ] || die "sign needs --version"
     key="${RELEASE_ATTEST_KEY:-$HOME/.ssh/retnd-release-attest}"
-    [ -f "$key" ] || die "the signing key $key is missing. Provision it: ssh-keygen -t ed25519 -f $key, commit the .pub as $PUB."
+    [ -f "$key" ] || die "the signing key $key is missing. Point RELEASE_ATTEST_KEY at the private key whose public half is in $SIGNERS."
     [ -n "$(key_lines_at HEAD)" ] || die "$SIGNERS at HEAD has no key line for principal $IDENT and namespace $NS, so nothing could verify a signature. Commit the public key to main first."
     [ -z "$(git status --porcelain --untracked-files=all)" ] || die "the working tree is dirty."
     tree="$(re_tree_id HEAD)"

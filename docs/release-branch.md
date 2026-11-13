@@ -374,8 +374,9 @@ invalidate it. A third file under `release-attest/` is content and moves the has
 
 **Override.** There is no new flag and nobody should use `--no-verify`. The
 existing trailer applies: `Release-Gate-Override: <reason, at least 12 characters>`
-in the merge message (pre-merge-commit) or in the message of the commit being
-pushed (pre-push). It prints loudly and is appended to
+in the message of the commit being pushed (pre-push). For `pre-merge-commit` the
+merge message is not written yet when the hook runs, so use `RELEASE_E2E_SKIP`
+there. It prints loudly and is appended to
 `$(git rev-parse --git-common-dir)/release-e2e/overrides.log`. It is legitimate for
 the same reasons it is at publish time (an emergency fix while the e2e hosts are
 down), and the reason stays in the append-only history.
@@ -391,8 +392,7 @@ can contain spaces, as in `HEAD^{/some message}`, which shifts every field from
 the front), and for a push of `refs/heads/release` it takes the gate files from
 the REMOTE release tip, never from the tree being pushed: the runner, `lib.sh`
 (which holds the e2e command), `attest.sh`, `gate-tree.sh` and `ci-docker.sh`,
-extracted with `git archive` to a tar file in a temp directory that a trap
-removes. A stamp counts only if it is non-empty, has exactly the eight keys once
+copied as raw blobs (see below) into a temp directory that a trap removes. A stamp counts only if it is non-empty, has exactly the eight keys once
 each, names the tree it is filed under, says `green`, records the trusted command,
 a host from the allowlist (`mars`, `nas`, or several joined with `+`) and the
 `gate_sha256` of those files. Refused unless skipped as below: a stamp that fails
@@ -416,8 +416,8 @@ any push where more than one line names `refs/heads/release`. No skip lifts
 either.
 
 **The skip.** `RELEASE_E2E_SKIP='<reason, 12+ characters>'` in the environment, or
-the existing `Release-Gate-Override` trailer on the pushed commit (or in the merge
-message for `pre-merge-commit`). Each hook parses it and writes the record itself,
+the existing `Release-Gate-Override` trailer on the pushed commit (for
+`pre-merge-commit` only the environment variable works, see above). Each hook parses it and writes the record itself,
 inline, sourcing nothing from the working tree or the pushed tree, so a topic
 cannot neuter the logging. One line is appended to
 `$(git rev-parse --git-common-dir)/release-e2e/overrides.log` with `time`, `hook`,
@@ -454,7 +454,9 @@ status and nothing else: no output is parsed.
 - A merge made in the GitHub web UI runs no local hook.
 - The real boundary is GitHub branch protection on `release` (pull request
   required, no force push) plus `release.yml`'s `require-release-gate`, which
-  refuses to publish a tree without a matching gate record (see above). The local
+  refuses to publish a tree without a matching gate record (see above), but only
+  while Actions is on. With Actions off, the two verifies you run by hand before the
+  merge are the only signature check. The local
   hooks and the signed attestation make a bad merge hard to do by accident and easy
   to spot in review; they do not replace that.
 - `release-attest/e2e.json(.sig)` and `provenance/local-gate.*` are outside the stamp key
