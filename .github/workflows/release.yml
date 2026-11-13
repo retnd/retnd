@@ -117,7 +117,6 @@ on:
     paths-ignore:
       - "container/release-manifest.json"
       - "distribution/packaging/canonical.json"
-      # provenance/** also covers provenance/local-gate.json.sig (#1373)
       - "provenance/**"
       - "scripts/install/install_docker_host.py"
   workflow_dispatch:
