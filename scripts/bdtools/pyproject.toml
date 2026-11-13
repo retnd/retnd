@@ -115,6 +115,10 @@ select = ["E", "F", "B", "I", "UP", "RUF"]
 # still held to every other rule, and its own long lines should be wrapped.
 "*/selftest.py" = ["E501"]
 "ui_selftest.py" = ["E501"]
+# The controls_*.py beside selftest.py are exec'd by it with Control and PLANT
+# already defined, so F821 would flag every one of them, and they carry the same
+# verbatim anchors as selftest.py (E501).
+"controls_*.py" = ["E501", "F821"]
 
 [tool.mypy]
 strict = true
