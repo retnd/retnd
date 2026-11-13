@@ -8,6 +8,7 @@
 # test that drives it has to go red naming the violation it exists to refuse.
 
 CLOSED_SH = "scripts/release/check-epic-t-closed.sh"
+CONTRACT_SH = "scripts/release/contract-unchanged.sh"
 GATE_TEST = "core/tests/encryptiongate/matrix_test.go"
 SITE_REF = "docs/site/reference.html"
 
@@ -29,7 +30,7 @@ CONTROLS = [
     Control(
         "CLOSE the canonical deployment dropped container/compose.yaml from the guarded paths",
         ("T2.5",),
-        [(CLOSED_SH, "paths=(\n  container/compose.yaml\n",
+        [(CONTRACT_SH, "paths=(\n  container/compose.yaml\n",
           "paths=(\n  # PLANTED VIOLATION (scripts/bdtools/encryption/selftest.py): compose.yaml is not guarded.\n")],
         "",
         cmd=closure_selftest(),

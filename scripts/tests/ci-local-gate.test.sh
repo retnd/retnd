@@ -42,10 +42,10 @@
 #
 # Run directly (`bash scripts/tests/ci-local-gate.test.sh`) or let the gate
 # run it: scripts/ci-local.sh invokes it in a non-FAST run.
-# Two shellcheck warnings are by design: the gate library is a variable path
-# the test sources on purpose (SC1090), and a couple of capture and loop
-# variables exist to run a command, not to be read (SC2034).
-# shellcheck disable=SC1090,SC2034
+# shellcheck disable=SC1090,SC2016,SC2034
+# SC1090: GATE_LIB is a sandboxed copy of the library, sourced in subshells.
+# SC2016: the single quotes are deliberate (sed patterns and generated stubs).
+# SC2034: a couple of capture and loop variables run a command, they are not read.
 set -uo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -1942,7 +1942,7 @@ else
     '.husky' "$(cd "$tree" && git config --get core.hooksPath)"
   assert_contains "N4 the installer says what it set" 'core.hooksPath' "$install_out"
   assert_contains "N4 and that it covers every worktree" 'worktree' "$install_out"
-  install_again="$(cd "$tree" && scrub_env bash "$installer" 2>&1)"
+  (cd "$tree" && scrub_env bash "$installer" >/dev/null 2>&1)
   assert_eq "N4 the installer is idempotent" 0 $?
   # The relative path is read from the SHARED config and resolves against
   # each worktree's own root, which is what makes one install cover every
@@ -2258,7 +2258,7 @@ if [ "$others" -ne 1 ]; then echo "$$ saw $others inside" >>"$3"; fi
 : >"$2"
 gate_lock_release
 RACER
-for i in $(seq 1 12); do
+for _ in $(seq 1 12); do
   CI_LOCAL_LOCK_DIR="$lock_dir" GATE_LOCK_POLL=0.05 sh "$SANDBOX/racer.sh" "$GATE_LIB" "$canary" "$violations" &
 done
 wait

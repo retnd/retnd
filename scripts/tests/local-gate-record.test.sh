@@ -218,7 +218,7 @@ run_recorder() {
     cd "$repo" && env -u CI_LOCAL_FAST -u CI_LOCAL_SKIP_JS -u CI_LOCAL_SKIP_DOCKER \
       -u CI_LOCAL_SKIP_E2E -u CI_LOCAL_SKIP_TWO_MACHINE -u CI_LOCAL_SELFTEST -u CI \
       -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE -u GIT_OBJECT_DIRECTORY \
-      -u GIT_COMMON_DIR -u GIT_PREFIX \
+      -u GIT_COMMON_DIR -u GIT_PREFIX -u DOCKER_DEFAULT_PLATFORM \
       LOCAL_GATE_STUB_VERDICT="$repo.verdict" \
       "$@" bash "$RECORDER" 2>&1
   )"
@@ -412,6 +412,16 @@ done
 repo="$(new_repo env-goflags-harmless)"
 run_recorder "$repo" "GOFLAGS=-mod=mod"
 expect "a GOFLAGS that narrows nothing is allowed" 0 "local-gate: recorded"
+
+# DOCKER_DEFAULT_PLATFORM forced to a non-amd64 platform is refused (#1410);
+# unset, or naming amd64, is not.
+repo="$(new_repo env-platform-arm64)"
+run_recorder "$repo" DOCKER_DEFAULT_PLATFORM=linux/arm64
+expect "DOCKER_DEFAULT_PLATFORM=linux/arm64 is refused" 2 "unset DOCKER_DEFAULT_PLATFORM"
+no_record "and no record is written under a forced arm64 platform" "$repo"
+repo="$(new_repo env-platform-amd64)"
+run_recorder "$repo" DOCKER_DEFAULT_PLATFORM=linux/amd64
+expect "DOCKER_DEFAULT_PLATFORM=linux/amd64 is allowed" 0 "local-gate: recorded"
 
 # The record carries the environment the gate ran under, and the REAL
 # ledger read off the log, not a hard-coded empty list.

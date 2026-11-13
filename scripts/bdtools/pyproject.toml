@@ -115,6 +115,12 @@ select = ["E", "F", "B", "I", "UP", "RUF"]
 # still held to every other rule, and its own long lines should be wrapped.
 "*/selftest.py" = ["E501"]
 "ui_selftest.py" = ["E501"]
+#
+# The controls_*.py files beside each selftest.py are exec'd by it with Control
+# and PLANT already defined (F821 is how they are written), and quote product
+# source verbatim for the same reason (E501). Touching one made the changed-file
+# ruff step fail on names it was never meant to import (#1407).
+"controls_*.py" = ["E501", "F821"]
 
 [tool.mypy]
 strict = true
