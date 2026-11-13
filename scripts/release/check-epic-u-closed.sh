@@ -97,7 +97,9 @@ fi
 if [ "${EPIC_U_SKIP_GO:-0}" = "1" ]; then
   echo "epic-u-closed: skipped the Go closing check (EPIC_U_SKIP_GO=1)"
 else
-  if (cd core && GOWORK=off RETND_EPIC_U_CLOSURE=1 go test -count=1 -run 'TestEpicUIsClosed' ./tests/agentgate/ -v 2>&1 | tee /dev/stderr | grep -q -- '--- PASS: TestEpicUIsClosed'); then
+  # No `grep -q`: under pipefail it quits at the first match, tee takes SIGPIPE on the
+  # rest of the output and a passing run reads as a failure.
+  if (cd core && GOWORK=off RETND_EPIC_U_CLOSURE=1 go test -count=1 -run 'TestEpicUIsClosed' ./tests/agentgate/ -v 2>&1 | tee /dev/stderr | grep -- '--- PASS: TestEpicUIsClosed' >/dev/null); then
     ok "every proof the EPIC U matrix cites resolves, and every PASS is dated and names a mutation"
   else
     bad "the EPIC U closing check in core/tests/agentgate did not pass (output above)"
