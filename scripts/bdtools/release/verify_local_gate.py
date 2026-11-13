@@ -31,7 +31,9 @@ THE SIGNATURE (#1373). provenance/local-gate.json.sig must verify, with
 against the public key in provenance/allowed_signers (principal
 `retnd-release`). A missing or invalid signature is a refusal, and so is an
 allowed_signers file with no key line in it: the owner has to add theirs
-(docs/release-branch.md). The override trailer still waves all of it through.
+(docs/release-branch.md). The key file is also compared with the copy on
+RETND_TRUST_REF (default origin/main), so a key swapped in the same commit as a
+record it signed is refused. The override trailer still waves all of it through.
 
 WHAT ELSE IT REFUSES. A record of an INCOMPLETE run (a ledger that is
 not empty, or a result that is not ok). A schema it does not read, by
@@ -79,6 +81,11 @@ SIG = "provenance/local-gate.json.sig"
 SIGNERS = "provenance/allowed_signers"
 SIG_NAMESPACE = "retnd-local-gate"
 SIG_PRINCIPAL = "retnd-release"
+# The reference copy of allowed_signers the commit's own copy is compared with
+# (RETND_TRUST_REF overrides it). The key is otherwise read from the commit
+# being judged, so whoever can push a branch could swap it and sign their own
+# record.
+TRUST_REF = os.environ.get("RETND_TRUST_REF") or "origin/main"
 GATE_TREE = "scripts/release/gate-tree.sh"
 GO_MOD = "core/go.mod"
 PINS = "scripts/ci/pins.env"
@@ -178,6 +185,25 @@ def check_signature(
     return None, f"- `{SIG}` verifies against `{SIGNERS}` (principal `{SIG_PRINCIPAL}`)"
 
 
+def trust_anchor_finding(signers: bytes | None) -> str | None:
+    """A finding when the commit's allowed_signers is not the reference copy,
+    or when there is no reference to compare with (fail closed). The override
+    trailer is the only way past it."""
+    code, ref_copy, err = git_bytes("show", f"{TRUST_REF}:{SIGNERS}")
+    if code != 0:
+        return (
+            f"there is no trust reference to compare `{SIGNERS}` with: `{TRUST_REF}:{SIGNERS}` could not be read "
+            f"({err.strip() or 'no output'}). Fetch it (`git fetch origin main`) or name another with RETND_TRUST_REF."
+        )
+    if signers != ref_copy:
+        return (
+            f"`{SIGNERS}` in the commit differs from `{TRUST_REF}`. The key that checks the signature may not arrive "
+            "in the same commit as a record it signed; change the key on main first, through a reviewed pull request, "
+            "or carry a Release-Gate-Override trailer for a deliberate rotation."
+        )
+    return None
+
+
 def override_from(message: str) -> tuple[str, bool]:
     """The override reason, and whether a trailer was present with too little
     behind it. Only real trailers count: `git interpret-trailers --parse`
@@ -263,6 +289,11 @@ def check(sha: str, *, uncommitted: bool) -> tuple[list[str], list[str]]:
             report.append("- result `ok`, ledger empty")
 
         assert raw is not None  # a parsed record came from these bytes
+        trust = trust_anchor_finding(read(SIGNERS))
+        if trust:
+            findings.append(trust)
+        else:
+            report.append(f"- `{SIGNERS}` is the same as `{TRUST_REF}`'s")
         finding, ok_line = check_signature(raw, read(SIG), read(SIGNERS), where)
         if finding:
             findings.append(finding)

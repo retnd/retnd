@@ -972,10 +972,15 @@ if [ "$FAST" != "1" ]; then
     # On the maintainer's Mac the browser run goes through the workspace
     # Playwright lock (#1373): one run at a time and a watchdog on the
     # headless Chromes. Anywhere else (the lanes, Linux hosts) it runs bare.
-    pw_lock=/Users/rom/workspace/xdg-pw-lock.sh
+    # RETND_PW_LOCK names another lock script. On a Mac with no lock at that
+    # path the run goes ahead bare, and says so.
+    pw_lock="${RETND_PW_LOCK:-/Users/rom/workspace/xdg-pw-lock.sh}"
     if [ "$(uname -s)" = "Darwin" ] && [ -x "$pw_lock" ]; then
       "$pw_lock" bash scripts/e2e/run-tests-repo-gate.sh
     else
+      if [ "$(uname -s)" = "Darwin" ]; then
+        echo "==> ci-local: browser gate running without the Playwright lock ($pw_lock is not an executable file; RETND_PW_LOCK names another)"
+      fi
       bash scripts/e2e/run-tests-repo-gate.sh
     fi
     e2e_status=$?

@@ -70,7 +70,7 @@
 # provenance/local-gate.json.sig. The owner's public key is the one line in
 # provenance/allowed_signers, and scripts/bdtools/release/verify_local_gate.py
 # refuses a missing or invalid signature. The private key (RETND_GATE_KEY,
-# default ~/.ssh/retnd-local-gate) is only ever handed to ssh-keygen: this
+# default ~/.ssh/retnd-release-attest) is only ever handed to ssh-keygen: this
 # script never reads or prints it.
 #
 # No `cd` before the target is resolved, deliberately. Like
@@ -85,7 +85,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 GATE_TREE="$SCRIPT_DIR/gate-tree.sh"
 RECORD_SCHEMA="retnd.local-gate/1"
-GATE_KEY="${RETND_GATE_KEY:-$HOME/.ssh/retnd-local-gate}"
+GATE_KEY="${RETND_GATE_KEY:-$HOME/.ssh/retnd-release-attest}"
 
 refuse() { # <lines...>
   echo "local-gate: REFUSED. $1" >&2
