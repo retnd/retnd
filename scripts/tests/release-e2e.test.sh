@@ -53,7 +53,8 @@ make_repo() {
   cp "$repo_root/scripts/release/gate-tree.sh" "$repo_root/scripts/release/bump-version.sh" scripts/release/
   printf '#!/bin/sh\necho "fast=${CI_LOCAL_FAST:-} skipjs=${CI_LOCAL_SKIP_JS:-}" >> "${PRE_COMMIT_LOG:-/dev/null}"\n' > .husky/pre-commit; chmod +x .husky/pre-commit
   cp "$repo_root/scripts/ci-docker.sh" scripts/; mkdir -p scripts/ci; echo "FROM scratch" > scripts/ci/Dockerfile
-  cat "$work/keyA.pub" > scripts/release-e2e/release-attest.pub
+  mkdir -p provenance
+  printf '# test signers\nretnd-release namespaces="retnd-local-gate,retnd-e2e-attest" %s\n' "$(cut -d' ' -f1,2 "$work/keyA.pub")" > provenance/allowed_signers
   printf '{\n  "image": {\n    "tag": "1.0.0",\n    "reference": "ghcr.io/x/x:1.0.0",\n    "published": true\n  }\n}\n' > distribution/packaging/canonical.json
   printf 'image: ghcr.io/x/x:1.0.0\n' > apps/x/compose.yml
   printf '## [1.1.0] - soon\n\n## [1.0.0] - old\n- first 1.0.0\n' > CHANGELOG.md
@@ -84,7 +85,7 @@ echo "== runner on a real host path (stand-in dh.sh and ci-docker.sh) =="
 make_repo
 cat > "$work/dh.sh" <<'SH'
 #!/usr/bin/env bash
-case "$1" in pick) echo "${FAKE_PICK:-mars}" ;; d) [ -z "${FAKE_DOWN:-}" ] || exit 1; echo "17179869184 8" ;; esac
+case "$1" in pick) echo "${FAKE_PICK:-mars}" ;; d) [ -z "${FAKE_DOWN:-}" ] || exit 1; echo "17179869184 8 ${FAKE_MEMLIMIT:-true} ${FAKE_SWAPLIMIT:-true} ${FAKE_CFSQUOTA:-true}" ;; esac
 SH
 cat > "$work/ci-docker.sh" <<'SH'
 #!/usr/bin/env bash
@@ -101,6 +102,13 @@ FAKE_DOWN=1 DH_SH="$work/dh.sh" CI_DOCKER_SH="$work/ci-docker.sh" bash scripts/r
 [ "$st" = 2 ] && [ "$(stamps)" = 0 ] && pass "docker host down: refused, no stamp" || fail "host down"
 FAKE_CI_EXIT=1 DH_SH="$work/dh.sh" CI_DOCKER_SH="$work/ci-docker.sh" bash scripts/release-e2e.sh >/dev/null 2>&1; st=$?
 [ "$st" = 1 ] && [ "$(stamps)" = 0 ] && pass "red remote run: no stamp" || fail "red remote"
+
+for cap in FAKE_MEMLIMIT:MemoryLimit FAKE_SWAPLIMIT:SwapLimit FAKE_CFSQUOTA:CPUCfsQuota; do
+  make_repo; : > "$FAKE_CI_LOG"
+  out="$(env "${cap%%:*}=false" DH_SH="$work/dh.sh" CI_DOCKER_SH="$work/ci-docker.sh" bash scripts/release-e2e.sh 2>&1)"; st=$?
+  [ "$st" != 0 ] && [ "$(stamps)" = 0 ] && [ ! -s "$FAKE_CI_LOG" ] && echo "$out" | grep -q "${cap##*:}" \
+    && pass "a host without ${cap##*:} is refused by name before anything runs, no stamp" || fail "missing ${cap##*:}" "$out"
+done
 
 echo "== pre-merge-commit =="
 make_repo
@@ -132,6 +140,39 @@ git checkout -q -b other main; echo o > o.txt; git add o.txt; git commit -q -m o
 RELEASE_E2E_TEST_CMD=true git merge --no-ff other -m "m" >/dev/null 2>&1; st=$?
 [ "$st" != 0 ] && pass "fail closed: HEAD of release without the gate scripts refuses the merge" || fail "no gate at HEAD"
 git merge --abort >/dev/null 2>&1 || true
+
+# the hooks refuse an absolute or foreign core.hooksPath, like pre-commit (#1361)
+make_repo
+git checkout -q -b feat-hp; echo h > h.txt; git add h.txt; git commit -q -m hp; git checkout -q main
+git config core.hooksPath "$PWD/.husky"
+out="$(git merge --no-ff feat-hp -m "merge hp" 2>&1)"; st=$?
+[ "$st" != 0 ] && echo "$out" | grep -q 'pre-merge-commit: refusing to run' && echo "$out" | grep -q 'core.hooksPath' && pass "pre-merge-commit refuses an absolute core.hooksPath, even off the release branch" || fail "merge hooksPath guard" "$out"
+git merge --abort >/dev/null 2>&1 || true
+out="$(git push origin feat-hp 2>&1)"; st=$?
+[ "$st" != 0 ] && echo "$out" | grep -q 'pre-push: refusing to run' && pass "pre-push refuses an absolute core.hooksPath" || fail "push hooksPath guard" "$out"
+git config core.hooksPath .husky
+git push origin feat-hp >/dev/null 2>&1; st=$?
+[ "$st" = 0 ] && pass "(control) the relative .husky path passes the guard" || fail "hooksPath control"
+
+# a quoted override line in a body is not an override: only real trailers count
+make_repo
+git checkout -q -b feat-q; echo q > q.txt; git add q.txt; git commit -q -m feat-q; git checkout -q release
+before="$(git rev-parse HEAD)"
+RELEASE_E2E_TEST_CMD=false git merge --no-ff feat-q -m "merge q
+
+Quoting the mechanism:
+Release-Gate-Override: this quoted line is body text, not a trailer
+
+and a closing paragraph." >/dev/null 2>&1; st=$?
+[ "$st" != 0 ] && [ "$(git rev-parse HEAD)" = "$before" ] && pass "pre-merge-commit: a quoted Release-Gate-Override line in the body does not skip the e2e" || fail "merge quoted override"
+git merge --abort >/dev/null 2>&1 || true
+git checkout -q release; echo q2 > q2.txt; git add q2.txt
+git commit -q -m "quote" -m "Quoting the mechanism:
+Release-Gate-Override: this quoted line is body text, not a trailer
+
+and a closing paragraph."
+git push origin release >/dev/null 2>&1; st=$?
+[ "$st" != 0 ] && pass "pre-push: a quoted Release-Gate-Override line in the body does not skip" || fail "push quoted override"
 
 echo "== pre-push =="
 make_repo
@@ -322,14 +363,47 @@ git reset -q --hard HEAD~1
 sed -i.bak 's/"tag": "1.1.0"/"tag": "1.3.0"/' distribution/packaging/canonical.json; rm distribution/packaging/canonical.json.bak; git commit -q -am "manifest drift"
 expect_not "an attestation that disagrees with canonical.json fails" bash scripts/release-e2e/attest.sh verify --commit HEAD
 git reset -q --hard HEAD~1
-printf '# placeholder\n' > scripts/release-e2e/release-attest.pub; git commit -q -am "placeholder key"
-expect_not "the placeholder public key fails closed" bash scripts/release-e2e/attest.sh verify --commit HEAD
+printf '# no key\n' > provenance/allowed_signers; git commit -q -am "no key"
+expect_not "an allowed_signers with no key fails closed" env RETND_TRUST_REF=HEAD bash scripts/release-e2e/attest.sh verify --commit HEAD
 git reset -q --hard HEAD~1
 echo y > late.txt; git add late.txt; git commit -q -m "late change"
 expect_not "sign refuses when the code changed after the e2e (stamp and attested tree must be the same tree)" env RELEASE_ATTEST_KEY="$work/keyA" bash scripts/release-e2e/attest.sh sign --version 1.1.0
 git reset -q --hard HEAD~1
 expect_not "signing without the key file stops" env RELEASE_ATTEST_KEY="$work/nokey" bash scripts/release-e2e/attest.sh sign --version 1.1.0
 unset RELEASE_ATTEST_KEY
+
+# one trust file: the key is the one in provenance/allowed_signers for the e2e namespace
+printf 'retnd-release namespaces="retnd-local-gate" %s\n' "$(cut -d' ' -f1,2 "$work/keyA.pub")" > provenance/allowed_signers; git commit -q -am "key not trusted for the e2e namespace"
+expect_not "a key line that does not list retnd-e2e-attest does not verify an attestation" env RETND_TRUST_REF=HEAD bash scripts/release-e2e/attest.sh verify --commit HEAD
+git reset -q --hard HEAD~1
+[ ! -e scripts/release-e2e/release-attest.pub ] && pass "scripts/release-e2e/release-attest.pub is gone, provenance/allowed_signers is the one trust file" || fail "the .pub is still around"
+
+# the trust anchor: a key swapped in the same commit as an attestation it signed
+git checkout -q -b swap
+printf '# swapped\nretnd-release namespaces="retnd-local-gate,retnd-e2e-attest" %s\n' "$(cut -d' ' -f1,2 "$work/keyB.pub")" > provenance/allowed_signers
+git commit -q -am "swap the signers"
+RELEASE_E2E_TEST_CMD=true bash scripts/release-e2e.sh >/dev/null 2>&1
+RELEASE_E2E_TEST_CMD=true RELEASE_ATTEST_KEY="$work/keyB" bash scripts/release-e2e/attest.sh sign --version 1.1.0 >/dev/null 2>&1
+git add release-attest; git commit -q -m "attest with the swapped key"
+out="$(bash scripts/release-e2e/attest.sh verify --commit HEAD --expect-version 1.1.0 2>&1)"; st=$?
+[ "$st" = 1 ] && echo "$out" | grep -q 'differs from' && echo "$out" | grep -q 'origin/main' && pass "a forged attestation plus a swapped allowed_signers in the same commit is refused" || fail "swapped signers" "$out"
+git commit -q --amend -m "attest with the swapped key" -m "Release-Gate-Override: rotating the release key, reviewed on the PR"
+bash scripts/release-e2e/attest.sh verify --commit HEAD --expect-version 1.1.0 >/dev/null 2>&1; st=$?
+[ "$st" = 0 ] && pass "the Release-Gate-Override trailer is the way past a changed allowed_signers" || fail "swap override"
+git commit -q --amend -m "attest with the swapped key"
+out="$(env RETND_TRUST_REF=refs/nope bash scripts/release-e2e/attest.sh verify --commit HEAD --expect-version 1.1.0 2>&1)"; st=$?
+[ "$st" = 1 ] && echo "$out" | grep -q 'trust reference' && pass "no trust reference fails closed" || fail "no trust ref" "$out"
+git checkout -q main; git branch -D swap >/dev/null 2>&1
+
+# gate-tree leaves out the two exact attestation paths, not the directory
+git checkout -q -b exact
+t0="$(bash scripts/release/gate-tree.sh HEAD)"
+mkdir -p release-attest; echo '{}' > release-attest/e2e.json; echo sig > release-attest/e2e.json.sig; git add release-attest; git commit -q -m "attestation files"
+t1="$(bash scripts/release/gate-tree.sh HEAD)"
+echo planted > release-attest/notes.txt; git add release-attest; git commit -q -m "a third file"
+t2="$(bash scripts/release/gate-tree.sh HEAD)"
+[ "$t0" = "$t1" ] && [ "$t1" != "$t2" ] && pass "gate-tree leaves out release-attest/e2e.json and its .sig, and a third file under release-attest/ moves the hash" || fail "exact paths" "$t0 $t1 $t2"
+git checkout -q main; git branch -D exact >/dev/null 2>&1
 
 echo "== release.sh =="
 make_repo
@@ -338,7 +412,7 @@ for bad in 1.2 v1.2.3 1.2.3.4 1.2.3- abc ""; do
   out="$(r "$bad" --issue 7 --dry-run)"; st=$?
   [ "$st" != 0 ] && pass "refuses version [$bad]" || fail "bad version [$bad]" "$out"
 done
-for old in 1.0.0 0.9.0; do
+for old in 1.0.0 0.9.0; do   # 1.0.0 is published in this repo, so "already at" does not apply
   out="$(r "$old" --issue 7 --dry-run)"; st=$?
   [ "$st" != 0 ] && echo "$out" | grep -q 'not greater' && pass "refuses non-greater $old" || fail "non-greater $old" "$out"
 done
@@ -389,7 +463,7 @@ if [ "$st" = 0 ] && [ "$(grep -c '^gh pr create' "$ghlog")" = 1 ] \
    && grep -q '^refs/heads/release-prep/v1.1.0' "$ghlog" && tail -1 "$ghlog" | grep -qx 'Closes #7'; then
   pass "all green: one PR 'Release v1.1.0' into release, branch pushed before the PR, body closes the issue"
 else fail "green release" "$out"; fi
-grep -c 'fast=1 skipjs=1' "$PRE_COMMIT_LOG" | grep -qx 2 && ! grep -v '^ *#' "$repo_root/scripts/release.sh" | grep -q -- '--no-verify' && pass "both release commits went through the pre-commit hook with the documented skip env (no --no-verify)" || fail "commit env" "$(cat "$PRE_COMMIT_LOG")"
+grep -c 'fast= skipjs=' "$PRE_COMMIT_LOG" | grep -qx 2 && ! grep -v '^ *#' "$repo_root/scripts/release.sh" | grep -q -e '--no-verify' -e 'CI_LOCAL_' && pass "both release commits went through the pre-commit hook plainly: no CI_LOCAL_* variable, no --no-verify" || fail "commit env" "$(cat "$PRE_COMMIT_LOG")"
 [ -z "$(git tag)" ] && [ -z "$(git ls-remote --tags origin)" ] && pass "no tag was created locally or on the remote" || fail "tag created"
 if git show HEAD~1:distribution/packaging/canonical.json | grep -q '"tag": "1.1.0"' && git show HEAD~1:apps/x/compose.yml | grep -q ':1.1.0' \
    && git show HEAD~1:distribution/packaging/canonical.json | grep -q '"published": false' \
@@ -399,6 +473,29 @@ else fail "bump commit" "$(git log --format=%s -3)"; fi
 left="$(git grep -n '1\.0\.0' -- . ':!CHANGELOG.md' | grep -v 'Prepare' || true)"
 [ -z "$left" ] && pass "after the bump no file but CHANGELOG.md still names 1.0.0" || fail "leftover old version" "$left"
 expect "the pushed attestation verifies against the version" bash scripts/release-e2e/attest.sh verify --commit HEAD --expect-version 1.1.0
+
+# "prepared on main": the version is already set and has a changelog section, so
+# there is no bump commit and the release tree is main's tree.
+prepared_repo() {
+  make_repo
+  sed -i.bak 's/"published": true/"published": false/' distribution/packaging/canonical.json; rm distribution/packaging/canonical.json.bak
+  git commit -q -am "Prepare 1.0.0 for release"; git push -q origin main
+}
+prepared_repo
+out="$(r 1.0.0 --issue 7 --dry-run)"; st=$?
+[ "$st" = 0 ] && echo "$out" | grep -q 'prepared on main' && pass "a version that is already set (unpublished, with a changelog section) passes the version check as 'prepared on main'" || fail "prepared dry run" "$out"
+out="$(r 0.9.0 --issue 7 --dry-run)"; st=$?
+[ "$st" != 0 ] && echo "$out" | grep -q 'not greater' && pass "an older version with no bump is still refused" || fail "older refused" "$out"
+rm -f "$ghlog"; prepared_repo; main_tree="$(bash scripts/release/gate-tree.sh HEAD)"; main_sha="$(git rev-parse HEAD)"
+out="$(r 1.0.0 --issue 7 --yes)"; st=$?
+if [ "$st" = 0 ] && [ "$(git rev-parse HEAD~1)" = "$main_sha" ] && [ "$(git log --format=%s -1)" = "Add the signed e2e attestation for v1.0.0" ] \
+   && [ "$(bash scripts/release/gate-tree.sh HEAD)" = "$main_tree" ] && ! git log --format=%s "$main_sha"..HEAD | grep -q '^Release v'; then
+  pass "prepared on main: the prep branch is main's tip plus the attestation only, and its gate tree is main's"
+else fail "prepared full run" "$out"; fi
+expect "the prepared attestation verifies against the version" bash scripts/release-e2e/attest.sh verify --commit HEAD --expect-version 1.0.0
+# a published version cannot be cut again
+make_repo; out="$(r 1.0.0 --issue 7 --dry-run)"; st=$?
+[ "$st" != 0 ] && echo "$out" | grep -q 'not greater' && pass "a published version is not prepared on main, it is refused" || fail "published refused" "$out"
 
 echo
 echo "release-e2e.test.sh: $((checks - failures))/$checks passed"
