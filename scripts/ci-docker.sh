@@ -74,6 +74,8 @@ die() { printf 'ci-docker: %s\n' "$*" >&2; exit 2; }
 #   CI_DOCKER_MIN_FREE_MB   refuse below this much free space (default 20480)
 #   CI_DOCKER_KEEP_CACHE    1 keeps the image and cache volumes for a faster next run
 #   CI_DOCKER_SYNC          rsync (default) or tar, for a host without rsync
+#   CI_DOCKER_MEMORY        memory limit of the gate container, no swap (default 12g)
+#   CI_DOCKER_CPUS          CPU quota of the gate container (default 6)
 #
 # Only ssh, docker and writes into the scratch directory happen on the host.
 remote=""
@@ -380,6 +382,12 @@ declare -a mounts=(
 # back to the host user whatever uid makes them, so the repository stays
 # owned by you.
 as_user=(--user "$ci_uid:$ci_gid")
+# The gate container is capped (#1373): a memory limit, memory-swap equal to
+# it (so no swap), and a CPU quota. One runaway gate run then dies on its own
+# instead of taking the host down with it. CI_DOCKER_MEMORY and CI_DOCKER_CPUS
+# move the numbers on a host that has more or less to give.
+gate_mem="${CI_DOCKER_MEMORY:-12g}"
+as_user+=(--memory "$gate_mem" --memory-swap "$gate_mem" --cpus "${CI_DOCKER_CPUS:-6}")
 [ -n "$git_common" ] && [ -d "$git_common" ] && mounts+=(-v "$run_git:$run_git")
 
 # node_modules never comes from the host, and this is not an

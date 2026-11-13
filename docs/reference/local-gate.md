@@ -71,6 +71,8 @@ at 3. A stray exit 3 from a command the gate did not mark is read as FAILED.
 | `CI_DOCKER_MIN_FREE_MB` | `20480` | a remote run refuses, before sending anything, when the scratch parent has less free space than this |
 | `CI_DOCKER_KEEP_CACHE` | `0` | `1` keeps the toolchain image and the cache volumes on the remote after the run, for a faster next one. By default a remote run removes what it created |
 | `CI_DOCKER_SYNC` | `rsync` | `tar` copies the tree with tar over ssh, for a host that has no rsync or whose rsync cannot write the scratch path (the UGREEN NAS's rsync resolves paths inside the home directory and refuses the copy with `cannot stat destination ... (in home)`, so use `tar` there) |
+| `CI_DOCKER_MEMORY` | `12g` | memory limit of the gate container; memory-swap is set to the same value, so it gets no swap (#1373) |
+| `CI_DOCKER_CPUS` | `6` | CPU quota of the gate container (#1373) |
 | `CI_DOCKER_SHARE_HOST` | `auto` | `1` runs the `scripts/ci-docker.sh` container with `--network host` and the daemon host's `/tmp` mounted at `/tmp`; `0` runs it on the default bridge with a private `/tmp`. `auto` picks `0` when `docker info` says Docker Desktop and `1` for any other daemon (below) |
 | `GOTOOLCHAIN` | derived | the gate exports the Go its golangci-lint was built with, so the linter can read the export data. Set it yourself only to run the whole gate on one toolchain |
 | `GOFLAGS` | unset | the recorder refuses a value that narrows tests (`-run`, `-skip`, `-short`, `-count=0`, `-failfast`, `-bench`, `-fuzz`); the gate itself does not read it |

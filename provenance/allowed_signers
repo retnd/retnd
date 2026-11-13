@@ -1,0 +1,6 @@
+# Public key(s) allowed to sign provenance/local-gate.json (#1373).
+# One line, in ssh-keygen allowed_signers format:
+#   retnd-release namespaces="retnd-local-gate" ssh-ed25519 AAAA...
+# The owner adds theirs; until then the release gate refuses every signed
+# record (and falls back to the Release-Gate-Override trailer). See
+# docs/release-branch.md.

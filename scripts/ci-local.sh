@@ -967,7 +967,15 @@ if [ "$FAST" != "1" ]; then
     # Not under `set -e`: exit 3 is a verdict this script has to READ, and
     # `set -e` would end the run on it before the ledger ever saw it.
     set +e
-    bash scripts/e2e/run-tests-repo-gate.sh
+    # On the maintainer's Mac the browser run goes through the workspace
+    # Playwright lock (#1373): one run at a time and a watchdog on the
+    # headless Chromes. Anywhere else (the lanes, Linux hosts) it runs bare.
+    pw_lock=/Users/rom/workspace/xdg-pw-lock.sh
+    if [ "$(uname -s)" = "Darwin" ] && [ -x "$pw_lock" ]; then
+      "$pw_lock" bash scripts/e2e/run-tests-repo-gate.sh
+    else
+      bash scripts/e2e/run-tests-repo-gate.sh
+    fi
     e2e_status=$?
     set -e
     case "$e2e_status" in
