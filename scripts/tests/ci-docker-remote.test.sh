@@ -249,6 +249,24 @@ for good in 'u@h' 'ssh://u@h' 'ssh://u@h.example:2222' 'devshell@192.168.0.100';
   if [ "$(rc)" = 0 ]; then pass "R6 control: host [$good] is accepted"; else fail "R6 control: host [$good] is accepted" "rc=$(rc) $(head -c 200 "$work/out")"; fi
 done
 
+# --- R6b the gate container is resource-limited (#1373) ----------------------
+# A memory limit, no swap (memory-swap equal to memory) and a CPU quota, so one
+# gate run cannot take the machine down with it. The env vars move the numbers.
+run_script bash "$script" --fast
+mem="$(gate_line | sed -nE 's/.*--memory[ =]([0-9]+[gGmM]).*/\1/p' | head -1)"
+if [ -n "$mem" ] && gate_line | grep -qE -- "--memory-swap[ =]$mem( |\$)" \
+   && gate_line | grep -qE -- '--cpus[ =][0-9.]+'; then
+  pass "R6b the gate container gets a memory limit, memory-swap equal to it, and a cpu quota"
+else
+  fail "R6b the gate container gets a memory limit, no swap and a cpu quota" "$(gate_line | head -c 500)"
+fi
+run_script env CI_DOCKER_MEMORY=3g CI_DOCKER_CPUS=2 bash "$script" --fast
+if gate_line | grep -qE -- '--memory[ =]3g' && gate_line | grep -qE -- '--memory-swap[ =]3g' && gate_line | grep -qE -- '--cpus[ =]2( |$)'; then
+  pass "R6b CI_DOCKER_MEMORY and CI_DOCKER_CPUS set the limits"
+else
+  fail "R6b CI_DOCKER_MEMORY and CI_DOCKER_CPUS set the limits" "$(gate_line | head -c 500)"
+fi
+
 # --- R7 host selection ------------------------------------------------------
 run_script env CI_DOCKER_HOST=env@envhost bash "$script"
 if grep -q 'DOCKER_HOST=ssh://env@envhost ' "$log/docker"; then pass "R7a CI_DOCKER_HOST selects the host"; else fail "R7a CI_DOCKER_HOST selects the host" "$(head -2 "$log/docker")"; fi
