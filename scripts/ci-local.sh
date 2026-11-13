@@ -727,6 +727,7 @@ else
     export CI_LOCAL_GITHUB_LEDGER="$github_ledger"
   fi
   gate_docker_step "core/ go test -race ./... (excluding tests/crashmatrix + tests/sftpintegration + tests/sshexecintegration + tests/miniointegration + tests/conformance + tests/machinegate + tests/containerhooks and cmd/gotestwatch, all run next)"
+  # shellcheck disable=SC2046  # the package list from `go list` is meant to split into one word each
   (cd core && GOWORK=off go test -race -timeout 45m $(GOWORK=off go list ./... | grep -vE '/(tests/(crashmatrix|sftpintegration|sshexecintegration|miniointegration|conformance|machinegate|containerhooks)|cmd/gotestwatch)$'))
   if [ -n "$github_ledger" ]; then
     while IFS= read -r line; do
@@ -801,6 +802,7 @@ if [ "$FAST" != "1" ]; then
 fi
 
 gate_docker_step "distribution go build, vet, test -race (every package but packaging, which runs next)"
+# shellcheck disable=SC2046  # the package list from `go list` is meant to split into one word each
 (cd distribution && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test -race $(GOWORK=off go list ./... | grep -v '/packaging$'))
 
 # The one Go suite in this gate that does NOT run under the detector, and
@@ -980,7 +982,20 @@ if [ "$FAST" != "1" ]; then
     # Not under `set -e`: exit 3 is a verdict this script has to READ, and
     # `set -e` would end the run on it before the ledger ever saw it.
     set +e
-    bash scripts/e2e/run-tests-repo-gate.sh
+    # On the maintainer's Mac the browser run goes through the workspace
+    # Playwright lock (#1373): one run at a time and a watchdog on the
+    # headless Chromes. Anywhere else (the lanes, Linux hosts) it runs bare.
+    # RETND_PW_LOCK names another lock script. On a Mac with no lock at that
+    # path the run goes ahead bare, and says so.
+    pw_lock="${RETND_PW_LOCK:-/Users/rom/workspace/xdg-pw-lock.sh}"
+    if [ "$(uname -s)" = "Darwin" ] && [ -x "$pw_lock" ]; then
+      "$pw_lock" bash scripts/e2e/run-tests-repo-gate.sh
+    else
+      if [ "$(uname -s)" = "Darwin" ]; then
+        echo "==> ci-local: browser gate running without the Playwright lock ($pw_lock is not an executable file; RETND_PW_LOCK names another)"
+      fi
+      bash scripts/e2e/run-tests-repo-gate.sh
+    fi
     e2e_status=$?
     set -e
     case "$e2e_status" in

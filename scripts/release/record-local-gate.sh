@@ -65,7 +65,13 @@
 # what stands against a forged record, and the log travelling with it
 # (hashed here, attached to the GitHub Release by release.yml) is what
 # makes forging it cost a twenty-five-minute log rather than one line.
-# Commit signing is the upgrade path if that is ever not enough.
+# That upgrade has landed (#1373): the record is signed with
+# `ssh-keygen -Y sign -n retnd-local-gate` and the signature travels as
+# provenance/local-gate.json.sig. The owner's public key is the one line in
+# provenance/allowed_signers, and scripts/bdtools/release/verify_local_gate.py
+# refuses a missing or invalid signature. The private key (RETND_GATE_KEY,
+# default ~/.ssh/retnd-release-attest) is only ever handed to ssh-keygen: this
+# script never reads or prints it.
 #
 # No `cd` before the target is resolved, deliberately. Like
 # record-release-hashes.sh, this resolves the repository from the CURRENT
@@ -79,6 +85,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 GATE_TREE="$SCRIPT_DIR/gate-tree.sh"
 RECORD_SCHEMA="retnd.local-gate/1"
+GATE_KEY="${RETND_GATE_KEY:-$HOME/.ssh/retnd-release-attest}"
 
 refuse() { # <lines...>
   echo "local-gate: REFUSED. $1" >&2
@@ -114,7 +121,7 @@ while IFS='=' read -r name _; do
 done < <(env)
 if [ -n "${GOFLAGS+set}" ]; then
   case " $GOFLAGS " in
-    *" -run"*|*" -run="*|*" -skip"*|*" -skip="*|*" -short"*|*" -count=0"*|*" -failfast"*|*" -test.run"*|*" -test.short"*|*" -bench"*|*" -fuzz"*)
+    *" -run"*|*" -skip"*|*" -short"*|*" -count=0"*|*" -failfast"*|*" -test.run"*|*" -test.short"*|*" -bench"*|*" -fuzz"*)
       refuse "GOFLAGS is set to '$GOFLAGS', which narrows what go test runs." \
         "A Go suite under a -run, -skip, -short, -count=0 or -failfast flag prints ok having run less than it was" \
         "asked to, and the gate cannot see that. Fix: unset GOFLAGS (or set only flags that select nothing) and re-run." \
@@ -130,6 +137,15 @@ if [ "$hooks_path" != ".husky" ]; then
     "release cut from an ungated clone needs the hook before it needs a record." \
     "Fix (once per clone; covers every worktree): bash scripts/install-hooks.sh"
 fi
+
+# Checked up front, not after the gate: a 25-minute run that then cannot be
+# signed is a wasted run. Only existence is tested, the key is never read here.
+[ -f "$GATE_KEY" ] \
+  || refuse "the signing key $GATE_KEY does not exist." \
+    "The record is signed with ssh-keygen -Y sign (namespace retnd-local-gate) and is useless unsigned." \
+    "Fix: point RETND_GATE_KEY at the private key whose public half is in provenance/allowed_signers."
+command -v ssh-keygen >/dev/null 2>&1 \
+  || refuse "ssh-keygen is not on PATH, so the record cannot be signed."
 
 dirty="$(git status --porcelain)"
 if [ -n "$dirty" ]; then
@@ -377,6 +393,16 @@ with open(path, "w", encoding="utf-8") as fh:
     fh.write("\n")
 PY
 
+# Sign the record's exact bytes. ssh-keygen writes provenance/local-gate.json.sig
+# next to it; a stale one is removed first so a failed signing cannot leave an
+# old signature standing for a new record.
+rm -f provenance/local-gate.json.sig
+if ! ssh-keygen -Y sign -n retnd-local-gate -f "$GATE_KEY" provenance/local-gate.json >/dev/null; then
+  rm -f provenance/local-gate.json provenance/local-gate.log provenance/local-gate.json.sig
+  echo "local-gate: NOT RECORDED. ssh-keygen could not sign the record with $GATE_KEY." >&2
+  exit 1
+fi
+
 # The reader's own check over what was just written, before this says
 # "recorded": the record and the log from the working tree, the gate tree
 # from HEAD, which is exactly what the release job will see once they are
@@ -384,7 +410,7 @@ PY
 echo "local-gate: running the release check over the record just written"
 if ! PUBLISH=true bash "$SCRIPT_DIR/verify-local-gate.sh" --uncommitted HEAD; then
   echo "local-gate: NOT RECORDED. The release check refuses the record this run just wrote; its output above says why." >&2
-  rm -f provenance/local-gate.json provenance/local-gate.log
+  rm -f provenance/local-gate.json provenance/local-gate.log provenance/local-gate.json.sig
   exit 1
 fi
 
@@ -392,4 +418,5 @@ echo ""
 echo "local-gate: recorded. The full gate passed on ${head} in ${duration_s}s, in a detached worktree, and scripts/release/verify-local-gate.sh accepts the record."
 echo "    provenance/local-gate.json   gate_tree ${gate_tree}"
 echo "    provenance/local-gate.log    sha256 ${log_sha256}"
-echo "    Commit both with the release prep: they are what require-release-gate reads before publish may run."
+echo "    provenance/local-gate.json.sig   signed with ${GATE_KEY}"
+echo "    Commit all three with the release prep: they are what require-release-gate reads before publish may run."
