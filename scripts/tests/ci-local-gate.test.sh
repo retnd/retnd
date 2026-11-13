@@ -42,6 +42,10 @@
 #
 # Run directly (`bash scripts/tests/ci-local-gate.test.sh`) or let the gate
 # run it: scripts/ci-local.sh invokes it in a non-FAST run.
+# Two shellcheck warnings are by design: the gate library is a variable path
+# the test sources on purpose (SC1090), and a couple of capture and loop
+# variables exist to run a command, not to be read (SC2034).
+# shellcheck disable=SC1090,SC2034
 set -uo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -460,6 +464,17 @@ make_full_tree() {
   mkdir -p "$tree/scripts/docs"
   for docs in check-package-doc selftest; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/docs/$docs.sh"
+  done
+
+  # The docs-site capture tooling step (#926) runs `node --test` on the real
+  # tool test and then the checker, and the fixture has no docs/site/tools, so
+  # on any host with node on PATH the step failed before the gate reached its
+  # last line and every full-tree case below went red with no plant in it.
+  # Two stubs that exit 0 keep the step in the fixture without its browser
+  # and ffmpeg work.
+  mkdir -p "$tree/docs/site/tools"
+  for tool in check-tools check-tools.test; do
+    printf 'process.exit(0);\n' >"$tree/docs/site/tools/$tool.mjs"
   done
 
   # Stubs for the release-script guard suites the gate runs, for the same
