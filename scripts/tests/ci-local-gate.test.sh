@@ -293,9 +293,13 @@ make_full_tree() {
   # warning both ways).
   mkdir -p "$tree/.husky"
   cp "$REPO_ROOT/.husky/pre-commit" "$tree/.husky/pre-commit"
-  if [ -f "$REPO_ROOT/.husky/prepare-commit-msg" ]; then
-    cp "$REPO_ROOT/.husky/prepare-commit-msg" "$tree/.husky/prepare-commit-msg"
-  fi
+  # scripts/install-hooks.sh refuses a tree missing any of the four hooks it
+  # installs, so Group N4 needs all of them here, not just the two it reads.
+  for hook in prepare-commit-msg pre-merge-commit pre-push; do
+    if [ -f "$REPO_ROOT/.husky/$hook" ]; then
+      cp "$REPO_ROOT/.husky/$hook" "$tree/.husky/$hook"
+    fi
+  done
   chmod +x "$tree/.husky/"*
   (cd "$tree" && git config core.hooksPath .husky)
 
