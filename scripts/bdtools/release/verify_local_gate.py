@@ -26,6 +26,15 @@ whenever release is an ancestor of main, which merge-back-to-main keeps
 true. If anything landed on main after the record was written, the
 hashes differ and the refusal names both.
 
+THE SIGNATURE (#1373). provenance/local-gate.json.sig must verify, with
+`ssh-keygen -Y verify -n retnd-local-gate`, over the record's exact bytes
+against the public key in provenance/allowed_signers (principal
+`retnd-release`). A missing or invalid signature is a refusal, and so is an
+allowed_signers file with no key line in it: the owner has to add theirs
+(docs/release-branch.md). The key file is also compared with the copy on
+RETND_TRUST_REF (default origin/main), so a key swapped in the same commit as a
+record it signed is refused. The override trailer still waves all of it through.
+
 WHAT ELSE IT REFUSES. A record of an INCOMPLETE run (a ledger that is
 not empty, or a result that is not ok). A schema it does not read, by
 name. A log whose hash is not the record's. A recorded Go whose
@@ -63,10 +72,20 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 RECORD = "provenance/local-gate.json"
 LOG = "provenance/local-gate.log"
+SIG = "provenance/local-gate.json.sig"
+SIGNERS = "provenance/allowed_signers"
+SIG_NAMESPACE = "retnd-local-gate"
+SIG_PRINCIPAL = "retnd-release"
+# The reference copy of allowed_signers the commit's own copy is compared with
+# (RETND_TRUST_REF overrides it). The key is otherwise read from the commit
+# being judged, so whoever can push a branch could swap it and sign their own
+# record.
+TRUST_REF = os.environ.get("RETND_TRUST_REF") or "origin/main"
 GATE_TREE = "scripts/release/gate-tree.sh"
 GO_MOD = "core/go.mod"
 PINS = "scripts/ci/pins.env"
@@ -119,6 +138,70 @@ def lint_pin() -> str | None:
         return None
     m = re.search(r"^GOLANGCI_LINT_VERSION=v?(\S+)\s*$", text, re.MULTILINE)
     return m.group(1) if m else None
+
+
+def check_signature(
+    record: bytes, sig: bytes | None, signers: bytes | None, where: str
+) -> tuple[str | None, str | None]:
+    """(finding, ok line): exactly one is set. Verified with ssh-keygen over the
+    record's bytes, against the key line(s) in allowed_signers."""
+    if sig is None:
+        return (
+            f"`{SIG}` is not in {where}: the record is unsigned, so nothing says it came from the owner's machine.",
+            None,
+        )
+    if signers is None:
+        return f"`{SIGNERS}` is not in {where}, so there is no public key to check the signature against.", None
+    key_lines = [
+        ln
+        for ln in signers.decode("utf-8", errors="replace").splitlines()
+        if ln.strip() and not ln.lstrip().startswith("#")
+    ]
+    if not key_lines:
+        return (
+            f"`{SIGNERS}` has no key in it, only comments. The owner has to add the public key line "
+            f"(`{SIG_PRINCIPAL} namespaces=\"{SIG_NAMESPACE}\" ssh-ed25519 AAAA...`); docs/release-branch.md says how."
+        ), None
+    with tempfile.TemporaryDirectory() as tmp:
+        signers_path = Path(tmp) / "allowed_signers"
+        sig_path = Path(tmp) / "record.sig"
+        signers_path.write_bytes(signers)
+        sig_path.write_bytes(sig)
+        try:
+            proc = subprocess.run(
+                ["ssh-keygen", "-Y", "verify", "-f", str(signers_path), "-I", SIG_PRINCIPAL, "-n", SIG_NAMESPACE,
+                 "-s", str(sig_path)],
+                input=record, capture_output=True,
+            )
+        except OSError as exc:
+            return f"ssh-keygen could not be run ({exc}), so the signature cannot be checked.", None
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout).decode("utf-8", errors="replace").strip()
+        return (
+            f"the signature `{SIG}` does not verify against `{SIGNERS}` for these record bytes "
+            f"({detail or 'no output'}).",
+            None,
+        )
+    return None, f"- `{SIG}` verifies against `{SIGNERS}` (principal `{SIG_PRINCIPAL}`)"
+
+
+def trust_anchor_finding(signers: bytes | None) -> str | None:
+    """A finding when the commit's allowed_signers is not the reference copy,
+    or when there is no reference to compare with (fail closed). The override
+    trailer is the only way past it."""
+    code, ref_copy, err = git_bytes("show", f"{TRUST_REF}:{SIGNERS}")
+    if code != 0:
+        return (
+            f"there is no trust reference to compare `{SIGNERS}` with: `{TRUST_REF}:{SIGNERS}` could not be read "
+            f"({err.strip() or 'no output'}). Fetch it (`git fetch origin main`) or name another with RETND_TRUST_REF."
+        )
+    if signers != ref_copy:
+        return (
+            f"`{SIGNERS}` in the commit differs from `{TRUST_REF}`. The key that checks the signature may not arrive "
+            "in the same commit as a record it signed; change the key on main first, through a reviewed pull request, "
+            "or carry a Release-Gate-Override trailer for a deliberate rotation."
+        )
+    return None
 
 
 def override_from(message: str) -> tuple[str, bool]:
@@ -204,6 +287,18 @@ def check(sha: str, *, uncommitted: bool) -> tuple[list[str], list[str]]:
             )
         else:
             report.append("- result `ok`, ledger empty")
+
+        assert raw is not None  # a parsed record came from these bytes
+        trust = trust_anchor_finding(read(SIGNERS))
+        if trust:
+            findings.append(trust)
+        else:
+            report.append(f"- `{SIGNERS}` is the same as `{TRUST_REF}`'s")
+        finding, ok_line = check_signature(raw, read(SIG), read(SIGNERS), where)
+        if finding:
+            findings.append(finding)
+        elif ok_line:
+            report.append(ok_line)
 
         recorded_tree = str(record.get("gate_tree", ""))
         code, _, _ = git_bytes("rev-parse", "--verify", "--quiet", f"{sha}^{{tree}}")
@@ -420,7 +515,8 @@ def main(argv: list[str]) -> int:
             *trouble,
             "",
             f"The way through is release prep: on the `main` tip being released, with a clean tree and the hook "
-            f"installed, run `{RECORD_HOWTO}`, commit `{RECORD}` and `{LOG}` with the prep, and cut the release from "
+            f"installed, run `{RECORD_HOWTO}`, commit `{RECORD}`, `{LOG}` and `{SIG}` with the prep, "
+            f"and cut the release from "
             f"that. If this is a real emergency, put `{TRAILER}: <why>` as a trailer of the merge commit and it "
             "publishes, loudly and permanently on the record. docs/release-workflow.md has the rest.",
         ],

@@ -173,6 +173,13 @@ export CI_LOCAL=1
 # neither depends on the other being the version in the worktree.
 export CI=1
 
+# Which tier this is, for the one test that must not run in the other. The
+# full gate is the release run; scripts/ci-fast.sh sets "fast". core/tests/compat
+# reads it to stand down the check that asks GitHub whether every BLOCKED
+# matrix row still cites an open issue, so closing an issue by hand cannot
+# turn a commit red when no commit changed (#1361).
+export CI_LOCAL_TIER=full
+
 # Running as a git hook (pre-commit) means git has GIT_INDEX_FILE (a path
 # relative to the repo root, e.g. ".git/index"), GIT_DIR, GIT_WORK_TREE, etc.
 # set in the environment for the in-progress commit. The dependency-rules
@@ -531,6 +538,13 @@ bash scripts/tests/web-ui-ratchet.test.sh
 gate_step "docs/reference/local-gate.md documents every knob the gate reads (#1260)"
 bash scripts/tests/local-gate-reference.test.sh
 
+# The fast tier and the pre-merge check (#1361): which paths pick which
+# checks, that a Go-only commit in a fresh worktree is not blocked by missing
+# JS deps, the hooks-path refusal, the Local-Gate: fast stamp, and that
+# scripts/merge-gate.sh posts the right state. Stubs only, no Docker.
+gate_step "the fast tier, the hook's hooks-path refusal and the pre-merge check behave as documented (#1361)"
+bash scripts/tests/ci-fast.test.sh
+
 # ci-docker.sh --host (#1267) ships the tree to another machine's Docker
 # daemon and runs the gate there. This drives it with stand-ins for docker,
 # rsync, tar and ssh: the daemon each call goes to, what is mounted, the exit
@@ -679,6 +693,19 @@ bash scripts/tests/epic-n-closure.test.sh
 gate_step "the EPIC T closing check refuses a moved canonical deployment or a migration other than 0020 and 0021, and can still fail (#1320)"
 bash scripts/tests/epic-t-closure.test.sh
 
+# EPIC U's closing check (#1353), the same shape for the MCP server: the
+# canonical deployment is an empty diff against 9cd53e1f (an agent is a client of
+# /api/v1 and the engine runs exactly as before), the epic adds exactly one
+# migration (0022, the three agent tables), and no row of
+# docs/conformance/epic-u-matrix.md is BLOCKED. This drives the real script
+# against throwaway repositories, one planted violation per guard (a moved
+# compose file, a second migration, a BLOCKED row) and two controls. The matrix
+# half in closing mode is core/tests/agentgate, which runs with the core suite
+# below in open mode and carries its own lie table, and the equivalence suite
+# runs in the retnd-tests lane at the pin. No containers, no browser, no network.
+gate_step "the EPIC U closing check refuses a moved canonical deployment, a migration other than 0022 or a BLOCKED row, and can still fail (#1353)"
+bash scripts/tests/epic-u-closure.test.sh
+
 gate_step "core/ go build"
 (cd core && GOWORK=off go build ./...)
 
@@ -722,6 +749,7 @@ else
     export CI_LOCAL_GITHUB_LEDGER="$github_ledger"
   fi
   gate_docker_step "core/ go test -race ./... (excluding tests/crashmatrix + tests/sftpintegration + tests/sshexecintegration + tests/miniointegration + tests/conformance + tests/machinegate + tests/containerhooks and cmd/gotestwatch, all run next)"
+  # shellcheck disable=SC2046  # the package list from `go list` is meant to split into one word each
   (cd core && GOWORK=off go test -race -timeout 45m $(GOWORK=off go list ./... | grep -vE '/(tests/(crashmatrix|sftpintegration|sshexecintegration|miniointegration|conformance|machinegate|containerhooks)|cmd/gotestwatch)$'))
   if [ -n "$github_ledger" ]; then
     while IFS= read -r line; do
@@ -796,6 +824,7 @@ if [ "$FAST" != "1" ]; then
 fi
 
 gate_docker_step "distribution go build, vet, test -race (every package but packaging, which runs next)"
+# shellcheck disable=SC2046  # the package list from `go list` is meant to split into one word each
 (cd distribution && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test -race $(GOWORK=off go list ./... | grep -v '/packaging$'))
 
 # The one Go suite in this gate that does NOT run under the detector, and
@@ -975,7 +1004,20 @@ if [ "$FAST" != "1" ]; then
     # Not under `set -e`: exit 3 is a verdict this script has to READ, and
     # `set -e` would end the run on it before the ledger ever saw it.
     set +e
-    bash scripts/e2e/run-tests-repo-gate.sh
+    # On the maintainer's Mac the browser run goes through the workspace
+    # Playwright lock (#1373): one run at a time and a watchdog on the
+    # headless Chromes. Anywhere else (the lanes, Linux hosts) it runs bare.
+    # RETND_PW_LOCK names another lock script. On a Mac with no lock at that
+    # path the run goes ahead bare, and says so.
+    pw_lock="${RETND_PW_LOCK:-/Users/rom/workspace/xdg-pw-lock.sh}"
+    if [ "$(uname -s)" = "Darwin" ] && [ -x "$pw_lock" ]; then
+      "$pw_lock" bash scripts/e2e/run-tests-repo-gate.sh
+    else
+      if [ "$(uname -s)" = "Darwin" ]; then
+        echo "==> ci-local: browser gate running without the Playwright lock ($pw_lock is not an executable file; RETND_PW_LOCK names another)"
+      fi
+      bash scripts/e2e/run-tests-repo-gate.sh
+    fi
     e2e_status=$?
     set -e
     case "$e2e_status" in

@@ -1,0 +1,92 @@
+/* The Agents card (EPIC U, issue #1351; design docs/design/1350-agents.html).
+   The ink is ALWAYS --text (or --text-2 for the secondary line). What
+   distinguishes a state is its glyph, the edge style (solid, dashed, double,
+   2px) and the words, with colour only as a redundant fourth cue, so every
+   chip reads at body-text contrast in both themes and to anyone who cannot tell
+   the hues apart. Tokens only: no colour literal lives here. Every pair below
+   is a row of scripts/contrast/check-ui-pairs.py, which measures it in both
+   themes. The control edge is --edge-3 (via .input--strong-edge and
+   .btn--strong-edge), never --border-strong, which is 1.69:1 on --surface. */
+
+.ag-region { container-type: inline-size; display: flex; flex-direction: column; gap: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--border); }
+.ag-region__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.ag-region__title { margin: 0; font-size: var(--text-base); font-weight: 600; color: var(--text); }
+.ag-statement { margin: 0; max-width: 78ch; font-size: var(--text-sm); color: var(--text); }
+.ag-secondary { color: var(--text-2); font-size: var(--text-xs); }
+.ag-note { margin: 0; color: var(--text-2); font-size: var(--text-sm); }
+.ag-link { color: var(--accent); font-size: var(--text-sm); font-weight: 600; }
+
+/* Chips: scope, status and outcome. */
+.agchip {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 2px 9px;
+  border-radius: var(--radius-md); font-size: var(--text-sm); font-weight: 600; color: var(--text);
+  background: var(--surface-2); border: 1.5px solid var(--edge-3); white-space: nowrap;
+}
+.agchip__glyph { font-weight: 700; width: 14px; text-align: center; color: var(--text); }
+.agchip[data-state="active"] { border-color: var(--ok); }
+.agchip[data-state="expired"] { border-style: dashed; }
+.agchip[data-state="revoked"] { border-color: var(--danger); }
+.agchip[data-state="ok"] { border-color: var(--ok); }
+.agchip[data-state="refused"] { border-color: var(--danger); }
+.agchip[data-state="waiting"] { border-style: dotted; }
+.agchip[data-scope="operate"] { border-style: double; border-width: 4px; }
+.agchip[data-scope="configure"] { border-style: dashed; }
+
+/* Tables become labelled blocks below a 640px container. */
+.ag-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); color: var(--text); }
+.ag-table th { text-align: left; font-size: var(--text-xs); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); padding: 4px 8px; }
+.ag-table td { padding: 8px; border-top: 1px solid var(--border); vertical-align: top; }
+.ag-table td > .ag-secondary { display: block; }
+.ag-cell-mono { font-family: var(--font-mono); font-size: var(--text-xs); overflow-wrap: anywhere; }
+@container (max-width: 640px) {
+  .ag-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .ag-table, .ag-table tbody, .ag-table tr, .ag-table td { display: block; width: 100%; }
+  .ag-table tr { border-top: 1.5px solid var(--border-strong); padding: 6px 0; }
+  .ag-table td { border-top: 0; padding: 3px 8px; }
+  .ag-table td[data-label]::before { content: attr(data-label); display: block; font-size: var(--text-xs); color: var(--text-2); }
+}
+
+/* The scope disclosure. */
+.ag-tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: var(--space-3); margin-top: var(--space-2); }
+.ag-tools > * { min-width: 0; }
+.ag-tools h4 { margin: 0 0 4px; font-size: var(--text-sm); font-weight: 600; color: var(--text); }
+.ag-tools ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.ag-tools code { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text); overflow-wrap: anywhere; }
+
+/* Pending confirmations. */
+.ag-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-3); }
+.ag-row { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border: 1.5px solid var(--edge-3); border-radius: var(--radius-md); background: var(--surface); color: var(--text); }
+.ag-row[data-urgent] { border-color: var(--warn); border-width: 2px; }
+.ag-row__sentence { margin: 0; font-size: var(--text-base); font-weight: 600; color: var(--text); }
+.ag-row__meta { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: var(--text-sm); color: var(--text-2); }
+.ag-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: flex-end; }
+.ag-actions .btn { min-width: 120px; }
+.ag-stepup { display: flex; flex-direction: column; gap: var(--space-2); max-width: 520px; }
+@container (max-width: 640px) { .ag-actions { flex-direction: column; align-items: stretch; } }
+
+/* A decided request that the engine refused after approval: its own words. */
+.ag-strip { display: flex; flex-direction: column; gap: 4px; padding: var(--space-3); border: 2px solid var(--danger); border-radius: var(--radius-md); background: var(--danger-quiet); color: var(--text); font-size: var(--text-sm); }
+.ag-strip__facts { display: flex; flex-wrap: wrap; gap: 4px 16px; font-family: var(--font-mono); font-size: var(--text-xs); }
+.ag-err { margin: 0; color: var(--danger); font-size: var(--text-sm); font-weight: 600; }
+
+/* The audit. */
+.ag-filters { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: flex-end; }
+.ag-filters .field { min-width: 180px; }
+.ag-args { margin: 0; max-height: 140px; overflow: auto; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 6px 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* The shown-once token wraps rather than scrolling, so all of it is on screen. */
+.ag-token { width: 100%; resize: none; font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text); word-break: break-all; padding: 8px 10px; height: auto; }
+.ag-reveal { display: flex; flex-direction: column; gap: var(--space-3); }
+.ag-reveal__row { display: flex; gap: var(--space-2); align-items: flex-start; }
+.ag-fold { align-self: flex-start; }
+.ag-radios { display: flex; flex-direction: column; gap: var(--space-2); border: 0; margin: 0; padding: 0; }
+.ag-radios legend { font-size: var(--text-sm); font-weight: 500; color: var(--text-2); padding: 0; margin-bottom: 4px; }
+.ag-radios label { display: flex; gap: 8px; align-items: flex-start; font-size: var(--text-sm); color: var(--text); }
+.ag-radios label span { display: block; }
+.ag-radios .ag-secondary { display: block; }
+.ag-fielderr { display: block; margin-top: 4px; padding-left: 8px; border-left: 2px solid var(--danger); color: var(--danger); font-size: var(--text-sm); font-weight: 600; }
+.ag-input-error { border-width: 2px; border-color: var(--danger); }
+
+/* The mint form and the token reveal are taller than a short or narrow window: let the backdrop scroll
+   (the shared .dialog has no height bound), starting at the top so the buttons can be reached. */
+.dialog-scrim:has([data-mint-form]), .dialog-scrim[data-token-reveal-scrim] { overflow-y: auto; align-items: start; }

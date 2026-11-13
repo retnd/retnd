@@ -5,7 +5,8 @@
 ## [0.8.0] - 2026-11-10
 
 0.8.0 is a minor release, and nearly all of it is one feature: encrypted retained copies (EPIC N, #967), with
-encryption suites on top (EPIC T, #1310). It is off until you turn it on, and a deployment that never mentions
+encryption suites on top (EPIC T, #1310), and an MCP server so an agent can look at a deployment without being
+trusted (EPIC U, #1343). It is off until you turn it on, and a deployment that never mentions
 it writes the same bytes and re-marshals the same `config.yaml` it always did... Turned on, the copy a set
 sends to a storage medium is an age v1 file under the `age-pq/v1` suite for a first key, and your local copy
 stays plaintext.
@@ -21,6 +22,11 @@ A few things are worth reading before you upgrade:
   0.7.2 and older refuse the file as an unknown field. Keep the previous `config.yaml` if you want a way out.
 - If you lose the key and every copy of its recovery bundle, the encrypted copies are gone for good. Export
   the bundle, keep it off this machine and out of the bucket, and confirm it; the health report nags until you do.
+- Migration 0022 adds three more tables (`agent_tokens`, `agent_confirmations`, `agent_audit`) and touches nothing
+  that exists. A deployment that never mints an agent token sees nothing of it, and 0.7.2 still refuses its `state.db`.
+- Writing `agents:` into `config.yaml` is a third one-way door: 0.7.2 and older refuse the file as an unknown field,
+  so keep the previous `config.yaml` if you want a way out. Turning the HTTP transport on is such a write.
+- A remote `retnd agent token create` over plain HTTP now exits 52 until you acknowledge the insecure transport.
 - The Go dependencies moved (the AWS SDK and `modernc.org/sqlite`), and `filippo.io/age` is new.
 
 ### Added
@@ -167,6 +173,50 @@ A few things are worth reading before you upgrade:
   `restore` do not decrypt (opening a copy is `retnd encryption decrypt`), there is no KMS or Vault
   provider, and nothing re-encrypts a copy onto the medium it is already on. README, the site pages, recovery, storage-mediums, install, deployment,
   runtime-contract, the compliance and submission pages and the config inventory carry the matching changes.
+- **An MCP server, so an agent can look at a deployment without being trusted** (EPIC U, #1343: #1344 to #1353;
+  FR-91 to FR-98; ADR 0034). `retnd agent serve --stdio --token-file PATH` and, behind a setting, `/api/v1/agent/mcp`
+  speak the Model Context Protocol and call `/api/v1` with a bearer token, so a tool result carries the API's own code,
+  message and correlation id and the `exit_code` `retnd` would exit with. A token is minted by a signed-in
+  person (`retnd agent token create NAME`, the Agents card on Settings, `POST /api/v1/agent/tokens`), starts `rat_`,
+  is shown once, is stored as a SHA-256 and an eight-character prefix, has an owner and an expiry (90 days
+  by default, one year at most) and is checked on every request, so a revoked one is refused on its next call. The scope
+  is one of `read` (the default: starts nothing, changes nothing), `operate` and `configure`. A call under the last two
+  executes nothing: it becomes a pending confirmation with the exact command on it, and `retnd agent confirmations approve`
+  (or the card) replays the recorded body byte for byte after a step-up. The operation gate stays shut: approving
+  `run_cycle` there is `DESTRUCTIVE_OPERATIONS_DISABLED`, exit 50, as for a person. No scope reaches authentication,
+  first-run, key export, import, decrypt, recovery grants, SSH keys, storage credentials or token minting, and
+  every result passes one projection that strips key material and credentials. Text that came from outside the
+  deployment (file names, validator output, workflow logs, activity messages, remote host names) arrives inside an
+  `untrusted` field, never in a description or a prompt. Every call, reads included, is one row of `agent_audit`
+  (`retnd agent audit`, `GET /api/v1/agent/audit`, the card); only mutations, refusals and confirmation changes
+  reach the activity feed, as `agent_action`. `retnd agent tools` prints the catalogue. The docs are
+  [`docs/agents.md`](docs/agents.md), the README section, `docs/site/reference.html`'s `agent` row, the Agents section of
+  `web-ui.html` and the `index.html#honest` paragraph on what this does not prove.
+  - **What an existing deployment sees: nothing, until a token is minted.** No token means no agent access, the
+    `agents:` block resolves to `http_transport: off`, `rate_limit_per_minute: 60`, `confirmation_ttl: 15m`,
+    `audit_retention_days: 90` and `max_pending_confirmations: 5` when a config writes none of it, and the container
+    contract (`container/compose.yaml`, the per-platform compose files, the Unraid template and TrueNAS catalogue, the
+    packaging JSON and the capability contract) is byte-identical to the commit before the epic. Migration `0022`
+    adds three tables (`agent_tokens`, `agent_confirmations`, `agent_audit`) and touches nothing that exists.
+  - **A remote `retnd agent token create` over plain HTTP now exits 52 until you acknowledge it.** The token comes
+    back in the mint response, so the engine refuses `POST /api/v1/agent/tokens` over plain HTTP from another machine
+    with `403 INSECURE_TRANSPORT_ACK_REQUIRED` unless the request carries the insecure-transport acknowledgement, the
+    same one key export asks. The browser's mint dialog asks the person first, so both behave alike. Set
+    `RETND_API_INSECURE_TRANSPORT=acknowledged` for the CLI, or use HTTPS. Loopback needs nothing, and nothing changes
+    for a deployment that never mints a token. The scopes nest: `operate` includes `read`, and `configure` includes
+    `operate`.
+  - **One one-way door: a `config.yaml` that carries `agents:` cannot be parsed by an older build.** Configuration
+    is read with `KnownFields(true)`, so a build from before 0.8.0 refuses the file at load, and it meets migration
+    `0022` with `ErrUnknownSchemaVersion` and fails closed. A deployment that never writes `agents:` can still go back.
+    Turning the HTTP transport on is such a write.
+  - **What it does not prove.** A model can still be persuaded by what it reads: the tests show that persuasion
+    cannot act without a person reading the command, not that it will not happen. The HTTP transport is not
+    confidential, which is why it is off. Equal answers across surfaces were checked against the clients the
+    end-to-end suite drives (CLI, browser, both transports), not against every MCP client. The MCP
+    implementation is the one new dependency (ADR 0034 D6): the official Go SDK,
+    `github.com/modelcontextprotocol/go-sdk` v1.8.0. `scripts/release/check-epic-u-closed.sh` is the
+    release's check that the epic is closed.
+
 - **Encryption suites for retained copies** (EPIC T, #1310: #1311 to #1320). Every encrypted copy now
   records the suite it was written under (its existing `format_id`, so `age/v1` keeps its exact meaning and
   no copy record changes), from a registry compiled into the build. Two suites ship, both `filippo.io/age`
@@ -209,6 +259,12 @@ A few things are worth reading before you upgrade:
   now refused. See `docs/reference/local-gate.md`.
 
 ### Changed
+
+- **Encrypt-existing and re-encrypt are behind the destructive gate over HTTP** (#1361, changes 0.8.0 product
+  behaviour). `GET` and `POST /api/v1/encryption/encrypt-existing` and `/api/v1/encryption/reencrypt` now
+  refuse with `403 DESTRUCTIVE_OPERATIONS_DISABLED` on a gateway profile, as retention apply does, because a
+  run retires the old copy. They are open on a local-account profile, which on a non-loopback connection
+  still needs `X-Retnd-Insecure-Transport-Ack`. The terminal verbs have no gate and are unchanged.
 
 - **Dependency bumps** (#1268). The five open dependabot updates landed together: `modernc.org/sqlite`
   1.61.0, `aws-sdk-go-v2` 1.47.4, its `s3` 1.114.5, `credentials` 1.20.11 and `sts` 1.51.5. `apps/common` and

@@ -43,6 +43,7 @@ import { AssuranceSettingsCard } from "@shared/assurance/AssuranceSettingsCard";
 import { CustomValidatorsCard } from "@shared/assurance/CustomValidatorsCard";
 import { WorkflowSettingsCard } from "@shared/pages/WorkflowSettingsCard";
 import { EncryptionCard } from "@shared/encryption/EncryptionCard";
+import { AgentsCard } from "@shared/agents/AgentsCard";
 import { HelpField } from "@shared/components/FieldHelp";
 import { PasswordInput } from "@shared/components/PasswordInput";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
@@ -177,6 +178,13 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
               follow: a destination is declared, then what happens to a copy
               on its way there. */}
           <Anchored section="encryption"><EncryptionCard readOnly={readOnly} /></Anchored>
+
+          {/* EPIC U (issue #1351). After the things an agent would be asking
+              about (copies, encryption) and before the housekeeping at the
+              bottom: encryption is "what a copy is", workflow is "what runs
+              around a copy", and agents are "who else can ask". Design:
+              docs/design/1350-agents.html section 1. */}
+          <Anchored section="agents"><AgentsCard readOnly={readOnly} /></Anchored>
 
           {/* EPIC L (issue #814). Beside the destinations card rather
               than on a page of its own: a hook directory is deployment

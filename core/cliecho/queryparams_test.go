@@ -159,6 +159,8 @@ var queryValues = map[string][]string{
 	// A row-position token, typed as a string; the feed issues positive
 	// row ids, and those are what the route reads.
 	"GET /activity before": {"120"},
+	// The audit trail's cursor is a row position too (#1348).
+	"GET /agent/audit before": {"120"},
 }
 
 // queryParamsNotEchoed is every declared query parameter a builder leaves

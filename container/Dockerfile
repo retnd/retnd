@@ -151,6 +151,13 @@ COPY core/legacypath/ ./legacypath/
 # core/internal/config imports it, which is why only the image build ever
 # finds out -- exactly the hazard the paragraph above describes.
 COPY core/envcompat/ ./envcompat/
+# core/agenttools is EPIC U's catalogue (#1346): retnd prints it (agent
+# tools) and apps/common/webhost reads its deny list and floor on the wire,
+# so both stages need it for the reason above.
+COPY core/agenttools/ ./agenttools/
+# core/agentmcp is the MCP server (#1347): retnd serves it over stdio and
+# retnd-web at /api/v1/agent/mcp.
+COPY core/agentmcp/ ./agentmcp/
 COPY core/cmd/ ./cmd/
 COPY core/internal/ ./internal/
 COPY core/service/ ./service/
@@ -303,6 +310,8 @@ COPY core/apicontract/ ./core/apicontract/
 COPY core/cliecho/ ./core/cliecho/
 COPY core/legacypath/ ./core/legacypath/
 COPY core/envcompat/ ./core/envcompat/
+COPY core/agenttools/ ./core/agenttools/
+COPY core/agentmcp/ ./core/agentmcp/
 COPY core/cmd/ ./core/cmd/
 COPY core/internal/ ./core/internal/
 COPY core/service/ ./core/service/

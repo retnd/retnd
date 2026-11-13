@@ -212,7 +212,15 @@ func newEngineHandler(cfg EngineConfig, backend webhost.BackupServiceClient, onC
 
 	// The mounts are a list (mounts.go) so the route-to-verb guard's rule
 	// can be held against this exact composition (#1253).
-	mux := newMux(engineMounts(apiRouter, cfg.AuthRoutes))
+	// /api/v1/auth is mounted beside the API router, not inside it, so the
+	// router's own refusal of an agent token (AGENT_ROUTE_DENIED) never sees
+	// it. The wrap is here, on the config's handler, because the route-to-verb
+	// guard walks the auth router itself and not a decorated copy.
+	authRoutes := cfg.AuthRoutes
+	if authRoutes != nil {
+		authRoutes = webhost.AgentDeniedByMount(authRoutes)
+	}
+	mux := newMux(engineMounts(apiRouter, authRoutes))
 
 	// Order matters and is the whole point of doing this here rather than
 	// inside the router. StripUntrustedIdentity is outermost, so a forged

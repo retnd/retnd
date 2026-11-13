@@ -236,11 +236,6 @@
 # landing a four-byte dangling link and exec'ing it. They pass `-L` now, which
 # is a no-op against a pre-rename image. The same defect was in this
 # repository's own release scripts and is fixed on the image branch.
-# Moved to the head of retnd-tests#99, which refreshes the web-ui specs that had
-# drifted from the product (#913). Re-pin to that pull request's merge commit
-# once it lands: the pin has to be an ancestor of their main (#1074), and a
-# branch head is not.
-#
 TESTS_REPO_URL=https://github.com/retnd/retnd-tests.git
 #
 # Moved to 1b79f8d, retnd-tests#60, off their merged main and not
@@ -279,7 +274,7 @@ TESTS_REPO_URL=https://github.com/retnd/retnd-tests.git
 # `git cat-file -p` on both: tree 24832df8), so no suite sees a difference.
 # bump_tests_pin.py and the gate now both refuse a sha that is not an
 # ancestor of their main, so this cannot happen again.
-TESTS_REPO_SHA=95ac42f12beebe0109593f15cb9e96d138e91a89
+TESTS_REPO_SHA=36e018bdca96579b1a0444e31201a05f9a1ba6ad
 #
 # Moved to bccd71c, retnd-tests#65, off their merged main and not
 # off the branch, for the reason the paragraph about a794c38 above already
@@ -635,3 +630,14 @@ TESTS_REPO_SHA=95ac42f12beebe0109593f15cb9e96d138e91a89
 # carries EPIC Q's Suites A, B and C (recovery, scrubbing and assurance), plus the
 # fixes for the two Suite A cases that had drifted from the product. This replaces
 # 3aa1b92, retnd-tests#88's merge, which #89 descends from.
+#
+# Moved to 36e018b, the merge of retnd-tests#100 on their main, for retnd#1380
+# (EPIC U, row U2.4). It carries the agent equivalence spec: the same read and
+# the same refusal put to the CLI, to the stdio transport and to the HTTP
+# transport, with the answers held equal, which is the cross-repo half of
+# retnd#1352. This replaces acdc5e0. #100 is one spec file and a MATRIX.md
+# row, but the range also carries retnd-tests#99 (95ac42f, the web-ui spec
+# refresh for retnd#913), which main had not pinned yet: on cut/0.8.0, #1342
+# pinned it and took the drifted entries off known-red.txt. This change does
+# the same (cap 2, the two flaky entries kept), and the 9 refreshed spec files
+# plus the two still listed ran green through the lock at this pin.

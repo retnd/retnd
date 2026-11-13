@@ -85,7 +85,7 @@ gate_step() {
   gate_announce "$1"
 }
 
-# gate_lint <module dir>
+# gate_lint <module dir> [package...]
 # Every golangci-lint invocation in ci-local.sh runs through here, because
 # golangci-lint speaks the number 3 (#1260). It refuses to run beside
 # another instance on the same machine ("parallel golangci-lint is
@@ -100,11 +100,16 @@ gate_step() {
 # which ci-local.sh captures before the first module step.
 gate_lint() {
   gate_lint_status=0
-  (cd "$1" && GOWORK=off golangci-lint run --allow-parallel-runners --config "$REPO_ROOT/.golangci.yml" ./...) || gate_lint_status=$?
+  gate_lint_dir="$1"
+  shift
+  # The fast tier (scripts/ci-fast.sh, #1361) names the packages it touched;
+  # the full gate names none and gets the whole module.
+  [ "$#" -gt 0 ] || set -- ./...
+  (cd "$gate_lint_dir" && GOWORK=off golangci-lint run --allow-parallel-runners --config "$REPO_ROOT/.golangci.yml" "$@") || gate_lint_status=$?
   case "$gate_lint_status" in
     0) return 0 ;;
     3)
-      echo "==> golangci-lint exited 3 in $1, which this gate reads as a failure and not as INCOMPLETE: the linter did not run to completion (see its output above)." >&2
+      echo "==> golangci-lint exited 3 in $gate_lint_dir, which this gate reads as a failure and not as INCOMPLETE: the linter did not run to completion (see its output above)." >&2
       return 1
       ;;
     *) return "$gate_lint_status" ;;

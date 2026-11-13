@@ -216,6 +216,10 @@ supported.
 
 ### Re-encrypting copies under the active suite
 
+Over HTTP, `encrypt-existing` and `reencrypt` (the dry runs too) sit behind the same destructive gate as
+retention apply: shut on a gateway profile until #92, open on a local-account profile. The terminal
+verbs below have no gate.
+
 `retnd encryption reencrypt` takes the encrypted copies you select, across every backup set,
 and writes them again under the active suite and key. It is the same journaled move
 `encrypt-existing` uses, with an encrypted source. You select by suite (`--suite ID`), by key

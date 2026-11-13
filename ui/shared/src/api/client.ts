@@ -188,8 +188,20 @@ import type {
   WireCustomValidatorPreview,
   WireListCustomValidatorsResponse,
   WireValidatorScriptResponse,
-  WireVersionResponse
+  WireVersionResponse,
+  WireAgentConfirmation,
+  WireAgentToken,
+  WireListAgentConfirmationsResponse,
+  WireListAgentTokensResponse,
+  WireAgentToolsResponse,
+  WireListAgentAuditResponse,
+  WireMintAgentTokenRequest,
+  WireMintedAgentToken
 } from "./generated/contract";
+import {
+  fromWireAgentAudit, fromWireAgentConfirmation, fromWireAgentToken, fromWireAgentTools,
+  fromWireMintedAgentToken
+} from "@shared/agents/agentWire";
 import type {
   AppSettings,
   Capabilities,
@@ -438,6 +450,13 @@ export async function acknowledgeInsecureTransport(): Promise<boolean> {
   return false;
 }
 
+/** The init for a read behind the destructive gate (#1361): once the operator
+ *  has said go on over this connection, the read carries the acknowledgement
+ *  from its first attempt, as a write does. */
+function gatedReadInit(): RequestInit | undefined {
+  return insecureTransportAcknowledged ? { headers: { [INSECURE_TRANSPORT_HEADER]: "acknowledged" } } : undefined;
+}
+
 /** Records what a capabilities read said about this connection. */
 export function rememberInsecureTransportRequired(required: boolean): void {
   insecureTransportRequired = required;
@@ -468,6 +487,12 @@ async function request<T>(
       readCookie(CSRF_COOKIE_NAME) || CSRF_LEGACY_COOKIE_NAMES.map(readCookie).find(Boolean) || "";
     if (csrf) headers[CSRF_HEADER_NAME] = csrf;
     if (insecureTransportAcknowledged) headers[INSECURE_TRANSPORT_HEADER] = "acknowledged";
+  } else if (retriedAfterAcknowledgement && insecureTransportAcknowledged) {
+    // A read the engine gates (#1361: the re-encrypt dry run) is refused
+    // without the acknowledgement too, so the retry the operator just said
+    // yes to carries it. A gated read asks for it up front through
+    // gatedReadInit; a plain read never carries it.
+    headers[INSECURE_TRANSPORT_HEADER] = "acknowledged";
   }
 
   // The password never crosses a connection the operator has not been told
@@ -1732,6 +1757,7 @@ function fromWireRepositoryMaintenance(m: WireRepositoryMaintenance): Repository
 
 function fromWireCapabilities(body: WireCapabilitiesResponse): Capabilities {
   return {
+    agentsHttpTransport: body.agents_http_transport,
     platform: body.platform,
     nativeAuth: body.native_auth,
     nativeNotifications: body.native_notifications,
@@ -4652,6 +4678,41 @@ export const httpApi: RetndApi = {
     request<WireEncryptionSetPolicy>(backupSetPath(source, set) + "/encryption", { method: "DELETE" }).then(
       fromWireSetEncryption
     ),
+  // EPIC U (#1351). The token never leaves mintAgentToken's return value, and
+  // the password rides the step-up header of the one approve request.
+  listAgentTokens: () => request<WireListAgentTokensResponse>("/agent/tokens").then((r) => (r.tokens ?? []).map(fromWireAgentToken)),
+  mintAgentToken: (req) => {
+    const body: WireMintAgentTokenRequest = { name: req.name, scope: req.scope, expires_in: req.expiresIn };
+    return request<WireMintedAgentToken>("/agent/tokens", { method: "POST", body: JSON.stringify(body) }).then(
+      fromWireMintedAgentToken
+    );
+  },
+  revokeAgentToken: (id) =>
+    request<WireAgentToken>("/agent/tokens/" + encodeURIComponent(id) + "/revoke", { method: "POST" }).then(fromWireAgentToken),
+  listAgentCatalogue: () => request<WireAgentToolsResponse>("/agent/tools").then(fromWireAgentTools),
+  listAgentConfirmations: () =>
+    request<WireListAgentConfirmationsResponse>("/agent/confirmations").then((r) =>
+      (r.confirmations ?? []).map(fromWireAgentConfirmation)
+    ),
+  // No body: approval replays the recorded request, and the engine refuses a
+  // body supplied at approval (AGENT_CONFIRMATION_BODY_SUBSTITUTED).
+  approveAgentConfirmation: (id, opts) =>
+    request<WireAgentConfirmation>("/agent/confirmations/" + encodeURIComponent(id) + "/approve", {
+      method: "POST",
+      ...stepUpHeaders(opts)
+    }).then(fromWireAgentConfirmation),
+  denyAgentConfirmation: (id) =>
+    request<WireAgentConfirmation>("/agent/confirmations/" + encodeURIComponent(id) + "/deny", { method: "POST" }).then(
+      fromWireAgentConfirmation
+    ),
+  listAgentAudit: (filter) => {
+    const q = new URLSearchParams();
+    if (filter.tokenId) q.set("token", filter.tokenId);
+    if (filter.since) q.set("since", filter.since);
+    if (filter.cursor) q.set("before", filter.cursor);
+    const qs = q.toString();
+    return request<WireListAgentAuditResponse>("/agent/audit" + (qs ? "?" + qs : "")).then(fromWireAgentAudit);
+  },
   listEncryptionKeys: () =>
     request<WireListEncryptionKeysResponse>("/encryption/keys").then((r) => (r.keys ?? []).map(fromWireEncryptionKey)),
   createEncryptionKey: (suite) => {
@@ -4703,7 +4764,7 @@ export const httpApi: RetndApi = {
     request<WireListEncryptionSuitesResponse>("/encryption/suites").then((r) => (r.suites ?? []).map(fromWireEncryptionSuite)),
   planReencrypt: (req) => {
     const q = reencryptQuery(req);
-    return request<WireReencryptPlan>("/encryption/reencrypt" + (q ? "?" + q : "")).then(fromWireReencryptPlan);
+    return request<WireReencryptPlan>("/encryption/reencrypt" + (q ? "?" + q : ""), gatedReadInit()).then(fromWireReencryptPlan);
   },
   startReencrypt: (req) => {
     const body: WireStartReencryptRequest = {
