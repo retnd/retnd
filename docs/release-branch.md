@@ -325,10 +325,25 @@ two-machine privileged proof is not part of it (it stays in the full gate).
 | push of `refs/heads/release` | refused unless a green stamp exists for the exact tree being pushed | `.husky/pre-push` |
 | any other push | passes straight through | `.husky/pre-push` |
 
-`pre-merge-commit` does not run for `merge --no-commit`, squash merges or
-fast-forwards. `pre-push` is what covers those. Note that the ruleset on `release`
-already forces every real change through a pull request, so in practice the stamp
-is what you hold when you push a candidate and what `scripts/release.sh` records.
+**The hooks are a second line, behind the ruleset.** `pre-merge-commit` only runs for a
+merge that auto-commits. A fast-forward, `merge --no-commit` followed by `commit`, and a
+squash merge do not run it (pre-commit's fast tier runs instead), and `pre-push` would
+catch them but GitHub already refuses a direct push to `release`. The binding control is
+the ruleset on `release` (a pull request, merge commits only, no bypass actors). So
+**before you merge the release pull request, run both verifies by hand**; this is a
+required step of the runbook, not an optional one:
+
+```bash
+git fetch origin && bash scripts/release-e2e/attest.sh verify --commit origin/release-prep/v$V --expect-version $V && PUBLISH=true bash scripts/release/verify-local-gate.sh origin/release-prep/v$V
+```
+
+While Actions is off, nothing verifies either signature at merge time and nothing
+publishes after it (the owner decides about turning Actions on for a publish run). The
+hooks refuse an absolute or foreign `core.hooksPath` like pre-commit does, and they read
+the override from real trailers only (`git interpret-trailers --parse`): a quoted
+`Release-Gate-Override:` line in a body is not an override. A trailer in the merge message
+of a `pre-merge-commit` never reaches the hook, because git runs the hook before it writes
+the message, so for a merge `RELEASE_E2E_SKIP` is the working skip.
 
 **The runner** is `scripts/release-e2e.sh`. By hand: `bash scripts/release-e2e.sh`
 on a clean checkout of the commit. It refuses a dirty tree, picks the least loaded
@@ -338,7 +353,13 @@ Playwright never runs on this laptop), and runs the command through
 host, runs the container and removes the scratch directory, the image and the cache
 volumes on every exit path. The container is fenced: memory is 60% of the host's RAM
 capped at 16g, `--memory-swap` equal to it (no swap), and CPUs are two thirds of the
-host's (`RELEASE_E2E_MEMORY` and `RELEASE_E2E_CPUS` override). The fence covers the
+host's (`RELEASE_E2E_MEMORY` and `RELEASE_E2E_CPUS` override). The runner refuses a host
+whose daemon reports `MemoryLimit`, `SwapLimit` or `CPUCfsQuota` as false, by name, before
+anything runs (pick the other host with `RELEASE_E2E_HOST`), where `scripts/ci-docker.sh`
+in general only warns. The container is named `ci-docker-<pid>-<epoch>` and labelled
+`retnd.ci-docker=1`, and cleanup runs `docker rm -f` on it before the scratch directory
+goes, so a dropped ssh session cannot leave it running. `scripts/ci-docker.sh` has one
+fence (from #1373), clamped to what the daemon has. The fence covers the
 container the command runs in; the sibling containers the e2e itself starts on that
 host's daemon are not inside it. I have not timed a real run on a host yet (no full e2e was run while building this), so the
 first one should be watched for duration and peak memory.
@@ -346,9 +367,10 @@ first one should be watched for duration and peak memory.
 **The stamp** is written only on a green exit, to
 `$(git rev-parse --git-common-dir)/release-e2e/<tree>.stamp`: tree, commit, command,
 host and time. It is never committed. The tree is the one from
-`scripts/release/gate-tree.sh`, which leaves out `release-attest/` and
-`provenance/local-gate.*`, so adding the attestation or the gate record does not
-invalidate it.
+`scripts/release/gate-tree.sh`, which leaves out exactly five paths:
+`release-attest/e2e.json`, `release-attest/e2e.json.sig` and the three
+`provenance/local-gate.*` files, so adding the attestation or the gate record does not
+invalidate it. A third file under `release-attest/` is content and moves the hash.
 
 **Override.** There is no new flag and nobody should use `--no-verify`. The
 existing trailer applies: `Release-Gate-Override: <reason, at least 12 characters>`
@@ -435,13 +457,15 @@ status and nothing else: no output is parsed.
   refuses to publish a tree without a matching gate record (see above). The local
   hooks and the signed attestation make a bad merge hard to do by accident and easy
   to spot in review; they do not replace that.
-- `release-attest/` and `provenance/local-gate.*` are outside the stamp key on
-  purpose, so adding the attestation or the gate record does not invalidate the e2e.
+- `release-attest/e2e.json(.sig)` and `provenance/local-gate.*` are outside the stamp key
+  on purpose, so adding the attestation or the gate record does not invalidate the e2e.
+- The attestation is checked against `provenance/allowed_signers`, the one trust file
+  (principal `retnd-release`, namespace `retnd-e2e-attest`), and that file is compared with
+  `origin/main`'s copy. The comparison does not defend against a compromised `main`.
 - The only pre-push logic in this repo is the `release` check. It starts no
-  Playwright and no suite, so `scripts/release.sh`'s push needs no extra skip. The two
-  commits `scripts/release.sh` makes go through the pre-commit hook with its
-  documented out-loud opt-out (`CI_LOCAL_FAST`, `CI_LOCAL_SKIP_JS`,
-  `CI_LOCAL_SKIP_DOCKER`, `CI_LOCAL_SKIP_E2E`), never `--no-verify`.
+  Playwright and no suite, so `scripts/release.sh`'s push needs no extra skip. The commits
+  `scripts/release.sh` makes go through the pre-commit hook plainly (its fast tier), never
+  `--no-verify` and with no `CI_LOCAL_*` variable set.
 
 Self-test: `bash scripts/tests/release-e2e.test.sh` (fake command, throwaway key,
 stand-in `gh`, `dh.sh` and `ci-docker.sh`; it never starts the real suite).

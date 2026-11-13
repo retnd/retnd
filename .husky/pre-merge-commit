@@ -16,6 +16,38 @@
 # `merge --no-commit`, --squash and fast-forwards skip this hook; the
 # pre-push hook is what catches those.
 set -e
+
+# The hooks path guard, as in .husky/pre-commit (#1361): a relative core.hooksPath
+# is resolved against each worktree's own root, which is what install-hooks.sh
+# sets. An absolute or foreign one points every worktree at one checkout's hook,
+# possibly a stale one, and nothing about running it says so.
+hooks_top="$(git rev-parse --show-toplevel)"
+hooks_want="$(cd "$hooks_top/.husky" 2>/dev/null && pwd -P || true)"
+hooks_here="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P || true)"
+hooks_cfg="$(git config --get core.hooksPath || true)"
+hooks_bad=""
+case "$hooks_cfg" in
+  /* | "~"*) hooks_bad="core.hooksPath is an absolute path ($hooks_cfg)" ;;
+  "") ;;
+  *)
+    hooks_got="$(cd "$hooks_top" && cd "$hooks_cfg" 2>/dev/null && pwd -P || true)"
+    if [ "$hooks_got" != "$hooks_want" ]; then
+      hooks_bad="core.hooksPath ($hooks_cfg) does not resolve to this checkout's .husky"
+    fi
+    ;;
+esac
+if [ -z "$hooks_bad" ] && [ -z "$hooks_want" ]; then
+  hooks_bad="this checkout has no .husky directory"
+fi
+if [ -z "$hooks_bad" ] && [ "$hooks_here" != "$hooks_want" ]; then
+  hooks_bad="this hook is $hooks_here/pre-merge-commit, not $hooks_top/.husky/pre-merge-commit"
+fi
+if [ -n "$hooks_bad" ]; then
+  echo "==> pre-merge-commit: refusing to run. $hooks_bad." >&2
+  echo "    A hook from another checkout can be a stale one. Fix, once per clone (covers every" >&2
+  echo "    worktree): bash scripts/install-hooks.sh" >&2
+  exit 1
+fi
 unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE DH_UNFENCED
 branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
 [ "$branch" = release ] || exit 0
@@ -25,7 +57,7 @@ skip=""
 if [ -n "${RELEASE_E2E_SKIP:-}" ]; then
   [ "${#RELEASE_E2E_SKIP}" -ge 12 ] && skip="$RELEASE_E2E_SKIP"
 else
-  skip="$(sed -n 's/^Release-Gate-Override:[[:space:]]*//p' "$(git rev-parse --git-path MERGE_MSG)" 2>/dev/null | tail -n 1)"
+  skip="$(git interpret-trailers --parse <"$(git rev-parse --git-path MERGE_MSG)" 2>/dev/null | sed -n 's/^Release-Gate-Override:[[:space:]]*//p' | tail -n 1)"
   [ "${#skip}" -ge 12 ] || skip=""
 fi
 if [ -n "$skip" ]; then

@@ -12,7 +12,7 @@
 #   - no valid stamp (non-empty, exact keys, tree, trusted command, real host,
 #     gate_sha256 of the remote tip's gate) for the pushed tree;
 #   - the push changes a gate file (scripts/release-e2e*, lib/attest/gate-tree,
-#     ci-docker.sh, the public key, these hooks);
+#     ci-docker.sh, provenance/allowed_signers, these hooks);
 #   - the push touches release-attest/ beyond e2e.json and its signature;
 #   - the remote has no release branch yet (one-time bootstrap);
 #   - the remote tip is not in this clone (fetch first), or has no gate in it
@@ -23,6 +23,38 @@
 # file is read from the working tree: a topic that edits it is the boundary
 # GitHub branch protection on release has to hold.
 set -e
+
+# The hooks path guard, as in .husky/pre-commit (#1361): a relative core.hooksPath
+# is resolved against each worktree's own root, which is what install-hooks.sh
+# sets. An absolute or foreign one points every worktree at one checkout's hook,
+# possibly a stale one, and nothing about running it says so.
+hooks_top="$(git rev-parse --show-toplevel)"
+hooks_want="$(cd "$hooks_top/.husky" 2>/dev/null && pwd -P || true)"
+hooks_here="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P || true)"
+hooks_cfg="$(git config --get core.hooksPath || true)"
+hooks_bad=""
+case "$hooks_cfg" in
+  /* | "~"*) hooks_bad="core.hooksPath is an absolute path ($hooks_cfg)" ;;
+  "") ;;
+  *)
+    hooks_got="$(cd "$hooks_top" && cd "$hooks_cfg" 2>/dev/null && pwd -P || true)"
+    if [ "$hooks_got" != "$hooks_want" ]; then
+      hooks_bad="core.hooksPath ($hooks_cfg) does not resolve to this checkout's .husky"
+    fi
+    ;;
+esac
+if [ -z "$hooks_bad" ] && [ -z "$hooks_want" ]; then
+  hooks_bad="this checkout has no .husky directory"
+fi
+if [ -z "$hooks_bad" ] && [ "$hooks_here" != "$hooks_want" ]; then
+  hooks_bad="this hook is $hooks_here/pre-push, not $hooks_top/.husky/pre-push"
+fi
+if [ -n "$hooks_bad" ]; then
+  echo "==> pre-push: refusing to run. $hooks_bad." >&2
+  echo "    A hook from another checkout can be a stale one. Fix, once per clone (covers every" >&2
+  echo "    worktree): bash scripts/install-hooks.sh" >&2
+  exit 1
+fi
 unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE DH_UNFENCED
 refs="$(mktemp "${TMPDIR:-/tmp}/release-prepush.XXXXXX")"
 gate="$(mktemp -d "${TMPDIR:-/tmp}/release-prepush-gate.XXXXXX")"
@@ -57,7 +89,7 @@ reason_for() { # <local sha>: the skip reason, from this hook's own parsing
   if [ -n "${RELEASE_E2E_SKIP:-}" ]; then
     [ "${#RELEASE_E2E_SKIP}" -ge 12 ] && r="$RELEASE_E2E_SKIP"
   elif [ "$1" != "$zeros" ]; then
-    r="$(git log -1 --format=%B "$1" | sed -n 's/^Release-Gate-Override:[[:space:]]*//p' | tail -n 1)"
+    r="$(git log -1 --format=%B "$1" | git interpret-trailers --parse | sed -n 's/^Release-Gate-Override:[[:space:]]*//p' | tail -n 1)"
     [ "${#r}" -ge 12 ] || r=""
   fi
   printf '%s' "$r"
@@ -80,7 +112,7 @@ extract() { # <commit> <dest> <paths...>
 }
 
 gate_files='scripts/release-e2e.sh scripts/release-e2e/lib.sh scripts/release-e2e/attest.sh scripts/release/gate-tree.sh scripts/ci-docker.sh'
-watched="$gate_files scripts/release-e2e/release-attest.pub .husky/pre-push .husky/pre-merge-commit"
+watched="$gate_files provenance/allowed_signers .husky/pre-push .husky/pre-merge-commit"
 
 printf '%s\n' "$pairs" | while read -r lsha tip; do
   skip="$(reason_for "$lsha")"

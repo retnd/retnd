@@ -11,19 +11,24 @@
 #      --allow-downgrade); clean tree; on main (or already on the release
 #      branch) containing origin/main's tip; a CHANGELOG.md section for the
 #      version; the signing key present (path checked, never read) and the
-#      real public key committed.
+#      key line for it committed in provenance/allowed_signers.
 #   2. branch release-prep/v<version> and ONE commit "Release v<version>" made by
 #      scripts/release/bump-version.sh (override: RELEASE_BUMP_CMD), before the
 #      e2e, so the e2e and the attestation cover the tree that gets released.
+#      PREPARED ON MAIN: when canonical.json already says <version> (unpublished)
+#      and CHANGELOG.md has its section, as 0.8.0 does once its cut is on main,
+#      there is nothing to bump. The branch is created at main's tip with no bump
+#      commit, so the release PR's gate tree is main's and the local-gate record
+#      made on main's tip stays valid. Only release-attest/ is committed on it.
 #   3. the FULL e2e: scripts/release-e2e.sh (fenced docker, writes the stamp).
 #   4. the signed attestation (scripts/release-e2e/attest.sh sign), then
 #      verify --expect-version, before anything is committed.
 #   5. commit release-attest/, ask once (skip with --yes), push the branch,
 #      open the PR "Release v<version>" into `release` with gh. No merge.
 #
-# The tag v<version> is NOT created here. The existing publish flow
-# (docs/release-workflow.md, .github/workflows/release.yml) creates it
-# when the release PR merges; this script only prints the name it expects.
+# The tag v<version> is NOT created here. It is created by the publish flow of
+# .github/workflows/release.yml, which only runs when Actions is enabled
+# (docs/release-workflow.md); this script only prints the name it expects.
 #
 # The prep branch is release-prep/v<version>, opened INTO the long-lived
 # `release` branch. A branch named release/<anything> cannot exist next to
@@ -68,13 +73,10 @@ branch="release-prep/v$version"
 clash="$( { git for-each-ref --format='%(refname:short)' 'refs/heads/release/*'; git ls-remote --heads "$remote" 'refs/heads/release/*' | sed 's|.*refs/heads/|'"$remote"'/|'; } | head -n 1)"
 [ -z "$clash" ] || die "a branch named [$clash] exists, and git cannot hold it next to the release branch. Rename it to the prep name: git branch -m ${clash#"$remote"/} release-prep/${clash##*/} (and delete the old name on $remote)."
 
-# Commits go through the repo's hooks, never --no-verify. The only thing set is
-# the pre-commit hook's own documented out-loud opt-out (an INCOMPLETE gate
-# run, stamped Local-Gate: incomplete): the full e2e is this script's step 3,
-# and re-running the whole gate on a mechanical bump would take the better
-# part of an hour. After #1370 the hook runs its fast tier and ignores these.
+# Commits go through the repo's hooks, plainly: the hook runs its fast tier and
+# stamps the commit. The full e2e is this script's step 3.
 commit() {
-  CI_LOCAL_FAST=1 CI_LOCAL_SKIP_JS=1 CI_LOCAL_SKIP_DOCKER=1 CI_LOCAL_SKIP_E2E=1 git commit -q "$@"
+  git commit -q "$@"
 }
 
 # --- 1. preconditions (read-only) ---
@@ -86,6 +88,12 @@ current="$(sed -n 's/^ *"tag": *"\([^"]*\)".*/\1/p' distribution/packaging/canon
 head_subject="$(git log -1 --format=%s)"
 resuming=0
 [ "$(git symbolic-ref --quiet --short HEAD || true)" = "$branch" ] && resuming=1
+# Prepared on main: the version is already set, unpublished, and has a changelog section.
+prepared=0
+if [ "$current" = "$version" ] && ! grep -Eq '^ *"published": *true' distribution/packaging/canonical.json \
+   && grep -Eq "^## \[$(printf '%s' "$version" | sed 's/[.]/\\./g')\]" CHANGELOG.md; then
+  prepared=1
+fi
 if [ "$resuming" = 1 ] && [ "$head_subject" = "Release $tag" ]; then
   current_for_cmp="$(git show "HEAD~1:distribution/packaging/canonical.json" | sed -n 's/^ *"tag": *"\([^"]*\)".*/\1/p' | head -n 1)"
 else
@@ -101,7 +109,9 @@ greater() { # greater <new> <old>
     *) [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | tail -n 1)" = "$1" ] ;;
   esac
 }
-if ! greater "$version" "$current_for_cmp"; then
+if [ "$prepared" = 1 ]; then
+  say "$version is already set in canonical.json: prepared on main, so no bump commit"
+elif ! greater "$version" "$current_for_cmp"; then
   [ "$downgrade" = 1 ] || die "$version is not greater than the current $current_for_cmp (--allow-downgrade overrides)"
   say "WARNING: $version is not greater than $current_for_cmp, continuing because of --allow-downgrade"
 fi
@@ -116,14 +126,15 @@ git merge-base --is-ancestor "$main_sha" HEAD || die "HEAD does not contain $rem
 grep -Eq "^## \[$(printf '%s' "$version" | sed 's/[.]/\\./g')\]" CHANGELOG.md || die "CHANGELOG.md has no '## [$version]' section"
 
 key="${RELEASE_ATTEST_KEY:-$HOME/.ssh/retnd-release-attest}"
-[ -f "$key" ] || die "the signing key $key is missing (docs/release-workflow.md says how to provision it)"
-grep -Eq '^ssh-ed25519 AAAA' scripts/release-e2e/release-attest.pub || die "scripts/release-e2e/release-attest.pub is still the placeholder: commit the real public key to main first"
+[ -f "$key" ] || die "the signing key $key is missing (docs/release-workflow.md says where it lives)"
+grep -Eq '^retnd-release namespaces="[^"]*retnd-e2e-attest[^"]*" ssh-ed25519 AAAA' provenance/allowed_signers || die "provenance/allowed_signers has no key line for retnd-release and the retnd-e2e-attest namespace: commit the public key to main first"
 [ "$dry" = 1 ] || command -v gh >/dev/null || die "gh is not on PATH"
 say "preconditions ok: $current_for_cmp -> $version, branch $branch, expected tag $tag (this script does not create it)"
 
 if [ "$dry" = 1 ]; then
   say "DRY RUN. Nothing below runs."
-  [ "$resuming" = 1 ] && [ "$head_subject" = "Release $tag" ] || say "would create $branch and commit 'Release $tag' via ${RELEASE_BUMP_CMD:-scripts/release/bump-version.sh $version}"
+  if [ "$prepared" = 1 ]; then say "would create $branch at the tip of main with no bump commit (prepared on main)"
+  else [ "$resuming" = 1 ] && [ "$head_subject" = "Release $tag" ] || say "would create $branch and commit 'Release $tag' via ${RELEASE_BUMP_CMD:-scripts/release/bump-version.sh $version}"; fi
   say "would run the full e2e: bash scripts/release-e2e.sh"
   say "would sign and verify: scripts/release-e2e/attest.sh sign --version $version; verify --expect-version $version"
   say "would commit release-attest/, push $branch to $remote, and run: gh pr create --base $RELEASE_BRANCH --title 'Release $tag' (Closes #$issue)"
@@ -131,7 +142,13 @@ if [ "$dry" = 1 ]; then
 fi
 
 # --- 2. branch and the one bump commit ---
-if [ "$resuming" = 1 ] && [ "$head_subject" = "Release $tag" ]; then
+if [ "$prepared" = 1 ]; then
+  if [ "$resuming" != 1 ]; then
+    [ "$(git rev-parse HEAD)" = "$main_sha" ] || die "prepared on main means branching at $remote/main's tip ($main_sha), and HEAD is $(git rev-parse HEAD)"
+    git switch -c "$branch"
+  fi
+  say "prepared on main: $branch is at the main tip, no bump commit"
+elif [ "$resuming" = 1 ] && [ "$head_subject" = "Release $tag" ]; then
   say "resuming on $branch, the bump commit is already there"
 else
   [ "$resuming" = 1 ] || git switch -c "$branch"
@@ -166,9 +183,13 @@ fi
 git push -u "$remote" "$branch"
 body="$(mktemp "${TMPDIR:-/tmp}/release-pr.XXXXXX")"; trap 'rm -f "$body"' EXIT
 {
-  echo "I cut $tag from main on $branch: one commit bumps the version, the full e2e ran on that tree, and the last commit adds the signed attestation (release-attest/e2e.json, checked against the key in scripts/release-e2e/release-attest.pub)."
+  if [ "$prepared" = 1 ]; then
+    echo "I cut $tag from main on $branch: the version was already set on main, so there is no bump commit, the full e2e ran on main's tree, and the one commit adds the signed attestation (release-attest/e2e.json, checked against the key in provenance/allowed_signers)."
+  else
+    echo "I cut $tag from main on $branch: one commit bumps the version, the full e2e ran on that tree, and the last commit adds the signed attestation (release-attest/e2e.json, checked against the key in provenance/allowed_signers)."
+  fi
   echo
-  echo "E2E stamp: tree $tree, host $host, $when. Merging this is what lets the existing publish flow create the tag $tag; I did not tag or publish anything."
+  echo "E2E stamp: tree $tree, host $host, $when. Merging this does not tag or publish by itself: the publish flow of release.yml does that, and only when Actions is enabled. Before merging, run both verifies by hand (docs/release-branch.md). I did not tag or publish anything."
   echo
   echo "Closes #$issue"
 } >"$body"

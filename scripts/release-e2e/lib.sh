@@ -24,7 +24,7 @@ re_tools() { printf '%s' "${RE_TOOLS:-$(re_root)}"; }
 re_stamp_dir() { printf '%s/release-e2e' "$(git rev-parse --path-format=absolute --git-common-dir)"; }
 
 # The tree a stamp and an attestation are about: scripts/release/gate-tree.sh,
-# which leaves out release-attest/ and provenance/local-gate.*. $1 is a
+# which leaves out release-attest/e2e.json(.sig) and provenance/local-gate.*. $1 is a
 # tree-ish; with none, the index (what a merge is about to commit).
 re_tree_id() {
   bash "$(re_tools)/scripts/release/gate-tree.sh" "${1:-$(git write-tree)}"
@@ -32,7 +32,7 @@ re_tree_id() {
 
 # stdin: a commit message. Prints the override reason when it is long enough.
 re_override_reason() {
-  r="$(sed -n "s/^$OVERRIDE_TRAILER:[[:space:]]*//p" | tail -n 1)"
+  r="$(git interpret-trailers --parse | sed -n "s/^$OVERRIDE_TRAILER:[[:space:]]*//p" | tail -n 1)"
   [ "${#r}" -ge "$OVERRIDE_MIN" ] && printf '%s' "$r"
   return 0
 }
@@ -43,7 +43,7 @@ re_override_reason() {
 # hashed and extracted; RE_GATE_WATCHED adds the hooks, which are read from the
 # working tree and so can only be watched, not replaced.
 RE_GATE_FILES='scripts/release-e2e.sh scripts/release-e2e/lib.sh scripts/release-e2e/attest.sh scripts/release/gate-tree.sh scripts/ci-docker.sh'
-RE_GATE_WATCHED="$RE_GATE_FILES scripts/release-e2e/release-attest.pub .husky/pre-push .husky/pre-merge-commit"
+RE_GATE_WATCHED="$RE_GATE_FILES provenance/allowed_signers .husky/pre-push .husky/pre-merge-commit"
 # The real hosts the runner can name (dh.sh pick x86). A stamp may join several with +.
 RE_HOSTS_ALLOWED='mars nas'
 

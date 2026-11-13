@@ -9,8 +9,10 @@
 #      the tree that was tested;
 #   2. picks an x86 docker host with /Users/rom/workspace/dh.sh (mars or the
 #      NAS; never a Mac, so Playwright never meets this Mac's lock rules or
-#      its memory) and works out the fence: 60% of the host's RAM capped at
-#      16g, no swap (memory-swap equal to memory), 2/3 of its CPUs;
+#      its memory), refuses it when the daemon cannot limit memory, swap or
+#      CPU (a hard failure naming the missing capability), and works out the
+#      fence: 60% of the host's RAM capped at 16g, no swap (memory-swap equal
+#      to memory), 2/3 of its CPUs;
 #   3. runs the e2e command (scripts/release-e2e/lib.sh, RELEASE_E2E_CMD_DEFAULT)
 #      through scripts/ci-docker.sh --host, which ships the tree to a scratch
 #      directory on that host, runs the fenced container, and removes the
@@ -76,10 +78,18 @@ else
     nas) target=rom@192.168.0.10 ;;
     *) die "host [$host] is not an x86 docker host the runner knows (mars, nas). Is docker down on all of them? Try: bash $dh hosts" ;;
   esac
-  info="$(bash "$dh" d "$host" info --format '{{.MemTotal}} {{.NCPU}}')" \
+  info="$(bash "$dh" d "$host" info --format '{{.MemTotal}} {{.NCPU}} {{.MemoryLimit}} {{.SwapLimit}} {{.CPUCfsQuota}}')" \
     || die "docker on $host did not answer. Host down? Pick another with RELEASE_E2E_HOST=mars|nas."
-  mem_mb=$(( ${info% *} * 6 / 10 / 1048576 )); [ "$mem_mb" -le 16384 ] || mem_mb=16384
-  ncpu="${info#* }"; cpus=$(( ncpu * 2 / 3 > 0 ? ncpu * 2 / 3 : 1 ))
+  # shellcheck disable=SC2086
+  set -- $info
+  [ "$#" = 5 ] || die "docker on $host answered [$info], not five fields (memory, cpus, MemoryLimit, SwapLimit, CPUCfsQuota)."
+  # A release run without a working limit can swap the host into the ground, and
+  # docker only warns and carries on. Refuse, name it, and let the other host be picked.
+  for cap in "MemoryLimit=$3" "SwapLimit=$4" "CPUCfsQuota=$5"; do
+    [ "${cap#*=}" = true ] || die "docker on $host reports ${cap%%=*}=${cap#*=}, so the memory, swap and CPU fence would not hold. Pick another host with RELEASE_E2E_HOST=mars|nas."
+  done
+  mem_mb=$(( $1 * 6 / 10 / 1048576 )); [ "$mem_mb" -le 16384 ] || mem_mb=16384
+  ncpu="$2"; cpus=$(( ncpu * 2 / 3 > 0 ? ncpu * 2 / 3 : 1 ))
   export CI_DOCKER_MEMORY="${RELEASE_E2E_MEMORY:-${mem_mb}m}"
   export CI_DOCKER_CPUS="${RELEASE_E2E_CPUS:-$cpus}"
   echo "==> release-e2e: $host ($target), memory $CI_DOCKER_MEMORY, no swap, cpus $CI_DOCKER_CPUS, tree $tree" >&2

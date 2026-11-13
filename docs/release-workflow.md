@@ -306,13 +306,16 @@ as the normal release path or as an automatic retry.
 
 `scripts/release.sh <version> --issue <N>` automates the step between "main is
 ready" and "a reviewed pull request into `release`". It never tags, publishes or
-merges: the tag `v<version>` is created by the publish flow described above when the
-pull request merges, and the script prints that name so you can check it. If you do
-not want to use it, sections 1 to 3 above still work exactly as written.
+merges: the tag `v<version>` is created by the publish flow described above, and the
+script prints that name so you can check it. That flow is `release.yml`, and it only
+runs while Actions is enabled. **With Actions off, merging the release pull request
+publishes nothing and nothing verifies either signature at merge time.** Turning Actions
+on for the one publish run is the owner's decision and is not part of this script. If you
+do not want to use the script, sections 1 to 3 above still work exactly as written.
 
 ```bash
 git switch main && git pull --ff-only origin main
-bash scripts/release.sh 0.8.0 --issue 1331 --dry-run   # read-only checks, prints the plan
+bash scripts/release.sh 0.8.0 --issue 1331 --dry-run   # read-only checks, prints the plan (0.8.0 is prepared on main, so no bump commit)
 bash scripts/release.sh 0.8.0 --issue 1331              # asks once before the push; --yes skips that
 ```
 
@@ -324,9 +327,16 @@ Order, stopping at the first failure:
    `main` containing origin's tip (run `git fetch` first; the script does not
    fetch); `## [<version>]` exists in `CHANGELOG.md`; the signing key
    `~/.ssh/retnd-release-attest` exists (only the path is checked, the key is never
-   read or printed) and `scripts/release-e2e/release-attest.pub` holds the real public key.
+   read or printed) and `provenance/allowed_signers` has the key line for principal
+   `retnd-release` and namespace `retnd-e2e-attest`.
 2. Branch `release-prep/v<version>` and one commit `Release v<version>` from
-   `scripts/release/bump-version.sh`, before the e2e. The bump moves `image.tag`,
+   `scripts/release/bump-version.sh`, before the e2e. **Prepared on main:** when
+   `canonical.json` already says `<version>` (unpublished) and `CHANGELOG.md` has its
+   section, which is the state 0.8.0 is in once its cut is on `main`, there is nothing
+   to bump. The branch is created at `main`'s tip with no bump commit and only
+   `release-attest/` is committed on it, so the release PR's gate tree is `main`'s tree
+   and the `record-local-gate.sh` record made on `main`'s tip stays valid. A published
+   version, or an older one, is still refused. The bump moves `image.tag`,
    `image.reference` and `image.published=false` in `canonical.json`, and the old
    version on every line (whole version tokens only) of the files the previous
    `Prepare <old>` commit touched, then runs `go run ./cmd/provenance -write`. It
@@ -338,12 +348,16 @@ Order, stopping at the first failure:
    attestation (`release-attest/e2e.json` and `.sig`, an `ssh-keygen -Y` signature in the
    `retnd-e2e-attest` namespace) records the tree, version, command, host and time.
    Verify fails on a bad signature, a tree that is not the commit's tree (minus
-   `release-attest/` and `provenance/local-gate.*`), a version that differs from the
-   expected one or from `image.tag`, and a placeholder public key.
+   `release-attest/e2e.json(.sig)` and `provenance/local-gate.*`), a version that differs
+   from the expected one or from `image.tag`, a `provenance/allowed_signers` with no key
+   for the `retnd-e2e-attest` namespace, and an `allowed_signers` that differs from
+   `origin/main`'s copy (`RETND_TRUST_REF` names another reference) unless the commit
+   carries a `Release-Gate-Override` trailer.
 5. Commit `release-attest/`, ask, push `release-prep/v<version>`, `gh pr create --base release
    --title "Release v<version>"`, body naming the tag, the attestation and the stamp
    (tree, host, time) and ending with `Closes #<issue>`. Rerunning after a red e2e on
-   the same branch resumes after the bump commit.
+   the same branch resumes after the bump commit. Both commits go through the pre-commit
+   hook plainly.
 
 **How this differs from the process above.** The existing process prepares on
 `main` through a prep pull request (version shift, `record-release-hashes.sh` on mercury,
@@ -356,16 +370,19 @@ after and note that `provenance/local-gate.*` and `release-attest/` are the only
 allowed to change the tree afterwards. The `Release-Gate-Override` trailer is
 unchanged and is honoured by the local hooks as well as by `release.yml`.
 
-**One-time setup for the owner.** Generate the key and commit its public half on `main`:
-
-```bash
-ssh-keygen -t ed25519 -f ~/.ssh/retnd-release-attest -C retnd-release-attest
-cp ~/.ssh/retnd-release-attest.pub scripts/release-e2e/release-attest.pub
-```
-
-Until that file holds a real key, signing and verifying both fail closed.
+**The key.** There is no setup step: the owner's release key is already the one line in
+`provenance/allowed_signers` (principal `retnd-release`, namespaces `retnd-local-gate` and
+`retnd-e2e-attest`, fingerprint `SHA256:AwK0ZMvRajd0N2eQ4nGgPUa++/k4q4Rh3kNXi7Rkusw`),
+which `release-branch.md` explains. Signing uses `~/.ssh/retnd-release-attest`
+(`RELEASE_ATTEST_KEY` points elsewhere). If the key has a passphrase, have ssh-agent hold it.
 
 **What to review in the PR.** The bump commit's diff (every version location), the
 attestation (tree, version, host, time) matching the stamp line in the PR body,
-and that the last commit touches only `release-attest/`. Then merge by the usual
-rules; the publish flow takes it from there.
+and that the last commit touches only `release-attest/`. Before you click merge, run both
+verifies by hand (the hooks do not cover every kind of merge, see `release-branch.md`):
+
+```bash
+git fetch origin && bash scripts/release-e2e/attest.sh verify --commit origin/release-prep/v$V --expect-version $V && PUBLISH=true bash scripts/release/verify-local-gate.sh origin/release-prep/v$V
+```
+
+Then merge by the usual rules. The publish flow takes it from there only if Actions is on.

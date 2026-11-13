@@ -238,6 +238,9 @@ cleanup() {
     # (mount points, build output) and the host account may not own that.
     # Not when the daemon saw the copy as empty: a container would then
     # remove the daemon's own phantom and leave the real copy behind.
+    # The container the command ran in, by name, before its scratch directory
+    # goes: a dropped ssh session can leave it running on the host (#1375).
+    docker rm -f "$scratch_name" >/dev/null 2>&1
     if [ "$have_image" = 1 ] && [ "$mount_ok" = 1 ]; then
       docker run --rm --user 0:0 -v "$scratch_base:/ws" "$image" rm -rf -- "/ws/$scratch_name" >/dev/null 2>&1
     else
@@ -366,6 +369,11 @@ launch() {
   fi
   exec "$@"
 }
+
+# In remote mode the container the command runs in is named after the scratch
+# directory and labelled, so cleanup can `docker rm -f` it by name (#1375).
+cname=()
+[ -z "$scratch_name" ] || cname=(--name "$scratch_name" --label retnd.ci-docker=1)
 
 declare -a mounts=(
   -v "/var/run/docker.sock:/var/run/docker.sock"
@@ -561,7 +569,7 @@ case "${1:-}" in
   --shell)
     shift
     say "a shell in $image ($platform)"
-    launch docker run --rm -it --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" bash
+    launch docker run --rm ${cname[@]+"${cname[@]}"} -it --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" bash
     ;;
   --exec|--deps|--shell)
     docker run --rm --platform "$platform" "${mounts[@]}" --user 0:0 -w "$run_repo" "$image" \
@@ -575,14 +583,14 @@ case "${1:-}" in
     # --deps when the command does need them.
     shift
     [ "$#" -gt 0 ] || { echo "ci-docker: --exec needs a command" >&2; exit 2; }
-    launch docker run --rm --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" "$@"
+    launch docker run --rm ${cname[@]+"${cname[@]}"} --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" "$@"
     ;;
   --deps)
     shift
     say "installing dependencies if the lockfiles moved"
     docker run --rm --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" bash -c "$bootstrap"
     [ "$#" -gt 0 ] || exit 0
-    launch docker run --rm --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" "$@"
+    launch docker run --rm ${cname[@]+"${cname[@]}"} --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" "$@"
     ;;
 esac
 
@@ -592,5 +600,5 @@ say "installing dependencies if the lockfiles moved"
 docker run --rm --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" bash -c "$bootstrap"
 
 say "running scripts/ci-local.sh in $image ($platform)"
-launch docker run --rm --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" \
+launch docker run --rm ${cname[@]+"${cname[@]}"} --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" \
   bash scripts/ci-local.sh "$@"
