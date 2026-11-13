@@ -1,9 +1,8 @@
 # ADR 0034: An agent is a scoped client of the API, and nothing it reads can act without a person
 
-- Status: proposed. The code lands in EPIC U phase 1 (#1345 to #1348) and phase 2 (#1349 to
-  #1353), which merge together; #1353 marks this record accepted and fills in the owner
-  decisions below. Until then this ADR describes a behaviour that is specified and not yet
-  shipped.
+- Status: accepted. The code landed in EPIC U phase 1 (#1345 to #1348) and phase 2 (#1349 to
+  #1353), which merge together, and #1353 marked this record accepted and filled in the owner
+  decisions below.
 - Date: 2026-11-11
 - Scope: EPIC U (#1343), FR-91 through FR-98. Recorded by U1.1 (#1344), measured on `main` at
   `9cd53e1f`.
@@ -218,11 +217,12 @@ says so.
 
 ## Decision 10: one new module
 
-The server speaks MCP through `github.com/modelcontextprotocol/go-sdk`, pinned, MIT, declared in
+The server speaks MCP through `github.com/modelcontextprotocol/go-sdk` v1.8.0 (the version in
+`go.mod`), pinned, licensed Apache-2.0 and MIT (its LICENSE carries both texts), declared in
 NOTICE and the licence inventory. A hand-rolled JSON-RPC subset was the alternative; it drifts
 from a protocol with a published schema. If the module graph or the size gate refuses the SDK,
-the fallback is a minimal implementation of `initialize`, `tools/*`, `resources/*` and
-`prompts/*`, and #1347 says which it used and why (D6).
+the fallback would have been a minimal implementation of `initialize`, `tools/*`, `resources/*`
+and `prompts/*`. Neither refused it, so the SDK is what ships (D6).
 
 ## What this ADR does not decide
 
@@ -232,21 +232,22 @@ drives.
 
 ## Owner decisions
 
-Nothing below has been answered. The epic builds on the recommendations; #1353 records the
-answers here.
+D1 to D9 were answered by taking the recommended default, and nothing was changed from them. D10
+was not in the scaffold: it came up while phase 1 was built and the owner answered it on #1357
+(the `rat_` prefix), and decision 2 reads it into the token rule.
 
 | ID | Question | Recommended | Answer |
 |---|---|---|---|
-| D1 | HTTP transport on by default? | Off | |
-| D2 | Pre-approved `operate` tokens? | Not in this epic | |
-| D3 | Token for the stdio verb | `--token-file` (0600), `RETND_AGENT_TOKEN` as the alternative | |
-| D4 | Bearer skips CSRF? | Yes, bearer only | |
-| D5 | Reads on the activity feed? | No, `agent_audit` only | |
-| D6 | MCP implementation | The official Go SDK, minimal JSON-RPC as the fallback | |
-| D7 | Does `configure` ship? | Yes, minimal: enabled, retention, assurance | |
-| D8 | Step-up on approve? | Yes | |
-| D9 | Token expiry | 90 days default, one year ceiling | |
-| D10 | What makes a bearer an agent token? | The `rat_` prefix; any other `Authorization` header is ignored | Answered by the owner on #1357: the `rat_` prefix |
+| D1 | HTTP transport on by default? | Off | Off, as recommended. `agents.http_transport` defaults to `off` |
+| D2 | Pre-approved `operate` tokens? | Not in this epic | Not in this epic, as recommended. Every mutation is confirmed |
+| D3 | Token for the stdio verb | `--token-file` (0600), `RETND_AGENT_TOKEN` as the alternative | As recommended, and no `--token` flag |
+| D4 | Bearer skips CSRF? | Yes, bearer only | Yes, bearer only, as recommended |
+| D5 | Reads on the activity feed? | No, `agent_audit` only | No, as recommended |
+| D6 | MCP implementation | The official Go SDK, minimal JSON-RPC as the fallback | As recommended; #1347 used the official Go SDK, `github.com/modelcontextprotocol/go-sdk` v1.8.0, with no fallback needed |
+| D7 | Does `configure` ship? | Yes, minimal: enabled, retention, assurance | Yes, minimal, as recommended |
+| D8 | Step-up on approve? | Yes | Yes, as recommended |
+| D9 | Token expiry | 90 days default, one year ceiling | As recommended |
+| D10 | When is a bearer an agent token? | Only with the `rat_` prefix | Only with the `rat_` prefix: any other bearer is not looked up as an agent token |
 
 ## Consequences
 

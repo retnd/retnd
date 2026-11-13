@@ -205,6 +205,31 @@
   </section>
 
   <section>
+    <h2 id="agents">Letting an agent look: the Agents card</h2>
+    <p>This section describes the screens in words, because the clips are recorded by <code>docs/site/tools/capture-agents.mjs</code> against the mock API and are added to the page from that run (<code>node docs/site/tools/capture-agents.mjs --embeds html</code> prints the markup). What an agent is, how to connect one and what it can never do is in <a href="https://github.com/retnd/retnd/blob/main/docs/agents.md"><code>docs/agents.md</code></a>, and the commands behind every control are in <a href="reference.html#cli-commands">the reference</a>.</p>
+    <p><strong>Settings, Agents.</strong> One card, after Retained-copy encryption, that opens with what an agent is here: a client of this deployment with a token of its own, which can look and nothing else until you say so, and which can never get key material, credentials or secrets. It has four regions in the order you use them: the tokens, what is waiting for you, the audit, and a plain statement of whether the HTTP transport is on. A count on the card heading links to the confirmations when something is waiting, and the list is not reordered when something arrives, so the Approve button does not move under your cursor.</p>
+    <p><strong>Minting a token.</strong> The dialog takes a name, a scope (<code>read</code> is preselected and the other two say what they allow) and an expiry. The token is shown once, in a box of its own, and the dialog has one way out, <em>I have stored it</em>: no close button, and Escape and the backdrop do nothing. After that the list shows the name, the eight-character prefix, the scope, the owner, when it was created, when it expires, when it was last used and its status, and never the token or its hash. <strong>Revoke</strong> asks first, and the token is refused on its very next request.</p>
+    <p><strong>A confirmation.</strong> When an <code>operate</code> or <code>configure</code> token asks for something, the card lists it as <em>Waiting for you</em> with the exact <code>retnd</code> command, the set, the token and the time left. <strong>Approve</strong> asks for your password (a step-up), then runs the recorded request and nothing else. <strong>Deny</strong> ends it. When the operation gate is shut, approving a <code>run_cycle</code> is refused with the same sentence a person gets, and the confirmation records that it was.</p>
+    <p><strong>The audit.</strong> A table with a token filter and a time filter, one row per call, reads included: when, which token, which tool, the transport, the status and the code, with the arguments after projection one disclosure away. Every control on the card echoes its <code>retnd agent</code> command.</p>
+    <figure class="wide" id="agents-mint">
+      <img src="screens/agents-mint.gif" alt="Settings, Agents: the Create token dialog takes a name, shows the token once, and closes only when the operator says it is stored" loading="lazy">
+      <figcaption><span class="clip-tag">clip</span>Minting a token. read is the scope it opens on, the token is shown once, and the dialog's one way out is I have stored it. Afterwards the list holds the prefix and never the token.</figcaption>
+    </figure>
+    <figure class="wide" id="agents-approve">
+      <img src="screens/agents-approve.gif" alt="A pending confirmation on the Agents card with the exact retnd command on it, approved after the password is entered" loading="lazy">
+      <figcaption><span class="clip-tag">clip</span>A confirmation waiting for you, with the command it will run. Approve asks for your password, then replays the recorded request and nothing else.</figcaption>
+    </figure>
+    <figure class="wide" id="agents-refused">
+      <img src="screens/agents-refused.gif" alt="Approving a run_cycle confirmation while the operation gate is shut: the card shows the same refusal a person would get" loading="lazy">
+      <figcaption><span class="clip-tag">clip</span>Approving run_cycle with the operation gate shut. The refusal is the one retnd run gives, DESTRUCTIVE_OPERATIONS_DISABLED, and the confirmation records that it was refused.</figcaption>
+    </figure>
+    <figure class="wide" id="agents-audit">
+      <img src="screens/agents-audit.gif" alt="The Agents card's audit table filtered to one token, one row per call, reads included" loading="lazy">
+      <figcaption><span class="clip-tag">clip</span>The audit: one row per call, reads included, filtered by token and time.</figcaption>
+    </figure>
+  </section>
+
+  <section>
     <h2 id="theme">Dark mode</h2>
     <p>The defect <a href="https://github.com/retnd/retnd/issues/618">#618</a> fixed was not that dark mode looked bad. It was that the application painted its own surfaces dark and left every native control at the browser's default, so a <code>select</code>, a number input and a file field drew black text on a dark field. It read correctly in light mode, where the browser's default happens to match, which is why it survived so long.</p>
   <figure class="wide">

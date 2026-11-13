@@ -332,6 +332,37 @@ jobs:
       - name: Refuse a release while EPIC T is open
         run: bash scripts/release/check-epic-t-closed.sh
 
+  # EPIC U (#1343, an MCP server for agents) closes the same way (#1353): the
+  # canonical deployment is an empty diff against 9cd53e1f, the epic added exactly
+  # one migration (0022, the three agent tables), no row of
+  # docs/conformance/epic-u-matrix.md is BLOCKED and every clip in the captures
+  # manifest docs/site/tools/agents-captures.json is in docs/site/screens/.
+  # scripts/tests/epic-u-closure.test.sh runs the script in throwaway
+  # repositories, once per way it can refuse.
+  require-epic-u-closed:
+    name: EPIC U is closed (matrix, captures, canonical deployment, one migration)
+    needs: decide
+    if: needs.decide.outputs.repoint != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # The check diffs against the commit the epic started from.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.0"
+          cache: true
+          cache-dependency-path: core/go.sum
+
+      - name: Refuse a release while EPIC U is open
+        run: bash scripts/release/check-epic-u-closed.sh
+
   compliance-artifacts:
     name: compliance artifacts are what this tree generates
     needs: decide
@@ -395,7 +426,7 @@ jobs:
 
   publish:
     name: build, push, sign and attest
-    needs: [decide, require-release-gate, require-epic-n-closed, require-epic-t-closed, compliance-artifacts]
+    needs: [decide, require-release-gate, require-epic-n-closed, require-epic-t-closed, require-epic-u-closed, compliance-artifacts]
     runs-on: ubuntu-latest
     permissions:
       contents: read
