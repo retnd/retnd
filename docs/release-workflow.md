@@ -301,3 +301,71 @@ A manual dispatch with `publish=true` is an exceptional recovery mechanism. It
 publishes only from `refs/heads/release` and requires `confirm` to equal the tag
 in `canonical.json`. Because it can rebuild an already-pushed tag, do not use it
 as the normal release path or as an automatic retry.
+
+## Cutting the release PR with `scripts/release.sh` (#1375)
+
+`scripts/release.sh <version> --issue <N>` automates the step between "main is
+ready" and "a reviewed pull request into `release`". It never tags, publishes or
+merges: the tag `v<version>` is created by the publish flow described above when the
+pull request merges, and the script prints that name so you can check it. If you do
+not want to use it, sections 1 to 3 above still work exactly as written.
+
+```bash
+git switch main && git pull --ff-only origin main
+bash scripts/release.sh 0.8.0 --issue 1331 --dry-run   # read-only checks, prints the plan
+bash scripts/release.sh 0.8.0 --issue 1331              # asks once before the push; --yes skips that
+```
+
+Order, stopping at the first failure:
+
+1. Preconditions: `<version>` is `X.Y.Z` or `X.Y.Z-prerelease`; no tag `v<version>`
+   locally or on origin; the version is greater than `image.tag` in
+   `distribution/packaging/canonical.json` (`--allow-downgrade` overrides); clean tree; on
+   `main` containing origin's tip (run `git fetch` first; the script does not
+   fetch); `## [<version>]` exists in `CHANGELOG.md`; the signing key
+   `~/.ssh/retnd-release-attest` exists (only the path is checked, the key is never
+   read or printed) and `scripts/release-e2e/release-attest.pub` holds the real public key.
+2. Branch `release-prep/v<version>` and one commit `Release v<version>` from
+   `scripts/release/bump-version.sh`, before the e2e. The bump moves `image.tag`,
+   `image.reference` and `image.published=false` in `canonical.json`, and the old
+   version on every line (whole version tokens only) of the files the previous
+   `Prepare <old>` commit touched, then runs `go run ./cmd/provenance -write`. It
+   prints the lines still naming the old version. It leaves `CHANGELOG.md`,
+   `container/release-manifest.json`, `digests.txt`, `provenance/*` and lockfiles
+   alone on purpose.
+3. The full e2e (`scripts/release-e2e.sh`, see `release-branch.md`), writing the stamp.
+4. `scripts/release-e2e/attest.sh sign` and then `verify --expect-version`. The
+   attestation (`release-attest/e2e.json` and `.sig`, an `ssh-keygen -Y` signature in the
+   `retnd-e2e-attest` namespace) records the tree, version, command, host and time.
+   Verify fails on a bad signature, a tree that is not the commit's tree (minus
+   `release-attest/` and `provenance/local-gate.*`), a version that differs from the
+   expected one or from `image.tag`, and a placeholder public key.
+5. Commit `release-attest/`, ask, push `release-prep/v<version>`, `gh pr create --base release
+   --title "Release v<version>"`, body naming the tag, the attestation and the stamp
+   (tree, host, time) and ending with `Closes #<issue>`. Rerunning after a red e2e on
+   the same branch resumes after the bump commit.
+
+**How this differs from the process above.** The existing process prepares on
+`main` through a prep pull request (version shift, `record-release-hashes.sh` on mercury,
+provenance, `record-local-gate.sh`) and then opens `main` into `release`. The script is
+the cut and attest layer for a `release-prep/v<version>` branch. It does not run
+`record-release-hashes.sh` (two architectures, needs a commit reachable from
+`origin/main`) or `record-local-gate.sh`: when `container/release-manifest.json`
+hashes are not yet recorded for the new version, do that prep first, or run those two
+after and note that `provenance/local-gate.*` and `release-attest/` are the only things
+allowed to change the tree afterwards. The `Release-Gate-Override` trailer is
+unchanged and is honoured by the local hooks as well as by `release.yml`.
+
+**One-time setup for the owner.** Generate the key and commit its public half on `main`:
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/retnd-release-attest -C retnd-release-attest
+cp ~/.ssh/retnd-release-attest.pub scripts/release-e2e/release-attest.pub
+```
+
+Until that file holds a real key, signing and verifying both fail closed.
+
+**What to review in the PR.** The bump commit's diff (every version location), the
+attestation (tree, version, host, time) matching the stamp line in the PR body,
+and that the last commit touches only `release-attest/`. Then merge by the usual
+rules; the publish flow takes it from there.

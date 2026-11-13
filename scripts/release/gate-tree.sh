@@ -36,7 +36,7 @@ set -euo pipefail
 
 commit="${1:-HEAD}"
 
-# The two paths, named once. The recorder and the release job both call
+# The two paths (and, since #1375, the files under release-attest/), named once. The recorder and the release job both call
 # this script rather than carrying the list, and
 # scripts/tests/local-gate-record.test.sh pins that a change to any other
 # file under provenance/ DOES move the hash.
@@ -58,4 +58,9 @@ git read-tree "$tree"
 # names, which is content and must stay in the hash (#1261 review, item 8).
 # shellcheck disable=SC2086
 git update-index --force-remove -- $EXCLUDED
+# The signed e2e attestation (release-attest/, written by scripts/release.sh)
+# is committed AFTER the tree it vouches for, so it cannot sit inside the
+# hash either (#1375). Listed from the tree itself, so a repository with no
+# such directory hashes exactly as it did before.
+git ls-files -z -- release-attest | xargs -0 git update-index --force-remove --
 git write-tree

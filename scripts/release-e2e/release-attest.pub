@@ -1,0 +1,2 @@
+# placeholder: the owner replaces this line with the ssh-ed25519 public key from ~/.ssh/retnd-release-attest.pub.
+# Until then signing and verifying both fail closed.

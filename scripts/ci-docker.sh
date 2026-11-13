@@ -42,7 +42,9 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
-repo="$(cd "$here/.." && pwd)"
+# CI_DOCKER_REPO: the tree to test when this script is a copy kept elsewhere
+# (scripts/release-e2e.sh runs HEAD's copy from a temp dir during a merge).
+repo="${CI_DOCKER_REPO:-$(cd "$here/.." && pwd)}"
 
 say() { printf '==> ci-docker: %s\n' "$*"; }
 die() { printf 'ci-docker: %s\n' "$*" >&2; exit 2; }
@@ -350,6 +352,15 @@ if [ -n "$target" ]; then
   fi
 fi
 
+# Optional fence for the container the command runs in (#1375): a memory
+# limit, swap equal to it (so none), and a CPU quota. Set by
+# scripts/release-e2e.sh; unset, nothing changes for anyone else.
+fence=()
+if [ -n "${CI_DOCKER_MEMORY:-}" ]; then
+  fence=(--memory "$CI_DOCKER_MEMORY" --memory-swap "$CI_DOCKER_MEMORY" --pids-limit 4096)
+  [ -z "${CI_DOCKER_CPUS:-}" ] || fence+=(--cpus "$CI_DOCKER_CPUS")
+fi
+
 # Replaces `exec` for the final docker run: in remote mode this shell has to
 # stay alive to clean up, and must still hand back the gate's own status.
 launch() {
@@ -532,14 +543,14 @@ case "${1:-}" in
     # --deps when the command does need them.
     shift
     [ "$#" -gt 0 ] || { echo "ci-docker: --exec needs a command" >&2; exit 2; }
-    launch docker run --rm --platform "$platform" "${mounts[@]}" "${as_user[@]}" -w "$run_repo" "$image" "$@"
+    launch docker run --rm ${fence[@]+"${fence[@]}"} --platform "$platform" "${mounts[@]}" "${as_user[@]}" -w "$run_repo" "$image" "$@"
     ;;
   --deps)
     shift
     say "installing dependencies if the lockfiles moved"
     docker run --rm --platform "$platform" "${mounts[@]}" "${as_user[@]}" -w "$run_repo" "$image" bash -c "$bootstrap"
     [ "$#" -gt 0 ] || exit 0
-    launch docker run --rm --platform "$platform" "${mounts[@]}" "${as_user[@]}" -w "$run_repo" "$image" "$@"
+    launch docker run --rm ${fence[@]+"${fence[@]}"} --platform "$platform" "${mounts[@]}" "${as_user[@]}" -w "$run_repo" "$image" "$@"
     ;;
 esac
 

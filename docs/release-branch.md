@@ -258,3 +258,154 @@ straight back to `release`, because a push to `release` publishes: it would rebu
 re-push bytes the registry already holds under the same digest, and add a second
 Sigstore signature for nothing. So `release` records the tree that published, and
 `main` records what the registry answered. The next cut fast-forwards past both.
+
+## The local e2e gate on `release` (#1375)
+
+Actions is off for this repository, so the full e2e for a release runs from
+committed git hooks, on another machine, in a fenced container. None of it is a
+workflow, and no workflow trigger was added or changed.
+
+**The flow.** Work is cut from `main` as before. A release candidate lives on a
+prep branch named `release-prep/v<version>`, cut by `scripts/release.sh`, and it
+merges into the long-lived `release` branch by pull request. (git cannot hold
+`release` together with any branch named `release/...`, so `scripts/release.sh`
+refuses to run while one exists, locally or on origin, and tells you the rename.)
+If `release` does not exist yet, create it once from the default branch:
+`gh api repos/retnd/retnd/git/refs -f ref=refs/heads/release -f sha=$(git rev-parse origin/main)`,
+then append a line saying why the gate was skipped to
+`$(git rev-parse --git-common-dir)/release-e2e/overrides.log`. What "full e2e" means
+here is the repo's own step from `scripts/ci-local.sh`: the retnd-tests browser
+suite plus the CLI smoke slice at the pinned sha, `bash scripts/e2e/run-tests-repo-gate.sh`.
+That command lives in exactly one place, `RELEASE_E2E_CMD_DEFAULT` in
+`scripts/release-e2e/lib.sh`; the runner and this page both refer to it. The
+two-machine privileged proof is not part of it (it stays in the full gate).
+
+**What runs when.**
+
+| When | What | Where it lives |
+| --- | --- | --- |
+| commit on a feature branch | the pre-commit hook's own checks (the fast tier from #1370, with its hooks-path guard). I did not touch it | `.husky/pre-commit` |
+| local merge into `release` that auto-commits | the full e2e through the runner; a red run aborts the merge; a green stamp for the same tree is reused | `.husky/pre-merge-commit` |
+| push of `refs/heads/release` | refused unless a green stamp exists for the exact tree being pushed | `.husky/pre-push` |
+| any other push | passes straight through | `.husky/pre-push` |
+
+`pre-merge-commit` does not run for `merge --no-commit`, squash merges or
+fast-forwards. `pre-push` is what covers those. Note that the ruleset on `release`
+already forces every real change through a pull request, so in practice the stamp
+is what you hold when you push a candidate and what `scripts/release.sh` records.
+
+**The runner** is `scripts/release-e2e.sh`. By hand: `bash scripts/release-e2e.sh`
+on a clean checkout of the commit. It refuses a dirty tree, picks the least loaded
+x86 host with `/Users/rom/workspace/dh.sh pick x86` (mars or the NAS, never a Mac, so
+Playwright never runs on this laptop), and runs the command through
+`scripts/ci-docker.sh --host`, which copies the tree to a scratch directory on that
+host, runs the container and removes the scratch directory, the image and the cache
+volumes on every exit path. The container is fenced: memory is 60% of the host's RAM
+capped at 16g, `--memory-swap` equal to it (no swap), and CPUs are two thirds of the
+host's (`RELEASE_E2E_MEMORY` and `RELEASE_E2E_CPUS` override). The fence covers the
+container the command runs in; the sibling containers the e2e itself starts on that
+host's daemon are not inside it. I have not timed a real run on a host yet (no full e2e was run while building this), so the
+first one should be watched for duration and peak memory.
+
+**The stamp** is written only on a green exit, to
+`$(git rev-parse --git-common-dir)/release-e2e/<tree>.stamp`: tree, commit, command,
+host and time. It is never committed. The tree is the one from
+`scripts/release/gate-tree.sh`, which leaves out `release-attest/` and
+`provenance/local-gate.*`, so adding the attestation or the gate record does not
+invalidate it.
+
+**Override.** There is no new flag and nobody should use `--no-verify`. The
+existing trailer applies: `Release-Gate-Override: <reason, at least 12 characters>`
+in the merge message (pre-merge-commit) or in the message of the commit being
+pushed (pre-push). It prints loudly and is appended to
+`$(git rev-parse --git-common-dir)/release-e2e/overrides.log`. It is legitimate for
+the same reasons it is at publish time (an emergency fix while the e2e hosts are
+down), and the reason stays in the append-only history.
+
+**Failure modes.** Dirty tree: the runner refuses (exit 2). Docker host down:
+`dh.sh` or `docker info` does not answer, the runner stops with exit 2 and names
+`RELEASE_E2E_HOST=mars|nas`. OOM: the container hits its cap, the log says so, the
+run is red and no stamp is written; report it, do not retry in a loop. A red run or
+Ctrl-C leaves no stamp.
+
+**How `pre-push` judges.** It reads each stdin line from the end (the local ref
+can contain spaces, as in `HEAD^{/some message}`, which shifts every field from
+the front), and for a push of `refs/heads/release` it takes the gate files from
+the REMOTE release tip, never from the tree being pushed: the runner, `lib.sh`
+(which holds the e2e command), `attest.sh`, `gate-tree.sh` and `ci-docker.sh`,
+extracted with `git archive` to a tar file in a temp directory that a trap
+removes. A stamp counts only if it is non-empty, has exactly the eight keys once
+each, names the tree it is filed under, says `green`, records the trusted command,
+a host from the allowlist (`mars`, `nas`, or several joined with `+`) and the
+`gate_sha256` of those files. Refused unless skipped as below: a stamp that fails
+any of that; a push that changes a gate file or the hooks; a push that touches
+`release-attest/` beyond `e2e.json` and `e2e.json.sig`; a remote with no `release`
+branch (the one-time bootstrap); a remote tip that is not in this clone ("fetch
+first"); a remote tip with no gate in it (a first adoption of this gate needs the
+skip). `DH_UNFENCED` is unset by the runner and the hook.
+
+**Copies of the gate are raw.** The hooks read the gate files as blobs
+(`git ls-tree` plus `git cat-file blob`, modes and symlinks kept), never with
+`git archive` or `git checkout-index`, because those obey the tree's own
+`.gitattributes`: `export-ignore` could drop a file and `export-subst` or an eol
+filter could rewrite one. The runner ships the tree with `git ls-files`, which
+those attributes do not touch.
+
+**Malformed ref lists.** A newline inside a refspec can split one stdin line in
+two and plant a fake `refs/heads/release` line naming a local-only commit whose
+gate says `exit 0`. `pre-push` refuses any line with fewer than four fields and
+any push where more than one line names `refs/heads/release`. No skip lifts
+either.
+
+**The skip.** `RELEASE_E2E_SKIP='<reason, 12+ characters>'` in the environment, or
+the existing `Release-Gate-Override` trailer on the pushed commit (or in the merge
+message for `pre-merge-commit`). Each hook parses it and writes the record itself,
+inline, sourcing nothing from the working tree or the pushed tree, so a topic
+cannot neuter the logging. One line is appended to
+`$(git rev-parse --git-common-dir)/release-e2e/overrides.log` with `time`, `hook`,
+`reason`, `sha`, `old_tip`, `ref`, `waived` (what the skip bypassed), `user` and
+`branch`; control characters and newlines in the reason are flattened to spaces,
+so a reason cannot forge a second line. A skip waives the e2e as well as the
+gate checks.
+
+**An existing `release` without the gate (this repo's case).** `release` already
+exists on origin and carries none of these files, so the first push or merge that
+brings the gate in is refused ("no release gate to judge with" for `pre-push`,
+"HEAD does not carry the release gate scripts" for `pre-merge-commit`) until it is
+skipped once and recorded: `RELEASE_E2E_SKIP='adopt the release e2e gate on the
+existing release branch' git push origin <branch>:release`, or the trailer. After
+that merge, every later push is judged by the gate on the remote tip.
+
+**Install.** `bash scripts/install-hooks.sh` (it checks and installs all four
+hooks). `RELEASE_E2E_TEST_CMD` replaces the command and runs it locally for the
+self-test only. It prints a TEST-ONLY warning and writes its stamp to
+`release-e2e-TEST-ONLY/`, a directory the hooks never read. Only the self-test
+sets `RELEASE_E2E_ALLOW_TEST_STAMPS` (to the repository's git dir, a bare `1` does
+nothing), which is what makes such a stamp count. Green is the command's exit
+status and nothing else: no output is parsed.
+
+**Residuals, stated plainly.**
+- The hooks come from your working tree (`core.hooksPath=.husky`). A topic branch
+  that edits `.husky/pre-push` or `.husky/pre-merge-commit` can change what runs on
+  the next push from that checkout; the gate-file check catches it only when that
+  topic is what gets pushed to `release`, and a merge of such a topic into `main` is
+  not gated at all.
+- `pre-merge-commit` runs the gate scripts from `HEAD` of `release`, but the hook
+  file itself is the working-tree copy.
+- The skip waives the e2e too. It is logged, not prevented.
+- A merge made in the GitHub web UI runs no local hook.
+- The real boundary is GitHub branch protection on `release` (pull request
+  required, no force push) plus `release.yml`'s `require-release-gate`, which
+  refuses to publish a tree without a matching gate record (see above). The local
+  hooks and the signed attestation make a bad merge hard to do by accident and easy
+  to spot in review; they do not replace that.
+- `release-attest/` and `provenance/local-gate.*` are outside the stamp key on
+  purpose, so adding the attestation or the gate record does not invalidate the e2e.
+- The only pre-push logic in this repo is the `release` check. It starts no
+  Playwright and no suite, so `scripts/release.sh`'s push needs no extra skip. The two
+  commits `scripts/release.sh` makes go through the pre-commit hook with its
+  documented out-loud opt-out (`CI_LOCAL_FAST`, `CI_LOCAL_SKIP_JS`,
+  `CI_LOCAL_SKIP_DOCKER`, `CI_LOCAL_SKIP_E2E`), never `--no-verify`.
+
+Self-test: `bash scripts/tests/release-e2e.test.sh` (fake command, throwaway key,
+stand-in `gh`, `dh.sh` and `ci-docker.sh`; it never starts the real suite).
