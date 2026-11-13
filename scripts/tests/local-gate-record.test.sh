@@ -63,7 +63,6 @@ SCRIPTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 REPO_ROOT="$(cd "$SCRIPTS_DIR/.." && pwd)"
 RECORDER="$SCRIPTS_DIR/release/record-local-gate.sh"
 GATE_TREE="$SCRIPTS_DIR/release/gate-tree.sh"
-WORKFLOW="$REPO_ROOT/.github/workflows/release.yml"
 
 echo "==> local-gate recorder: only a full green run on a clean tree becomes a record"
 
@@ -547,9 +546,12 @@ if [ -f "$GATE_TREE" ]; then
   t4="$(cd "$repo" && bash "$GATE_TREE" HEAD 2>&1)"
   [ "$t3" != "$t4" ] && pass "a directory named like the excluded log is not excluded with it" \
     || fail "a directory named like the excluded log is not excluded with it" "$t3 vs $t4"
-  index_leftovers="$(ls "$(git_in "$repo" rev-parse --git-dir)" | grep -c 'gate-tree' || true)"
+  index_leftovers=0
+  for leftover in "$(git_in "$repo" rev-parse --absolute-git-dir)"/*gate-tree*; do
+    [ -e "$leftover" ] && index_leftovers=$((index_leftovers + 1))
+  done
   [ "$index_leftovers" = 0 ] && pass "gate-tree.sh leaves no temporary index behind" \
-    || fail "gate-tree.sh leaves no temporary index behind" "$(ls "$(git_in "$repo" rev-parse --git-dir)")"
+    || fail "gate-tree.sh leaves no temporary index behind" "$(ls "$(git_in "$repo" rev-parse --absolute-git-dir)")"
 fi
 
 # --- 9: the reader accepts what the writer wrote ------------------------------

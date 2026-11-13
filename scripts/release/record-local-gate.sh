@@ -121,7 +121,7 @@ while IFS='=' read -r name _; do
 done < <(env)
 if [ -n "${GOFLAGS+set}" ]; then
   case " $GOFLAGS " in
-    *" -run"*|*" -run="*|*" -skip"*|*" -skip="*|*" -short"*|*" -count=0"*|*" -failfast"*|*" -test.run"*|*" -test.short"*|*" -bench"*|*" -fuzz"*)
+    *" -run"*|*" -skip"*|*" -short"*|*" -count=0"*|*" -failfast"*|*" -test.run"*|*" -test.short"*|*" -bench"*|*" -fuzz"*)
       refuse "GOFLAGS is set to '$GOFLAGS', which narrows what go test runs." \
         "A Go suite under a -run, -skip, -short, -count=0 or -failfast flag prints ok having run less than it was" \
         "asked to, and the gate cannot see that. Fix: unset GOFLAGS (or set only flags that select nothing) and re-run." \
