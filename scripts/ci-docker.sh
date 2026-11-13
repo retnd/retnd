@@ -298,7 +298,7 @@ if [ -n "$target" ]; then
   # every directory above a key and refuse a group-writable one, so every
   # SFTP fixture failed with "has a containing directory ... with
   # permissions 0775" and nothing about the remote copy said why (#1331).
-  "${rsh[@]}" "$target" "umask 022 && mkdir -p '$run_repo' '$run_git'"
+  "${rsh[@]}" "$target" "umask 022 && mkdir -p '$run_repo' '$run_git' '$remote_root/xdg'"
 
   # The files git knows about, so what .gitignore keeps out (node_modules,
   # build output, most credential files) stays out, minus the credential
@@ -375,14 +375,29 @@ launch() {
 cname=()
 [ -z "$scratch_name" ] || cname=(--name "$scratch_name" --label retnd.ci-docker=1)
 
+xdg_env=()
 declare -a mounts=(
   -v "/var/run/docker.sock:/var/run/docker.sock"
   -v "$run_repo:$run_repo"
   -v "${vol_prefix}-gocache:/ci/.cache/go-build"
   -v "${vol_prefix}-gomodcache:/ci/go/pkg/mod"
   -v "${vol_prefix}-npm:/ci/.npm"
-  -v "${vol_prefix}-xdg:/ci/.cache/retnd-tests-gate"
 )
+# The pinned tests checkout cache. Locally a named volume. Remotely a
+# directory inside the shipped scratch copy, mounted at the same path inside
+# and out and handed over as XDG_CACHE_HOME (#1421): the browser lane bind
+# mounts the checkout into its client machine, the REMOTE daemon makes that
+# mount, and a named volume's /ci path is not on its disk, so the client got
+# an empty root-owned /suite and died on mkdir /suite/test-results (EACCES).
+# The scratch copy is removed with everything else on exit.
+if [ -n "$target" ]; then
+  mounts+=(-v "$remote_root/xdg:$remote_root/xdg")
+  # `env` in front of the command rather than a -e flag, because this mode
+  # promises the container no environment variables from the caller.
+  xdg_env=(env "XDG_CACHE_HOME=$remote_root/xdg")
+else
+  mounts+=(-v "${vol_prefix}-xdg:/ci/.cache/retnd-tests-gate")
+fi
 
 # The host's own uid, not root, plus the socket's group (set once the image
 # exists, below).
@@ -583,14 +598,14 @@ case "${1:-}" in
     # --deps when the command does need them.
     shift
     [ "$#" -gt 0 ] || { echo "ci-docker: --exec needs a command" >&2; exit 2; }
-    launch docker run --rm ${cname[@]+"${cname[@]}"} --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" "$@"
+    launch docker run --rm ${cname[@]+"${cname[@]}"} --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" ${xdg_env[@]+"${xdg_env[@]}"} "$@"
     ;;
   --deps)
     shift
     say "installing dependencies if the lockfiles moved"
     docker run --rm --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" bash -c "$bootstrap"
     [ "$#" -gt 0 ] || exit 0
-    launch docker run --rm ${cname[@]+"${cname[@]}"} --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" "$@"
+    launch docker run --rm ${cname[@]+"${cname[@]}"} --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" ${xdg_env[@]+"${xdg_env[@]}"} "$@"
     ;;
 esac
 
@@ -601,4 +616,4 @@ docker run --rm --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@
 
 say "running scripts/ci-local.sh in $image ($platform)"
 launch docker run --rm ${cname[@]+"${cname[@]}"} --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" \
-  bash scripts/ci-local.sh "$@"
+  ${xdg_env[@]+"${xdg_env[@]}"} bash scripts/ci-local.sh "$@"

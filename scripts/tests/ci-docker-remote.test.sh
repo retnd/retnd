@@ -514,9 +514,9 @@ gl="$(gate_line)"
 xdg_src="$(printf '%s' "$gl" | grep -oE -- '-v [^ ]*/ci-docker-[^ ]*/xdg:[^ ]*' | head -1)"
 xdg_dir="${xdg_src#-v }"; xdg_dir="${xdg_dir%%:*}"
 if [ -n "$xdg_dir" ] && [ "$(printf '%s' "$xdg_src" | cut -d: -f2)" = "$xdg_dir" ] \
-   && printf '%s' "$gl" | grep -q -- "-e XDG_CACHE_HOME=$xdg_dir" \
+   && printf '%s' "$gl" | grep -q -- " env XDG_CACHE_HOME=$xdg_dir " \
    && ! printf '%s' "$gl" | grep -q -- '-xdg:/ci/.cache/retnd-tests-gate'; then
-  pass "R16a remote mode mounts the tests cache from the scratch copy at the same path and points XDG_CACHE_HOME at it"
+  pass "R16a remote mode mounts the tests cache from the scratch copy at the same path and points XDG_CACHE_HOME at it through env, not a -e flag"
 else
   fail "R16a remote tests cache is a same-path bind mount" "$gl"
 fi
