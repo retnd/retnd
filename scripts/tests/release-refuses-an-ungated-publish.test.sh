@@ -86,7 +86,7 @@ trap 'rm -rf "$SANDBOX"' EXIT
 # Nothing here touches the real key or the real allowed_signers.
 ssh-keygen -q -t ed25519 -N '' -C test -f "$SANDBOX/owner" >/dev/null
 ssh-keygen -q -t ed25519 -N '' -C test -f "$SANDBOX/impostor" >/dev/null
-SIGNERS_LINE="retnd-release namespaces=\"retnd-local-gate\" $(cut -d' ' -f1,2 "$SANDBOX/owner.pub")"
+SIGNERS_LINE="retnd-release namespaces=\"retnd-local-gate,retnd-e2e-attest\" $(cut -d' ' -f1,2 "$SANDBOX/owner.pub")"
 
 # --- the script -----------------------------------------------------------
 #
@@ -135,6 +135,9 @@ new_case() {
   cp "$REPO_ROOT/scripts/ci/pins.env" "$REPO/scripts/ci/pins.env" 2>/dev/null || :
   git_in "$REPO" add -A
   git_in "$REPO" commit -qm "${2:-Release 0.7.2}"
+  # The trust reference the verifier compares allowed_signers against (#1373
+  # panel): origin/main in the real repository, here a ref at the base commit.
+  git_in "$REPO" update-ref refs/remotes/origin/main HEAD
 }
 
 sha256_of() {
@@ -395,6 +398,41 @@ write_record
 run_gate true
 expect "an allowed_signers with no key in it refuses" 1 "has no key in it"
 expect "and says the owner adds the key" 1 "docs/release-branch.md"
+
+# 8b. The key is read from the commit being judged, so a key swap has to be
+#     its own loud refusal (#1373 panel): the commit's allowed_signers is
+#     compared with the trust reference (origin/main) and a difference refuses.
+new_case swapped-signers
+printf '# swapped\nretnd-release namespaces="retnd-local-gate,retnd-e2e-attest" %s\n' "$(cut -d' ' -f1,2 "$SANDBOX/impostor.pub")" >"$REPO/provenance/allowed_signers"
+git_in "$REPO" commit -qam "Swap the signers"
+write_record sig=forged
+run_gate true
+expect "a forged record plus a swapped allowed_signers in the same commit does not publish" 1 "differs from"
+expect "and the refusal names the trust reference" 1 "origin/main"
+
+new_case swapped-signers-overridden "Cut 0.7.8
+
+Release-Gate-Override: rotating the release key, reviewed on the PR"
+printf '# swapped\nretnd-release namespaces="retnd-local-gate,retnd-e2e-attest" %s\n' "$(cut -d' ' -f1,2 "$SANDBOX/impostor.pub")" >"$REPO/provenance/allowed_signers"
+git_in "$REPO" commit -qam "Swap the signers"
+COMMIT_MESSAGE="Cut 0.7.8
+
+Release-Gate-Override: rotating the release key, reviewed on the PR" write_record sig=forged
+run_gate true
+expect "the override trailer is the way past a changed allowed_signers" 0 "release gate: OVERRIDDEN"
+
+new_case no-trust-ref
+write_record
+git_in "$REPO" update-ref -d refs/remotes/origin/main
+run_gate true
+expect "a checkout with no trust reference fails closed" 1 "trust reference"
+
+new_case trust-ref-env
+write_record
+git_in "$REPO" update-ref -d refs/remotes/origin/main
+git_in "$REPO" update-ref refs/remotes/elsewhere/main HEAD~1
+OUT="$(cd "$REPO" && RETND_TRUST_REF=refs/remotes/elsewhere/main PUBLISH=true GITHUB_STEP_SUMMARY=/dev/null bash "$SCRIPT" HEAD 2>&1)"; STATUS=$?
+expect "RETND_TRUST_REF names another reference to compare against" 0 "release gate: PASSED"
 
 new_case unsigned-overridden "Cut 0.7.3
 

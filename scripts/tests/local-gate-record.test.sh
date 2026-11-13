@@ -195,9 +195,12 @@ new_repo() {
   mkdir -p "$repo/scripts/ci"
   cp "$REPO_ROOT/scripts/ci/pins.env" "$repo/scripts/ci/pins.env"
   printf '{"not": "the record"}\n' >"$repo/provenance/release-provenance.json"
-  printf 'retnd-release namespaces="retnd-local-gate" %s\n' "$(cut -d' ' -f1,2 "$SANDBOX/owner.pub")" >"$repo/provenance/allowed_signers"
+  printf 'retnd-release namespaces="retnd-local-gate,retnd-e2e-attest" %s\n' "$(cut -d' ' -f1,2 "$SANDBOX/owner.pub")" >"$repo/provenance/allowed_signers"
   git_in "$repo" add -A
   git_in "$repo" commit -qm base
+  # The trust reference the verifier compares allowed_signers with (origin/main
+  # in the real repository).
+  git_in "$repo" update-ref refs/remotes/origin/main HEAD
   git_in "$repo" config core.hooksPath .husky
   printf 'ok\n' >"$SANDBOX/$1.verdict"
   printf '%s\n' "$repo"
@@ -358,6 +361,18 @@ git_in "$repo" commit -qam "empty signers"
 run_recorder "$repo"
 expect "an allowed_signers with no key is refused with a clear message" 1 "has no key in it"
 no_record "and no record is left behind for it" "$repo"
+
+repo="$(new_repo swapped-signers)"
+printf 'retnd-release namespaces="retnd-local-gate,retnd-e2e-attest" %s\n' "$(cut -d' ' -f1,2 "$SANDBOX/impostor.pub")" >"$repo/provenance/allowed_signers"
+git_in "$repo" commit -qam "swap the signers"
+run_recorder "$repo" RETND_GATE_KEY="$SANDBOX/impostor"
+expect "a record signed by a key that only the same commit's allowed_signers trusts is refused" 1 "differs from"
+no_record "and no record is left behind for it" "$repo"
+
+repo="$(new_repo default-key-path)"
+mkdir -p "$SANDBOX/home/.ssh"
+run_recorder "$repo" RETND_GATE_KEY= HOME="$SANDBOX/home"
+expect "the default signing key is ~/.ssh/retnd-release-attest" 2 "retnd-release-attest"
 
 # --- 3: a dirty tree -------------------------------------------------------
 repo="$(new_repo dirty)"
