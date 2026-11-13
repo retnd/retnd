@@ -234,13 +234,13 @@ cleanup() {
   trap - EXIT INT TERM
   set +e
   if [ -n "$target" ] && [ -n "$scratch_name" ]; then
+    # The container the command ran in, by name, before its scratch directory
+    # goes: a dropped ssh session can leave it running on the host (#1375).
+    docker rm -f "$scratch_name" >/dev/null 2>&1
     # From inside a container: the gate's containers write into the copy
     # (mount points, build output) and the host account may not own that.
     # Not when the daemon saw the copy as empty: a container would then
     # remove the daemon's own phantom and leave the real copy behind.
-    # The container the command ran in, by name, before its scratch directory
-    # goes: a dropped ssh session can leave it running on the host (#1375).
-    docker rm -f "$scratch_name" >/dev/null 2>&1
     if [ "$have_image" = 1 ] && [ "$mount_ok" = 1 ]; then
       docker run --rm --user 0:0 -v "$scratch_base:/ws" "$image" rm -rf -- "/ws/$scratch_name" >/dev/null 2>&1
     else

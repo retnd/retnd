@@ -16,15 +16,19 @@
 # the mock), and `--check` proves it still reproduces. If it breaks, the harness
 # is what broke, and nothing the new script writes is to be believed yet.
 #
-# Known, pre-existing, and shown rather than hidden: the batch gate ran this
-# first step on a clean main and the unchanged script moved 33 recovery-*
-# pictures there too (the committed bytes were made on another machine and
-# browser build). So step 1 is expected to report a diff under docs/site/screens/
-# for recovery-* files even with this epic absent, and that alone is not a
-# reason to stop. What matters is that the script ran to the end and said
-# "reproducible", which proves the shared harness still works. The wrapper prints
-# the moved files and lists them under their own heading; do not commit them as
-# part of this epic, and do not touch that script here.
+# The committed recovery-* and encryption-* bytes were shot by this script in
+# the pinned Playwright image (mcr.microsoft.com/playwright:v1.62.1-noble plus
+# ffmpeg and ImageMagick) for the 0.8.0 release (#1331), where it went green
+# twice in a row. On another machine or browser build step 1 can still report
+# moved recovery-* pictures, and that alone is not a reason to stop. What
+# matters is that each step ran to the end and said "reproducible", which
+# proves the shared harness still works. The wrapper prints the moved files
+# under their own heading.
+#
+# Step 1 used to move 1 to 7 of its 33 pictures between its own two passes, so
+# this script never got to step 2. The release fixed that script (#1331) even
+# though EPIC N had kept it out of scope, because the release gate needs this
+# whole sequence deterministic.
 #
 # It stops at the first failure. It does not commit anything.
 set -euo pipefail
@@ -41,8 +45,8 @@ else
   git diff --stat -- docs/site/screens
   moved="$(git diff --name-only -- docs/site/screens | grep -vc '/recovery-' || true)"
   echo "    ^ these moved: $(git diff --name-only -- docs/site/screens | grep -c '/recovery-' || true) recovery-* pictures and $moved others."
-  echo "      Moves in recovery-* are the KNOWN pre-existing ones (33 on a clean main, see the"
-  echo "      header of this file): note them in issue #998 and leave them uncommitted here."
+  echo "      Moves in recovery-* on a machine other than the pinned image are expected (see the"
+  echo "      header of this file); commit them only when the pictures legitimately changed."
   echo "      Any move OUTSIDE recovery-* means the harness or the product moved something"
   echo "      this epic did not intend: look at it BEFORE trusting anything below."
 fi

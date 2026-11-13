@@ -13,7 +13,10 @@
 #      distribution/packaging/*.json and apps/common/platform/capabilities/.
 #      A suite is a property of the bytes a copy holds, so nothing this epic
 #      ships changes how a container is run, and an untracked file in one of
-#      those places counts as a change;
+#      those places counts as a change. The release version is set aside
+#      (#1331): a cut moves the image tag in all of them and canonical.json's
+#      release record (image.tag, reference, published, note), and that is
+#      not a change to how a container runs, so a cut alone passes;
 #   2. the epic added exactly its two migrations, 0020_encryption_key_suites.sql
 #      (T1.2, the key's suite) and 0021_encryption_default_suite.sql (T1.4, the
 #      build default it last ran under), and nothing else under core/migrations/
@@ -30,12 +33,22 @@
 #   EPIC_T_BASE     the commit the epic started from (default: 477aec5a, the
 #                   merge of #1302 that put all of EPIC N on main, which is the
 #                   tree the EPIC T specification was measured on)
+#   EPIC_T_TIP      the commit the epic ended at (default: 9cd53e1f, the merge of
+#                   #1330, where EPIC T was finished and EPIC U started). Check 2
+#                   reads the migrations ADDED between EPIC_T_BASE and this
+#                   commit, so a later epic's own migration (EPIC U's 0022,
+#                   #1343) is that epic's closing check's business and not a
+#                   failure here. An edit to an existing migration still fails
+#                   at any point. WORKTREE reads additions up to the working
+#                   tree, untracked files included, which is what the
+#                   self-test uses.
 #   EPIC_T_SKIP_GO  1 leaves out check 3's Go run (the self-test sets it; the
 #                   Go checker has its own lie table)
 set -uo pipefail
 
 root="${EPIC_T_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
 base="${EPIC_T_BASE:-477aec5a}"
+tip="${EPIC_T_TIP:-9cd53e1f}"
 cd "$root" || exit 2
 
 fails=0
@@ -47,27 +60,26 @@ if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
   exit 2
 fi
 
-# 1. The canonical deployment.
-paths=(
-  container/compose.yaml
-  ':(glob)apps/*/compose/**'
-  apps/unraid/template
-  apps/truenas/catalog
-  distribution/packaging/canonical.json
-  distribution/packaging/compliance.json
-  distribution/packaging/conformance.json
-  distribution/packaging/submission.json
-  apps/common/platform/capabilities
-)
-changed="$(git diff --name-only "$base" -- "${paths[@]}"; git ls-files --others --exclude-standard -- "${paths[@]}")"
-if [ -n "$changed" ]; then
-  bad "the canonical container contract moved since $base:$(printf '\n         %s' $changed)"
+if [ "$tip" != "WORKTREE" ] && ! git rev-parse --verify --quiet "$tip^{commit}" >/dev/null; then
+  echo "epic-t-closed: the tip commit $tip is not in this checkout, so the epic's own migrations cannot be told from a later epic's (fetch the full history)" >&2
+  exit 2
+fi
+
+# 1. The canonical container contract. A release version alone is not a move
+# (scripts/release/contract-unchanged.sh holds the rule for all three checks).
+moved="$(bash "$(dirname "$0")/contract-unchanged.sh" "$base")"
+if [ -n "$moved" ]; then
+  bad "the canonical container contract moved since $base (a release version bump alone is not a move):$(printf '\n         %s' $moved)"
 else
-  ok "the canonical container contract is an empty diff against $base"
+  ok "the canonical container contract is an empty diff against $base, apart from the release version"
 fi
 
 # 2. The epic's two migrations, and no other.
-added="$(git diff --name-only --diff-filter=A "$base" -- core/migrations; git ls-files --others --exclude-standard -- core/migrations)"
+if [ "$tip" = "WORKTREE" ]; then
+  added="$(git diff --name-only --diff-filter=A "$base" -- core/migrations; git ls-files --others --exclude-standard -- core/migrations)"
+else
+  added="$(git diff --name-only --diff-filter=A "$base" "$tip" -- core/migrations)"
+fi
 touched="$(git diff --name-only --diff-filter=MDRT "$base" -- core/migrations)"
 want20="core/migrations/0020_encryption_key_suites.sql"
 want21="core/migrations/0021_encryption_default_suite.sql"
@@ -82,7 +94,9 @@ fi
 if [ "${EPIC_T_SKIP_GO:-0}" = "1" ]; then
   echo "epic-t-closed: skipped the Go closing check (EPIC_T_SKIP_GO=1)"
 else
-  if (cd core && GOWORK=off RETND_EPIC_T_CLOSURE=1 go test -count=1 -run 'TestEpicTIsClosed' ./tests/encryptiongate/ -v 2>&1 | tee /dev/stderr | grep -q -- '--- PASS: TestEpicTIsClosed'); then
+  # No `grep -q`: under pipefail it quits at the first match, tee takes SIGPIPE on the
+  # rest of the output and a passing run reads as a failure (#1407).
+  if (cd core && GOWORK=off RETND_EPIC_T_CLOSURE=1 go test -count=1 -run 'TestEpicTIsClosed' ./tests/encryptiongate/ -v 2>&1 | tee /dev/stderr | grep -- '--- PASS: TestEpicTIsClosed' >/dev/null); then
     ok "no BLOCKED row in the EPIC T matrix, and every proof resolves"
   else
     bad "the EPIC T closing check in core/tests/encryptiongate did not pass (output above)"

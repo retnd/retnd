@@ -321,10 +321,9 @@ func TestRetiringASupersededKeyNoCopyRecordsSucceeds_993(t *testing.T) {
 }
 
 // encryptedFixture seeds one COMPLETE backup with an encrypted copy on warm,
-// written under key. The key is minted under age/v1, the suite the copy's
-// record names: a copy is always under its key's own suite (ADR 0033 D3), and
-// a key minted with no suite named takes the default, age-pq/v1 since EPIC T,
-// which left this record naming a suite its key does not belong to.
+// written under key. The key is minted in age/v1, the suite the copy is
+// recorded under: since #1312 the build default is age-pq/v1, and a key of
+// another suite is refused before the copy is ever opened.
 func encryptedFixture(t *testing.T) (*recoveryFixture, model.ArtifactID, apicontract.EncryptionKeyStatus) {
 	t.Helper()
 	f := newRecoveryFixture(t, fixtureOpts{})

@@ -293,8 +293,8 @@ CONTROLS = [
     Control(
         "N2 a broken link in the encrypted copies page",
         ("N2.7",),
-        [("docs/encrypted-copies.md", "the [changelog](../CHANGELOG.md) names. Do not write the key",
-          "the [changelog](../CHANGELOG-planted-gone.md) names. Do not write the key")],
+        [("docs/encrypted-copies.md", "one-way door the [changelog](../CHANGELOG.md) names",
+          "one-way door the [changelog](../CHANGELOG-planted-gone.md) names")],
         "./tests/assurancegate/",
         ["TestEveryLinkInTheSiteAndTheDocsResolves"],
     ),

@@ -743,12 +743,12 @@ describe("every request the shared client makes is a declared operation", () => 
     // could call them without this list shrinking, which is the property
     // the exact assertion below enforces in both directions.
     "getSession",
-    "postAgentMcp",
     // The encrypt-existing pair (#1291) is API and CLI only in 0.8.0: no
     // screen offers retroactive encryption in this release. The #995 sweep
     // (encryptionCommands.test.ts) pins startEncryptExisting the same way,
     // so wiring a control has to shrink both lists together.
     "planEncryptExisting",
+    "postAgentMcp",
     "startEncryptExisting"
     //
     // EPIC T's suite listing (#1315) landed its route and verb before any

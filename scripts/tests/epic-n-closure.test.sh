@@ -64,7 +64,7 @@ make_repo() {
   printf '%s' "$dir"
 }
 
-run_check() { (cd "$1" && EPIC_N_ROOT="$1" EPIC_N_BASE="${BASE_SHA:-$(cat "$SANDBOX/$(basename "$1").base")}" EPIC_N_TIP="${TIP_SHA:-WORKTREE}" EPIC_N_SKIP_GO=1 bash "$CHECK" 2>&1); }
+run_check() { (cd "$1" && EPIC_N_ROOT="$1" EPIC_N_BASE="${BASE_SHA:-$(cat "$SANDBOX/$(basename "$1").base")}" EPIC_N_TIP="${TIP_SHA:-WORKTREE}" EPIC_N_SKIP_GO="${SKIP_GO:-1}" PATH="${STUB_BIN:+$STUB_BIN:}$PATH" bash "$CHECK" 2>&1); }
 add_0015() { echo "-- 15" > "$1/core/migrations/0015_retained_copy_encryption.sql"; (cd "$1" && git add -A && git commit -q -m "epic"); }
 
 expect_pass() { # name repo
@@ -107,6 +107,45 @@ done
 r="$(make_repo g1-caps)"; add_0015 "$r"; echo "// x" >> "$r/apps/common/platform/capabilities/capabilities.go"; (cd "$r" && git commit -qam x)
 expect_fail "the capability contract: an edit under apps/common/platform/capabilities is refused" "$r" "apps/common/platform/capabilities/capabilities.go"
 
+# Guard 1 and a release cut (#1331). Cutting a release moves the image tag in
+# every guarded file and canonical.json's release record (tag, reference,
+# published, note), and none of that changes how a container is run. A guard
+# that read file names failed every cut, so the cut alone is the control here,
+# and each case after it hides one real contract change inside a cut.
+seed_release() { # repo version published -> the guarded files carry that release
+  local v="$2" pub="$3"
+  printf 'services:\n  retnd:\n    image: ${IMAGE:-ghcr.io/retnd/retnd:%s}\n    ports: ["8080:8080"]\n' "$v" > "$1/container/compose.yaml"
+  printf 'services:\n  retnd:\n    image: ghcr.io/retnd/retnd:%s\n' "$v" > "$1/apps/a/compose/compose.yaml"
+  printf 'IMAGE=ghcr.io/retnd/retnd:%s\n' "$v" > "$1/apps/b/compose/.env"
+  printf '<x>\n  <Repository>ghcr.io/retnd/retnd:%s</Repository>\n</x>\n' "$v" > "$1/apps/unraid/template/retnd.xml"
+  printf '{\n  "image": {\n    "registry": "ghcr.io",\n    "repository": "retnd/retnd",\n    "tag": "%s",\n    "reference": "ghcr.io/retnd/retnd:%s",\n    "published": %s,\n    "note": ["%s is the release this names, published=%s"]\n  },\n  "listenPort": 8080\n}\n' "$v" "$v" "$pub" "$v" "$pub" > "$1/distribution/packaging/canonical.json"
+}
+make_cut_repo() { # name -> a repository whose base carries 0.7.2, with the epic's migrations, cut to 0.8.0
+  local r
+  r="$(make_repo "$1")"
+  seed_release "$r" 0.7.2 true
+  (cd "$r" && git add -A && git commit -q -m "0.7.2" && git rev-parse HEAD > "$SANDBOX/$1.base")
+  add_0015 "$r"
+  seed_release "$r" 0.8.0 false
+  printf '%s' "$r"
+}
+r="$(make_cut_repo cut-control)"; (cd "$r" && git commit -qam "cut 0.8.0")
+expect_pass "control: a release cut that moves only the image tag and canonical.json's release record passes" "$r"
+r="$(make_cut_repo cut-uncommitted)"
+expect_pass "control: the same cut, not yet committed, passes" "$r"
+r="$(make_cut_repo cut-port)"; sed -i.bak 's/8080:8080/9999:8080/' "$r/container/compose.yaml" && rm -f "$r/container/compose.yaml.bak"; (cd "$r" && git commit -qam x)
+expect_fail "a release cut that also moves a port in container/compose.yaml is refused, and the file named" "$r" "container/compose.yaml"
+r="$(make_cut_repo cut-latest)"; printf 'services:\n  retnd:\n    image: ghcr.io/retnd/retnd:latest\n' > "$r/apps/a/compose/compose.yaml"; (cd "$r" && git commit -qam x)
+expect_fail "an image tag moved off a release version to latest is refused" "$r" "apps/a/compose/compose.yaml"
+r="$(make_cut_repo cut-registry)"; sed -i.bak 's#"registry": "ghcr.io"#"registry": "docker.io"#' "$r/distribution/packaging/canonical.json" && rm -f "$r/distribution/packaging/canonical.json.bak"; (cd "$r" && git commit -qam x)
+expect_fail "canonical.json: a cut that also changes the registry is refused" "$r" "distribution/packaging/canonical.json"
+r="$(make_cut_repo cut-field)"; sed -i.bak 's/"listenPort": 8080/"listenPort": 8081/' "$r/distribution/packaging/canonical.json" && rm -f "$r/distribution/packaging/canonical.json.bak"; (cd "$r" && git commit -qam x)
+expect_fail "canonical.json: a cut that also changes a field outside the release record is refused" "$r" "distribution/packaging/canonical.json"
+r="$(make_cut_repo cut-other-image)"; printf 'IMAGE=ghcr.io/someone/else:0.8.0\n' > "$r/apps/b/compose/.env"; (cd "$r" && git commit -qam x)
+expect_fail "a cut that points an image at another repository is refused" "$r" "apps/b/compose/.env"
+r="$(make_cut_repo cut-removed)"; (cd "$r" && git rm -qf apps/unraid/template/retnd.xml && git commit -qam x)
+expect_fail "a cut that removes a guarded file is refused" "$r" "apps/unraid/template/retnd.xml"
+
 # Guard 2, the migration claim.
 msg='core/migrations must gain exactly'
 r="$(make_repo g2-none)"
@@ -141,6 +180,21 @@ if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qF "0001_init.sql"; then pass "
 r="$(make_repo tip-missing)"; add_0015 "$r"
 out="$(TIP_SHA=1111111111111111111111111111111111111111 run_check "$r")"; rc=$?
 if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'tip commit .* is not in this checkout'; then pass "a tip commit that is not in the checkout is refused, not skipped"; else fail "a missing tip is refused" "exit $rc: $out"; fi
+
+
+# A stub `go` that prints what `go test -v` prints, a delay apart: the test's
+# own PASS line, then (after the test binary exits) the go command's `ok` line.
+# Under pipefail a `grep -q` after `tee` quits at the first line, tee takes
+# SIGPIPE on the second, and the passing run reads as a failure (#1407).
+make_stub_go() { # $1 = test name it passes
+  mkdir -p "$SANDBOX/stubbin"
+  printf '#!/bin/sh\nprintf "=== RUN   %s\\n--- PASS: %s (0.00s)\\nPASS\\n"\nsleep 0.5\nprintf "ok  \\tretnd/tests\\t0.5s\\n"\n' "$1" "$1" > "$SANDBOX/stubbin/go"
+  chmod +x "$SANDBOX/stubbin/go"
+}
+make_stub_go TestEpicNIsClosed
+r="$(make_repo go-slow-ok)"; add_0015 "$r"; mkdir -p "$r/core"
+out="$(SKIP_GO=0 STUB_BIN="$SANDBOX/stubbin" run_check "$r")"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'epic-n-closed: ok$'; then pass "the Go run: a passing test whose ok line comes after a delay passes (#1407)"; else fail "the Go run: a slow ok line passes" "exit $rc: $out"; fi
 
 # The base commit.
 r="$(make_repo nobase)"; BASE_SHA=0000000000000000000000000000000000000000

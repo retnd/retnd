@@ -83,9 +83,17 @@ Review `CHANGELOG.md`, then update the image block in
 Do not copy registry digests from the preceding release. A candidate has no
 registry identity until this candidate is pushed.
 
-Record the binaries built from the selected `main` commit:
+Record the binaries built from the selected `main` commit. For 0.8.0 the hashes
+are recorded on the maintainer's Mac (Docker Desktop: arm64 native, amd64
+emulated), not on Mercury, which is reserved for benchmarks. That only gives the
+same bytes because the Dockerfile cross-compiles from `$BUILDPLATFORM` with
+digest-pinned bases, so the Go stages run natively and emit both architectures.
+Keep it that way: a base that isn't pinned by digest, or a stage that compiles
+under emulation, makes the amd64 hash depend on the host. Docker Desktop also
+needs the shell to leave the platform alone:
 
 ```bash
+unset DOCKER_DEFAULT_PLATFORM   # a forced arm64 default breaks the amd64 images
 VERSION="$VERSION" bash scripts/release/record-release-hashes.sh
 ```
 
@@ -124,8 +132,17 @@ git switch main
 git pull --ff-only origin main
 git status --short            # must be empty
 unset CI_LOCAL_FAST CI_LOCAL_SKIP_JS CI_LOCAL_SKIP_DOCKER CI_LOCAL_SKIP_E2E CI_LOCAL_SKIP_TWO_MACHINE
+unset DOCKER_DEFAULT_PLATFORM      # the recorder refuses a forced non-amd64 platform
+export VITEST_MAX_WORKERS=3        # the full gate on one machine, with the Playwright lock
+ssh-add ~/.ssh/retnd-release-attest   # the owner types the passphrase at the keyboard
 bash scripts/release/record-local-gate.sh
 ```
+
+The recorder signs the record (`ssh-keygen -Y sign`, namespace `retnd-local-gate`),
+so the key has to be unlocked in ssh-agent before it starts. The owner does that
+at the keyboard; no unattended run can sign, and a run that reaches the signing
+step with a locked key stops for a passphrase it cannot get. The same goes for
+`release.sh` (the e2e attestation) later.
 
 It runs `scripts/ci-local.sh` in a fresh detached worktree at `HEAD` with
 `CI=1`, and writes `provenance/local-gate.json` and `provenance/local-gate.log`
@@ -302,6 +319,39 @@ publishes only from `refs/heads/release` and requires `confirm` to equal the tag
 in `canonical.json`. Because it can rebuild an already-pushed tag, do not use it
 as the normal release path or as an automatic retry.
 
+## Before 0.8.0 ships: the traps this runbook has already met (#1410)
+
+- **Prepared on `main` is the only path for 0.8.0.** `release.sh`'s bump path moves
+  `canonical.json` on `release-prep/v<version>`, so that tree has no recorded
+  manifest hashes (the recorder refuses commits that aren't on `origin/main`) and
+  no matching local-gate record, and the release it produced could not publish.
+  Do sections 1 and 2 on `main` first, then run `release.sh`.
+- **Freeze `main`** from the gate record until the release PR merges. `release.sh`
+  refuses unless `HEAD` is `origin/main`'s tip, and any merge, Dependabot
+  included, invalidates the record.
+- **Both signatures need the key unlocked.** `ssh-add ~/.ssh/retnd-release-attest`
+  before `record-local-gate.sh` and again before `release.sh` if the agent was
+  restarted. The owner does it at the keyboard.
+- **Environment for the record.** `unset DOCKER_DEFAULT_PLATFORM` (the recorder
+  refuses it when it names anything but amd64) and `VITEST_MAX_WORKERS=3`.
+- **Verify by hand before merging the release PR.** This is a step, not a
+  courtesy: the hooks do not cover every kind of merge. Run both verifies shown at
+  the end of the `release.sh` section against `origin/release-prep/v<version>` and
+  merge only when both pass.
+- **A pull request into `release` closes no issues.** GitHub closes issues only
+  from a merge into the default branch, which is `main`. The `Closes #<issue>` in
+  the release PR is still there as the record, but close the release issue by hand
+  once the publish run and `cosign verify` are green, and keep a closing keyword
+  out of the PR that merges the cut into `main`, or the release issue closes
+  before anything is published.
+- **Known-red expiry.** The two entries in `scripts/e2e/known-red.txt` are good
+  through 2026-11-30 and the ratchet fails the gate the day after. If the release
+  slips past that, re-judge them first: re-run the two specs at the pin, and if
+  they pass, remove the lines (and lower `cap=`). If they still fail, renew them
+  in retnd-tests with a reason. The baseline check refuses an expiry that moves
+  later than `main`'s copy in the same change, so this is a decision made on
+  evidence, not a date edit.
+
 ## Cutting the release PR with `scripts/release.sh` (#1375)
 
 `scripts/release.sh <version> --issue <N>` automates the step between "main is
@@ -343,7 +393,8 @@ Order, stopping at the first failure:
    prints the lines still naming the old version. It leaves `CHANGELOG.md`,
    `container/release-manifest.json`, `digests.txt`, `provenance/*` and lockfiles
    alone on purpose.
-3. The full e2e (`scripts/release-e2e.sh`, see `release-branch.md`), writing the stamp.
+3. The full e2e (`scripts/release-e2e.sh`, see `release-branch.md`), writing the stamp. retnd-tests is a public repository, so the e2e clones it with no token; do not export or
+   configure one for it.
 4. `scripts/release-e2e/attest.sh sign` and then `verify --expect-version`. The
    attestation (`release-attest/e2e.json` and `.sig`, an `ssh-keygen -Y` signature in the
    `retnd-e2e-attest` namespace) records the tree, version, command, host and time.
@@ -360,7 +411,7 @@ Order, stopping at the first failure:
    hook plainly.
 
 **How this differs from the process above.** The existing process prepares on
-`main` through a prep pull request (version shift, `record-release-hashes.sh` on mercury,
+`main` through a prep pull request (version shift, `record-release-hashes.sh` on the Mac,
 provenance, `record-local-gate.sh`) and then opens `main` into `release`. The script is
 the cut and attest layer for a `release-prep/v<version>` branch. It does not run
 `record-release-hashes.sh` (two architectures, needs a commit reachable from

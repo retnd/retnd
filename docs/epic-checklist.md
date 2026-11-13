@@ -265,7 +265,7 @@ synology, truenas, ugos, unraid, zimaos.
 - [ ] **Regenerate `docs/site/screens/`** with the capture scripts in
   `docs/site/tools/`: `capture-first-run.mjs`, `capture-reference.mjs`,
   `capture-ssh.mjs`, `capture-web-ui.mjs`, `capture-workflows.mjs`.
-  *(Ungated.)* 55 files today, 20 of them animated, plus 11 `.superseded` stills
+  *(Recording is ungated; that the tooling can still record is gated, #926: `scripts/ci-local.sh` runs `docs/site/tools/check-tools.mjs`, which encodes a clip, checks `EXAMPLE.port` against the wizard's `isPort` and checks every label the scripts drive still exists in `ui/shared/src`.)* 55 files today, 20 of them animated, plus 11 `.superseded` stills
   of wizard steps #788 deleted.
 - [ ] **A new screen or interaction gets a capture step added to the right
   script**, never a picture taken by hand. *(Ungated.)* A hand-taken image is one

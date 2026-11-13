@@ -180,7 +180,7 @@ CONTROLS = [
     Control(
         "AGENTS the compose edit guard left out of the closing check",
         ("U2.5",),
-        [(CLOSED_SH, 'if [ -n "$changed" ]; then\n  bad "the canonical container contract moved',
+        [(CLOSED_SH, 'if [ -n "$moved" ]; then\n  bad "the canonical container contract moved',
           'if false; then # ' + PLANT.split("// ", 1)[1] + "the contract guard is off.\n  bad \"the canonical container contract moved")],
         "",
         cmd=["bash", "scripts/tests/epic-u-closure.test.sh"],
