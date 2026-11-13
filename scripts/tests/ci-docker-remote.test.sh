@@ -40,7 +40,11 @@ echo "DOCKER_HOST=${DOCKER_HOST:-} docker $*" >> "$FAKE_LOG/docker"
 case "$1 ${2:-}" in
   "image inspect") [ "${FAKE_IMAGE:-0}" = 1 ]; exit $? ;;
   "volume ls") printf '%s' "${FAKE_VOLUMES:-}"; exit 0 ;;
-  "info --format") printf '%s\n' "${FAKE_DAEMON_OS-Docker Desktop}"; exit 0 ;;
+  "info --format")
+    case "$3" in
+      *NCPU*) printf '%s %s %s\n' "${FAKE_NCPU-8}" "${FAKE_MEMTOTAL-34359738368}" "${FAKE_SWAPLIMIT-true}"; exit 0 ;;
+    esac
+    printf '%s\n' "${FAKE_DAEMON_OS-Docker Desktop}"; exit 0 ;;
 esac
 case "$*" in *"stat -c %g /var/run/docker.sock"*) printf '%s\n' "${FAKE_SOCK_GID-0}"; exit 0 ;; esac
 case "$*" in *"test -f "*"/scripts/ci-local.sh"*) [ "${FAKE_MOUNT_EMPTY:-0}" != 1 ]; exit $? ;; esac
@@ -248,6 +252,65 @@ for good in 'u@h' 'ssh://u@h' 'ssh://u@h.example:2222' 'devshell@192.168.0.100';
   run_script bash "$script" --host "$good"
   if [ "$(rc)" = 0 ]; then pass "R6 control: host [$good] is accepted"; else fail "R6 control: host [$good] is accepted" "rc=$(rc) $(head -c 200 "$work/out")"; fi
 done
+
+# --- R6b the gate container is resource-limited (#1373) ----------------------
+# A memory limit, no swap (memory-swap equal to memory) and a CPU quota, so one
+# gate run cannot take the machine down with it. The env vars move the numbers.
+run_script bash "$script" --fast
+mem="$(gate_line | sed -nE 's/.*--memory[ =]([0-9]+[gGmM]).*/\1/p' | head -1)"
+if [ -n "$mem" ] && gate_line | grep -qE -- "--memory-swap[ =]$mem( |\$)" \
+   && gate_line | grep -qE -- '--cpus[ =][0-9.]+'; then
+  pass "R6b the gate container gets a memory limit, memory-swap equal to it, and a cpu quota"
+else
+  fail "R6b the gate container gets a memory limit, no swap and a cpu quota" "$(gate_line | head -c 500)"
+fi
+run_script env CI_DOCKER_MEMORY=3g CI_DOCKER_CPUS=2 bash "$script" --fast
+if gate_line | grep -qE -- '--memory[ =]3g' && gate_line | grep -qE -- '--memory-swap[ =]3g' && gate_line | grep -qE -- '--cpus[ =]2( |$)'; then
+  pass "R6b CI_DOCKER_MEMORY and CI_DOCKER_CPUS set the limits"
+else
+  fail "R6b CI_DOCKER_MEMORY and CI_DOCKER_CPUS set the limits" "$(gate_line | head -c 500)"
+fi
+
+# --- R6c the limits follow what the daemon has (#1373 panel) ------------------
+# Docker refuses --cpus above the daemon's CPU count, so a small Docker Desktop
+# VM would fail every gate run. The numbers are clamped to `docker info`, the
+# flags sit in their own fence, and a pids limit comes with them.
+run_script env FAKE_NCPU=4 bash "$script" --fast
+if gate_line | grep -qE -- '--cpus[ =]4( |$)' && gate_line | grep -qE -- '--pids-limit[ =]4096( |$)'; then
+  pass "R6c a daemon with 4 CPUs gets --cpus 4 (the default 6 is clamped) and --pids-limit 4096"
+else
+  fail "R6c the cpu quota is clamped to the daemon's NCPU" "$(gate_line | head -c 500)"
+fi
+run_script env FAKE_NCPU=4 CI_DOCKER_CPUS=2 bash "$script" --fast
+if gate_line | grep -qE -- '--cpus[ =]2( |$)'; then
+  pass "R6c a quota below the daemon's CPU count is kept as asked"
+else
+  fail "R6c a lower CI_DOCKER_CPUS is kept" "$(gate_line | head -c 500)"
+fi
+run_script env FAKE_MEMTOTAL=2147483648 bash "$script" --fast
+if gate_line | grep -qE -- '--memory[ =]2147483648( |$)' && gate_line | grep -qE -- '--memory-swap[ =]2147483648( |$)'; then
+  pass "R6c a daemon with 2 GiB gets that as the memory limit, and memory-swap equal to it"
+else
+  fail "R6c the memory limit is clamped to the daemon's MemTotal" "$(gate_line | head -c 500)"
+fi
+fences="$(gate_line | grep -oE -- '--memory[ =]' | wc -l | tr -d ' ')"
+if [ "$fences" = 1 ]; then
+  pass "R6c the fence is on the gate line once, not doubled"
+else
+  fail "R6c the fence appears once on the gate line" "$(gate_line | head -c 500)"
+fi
+run_script env FAKE_SWAPLIMIT=false bash "$script" --fast
+if [ "$(rc)" = 0 ] && grep -q 'ci-docker: WARNING' "$work/out" && grep -q 'swap' "$work/out"; then
+  pass "R6d a daemon that cannot limit swap gets one WARNING line and the run carries on"
+else
+  fail "R6d SwapLimit=false warns and continues" "rc=$(rc) $(head -c 400 "$work/out")"
+fi
+run_script bash "$script" --fast
+if ! grep -q 'ci-docker: WARNING' "$work/out"; then
+  pass "R6d control: with swap limits available there is no warning"
+else
+  fail "R6d control: no warning when SwapLimit=true" "$(head -c 400 "$work/out")"
+fi
 
 # --- R7 host selection ------------------------------------------------------
 run_script env CI_DOCKER_HOST=env@envhost bash "$script"

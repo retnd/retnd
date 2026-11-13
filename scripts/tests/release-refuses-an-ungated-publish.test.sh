@@ -22,7 +22,8 @@
 # the only thing that ever runs this workflow, so a test that executes the
 # script is the only place these refusals are ever performed.
 #
-# Thirteen behaviours, and the shape of the workflow around them:
+# Thirteen behaviours (plus the signature cases of #1373: unsigned, forged,
+# wrong namespace, edited after signing, no key in allowed_signers, override), and the shape of the workflow around them:
 #
 #    1. a commit carrying a record whose gate_tree matches publishes;
 #    2. a commit with no record does not;
@@ -81,6 +82,12 @@ rm -rf "$SANDBOX"
 mkdir -p "$SANDBOX"
 trap 'rm -rf "$SANDBOX"' EXIT
 
+# Throwaway ed25519 keys (#1373): the owner's stand-in and an impostor's.
+# Nothing here touches the real key or the real allowed_signers.
+ssh-keygen -q -t ed25519 -N '' -C test -f "$SANDBOX/owner" >/dev/null
+ssh-keygen -q -t ed25519 -N '' -C test -f "$SANDBOX/impostor" >/dev/null
+SIGNERS_LINE="retnd-release namespaces=\"retnd-local-gate,retnd-e2e-attest\" $(cut -d' ' -f1,2 "$SANDBOX/owner.pub")"
+
 # --- the script -----------------------------------------------------------
 #
 # scripts/release/verify-local-gate.sh is what the job runs, so it is what
@@ -123,10 +130,14 @@ new_case() {
   printf 'package main\n' >"$REPO/core/main.go"
   cp "$GATE_TREE" "$REPO/scripts/release/gate-tree.sh" 2>/dev/null || printf '#!/usr/bin/env bash\nexit 1\n' >"$REPO/scripts/release/gate-tree.sh"
   cp "$REPO_ROOT/core/go.mod" "$REPO/core/go.mod"
+  printf '# test signers\n%s\n' "${SIGNERS_OVERRIDE-$SIGNERS_LINE}" >"$REPO/provenance/allowed_signers"
   mkdir -p "$REPO/scripts/ci"
   cp "$REPO_ROOT/scripts/ci/pins.env" "$REPO/scripts/ci/pins.env" 2>/dev/null || :
   git_in "$REPO" add -A
   git_in "$REPO" commit -qm "${2:-Release 0.7.2}"
+  # The trust reference the verifier compares allowed_signers against (#1373
+  # panel): origin/main in the real repository, here a ref at the base commit.
+  git_in "$REPO" update-ref refs/remotes/origin/main HEAD
 }
 
 sha256_of() {
@@ -146,7 +157,7 @@ release_go() {
 # override the green defaults: tree=, result=, ledger=, schema=, go=,
 # log_sha256=, raw= (the literal file body, for the not-JSON case).
 write_record() {
-  local tree result ledger schema go raw log_sha log_bytes lint arg
+  local tree result ledger schema go raw log_sha log_bytes lint arg sigmode=good
   tree="$(cd "$REPO" && bash scripts/release/gate-tree.sh HEAD 2>/dev/null || echo 0000000000000000000000000000000000000000)"
   result=ok; ledger='[]'; schema='retnd.local-gate/1'; go="go$(release_go)"; raw=""; log_sha=""; log_bytes=""
   lint="$(sed -n 's/^GOLANGCI_LINT_VERSION=//p' "$REPO_ROOT/scripts/ci/pins.env" 2>/dev/null)"
@@ -160,6 +171,7 @@ write_record() {
       go=*) go="${arg#go=}" ;;
       lint=*) lint="${arg#lint=}" ;;
       raw=*) raw="${arg#raw=}" ;;
+      sig=*) sigmode="${arg#sig=}" ;;
       log_sha256=*) log_sha="${arg#log_sha256=}" ;;
     esac
   done
@@ -192,7 +204,16 @@ json.dump({
 }, open(path, "w"), indent=2)
 PY
   fi
+  # sig=good (default) signs with the owner's key; none leaves it unsigned;
+  # forged signs with another key; tampered edits the record after signing.
+  case "$sigmode" in
+    good|tampered) ssh-keygen -q -Y sign -n retnd-local-gate -f "$SANDBOX/owner" "$REPO/provenance/local-gate.json" ;;
+    forged) ssh-keygen -q -Y sign -n retnd-local-gate -f "$SANDBOX/impostor" "$REPO/provenance/local-gate.json" ;;
+    wrongns) ssh-keygen -q -Y sign -n something-else -f "$SANDBOX/owner" "$REPO/provenance/local-gate.json" ;;
+  esac
+  [ "$sigmode" != tampered ] || printf ' ' >>"$REPO/provenance/local-gate.json"
   git_in "$REPO" add provenance/local-gate.json provenance/local-gate.log
+  [ ! -f "$REPO/provenance/local-gate.json.sig" ] || git_in "$REPO" add provenance/local-gate.json.sig
   git_in "$REPO" commit -qm "${COMMIT_MESSAGE:-Record the local gate}"
 }
 
@@ -349,6 +370,84 @@ git_in "$REPO" rm -q provenance/local-gate.log
 git_in "$REPO" commit -qm "Lose the log"
 run_gate true
 expect "a record whose log is not in the commit does not publish" 1 "provenance/local-gate.log"
+
+# 8c. The signature (#1373). Good is case 1; here are the ways it fails.
+new_case unsigned
+write_record sig=none
+run_gate true
+expect "an unsigned record does not publish" 1 "the record is unsigned"
+expect "and the refusal names the signature file" 1 "provenance/local-gate.json.sig"
+
+new_case forged-sig
+write_record sig=forged
+run_gate true
+expect "a record signed by another key does not publish" 1 "does not verify"
+
+new_case wrong-namespace
+write_record sig=wrongns
+run_gate true
+expect "a signature made for another namespace does not publish" 1 "does not verify"
+
+new_case tampered
+write_record sig=tampered
+run_gate true
+expect "a record edited after it was signed does not publish" 1 "does not verify"
+
+SIGNERS_OVERRIDE="" new_case no-key
+write_record
+run_gate true
+expect "an allowed_signers with no key in it refuses" 1 "has no key in it"
+expect "and says the owner adds the key" 1 "docs/release-branch.md"
+
+# 8b. The key is read from the commit being judged, so a key swap has to be
+#     its own loud refusal (#1373 panel): the commit's allowed_signers is
+#     compared with the trust reference (origin/main) and a difference refuses.
+new_case swapped-signers
+printf '# swapped\nretnd-release namespaces="retnd-local-gate,retnd-e2e-attest" %s\n' "$(cut -d' ' -f1,2 "$SANDBOX/impostor.pub")" >"$REPO/provenance/allowed_signers"
+git_in "$REPO" commit -qam "Swap the signers"
+write_record sig=forged
+run_gate true
+expect "a forged record plus a swapped allowed_signers in the same commit does not publish" 1 "differs from"
+expect "and the refusal names the trust reference" 1 "origin/main"
+
+new_case swapped-signers-overridden "Cut 0.7.8
+
+Release-Gate-Override: rotating the release key, reviewed on the PR"
+printf '# swapped\nretnd-release namespaces="retnd-local-gate,retnd-e2e-attest" %s\n' "$(cut -d' ' -f1,2 "$SANDBOX/impostor.pub")" >"$REPO/provenance/allowed_signers"
+git_in "$REPO" commit -qam "Swap the signers"
+COMMIT_MESSAGE="Cut 0.7.8
+
+Release-Gate-Override: rotating the release key, reviewed on the PR" write_record sig=forged
+run_gate true
+expect "the override trailer is the way past a changed allowed_signers" 0 "release gate: OVERRIDDEN"
+
+new_case no-trust-ref
+write_record
+git_in "$REPO" update-ref -d refs/remotes/origin/main
+run_gate true
+expect "a checkout with no trust reference fails closed" 1 "trust reference"
+
+new_case trust-ref-env
+write_record
+git_in "$REPO" update-ref -d refs/remotes/origin/main
+git_in "$REPO" update-ref refs/remotes/elsewhere/main HEAD~1
+OUT="$(cd "$REPO" && RETND_TRUST_REF=refs/remotes/elsewhere/main PUBLISH=true GITHUB_STEP_SUMMARY=/dev/null bash "$SCRIPT" HEAD 2>&1)"; STATUS=$?
+expect "RETND_TRUST_REF names another reference to compare against" 0 "release gate: PASSED"
+
+new_case unsigned-overridden "Cut 0.7.3
+
+Release-Gate-Override: unsigned because the key is on a dead laptop"
+write_record sig=none
+git_in "$REPO" commit -q --amend -m "Cut 0.7.3
+
+Release-Gate-Override: unsigned because the key is on a dead laptop"
+run_gate true
+expect "the override trailer still publishes an unsigned record" 0 "release gate: OVERRIDDEN"
+
+new_case unsigned-dry-run
+write_record sig=none
+run_gate false
+expect "a dry run over an unsigned record reports it and exits 0" 0 "the record is unsigned"
 
 # 9. The escape hatch.
 new_case overridden "Cut 0.7.3

@@ -107,16 +107,22 @@ rather than in a settings page. Release prep ends by running
 `scripts/release/record-local-gate.sh` on the `main` tip being released. That runs
 the full gate in a fresh detached worktree at `HEAD`, with `CI=1`, and writes
 `provenance/local-gate.json` and `provenance/local-gate.log` only when the run exits
-0 with an empty skip ledger. The record names the tree it ran on (the commit's tree
-with exactly those two files left out, computed by `scripts/release/gate-tree.sh`),
-the tool versions, the duration and the hash of the log.
+0 with an empty skip ledger, then signs the record with
+`ssh-keygen -Y sign -n retnd-local-gate` into `provenance/local-gate.json.sig`. The
+record names the tree it ran on (the commit's tree with exactly those three files
+left out, computed by `scripts/release/gate-tree.sh`), the tool versions, the
+duration and the hash of the log. The private key is `RETND_GATE_KEY` (default
+`~/.ssh/retnd-release-attest`) and is only ever handed to `ssh-keygen`.
 
 `.github/workflows/release.yml` reads that record at publish time. Its
 `require-release-gate` job takes `provenance/local-gate.json` off the commit being
 published, recomputes the gate tree of that commit with the same script, and refuses
 to let `publish` run unless the two agree, the ledger is empty, the schema is the one
-it reads, the committed log hashes to what the record says, and the recorded Go is
-the Go the workflow builds with (same major.minor). It compares trees rather than
+it reads, the committed log hashes to what the record says, the recorded Go is
+the Go the workflow builds with (same major.minor), and the signature verifies
+(`ssh-keygen -Y verify -n retnd-local-gate`, principal `retnd-release`) against the
+public key in `provenance/allowed_signers`. A missing or invalid signature is a
+refusal, and so is an `allowed_signers` with no key in it. It compares trees rather than
 commits because the release pull request lands as GitHub's own merge commit, which
 no hook ever ran on; its tree is `main`'s tree whenever `release` is already an
 ancestor of `main`, which `merge-back-to-main` keeps true. If anything lands on
@@ -124,19 +130,48 @@ ancestor of `main`, which `merge-back-to-main` keeps true. If anything lands on
 naming both. That is the check working, and the answer is to re-run the recorder on
 the new tip.
 
-What it proves is that somebody with push rights ran the full suite on those bytes
-and it passed. It is self-asserted: anyone who can write a JSON file can write this
-one, the same way anyone could once dispatch `ci.yml` by hand on any ref. What stands
-against a forged record is review of the prep pull request, where the record and its
-log arrive as a diff, and the log itself, which the record hashes and
-`github-release` attaches to the GitHub Release, so forging the record means forging
-twenty-five minutes of output rather than one line. Signing the prep commit is the
-upgrade path if that is ever not enough. Whether a second person looked is rule 3's
-question, and the ruleset is what answers it.
+What it proves is that whoever holds the signing key ran the full suite on those
+bytes and it passed. The log is still hashed into the record and attached to the
+GitHub Release, and review of the prep pull request still applies, but a hand-typed
+record no longer passes: it has to carry a signature from the key in
+`allowed_signers`. Whether a second person looked is rule 3's question, and the
+ruleset is what answers it.
+
+**One key, one trust file.** `provenance/allowed_signers` carries the release key as a
+single line: principal `retnd-release`, namespaces `retnd-local-gate` (this record) and
+`retnd-e2e-attest` (the release e2e attestation of #1375), so the two documents stay apart
+by namespace and one rotation moves both. The key is the owner's
+`~/.ssh/retnd-release-attest`, fingerprint
+`SHA256:AwK0ZMvRajd0N2eQ4nGgPUa++/k4q4Rh3kNXi7Rkusw` (ED25519). Check it yourself with:
+
+```
+sed -n 's/^retnd-release [^ ]* //p' provenance/allowed_signers | ssh-keygen -lf /dev/stdin
+```
+
+Only the public half is in the repository. Rotating the key is a one-line change to that
+file through a reviewed pull request. It moves the gate tree (it is not one of the
+excluded files), so merge it before the record is made, not after.
+
+**The key is not taken on the commit's word.** Both verifiers compare the commit's
+`provenance/allowed_signers` with the copy on `origin/main` (`RETND_TRUST_REF` names
+another reference) and refuse when they differ, or when there is no reference to compare
+with. Without that, anyone who can push a branch could swap the key and sign their own
+record in the same commit. A rotation therefore lands on `main` first, and the
+`Release-Gate-Override: <reason>` trailer (12 or more characters) stays as the way past
+it, and past a lost key or an emergency. This does not defend against a compromised
+`main`: a key anchored outside the repository would, and that is a later issue.
+
+**Nothing verifies this at merge time while Actions is off.** `release.yml` is where
+`require-release-gate` runs, and the repository's Actions are disabled, so today nothing
+checks the signature when the release pull request merges and nothing publishes after it.
+The `release` ruleset (a pull request, merge commits only, no bypass actors) is what binds
+a merge. Run `PUBLISH=true bash scripts/release/verify-local-gate.sh <commit>` by hand on
+the release commit before you merge. Turning Actions back on for a publish is the owner's
+call and is not part of this change.
 
 `scripts/tests/release-refuses-an-ungated-publish.test.sh` pulls that job's script out
 of the workflow and runs it in throwaway repositories, once per outcome (a matching
-record, no record, a different tree, an INCOMPLETE ledger, the wrong Go, an unknown
+record, an unsigned, forged or edited signature, no record, a different tree, an INCOMPLETE ledger, the wrong Go, an unknown
 schema, a log that does not match, overridden, and overridden with no reason), and
 `scripts/tests/local-gate-record.test.sh` drives the recorder's refusals and then runs
 that same script over what the recorder wrote. Actions is the only thing that ever runs
@@ -187,8 +222,9 @@ check starts failing, loudly, on the next run rather than months later.
 5. Merge all of that to `main`, then on that tip, last, record the gate run:
    `bash scripts/release/record-local-gate.sh`. It refuses a dirty tree, any
    `CI_LOCAL_FAST` or `CI_LOCAL_SKIP_*` variable, and a clone without the hook, runs
-   the full gate in a detached worktree, and writes `provenance/local-gate.json` and
-   `provenance/local-gate.log` only on a complete green run. Merge those two files to
+   the full gate in a detached worktree, and writes `provenance/local-gate.json`, `provenance/local-gate.log` and the signature
+   `provenance/local-gate.json.sig` only on a complete green run (it signs with
+   `~/.ssh/retnd-release-attest`; if the key has a passphrase, have ssh-agent hold it). Merge those three files to
    `main` through a pull request; that review is what stands behind the record.
 6. Prove it before you publish it: dispatch the Release workflow with `publish: false`.
    That path runs every guard and the parity rebuild against the real tree and stops

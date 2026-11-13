@@ -74,6 +74,10 @@ die() { printf 'ci-docker: %s\n' "$*" >&2; exit 2; }
 #   CI_DOCKER_MIN_FREE_MB   refuse below this much free space (default 20480)
 #   CI_DOCKER_KEEP_CACHE    1 keeps the image and cache volumes for a faster next run
 #   CI_DOCKER_SYNC          rsync (default) or tar, for a host without rsync
+#   CI_DOCKER_MEMORY        memory limit of the gate container, no swap (default 12g,
+#                           clamped to the daemon's memory)
+#   CI_DOCKER_CPUS          CPU quota of the gate container (default 6, clamped to the
+#                           daemon's CPU count)
 #
 # Only ssh, docker and writes into the scratch directory happen on the host.
 remote=""
@@ -380,6 +384,43 @@ declare -a mounts=(
 # back to the host user whatever uid makes them, so the repository stays
 # owned by you.
 as_user=(--user "$ci_uid:$ci_gid")
+# The fence (#1373): a memory limit, memory-swap equal to it (so no swap), a
+# CPU quota and a pids limit, on every container that runs as the host user. One
+# runaway gate run then dies on its own instead of taking the host down with it.
+# CI_DOCKER_MEMORY and CI_DOCKER_CPUS move the numbers on a host that has more or
+# less to give, and both are clamped to what the daemon reports: Docker refuses
+# --cpus above its CPU count, so a small Docker Desktop VM would otherwise fail
+# every run. Asked once, after DOCKER_HOST is final.
+gate_mem="${CI_DOCKER_MEMORY:-12g}"
+gate_cpus="${CI_DOCKER_CPUS:-6}"
+d_ncpu=""; d_mem=""; d_swap=""
+read -r d_ncpu d_mem d_swap < <(docker info --format '{{.NCPU}} {{.MemTotal}} {{.SwapLimit}}' 2>/dev/null) || true
+mem_num="${gate_mem%[gGmMkK]}"
+case "$mem_num" in ""|*[!0-9]*) die "CI_DOCKER_MEMORY [$gate_mem] must be a whole number with an optional k, m or g" ;; esac
+case "$gate_mem" in
+  *[gG]) mem_bytes=$((mem_num * 1073741824)) ;;
+  *[mM]) mem_bytes=$((mem_num * 1048576)) ;;
+  *[kK]) mem_bytes=$((mem_num * 1024)) ;;
+  *) mem_bytes=$mem_num ;;
+esac
+case "$d_mem" in
+  ""|*[!0-9]*) : ;;
+  *) if [ "$mem_bytes" -gt "$d_mem" ]; then
+       say "the daemon has $d_mem bytes of memory, so the gate container gets that instead of $gate_mem"
+       gate_mem="$d_mem"
+     fi ;;
+esac
+case "$d_ncpu" in
+  ""|*[!0-9]*) : ;;
+  *) if awk -v a="$gate_cpus" -v b="$d_ncpu" 'BEGIN { exit !(a > b) }'; then
+       say "the daemon has $d_ncpu CPUs, so the gate container gets that instead of $gate_cpus"
+       gate_cpus="$d_ncpu"
+     fi ;;
+esac
+if [ "$d_swap" = false ]; then
+  printf 'ci-docker: WARNING the daemon cannot limit swap (SwapLimit=false), so the memory limit does not stop a run from swapping the host\n' >&2
+fi
+fence=(--memory "$gate_mem" --memory-swap "$gate_mem" --cpus "$gate_cpus" --pids-limit 4096)
 [ -n "$git_common" ] && [ -d "$git_common" ] && mounts+=(-v "$run_git:$run_git")
 
 # node_modules never comes from the host, and this is not an
@@ -518,7 +559,7 @@ case "${1:-}" in
   --shell)
     shift
     say "a shell in $image ($platform)"
-    launch docker run --rm -it --platform "$platform" "${mounts[@]}" "${as_user[@]}" -w "$run_repo" "$image" bash
+    launch docker run --rm -it --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" bash
     ;;
   --exec|--deps|--shell)
     docker run --rm --platform "$platform" "${mounts[@]}" --user 0:0 -w "$run_repo" "$image" \
@@ -532,22 +573,22 @@ case "${1:-}" in
     # --deps when the command does need them.
     shift
     [ "$#" -gt 0 ] || { echo "ci-docker: --exec needs a command" >&2; exit 2; }
-    launch docker run --rm --platform "$platform" "${mounts[@]}" "${as_user[@]}" -w "$run_repo" "$image" "$@"
+    launch docker run --rm --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" "$@"
     ;;
   --deps)
     shift
     say "installing dependencies if the lockfiles moved"
-    docker run --rm --platform "$platform" "${mounts[@]}" "${as_user[@]}" -w "$run_repo" "$image" bash -c "$bootstrap"
+    docker run --rm --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" bash -c "$bootstrap"
     [ "$#" -gt 0 ] || exit 0
-    launch docker run --rm --platform "$platform" "${mounts[@]}" "${as_user[@]}" -w "$run_repo" "$image" "$@"
+    launch docker run --rm --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" "$@"
     ;;
 esac
 
 docker run --rm --platform "$platform" "${mounts[@]}" --user 0:0 -w "$run_repo" "$image" bash -c "$prepare"
 
 say "installing dependencies if the lockfiles moved"
-docker run --rm --platform "$platform" "${mounts[@]}" "${as_user[@]}" -w "$run_repo" "$image" bash -c "$bootstrap"
+docker run --rm --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" bash -c "$bootstrap"
 
 say "running scripts/ci-local.sh in $image ($platform)"
-launch docker run --rm --platform "$platform" "${mounts[@]}" "${as_user[@]}" -w "$run_repo" "$image" \
+launch docker run --rm --platform "$platform" "${mounts[@]}" "${fence[@]}" "${as_user[@]}" -w "$run_repo" "$image" \
   bash scripts/ci-local.sh "$@"

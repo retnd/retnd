@@ -1,0 +1,10 @@
+# Public key allowed to sign the release gate's documents.
+# One key, one trust file, one principal (retnd-release), two namespaces:
+#   retnd-local-gate   provenance/local-gate.json   (#1373)
+#   retnd-e2e-attest   release-attest/e2e.json      (#1375)
+# Fingerprint SHA256:AwK0ZMvRajd0N2eQ4nGgPUa++/k4q4Rh3kNXi7Rkusw (ED25519).
+# Check it with: ssh-keygen -lf <(sed -n 's/^retnd-release [^ ]* //p' provenance/allowed_signers)
+# Rotating the key is a one-line change to this file, through a reviewed PR to
+# main. The verifiers compare this file with origin/main's copy, so a key that
+# arrives in the same commit as a record it signed is refused (docs/release-branch.md).
+retnd-release namespaces="retnd-local-gate,retnd-e2e-attest" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILYkmHqGbEEOfSCIKC7x8a1lKCSPRbSWEMRcd/w6wTsz
