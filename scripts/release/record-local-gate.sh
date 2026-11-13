@@ -130,6 +130,19 @@ if [ -n "${GOFLAGS+set}" ]; then
   esac
 fi
 
+# DOCKER_DEFAULT_PLATFORM forces every `docker run` and `docker build` onto one
+# platform. The gate's fixture images are amd64, so a shell that exports
+# linux/arm64 runs them in the wrong architecture and the record would claim a
+# run it did not make (0.7.2 lessons, #1410). Refused unless it names amd64.
+if [ -n "${DOCKER_DEFAULT_PLATFORM:-}" ]; then
+  case "$DOCKER_DEFAULT_PLATFORM" in
+    linux/amd64|linux/amd64/*) ;;
+    *)
+      refuse "DOCKER_DEFAULT_PLATFORM is set to '$DOCKER_DEFAULT_PLATFORM', which forces every container onto that platform."         "The gate's fixture images are amd64 and break under a forced non-amd64 default, so the record would not describe a real run."         "Fix: unset DOCKER_DEFAULT_PLATFORM and re-run."         "    unset DOCKER_DEFAULT_PLATFORM"
+      ;;
+  esac
+fi
+
 hooks_path="$(git config --get core.hooksPath || true)"
 if [ "$hooks_path" != ".husky" ]; then
   refuse "the pre-commit hook is not installed in this clone." \

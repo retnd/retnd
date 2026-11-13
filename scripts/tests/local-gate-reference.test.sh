@@ -13,7 +13,7 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
-cd "$repo_root"
+cd "$repo_root" || exit 1
 
 doc="docs/reference/local-gate.md"
 checks=0
