@@ -3,15 +3,18 @@
 #
 #   bash scripts/release/gate-tree.sh [<commit-ish>]     # default HEAD
 #
-# Prints the tree hash of the commit with exactly three paths left out:
+# Prints the tree hash of the commit with exactly five paths left out:
 # provenance/local-gate.json (the record), provenance/local-gate.log
-# (the gate output the record hashes) and provenance/local-gate.json.sig
-# (the record's ssh signature, #1373). Nothing else. The record describes
+# (the gate output the record hashes), provenance/local-gate.json.sig
+# (the record's ssh signature, #1373), and release-attest/e2e.json with
+# release-attest/e2e.json.sig (the signed release e2e attestation, #1375,
+# committed after the tree it vouches for). Exact paths: a third file under
+# release-attest/ is content and moves the hash. Nothing else. The record describes
 # the tree the gate ran on, and the record is committed INTO that tree
 # afterwards, so the hash has to be taken with the record itself out of
 # the picture, or writing the record would move the hash it records.
 #
-# Why only those three, and not release.yml's whole paths-ignore list: that
+# Why only those five, and not release.yml's whole paths-ignore list: that
 # list also carries scripts/install/install_docker_host.py, which is code
 # the release ships, and the manifest and canonical.json, which are data
 # the release ships. Leaving those out of the comparison would let any of
@@ -37,11 +40,11 @@ set -euo pipefail
 
 commit="${1:-HEAD}"
 
-# The three paths, named once. The recorder and the release job both call
+# The five exact paths, named once. The recorder and the release job both call
 # this script rather than carrying the list, and
 # scripts/tests/local-gate-record.test.sh pins that a change to any other
 # file under provenance/ DOES move the hash.
-EXCLUDED="provenance/local-gate.json provenance/local-gate.log provenance/local-gate.json.sig"
+EXCLUDED="provenance/local-gate.json provenance/local-gate.log provenance/local-gate.json.sig release-attest/e2e.json release-attest/e2e.json.sig"
 
 tree="$(git rev-parse --verify --quiet "${commit}^{tree}")" || {
   echo "gate-tree: ${commit} does not name a commit in this repository" >&2

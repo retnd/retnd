@@ -312,6 +312,30 @@ else
   fail "R6d control: no warning when SwapLimit=true" "$(head -c 400 "$work/out")"
 fi
 
+# --- R6e the remote container is named and removed on every exit (#1375 panel) ----
+# An interrupted or dropped ssh session can leave the fenced container running
+# on the host while the scratch directory is deleted under it.
+run_script bash "$script" --host "$host" --fast
+name="$(gate_line | sed -nE 's/.*--name ([^ ]+).*/\1/p' | head -1)"
+if case "$name" in ci-docker-*) true ;; *) false ;; esac && gate_line | grep -q -- '--label retnd.ci-docker=1' \
+   && grep -q "docker rm -f $name" "$log/docker"; then
+  pass "R6e a remote run names its container ci-docker-<pid>-<epoch>, labels it, and docker rm -f's it on cleanup"
+else
+  fail "R6e named remote container removed by cleanup" "name=[$name] $(gate_line | head -c 400) | $(grep 'rm -f' "$log/docker" | head -2)"
+fi
+FAKE_GATE_RC=1 run_script env FAKE_GATE_RC=1 bash "$script" --host "$host" --fast
+if grep -q 'docker rm -f ci-docker-' "$log/docker"; then
+  pass "R6e the container is removed when the gate is red, too"
+else
+  fail "R6e container removed on a red gate" "$(grep 'rm -f' "$log/docker" | head -2)"
+fi
+run_script bash "$script" --fast
+if ! gate_line | grep -q -- '--name '; then
+  pass "R6e a local run does not name its container"
+else
+  fail "R6e local run unnamed" "$(gate_line | head -c 300)"
+fi
+
 # --- R7 host selection ------------------------------------------------------
 run_script env CI_DOCKER_HOST=env@envhost bash "$script"
 if grep -q 'DOCKER_HOST=ssh://env@envhost ' "$log/docker"; then pass "R7a CI_DOCKER_HOST selects the host"; else fail "R7a CI_DOCKER_HOST selects the host" "$(head -2 "$log/docker")"; fi
