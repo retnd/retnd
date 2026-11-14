@@ -24,8 +24,11 @@ func TestTheRowCapHoldsUnderThreeTokensAtTheLimit(t *testing.T) {
 	}
 	r := newDurableRig(t)
 	ctx := context.Background()
-	clock := time.Date(2026, 11, 11, 8, 0, 0, 0, time.UTC)
-	r.svc.audit.now = func() time.Time { return clock }
+	// The writer's goroutine reads the clock on its tick, so it is atomic.
+	var clock atomic.Int64
+	clock.Store(time.Date(2026, 11, 11, 8, 0, 0, 0, time.UTC).UnixNano())
+	at := func() time.Time { return time.Unix(0, clock.Load()).UTC() }
+	r.svc.audit.now = at
 	const (
 		rowCap = 500
 		rate   = 11_000
@@ -35,14 +38,14 @@ func TestTheRowCapHoldsUnderThreeTokensAtTheLimit(t *testing.T) {
 		rows := make([]state.AgentAudit, rate)
 		for i := range rows {
 			rows[i] = state.AgentAudit{
-				At: clock.Add(time.Duration(i) * time.Second / 4), TokenID: fmt.Sprintf("agt_%d", i%3),
+				At: at().Add(time.Duration(i) * time.Second / 4), TokenID: fmt.Sprintf("agt_%d", i%3),
 				Tool: "status", Transport: "http", Status: 200,
 			}
 		}
 		if err := r.journal.InsertAgentAudits(ctx, rows); err != nil {
 			t.Fatal(err)
 		}
-		clock = clock.Add(time.Hour)
+		clock.Add(int64(time.Hour))
 		if _, err := r.svc.PruneAgentAudit(ctx); err != nil {
 			t.Fatal(err)
 		}
