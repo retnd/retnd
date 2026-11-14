@@ -57,6 +57,13 @@ func moved(t *testing.T, dir, base string) []string {
 func movedSince(ctx context.Context, repo, dir, base string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
+	// The same check check-epic-u-closed.sh makes before it calls the script:
+	// the script reads git's failure as no output, so a base this checkout
+	// does not have has to be refused here, or it reads as nothing moved.
+	verify := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--verify", "--quiet", base+"^{commit}")
+	if err := verify.Run(); err != nil {
+		return nil, fmt.Errorf("the base commit %s is not in this checkout, so nothing can be compared to it (fetch the full history): %w", base, err)
+	}
 	cmd := exec.CommandContext(ctx, "bash", filepath.Join(repo, "scripts", "release", "contract-unchanged.sh"), base)
 	cmd.Dir = dir
 	var out, errb bytes.Buffer
