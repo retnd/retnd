@@ -42,10 +42,9 @@
 #
 # Run directly (`bash scripts/tests/ci-local-gate.test.sh`) or let the gate
 # run it: scripts/ci-local.sh invokes it in a non-FAST run.
-# shellcheck disable=SC1090,SC2016,SC2034
+# shellcheck disable=SC1090,SC2016
 # SC1090: GATE_LIB is a sandboxed copy of the library, sourced in subshells.
 # SC2016: the single quotes are deliberate (sed patterns and generated stubs).
-# SC2034: a couple of capture and loop variables run a command, they are not read.
 set -uo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
