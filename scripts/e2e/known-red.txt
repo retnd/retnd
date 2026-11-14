@@ -59,7 +59,7 @@
 # in ` *` is a prefix: six retnd-tests titles end in a parenthesis naming
 # that repository's old issue tracker, and the former-name guard allows
 # that word in no tracked file here, so they are listed up to it.
-pin=36e018bdca96579b1a0444e31201a05f9a1ba6ad
+pin=51b072db71f6cf56afe2e5e1b55cdd561c7f1135
 cap=2
 skips=95
 floor=200
