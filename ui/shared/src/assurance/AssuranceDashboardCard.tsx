@@ -25,7 +25,7 @@ import { AssuranceLink } from "./AssuranceLink";
 import { BUCKET_NONE, bucketLinkName } from "./buckets";
 import type { Bucket } from "./claims";
 import { AssuranceDueList } from "./AssuranceDueList";
-import { DEFAULTS_LINK, useFactsIndex, useTally } from "./verificationModel";
+import { DEFAULTS_LINK, useClaimsSettled, useFactsIndex, useTally } from "./verificationModel";
 
 const LABEL: Record<Bucket, string> = { due: "Due", overdue: "Overdue", degraded: "Degraded", untested: "No recovery test" };
 const ORDER: Bucket[] = ["due", "overdue", "degraded", "untested"];
@@ -34,11 +34,11 @@ export function AssuranceDashboardCard({ readOnly = false }: { readOnly?: boolea
   const api = useApi();
   const tally = useTally();
   const facts = useFactsIndex();
+  // #1428: the card is always present, with its counts unknown until the claims
+  // are read. What grows when they arrive (the due list, the note) is held, and
+  // so is what sits below the card (DashboardPage), so nothing moves.
+  const settled = useClaimsSettled(!!api.assurance);
   if (!api.assurance) return null;
-  // #1428: drawn once the claims have been read (or the read has failed, which
-  // the card says). Drawn first as four "unknown" counts, it grew by the due
-  // list and the note when the claims arrived, under the reader.
-  if (!facts.ready && !facts.error) return null;
   const known = tally.known;
   // How many of the untested backups sit in a set on the default configuration:
   // the reason there is nothing to test with, said beside the count.
@@ -71,9 +71,11 @@ export function AssuranceDashboardCard({ readOnly = false }: { readOnly?: boolea
       </div>
       <div className="card__body" style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
         {ORDER.map(cell)}
-        <AssuranceDueList tally={tally} byArtifact={facts.byArtifact} readOnly={readOnly} />
+        {settled ? <AssuranceDueList tally={tally} byArtifact={facts.byArtifact} readOnly={readOnly} /> : (
+          <span role="status" style={{ flexBasis: "100%", color: "var(--text-2)", fontSize: "var(--text-sm)" }}>Reading assurance...</span>
+        )}
         {facts.error ? <span role="alert">Could not read assurance, so these are unknown rather than zero.</span> : null}
-        {known && tally.untested > 0 ? (
+        {settled && known && tally.untested > 0 ? (
           <p data-testid="assurance-untested-note" style={{ flexBasis: "100%", margin: 0, color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
             {"No recovery test is on record for " + tally.untested + " of " + tally.total + (tally.total === 1 ? " backup" : " backups") +
               ", so a zero in Due does not mean they were tested."}
