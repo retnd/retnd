@@ -4,6 +4,13 @@
 # corpus (UV.17, UC-02) (#1348, #1352). Exec'd by selftest.py with Control and
 # PLANT defined.
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for the type checker: at run time selftest.py execs this file
+    # with both names already in scope.
+    from bdtools.agents.selftest import PLANT, Control
+
 AUDIT = "core/service/agentaudit.go"
 PROJECT = "core/agenttools/project.go"
 SERVER = "core/agentmcp/server.go"

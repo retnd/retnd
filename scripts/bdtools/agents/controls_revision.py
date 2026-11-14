@@ -1,6 +1,13 @@
 # The run-proposal revision guard: the UV.22 ledger line (#1387, #1380).
 # Exec'd by selftest.py with Control and PLANT defined.
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for the type checker: at run time selftest.py execs this file
+    # with both names already in scope.
+    from bdtools.agents.selftest import PLANT, Control
+
 REV_CONFIRMATIONS = "apps/common/webhost/agentconfirmations.go"
 REV_ERRORS = "apps/common/webhost/errors.go"
 REV_SERVICE = "core/service/agentconfirmations.go"

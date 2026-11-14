@@ -5,6 +5,13 @@
 # names, in the product file the matrix cites, and the narrowed test that
 # claims the row has to go red naming itself.
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for the type checker: at run time selftest.py execs this file
+    # with both names already in scope.
+    from bdtools.agents.selftest import PLANT, Control
+
 SVC_TOKENS = "core/service/agenttokens.go"
 WH_ACCESS = "apps/common/webhost/agentaccess.go"
 WH_CSRF = "apps/common/webhost/csrf.go"

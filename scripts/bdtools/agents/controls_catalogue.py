@@ -5,6 +5,13 @@
 # Each plant is one violation named in the row's Falsification cell. The red
 # run has to name the test the row cites; the clean run has to pass it.
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for the type checker: at run time selftest.py execs this file
+    # with both names already in scope.
+    from bdtools.agents.selftest import PLANT, Control
+
 TOOLS_GO = "core/agenttools/tools.go"
 ROUTER_GO = "apps/common/webhost/router.go"
 AGENTACCESS_GO = "apps/common/webhost/agentaccess.go"

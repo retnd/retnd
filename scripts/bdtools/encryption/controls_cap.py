@@ -14,6 +14,13 @@
 # node_modules needs `npm ci` plus `playwright-core@1.62.1 --no-save`,
 # installed inside the same image, so the harness can borrow Playwright.
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for the type checker: at run time selftest.py execs this file
+    # with both names already in scope.
+    from bdtools.encryption.selftest import Control
+
 import os
 
 CAP_LOCK = "/Users/rom/workspace/xdg-pw-lock.sh"
