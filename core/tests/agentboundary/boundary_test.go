@@ -3,6 +3,7 @@ package agentboundary_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,14 +45,24 @@ func root(t *testing.T) string {
 // Anything else, an untracked file included, still is.
 func moved(t *testing.T, dir, base string) []string {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	files, err := movedSince(t.Context(), root(t), dir, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+// movedSince is moved without the testing.T, so the drill below can hold a
+// refusal to being an error rather than an empty answer.
+func movedSince(ctx context.Context, repo, dir, base string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "bash", filepath.Join(root(t), "scripts", "release", "contract-unchanged.sh"), base)
+	cmd := exec.CommandContext(ctx, "bash", filepath.Join(repo, "scripts", "release", "contract-unchanged.sh"), base)
 	cmd.Dir = dir
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("contract-unchanged.sh %s: %v\n%s", base, err, errb.String())
+		return nil, fmt.Errorf("contract-unchanged.sh %s: %w\n%s", base, err, errb.String())
 	}
 	var files []string
 	for _, l := range strings.Split(out.String(), "\n") {
@@ -59,7 +70,7 @@ func moved(t *testing.T, dir, base string) []string {
 			files = append(files, l)
 		}
 	}
-	return files
+	return files, nil
 }
 
 // boundary is the host runner and the ADR that fixes its privilege: the
@@ -164,6 +175,22 @@ func TestTheCanonicalDeploymentDrill_WouldCatchOne(t *testing.T) {
 	write("core/internal/hostrunner/runner.go", "package hostrunner\n\nconst widen = true\n")
 	if got := changed(t, dir, head, boundary); len(got) != 1 {
 		t.Errorf("a line added to the runner reads as %v", got)
+	}
+}
+
+// A base this checkout does not have is a refusal, never an empty diff: the
+// script git-diffs against it, git fails on stderr, and an empty stdout would
+// otherwise read as "nothing moved" for any EPIC_U_BASE at all.
+func TestTheCanonicalDeploymentDrill_RefusesABaseItDoesNotHave(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "README"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "init", "-q")
+	git(t, dir, "-c", "user.name=drill", "-c", "user.email=drill@example.invalid", "add", "-A")
+	git(t, dir, "-c", "user.name=drill", "-c", "user.email=drill@example.invalid", "commit", "-qm", "base", "--no-verify")
+	if got, err := movedSince(t.Context(), root(t), dir, "deadbeef"); err == nil {
+		t.Errorf("a base that is not in the checkout read as a clean comparison: %v", got)
 	}
 }
 
