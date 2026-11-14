@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-## [0.8.0] - 2026-11-10
+## [0.8.0] - 2026-11-13
 
 0.8.0 is a minor release, and nearly all of it is one feature: encrypted retained copies (EPIC N, #967), with
 encryption suites on top (EPIC T, #1310), and an MCP server so an agent can look at a deployment without being
