@@ -252,7 +252,9 @@ describe("the dashboard's Recent activity panel does not swallow the same failur
     );
     await act(async () => {});
 
-    const panel = screen.getByRole("region", { name: "Recent activity" });
+    // The panel waits for the assurance claims above it to settle (#1428), so a
+    // feed with nothing in it is found once they have, not on the first tick.
+    const panel = await screen.findByRole("region", { name: "Recent activity" }, { timeout: 4500 });
     expect(within(panel).queryByRole("alert")).toBeNull();
   });
 });

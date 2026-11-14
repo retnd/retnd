@@ -43,7 +43,7 @@ import { ClaimChips } from "@shared/assurance/ClaimChips";
 import { BUCKETS } from "@shared/assurance/claims";
 import type { Bucket } from "@shared/assurance/claims";
 import { bucketPhrase } from "@shared/assurance/buckets";
-import { useFactsIndex, useTally } from "@shared/assurance/verificationModel";
+import { useClaimsSettled, useFactsIndex, useTally } from "@shared/assurance/verificationModel";
 import { RetentionPreviewDialog } from "./RetentionPreviewDialog";
 import { bytes, stamp } from "@shared/utilities/format";
 import { useHoverTitle } from "@shared/hooks/useTooltips";
@@ -200,6 +200,11 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // "could not ask" is not an answer to draw as one.
   const facts = useFactsIndex();
   const tally = useTally();
+  // #1428: the rows are held back until the claims have been read (or the read
+  // failed, or four seconds went by), so a row is drawn once, at the height its
+  // chips give it. Drawn first with "Unknown" chips, every row grew when the
+  // claims arrived and the page got far taller under the reader.
+  const holdRows = !useClaimsSettled(!!api.assurance);
   // The Dashboard's counts link here as ?assurance=<bucket>, and the filter
   // is the same definition the count is made of (claims.bucketsOf).
   const asked = params.get("assurance");
@@ -421,7 +426,10 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
         </div>
       ) : null}
       <MenuRuns runs={rowRuns.runs} assurance={api.assurance} readOnly={readOnly} onState={rowRuns.onState} onDismiss={rowRuns.dismiss} />
-      {!artifacts.data || artifacts.loading ? null : rows.length === 0 && fetched.length > 0 ? (
+      {artifacts.data && !artifacts.loading && holdRows ? (
+        <p role="status" data-testid="backups-reading-claims" style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>Reading what is known about each backup...</p>
+      ) : null}
+      {!artifacts.data || artifacts.loading || holdRows ? null : rows.length === 0 && fetched.length > 0 ? (
         <EmptyState title="No backups in that range">
           Nothing was received between those dates. Clear a date to widen the list.
         </EmptyState>
