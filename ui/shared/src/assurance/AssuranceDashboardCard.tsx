@@ -35,6 +35,10 @@ export function AssuranceDashboardCard({ readOnly = false }: { readOnly?: boolea
   const tally = useTally();
   const facts = useFactsIndex();
   if (!api.assurance) return null;
+  // #1428: drawn once the claims have been read (or the read has failed, which
+  // the card says). Drawn first as four "unknown" counts, it grew by the due
+  // list and the note when the claims arrived, under the reader.
+  if (!facts.ready && !facts.error) return null;
   const known = tally.known;
   // How many of the untested backups sit in a set on the default configuration:
   // the reason there is nothing to test with, said beside the count.
