@@ -292,9 +292,13 @@ make_full_tree() {
   # warning both ways).
   mkdir -p "$tree/.husky"
   cp "$REPO_ROOT/.husky/pre-commit" "$tree/.husky/pre-commit"
-  if [ -f "$REPO_ROOT/.husky/prepare-commit-msg" ]; then
-    cp "$REPO_ROOT/.husky/prepare-commit-msg" "$tree/.husky/prepare-commit-msg"
-  fi
+  # scripts/install-hooks.sh refuses a tree missing any of the four hooks it
+  # installs, so Group N4 needs all of them here, not just the two it reads.
+  for hook in prepare-commit-msg pre-merge-commit pre-push; do
+    if [ -f "$REPO_ROOT/.husky/$hook" ]; then
+      cp "$REPO_ROOT/.husky/$hook" "$tree/.husky/$hook"
+    fi
+  done
   chmod +x "$tree/.husky/"*
   (cd "$tree" && git config core.hooksPath .husky)
 
@@ -463,6 +467,17 @@ make_full_tree() {
   mkdir -p "$tree/scripts/docs"
   for docs in check-package-doc selftest; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/docs/$docs.sh"
+  done
+
+  # The docs-site capture tooling step (#926) runs `node --test` on the real
+  # tool test and then the checker, and the fixture has no docs/site/tools, so
+  # on any host with node on PATH the step failed before the gate reached its
+  # last line and every full-tree case below went red with no plant in it.
+  # Two stubs that exit 0 keep the step in the fixture without its browser
+  # and ffmpeg work.
+  mkdir -p "$tree/docs/site/tools"
+  for tool in check-tools check-tools.test; do
+    printf 'process.exit(0);\n' >"$tree/docs/site/tools/$tool.mjs"
   done
 
   # Stubs for the release-script guard suites the gate runs, for the same
