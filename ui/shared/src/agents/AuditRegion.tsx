@@ -120,6 +120,7 @@ export function AuditRegion({ tokens, tools, revision }: { tokens: AgentToken[];
                 placeholder="24h"
                 autoComplete="off"
                 spellCheck={false}
+                aria-label="Since"
                 aria-describedby={helpId}
                 onChange={(e) => setSinceDraft(e.target.value)}
                 onBlur={commitSince}

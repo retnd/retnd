@@ -1,5 +1,5 @@
 /**
- * Adding a backup set, in six steps, and the same six steps as an
+ * Adding a backup set, in eight steps, and the same steps as an
  * unconfigured instance's first run.
  *
  * Nearly all of the state here is local, and that is a decision rather

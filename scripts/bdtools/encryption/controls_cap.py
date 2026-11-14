@@ -14,8 +14,18 @@
 # node_modules needs `npm ci` plus `playwright-core@1.62.1 --no-save`,
 # installed inside the same image, so the harness can borrow Playwright.
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for the type checker: at run time selftest.py execs this file
+    # with both names already in scope.
+    from bdtools.encryption.selftest import Control
+
+import os
+
 CAP_LOCK = "/Users/rom/workspace/xdg-pw-lock.sh"
-CAP_TREE = "/Users/rom/workspace/retnd-lanes/rel080-cap-wt"
+# The tree whose ui/shared/node_modules the copy links to: the one the run is made from.
+CAP_TREE = os.environ.get("RETND_CAP_TREE", "/Users/rom/workspace/retnd-lanes/rel080-cap-wt")
 CAP_IMAGE = "mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e"
 CAP_LINKS = ["ui/shared/node_modules"]
 CAP_TAG = "retnd-capture:1.62.1"

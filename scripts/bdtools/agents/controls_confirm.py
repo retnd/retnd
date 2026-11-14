@@ -2,6 +2,13 @@
 # ledger lines (#1349, #1353). Exec'd by selftest.py with Control and PLANT
 # defined.
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for the type checker: at run time selftest.py execs this file
+    # with both names already in scope.
+    from bdtools.agents.selftest import PLANT, Control
+
 CNF_WEB = "apps/common/webhost/agentconfirmations.go"
 CNF_ACCESS = "apps/common/webhost/agentaccess.go"
 CNF_GATE = "apps/common/webhost/gate_profile.go"

@@ -61,7 +61,8 @@ for rid in args.row:
     date = min(r["stamp"] for r in labels)[:10]
     commits = sorted({r["commit"].split("+")[0] for r in labels})
     sentence = (
-        f'Run {date} on {" and ".join(hosts)}, image {args.image} (Playwright rows: the pinned Playwright 1.62.1 image), '
+        f'Run {date} on {" and ".join(hosts)}, image {args.image} '
+        "(Playwright rows: the pinned Playwright 1.62.1 image), "
         f'commit {", ".join(commits)}, by `scripts/bdtools/agents/selftest.py`: '
         + "; ".join(f'"{r["label"]}"' for r in labels)
         + " each turned its named test red and went green again with the file restored."

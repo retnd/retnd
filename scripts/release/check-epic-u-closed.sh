@@ -12,7 +12,10 @@
 #      distribution/packaging/*.json and apps/common/platform/capabilities/.
 #      An agent is a client of /api/v1 and the engine is the same container
 #      with the same mounts, so nothing this epic ships changes how a container
-#      is run, and an untracked file in one of those places counts as a change;
+#      is run, and an untracked file in one of those places counts as a change. The
+#      release version is set aside (#1331, #1407): a cut moves the image tag
+#      and canonical.json's release record, which is not a change to how a
+#      container runs, so a cut alone passes (contract-unchanged.sh);
 #   2. the epic added exactly one migration, 0022_agent_access.sql (the three
 #      agent tables), and nothing else under core/migrations/ moved;
 #   3. no row of docs/conformance/epic-u-matrix.md is BLOCKED (named here, row
@@ -48,23 +51,13 @@ if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
   exit 2
 fi
 
-# 1. The canonical deployment.
-paths=(
-  container/compose.yaml
-  ':(glob)apps/*/compose/**'
-  apps/unraid/template
-  apps/truenas/catalog
-  distribution/packaging/canonical.json
-  distribution/packaging/compliance.json
-  distribution/packaging/conformance.json
-  distribution/packaging/submission.json
-  apps/common/platform/capabilities
-)
-changed="$(git diff --name-only "$base" -- "${paths[@]}"; git ls-files --others --exclude-standard -- "${paths[@]}")"
-if [ -n "$changed" ]; then
-  bad "the canonical container contract moved since $base:$(printf '\n         %s' $changed)"
+# 1. The canonical container contract. A release version alone is not a move
+# (scripts/release/contract-unchanged.sh holds the rule for all three checks).
+moved="$(bash "$(dirname "$0")/contract-unchanged.sh" "$base")"
+if [ -n "$moved" ]; then
+  bad "the canonical container contract moved since $base (a release version bump alone is not a move):$(printf '\n         %s' $moved)"
 else
-  ok "the canonical container contract is an empty diff against $base"
+  ok "the canonical container contract is an empty diff against $base, apart from the release version"
 fi
 
 # 2. The epic's one migration, and no other.

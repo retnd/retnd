@@ -1,6 +1,13 @@
 # EPIC N's NV.n ledger and N2.n exit-gate rows (#998): the planted violations
 # their PASS rows cite. Exec'd by selftest.py with Control and PLANT defined.
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for the type checker: at run time selftest.py execs this file
+    # with both names already in scope.
+    from bdtools.encryption.selftest import PLANT, Control
+
 CANARY = "AGE-SECRET-KEY-1PLANTEDCANARYQQQQQQQQQQQQQQ"
 
 JOURNAL_GO = "core/internal/state/journal.go"
@@ -293,8 +300,8 @@ CONTROLS = [
     Control(
         "N2 a broken link in the encrypted copies page",
         ("N2.7",),
-        [("docs/encrypted-copies.md", "the [changelog](../CHANGELOG.md) names. Do not write the key",
-          "the [changelog](../CHANGELOG-planted-gone.md) names. Do not write the key")],
+        [("docs/encrypted-copies.md", "one-way door the [changelog](../CHANGELOG.md) names",
+          "one-way door the [changelog](../CHANGELOG-planted-gone.md) names")],
         "./tests/assurancegate/",
         ["TestEveryLinkInTheSiteAndTheDocsResolves"],
     ),

@@ -12,6 +12,13 @@
 # scripts/bdtools/encryption/controls_ui.py). The Go and shell controls run
 # wherever the driver runs.
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for the type checker: at run time selftest.py execs this file
+    # with both names already in scope.
+    from bdtools.agents.selftest import PLANT, Control
+
 UI_LOCK = "/Users/rom/workspace/xdg-pw-lock.sh"
 UI_TREE = "/Users/rom/workspace/retnd-lanes/rel080-matrix-wt"
 UI_PW_IMAGE = "mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e"
@@ -180,7 +187,7 @@ CONTROLS = [
     Control(
         "AGENTS the compose edit guard left out of the closing check",
         ("U2.5",),
-        [(CLOSED_SH, 'if [ -n "$changed" ]; then\n  bad "the canonical container contract moved',
+        [(CLOSED_SH, 'if [ -n "$moved" ]; then\n  bad "the canonical container contract moved',
           'if false; then # ' + PLANT.split("// ", 1)[1] + "the contract guard is off.\n  bad \"the canonical container contract moved")],
         "",
         cmd=["bash", "scripts/tests/epic-u-closure.test.sh"],

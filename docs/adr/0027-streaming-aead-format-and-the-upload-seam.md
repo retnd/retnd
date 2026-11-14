@@ -6,6 +6,14 @@
   commit of #989 on purpose: the issue asks for the cryptography to be decided before any is
   written, and the configuration model and migration 0015 that follow it in the same pull
   request read their names from here. Nothing in this pull request encrypts anything.
+- Superseded in part by [ADR 0033](0033-encryption-suite-agility.md): Decisions 1 and 2 below
+  no longer describe the build as shipped (the format is chosen among registered suites, and
+  the default key is the hybrid post-quantum one). Each of the two says so where it is stated.
+  The criteria, the candidate comparison, the chunking, the two-digest model, the upload seam
+  and the rule that `keyencryption.go` is not used for artifact material all stand. Corrections
+  to three factual statements (where the dependency landed, how many modules it added, and where
+  the library is imported) were made on 2026-11-13 (#1424) and are marked as corrections where
+  they sit; nothing else in the record was reworded.
 - Date: 2026-11-09
 - Scope: EPIC N (#967), FR-59 and FR-60. Recorded by N1.1 (#989).
 
@@ -130,12 +138,22 @@ without touching material (FR-64). For sio all of that plumbing would be invente
    and `format_version = 1` in `placement_encryption` (migration 0015). The format is a
    property of the build, never a config field, and a second format is a new id and version
    per copy, not a knob.
+   *Superseded in part by ADR 0033 (2026-11-10): this sentence no longer holds as written. A
+   global `suite:` field now chooses among the suites the build registers (`age/v1` and
+   `age-pq/v1`), `age/v1` keeps exactly the meaning given here, and each copy still records the
+   suite id it was written under. The `format_id`, `format_version` and library statements in
+   this decision stand.*
 2. **A key is an X25519 identity.** A managed key is generated with
    `age.GenerateX25519Identity` and held as a 0600 file in a 0700 directory under the custody
    rule `secretref.checkSecretFileCustody` enforces (#990). An external key is the same
    identity string behind a `secretref`-shaped `file`/`env`/`command` reference and nothing
    else. The recipient (public half) is stored in `encryption_keys.recipient` and is the only
    key-related string that reaches a surface. No scrypt recipient.
+   *Superseded in part by ADR 0033 (2026-11-10): an X25519 identity is the key of the `age/v1`
+   suite only. The default suite for a new key is now `age-pq/v1`, whose key is an ML-KEM-768 +
+   X25519 hybrid identity (the post-quantum option this ADR left to the owner under
+   Consequences). The custody rule, the file and directory modes, the external-key references
+   and the rule that only the recipient reaches a surface are unchanged.*
 3. **Nothing cryptographic is designed here.** No envelope, no KDF, no nonce scheme. The one
    place a wrapper was tempting, carrying the key id beside the ciphertext, is not needed: the
    key id lives in the journal and in the recovery sidecar (#992), and age's header already
@@ -150,7 +168,9 @@ without touching material (FR-64). For sio all of that plumbing would be invente
    what refuses them. Two key concepts under one name in a file read with `KnownFields(true)`
    would be unrecoverable, which is why the existing name is left alone.
 5. **The dependency lands with the first encryption code (#991), not with this pull request.**
-   See "Licence, toolchain and the module graph" for exactly what comes in.
+   *Correction, 2026-11-13: it landed with the key-custody code in #990 (commit `d341de23`,
+   which added `filippo.io/age v1.3.2` to `core/go.mod`), because that was the first code to
+   import it. #991 added no module.* See "Licence, toolchain and the module graph" for exactly what comes in.
 
 ## Chunking
 
@@ -276,12 +296,17 @@ and `go.sum` are unchanged here. Checked on 2026-11-09 against `core/go.mod` (`g
 | `golang.org/x/term` | age wants v0.45.0 | | BSD-3-Clause | v0.47.0 indirect, already newer |
 
 Module selection therefore adds four modules and moves no existing one, and no `go` directive
-in the new set exceeds the repository's pin. Licence texts were read from each repository's
+in the new set exceeds the repository's pin.
+*Correction, 2026-11-13: that was the prediction, and it was wrong. The change that landed (#990)
+added two modules to `core/go.mod`: `filippo.io/age` v1.3.2 (direct) and `filippo.io/hpke` v0.4.0
+(indirect). `filippo.io/edwards25519` and `filippo.io/nistec` are not in `core/go.mod` or
+`core/go.sum` at all, so the table rows above for those two describe modules the build does not
+use. `NOTICE` and `provenance/third-party-licenses.json` list the two that are there.* Licence texts were read from each repository's
 `LICENSE` on the same day (copyright holders: The age Authors and Google LLC for age; The Go
 Authors for the others). A Tink choice would have added `google.golang.org/protobuf` as a
 direct dependency and sio would have added one module, which is the size difference C7 records.
 
-**Items for #991, which is the issue that adds the module:**
+**Items for #991, which is the issue that adds the module** (*correction, 2026-11-13: the module was added by #990, so these items were done there, and the "four new modules" in item 1 is two, see above*):
 
 1. `go get filippo.io/age@v1.3.2` in `core/`, `go mod tidy`, and confirm the diff is exactly the
    four new modules above and no version of an existing one moves.
@@ -334,7 +359,7 @@ to both.**
 | Thing | Name | Owner |
 |---|---|---|
 | Format id and version | `"age/v1"`, `1` (recorded per copy) | #991 writes, #989 stores |
-| Go library | `filippo.io/age` v1.3.x, imported only by `core/internal/keycustody` (identity generation and parsing) and `core/internal/copycrypt` (the byte path) | #990, #991 |
+| Go library | `filippo.io/age` v1.3.x, imported only by `core/internal/keycustody` (identity generation and parsing) and `core/internal/copycrypt` (the byte path) (*correction, 2026-11-13: production code imports it in `core/internal/copycrypt` alone; `keycustody` reaches it through `copycrypt`, and imports it directly only in a test*) | #990, #991 |
 | Key custody package | `core/internal/keycustody` | #990 |
 | Byte-path package | `core/internal/copycrypt`: streaming `Encrypt` into an `io.Writer` and decrypt-verify into a digest, plus the staging-pass helper the engine calls | #991 |
 | Config (top level) | `retained_copy_encryption:` with `mode` (`off\|required`) and `key_provider` (`managed: true` or `external: {file\|env\|command}`) | #989 |

@@ -2,6 +2,13 @@
 # cell for an unresolvable key, the two source guards, and the gate and brand
 # guards. Exec'd by selftest.py with Control and PLANT defined.
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for the type checker: at run time selftest.py execs this file
+    # with both names already in scope.
+    from bdtools.encryption.selftest import PLANT, Control
+
 PLACE_ENC_R2 = "core/internal/placement/encryption.go"
 AGEX_R2 = "core/internal/copycrypt/agex25519.go"
 KC_AGE_R2 = "core/internal/keycustody/age.go"
@@ -43,7 +50,7 @@ CONTROLS = [
     Control(
         "N2 the epic closure stubs dropped from the gate fixture",
         ("N2.12",),
-        [(GATE_TEST_R2, "publish-image-guards published-provenance-guards epic-n-closure epic-t-closure; do",
+        [(GATE_TEST_R2, "publish-image-guards published-provenance-guards epic-n-closure epic-t-closure epic-u-closure; do",
           "publish-image-guards published-provenance-guards; do  # " + PLANT.strip())],
         "",
         cmd=["sh", "-c", AS_REPO_R2 + "GATE_LOCK_TIMEOUT=60 bash scripts/tests/ci-local-gate.test.sh"],

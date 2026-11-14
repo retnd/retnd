@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "bc9117f81fa46b78ed80a772e827ddcff958dae4c234ac2b75e718c13fe03708"
+const ContractSHA256 = "f8c243cae5e027691b689088dae7dd5e8ed1a56374de321aef92e5e968646d72"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -3274,7 +3274,7 @@ type EncryptionSetPolicy struct {
 	IsOverride           bool                       `json:"is_override"`
 	KeyProvider          EncryptionKeyProviderState `json:"key_provider"`
 	Mode                 string                     `json:"mode"`
-	SatisfiedBy          string                     `json:"satisfied_by"`
+	SatisfiedBy          string                     `json:"satisfied_by,omitempty"`
 }
 
 // EncryptionSuite is one encryption suite this build has. describe is the only sentence

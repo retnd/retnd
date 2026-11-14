@@ -679,10 +679,12 @@ Some things this is not:
 
 Two optional features change what a "copy" can be, and `recover` works with both absent:
 
-- **Encrypted retained copies (EPIC N, #967), when present.** A recovery decrypts and then
-  requires the *plaintext* digest to equal the artifact's recorded digest. Ciphertext that
-  exists and decrypts to a digest matching nothing is not a recovery. With N absent there
-  is nothing to decrypt and every claim on this page is still computable.
+- **Encrypted retained copies (EPIC N, #967), when present.** `recover` does not decrypt. It
+  still requires what it reads to match the artifact's recorded *plaintext* digest, which a
+  ciphertext object cannot, so an encrypted copy is never counted as a recovery. Opening one
+  is `retnd encryption decrypt` ([below](#when-the-catalog-is-gone-and-some-copies-are-encrypted)).
+  With no copy encrypted there is nothing to decrypt and every claim on this page is still
+  computable.
 - **Offline and removable media (EPIC P, #955), when present.** Whether a destination that
   is expected to be offline counts as unreadable or as simply away is P's policy, and this
   page does not restate or second-guess it. What `recover` guarantees is only that a copy it

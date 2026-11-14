@@ -9,7 +9,7 @@ stops matching what is below.
 
 retnd asks for less than almost anything else on a NAS. It drops every Linux
 capability, runs as a user the administrator chooses, runs on a read-only root filesystem,
-and gets exactly five paths, three of them read-only.
+and gets exactly five paths, two of them read-only.
 
 ## Container privileges
 
@@ -31,7 +31,8 @@ port at all: it is reachable only from the web interface container, over a netwo
 to this deployment. The web interface container publishes exactly one port, which is the
 only thing on the LAN that can reach any of this.
 
-Outbound, it connects only to the SFTP sources the administrator configured. See the
+Outbound, it connects only to hosts the administrator configured: the SFTP sources, any
+storage destination for retained copies, and the mail server for account recovery. See the
 privacy disclosure.
 
 ## Storage
@@ -42,11 +43,11 @@ Five paths, and the split between them is the point rather than an implementatio
 |---|---|---|
 | Application state | read-write | The SQLite catalog and the local administrator record. Private to the application. |
 | Backup root | read-write | Where retained artifacts land. Kept a separate directory from application state so that installing, reinstalling and removing the application only ever touches paths it created. |
-| Configuration file | **read-only** | Loaded and validated before the application opens a listener. It has no reason to write it. |
+| Configuration directory | read-write | Holds `config.yaml`, which is loaded and validated before the application opens a listener, and the stores the application creates beside it: `ssh_keys/`, `known_hosts.d/` and, once the administrator turns on retained-copy encryption, `retained_copy_keys/` (a `0700` directory holding the managed key as a `0600` file). It is mounted as a directory and has to be writable for those stores. |
 | SFTP private key | **read-only** | Supplied by the administrator, never generated, never baked into the image, never logged. |
 | Pinned `known_hosts` | **read-only** | This is what makes a changed host key an alert rather than a silent reconnection. A writable `known_hosts` is one compromised process away from being repinned to somebody else's server. |
 
-The three read-only mounts are checked as read-only by the preflight, not merely checked
+The two read-only mounts are checked as read-only by the preflight, not merely checked
 as present: a profile that quietly drops the read-only flag still satisfies every "is the
 path there" test ever written.
 

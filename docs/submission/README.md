@@ -16,7 +16,7 @@ for a target with no store, its documented workflow.
 | `icon.svg` | The listing mark. Not the in-app icon: see below. |
 | `screenshots.md` | What to capture and how many, per store. The captures themselves are an operator step. |
 | `release-notes.md` | 1.0.0. |
-| `privacy-disclosure.md` | No personal data, no telemetry, nothing leaves the NAS. |
+| `privacy-disclosure.md` | No telemetry, nothing sent to the project; the only things that leave the NAS go to destinations the administrator configured (SFTP sources, storage destinations for retained copies, their own mail server). |
 | `permission-rationale.md` | Why the application asks for as little as it does, in the form a store asks the question. |
 | `support-source-license.md` | Support, source, and the licence row that is blocked on #88. |
 

@@ -1,6 +1,13 @@
 # EPIC N, rows N1.1 to N1.20 and NC-01 to NC-19. Exec'd by selftest.py,
 # which defines Control and PLANT.
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for the type checker: at run time selftest.py execs this file
+    # with both names already in scope.
+    from bdtools.encryption.selftest import PLANT, Control
+
 CONFIG_RCE_N = "core/internal/config/retainedcopyencryption.go"
 CONFIG_GO_N = "core/internal/config/config.go"
 WORKFLOWS_GO_N = "core/internal/config/workflows.go"

@@ -846,6 +846,9 @@ var surfaces = []surface{
 	{verb: "ssh-key", name: "list, with nothing serving", mode: "direct", exit: 0, routed: true,
 		note: "the key store belongs to whichever process uses the keys. It goes through the door configuration writes go through, so beside an engine it cannot reach it is refused rather than answering about a store that process does not read, and with nothing serving it lists this host's own (#1153)",
 		argv: func(f fixture) []string { return []string{"ssh-key", "list", "--config", f.configPath} }},
+	{verb: "agent", name: "token list, with nothing serving", mode: "direct", exit: 0, routed: true,
+		note: "agent tokens are rows in the journal of whichever process serves the deployment, and the token verbs go through the door configuration writes go through, so beside an engine they cannot reach they refuse rather than answer from a journal that engine does not read, and with nothing serving they act on this host's own. A fresh fixture has minted none, so the list is empty (#1345)",
+		argv: func(f fixture) []string { return []string{"agent", "token", "list", "--config", f.configPath} }},
 	{verb: "ssh", name: "host-key-probe, of a port nothing answers on", mode: "direct", exit: 1, routed: true,
 		note: "a probe is only worth running from the machine the backups travel from, so it goes through the same door as the key store. Nothing listens on port 1 here, so this refuses for the connection and writes nothing; a probe never trusts or persists anything (#1153)",
 		argv: func(f fixture) []string {

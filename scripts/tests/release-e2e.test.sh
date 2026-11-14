@@ -344,6 +344,19 @@ git commit -q --amend -m r -m "Release-Gate-Override: trailer reason with	tab an
 RELEASE_E2E_SKIP="" git push -f origin release >/dev/null 2>&1
 [ "$(wc -l < "$log" | tr -d ' ')" = 2 ] && ! grep -q "$(printf '\r')" "$log" && pass "the same for the override trailer text" || fail "trailer flatten" "$(cat -v "$log")"
 
+echo "== the VPS the rig starts is a source retnd can delete from (#1423) =="
+# The sshd container writes as uid 1001 and the per-run upload directory is
+# made by whoever runs the rig. On a Linux remote that is a different uid, so
+# a directory left at 0755 gives a read-only source: the connection test says
+# so and the wizard drops the sentence about deleting the original after it
+# has been committed. Bind mounts on a Mac never enforced the owner.
+rig="$repo_root/scripts/e2e/three-machine-web-ui.sh"
+if awk '/chmod [0-7]+ "\$run_dir\/upload"$/ {mode=$2; if (mode ~ /^[0-7][0-7][2367]$/ || mode ~ /^[0-7][2367][0-7]$/) ok=1} END {exit ok ? 0 : 1}' "$rig"; then
+  pass "the rig leaves upload/ writable by the sshd account"
+else
+  fail "the rig leaves upload/ writable by the sshd account" "$(grep -n 'chmod .*run_dir/upload"' "$rig")"
+fi
+
 echo "== attestation =="
 make_repo
 sed -i.bak 's/"1.0.0"/"1.1.0"/' distribution/packaging/canonical.json; rm distribution/packaging/canonical.json.bak
@@ -496,6 +509,27 @@ expect "the prepared attestation verifies against the version" bash scripts/rele
 # a published version cannot be cut again
 make_repo; out="$(r 1.0.0 --issue 7 --dry-run)"; st=$?
 [ "$st" != 0 ] && echo "$out" | grep -q 'not greater' && pass "a published version is not prepared on main, it is refused" || fail "published refused" "$out"
+
+echo "== the lane can run on a bare Linux remote (#1421) =="
+# The pin has to be fetchable with no credentials: retnd-tests is public and
+# the remote container carries no token.
+pin_url="$(sed -n 's/^TESTS_REPO_URL=//p' "$repo_root/scripts/e2e/tests-repo.pin")"
+case "$pin_url" in
+  https://github.com/*) case "${pin_url#https://}" in *@*) fail "the pin URL carries a credential" "$pin_url" ;; *) pass "the pin URL is anonymous https" ;; esac ;;
+  *) fail "the pin URL is anonymous https" "$pin_url" ;;
+esac
+# The sshd machines of the rig set their own descriptor limit. A daemon that
+# hands containers nofile of about a billion (mars) makes sshd spin in its
+# close-all-descriptors loop before it execs internal-sftp, so the VPS accepts
+# the key and never answers the listing.
+rig="$repo_root/scripts/e2e/three-machine-web-ui.sh"
+for name in '"$c_source"' '"$c_exec"'; do
+  if awk -v n="$name" '/docker run -d/ {blk=""; grab=1} grab {blk=blk $0 "\n"} grab && index($0, "--name " n) {hit=1} grab && /die "could not start/ {if (hit && blk ~ /--ulimit nofile=/) ok=1; grab=0; hit=0} END {exit ok ? 0 : 1}' "$rig"; then
+    pass "the rig starts $name with a bounded nofile ulimit"
+  else
+    fail "the rig starts $name with a bounded nofile ulimit"
+  fi
+done
 
 echo
 echo "release-e2e.test.sh: $((checks - failures))/$checks passed"

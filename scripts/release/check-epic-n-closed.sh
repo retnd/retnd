@@ -12,7 +12,10 @@
 #      apps/*/compose/, apps/unraid/template/, apps/truenas/catalog/, the four
 #      distribution/packaging/*.json and apps/common/platform/capabilities/.
 #      Nothing this epic ships changes how a container is run, and an untracked
-#      file in one of those places counts as a change;
+#      file in one of those places counts as a change. The release version is set aside
+#      (#1331): a cut moves the image tag in all of them and canonical.json's
+#      release record (image.tag, reference, published, note), and that is
+#      not a change to how a container runs, so a cut alone passes;
 #   2. the epic added 0015_retained_copy_encryption.sql (and may add
 #      0019_encrypt_existing_consents.sql, #1302) and no other migration, and
 #      nothing else under core/migrations/ moved. (The issue says the
@@ -60,23 +63,13 @@ if [ "$tip" != "WORKTREE" ] && ! git rev-parse --verify --quiet "$tip^{commit}" 
   exit 2
 fi
 
-# 1. The canonical container contract.
-paths=(
-  container/compose.yaml
-  ':(glob)apps/*/compose/**'
-  apps/unraid/template
-  apps/truenas/catalog
-  distribution/packaging/canonical.json
-  distribution/packaging/compliance.json
-  distribution/packaging/conformance.json
-  distribution/packaging/submission.json
-  apps/common/platform/capabilities
-)
-changed="$(git diff --name-only "$base" -- "${paths[@]}"; git ls-files --others --exclude-standard -- "${paths[@]}")"
-if [ -n "$changed" ]; then
-  bad "the canonical container contract moved since $base:$(printf '\n         %s' $changed)"
+# 1. The canonical container contract. A release version alone is not a move
+# (scripts/release/contract-unchanged.sh holds the rule for all three checks).
+moved="$(bash "$(dirname "$0")/contract-unchanged.sh" "$base")"
+if [ -n "$moved" ]; then
+  bad "the canonical container contract moved since $base (a release version bump alone is not a move):$(printf '\n         %s' $moved)"
 else
-  ok "the canonical container contract is an empty diff against $base"
+  ok "the canonical container contract is an empty diff against $base, apart from the release version"
 fi
 
 # 2. The epic's migrations, and no others. The list is 0015 (the schema, #989,
@@ -102,7 +95,9 @@ fi
 if [ "${EPIC_N_SKIP_GO:-0}" = "1" ]; then
   echo "epic-n-closed: skipped the Go closing check (EPIC_N_SKIP_GO=1)"
 else
-  if (cd core && GOWORK=off RETND_EPIC_N_CLOSURE=1 go test -count=1 -run 'TestEpicNIsClosed' ./tests/encryptiongate/ -v 2>&1 | tee /dev/stderr | grep -q -- '--- PASS: TestEpicNIsClosed'); then
+  # No `grep -q`: under pipefail it quits at the first match, tee takes SIGPIPE on the
+  # rest of the output and a passing run reads as a failure (#1407).
+  if (cd core && GOWORK=off RETND_EPIC_N_CLOSURE=1 go test -count=1 -run 'TestEpicNIsClosed' ./tests/encryptiongate/ -v 2>&1 | tee /dev/stderr | grep -- '--- PASS: TestEpicNIsClosed' >/dev/null); then
     ok "no BLOCKED row, every proof resolves, every listed picture exists"
   else
     bad "the closing check in core/tests/encryptiongate did not pass (output above)"

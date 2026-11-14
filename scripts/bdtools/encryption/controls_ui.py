@@ -7,6 +7,13 @@
 # ui/shared/node_modules (installed by npm ci in node:22, plus
 # @playwright/test 1.62.1) linked in. vitest runs the same way in node:22.
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for the type checker: at run time selftest.py execs this file
+    # with both names already in scope.
+    from bdtools.encryption.selftest import Control
+
 UI_LOCK = "/Users/rom/workspace/xdg-pw-lock.sh"
 UI_TREE = "/Users/rom/workspace/retnd-lanes/rel080-matrix-wt"
 UI_PW_IMAGE = "mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e"
@@ -24,6 +31,7 @@ INFO_TOOLTIP = "ui/shared/src/tooltips/InfoTooltip.tsx"
 OPERATION_TS = "ui/shared/src/types/operation.ts"
 VERIFY_DIALOG = "ui/shared/src/encryption/VerifyRecoverableDialog.tsx"
 CLIENT_TS = "ui/shared/src/api/client.ts"
+SITE_THEME = "docs/site/theme.css"
 
 
 def _mounts() -> str:
@@ -170,6 +178,24 @@ CONTROLS = [
         cmd=ui_vitest("src/test/encryption-995.test.tsx"),
         needles=["is saved as a file by the client and only a receipt leaves it", "failed"],
         links=UI_LINKS,
+        timeout="20m",
+    ),
+    Control(
+        "UI the chip edge darkened under 3 to 1 in the dark theme",
+        ("N2.10",),
+        [(TOKENS_CSS, "  --edge-3: #767976;", "  --edge-3: #3a3c3a; /* PLANTED VIOLATION (scripts/bdtools/encryption/selftest.py) */")],
+        "",
+        cmd=["python3", "scripts/contrast/check-ui-pairs.py"],
+        needles=["check-ui-pairs:", ".echip", "edge-3"],
+    ),
+    Control(
+        "docs site the secondary text lightened under 4.5 to 1 in the light theme",
+        ("N2.10",),
+        [(SITE_THEME, "  --text-light: #5b5d5b;\n  --text-faint: #696b68;",
+          "  --text-light: #9a9c99; /* PLANTED VIOLATION (scripts/bdtools/encryption/selftest.py) */\n  --text-faint: #696b68;")],
+        "",
+        cmd=[UI_LOCK, "bash", "scripts/contrast/run-browser-check.sh", "--only", "web-ui.html"],
+        needles=["web-ui.html", "light"],
         timeout="20m",
     ),
 ]

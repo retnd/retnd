@@ -54,11 +54,18 @@
 // is a store-submission screenshot, which this script never makes.
 
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { FROZEN_TIME, openApp, optimise, SCREENS, settle, shot, VIEWPORT, withDevServer } from "./harness.mjs";
+import { FROZEN_TIME, openApp, optimise, quiet, SCREENS, settle, shot, VIEWPORT, withDevServer } from "./harness.mjs";
 
 const CHECK = process.argv.includes("--check");
+
+// How tall every window is. 2400 used to be enough, and the per-set Assurance
+// section has since grown to about 1250px below a tall page header, so in a
+// 2400px window its bottom ran off the window: the clip was cut at the window
+// edge, with the collapsed terminal bar drawn across what was left of it
+// (recovery-08, -09 and -10). 3600 holds the whole section with room to spare.
+const TALL = 3600;
 
 // The product has no responsive breakpoint at all (no @media rule in ui/shared
 // beyond reduced motion), so "narrow" is the smallest window it is built and
@@ -67,7 +74,7 @@ const CHECK = process.argv.includes("--check");
 // collapse to a ~100px column), which is recorded in the PR rather than
 // photographed as if it were a design. Tall on purpose, so no clip is ever
 // cut off by the bottom of the window.
-const NARROW = { width: 940, height: 2400 };
+const NARROW = { width: 940, height: TALL };
 const SET = "/sets/production/postgres-primary";
 const DETAIL = "/backups/production/postgres-primary/postgres-prod-20260828.dump.zst";
 const ARCHIVED = "/backups/production/billing-mysql/billing-20260827.sql.gz";
@@ -211,7 +218,7 @@ const surfaces = [
 // The standard window's width, made tall so that the pinned terminal dock never
 // lands on top of the region being photographed (see harness.mjs on tall
 // windows).
-const DESKTOP = { width: VIEWPORT.width, height: 2400 };
+const DESKTOP = { width: VIEWPORT.width, height: TALL };
 
 const variants = [
   { suffix: "", viewport: DESKTOP, theme: "light" },
@@ -233,13 +240,38 @@ async function shootAll(app) {
       // The dock is pinned to the bottom of the window and would sit on top of
       // whatever is photographed, so it is collapsed off camera, the way the
       // other captures do, except in the one picture that is about it.
+      //
+      // Waited for, not counted. The dock renders a moment after the page, and
+      // a count() that ran first found nothing in some runs and left the dock
+      // open, so --check moved 1 to 7 of 33 pictures between its two passes (the
+      // open dock across recovery-05's activity panel and the bottom of -08,
+      // -09 and -10, compared pass against pass, #1331). That made step 1 of
+      // capture-encryption-all.sh fail on every run. It is a release blocker,
+      // which is why this file is touched outside the epic that wrote it.
       if (!s.keepTerminal) {
         const hide = page.getByRole("button", { name: "Hide terminal" });
+        await hide.waitFor({ timeout: 5000 }).catch(() => {});
         if (await hide.count()) await hide.click();
+        await page.getByRole("button", { name: "Show terminal" }).waitFor({ timeout: 5000 }).catch(() => {});
       }
       const clip = await s.prep(page);
       // A hover tooltip from the last click would sit over the picture.
       await page.mouse.move(0, 0);
+      // So could the clicked control's own tooltip. Run recovery test is
+      // disabled while its test runs and re-rendered when it ends, under a
+      // pointer that has not moved, and whether its host then saw the
+      // pointer leave depends on timing: probed four times on the same
+      // build, the tooltip was still open after the move in two
+      // (recovery-10-test-passed-narrow, #1331), with nothing hovered and
+      // nothing focused. Blur, and if a pop-up is still open dismiss it the
+      // way an operator would, with Escape (useHoverPopover.ts), then
+      // require that none is.
+      await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
+      if (await page.locator(".tooltip__pop:not([hidden])").count()) await page.keyboard.press("Escape");
+      await page.waitForFunction(() => !document.querySelector(".tooltip__pop:not([hidden])"), null, { timeout: 5000 });
+      // And a page that has stopped changing, for the reason harness.mjs's
+      // quiet() gives.
+      await quiet(page);
       await settle(page, 400);
       await shot(page, s.name + v.suffix, clip, { pad: 16 });
       written.push(s.name + v.suffix);
@@ -271,6 +303,12 @@ if (!CHECK) {
     names = await shootAll(app);
     optimise(names);
     first = digests(SCREENS, names);
+    // CAPTURE_FIRST_PASS_DIR keeps the first pass's files, so a picture that
+    // moves can be compared with what it moved from rather than only reported.
+    if (process.env.CAPTURE_FIRST_PASS_DIR) {
+      mkdirSync(process.env.CAPTURE_FIRST_PASS_DIR, { recursive: true });
+      for (const n of names) copyFileSync(join(SCREENS, n + ".png"), join(process.env.CAPTURE_FIRST_PASS_DIR, n + ".png"));
+    }
     await shootAll(app);
     optimise(names);
     second = digests(SCREENS, names);

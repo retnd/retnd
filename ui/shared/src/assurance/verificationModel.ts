@@ -44,7 +44,7 @@
  * (`recoveryView.elsewhere`). It is never turned into that backup's own
  * claim: the chips exist to say what was and was not tested.
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useOptionalApi } from "@shared/api/ApiContext";
 import type { BackupSetAssurance, RetndApi } from "@shared/api/contracts";
 import { graph, registerInput, useCausl } from "@shared/state/graph";
@@ -458,6 +458,27 @@ export function useBackupFacts(artifactId: string): BackupFacts | null {
 export function useFactsIndex(): FactsIndex {
   useAssuranceModel();
   return useCausl(factsNode);
+}
+
+/** CLAIMS_WAIT_MS: how long a surface holds what depends on the claims. */
+export const CLAIMS_WAIT_MS = 4000;
+
+/** True once the claims have been read, or the read failed, or `CLAIMS_WAIT_MS`
+ *  went by, or the server offers no claims at all (`offered` false). A surface
+ *  that draws variable-height content from the claims holds it until this is
+ *  true, so it is drawn once at its settled size instead of growing under the
+ *  reader (#1428). The cap keeps a read that never returns from holding it
+ *  for good. */
+export function useClaimsSettled(offered: boolean): boolean {
+  const facts = useFactsIndex();
+  const pending = offered && !facts.ready && !facts.error;
+  const [waited, setWaited] = useState(false);
+  useEffect(() => {
+    if (!pending) return;
+    const t = setTimeout(() => setWaited(true), CLAIMS_WAIT_MS);
+    return () => clearTimeout(t);
+  }, [pending]);
+  return !pending || waited;
 }
 
 export function useSetFacts(setId: string): SetFacts | null {

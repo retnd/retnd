@@ -209,8 +209,10 @@ var matrixPairs = []matrixPair{
 const matrixRepo = "retnd/retnd"
 
 // backtickPath matches a `like/this` span that looks like a repository
-// path: it has a slash and no spaces.
-var backtickPath = regexp.MustCompile("`([A-Za-z0-9_./-]+/[A-Za-z0-9_./-]+)`")
+// path: it has a slash and no spaces. A `dir:TestName` citation, the form the
+// EPIC N and T proof columns use for a Go test, matches too, and the part
+// before the colon is the path that gets resolved.
+var backtickPath = regexp.MustCompile("`([A-Za-z0-9_./-]+/[A-Za-z0-9_./-]+)(?::[A-Za-z0-9_./]+)?`")
 
 // issueCitation matches a `#123` issue reference in an outcome cell.
 var issueCitation = regexp.MustCompile(`#(\d+)`)

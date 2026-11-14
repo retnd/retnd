@@ -42,6 +42,9 @@
 #
 # Run directly (`bash scripts/tests/ci-local-gate.test.sh`) or let the gate
 # run it: scripts/ci-local.sh invokes it in a non-FAST run.
+# shellcheck disable=SC1090,SC2016
+# SC1090: GATE_LIB is a sandboxed copy of the library, sourced in subshells.
+# SC2016: the single quotes are deliberate (sed patterns and generated stubs).
 set -uo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -289,9 +292,13 @@ make_full_tree() {
   # warning both ways).
   mkdir -p "$tree/.husky"
   cp "$REPO_ROOT/.husky/pre-commit" "$tree/.husky/pre-commit"
-  if [ -f "$REPO_ROOT/.husky/prepare-commit-msg" ]; then
-    cp "$REPO_ROOT/.husky/prepare-commit-msg" "$tree/.husky/prepare-commit-msg"
-  fi
+  # scripts/install-hooks.sh refuses a tree missing any of the four hooks it
+  # installs, so Group N4 needs all of them here, not just the two it reads.
+  for hook in prepare-commit-msg pre-merge-commit pre-push; do
+    if [ -f "$REPO_ROOT/.husky/$hook" ]; then
+      cp "$REPO_ROOT/.husky/$hook" "$tree/.husky/$hook"
+    fi
+  done
   chmod +x "$tree/.husky/"*
   (cd "$tree" && git config core.hooksPath .husky)
 
@@ -460,6 +467,17 @@ make_full_tree() {
   mkdir -p "$tree/scripts/docs"
   for docs in check-package-doc selftest; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/docs/$docs.sh"
+  done
+
+  # The docs-site capture tooling step (#926) runs `node --test` on the real
+  # tool test and then the checker, and the fixture has no docs/site/tools, so
+  # on any host with node on PATH the step failed before the gate reached its
+  # last line and every full-tree case below went red with no plant in it.
+  # Two stubs that exit 0 keep the step in the fixture without its browser
+  # and ffmpeg work.
+  mkdir -p "$tree/docs/site/tools"
+  for tool in check-tools check-tools.test; do
+    printf 'process.exit(0);\n' >"$tree/docs/site/tools/$tool.mjs"
   done
 
   # Stubs for the release-script guard suites the gate runs, for the same
@@ -1923,7 +1941,7 @@ else
     '.husky' "$(cd "$tree" && git config --get core.hooksPath)"
   assert_contains "N4 the installer says what it set" 'core.hooksPath' "$install_out"
   assert_contains "N4 and that it covers every worktree" 'worktree' "$install_out"
-  install_again="$(cd "$tree" && scrub_env bash "$installer" 2>&1)"
+  (cd "$tree" && scrub_env bash "$installer" >/dev/null 2>&1)
   assert_eq "N4 the installer is idempotent" 0 $?
   # The relative path is read from the SHARED config and resolves against
   # each worktree's own root, which is what makes one install cover every
@@ -2164,6 +2182,11 @@ mkdir -p "$lock_dir"
 # macOS and Linux.
 printf '2147483646\n' >"$lock_dir/pid"
 printf '%s\n' "$SANDBOX/gone" >"$lock_dir/where"
+# Taken on this host and this boot, which is what lets gate_lock_dead judge
+# the pid at all (#1331): without the two records the lock is unjudgeable and
+# only age reclaims it, so this case waited out GATE_LOCK_TIMEOUT instead.
+hostname >"$lock_dir/host"
+sh -c ". '$GATE_LIB' && gate_boot_id" >"$lock_dir/boot"
 q3_out="$(CI_LOCAL_LOCK_DIR="$lock_dir" GATE_LOCK_POLL=1 sh -c ". '$GATE_LIB' && gate_lock_acquire && echo RECLAIMED-AND-HELD && gate_lock_release" 2>&1)"
 assert_contains "Q3 a lock whose holder is gone is reclaimed" 'RECLAIMED-AND-HELD' "$q3_out"
 assert_contains "Q3 and the run says so" 'no longer exists' "$q3_out"
@@ -2234,7 +2257,7 @@ if [ "$others" -ne 1 ]; then echo "$$ saw $others inside" >>"$3"; fi
 : >"$2"
 gate_lock_release
 RACER
-for i in $(seq 1 12); do
+for _ in $(seq 1 12); do
   CI_LOCAL_LOCK_DIR="$lock_dir" GATE_LOCK_POLL=0.05 sh "$SANDBOX/racer.sh" "$GATE_LIB" "$canary" "$violations" &
 done
 wait

@@ -501,6 +501,37 @@ else
   fail "R14 empty bind mount refused" "rc=$(rc) $(head -c 300 "$work/out")"
 fi
 
+# --- R16 the tests-checkout cache is a path the daemon can see (#1421) --------
+# The browser lane bind-mounts the pinned tests checkout into the client
+# machine as /suite, and that mount is made by the REMOTE daemon. A named
+# volume's /ci/... path means nothing on the daemon's disk, so the mount came
+# up as an empty root-owned directory and the client died on
+# `mkdir /suite/test-results: EACCES`. In remote mode the cache has to be a
+# bind mount of a directory inside the shipped scratch copy, at the same path
+# inside and out, and XDG_CACHE_HOME has to say so.
+run_script bash "$script" --host "$host" --fast
+gl="$(gate_line)"
+xdg_src="$(printf '%s' "$gl" | grep -oE -- '-v [^ ]*/ci-docker-[^ ]*/xdg:[^ ]*' | head -1)"
+xdg_dir="${xdg_src#-v }"; xdg_dir="${xdg_dir%%:*}"
+if [ -n "$xdg_dir" ] && [ "$(printf '%s' "$xdg_src" | cut -d: -f2)" = "$xdg_dir" ] \
+   && printf '%s' "$gl" | grep -q -- " env XDG_CACHE_HOME=$xdg_dir " \
+   && ! printf '%s' "$gl" | grep -q -- '-xdg:/ci/.cache/retnd-tests-gate'; then
+  pass "R16a remote mode mounts the tests cache from the scratch copy at the same path and points XDG_CACHE_HOME at it through env, not a -e flag"
+else
+  fail "R16a remote tests cache is a same-path bind mount" "$gl"
+fi
+if grep -q "mkdir -p .*/xdg" "$log/ssh" || grep -q "/xdg" "$log/ssh"; then
+  pass "R16b the cache directory is made by the remote account, so the remote uid owns it"
+else
+  fail "R16b the cache directory is made over ssh" "$(head -5 "$log/ssh")"
+fi
+run_script bash "$script" --fast
+if gate_line | grep -q -- '-xdg:/ci/.cache/retnd-tests-gate' && ! gate_line | grep -q XDG_CACHE_HOME; then
+  pass "R16c local mode keeps the named cache volume"
+else
+  fail "R16c local mode keeps the named cache volume" "$(gate_line)"
+fi
+
 # --- R10 the page documents the knobs ---------------------------------------
 for v in CI_DOCKER_HOST CI_DOCKER_REMOTE_DIR CI_DOCKER_MIN_FREE_MB CI_DOCKER_KEEP_CACHE CI_DOCKER_SYNC CI_DOCKER_SHARE_HOST; do
   if grep -q "\`$v\`" "$repo_root/docs/reference/local-gate.md"; then
