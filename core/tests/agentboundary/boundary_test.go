@@ -32,28 +32,34 @@ func root(t *testing.T) string {
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
 }
 
-// canonical is the whole of what an operator deploys, in the spelling
-// scripts/release/check-epic-t-closed.sh uses: the reference compose file,
-// the per-platform compose files, the Unraid templates, the TrueNAS catalog,
-// the four packaging manifests and the capabilities package.
-//
-// The app paths are built from elements: these name directories and import
-// nothing, and a literal "apps/<provider>/" in core reads as core importing
-// that provider to the provider-removal-preserves-core check (#1082), the
-// reason core/tests/deploymentdiff builds its own the same way.
-var canonical = []string{
-	"container/compose.yaml",
-	// Every file under each app's compose directory, tracked or not: a
-	// pathspec with a wildcard matches whole paths, so the bare directory
-	// would miss a file added beside the compose files.
-	strings.Join([]string{"apps", "*", "compose", "*"}, "/"),
-	strings.Join([]string{"apps", "unraid", "template"}, "/"),
-	strings.Join([]string{"apps", "truenas", "catalog"}, "/"),
-	"distribution/packaging/canonical.json",
-	"distribution/packaging/compliance.json",
-	"distribution/packaging/conformance.json",
-	"distribution/packaging/submission.json",
-	"apps/common/platform/capabilities",
+// moved names the files of the canonical deployment that differ from base in
+// dir, through scripts/release/contract-unchanged.sh: the reference compose
+// file, the per-platform compose files, the Unraid templates, the TrueNAS
+// catalog, the four packaging manifests and the capabilities package. That
+// script is the rule check-epic-{n,t,u}-closed.sh share, so this drill and the
+// release's closing check cannot disagree about what counts as a move. A
+// release cut moves the image tag in every one of those files and
+// canonical.json's release record, and none of that changes how a container
+// runs (#1331, #1407), so a version bump alone is not a move here either.
+// Anything else, an untracked file included, still is.
+func moved(t *testing.T, dir, base string) []string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", filepath.Join(root(t), "scripts", "release", "contract-unchanged.sh"), base)
+	cmd.Dir = dir
+	var out, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("contract-unchanged.sh %s: %v\n%s", base, err, errb.String())
+	}
+	var files []string
+	for _, l := range strings.Split(out.String(), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			files = append(files, l)
+		}
+	}
+	return files
 }
 
 // boundary is the host runner and the ADR that fixes its privilege: the
@@ -102,7 +108,7 @@ func base() string {
 }
 
 func TestTheCanonicalDeploymentIsAnEmptyDiffAgainstTheEpicBase(t *testing.T) {
-	if got := changed(t, root(t), base(), canonical); len(got) > 0 {
+	if got := moved(t, root(t), base()); len(got) > 0 {
 		t.Errorf("EPIC U moved the canonical deployment (compare %s):\n  %s", base(), strings.Join(got, "\n  "))
 	}
 }
@@ -115,7 +121,8 @@ func TestTheHostRunnerAndTheADR0020BoundaryAreByteIdentical(t *testing.T) {
 
 // The control for both: a throwaway repository with the same layout, where a
 // line added to the compose file, a file added beside it, and a line added to
-// the runner each have to be seen, and a clean tree has to be clean.
+// the runner each have to be seen, a release version bump alone must not be,
+// and a clean tree has to be clean.
 func TestTheCanonicalDeploymentDrill_WouldCatchOne(t *testing.T) {
 	dir := t.TempDir()
 	write := func(rel, body string) {
@@ -127,7 +134,10 @@ func TestTheCanonicalDeploymentDrill_WouldCatchOne(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("container/compose.yaml", "services:\n  serve:\n    read_only: true\n")
+	write("container/compose.yaml", "services:\n  serve:\n    image: ghcr.io/retnd/retnd:0.7.2\n    read_only: true\n")
+	// Built from elements for the reason core/tests/deploymentdiff gives: a
+	// literal "apps/<provider>/" in core reads as core importing that
+	// provider to the provider-removal-preserves-core check (#1082).
 	composeDir := strings.Join([]string{"apps", "generic", "compose"}, "/")
 	write(composeDir+"/retnd.yaml", "services: {}\n")
 	write("core/internal/hostrunner/runner.go", "package hostrunner\n")
@@ -136,15 +146,19 @@ func TestTheCanonicalDeploymentDrill_WouldCatchOne(t *testing.T) {
 	git(t, dir, "-c", "user.name=drill", "-c", "user.email=drill@example.invalid", "commit", "-qm", "base", "--no-verify")
 	head := strings.TrimSpace(git(t, dir, "rev-parse", "HEAD"))
 
-	if got := changed(t, dir, head, canonical); len(got) != 0 {
+	if got := moved(t, dir, head); len(got) != 0 {
 		t.Fatalf("a clean tree reads as changed: %v", got)
 	}
-	write("container/compose.yaml", "services:\n  serve:\n    read_only: true\n    volumes: [\"/var/run/docker.sock:/s\"]\n")
-	if got := changed(t, dir, head, canonical); len(got) != 1 || got[0] != "container/compose.yaml" {
+	write("container/compose.yaml", "services:\n  serve:\n    image: ghcr.io/retnd/retnd:0.8.0\n    read_only: true\n")
+	if got := moved(t, dir, head); len(got) != 0 {
+		t.Errorf("a release version bump alone reads as a move: %v", got)
+	}
+	write("container/compose.yaml", "services:\n  serve:\n    image: ghcr.io/retnd/retnd:0.8.0\n    read_only: true\n    volumes: [\"/var/run/docker.sock:/s\"]\n")
+	if got := moved(t, dir, head); len(got) != 1 || got[0] != "container/compose.yaml" {
 		t.Errorf("a mount added to the compose file reads as %v", got)
 	}
 	write(composeDir+"/extra.yaml", "services: {}\n")
-	if got := changed(t, dir, head, canonical); len(got) != 2 {
+	if got := moved(t, dir, head); len(got) != 2 {
 		t.Errorf("an untracked file beside the compose files is not counted: %v", got)
 	}
 	write("core/internal/hostrunner/runner.go", "package hostrunner\n\nconst widen = true\n")
