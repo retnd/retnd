@@ -72,13 +72,13 @@
       "spread_percent_of_median": 8.033
     },
     "image_size_bytes": {
-      "value": 99545943,
+      "value": 107583421,
       "architecture": "arm64",
       "platform": "linux/arm64",
-      "commit": "7ea6287d061ea53b8f918fbbe2514f63c92252f7",
+      "commit": "57107cd84adb3c40191c3d81f33fee66c8b5b106",
       "working_tree_dirty": false,
-      "captured_at": "2026-10-15T12:48:29Z",
-      "reason": "Re-cut for the image alone after accounting for the 29,841,677-byte move since 186ba0c7 (58% is the embedded Kopia engine from K4); see docs/perf/README.md. The timing medians above still describe the top-level commit."
+      "captured_at": "2026-11-14T18:34:44Z",
+      "reason": "Re-cut for the image alone after accounting for the 8,037,478-byte move since 7ea6287d (40.8% is the MCP agent server from EPIC #1352); see docs/perf/README.md. The timing medians above still describe the top-level commit."
     }
   },
   "detail": {

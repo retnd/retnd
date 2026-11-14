@@ -182,12 +182,86 @@ Derived from `gate.json` and `baselines/darwin-arm64-mac17-2.json`:
 | `transfer_mb_per_second` | 746.867 MB/s | below 448.120 MB/s | **448.120 MB/s (-40%)** |
 | `idle_rss_bytes` | 106,725,376 | above 117,397,913.6 | 117,397,913.6 (+10%) |
 | `config_write_p95_ms` | 11.586 ms | above 12.745 ms | 12.745 ms (+10%) |
-| `image_size_bytes` | 99,545,943 | above 104,523,240.15 | 104,523,240.15 (+5%) |
+| `image_size_bytes` | 107,583,421 | above 112,962,592.05 | 112,962,592.05 (+5%) |
 
 `api_read_p95_ms` is the only row with two conditions, and because both have to
 hold, the wider of the two is what is enforced. Here that is the floor, so read
 the last column rather than the ratio: 0.218 ms, not 0.185 ms. Every other row
 has a single condition and the two columns agree.
+
+## What moved between `7ea6287d` and `57107cd8`: the image only
+
+`TestTheBuiltImageIsInsideTheRecordedSizeBudget` went red in the full gate on a
+branch off main `57107cd8` at 107,583,421 bytes, 1.0807x the 99,545,943 record
+(#1444). It had been over for a while without anyone seeing it, because the
+full gate kept stopping at `apps/common golangci-lint` (#1442), which runs
+before apps/generic. So I did the same thing as last time: account first, re-cut
+second, image only.
+
+The control first. I built a clean `git archive` of each end with
+`docker build --platform linux/arm64 -f container/Dockerfile`, copied the
+components out with `docker create` plus `docker cp` and sized them with `stat`.
+`7ea6287d`'s components match the record's table below to the byte, and with
+the unchanged base they add up to 99,545,943. `57107cd8`'s add up to
+107,583,421, the figure the gate measured. The Go builder and distroless
+runtime digests are the same at both ends, so none of this is toolchain drift.
+
+| component | `7ea6287d` | `57107cd8` | delta |
+|---|---|---|---|
+| `retnd` | 44,695,712 | 48,169,120 | +3,473,408 |
+| `retnd-web` | 46,006,432 | 49,610,912 | +3,604,480 |
+| `/ui/bundles`, five adapter bundles | 6,671,311 | 7,627,576 | +956,265 |
+| `/licenses` | 58,510 | 61,835 | +3,325 |
+| distroless base layers | 2,113,978 | 2,113,978 | 0 |
+| **image** | **99,545,943** | **107,583,421** | **+8,037,478** |
+
+One trap for whoever does this next... I built these on a Docker that uses the
+containerd image store (colima), and there `docker image inspect`'s `.Size` is
+the *compressed* size: 36,449,123 and 39,146,245 for the same two images. The
+record is the uncompressed `overlay2` figure that Docker Desktop on this host
+reports, so I compared components, not `.Size`, across the two daemons.
+
+**3,276,800 bytes, 40.8% of the move, is the MCP agent server** (EPIC #1352: the
+`/api/v1/agent/mcp` endpoint and `retnd agent serve`). I measured it by building
+both commands at `57107cd8` with those two entry points
+(`core/cmd/retnd/agentserve.go`, `apps/common/webhost/agentmcp.go`) swapped for
+stubs, so nothing reachable imports `core/agentmcp` any more. `go version -m`
+then lists none of `modelcontextprotocol/go-sdk`, `google/jsonschema-go` or
+`segmentio/*`. `retnd` goes 48,169,120 -> 46,596,256 (1,572,864) and `retnd-web`
+goes 49,610,912 -> 47,906,976 (1,703,936). The SDK, its JSON schema and
+encoding dependencies, `core/agentmcp` and the tool table are all of it.
+
+**393,216 bytes is dependency bumps**, 196,608 per binary: `7ea6287d`'s own code
+built against `57107cd8`'s three `go.mod` files comes back at 44,892,320 and
+46,203,040. That's the AWS SDK v2 and smithy, gRPC, x/net, x/crypto,
+klauspost/compress, modernc's libc and sqlite, and rclone 1.75.1 -> 1.75.2,
+none of them new modules.
+
+**The bundles grew 956,265 because the UI did.** Each bundle went from about
+1,334,213 to 1,525,466 bytes, and nearly all of it is the main JS chunk
+(1,147,732 -> 1,323,582): the agents card (#1351), the encryption and key
+custody screens (#1282 onwards), and the progress stages (#1298). The woff2
+duplication recorded below is unchanged.
+
+That leaves 1,703,936 in each binary as product Go code, and `retnd-web`'s share
+includes its embedded copy of the UI growing. 35,094 lines of non-test Go landed
+under `core/`, `apps/common/` and `apps/generic/` (1,743 deleted) over 106
+first-parent commits. By symbol size from unstripped builds of both ends, the
+largest movers are `core/service`, `core/internal/state`, `core/internal/placement`
+and `core/cliecho`. Copy encryption is the one new module family in there:
+`filippo.io/age` and `filippo.io/hpke` behind `core/internal/copycrypt` and
+`core/internal/keycustody` (#1279, #1293, #1302, #1323, #1326). Those come to
+about 6.5% of the symbol growth, so roughly 0.2 MB a binary. The agent tokens,
+access, audit and confirmation routes are product code in this bucket too, and
+the MCP stub left them in place.
+
+Nothing here looks like dead weight. The new modules are all reachable from a
+shipped 0.8.0 feature, and the bumps are routine ones.
+
+**What I re-cut.** `image_size_bytes` only, with its own `commit`, `captured_at`
+and `reason` in the record. The ratio stays at 1.05, so the new ceiling is
+112,962,592.05. The timing medians still describe `186ba0c7`, for the same
+reason the section below gives.
 
 ## What moved between `186ba0c7` and `7ea6287d`: the image only
 
@@ -584,8 +658,9 @@ a red gate green is how the contract stops meaning anything; the record carries
 `commit`, `captured_at` and `working_tree_dirty` so a re-cut is visible in
 review.
 
-Shipping features does move them, and the record has been re-cut twice: in
-full at `186ba0c7` (#635), and for the image alone at `7ea6287d` (#1193). The order that made that legitimate is the part to copy:
+Shipping features does move them, and the record has been re-cut three times: in
+full at `186ba0c7` (#635), and for the image alone at `7ea6287d` (#1193) and at
+`57107cd8` (#1444). The order that made that legitimate is the part to copy:
 **account for it first, capture second.** "What moved between `8ad3100` and
 `186ba0c7`" above is what a re-cut has to look like. Every component of the
 26,695,504-byte image move is attributed to a named change by a measurement
