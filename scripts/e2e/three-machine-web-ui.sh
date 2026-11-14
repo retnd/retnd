@@ -1631,11 +1631,16 @@ step "starting the VPS"
 # two-machine-backup.sh mounts a fixed pair because core/tests/sftpfixture
 # wants a known_hosts line settled in advance; nothing here does, and a
 # keypair not generated is a keypair not left on this host.
+# --ulimit: sshd closes every descriptor up to the soft nofile limit before
+# it execs the sftp server, and a dockerd that hands containers about a
+# billion (mars does) turns that into a spin. Auth passes and the listing
+# never answers, so the VPS (and the exec host) set their own limit (#1421).
 docker run -d \
   --name "$c_source" \
   --network "$net_backhaul" \
   --network-alias vps \
   --label "$label" \
+  --ulimit nofile=1024:1048576 \
   -v "$run_dir/authorized_keys:/home/$sftp_user/.ssh/keys:ro" \
   -v "$run_dir/upload:/home/$sftp_user/upload" \
   "$source_image" "$sftp_user::$sftp_uid:$sftp_uid:upload" >/dev/null \
@@ -1681,6 +1686,7 @@ if [ "$workflows" = 1 ]; then
     --network-alias exechost \
     --hostname exechost \
     --label "$label" \
+    --ulimit nofile=1024:1048576 \
     -v "$run_dir/authorized_keys/engine.pub:/etc/ssh/authorized/retnd.pub:ro" \
     -v "$run_dir/hookdata:/home/$exec_user/hookdata" \
     -v "$run_dir/builtindata:/home/$exec_user/builtindata" \

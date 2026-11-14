@@ -497,6 +497,27 @@ expect "the prepared attestation verifies against the version" bash scripts/rele
 make_repo; out="$(r 1.0.0 --issue 7 --dry-run)"; st=$?
 [ "$st" != 0 ] && echo "$out" | grep -q 'not greater' && pass "a published version is not prepared on main, it is refused" || fail "published refused" "$out"
 
+echo "== the lane can run on a bare Linux remote (#1421) =="
+# The pin has to be fetchable with no credentials: retnd-tests is public and
+# the remote container carries no token.
+pin_url="$(sed -n 's/^TESTS_REPO_URL=//p' "$repo_root/scripts/e2e/tests-repo.pin")"
+case "$pin_url" in
+  https://github.com/*) case "${pin_url#https://}" in *@*) fail "the pin URL carries a credential" "$pin_url" ;; *) pass "the pin URL is anonymous https" ;; esac ;;
+  *) fail "the pin URL is anonymous https" "$pin_url" ;;
+esac
+# The sshd machines of the rig set their own descriptor limit. A daemon that
+# hands containers nofile of about a billion (mars) makes sshd spin in its
+# close-all-descriptors loop before it execs internal-sftp, so the VPS accepts
+# the key and never answers the listing.
+rig="$repo_root/scripts/e2e/three-machine-web-ui.sh"
+for name in '"$c_source"' '"$c_exec"'; do
+  if awk -v n="$name" '/docker run -d/ {blk=""; grab=1} grab {blk=blk $0 "\n"} grab && index($0, "--name " n) {hit=1} grab && /die "could not start/ {if (hit && blk ~ /--ulimit nofile=/) ok=1; grab=0; hit=0} END {exit ok ? 0 : 1}' "$rig"; then
+    pass "the rig starts $name with a bounded nofile ulimit"
+  else
+    fail "the rig starts $name with a bounded nofile ulimit"
+  fi
+done
+
 echo
 echo "release-e2e.test.sh: $((checks - failures))/$checks passed"
 [ "$failures" = 0 ]
