@@ -98,20 +98,11 @@ fi
 # call below has to resolve the repository fresh (see scripts/ci-local.sh).
 unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR GIT_PREFIX
 
-# The same PATH rules as the full gate: Homebrew's tools, but not ahead of a
-# golangci-lint the caller put on PATH on purpose, and no reordering of a PATH
-# that already has Homebrew on it (#1442).
-_caller_golangci=$(command -v golangci-lint 2>/dev/null || true)
+# The same PATH rule as the full gate (#1442): Homebrew is appended when the
+# caller's PATH doesn't have it, never moved ahead of what the caller set.
 case ":$PATH:" in
   *:/opt/homebrew/bin:*) ;;
-  *)
-    if [ -d /opt/homebrew/bin ]; then
-      PATH="/opt/homebrew/bin:$PATH"
-      if [ -n "$_caller_golangci" ]; then
-        PATH="$(dirname "$_caller_golangci"):$PATH"
-      fi
-    fi
-    ;;
+  *) PATH="$PATH:/opt/homebrew/bin" ;;
 esac
 export PATH
 if [ -n "${GOLANGCI_LINT_DIR:-}" ]; then
