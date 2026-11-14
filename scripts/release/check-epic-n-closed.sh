@@ -63,57 +63,9 @@ if [ "$tip" != "WORKTREE" ] && ! git rev-parse --verify --quiet "$tip^{commit}" 
   exit 2
 fi
 
-# 1. The canonical container contract.
-paths=(
-  container/compose.yaml
-  ':(glob)apps/*/compose/**'
-  apps/unraid/template
-  apps/truenas/catalog
-  distribution/packaging/canonical.json
-  distribution/packaging/compliance.json
-  distribution/packaging/conformance.json
-  distribution/packaging/submission.json
-  apps/common/platform/capabilities
-)
-changed="$(git diff --name-only "$base" -- "${paths[@]}"; git ls-files --others --exclude-standard -- "${paths[@]}")"
-# A release cut moves the image tag in every one of these files and
-# canonical.json's release record (image.tag, image.reference,
-# image.published, image.note), and none of that changes how a container is
-# run (#1331). So a file counts as moved when it is new, gone, or differs from
-# its base once those are set aside: every ghcr.io/retnd/retnd:X.Y.Z (or
-# retnd/retnd:X.Y.Z) reference reads as one placeholder, and canonical.json's
-# four release fields are dropped before the two sides are compared. Anything
-# else, a port, a path, a registry, a tag that is not a release version, a
-# field outside the release record, is still a move and is named.
-moved=""
-for f in $changed; do
-  if ! git cat-file -e "$base:$f" 2>/dev/null || [ ! -e "$f" ]; then
-    moved="$moved $f"
-    continue
-  fi
-  if ! git show "$base:$f" | python3 -c '
-import json, re, sys
-release = re.compile(r"((?:ghcr\.io/)?retnd/retnd):[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?(?![0-9A-Za-z.-])")
-def norm(text, name):
-    if name.endswith("distribution/packaging/canonical.json"):
-        try:
-            doc = json.loads(text)
-        except ValueError:
-            return text
-        image = doc.get("image")
-        if isinstance(image, dict):
-            for k in ("tag", "reference", "published", "note"):
-                image.pop(k, None)
-        text = json.dumps(doc, sort_keys=True, indent=1)
-    return release.sub(r"\1:<release>", text)
-name = sys.argv[1]
-with open(name, encoding="utf-8", errors="surrogateescape") as fh:
-    now = fh.read()
-sys.exit(0 if norm(sys.stdin.read(), name) == norm(now, name) else 1)
-' "$f"; then
-    moved="$moved $f"
-  fi
-done
+# 1. The canonical container contract. A release version alone is not a move
+# (scripts/release/contract-unchanged.sh holds the rule for all three checks).
+moved="$(bash "$(dirname "$0")/contract-unchanged.sh" "$base")"
 if [ -n "$moved" ]; then
   bad "the canonical container contract moved since $base (a release version bump alone is not a move):$(printf '\n         %s' $moved)"
 else
@@ -143,7 +95,9 @@ fi
 if [ "${EPIC_N_SKIP_GO:-0}" = "1" ]; then
   echo "epic-n-closed: skipped the Go closing check (EPIC_N_SKIP_GO=1)"
 else
-  if (cd core && GOWORK=off RETND_EPIC_N_CLOSURE=1 go test -count=1 -run 'TestEpicNIsClosed' ./tests/encryptiongate/ -v 2>&1 | tee /dev/stderr | grep -q -- '--- PASS: TestEpicNIsClosed'); then
+  # No `grep -q`: under pipefail it quits at the first match, tee takes SIGPIPE on the
+  # rest of the output and a passing run reads as a failure (#1407).
+  if (cd core && GOWORK=off RETND_EPIC_N_CLOSURE=1 go test -count=1 -run 'TestEpicNIsClosed' ./tests/encryptiongate/ -v 2>&1 | tee /dev/stderr | grep -- '--- PASS: TestEpicNIsClosed' >/dev/null); then
     ok "no BLOCKED row, every proof resolves, every listed picture exists"
   else
     bad "the closing check in core/tests/encryptiongate did not pass (output above)"
