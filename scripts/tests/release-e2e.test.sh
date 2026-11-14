@@ -497,6 +497,19 @@ expect "the prepared attestation verifies against the version" bash scripts/rele
 make_repo; out="$(r 1.0.0 --issue 7 --dry-run)"; st=$?
 [ "$st" != 0 ] && echo "$out" | grep -q 'not greater' && pass "a published version is not prepared on main, it is refused" || fail "published refused" "$out"
 
+echo "== the VPS the rig starts is a source retnd can delete from (#1423) =="
+# The sshd container writes as uid 1001 and the per-run upload directory is
+# made by whoever runs the rig. On a Linux remote that is a different uid, so
+# a directory left at 0755 gives a read-only source: the connection test says
+# so and the wizard drops the sentence about deleting the original after it
+# has been committed. Bind mounts on a Mac never enforced the owner.
+rig="$repo_root/scripts/e2e/three-machine-web-ui.sh"
+if awk '/chmod [0-7]+ "\$run_dir\/upload"$/ {mode=$2; if (mode ~ /^[0-7][0-7][2367]$/ || mode ~ /^[0-7][2367][0-7]$/) ok=1} END {exit ok ? 0 : 1}' "$rig"; then
+  pass "the rig leaves upload/ writable by the sshd account"
+else
+  fail "the rig leaves upload/ writable by the sshd account" "$(grep -n 'chmod .*run_dir/upload"' "$rig")"
+fi
+
 echo
 echo "release-e2e.test.sh: $((checks - failures))/$checks passed"
 [ "$failures" = 0 ]
