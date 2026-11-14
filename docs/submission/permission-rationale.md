@@ -9,7 +9,8 @@ stops matching what is below.
 
 retnd asks for less than almost anything else on a NAS. It drops every Linux
 capability, runs as a user the administrator chooses, runs on a read-only root filesystem,
-and gets exactly five paths, three of them read-only.
+and gets exactly five paths, three of them read-only, and a sixth (the managed key
+directory, below) once the administrator turns on retained-copy encryption.
 
 ## Container privileges
 
@@ -31,12 +32,13 @@ port at all: it is reachable only from the web interface container, over a netwo
 to this deployment. The web interface container publishes exactly one port, which is the
 only thing on the LAN that can reach any of this.
 
-Outbound, it connects only to the SFTP sources the administrator configured. See the
+Outbound, it connects only to hosts the administrator configured: the SFTP sources, any
+storage destination for retained copies, and the mail server for account recovery. See the
 privacy disclosure.
 
 ## Storage
 
-Five paths, and the split between them is the point rather than an implementation detail.
+Five paths, and a sixth once encryption is on. The split between them is the point rather than an implementation detail.
 
 | Path | Mode | Why |
 |---|---|---|
@@ -44,6 +46,7 @@ Five paths, and the split between them is the point rather than an implementatio
 | Backup root | read-write | Where retained artifacts land. Kept a separate directory from application state so that installing, reinstalling and removing the application only ever touches paths it created. |
 | Configuration file | **read-only** | Loaded and validated before the application opens a listener. It has no reason to write it. |
 | SFTP private key | **read-only** | Supplied by the administrator, never generated, never baked into the image, never logged. |
+| Managed key directory | read-write, only once encryption is on | `retained_copy_keys`, a `0700` directory beside the configuration file in the configuration directory, holding the managed retained-copy key as a `0600` file. The application creates it; it is never in the package or the image. |
 | Pinned `known_hosts` | **read-only** | This is what makes a changed host key an alert rather than a silent reconnection. A writable `known_hosts` is one compromised process away from being repinned to somebody else's server. |
 
 The three read-only mounts are checked as read-only by the preflight, not merely checked

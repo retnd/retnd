@@ -23,14 +23,33 @@ func TestTheSubmissionAndCompliancePagesSayWhatEncryptionChanged_1331(t *testing
 		return string(b)
 	}
 	for rel, phrases := range map[string][]string{
-		"docs/compliance/privacy-policy.md":     {"Encrypted retained copies", "changes shape", "recovery bundle"},
-		"docs/submission/privacy-disclosure.md": {"retained-copy encryption", "recovery bundle"},
-		"docs/submission/screenshots.md":        {"## Encrypted retained copies", "PENDING_OPERATOR", "Suite select"},
+		"docs/compliance/privacy-policy.md":       {"Encrypted retained copies", "changes shape", "recovery bundle", "a storage destination", "three kinds"},
+		"docs/submission/privacy-disclosure.md":   {"retained-copy encryption", "recovery bundle", "changes shape", "`age` file", "sidecar", "plaintext", "storage destination"},
+		"docs/submission/README.md":               {"storage destinations"},
+		"docs/submission/permission-rationale.md": {"storage destination"},
+		"docs/submission/screenshots.md":          {"## Encrypted retained copies", "PENDING_OPERATOR", "Suite select"},
 	} {
 		text := read(rel)
 		for _, p := range phrases {
 			if !strings.Contains(text, p) {
 				t.Errorf("%s does not say %q", rel, p)
+			}
+		}
+	}
+
+	// The pages that list what leaves the NAS must not still say nothing
+	// does, or that no backup artifact is uploaded anywhere: retained copies
+	// go to a storage destination the operator configured (#1424).
+	for rel, stale := range map[string][]string{
+		"docs/submission/privacy-disclosure.md":   {"is uploaded, mirrored, synchronised or reported anywhere", "Two classes of destination"},
+		"docs/submission/README.md":               {"nothing leaves the NAS"},
+		"docs/submission/permission-rationale.md": {"connects only to the SFTP sources"},
+		"docs/compliance/privacy-policy.md":       {"There are two kinds"},
+	} {
+		text := read(rel)
+		for _, p := range stale {
+			if strings.Contains(text, p) {
+				t.Errorf("%s still says %q, which is false once retained copies can go to a storage destination", rel, p)
 			}
 		}
 	}

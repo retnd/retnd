@@ -24,13 +24,17 @@ the container health check asking the local process whether it is healthy
 (`apps/generic/cmd/retnd-web`). It never leaves the container.
 
 The app does open outbound network connections, and it opens exactly the ones
-the operator configured. There are two kinds. SFTP sessions to the hosts named
+the operator configured. There are three kinds. SFTP sessions to the hosts named
 in the operator's own backup sets, made by the pinned rclone packages compiled
-into `/retnd`; and, if the operator configured account recovery,
+into `/retnd`; connections to a storage destination (an S3 bucket, or any endpoint
+speaking the S3 API) the operator configured to hold retained copies, which carry
+the copies themselves (encrypted, if the operator turned that on, as described below);
+and, if the operator configured account recovery,
 SMTP submissions to the mail server they nominated, carrying account mail
 — enrollment confirmation, a password-reset link, a test message — to the
 recovery address they nominated. Those connections carry the operator's own data
-to the operator's own destination. No third party is in that path, and the app
+to the operator's own destination, which for a storage destination may be a bucket the
+operator does not run. The project is not in that path, and the app
 adds no destination of its own: it has no mail relay, and it cannot send anything
 anywhere until the operator supplies a server to send it through.
 
@@ -82,7 +86,7 @@ through creating them.
   changes shape for a backup set that requires it. The copy sent to a storage destination
   is an `age` file instead of the artifact's own bytes, with a plain JSON sidecar beside it
   that names the key (by id, never the key), the encryption suite, and the plaintext and stored
-  digests and sizes. Choosing a suite (EPIC T) changes which age recipient the key is, and
+  digests and sizes. Choosing a suite changes which age recipient the key is, and
   nothing else here: no new data is collected, stored elsewhere or sent anywhere, and the
   suite id is the only new value in the database, a metric label or the activity feed. The local copy is not encrypted, and object names on the destination are not
   hidden. If the managed key is used, it is an owner-only file in a `retained_copy_keys`
