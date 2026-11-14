@@ -237,6 +237,10 @@ built against `57107cd8`'s three `go.mod` files comes back at 44,892,320 and
 klauspost/compress, modernc's libc and sqlite, and rclone 1.75.1 -> 1.75.2,
 none of them new modules.
 
+**`/licenses` grew 3,325** because NOTICE and `third-party-licenses.json` gained
+entries for the modules that arrived: `filippo.io/age`, the MCP SDK,
+`jsonschema-go`, `segmentio`, `uritemplate` and `x/oauth2`.
+
 **The bundles grew 956,265 because the UI did.** Each bundle went from about
 1,334,213 to 1,525,466 bytes, and nearly all of it is the main JS chunk
 (1,147,732 -> 1,323,582): the agents card (#1351), the encryption and key
@@ -244,7 +248,9 @@ custody screens (#1282 onwards), and the progress stages (#1298). The woff2
 duplication recorded below is unchanged.
 
 That leaves 1,703,936 in each binary as product Go code, and `retnd-web`'s share
-includes its embedded copy of the UI growing. 35,094 lines of non-test Go landed
+includes its embedded copy of the UI growing. The two leftovers match because
+both binaries are padded to 64 KiB on linux/arm64 and link the same core
+packages, so their growth rounds to the same 26 pages. 35,094 lines of non-test Go landed
 under `core/`, `apps/common/` and `apps/generic/` (1,743 deleted) over 106
 first-parent commits. By symbol size from unstripped builds of both ends, the
 largest movers are `core/service`, `core/internal/state`, `core/internal/placement`
