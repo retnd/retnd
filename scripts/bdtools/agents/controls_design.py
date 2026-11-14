@@ -3,6 +3,13 @@
 # plant edits it and the guard tests in distribution/packaging must say which
 # state or ratio went missing.
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for the type checker: at run time selftest.py execs this file
+    # with both names already in scope.
+    from bdtools.agents.selftest import Control
+
 NOTE = "docs/design/1350-agents.html"
 HTML_PLANT = "<!-- PLANTED VIOLATION (scripts/bdtools/agents/selftest.py) -->"
 

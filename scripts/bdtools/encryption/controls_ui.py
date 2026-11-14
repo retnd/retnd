@@ -7,6 +7,13 @@
 # ui/shared/node_modules (installed by npm ci in node:22, plus
 # @playwright/test 1.62.1) linked in. vitest runs the same way in node:22.
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for the type checker: at run time selftest.py execs this file
+    # with both names already in scope.
+    from bdtools.encryption.selftest import Control
+
 UI_LOCK = "/Users/rom/workspace/xdg-pw-lock.sh"
 UI_TREE = "/Users/rom/workspace/retnd-lanes/rel080-matrix-wt"
 UI_PW_IMAGE = "mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e"

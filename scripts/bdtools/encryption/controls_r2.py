@@ -2,6 +2,13 @@
 # cell for an unresolvable key, the two source guards, and the gate and brand
 # guards. Exec'd by selftest.py with Control and PLANT defined.
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for the type checker: at run time selftest.py execs this file
+    # with both names already in scope.
+    from bdtools.encryption.selftest import PLANT, Control
+
 PLACE_ENC_R2 = "core/internal/placement/encryption.go"
 AGEX_R2 = "core/internal/copycrypt/agex25519.go"
 KC_AGE_R2 = "core/internal/keycustody/age.go"

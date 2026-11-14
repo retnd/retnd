@@ -7,6 +7,13 @@
 # control is the planted-violation shape one level up: break the guard, and the
 # test that drives it has to go red naming the violation it exists to refuse.
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for the type checker: at run time selftest.py execs this file
+    # with both names already in scope.
+    from bdtools.encryption.selftest import Control
+
 CLOSED_SH = "scripts/release/check-epic-t-closed.sh"
 CONTRACT_SH = "scripts/release/contract-unchanged.sh"
 GATE_TEST = "core/tests/encryptiongate/matrix_test.go"

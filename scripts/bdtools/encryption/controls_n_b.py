@@ -1,6 +1,13 @@
 # EPIC N's NV.n ledger and N2.n exit-gate rows (#998): the planted violations
 # their PASS rows cite. Exec'd by selftest.py with Control and PLANT defined.
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for the type checker: at run time selftest.py execs this file
+    # with both names already in scope.
+    from bdtools.encryption.selftest import PLANT, Control
+
 CANARY = "AGE-SECRET-KEY-1PLANTEDCANARYQQQQQQQQQQQQQQ"
 
 JOURNAL_GO = "core/internal/state/journal.go"

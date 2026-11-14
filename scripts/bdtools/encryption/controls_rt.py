@@ -9,6 +9,13 @@
 # dependencies and Playwright browser installed) and RETND_COMMIT in the
 # environment, and Suite C needs ui/shared's node_modules in the real tree.
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for the type checker: at run time selftest.py execs this file
+    # with both names already in scope.
+    from bdtools.encryption.selftest import PLANT, Control
+
 NEGATIVES_TEST = "core/tests/encryptionsuites/negatives_test.go"
 SUITES_TEST = "core/tests/encryptionsuites/suites_test.go"
 CONFIG_RCE_RT = "core/internal/config/retainedcopyencryption.go"
