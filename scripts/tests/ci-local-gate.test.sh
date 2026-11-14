@@ -951,6 +951,21 @@ run_gate "$tree" PATH="$tree/bin:$tree/later-bin:$PATH"
 assert_nonzero "D5b a working docker later on PATH does not stand in for the stopped one first on it" "$status"
 assert_contains "D5b and the refusal is the stopped daemon's" "$DOCKER_BANNER" "$out"
 
+# D5c: the other start, a PATH with no /opt/homebrew/bin on it at all (a hook
+# run without a shell profile). The gate adds Homebrew then, but at the END:
+# put first, brew's docker (and brew's python3, ahead of a pinned venv's)
+# would beat everything the caller listed. Only bites on a machine that has
+# /opt/homebrew/bin, which is the machine it was found on.
+tree="$(make_full_tree)"
+set_docker "$tree" unavailable
+mkdir -p "$tree/later-bin"
+printf '#!/bin/sh\nexit 0\n' >"$tree/later-bin/golangci-lint"
+chmod +x "$tree/later-bin/golangci-lint"
+no_brew_path="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vx '/opt/homebrew/bin' | paste -sd: -)"
+run_gate "$tree" PATH="$tree/bin:$tree/later-bin:$no_brew_path"
+assert_nonzero "D5c with no Homebrew on PATH, Homebrew's docker does not stand in for the stopped one" "$status"
+assert_contains "D5c and the refusal is the stopped daemon's" "$DOCKER_BANNER" "$out"
+
 # D6: the out-loud opt-out proceeds and ledgers. The 'core/ go build'
 # assertion is the positive control against D5: same tree, same stopped
 # daemon, and this time the run really does continue.
@@ -1504,8 +1519,12 @@ gate_step "core/ tests/crashmatrix under gotestwatch" >/dev/null
 kill -INT $$
 echo "REACHED-THE-LINE-AFTER-THE-SIGNAL"
 RUN
+# Started with SIGINT reset to its default: a self-test that was itself
+# started in the background (`&` from a non-interactive shell, nohup) hands
+# its children SIGINT ignored, a trap cannot take back a signal ignored on
+# entry, and `kill -INT $$` below would be a no-op (#1442).
 int_out="$(DOCKER_STUB_LOG="$int_log" PATH="$SANDBOX/intbin:$PATH" \
-  sh "$SANDBOX/interrupted-run.sh" "$GATE_LIB" 2>&1)"
+  perl -e '$SIG{INT}="DEFAULT"; exec @ARGV' sh "$SANDBOX/interrupted-run.sh" "$GATE_LIB" 2>&1)"
 int_status=$?
 assert_eq "J6 an interrupted run exits 130" 130 "$int_status"
 assert_not_contains "J6 an interrupted run stops where it was interrupted" \
