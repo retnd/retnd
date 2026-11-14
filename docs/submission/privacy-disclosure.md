@@ -25,11 +25,12 @@ file fails the build.
 
 ## What does it connect to?
 
-Two classes of destination, and the administrator chooses every member of both: the
-SFTP sources configured as backup sources, and — if they configured account recovery —
-the SMTP server they nominated for the account's own mail. Nothing else. The application
-makes no outbound connection that an administrator did not configure, and every host it
-will ever reach is visible in its own configuration.
+Three classes of destination, and the administrator chooses every member of all three:
+the SFTP sources configured as backup sources; any storage destination they configured to
+hold retained copies (an S3 bucket, or any endpoint that speaks the S3 API); and, if they
+configured account recovery, the SMTP server they nominated for the account's own mail.
+Nothing else. The application makes no outbound connection that an administrator did not
+configure, and every host it will ever reach is visible in its own configuration.
 
 The published URLs in this package's metadata point at the project's own source repository,
 its issue tracker and its container registry. Those are for a human reading the listing;
@@ -42,19 +43,25 @@ On the NAS, in locations the administrator picks at install time:
 - The catalog: a SQLite database recording each artifact's source, name, path, state,
   hashes and timestamps. It holds metadata about backup artifacts, not their contents.
 - The retained artifacts themselves, in the backup root the administrator chose, which is
-  kept a separate directory from the application's own state.
+  kept a separate directory from the application's own state. If the administrator
+  configured a storage destination for a retention tier, the copy for that tier is stored
+  there.
 - Authentication state: one local administrator record holding an Argon2id password hash.
   Never a plaintext password.
 - The account's recovery details: the administrator's recovery email address, and the
   SMTP settings used to reach it. The SMTP password is held as a secret reference rather
   than a value, so the record itself never contains it and no log or API response carries
   it.
-- If the administrator turns on retained-copy encryption: a managed key as an owner-only
-  file beside the configuration, and in the catalog the key's id, public recipient, status
-  and times. The key is never in the catalog, a log or an API response. The administrator
+- If the administrator turns on retained-copy encryption, what is stored changes shape for
+  a backup set that requires it. The copy on the storage destination is an `age` file
+  instead of the artifact's own bytes, with a plain JSON sidecar object beside it that names
+  the key (by id, never the key), the encryption suite, and the plaintext and stored digests
+  and sizes. The local copy stays plaintext, and object names on the destination are not
+  hidden. A managed key is kept as an owner-only file beside the configuration, and in the
+  catalog the key's id, public recipient, status and times. The key is never in the catalog, a log or an API response. The administrator
   exports a recovery bundle (the key, in a file they choose) and keeps it elsewhere; it is
-  the only moment the key leaves the NAS and nothing sends it anywhere. Encryption suites
-  (EPIC T) change which kind of age key that is and collect nothing new: the suite's id is
+  the only moment the key leaves the NAS and nothing sends it anywhere. The encryption
+  suite changes which kind of age key that is and collects nothing new: the suite's id is
   recorded beside each key and copy, and nothing is sent anywhere.
 - Credentials for the configured sources: an SSH private key and a pinned `known_hosts`
   file, both supplied by the administrator, both mounted read-only, and neither ever
@@ -62,11 +69,20 @@ On the NAS, in locations the administrator picks at install time:
 
 ## Does any of it leave the NAS?
 
-Only the account's own mail, and only where the administrator asked for it: an enrollment
-confirmation, a password-reset link, or a test message, sent to their own address through
-their own mail server. Nothing else. No backup artifact, no catalog, no configuration and
-no credential is uploaded, mirrored, synchronised or reported anywhere; all of it stays on
-the storage the administrator nominated.
+Three things, each only where the administrator asked for it.
+
+- The account's own mail: an enrollment confirmation, a password-reset link, or a test
+  message, sent to their own address through their own mail server.
+- Retained copies, to a storage destination the administrator configured and chose, which
+  may be a bucket they do not own or operate. With retained-copy encryption on, the copy
+  sent there is the `age` file described above, with its sidecar and its object name in the
+  clear. Nothing is sent to a destination nobody configured.
+- The recovery bundle, only as a file the administrator exports to a place they choose.
+  Nothing sends it anywhere.
+
+Nothing else. No catalog, no configuration and no credential is uploaded, mirrored,
+synchronised or reported anywhere, and nothing is reported to the project or to any third
+party.
 
 ## Data retention and deletion
 

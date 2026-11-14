@@ -58,9 +58,10 @@ from.
 
 EPIC N added a "Retained-copy encryption" card to Settings, an Inherit / Off / Required card
 under Retention on each backup set's page, and Encrypted / Verified recoverable chips on the
-copies list of a backup's own page. Two of the screens above (the Backup set detail, 2, and
-anywhere a listing shows Settings) are therefore not the screens any earlier capture showed.
-That moves no row, because every row already reads `PENDING_OPERATOR` and none has a picture.
+copies list of a backup's own page. One of the screens above (the Backup set detail, 2) and the Settings page,
+which is not on the list, are therefore outstanding again: they are not the screens any
+earlier capture showed. That moves no row, because every row already reads `PENDING_OPERATOR`
+here (`OPERATOR` in the preflight ledger, same meaning) and none has a picture.
 It does mean that when somebody finally captures them on real hardware, the build in front of
 the camera must be one that has these cards, and a store screenshot is never taken of the
 mock API or generated from the capture scripts under `docs/site/tools/`. #998 owns the
@@ -74,8 +75,8 @@ must be one with the select, and #1320's pictures on the project's site are mock
 
 Every screenshot this file describes shows the product's name, in the topbar of every
 screen on the list above and in the sign-in and enrolment pages before them. The product
-was renamed from `retnd` to `retnd` by EPIC R (#885), so every store screenshot that has
-ever been captured for any of the six listings above is of the old name.
+was renamed by EPIC R (#885), so every store screenshot that has
+ever been captured for any of the six listings above is of the previous name.
 
 That does not change a single verdict here, and the reason is the point of this file.
 There was never a captured screenshot in this repository to go stale: this material has
@@ -89,8 +90,8 @@ would be claiming a photograph that does not exist.
 
 What the rename does change is what the operator who eventually runs
 `docs/acceptance/store-submission-preflight.md` has to check before submitting: the build
-in front of the camera must be one whose interface says `retnd`, which means 0.4.0 or
-later. A screenshot taken on `0.3.3` — the newest published image — shows `retnd` and is
+in front of the camera must be one whose interface shows the new name, which means 0.4.0 or
+later. A screenshot taken on `0.3.3`, the newest published image, shows the previous name and is
 not submittable, however good the picture is.
 
 And the one thing that must not happen instead. The temptation a rename creates is to
