@@ -606,8 +606,9 @@ make_full_tree() {
   # `docker` is -- whether a developer has ruff and mypy installed is a
   # property of the machine, and in the real tree the step ledgers when a
   # tool is missing, which is exactly what D1 asserts the absence of. But
-  # ci-local.sh prepends /opt/homebrew/bin to PATH ahead of everything, so a
-  # Homebrew-installed ruff SHADOWS the stub and runs for real. It ran for
+  # ci-local.sh used to prepend /opt/homebrew/bin to PATH ahead of everything
+  # (it only does that now when Homebrew is not on PATH at all, see D5b), so a
+  # Homebrew-installed ruff SHADOWED the stub and ran for real. It ran for
   # real the whole time this step was `ruff check scripts/bdtools`, and
   # passed only because that path happened to hold one clean file with no
   # configuration to find.
@@ -933,6 +934,22 @@ assert_not_contains "D5 a stopped daemon cannot report success" 'ci-local: ok' "
 assert_contains "D5 the refusal explains itself" "$DOCKER_BANNER" "$out"
 assert_contains "D5 the refusal names the crash matrix" 'crash matrix' "$out"
 assert_not_contains "D5 nothing ran before the refusal" 'core/ go build' "$out"
+
+# D5b: the gate must not reorder a PATH the caller already set. A directory
+# LATER on the caller's PATH holds a working docker and a golangci-lint, the
+# way Homebrew's does on a Mac with both installed. The gate used to put that
+# directory first (Homebrew first, then the caller's golangci-lint ahead of
+# it), so the real docker beat this fixture's stopped stub and every docker
+# case in this file measured the host instead (#1442).
+tree="$(make_full_tree)"
+set_docker "$tree" unavailable
+mkdir -p "$tree/later-bin"
+printf '#!/bin/sh\nexit 0\n' >"$tree/later-bin/docker"
+printf '#!/bin/sh\nexit 0\n' >"$tree/later-bin/golangci-lint"
+chmod +x "$tree/later-bin/docker" "$tree/later-bin/golangci-lint"
+run_gate "$tree" PATH="$tree/bin:$tree/later-bin:$PATH"
+assert_nonzero "D5b a working docker later on PATH does not stand in for the stopped one first on it" "$status"
+assert_contains "D5b and the refusal is the stopped daemon's" "$DOCKER_BANNER" "$out"
 
 # D6: the out-loud opt-out proceeds and ledgers. The 'core/ go build'
 # assertion is the positive control against D5: same tree, same stopped
