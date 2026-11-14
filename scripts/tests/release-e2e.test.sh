@@ -344,6 +344,19 @@ git commit -q --amend -m r -m "Release-Gate-Override: trailer reason with	tab an
 RELEASE_E2E_SKIP="" git push -f origin release >/dev/null 2>&1
 [ "$(wc -l < "$log" | tr -d ' ')" = 2 ] && ! grep -q "$(printf '\r')" "$log" && pass "the same for the override trailer text" || fail "trailer flatten" "$(cat -v "$log")"
 
+echo "== the VPS the rig starts is a source retnd can delete from (#1423) =="
+# The sshd container writes as uid 1001 and the per-run upload directory is
+# made by whoever runs the rig. On a Linux remote that is a different uid, so
+# a directory left at 0755 gives a read-only source: the connection test says
+# so and the wizard drops the sentence about deleting the original after it
+# has been committed. Bind mounts on a Mac never enforced the owner.
+rig="$repo_root/scripts/e2e/three-machine-web-ui.sh"
+if awk '/chmod [0-7]+ "\$run_dir\/upload"$/ {mode=$2; if (mode ~ /^[0-7][0-7][2367]$/ || mode ~ /^[0-7][2367][0-7]$/) ok=1} END {exit ok ? 0 : 1}' "$rig"; then
+  pass "the rig leaves upload/ writable by the sshd account"
+else
+  fail "the rig leaves upload/ writable by the sshd account" "$(grep -n 'chmod .*run_dir/upload"' "$rig")"
+fi
+
 echo "== attestation =="
 make_repo
 sed -i.bak 's/"1.0.0"/"1.1.0"/' distribution/packaging/canonical.json; rm distribution/packaging/canonical.json.bak

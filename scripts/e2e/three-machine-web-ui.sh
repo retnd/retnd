@@ -1452,7 +1452,11 @@ printf 'the browser suite runs against this machine, not against a mock.\n' > "$
 # directory is a per-run path under the system temp directory that teardown
 # removes by name.
 chmod 644 "$run_dir/upload"/*
-chmod 755 "$run_dir/upload"
+# The directory itself is 0777: the sshd account (uid $sftp_uid) has to create
+# and delete files in it, or the connection test rates the source read-only and
+# the wizard stops offering to delete the original. A Mac bind mount ignores the
+# owner; a Linux remote does not (#1423).
+chmod 777 "$run_dir/upload"
 note "3 files: payload.bin (3 MiB), schema.sql, notes.txt"
 
 if [ "$workflows" = 1 ]; then
