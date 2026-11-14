@@ -255,7 +255,7 @@ Each sub-issue line names every `docs/epic-checklist.md` section it must satisfy
 - [ ] `docs/site/screens/` is regenerated through `capture-encryption.mjs` against the mock API with a pinned clock and Playwright borrowed from the pinned checkout, one untouched capture script run first, no hand-taken image, and two consecutive runs are byte-identical.
 - [x] Every new text and background pair meets WCAG AA in the light and the dark theme, with the measured ratios for the key pairs recorded in the pull request that adds the surface.
 - [x] The canonical deployment diff is **empty** across `container/compose.yaml`, the eleven files under `apps/*/compose/`, `apps/unraid/template/`, `apps/truenas/catalog/` and the four `distribution/packaging/*.json`, and the container contract is still distroless, non-root, read-only, `cap_drop: ALL`, `no-new-privileges`.
-- [ ] `scripts/ci-local.sh` is green with the new check as its own `gate_step` and a stub for it in `scripts/tests/ci-local-gate.test.sh`, every new guard has a mutation self-test with a negative control, and `scripts/rename/check-brand-drift.sh` finds no new old-brand identifier.
+- [x] `scripts/ci-local.sh` is green with the new check as its own `gate_step` and a stub for it in `scripts/tests/ci-local-gate.test.sh`, every new guard has a mutation self-test with a negative control, and `scripts/rename/check-brand-drift.sh` finds no new old-brand identifier.
 - [ ] `docs/conformance/epic-n-matrix.md` has no `BLOCKED` row, every `PASS` row's falsification has been run and watched to fail, every `BY HAND` row says who checked what and when rather than borrowing a neighbouring green, and a dedicated checker in `core/tests/` holds the file to that with its own mutation self-test.
 
 ---
