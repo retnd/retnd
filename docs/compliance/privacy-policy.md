@@ -132,7 +132,8 @@ claim that decays silently.
 Removing the app and deleting the state, config and secrets directories the
 platform's acceptance procedure created removes everything retnd
 stored (a managed encryption key included, which is under the config directory;
-a recovery bundle the operator exported is theirs and is somewhere they chose). There is nothing held anywhere else, so there is no deletion request to
+a recovery bundle the operator exported is theirs and is somewhere they chose). The one exception is a retained copy the operator configured to go to a storage destination: it stays
+there until the operator or the retention policy deletes it. There is nothing held anywhere else, so there is no deletion request to
 make of anybody and nobody to make it to.
 
 ## Changes
