@@ -469,7 +469,7 @@ const S={
     ${tokTable(TOK.slice(0,4))}
     <div class="muted"><button class="btn" style="margin-right:8px">What each scope can call</button>Read from this engine's catalogue.</div>
    </div>
-   <div class="region"><div class="eyebrow">Pending confirmations</div>
+   <div class="region" id="confirmations"><div class="eyebrow">Pending confirmations</div>
     ${pend({sentence:"Start a backup run for one backup set.",who:"recovery-drill",at:"09:38",set:"api-server/var-backups",cmd:"retnd operation run --backup-set api-server/var-backups",exp:"09:53",left:"11:42",body:btnsIdle+echo("retnd agent confirmations approve conf_01","retnd agent confirmations deny conf_01")})}
     ${pend({sentence:"Enable or disable a backup set.",who:"settings-helper",at:"09:36",set:"production/billing-mysql",cmd:"retnd backup-set enabled production/billing-mysql off",exp:"09:51",left:"9:40",body:btnsIdle})}
    </div>
