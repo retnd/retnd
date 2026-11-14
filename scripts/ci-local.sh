@@ -135,12 +135,25 @@ set -e
 # on purpose: brew's is whatever version is current, and the one this gate
 # means is the one scripts/ci/pins.env pins (see gate_golangci_pin_note), which is usually
 # built by hand and lives somewhere else.
+#
+# Only when Homebrew is not on PATH already, though. A PATH that has it is one
+# somebody set, in an order they chose, and moving Homebrew to the front of it
+# put brew's docker ahead of whatever the caller put first: the gate
+# self-test's stub daemon, for one, so every docker case in it measured the
+# host (#1442, D5b there).
 _caller_golangci=$(command -v golangci-lint 2>/dev/null || true)
-export PATH="/opt/homebrew/bin:$PATH"
-if [ -n "$_caller_golangci" ]; then
-  PATH="$(dirname "$_caller_golangci"):$PATH"
-  export PATH
-fi
+case ":$PATH:" in
+  *:/opt/homebrew/bin:*) ;;
+  *)
+    if [ -d /opt/homebrew/bin ]; then
+      PATH="/opt/homebrew/bin:$PATH"
+      if [ -n "$_caller_golangci" ]; then
+        PATH="$(dirname "$_caller_golangci"):$PATH"
+      fi
+    fi
+    ;;
+esac
+export PATH
 # The line above puts Homebrew's tools ahead of whatever the caller set, so a
 # golangci-lint built for the pinned toolchain (see gate_golangci_pin_note
 # below) could never win from PATH alone. GOLANGCI_LINT_DIR is how to say

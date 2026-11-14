@@ -99,18 +99,27 @@ fi
 unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR GIT_PREFIX
 
 # The same PATH rules as the full gate: Homebrew's tools, but not ahead of a
-# golangci-lint the caller put on PATH on purpose.
+# golangci-lint the caller put on PATH on purpose, and no reordering of a PATH
+# that already has Homebrew on it (#1442).
 _caller_golangci=$(command -v golangci-lint 2>/dev/null || true)
-export PATH="/opt/homebrew/bin:$PATH"
-if [ -n "$_caller_golangci" ]; then
-  PATH="$(dirname "$_caller_golangci"):$PATH"
-  export PATH
-fi
+case ":$PATH:" in
+  *:/opt/homebrew/bin:*) ;;
+  *)
+    if [ -d /opt/homebrew/bin ]; then
+      PATH="/opt/homebrew/bin:$PATH"
+      if [ -n "$_caller_golangci" ]; then
+        PATH="$(dirname "$_caller_golangci"):$PATH"
+      fi
+    fi
+    ;;
+esac
+export PATH
 if [ -n "${GOLANGCI_LINT_DIR:-}" ]; then
   export PATH="$GOLANGCI_LINT_DIR:$PATH"
 fi
 
 export CI_LOCAL_TIER=fast
+# shellcheck disable=SC2034  # read by gate_lint in the sourced lib below
 REPO_ROOT="$(pwd)"
 
 # shellcheck source=scripts/lib/ci-local-gate.sh
