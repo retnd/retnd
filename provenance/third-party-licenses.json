@@ -129,7 +129,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2",
-      "version": "v1.47.8",
+      "version": "v1.48.0",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -345,7 +345,7 @@
     },
     {
       "name": "github.com/aws/smithy-go",
-      "version": "v1.28.8",
+      "version": "v1.28.9",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",

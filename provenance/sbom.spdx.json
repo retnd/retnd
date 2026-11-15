@@ -220,9 +220,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-v1.47.8",
+      "SPDXID": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-v1.48.0",
       "name": "github.com/aws/aws-sdk-go-v2",
-      "versionInfo": "v1.47.8",
+      "versionInfo": "v1.48.0",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -232,7 +232,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2@v1.47.8"
+          "referenceLocator": "pkg:golang/github.com/aws/aws-sdk-go-v2@v1.48.0"
         }
       ],
       "checksums": [
@@ -634,9 +634,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-github.com-aws-smithy-go-v1.28.8",
+      "SPDXID": "SPDXRef-Package-go-github.com-aws-smithy-go-v1.28.9",
       "name": "github.com/aws/smithy-go",
-      "versionInfo": "v1.28.8",
+      "versionInfo": "v1.28.9",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -646,7 +646,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/aws/smithy-go@v1.28.8"
+          "referenceLocator": "pkg:golang/github.com/aws/smithy-go@v1.28.9"
         }
       ],
       "checksums": [
@@ -3228,7 +3228,7 @@
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-v1.47.8"
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-aws-sdk-go-v2-v1.48.0"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
@@ -3318,7 +3318,7 @@
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-smithy-go-v1.28.8"
+      "relatedSpdxElement": "SPDXRef-Package-go-github.com-aws-smithy-go-v1.28.9"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
