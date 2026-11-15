@@ -126,6 +126,13 @@ func base() string {
 }
 
 func TestTheCanonicalDeploymentIsAnEmptyDiffAgainstTheEpicBase(t *testing.T) {
+	// verify-core-without-apps.sh runs this suite in a worktree with apps/
+	// deleted on purpose, and every compose file and catalog the contract
+	// covers then reads as removed. That tree is not a deployment at all.
+	// The gate's own core/ step runs this case on the real tree.
+	if _, err := os.Stat(filepath.Join(root(t), "apps")); os.IsNotExist(err) {
+		t.Skip("apps/ is not in this tree (the core-without-apps proof), so there is no canonical deployment to compare")
+	}
 	if got := moved(t, root(t), base()); len(got) > 0 {
 		t.Errorf("EPIC U moved the canonical deployment (compare %s):\n  %s", base(), strings.Join(got, "\n  "))
 	}

@@ -212,7 +212,13 @@ func TestARevokedTokenMidStreamIsRefusedAndTheStreamCloses(t *testing.T) {
 		t.Errorf("the next call with a revoked token answered %+v, want AGENT_TOKEN_INVALID", rpcErr)
 	}
 	select {
-	case <-closed:
+	case err := <-closed:
+		// A clean EOF and a cut connection both mean the server closed the
+		// stream, which is the claim here, so either one passes. The error
+		// is logged rather than failed on so a reset still shows up.
+		if err != nil {
+			t.Logf("the stream closed with %v", err)
+		}
 	case <-time.After(5 * time.Second):
 		t.Error("the stream was still open five seconds after the token was revoked")
 	}
