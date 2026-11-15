@@ -45,7 +45,7 @@
     },
     {
       "name": "github.com/Azure/azure-sdk-for-go/sdk/azcore",
-      "version": "v1.23.1",
+      "version": "v1.23.3",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE.txt",
@@ -57,7 +57,7 @@
     },
     {
       "name": "github.com/Azure/azure-sdk-for-go/sdk/internal",
-      "version": "v1.12.0",
+      "version": "v1.13.0",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE.txt",
@@ -69,7 +69,19 @@
     },
     {
       "name": "github.com/Azure/azure-sdk-for-go/sdk/storage/azblob",
-      "version": "v1.8.1",
+      "version": "v1.8.2",
+      "ecosystem": "go",
+      "licenseId": "MIT",
+      "licenseFile": "LICENSE.txt",
+      "licenseSha256": "a096a435e19bb6b631da46992c011a39be563e97ce7366879ad516c772904632",
+      "linkedInto": [
+        "retnd",
+        "retnd-web"
+      ]
+    },
+    {
+      "name": "github.com/Azure/azure-sdk-for-go/sdk/storage/internal",
+      "version": "v0.1.0",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE.txt",
@@ -81,7 +93,7 @@
     },
     {
       "name": "github.com/IBM/go-sdk-core/v5",
-      "version": "v5.23.1",
+      "version": "v5.25.1",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
@@ -104,18 +116,6 @@
       ]
     },
     {
-      "name": "github.com/abbot/go-http-auth",
-      "version": "v0.4.0",
-      "ecosystem": "go",
-      "licenseId": "Apache-2.0",
-      "licenseFile": "LICENSE",
-      "licenseSha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0",
-      "linkedInto": [
-        "retnd",
-        "retnd-web"
-      ]
-    },
-    {
       "name": "github.com/adrg/xdg",
       "version": "v0.5.3",
       "ecosystem": "go",
@@ -129,7 +129,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2",
-      "version": "v1.47.4",
+      "version": "v1.47.8",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -153,7 +153,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/config",
-      "version": "v1.32.30",
+      "version": "v1.33.9",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -189,7 +189,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/feature/s3/manager",
-      "version": "v1.22.34",
+      "version": "v1.23.14",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -201,7 +201,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/internal/configsources",
-      "version": "v1.5.7",
+      "version": "v1.5.11",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -213,7 +213,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/internal/endpoints/v2",
-      "version": "v2.8.7",
+      "version": "v2.8.11",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -225,7 +225,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/internal/v4a",
-      "version": "v1.5.7",
+      "version": "v1.5.11",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -237,7 +237,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding",
-      "version": "v1.13.22",
+      "version": "v1.13.24",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -261,7 +261,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/service/internal/presigned-url",
-      "version": "v1.14.7",
+      "version": "v1.14.11",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -333,7 +333,7 @@
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/service/sts",
-      "version": "v1.51.5",
+      "version": "v1.51.9",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
@@ -345,7 +345,7 @@
     },
     {
       "name": "github.com/aws/smithy-go",
-      "version": "v1.28.6",
+      "version": "v1.28.8",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
@@ -477,7 +477,7 @@
     },
     {
       "name": "github.com/gabriel-vasile/mimetype",
-      "version": "v1.4.13",
+      "version": "v1.4.15",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE",
@@ -489,23 +489,13 @@
     },
     {
       "name": "github.com/go-chi/chi/v5",
-      "version": "v5.3.2",
-      "ecosystem": "go",
-      "licenseId": "MIT",
-      "licenseFile": "LICENSE",
-      "licenseSha256": "a2d51b7515acfaff2f7a88688650f2fc4fd99561383e72bba2305e3db59a1647",
-      "linkedInto": [
-        "retnd"
-      ]
-    },
-    {
-      "name": "github.com/go-chi/chi/v5",
       "version": "v5.5.0",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE",
       "licenseSha256": "a2d51b7515acfaff2f7a88688650f2fc4fd99561383e72bba2305e3db59a1647",
       "linkedInto": [
+        "retnd",
         "retnd-web"
       ]
     },
@@ -535,7 +525,7 @@
     },
     {
       "name": "github.com/go-openapi/errors",
-      "version": "v0.22.8",
+      "version": "v0.22.9",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
@@ -547,7 +537,7 @@
     },
     {
       "name": "github.com/go-openapi/strfmt",
-      "version": "v0.27.0",
+      "version": "v0.27.3",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
@@ -559,7 +549,7 @@
     },
     {
       "name": "github.com/go-playground/locales",
-      "version": "v0.14.1",
+      "version": "v0.14.2",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE",
@@ -571,7 +561,7 @@
     },
     {
       "name": "github.com/go-playground/universal-translator",
-      "version": "v0.18.1",
+      "version": "v0.18.2",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE",
@@ -583,7 +573,7 @@
     },
     {
       "name": "github.com/go-playground/validator/v10",
-      "version": "v10.30.3",
+      "version": "v10.30.5",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE",
@@ -607,7 +597,7 @@
     },
     {
       "name": "github.com/gofrs/flock",
-      "version": "v0.13.0",
+      "version": "v0.13.1",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",
@@ -691,7 +681,7 @@
     },
     {
       "name": "github.com/klauspost/compress",
-      "version": "v1.20.3",
+      "version": "v1.20.4",
       "ecosystem": "go",
       "licenseId": "Apache-2.0 AND MIT",
       "licenseFile": "LICENSE",
@@ -775,7 +765,7 @@
     },
     {
       "name": "github.com/lanrat/extsort",
-      "version": "v1.4.2",
+      "version": "v1.5.0",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
@@ -787,7 +777,7 @@
     },
     {
       "name": "github.com/leodido/go-urn",
-      "version": "v1.4.0",
+      "version": "v1.5.0",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE",
@@ -811,7 +801,7 @@
     },
     {
       "name": "github.com/mattn/go-colorable",
-      "version": "v0.1.15",
+      "version": "v0.1.16",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE",
@@ -835,7 +825,7 @@
     },
     {
       "name": "github.com/mattn/go-runewidth",
-      "version": "v0.0.24",
+      "version": "v0.0.31",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE",
@@ -871,7 +861,7 @@
     },
     {
       "name": "github.com/minio/minio-go/v7",
-      "version": "v7.2.1",
+      "version": "v7.4.1",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
@@ -943,7 +933,7 @@
     },
     {
       "name": "github.com/oklog/ulid/v2",
-      "version": "v2.1.1",
+      "version": "v2.1.2",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
@@ -967,7 +957,7 @@
     },
     {
       "name": "github.com/peterh/liner",
-      "version": "v1.2.2",
+      "version": "v1.2.3",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "COPYING",
@@ -1027,7 +1017,7 @@
     },
     {
       "name": "github.com/prometheus/client_golang",
-      "version": "v1.23.2",
+      "version": "v1.25.0",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
@@ -1039,7 +1029,7 @@
     },
     {
       "name": "github.com/prometheus/client_model",
-      "version": "v0.6.2",
+      "version": "v0.6.3",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
@@ -1051,7 +1041,7 @@
     },
     {
       "name": "github.com/prometheus/common",
-      "version": "v0.70.0",
+      "version": "v0.72.0",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
@@ -1063,7 +1053,7 @@
     },
     {
       "name": "github.com/prometheus/procfs",
-      "version": "v0.21.1",
+      "version": "v0.22.0",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
@@ -1075,7 +1065,7 @@
     },
     {
       "name": "github.com/rclone/rclone",
-      "version": "v1.75.2",
+      "version": "v1.76.0",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "COPYING",
@@ -1147,7 +1137,7 @@
     },
     {
       "name": "github.com/shirou/gopsutil/v4",
-      "version": "v4.26.6",
+      "version": "v4.26.9",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",
@@ -1375,7 +1365,7 @@
     },
     {
       "name": "golang.org/x/net",
-      "version": "v0.60.0",
+      "version": "v0.62.0",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",
@@ -1387,7 +1377,7 @@
     },
     {
       "name": "golang.org/x/oauth2",
-      "version": "v0.36.0",
+      "version": "v0.37.0",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",
@@ -1411,7 +1401,7 @@
     },
     {
       "name": "golang.org/x/sys",
-      "version": "v0.49.0",
+      "version": "v0.50.0",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",
@@ -1447,7 +1437,7 @@
     },
     {
       "name": "golang.org/x/time",
-      "version": "v0.15.0",
+      "version": "v0.16.0",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",
@@ -1459,7 +1449,7 @@
     },
     {
       "name": "google.golang.org/genproto/googleapis/rpc",
-      "version": "v0.0.0-20260817212433-ac3dfec99bb1",
+      "version": "v0.0.0-20261005182115-fad411399dd8",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
