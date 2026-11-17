@@ -610,7 +610,7 @@ shard="$1"; shift
 host=auto
 [ "${1:-}" = "--host" ] && host="$2"
 echo "$shard $host" >>"$STUB_DIR/calls"
-echo "==> toolchain: go go1.27.0 darwin/arm64"
+[ -e "$STUB_DIR/nogo-$shard" ] || echo "==> toolchain: go go1.27.0 darwin/arm64"
 echo "==> toolchain: golangci-lint 2.15.0 built with go1.27.0"
 echo "==> toolchain: node v26.12.0"
 echo "==> toolchain: docker 29.0.0"
@@ -880,6 +880,38 @@ else
   fail "the sharded round trip could not start" "$OUT"
 fi
 unset RECORDER_ARGS
+
+# 9. what a rerun may not hide, and what a resume may not reuse (#1458 review)
+repo="$(new_shard_repo sh-launder)"
+printf 'fail\n' >"$SANDBOX/stub-sh-launder/mode-core-a"
+run_shards sh-launder "--shards --jobs 1"
+printf 'ok\n' >"$SANDBOX/stub-sh-launder/mode-core-a"
+run_shards sh-launder "--shards --jobs 1"
+cp "$repo/.git/local-gate/shards/"*/core-a.attempt-1.log "$SANDBOX/first-failing.log"
+rm -f "$repo/provenance/local-gate.json" "$repo/provenance/local-gate.log" "$repo/provenance/local-gate.json.sig"
+run_shards sh-launder "--shards --only core-a"
+sd="$(shards_dir_of "$repo")"
+[ "$(json_field "$sd/core-a.json" '[a["exit"] for a in d["attempts"]]')" = "[1, 0, 0]" ] \
+  && pass "--only keeps the earlier failure in the signed record" \
+  || fail "--only keeps the earlier failure in the signed record" "$(json_field "$sd/core-a.json" '[a["exit"] for a in d["attempts"]]')"
+cmp -s "$sd/core-a.attempt-1.log" "$SANDBOX/first-failing.log" \
+  && pass "and the failed attempt's log is not overwritten" || fail "and the failed attempt's log is not overwritten"
+
+repo="$(new_shard_repo sh-runner-swap)"
+cp "$STUB_RUNNER" "$SANDBOX/runner-a.sh"
+run_shards sh-runner-swap "--shards --jobs 1" RETND_GATE_SHARD_RUNNER="$SANDBOX/runner-a.sh"
+rm -f "$repo/provenance/local-gate.json" "$repo/provenance/local-gate.log" "$repo/provenance/local-gate.json.sig"
+printf '# a different runner\n' >>"$SANDBOX/runner-a.sh"
+run_shards sh-runner-swap "--shards --jobs 1" RETND_GATE_SHARD_RUNNER="$SANDBOX/runner-a.sh"
+[ "$(calls_of sh-runner-swap static)" = 2 ] \
+  && pass "a different runner reruns the shards signed under the old one" \
+  || fail "a different runner reruns the shards signed under the old one" "$(cat "$SANDBOX/stub-sh-runner-swap/calls")"
+
+repo="$(new_shard_repo sh-nogo)"
+: >"$SANDBOX/stub-sh-nogo/nogo-static"
+run_shards sh-nogo "--shards --jobs 1"
+expect "a shard whose log names no Go toolchain is refused" 1 "Go toolchain"
+no_record "and no aggregate is written for it" "$repo"
 
 echo
 if [ "$failures" -gt 0 ]; then

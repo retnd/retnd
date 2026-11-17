@@ -13,7 +13,8 @@
 # workspace whose node_modules were not installed. A gate whose verdict
 # depends on what somebody's laptop updated overnight is not a gate.
 #
-# Everything the gate shells out to is here and pinned: go, golangci-lint
+# Everything the gate shells out to is here and pinned (ffmpeg, for the
+# docs-site capture tooling check, is the distribution's, #1455): go, golangci-lint
 # at the version scripts/ci/pins.env names (scripts/ci-docker.sh passes it
 # in), node and npm at a fixed major, the docker CLI and the compose
 # plugin.
@@ -59,7 +60,7 @@ RUN set -eux; \
     ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm; \
     ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx; \
     apt-get update; \
-    apt-get install -y --no-install-recommends python3 python3-venv python3-yaml jq; \
+    apt-get install -y --no-install-recommends python3 python3-venv python3-yaml jq ffmpeg; \
     rm -rf /var/lib/apt/lists/*; \
     go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"; \
     go install "filippo.io/age/cmd/age@${AGE_VERSION}"; \

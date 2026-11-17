@@ -100,6 +100,7 @@ a tracked file `mutant()` cannot find on disk
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -126,6 +127,42 @@ def parse_selftest_args(argv: Sequence[str], program: str) -> bool:
             print(f"usage: {program} [--check-anchors]", file=sys.stderr)
             raise SystemExit(2)
     return dry_run
+
+
+def parse_shard_args(argv: Sequence[str], program: str, count: int) -> tuple[bool, tuple[int, int] | None]:
+    """`parse_selftest_args` plus `--shard i/n` (1-based), for the selftests whose
+    mutant list is long enough to split across hosts (#1455). Returns
+    (dry_run, shard), shard being None without the flag. `count` is the length
+    of the selftest's mutant list: a slice that would hold none of it is refused
+    with exit 2 before anything runs."""
+    usage = f"usage: {program} [--check-anchors] [--shard i/n]"
+    rest: list[str] = []
+    shard: tuple[int, int] | None = None
+    it = iter(argv)
+    for arg in it:
+        if arg == "--shard" or arg.startswith("--shard="):
+            value = arg.partition("=")[2] if "=" in arg else next(it, "")
+            m = re.fullmatch(r"([0-9]+)/([0-9]+)", value)
+            if not m or not 1 <= int(m[1]) <= int(m[2]):
+                print(f"{program}: --shard wants i/n with 1 <= i <= n, got {value!r}", file=sys.stderr)
+                print(usage, file=sys.stderr)
+                raise SystemExit(2)
+            shard = (int(m[1]), int(m[2]))
+        else:
+            rest.append(arg)
+    if shard is not None and not any(in_shard(k, shard) for k in range(count)):
+        print(f"{program}: slice {shard[0]}/{shard[1]} holds no mutant (the list has {count})", file=sys.stderr)
+        raise SystemExit(2)
+    dry_run = parse_selftest_args(rest, program)
+    if shard is not None:
+        print(f"==> shard {shard[0]}/{shard[1]}: mutants {shard[0]}, {shard[0] + shard[1]}, ... of {count}")
+    return dry_run, shard
+
+
+def in_shard(index: int, shard: tuple[int, int] | None) -> bool:
+    """Whether the 0-based mutant `index` belongs to the slice. Round robin, so
+    slices differ by at most one mutant. No shard means everything."""
+    return shard is None or index % shard[1] == shard[0] - 1
 
 
 def _quoted(text: str) -> str:

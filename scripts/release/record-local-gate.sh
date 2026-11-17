@@ -104,9 +104,9 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --serial) mode=serial ;;
     --shards) mode=shards ;;
-    --only) only="${2:-}"; shift ;;
-    --host) host="${2:-}"; shift ;;
-    --jobs) jobs="${2:-}"; shift ;;
+    --only) [ $# -ge 2 ] || { echo "local-gate: REFUSED. --only needs a value" >&2; exit 2; }; only="$2"; shift ;;
+    --host) [ $# -ge 2 ] || { echo "local-gate: REFUSED. --host needs a value" >&2; exit 2; }; host="$2"; shift ;;
+    --jobs) [ $# -ge 2 ] || { echo "local-gate: REFUSED. --jobs needs a value" >&2; exit 2; }; jobs="$2"; shift ;;
     --retry-once) retry_once=1 ;;
     --force) force=1 ;;
     *) echo "local-gate: REFUSED. unknown option $1" >&2; exit 2 ;;
@@ -287,7 +287,7 @@ if [ "$mode" = shards ]; then
   esac
   mkdir -p provenance
   rm -f provenance/local-gate.json.sig
-  python3 "$SCRIPT_DIR/../bdtools/release/gate_shards.py" aggregate "${shard_args[@]}" --out provenance \
+  python3 "$SCRIPT_DIR/../bdtools/release/gate_shards.py" aggregate "${shard_args[@]}" --runner "$runner" --out provenance \
     --env-json "$(gate_env_json)" || { rm -f provenance/local-gate.json provenance/local-gate.log; exit 1; }
   if ! ssh-keygen -Y sign -n retnd-local-gate -f "$GATE_KEY" provenance/local-gate.json >/dev/null; then
     rm -f provenance/local-gate.json provenance/local-gate.log provenance/local-gate.json.sig

@@ -85,7 +85,7 @@ touched="$(git diff --name-only --diff-filter=MDRT "$base" -- core/migrations)"
 want15="core/migrations/0015_retained_copy_encryption.sql"
 want19="core/migrations/0019_encrypt_existing_consents.sql"
 unexpected="$(printf '%s\n' "$added" | grep -vxF -e "$want15" -e "$want19" | grep -v '^$' || true)"
-if printf '%s\n' "$added" | grep -qxF "$want15" && [ -z "$unexpected" ] && [ -z "$touched" ]; then
+if grep -qxF "$want15" <<<"$added" && [ -z "$unexpected" ] && [ -z "$touched" ]; then
   ok "core/migrations gained only the epic's own (0015, and 0019 if present) and nothing else moved"
 else
   bad "core/migrations must gain exactly $want15 (and may also gain $want19) and nothing else, and change nothing. Added: [$(printf '%s' "$added" | tr '\n' ' ')] Not allowed: [$(printf '%s' "$unexpected" | tr '\n' ' ')] Changed or removed: [$(printf '%s' "$touched" | tr '\n' ' ')]"
