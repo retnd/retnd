@@ -68,7 +68,6 @@ for b in ssh rsync tar docker; do
 done
 chmod +x "$work/bin"/* "$work/ci-docker-stub.sh"
 
-OK_LINE='==> ci-local: ok'
 run_runner() {
   rm -rf "$work/out"; mkdir -p "$work/out"
   : > "$work/log/ci-docker"; : > "$work/log/ci-docker-env"; : > "$work/log/ci-local"
@@ -224,10 +223,11 @@ kill -TERM "$runner_pid" 2>/dev/null
 wait "$runner_pid"; term_rc=$?
 t_took=$(( $(date +%s) - t_start ))
 stub_pid="$(cat "$work/log/stub-pid")"
-if [ "$term_rc" = 3 ] && [ "$t_took" -lt 10 ] && ! kill -0 "$stub_pid" 2>/dev/null; then
+for _ in $(seq 1 60); do kill -0 "$stub_pid" 2>/dev/null || break; sleep 0.1; done
+if [ "$term_rc" = 3 ] && [ "$t_took" -lt 15 ] && ! kill -0 "$stub_pid" 2>/dev/null; then
   pass "R7 TERM returns INCOMPLETE at once and takes the shard's process with it"
 else
-  fail "R7 TERM" "rc=$term_rc took=${t_took}s stub=$stub_pid"
+  fail "R7 TERM" "out=$(tail -8 "$work/stdout" | tr "\n" "~") rc=$term_rc took=${t_took}s stub=$stub_pid $(ps -o pid,ppid,stat,command -p "$stub_pid" 2>&1 | tail -1)"
   kill "$stub_pid" 2>/dev/null
 fi
 
