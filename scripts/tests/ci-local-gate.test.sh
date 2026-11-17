@@ -2279,6 +2279,8 @@ assert_contains "Q6 a plain step runs with the lock free" 'PERF-STEP: lock free'
 rm -rf "$lock_dir"
 mkdir -p "$lock_dir"
 printf '2147483646\n' >"$lock_dir/pid"
+hostname >"$lock_dir/host"
+sh -c ". '$GATE_LIB' && gate_boot_id" >"$lock_dir/boot"
 # The planted lock has to be one gate_lock_dead can judge (#1473). Without
 # the host and boot records it is only reclaimed by age, and the waiters
 # below sat out GATE_LOCK_STALE_AFTER (10 minutes) on every machine.
