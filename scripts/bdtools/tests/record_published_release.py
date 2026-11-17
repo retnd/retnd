@@ -26,7 +26,7 @@ def sha256(path: Path) -> str:
 
 
 class RecorderTest(unittest.TestCase):
-    def fixture(self, *, include_arm64: bool = True) -> tuple[Path, Path]:
+    def fixture(self, *, include_arm64: bool = True, single_arch: bool = False) -> tuple[Path, Path]:
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
@@ -40,7 +40,7 @@ class RecorderTest(unittest.TestCase):
             "version": "0.5.0",
             "architectures": [
                 {"architecture": "amd64", "registry_digest": None},
-                {"architecture": "arm64", "registry_digest": None},
+                *([] if single_arch else [{"architecture": "arm64", "registry_digest": None}]),
             ],
             "index_digest": None,
         }))
@@ -59,7 +59,13 @@ class RecorderTest(unittest.TestCase):
             "digest": AMD64,
             "platform": {"os": "linux", "architecture": "amd64"},
         }]
-        if include_arm64:
+        if single_arch:
+            # buildx adds a provenance attestation to a single-platform push.
+            manifests.append({
+                "digest": ARM64,
+                "platform": {"os": "unknown", "architecture": "unknown"},
+            })
+        elif include_arm64:
             manifests.append({
                 "digest": ARM64,
                 "platform": {"os": "linux", "architecture": "arm64"},
@@ -90,6 +96,16 @@ class RecorderTest(unittest.TestCase):
             {"amd64": AMD64, "arm64": ARM64},
         )
         self.assertIn(f'CARRIED_RELEASE_DIGEST = "{INDEX}"', installer)
+
+    def test_records_a_single_architecture_release_beside_its_attestation(self) -> None:
+        root, index = self.fixture(single_arch=True)
+        result = self.run_recorder(root, index)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = json.loads((root / "container/release-manifest.json").read_text())
+        self.assertEqual(
+            {item["architecture"]: item["registry_digest"] for item in manifest["architectures"]},
+            {"amd64": AMD64},
+        )
 
     def test_refuses_an_incomplete_registry_index_without_writing(self) -> None:
         root, index = self.fixture(include_arm64=False)

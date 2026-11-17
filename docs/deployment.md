@@ -14,7 +14,7 @@ refuses an ARM host (exit 11) instead of letting `docker compose up` fail on an 
 
 If you run an ARM NAS or a Raspberry Pi, you have two options: build the image from source on the
 machine (see "Building and running it yourself" below, `--platform linux/arm64` still works because the
-Go code and the Dockerfile are unchanged), or stay on 0.8.0, the last release with a `linux/arm64`
+Go code and the Dockerfile are unchanged), or stay on 0.7.2, the last release with a `linux/arm64`
 image. A source build is not a supported, verified artefact.
 
 ## The command is `retnd`, and `/retnd-web` survives for exactly one release

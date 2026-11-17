@@ -636,7 +636,7 @@ class Preflight:
                 f"this host reports {machine}, and the release is built for "
                 f"{sorted(set(SUPPORTED_ARCH.values()))} only.",
                 "There is no image for this architecture. Releases publish linux/amd64 only (#1452). On an ARM NAS or "
-                "Raspberry Pi, build from source (docs/deployment.md) or stay on 0.8.0, the last release with a linux/arm64 image.",
+                "Raspberry Pi, build from source (docs/deployment.md) or stay on 0.7.2, the last release with a linux/arm64 image.",
             )
         self.arch = arch
         self.note(f"architecture {machine} maps to the released {arch}")
