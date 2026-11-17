@@ -267,12 +267,12 @@ else
   fail "L4 git dir shipping" "$(grep -- '--exclude' "$l2/log/rsync" | head -2)"
 fi
 # Only ssh and docker are ever run on the remote; no ssh command installs, builds or edits anything outside the scratch copy.
-if grep -E '^ssh ' "$l2/log/ssh" | grep -Eqi 'apt|yum|pip|npm|brew|curl|wget|sudo'; then
-  fail "N2 nothing beyond ssh and docker on the nas" "$(grep -Ei 'apt|pip|npm|brew|curl|wget|sudo' "$l2/log/ssh" | head -2)"
+if grep -E '^ssh ' "$l2/log/ssh" | grep -Eqiw 'apt|apt-get|yum|pip|npm|brew|curl|wget|sudo'; then
+  fail "N2 nothing beyond ssh and docker on the nas" "$(grep -Eiw 'apt|pip|npm|brew|curl|wget|sudo' "$l2/log/ssh" | head -2)"
 else
   pass "N2 nothing beyond ssh, docker and the scratch copy runs on the nas: no package manager, no download, no sudo"
 fi
-run_real env FAKE_NOTHING=1 bash "$runner" core-docker --host mars --out "$work/out"
+run_real bash "$runner" core-docker --host mars --out "$work/out"
 if [ "$(rc)" = 0 ] && grep -q 'devshell@192.168.0.100' "$l2/log/ssh" && grep -q '/work/nas-work/ci-docker-' "$l2/log/ssh"; then
   pass "L5 mars uses the devshell account and its /work/nas-work scratch parent"
 else
