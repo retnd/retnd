@@ -82,8 +82,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from gate_shards import GateError, parse_manifest  # the manifest reader the recorder shares
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from bdtools.release.gate_shards import GateError, parse_manifest  # the manifest reader the recorder shares
 
 RECORD = "provenance/local-gate.json"
 LOG = "provenance/local-gate.log"
@@ -343,7 +344,10 @@ def check_shards(
                             "attempts differ).")
         recorded_go = str(rec.get("tools", {}).get("go", "")) if isinstance(rec.get("tools"), dict) else ""
         shard_minor = ".".join(recorded_go.removeprefix("go").split(".")[:2])
-        if recorded_go and pin and shard_minor != ".".join(pin.split(".")[:2]):
+        if not recorded_go:
+            findings.append(f"shard `{name}`: its signed record names no Go toolchain, so the Go minor cannot be "
+                            f"checked against `{GO_MOD}`.")
+        elif pin and shard_minor != ".".join(pin.split(".")[:2]):
             findings.append(f"shard `{name}` ran with Go `{recorded_go}` and `{GO_MOD}` builds with go {pin}.")
         offset, length = entry.get("log_offset"), entry.get("log_length")
         body = log_body
