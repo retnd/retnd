@@ -42,7 +42,7 @@ fail() {
 new_repo() {
   tree="$(mktemp -d)"
   (
-    cd "$tree"
+    cd "$tree" || exit 1
     git init -q
     printf 'hello\n' >README.md
     git add -A
@@ -57,7 +57,7 @@ commit() {
   mkdir -p "$1/$(dirname "$2")"
   printf '%s\n' "$3" >"$1/$2"
   (
-    cd "$1"
+    cd "$1" || exit 1
     git add -A
     git -c user.email=selftest@example.invalid -c user.name=selftest \
       commit -q -m case
@@ -179,6 +179,20 @@ red "the same file name under another directory is not allowlisted" "$tree" "doc
 tree="$(new_repo)"
 commit "$tree" core/migrations/0012_workflow_runs.sql.bak "-- ${former_cap_low}"
 red "a sibling of the pinned file is not allowlisted" "$tree" "0012_workflow_runs.sql.bak:1"
+
+# The recorded gate log is output of the browser lane, which quotes spec titles
+# from another repository (#1481). Allowlisted by its exact path, nothing else.
+tree="$(new_repo)"
+commit "$tree" provenance/local-gate.log "ok  (spec title mentioning ${former_low}#299)"
+green "the committed gate log is allowlisted" "$tree"
+
+tree="$(new_repo)"
+commit "$tree" provenance/local-gate.json "${former_low}"
+red "the gate record next to the log is still scanned" "$tree" "provenance/local-gate.json:1"
+
+tree="$(new_repo)"
+commit "$tree" docs/provenance/local-gate.log "${former_low}"
+red "the same file name under another directory is not allowlisted" "$tree" "docs/provenance/local-gate.log:1"
 
 # The look-alikes: real identifiers that begin with the same letters.
 tree="$(new_repo)"
