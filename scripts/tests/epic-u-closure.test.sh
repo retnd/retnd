@@ -171,6 +171,8 @@ make_arch_cut_repo() { # name -> a base that claims amd64 and arm64, cut to 0.8.
 }
 r="$(make_arch_cut_repo arch-drop)"; (cd "$r" && git commit -qam "cut 0.8.0, amd64 only")
 expect_pass "control: a cut that also drops the arm64 claim is not a move" "$r"
+r="$(make_arch_cut_repo arch-comment)"; printf '# a comment about platforms\n' >> "$r/container/compose.yaml"; (cd "$r" && git commit -qam "cut 0.8.0, a comment")
+expect_pass "control: a comment-only line added to a compose file is not a move" "$r"
 r="$(make_arch_cut_repo arch-add-yaml)"; printf '  - riscv64\n' >> "$r/apps/a/compose/compose.yaml"; (cd "$r" && git commit -qam x)
 expect_fail "a cut that adds another architecture to a compose file is refused" "$r" "apps/a/compose/compose.yaml"
 r="$(make_arch_cut_repo arch-add-json)"; echo '{"claim": {"architectures": ["amd64", "riscv64"]}}' > "$r/distribution/packaging/conformance.json"; (cd "$r" && git commit -qam x)
