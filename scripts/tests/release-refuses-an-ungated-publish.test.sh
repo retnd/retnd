@@ -583,6 +583,12 @@ new_sharded_case() { # <name>
 #   go=<shard>          that shard ran with another Go minor
 #   unsign=<shard>      that shard's signature is empty
 #   reorder=1           the shards are listed in another order
+#   swap=<shard>        that shard's entry carries core-a's signed record and signature
+#   attempts=<shard>    that shard's entry shows attempts the signed record does not
+#   ledger=<shard>      that shard's (signed) record has a non-empty ledger
+#   dupe=<shard>        that shard is listed twice
+#   schema=<shard>      that shard's (signed) record has another schema
+#   nogo=<shard>        that shard's (signed) record names no Go toolchain
 write_sharded_record() {
   local tree go lint out="$SANDBOX/agg"
   tree="$(cd "$REPO" && bash scripts/release/gate-tree.sh HEAD)"
@@ -618,10 +624,10 @@ shards = []
 for n in names:
     body = f"==> stub shard {n}\n==> ci-local: ok (shard {n})\n".encode()
     rec = {
-        "schema": "retnd.local-gate.shard/1", "shard": n, "gate_tree": opt.get("other_tree") == n and "1" * 40 or tree,
+        "schema": "retnd.local-gate/1" if opt.get("schema") == n else "retnd.local-gate.shard/1", "shard": n, "gate_tree": opt.get("other_tree") == n and "1" * 40 or tree,
         "head": "0" * 40, "manifest_sha256": sha(manifest), "result": "failed" if opt.get("not_ok") == n else "ok",
-        "ledger": [], "host": "mars", "command": f"run-gate-shard.sh {n}", "started_at": "2026-11-16T09:00:00Z",
-        "duration_s": 60, "tools": {"go": "go1.2.3" if opt.get("go") == n else go, "node": "", "golangci_lint": lint, "docker": ""},
+        "ledger": ["- skipped"] if opt.get("ledger") == n else [], "host": "mars", "command": f"run-gate-shard.sh {n}", "started_at": "2026-11-16T09:00:00Z",
+        "duration_s": 60, "tools": {"go": "" if opt.get("nogo") == n else "go1.2.3" if opt.get("go") == n else go, "node": "", "golangci_lint": lint, "docker": ""},
         "web_ui_lane": None, "log_sha256": sha(body),
         "attempts": [{"attempt": 1, "started_at": "2026-11-16T09:00:00Z", "host": "mars", "exit": 0, "duration_s": 60,
                       "log_sha256": sha(body), "failed_tests": []}],
@@ -635,6 +641,16 @@ for n in names:
                    "tools": rec["tools"], "gate_tree": rec["gate_tree"], "attempts": rec["attempts"],
                    "log_sha256": rec["log_sha256"], "log_offset": off, "log_length": len(body),
                    "record": raw.decode(), "signature": sig})
+if "swap" in opt:
+    src = next(x for x in shards if x["name"] == "core-a")
+    dst = next(x for x in shards if x["name"] == opt["swap"])
+    dst["record"], dst["signature"] = src["record"], src["signature"]
+if "attempts" in opt:
+    dst = next(x for x in shards if x["name"] == opt["attempts"])
+    dst["attempts"] = dst["attempts"] + [{"attempt": 2, "started_at": "2026-11-16T09:30:00Z", "host": "mars", "exit": 0,
+                                           "duration_s": 1, "log_sha256": "", "failed_tests": []}]
+if "dupe" in opt:
+    shards.append(dict(next(x for x in shards if x["name"] == opt["dupe"])))
 if "edit_slice" in opt:
     s = next(x for x in shards if x["name"] == opt["edit_slice"])
     i = s["log_offset"] + 4
@@ -711,6 +727,43 @@ new_sharded_case sharded-go
 write_sharded_record go=static
 run_gate true
 expect "a shard that ran with another Go minor does not publish" 1 "go1.2.3"
+
+new_sharded_case sharded-swap
+write_sharded_record swap=e2e
+run_gate true
+expect "a valid signed record moved into another shard's entry does not publish" 1 "e2e"
+
+new_sharded_case sharded-attempts
+write_sharded_record attempts=core-a
+run_gate true
+expect "an entry whose attempts differ from the signed ones does not publish" 1 "attempts differ"
+
+new_sharded_case sharded-ledger
+write_sharded_record ledger=core-a
+run_gate true
+expect "a shard whose signed record carries a ledger does not publish" 1 "did not pass"
+
+new_sharded_case sharded-dupe
+write_sharded_record dupe=core-a
+run_gate true
+expect "a shard listed twice does not publish" 1 "more than once"
+
+new_sharded_case sharded-schema
+write_sharded_record schema=core-a
+run_gate true
+expect "a record of another schema embedded as a shard does not publish" 1 "core-a"
+
+new_sharded_case sharded-nogo
+write_sharded_record nogo=static
+run_gate true
+expect "a shard that names no Go toolchain does not publish" 1 "Go toolchain"
+
+new_sharded_case sharded-no-manifest
+write_sharded_record
+git_in "$REPO" rm -q scripts/release/gate-shards.txt
+git_in "$REPO" commit -qm "no manifest"
+run_gate true
+expect "a commit with no shard manifest does not publish a sharded record" 1 "gate-shards.txt"
 
 new_sharded_case sharded-dry
 write_sharded_record omit=e2e
