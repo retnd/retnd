@@ -53,7 +53,7 @@ former_low="${stem_low}${tail_low}"
 # ([^a-z]|$).
 re="(${former_up}|(${former_cap_low}|${former_cap_up}|${former_low})([^a-z]|\$))"
 
-# The ONE exception. core/migrations/0012_workflow_runs.sql carries the name in
+# The first of two exceptions. core/migrations/0012_workflow_runs.sql carries the name in
 # a comment, and that file is sha256-pinned in three places (migrate.go's
 # ErrSchemaDrift check, migrationimmutability_test.go and
 # migrationanchor_test.go), so editing it would brick every existing database.
@@ -61,7 +61,13 @@ re="(${former_up}|(${former_cap_low}|${former_cap_up}|${former_low})([^a-z]|\$))
 # new migration or a copy of the file elsewhere is still scanned.
 frozen_migration="core/migrations/0012_workflow_runs.sql"
 
-hits="$(git grep -n -I -E -- "$re" -- . ":!${frozen_migration}" || true)"
+# The other one: the committed gate record's log (#1481). It is the output of
+# the browser lane, which quotes spec titles from another repository, and it is
+# written by the release recorder, so the tree cannot be edited to drop the
+# name from it. Exact path again; provenance/local-gate.json is still scanned.
+gate_log="provenance/local-gate.log"
+
+hits="$(git grep -n -I -E -- "$re" -- . ":!${frozen_migration}" ":!${gate_log}" || true)"
 
 if [ -n "$hits" ]; then
   echo "check-no-former-name: FAILED: the previous product name is still in the tree (#1109):" >&2
