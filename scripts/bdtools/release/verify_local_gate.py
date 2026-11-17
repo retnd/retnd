@@ -90,6 +90,7 @@ GATE_TREE = "scripts/release/gate-tree.sh"
 GO_MOD = "core/go.mod"
 PINS = "scripts/ci/pins.env"
 SCHEMA = "retnd.local-gate/1"
+SCHEMA_SHARDED = "retnd.local-gate/2"
 TRAILER = "Release-Gate-Override"
 MIN_REASON = 12
 RECORD_HOWTO = "bash scripts/release/record-local-gate.sh"
@@ -263,13 +264,13 @@ def check(sha: str, *, uncommitted: bool) -> tuple[list[str], list[str]]:
 
     if record is not None:
         schema = str(record.get("schema", ""))
-        if schema != SCHEMA:
+        if schema not in (SCHEMA, SCHEMA_SHARDED):
             findings.append(
                 f"the record's schema is `{schema or '(missing)'}` and this check reads `{SCHEMA}`. "
                 "A format this check does not know is a refusal, not a guess."
             )
         else:
-            report.append(f"- schema `{SCHEMA}`")
+            report.append(f"- schema `{schema}`")
 
         result = str(record.get("result", ""))
         ledger = record.get("ledger")

@@ -742,6 +742,7 @@ rm -f "$repo/provenance/local-gate.json" "$repo/provenance/local-gate.log" "$rep
 run_shards sh-only "--shards --force --jobs 1"
 [ "$(calls_of sh-only static)" = 2 ] && [ "$(calls_of sh-only core-a)" = 2 ] && [ "$(calls_of sh-only e2e)" = 3 ] \
   && pass "--force reruns every shard" || fail "--force reruns every shard" "$(cat "$SANDBOX/stub-sh-only/calls")"
+rm -f "$repo/provenance/local-gate.json" "$repo/provenance/local-gate.log" "$repo/provenance/local-gate.json.sig"
 run_shards sh-only "--shards --only nosuchshard"
 expect "--only with a name the manifest does not have is refused" 2 "nosuchshard"
 
@@ -816,7 +817,11 @@ tamper_case() { # <name> <description> <function run inside the shard dir>
     && pass "$what: that shard reruns and the others are reused" \
     || fail "$what: that shard reruns and the others are reused" "$(cat "$SANDBOX/stub-$name/calls")"
 }
-tamper_forge() { ssh-keygen -q -Y sign -n retnd-local-gate -f "$SANDBOX/impostor" core-a.json >/dev/null 2>&1; }
+tamper_forge() {
+  cp core-a.json forged.json
+  ssh-keygen -q -Y sign -n retnd-local-gate -f "$SANDBOX/impostor" forged.json </dev/null >/dev/null 2>&1
+  mv forged.json.sig core-a.json.sig && rm -f forged.json
+}
 tamper_record() { sed 's/"result": "ok"/"result": "ok "/' core-a.json >core-a.json.new && mv core-a.json.new core-a.json; }
 tamper_log() { printf 'extra\n' >>core-a.log; }
 tamper_nosig() { rm -f core-a.json.sig; }
