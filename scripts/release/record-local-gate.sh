@@ -73,6 +73,17 @@
 # default ~/.ssh/retnd-release-attest) is only ever handed to ssh-keygen: this
 # script never reads or prints it.
 #
+# SHARDS (#1455). `--shards [--only <shard>] [--host <host>] [--retry-once]
+# [--force] [--jobs N]` records a gate that ran as the shards named in
+# scripts/release/gate-shards.txt instead of one serial ci-local.sh run. Every
+# shard runs through the shard runner (RETND_GATE_SHARD_RUNNER, default
+# scripts/release/run-gate-shard.sh of the recorded tree) from the same clean
+# worktree; the Mac signs one record per passing shard under
+# <git-common-dir>/local-gate/shards/<gate_tree>/, a rerun reuses the shards
+# already signed for this tree, and when all are signed the aggregate is
+# written as schema retnd.local-gate/2. `--serial` is the default and the
+# path described above. scripts/bdtools/release/gate_shards.py has the rest.
+#
 # No `cd` before the target is resolved, deliberately. Like
 # record-release-hashes.sh, this resolves the repository from the CURRENT
 # WORKING DIRECTORY, which is what lets scripts/tests/local-gate-record.test.sh
@@ -87,6 +98,22 @@ GATE_TREE="$SCRIPT_DIR/gate-tree.sh"
 RECORD_SCHEMA="retnd.local-gate/1"
 GATE_KEY="${RETND_GATE_KEY:-$HOME/.ssh/retnd-release-attest}"
 
+mode=serial
+only="" host="" retry_once="" force="" jobs=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --serial) mode=serial ;;
+    --shards) mode=shards ;;
+    --only) [ $# -ge 2 ] || { echo "local-gate: REFUSED. --only needs a value" >&2; exit 2; }; only="$2"; shift ;;
+    --host) [ $# -ge 2 ] || { echo "local-gate: REFUSED. --host needs a value" >&2; exit 2; }; host="$2"; shift ;;
+    --jobs) [ $# -ge 2 ] || { echo "local-gate: REFUSED. --jobs needs a value" >&2; exit 2; }; jobs="$2"; shift ;;
+    --retry-once) retry_once=1 ;;
+    --force) force=1 ;;
+    *) echo "local-gate: REFUSED. unknown option $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+
 refuse() { # <lines...>
   echo "local-gate: REFUSED. $1" >&2
   shift
@@ -95,6 +122,10 @@ refuse() { # <lines...>
 }
 
 # --- the guards, before anything slow ----------------------------------------
+
+if [ "$mode" != shards ] && [ -n "$only$host$jobs$retry_once$force" ]; then
+  refuse "--only, --host, --jobs, --retry-once and --force only mean something with --shards."
+fi
 
 unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR GIT_PREFIX
 
@@ -175,6 +206,28 @@ fi
 head="$(git rev-parse HEAD)"
 gate_tree="$(bash "$GATE_TREE" "$head")"
 
+# The environment the gate ran under, as the record's `env` (both modes).
+gate_env_json() {
+  env | python3 -c '
+import json, os, sys
+keep = {}
+for line in sys.stdin:
+    name, sep, value = line.rstrip("\n").partition("=")
+    if not sep:
+        continue
+    if name in ("CI", "CI_LOCAL") or name.startswith(("GO", "NODE_", "DOCKER_", "PLAYWRIGHT_", "VITEST_", "GATE_", "CI_LOCAL_")):
+        keep[name] = value
+keep["CI"] = "1"
+keep["CI_LOCAL"] = "1"
+print(json.dumps(keep, sort_keys=True))
+'
+}
+
+# The one hash both ends compute: the reader's own helper over the file's bytes.
+sha256_of() {
+  python3 "$SCRIPT_DIR/../bdtools/release/verify_local_gate.py" --log-sha256 "$1"
+}
+
 # --- the worktree ---------------------------------------------------------------
 #
 # Inside the checkout and gitignored, like every sandbox in this
@@ -203,6 +256,58 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+
+if [ "$mode" = shards ]; then
+  echo "local-gate: recording HEAD ${head} as shards (gate tree ${gate_tree})"
+  git worktree add --detach "$worktree" "$head" >/dev/null 2>&1
+  manifest="$worktree/scripts/release/gate-shards.txt"
+  [ -f "$manifest" ] \
+    || refuse "scripts/release/gate-shards.txt is not in this tree." "A sharded record names its shards from that manifest."
+  python3 "$SCRIPT_DIR/../bdtools/release/gate_shards.py" manifest "$manifest" >/dev/null || exit 2
+  runner="${RETND_GATE_SHARD_RUNNER:-$worktree/scripts/release/run-gate-shard.sh}"
+  [ -f "$runner" ] \
+    || refuse "the shard runner $runner does not exist." "Set RETND_GATE_SHARD_RUNNER, or record a tree that has scripts/release/run-gate-shard.sh."
+  shards_dir="$(git rev-parse --path-format=absolute --git-common-dir)/local-gate/shards/$gate_tree"
+  mkdir -p "$shards_dir"
+  signers="$shards_dir/allowed_signers"
+  git show "HEAD:provenance/allowed_signers" >"$signers" 2>/dev/null \
+    || refuse "provenance/allowed_signers is not in HEAD, so a shard signature cannot be checked."
+  manifest_sha="$(sha256_of "$manifest")"
+  shard_args=(--manifest "$manifest" --manifest-sha "$manifest_sha" --dir "$shards_dir" --gate-tree "$gate_tree"
+    --head "$head" --worktree "$worktree" --signers "$signers")
+  set +e
+  python3 "$SCRIPT_DIR/../bdtools/release/gate_shards.py" run "${shard_args[@]}" --runner "$runner" --key "$GATE_KEY" \
+    ${host:+--host "$host"} ${only:+--only "$only"} ${force:+--force} ${retry_once:+--retry-once} ${jobs:+--jobs "$jobs"}
+  run_status=$?
+  set -e
+  case "$run_status" in
+    0) ;;
+    4) exit 0 ;;
+    *) exit "$run_status" ;;
+  esac
+  mkdir -p provenance
+  rm -f provenance/local-gate.json.sig
+  python3 "$SCRIPT_DIR/../bdtools/release/gate_shards.py" aggregate "${shard_args[@]}" --runner "$runner" --out provenance \
+    --env-json "$(gate_env_json)" || { rm -f provenance/local-gate.json provenance/local-gate.log; exit 1; }
+  if ! ssh-keygen -Y sign -n retnd-local-gate -f "$GATE_KEY" provenance/local-gate.json >/dev/null; then
+    rm -f provenance/local-gate.json provenance/local-gate.log provenance/local-gate.json.sig
+    echo "local-gate: NOT RECORDED. ssh-keygen could not sign the record with $GATE_KEY." >&2
+    exit 1
+  fi
+  echo "local-gate: running the release check over the record just written"
+  if ! PUBLISH=true bash "$SCRIPT_DIR/verify-local-gate.sh" --uncommitted HEAD; then
+    echo "local-gate: NOT RECORDED. The release check refuses the record this run just wrote; its output above says why." >&2
+    rm -f provenance/local-gate.json provenance/local-gate.log provenance/local-gate.json.sig
+    exit 1
+  fi
+  echo ""
+  echo "local-gate: recorded. Every shard passed on ${head}, each signed on this machine, and scripts/release/verify-local-gate.sh accepts the record."
+  echo "    provenance/local-gate.json   gate_tree ${gate_tree}  (schema retnd.local-gate/2)"
+  echo "    provenance/local-gate.log    sha256 $(sha256_of provenance/local-gate.log)"
+  echo "    provenance/local-gate.json.sig   signed with ${GATE_KEY}"
+  echo "    Commit all three with the release prep: they are what require-release-gate reads before publish may run."
+  exit 0
+fi
 
 echo "local-gate: recording HEAD ${head} (gate tree ${gate_tree})"
 echo "local-gate: running the full gate in a detached worktree at $worktree"
@@ -289,9 +394,6 @@ docker_version="$(toolchain_line docker)"
 # The one hash both ends compute: the reader's own helper over the file's
 # bytes, so a carriage return or a byte that is not UTF-8 in the log
 # hashes here exactly as it does there.
-sha256_of() {
-  python3 "$SCRIPT_DIR/../bdtools/release/verify_local_gate.py" --log-sha256 "$1"
-}
 
 # The ledger, read off the log rather than assumed empty: the lines gate_summary
 # prints under an INCOMPLETE verdict. On exit 0 with an ok verdict it is empty
@@ -353,19 +455,7 @@ lane_file="$worktree/.e2e-gate/web-ui-lane.json"
 # were present, which is what a reader needs to tell this run from one
 # made elsewhere. Values, not just names, because GOFLAGS=-mod=mod and
 # GOFLAGS=-run=X are different runs.
-env_json="$(env | python3 -c '
-import json, os, sys
-keep = {}
-for line in sys.stdin:
-    name, sep, value = line.rstrip("\n").partition("=")
-    if not sep:
-        continue
-    if name in ("CI", "CI_LOCAL") or name.startswith(("GO", "NODE_", "DOCKER_", "PLAYWRIGHT_", "VITEST_", "GATE_", "CI_LOCAL_")):
-        keep[name] = value
-keep["CI"] = "1"
-keep["CI_LOCAL"] = "1"
-print(json.dumps(keep, sort_keys=True))
-')"
+env_json="$(gate_env_json)"
 
 python3 - provenance/local-gate.json "$RECORD_SCHEMA" "$gate_tree" "$head" "$started_at" "$duration_s" \
   "$go_version" "$node_version" "$golangci_version" "$docker_version" "$log_sha256" "$lane_file" \
