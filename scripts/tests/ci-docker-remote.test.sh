@@ -55,6 +55,10 @@ cat > "$bin/rsync" <<'SH'
 #!/usr/bin/env bash
 echo "rsync $*" >> "$FAKE_LOG/rsync"
 case "$*" in *--files-from=-*) tr '\0' '\n' >> "$FAKE_LOG/rsync-list" ;; esac
+if [ "${FAKE_RSYNC_FAIL:-0}" = 1 ]; then
+  echo 'rsync: [Receiver] ERROR: cannot stat destination "rom/workspace/x/repo/" (in home): Not a directory (20)' >&2
+  exit 3
+fi
 exit 0
 SH
 cat > "$bin/tar" <<'SH'
@@ -200,9 +204,13 @@ printf 'package x\n' > "$fx/src/token.go"
 printf '//registry:_authToken=abc\n' > "$fx/.npmrc"
 printf 'SECRET=1\n' > "$fx/.env"
 printf 'x\n' > "$fx/node_modules/dep/index.js"
-printf 'node_modules/\n' > "$fx/.gitignore"
+mkdir -p "$fx/container"
+printf 'EXAMPLE=1\n' > "$fx/container/.env.example"
+printf 'LOCAL=1\n' > "$fx/.env.local"
+printf 'PROD=1\n' > "$fx/.env.prod"
+printf 'node_modules/\n.env.prod\n' > "$fx/.gitignore"
 git -C "$fx" init -q
-git -C "$fx" add scripts src .npmrc .gitignore
+git -C "$fx" add scripts src .npmrc .gitignore container
 git -C "$fx" -c user.name=t -c user.email=t@t commit -q -m fixture --no-verify
 fx_script="$fx/scripts/ci-docker.sh"
 
@@ -217,6 +225,16 @@ if ! printf '%s\n' "$list" | grep -qE '^(\.env|\.npmrc|node_modules/.*)$'; then
   pass "R5b .env (untracked), .npmrc (tracked) and the ignored node_modules are left out of the list"
 else
   fail "R5b secrets and node_modules are left out" "$list"
+fi
+if printf '%s\n' "$list" | grep -qx 'container/.env.example'; then
+  pass "R5g a tracked .env.example is sent (a self-test copies it)"
+else
+  fail "R5g a tracked .env.example is sent" "$list"
+fi
+if ! printf '%s\n' "$list" | grep -qE '(^|/)\.env(\.local|\.prod)$'; then
+  pass "R5h an untracked .env.local and an ignored .env.prod are never sent"
+else
+  fail "R5h untracked or ignored .env files are never sent" "$list"
 fi
 if ! cat "$log"/ssh "$log"/ssh-stdin "$log"/rsync "$log"/docker | grep -q should-not-travel; then
   pass "R5f a token in the caller's environment appears in no ssh, rsync or docker argument"
@@ -237,6 +255,31 @@ if grep -F -- '--exclude=config' "$log/rsync" | grep -qF -- '--exclude=hooks'; t
   pass "R5e the local .git/config and hooks are excluded from the sync"
 else
   fail "R5e the local .git/config and hooks are excluded from the sync" "$(cat "$log/rsync")"
+fi
+
+# --- R5i the NAS receiver rejects the default sync -----------------------------
+# The NAS's rsync is a restricted receiver (a daemon-style wrapper whose
+# module root is the account's home) and answers "Not a directory" for the
+# absolute destination. The default sync has to fall back to tar, say why,
+# and still succeed. Control: where rsync works, tar is never used.
+run_script env FAKE_RSYNC_FAIL=1 bash "$script" --host "$host"
+if [ "$(rc)" = 0 ] && [ -s "$log/tar-list" ] && grep -q 'falling back to tar' "$work/out" \
+   && gate_line | grep -q .; then
+  pass "R5i a refused rsync falls back to tar with a message, and the gate still runs"
+else
+  fail "R5i a refused rsync falls back to tar" "rc=$(rc) $(head -c 400 "$work/out")"
+fi
+run_script bash "$script" --host "$host"
+if [ "$(rc)" = 0 ] && [ ! -s "$log/tar" ] && ! grep -q 'falling back' "$work/out"; then
+  pass "R5j control: when rsync works it is used alone and tar is not touched"
+else
+  fail "R5j control: rsync alone when it works" "rc=$(rc) $(head -2 "$log/tar")"
+fi
+run_script env FAKE_RSYNC_FAIL=1 CI_DOCKER_SYNC=tar bash "$script" --host "$host"
+if [ "$(rc)" = 0 ] && [ ! -s "$log/rsync" ]; then
+  pass "R5k CI_DOCKER_SYNC=tar never calls rsync"
+else
+  fail "R5k CI_DOCKER_SYNC=tar never calls rsync" "rc=$(rc) $(head -2 "$log/rsync")"
 fi
 
 # --- R6 the host string is validated ----------------------------------------

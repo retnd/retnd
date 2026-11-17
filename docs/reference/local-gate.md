@@ -36,6 +36,8 @@ The last line of a run is one of three verdicts, and the exit status matches:
 | `==> ci-local: INCOMPLETE` | 3 | nothing failed, but something did not run: a skip variable was set, Docker was missing, a toolchain did not match its pin, a lane could not be judged. The ledger above the verdict lists what. Not merge evidence |
 | `==> ci-local: FAILED` | 1 (or whatever the failing command returned) | a step failed |
 
+`scripts/ci-local.sh --list-shards` prints the shard names and `--shard <name>` runs only that shard's steps (an empty or unknown name exits 2, and it does not combine with `CI_LOCAL_FAST=1`). A shard's verdict names it, as in `==> ci-local: ok (shard core-docker)`, so a shard log cannot pass for a full run. Every step heading carries a UTC clock, and a `==> step clock:` line comes just before the verdict.
+
 Only a step that declares itself INCOMPLETE through the ledger may end a run
 at 3. A stray exit 3 from a command the gate did not mark is read as FAILED.
 
@@ -70,11 +72,12 @@ at 3. A stray exit 3 from a command the gate did not mark is read as FAILED.
 | `CI_DOCKER_REMOTE_DIR` | `/work/nas-work` for `devshell@` hosts, else `$HOME/workspace/nas-work` there | the parent of the one scratch directory a remote run uses |
 | `CI_DOCKER_MIN_FREE_MB` | `20480` | a remote run refuses, before sending anything, when the scratch parent has less free space than this |
 | `CI_DOCKER_KEEP_CACHE` | `0` | `1` keeps the toolchain image and the cache volumes on the remote after the run, for a faster next one. By default a remote run removes what it created |
-| `CI_DOCKER_SYNC` | `rsync` | `tar` copies the tree with tar over ssh, for a host that has no rsync or whose rsync cannot write the scratch path (the UGREEN NAS's rsync resolves paths inside the home directory and refuses the copy with `cannot stat destination ... (in home)`, so use `tar` there) |
+| `CI_DOCKER_SYNC` | `rsync` | `tar` copies the tree with tar over ssh, for a host that has no rsync. The default tries rsync first and falls back to tar, with a message, when the receiver refuses it (the UGREEN NAS answers `cannot stat destination ... (in home)`: its receiver reads `/home/rom/...` as a path under the home module, where `/home/rom/rom` is a file) |
 | `CI_DOCKER_MEMORY` | `12g` | memory limit of the gate container; memory-swap is set to the same value, so it gets no swap. Clamped to the daemon's total memory (#1373) |
 | `CI_DOCKER_CPUS` | `6` | CPU quota of the gate container. Clamped to the daemon's CPU count, because Docker refuses more (#1373). The container also gets `--pids-limit 4096`. A daemon that cannot limit swap gets one `ci-docker: WARNING` line and the run carries on |
 | `RETND_PW_LOCK` | `/Users/rom/workspace/xdg-pw-lock.sh` | the Playwright lock the browser gate runs through on a Mac. When nothing executable is there the gate runs without it and prints `browser gate running without the Playwright lock` |
 | `RETND_GATE_KEY` | `~/.ssh/retnd-release-attest` | the private key the recorder signs the record with |
+| `RETND_GATE_SHARD_RUNNER` | `scripts/release/run-gate-shard.sh` of the recorded tree | the script `record-local-gate.sh --shards` runs once per shard: `<runner> <shard> [--host H]`, its output is the shard's log, its last verdict must be `==> ci-local: ok (shard <name>)`. Shards come from `scripts/release/gate-shards.txt`; each passing one is signed on the Mac and the aggregate is schema `retnd.local-gate/2` (#1455) |
 | `RETND_TRUST_REF` | `origin/main` | the reference whose `provenance/allowed_signers` the verifier compares the commit's copy with |
 | `CI_DOCKER_SHARE_HOST` | `auto` | `1` runs the `scripts/ci-docker.sh` container with `--network host` and the daemon host's `/tmp` mounted at `/tmp`; `0` runs it on the default bridge with a private `/tmp`. `auto` picks `0` when `docker info` says Docker Desktop and `1` for any other daemon (below) |
 | `GOTOOLCHAIN` | derived | the gate exports the Go its golangci-lint was built with, so the linter can read the export data. Set it yourself only to run the whole gate on one toolchain |

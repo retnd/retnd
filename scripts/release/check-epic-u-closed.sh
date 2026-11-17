@@ -65,7 +65,7 @@ added="$(git diff --name-only --diff-filter=A "$base" -- core/migrations; git ls
 touched="$(git diff --name-only --diff-filter=MDRT "$base" -- core/migrations)"
 want="core/migrations/0022_agent_access.sql"
 unexpected="$(printf '%s\n' "$added" | grep -vxF -e "$want" | grep -v '^$' || true)"
-if printf '%s\n' "$added" | grep -qxF "$want" && [ -z "$unexpected" ] && [ -z "$touched" ]; then
+if grep -qxF "$want" <<<"$added" && [ -z "$unexpected" ] && [ -z "$touched" ]; then
   ok "core/migrations gained only the epic's own 0022 and nothing else moved"
 else
   bad "core/migrations must gain exactly $want and nothing else, and change nothing. Added: [$(printf '%s' "$added" | tr '\n' ' ')] Not allowed: [$(printf '%s' "$unexpected" | tr '\n' ' ')] Changed or removed: [$(printf '%s' "$touched" | tr '\n' ' ')]"
