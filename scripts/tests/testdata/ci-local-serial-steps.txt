@@ -19,6 +19,7 @@
 ==> the release still moves the latest tag, only forwards (#1168)
 ==> the EPIC N closing check refuses a moved container contract or a second migration, and can still fail (#998)
 ==> the EPIC T closing check refuses a moved canonical deployment or a migration other than 0020 and 0021, and can still fail (#1320)
+==> the closure checks and their self-tests never pipe into grep -q under pipefail (#1482)
 ==> the EPIC U closing check refuses a moved canonical deployment, a migration other than 0022 or a BLOCKED row, and can still fail (#1353)
 ==> core/ go build
 ==> core/ go vet

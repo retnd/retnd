@@ -400,6 +400,7 @@ make_full_tree() {
     publish-image-guards published-provenance-guards epic-n-closure epic-t-closure epic-u-closure; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$t.test.sh"
   done
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/closure-no-pipe-grep-q.test.sh"
   mkdir -p "$tree/scripts/release"
   # ci-docker.sh --host test (#1267): stand-ins and a fixture checkout, none of which a synthetic tree has.
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/ci-docker-remote.test.sh"
@@ -645,7 +646,7 @@ status=0
 scrub_env() {
   env -u CI_LOCAL_FAST -u CI_LOCAL_SKIP_JS -u CI_LOCAL_SKIP_DOCKER \
     -u CI_LOCAL_SELFTEST -u CI_LOCAL_SKIP_E2E -u CI_LOCAL_SKIP_TWO_MACHINE \
-    -u CI_LOCAL_RED -u CI_LOCAL_FULL -u CI_LOCAL_TIER -u CI -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
+    -u CI_LOCAL_RED -u CI_LOCAL_FULL -u CI_LOCAL_TIER -u GATE_SHARD -u CI -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
     -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_PREFIX "$@"
 }
 
@@ -2667,7 +2668,6 @@ fi
 
 # W5: every shard, against the same fixture.
 shard_union=""
-prev_ok=1
 while IFS= read -r shard; do
   [ -n "$shard" ] || continue
   tree="$(make_full_tree)"
@@ -2708,6 +2708,35 @@ tree="$(make_full_tree)"
 run_gate "$tree" CI_LOCAL_SKIP_TWO_MACHINE=1 -- --shard two-machine
 assert_eq "W7 an INCOMPLETE shard exits $INCOMPLETE" "$INCOMPLETE" "$status"
 assert_contains "W7 and its verdict names the shard" '==> ci-local: INCOMPLETE (shard two-machine)' "$out"
+
+# W8: an empty shard name is refused, not read as "no shard" (a runner with an
+# unset variable would otherwise start the whole serial gate).
+tree="$(make_full_tree)"
+run_gate "$tree" -- --shard ""
+assert_eq "W8 --shard with an empty name exits 2" 2 "$status"
+assert_contains "W8 and says it is not a shard" "is not a shard" "$out"
+
+# W9: --shard under CI_LOCAL_FAST=1 is refused (the fast branch has no package
+# split, so core-kopia and core-rest would each run everything).
+tree="$(make_full_tree)"
+run_gate "$tree" CI_LOCAL_FAST=1 -- --shard core-rest
+assert_eq "W9 --shard with CI_LOCAL_FAST=1 exits 2" 2 "$status"
+assert_contains "W9 and says the two do not combine" "CI_LOCAL_FAST" "$out"
+
+# W10: the structure shard runs Docker-backed Go suites, so without a daemon it
+# must not end ok.
+tree="$(make_full_tree)"
+mkdir -p "$tree/core/tests/compat"
+printf 'package compat\n\nimport "testing"\n\nfunc TestEveryBlockedRowCitesAnIssueThatIsStillOpen(t *testing.T) {}\n' >"$tree/core/tests/compat/matrix_test.go"
+set_docker "$tree" unavailable
+run_gate "$tree" -- --shard structure
+if [ "$status" -ne 0 ]; then pass "W10 the structure shard is not green without a Docker daemon"; else fail "W10 the structure shard is not green without a Docker daemon" "$out"; fi
+
+# W11: the shard name stays out of the environment, so the self-test that
+# selftest-gate runs does not inherit it and print shard verdicts.
+if grep -qE "^export GATE_SHARD" "$SCRIPTS_DIR/ci-local.sh"; then fail "W11 ci-local.sh does not export GATE_SHARD"; else pass "W11 ci-local.sh does not export GATE_SHARD"; fi
+scrub_out="$(GATE_SHARD=selftest-gate scrub_env bash -c 'echo "[${GATE_SHARD:-}]"')"
+assert_eq "W11 scrub_env clears GATE_SHARD" "[]" "$scrub_out"
 
 # ------------------------------------------------------------------ result
 
