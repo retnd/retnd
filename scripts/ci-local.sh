@@ -694,6 +694,9 @@ bash scripts/tests/epic-n-closure.test.sh
 gate_step "the EPIC T closing check refuses a moved canonical deployment or a migration other than 0020 and 0021, and can still fail (#1320)"
 bash scripts/tests/epic-t-closure.test.sh
 
+gate_step "the closure checks and their self-tests never pipe into grep -q under pipefail (#1482)"
+bash scripts/tests/closure-no-pipe-grep-q.test.sh
+
 # EPIC U's closing check (#1353), the same shape for the MCP server: the
 # canonical deployment is an empty diff against 9cd53e1f (an agent is a client of
 # /api/v1 and the engine runs exactly as before), the epic adds exactly one
