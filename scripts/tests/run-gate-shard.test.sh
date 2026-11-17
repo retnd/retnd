@@ -40,7 +40,8 @@ git -C "$t" config user.name t
 cat > "$t/scripts/ci-local.sh" <<'SH'
 #!/usr/bin/env bash
 echo "stand-in ci-local $*" >> "$FAKE_LOG/ci-local"
-echo "==> ci-local: ok"
+shard=""; [ "${1:-}" = "--shard" ] && shard=" (shard $2)"
+echo "==> ci-local: ok$shard"
 exit "${FAKE_LOCAL_RC:-0}"
 SH
 echo x > "$t/file.txt"
@@ -56,6 +57,8 @@ cat > "$work/ci-docker-stub.sh" <<'SH'
 echo "ci-docker $*" >> "$FAKE_LOG/ci-docker"
 echo "platform=${RCM_CI_PLATFORM:-unset} memory=${CI_DOCKER_MEMORY:-unset} cpus=${CI_DOCKER_CPUS:-unset} dockerplat=${DOCKER_DEFAULT_PLATFORM:-unset}" >> "$FAKE_LOG/ci-docker-env"
 echo "some shard output"
+[ -z "${FAKE_KILL_PARENT:-}" ] || kill -9 "$PPID"
+if [ -n "${FAKE_SLEEP:-}" ]; then echo "$$" > "$FAKE_LOG/stub-pid"; sleep "$FAKE_SLEEP"; fi
 [ -z "${FAKE_VERDICT:-}" ] || echo "$FAKE_VERDICT"
 exit "${FAKE_RC:-0}"
 SH
@@ -81,15 +84,18 @@ result_has() { grep -qx "$1" "$work/out/$2.result" 2>/dev/null; }
 # --- U usage ------------------------------------------------------------------
 run_runner bash "$runner"
 [ "$(rc)" = 2 ] && pass "U1 no arguments is a usage error (exit 2)" || fail "U1 no arguments" "rc=$(rc)"
-run_runner bash "$runner" static
-[ "$(rc)" = 2 ] && [ ! -s "$work/log/ci-docker" ] && pass "U2 a shard without --host is refused and nothing runs" || fail "U2 no --host" "rc=$(rc)"
+run_runner bash "$runner" static --out "$work/out"
+[ "$(rc)" = 0 ] && [ ! -s "$work/log/ci-docker" ] && grep -q 'stand-in ci-local --shard static' "$work/log/ci-local" \
+  && pass "U2 a shard without --host runs on this machine (the recorder passes none by default)" || fail "U2 no --host" "rc=$(rc)"
 run_runner bash "$runner" static --host jupiter --out "$work/out"
 [ "$(rc)" = 2 ] && [ ! -s "$work/log/ci-docker" ] && pass "U3 an unknown host is refused" || fail "U3 unknown host" "rc=$(rc)"
 run_runner bash "$runner" '../x;y' --host nas --out "$work/out"
-[ "$(rc)" = 2 ] && [ ! -s "$work/log/ci-docker" ] && pass "U4 a shard name that is not [a-z][a-z0-9-]* is refused" || fail "U4 bad shard name" "rc=$(rc)"
+[ "$(rc)" = 2 ] && [ ! -s "$work/log/ci-docker" ] && pass "U4 a shard name that is not [a-z0-9][a-z0-9-]* is refused" || fail "U4 bad shard name" "rc=$(rc)"
+run_runner env bash "$runner" 2fa --host mac --out "$work/out"
+[ "$(rc)" = 0 ] && pass "U5 a shard name may start with a digit, as the recorder allows" || fail "U5 digit-leading name" "rc=$(rc)"
 
 # --- G green, and what the runner asks of ci-docker ---------------------------
-run_runner env FAKE_VERDICT="$OK_LINE" bash "$runner" core-docker --host mars --out "$work/out"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard core-docker)" bash "$runner" core-docker --host mars --out "$work/out"
 if [ "$(rc)" = 0 ] && result_has "status=ok" core-docker && result_has "shard=core-docker" core-docker \
    && result_has "host=mars" core-docker && result_has "exit=0" core-docker; then
   pass "G1 an ok verdict and exit 0 is exit 0, status=ok in the result file"
@@ -107,7 +113,7 @@ if grep -q 'some shard output' "$work/out/core-docker.log" && grep -q 'some shar
 else
   fail "G3 log slice and stream" "$(head -c 300 "$work/out/core-docker.log" 2>/dev/null)"
 fi
-run_runner env FAKE_VERDICT="$OK_LINE" bash "$runner" static --host nas --out "$work/out"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard static)" bash "$runner" static --host nas --out "$work/out"
 grep -q -- '--host rom@192.168.0.10' "$work/log/ci-docker" && [ "$(rc)" = 0 ] \
   && pass "G4 nas goes to rom@192.168.0.10" || fail "G4 nas target" "$(cat "$work/log/ci-docker")"
 if result_has "command=bash scripts/ci-local.sh --shard static" static && grep -q '^duration_s=[0-9]' "$work/out/static.result" \
@@ -135,7 +141,7 @@ run_runner env FAKE_RC=1 FAKE_VERDICT='==> ci-local: FAILED (x), then ==> ci-loc
 
 # --- P preflight: refs, tags, a clean tree -------------------------------------
 git -C "$t" update-ref -d refs/remotes/origin/release
-run_runner env FAKE_VERDICT="$OK_LINE" bash "$runner" static --host nas --out "$work/out"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard static)" bash "$runner" static --host nas --out "$work/out"
 if [ "$(rc)" = 3 ] && [ ! -s "$work/log/ci-docker" ] && grep -q 'git fetch origin' "$work/stdout" && result_has "status=incomplete" static; then
   pass "P1 no origin/release in the clone: INCOMPLETE before anything ships, with the fetch line"
 else
@@ -143,7 +149,7 @@ else
 fi
 git -C "$t" update-ref refs/remotes/origin/release HEAD
 git -C "$t" tag -d v0.0.1 >/dev/null
-run_runner env FAKE_VERDICT="$OK_LINE" bash "$runner" static --host nas --out "$work/out"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard static)" bash "$runner" static --host nas --out "$work/out"
 if [ "$(rc)" = 3 ] && [ ! -s "$work/log/ci-docker" ] && grep -q 'git fetch --tags' "$work/stdout"; then
   pass "P2 no v* tag in the clone: INCOMPLETE before anything ships, with the fetch line"
 else
@@ -151,48 +157,82 @@ else
 fi
 git -C "$t" tag v0.0.1
 echo more >> "$t/file.txt"
-run_runner env FAKE_VERDICT="$OK_LINE" bash "$runner" static --host nas --out "$work/out"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard static)" bash "$runner" static --host nas --out "$work/out"
 [ "$(rc)" = 3 ] && [ ! -s "$work/log/ci-docker" ] && pass "P3 a modified tracked file: refused, the shipped tree must be the committed one" || fail "P3 dirty" "rc=$(rc)"
 git -C "$t" checkout -q file.txt
 echo u > "$t/untracked.txt"
-run_runner env FAKE_VERDICT="$OK_LINE" bash "$runner" static --host nas --out "$work/out"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard static)" bash "$runner" static --host nas --out "$work/out"
 [ "$(rc)" = 3 ] && [ ! -s "$work/log/ci-docker" ] && pass "P4 an untracked file: refused, nothing outside the tree travels" || fail "P4 untracked" "rc=$(rc)"
 rm -f "$t/untracked.txt"
-run_runner env FAKE_VERDICT="$OK_LINE" bash "$runner" static --host nas --out "$work/out"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard static)" bash "$runner" static --host nas --out "$work/out"
 [ "$(rc)" = 0 ] && pass "P5 control: refs, tag and a clean tree again, and the same call runs" || fail "P5 control" "rc=$(rc)"
 
 # --- A platform: amd64 only on native x86, never emulated ---------------------
-run_runner env FAKE_VERDICT="$OK_LINE" bash "$runner" static --host nas --out "$work/out"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard static)" bash "$runner" static --host nas --out "$work/out"
 grep -q 'platform=linux/amd64' "$work/log/ci-docker-env" && pass "A1 nas is asked for linux/amd64" || fail "A1 nas platform" "$(cat "$work/log/ci-docker-env")"
-run_runner env FAKE_VERDICT="$OK_LINE" bash "$runner" static --host mars --out "$work/out"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard static)" bash "$runner" static --host mars --out "$work/out"
 grep -q 'platform=linux/amd64' "$work/log/ci-docker-env" && pass "A2 mars is asked for linux/amd64" || fail "A2 mars platform" "$(cat "$work/log/ci-docker-env")"
-run_runner env FAKE_VERDICT="$OK_LINE" RCM_CI_PLATFORM=linux/arm64 bash "$runner" static --host nas --out "$work/out"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard static)" RCM_CI_PLATFORM=linux/arm64 bash "$runner" static --host nas --out "$work/out"
 [ "$(rc)" = 3 ] && [ ! -s "$work/log/ci-docker" ] && pass "A3 arm64 requested for an x86 host: refused" || fail "A3 arm64 on x86" "rc=$(rc)"
-run_runner env FAKE_VERDICT="$OK_LINE" DOCKER_DEFAULT_PLATFORM=linux/arm64 bash "$runner" static --host mars --out "$work/out"
-[ "$(rc)" = 3 ] && [ ! -s "$work/log/ci-docker" ] && pass "A4 an inherited non-amd64 DOCKER_DEFAULT_PLATFORM: refused" || fail "A4 default platform" "rc=$(rc)"
-run_runner env FAKE_VERDICT="$OK_LINE" DOCKER_DEFAULT_PLATFORM=linux/amd64 bash "$runner" static --host mars --out "$work/out"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard static)" DOCKER_DEFAULT_PLATFORM=linux/arm64 bash "$runner" static --host mars --out "$work/out"
+[ "$(rc)" = 0 ] && pass "A4 an inherited DOCKER_DEFAULT_PLATFORM is not refused (ci-docker.sh unsets it)" || fail "A4 default platform" "rc=$(rc)"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard static)" DOCKER_DEFAULT_PLATFORM=linux/amd64 bash "$runner" static --host mars --out "$work/out"
 [ "$(rc)" = 0 ] && pass "A5 control: an inherited amd64 default is fine on mars" || fail "A5 amd64 default" "rc=$(rc)"
-run_runner env FAKE_VERDICT="$OK_LINE" bash "$runner" js --host mercury --out "$work/out"
-if [ "$(rc)" = 0 ] && grep -q 'platform=linux/arm64' "$work/log/ci-docker-env"; then
-  pass "A6 mercury runs its native arm64 image"
-else
-  fail "A6 mercury arm64" "rc=$(rc) $(cat "$work/log/ci-docker-env")"
-fi
-run_runner env FAKE_VERDICT="$OK_LINE" RCM_CI_PLATFORM=linux/amd64 bash "$runner" js --host mercury --out "$work/out"
-[ "$(rc)" = 3 ] && [ ! -s "$work/log/ci-docker" ] && pass "A7 amd64 on mercury would run emulated: refused" || fail "A7 amd64 on mercury" "rc=$(rc)"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard js)" bash "$runner" js --host mercury --out "$work/out"
+[ "$(rc)" = 2 ] && [ ! -s "$work/log/ci-docker" ] && pass "A6 mercury is refused: no bench-queue turn, and gate work stays off it" || fail "A6 mercury" "rc=$(rc)"
 
 # --- M the mac, and the fence --------------------------------------------------
-run_runner env FAKE_VERDICT="$OK_LINE" bash "$runner" gh-rows --host mac --out "$work/out"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard gh-rows)" bash "$runner" gh-rows --host mac --out "$work/out"
 if [ "$(rc)" = 0 ] && [ ! -s "$work/log/ci-docker" ] && grep -q 'stand-in ci-local --shard gh-rows' "$work/log/ci-local"; then
   pass "M1 --host mac runs ci-local.sh --shard directly, no docker"
 else
   fail "M1 mac" "rc=$(rc) $(cat "$work/log/ci-local")"
 fi
-run_runner env FAKE_VERDICT="$OK_LINE" CI_DOCKER_MEMORY=6g CI_DOCKER_CPUS=4 bash "$runner" core-docker --host mars --out "$work/out"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard core-docker)" CI_DOCKER_MEMORY=6g CI_DOCKER_CPUS=4 bash "$runner" core-docker --host mars --out "$work/out"
 grep -q 'memory=6g cpus=4' "$work/log/ci-docker-env" && pass "M2 the per-shard fence (CI_DOCKER_MEMORY, CI_DOCKER_CPUS) reaches ci-docker" || fail "M2 fence" "$(cat "$work/log/ci-docker-env")"
 
+# --- R what a reader of the result can trust ---------------------------------
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard static)" bash "$runner" static --host mars --out "$work/out"
+run_runner env FAKE_VERDICT="==> ci-local: ok" bash "$runner" static --host mars --out "$work/out"
+[ "$(rc)" = 3 ] && pass "R2 a plain ok that names no shard is not a pass (a shard flag the gate ignored)" || fail "R2 plain ok" "rc=$(rc)"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard core-docker)" bash "$runner" static --host mars --out "$work/out"
+[ "$(rc)" = 3 ] && pass "R3 an ok for another shard is not a pass" || fail "R3 other shard" "rc=$(rc)"
+git -C "$t" tag -d v0.0.1 >/dev/null
+run_runner bash "$runner" static --host nas --out "$work/out"
+grep -q '^==> ci-local: INCOMPLETE' "$work/stdout" && pass "R4 a refusal prints an INCOMPLETE verdict line, so the recorder reads exit 3 as incomplete" || fail "R4 verdict line" "$(head -c 300 "$work/stdout")"
+git -C "$t" tag v0.0.1
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard static)" bash "$runner" static --host nas --out "$t/shard-out"
+[ "$(rc)" = 2 ] && pass "R5 --out inside the tree is refused (it would make the tree dirty)" || fail "R5 out in tree" "rc=$(rc)"
+( cd "$t" && env FAKE_LOG="$work/log" PATH="$work/bin:$PATH" CI_DOCKER_SH="$work/ci-docker-stub.sh" TMPDIR="$work/tmp" FAKE_VERDICT="==> ci-local: ok (shard static)" \
+    bash "$runner" static --host nas ) > "$work/stdout" 2>&1
+[ ! -e "$t/.git/local-gate" ] && pass "R6 the default output stays out of the git dir that ci-docker ships" || fail "R6 default out" "$(ls "$t/.git")"
+# a TERM reaches the shard's own process and returns promptly, and while a run
+# is going its result is never a leftover status=ok
+: > "$work/log/stub-pid"
+rm -rf "$work/out"; mkdir -p "$work/out"; printf 'status=ok\nreason=stale\n' > "$work/out/static.result"
+( cd "$t" && env -u RCM_CI_PLATFORM FAKE_LOG="$work/log" PATH="$work/bin:$PATH" CI_DOCKER_SH="$work/ci-docker-stub.sh" FAKE_SLEEP=30 \
+    bash "$runner" static --host nas --out "$work/out" ) > "$work/stdout" 2>&1 &
+runner_pid=$!
+for _ in $(seq 1 50); do [ -s "$work/log/stub-pid" ] && break; sleep 0.1; done
+if grep -qx 'status=ok' "$work/out/static.result" 2>/dev/null; then
+  fail "R1 a run in flight leaves no stale status=ok to be read" "$(cat "$work/out/static.result")"
+else
+  pass "R1 a run in flight leaves no stale status=ok to be read"
+fi
+t_start="$(date +%s)"
+kill -TERM "$runner_pid" 2>/dev/null
+wait "$runner_pid"; term_rc=$?
+t_took=$(( $(date +%s) - t_start ))
+stub_pid="$(cat "$work/log/stub-pid")"
+if [ "$term_rc" = 3 ] && [ "$t_took" -lt 10 ] && ! kill -0 "$stub_pid" 2>/dev/null; then
+  pass "R7 TERM returns INCOMPLETE at once and takes the shard's process with it"
+else
+  fail "R7 TERM" "rc=$term_rc took=${t_took}s stub=$stub_pid"
+  kill "$stub_pid" 2>/dev/null
+fi
+
 # --- N the runner itself touches nothing but ci-docker -------------------------
-run_runner env FAKE_VERDICT="$OK_LINE" bash "$runner" static --host nas --out "$work/out"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard static)" bash "$runner" static --host nas --out "$work/out"
 if [ "$(rc)" = 0 ] && [ -z "$(cat "$work/log/ssh-direct" "$work/log/rsync-direct" "$work/log/tar-direct" "$work/log/docker-direct")" ]; then
   pass "N1 the runner calls no ssh, rsync, tar or docker of its own; everything remote goes through ci-docker.sh"
 else
@@ -213,7 +253,7 @@ case "$1 ${2:-}" in
 esac
 case "$*" in *"stat -c %g /var/run/docker.sock"*) echo 0; exit 0 ;; esac
 case "$*" in *"test -f "*"/scripts/ci-local.sh"*) exit 0 ;; esac
-case "$*" in *"bash scripts/ci-local.sh"*) echo "==> ci-local: ok"; exit 0 ;; esac
+case "$*" in *"bash scripts/ci-local.sh --shard core-docker"*) echo "==> ci-local: ok (shard core-docker)"; exit 0 ;; esac
 exit 0
 SH
 cat > "$l2/bin/rsync" <<'SH'
