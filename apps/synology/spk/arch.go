@@ -14,8 +14,8 @@ import (
 // The ELF machine field is the reason this is a table rather than a pair
 // of strings. Hash parity proves the file in the package is the file the
 // release manifest recorded, which is a strong claim about provenance and
-// says nothing at all about architecture: a manifest that recorded the
-// arm64 binary under the amd64 key produces a package that verifies
+// says nothing at all about architecture: a manifest that recorded another
+// architecture's binary under the amd64 key produces a package that verifies
 // perfectly and cannot run on the machine it claims to target. Reading the
 // ELF header is the only check that catches that, and it is cheap.
 //
@@ -52,13 +52,10 @@ func (a Arch) Covers(platform string) bool { return slices.Contains(a.Platforms,
 
 // Arches is every architecture this project claims for Synology.
 //
-// Deliberately two entries, not more. §68's Provider Test Matrix requires
-// "a representative DSM 7.x amd64 and/or arm64 model for each architecture
-// claimed", so each row here is a NAS an operator has to physically find
-// before that architecture can stop being "build-supported but
-// uncertified". The 32-bit families Appendix A also lists (i686/evansport,
-// armv7/alpine, armv5/628x) are absent because the canonical release
-// builds no 32-bit binary — there is nothing honest to package for them,
+// Deliberately one entry. Releases build linux/amd64 only (#1452), so the
+// armv8 family Appendix A lists (rtd1296, armada37xx, rtd1619, rtd1619b) is
+// absent, along with the 32-bit families (i686/evansport, armv7/alpine,
+// armv5/628x), because the canonical release builds no binary — there is nothing honest to package for them,
 // and DSM refusing the install is the correct outcome.
 var Arches = []Arch{
 	{
@@ -71,12 +68,6 @@ var Arches = []Arch{
 			"coffeelake", "denverton", "geminilake", "grantley", "kvmx64",
 			"purley", "skylaked", "v1000",
 		},
-	},
-	{
-		DSM:        "armv8",
-		GOARCH:     "arm64",
-		ELFMachine: elf.EM_AARCH64,
-		Platforms:  []string{"rtd1296", "armada37xx", "rtd1619", "rtd1619b"},
 	},
 }
 

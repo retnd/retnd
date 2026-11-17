@@ -31,7 +31,7 @@ out="$(cd "$out" && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-platforms="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64"
+platforms="linux/amd64 darwin/arm64"
 for p in $platforms; do
   os="${p%/*}"; arch="${p#*/}"
   d="$work/$os-$arch"

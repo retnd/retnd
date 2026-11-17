@@ -87,7 +87,7 @@ Record the binaries built from the selected `main` commit. For 0.8.0 the hashes
 are recorded on the maintainer's Mac (Docker Desktop: arm64 native, amd64
 emulated), not on Mercury, which is reserved for benchmarks. That only gives the
 same bytes because the Dockerfile cross-compiles from `$BUILDPLATFORM` with
-digest-pinned bases, so the Go stages run natively and emit both architectures.
+digest-pinned bases, so the Go stages run natively and emit the amd64 binaries.
 Keep it that way: a base that isn't pinned by digest, or a stage that compiles
 under emulation, makes the amd64 hash depend on the host. Docker Desktop also
 needs the shell to leave the platform alone:
@@ -97,7 +97,7 @@ unset DOCKER_DEFAULT_PLATFORM   # a forced arm64 default breaks the amd64 images
 VERSION="$VERSION" bash scripts/release/record-release-hashes.sh
 ```
 
-The command builds `linux/amd64` and `linux/arm64`, extracts `/retnd` and
+The command builds `linux/amd64` (the only image architecture a release carries, #1452), extracts `/retnd` and
 `/retnd-web`, and writes `container/release-manifest.json`. It refuses a commit
 that is not reachable from `origin/main`, a dirty image input, missing history,
 or a non-`HEAD` `COMMIT`. The generated registry and index digests remain
@@ -225,15 +225,15 @@ The jobs run in this order:
    the focused consistency suites, creates one merge commit and pushes it to
    `main`.
 6. `cli-binaries` runs after `publish` and builds the `retnd` command line for
-   linux/amd64, linux/arm64, darwin/amd64 and darwin/arm64 (static, `CGO_ENABLED=0`,
+   linux/amd64 and darwin/arm64 (static, `CGO_ENABLED=0`,
    stamped with the tag and the commit), packs each as `retnd_<tag>_<os>_<arch>.tar.gz`
-   and writes one `SHA256SUMS` over the four. It holds `contents: read` and nothing
+   and writes one `SHA256SUMS` over the two. It holds `contents: read` and nothing
    else.
 7. `cli-darwin-smoke` runs the arm64 tarball on a `macos-latest` runner: it
    checks the sum, unpacks it and runs `retnd version`.
 8. `github-release` (`contents: write`, the only job that gets it besides
    `merge-back-to-main`) creates the `v<tag>` release on the published commit and
-   uploads the four tarballs, `SHA256SUMS` and the local-gate log as
+   uploads the two tarballs, `SHA256SUMS` and the local-gate log as
    `local-gate.log`.
 
 The three CLI jobs only run when this run publishes, and none of them holds

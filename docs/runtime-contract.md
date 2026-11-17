@@ -744,7 +744,7 @@ by digest, not by tag: a tag can be moved, a digest cannot.
 `TestArchitecturesAgreeAcrossTheThreePlacesTheyAreWrittenDown` holds the
 architectures declared here, in `distribution/packaging/canonical.json` and in
 the release manifest to one value, so "the same source revision produces
-linux/amd64 and linux/arm64" is checkable rather than asserted.
+linux/amd64" is checkable rather than asserted.
 
 ## The engine plus web-ui deviation, and what it costs
 

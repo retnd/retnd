@@ -348,8 +348,8 @@ received a package, not to whoever visits the repository.
 
 ## The CLI tarballs
 
-Each GitHub Release carries four `retnd` tarballs (linux and darwin, amd64 and
-arm64) and a `SHA256SUMS` file covering them. They are **not signed**. The cosign
+Each GitHub Release carries two `retnd` tarballs (linux/amd64 and
+darwin/arm64) and a `SHA256SUMS` file covering them. They are **not signed**. The cosign
 signature and SBOM attestation above belong to the container image only, and the
 workflow jobs that build the tarballs hold no `id-token`, so they cannot mint a
 signing identity. `SHA256SUMS` lets you check that a download is intact and matches

@@ -4,9 +4,9 @@
 #
 # This file builds for the machine running `docker compose`, i.e. it's meant
 # to be run ON the UGREEN NAS itself (or against a matching architecture).
-# To cross-build and publish a linux/amd64 + linux/arm64 image ahead of
-# time instead, use `docker buildx build --platform=...` directly; see
-# docs/deployment.md.
+# To cross-build an image ahead of time instead, use
+# `docker buildx build --platform=...` directly; see docs/deployment.md.
+# Releases publish linux/amd64 only (#1452).
 #
 # Nothing below reads a secret from this file or from the environment: real
 # credential material (the SSH private key) lives only at the host path
@@ -123,7 +123,6 @@ x-canonical-runtime:
   # container/release-manifest.json, so the three cannot drift.
   architectures:
     - amd64
-    - arm64
 
   # The profiles `--profile=` below may name. Checked against the profile
   # table the executable actually implements

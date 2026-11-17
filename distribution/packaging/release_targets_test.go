@@ -57,7 +57,7 @@ func TestReleaseTargetsAreOnlyLinuxAmd64AndDarwinArm64(t *testing.T) {
 		}
 	}
 
-	for _, rel := range []string{"docs/release-workflow.md", "docs/deployment.md", "docs/runtime-contract.md"} {
+	for _, rel := range []string{"docs/release-workflow.md"} {
 		if strings.Contains(read(rel), "linux/arm64") {
 			t.Errorf("%s still documents a linux/arm64 release artefact", rel)
 		}

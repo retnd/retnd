@@ -163,7 +163,7 @@
         "files": ["README.md", "spk/assets/conf/privilege", "spk/assets/conf/resource", "spk/assets/ui/config", "cmd/spkctl/main.go", "compose/retnd.yml", "compose/retnd.env"],
         "storeArtifacts": ["spk/assets/conf/privilege", "spk/assets/conf/resource", "spk/assets/ui/config"],
         "packageUIBundle": { "layout": "apps/synology/spk/layout.go", "startScript": "apps/synology/spk/assets/scripts/start-stop-status" },
-        "architectureClaim": { "source": "apps/synology/spk/arch.go", "architectures": ["amd64", "arm64"] }
+        "architectureClaim": { "source": "apps/synology/spk/arch.go", "architectures": ["amd64"] }
       },
       "_two_packagings_comment": [
         "Synology ships TWO installable things since issue #169, and this column",
@@ -640,8 +640,7 @@
         "architectureClaim": {
           "source": "apps/casaos/compose/retnd.yml",
           "architectures": [
-            "amd64",
-            "arm64"
+            "amd64"
           ]
         }
       },
@@ -758,8 +757,7 @@
         "architectureClaim": {
           "source": "apps/zimaos/compose/retnd.yml",
           "architectures": [
-            "amd64",
-            "arm64"
+            "amd64"
           ]
         }
       },
