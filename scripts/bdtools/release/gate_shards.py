@@ -48,6 +48,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 SHARD_SCHEMA = "retnd.local-gate.shard/1"
 AGG_SCHEMA = "retnd.local-gate/2"
@@ -177,6 +178,10 @@ def sign(path: Path, key: str) -> None:
         raise GateError(f"ssh-keygen could not sign {path.name} with {key}")
 
 
+def runner_sha(args: argparse.Namespace) -> str:
+    return sha256(Path(args.runner).read_bytes())
+
+
 def valid_shard(d: Path, shard: str, args: argparse.Namespace, signers: Path) -> str | None:
     """None when `shard` has a record that may be reused, else why not."""
     rec_path, log_path = d / f"{shard}.json", d / f"{shard}.log"
@@ -193,21 +198,27 @@ def valid_shard(d: Path, shard: str, args: argparse.Namespace, signers: Path) ->
     for key, value in want.items():
         if rec.get(key) != value:
             return f"its {key} is not {value}"
+    if rec.get("runner_sha256") != runner_sha(args):
+        return "it was signed under another runner"
     got = sha256(log_path.read_bytes())
     attempts = rec.get("attempts")
     if rec.get("log_sha256") != got or not attempts or attempts[-1].get("log_sha256") != got:
         return "its log was edited after it was signed"
     minor = go_minor(Path(args.worktree))
     recorded = str(rec.get("tools", {}).get("go", "")).removeprefix("go")
-    if recorded and minor and ".".join(recorded.split(".")[:2]) != minor:
+    if not recorded:
+        return "its log names no Go toolchain"
+    if minor and ".".join(recorded.split(".")[:2]) != minor:
         return f"it ran with Go {recorded} and core/go.mod says {minor}"
     return None
 
 
-def run_attempt(d: Path, shard: str, args: argparse.Namespace, attempts: list[dict]) -> tuple[str, dict]:
+def run_attempt(
+    d: Path, shard: str, args: argparse.Namespace, attempts: list[dict[str, Any]], d_logs: int = 0
+) -> tuple[str, dict[str, Any]]:
     """One run of one shard. Returns (outcome, attempt): ok, failed (a retry may
     help), incomplete, or broken (a retry cannot help)."""
-    number = max(a["attempt"] for a in attempts) + 1 if attempts else 1
+    number = max([a["attempt"] for a in attempts] + [d_logs]) + 1
     cmd = ["bash", args.runner, shard] + (["--host", args.host] if args.host else [])
     started = now()
     t0 = time.time()
@@ -215,7 +226,8 @@ def run_attempt(d: Path, shard: str, args: argparse.Namespace, attempts: list[di
     proc = subprocess.run(cmd, cwd=args.worktree, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     duration = int(time.time() - t0)
     raw = proc.stdout
-    attempt = {"attempt": number, "started_at": started, "host": args.host or "auto", "exit": proc.returncode,
+    attempt: dict[str, Any] = {"attempt": number, "started_at": started, "host": args.host or "auto",
+               "gate_tree": args.gate_tree, "exit": proc.returncode,
                "duration_s": duration, "log_sha256": "", "failed_tests": failed_tests(raw)}
     try:
         data = scrub(raw)
@@ -229,6 +241,12 @@ def run_attempt(d: Path, shard: str, args: argparse.Namespace, attempts: list[di
     attempt["log_sha256"] = sha256(data)
     verdict = verdict_of(data)
     if proc.returncode == 0 and verdict == f"==> ci-local: ok (shard {shard})" and not has_ledger(data):
+        if not toolchain(data)["go"]:
+            print(f"local-gate: shard {shard}: its log names no Go toolchain (no `==> toolchain: go` line), so the "
+                  "Go minor cannot be checked against core/go.mod", file=sys.stderr)
+            (d / f"{shard}.attempt-{number}.log").write_bytes(data)
+            attempt["exit"] = 1
+            return "broken", attempt
         (d / f"{shard}.log").write_bytes(data)
         return "ok", attempt
     (d / f"{shard}.attempt-{number}.log").write_bytes(data)
@@ -245,16 +263,20 @@ def run_attempt(d: Path, shard: str, args: argparse.Namespace, attempts: list[di
 def work(shard: str, args: argparse.Namespace, signers: Path) -> tuple[str, str]:
     d = Path(args.dir)
     attempts_path = d / f"{shard}.attempts.json"
-    attempts: list[dict] = json.loads(attempts_path.read_text()) if attempts_path.is_file() else []
-    # A shard being rerun over a finished record (--only, --force, a record that
-    # no longer verifies) starts a new attempts list; the old logs stay.
+    attempts: list[dict[str, Any]] = json.loads(attempts_path.read_text()) if attempts_path.is_file() else []
+    # Attempts belong to a tree: another tree starts over. Within a tree they
+    # only ever grow, so a rerun (--only, --force, a record that no longer
+    # verifies) cannot hide an earlier failure, and the numbering skips every
+    # attempt log already on disk so none is overwritten.
+    attempts = [a for a in attempts if a.get("gate_tree") == args.gate_tree]
+    on_disk = [int(m.group(1)) for f in d.glob(f"{shard}.attempt-*.log")
+               if (m := re.fullmatch(re.escape(shard) + r"\.attempt-(\d+)\.log", f.name))]
     for stale in (f"{shard}.json", f"{shard}.json.sig", f"{shard}.log"):
         if (d / stale).exists():
             (d / stale).unlink()
-            attempts = []
     outcome = "failed"
     for _ in range(2 if args.retry_once else 1):
-        outcome, attempt = run_attempt(d, shard, args, attempts)
+        outcome, attempt = run_attempt(d, shard, args, attempts, max(on_disk, default=0))
         attempts.append(attempt)
         attempts_path.write_text(json.dumps(attempts, indent=2) + "\n")
         print(f"local-gate: shard {shard} attempt {attempt['attempt']}: {outcome} "
@@ -269,6 +291,7 @@ def work(shard: str, args: argparse.Namespace, signers: Path) -> tuple[str, str]
         "schema": SHARD_SCHEMA, "shard": shard, "gate_tree": args.gate_tree, "head": args.head,
         "manifest_sha256": args.manifest_sha, "result": "ok", "ledger": [],
         "host": attempts[-1]["host"], "command": f"{os.path.basename(args.runner)} {shard}",
+        "runner_sha256": runner_sha(args),
         "started_at": first, "duration_s": sum(a["duration_s"] for a in attempts),
         "tools": toolchain(log), "web_ui_lane": lane(log), "attempts": attempts,
         "log_sha256": sha256(log),

@@ -128,7 +128,7 @@ echo "==> stub gate: running in $(pwd)"
 # What the real gate prints at its start (#1260): the toolchain it used,
 # which is what the record carries rather than whatever the recorder'"'"'s own
 # shell happens to find.
-[ -e "$STUB_DIR/nogo-$shard" ] || echo "==> toolchain: go go1.27.0 darwin/arm64"
+echo "==> toolchain: go go1.27.0 darwin/arm64"
 echo "==> toolchain: golangci-lint 2.15.0 built with go1.27.0"
 echo "==> toolchain: node v26.12.0"
 echo "==> toolchain: docker 29.0.0"
@@ -610,7 +610,7 @@ shard="$1"; shift
 host=auto
 [ "${1:-}" = "--host" ] && host="$2"
 echo "$shard $host" >>"$STUB_DIR/calls"
-echo "==> toolchain: go go1.27.0 darwin/arm64"
+[ -e "$STUB_DIR/nogo-$shard" ] || echo "==> toolchain: go go1.27.0 darwin/arm64"
 echo "==> toolchain: golangci-lint 2.15.0 built with go1.27.0"
 echo "==> toolchain: node v26.12.0"
 echo "==> toolchain: docker 29.0.0"
@@ -888,6 +888,7 @@ run_shards sh-launder "--shards --jobs 1"
 printf 'ok\n' >"$SANDBOX/stub-sh-launder/mode-core-a"
 run_shards sh-launder "--shards --jobs 1"
 cp "$repo/.git/local-gate/shards/"*/core-a.attempt-1.log "$SANDBOX/first-failing.log"
+rm -f "$repo/provenance/local-gate.json" "$repo/provenance/local-gate.log" "$repo/provenance/local-gate.json.sig"
 run_shards sh-launder "--shards --only core-a"
 sd="$(shards_dir_of "$repo")"
 [ "$(json_field "$sd/core-a.json" '[a["exit"] for a in d["attempts"]]')" = "[1, 0, 0]" ] \
