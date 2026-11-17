@@ -546,7 +546,8 @@ class Proof:
         between them is the argument list, which is the thing under test.
         """
         return harness.sh(
-            ["docker", "exec", mgr, "python3", "/opt/rm/install_docker_host.py", "install", *args],
+            ["docker", "exec", "-e", "RETND_E2E_ACCEPT_HOST_ARCH=1", mgr,
+             "python3", "/opt/rm/install_docker_host.py", "install", *args],
             check=check,
         )
 

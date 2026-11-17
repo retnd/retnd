@@ -630,6 +630,12 @@ class Preflight:
         """
         machine = os.uname().machine
         arch = SUPPORTED_ARCH.get(machine)
+        if arch is None and os.environ.get("RETND_E2E_ACCEPT_HOST_ARCH") == "1" and machine in ("aarch64", "arm64"):
+            # Only the two-machine proof sets this (#1489): it builds the image
+            # for the daemon it runs on, so on an arm64 Mac the machines are
+            # arm64 by construction and the install it drives is consistent.
+            arch = "arm64"
+            self.note("RETND_E2E_ACCEPT_HOST_ARCH=1: accepting this host's own architecture for the e2e proof")
         if arch is None:
             raise Refusal(
                 EXIT_PREREQ_ARCH,
