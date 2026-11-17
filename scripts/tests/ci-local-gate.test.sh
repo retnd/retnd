@@ -2279,13 +2279,21 @@ assert_contains "Q6 a plain step runs with the lock free" 'PERF-STEP: lock free'
 rm -rf "$lock_dir"
 mkdir -p "$lock_dir"
 printf '2147483646\n' >"$lock_dir/pid"
+# The planted lock has to be one gate_lock_dead can judge (#1473). Without
+# the host and boot records it is only reclaimed by age, and the waiters
+# below sat out GATE_LOCK_STALE_AFTER (10 minutes) on every machine.
+if scrub_env sh -c ". '$GATE_LIB' && gate_lock_dead '$lock_dir'"; then
+  pass "Q7 the planted lock is judged dead at once"
+else
+  fail "Q7 the planted lock is judged dead at once" "no host and boot records, so only age would reclaim it"
+fi
 canary="$SANDBOX/lock-canary"
 violations="$SANDBOX/lock-violations"
 : >"$canary"; : >"$violations"
 cat >"$SANDBOX/racer.sh" <<'RACER'
 set -e
 . "$1"
-gate_lock_acquire >/dev/null 2>&1
+gate_lock_acquire >/dev/null 2>&1 || { echo "$$ never got the lock" >>"$3"; exit 0; }
 echo "$$" >>"$2"
 sleep 0.2
 others="$(grep -c . "$2")"
@@ -2294,7 +2302,7 @@ if [ "$others" -ne 1 ]; then echo "$$ saw $others inside" >>"$3"; fi
 gate_lock_release
 RACER
 for _ in $(seq 1 12); do
-  CI_LOCAL_LOCK_DIR="$lock_dir" GATE_LOCK_POLL=0.05 sh "$SANDBOX/racer.sh" "$GATE_LIB" "$canary" "$violations" &
+  CI_LOCAL_LOCK_DIR="$lock_dir" GATE_LOCK_POLL=0.05 GATE_LOCK_TIMEOUT=60 sh "$SANDBOX/racer.sh" "$GATE_LIB" "$canary" "$violations" &
 done
 wait
 if [ -s "$violations" ]; then
