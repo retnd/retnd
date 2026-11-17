@@ -148,19 +148,22 @@ case "${1:-}" in
     ;;
   --shard)
     GATE_SHARD="${2:-}"
-    [ "$#" -eq 2 ] || { echo "ci-local.sh: --shard takes exactly one shard name" >&2; exit 2; }
+    [ "$#" -eq 2 ] && [ -n "$GATE_SHARD" ] || { echo "ci-local.sh: --shard takes exactly one shard name" >&2; exit 2; }
     ;;
   *)
     echo "ci-local.sh: unknown argument [$1]. Usage: ci-local.sh [--shard <name> | --list-shards]" >&2
     exit 2
     ;;
 esac
+if [ -n "$GATE_SHARD" ] && [ "${CI_LOCAL_FAST:-0}" = 1 ]; then
+  echo "ci-local.sh: --shard and CI_LOCAL_FAST=1 do not combine (the fast tier has no package split)" >&2
+  exit 2
+fi
 if [ -n "$GATE_SHARD" ] && ! gate_shard_names | grep -qxF -- "$GATE_SHARD"; then
   echo "ci-local.sh: [$GATE_SHARD] is not a shard. The shards in scripts/release/gate-shards.txt are:" >&2
   gate_shard_names | sed 's/^/    /' >&2
   exit 2
 fi
-export GATE_SHARD
 
 # Homebrew's tools have to be findable on a machine whose shell profile did
 # not run (a hook started from a GUI client), so /opt/homebrew/bin is APPENDED
@@ -344,7 +347,7 @@ fi
 # A shard that has no Docker-backed step has no use for the daemon, so it
 # neither refuses without one nor keeps one awake (the sentinel below).
 gate_needs_docker=0
-if gate_shard_wants core-rest core-docker apps e2e two-machine selftest-conformance; then
+if gate_shard_wants core-rest core-docker apps e2e two-machine selftest-conformance structure; then
   gate_needs_docker=1
 fi
 

@@ -2714,7 +2714,7 @@ assert_contains "W7 and its verdict names the shard" '==> ci-local: INCOMPLETE (
 tree="$(make_full_tree)"
 run_gate "$tree" -- --shard ""
 assert_eq "W8 --shard with an empty name exits 2" 2 "$status"
-assert_contains "W8 and says it is not a shard" "is not a shard" "$out"
+assert_contains "W8 and asks for a shard name" "exactly one shard name" "$out"
 
 # W9: --shard under CI_LOCAL_FAST=1 is refused (the fast branch has no package
 # split, so core-kopia and core-rest would each run everything).
