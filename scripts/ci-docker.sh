@@ -75,7 +75,7 @@ die() { printf 'ci-docker: %s\n' "$*" >&2; exit 2; }
 #                           $HOME/workspace/nas-work on the remote)
 #   CI_DOCKER_MIN_FREE_MB   refuse below this much free space (default 20480)
 #   CI_DOCKER_KEEP_CACHE    1 keeps the image and cache volumes for a faster next run
-#   CI_DOCKER_SYNC          rsync (default) or tar, for a host without rsync
+#   CI_DOCKER_SYNC          rsync (default, falls back to tar when the receiver refuses it) or tar
 #   CI_DOCKER_MEMORY        memory limit of the gate container, no swap (default 12g,
 #                           clamped to the daemon's memory)
 #   CI_DOCKER_CPUS          CPU quota of the gate container (default 6, clamped to the
@@ -301,18 +301,26 @@ if [ -n "$target" ]; then
   "${rsh[@]}" "$target" "umask 022 && mkdir -p '$run_repo' '$run_git' '$remote_root/xdg'"
 
   # The files git knows about, so what .gitignore keeps out (node_modules,
-  # build output, most credential files) stays out, minus the credential
-  # files that are tracked or simply not ignored. node_modules would be
+  # build output, most credential files) stays out. node_modules would be
   # macOS binaries anyway: the container installs its own.
+  # Two passes, because the two sets are trusted differently. A TRACKED file
+  # is in the repository already, so a tracked .env.example ships (a self-test
+  # copies it and failed when it was missing). An UNTRACKED file is whatever
+  # happens to sit in the directory, so every .env* and credential file stays
+  # home. Tracked .npmrc, .netrc and .git-credentials stay out in both.
   # The existence test runs in the repo too, not in whatever directory the
   # script was started from: run from elsewhere, it used to drop every file
   # that did not also happen to exist under the caller's cwd.
   file_list() {
-    ( cd "$repo" && git ls-files -z --cached --others --exclude-standard |
-      while IFS= read -r -d '' f; do
+    ( cd "$repo" &&
+      {
+        git ls-files -z --cached | while IFS= read -r -d '' f; do printf 't\0%s\0' "$f"; done
+        git ls-files -z --others --exclude-standard | while IFS= read -r -d '' f; do printf 'u\0%s\0' "$f"; done
+      } | while IFS= read -r -d '' kind && IFS= read -r -d '' f; do
         [ -e "$f" ] || [ -L "$f" ] || continue
         case "$f" in
-          .env|.env.*|*/.env|*/.env.*|.npmrc|*/.npmrc|.netrc|*/.netrc|.git-credentials|*/.git-credentials) continue ;;
+          .npmrc|*/.npmrc|.netrc|*/.netrc|.git-credentials|*/.git-credentials) continue ;;
+          .env|.env.*|*/.env|*/.env.*) [ "$kind" = t ] || continue ;;
         esac
         printf '%s\0' "$f"
       done )
@@ -321,17 +329,29 @@ if [ -n "$target" ]; then
   # hooks (they are the local gate) and the local gate lock.
   git_excludes=(--exclude=config --exclude=config.worktree --exclude=hooks --exclude=ci-local.lock)
 
+  sync_rsync() {
+    rsync_ssh="ssh -o BatchMode=yes -o LogLevel=ERROR${port:+ -p $port}"
+    file_list | rsync -a --no-owner --no-group --from0 --files-from=- -e "$rsync_ssh" "$repo/" "$target:$run_repo/" &&
+      rsync -a --no-owner --no-group "${git_excludes[@]}" -e "$rsync_ssh" "$git_common/" "$target:$run_git/"
+  }
+  sync_tar() {
+    file_list | tar -cf - -C "$repo" --null -T - | "${rsh[@]}" "$target" "tar -xf - -C '$run_repo'" &&
+      tar -cf - -C "$git_common" "${git_excludes[@]}" . | "${rsh[@]}" "$target" "tar -xf - -C '$run_git'"
+  }
+
   say "copying the tree to $target:$remote_root"
   case "${CI_DOCKER_SYNC:-rsync}" in
     rsync)
-      rsync_ssh="ssh -o BatchMode=yes -o LogLevel=ERROR${port:+ -p $port}"
-      file_list | rsync -a --no-owner --no-group --from0 --files-from=- -e "$rsync_ssh" "$repo/" "$target:$run_repo/"
-      rsync -a --no-owner --no-group "${git_excludes[@]}" -e "$rsync_ssh" "$git_common/" "$target:$run_git/"
+      # A restricted receiver (the NAS's rsync is a daemon-style wrapper whose
+      # module root is the account's home) rejects the absolute destination
+      # with "Not a directory". tar over ssh needs nothing from the receiver,
+      # so it is the automatic fallback, and mars never reaches it.
+      if ! sync_rsync; then
+        say "rsync to $target failed (the NAS's restricted receiver rejects absolute destinations, and a file that vanishes mid-copy fails it too); falling back to tar"
+        sync_tar || die "copying the tree to $target failed with rsync and with tar"
+      fi
       ;;
-    tar)
-      file_list | tar -cf - -C "$repo" --null -T - | "${rsh[@]}" "$target" "tar -xf - -C '$run_repo'"
-      tar -cf - -C "$git_common" "${git_excludes[@]}" . | "${rsh[@]}" "$target" "tar -xf - -C '$run_git'"
-      ;;
+    tar) sync_tar || die "copying the tree to $target failed with tar" ;;
     *) die "CI_DOCKER_SYNC must be rsync or tar" ;;
   esac
 

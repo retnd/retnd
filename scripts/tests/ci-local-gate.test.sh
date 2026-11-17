@@ -158,6 +158,8 @@ make_tree() { # -> path of a synthetic checkout carrying only the gate scripts
   # The toolchain pins (#1260): the gate refuses to start without them,
   # the same way it refuses without a linter, so every synthetic checkout
   # carries the real file. Group R is where the pin itself is measured.
+  mkdir -p "$tree/scripts/release"
+  if [ -f "$SCRIPTS_DIR/release/gate-shards.txt" ]; then cp "$SCRIPTS_DIR/release/gate-shards.txt" "$tree/scripts/release/"; fi
   mkdir -p "$tree/scripts/ci"
   if [ -f "$SCRIPTS_DIR/ci/pins.env" ]; then cp "$SCRIPTS_DIR/ci/pins.env" "$tree/scripts/ci/pins.env"; fi
   # The Docker probe is a property of the machine, not of the tree, so every
@@ -398,6 +400,7 @@ make_full_tree() {
     publish-image-guards published-provenance-guards epic-n-closure epic-t-closure epic-u-closure; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$t.test.sh"
   done
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/closure-no-pipe-grep-q.test.sh"
   mkdir -p "$tree/scripts/release"
   # ci-docker.sh --host test (#1267): stand-ins and a fixture checkout, none of which a synthetic tree has.
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/ci-docker-remote.test.sh"
@@ -643,7 +646,7 @@ status=0
 scrub_env() {
   env -u CI_LOCAL_FAST -u CI_LOCAL_SKIP_JS -u CI_LOCAL_SKIP_DOCKER \
     -u CI_LOCAL_SELFTEST -u CI_LOCAL_SKIP_E2E -u CI_LOCAL_SKIP_TWO_MACHINE \
-    -u CI_LOCAL_RED -u CI_LOCAL_FULL -u CI_LOCAL_TIER -u CI -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
+    -u CI_LOCAL_RED -u CI_LOCAL_FULL -u CI_LOCAL_TIER -u GATE_SHARD -u CI -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
     -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_PREFIX "$@"
 }
 
@@ -657,15 +660,27 @@ run_hook() { # <tree> [VAR=VAL ...]
   status=$?
 }
 
-run_gate() { # <tree> [VAR=VAL ...]
+run_gate() { # <tree> [VAR=VAL ...] [-- <ci-local.sh args...>]
   gate_tree="$1"
   shift
+  gate_envs=()
+  gate_args=()
+  gate_seen_dashes=0
+  for gate_arg in "$@"; do
+    if [ "$gate_seen_dashes" = 1 ]; then
+      gate_args+=("$gate_arg")
+    elif [ "$gate_arg" = "--" ]; then
+      gate_seen_dashes=1
+    else
+      gate_envs+=("$gate_arg")
+    fi
+  done
   # A developer running this suite under CI_LOCAL_FAST=1 would otherwise
   # silently turn every fail-closed case into a pass, and the gate exports
   # CI_LOCAL_SELFTEST=1 around this very script, which would otherwise reach
   # every synthetic run as an inherited skip.
   out="$(cd "$gate_tree" && scrub_env CI_LOCAL_LOCK_DIR="$gate_tree/.gate-lock" \
-    PATH="$gate_tree/bin:$PATH" "$@" bash scripts/ci-local.sh 2>&1)"
+    PATH="$gate_tree/bin:$PATH" ${gate_envs[@]+"${gate_envs[@]}"} bash scripts/ci-local.sh ${gate_args[@]+"${gate_args[@]}"} 2>&1)"
   status=$?
 }
 
@@ -2279,13 +2294,23 @@ assert_contains "Q6 a plain step runs with the lock free" 'PERF-STEP: lock free'
 rm -rf "$lock_dir"
 mkdir -p "$lock_dir"
 printf '2147483646\n' >"$lock_dir/pid"
+hostname >"$lock_dir/host"
+sh -c ". '$GATE_LIB' && gate_boot_id" >"$lock_dir/boot"
+# The planted lock has to be one gate_lock_dead can judge (#1473). Without
+# the host and boot records it is only reclaimed by age, and the waiters
+# below sat out GATE_LOCK_STALE_AFTER (10 minutes) on every machine.
+if scrub_env sh -c ". '$GATE_LIB' && gate_lock_dead '$lock_dir'"; then
+  pass "Q7 the planted lock is judged dead at once"
+else
+  fail "Q7 the planted lock is judged dead at once" "no host and boot records, so only age would reclaim it"
+fi
 canary="$SANDBOX/lock-canary"
 violations="$SANDBOX/lock-violations"
 : >"$canary"; : >"$violations"
 cat >"$SANDBOX/racer.sh" <<'RACER'
 set -e
 . "$1"
-gate_lock_acquire >/dev/null 2>&1
+gate_lock_acquire >/dev/null 2>&1 || { echo "$$ never got the lock" >>"$3"; exit 0; }
 echo "$$" >>"$2"
 sleep 0.2
 others="$(grep -c . "$2")"
@@ -2294,7 +2319,7 @@ if [ "$others" -ne 1 ]; then echo "$$ saw $others inside" >>"$3"; fi
 gate_lock_release
 RACER
 for _ in $(seq 1 12); do
-  CI_LOCAL_LOCK_DIR="$lock_dir" GATE_LOCK_POLL=0.05 sh "$SANDBOX/racer.sh" "$GATE_LIB" "$canary" "$violations" &
+  CI_LOCAL_LOCK_DIR="$lock_dir" GATE_LOCK_POLL=0.05 GATE_LOCK_TIMEOUT=60 sh "$SANDBOX/racer.sh" "$GATE_LIB" "$canary" "$violations" &
 done
 wait
 if [ -s "$violations" ]; then
@@ -2559,6 +2584,169 @@ set_golangci "$tree" "${pinned_lint:-0.0.0}" "1.27.0"
 run_gate "$tree" GH_CONFIG_DIR="$tree/.gh-config-empty" GH_TOKEN= GITHUB_TOKEN= FIXTURE_BLOCKED=0
 assert_eq "U2 with no BLOCKED row a host without gh still ends ok" 0 "$status"
 assert_contains "U2 and says so" 'ci-local: ok' "$out"
+
+# ------------- Group V: every step heading carries a clock (#1456)
+
+echo "==> V. the step clock"
+
+# gate_clock is the one place the library reads the time, so these cases
+# replace it with a counter and measure the arithmetic instead of waiting.
+# V1 to V4 drive the library directly, V5 runs the real script.
+v_lib="gate_clock() { gate_clock_epoch=\$((\${gate_clock_epoch:-1000} + \${V_STEP:-10})); gate_clock_utc=2026-11-16T07:00:00Z; }"
+
+v1_out="$(sh -c ". '$GATE_LIB' && $v_lib && gate_announce 'first step'" 2>&1)"
+assert_contains "V1 the first heading carries the UTC clock and says the run started" '==> first step [2026-11-16T07:00:00Z, run start]' "$v1_out"
+
+v2_out="$(sh -c ". '$GATE_LIB' && $v_lib && V_STEP=10 && gate_announce 'first step' && V_STEP=37 && gate_announce 'second step'" 2>&1)"
+assert_contains "V2 the next heading says how long the step before it took" '==> second step [2026-11-16T07:00:00Z, previous step 37s]' "$v2_out"
+
+v3_out="$(sh -c ". '$GATE_LIB' && $v_lib && gate_install_traps && gate_announce 'only step' && V_STEP=5 && gate_summary" 2>&1)"
+assert_contains "V3 the summary times the last step and the whole run" '==> step clock: only step took 5s, run took 5s' "$v3_out"
+assert_eq "V3 and the verdict is still the last line, byte for byte" '==> ci-local: ok' "$(printf '%s\n' "$v3_out" | tail -n 1)"
+
+v4_out="$(sh -c ". '$GATE_LIB' && $v_lib && gate_install_traps && gate_announce 'a step that exits 1' && V_STEP=8 && exit 1" 2>&1)"
+assert_contains "V4 a failed run times the step that died" '==> step clock: a step that exits 1 took 8s, run took 8s' "$v4_out"
+assert_contains "V4 and the FAILED verdict still names the bare heading" '==> ci-local: FAILED (a step that exits 1)' "$v4_out"
+assert_eq "V4 exactly: merge-gate.sh reads the heading out of that line" 'a step that exits 1' "$(printf '%s\n' "$v4_out" | sed -n 's/^==> ci-local: FAILED (\(.*\))$/\1/p')"
+
+tree="$(make_full_tree)"
+# The browser step queues behind the workspace Playwright lock on this Mac;
+# the fixture's step is a stub, so it has no business waiting for it.
+run_gate "$tree" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh
+assert_contains "V5 a real run stamps the apps/common step" 'apps/common go build, vet, test -race (Docker' "$out"
+v5_clocked="$(printf '%s\n' "$out" | grep -c '^==> .* \[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z, \(run start\|previous step [0-9]*s\)\]$')"
+if [ "$v5_clocked" -ge 10 ]; then pass "V5 a real run stamps its step headings ($v5_clocked)"; else fail "V5 a real run stamps its step headings -- got $v5_clocked" "$out"; fi
+assert_contains "V5 and ends with the step clock before the verdict" '==> step clock: ' "$out"
+assert_eq "V5 the verdict is still the last line" '==> ci-local: ok' "$(printf '%s\n' "$out" | tail -n 1)"
+
+# ------------- Group W: the gate knows its shards (#1457)
+
+echo "==> W. shards: --list-shards, --shard, and a serial run that did not move"
+
+MANIFEST="$SCRIPTS_DIR/release/gate-shards.txt"
+# Strip the clock off a step heading, and keep only the lines that are headings
+# (gate_announce is the only thing that prints the clock).
+headings() { sed -nE 's/^(==> .*) \[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9:]*Z, (run start|previous step [0-9]+s)\]$/\1/p'; }
+
+# W1/W2: the manifest, and --list-shards pinned to it.
+if [ -f "$MANIFEST" ]; then pass "W1 scripts/release/gate-shards.txt exists"; else fail "W1 scripts/release/gate-shards.txt exists"; fi
+assert_eq "W1 the manifest opens with a comment that documents its format" '#' "$(head -c 1 "$MANIFEST" 2>/dev/null)"
+manifest_names="$(grep -vE '^[[:space:]]*(#|$)' "$MANIFEST" 2>/dev/null)"
+want_names="static
+core-kopia
+core-rest
+core-docker
+apps
+js
+e2e
+two-machine
+selftest-gate
+selftest-compat
+selftest-conformance
+selftest-recovery
+selftest-assurance
+structure
+gh-rows"
+assert_eq "W1 the manifest names the shards of the plan, in order" "$want_names" "$manifest_names"
+# In a bare fixture, never in the real checkout: a gate that does not know the
+# flag would start a full run of everything.
+tree="$(make_tree)"
+run_gate "$tree" -- --list-shards
+assert_eq "W2 --list-shards prints exactly the manifest's names" "$manifest_names" "$out"
+assert_eq "W2 and exits 0" 0 "$status"
+
+# W3: a shard that is not in the manifest is refused before anything runs.
+tree="$(make_full_tree)"
+run_gate "$tree" -- --shard no-such-shard
+assert_eq "W3 an unknown shard exits 2" 2 "$status"
+assert_contains "W3 and names the shards there are" 'core-docker' "$out"
+assert_not_contains "W3 and ran no step" '==> toolchain:' "$out"
+
+# W4: a serial run's steps, in order, are what they were before the shards
+# existed. The golden is the heading list of a full fixture run on the tree
+# as it stood before #1457.
+GOLDEN="$SCRIPTS_DIR/tests/testdata/ci-local-serial-steps.txt"
+tree="$(make_full_tree)"
+run_gate "$tree" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh
+serial_steps="$(printf '%s\n' "$out" | headings)"
+assert_eq "W4 the serial run still ends ok" 0 "$status"
+if [ -f "$GOLDEN" ]; then
+  assert_eq "W4 a serial run's step order is byte-identical to the golden" "$(cat "$GOLDEN")" "$serial_steps"
+else
+  fail "W4 $GOLDEN exists"
+fi
+
+# W5: every shard, against the same fixture.
+shard_union=""
+while IFS= read -r shard; do
+  [ -n "$shard" ] || continue
+  tree="$(make_full_tree)"
+  mkdir -p "$tree/core/tests/compat"
+  printf 'package compat\n\nimport "testing"\n\nfunc TestEveryBlockedRowCitesAnIssueThatIsStillOpen(t *testing.T) {}\n' >"$tree/core/tests/compat/matrix_test.go"
+  run_gate "$tree" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh -- --shard "$shard"
+  assert_eq "W5 shard $shard exits 0" 0 "$status"
+  assert_eq "W5 shard $shard ends with its own verdict" "==> ci-local: ok (shard $shard)" "$(printf '%s\n' "$out" | tail -n 1)"
+  assert_contains "W5 shard $shard says which shard it is" "==> shard: $shard" "$out"
+  steps="$(printf '%s\n' "$out" | headings)"
+  if [ -n "$steps" ]; then pass "W5 shard $shard runs at least one step"; else fail "W5 shard $shard runs at least one step" "$out"; fi
+  # Its steps are a subsequence of the serial run's, in the same order, except
+  # for the one step only a shard runs.
+  in_serial="$(printf '%s\n' "$steps" | grep -v 'TestEveryBlockedRow' || true)"
+  order_ok=1
+  last=0
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    n="$(printf '%s\n' "$serial_steps" | grep -nxF -- "$line" | head -n 1 | cut -d: -f1)"
+    if [ -z "$n" ] || [ "$n" -le "$last" ]; then order_ok=0; break; fi
+    last="$n"
+  done <<<"$in_serial"
+  if [ "$order_ok" = 1 ]; then pass "W5 shard $shard keeps the serial order"; else fail "W5 shard $shard keeps the serial order" "$steps"; fi
+  shard_union="$shard_union
+$steps"
+done <<<"$manifest_names"
+# W6: nothing in a serial run belongs to no shard.
+missing=""
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  printf '%s\n' "$shard_union" | grep -qxF -- "$line" || missing="$missing
+$line"
+done <<<"$serial_steps"
+assert_eq "W6 every step of a serial run belongs to a shard" "" "$missing"
+
+# W7: an INCOMPLETE shard says so, and says which one.
+tree="$(make_full_tree)"
+run_gate "$tree" CI_LOCAL_SKIP_TWO_MACHINE=1 -- --shard two-machine
+assert_eq "W7 an INCOMPLETE shard exits $INCOMPLETE" "$INCOMPLETE" "$status"
+assert_contains "W7 and its verdict names the shard" '==> ci-local: INCOMPLETE (shard two-machine)' "$out"
+
+# W8: an empty shard name is refused, not read as "no shard" (a runner with an
+# unset variable would otherwise start the whole serial gate).
+tree="$(make_full_tree)"
+run_gate "$tree" -- --shard ""
+assert_eq "W8 --shard with an empty name exits 2" 2 "$status"
+assert_contains "W8 and asks for a shard name" "exactly one shard name" "$out"
+
+# W9: --shard under CI_LOCAL_FAST=1 is refused (the fast branch has no package
+# split, so core-kopia and core-rest would each run everything).
+tree="$(make_full_tree)"
+run_gate "$tree" CI_LOCAL_FAST=1 -- --shard core-rest
+assert_eq "W9 --shard with CI_LOCAL_FAST=1 exits 2" 2 "$status"
+assert_contains "W9 and says the two do not combine" "CI_LOCAL_FAST" "$out"
+
+# W10: the structure shard runs Docker-backed Go suites, so without a daemon it
+# must not end ok.
+tree="$(make_full_tree)"
+mkdir -p "$tree/core/tests/compat"
+printf 'package compat\n\nimport "testing"\n\nfunc TestEveryBlockedRowCitesAnIssueThatIsStillOpen(t *testing.T) {}\n' >"$tree/core/tests/compat/matrix_test.go"
+set_docker "$tree" unavailable
+run_gate "$tree" -- --shard structure
+if [ "$status" -ne 0 ]; then pass "W10 the structure shard is not green without a Docker daemon"; else fail "W10 the structure shard is not green without a Docker daemon" "$out"; fi
+
+# W11: the shard name stays out of the environment, so the self-test that
+# selftest-gate runs does not inherit it and print shard verdicts.
+if grep -qE "^export GATE_SHARD" "$SCRIPTS_DIR/ci-local.sh"; then fail "W11 ci-local.sh does not export GATE_SHARD"; else pass "W11 ci-local.sh does not export GATE_SHARD"; fi
+scrub_out="$(GATE_SHARD=selftest-gate scrub_env bash -c 'echo "[${GATE_SHARD:-}]"')"
+assert_eq "W11 scrub_env clears GATE_SHARD" "[]" "$scrub_out"
 
 # ------------------------------------------------------------------ result
 
