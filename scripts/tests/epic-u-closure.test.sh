@@ -152,6 +152,32 @@ expect_fail "canonical.json: a cut that also changes a field outside the release
 r="$(make_cut_repo cut-removed)"; (cd "$r" && git rm -qf apps/unraid/template/retnd.xml && git commit -qam x)
 expect_fail "a cut that removes a guarded file is refused" "$r" "apps/unraid/template/retnd.xml"
 
+# Guard 1 and the arm64 claim (#1493). Dropping linux/arm64 from what a release
+# claims (#1452) is a release target decision, not the epic moving how a
+# container runs, so a cut that also drops the claim passes. Adding any other
+# architecture is still a move.
+make_arch_cut_repo() { # name -> a base that claims amd64 and arm64, cut to 0.8.0 claiming amd64 only
+  local r
+  r="$(make_repo "$1")"
+  seed_release "$r" 0.7.2 true
+  printf 'x-architectures:\n  - amd64\n  - arm64\n' >> "$r/apps/a/compose/compose.yaml"
+  echo '{"claim": {"architectures": ["amd64", "arm64"]}}' > "$r/distribution/packaging/conformance.json"
+  (cd "$r" && git add -A && git commit -q -m "0.7.2" && git rev-parse HEAD > "$SANDBOX/$1.base")
+  add_0022 "$r"
+  seed_release "$r" 0.8.0 false
+  printf 'x-architectures:\n  - amd64\n' >> "$r/apps/a/compose/compose.yaml"
+  echo '{"claim": {"architectures": ["amd64"]}}' > "$r/distribution/packaging/conformance.json"
+  printf '%s' "$r"
+}
+r="$(make_arch_cut_repo arch-drop)"; (cd "$r" && git commit -qam "cut 0.8.0, amd64 only")
+expect_pass "control: a cut that also drops the arm64 claim is not a move" "$r"
+r="$(make_arch_cut_repo arch-comment)"; printf '# a comment about platforms\n' >> "$r/container/compose.yaml"; (cd "$r" && git commit -qam "cut 0.8.0, a comment")
+expect_pass "control: a comment-only line added to a compose file is not a move" "$r"
+r="$(make_arch_cut_repo arch-add-yaml)"; printf '  - riscv64\n' >> "$r/apps/a/compose/compose.yaml"; (cd "$r" && git commit -qam x)
+expect_fail "a cut that adds another architecture to a compose file is refused" "$r" "apps/a/compose/compose.yaml"
+r="$(make_arch_cut_repo arch-add-json)"; echo '{"claim": {"architectures": ["amd64", "riscv64"]}}' > "$r/distribution/packaging/conformance.json"; (cd "$r" && git commit -qam x)
+expect_fail "a cut that adds another architecture to conformance.json is refused" "$r" "distribution/packaging/conformance.json"
+
 # Guard 2, the migration claim: 0022 and nothing else.
 msg='core/migrations must gain exactly'
 r="$(make_repo g2-none)"
