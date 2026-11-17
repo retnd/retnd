@@ -464,7 +464,13 @@ bash scripts/contrast/check.sh
 gate_step "the docs-site capture tooling still encodes a clip and drives labels the UI has (#926)"
 if command -v node >/dev/null 2>&1; then
   _cap_rc=0
-  node --test docs/site/tools/check-tools.test.mjs || _cap_rc=$?
+  # Probe ffmpeg BEFORE node --test: its first case encodes a clip and fails
+  # (exit 1, "broken") on a host with no ffmpeg, which said "broken" about a
+  # capability the host simply lacks (#1455). Missing is the named skip below.
+  if ! command -v "${FFMPEG:-ffmpeg}" >/dev/null 2>&1 && [ ! -x /opt/homebrew/bin/ffmpeg ] && [ ! -x /usr/local/bin/ffmpeg ] && [ ! -x /usr/bin/ffmpeg ]; then
+    _cap_rc=3
+  fi
+  [ "$_cap_rc" -eq 0 ] && { node --test docs/site/tools/check-tools.test.mjs || _cap_rc=$?; }
   [ "$_cap_rc" -eq 0 ] && { node docs/site/tools/check-tools.mjs || _cap_rc=$?; }
   if [ "$_cap_rc" -eq 3 ]; then
     gate_note_skip "the docs-site capture tooling check (#926): no ffmpeg on PATH. Install it and re-run."
