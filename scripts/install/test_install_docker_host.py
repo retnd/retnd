@@ -308,7 +308,36 @@ class TestArchitectureRefusal(unittest.TestCase):
         self.assertIsNotNone(exc)
         self.assertEqual(exc.code, installer.EXIT_PREREQ_ARCH)
         self.assertIn("build from source", exc.remedy)
-        self.assertIn("0.8.0", exc.remedy)
+        self.assertIn("0.7.2", exc.remedy)
+
+    def test_the_e2e_harness_can_opt_in_to_its_own_arm_host(self):
+        # #1489: the two-machine proof builds the image for the daemon it runs
+        # on, so on an arm64 Mac the machines are aarch64 by construction.
+        fx = Fixture(self)
+        real_uname = os.uname
+        real_env = os.environ.get("RETND_E2E_ACCEPT_HOST_ARCH")
+        self.addCleanup(lambda: setattr(os, "uname", real_uname))
+
+        class FakeUname:
+            machine = "aarch64"
+
+        os.uname = lambda: FakeUname()  # type: ignore[assignment]
+
+        def restore() -> None:
+            if real_env is None:
+                os.environ.pop("RETND_E2E_ACCEPT_HOST_ARCH", None)
+            else:
+                os.environ["RETND_E2E_ACCEPT_HOST_ARCH"] = real_env
+
+        self.addCleanup(restore)
+        os.environ["RETND_E2E_ACCEPT_HOST_ARCH"] = "1"
+        pf = installer.Preflight(fx.args())
+        pf.check_arch()
+        self.assertEqual(pf.arch, "arm64")
+        os.environ["RETND_E2E_ACCEPT_HOST_ARCH"] = "0"
+        exc = refusal_from(installer.Preflight(fx.args()).check_arch)
+        self.assertIsNotNone(exc)
+        self.assertEqual(exc.code, installer.EXIT_PREREQ_ARCH)
 
     def test_the_released_architecture_passes_and_maps(self):
         # The positive control. Without it the assertion above passes
