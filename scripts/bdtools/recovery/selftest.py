@@ -1439,7 +1439,7 @@ CLEAN_CONTROLS = [
 ]
 
 
-def body(root: Path, dry_run: bool) -> int:
+def body(root: Path, dry_run: bool, shard: tuple[int, int] | None) -> int:
     tally = selftest_swap.Tally()
 
     with tempfile.TemporaryDirectory(prefix="retnd-recovery-selftest.") as tmp_name:
@@ -1452,12 +1452,15 @@ def body(root: Path, dry_run: bool) -> int:
         only = os.environ.get("RECOVERY_SELFTEST_ONLY", "")
 
         print("==> negative controls: each slice is clean on the real tree")
-        for label, where, pattern in ([] if only else CLEAN_CONTROLS):
+        # Sharded, the clean-tree controls run in slice 1 only, so the slices' union is the whole list.
+        for label, where, pattern in ([] if only or (shard and shard[0] != 1) else CLEAN_CONTROLS):
             expect_passes(tracker, tally, f"{label} on an unmutated tree", root, where, pattern)
 
         for i, entry in enumerate(MUTATIONS):
             label, rel, old, new, needle, where, pattern = entry[:7]
             if only and only not in label:
+                continue
+            if not selftest_swap.in_shard(i, shard):
                 continue
             extras = entry[7] if len(entry) > 7 else []
             print()
@@ -1496,9 +1499,9 @@ def body(root: Path, dry_run: bool) -> int:
 def main(argv: list[str]) -> int:
     harness.set_program(PROGRAM)
     harness.install_signal_handlers()
-    dry_run = selftest_swap.parse_selftest_args(argv, "selftest.py")
+    dry_run, shard = selftest_swap.parse_shard_args(argv, "selftest.py", len(MUTATIONS))
     root = harness.repo_root(Path(__file__))
-    return harness.finish(lambda: body(root, dry_run))
+    return harness.finish(lambda: body(root, dry_run, shard))
 
 
 if __name__ == "__main__":

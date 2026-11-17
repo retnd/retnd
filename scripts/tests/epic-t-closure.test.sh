@@ -67,12 +67,12 @@ add_0020() { echo "-- 20" > "$1/core/migrations/0020_encryption_key_suites.sql";
 expect_pass() { # name repo
   local out rc
   out="$(run_check "$2")"; rc=$?
-  if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'epic-t-closed: ok$'; then pass "$1"; else fail "$1" "$out"; fi
+  if [ "$rc" -eq 0 ] && grep -q 'epic-t-closed: ok$' <<<"$out"; then pass "$1"; else fail "$1" "$out"; fi
 }
 expect_fail() { # name repo message
   local out rc
   out="$(run_check "$2")"; rc=$?
-  if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qF "$3"; then pass "$1"; else fail "$1" "exit $rc, wanted: $3
+  if [ "$rc" -ne 0 ] && grep -qF "$3" <<<"$out"; then pass "$1"; else fail "$1" "exit $rc, wanted: $3
 $out"; fi
 }
 
@@ -172,29 +172,29 @@ make_stub_go() { # $1 = test name it passes
 r="$(make_repo tip-later)"; add_0020 "$r"; tip="$(cd "$r" && git rev-parse HEAD)"
 echo "-- 22" > "$r/core/migrations/0022_agent_access.sql"; (cd "$r" && git add -A && git commit -qm "epic u")
 out="$(TIP_SHA="$tip" run_check "$r")"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'epic-t-closed: ok$'; then pass "tip: a later epic's 0022 after EPIC T's tip passes"; else fail "tip: a later epic's 0022 after EPIC T's tip passes" "$out"; fi
+if [ "$rc" -eq 0 ] && grep -q 'epic-t-closed: ok$' <<<"$out"; then pass "tip: a later epic's 0022 after EPIC T's tip passes"; else fail "tip: a later epic's 0022 after EPIC T's tip passes" "$out"; fi
 r="$(make_repo tip-inside)"; add_0020 "$r"; echo "-- 22" > "$r/core/migrations/0022_extra.sql"; (cd "$r" && git add -A && git commit -qm x); tip="$(cd "$r" && git rev-parse HEAD)"
 out="$(TIP_SHA="$tip" run_check "$r")"; rc=$?
-if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qF "0022_extra.sql"; then pass "tip: a third migration inside EPIC T's window is refused, and named"; else fail "tip: a third migration inside EPIC T's window is refused" "exit $rc: $out"; fi
+if [ "$rc" -ne 0 ] && grep -qF "0022_extra.sql" <<<"$out"; then pass "tip: a third migration inside EPIC T's window is refused, and named"; else fail "tip: a third migration inside EPIC T's window is refused" "exit $rc: $out"; fi
 r="$(make_repo tip-edit)"; add_0020 "$r"; tip="$(cd "$r" && git rev-parse HEAD)"
 echo "-- changed" >> "$r/core/migrations/0015_retained_copy_encryption.sql"; (cd "$r" && git commit -qam x)
 out="$(TIP_SHA="$tip" run_check "$r")"; rc=$?
-if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qF "0015_retained_copy_encryption.sql"; then pass "tip: an edit to an existing migration after the tip is still refused"; else fail "tip: an edit after the tip is refused" "exit $rc: $out"; fi
+if [ "$rc" -ne 0 ] && grep -qF "0015_retained_copy_encryption.sql" <<<"$out"; then pass "tip: an edit to an existing migration after the tip is still refused"; else fail "tip: an edit after the tip is refused" "exit $rc: $out"; fi
 r="$(make_repo tip-missing)"; add_0020 "$r"
 out="$(TIP_SHA=1111111111111111111111111111111111111111 run_check "$r")"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'tip commit .* is not in this checkout'; then pass "a tip commit that is not in the checkout is refused, not skipped"; else fail "a missing tip is refused" "exit $rc: $out"; fi
+if [ "$rc" -eq 2 ] && grep -q 'tip commit .* is not in this checkout' <<<"$out"; then pass "a tip commit that is not in the checkout is refused, not skipped"; else fail "a missing tip is refused" "exit $rc: $out"; fi
 
 # The Go run (#1407): a passing run whose `ok` line arrives after the PASS line
 # passes the check.
 make_stub_go TestEpicTIsClosed
 r="$(make_repo go-slow-ok)"; add_0020 "$r"; mkdir -p "$r/core"
 out="$(SKIP_GO=0 STUB_BIN="$SANDBOX/stubbin" run_check "$r")"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'epic-t-closed: ok$'; then pass "the Go run: a passing test whose ok line comes after a delay passes"; else fail "the Go run: a slow ok line passes" "exit $rc: $out"; fi
+if [ "$rc" -eq 0 ] && grep -q 'epic-t-closed: ok$' <<<"$out"; then pass "the Go run: a passing test whose ok line comes after a delay passes"; else fail "the Go run: a slow ok line passes" "exit $rc: $out"; fi
 
 # The base commit.
 r="$(make_repo nobase)"
 out="$(BASE_OVERRIDE=0000000000000000000000000000000000000000 run_check "$r")"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'is not in this checkout'; then pass "a base commit that is not in the checkout is refused, not skipped"; else fail "a missing base is refused" "exit $rc: $out"; fi
+if [ "$rc" -eq 2 ] && grep -q 'is not in this checkout' <<<"$out"; then pass "a base commit that is not in the checkout is refused, not skipped"; else fail "a missing base is refused" "exit $rc: $out"; fi
 
 echo "epic-t-closure: $checks checks, $failures failures"
 [ "$failures" -eq 0 ]

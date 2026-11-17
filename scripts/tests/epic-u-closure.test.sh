@@ -81,12 +81,12 @@ add_0022() { echo "-- 22" > "$1/core/migrations/0022_agent_access.sql"; (cd "$1"
 expect_pass() { # name repo
   local out rc
   out="$(run_check "$2")"; rc=$?
-  if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'epic-u-closed: ok$'; then pass "$1"; else fail "$1" "$out"; fi
+  if [ "$rc" -eq 0 ] && grep -q 'epic-u-closed: ok$' <<<"$out"; then pass "$1"; else fail "$1" "$out"; fi
 }
 expect_fail() { # name repo message
   local out rc
   out="$(run_check "$2")"; rc=$?
-  if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qF "$3"; then pass "$1"; else fail "$1" "exit $rc, wanted: $3
+  if [ "$rc" -ne 0 ] && grep -qF "$3" <<<"$out"; then pass "$1"; else fail "$1" "exit $rc, wanted: $3
 $out"; fi
 }
 
@@ -182,7 +182,7 @@ expect_fail "the captures: a missing manifest is refused" "$r" "agents-captures.
 # The base commit.
 r="$(make_repo nobase)"
 out="$(BASE_OVERRIDE=0000000000000000000000000000000000000000 run_check "$r")"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'is not in this checkout'; then pass "a base commit that is not in the checkout is refused, not skipped"; else fail "a missing base is refused" "exit $rc: $out"; fi
+if [ "$rc" -eq 2 ] && grep -q 'is not in this checkout' <<<"$out"; then pass "a base commit that is not in the checkout is refused, not skipped"; else fail "a missing base is refused" "exit $rc: $out"; fi
 
 echo "epic-u-closure: $checks checks, $failures failures"
 [ "$failures" -eq 0 ]
