@@ -293,7 +293,24 @@ class TestArchitectureRefusal(unittest.TestCase):
         self.assertEqual(exc.code, installer.EXIT_PREREQ_ARCH)
         self.assertIn("riscv64", exc.message)
 
-    def test_the_two_released_architectures_pass_and_map(self):
+    def test_an_arm_host_is_refused_with_the_arm_guidance(self):
+        # #1452: releases publish linux/amd64 only.
+        fx = Fixture(self)
+        pf = installer.Preflight(fx.args())
+        real_uname = os.uname
+
+        class FakeUname:
+            machine = "aarch64"
+
+        os.uname = lambda: FakeUname()  # type: ignore[assignment]
+        self.addCleanup(lambda: setattr(os, "uname", real_uname))
+        exc = refusal_from(pf.check_arch)
+        self.assertIsNotNone(exc)
+        self.assertEqual(exc.code, installer.EXIT_PREREQ_ARCH)
+        self.assertIn("build from source", exc.remedy)
+        self.assertIn("0.8.0", exc.remedy)
+
+    def test_the_released_architecture_passes_and_maps(self):
         # The positive control. Without it the assertion above passes
         # equally against a check that refuses everything.
         fx = Fixture(self)
@@ -307,7 +324,7 @@ class TestArchitectureRefusal(unittest.TestCase):
         # same process that touches check_arch() would then run against a
         # fake architecture: a cascade of unrelated failures masking the
         # original one.
-        for machine, want in (("x86_64", "amd64"), ("aarch64", "arm64")):
+        for machine, want in (("x86_64", "amd64"),):
             with self.subTest(machine=machine):
                 class FakeUname:
                     pass

@@ -779,7 +779,7 @@ jobs:
           go-version-file: core/go.mod
           cache-dependency-path: core/go.sum
 
-      - name: Build linux and darwin, amd64 and arm64
+      - name: Build linux/amd64 and darwin/arm64
         env:
           TAG: ${{ steps.tag.outputs.tag }}
         run: bash scripts/release/build-cli-tarballs.sh "$TAG" "$GITHUB_SHA" dist-cli

@@ -18,17 +18,15 @@
   "imageReference": "ghcr.io/retnd/retnd:0.8.0",
   "releaseManifest": {
     "path": "container/release-manifest.json",
-    "sha256": "6c7c8e4623575abad272808466b1fb2bcfea97de31774d436cd6b2ba9ad30780",
+    "sha256": "ccb1074c18aadd186461eacf394c63567af8e4ea8638c98a123b82456088d555",
     "commit": "2e0ba199bc06924b70632e25d5291ff7d344f01b",
     "recordedBuildVersion": "0.8.0",
     "architectures": [
-      "amd64",
-      "arm64"
+      "amd64"
     ],
     "published": false,
     "registryDigests": {
-      "amd64": null,
-      "arm64": null
+      "amd64": null
     },
     "versionIsABuildStamp": false
   },
@@ -56,14 +54,14 @@
   },
   "checksums": {
     "path": "provenance/checksums.txt",
-    "sha256": "a1d7db696ef1d367d3f3d896ae4dbc6398714d2d883050a5b5e89282f4a84e10",
+    "sha256": "c9eb4c88ab1bddf3996417ae8937b1c9c120abc0319039ce7ec0ad6970ab668d",
     "format": "sha256sum"
   },
   "artifacts": [
     {
       "target": "casaos",
       "path": "apps/casaos/compose/retnd.yml",
-      "sha256": "a016036ddf0cdde516c4b36950ef48846da4bb2bacc78b2bb6dd3e068ba97e47"
+      "sha256": "9955828f5a1337c4f061942b56949ba73c57b5297352257b242622a8643cf553"
     },
     {
       "target": "casaos",
@@ -148,7 +146,7 @@
     {
       "target": "zimaos",
       "path": "apps/zimaos/compose/retnd.yml",
-      "sha256": "e707c03622d153540d032cfcdd5b4d93db2f6fa6d9dc83cd1e91933413070856"
+      "sha256": "257e16db00a0c50b6d04454d9a758e67602e0cc529e8c11854f3bde433e31088"
     },
     {
       "target": "zimaos",
@@ -168,7 +166,7 @@
     {
       "target": "generic",
       "path": "container/compose.yaml",
-      "sha256": "a0255eb73f038c2d82206cbe6eecd97bafe99db042c9d0c40e601a7121e6cbf0"
+      "sha256": "e8c7789d2677ccc040bd7a13153226d598927a5618ab320d38708e84f3d23429"
     }
   ],
   "unbuiltTargets": [

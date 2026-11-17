@@ -38,7 +38,7 @@ elsewhere and load it. Once they record the published digests, the host can
 pull the canonical reference directly:
 
 ```bash
-docker buildx build --platform=linux/amd64,linux/arm64 -f container/Dockerfile -t retnd:acceptance .
+docker buildx build --platform=linux/amd64 -f container/Dockerfile -t retnd:acceptance .
 docker save retnd:acceptance | ssh admin@<host> 'docker load'
 ```
 
@@ -154,7 +154,7 @@ host and user.
       not the image's own `/retnd status`: the web UI waits on this, and
       the backup-freshness verdict is non-zero on a fresh install)
 - [ ] `web-ui` reports healthy, having overridden the image's own healthcheck
-- [ ] The app claims `amd64` and `arm64`, and it installed on this machine's architecture
+- [ ] The app claims `amd64`, and it installed on this machine's architecture
 
 ## Step 2 — Web UI
 

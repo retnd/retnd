@@ -70,7 +70,7 @@ commands:
   verify   check a .spk against a release manifest
 
 build flags:
-  --arch GOARCH        amd64 or arm64 (required)
+  --arch GOARCH        amd64 (required)
   --version VERSION    INFO's version, e.g. 1.0.0-1 (required)
   --binaries DIR       directory holding retnd and retnd-web for
                         --arch (required)
@@ -95,7 +95,7 @@ verify flags:
 // file states.
 func cmdBuild(args []string) int {
 	fset := flag.NewFlagSet("build", flag.ContinueOnError)
-	arch := fset.String("arch", "", "release architecture (amd64 or arm64)")
+	arch := fset.String("arch", "", "release architecture (amd64)")
 	version := fset.String("version", "", "package version written into INFO")
 	binaries := fset.String("binaries", "", "directory holding the already-built release binaries")
 	uiBundle := fset.String("ui-bundle", "", "the built shared UI bundle for this provider (ui/shared/dist-bundles/synology)")

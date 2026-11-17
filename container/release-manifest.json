@@ -12,15 +12,6 @@
       },
       "local_image_id_sha256": "88a020a1075c318d61c06c249c035109750a8ce868c9123e54b5c90fb73cbae3",
       "registry_digest": null
-    },
-    {
-      "architecture": "arm64",
-      "binary_sha256": {
-        "retnd": "dec3d59caa956c8ea659c7b029639f2638114b03a4785aa3ededc977163a4fb5",
-        "retnd-web": "802ce540028eaac0800ea76aaad70e83a32a3a5d14987f53fa9a6b5f4447693d"
-      },
-      "local_image_id_sha256": "7d8051db4b1c19e1ce6a8761b76d0a720f7a0e625f82e291c570bbdc329da349",
-      "registry_digest": null
     }
   ],
   "index_digest": null

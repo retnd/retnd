@@ -18,21 +18,20 @@ re-derives their SHA-256 against `container/release-manifest.json`.
 | SPK | INFO `arch` | Go target | DSM platforms | Status |
 |---|---|---|---|---|
 | `retnd-x86_64-<version>.spk` | `x86_64` | `linux/amd64` | apollolake, avoton, braswell, broadwell, broadwellnk, broadwellntb, broadwellntbap, bromolow, cedarview, coffeelake, denverton, geminilake, grantley, kvmx64, purley, skylaked, v1000 | build-supported, **uncertified** |
-| `retnd-armv8-<version>.spk` | `armv8` | `linux/arm64` | rtd1296, armada37xx, rtd1619, rtd1619b | build-supported, **uncertified** |
 
 Family names and members come from Synology's Appendix A platform/arch
 mapping table, and are pinned in `spk/arch.go` so the table above and the
 package's own validation cannot drift apart.
 
-**Not supported, and not installable:** `i686` (evansport), `armv7`
-(alpine, alpine4k) and `armv5` (628x). The canonical release builds no
-32-bit binary, so there is nothing honest to package for them. DSM
-refusing the install on those units is the correct outcome.
+**Not supported, and not installable:** `armv8` (rtd1296, armada37xx,
+rtd1619, rtd1619b), `i686` (evansport), `armv7` (alpine, alpine4k) and `armv5`
+(628x). Releases build linux/amd64 only (#1452), so there is no arm64 or 32-bit binary and nothing honest to package for
+them. DSM refusing the install on those units is the correct outcome.
 
 "Uncertified" is §68's own word. A provider/architecture stays
 build-supported but uncertified until its acceptance procedure has been
 executed on real hardware, and §68 requires a representative DSM 7.x model
-**per claimed architecture** - so certifying both rows needs two machines.
+**per claimed architecture**, and there is one now, so certifying the row needs one machine.
 The procedure is
 [`docs/acceptance/synology-dsm-package-lifecycle.md`](../../docs/acceptance/synology-dsm-package-lifecycle.md).
 

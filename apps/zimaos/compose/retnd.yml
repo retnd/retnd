@@ -59,7 +59,6 @@ name: retnd
 x-casaos:
   architectures:
     - amd64
-    - arm64
   main: web-ui
   author: spdrman
   developer: spdrman

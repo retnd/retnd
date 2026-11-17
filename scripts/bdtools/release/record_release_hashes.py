@@ -3,9 +3,9 @@
 
 Ported off `scripts/release/record-release-hashes.sh`.
 
-Builds `container/Dockerfile` for each of linux/amd64 and linux/arm64,
-extracts both shipped binaries (`/retnd` and `/retnd-web`) from each built
-image, hashes them with SHA-256, and writes the result to
+Builds `container/Dockerfile` for linux/amd64 (the only image
+architecture a release carries, #1452), extracts both shipped binaries
+(`/retnd` and `/retnd-web`) from the built image, hashes them with SHA-256, and writes the result to
 `container/release-manifest.json` -- a record a reviewer (or a future
 provider package) can diff against a claim of core parity, rather than
 trusting it by assertion.
@@ -211,7 +211,7 @@ def run_guards(root: Path, env: dict[str, str]) -> tuple[str, str, str, Path, li
     unsafe = env.get("UNSAFE_LOCAL_BUILD", "0") == "1"
     version = env.get("VERSION") or _git(["describe", "--tags", "--always"], cwd=root)
     commit = env.get("COMMIT") or _git(["rev-parse", "HEAD"], cwd=root)
-    arches = (env.get("ARCHES") or "amd64 arm64").split()
+    arches = (env.get("ARCHES") or "amd64").split()
     reachable_from = env.get("REACHABLE_FROM", "origin/main")
 
     if unsafe:

@@ -19,25 +19,23 @@ words.
 
 ## Architectures claimed, and how many machines that needs
 
-The package ships two artifacts, because the canonical release ships two
-core binaries:
+The package ships one artifact, because releases build linux/amd64 only
+(#1452):
 
 | SPK artifact | INFO `arch` | Go target | DSM platforms covered |
 |---|---|---|---|
 | `retnd-x86_64-<version>.spk` | `x86_64` | `linux/amd64` | apollolake, avoton, braswell, broadwell, broadwellnk, broadwellntb, broadwellntbap, bromolow, cedarview, coffeelake, denverton, geminilake, grantley, kvmx64, purley, skylaked, v1000 |
-| `retnd-armv8-<version>.spk` | `armv8` | `linux/arm64` | rtd1296, armada37xx, rtd1619, rtd1619b |
 
 The `arch` family names and their member platforms come from Synology's
 own Appendix A platform/arch mapping table, not from inspection of a
 device.
 
 §68 requires "a representative DSM 7.x amd64 and/or arm64 model for each
-architecture claimed", so executing this procedure in full needs **two
-machines**: one x86_64 DSM 7.x model and one armv8 DSM 7.x model. Running
-it on only one of them certifies only that one; the other stays
-uncertified and must be described that way.
+architecture claimed", so executing this procedure in full needs **one
+machine**: an x86_64 DSM 7.x model. An armv8 model (rtd1296, armada37xx,
+rtd1619, rtd1619b) gets no package any more; build from source or stay on 0.8.0.
 
-Explicitly **not** claimed, and not installable: `i686` (evansport),
+Explicitly **not** claimed, and not installable: `armv8`, `i686` (evansport),
 `armv7` (alpine, alpine4k) and `armv5` (628x). The canonical release
 builds no 32-bit binary, so there is nothing honest to package for them.
 DSM will refuse to install an SPK whose `arch` does not match the unit,

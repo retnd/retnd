@@ -37,8 +37,7 @@
     ]
   },
   "architectures": [
-    "amd64",
-    "arm64"
+    "amd64"
   ],
   "runtimeContract": "1.2.0",
   "_derivation_comment": [

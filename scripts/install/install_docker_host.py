@@ -214,8 +214,6 @@ EXIT_RELEASE_DIGEST_MISMATCH = 52
 SUPPORTED_ARCH = {
     "x86_64": "amd64",
     "amd64": "amd64",
-    "aarch64": "arm64",
-    "arm64": "arm64",
 }
 
 # Fixed in-container paths. These mirror container/compose.yaml's own
@@ -637,7 +635,8 @@ class Preflight:
                 EXIT_PREREQ_ARCH,
                 f"this host reports {machine}, and the release is built for "
                 f"{sorted(set(SUPPORTED_ARCH.values()))} only.",
-                "There is no image for this architecture. Building one is a project decision, not an installer flag.",
+                "There is no image for this architecture. Releases publish linux/amd64 only (#1452). On an ARM NAS or "
+                "Raspberry Pi, build from source (docs/deployment.md) or stay on 0.7.2, the last release with a linux/arm64 image.",
             )
         self.arch = arch
         self.note(f"architecture {machine} maps to the released {arch}")
@@ -2725,9 +2724,9 @@ EMBEDDED_COMPOSE_YAML = """\
 #
 # This file builds for the machine running `docker compose`, i.e. it's meant
 # to be run ON the UGREEN NAS itself (or against a matching architecture).
-# To cross-build and publish a linux/amd64 + linux/arm64 image ahead of
-# time instead, use `docker buildx build --platform=...` directly; see
-# docs/deployment.md.
+# To cross-build an image ahead of time instead, use
+# `docker buildx build --platform=...` directly; see docs/deployment.md.
+# Releases publish linux/amd64 only (#1452).
 #
 # Nothing below reads a secret from this file or from the environment: real
 # credential material (the SSH private key) lives only at the host path
@@ -2844,7 +2843,6 @@ x-canonical-runtime:
   # container/release-manifest.json, so the three cannot drift.
   architectures:
     - amd64
-    - arm64
 
   # The profiles `--profile=` below may name. Checked against the profile
   # table the executable actually implements
@@ -3420,7 +3418,7 @@ services:
 """
 
 # Written by scripts/install/embed_compose.py alongside the blob above.
-EMBEDDED_COMPOSE_SHA256 = "a0255eb73f038c2d82206cbe6eecd97bafe99db042c9d0c40e601a7121e6cbf0"
+EMBEDDED_COMPOSE_SHA256 = "e8c7789d2677ccc040bd7a13153226d598927a5618ab320d38708e84f3d23429"
 
 
 def embedded_compose_bytes() -> bytes:

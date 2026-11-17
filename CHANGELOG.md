@@ -13,6 +13,13 @@ stays plaintext.
 
 A few things are worth reading before you upgrade:
 
+- **Releases build linux/amd64 and macOS arm64, and nothing else** (#1452). The image, the recorded
+  hashes in `container/release-manifest.json`, the package architecture claims and the CLI tarballs
+  (`linux_amd64` and `darwin_arm64`) are the two supported targets. The linux/arm64 image, the
+  linux/arm64, darwin/amd64 tarballs and the armv8 Synology package are no longer built or verified...
+  If you run an ARM NAS or a Raspberry Pi, the installer now refuses with that message: build from
+  source (`docs/deployment.md`) or stay on 0.7.2, the last release with a linux/arm64 image. The Go
+  code still cross-compiles for other targets, only the release artefacts changed.
 - Upgrading adds seven tables to `state.db` (migrations 0015, 0019, 0020 and 0021 create `encryption_keys`,
   `placement_encryption`, `recovery_bundle_exports`, `recovery_bundle_confirmations`, `encrypt_existing_consents`,
   `encryption_key_suites` and `encryption_default_suite`) and changes no existing table or row, so every copy
