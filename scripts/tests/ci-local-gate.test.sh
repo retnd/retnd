@@ -158,6 +158,8 @@ make_tree() { # -> path of a synthetic checkout carrying only the gate scripts
   # The toolchain pins (#1260): the gate refuses to start without them,
   # the same way it refuses without a linter, so every synthetic checkout
   # carries the real file. Group R is where the pin itself is measured.
+  mkdir -p "$tree/scripts/release"
+  if [ -f "$SCRIPTS_DIR/release/gate-shards.txt" ]; then cp "$SCRIPTS_DIR/release/gate-shards.txt" "$tree/scripts/release/"; fi
   mkdir -p "$tree/scripts/ci"
   if [ -f "$SCRIPTS_DIR/ci/pins.env" ]; then cp "$SCRIPTS_DIR/ci/pins.env" "$tree/scripts/ci/pins.env"; fi
   # The Docker probe is a property of the machine, not of the tree, so every
@@ -657,15 +659,27 @@ run_hook() { # <tree> [VAR=VAL ...]
   status=$?
 }
 
-run_gate() { # <tree> [VAR=VAL ...]
+run_gate() { # <tree> [VAR=VAL ...] [-- <ci-local.sh args...>]
   gate_tree="$1"
   shift
+  gate_envs=()
+  gate_args=()
+  gate_seen_dashes=0
+  for gate_arg in "$@"; do
+    if [ "$gate_seen_dashes" = 1 ]; then
+      gate_args+=("$gate_arg")
+    elif [ "$gate_arg" = "--" ]; then
+      gate_seen_dashes=1
+    else
+      gate_envs+=("$gate_arg")
+    fi
+  done
   # A developer running this suite under CI_LOCAL_FAST=1 would otherwise
   # silently turn every fail-closed case into a pass, and the gate exports
   # CI_LOCAL_SELFTEST=1 around this very script, which would otherwise reach
   # every synthetic run as an inherited skip.
   out="$(cd "$gate_tree" && scrub_env CI_LOCAL_LOCK_DIR="$gate_tree/.gate-lock" \
-    PATH="$gate_tree/bin:$PATH" "$@" bash scripts/ci-local.sh 2>&1)"
+    PATH="$gate_tree/bin:$PATH" ${gate_envs[@]+"${gate_envs[@]}"} bash scripts/ci-local.sh ${gate_args[@]+"${gate_args[@]}"} 2>&1)"
   status=$?
 }
 
@@ -2593,6 +2607,107 @@ v5_clocked="$(printf '%s\n' "$out" | grep -c '^==> .* \[20[0-9][0-9]-[0-9][0-9]-
 if [ "$v5_clocked" -ge 10 ]; then pass "V5 a real run stamps its step headings ($v5_clocked)"; else fail "V5 a real run stamps its step headings -- got $v5_clocked" "$out"; fi
 assert_contains "V5 and ends with the step clock before the verdict" '==> step clock: ' "$out"
 assert_eq "V5 the verdict is still the last line" '==> ci-local: ok' "$(printf '%s\n' "$out" | tail -n 1)"
+
+# ------------- Group W: the gate knows its shards (#1457)
+
+echo "==> W. shards: --list-shards, --shard, and a serial run that did not move"
+
+MANIFEST="$SCRIPTS_DIR/release/gate-shards.txt"
+# Strip the clock off a step heading, and keep only the lines that are headings
+# (gate_announce is the only thing that prints the clock).
+headings() { sed -nE 's/^(==> .*) \[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9:]*Z, (run start|previous step [0-9]+s)\]$/\1/p'; }
+
+# W1/W2: the manifest, and --list-shards pinned to it.
+if [ -f "$MANIFEST" ]; then pass "W1 scripts/release/gate-shards.txt exists"; else fail "W1 scripts/release/gate-shards.txt exists"; fi
+assert_eq "W1 the manifest opens with a comment that documents its format" '#' "$(head -c 1 "$MANIFEST" 2>/dev/null)"
+manifest_names="$(grep -vE '^[[:space:]]*(#|$)' "$MANIFEST" 2>/dev/null)"
+want_names="static
+core-kopia
+core-rest
+core-docker
+apps
+js
+e2e
+two-machine
+selftest-gate
+selftest-compat
+selftest-conformance
+selftest-recovery
+selftest-assurance
+structure
+gh-rows"
+assert_eq "W1 the manifest names the shards of the plan, in order" "$want_names" "$manifest_names"
+# In a bare fixture, never in the real checkout: a gate that does not know the
+# flag would start a full run of everything.
+tree="$(make_tree)"
+run_gate "$tree" -- --list-shards
+assert_eq "W2 --list-shards prints exactly the manifest's names" "$manifest_names" "$out"
+assert_eq "W2 and exits 0" 0 "$status"
+
+# W3: a shard that is not in the manifest is refused before anything runs.
+tree="$(make_full_tree)"
+run_gate "$tree" -- --shard no-such-shard
+assert_eq "W3 an unknown shard exits 2" 2 "$status"
+assert_contains "W3 and names the shards there are" 'core-docker' "$out"
+assert_not_contains "W3 and ran no step" '==> toolchain:' "$out"
+
+# W4: a serial run's steps, in order, are what they were before the shards
+# existed. The golden is the heading list of a full fixture run on the tree
+# as it stood before #1457.
+GOLDEN="$SCRIPTS_DIR/tests/testdata/ci-local-serial-steps.txt"
+tree="$(make_full_tree)"
+run_gate "$tree" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh
+serial_steps="$(printf '%s\n' "$out" | headings)"
+assert_eq "W4 the serial run still ends ok" 0 "$status"
+if [ -f "$GOLDEN" ]; then
+  assert_eq "W4 a serial run's step order is byte-identical to the golden" "$(cat "$GOLDEN")" "$serial_steps"
+else
+  fail "W4 $GOLDEN exists"
+fi
+
+# W5: every shard, against the same fixture.
+shard_union=""
+prev_ok=1
+while IFS= read -r shard; do
+  [ -n "$shard" ] || continue
+  tree="$(make_full_tree)"
+  mkdir -p "$tree/core/tests/compat"
+  printf 'package compat\n\nimport "testing"\n\nfunc TestEveryBlockedRowCitesAnIssueThatIsStillOpen(t *testing.T) {}\n' >"$tree/core/tests/compat/matrix_test.go"
+  run_gate "$tree" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh -- --shard "$shard"
+  assert_eq "W5 shard $shard exits 0" 0 "$status"
+  assert_eq "W5 shard $shard ends with its own verdict" "==> ci-local: ok (shard $shard)" "$(printf '%s\n' "$out" | tail -n 1)"
+  assert_contains "W5 shard $shard says which shard it is" "==> shard: $shard" "$out"
+  steps="$(printf '%s\n' "$out" | headings)"
+  if [ -n "$steps" ]; then pass "W5 shard $shard runs at least one step"; else fail "W5 shard $shard runs at least one step" "$out"; fi
+  # Its steps are a subsequence of the serial run's, in the same order, except
+  # for the one step only a shard runs.
+  in_serial="$(printf '%s\n' "$steps" | grep -v 'TestEveryBlockedRow' || true)"
+  order_ok=1
+  last=0
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    n="$(printf '%s\n' "$serial_steps" | grep -nxF -- "$line" | head -n 1 | cut -d: -f1)"
+    if [ -z "$n" ] || [ "$n" -le "$last" ]; then order_ok=0; break; fi
+    last="$n"
+  done <<<"$in_serial"
+  if [ "$order_ok" = 1 ]; then pass "W5 shard $shard keeps the serial order"; else fail "W5 shard $shard keeps the serial order" "$steps"; fi
+  shard_union="$shard_union
+$steps"
+done <<<"$manifest_names"
+# W6: nothing in a serial run belongs to no shard.
+missing=""
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  printf '%s\n' "$shard_union" | grep -qxF -- "$line" || missing="$missing
+$line"
+done <<<"$serial_steps"
+assert_eq "W6 every step of a serial run belongs to a shard" "" "$missing"
+
+# W7: an INCOMPLETE shard says so, and says which one.
+tree="$(make_full_tree)"
+run_gate "$tree" CI_LOCAL_SKIP_TWO_MACHINE=1 -- --shard two-machine
+assert_eq "W7 an INCOMPLETE shard exits $INCOMPLETE" "$INCOMPLETE" "$status"
+assert_contains "W7 and its verdict names the shard" '==> ci-local: INCOMPLETE (shard two-machine)' "$out"
 
 # ------------------------------------------------------------------ result
 
