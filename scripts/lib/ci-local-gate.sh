@@ -72,8 +72,40 @@ $1"
 # a verdict line naming the step that killed it, instead of ending on a bare
 # command error with no marker at all.
 gate_announce() {
+  gate_clock
+  if [ -n "$gate_clock_prev" ]; then
+    gate_clock_note="previous step $((gate_clock_epoch - gate_clock_prev))s"
+  else
+    gate_clock_start="$gate_clock_epoch"
+    gate_clock_note="run start"
+  fi
+  gate_clock_prev="$gate_clock_epoch"
   gate_last_step="$1"
-  echo "==> $1"
+  echo "==> $1 [$gate_clock_utc, $gate_clock_note]"
+}
+
+# The step clock (#1456). A heading says when its step began (UTC) and how
+# long the step before it took, so a log read afterwards has per-step costs
+# without anyone rebuilding them from timestamps that tests print. The
+# heading text stays first on the line, and gate_last_step stays the bare
+# heading, because merge-gate.sh reads it back out of the FAILED verdict.
+gate_clock_prev=""
+gate_clock_start=""
+
+# gate_clock
+# The one place this library reads the time, so a test can replace it.
+gate_clock() {
+  gate_clock_epoch="$(date -u +%s)"
+  gate_clock_utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+
+# gate_clock_close
+# One line ahead of the verdict: how long the step that was running took,
+# and how long the run took. Silent when no step was ever announced.
+gate_clock_close() {
+  [ -n "$gate_clock_prev" ] || return 0
+  gate_clock
+  echo "==> step clock: $gate_last_step took $((gate_clock_epoch - gate_clock_prev))s, run took $((gate_clock_epoch - gate_clock_start))s"
 }
 
 # gate_step <heading>
@@ -785,6 +817,7 @@ gate_stop_docker_sentinel() {
 # returns GATE_INCOMPLETE so a caller that never reads the text still knows.
 gate_summary() {
   gate_marked=1
+  gate_clock_close
   if [ -z "$gate_skipped" ]; then
     echo "==> ci-local: ok"
     return 0
@@ -807,6 +840,7 @@ gate_exit_marker() {
   if [ "$gate_marked" = 1 ]; then
     return 0
   fi
+  gate_clock_close >&2
   echo "==> ci-local: FAILED ($gate_last_step)" >&2
   # A 3 that gate_summary did not produce is a command that happened to
   # exit 3 (golangci-lint's parallel-runner refusal did, before gate_lint),
@@ -844,6 +878,7 @@ gate_on_signal() {
   gate_stop_docker_sentinel
   gate_lock_release
   echo "" >&2
+  gate_clock_close >&2
   echo "==> ci-local: FAILED ($gate_last_step, interrupted by SIG$1)" >&2
   exit "$2"
 }
