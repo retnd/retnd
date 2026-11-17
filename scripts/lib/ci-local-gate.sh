@@ -811,6 +811,79 @@ gate_stop_docker_sentinel() {
   docker rm -f "$gate_sentinel_going" >/dev/null 2>&1 || true
 }
 
+# Shards (#1457). GATE_SHARD is empty for a serial run, which runs every
+# segment in the order ci-local.sh lists them, and otherwise names one entry
+# of scripts/release/gate-shards.txt. A segment is a function holding steps
+# that belong to one shard; the same list drives both modes, so a serial run
+# is the shards' segments in today's order and nothing else.
+GATE_SHARD="${GATE_SHARD:-}"
+
+# gate_shard_wants <shard...>
+# True for a serial run, and for a run of any of the named shards.
+gate_shard_wants() {
+  [ -z "$GATE_SHARD" ] && return 0
+  for _wanted in "$@"; do
+    [ "$_wanted" = "$GATE_SHARD" ] && return 0
+  done
+  return 1
+}
+
+# gate_run_segment <shards> <function>
+# Run a segment when a serial run or one of its shards (space separated) is
+# the run. The list is split on purpose.
+gate_run_segment() {
+  # shellcheck disable=SC2086
+  if gate_shard_wants $1; then
+    "$2"
+  fi
+}
+
+# gate_run_shard_only <shard> <function>
+# A segment with no place in a serial run, because a serial run covers the
+# same ground in another step (gh-rows is core/'s own compat test, alone).
+gate_run_shard_only() {
+  if [ "$GATE_SHARD" = "$1" ]; then
+    "$2"
+  fi
+}
+
+# gate_core_shard_filter
+# Reads the core package list on stdin and keeps this run's share of it:
+# kopia is the long pole of core/, so core-kopia takes it and core-rest takes
+# the rest. A serial run, or any other shard, takes everything.
+gate_core_shard_filter() {
+  case "$GATE_SHARD" in
+    core-kopia) grep '/internal/backupengine/kopia' ;;
+    core-rest) grep -v '/internal/backupengine/kopia' ;;
+    *) cat ;;
+  esac
+}
+
+# gate_github_ledger_open, gate_github_ledger_close
+# core/tests/compat asks GitHub, through gh, whether every BLOCKED row still
+# cites an open issue. Without a usable gh the test writes the rows it could
+# not resolve into a file instead, and each one lands in the skip ledger, so
+# the run ends INCOMPLETE naming them (#1331). Two steps use it: core/'s own
+# go test and the gh-rows shard.
+gate_github_ledger=""
+gate_github_ledger_open() {
+  gate_github_ledger=""
+  if ! command -v gh >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then
+    gate_github_ledger="$(mktemp "${TMPDIR:-/tmp}/ci-local-github.XXXXXX")"
+    export CI_LOCAL_GITHUB_LEDGER="$gate_github_ledger"
+  fi
+}
+gate_github_ledger_close() {
+  if [ -n "$gate_github_ledger" ]; then
+    while IFS= read -r line; do
+      [ -n "$line" ] && gate_note_skip "$line. Run the gate where gh is installed and logged in (gh auth status) to check them."
+    done <"$gate_github_ledger"
+    rm -f "$gate_github_ledger"
+    unset CI_LOCAL_GITHUB_LEDGER
+    gate_github_ledger=""
+  fi
+}
+
 # gate_summary
 # The last thing a run prints. "ci-local: ok" is reachable only from an empty
 # ledger; anything else says what did not run, refuses the word ok, and
@@ -819,11 +892,11 @@ gate_summary() {
   gate_marked=1
   gate_clock_close
   if [ -z "$gate_skipped" ]; then
-    echo "==> ci-local: ok"
+    echo "==> ci-local: ok${GATE_SHARD:+ (shard $GATE_SHARD)}"
     return 0
   fi
 
-  echo "==> ci-local: INCOMPLETE. This run is not merge evidence. These checks did not run:"
+  echo "==> ci-local: INCOMPLETE${GATE_SHARD:+ (shard $GATE_SHARD)}. This run is not merge evidence. These checks did not run:"
   printf '%s\n' "$gate_skipped" | sed 's/^/        - /'
   echo "==> For a run that is merge evidence: install every JS workspace, start Docker, and re-run with CI_LOCAL_FAST, CI_LOCAL_SKIP_JS and CI_LOCAL_SKIP_DOCKER unset."
   return "$GATE_INCOMPLETE"
@@ -841,7 +914,7 @@ gate_exit_marker() {
     return 0
   fi
   gate_clock_close >&2
-  echo "==> ci-local: FAILED ($gate_last_step)" >&2
+  echo "==> ci-local: FAILED ($gate_last_step${GATE_SHARD:+, shard $GATE_SHARD})" >&2
   # A 3 that gate_summary did not produce is a command that happened to
   # exit 3 (golangci-lint's parallel-runner refusal did, before gate_lint),
   # and 3 is the one number .husky/pre-commit commits on. It leaves as 1
@@ -879,7 +952,7 @@ gate_on_signal() {
   gate_lock_release
   echo "" >&2
   gate_clock_close >&2
-  echo "==> ci-local: FAILED ($gate_last_step, interrupted by SIG$1)" >&2
+  echo "==> ci-local: FAILED ($gate_last_step, interrupted by SIG$1${GATE_SHARD:+, shard $GATE_SHARD})" >&2
   exit "$2"
 }
 

@@ -36,6 +36,8 @@ The last line of a run is one of three verdicts, and the exit status matches:
 | `==> ci-local: INCOMPLETE` | 3 | nothing failed, but something did not run: a skip variable was set, Docker was missing, a toolchain did not match its pin, a lane could not be judged. The ledger above the verdict lists what. Not merge evidence |
 | `==> ci-local: FAILED` | 1 (or whatever the failing command returned) | a step failed |
 
+`scripts/ci-local.sh --list-shards` prints the shard names and `--shard <name>` runs only that shard's steps (an empty or unknown name exits 2, and it does not combine with `CI_LOCAL_FAST=1`). A shard's verdict names it, as in `==> ci-local: ok (shard core-docker)`, so a shard log cannot pass for a full run. Every step heading carries a UTC clock, and a `==> step clock:` line comes just before the verdict.
+
 Only a step that declares itself INCOMPLETE through the ledger may end a run
 at 3. A stray exit 3 from a command the gate did not mark is read as FAILED.
 
