@@ -331,9 +331,9 @@ expect "and the refusal names the pin" 1 "$(sed -n 's/^GOLANGCI_LINT_VERSION=//p
 
 # 6. A schema this job does not read.
 new_case schema
-write_record schema=retnd.local-gate/2
+write_record schema=retnd.local-gate/99
 run_gate true
-expect "a record with an unknown schema does not publish" 1 "retnd.local-gate/2"
+expect "a record with an unknown schema does not publish" 1 "retnd.local-gate/99"
 expect "and the refusal names the schema this job reads" 1 "retnd.local-gate/1"
 
 # 7. Not JSON at all.
