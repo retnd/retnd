@@ -3,9 +3,9 @@
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
   "name": "retnd 0.8.0",
-  "documentNamespace": "https://github.com/retnd/retnd/spdx/2e0ba199bc06924b70632e25d5291ff7d344f01b",
+  "documentNamespace": "https://github.com/retnd/retnd/spdx/44593e010c41214396de6821ef8b1d36fb3f0ea2",
   "creationInfo": {
-    "created": "2026-11-15T20:13:23Z",
+    "created": "2026-11-17T15:15:02Z",
     "creators": [
       "Tool: retnd-provenance",
       "Organization: Roman Goldmann"

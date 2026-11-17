@@ -1,16 +1,16 @@
 {
   "version": "0.8.0",
-  "commit": "2e0ba199bc06924b70632e25d5291ff7d344f01b",
-  "generated_at": "2026-11-15T20:13:23Z",
+  "commit": "44593e010c41214396de6821ef8b1d36fb3f0ea2",
+  "generated_at": "2026-11-17T15:15:02Z",
   "note": "Regenerate with scripts/release/record-release-hashes.sh, and only at a commit that is ALREADY on main. A commit recorded from a feature branch stops existing the moment that branch is squash merged, and the manifest is then pinned to a SHA nobody can check out: that is issue #174, which is why the script now refuses to record a commit that is not an ancestor of origin/main and why distribution/packaging's release-manifest-integrity check re-asks the same question on every run. binary_sha256 is hashed from the two binaries extracted out of the built image, so it is real evidence of what was compiled. registry_digest is the digest ghcr.io assigns ghcr.io/retnd/retnd on push (docker buildx build --push prints it, docker buildx imagetools inspect reads it back). binary_sha256 keys match the two executable paths in the image: retnd and retnd-web. A manifest that already records a published release is historical evidence and must not be rewritten merely to rename a key; a new semantic version records the names its image actually carries.",
   "architectures": [
     {
       "architecture": "amd64",
       "binary_sha256": {
-        "retnd": "2e5f98fa35729b154b9b39336ba213c9926aa1dc023ea86ba45df35156e9ce66",
-        "retnd-web": "9bac67e30850b5162b235dcabe214ef2afb9fbbdea8715149e6f1e7b4d382358"
+        "retnd": "10c57d81551fc6c4d45622748ea8ce2332529300902feae9d477e93afd8a0da4",
+        "retnd-web": "46361a82046e05d1d6baf35b56e6c59f38deaeff96b51fbc3898edcd080013c3"
       },
-      "local_image_id_sha256": "88a020a1075c318d61c06c249c035109750a8ce868c9123e54b5c90fb73cbae3",
+      "local_image_id_sha256": "17036b997d9193ef3a436767a45393d6ac76a7e28cb16bc68f3ec989ca46b8a1",
       "registry_digest": null
     }
   ],
