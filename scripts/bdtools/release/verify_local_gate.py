@@ -35,7 +35,14 @@ allowed_signers file with no key line in it: the owner has to add theirs
 RETND_TRUST_REF (default origin/main), so a key swapped in the same commit as a
 record it signed is refused. The override trailer still waves all of it through.
 
-WHAT ELSE IT REFUSES. A record of an INCOMPLETE run (a ledger that is
+WHAT ELSE IT REFUSES. A schema-2 (sharded, #1455) record is held to its manifest too: the shards are
+exactly the lines of scripts/release/gate-shards.txt at the published commit
+(read from the commit, never from the record), each one's signed record
+verifies against allowed_signers, is ok on the record's own tree and manifest,
+and its slice of the committed log hashes to what it signed. The signature
+check, the trust anchor and the override trailer are the same as for schema 1.
+
+A record of an INCOMPLETE run (a ledger that is
 not empty, or a result that is not ok). A schema it does not read, by
 name. A log whose hash is not the record's. A recorded Go whose
 major.minor is not the `go` line of core/go.mod, the toolchain that
@@ -75,6 +82,10 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from bdtools.release.gate_shards import GateError, parse_manifest  # the manifest reader the recorder shares
+
 RECORD = "provenance/local-gate.json"
 LOG = "provenance/local-gate.log"
 SIG = "provenance/local-gate.json.sig"
@@ -91,6 +102,8 @@ GO_MOD = "core/go.mod"
 PINS = "scripts/ci/pins.env"
 SCHEMA = "retnd.local-gate/1"
 SCHEMA_SHARDED = "retnd.local-gate/2"
+SHARD_SCHEMA = "retnd.local-gate.shard/1"
+MANIFEST = "scripts/release/gate-shards.txt"
 TRAILER = "Release-Gate-Override"
 MIN_REASON = 12
 RECORD_HOWTO = "bash scripts/release/record-local-gate.sh"
@@ -227,6 +240,134 @@ def override_from(message: str) -> tuple[str, bool]:
     return reason, short
 
 
+def shard_signature_finding(record: bytes, sig: str, signers: bytes | None) -> str | None:
+    """Why a shard's embedded signature does not hold, or None. Same key, same
+    namespace and principal as the aggregate's own signature."""
+    if not sig.strip():
+        return "it carries no signature"
+    if signers is None:
+        return f"`{SIGNERS}` is not there to check it against"
+    with tempfile.TemporaryDirectory() as tmp:
+        signers_path = Path(tmp) / "allowed_signers"
+        sig_path = Path(tmp) / "record.sig"
+        signers_path.write_bytes(signers)
+        sig_path.write_text(sig, encoding="utf-8")
+        try:
+            proc = subprocess.run(
+                ["ssh-keygen", "-Y", "verify", "-f", str(signers_path), "-I", SIG_PRINCIPAL, "-n", SIG_NAMESPACE,
+                 "-s", str(sig_path)],
+                input=record, capture_output=True,
+            )
+        except OSError as exc:
+            return f"ssh-keygen could not be run ({exc})"
+    if proc.returncode != 0:
+        return f"its signature does not verify against `{SIGNERS}`"
+    return None
+
+
+def check_shards(
+    sha: str, record: dict[str, object], signers: bytes | None, log_body: bytes | None,
+    findings: list[str], report: list[str],
+) -> None:
+    """The shard half of a schema-2 record (#1455). The manifest comes from the
+    commit being judged, never from the record, and every shard of it has to be
+    there once, in order, signed by the owner, ok, and on the record's own tree."""
+    manifest = blob(sha, MANIFEST)
+    if manifest is None:
+        findings.append(f"`{MANIFEST}` is not in the commit being published, so there is no list of shards to hold "
+                        "the record to.")
+        return
+    try:
+        want = parse_manifest(manifest.decode("utf-8"))
+    except (GateError, UnicodeDecodeError) as exc:
+        findings.append(f"`{MANIFEST}` cannot be read: {exc}")
+        return
+    manifest_sha = log_sha256(manifest)
+    if record.get("manifest_sha256") != manifest_sha:
+        findings.append(
+            f"the record's manifest_sha256 is `{record.get('manifest_sha256') or '(missing)'}` and `{MANIFEST}` in "
+            f"the commit hashes to `{manifest_sha}`: the record was made against another manifest."
+        )
+    entries = record.get("shards")
+    if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries) or not entries:
+        findings.append("the record carries no shards list, so nothing says which shards ran.")
+        return
+    got = [str(e.get("name", "")) for e in entries]
+    missing = [n for n in want if n not in got]
+    extra = [n for n in got if n not in want]
+    dupes = sorted({n for n in got if got.count(n) > 1})
+    if missing:
+        findings.append("the record is missing shard(s) the manifest names: " + ", ".join(f"`{n}`" for n in missing)
+                        + f". Every shard in `{MANIFEST}` has to have run.")
+    if extra:
+        findings.append("the record carries shard(s) that are not in the manifest: "
+                        + ", ".join(f"`{n}`" for n in extra) + ".")
+    if dupes:
+        findings.append("the record lists a shard more than once: " + ", ".join(f"`{n}`" for n in dupes) + ".")
+    if not (missing or extra or dupes) and got != want:
+        findings.append("the record's shards are not in the manifest's order (" + ", ".join(got) + " against "
+                        + ", ".join(want) + ").")
+    tree = str(record.get("gate_tree", ""))
+    pin = go_pin()
+    problems = 0
+    for entry in entries:
+        name = str(entry.get("name", ""))
+        if name not in want:
+            continue
+        before = len(findings)
+        raw_rec = entry.get("record")
+        if not isinstance(raw_rec, str) or not raw_rec:
+            findings.append(f"shard `{name}` carries no signed record.")
+            continue
+        sig_problem = shard_signature_finding(raw_rec.encode("utf-8"), str(entry.get("signature", "")), signers)
+        if sig_problem:
+            findings.append(f"shard `{name}`: {sig_problem}.")
+            continue
+        try:
+            rec = json.loads(raw_rec)
+        except ValueError:
+            findings.append(f"shard `{name}`: its signed record is not JSON.")
+            continue
+        if not isinstance(rec, dict) or rec.get("schema") != SHARD_SCHEMA or rec.get("shard") != name:
+            findings.append(f"shard `{name}`: its signed record is not a `{SHARD_SCHEMA}` record for this shard.")
+            continue
+        if rec.get("result") != "ok" or rec.get("ledger") != []:
+            findings.append(f"shard `{name}` did not pass: its signed record says result "
+                            f"`{rec.get('result') or '(missing)'}` with ledger {rec.get('ledger')!r}.")
+        if rec.get("gate_tree") != tree or entry.get("gate_tree") != tree:
+            findings.append(f"shard `{name}` ran on another tree: it says `{rec.get('gate_tree')}` and the record "
+                            f"says `{tree}`.")
+        if rec.get("manifest_sha256") != manifest_sha:
+            findings.append(f"shard `{name}` was run against another manifest (`{rec.get('manifest_sha256')}`).")
+        if rec.get("log_sha256") != entry.get("log_sha256") or rec.get("attempts") != entry.get("attempts"):
+            findings.append(f"shard `{name}`: the entry in the record is not what the shard signed (log_sha256 or "
+                            "attempts differ).")
+        recorded_go = str(rec.get("tools", {}).get("go", "")) if isinstance(rec.get("tools"), dict) else ""
+        shard_minor = ".".join(recorded_go.removeprefix("go").split(".")[:2])
+        if not recorded_go:
+            findings.append(f"shard `{name}`: its signed record names no Go toolchain, so the Go minor cannot be "
+                            f"checked against `{GO_MOD}`.")
+        elif pin and shard_minor != ".".join(pin.split(".")[:2]):
+            findings.append(f"shard `{name}` ran with Go `{recorded_go}` and `{GO_MOD}` builds with go {pin}.")
+        offset, length = entry.get("log_offset"), entry.get("log_length")
+        body = log_body
+        if body is None or not isinstance(offset, int) or not isinstance(length, int) or offset < 0 or length < 0:
+            findings.append(f"shard `{name}`: there is no log slice to check.")
+        elif log_sha256(body[offset:offset + length]) != rec.get("log_sha256"):
+            findings.append(f"shard `{name}`: its log slice (bytes {offset} to {offset + length} of `{LOG}`) does not "
+                            "hash to the log_sha256 the shard signed. The committed log was edited after the run.")
+        problems += len(findings) - before
+    if not problems and not (missing or extra or dupes):
+        report.append(f"- {len(entries)} shards, exactly the manifest's, each signed by the owner's key, ok, on "
+                      f"gate_tree `{tree[:12]}`, each log slice matching its signed hash")
+        for e in entries:
+            for a in e.get("attempts", []):
+                if a.get("exit") != 0:
+                    tests = ", ".join(a.get("failed_tests") or []) or "no test names"
+                    report.append(f"  - `{e.get('name')}` attempt {a.get('attempt')} on {a.get('host')} failed "
+                                  f"(exit {a.get('exit')}): {tests}")
+
+
 class Report:
     def __init__(self, summary_path: str) -> None:
         self.summary_path = summary_path
@@ -341,6 +482,9 @@ def check(sha: str, *, uncommitted: bool) -> tuple[list[str], list[str]]:
                 )
             else:
                 report.append(f"- log `{LOG}` hashes to the recorded `{actual[:12]}...`")
+
+        if schema == SCHEMA_SHARDED:
+            check_shards(sha, record, read(SIGNERS), log_body, findings, report)
 
         tools = record.get("tools")
         recorded_go = str(tools.get("go", "")) if isinstance(tools, dict) else ""
