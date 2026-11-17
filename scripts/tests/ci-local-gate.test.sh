@@ -2560,6 +2560,40 @@ run_gate "$tree" GH_CONFIG_DIR="$tree/.gh-config-empty" GH_TOKEN= GITHUB_TOKEN= 
 assert_eq "U2 with no BLOCKED row a host without gh still ends ok" 0 "$status"
 assert_contains "U2 and says so" 'ci-local: ok' "$out"
 
+# ------------- Group V: every step heading carries a clock (#1456)
+
+echo "==> V. the step clock"
+
+# gate_clock is the one place the library reads the time, so these cases
+# replace it with a counter and measure the arithmetic instead of waiting.
+# V1 to V4 drive the library directly, V5 runs the real script.
+v_lib="gate_clock() { gate_clock_epoch=\$((\${gate_clock_epoch:-1000} + \${V_STEP:-10})); gate_clock_utc=2026-11-16T07:00:00Z; }"
+
+v1_out="$(sh -c ". '$GATE_LIB' && $v_lib && gate_announce 'first step'" 2>&1)"
+assert_contains "V1 the first heading carries the UTC clock and says the run started" '==> first step [2026-11-16T07:00:00Z, run start]' "$v1_out"
+
+v2_out="$(sh -c ". '$GATE_LIB' && $v_lib && V_STEP=10 && gate_announce 'first step' && V_STEP=37 && gate_announce 'second step'" 2>&1)"
+assert_contains "V2 the next heading says how long the step before it took" '==> second step [2026-11-16T07:00:00Z, previous step 37s]' "$v2_out"
+
+v3_out="$(sh -c ". '$GATE_LIB' && $v_lib && gate_install_traps && gate_announce 'only step' && V_STEP=5 && gate_summary" 2>&1)"
+assert_contains "V3 the summary times the last step and the whole run" '==> step clock: only step took 5s, run took 5s' "$v3_out"
+assert_eq "V3 and the verdict is still the last line, byte for byte" '==> ci-local: ok' "$(printf '%s\n' "$v3_out" | tail -n 1)"
+
+v4_out="$(sh -c ". '$GATE_LIB' && $v_lib && gate_install_traps && gate_announce 'a step that exits 1' && V_STEP=8 && exit 1" 2>&1)"
+assert_contains "V4 a failed run times the step that died" '==> step clock: a step that exits 1 took 8s, run took 8s' "$v4_out"
+assert_contains "V4 and the FAILED verdict still names the bare heading" '==> ci-local: FAILED (a step that exits 1)' "$v4_out"
+assert_eq "V4 exactly: merge-gate.sh reads the heading out of that line" 'a step that exits 1' "$(printf '%s\n' "$v4_out" | sed -n 's/^==> ci-local: FAILED (\(.*\))$/\1/p')"
+
+tree="$(make_full_tree)"
+# The browser step queues behind the workspace Playwright lock on this Mac;
+# the fixture's step is a stub, so it has no business waiting for it.
+run_gate "$tree" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh
+assert_contains "V5 a real run stamps the apps/common step" 'apps/common go build, vet, test -race (Docker' "$out"
+v5_clocked="$(printf '%s\n' "$out" | grep -c '^==> .* \[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z, \(run start\|previous step [0-9]*s\)\]$')"
+if [ "$v5_clocked" -ge 10 ]; then pass "V5 a real run stamps its step headings ($v5_clocked)"; else fail "V5 a real run stamps its step headings -- got $v5_clocked" "$out"; fi
+assert_contains "V5 and ends with the step clock before the verdict" '==> step clock: ' "$out"
+assert_eq "V5 the verdict is still the last line" '==> ci-local: ok' "$(printf '%s\n' "$out" | tail -n 1)"
+
 # ------------------------------------------------------------------ result
 
 echo
