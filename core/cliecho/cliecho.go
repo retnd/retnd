@@ -336,7 +336,13 @@ func Examples() []Action {
 		if out[i].Method != out[j].Method {
 			return out[i].Method < out[j].Method
 		}
-		return string(out[i].Body) < string(out[j].Body)
+		if string(out[i].Body) != string(out[j].Body) {
+			return string(out[i].Body) < string(out[j].Body)
+		}
+		// Examples that differ only in their query would otherwise come out
+		// in map order, and a caller that takes the first (agenttools.Twin)
+		// would print a different command from one run to the next.
+		return out[i].Query.Encode() < out[j].Query.Encode()
 	})
 	return out
 }

@@ -353,6 +353,24 @@ repository's `main`. #1073 moved it to `9584fa3`, the squash of #87 with the ide
 every move after that reads off `main` the same way, so `tests-repo.pin` itself is where to look
 for the commit it names today.
 
+## EPIC T's suites, and what this gate runs of them
+
+EPIC T (#1310, encryption suites) adds black-box cases in two of the three suites in
+`retnd/retnd-tests` (retnd-tests#97, for #1319). Same caution as EPIC Q above: the matrix row
+`T2.4` in `docs/conformance/epic-t-matrix.md` is only as strong as what this gate executes.
+
+| Suite | What EPIC T adds there | What this gate runs |
+|---|---|---|
+| A, the CLI contract | twelve cases under `encryption/`: both suites listed with the default, a first key under age-pq/v1, a pinned age/v1, an unset suite following the active key, the mismatch answering with the rotate command and minting nothing, rotation across suites, the re-encrypt dry run and its refusal to pick a medium, and an unknown id refused at load, on a patch and on a key create | none of them: no case carries the `smoke` tag, so they run under `make suite-a` only |
+| B, the web UI | nothing new over there; the suite screens are #1318's specs in `ui/shared/e2e/` and #1319's `1319-suite-equivalence.spec.ts` | not this gate |
+| C, UI to CLI equivalence | `encryption-suites.1319.spec.ts`: the rotate-across-suites flow in the browser and on the CLI twin, each step's printed command against the CLI argv, then the registry and the policy both sides end with | not run by this gate (`make suite-c` over there) |
+
+Every row that needs an encrypted copy on a medium (the crypto negatives per suite, the cross-suite
+key, the mismatch across a real cycle, a retired suite, re-encryption under a kill, catalog rebuild
+over an unknown suite, clean-machine recovery per suite) is in this repository's own Go tests, not
+over there: a configurable medium is S3 only and that repository has no endpoint. The `gate_step`
+that runs them is #1320's.
+
 ## A deployment nobody has configured (`--fresh`)
 
 `retnd#1049` is the first install: the browser opens a deployment that has an

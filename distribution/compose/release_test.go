@@ -4,7 +4,7 @@
 //
 // Every test here is an agreement test rather than a correctness test,
 // and that is deliberate. Nothing in this repository can prove that a
-// linux/arm64 image exists, or that a digest names the bytes an operator
+// linux image exists, or that a digest names the bytes an operator
 // will pull; a test run on a laptop has no registry and no builder. What
 // it can prove is that the architectures, the profiles, the contract
 // version, the digest policy and the health checks are not recorded in
@@ -34,7 +34,7 @@ import (
 
 // TestArchitecturesAgreeAcrossTheThreePlacesTheyAreWrittenDown is the
 // multi-arch half of #167's contract. "The same source revision produces
-// linux/amd64 and linux/arm64 images" is only checkable if the three
+// the linux/amd64 image" is only checkable if the three
 // records of that claim cannot drift: the runtime definition an operator
 // deploys, the canonical metadata every adapter derives from, and the
 // release manifest that records what was actually built.
@@ -64,8 +64,8 @@ func TestArchitecturesAgreeAcrossTheThreePlacesTheyAreWrittenDown(t *testing.T) 
 	}
 
 	fromDoc, canon, release := norm(fromCompose), norm(fromCanonical), norm(fromManifest)
-	if len(fromDoc) < 2 {
-		t.Fatalf("the runtime definition claims %v; #167 requires at least linux/amd64 and linux/arm64", fromCompose)
+	if strings.Join(fromDoc, ",") != "amd64" {
+		t.Fatalf("the runtime definition claims %v; #1452 releases linux/amd64 only", fromCompose)
 	}
 	if strings.Join(fromDoc, ",") != strings.Join(canon, ",") {
 		t.Errorf("the runtime definition claims %v but distribution/packaging/canonical.json says %v", fromDoc, canon)

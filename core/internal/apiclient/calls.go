@@ -1032,3 +1032,246 @@ func (c *Client) RemoveCustomValidator(ctx context.Context, name string) (apicon
 	err := c.call(ctx, "removeCustomValidator", []string{name}, nil, &out)
 	return out, err
 }
+
+// Retained-copy encryption (#993). The writes reach the engine that holds the
+// configuration and the key directory; the reads are here for the same reason
+// from the other side. Nothing returned here carries key material except
+// ExportRecoveryBundle, which is the one explicit carrier.
+
+// GetEncryptionPolicy is GET /encryption/policy.
+func (c *Client) GetEncryptionPolicy(ctx context.Context) (apicontract.EncryptionPolicy, error) {
+	var out apicontract.EncryptionPolicy
+	err := c.call(ctx, "getEncryptionPolicy", nil, nil, &out)
+	return out, err
+}
+
+// PatchEncryptionPolicy is PATCH /encryption/policy.
+func (c *Client) PatchEncryptionPolicy(ctx context.Context, req apicontract.EncryptionPolicyPatch) (apicontract.EncryptionPolicy, error) {
+	var out apicontract.EncryptionPolicy
+	err := c.call(ctx, "patchEncryptionPolicy", nil, req, &out)
+	return out, err
+}
+
+// ResetEncryptionPolicy is POST /encryption/policy/reset.
+func (c *Client) ResetEncryptionPolicy(ctx context.Context) (apicontract.EncryptionPolicy, error) {
+	var out apicontract.EncryptionPolicy
+	err := c.call(ctx, "resetEncryptionPolicy", nil, nil, &out)
+	return out, err
+}
+
+// SetBackupSetEncryption is PUT /backup-sets/{source}/{set}/encryption.
+func (c *Client) SetBackupSetEncryption(ctx context.Context, source, set string, req apicontract.EncryptionOverride) (apicontract.EncryptionSetPolicy, error) {
+	var out apicontract.EncryptionSetPolicy
+	err := c.call(ctx, "setBackupSetEncryption", []string{source, set}, req, &out)
+	return out, err
+}
+
+// ClearBackupSetEncryption is DELETE /backup-sets/{source}/{set}/encryption.
+func (c *Client) ClearBackupSetEncryption(ctx context.Context, source, set string) (apicontract.EncryptionSetPolicy, error) {
+	var out apicontract.EncryptionSetPolicy
+	err := c.call(ctx, "clearBackupSetEncryption", []string{source, set}, nil, &out)
+	return out, err
+}
+
+// MintAgentToken is POST /agent/tokens. The answer carries the token itself,
+// once; nothing afterwards returns it.
+func (c *Client) MintAgentToken(ctx context.Context, req apicontract.MintAgentTokenRequest) (apicontract.MintedAgentToken, error) {
+	var out apicontract.MintedAgentToken
+	err := c.call(ctx, "mintAgentToken", nil, req, &out)
+	return out, err
+}
+
+// ListAgentTokens is GET /agent/tokens.
+func (c *Client) ListAgentTokens(ctx context.Context) (apicontract.ListAgentTokensResponse, error) {
+	var out apicontract.ListAgentTokensResponse
+	err := c.call(ctx, "listAgentTokens", nil, nil, &out)
+	return out, err
+}
+
+// RevokeAgentToken is POST /agent/tokens/{id}/revoke.
+func (c *Client) RevokeAgentToken(ctx context.Context, id string) (apicontract.AgentToken, error) {
+	var out apicontract.AgentToken
+	err := c.call(ctx, "revokeAgentToken", []string{id}, nil, &out)
+	return out, err
+}
+
+// ListAgentAudit is GET /agent/audit: a page of the agent audit trail, newest
+// first. before is a next_cursor an earlier answer named; empty arguments send
+// nothing, so a filter that was not asked for is not sent as an empty one.
+func (c *Client) ListAgentAudit(ctx context.Context, tokenID, since, before string, limit int) (apicontract.ListAgentAuditResponse, error) {
+	query := url.Values{}
+	for k, v := range map[string]string{"token": tokenID, "since": since, "before": before} {
+		if v != "" {
+			query.Set(k, v)
+		}
+	}
+	if limit > 0 {
+		query.Set("limit", strconv.Itoa(limit))
+	}
+	if len(query) == 0 {
+		query = nil
+	}
+	var out apicontract.ListAgentAuditResponse
+	err := c.callQuery(ctx, "listAgentAudit", nil, query, nil, &out)
+	return out, err
+}
+
+// ListAgentConfirmations is GET /agent/confirmations.
+func (c *Client) ListAgentConfirmations(ctx context.Context) (apicontract.ListAgentConfirmationsResponse, error) {
+	var out apicontract.ListAgentConfirmationsResponse
+	err := c.call(ctx, "listAgentConfirmations", nil, nil, &out)
+	return out, err
+}
+
+// GetAgentConfirmation is GET /agent/confirmations/{id}.
+func (c *Client) GetAgentConfirmation(ctx context.Context, id string) (apicontract.AgentConfirmation, error) {
+	var out apicontract.AgentConfirmation
+	err := c.call(ctx, "getAgentConfirmation", []string{id}, nil, &out)
+	return out, err
+}
+
+// ApproveAgentConfirmation is POST /agent/confirmations/{id}/approve. It sends
+// no body, because the request that runs is the one that was recorded, and the
+// password step-up goes in its header (stepUpOperations).
+func (c *Client) ApproveAgentConfirmation(ctx context.Context, id string) (apicontract.AgentConfirmation, error) {
+	var out apicontract.AgentConfirmation
+	err := c.call(ctx, "approveAgentConfirmation", []string{id}, nil, &out)
+	return out, err
+}
+
+// DenyAgentConfirmation is POST /agent/confirmations/{id}/deny.
+func (c *Client) DenyAgentConfirmation(ctx context.Context, id string) (apicontract.AgentConfirmation, error) {
+	var out apicontract.AgentConfirmation
+	err := c.call(ctx, "denyAgentConfirmation", []string{id}, nil, &out)
+	return out, err
+}
+
+// ListEncryptionKeys is GET /encryption/keys.
+func (c *Client) ListEncryptionKeys(ctx context.Context) (apicontract.ListEncryptionKeysResponse, error) {
+	var out apicontract.ListEncryptionKeysResponse
+	err := c.call(ctx, "listEncryptionKeys", nil, nil, &out)
+	return out, err
+}
+
+// suiteQuery is the ?suite= a key create or rotate carries, or nil when no
+// suite is named, so the request is the one it was before EPIC T.
+func suiteQuery(suite string) url.Values {
+	if suite == "" {
+		return nil
+	}
+	return url.Values{"suite": {suite}}
+}
+
+// CreateEncryptionKey is POST /encryption/keys[?suite=].
+func (c *Client) CreateEncryptionKey(ctx context.Context, suite string) (apicontract.EncryptionKeyStatus, error) {
+	var out apicontract.EncryptionKeyStatus
+	err := c.callQuery(ctx, "createEncryptionKey", nil, suiteQuery(suite), nil, &out)
+	return out, err
+}
+
+// RotateEncryptionKey is POST /encryption/keys/rotate[?suite=].
+func (c *Client) RotateEncryptionKey(ctx context.Context, suite string) (apicontract.EncryptionKeyStatus, error) {
+	var out apicontract.EncryptionKeyStatus
+	err := c.callQuery(ctx, "rotateEncryptionKey", nil, suiteQuery(suite), nil, &out)
+	return out, err
+}
+
+// ListEncryptionSuites is GET /encryption/suites.
+func (c *Client) ListEncryptionSuites(ctx context.Context) (apicontract.ListEncryptionSuitesResponse, error) {
+	var out apicontract.ListEncryptionSuitesResponse
+	err := c.call(ctx, "listEncryptionSuites", nil, nil, &out)
+	return out, err
+}
+
+// RetireEncryptionKey is POST /encryption/keys/{id}/retire.
+func (c *Client) RetireEncryptionKey(ctx context.Context, id string) (apicontract.EncryptionKeyStatus, error) {
+	var out apicontract.EncryptionKeyStatus
+	err := c.call(ctx, "retireEncryptionKey", []string{id}, nil, &out)
+	return out, err
+}
+
+// ExportRecoveryBundle is POST /encryption/keys/{id}/export. The answer is
+// the one object in the contract that carries key material; the caller writes
+// it to a file and nowhere else. It answers the password step-up with this
+// client's own password (stepUpOperations).
+func (c *Client) ExportRecoveryBundle(ctx context.Context, id string) (apicontract.RecoveryBundle, error) {
+	var out apicontract.RecoveryBundle
+	err := c.call(ctx, "exportRecoveryBundle", []string{id}, nil, &out)
+	return out, err
+}
+
+// ConfirmRecoveryBundle is POST /encryption/keys/{id}/confirm.
+func (c *Client) ConfirmRecoveryBundle(ctx context.Context, id string, req apicontract.ConfirmRecoveryBundleRequest) (apicontract.EncryptionKeyStatus, error) {
+	var out apicontract.EncryptionKeyStatus
+	err := c.call(ctx, "confirmRecoveryBundle", []string{id}, req, &out)
+	return out, err
+}
+
+// TestEncryptionProvider is POST /encryption/providers/test.
+func (c *Client) TestEncryptionProvider(ctx context.Context, req apicontract.EncryptionProviderTestRequest) (apicontract.EncryptionProviderProbe, error) {
+	var out apicontract.EncryptionProviderProbe
+	err := c.call(ctx, "testEncryptionProvider", nil, req, &out)
+	return out, err
+}
+
+// ListEncryptionCopies is GET /encryption/copies?artifact=.
+func (c *Client) ListEncryptionCopies(ctx context.Context, artifact string) (apicontract.ListEncryptionCopiesResponse, error) {
+	var out apicontract.ListEncryptionCopiesResponse
+	err := c.callQuery(ctx, "listEncryptionCopies", nil, url.Values{"artifact": {artifact}}, nil, &out)
+	return out, err
+}
+
+// StartDecryptVerify is POST /encryption/verify.
+func (c *Client) StartDecryptVerify(ctx context.Context, req apicontract.StartDecryptVerifyRequest) (apicontract.ScrubStarted, error) {
+	var out apicontract.ScrubStarted
+	err := c.call(ctx, "startDecryptVerify", nil, req, &out)
+	return out, err
+}
+
+// PlanEncryptExisting is GET /encryption/encrypt-existing, the dry run of
+// encrypting a set's existing plaintext copies. artifact may be empty.
+func (c *Client) PlanEncryptExisting(ctx context.Context, set, artifact, destination string) (apicontract.EncryptExistingPlan, error) {
+	q := url.Values{"set": {set}, "destination": {destination}}
+	if artifact != "" {
+		q.Set("artifact", artifact)
+	}
+	var out apicontract.EncryptExistingPlan
+	err := c.callQuery(ctx, "planEncryptExisting", nil, q, nil, &out)
+	return out, err
+}
+
+// StartEncryptExisting is POST /encryption/encrypt-existing.
+func (c *Client) StartEncryptExisting(ctx context.Context, req apicontract.StartEncryptExistingRequest) (apicontract.ScrubStarted, error) {
+	var out apicontract.ScrubStarted
+	err := c.call(ctx, "startEncryptExisting", nil, req, &out)
+	return out, err
+}
+
+// PlanReencrypt is GET /encryption/reencrypt, the dry run of re-encrypting
+// the selected copies under the active suite and key. Exactly one of the
+// request's selectors is set; the destination may be empty.
+func (c *Client) PlanReencrypt(ctx context.Context, req apicontract.StartReencryptRequest) (apicontract.ReencryptPlan, error) {
+	q := url.Values{}
+	if req.SuiteID != "" {
+		q.Set("suite", req.SuiteID)
+	}
+	if req.KeyID != "" {
+		q.Set("key", req.KeyID)
+	}
+	if req.Deprecated {
+		q.Set("deprecated", "true")
+	}
+	if req.DestinationMedium != "" {
+		q.Set("destination", req.DestinationMedium)
+	}
+	var out apicontract.ReencryptPlan
+	err := c.callQuery(ctx, "planReencrypt", nil, q, nil, &out)
+	return out, err
+}
+
+// StartReencrypt is POST /encryption/reencrypt.
+func (c *Client) StartReencrypt(ctx context.Context, req apicontract.StartReencryptRequest) (apicontract.ScrubStarted, error) {
+	var out apicontract.ScrubStarted
+	err := c.call(ctx, "startReencrypt", nil, req, &out)
+	return out, err
+}

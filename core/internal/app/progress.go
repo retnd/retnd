@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/retnd/retnd/core/internal/placement"
 	"github.com/retnd/retnd/core/internal/transport"
 )
 
@@ -48,15 +49,26 @@ const (
 	StageVerifying      = "verifying"
 	StageCommitting     = "committing"
 	StageCleaningRemote = "cleaning-remote"
+
+	// The two stages of an encrypted copy (#1290). They are reported by the
+	// move engine after the sets' own passes, so they are appended after
+	// the five above and an existing client's idea of the order does not
+	// move. placement owns the spelling; these are the same strings.
+	StageEncrypting       = placement.StageEncrypting
+	StageDecryptVerifying = placement.StageDecryptVerifying
 )
 
 // Stages lists every stage a run cycle reports, in the order they happen.
+// The last two belong to the encrypted copies the move engine makes after
+// the sets' passes, and a cycle with no encrypted copy never reports them.
 var Stages = []string{
 	StageDiscovering,
 	StageTransferring,
 	StageVerifying,
 	StageCommitting,
 	StageCleaningRemote,
+	StageEncrypting,
+	StageDecryptVerifying,
 }
 
 // Progress is one live reading of the run cycle in flight.
@@ -190,6 +202,13 @@ type cycleProgress struct {
 
 	mu  sync.Mutex
 	cur Progress
+
+	// copying and saved are the encrypted-copy stage's restore point: what
+	// the reading said before the move engine's first reading of a stage, so
+	// that ending the stage, however it ended, puts it back instead of
+	// leaving "encrypting" on a screen after the copy is over.
+	copying bool
+	saved   Progress
 }
 
 // beginCycle attaches a tracker to ctx when, and only when, ctx carries an
@@ -391,4 +410,67 @@ func (c *cycleProgress) reportingCtx(ctx context.Context) context.Context {
 		return ctx
 	}
 	return transport.WithProgressReporter(ctx, transport.ProgressReporterFunc(c.observeBytes))
+}
+
+// observeCopy folds one reading of an encrypted copy's running stage into the
+// current reading (#1290).
+//
+// The byte counters stay pointers for the reason Progress gives: the first
+// reading of a stage is a non-nil zero, a total the engine does not know is
+// nil. They are bounded and monotonic here as well as in the engine, because
+// this is the last place before the wire: a reading below the previous one of
+// the same stage and artifact is dropped, and one past a known total is held
+// at it. There is no rate, since the engine measures none, and a nil rate is
+// "not measured".
+//
+// The set's own counters describe the set named by BackupSetID, so a copy
+// from another set drops them for its duration and gets them back when the
+// stage ends.
+func (c *cycleProgress) observeCopy(p placement.CopyProgress) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if p.Ended {
+		if c.copying {
+			c.cur.Stage = c.saved.Stage
+			c.cur.Artifact = c.saved.Artifact
+			c.cur.BackupSetID = c.saved.BackupSetID
+			c.cur.SetArtifactsPlanned = c.saved.SetArtifactsPlanned
+			c.cur.SetArtifactsCompleted = c.saved.SetArtifactsCompleted
+			c.copying = false
+		}
+		c.cur.BytesTransferred, c.cur.BytesTotal, c.cur.BytesPerSecond = nil, nil, nil
+		c.publishLocked()
+		return
+	}
+	if !c.copying {
+		c.saved = c.cur
+		c.copying = true
+	}
+	set := p.Artifact.Set.String()
+	same := c.cur.Stage == p.Stage && c.cur.Artifact == p.Artifact.Name && c.cur.BackupSetID == set && c.cur.BytesTransferred != nil
+	done := p.Done
+	if p.Total > 0 && done > p.Total {
+		done = p.Total
+	}
+	if same && done < *c.cur.BytesTransferred {
+		done = *c.cur.BytesTransferred
+	}
+	if c.cur.BackupSetID != set {
+		c.cur.SetArtifactsPlanned = nil
+		c.cur.SetArtifactsCompleted = 0
+	}
+	c.cur.Stage = p.Stage
+	c.cur.Artifact = p.Artifact.Name
+	c.cur.BackupSetID = set
+	c.cur.BytesTransferred = &done
+	c.cur.BytesTotal = nil
+	if p.Total > 0 {
+		total := p.Total
+		c.cur.BytesTotal = &total
+	}
+	c.cur.BytesPerSecond = nil
+	c.publishLocked()
 }

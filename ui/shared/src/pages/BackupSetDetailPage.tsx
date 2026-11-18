@@ -89,6 +89,7 @@ import { ValidationBlock } from "@shared/assurance/ValidationBlock";
 import { useSetFacts } from "@shared/assurance/verificationModel";
 import { expectedEveryText, lastRunText, retainedText } from "@shared/assurance/setCardText";
 import { BackupSetRetentionCard } from "./BackupSetRetentionCard";
+import { SetEncryptionCard } from "@shared/encryption/SetEncryptionCard";
 import { EDIT_FIELDS, readEditFields, visibleEditFields, withCompanions } from "./backupSetEditFields";
 import type { EditField, EditFieldKey } from "./backupSetEditFields";
 import type { BackupSetPatch, RunningWork } from "@shared/api/contracts";
@@ -1411,6 +1412,9 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
               onPreview={() => setPreviewOpen(true)}
             />
           </Section>
+
+          {/* EPIC N (issue #995): directly under Retention, in the same shape. */}
+          <SetEncryptionCard source={s.source} set={s.set} engine={s.engine} readOnly={readOnly} />
 
           <AssuranceSection setId={s.id} readOnly={readOnly} />
 

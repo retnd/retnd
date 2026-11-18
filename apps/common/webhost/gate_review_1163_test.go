@@ -231,3 +231,26 @@ func messageOf(w *httptest.ResponseRecorder) string {
 	_ = json.Unmarshal(w.Body.Bytes(), &env)
 	return env.Error.Message
 }
+
+// Q17 (EPIC U): the mint of an agent token asks the insecure-transport consent
+// whether or not the destructive gate is open, so the capability the dialog
+// reads reports the connection alone. Falsify: read insecureTransportAckNeeded
+// (which needs the gate's own condition) in systemCapabilities again.
+func TestCapabilities1351_TheConnectionIsReportedWithTheGateShut(t *testing.T) {
+	r := newRig(t, NewProfileGate(profile.UGOS))
+	for _, tc := range []struct {
+		verdict string
+		want    bool
+	}{{"http", true}, {"https", false}, {"loopback", false}} {
+		caps := capabilitiesFrom(t, r.router, func(req *http.Request) {
+			req.Header.Set(browserTransportHeader, tc.verdict)
+		})
+		d := caps["destructive_operations"].(map[string]any)
+		if d["state"] != "shut" {
+			t.Fatalf("state = %v, want a shut gate for this test", d["state"])
+		}
+		if d["insecure_transport_ack_required"] != tc.want {
+			t.Errorf("verdict %s, gate shut: capabilities say %v, want %v", tc.verdict, d["insecure_transport_ack_required"], tc.want)
+		}
+	}
+}

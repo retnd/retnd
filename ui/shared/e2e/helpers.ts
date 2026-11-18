@@ -242,6 +242,8 @@ export async function measureEdges(page: Page, label: string, selector: string, 
       const cs = getComputedStyle(e);
       if (cs.display === "none" || parseFloat(cs.borderTopWidth) === 0 || cs.borderTopStyle === "none") return;
       const edge = rgb(cs.borderTopColor);
+      // A transparent border draws nothing; the canvas would read it as black.
+      if (edge[3] === 0) return;
       const fillRaw = rgb(cs.backgroundColor);
       const card = page_(e);
       const body = rgb(getComputedStyle(document.body).backgroundColor);

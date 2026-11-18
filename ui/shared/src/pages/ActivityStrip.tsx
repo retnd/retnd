@@ -48,6 +48,8 @@ import { StatusBadge } from "@shared/components/StatusBadge";
 import type { StatusTone } from "@shared/components/StatusBadge";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { copyText } from "@shared/utilities/copyText";
+import { encryptionEventText } from "@shared/encryption/feedText";
+import { stageWords as stageWordsOf } from "@shared/types/operation";
 import {
   recoveryEndText, recoveryStageText, recoveryStartText, recoveryTestEndText, recoveryTestStartText,
   scrubFailureText, scrubPassText, scrubStartText
@@ -382,6 +384,20 @@ export function activityLine(e: SetActivityEvent): ActivityLine {
       text = parts.join("\n");
       break;
     }
+    case "agent_action": {
+      // Something an agent did or was refused, or a change of its that is
+      // waiting on a person (EPIC U, #1348). The engine composes the
+      // sentence, which already names the agent and the tool; this adds what
+      // an operator needs to find the row behind it in `retnd agent audit`:
+      // the correlation id, and the confirmation when there is one. Reads
+      // never reach this feed (the trail has its own table), so a line here
+      // is always something that changed, was refused or needs deciding.
+      const parts = [e.message || e.event];
+      if (f.confirmation_id) parts.push("  confirmation " + f.confirmation_id + (f.state ? " (" + f.state + ")" : ""));
+      if (f.correlation_id) parts.push("  correlation id " + f.correlation_id);
+      text = parts.join("\n");
+      break;
+    }
     // EPIC Q (issue #985): the events a scrub, a recovery and a recovery test
     // produce. Each has its own sentence (assurance/feedText.ts, shared with
     // the operation panel) rather than the fallback below, because the
@@ -414,6 +430,15 @@ export function activityLine(e: SetActivityEvent): ActivityLine {
       text = recoveryTestEndText(e);
       break;
     default: {
+      // EPIC N (issue #995): the key's life and the stages of an encrypted
+      // copy have their own sentences (encryption/feedText.ts). They fall to
+      // the generic line below only when the engine names an event this build
+      // does not.
+      const encrypted = encryptionEventText(e);
+      if (encrypted !== null) {
+        text = encrypted;
+        break;
+      }
       // An event name this build has no rendering for. Its own message
       // plus its own fields is a worse line, not a broken one, and it is
       // what keeps a new event in the engine visible without a UI release.
@@ -554,7 +579,7 @@ function barFill(activity: SetActivity, live: boolean, stale: boolean): { classN
 function stepSentence(activity: SetActivity, stale: boolean): { lead: string; subject: string | null; trail: string } {
   const fraction = fractionWords(activity);
   const stage = activity.stage ?? "working";
-  const stageWords = stage.replace(/-/g, " ");
+  const stageWords = stageWordsOf(stage);
   if (activity.active) {
     // A reading nobody can refresh keeps its fraction and loses every
     // number that is a claim about now. A rate is measured over the last
@@ -571,12 +596,18 @@ function stepSentence(activity: SetActivity, stale: boolean): { lead: string; su
     }
     const parts: string[] = [];
     if (fraction) parts.push(fraction);
+    // The two stages of an encrypted copy (#1290) have no rate, so the
+    // bytes are what shows that one is moving: the artifact's read for
+    // encrypting, the stored object's for decrypt-verifying.
+    if ((stage === "encrypting" || stage === "decrypt-verifying") && activity.bytesTransferred !== null) {
+      parts.push(bytes(activity.bytesTransferred) + (activity.bytesTotal !== null ? " of " + bytes(activity.bytesTotal) : ""));
+    }
     if (activity.bytesPerSecond !== null) parts.push(rate(activity.bytesPerSecond));
     const left = remaining(activity);
     if (left) parts.push(left);
     if (activity.failures > 0) parts.push(failureWords(activity.failures) + " so far");
     parts.push("in progress");
-    const lead = stage.charAt(0).toUpperCase() + stage.slice(1).replace(/-/g, " ");
+    const lead = stageWordsOf(stage).charAt(0).toUpperCase() + stageWordsOf(stage).slice(1);
     return { lead: activity.artifact ? lead : lead + "…", subject: activity.artifact, trail: parts.join(" · ") };
   }
   if (activity.failures > 0) {

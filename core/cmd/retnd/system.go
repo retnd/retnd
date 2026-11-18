@@ -87,6 +87,7 @@ func cmdSystemCapabilities(args []string) int {
 	fmt.Printf("storage_picker: %v\n", got.StoragePicker)
 	fmt.Printf("embedded_window: %v\n", got.EmbeddedWindow)
 	fmt.Printf("app_store_packaging: %v\n", got.AppStorePackaging)
+	fmt.Printf("agents_http_transport: %s\n", got.AgentsHttpTransport)
 	// Whether the engine's destructive gate is open (#1165): the terminal
 	// has no gate of its own, so this is the way to read the engine's.
 	gate := "destructive operations: " + got.DestructiveOperations.State

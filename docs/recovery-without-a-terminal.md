@@ -410,6 +410,78 @@ older, better result as if it were current.
 
 ---
 
+## 6. An encrypted copy has to be opened on a machine with no state
+
+### What you see
+
+The deployment is gone (state, configuration, the application), the backup bucket is
+intact, and the objects in it are encrypted copies.
+
+### What it means
+
+An encrypted copy is an `age` v1 file and nothing else. It does not need this product, its
+catalog or its state to be opened. It needs the key it was written under, and that key
+exists in exactly one place off the host: the recovery bundle that was exported when the
+key was created. Which key a copy needs is written in the copy's sidecar (`key_id`) and in
+the bundle's own metadata. Losing the bundle and the host together loses the copies, and
+nothing can recreate the key.
+
+Each copy was also written under a **suite**, and the procedure is the same for both suites
+this build ships. The only difference is the oldest `age` that can open it:
+
+| Suite (the bundle's `format`, the sidecar's `format_id`) | Key line in the bundle's `material` | Oldest `age` that opens it |
+|---|---|---|
+| `age-pq/v1` (the default for a first key) | starts `AGE-SECRET-KEY-PQ-1` | 1.3 |
+| `age/v1` | starts `AGE-SECRET-KEY-1` | any release |
+
+### What to do
+
+This is the one procedure here that needs a terminal, on the machine you recover on, because
+the deployment that would have offered a button is the thing that is gone. You need the
+`retnd` binary, the encrypted object, its sidecar and the bundle. You do not need the
+deployment, its configuration or its state database.
+
+1. Find the bundle for the key id the sidecar names, and check its `format` field first: it
+   has to be the suite the sidecar's `format_id` names (`age/v1` or `age-pq/v1`). A bundle of
+   another suite is another key, and no tool will open the copy with it. Its `digest` field
+   should be the digest you were shown when you exported it (the export receipt prints the
+   same value). That compares the file with what you saved; `retnd` also refuses a bundle whose
+   digest does not cover its contents, so an edited file stops here.
+2. Open the copy:
+   `retnd encryption decrypt <object> --bundle <bundle.json> --sidecar <sidecar.json> --out <artifact-name>`
+   It takes the suite from the sidecar and refuses to guess when there is none. It hashes
+   the object first and compares that with the stored-bytes digest the sidecar
+   records, so a cut-short or altered copy is refused before the key is touched. It then
+   decrypts, and it creates `<artifact-name>` only after every chunk authenticated and the
+   plaintext digest equals the sidecar's `plaintext_digest`. A failure leaves no file at all,
+   not even a short one. It will not overwrite a file that is already there and it has no
+   way to write the artifact to the screen. It never prints the key.
+3. Read the refusal if there is one. "does not open this object" is the wrong key (check the
+   `key_id` the sidecar names against the bundle), "failed authentication" is a copy that was
+   cut short or altered, and a digest message names which digest, plaintext or stored, did
+   not match.
+4. Optionally, to make a deployment know the key so that its copies resolve there, run
+   `retnd encryption key import --bundle <bundle.json>` against it. The key is registered as
+   superseded (it opens old copies; new copies keep using the active key), the bundle counts
+   as confirmed, and running it twice changes nothing. It needs the deployment's own journal,
+   so it is refused while an engine is serving it.
+
+**The independent route.** If you would rather not trust this binary with the key, or you do
+not have it, the copy is an `age` v1 file and the `age` command line tool reads it: any
+release for an `age/v1` copy, **1.3 or newer** for an `age-pq/v1` copy (check `age --version`;
+an older one says no identity matched, which is not a wrong key). Copy the bundle's `material`
+field (one line that starts `AGE-SECRET-KEY-1` or `AGE-SECRET-KEY-PQ-1`) into `key.txt`,
+readable only by you, then, for either suite:
+`age -d -i key.txt <object> > <artifact-name>.tmp`
+This checks neither digest for you, so compare the result with the sidecar's
+`plaintext_digest` and rename it only when they match. `age` releases each authenticated chunk
+as it goes, so an interrupted run leaves a short file that looks like an artifact and is not,
+which is the reason for the temporary name.
+
+There is no way back if the bundle and the host are both gone. How to keep the bundle, what
+rotation does to it, and what the copies cost are in
+[encrypted copies](encrypted-copies.md).
+
 ## When none of these is it
 
 - **The interface loads but every page is empty or errors.** The web interface and the

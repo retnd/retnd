@@ -269,6 +269,12 @@ func TestLicensePolicyComplaints(t *testing.T) {
 		// npm registry metadata is actually full of.
 		{"npm's deprecated bare GPL id", base(Component{Name: "leftpad", Version: "1.0.0", Ecosystem: EcosystemNPM, LicenseID: "GPL-3.0"}), "not on the permissive allowlist"},
 		{"npm's deprecated bare LGPL id", base(Component{Name: "rightpad", Version: "1.0.0", Ecosystem: EcosystemNPM, LicenseID: "LGPL-2.1"}), "not on the permissive allowlist"},
+		// A conjunction is not a choice: every part applies, so it is decided,
+		// and permissive only when every part is. (The Go MCP SDK's LICENSE
+		// carries an Apache-2.0 text and the MIT text that still covers
+		// contributions nobody relicensed.)
+		{"a conjunction of permissive licences", base(Component{Name: "example.com/both", Version: "v1", Ecosystem: EcosystemGo, LicenseID: "Apache-2.0 AND MIT"}), ""},
+		{"a conjunction with a copyleft licence", base(Component{Name: "example.com/mixed", Version: "v1", Ecosystem: EcosystemGo, LicenseID: "Apache-2.0 AND GPL-3.0-only"}), "which is copyleft"},
 		{"a dual-licence choice", base(Component{Name: "eitheror", Version: "1.0.0", Ecosystem: EcosystemNPM, LicenseID: "(MIT OR GPL-3.0)"}), "an expression rather than a decided licence"},
 		{"a licence with an exception", base(Component{Name: "example.com/x", Version: "v1", Ecosystem: EcosystemGo, LicenseID: "GPL-2.0-or-later WITH Classpath-exception-2.0"}), "an expression rather than a decided licence"},
 		{"npm's read-the-file placeholder", base(Component{Name: "opaque", Version: "1.0.0", Ecosystem: EcosystemNPM, LicenseID: "SEE LICENSE IN LICENSE"}), "an expression rather than a decided licence"},

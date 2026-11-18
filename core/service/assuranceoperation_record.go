@@ -77,7 +77,11 @@ type AssuranceOperationRecord struct {
 	// names none.
 	Stage string
 	// Reason is the end line's own words for a run that did not pass.
-	Reason    string
+	Reason string
+	// BytesRead is the plaintext a decrypt-verify scrub has read: the live
+	// count while it runs, the pass line's total once it has ended. Zero for
+	// anything else, and never more than the objects' plaintext size (#1303).
+	BytesRead int64
 	StartedAt time.Time
 	EndedAt   time.Time
 	// Events are the run's lines, oldest first, as the feed carries them.
@@ -115,9 +119,15 @@ func (b *BackupService) AssuranceOperation(ctx context.Context, id string) (Assu
 		// selects nothing writes only at the end. The registry knows it.
 		return AssuranceOperationRecord{
 			OperationID: id, Kind: op.kind, BackupSetID: op.set, State: AssuranceOpRunning, StartedAt: op.startedAt,
+			BytesRead: op.bytesRead.Load(),
 		}, nil
 	}
 	rec := summariseAssuranceOperation(id, events, op != nil)
+	if op != nil && rec.State == AssuranceOpRunning {
+		// The pass line has not been written, the work's own count is the
+		// only reading there is.
+		rec.BytesRead = op.bytesRead.Load()
+	}
 	if rec.BackupSetID == "" {
 		rec.BackupSetID = setID
 	}
@@ -228,6 +238,9 @@ func summariseAssuranceOperation(id string, events []LiveActivityEvent, running 
 		}
 	case pass != nil:
 		rec.EndedAt = pass.At
+		if n, err := strconv.ParseInt(fieldValue(pass.Fields, "bytes_read"), 10, 64); err == nil && n > 0 {
+			rec.BytesRead = n
+		}
 		failed, _ := strconv.Atoi(fieldValue(pass.Fields, "failed"))
 		incomplete, _ := strconv.Atoi(fieldValue(pass.Fields, "could_not_complete"))
 		switch {

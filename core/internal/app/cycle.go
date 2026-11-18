@@ -280,6 +280,7 @@ func (s *Service) RunCycle(ctx context.Context) CycleReport {
 	start := s.now()
 	cycleID := start.Format(time.RFC3339Nano)
 	s.logger().CycleStart(ctx, cycleID)
+	s.noteDefaultSuite(ctx, start)
 
 	// Live progress, for a caller that installed an observer (progress.go).
 	// It has to be attached before the loop starts, so the first thing an

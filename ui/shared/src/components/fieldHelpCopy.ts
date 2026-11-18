@@ -587,5 +587,60 @@ export const FIELD_HELP = {
     example: "10 GB",
     effect:
       "A transfer that would itself drop the remaining headroom to or below this number never begins. Nothing is deleted to make room for it: the transfer is simply skipped and retried on a later cycle, once space has been freed some other way."
+  },
+
+  // ------------------------------------------- retained-copy encryption
+
+  // Issue #995 (EPIC N). Read out of core/internal/config/retainedcopyencryption.go
+  // (RetainedCopyKeyProvider, the validate rules) and core/internal/secretref.
+  // The box takes a REFERENCE for exactly one of three sources; a key can never
+  // be typed into it. The format, cipher and chunk size have no field anywhere,
+  // by design (docs/design/994-retained-copy-encryption.html, section 11).
+  encryptionExternalReference: {
+    what: "Where the key that encrypts retained copies comes from: a path to a file, the name of an environment variable, or a command, depending on the choice above. It names the key and is never the key.",
+    example: "/etc/retnd/keys/offsite.key",
+    effect:
+      "The reference is saved as its description and read again each time a copy is written or verified, so the key itself is never stored in the configuration or the catalog. With Required on, a copy is refused rather than written in plaintext whenever the reference does not resolve. A command is split on spaces and run without a shell, and only its name is ever echoed or shown back. If what you type is key material rather than a reference, the server refuses it when the configuration loads and nothing is saved."
+  },
+
+  // Issue #1318 (EPIC T). Read out of the suite policy as T1.4 and T1.5 fix
+  // it (the global `suite:` field, `default | <id>`, Validate refusing an
+  // unknown or retired id, the active-key mismatch refusal before any
+  // destructive step) and ADR 0033 D6. What a suite IS is not written here:
+  // the option shows the registry's own Describe() sentence, from the route.
+  encryptionSuite: {
+    what: "Which suite new retained copies are encrypted with, chosen from the suites this build carries. Each one is a single library construction, described in its own words under its name.",
+    example: "age-pq/v1",
+    effect:
+      "The policy's suite field is set to that id, through the same validation a hand-edited configuration gets. A new copy is then written only under the active key of that suite. If it has none, copies under the policy are refused before anything is deleted until you rotate a key under it, export its bundle and confirm it; nothing is ever written under another suite instead. Existing copies keep the suite and key recorded against them and stay readable, and nothing is re-encrypted. A retired suite cannot be chosen."
+  },
+  // Issue #1351 (EPIC U). Read out of the agent routes (#1345, #1348, #1349):
+  // the token's name becomes the agent:<name> principal, the expiry is judged
+  // by the engine (90d default, one year ceiling), the approval's password is
+  // the step-up header of one request, and the audit route takes a token and
+  // a duration. docs/design/1350-agents.html section 10.
+  agentsMintName: {
+    what: "The name this agent goes by wherever the product names who did something.",
+    example: "nightly-triage",
+    effect:
+      "The token is minted as agent:nightly-triage, and that is the name on its rows here, in the audit, in the activity feed and in retnd agent audit."
+  },
+  agentsMintExpiry: {
+    what: "How long the token works before it is refused.",
+    example: "90d",
+    effect:
+      "From the moment you create it, requests with this token are accepted for 90 days and refused after that. The longest the engine allows is one year, and it says so if you ask for more."
+  },
+  agentsAuditToken: {
+    what: "Show the calls of one token, or of all of them.",
+    example: "agent:nightly-triage",
+    effect:
+      "The table asks the engine for that token's calls only, newest first. It hides nothing from the trail; All tokens shows it all again."
+  },
+  agentsAuditSince: {
+    what: "Show only calls from the last stretch of time.",
+    example: "24h",
+    effect:
+      "The table asks the engine for calls from the last 24 hours. Calls older than the trail's retention are no longer there to show."
   }
 } as const satisfies Record<string, FieldHelpCopy>;

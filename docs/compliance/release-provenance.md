@@ -317,7 +317,7 @@ ordered procedure is in
 binaries were stamped with, which is what `/retnd version` answers.
 `canonical.json`'s `image.tag` is the semantic version every provider package
 advertises. Those have to be the same string in a real release, and now they are:
-both record `0.7.2`, the tag cut for this release rather than the generator's
+both record `0.8.0`, the tag cut for this release rather than the generator's
 `git describe --tags --always` fallback that produced an abbreviated commit before
 this repository had any tags.
 
@@ -348,8 +348,8 @@ received a package, not to whoever visits the repository.
 
 ## The CLI tarballs
 
-Each GitHub Release carries four `retnd` tarballs (linux and darwin, amd64 and
-arm64) and a `SHA256SUMS` file covering them. They are **not signed**. The cosign
+Each GitHub Release carries two `retnd` tarballs (linux/amd64 and
+darwin/arm64) and a `SHA256SUMS` file covering them. They are **not signed**. The cosign
 signature and SBOM attestation above belong to the container image only, and the
 workflow jobs that build the tarballs hold no `id-token`, so they cannot mint a
 signing identity. `SHA256SUMS` lets you check that a download is intact and matches

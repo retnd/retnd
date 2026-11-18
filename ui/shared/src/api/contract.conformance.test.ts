@@ -549,7 +549,38 @@ describe("every request the shared client makes is a declared operation", () => 
       ["unsetBackupSetWorkflowEnvironment", () =>
         httpApi.unsetBackupSetWorkflowEnvironment("src", "set-1", "PGHOST")],
       ["getBackupSetWorkflowValidation", () =>
-        httpApi.getBackupSetWorkflowValidation("src", "set-1")]
+        httpApi.getBackupSetWorkflowValidation("src", "set-1")],
+      // EPIC N's retained-copy encryption (#993, wired by #995). References go in
+      // as a source and never as material; the bundle export is driven with a
+      // response that carries none, and only its receipt comes back.
+      ["getEncryptionPolicy", () => httpApi.getEncryptionPolicy()],
+      ["patchEncryptionPolicy", () => httpApi.patchEncryptionPolicy({ mode: "required", keyProvider: { managed: true } })],
+      ["resetEncryptionPolicy", () => httpApi.resetEncryptionPolicy()],
+      ["setBackupSetEncryption", () => httpApi.setBackupSetEncryption("src", "set-1", { mode: "required", keyProvider: { external: { env: "KEY_VAR" } } })],
+      ["clearBackupSetEncryption", () => httpApi.clearBackupSetEncryption("src", "set-1")],
+      // EPIC U (#1351).
+      ["listAgentTokens", () => httpApi.listAgentTokens()],
+      ["mintAgentToken", () => httpApi.mintAgentToken({ name: "nightly-triage", scope: "read", expiresIn: "90d" })],
+      ["revokeAgentToken", () => httpApi.revokeAgentToken("tok_01")],
+      ["listAgentCatalogue", () => httpApi.listAgentCatalogue()],
+      ["listAgentConfirmations", () => httpApi.listAgentConfirmations()],
+      ["approveAgentConfirmation", () => httpApi.approveAgentConfirmation("cf_01", { stepUpPassword: "pw" })],
+      ["denyAgentConfirmation", () => httpApi.denyAgentConfirmation("cf_01")],
+      ["listAgentAudit", () => httpApi.listAgentAudit({ tokenId: "tok_01", since: "24h" })],
+      ["listEncryptionKeys", () => httpApi.listEncryptionKeys()],
+      ["createEncryptionKey", () => httpApi.createEncryptionKey()],
+      ["rotateEncryptionKey", () => httpApi.rotateEncryptionKey()],
+      ["retireEncryptionKey", () => httpApi.retireEncryptionKey("k0123")],
+      ["exportRecoveryBundle", () => httpApi.exportRecoveryBundle("k0123", { stepUpPassword: "pw" })],
+      ["confirmRecoveryBundle", () => httpApi.confirmRecoveryBundle("k0123")],
+      ["testEncryptionProvider", () => httpApi.testEncryptionProvider({ external: { file: "/run/secrets/key" } })],
+      ["listEncryptionCopies", () => httpApi.listEncryptionCopies("src/set-1/a.tar.gz")],
+      ["startDecryptVerify", () => httpApi.startDecryptVerify({ artifactId: "src/set-1/a.tar.gz", medium: "offsite", acknowledgeEgress: true })],
+      // EPIC T's suites (#1318): the registry, and the re-encrypt dry run
+      // (GET with a selector) and run (POST with the chosen destination).
+      ["listEncryptionSuites", () => httpApi.listEncryptionSuites()],
+      ["planReencrypt", () => httpApi.planReencrypt({ suite: "age/v1" })],
+      ["startReencrypt", () => httpApi.startReencrypt({ suite: "age/v1", to: "offsite" })]
     ];
     for (const [, call] of calls) {
       await call().catch(() => undefined);
@@ -683,6 +714,13 @@ describe("every request the shared client makes is a declared operation", () => 
    * Asserted EXACTLY, like its counterpart, so the list can only shrink.
    */
   const UNREACHED_SERVER_OPERATIONS = [
+    // EPIC U: the MCP endpoint's three methods are the agent's protocol and
+    // never the browser's (#1347), and GET /agent/confirmations/{id} is the
+    // confirmation_status tool a token reads its own ask through (#1349);
+    // the Agents card lists every confirmation instead.
+    "deleteAgentMcp",
+    "getAgentConfirmation",
+    "getAgentMcp",
     // getSession is read by something that is not this client: the platform
     // bridge's own call (platform/localSession.ts, which reads the envelope
     // itself rather than going through httpApi). getSystemCapabilities left
@@ -704,7 +742,19 @@ describe("every request the shared client makes is a declared operation", () => 
     // out. They were never a standing permission — nothing in ui/shared
     // could call them without this list shrinking, which is the property
     // the exact assertion below enforces in both directions.
-    "getSession"
+    "getSession",
+    // The encrypt-existing pair (#1291) is API and CLI only in 0.8.0: no
+    // screen offers retroactive encryption in this release. The #995 sweep
+    // (encryptionCommands.test.ts) pins startEncryptExisting the same way,
+    // so wiring a control has to shrink both lists together.
+    "planEncryptExisting",
+    "postAgentMcp",
+    "startEncryptExisting"
+    //
+    // EPIC T's suite listing (#1315) landed its route and verb before any
+    // screen and was pinned here; the Settings suite choice (#1318) calls
+    // it, so it left this list in the same commit, with the re-encrypt pair
+    // (#1317) that the Dashboard's Re-encrypt dialog calls.
     //
     // EPIC Q's recovery pair (#976), mintRecovery and redeemRecovery, used to
     // be pinned here as "unreached until a screen calls them". The Recover

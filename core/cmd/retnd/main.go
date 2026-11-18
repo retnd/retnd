@@ -87,8 +87,10 @@ var commands = map[string]func([]string) int{
 	"scrub":           cmdScrub,
 	"recovery-test":   cmdRecoveryTest,
 	"assurance":       cmdAssurance,
+	"encryption":      cmdEncryption,
 	"auth":            cmdAuth,
 	"ssh-key":         cmdSSHKey,
+	"agent":           cmdAgent,
 	"ssh":             cmdSSH,
 	"operation":       cmdOperation,
 	"system":          cmdSystem,
@@ -456,6 +458,91 @@ commands:
                                                    environment a validator gets, what its exit status means, what becomes
                                                    of its output and where it runs. Reads no configuration.
                                                    GET /api/v1/assurance/default-validator-script
+  encryption policy [--json]
+                                                  the deployment's retained-copy encryption: its mode (off or required),
+                                                  its key provider, and what every backup set resolves to. A key
+                                                  provider reads back as a description of its source and never as a
+                                                  reference that could be parsed back. GET /api/v1/encryption/policy (#993)
+  encryption policy patch [--mode off|required] [--suite default|ID] [--managed | --external-file P | --external-env V | --external-command CMD] [--json]
+                                                  change the deployment's mode, suite or key provider; what is not named stays.
+                                                  A suite with no active key answers with the key rotate command and
+                                                  rotates nothing.
+                                                  --external-command is split on spaces and run without a shell. Refused
+                                                  with the words a hand-edited config.yaml gets (required with no provider
+                                                  among them). Routed, PATCH /api/v1/encryption/policy
+  encryption policy reset [--json]                remove the deployment's block: off, no provider. Copies already
+                                                  written stay encrypted and readable. Routed, POST .../policy/reset
+  encryption backup-set <source/backup-set> [--mode inherit|off|required] [--managed | --external-file P | --external-env V |
+                        --external-command CMD] [--reset] [--json]
+                                                  show one set's own mode and what it resolves to; with --mode, give it a
+                                                  block of its own, with --reset take it off so it follows the deployment.
+                                                  Routed, PUT and DELETE /api/v1/backup-sets/{source}/{set}/encryption
+  encryption key list [--json]                    the managed keys: id, status, when created, whether each resolves now and
+                                                  whether its recovery bundle is confirmed. Never bytes. GET .../keys
+  encryption key create|rotate [--suite ID] [--json]
+                                                  mint the first managed key, or a new active one with the old superseded.
+                                                  New copies use the new key; every old copy decrypts through the key id
+                                                  recorded against it. --suite names the suite (default: the policy's
+                                                  pinned suite, else the active key's, else the build default); rotating
+                                                  into another suite is one write. Routed, POST .../keys and .../keys/rotate
+  encryption key retire <id> [--json]             retire a key. Refused, naming the copies, while an ACTIVE copy records
+                                                  it, and for the active key. Routed, POST .../keys/{id}/retire
+  encryption key export <id> --out FILE [--json]  write the recovery bundle (key material, integrity data, clean-machine
+                                                  steps) to FILE, which is created 0600 and never over a file that exists.
+                                                  It is never printed. Routed, POST .../keys/{id}/export
+  encryption key confirm <id> [--digest D] [--json]
+                                                  say the exported bundle is stored safely, which clears the degraded
+                                                  state. Without --digest it confirms the newest export. A statement, never
+                                                  an upload. Routed, POST .../keys/{id}/confirm
+  encryption key import --bundle FILE [--json]
+                                                  register the key a recovery bundle carries in this deployment, so copies
+                                                  recorded under that key id resolve here. It is registered as superseded:
+                                                  it opens old copies and new copies keep using the active key. Safe to
+                                                  repeat. It needs this host's own journal, so it is refused (exit 3)
+                                                  while an engine serves the deployment. There is no API route: a bundle is
+                                                  key material and does not go in a request.
+  encryption provider test (--managed-key ID | --external-file P | --external-env V | --external-command CMD) [--json]
+                                                  whether a key provider resolves right now and, if not, why, in words that
+                                                  name the source and never its content. Exit 1 unless it resolves.
+                                                  POST /api/v1/encryption/providers/test
+  encryption copies <source/backup-set/backup> [--json]
+                                                  which copies of a backup are encrypted, under which key and format, and
+                                                  whether that key resolves. GET /api/v1/encryption/copies
+  encryption verify <source/backup-set/backup> [--medium M] [--allow-egress] [--json]
+                                                  decrypt-verify a backup's encrypted copy: a content check whose plaintext
+                                                  digest has to equal the recorded one. Refused before any read when the
+                                                  copy's key does not resolve. Beside a serving engine it starts that
+                                                  engine's operation (stop it with assurance cancel); otherwise it runs
+                                                  here. POST /api/v1/encryption/verify
+  encryption suites [--json]                      the encryption suites this build has: status, the default, the one
+                                                  sentence said about each, and its active copies and keys. Opens no key
+                                                  directory. GET /api/v1/encryption/suites (#1315)
+  encryption decrypt <object> (--bundle FILE | --identity FILE) (--sidecar FILE | --digest HEX [--stored-digest HEX]) [--suite ID] --out FILE
+                                                  open one encrypted copy into FILE. Reads no configuration and no state, so
+                                                  it works on a machine with only this binary, the copy and the bundle. The
+                                                  stored-bytes digest is checked before any key is used and the plaintext
+                                                  digest after the last chunk; FILE appears only when both hold, must not
+                                                  already exist, and is never standard output. Refusals say whether the key,
+                                                  a digest or the copy's own authentication failed. There is no API route:
+                                                  the key is an input.
+  encryption encrypt-existing <source/backup-set> --to MEDIUM [--artifact <source/backup-set/backup>] [--dry-run] [--json]
+                                                  encrypt the retained copies that sit on a medium in the clear, under a set
+                                                  whose encryption is required, onto MEDIUM (another medium: the journal
+                                                  holds one copy per medium). Only when you run it, never because a policy
+                                                  changed. A plaintext copy is retired only after its replacement
+                                                  decrypt-verifies; --dry-run says what would happen to each copy and why
+                                                  not. Beside a serving engine it starts that engine's operation (stop it
+                                                  with assurance cancel); otherwise it runs here and an interrupt stops it.
+                                                  POST and GET /api/v1/encryption/encrypt-existing
+  encryption reencrypt --suite ID | --key ID | --deprecated [--to MEDIUM] [--dry-run] [--json]
+                                                  rewrite the encrypted copies under a suite, a key, or a deprecated or
+                                                  retired suite under the active suite and key, onto MEDIUM (another medium:
+                                                  the journal holds one copy per medium). The old ciphertext is streamed
+                                                  straight into the new one; no plaintext touches local disk. Only when you
+                                                  run it, never because a key rotated. An old copy is retired only after its
+                                                  replacement decrypt-verifies; --dry-run lists the copies by suite and key
+                                                  with each destination and refusal. A run needs --to.
+                                                  POST and GET /api/v1/encryption/reencrypt
   auth enroll --username U --token-stdin --password-stdin
                           [--recovery-email ADDR --smtp-host H [--smtp-port N] [--smtp-security starttls|tls|none]
                           [--smtp-username U] [--smtp-from ADDR] [--smtp-password-stdin]]
@@ -533,6 +620,73 @@ commands:
                                                   their fingerprints. The places are listed even when empty, so "no
                                                   keys" and "could not look where your keys are" read differently.
                                                   The same as GET /api/v1/ssh/key-candidates
+  agent token create NAME [--scope read|operate|configure] [--expires-in D]
+                                                  mint a token an AI agent presents as a bearer credential, and print
+                                                  it alone on standard output, once: this deployment keeps only its
+                                                  hash and an eight-character prefix. NAME becomes the principal
+                                                  agent:NAME wherever an actor is named. The scope is read unless told
+                                                  otherwise; D is days such as 90d or a duration such as 720h, 90d by
+                                                  default and 365d at most, and there is no token that never expires.
+                                                  No verb takes a token on its command line. Beside a serving engine
+                                                  this is POST /api/v1/agent/tokens, which a signed-in user makes and
+                                                  a token cannot
+                                                  (mint, list or revoke). Over plain http to another machine the
+                                                  engine asks for the insecure-transport acknowledgement first, so
+                                                  a remote mint exits 52 until RETND_API_INSECURE_TRANSPORT=acknowledged
+                                                  is set
+  agent token list [--json]
+                                                  every token: name, prefix, scope, status (active, expired or
+                                                  revoked), owner, expiry and when it last authenticated. Never the
+                                                  token and never its hash. The same as GET /api/v1/agent/tokens
+  agent token revoke ID [--json]
+                                                  end a token. The very next request that presents it is refused, so
+                                                  there is nothing to wait for. ID is the one agent token list
+                                                  prints. The same as POST /api/v1/agent/tokens/{id}/revoke
+  agent confirmations list [--json]
+                                                  the changes agents have asked for, newest first: pending, approved,
+                                                  denied and expired, with the command each one echoes. A call an agent
+                                                  makes under the operate or configure scope runs nothing until a person
+                                                  approves it. The same as GET /api/v1/agent/confirmations
+  agent confirmations show ID [--json]
+                                                  one confirmation: its state, the command it echoes and, once approved
+                                                  and run, how it ended: the API's code and message, the correlation id
+                                                  and the exit code retnd gives the same answer. The same as GET
+                                                  /api/v1/agent/confirmations/{id}
+  agent confirmations approve ID [--json]
+                                                  approve one pending confirmation and replay the request that was
+                                                  recorded, unchanged, as the token that asked. The password this
+                                                  command already signs in with is the step-up. It needs a serving
+                                                  engine, because the replay goes through the engine's own handlers; a
+                                                  shut destructive gate refuses it with exit code 50, as it refuses
+                                                  retnd run. The same as POST /api/v1/agent/confirmations/{id}/approve
+  agent confirmations deny ID [--json]
+                                                  deny one pending confirmation: nothing runs and the agent reads it as
+                                                  denied. The same as POST /api/v1/agent/confirmations/{id}/deny
+  agent serve --stdio --token-file PATH
+                                                  serve the read tools, resources and prompts of the agent catalogue to
+                                                  an MCP client on standard input and output, calling the engine at
+                                                  RETND_API_URL as the token's principal. It starts no engine and opens
+                                                  nothing of this host's. The token is in the file (mode 0600, refused
+                                                  otherwise) or in RETND_AGENT_TOKEN, and there is no --token flag. Logs
+                                                  go to standard error. Every tool answers ok, code, message,
+                                                  correlation_id, command and exit_code, the last being what this binary
+                                                  would have exited with for the same call. The engine's own streamable
+                                                  HTTP transport at POST, GET and DELETE /api/v1/agent/mcp is off unless
+                                                  agents.http_transport is on in config.yaml
+  agent audit [--token ID] [--since D] [--limit N] [--before CURSOR] [--json]
+                                                  every call an AI agent made, reads included, newest first: when,
+                                                  token, tool, transport, status, refusal code, correlation id and the
+                                                  arguments as stored after the projection that strips key material.
+                                                  ID is a token id from agent token list, never the token. D is days
+                                                  such as 7d, a duration such as 36h or an RFC 3339 time; N is 100 by
+                                                  default and 1000 at most. A full page prints the cursor for the next
+                                                  one. The same as GET /api/v1/agent/audit
+  agent tools [--json]
+                                                  the catalogue an AI agent is offered: every tool with its scope, its
+                                                  route, the command that does the same from a terminal and the result
+                                                  fields that come from outside this deployment, then every route no
+                                                  agent reaches and why. It is fixed in the binary, so it needs no
+                                                  engine and no token. The same as GET /api/v1/agent/tools
   ssh host-key-probe HOST [--port N] [--json]
                                                   connect to HOST (port 22 unless told) and print the host key that
                                                   answers, its fingerprint and the known_hosts line for it. Nothing

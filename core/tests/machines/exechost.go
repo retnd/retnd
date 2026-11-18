@@ -233,6 +233,7 @@ func startExecHost(t *testing.T, network, alias string, inNetwork bool) *ExecHos
 	if !inNetwork {
 		args = append(args, "-p", "127.0.0.1::22")
 	}
+	args = append(args, sshdNofile...)
 	args = append(args,
 		"-v", hostKeyEd25519+":/etc/ssh/ssh_host_ed25519_key:ro",
 		"-v", hostKeyEd25519+".pub:/etc/ssh/ssh_host_ed25519_key.pub:ro",

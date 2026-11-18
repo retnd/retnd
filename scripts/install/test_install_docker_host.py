@@ -293,7 +293,53 @@ class TestArchitectureRefusal(unittest.TestCase):
         self.assertEqual(exc.code, installer.EXIT_PREREQ_ARCH)
         self.assertIn("riscv64", exc.message)
 
-    def test_the_two_released_architectures_pass_and_map(self):
+    def test_an_arm_host_is_refused_with_the_arm_guidance(self):
+        # #1452: releases publish linux/amd64 only.
+        fx = Fixture(self)
+        pf = installer.Preflight(fx.args())
+        real_uname = os.uname
+
+        class FakeUname:
+            machine = "aarch64"
+
+        os.uname = lambda: FakeUname()  # type: ignore[assignment]
+        self.addCleanup(lambda: setattr(os, "uname", real_uname))
+        exc = refusal_from(pf.check_arch)
+        self.assertIsNotNone(exc)
+        self.assertEqual(exc.code, installer.EXIT_PREREQ_ARCH)
+        self.assertIn("build from source", exc.remedy)
+        self.assertIn("0.7.2", exc.remedy)
+
+    def test_the_e2e_harness_can_opt_in_to_its_own_arm_host(self):
+        # #1489: the two-machine proof builds the image for the daemon it runs
+        # on, so on an arm64 Mac the machines are aarch64 by construction.
+        fx = Fixture(self)
+        real_uname = os.uname
+        real_env = os.environ.get("RETND_E2E_ACCEPT_HOST_ARCH")
+        self.addCleanup(lambda: setattr(os, "uname", real_uname))
+
+        class FakeUname:
+            machine = "aarch64"
+
+        os.uname = lambda: FakeUname()  # type: ignore[assignment]
+
+        def restore() -> None:
+            if real_env is None:
+                os.environ.pop("RETND_E2E_ACCEPT_HOST_ARCH", None)
+            else:
+                os.environ["RETND_E2E_ACCEPT_HOST_ARCH"] = real_env
+
+        self.addCleanup(restore)
+        os.environ["RETND_E2E_ACCEPT_HOST_ARCH"] = "1"
+        pf = installer.Preflight(fx.args())
+        pf.check_arch()
+        self.assertEqual(pf.arch, "arm64")
+        os.environ["RETND_E2E_ACCEPT_HOST_ARCH"] = "0"
+        exc = refusal_from(installer.Preflight(fx.args()).check_arch)
+        self.assertIsNotNone(exc)
+        self.assertEqual(exc.code, installer.EXIT_PREREQ_ARCH)
+
+    def test_the_released_architecture_passes_and_maps(self):
         # The positive control. Without it the assertion above passes
         # equally against a check that refuses everything.
         fx = Fixture(self)
@@ -307,7 +353,7 @@ class TestArchitectureRefusal(unittest.TestCase):
         # same process that touches check_arch() would then run against a
         # fake architecture: a cascade of unrelated failures masking the
         # original one.
-        for machine, want in (("x86_64", "amd64"), ("aarch64", "arm64")):
+        for machine, want in (("x86_64", "amd64"),):
             with self.subTest(machine=machine):
                 class FakeUname:
                     pass
@@ -1785,6 +1831,15 @@ class TestWhatEachModeTouches(unittest.TestCase):
         self.assertIn("known_hosts.d", names)
         self.assertIn("config.yaml", names)
 
+    def test_1295_the_managed_encryption_keys_are_archived(self):
+        fx = Fixture(self)
+        plan = self.paths(fx)
+        names = {p.name for p in plan}
+        self.assertIn("retained_copy_keys", names,
+                      "a factory reset would leave the keys behind while the registry that names them moves out")
+        keys = next(p for p in plan if p.name == "retained_copy_keys")
+        self.assertEqual(keys.parent.name, "config", "it lives beside config.yaml, not under state")
+
     def test_the_retained_artifacts_are_never_archived(self):
         """They are the product's whole purpose, they can be enormous, and
         an upgrade does not modify them. Copying them would double disk
@@ -1822,6 +1877,41 @@ class TestArchivingIsInsideTheRefusalContract(unittest.TestCase):
         names = {p.name for p in captured}
         self.assertIn("state.db-wal", names)
         self.assertTrue((archive / "state" / "state.db-wal").is_file())
+
+    def with_keys(self):
+        _fx, args = self.populated()
+        keys = args.config_dir / "retained_copy_keys"
+        keys.mkdir(parents=True, exist_ok=True)
+        (keys / "k1.key").write_text("AGE-SECRET-KEY-PLACEHOLDER\n")
+        return args, keys
+
+    def test_1295_a_factory_reset_moves_the_keys_with_the_journal(self):
+        args, keys = self.with_keys()
+        archive, _captured = installer.archive_state(args, move=True)
+        self.assertFalse(keys.exists(),
+                         "the keys stayed in the config directory of the clean install, beside a registry that no longer names them")
+        self.assertFalse((args.state_dir / "state.db").exists())
+        self.assertTrue((archive / "state" / "state.db").is_file())
+        self.assertTrue((archive / "config" / "retained_copy_keys" / "k1.key").is_file(),
+                        "the archive holds the journal but not the keys its encrypted copies name")
+
+    def test_1295_an_upgrade_copies_the_keys_and_leaves_the_originals(self):
+        """Pins that an upgrade never moves the key directory: the live
+        install keeps its keys, the archive only gets insurance copies."""
+        args, keys = self.with_keys()
+        archive, _captured = installer.archive_state(args, move=False)
+        self.assertTrue((keys / "k1.key").is_file(), "an upgrade removed the live managed key")
+        self.assertEqual((keys / "k1.key").read_text(), "AGE-SECRET-KEY-PLACEHOLDER\n")
+        self.assertTrue((archive / "config" / "retained_copy_keys" / "k1.key").is_file())
+
+    def test_1295_the_archive_limit_refusal_names_the_key_directory(self):
+        args, _keys = self.with_keys()
+        for n in range(installer.ARCHIVE_LIMIT):
+            (args.prefix / f"archive-2020010{n}-000000").mkdir(parents=True)
+        exc = refusal_from(installer.archive_state, args, move=False)
+        self.assertIsNotNone(exc)
+        self.assertIn("retained_copy_keys", exc.remedy)
+        self.assertTrue((args.config_dir / "retained_copy_keys" / "k1.key").is_file())
 
     def test_the_archive_is_created_0700_without_a_window(self):
         """os.chmod after mkdir left the administrator record and every
@@ -2164,6 +2254,9 @@ class TestTheEngineOwnedConfigDirectories(unittest.TestCase):
             self.assertTrue(d.is_dir(), f"{d} is the engine's, and it makes it 0777 under this umask")
             self.assertEqual(d.stat().st_mode & 0o777, 0o700, f"{d} is what the engine refuses over")
 
+    def test_1295_the_engine_owned_dirs_include_the_key_directory(self):
+        self.assertIn("retained_copy_keys", installer.ENGINE_OWNED_CONFIG_DIRS)
+
     def test_an_existing_directory_only_loses_group_and_world_write(self):
         fx = Fixture(self)
         args = fx.args(command="install")
@@ -2271,6 +2364,21 @@ class TestDestroyPreview(unittest.TestCase):
         joined = " ".join(installer.destroy_preview(args)).lower()
         self.assertNotIn("artifact.dump", joined,
                          "a retained backup file is not destroyed by a factory reset")
+
+    def test_1295_destroy_preview_names_the_managed_keys_and_what_losing_them_means(self):
+        fx = Fixture(self)
+        args = fx.args(command="install")
+        keys = args.config_dir / "retained_copy_keys"
+        keys.mkdir(parents=True, exist_ok=True)
+        (keys / "k1.key").write_text("x")
+        (keys / "k2.key").write_text("x")
+        lines = installer.destroy_preview(args)
+        hit = [line for line in lines if "retained_copy_keys" in line]
+        self.assertEqual(len(hit), 1, f"the key directory has to be named once: {lines}")
+        self.assertIn("2 managed encryption key(s)", hit[0])
+        self.assertIn("unreadable without the key or its recovery bundle", hit[0])
+        self.assertFalse(any("nothing:" in line for line in lines),
+                         "a directory of keys is not 'nothing to destroy'")
 
     def test_the_credentials_that_survive_are_named(self):
         """<prefix>/secrets is neither archived nor destroyed, and nothing
@@ -4210,12 +4318,12 @@ class TestNamingAPreviousRelease(unittest.TestCase):
         return Fixture(self).args(*extra, command=command)
 
     def test_it_fills_the_tag_of_the_reference_nobody_named(self):
-        args = self.args("--release", "0.7.2")
-        self.assertEqual(installer.image_tag(args.image), "0.7.2")
+        args = self.args("--release", "0.8.0")
+        self.assertEqual(installer.image_tag(args.image), "0.8.0")
         self.assertEqual(installer.image_name(args.image),
                          f"{installer.RELEASE_REGISTRY}/{installer.RELEASE_REPOSITORY}",
                          "--release moves the tag and nothing else; the registry is not its to change")
-        self.assertIn("VERSION=0.7.2", installer.render_env(args))
+        self.assertIn("VERSION=0.8.0", installer.render_env(args))
         self.assertIn(args.image, installer.render_image_override(args))
 
     def test_leaving_it_alone_changes_nothing(self):
@@ -4230,12 +4338,12 @@ class TestNamingAPreviousRelease(unittest.TestCase):
         self.assertEqual(self.args("--release", installer.CARRIED_RELEASE).image, default)
 
     def test_it_fills_a_tagless_reference_an_operator_did_name(self):
-        args = self.args("--image", "registry.example:5000/retnd", "--release", "0.7.2")
-        self.assertEqual(args.image, "registry.example:5000/retnd:0.7.2")
+        args = self.args("--image", "registry.example:5000/retnd", "--release", "0.8.0")
+        self.assertEqual(args.image, "registry.example:5000/retnd:0.8.0")
 
     def test_an_image_that_already_agrees_is_not_a_conflict(self):
-        args = self.args("--image", "ghcr.io/retnd/retnd:0.7.2", "--release", "0.7.2")
-        self.assertEqual(args.image, "ghcr.io/retnd/retnd:0.7.2")
+        args = self.args("--image", "ghcr.io/retnd/retnd:0.8.0", "--release", "0.8.0")
+        self.assertEqual(args.image, "ghcr.io/retnd/retnd:0.8.0")
 
     def test_it_refuses_a_release_older_than_the_binaries_it_writes(self):
         # The embedded compose runs /retnd-web. That path exists from 0.4.0
@@ -4264,12 +4372,12 @@ class TestNamingAPreviousRelease(unittest.TestCase):
         )
 
     def test_two_flags_naming_different_versions_refuse_rather_than_pick_one(self):
-        exc = refusal_from(self.args, "--image", "ghcr.io/retnd/retnd:0.7.2",
+        exc = refusal_from(self.args, "--image", "ghcr.io/retnd/retnd:0.8.0",
                            "--release", "0.4.0")
         self.assertIsNotNone(exc, "installing a version other than the one that was named, quietly, "
                                   "is the whole failure this flag exists to prevent")
         self.assertEqual(exc.code, installer.EXIT_RELEASE_CONFLICT)
-        self.assertIn("0.7.2", exc.message)
+        self.assertIn("0.8.0", exc.message)
         self.assertIn("0.4.0", exc.message)
 
     def test_a_digest_is_not_weakened_into_a_tag(self):
@@ -6566,6 +6674,21 @@ class TestTheHostWorkflowRunner(unittest.TestCase):
                          "the per-step working directories were left behind")
         self.assertTrue((args.workflows_dir / "hook.local.sh").is_file(),
                         "uninstall deleted an operator's hook script")
+
+
+class TestUninstallNamesTheKeyDirectory(unittest.TestCase):
+    def test_1295_uninstall_names_the_key_directory_it_leaves_in_place(self):
+        fx = Fixture(self)
+        args = fx.args(command="uninstall")
+        out = io.StringIO()
+        ok = subprocess.CompletedProcess([], 0, "", "")
+        with unittest.mock.patch.object(installer, "detect_existing", lambda _a: (True, [], {})), \
+                unittest.mock.patch.object(installer, "run", lambda *a, **kw: ok), \
+                unittest.mock.patch.object(installer, "remove_workflow_runner", lambda _a: None), \
+                contextlib.redirect_stdout(out):
+            installer.cmd_uninstall(args)
+        self.assertIn("managed encryption keys", out.getvalue(),
+                      "the 'Left in place' paragraph says nothing about the key material an operator must not lose")
 
 
 class TestTheRunnerRunsHooksInContainers(unittest.TestCase):

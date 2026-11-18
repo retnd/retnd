@@ -111,8 +111,16 @@ func TestRunCycle_PublishesLiveProgress(t *testing.T) {
 	for _, r := range readings {
 		seen[r.Stage] = true
 	}
+	//
+	// The two encrypted-copy stages are the exception: this set writes no
+	// encrypted copy, and Stages says a cycle without one never reports them
+	// (progresscopy_test.go covers them), so here they must stay absent.
 	for _, stage := range Stages {
-		if !seen[stage] {
+		encryptedOnly := stage == StageEncrypting || stage == StageDecryptVerifying
+		if encryptedOnly && seen[stage] {
+			t.Errorf("a cycle with no encrypted copy reported stage %q; stages seen were %v", stage, seen)
+		}
+		if !encryptedOnly && !seen[stage] {
 			t.Errorf("no reading reported stage %q; stages seen were %v", stage, seen)
 		}
 	}

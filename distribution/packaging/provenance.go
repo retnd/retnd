@@ -88,6 +88,11 @@ var licenceMarkers = []struct {
 	{"MPL-2.0", []string{"Mozilla Public License, version 2.0"}},
 	{"EPL-2.0", []string{"Eclipse Public License - v 2.0"}},
 	{"CDDL-1.0", []string{"COMMON DEVELOPMENT AND DISTRIBUTION LICENSE"}},
+	// A LICENSE that carries both texts, as the Go MCP SDK's does while it
+	// moves from MIT to Apache-2.0 (contributions nobody relicensed stay
+	// MIT), is both. It sits above the single rows because their needles
+	// are ANDed and the Apache row would otherwise claim it alone.
+	{"Apache-2.0 AND MIT", []string{"Apache License", "Version 2.0", "Permission is hereby granted, free of charge"}},
 	{"Apache-2.0", []string{"Apache License", "Version 2.0"}},
 	{"CC0-1.0", []string{"CC0 1.0 Universal"}},
 	{"BSD-3-Clause", []string{"Redistribution and use in source and binary forms", "Neither the name"}},

@@ -206,9 +206,75 @@ what the application used to leave at the browser's default and paint black on b
 
 ![The settings page switching to dark mode, scrolling through a form of native selects and number inputs, then switching back](docs/site/screens/ui-dark-mode.gif)
 
-None of these clips shows recovery or the three assurance claims (Stored, Content
-verified, Recovery tested), because those screens were not recorded when the clips were. The
-pages describe them in words, and they will get clips of their own...
+None of these clips shows recovery, the three assurance claims (Stored, Content
+verified, Recovery tested) or the encryption cards (Settings, a set's page, a backup's
+copies), because those screens were not recorded when the clips were. The pages describe them
+in words, and they will get clips of their own...
+
+
+## Encrypting the copies you send away
+
+A backup set can **require encryption** of the retained copies it writes to a storage
+destination. It is off until you turn it on, and off is byte-for-byte what it was before. Turned
+on, the copy at the destination is an [age](https://c2sp.org/age) v1 file; your local copy and the
+producer's artifact are untouched. You choose a mode (`off`, or `required` with an `inherit`
+default per set) and who holds the key (the product's managed key, or a `file`, `env` or
+`command` reference you declare). There is no cipher, chunk size or algorithm setting.
+
+```
+retnd encryption key create
+retnd encryption key export <key-id> --out /not/the/backup/volume/bundle.json
+retnd encryption key confirm <key-id>
+retnd encryption policy patch --mode required --managed
+```
+
+Three things to know before you do:
+
+- **It hides contents, not names.** The source, the backup set, the file name, the size and the
+  time stay readable to whoever holds the bucket.
+- **Losing the key loses the encrypted copies.** There is no reset and no support path that
+  recreates a key. You export a recovery bundle and keep it somewhere that is neither the backup
+  volume nor the bucket, and the health report says so until you confirm you did.
+- **It is a one-way door.** A `config.yaml` that carries `retained_copy_encryption:` needs 0.8.0 or
+  newer; 0.7.2 and older refuse it. See the [changelog](CHANGELOG.md).
+
+The web interface shows each copy as Plaintext, or Encrypted beside a second chip that says
+whether it has been proved to open, and the Backups list gains an Encryption column only when a
+copy on it is encrypted. Copies already stored in plaintext are encrypted only when you run
+`retnd encryption encrypt-existing`, and older copies move to a new suite only when you run
+`retnd encryption reencrypt`. An external key provider writes copies, but its key is not in the bundle. `retnd encryption decrypt` opens a copy into a file from the bundle and
+the sidecar (the stock `age` tool still works as the independent fallback), and
+`retnd encryption key import` registers a key from a bundle on a rebuilt host. The whole picture is in
+[`docs/encrypted-copies.md`](docs/encrypted-copies.md), the recovery steps are in
+[`docs/recovery-without-a-terminal.md`](docs/recovery-without-a-terminal.md#6-an-encrypted-copy-has-to-be-opened-on-a-machine-with-no-state),
+and [the site](https://retnd.github.io/retnd/index.html#encrypted-copies) has the short version.
+
+## Letting an agent look
+
+retnd can be an MCP server, so a client that speaks the Model Context Protocol can read what the
+deployment knows. It has no access until you mint it a token, and a token is `read` unless you say
+otherwise. `read` starts nothing and changes nothing. A token with `operate` or `configure` can only
+ask: the request becomes a pending confirmation with the exact command on it, and nothing runs until
+you approve it with your password.
+
+```
+retnd agent token create triage --expires-in 30d     # shown once, then only a hash is kept
+retnd agent serve --stdio --token-file ~/.config/retnd/triage.token
+retnd agent tools                                    # every tool, its scope, and what is refused
+retnd agent confirmations list|show|approve|deny
+retnd agent audit --since 24h                        # every call, reads included
+```
+
+The verbs are `agent token create|list|revoke`, `agent serve`, `agent tools`, `agent audit` and
+`agent confirmations list|show|approve|deny`; `serve` needs `RETND_API_URL` like the other verbs that sit
+beside a serving engine. No flag takes a token, the HTTP transport is off until
+`agents.http_transport: on`, and no scope reaches key material, credentials, authentication or token
+minting. What this does not prove: a model can still be persuaded by what it reads (it cannot act on
+that without you reading the command), the HTTP transport is not confidential on plain HTTP, and the
+equivalence between surfaces was checked against the clients the test suite drives, not every MCP
+client. A `config.yaml` that carries `agents:` is refused by any build that predates it. The
+connection steps, the scopes in plain words and the threat model are in
+[`docs/agents.md`](docs/agents.md).
 
 
 ## Two engines: artifacts, and incremental snapshots

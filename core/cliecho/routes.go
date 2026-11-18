@@ -1212,6 +1212,108 @@ var routes = map[string]entry{
 		examples: []Action{{}},
 	},
 
+	// ------------------------------------------------------- agent ---
+	// EPIC U (#1345). The three token routes are session-only; the verbs are
+	// `retnd agent token ...`.
+	// The audit trail (#1348): GET /agent/audit is `retnd agent audit`. Only the
+	// filters the binary has a flag for are echoed, and a token id is echoed as
+	// the id it is (the route never carries the token).
+	key("GET", "/agent/audit"): {
+		build: func(a Action) *cmd {
+			c := newCmd("agent", "audit")
+			c.flagIfSet("token", a.Query.Get("token"))
+			c.flagIfSet("since", a.Query.Get("since"))
+			if n := positiveQuery(a, "limit"); n > 0 {
+				c.flag("limit", itoa(n))
+			}
+			// Only a cursor the trail could have issued, a positive row
+			// position, as the activity feed's is.
+			if n := positiveQuery(a, "before"); n > 0 {
+				c.flag("before", itoa(n))
+			}
+			return c
+		},
+		examples: []Action{{}, {Query: mustQuery("token=agt_0123456789abcdef&since=7d&limit=50&before=120")}},
+	},
+	key("GET", "/agent/tokens"): {
+		build:    func(Action) *cmd { return newCmd("agent", "token", "list") },
+		examples: []Action{{}},
+	},
+	key("POST", "/agent/tokens"): {
+		build: func(a Action) *cmd {
+			var req apicontract.MintAgentTokenRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("agent", "token", "create", req.Name)
+			if req.Scope != "" {
+				c.flag("scope", req.Scope)
+			}
+			if req.ExpiresIn != "" {
+				c.flag("expires-in", req.ExpiresIn)
+			}
+			return c
+		},
+		why: "the request body would not decode, so there is no command that says which token it minted",
+		examples: []Action{
+			{Body: []byte(`{"name":"triage"}`)},
+			{Body: []byte(`{"name":"triage","scope":"read","expires_in":"30d"}`)},
+		},
+	},
+	key("POST", "/agent/tokens/{id}/revoke"): {
+		build: func(a Action) *cmd {
+			return newCmd("agent", "token", "revoke", a.Params["id"])
+		},
+		examples: []Action{{Params: map[string]string{"id": "agt_0123456789abcdef"}}},
+	},
+	key("GET", "/agent/tools"): {
+		// #1346. The catalogue is fixed in the binary, so the verb that
+		// prints it asks no engine.
+		build:    func(Action) *cmd { return newCmd("agent", "tools") },
+		examples: []Action{{}},
+	},
+
+	// EPIC U (#1347). The streamable HTTP transport is a protocol endpoint, so
+	// the three methods have no verb of their own.
+	key("DELETE", "/agent/mcp"): {
+		why:               "an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `" + Binary + " agent serve --stdio` serves the same tools without this route",
+		namesShippedVerbs: []string{"agent"},
+	},
+	key("GET", "/agent/mcp"): {
+		why:               "an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `" + Binary + " agent serve --stdio` serves the same tools without this route",
+		namesShippedVerbs: []string{"agent"},
+	},
+	key("POST", "/agent/mcp"): {
+		why:               "an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `" + Binary + " agent serve --stdio` serves the same tools without this route",
+		namesShippedVerbs: []string{"agent"},
+	},
+
+	// EPIC U (#1349). The confirmations an agent's operate and configure calls
+	// become. Session-only; approve asks for the password again, which the verb
+	// reads from the same place a restore's does, and takes no body.
+	key("GET", "/agent/confirmations"): {
+		build:    func(Action) *cmd { return newCmd("agent", "confirmations", "list") },
+		examples: []Action{{}},
+	},
+	key("GET", "/agent/confirmations/{id}"): {
+		build: func(a Action) *cmd {
+			return newCmd("agent", "confirmations", "show", a.Params["id"])
+		},
+		examples: []Action{{Params: map[string]string{"id": "cnf_0123456789abcdef"}}},
+	},
+	key("POST", "/agent/confirmations/{id}/approve"): {
+		build: func(a Action) *cmd {
+			return newCmd("agent", "confirmations", "approve", a.Params["id"])
+		},
+		examples: []Action{{Params: map[string]string{"id": "cnf_0123456789abcdef"}}},
+	},
+	key("POST", "/agent/confirmations/{id}/deny"): {
+		build: func(a Action) *cmd {
+			return newCmd("agent", "confirmations", "deny", a.Params["id"])
+		},
+		examples: []Action{{Params: map[string]string{"id": "cnf_0123456789abcdef"}}},
+	},
+
 	// ------------------------------------------------------------- ssh ---
 	//
 	// The key store and the host-key probe had no verb until #1153, and
@@ -1690,6 +1792,225 @@ var routes = map[string]entry{
 			return newCmd("assurance", "cancel", a.Params["op"])
 		},
 		examples: []Action{{Params: map[string]string{"op": "7b0c9a1e-0000-4000-8000-000000000001"}}},
+	},
+	// ----------------------- retained-copy encryption (#993, EPIC N) ---
+	//
+	// Every route has a verb. A key reference is never echoed whole: a file
+	// path and an environment variable name are source descriptions, and a
+	// command's arguments are not, so the command is a stand-in and the
+	// echo can be pasted, filled in and run without the arguments ever
+	// having been written to the activity feed.
+	key("GET", "/encryption/policy"): {
+		build:    func(a Action) *cmd { return newCmd("encryption", "policy") },
+		examples: []Action{{}},
+	},
+	key("PATCH", "/encryption/policy"): {
+		build: func(a Action) *cmd {
+			var req apicontract.EncryptionPolicyPatch
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("encryption", "policy", "patch").flagIfSet("mode", req.Mode).flagIfSet("suite", req.Suite)
+			return providerFlags(c, req.KeyProvider)
+		},
+		why: "there is no verb that patches the encryption policy from a request body that does not decode",
+		examples: []Action{
+			{Body: []byte(`{"mode":"required","key_provider":{"managed":true}}`)},
+			{Body: []byte(`{"suite":"age-pq/v1"}`)},
+			{Body: []byte(`{"key_provider":{"external":{"file":"/run/secrets/retained-copy-key"}}}`)},
+			{Body: []byte(`{"key_provider":{"external":{"command":["vault","kv","get"]}}}`)},
+			{Body: []byte(`{"mode":"off"}`)},
+		},
+	},
+	key("POST", "/encryption/policy/reset"): {
+		build:    func(a Action) *cmd { return newCmd("encryption", "policy", "reset") },
+		examples: []Action{{}},
+	},
+	key("PUT", "/backup-sets/{source}/{set}/encryption"): {
+		build: func(a Action) *cmd {
+			var req apicontract.EncryptionOverride
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("encryption", "backup-set", setID(a)).flag("mode", req.Mode)
+			return providerFlags(c, req.KeyProvider)
+		},
+		why: "there is no verb that sets a backup set's encryption from a request body that does not decode",
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Body: []byte(`{"mode":"required","key_provider":{"managed":true}}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Body: []byte(`{"mode":"inherit"}`)},
+		},
+	},
+	key("DELETE", "/backup-sets/{source}/{set}/encryption"): {
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "backup-set", setID(a)).bare("reset")
+		},
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+	},
+	key("GET", "/encryption/keys"): {
+		build:    func(a Action) *cmd { return newCmd("encryption", "key", "list") },
+		examples: []Action{{}},
+	},
+	key("POST", "/encryption/keys"): {
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "key", "create").flagIfSet("suite", a.Query.Get("suite"))
+		},
+		examples: []Action{{}, {Query: mustQuery("suite=age-pq%2Fv1")}},
+	},
+	key("POST", "/encryption/keys/rotate"): {
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "key", "rotate").flagIfSet("suite", a.Query.Get("suite"))
+		},
+		examples: []Action{{}, {Query: mustQuery("suite=age-pq%2Fv1")}},
+	},
+	key("POST", "/encryption/keys/{id}/retire"): {
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "key", "retire", a.Params["id"])
+		},
+		examples: []Action{{Params: map[string]string{"id": "k0123456789abcdef"}}},
+	},
+	key("POST", "/encryption/keys/{id}/export"): {
+		// The bundle goes to a file the operator names. It is never printed,
+		// so there is nothing on the line that could be the key.
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "key", "export", a.Params["id"]).placeholderFlag("out", "a path to write the bundle to")
+		},
+		examples: []Action{{Params: map[string]string{"id": "k0123456789abcdef"}}},
+	},
+	key("POST", "/encryption/keys/{id}/confirm"): {
+		build: func(a Action) *cmd {
+			var req apicontract.ConfirmRecoveryBundleRequest
+			c := newCmd("encryption", "key", "confirm", a.Params["id"])
+			if decode(a.Body, &req) {
+				c.flagIfSet("digest", req.Digest)
+			}
+			return c
+		},
+		examples: []Action{
+			{Params: map[string]string{"id": "k0123456789abcdef"}},
+			{Params: map[string]string{"id": "k0123456789abcdef"}, Body: []byte(`{"digest":"` + strings.Repeat("ab", 32) + `"}`)},
+		},
+	},
+	key("POST", "/encryption/providers/test"): {
+		build: func(a Action) *cmd {
+			var req apicontract.EncryptionProviderTestRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("encryption", "provider", "test").flagIfSet("managed-key", req.ManagedKeyID)
+			if req.External != nil {
+				providerFlags(c, &apicontract.EncryptionKeyProvider{External: req.External})
+			}
+			return c
+		},
+		why: "there is no verb that tests a key provider from a request body that does not decode",
+		examples: []Action{
+			{Body: []byte(`{"managed_key_id":"k0123456789abcdef"}`)},
+			{Body: []byte(`{"external":{"env":"RETAINED_COPY_KEY"}}`)},
+		},
+	},
+	// The suite table (EPIC T, #1315): a read, the same body as the verb's
+	// --json.
+	key("GET", "/encryption/suites"): {
+		build:    func(a Action) *cmd { return newCmd("encryption", "suites") },
+		examples: []Action{{}},
+	},
+	key("GET", "/encryption/copies"): {
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "copies", a.Query.Get("artifact"))
+		},
+		examples: []Action{{Query: mustQuery("artifact=api-server%2Fvar-backups%2FMANIFEST-20260902T153521Z.txt")}},
+	},
+	key("POST", "/encryption/verify"): {
+		build: func(a Action) *cmd {
+			var req apicontract.StartDecryptVerifyRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("encryption", "verify", req.ArtifactID).flagIfSet("medium", req.Medium)
+			if req.AcknowledgeEgress {
+				c.bare("allow-egress")
+			}
+			return c
+		},
+		why: "there is no verb that decrypt-verifies a backup from a request body that does not decode",
+		examples: []Action{
+			{Body: []byte(`{"artifact_id":"api-server/var-backups/MANIFEST-20260902T153521Z.txt"}`)},
+			{Body: []byte(`{"artifact_id":"api-server/var-backups/MANIFEST-20260902T153521Z.txt","medium":"offsite","acknowledge_egress":true}`)},
+		},
+	},
+	// Encrypting plaintext copies that already exist (#1291). The run and its
+	// dry run are one verb, told apart by --dry-run, because the dry run is
+	// the same question the run asks and the two are never wanted apart.
+	key("GET", "/encryption/encrypt-existing"): {
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "encrypt-existing", a.Query.Get("set")).
+				flag("to", a.Query.Get("destination")).
+				flagIfSet("artifact", a.Query.Get("artifact")).
+				bare("dry-run")
+		},
+		examples: []Action{
+			{Query: mustQuery("set=api-server%2Fvar-backups&destination=offsite")},
+			{Query: mustQuery("set=api-server%2Fvar-backups&destination=offsite&artifact=api-server%2Fvar-backups%2FMANIFEST-20260902T153521Z.txt")},
+		},
+	},
+	key("POST", "/encryption/encrypt-existing"): {
+		build: func(a Action) *cmd {
+			var req apicontract.StartEncryptExistingRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			return newCmd("encryption", "encrypt-existing", req.BackupSetID).
+				flag("to", req.DestinationMedium).
+				flagIfSet("artifact", req.ArtifactID)
+		},
+		why: "there is no verb that encrypts existing copies from a request body that does not decode",
+		examples: []Action{
+			{Body: []byte(`{"backup_set_id":"api-server/var-backups","destination_medium":"offsite"}`)},
+			{Body: []byte(`{"backup_set_id":"api-server/var-backups","artifact_id":"api-server/var-backups/MANIFEST-20260902T153521Z.txt","destination_medium":"offsite"}`)},
+		},
+	},
+	// Re-encrypting copies under the active suite and key (#1317). One verb,
+	// the dry run told apart by --dry-run, as for encrypt-existing. Exactly
+	// one selector is meant to be set; the echo writes what the request
+	// carried, so a request with two selectors echoes a line the verb refuses
+	// for the same reason the route did.
+	key("GET", "/encryption/reencrypt"): {
+		build: func(a Action) *cmd {
+			c := newCmd("encryption", "reencrypt").
+				flagIfSet("suite", a.Query.Get("suite")).
+				flagIfSet("key", a.Query.Get("key"))
+			if a.Query.Get("deprecated") == "true" {
+				c = c.bare("deprecated")
+			}
+			return c.flagIfSet("to", a.Query.Get("destination")).bare("dry-run")
+		},
+		examples: []Action{
+			{Query: mustQuery("suite=age%2Fv1")},
+			{Query: mustQuery("key=k0123456789abcdef&destination=offsite")},
+			{Query: mustQuery("deprecated=true&destination=offsite")},
+		},
+	},
+	key("POST", "/encryption/reencrypt"): {
+		build: func(a Action) *cmd {
+			var req apicontract.StartReencryptRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("encryption", "reencrypt").
+				flagIfSet("suite", req.SuiteID).
+				flagIfSet("key", req.KeyID)
+			if req.Deprecated {
+				c = c.bare("deprecated")
+			}
+			return c.flag("to", req.DestinationMedium)
+		},
+		why: "there is no verb that re-encrypts copies from a request body that does not decode",
+		examples: []Action{
+			{Body: []byte(`{"suite_id":"age/v1","destination_medium":"offsite"}`)},
+			{Body: []byte(`{"key_id":"k0123456789abcdef","destination_medium":"offsite"}`)},
+			{Body: []byte(`{"deprecated":true,"destination_medium":"offsite"}`)},
+		},
 	},
 	// ------------------------------------------- custom validators (#1203) ---
 	key("GET", "/assurance/validators"): {
@@ -2495,4 +2816,25 @@ func scopeFlag(c *cmd, backupSetID string) {
 func scriptIdentity(script string) string {
 	sum := sha256.Sum256([]byte(script))
 	return "the script file you uploaded, " + strconv.Itoa(len(script)) + " bytes, sha256 " + hex.EncodeToString(sum[:])
+}
+
+// providerFlags appends the flags that declare a key provider. A managed
+// provider is --managed; an external one is its file path or its variable
+// name, which are source descriptions, or a stand-in for a command, whose
+// arguments are not and are never echoed.
+func providerFlags(c *cmd, p *apicontract.EncryptionKeyProvider) *cmd {
+	if p == nil {
+		return c
+	}
+	if p.Managed {
+		c.bare("managed")
+	}
+	if p.External != nil {
+		c.flagIfSet("external-file", p.External.File)
+		c.flagIfSet("external-env", p.External.Env)
+		if len(p.External.Command) > 0 {
+			c.placeholderFlag("external-command", "the command that prints the key")
+		}
+	}
+	return c
 }

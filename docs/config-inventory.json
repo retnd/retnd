@@ -19,15 +19,15 @@
   ],
   "what_is_in_here": "One entry per CONFIGURATION field: something that changes what this deployment is, and that persists. Purely operational CLI flags are deliberately excluded, because they select an action rather than configure anything: --dry-run, --json, --limit, --follow, --scope, --severity, --source/--backup-set filters, --note, --content, --days, --medium, --acknowledge, --acknowledge-repoint, --acknowledge-host-key-change, --acknowledge-medium-disclosure, --release, --run, --inherit, --candidate, --stdin, --policy-file and --tier/--tier-medium as a preview override. Where such a flag is the only way to write a persistent field (--no-verify writing connection_unverified, --policy-file and --tier writing a retention chain) it is listed on that field instead.",
   "summary": {
-    "total": 121,
-    "ui_already": 49,
+    "total": 136,
+    "ui_already": 59,
     "ui_to_add": 28,
-    "file_only": 44,
+    "file_only": 49,
     "by_scope": {
       "auth_smtp": 9,
-      "backup_set": 46,
+      "backup_set": 51,
       "capacity": 5,
-      "deployment": 32,
+      "deployment": 42,
       "medium": 13,
       "retention": 13,
       "source": 2,
@@ -39,8 +39,8 @@
       "deployment": 6,
       "source": 1
     },
-    "yaml_fields": 94,
-    "cli_reachable": 70,
+    "yaml_fields": 109,
+    "cli_reachable": 80,
     "env_reachable": 14
   },
   "known_asymmetries": [
@@ -211,6 +211,186 @@
         "configurable": false,
         "location": null,
         "recommendation": "file-only: an executable this service runs; a browser-settable command line is arbitrary code execution on the host"
+      }
+    },
+    {
+      "field": "retained_copy_encryption.mode",
+      "yaml_path": "retained_copy_encryption.mode",
+      "cli_flags": [
+        "encryption policy patch --mode"
+      ],
+      "env": [],
+      "type": "enum off|required",
+      "default": "\"\" (absent: every set resolves to off)",
+      "required": false,
+      "scope": "deployment",
+      "description": "Whether retained copies written to a storage medium are encrypted, deployment-wide. required with no usable key_provider is refused at load. Writing the key is a one-way door: a build before EPIC N refuses the file (#989).",
+      "ui": {
+        "configurable": true,
+        "location": "Settings > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "retained_copy_encryption.key_provider.managed",
+      "yaml_path": "retained_copy_encryption.key_provider.managed",
+      "cli_flags": [
+        "encryption policy patch --managed"
+      ],
+      "env": [],
+      "type": "bool",
+      "default": "false",
+      "required": false,
+      "scope": "deployment",
+      "description": "The key is the product's own managed key (a 0600 file under retained_copy_keys beside config.yaml). Exactly one of managed or external.",
+      "ui": {
+        "configurable": true,
+        "location": "Settings > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "retained_copy_encryption.key_provider.external.file",
+      "yaml_path": "retained_copy_encryption.key_provider.external.file",
+      "cli_flags": [
+        "encryption policy patch --external-file"
+      ],
+      "env": [],
+      "type": "string (path)",
+      "default": "\"\"",
+      "required": false,
+      "scope": "deployment",
+      "description": "External key reference (file), the secretref shape. Write-only: the API and CLI read it back as a description of its source. A set that requires encryption under such a reference writes encrypted copies through it, and the key must stay resolvable to verify them.",
+      "ui": {
+        "configurable": true,
+        "location": "Settings > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "retained_copy_encryption.key_provider.external.env",
+      "yaml_path": "retained_copy_encryption.key_provider.external.env",
+      "cli_flags": [
+        "encryption policy patch --external-env"
+      ],
+      "env": [],
+      "type": "string (env var NAME)",
+      "default": "\"\"",
+      "required": false,
+      "scope": "deployment",
+      "description": "External key reference (env), the secretref shape. Write-only: the API and CLI read it back as a description of its source. A set that requires encryption under such a reference writes encrypted copies through it, and the key must stay resolvable to verify them.",
+      "ui": {
+        "configurable": true,
+        "location": "Settings > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "retained_copy_encryption.key_provider.external.command",
+      "yaml_path": "retained_copy_encryption.key_provider.external.command",
+      "cli_flags": [
+        "encryption policy patch --external-command"
+      ],
+      "env": [],
+      "type": "[]string (argv)",
+      "default": "[] ",
+      "required": false,
+      "scope": "deployment",
+      "description": "External key reference (command), the secretref shape. Write-only: the API and CLI read it back as a description of its source. A set that requires encryption under such a reference writes encrypted copies through it, and the key must stay resolvable to verify them.",
+      "ui": {
+        "configurable": true,
+        "location": "Settings > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "sources[].backup_sets[].retained_copy_encryption.mode",
+      "yaml_path": "sources[].backup_sets[].retained_copy_encryption.mode",
+      "cli_flags": [
+        "encryption backup-set --mode"
+      ],
+      "env": [],
+      "type": "enum inherit|off|required",
+      "default": "inherit",
+      "required": false,
+      "scope": "backup_set",
+      "description": "One backup set's own answer to retained-copy encryption; inherit follows the deployment. An incremental (kopia) set draws the control disabled, since its repository is already encrypted.",
+      "ui": {
+        "configurable": true,
+        "location": "Backup set detail > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "sources[].backup_sets[].retained_copy_encryption.key_provider.managed",
+      "yaml_path": "sources[].backup_sets[].retained_copy_encryption.key_provider.managed",
+      "cli_flags": [
+        "encryption backup-set --managed"
+      ],
+      "env": [],
+      "type": "bool",
+      "default": "false",
+      "required": false,
+      "scope": "backup_set",
+      "description": "The set's own override to use the managed key. The per-set surface is mode and key_provider and nothing else.",
+      "ui": {
+        "configurable": true,
+        "location": "Backup set detail > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "sources[].backup_sets[].retained_copy_encryption.key_provider.external.file",
+      "yaml_path": "sources[].backup_sets[].retained_copy_encryption.key_provider.external.file",
+      "cli_flags": [
+        "encryption backup-set --external-file"
+      ],
+      "env": [],
+      "type": "string (path)",
+      "default": "\"\"",
+      "required": false,
+      "scope": "backup_set",
+      "description": "The set's own external key reference (file). Write-only, as at the deployment level.",
+      "ui": {
+        "configurable": true,
+        "location": "Backup set detail > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "sources[].backup_sets[].retained_copy_encryption.key_provider.external.env",
+      "yaml_path": "sources[].backup_sets[].retained_copy_encryption.key_provider.external.env",
+      "cli_flags": [
+        "encryption backup-set --external-env"
+      ],
+      "env": [],
+      "type": "string (env var NAME)",
+      "default": "\"\"",
+      "required": false,
+      "scope": "backup_set",
+      "description": "The set's own external key reference (env). Write-only, as at the deployment level.",
+      "ui": {
+        "configurable": true,
+        "location": "Backup set detail > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "sources[].backup_sets[].retained_copy_encryption.key_provider.external.command",
+      "yaml_path": "sources[].backup_sets[].retained_copy_encryption.key_provider.external.command",
+      "cli_flags": [
+        "encryption backup-set --external-command"
+      ],
+      "env": [],
+      "type": "[]string (argv)",
+      "default": "[] ",
+      "required": false,
+      "scope": "backup_set",
+      "description": "The set's own external key reference (command). Write-only, as at the deployment level.",
+      "ui": {
+        "configurable": true,
+        "location": "Backup set detail > Retained-copy encryption",
+        "recommendation": null
       }
     },
     {
@@ -1717,6 +1897,86 @@
         "configurable": false,
         "location": "Settings > Storage destinations (reported as an unverified badge; Test connection clears it)",
         "recommendation": "file-only: service-managed state rather than an operator setting"
+      }
+    },
+    {
+      "field": "agents.http_transport",
+      "yaml_path": "agents.http_transport",
+      "cli_flags": [],
+      "env": [],
+      "type": "enum off|on",
+      "default": "off (a config that writes nothing resolves off)",
+      "required": false,
+      "scope": "deployment",
+      "description": "Whether the MCP endpoint at /api/v1/agent/mcp answers. Off, it refuses AGENT_HTTP_TRANSPORT_OFF. Off by default because a long-lived bearer on a plain-HTTP stream is a worse exposure than a session cookie that expires; the stdio transport (retnd agent serve --stdio) is not affected by it. Writing an `agents:` block is a one-way door: a build before EPIC U refuses a config.yaml that carries it (KnownFields). A config that writes nothing resolves the default.",
+      "ui": {
+        "configurable": false,
+        "location": null,
+        "recommendation": "file-only: a deployment-wide agent-access setting, read by the engine at start; the Agents card states whether the HTTP transport is on but does not change it"
+      }
+    },
+    {
+      "field": "agents.rate_limit_per_minute",
+      "yaml_path": "agents.rate_limit_per_minute",
+      "cli_flags": [],
+      "env": [],
+      "type": "int",
+      "default": "60",
+      "required": false,
+      "scope": "deployment",
+      "description": "Calls per agent token per minute across both transports. A token over the line is refused AGENT_RATE_LIMITED with the wait, and the refusal is audited. Writing an `agents:` block is a one-way door: a build before EPIC U refuses a config.yaml that carries it (KnownFields). A config that writes nothing resolves the default.",
+      "ui": {
+        "configurable": false,
+        "location": null,
+        "recommendation": "file-only: a deployment-wide agent-access setting, read by the engine at start; the Agents card states whether the HTTP transport is on but does not change it"
+      }
+    },
+    {
+      "field": "agents.confirmation_ttl",
+      "yaml_path": "agents.confirmation_ttl",
+      "cli_flags": [],
+      "env": [],
+      "type": "duration",
+      "default": "15m",
+      "required": false,
+      "scope": "deployment",
+      "description": "How long a pending confirmation waits for a person before it expires. An expired confirmation is refused AGENT_CONFIRMATION_EXPIRED and executes nothing. Writing an `agents:` block is a one-way door: a build before EPIC U refuses a config.yaml that carries it (KnownFields). A config that writes nothing resolves the default.",
+      "ui": {
+        "configurable": false,
+        "location": null,
+        "recommendation": "file-only: a deployment-wide agent-access setting, read by the engine at start; the Agents card states whether the HTTP transport is on but does not change it"
+      }
+    },
+    {
+      "field": "agents.audit_retention_days",
+      "yaml_path": "agents.audit_retention_days",
+      "cli_flags": [],
+      "env": [],
+      "type": "int",
+      "default": "90",
+      "required": false,
+      "scope": "deployment",
+      "description": "How many days of agent_audit rows are kept. Older rows are pruned. Every agent call, reads included, is one row. Writing an `agents:` block is a one-way door: a build before EPIC U refuses a config.yaml that carries it (KnownFields). A config that writes nothing resolves the default.",
+      "ui": {
+        "configurable": false,
+        "location": null,
+        "recommendation": "file-only: a deployment-wide agent-access setting, read by the engine at start; the Agents card states whether the HTTP transport is on but does not change it"
+      }
+    },
+    {
+      "field": "agents.max_pending_confirmations",
+      "yaml_path": "agents.max_pending_confirmations",
+      "cli_flags": [],
+      "env": [],
+      "type": "int",
+      "default": "5",
+      "required": false,
+      "scope": "deployment",
+      "description": "Open confirmations one agent token may have at a time. The next is refused AGENT_CONFIRMATION_LIMIT. Writing an `agents:` block is a one-way door: a build before EPIC U refuses a config.yaml that carries it (KnownFields). A config that writes nothing resolves the default.",
+      "ui": {
+        "configurable": false,
+        "location": null,
+        "recommendation": "file-only: a deployment-wide agent-access setting, read by the engine at start; the Agents card states whether the HTTP transport is on but does not change it"
       }
     },
     {

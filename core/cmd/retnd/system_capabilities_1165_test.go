@@ -34,6 +34,7 @@ func shutCapabilities() map[string]any {
 	return map[string]any{
 		"platform": "generic", "native_auth": false, "native_notifications": false,
 		"storage_picker": false, "embedded_window": false, "app_store_packaging": false,
+		"agents_http_transport": "off",
 		// Every field the contract requires, because --json re-serialises the
 		// typed object and a fixture missing one would be compared against
 		// something the engine could not have served (#1163 added the two).

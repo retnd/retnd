@@ -79,6 +79,13 @@ type matrixPair struct {
 	// ledger is the promise this matrix's own opening paragraph makes about
 	// its section 4 ledger.
 	ledger ledgerRule
+	// whereCol is the zero-based column of a gate row that names the files
+	// the row certifies. EPIC E and R lay their gate tables out as
+	// `# | Outcome | Certifies | Where | Falsification` (3); EPIC N and T as
+	// `ID | Claim | Executable proof | Falsification | Status | Waits on` (2).
+	// Reading a fixed column handed N and T rows' falsification text to the
+	// existence check, so N2.6 and T2.4 "cited no file at all" (#1360).
+	whereCol int
 }
 
 // gatePhase is one exit gate: the prefix its matrix rows are numbered with,
@@ -118,7 +125,8 @@ var matrixPairs = []matrixPair{
 			{prefix: "P1", heading: "### Phase 1 exit gate"},
 			{prefix: "P2", heading: "### Phase 2 exit gate"},
 		},
-		ledger: ledgerRowPerGuard,
+		ledger:   ledgerRowPerGuard,
+		whereCol: 3,
 	},
 	{
 		name:     "EPIC R",
@@ -130,7 +138,66 @@ var matrixPairs = []matrixPair{
 			{prefix: "R1", heading: "### Phase 1 exit gate"},
 			{prefix: "R2", heading: "### Phase 2 exit gate"},
 		},
-		ledger: ledgerRowPerUncoveredGuard,
+		ledger:   ledgerRowPerUncoveredGuard,
+		whereCol: 3,
+	},
+	{
+		// EPIC N (#967) lands its matrix with every row BLOCKED and
+		// registers here in the same pull request (#968), red first, so
+		// the pair is held together from the day the documents exist
+		// rather than from the day somebody remembers. Its matrix promises
+		// one ledger row per guard in the spec's section 6 table, EPIC E's
+		// rule, and puts the ten key-material surfaces in that table as
+		// ten guards, so a composite "no key anywhere" row cannot hide a
+		// per-surface regression. The NC-nn consensus rows carry no outcome
+		// this parser reads; #998's dedicated checker holds those.
+		name:     "EPIC N",
+		spec:     "../../../docs/EPIC-N-encrypted-retained-copies.md",
+		matrix:   "../../../docs/conformance/epic-n-matrix.md",
+		gateID:   regexp.MustCompile(`^N[12]\.\d+$`),
+		ledgerID: regexp.MustCompile(`^NV\.\d+$`),
+		gates: []gatePhase{
+			{prefix: "N1", heading: "### Phase 1 exit gate"},
+			{prefix: "N2", heading: "### Phase 2 exit gate"},
+		},
+		ledger:   ledgerRowPerGuard,
+		whereCol: 2,
+	},
+	{
+		// EPIC T (#1310) follows EPIC N's shape on purpose: it lands its
+		// matrix with every row BLOCKED and registers here first (#1311),
+		// red, so the suite agility documents are held together from the
+		// day they exist. One ledger row per guard in the spec's section 6
+		// table, EPIC E's rule, because each suite guard is a separate
+		// downgrade path and a composite row would hide one of them.
+		name:     "EPIC T",
+		spec:     "../../../docs/EPIC-T-encryption-suites.md",
+		matrix:   "../../../docs/conformance/epic-t-matrix.md",
+		gateID:   regexp.MustCompile(`^T[12]\.\d+$`),
+		ledgerID: regexp.MustCompile(`^TV\.\d+$`),
+		gates: []gatePhase{
+			{prefix: "T1", heading: "### Phase 1 exit gate"},
+			{prefix: "T2", heading: "### Phase 2 exit gate"},
+		},
+		ledger:   ledgerRowPerGuard,
+		whereCol: 2,
+	},
+	{
+		// EPIC U (#1343) follows EPIC N's and T's shape: its matrix lands
+		// with every row BLOCKED and the pair registers here in #1345's
+		// first commit. One ledger row per guard in the spec's section 6
+		// table, because each agent guard is a separate way in.
+		name:     "EPIC U",
+		spec:     "../../../docs/EPIC-U-mcp-server.md",
+		matrix:   "../../../docs/conformance/epic-u-matrix.md",
+		gateID:   regexp.MustCompile(`^U[12]\.\d+$`),
+		ledgerID: regexp.MustCompile(`^UV\.\d+$`),
+		gates: []gatePhase{
+			{prefix: "U1", heading: "### Phase 1 exit gate"},
+			{prefix: "U2", heading: "### Phase 2 exit gate"},
+		},
+		ledger:   ledgerRowPerGuard,
+		whereCol: 2,
 	},
 }
 
@@ -142,8 +209,10 @@ var matrixPairs = []matrixPair{
 const matrixRepo = "retnd/retnd"
 
 // backtickPath matches a `like/this` span that looks like a repository
-// path: it has a slash and no spaces.
-var backtickPath = regexp.MustCompile("`([A-Za-z0-9_./-]+/[A-Za-z0-9_./-]+)`")
+// path: it has a slash and no spaces. A `dir:TestName` citation, the form the
+// EPIC N and T proof columns use for a Go test, matches too, and the part
+// before the colon is the path that gets resolved.
+var backtickPath = regexp.MustCompile("`([A-Za-z0-9_./-]+/[A-Za-z0-9_./-]+)(?::[A-Za-z0-9_./]+)?`")
 
 // issueCitation matches a `#123` issue reference in an outcome cell.
 var issueCitation = regexp.MustCompile(`#(\d+)`)
@@ -468,6 +537,18 @@ func TestTheViolationLedgerIsHeldToTheSpecsGuardTable(t *testing.T) {
 // `gh` wiring by scripts/conformance/selftest.sh, which points a PASS row
 // at #235 and requires this to say so.
 func TestEveryBlockedRowCitesAnIssueThatIsStillOpen(t *testing.T) {
+	// Release run only (#1361). This is the one test in the package whose
+	// verdict depends on something that is not in the tree: an issue closed
+	// by hand turned main red with no commit at all (#1310, one minute after
+	// the last EPIC T merge), and every lane's next commit inherited it.
+	// The fast tier (scripts/ci-fast.sh, which the pre-commit hook and
+	// scripts/merge-gate.sh run) says so in CI_LOCAL_TIER and stands this
+	// down, out loud. The full gate (scripts/ci-local.sh) sets "full", and
+	// run by hand it is unset, so both still ask GitHub. The offline half,
+	// TestTheBlockedCitationGuardCanFail, runs everywhere.
+	if os.Getenv("CI_LOCAL_TIER") == "fast" {
+		t.Skip("CI_LOCAL_TIER=fast: the live BLOCKED-row citation check runs in the full gate on the release PR (docs/reference/local-gate.md, Tiers)")
+	}
 	for _, pair := range matrixPairs {
 		t.Run(pair.name, func(t *testing.T) {
 			blob, err := os.ReadFile(pair.matrix)
@@ -479,6 +560,34 @@ func TestEveryBlockedRowCitesAnIssueThatIsStillOpen(t *testing.T) {
 			if len(rows) == 0 {
 				t.Logf("no row in %s is BLOCKED, so there is no citation to resolve and GitHub is not asked", pair.matrix)
 				return
+			}
+
+			// The one way this check stands down, and it is not quiet. The
+			// gate sets CI_LOCAL_GITHUB_LEDGER to a file when its own probe
+			// found no usable gh (the pinned container image has none, and
+			// carries no credential on purpose, #1331). The rows that went
+			// unresolved are written there and the gate puts them in its
+			// skip ledger, so the run ends INCOMPLETE naming them. Outside
+			// the gate the variable is unset and a missing gh still FAILS.
+			if ledger := os.Getenv("CI_LOCAL_GITHUB_LEDGER"); ledger != "" {
+				ids := make([]string, 0, len(rows))
+				for _, row := range rows {
+					ids = append(ids, row.id)
+				}
+				note := fmt.Sprintf("the BLOCKED-row citation check in core/tests/compat (%s): %d BLOCKED row(s) (%s) cite issues nobody asked GitHub about, because this host has no usable gh",
+					pair.matrix, len(rows), strings.Join(ids, ", "))
+				f, err := os.OpenFile(ledger, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+				if err != nil {
+					t.Fatalf("the gate asked for unresolved citations to be ledgered in %s and it cannot be opened, so this cannot stand down: %v", ledger, err)
+				}
+				_, werr := fmt.Fprintln(f, note)
+				if cerr := f.Close(); werr == nil {
+					werr = cerr
+				}
+				if werr != nil {
+					t.Fatalf("writing the ledger entry to %s: %v", ledger, werr)
+				}
+				t.Skip(note)
 			}
 
 			for _, complaint := range blockedCitationComplaints(rows, ghIssueState) {
@@ -710,9 +819,9 @@ func gateRows(md string, pair matrixPair) []matrixRow {
 		if !pair.gateID.MatchString(id) {
 			continue
 		}
-		// Both matrices put Where fourth; the outcome is found rather than
-		// counted, for the reason outcomeOf gives.
-		out = append(out, matrixRow{id: id, outcome: outcomeOf(cols), where: cols[3]})
+		// Where is the pair's own column, and the outcome is found rather
+		// than counted, for the reason outcomeOf gives.
+		out = append(out, matrixRow{id: id, outcome: outcomeOf(cols), where: cols[pair.whereCol]})
 	}
 	return out
 }

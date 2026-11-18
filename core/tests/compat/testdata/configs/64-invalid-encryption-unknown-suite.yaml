@@ -1,0 +1,26 @@
+# EPIC T (#1314): a suite id this build has no adapter for. Every copy
+# written under it would be unreadable here, so Load refuses it naming the
+# id, and nothing is ever substituted for it (ADR 0033 D7.1).
+poll_interval: 15m
+
+state:
+  database: /var/lib/retnd/state.db
+
+retained_copy_encryption:
+  mode: required
+  suite: aes-256-military-grade
+  key_provider:
+    managed: true
+
+sources:
+  - id: production
+    backup_sets:
+      - id: postgres-primary
+        remote:
+          type: local
+        remote_path: /srv/exports/postgres
+        local_path: /backups/production/postgres
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h

@@ -582,7 +582,7 @@ func newUnconfiguredRouter(h *handlers, platform capabilities.PlatformAdapter) h
 	r.Get("/health/ready", h.healthReady)
 
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(authMiddleware(platform))
+		r.Use(authMiddleware(platform, nil, nil, nil))
 
 		// Read-only, and how a client learns which mode it is looking at.
 		r.Get("/system/version", h.systemVersion)

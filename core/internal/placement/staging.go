@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -178,6 +179,65 @@ func (e *Engine) canStage(artifact model.ArtifactID) error {
 // FR-30's invariant rests on until the VERIFIED write records the
 // destination.
 func (e *Engine) copyMediumToMedium(ctx context.Context, mv state.Move, src state.Placement) (int64, error) {
+	// An encrypted source is re-homed as the same ciphertext: what is staged,
+	// size-checked and hash-checked is the object at the key, against the
+	// stored-bytes digest and size the journal recorded for it, because the
+	// plaintext digest is a number no ciphertext can match. Everything below
+	// then runs unchanged on that view of the source.
+	enc, encrypted, err := e.encryptionOf(ctx, mv.Artifact, src.Medium)
+	if err != nil {
+		return 0, err
+	}
+	if encrypted {
+		// An encrypted copy an operator opted in to rewrite (#1317) is
+		// re-encrypted under the active suite and key instead of re-homed.
+		// The retention cycle never writes the opt-in, so a key rotation or a
+		// suite deprecation cannot turn into a rewrite of copies on its own.
+		consented, err := e.retroConsented(ctx, mv)
+		if err != nil {
+			return 0, err
+		}
+		if consented {
+			on, err := e.encryptedSet(mv.Artifact.Set)
+			if err != nil {
+				return 0, err
+			}
+			if !on {
+				return 0, fmt.Errorf("%w: %w: %s was opted in to be re-encrypted, and its backup set no longer requires encryption",
+					ErrClassRefused, ErrEncryptExistingNotRequired, mv.Artifact)
+			}
+			return e.copyEncryptedToMedium(ctx, mv, src)
+		}
+		if !strings.EqualFold(enc.StoredHashAlg, string(transport.SHA256)) {
+			return 0, fmt.Errorf("%w: the copy of %s on %q records its stored bytes under %q, and the staged ciphertext is checked with %s",
+				ErrClassUnavailable, mv.Artifact, src.Medium, enc.StoredHashAlg, transport.SHA256)
+		}
+		storedSize := enc.StoredSize
+		src.Hash, src.HashAlg, src.Size = enc.StoredHash, enc.StoredHashAlg, &storedSize
+	} else {
+		// A plaintext copy. Under a set that requires encryption it is
+		// encrypted only for a move an operator opted in to (retroencrypt.go,
+		// #1291); the retention cycle never writes that opt-in, so a policy
+		// change cannot turn into a rewrite of copies that already exist.
+		on, err := e.encryptedSet(mv.Artifact.Set)
+		if err != nil {
+			return 0, err
+		}
+		consented, err := e.retroConsented(ctx, mv)
+		if err != nil {
+			return 0, err
+		}
+		switch {
+		case on && consented:
+			return e.copyEncryptedToMedium(ctx, mv, src)
+		case on:
+			return 0, fmt.Errorf("%w: backup set %s requires encryption, and a hop between two mediums would stage and upload the artifact in the clear; to encrypt the copy that already exists, run `encryption encrypt-existing` for it (nothing does that on its own)",
+				ErrClassRefused, mv.Artifact.Set)
+		case consented:
+			return 0, fmt.Errorf("%w: %w: %s was opted in to be encrypted, and its backup set no longer requires it",
+				ErrClassRefused, ErrEncryptExistingNotRequired, mv.Artifact)
+		}
+	}
 	if e.Store == nil {
 		return 0, fmt.Errorf("no medium store is configured")
 	}
@@ -337,7 +397,17 @@ func (e *Engine) roomToStage(staged string, src state.Placement) error {
 		return fmt.Errorf("the source placement on %q records no size, so nothing here can say whether a staging copy of it fits on local disk", src.Medium)
 	}
 	dir := filepath.Dir(staged)
-	free, err := e.stagingFreeBytes(dir)
+	// The staging area need not exist yet: the move path makes it just
+	// before this, but CheckEncryptExisting, which the dry run shares, writes
+	// nothing, so on a fresh deployment it asks about a directory nobody has
+	// made (#1331). A directory that does not exist yet will be made on the
+	// filesystem of its nearest existing ancestor (nothing can be mounted on
+	// a path that is not there), so that ancestor is what gets measured.
+	measured, err := nearestExistingDir(dir)
+	if err != nil {
+		return fmt.Errorf("the staging area %q could not be measured, so nothing here can say whether a staging copy fits: %w", dir, err)
+	}
+	free, err := e.stagingFreeBytes(measured)
 	if err != nil {
 		return fmt.Errorf("the staging area %q could not be measured, so nothing here can say whether a staging copy fits: %w", dir, err)
 	}
@@ -347,6 +417,28 @@ func (e *Engine) roomToStage(staged string, src state.Placement) error {
 			*src.Size, dir, free)
 	}
 	return nil
+}
+
+// nearestExistingDir is dir if it exists, otherwise its closest ancestor
+// that does. Anything other than "does not exist" (a permission error, a
+// file where a directory should be) is returned, not walked past.
+func nearestExistingDir(dir string) (string, error) {
+	for d := filepath.Clean(dir); ; {
+		info, err := os.Stat(d)
+		switch {
+		case err == nil && info.IsDir():
+			return d, nil
+		case err == nil:
+			return "", fmt.Errorf("%q is not a directory", d)
+		case !errors.Is(err, fs.ErrNotExist):
+			return "", err
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return "", fmt.Errorf("no ancestor of %q exists", dir)
+		}
+		d = parent
+	}
 }
 
 // stagingFreeBytes reports how many bytes are available where a staging

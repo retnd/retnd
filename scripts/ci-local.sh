@@ -130,21 +130,57 @@
 
 set -e
 
-# Homebrew goes first so the gate finds brew's tools on a machine whose shell
-# profile did not run, but not ahead of a golangci-lint the caller put on PATH
-# on purpose: brew's is whatever version is current, and the one this gate
-# means is the one scripts/ci/pins.env pins (see gate_golangci_pin_note), which is usually
-# built by hand and lives somewhere else.
-_caller_golangci=$(command -v golangci-lint 2>/dev/null || true)
-export PATH="/opt/homebrew/bin:$PATH"
-if [ -n "$_caller_golangci" ]; then
-  PATH="$(dirname "$_caller_golangci"):$PATH"
-  export PATH
+# Shards (#1457). With no argument this runs the whole gate, as it always has.
+#   --list-shards    print the shard names in scripts/release/gate-shards.txt
+#   --shard <name>   run only the steps that belong to that shard
+# Both are read before anything else happens, so asking for the list costs
+# nothing and a name that is not in the manifest is refused before a single
+# step runs. GATE_SHARD is set here, ahead of the library, so a value in the
+# caller's environment never selects a shard by accident.
+GATE_SHARD=""
+gate_manifest="$(cd "$(dirname "$0")" && pwd)/release/gate-shards.txt"
+gate_shard_names() { grep -vE '^[[:space:]]*(#|$)' "$gate_manifest"; }
+case "${1:-}" in
+  "") ;;
+  --list-shards)
+    gate_shard_names
+    exit 0
+    ;;
+  --shard)
+    GATE_SHARD="${2:-}"
+    [ "$#" -eq 2 ] && [ -n "$GATE_SHARD" ] || { echo "ci-local.sh: --shard takes exactly one shard name" >&2; exit 2; }
+    ;;
+  *)
+    echo "ci-local.sh: unknown argument [$1]. Usage: ci-local.sh [--shard <name> | --list-shards]" >&2
+    exit 2
+    ;;
+esac
+if [ -n "$GATE_SHARD" ] && [ "${CI_LOCAL_FAST:-0}" = 1 ]; then
+  echo "ci-local.sh: --shard and CI_LOCAL_FAST=1 do not combine (the fast tier has no package split)" >&2
+  exit 2
 fi
-# The line above puts Homebrew's tools ahead of whatever the caller set, so a
-# golangci-lint built for the pinned toolchain (see gate_golangci_pin_note
-# below) could never win from PATH alone. GOLANGCI_LINT_DIR is how to say
-# "this directory first".
+if [ -n "$GATE_SHARD" ] && ! gate_shard_names | grep -qxF -- "$GATE_SHARD"; then
+  echo "ci-local.sh: [$GATE_SHARD] is not a shard. The shards in scripts/release/gate-shards.txt are:" >&2
+  gate_shard_names | sed 's/^/    /' >&2
+  exit 2
+fi
+
+# Homebrew's tools have to be findable on a machine whose shell profile did
+# not run (a hook started from a GUI client), so /opt/homebrew/bin is APPENDED
+# when the caller's PATH doesn't have it. Never prepended, and a PATH that has
+# it is left alone: that is an order somebody chose. Putting Homebrew first
+# put brew's docker ahead of the gate self-test's stub daemon, so every docker
+# case in it measured the host, and brew's python3 ahead of the pinned venv's
+# (#1442, D5b and D5c there). It also used to need a second step to keep a
+# hand-built golangci-lint (the one scripts/ci/pins.env pins, see
+# gate_golangci_pin_note) ahead of brew's; appending makes that moot.
+case ":$PATH:" in
+  *:/opt/homebrew/bin:*) ;;
+  *) PATH="$PATH:/opt/homebrew/bin" ;;
+esac
+export PATH
+# GOLANGCI_LINT_DIR is how to say "this directory first" without touching
+# the caller's PATH.
 if [ -n "${GOLANGCI_LINT_DIR:-}" ]; then
   export PATH="$GOLANGCI_LINT_DIR:$PATH"
 fi
@@ -172,6 +208,13 @@ export CI_LOCAL=1
 # ever made. The recorder sets it too; both, so
 # neither depends on the other being the version in the worktree.
 export CI=1
+
+# Which tier this is, for the one test that must not run in the other. The
+# full gate is the release run; scripts/ci-fast.sh sets "fast". core/tests/compat
+# reads it to stand down the check that asks GitHub whether every BLOCKED
+# matrix row still cites an open issue, so closing an issue by hand cannot
+# turn a commit red when no commit changed (#1361).
+export CI_LOCAL_TIER=full
 
 # Running as a git hook (pre-commit) means git has GIT_INDEX_FILE (a path
 # relative to the repo root, e.g. ".git/index"), GIT_DIR, GIT_WORK_TREE, etc.
@@ -284,6 +327,9 @@ echo "==> toolchain: go $(go version 2>/dev/null | sed 's/^go version //' || ech
 echo "==> toolchain: golangci-lint $(golangci-lint --version 2>/dev/null | sed -n 's/.*has version v\{0,1\}\([0-9][0-9.]*\).*built with \(go[0-9][0-9.]*\).*/\1 built with \2/p' | head -n 1)"
 echo "==> toolchain: node $(node --version 2>/dev/null || echo unknown)"
 echo "==> toolchain: docker $(docker version --format '{{.Server.Version}}' 2>/dev/null || docker --version 2>/dev/null | sed -n 's/^Docker version \([^,]*\),.*/\1/p' || echo unknown)"
+if [ -n "$GATE_SHARD" ]; then
+  echo "==> shard: $GATE_SHARD"
+fi
 
 # Captured once, from repo root (where this script is always invoked from,
 # per .husky/pre-commit), so every module below can reference the one
@@ -294,9 +340,18 @@ REPO_ROOT="$(pwd)"
 # Before anything slow: a capability this gate reports on but does not have
 # is a hole in the gate, not a footnote. Refuse here rather than after twenty
 # minutes of Docker-backed Go tests.
-gate_require_js_deps ui/shared apps/common/tests apps/ugos/frontend/upk-proof
+if gate_shard_wants js; then
+  gate_require_js_deps ui/shared apps/common/tests apps/ugos/frontend/upk-proof
+fi
 
-if [ "$FAST" != "1" ]; then
+# A shard that has no Docker-backed step has no use for the daemon, so it
+# neither refuses without one nor keeps one awake (the sentinel below).
+gate_needs_docker=0
+if gate_shard_wants core-rest core-docker apps e2e two-machine selftest-conformance structure; then
+  gate_needs_docker=1
+fi
+
+if [ "$FAST" != "1" ] && [ "$gate_needs_docker" = 1 ]; then
   gate_require_docker
 fi
 
@@ -304,7 +359,9 @@ fi
 # the sentinel below makes it harmless, and the per-step probes turn what it
 # still breaks into a named failure. It is printed because it is the first
 # thing to check when the daemon dies at minute 18 (#457).
-gate_warn_resource_saver
+if [ "$gate_needs_docker" = 1 ]; then
+  gate_warn_resource_saver
+fi
 
 # The daemon is now known good (or the run said out loud that it is not merge
 # evidence). Keep it that way: Docker Desktop's Resource Saver measures IDLE,
@@ -312,12 +369,15 @@ gate_warn_resource_saver
 # timer, so every run used to cold-start the VM somewhere in the middle. One
 # container that sleeps for the life of the run means the daemon is never
 # idle, on any machine, without depending on a GUI setting (#457).
-gate_start_docker_sentinel
+if [ "$gate_needs_docker" = 1 ]; then
+  gate_start_docker_sentinel
+fi
 
 if [ "$FAST" = "1" ]; then
   gate_note_skip "core/ ./tests/... (the Docker-backed crash matrix, the SFTP integration tests, the MinIO integration tests and the composed conformance scenario), the cross-compiles, the upk-proof and ui/shared production builds, the apps/common/tests cross-provider conformance suite, the browser e2e suite and CLI smoke slice from retnd-tests, the repository-structure dependency rules and this gate's own self-test (CI_LOCAL_FAST=1)"
 fi
 
+gate_seg_static_a() {
 # The mutation-anchor check (#458), added under separate work. An anchor here
 # is a verbatim copy of product source that a mutation selftest plants a
 # violation into, not a link in a document. scripts/compat/selftest.sh and
@@ -445,6 +505,34 @@ bash scripts/docs/check-package-doc.sh
 gate_step "docs site colour tokens meet WCAG AA in both themes, and the checker can still fail (#1054)"
 bash scripts/contrast/check.sh
 
+# The docs-site media capture tooling (#926). Two unrelated breaks (an unbound
+# FFMPEG in Clip.write, a placeholder SSH port the wizard refuses since #864)
+# meant nothing could be re-recorded and no gate said so. This runs the harness
+# far enough to encode a clip, checks EXAMPLE.port against the wizard's own
+# isPort, and checks every label a capture script drives still exists in
+# ui/shared/src (the stale step names #788 left behind). No browser, no
+# server, about a second. Exit 3 is "no ffmpeg or no node here", a ledgered
+# skip like the other host-dependent steps.
+gate_step "the docs-site capture tooling still encodes a clip and drives labels the UI has (#926)"
+if command -v node >/dev/null 2>&1; then
+  _cap_rc=0
+  # Probe ffmpeg BEFORE node --test: its first case encodes a clip and fails
+  # (exit 1, "broken") on a host with no ffmpeg, which said "broken" about a
+  # capability the host simply lacks (#1455). Missing is the named skip below.
+  if ! command -v "${FFMPEG:-ffmpeg}" >/dev/null 2>&1 && [ ! -x /opt/homebrew/bin/ffmpeg ] && [ ! -x /usr/local/bin/ffmpeg ] && [ ! -x /usr/bin/ffmpeg ]; then
+    _cap_rc=3
+  fi
+  [ "$_cap_rc" -eq 0 ] && { node --test docs/site/tools/check-tools.test.mjs || _cap_rc=$?; }
+  [ "$_cap_rc" -eq 0 ] && { node docs/site/tools/check-tools.mjs || _cap_rc=$?; }
+  if [ "$_cap_rc" -eq 3 ]; then
+    gate_note_skip "the docs-site capture tooling check (#926): no ffmpeg on PATH. Install it and re-run."
+  elif [ "$_cap_rc" -ne 0 ]; then
+    exit "$_cap_rc"
+  fi
+else
+  gate_note_skip "the docs-site capture tooling check (#926): node is not on PATH."
+fi
+
 # The same blind spot, for the checks that actually find bugs (#417). Being
 # outside every module does not only cost those two files their formatting:
 # this gate vets and lints per module too, so nothing has ever vetted or
@@ -508,6 +596,21 @@ bash scripts/tests/web-ui-ratchet.test.sh
 # sources and refuses when the page is missing one. No Docker, instant.
 gate_step "docs/reference/local-gate.md documents every knob the gate reads (#1260)"
 bash scripts/tests/local-gate-reference.test.sh
+
+# The fast tier and the pre-merge check (#1361): which paths pick which
+# checks, that a Go-only commit in a fresh worktree is not blocked by missing
+# JS deps, the hooks-path refusal, the Local-Gate: fast stamp, and that
+# scripts/merge-gate.sh posts the right state. Stubs only, no Docker.
+gate_step "the fast tier, the hook's hooks-path refusal and the pre-merge check behave as documented (#1361)"
+bash scripts/tests/ci-fast.test.sh
+
+# ci-docker.sh --host (#1267) ships the tree to another machine's Docker
+# daemon and runs the gate there. This drives it with stand-ins for docker,
+# rsync, tar and ssh: the daemon each call goes to, what is mounted, the exit
+# status, the cleanup, the free-space refusal and that no secret travels.
+# No Docker, no network, a few seconds.
+gate_step "ci-docker.sh --host runs the gate on a remote daemon from a copy, and cleans up (#1267)"
+bash scripts/tests/ci-docker-remote.test.sh
 
 # Every Python file under scripts/, held to a linter, and the subset that is
 # clean under a type checker held to that too (EPIC I / I1.6, #672).
@@ -626,6 +729,47 @@ bash scripts/tests/release-refuses-an-ungated-publish.test.sh
 gate_step "the release still moves the latest tag, only forwards (#1168)"
 bash scripts/tests/release-moves-latest.test.sh
 
+# EPIC N's closing check (#998): the canonical container contract is an empty
+# diff, the epic adds exactly one migration (0015), and, in the release job, no
+# matrix row is BLOCKED and every listed capture exists. This drives the real
+# script against throwaway repositories, one planted violation per guard with
+# controls that must pass. The matrix and capture halves are the Go tests in
+# core/tests/encryptiongate, which run with the core suite below and carry their
+# own lie tables. No containers, no browser, no network.
+gate_step "the EPIC N closing check refuses a moved container contract or a second migration, and can still fail (#998)"
+bash scripts/tests/epic-n-closure.test.sh
+
+# EPIC T's closing check (#1320), the same shape for suite agility: the
+# canonical deployment is an empty diff against 477aec5a (a suite changes the
+# bytes of a copy, never how a container runs), the epic adds exactly its two
+# migrations (0020, the key's suite; 0021, the default it last ran under), and, in the release job, no row of
+# docs/conformance/epic-t-matrix.md is BLOCKED. This drives the real script
+# against throwaway repositories, one planted violation per guard and two
+# controls. The suite vectors (core/internal/copycrypt/suitetest) run with the
+# core suite below, the matrix half is core/tests/encryptiongate, and the
+# two-suite e2e rows run in the retnd-tests lane at the pin. No containers, no
+# browser, no network.
+gate_step "the EPIC T closing check refuses a moved canonical deployment or a migration other than 0020 and 0021, and can still fail (#1320)"
+bash scripts/tests/epic-t-closure.test.sh
+
+gate_step "the closure checks and their self-tests never pipe into grep -q under pipefail (#1482)"
+bash scripts/tests/closure-no-pipe-grep-q.test.sh
+
+# EPIC U's closing check (#1353), the same shape for the MCP server: the
+# canonical deployment is an empty diff against 9cd53e1f (an agent is a client of
+# /api/v1 and the engine runs exactly as before), the epic adds exactly one
+# migration (0022, the three agent tables), and no row of
+# docs/conformance/epic-u-matrix.md is BLOCKED. This drives the real script
+# against throwaway repositories, one planted violation per guard (a moved
+# compose file, a second migration, a BLOCKED row) and two controls. The matrix
+# half in closing mode is core/tests/agentgate, which runs with the core suite
+# below in open mode and carries its own lie table, and the equivalence suite
+# runs in the retnd-tests lane at the pin. No containers, no browser, no network.
+gate_step "the EPIC U closing check refuses a moved canonical deployment, a migration other than 0022 or a BLOCKED row, and can still fail (#1353)"
+bash scripts/tests/epic-u-closure.test.sh
+}
+
+gate_seg_core_build() {
 gate_step "core/ go build"
 (cd core && GOWORK=off go build ./...)
 
@@ -634,7 +778,9 @@ gate_step "core/ go vet"
 
 gate_step "core/ golangci-lint"
 gate_lint core
+}
 
+gate_seg_core_test() {
 if [ "$FAST" = "1" ]; then
   gate_docker_step "core/ go test -race ./internal/... (CI_LOCAL_FAST=1: skipping ./tests/... Docker suites)"
   (cd core && GOWORK=off go test -race -timeout 45m ./internal/...)
@@ -654,9 +800,25 @@ else
   # derived from this run's own measured pace instead (issue #247's
   # reasoning, one layer out; see core/cmd/gotestwatch/doc.go), so there
   # is no fixed number to outgrow.
+  # core/tests/compat asks GitHub whether every BLOCKED conformance row
+  # still cites an open issue, through gh and gh's own login. The pinned
+  # image in scripts/ci/Dockerfile has no gh and no credential, on purpose,
+  # so under scripts/ci-docker.sh that check cannot run at all (#1331). It
+  # used to FAIL there, which said "broken" about a capability the host
+  # simply lacks. Now the gate probes gh first and, when it is missing or
+  # not logged in, hands the test a file to write the rows it could not
+  # resolve into. Each one lands in the skip ledger, so the run ends
+  # INCOMPLETE naming them, and a matrix with no BLOCKED row costs nothing.
+  gate_github_ledger_open
   gate_docker_step "core/ go test -race ./... (excluding tests/crashmatrix + tests/sftpintegration + tests/sshexecintegration + tests/miniointegration + tests/conformance + tests/machinegate + tests/containerhooks and cmd/gotestwatch, all run next)"
-  (cd core && GOWORK=off go test -race -timeout 45m $(GOWORK=off go list ./... | grep -vE '/(tests/(crashmatrix|sftpintegration|sshexecintegration|miniointegration|conformance|machinegate|containerhooks)|cmd/gotestwatch)$'))
+  # shellcheck disable=SC2046  # the package list from `go list` is meant to split into one word each
+  (cd core && GOWORK=off go test -race -timeout 45m $(GOWORK=off go list ./... | grep -vE '/(tests/(crashmatrix|sftpintegration|sshexecintegration|miniointegration|conformance|machinegate|containerhooks)|cmd/gotestwatch)$' | gate_core_shard_filter))
+  gate_github_ledger_close
+fi
+}
 
+gate_seg_core_watch() {
+if [ "$FAST" != "1" ]; then
   # cmd/gotestwatch is compiled and run rather than handed to `go test`,
   # and the reason is the same three-outcome honesty this gate is built on
   # (#160), one level down. Its TestMain keeps a ledger of controls that
@@ -690,7 +852,11 @@ else
       exit "$gotestwatch_status"
       ;;
   esac
+fi
+}
 
+gate_seg_core_docker() {
+if [ "$FAST" != "1" ]; then
   # The 4m default of -overall-floor is the cap on a run that keeps reporting
   # progress and never finishes, and it is a fixed number: these seven
   # packages take about 150s on an idle machine, and sftpintegration alone
@@ -700,7 +866,9 @@ else
   gate_docker_step "core/ tests/crashmatrix + tests/sftpintegration + tests/sshexecintegration + tests/miniointegration + tests/conformance + tests/machinegate + tests/containerhooks under gotestwatch, -race (issue #256: no fixed go test -timeout)"
   (cd core && GOWORK=off go run ./cmd/gotestwatch -overall-floor 12m -- -race -count=1 ./tests/crashmatrix/... ./tests/sftpintegration/... ./tests/sshexecintegration/... ./tests/miniointegration/... ./tests/conformance/... ./tests/machinegate/... ./tests/containerhooks/...)
 fi
+}
 
+gate_seg_apps_a() {
 # A Docker-backed step since #1260: apps/common/auth/local's recovery test
 # starts a mail-sink container, so it belongs under the lock with the
 # other steps that load the daemon.
@@ -722,6 +890,7 @@ if [ "$FAST" != "1" ]; then
 fi
 
 gate_docker_step "distribution go build, vet, test -race (every package but packaging, which runs next)"
+# shellcheck disable=SC2046  # the package list from `go list` is meant to split into one word each
 (cd distribution && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test -race $(GOWORK=off go list ./... | grep -v '/packaging$'))
 
 # The one Go suite in this gate that does NOT run under the detector, and
@@ -781,7 +950,9 @@ if [ -f apps/ugos/backend/go.mod ]; then
     (cd apps/ugos/backend && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o /dev/null ./...)
   fi
 fi
+}
 
+gate_seg_js_upk() {
 if [ "$FAST" != "1" ]; then
   case "$(gate_workspace_state apps/ugos/frontend/upk-proof)" in
     installed)
@@ -795,7 +966,9 @@ if [ "$FAST" != "1" ]; then
       ;;
   esac
 fi
+}
 
+gate_seg_apps_b() {
 if [ "$FAST" != "1" ]; then
   gate_step "UGREEN cross-compile (amd64)"
   (cd core && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 GOWORK=off go build -o /dev/null ./...)
@@ -803,7 +976,9 @@ if [ "$FAST" != "1" ]; then
   gate_step "UGREEN cross-compile (arm64)"
   (cd core && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 GOWORK=off go build -o /dev/null ./...)
 fi
+}
 
+gate_seg_js_a() {
 case "$(gate_workspace_state ui/shared)" in
   installed)
     gate_step "ui/shared typecheck"
@@ -860,7 +1035,9 @@ if [ "$FAST" != "1" ]; then
       ;;
   esac
 fi
+}
 
+gate_seg_e2e() {
 # The browser e2e signal (#158, #197). Until this step existed, the
 # Playwright suite had no automated execution anywhere: nightly-e2e.yml's
 # schedule is commented out, and this script never invoked it. So it ran when somebody remembered to,
@@ -901,7 +1078,20 @@ if [ "$FAST" != "1" ]; then
     # Not under `set -e`: exit 3 is a verdict this script has to READ, and
     # `set -e` would end the run on it before the ledger ever saw it.
     set +e
-    bash scripts/e2e/run-tests-repo-gate.sh
+    # On the maintainer's Mac the browser run goes through the workspace
+    # Playwright lock (#1373): one run at a time and a watchdog on the
+    # headless Chromes. Anywhere else (the lanes, Linux hosts) it runs bare.
+    # RETND_PW_LOCK names another lock script. On a Mac with no lock at that
+    # path the run goes ahead bare, and says so.
+    pw_lock="${RETND_PW_LOCK:-/Users/rom/workspace/xdg-pw-lock.sh}"
+    if [ "$(uname -s)" = "Darwin" ] && [ -x "$pw_lock" ]; then
+      "$pw_lock" bash scripts/e2e/run-tests-repo-gate.sh
+    else
+      if [ "$(uname -s)" = "Darwin" ]; then
+        echo "==> ci-local: browser gate running without the Playwright lock ($pw_lock is not an executable file; RETND_PW_LOCK names another)"
+      fi
+      bash scripts/e2e/run-tests-repo-gate.sh
+    fi
     e2e_status=$?
     set -e
     case "$e2e_status" in
@@ -915,7 +1105,9 @@ if [ "$FAST" != "1" ]; then
     esac
   fi
 fi
+}
 
+gate_seg_two_machine() {
 # The two-machine end-to-end backup proof (#356). Everything between
 # "nothing installed" and "an artifact is on disk" was proven in pieces and
 # nowhere joined up, so the one claim a user actually makes (a fresh
@@ -965,7 +1157,9 @@ if [ "$FAST" != "1" ]; then
     esac
   fi
 fi
+}
 
+gate_seg_static_b() {
 # The static layer checks (issue #165) run even in FAST mode: none of them
 # builds, installs or deletes anything, so together they cost seconds, and
 # they are the ones a mid-refactor edit is most likely to break.
@@ -1087,7 +1281,9 @@ bash scripts/api/selftest.sh
 # other seconds-long sweeps rather than behind the Go suites.
 gate_step "no published release's provenance record has been restated (#895, R2.8)"
 bash scripts/release/check-published-provenance.sh
+}
 
+gate_seg_static_c() {
 if [ "$FAST" != "1" ]; then
   gate_step "release-manifest generator guards (#174)"
   bash scripts/tests/record-release-hashes-guards.test.sh
@@ -1126,7 +1322,11 @@ if [ "$FAST" != "1" ]; then
   # record that was never published freezing nothing.
   gate_step "the published-provenance guard can actually fail (mutation self-test, #895)"
   bash scripts/tests/published-provenance-guards.test.sh
+fi
+}
 
+gate_seg_selftest_gate() {
+if [ "$FAST" != "1" ]; then
   # The self-test runs this very script against synthetic checkouts, so
   # without a marker the recursion terminates only by whatever the fixture
   # happens to lack. CI_LOCAL_SELFTEST makes that an enforced invariant
@@ -1141,7 +1341,11 @@ if [ "$FAST" != "1" ]; then
 
   gate_step "architecture rules can actually fail (mutation self-test)"
   bash scripts/architecture/selftest.sh
+fi
+}
 
+gate_seg_static_d() {
+if [ "$FAST" != "1" ]; then
   # The detector itself, shown to fire (#417). Every `go test` above now
   # carries -race, and -race is the kind of check this repository has
   # learnt to distrust on sight: it exits 0 whether it looked or not, so a
@@ -1181,7 +1385,11 @@ if [ "$FAST" != "1" ]; then
   # back, and the last control checks the putting back. A second or two.
   gate_step "the package-documentation gate can actually fail, and its independent half stays quiet (mutation self-test, #526)"
   bash scripts/docs/selftest.sh
+fi
+}
 
+gate_seg_selftest_compat() {
+if [ "$FAST" != "1" ]; then
   # EPIC E's FR-35 compatibility gate, shown to fire (#242). core/tests/compat
   # is a wall of "nothing about a medium-free deployment moved" assertions,
   # and every one of them is the shape this repository keeps finding passing
@@ -1192,7 +1400,11 @@ if [ "$FAST" != "1" ]; then
   # the price of the corpus meaning anything.
   gate_step "the FR-35 compatibility cells can actually fail (mutation self-test, #242)"
   bash scripts/compat/selftest.sh
+fi
+}
 
+gate_seg_selftest_conformance() {
+if [ "$FAST" != "1" ]; then
   # EPIC E's composed conformance scenario, shown to fire (#242). Same
   # argument as the block above, applied to the other half of that issue:
   # core/tests/conformance runs the three-tier chain against MinIO and
@@ -1203,7 +1415,11 @@ if [ "$FAST" != "1" ]; then
   # AND name the promise it broke.
   gate_docker_step "the composed conformance cells can actually fail (mutation self-test, #242)"
   bash scripts/conformance/selftest.sh
+fi
+}
 
+gate_seg_selftest_retention() {
+if [ "$FAST" != "1" ]; then
   # FR-20's retention apply, shown to fire (#602). The two blocks above are
   # this repository's answer to "an assertion nobody has watched fail",
   # applied to the two surfaces that already had one; this is the same
@@ -1217,7 +1433,11 @@ if [ "$FAST" != "1" ]; then
   # control is the only thing that can see it. No Docker, a few minutes.
   gate_step "the retention-apply evidence can actually fail (mutation self-test, #602)"
   bash scripts/retention/selftest.sh
+fi
+}
 
+gate_seg_selftest_recovery() {
+if [ "$FAST" != "1" ]; then
   # EPIC Q (#976): recovery is a read path that hands out retained backup
   # data, and its guards (the cost refusal, the digest compare, a grant that
   # cannot be used twice or from another session, a target that cannot
@@ -1227,7 +1447,11 @@ if [ "$FAST" != "1" ]; then
   # suite has to go red naming the promise. No Docker, a few minutes.
   gate_step "the recovery guards can actually fail (mutation self-test, #976)"
   bash scripts/recovery/selftest.sh
+fi
+}
 
+gate_seg_selftest_assurance() {
+if [ "$FAST" != "1" ]; then
   # EPIC Q (#988): the other half of the same promise. The recovery
   # self-test above plants violations in the route, the grant and the
   # budgets; this one plants them in what keeps Stored, Content verified
@@ -1238,7 +1462,11 @@ if [ "$FAST" != "1" ]; then
   # no-download promise made again. No Docker, a few minutes.
   gate_step "the assurance guards can actually fail (mutation self-test, #988)"
   bash scripts/assurance/selftest.sh
+fi
+}
 
+gate_seg_structure() {
+if [ "$FAST" != "1" ]; then
   gate_step "repository-structure dependency rules (§7.1), by actual deletion"
   bash scripts/architecture/check-core-dependency-rule.sh
   bash scripts/architecture/verify-core-without-apps.sh
@@ -1246,7 +1474,9 @@ if [ "$FAST" != "1" ]; then
   bash scripts/architecture/verify-ui-shared-without-provider-sdks.sh
   bash scripts/architecture/verify-ugos-removable.sh
 fi
+}
 
+gate_seg_static_e() {
 # rclone-upgrade-gate.yml's own point was never to fully automate FR-2, only
 # to enforce compilation/tests (already covered above) and print a reminder
 # for the one step that's inherently manual: a human reading the upstream
@@ -1254,6 +1484,45 @@ fi
 if git diff --cached --name-only 2>/dev/null | grep -qE '^core/go\.(mod|sum)$'; then
   echo "==> core/go.mod or core/go.sum changed: docs/rclone-upgrade.md (FR-2) requires reading the rclone release notes between the old and new pinned version before this merges. This script cannot verify that happened."
 fi
+}
+
+gate_seg_gh_rows() {
+# The BLOCKED-row citation check, alone (#1457). A serial run covers it inside
+# core/'s go test above; as a shard it is the one that needs gh, so it can run
+# where gh is logged in while the container shards run without it (#1331).
+gate_step "core/tests/compat: every BLOCKED conformance row cites an issue that is still open (#1331, TestEveryBlockedRowCitesAnIssueThatIsStillOpen)"
+gate_github_ledger_open
+(cd core && GOWORK=off go test -race -count=1 -run '^TestEveryBlockedRowCitesAnIssueThatIsStillOpen$' ./tests/compat)
+gate_github_ledger_close
+}
+
+# The segments, in the order a serial run walks them (#1457). Each names the
+# shard(s) it belongs to; --shard <name> runs the ones that list it, a run with
+# no flag runs all of them, in this order, which is the order the steps had
+# before they were split.
+gate_run_segment "static" gate_seg_static_a
+gate_run_segment "core-kopia" gate_seg_core_build
+gate_run_segment "core-kopia core-rest" gate_seg_core_test
+gate_run_segment "core-rest" gate_seg_core_watch
+gate_run_segment "core-docker" gate_seg_core_docker
+gate_run_segment "apps" gate_seg_apps_a
+gate_run_segment "js" gate_seg_js_upk
+gate_run_segment "apps" gate_seg_apps_b
+gate_run_segment "js" gate_seg_js_a
+gate_run_segment "e2e" gate_seg_e2e
+gate_run_segment "two-machine" gate_seg_two_machine
+gate_run_segment "static" gate_seg_static_b
+gate_run_segment "static" gate_seg_static_c
+gate_run_segment "selftest-gate" gate_seg_selftest_gate
+gate_run_segment "static" gate_seg_static_d
+gate_run_segment "selftest-compat" gate_seg_selftest_compat
+gate_run_segment "selftest-conformance" gate_seg_selftest_conformance
+gate_run_segment "selftest-assurance" gate_seg_selftest_retention
+gate_run_segment "selftest-recovery" gate_seg_selftest_recovery
+gate_run_segment "selftest-assurance" gate_seg_selftest_assurance
+gate_run_segment "structure" gate_seg_structure
+gate_run_segment "static" gate_seg_static_e
+gate_run_shard_only gh-rows gate_seg_gh_rows
 
 # Never a bare echo: "ok" has to be earned by an empty skip ledger.
 gate_summary

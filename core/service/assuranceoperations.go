@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/retnd/retnd/core/internal/recoverytest"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -69,6 +70,16 @@ type assuranceOp struct {
 	cancel context.CancelCauseFunc
 	// startedAt is when the operation was registered.
 	startedAt time.Time
+	// bytesRead is the plaintext a decrypt-verify has read so far (#1303).
+	// Only the work adds to it, only increments, so it never goes backward.
+	bytesRead atomic.Int64
+}
+
+// addBytesRead adds n (ignored when not positive) to the running count.
+func (o *assuranceOp) addBytesRead(n int64) {
+	if n > 0 {
+		o.bytesRead.Add(n)
+	}
 }
 
 // assuranceOps is the registry of running operations.

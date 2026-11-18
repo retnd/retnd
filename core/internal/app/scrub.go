@@ -12,6 +12,7 @@ import (
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/placement"
 	"github.com/retnd/retnd/core/internal/revalidate"
 	"github.com/retnd/retnd/core/internal/state"
 	"github.com/retnd/retnd/core/internal/transport"
@@ -202,6 +203,9 @@ func (s *Service) Scrub(ctx context.Context, req ScrubRequest) (ScrubSummary, er
 	}
 	if s.MediumStore != nil {
 		deps.Store = s.MediumStore
+	}
+	if keys, ok := s.Keys.(placement.Keys); ok {
+		deps.Keys = keys
 	}
 
 	for _, bs := range sets {

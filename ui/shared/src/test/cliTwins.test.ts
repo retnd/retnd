@@ -145,6 +145,16 @@ function cases(module: string, list: Array<[string, string, ...unknown[]]>) {
   CASES[module] = list.map(([fn, name, ...args]) => [fn, name, () => call(module, fn, ...args)] as Case);
 }
 
+cases("agents/agentCommands", [
+  ["mintCommand", "a name alone", { name: "nightly-triage", scope: "", expiresIn: "" }],
+  ["mintCommand", "every flag", { name: "nightly-triage", scope: "operate", expiresIn: "720h" }],
+  ["mintCommand", "a hostile name", { name: HOSTILE, scope: "read", expiresIn: "" }],
+  ["revokeCommand", "one token", "agt_0123456789abcdef"],
+  ["revokeCommand", "a hostile id", HOSTILE],
+  ["auditCommand", "the whole trail", {}],
+  ["auditCommand", "one token since a week", { tokenId: "agt_0123456789abcdef", since: "7d" }]
+]);
+
 cases("assurance/assuranceCommands", [
   ["scrubCommand", "a set", SET],
   ["scrubCommand", "a hostile set id", HOSTILE_SET],
@@ -216,6 +226,49 @@ cases("assurance/validatorCommands", [
   ["addCommand", "scoped, workflow environment", "manifest", "^MANIFEST-", SET, "workflow"],
   ["addCommand", "nothing typed yet", "", "", ""],
   ["addCommand", "hostile values", HOSTILE, HOSTILE, HOSTILE_SET]
+]);
+
+cases("encryption/encryptionCommands", [
+  ["policyShowCommand", "the policy"],
+  ["policyPatchCommand", "required, the managed key", { mode: "required", keyProvider: { managed: true } }],
+  ["policyPatchCommand", "off", { mode: "off" }],
+  ["policyPatchCommand", "an external file", { keyProvider: { external: { file: "/etc/retnd/keys/offsite.key" } } }],
+  ["policyPatchCommand", "an external variable", { keyProvider: { external: { env: "RETND_OFFSITE_KEY" } } }],
+  ["policyPatchCommand", "an external command, arguments never echoed", { keyProvider: { external: { command: ["vault", "kv", "get", "secret/offsite"] } } }],
+  ["policyPatchCommand", "a hostile file path", { keyProvider: { external: { file: HOSTILE } } }],
+  ["policyResetCommand", "the policy"],
+  ["setEncryptionCommand", "a set, required, the managed key", SET, "required", { managed: true }],
+  ["setEncryptionCommand", "a set, off", SET, "off"],
+  ["setEncryptionCommand", "a hostile set id", HOSTILE_SET, "required"],
+  ["setEncryptionResetCommand", "a set", SET],
+  ["keyListCommand", "the keys"],
+  ["keyCreateCommand", "the first key"],
+  ["keyRotateCommand", "the active key"],
+  ["keyRetireCommand", "a key", "mk-2026-08-14-a"],
+  ["keyRetireCommand", "a hostile key id", HOSTILE],
+  ["keyExportCommand", "a key", "mk-2026-11-09-a"],
+  ["keyConfirmCommand", "the newest export", "mk-2026-11-09-a"],
+  ["keyConfirmCommand", "a named digest", "mk-2026-11-09-a", "ab".repeat(32)],
+  ["providerTestCommand", "a managed key", { managedKeyId: "mk-2026-11-09-a" }],
+  ["providerTestCommand", "an external file", { external: { file: "/etc/retnd/keys/offsite.key" } }],
+  ["providerTestCommand", "an external variable", { external: { env: "RETND_OFFSITE_KEY" } }],
+  ["providerTestCommand", "an external command, arguments never echoed", { external: { command: ["fetch-key", "--token", "abc"] } }],
+  ["copiesCommand", "one backup", ARTIFACT],
+  ["copiesCommand", "a hostile id", HOSTILE_ARTIFACT],
+  ["verifyCommand", "one backup", ARTIFACT],
+  ["verifyCommand", "one copy, egress accepted", ARTIFACT, { medium: "offsite_s3", allowEgress: true }],
+  ["verifyCommand", "a hostile id and medium", HOSTILE_ARTIFACT, { medium: HOSTILE, allowEgress: true }],
+  // EPIC T (#1318): the suite verbs.
+  ["suitesCommand", "the registry"],
+  ["policyPatchCommand", "a suite", { suite: "age-pq/v1" }],
+  ["policyPatchCommand", "a hostile suite", { suite: HOSTILE }],
+  ["keyCreateCommand", "under a suite", "age-pq/v1"],
+  ["keyRotateCommand", "to another suite", "age-pq/v1"],
+  ["reencryptCommand", "a suite, dry run", { suite: "age/v1", dryRun: true }],
+  ["reencryptCommand", "a suite to a medium", { suite: "age/v1", to: "offsite_cold" }],
+  ["reencryptCommand", "a key to a medium", { key: "mk-2026-08-14-a", to: "offsite_cold" }],
+  ["reencryptCommand", "every deprecated suite, dry run", { deprecated: true, dryRun: true }],
+  ["reencryptCommand", "hostile values", { suite: HOSTILE, to: HOSTILE }]
 ]);
 
 cases("hooks/runCommands", [
@@ -317,6 +370,9 @@ const NOT_TWINS: Record<string, Record<string, string>> = {
 const INLINE_ALLOWED: Record<string, string> = {
   "api/mock.ts: retnd backup-set patch": "the mock's copy of an action-log row, which is the engine's echo and not a line this UI builds",
   "assurance/mockAssurance.ts: retnd recovery-test ": "the mock's copy of an action-log row, as above",
+  "agents/mockAgents.ts: retnd run": "the mock engine's confirmation record, whose command the engine echoed when it recorded the ask; the card shows it verbatim and builds nothing",
+  "agents/mockAgents.ts: retnd assurance recovery-test ": "the mock engine's confirmation record, as above",
+  "agents/mockAgents.ts: retnd assurance verify ": "the mock engine's confirmation record, as above",
   "pages/RepositoryDomainNewPage.tsx: retnd repository create --passphrase-command":
     "the name of a flag, shown as a field label, and not a line to paste",
   "hooks/useRunControls.ts: localRunCommand(...) + ...":

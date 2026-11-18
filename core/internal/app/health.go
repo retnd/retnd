@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/retnd/retnd/core/internal/capacity"
@@ -199,7 +200,56 @@ func (s *Service) BuildHealthReport(ctx context.Context, versionInfo VersionInfo
 		return health.Report{}, err
 	}
 	report.RetainedCount = retained
+	kc := s.keyCustodyHealth(ctx)
+	report.KeyCustody = kc
 	return report, nil
+}
+
+// keyCustodyHealth is health.Report.KeyCustody (EPIC N, FR-66). A
+// deployment with no custodian wired, or one that encrypts nothing and holds
+// no keys, gets the zero section, which reads "this deployment encrypts
+// nothing". A custodian that cannot be read degrades only this section
+// (Unevaluated says why): failing the report would silence the alert pass
+// behind it for every other condition.
+func (s *Service) keyCustodyHealth(ctx context.Context) health.KeyCustodyHealth {
+	custody, ok := s.Keys.(interface {
+		Health(ctx context.Context, enabled bool) (health.KeyCustodyHealth, error)
+	})
+	if !ok {
+		return health.KeyCustodyHealth{}
+	}
+	enabled := false
+	for _, src := range s.Config.Sources {
+		for _, bs := range src.BackupSets {
+			if bs.EncryptsRetainedCopies() {
+				enabled = true
+			}
+		}
+	}
+	h, err := custody.Health(ctx, enabled)
+	if err != nil {
+		reason := strings.Join(strings.Fields(err.Error()), " ")
+		return health.KeyCustodyHealth{Enabled: enabled, Unevaluated: reason}
+	}
+	// A dropped external reference strands the copies under its key (#1304).
+	// This is the alert tick's last probe, read as it stands: a health build
+	// runs on every request and must never resolve a reference, a command
+	// reference least of all.
+	if r, ok := s.Keys.(externalKeyRisks); ok {
+		h.ExternalKeysAtRisk = r.LastExternalKeysAtRisk()
+	}
+	// Copies per suite (#1315): one grouped journal read, no key touched.
+	// A custodian whose Health already counted them (for its own per-suite
+	// section) has filled the map, and the read is not made twice. A read
+	// that fails leaves the counts out rather than the section.
+	if j, ok := s.Journal.(interface {
+		ActiveEncryptedCopiesBySuite(ctx context.Context) (map[string]int, error)
+	}); ok && h.EncryptedCopiesBySuite == nil {
+		if bySuite, err := j.ActiveEncryptedCopiesBySuite(ctx); err == nil {
+			h.EncryptedCopiesBySuite = bySuite
+		}
+	}
+	return h
 }
 
 // retainedCount is the deployment's figure for the sidebar's Backups badge

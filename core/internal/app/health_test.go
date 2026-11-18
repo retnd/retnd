@@ -2,11 +2,15 @@ package app
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/retnd/retnd/core/internal/alert"
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/health"
+	"github.com/retnd/retnd/core/internal/keycustody"
 )
 
 // The two ends of FR-24's freshness verdict, and the distinction between
@@ -87,4 +91,60 @@ func mustParseDuration(t *testing.T, s string) config.Duration {
 		t.Fatalf("ParseDuration(%q): %v", s, err)
 	}
 	return config.Duration(d)
+}
+
+// brokenKeys is a key custodian whose registry cannot be read.
+type brokenKeys struct{}
+
+func (brokenKeys) Keys(context.Context) ([]keycustody.KeyRecord, error) {
+	return nil, errors.New("the key registry is unreadable")
+}
+
+func (brokenKeys) Health(context.Context, bool) (health.KeyCustodyHealth, error) {
+	return health.KeyCustodyHealth{}, errors.New("the key registry is unreadable")
+}
+
+// #993: a broken key store degrades the key-custody section and nothing
+// else. The report is still built, so the alert pass behind it (which gives
+// up on a report that cannot be built) still runs for every other condition.
+func TestBuildHealthReport_AKeyStoreErrorDegradesOnlyTheKeyCustodySection_993(t *testing.T) {
+	bs := testBackupSet(t, t.TempDir())
+	svc := New(testConfig(t, testSource("production", bs)), openJournal(t), newFakeTransport(), nil)
+	svc.Now = fixedNow(epoch)
+	svc.Keys = brokenKeys{}
+
+	report, err := svc.BuildHealthReport(context.Background(), VersionInfo{})
+	if err != nil {
+		t.Fatalf("a key store error failed the whole report: %v", err)
+	}
+	if len(report.BackupSets) != 1 || report.BackupSets[0].State != health.Degraded {
+		t.Errorf("the backup sets were not evaluated: %+v", report.BackupSets)
+	}
+	kc := report.KeyCustody
+	if kc.Unevaluated == "" || !strings.Contains(kc.Unevaluated, "unreadable") {
+		t.Errorf("the section does not say it could not be evaluated: %+v", kc)
+	}
+	if strings.Contains(kc.Unevaluated, "\n") {
+		t.Errorf("the reason is not one line: %q", kc.Unevaluated)
+	}
+}
+
+func TestAStaleBackupStillAlertsWhenTheKeyStoreIsBroken_993(t *testing.T) {
+	bs := testBackupSet(t, t.TempDir())
+	bs.StaleAfter = mustParseDuration(t, "1h")
+	tr := newFakeTransport()
+	tr.put("backup.dump", "payload", epoch.Unix())
+	svc := New(alertingConfig(t, testSource("production", bs)), openJournal(t), tr, nil)
+	svc.Now = fixedNow(epoch)
+	svc.Keys = brokenKeys{}
+	sink := &recordingSink{}
+	if !svc.EnableAlerts(sink) {
+		t.Fatal("EnableAlerts returned false for a config that opted in")
+	}
+	svc.RunCycle(context.Background())
+	svc.Now = fixedNow(epoch.Add(48 * time.Hour))
+	svc.RunCycle(context.Background())
+	if got := sink.countOf(alert.StaleBackup); got != 1 {
+		t.Errorf("stale alerts = %d with a broken key store, want 1: the alert pass must not give up on it (all: %v)", got, sink.kinds())
+	}
 }

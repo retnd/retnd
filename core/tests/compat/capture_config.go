@@ -70,6 +70,35 @@ func captureConfigValidation(fixtureDir string) (Cell, error) {
 			}
 		}
 		lines = append(lines, fmt.Sprintf("%s   storage_mediums declared: %d", base, len(cfg.StorageMediums)))
+		// Retained-copy encryption (EPIC N, #989), same rule: only the
+		// fixtures about it print it, so every earlier fixture's lines
+		// stay exactly as captured. The provider prints as its kind and
+		// its source description, never anything resolved.
+		if strings.Contains(base, "encryption") {
+			e := cfg.RetainedCopyEncryption
+			lines = append(lines, fmt.Sprintf("%s   deployment retained_copy_encryption: mode=%s provider=%s",
+				base, e.Mode, providerLine(e.KeyProvider)))
+			// The suite policy (EPIC T, #1314), printed only for the fixtures
+			// named for it, so 09- and 10- keep the lines they were captured
+			// with.
+			if strings.Contains(base, "suite") {
+				lines = append(lines, fmt.Sprintf("%s   deployment retained_copy_encryption suite=%s deprecated=%v", base, e.Suite, e.SuiteDeprecated))
+			}
+			for _, src := range cfg.Sources {
+				for _, bs := range src.BackupSets {
+					e := bs.RetainedCopyEncryption
+					lines = append(lines, fmt.Sprintf("%s   set %s/%s retained_copy_encryption: mode=%s provider=%s override=%v",
+						base, src.Name, bs.Name, e.Mode, providerLine(e.KeyProvider), bs.RetainedCopyEncryptionIsOverride()))
+				}
+			}
+		}
+		// The agents block (EPIC U, #1347), same rule: only the fixtures
+		// named for it print it.
+		if strings.Contains(base, "agent") {
+			a := cfg.Agents
+			lines = append(lines, fmt.Sprintf("%s   deployment agents: http_transport=%s rate_limit_per_minute=%d confirmation_ttl=%s audit_retention_days=%d max_pending_confirmations=%d",
+				base, a.HTTPTransport, a.RateLimitPerMinute, a.ConfirmationTTL, a.AuditRetentionDays, a.MaxPendingConfirmations))
+		}
 		// Assurance (EPIC Q, #982) is printed only for the fixtures that are
 		// about it, so every earlier fixture's lines stay exactly as they
 		// were captured.
@@ -92,6 +121,20 @@ func captureConfigValidation(fixtureDir string) (Cell, error) {
 		Rule:      RuleIdentical,
 		Lines:     lines,
 	}, nil
+}
+
+// providerLine renders a resolved key provider as its kind and, for an
+// external one, the source description secretref.Ref.String gives (the
+// executable only for a command, never its arguments).
+func providerLine(p config.RetainedCopyKeyProvider) string {
+	switch p.Kind() {
+	case config.KeyProviderExternal:
+		return "external(" + p.ExternalRef().String() + ")"
+	case "":
+		return "-"
+	default:
+		return p.Kind()
+	}
 }
 
 // policyLine renders a resolved config.Retention as one deterministic

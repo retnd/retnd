@@ -28,7 +28,7 @@ than a diff.
   a stored value.
 - Proactive alerting on stale backups, repeated failures, a changed SSH host key, and
   critical storage pressure.
-- One canonical multi-architecture image on amd64 and arm64, wrapped by every provider
+- One canonical image on linux/amd64 (the release builds nothing else for Linux), wrapped by every provider
   package rather than rebuilt per platform.
 
 ### Removing a backup set

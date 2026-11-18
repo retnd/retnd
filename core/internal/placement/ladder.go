@@ -172,6 +172,12 @@ type Result struct {
 	// line or an audit trail. It never contains a credential, because
 	// nothing in this package has one.
 	Detail string
+
+	// Encryption is set only by a passed content verification of an
+	// encrypted copy (EPIC N, #991): the record of the object that was
+	// read, which the engine writes with the placement in one advance.
+	// Nil for every plaintext copy and for every other class.
+	Encryption *state.PlacementEncryption
 }
 
 // ErrClassUnavailable is returned when a class cannot be attempted at all

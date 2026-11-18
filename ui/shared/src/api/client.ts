@@ -37,6 +37,20 @@
 import { debugLog, isDebugEnabled } from "./debug";
 import { apiErrorFromResponse, nameAttempt, noResponse, refusal, unreadableBody } from "./transport";
 import { RetndError } from "./contracts";
+import type {
+  CopyEncryption,
+  EncryptionKey,
+  EncryptionPolicy,
+  EncryptionSuite,
+  ReencryptPlan,
+  ReencryptPlanCopy,
+  ReencryptRequest,
+  SuiteStatus,
+  KeyProviderInput,
+  KeyProviderState,
+  ProviderProbe,
+  SetEncryption
+} from "@shared/types/encryption";
 // The wire shapes below are GENERATED from api/v1/openapi.json, not
 // declared here. Before issue #166 this file carried its own hand-written
 // copy of every snake_case response body, transcribed from the Go
@@ -106,6 +120,24 @@ import type {
   WireRecoveryTestStarted,
   WireRecoveryTestOutput,
   WireScrubStarted,
+  WireEncryptionCopy,
+  WireEncryptionKeyProvider,
+  WireEncryptionKeyProviderState,
+  WireEncryptionKeyStatus,
+  WireEncryptionOverride,
+  WireEncryptionPolicy,
+  WireEncryptionPolicyPatch,
+  WireEncryptionProviderProbe,
+  WireEncryptionProviderTestRequest,
+  WireEncryptionSetPolicy,
+  WireListEncryptionCopiesResponse,
+  WireListEncryptionKeysResponse,
+  WireListEncryptionSuitesResponse,
+  WireEncryptionSuite,
+  WireReencryptPlan,
+  WireStartReencryptRequest,
+  WireRecoveryBundle,
+  WireStartDecryptVerifyRequest,
   WireAssuranceOperationCancelled,
   WireAssuranceOperationRecord,
   WireRecoverySettingsResponse,
@@ -156,8 +188,20 @@ import type {
   WireCustomValidatorPreview,
   WireListCustomValidatorsResponse,
   WireValidatorScriptResponse,
-  WireVersionResponse
+  WireVersionResponse,
+  WireAgentConfirmation,
+  WireAgentToken,
+  WireListAgentConfirmationsResponse,
+  WireListAgentTokensResponse,
+  WireAgentToolsResponse,
+  WireListAgentAuditResponse,
+  WireMintAgentTokenRequest,
+  WireMintedAgentToken
 } from "./generated/contract";
+import {
+  fromWireAgentAudit, fromWireAgentConfirmation, fromWireAgentToken, fromWireAgentTools,
+  fromWireMintedAgentToken
+} from "@shared/agents/agentWire";
 import type {
   AppSettings,
   Capabilities,
@@ -406,6 +450,13 @@ export async function acknowledgeInsecureTransport(): Promise<boolean> {
   return false;
 }
 
+/** The init for a read behind the destructive gate (#1361): once the operator
+ *  has said go on over this connection, the read carries the acknowledgement
+ *  from its first attempt, as a write does. */
+function gatedReadInit(): RequestInit | undefined {
+  return insecureTransportAcknowledged ? { headers: { [INSECURE_TRANSPORT_HEADER]: "acknowledged" } } : undefined;
+}
+
 /** Records what a capabilities read said about this connection. */
 export function rememberInsecureTransportRequired(required: boolean): void {
   insecureTransportRequired = required;
@@ -436,6 +487,12 @@ async function request<T>(
       readCookie(CSRF_COOKIE_NAME) || CSRF_LEGACY_COOKIE_NAMES.map(readCookie).find(Boolean) || "";
     if (csrf) headers[CSRF_HEADER_NAME] = csrf;
     if (insecureTransportAcknowledged) headers[INSECURE_TRANSPORT_HEADER] = "acknowledged";
+  } else if (retriedAfterAcknowledgement && insecureTransportAcknowledged) {
+    // A read the engine gates (#1361: the re-encrypt dry run) is refused
+    // without the acknowledgement too, so the retry the operator just said
+    // yes to carries it. A gated read asks for it up front through
+    // gatedReadInit; a plain read never carries it.
+    headers[INSECURE_TRANSPORT_HEADER] = "acknowledged";
   }
 
   // The password never crosses a connection the operator has not been told
@@ -1700,6 +1757,7 @@ function fromWireRepositoryMaintenance(m: WireRepositoryMaintenance): Repository
 
 function fromWireCapabilities(body: WireCapabilitiesResponse): Capabilities {
   return {
+    agentsHttpTransport: body.agents_http_transport,
     platform: body.platform,
     nativeAuth: body.native_auth,
     nativeNotifications: body.native_notifications,
@@ -1982,7 +2040,11 @@ function fromWirePlacement(p: WirePlacement): BackupPlacement {
     recoveryState: p.recovery_state ?? null,
     recoveryCheck: p.recovery_check ?? null,
     recoveryTestedAt: stampOrNull(p.recovery_tested_at),
-    recoveryFailureReason: p.recovery_failure_reason ?? ""
+    recoveryFailureReason: p.recovery_failure_reason ?? "",
+    encrypted: p.encrypted === true,
+    encryptionKeyId: p.encryption_key_id ?? null,
+    encryptionKeyResolvable: p.encryption_key_resolvable ?? null,
+    encryptionSuite: p.encryption_suite ?? null
   };
 }
 
@@ -2180,6 +2242,7 @@ function fromWireAssuranceOperation(r: WireAssuranceOperationRecord): AssuranceO
     state: r.state,
     stage: r.stage,
     reason: r.reason,
+    ...(r.bytes_read !== undefined ? { bytesRead: r.bytes_read } : {}),
     startedAt: r.started_at,
     endedAt: r.ended_at,
     events: r.events.map(fromWireLiveActivityEvent)
@@ -2471,6 +2534,180 @@ function perSetHealth(): Promise<Map<string, WireBackupSetHealth>> {
  *  (model.BackupSetID's own composite shape), URL-encoded independently,
  *  which is also how api/v1/openapi.json publishes them.
  *  See BackupSet.source/BackupSet.set's own doc (types/backup.ts). */
+// ----------------------------------------------------------------------------
+// Retained-copy encryption (EPIC N, #993, issue #995).
+//
+// The same two habits as the rest of this file. An array the wire omits is
+// [], and a scalar it omits stays null, because for these the absence is the
+// fact: a plaintext copy has no key id, and an unretired key has no retirement
+// time. And a word this build has never heard of falls off the end of its
+// lookup table rather than into the nearest neighbour: a provider kind or a
+// key status from a newer service draws nothing rather than the wrong thing.
+//
+// Nothing here reads or builds key material. The one route that returns it
+// (the recovery bundle) is saved as a file inside exportRecoveryBundle and
+// only a receipt leaves that function.
+// ----------------------------------------------------------------------------
+
+const PROVIDER_KINDS = new Set(["managed", "external", "none"]);
+const RESOLVABILITIES = new Set(["resolves", "unreachable", "not_declared"]);
+
+function fromWireKeyProvider(p: WireEncryptionKeyProviderState): KeyProviderState {
+  return {
+    kind: (PROVIDER_KINDS.has(p.kind) ? p.kind : "none") as KeyProviderState["kind"],
+    source: p.source ?? null
+  };
+}
+
+function toWireKeyProvider(p: KeyProviderInput): WireEncryptionKeyProvider {
+  return "managed" in p ? { managed: true } : { external: p.external };
+}
+
+function fromWireSetEncryption(w: WireEncryptionSetPolicy): SetEncryption {
+  return {
+    backupSetId: w.backup_set_id,
+    mode: w.mode as SetEncryption["mode"],
+    effectiveMode: w.effective_mode as SetEncryption["effectiveMode"],
+    isOverride: w.is_override,
+    keyProvider: fromWireKeyProvider(w.key_provider),
+    effectiveKeyProvider: fromWireKeyProvider(w.effective_key_provider),
+    ...(w.satisfied_by === "repository" ? { satisfiedBy: "repository" as const } : {})
+  };
+}
+
+// EPIC T (#1318): the suite registry (T1.5, with T2.1's retirement
+// version) and the re-encrypt dry run and run (T2.2), from the generated
+// bindings. A suite status this build has never heard of draws as no status,
+// never as its nearest neighbour.
+const SUITE_STATUSES = new Set(["supported", "deprecated", "retired"]);
+
+function fromWireEncryptionSuite(w: WireEncryptionSuite): EncryptionSuite {
+  return {
+    id: w.id,
+    version: w.version,
+    status: (SUITE_STATUSES.has(w.status) ? w.status : "unknown") as SuiteStatus,
+    isDefault: w.default === true,
+    description: w.describe ?? "",
+    retirementVersion: w.retirement_version ?? null,
+    activeCopies: w.active_copies ?? 0,
+    keys: w.keys ?? 0
+  };
+}
+
+/** The plan's groups (suite, then key) flattened to one row per copy. */
+function fromWireReencryptPlan(w: WireReencryptPlan): ReencryptPlan {
+  const copies: ReencryptPlanCopy[] = [];
+  for (const g of w.groups ?? []) {
+    for (const c of g.candidates ?? []) {
+      copies.push({
+        artifactId: c.artifact_id,
+        medium: c.source_medium,
+        suite: g.suite_id,
+        keyId: g.key_id,
+        to: c.destination_medium ?? null,
+        refusal: c.verdict === "would_reencrypt" ? null : c.refusal ?? c.verdict,
+        reason: c.reason ?? null
+      });
+    }
+  }
+  return { copies };
+}
+
+function reencryptQuery(req: ReencryptRequest): string {
+  const q = new URLSearchParams();
+  if (req.suite) q.set("suite", req.suite);
+  if (req.key) q.set("key", req.key);
+  if (req.deprecated) q.set("deprecated", "true");
+  if (req.to) q.set("destination", req.to);
+  return q.toString();
+}
+
+// The "?" stays at the call site, so the client-path gate (#211) reads the whole operation path.
+const suiteQuery = (suite?: string) => (suite ? "suite=" + encodeURIComponent(suite) : "");
+
+function fromWireEncryptionPolicy(w: WireEncryptionPolicy): EncryptionPolicy {
+  return {
+    mode: w.mode as EncryptionPolicy["mode"],
+    keyProvider: fromWireKeyProvider(w.key_provider),
+    sets: (w.sets ?? []).map(fromWireSetEncryption),
+    suite: w.suite ?? null,
+    suiteConfigured: w.suite_configured ?? null,
+    ...(w.rotation_needed !== undefined ? { rotationNeeded: w.rotation_needed === true, rotateCommand: w.rotate_command ?? null } : {})
+  };
+}
+
+function fromWireEncryptionKey(w: WireEncryptionKeyStatus): EncryptionKey {
+  return {
+    id: w.id,
+    // An unrecognised status is kept as the word it is, so a lookup keyed on
+    // it finds nothing and draws nothing (see the key table's STATUS map).
+    status: w.status as EncryptionKey["status"],
+    createdAt: w.created_at,
+    retiredAt: w.retired_at ?? null,
+    resolvable: w.resolvable,
+    resolvability: (RESOLVABILITIES.has(w.resolvability) ? w.resolvability : "unreachable") as EncryptionKey["resolvability"],
+    reason: w.reason ?? null,
+    bundleConfirmed: w.bundle_confirmed,
+    bundleConfirmedAt: w.bundle_confirmed_at ?? null,
+    bundleExportedAt: w.bundle_exported_at ?? null,
+    copiesRecording: w.copies_recording ?? 0,
+    // The suite id and nothing else of what a key answer may carry: a
+    // recipient (about 2000 characters for a post-quantum suite) or any
+    // other field is not mapped, so it never reaches a page.
+    suite: w.suite ?? null
+  };
+}
+
+function fromWireProviderProbe(w: WireEncryptionProviderProbe): ProviderProbe {
+  return {
+    state: (RESOLVABILITIES.has(w.state) ? w.state : "unreachable") as ProviderProbe["state"],
+    source: w.source,
+    reason: w.reason ?? null
+  };
+}
+
+function fromWireEncryptionCopy(w: WireEncryptionCopy): CopyEncryption {
+  return {
+    medium: w.medium,
+    encrypted: w.encrypted === true,
+    format: w.format ?? null,
+    formatVersion: w.format_version ?? null,
+    keyId: w.key_id ?? null,
+    keyResolvable: w.key_resolvable ?? null,
+    storedDigestAlgorithm: w.stored_digest_algorithm ?? null,
+    storedSize: w.stored_size ?? null,
+    storedDigest: w.stored_digest ?? null,
+    plaintextDigest: w.plaintext_digest ?? null
+  };
+}
+
+const encryptionKeyPath = (id: string) => "/encryption/keys/" + encodeURIComponent(id);
+
+/**
+ * Saves a recovery bundle the operator asked for, as a file, and forgets it.
+ *
+ * The body is held in this function's own locals for the length of the
+ * download and in nothing else: not a store, not a query cache, not a form
+ * value, not a component that survives navigation. The one-time export is
+ * displayed once, from the response, and the page never sees the bytes.
+ */
+async function saveRecoveryBundle(
+  fetchBundle: () => Promise<WireRecoveryBundle>
+): Promise<{ keyId: string; digest: string; fileName: string }> {
+  const bundle = await fetchBundle();
+  const fileName = "retnd-recovery-bundle-" + bundle.key_id + ".json";
+  const receipt = { keyId: bundle.key_id, digest: bundle.digest, fileName };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return receipt;
+}
+
 const backupSetPath = (source: string, set: string) =>
   "/backup-sets/" + encodeURIComponent(source) + "/" + encodeURIComponent(set);
 
@@ -4412,5 +4649,133 @@ export const httpApi: RetndApi = {
   getBackupSetWorkflowValidation: (source, set) =>
     request<WireWorkflowValidationResponse>(setWorkflowPath(source, set) + "/validation").then(
       fromWireValidation
-    )
+    ),
+
+  getEncryptionPolicy: () => request<WireEncryptionPolicy>("/encryption/policy").then(fromWireEncryptionPolicy),
+  patchEncryptionPolicy: (patch) => {
+    const body: WireEncryptionPolicyPatch = {
+      ...(patch.mode !== undefined ? { mode: patch.mode } : {}),
+      ...(patch.keyProvider !== undefined ? { key_provider: toWireKeyProvider(patch.keyProvider) } : {}),
+      ...(patch.suite !== undefined ? { suite: patch.suite } : {})
+    };
+    return request<WireEncryptionPolicy>("/encryption/policy", { method: "PATCH", body: JSON.stringify(body) }).then(
+      fromWireEncryptionPolicy
+    );
+  },
+  resetEncryptionPolicy: () =>
+    request<WireEncryptionPolicy>("/encryption/policy/reset", { method: "POST" }).then(fromWireEncryptionPolicy),
+  setBackupSetEncryption: (source, set, override) => {
+    const body: WireEncryptionOverride = {
+      mode: override.mode,
+      ...(override.keyProvider ? { key_provider: toWireKeyProvider(override.keyProvider) } : {})
+    };
+    return request<WireEncryptionSetPolicy>(backupSetPath(source, set) + "/encryption", {
+      method: "PUT",
+      body: JSON.stringify(body)
+    }).then(fromWireSetEncryption);
+  },
+  clearBackupSetEncryption: (source, set) =>
+    request<WireEncryptionSetPolicy>(backupSetPath(source, set) + "/encryption", { method: "DELETE" }).then(
+      fromWireSetEncryption
+    ),
+  // EPIC U (#1351). The token never leaves mintAgentToken's return value, and
+  // the password rides the step-up header of the one approve request.
+  listAgentTokens: () => request<WireListAgentTokensResponse>("/agent/tokens").then((r) => (r.tokens ?? []).map(fromWireAgentToken)),
+  mintAgentToken: (req) => {
+    const body: WireMintAgentTokenRequest = { name: req.name, scope: req.scope, expires_in: req.expiresIn };
+    return request<WireMintedAgentToken>("/agent/tokens", { method: "POST", body: JSON.stringify(body) }).then(
+      fromWireMintedAgentToken
+    );
+  },
+  revokeAgentToken: (id) =>
+    request<WireAgentToken>("/agent/tokens/" + encodeURIComponent(id) + "/revoke", { method: "POST" }).then(fromWireAgentToken),
+  listAgentCatalogue: () => request<WireAgentToolsResponse>("/agent/tools").then(fromWireAgentTools),
+  listAgentConfirmations: () =>
+    request<WireListAgentConfirmationsResponse>("/agent/confirmations").then((r) =>
+      (r.confirmations ?? []).map(fromWireAgentConfirmation)
+    ),
+  // No body: approval replays the recorded request, and the engine refuses a
+  // body supplied at approval (AGENT_CONFIRMATION_BODY_SUBSTITUTED).
+  approveAgentConfirmation: (id, opts) =>
+    request<WireAgentConfirmation>("/agent/confirmations/" + encodeURIComponent(id) + "/approve", {
+      method: "POST",
+      ...stepUpHeaders(opts)
+    }).then(fromWireAgentConfirmation),
+  denyAgentConfirmation: (id) =>
+    request<WireAgentConfirmation>("/agent/confirmations/" + encodeURIComponent(id) + "/deny", { method: "POST" }).then(
+      fromWireAgentConfirmation
+    ),
+  listAgentAudit: (filter) => {
+    const q = new URLSearchParams();
+    if (filter.tokenId) q.set("token", filter.tokenId);
+    if (filter.since) q.set("since", filter.since);
+    if (filter.cursor) q.set("before", filter.cursor);
+    const qs = q.toString();
+    return request<WireListAgentAuditResponse>("/agent/audit" + (qs ? "?" + qs : "")).then(fromWireAgentAudit);
+  },
+  listEncryptionKeys: () =>
+    request<WireListEncryptionKeysResponse>("/encryption/keys").then((r) => (r.keys ?? []).map(fromWireEncryptionKey)),
+  createEncryptionKey: (suite) => {
+    const q = suiteQuery(suite);
+    return request<WireEncryptionKeyStatus>("/encryption/keys" + (q ? "?" + q : ""), { method: "POST" }).then(fromWireEncryptionKey);
+  },
+  rotateEncryptionKey: (suite) => {
+    const q = suiteQuery(suite);
+    return request<WireEncryptionKeyStatus>("/encryption/keys/rotate" + (q ? "?" + q : ""), { method: "POST" }).then(fromWireEncryptionKey);
+  },
+  retireEncryptionKey: (id) =>
+    request<WireEncryptionKeyStatus>(encryptionKeyPath(id) + "/retire", { method: "POST" }).then(fromWireEncryptionKey),
+  exportRecoveryBundle: (id, opts) =>
+    saveRecoveryBundle(() =>
+      request<WireRecoveryBundle>(encryptionKeyPath(id) + "/export", {
+        method: "POST",
+        headers: stepUpHeaders(opts).headers
+      })
+    ),
+  confirmRecoveryBundle: (id, digest) =>
+    request<WireEncryptionKeyStatus>(encryptionKeyPath(id) + "/confirm", {
+      method: "POST",
+      body: JSON.stringify(digest ? { digest } : {})
+    }).then(fromWireEncryptionKey),
+  testEncryptionProvider: (req) => {
+    const body: WireEncryptionProviderTestRequest =
+      "managedKeyId" in req ? { managed_key_id: req.managedKeyId } : { external: req.external };
+    return request<WireEncryptionProviderProbe>("/encryption/providers/test", {
+      method: "POST",
+      body: JSON.stringify(body)
+    }).then(fromWireProviderProbe);
+  },
+  listEncryptionCopies: (artifactId) =>
+    request<WireListEncryptionCopiesResponse>("/encryption/copies?artifact=" + encodeURIComponent(artifactId)).then(
+      (r) => (r.copies ?? []).map(fromWireEncryptionCopy)
+    ),
+  startDecryptVerify: (req) => {
+    const body: WireStartDecryptVerifyRequest = {
+      artifact_id: req.artifactId,
+      ...(req.medium ? { medium: req.medium } : {}),
+      ...(req.acknowledgeEgress ? { acknowledge_egress: true } : {})
+    };
+    return request<WireScrubStarted>("/encryption/verify", { method: "POST", body: JSON.stringify(body) }).then((r) => ({
+      backupSetId: r.backup_set_id,
+      operationId: r.operation_id
+    }));
+  },
+  listEncryptionSuites: () =>
+    request<WireListEncryptionSuitesResponse>("/encryption/suites").then((r) => (r.suites ?? []).map(fromWireEncryptionSuite)),
+  planReencrypt: (req) => {
+    const q = reencryptQuery(req);
+    return request<WireReencryptPlan>("/encryption/reencrypt" + (q ? "?" + q : ""), gatedReadInit()).then(fromWireReencryptPlan);
+  },
+  startReencrypt: (req) => {
+    const body: WireStartReencryptRequest = {
+      destination_medium: req.to ?? "",
+      ...(req.suite ? { suite_id: req.suite } : {}),
+      ...(req.key ? { key_id: req.key } : {}),
+      ...(req.deprecated ? { deprecated: true } : {})
+    };
+    return request<WireScrubStarted>("/encryption/reencrypt", { method: "POST", body: JSON.stringify(body) }).then((r) => ({
+      backupSetId: r.backup_set_id,
+      operationId: r.operation_id
+    }));
+  }
 };

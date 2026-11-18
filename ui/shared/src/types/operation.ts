@@ -39,10 +39,32 @@ export const TRANSFER_STAGES = [
   "verifying",
   "committing",
   "cleaning-remote",
+  "encrypting",
+  "decrypt-verifying",
   "complete"
 ] as const;
 
 export type TransferStage = (typeof TRANSFER_STAGES)[number];
+
+/** The two stages only an encrypted copy reaches (#1290). */
+const ENCRYPTED_STAGES: readonly TransferStage[] = ["encrypting", "decrypt-verifying"];
+
+/**
+ * The checklist to draw for an operation currently at `stage`: the stages in
+ * TRANSFER_STAGES order, without the two encrypted-copy rows unless the
+ * operation is at one of them. A plaintext transfer never reaches them, so
+ * drawing them would promise two steps that are not coming.
+ */
+export function checklistStages(stage: TransferStage): TransferStage[] {
+  const encrypted = ENCRYPTED_STAGES.includes(stage);
+  return TRANSFER_STAGES.filter((s) => encrypted || !ENCRYPTED_STAGES.includes(s));
+}
+
+/** A stage's name as a sentence fragment: hyphens become spaces, except in
+ *  "decrypt-verifying", which is one compound word and keeps its hyphen. */
+export function stageWords(stage: string): string {
+  return stage === "decrypt-verifying" ? stage : stage.replace(/-/g, " ");
+}
 
 /**
  * The stages a RUNNING operation can report: every checklist stage except

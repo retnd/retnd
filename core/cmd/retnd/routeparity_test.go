@@ -151,6 +151,97 @@ var refusingInputs = []refusingInput{
 			return []string{"backup-set", "--config", configPath, "read-only", "nosuch/set", "on"}
 		},
 	},
+	// #993 (N1.2, N1.16, N1.20): the encryption writes are routed too. The
+	// required-without-provider rule is config.Validate's, so a route that
+	// dropped the provider would turn the first row into a success, and the
+	// key refusals are the key store's own words on both routes.
+	{
+		name: "require encryption with no key provider",
+		args: func(configPath, _ string) []string {
+			return []string{"encryption", "policy", "patch", "--mode", "required", "--config", configPath}
+		},
+	},
+	{
+		name: "give a set this deployment does not have its own encryption",
+		args: func(configPath, _ string) []string {
+			return []string{"encryption", "backup-set", "nosuch/set", "--mode", "required", "--managed", "--config", configPath}
+		},
+	},
+	{
+		name: "reset the encryption of a set this deployment does not have",
+		args: func(configPath, _ string) []string {
+			return []string{"encryption", "backup-set", "nosuch/set", "--reset", "--config", configPath}
+		},
+	},
+	{
+		name: "rotate with no managed key",
+		args: func(configPath, _ string) []string {
+			return []string{"encryption", "key", "rotate", "--config", configPath}
+		},
+	},
+	{
+		name: "confirm a bundle for a key that does not exist",
+		args: func(configPath, _ string) []string {
+			return []string{"encryption", "key", "confirm", "knosuchkey", "--config", configPath}
+		},
+	},
+	{
+		name: "decrypt-verify a backup this deployment does not have",
+		args: func(configPath, _ string) []string {
+			return []string{"encryption", "verify", "api/postgres/none.dump", "--config", configPath}
+		},
+	},
+	// #1291: encrypting existing plaintext copies. The set-does-not-exist and
+	// the set-does-not-require-encryption refusals are the service's own words
+	// on both routes, and the dry run is a route of its own.
+	// The run itself has no row here: the engine-attached route needs
+	// POST /encryption/encrypt-existing in the fake engine that #1287 adds
+	// (fakeengine_encryption_996_test.go), and that file is not on this
+	// branch's base. The dry run below is a local read on both routes.
+	{
+		name: "dry-run encrypting existing copies of a set this deployment does not have",
+		args: func(configPath, _ string) []string {
+			return []string{"encryption", "encrypt-existing", "nosuch/set", "--to", "offsite", "--dry-run", "--config", configPath}
+		},
+	},
+	{
+		name: "mint an agent token with a scope that is not one",
+		args: func(configPath, _ string) []string {
+			return []string{"agent", "token", "create", "triage", "--scope", "admin", "--config", configPath}
+		},
+	},
+	{
+		name: "mint an agent token that outlives a year",
+		args: func(configPath, _ string) []string {
+			return []string{"agent", "token", "create", "triage", "--expires-in", "366d", "--config", configPath}
+		},
+	},
+	{
+		name: "read the agent audit trail since a moment that is not one",
+		args: func(configPath, _ string) []string {
+			return []string{"agent", "audit", "--since", "banana", "--config", configPath}
+		},
+	},
+	{
+		name: "revoke an agent token this deployment does not have",
+		args: func(configPath, _ string) []string {
+			return []string{"agent", "token", "revoke", "agt_nosuchtoken", "--config", configPath}
+		},
+	},
+	{
+		name: "deny an agent confirmation this deployment does not have",
+		args: func(configPath, _ string) []string {
+			return []string{"agent", "confirmations", "deny", "cnf_nosuchconfirmation", "--config", configPath}
+		},
+	},
+	// #1317: re-encrypting copies under the active suite and key. A suite
+	// this build does not know is the service's own refusal on both routes.
+	{
+		name: "dry-run re-encrypting the copies under a suite this build does not know",
+		args: func(configPath, _ string) []string {
+			return []string{"encryption", "reencrypt", "--suite", "nosuch/v9", "--dry-run", "--config", configPath}
+		},
+	},
 }
 
 func TestARefusalIsTheSameOnBothRoutes(t *testing.T) {

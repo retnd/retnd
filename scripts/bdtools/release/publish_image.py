@@ -306,7 +306,7 @@ def run_guards(root: Path, guards_only: bool) -> tuple[str, str]:
 
 
 def publish(root: Path, reference: str, manifest_commit: str, manifest: Path) -> int:
-    platforms = os.environ.get("PLATFORMS", "linux/amd64,linux/arm64")
+    platforms = os.environ.get("PLATFORMS", "linux/amd64")
     sign = os.environ.get("SIGN", "1") == "1"
 
     print(f"==> Publishing {reference} ({platforms}) from {manifest_commit}", file=sys.stderr)
@@ -392,7 +392,7 @@ def main(argv: list[str]) -> int:
     reference, manifest_commit = run_guards(root, guards_only)
 
     if guards_only:
-        platforms = os.environ.get("PLATFORMS", "linux/amd64,linux/arm64")
+        platforms = os.environ.get("PLATFORMS", "linux/amd64")
         print(
             f"==> GUARDS_ONLY=1: every guard passed; stopping before the push. Would publish "
             f"{reference} for {platforms}",

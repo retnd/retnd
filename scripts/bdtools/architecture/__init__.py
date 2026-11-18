@@ -262,7 +262,16 @@ def worktree(root: Path | str = ".") -> Iterator[Path]:
     """
     root_path = Path(root).resolve()
     warn_if_dirty(root_path)
-    directory = Path(tempfile.mkdtemp(prefix="retnd-arch-check.", dir=root_path.parent))
+    try:
+        directory = Path(tempfile.mkdtemp(prefix="retnd-arch-check.", dir=root_path.parent))
+    except PermissionError:
+        # Under scripts/ci-docker.sh only the checkout and its git dir are
+        # mounted, so the parent is a root-owned stub the gate user cannot
+        # write to (#1331). The shared git dir is the nearest place that is
+        # neither world-writable nor outside what the container can see.
+        common = harness.sh_out(["git", "-C", str(root_path), "rev-parse", "--git-common-dir"]).strip()
+        common_path = Path(common) if Path(common).is_absolute() else root_path / common
+        directory = Path(tempfile.mkdtemp(prefix="retnd-arch-check.", dir=common_path.resolve()))
     harness.sh(["git", "-C", str(root_path), "worktree", "add", "--quiet", "--detach", str(directory), "HEAD"])
     try:
         yield directory

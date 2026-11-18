@@ -125,7 +125,26 @@ var destructiveGateExemptRoutes = map[string]bool{
 	"POST /api/v1/backup-sets/test-connection": true,
 	"POST /api/v1/ssh-keys":                    true,
 	"POST /api/v1/ssh-keys/from-candidate":     true,
-	"POST /api/v1/ssh/host-key-probe":          true,
+	// EPIC U (#1345): minting and revoking an agent token changes who may
+	// read this deployment and touches no backup data. The routes are
+	// session-only (a bearer is refused AGENT_ROUTE_DENIED before the gate
+	// is consulted), and a revoke is the safe direction.
+	"POST /api/v1/agent/tokens":             true,
+	"POST /api/v1/agent/tokens/{id}/revoke": true,
+	// EPIC U (#1349): approving and denying an agent's confirmation. Neither
+	// touches backup data itself: deny runs nothing, and approve replays the
+	// recorded request through this same router, where the gate is applied to
+	// the replay as it would be to the original (TestRunCycleApprovedMeetsTheShutGate
+	// AsAPersonWould). Session only, behind a step-up for approve.
+	"POST /api/v1/agent/confirmations/{id}/approve": true,
+	"POST /api/v1/agent/confirmations/{id}/deny":    true,
+	// EPIC U (#1347): the MCP transport's own frames. The endpoint changes
+	// nothing itself and is bearer only; every call inside it is an /api/v1
+	// request that meets this router's checks, the gate included, as the
+	// request it becomes.
+	"POST /api/v1/agent/mcp":          true,
+	"DELETE /api/v1/agent/mcp":        true,
+	"POST /api/v1/ssh/host-key-probe": true,
 
 	// Issue #1203. Removing a custom validator stops a script from running
 	// and deletes no backup datum: the class of clearing a stage directory
@@ -469,6 +488,26 @@ var destructiveGateExemptRoutes = map[string]bool{
 	// has to work on a deployment whose destructive gate is shut.
 	"POST /api/v1/backup-sets/{source}/{set}/scrub": true,
 	"POST /api/v1/assurance/operations/{op}/cancel": true,
+
+	// Retained-copy encryption (#993, #1296). The owner decided which of
+	// these are destructive (#1361): encrypt-existing and reencrypt are,
+	// because each retires an old copy, and carry the gate (router.go). The
+	// rest stay CSRF-only, each for one reason. Policy, set override and
+	// provider test change what the NEXT copy does and touch no copy that
+	// exists. Key create and confirm add or acknowledge a key. Rotate makes
+	// a new key active and keeps the old one readable. Retire is refused
+	// while any copy still needs the key (ErrEncryptionKeyInUse). Verify
+	// only reads. Export is not here: it carries its own gate and step-up.
+	"PATCH /api/v1/encryption/policy":                      true,
+	"POST /api/v1/encryption/policy/reset":                 true,
+	"PUT /api/v1/backup-sets/{source}/{set}/encryption":    true,
+	"DELETE /api/v1/backup-sets/{source}/{set}/encryption": true,
+	"POST /api/v1/encryption/keys":                         true,
+	"POST /api/v1/encryption/keys/rotate":                  true,
+	"POST /api/v1/encryption/keys/{id}/retire":             true,
+	"POST /api/v1/encryption/keys/{id}/confirm":            true,
+	"POST /api/v1/encryption/providers/test":               true,
+	"POST /api/v1/encryption/verify":                       true,
 }
 
 // destructiveGateTargetKindRoutes names the routes that are gated for some

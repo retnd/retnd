@@ -173,6 +173,19 @@ describe("what is written in front of a line", () => {
   });
 });
 
+describe("an agent's action (#1348)", () => {
+  it("is labelled by the agent, never as you, even for a viewer who shares its name", () => {
+    const e = event(5, { event: "agent_action", scope: "deployment", fields: { actor: "agent:triage" } });
+    expect(dockPrefix(e, "triage").label).toBe("agent:triage");
+    expect(dockPrefix(e, "alice").action).toBe(true);
+  });
+
+  it("carries the set it concerns onto that set's prefix", () => {
+    const e = event(6, { event: "agent_action", scope: "set", fields: { actor: "agent:triage", backup_set: "a/b" } });
+    expect(dockPrefix(e, "alice").setId).toBe("a/b");
+  });
+});
+
 describe("an engine restart", () => {
   it("keeps the lines leading up to it and draws a rule, rather than dropping them", () => {
     const before = foldReading(undefined, reading({ sets: [set("a/b", [event(1), event(2)])] }));

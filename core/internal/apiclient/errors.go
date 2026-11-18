@@ -3,6 +3,7 @@ package apiclient
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -111,6 +112,10 @@ type Error struct {
 	// CorrelationID is what the engine put in X-Correlation-Id, so an
 	// operator quoting an error can be matched to a log line.
 	CorrelationID string
+	// Header is the answer's response headers, for the few refusals that name
+	// something in one (X-Retnd-Confirmation-Id on AGENT_CONFIRMATION_REQUIRED).
+	// Nothing in the message depends on it.
+	Header http.Header
 }
 
 func (e *Error) Error() string {

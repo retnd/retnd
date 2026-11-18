@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
+	"runtime/metrics"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -306,8 +306,9 @@ func writeIndex(payload []byte, i int) {
 
 // --- measurement ----------------------------------------------------------
 
-// heapSampler tracks the highest Go heap this process held while a run
-// was in flight.
+// heapSampler tracks the highest LIVE Go heap this process held while a
+// run was in flight (live bytes as of the last finished collection, plus
+// stacks; see sample for why that and not HeapInuse).
 //
 // It samples rather than reading once at the end, because the number that
 // matters is the PEAK: a walk that buffered a million entries and then
@@ -346,11 +347,33 @@ func newHeapSampler() *heapSampler {
 }
 
 func (s *heapSampler) sample() {
-	var m runtime.MemStats
+	// Live bytes plus stacks, not HeapInuse. HeapInuse counts garbage the
+	// collector has not freed yet, so it follows GC pacing and machine
+	// load (the 128-entry deep-tree shape read 125 MB idle and 325 MB
+	// under the full gate). Live bytes are what the engine holds, which is
+	// what the budgets are about (#1278).
+	//
+	// The live figure is the heap marked by the last finished collection,
+	// so it trails the true peak by at most what was allocated since. A
+	// source that scales memory keeps collections coming and shows up in
+	// it. A metric that is missing or has the wrong kind would read 0 and
+	// pass every budget, so that panics below instead.
+	samples := []metrics.Sample{
+		{Name: "/gc/heap/live:bytes"},
+		{Name: "/memory/classes/heap/stacks:bytes"},
+	}
 
-	runtime.ReadMemStats(&m)
+	metrics.Read(samples)
 
-	inUse := m.HeapInuse + m.StackInuse
+	var inUse uint64
+
+	for _, sm := range samples {
+		if sm.Value.Kind() != metrics.KindUint64 {
+			panic("heapSampler: runtime metric " + sm.Name + " is not available as a uint64 in this Go version")
+		}
+
+		inUse += sm.Value.Uint64()
+	}
 
 	for {
 		was := s.peak.Load()

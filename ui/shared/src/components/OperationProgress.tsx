@@ -18,7 +18,7 @@
  * be wondering about it.
  */
 import type { Operation, TransferProgress } from "@shared/types/operation";
-import { TRANSFER_STAGES, progressPercent } from "@shared/types/operation";
+import { checklistStages, progressPercent } from "@shared/types/operation";
 import { Icon } from "@shared/design-system/icons";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { bytes, rate } from "@shared/utilities/format";
@@ -29,6 +29,8 @@ const STAGE_LABEL: Record<string, string> = {
   verifying: "Verifying",
   committing: "Committing",
   "cleaning-remote": "Cleaning remote source",
+  encrypting: "Encrypting",
+  "decrypt-verifying": "Decrypt-verifying",
   complete: "Complete"
 };
 
@@ -134,7 +136,8 @@ function Live({
   nonDestructive: boolean;
   label: string;
 }) {
-  const stageIndex = TRANSFER_STAGES.indexOf(progress.stage);
+  const stages = checklistStages(progress.stage);
+  const stageIndex = stages.indexOf(progress.stage);
   const percent = progressPercent(progress);
   const subject = progress.artifact ?? progress.backupSetId ?? "the current backup set";
 
@@ -176,7 +179,7 @@ function Live({
               display: "flex", flexWrap: "wrap", gap: "6px 10px", fontSize: "var(--text-sm)"
             }}
           >
-            {TRANSFER_STAGES.map((stage, i) => {
+            {stages.map((stage, i) => {
               const done = i < stageIndex;
               const current = i === stageIndex;
               return (

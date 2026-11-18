@@ -119,6 +119,8 @@ export const SETTINGS_SECTIONS = {
   capacity: "capacity",
   retention: "retention",
   storageDestinations: "storage-destinations",
+  encryption: "encryption",
+  agents: "agents",
   workflow: "workflow",
   assurance: "assurance",
   validators: "validators",

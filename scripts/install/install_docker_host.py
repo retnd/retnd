@@ -62,8 +62,9 @@ Saying it anyway would be worse than the copying, so:
 
   * `--mode upgrade` and `--mode factory-reset` archive
     `config/ssh_keys`, which is where the ENGINE keeps the keys an
-    operator imported through the Web UI. An archive therefore holds
-    copies of private key material. It is created 0700 under the prefix,
+    operator imported through the Web UI, and `config/retained_copy_keys`,
+    where it keeps the managed keys for encrypted retained copies (#1295).
+    An archive therefore holds copies of private key material. It is created 0700 under the prefix,
     nothing in it is ever read or printed, and the installer refuses
     rather than let archives accumulate past ARCHIVE_LIMIT: an upgrade
     that silently multiplied that material every time it ran would be
@@ -213,8 +214,6 @@ EXIT_RELEASE_DIGEST_MISMATCH = 52
 SUPPORTED_ARCH = {
     "x86_64": "amd64",
     "amd64": "amd64",
-    "aarch64": "arm64",
-    "arm64": "arm64",
 }
 
 # Fixed in-container paths. These mirror container/compose.yaml's own
@@ -328,7 +327,7 @@ SOURCE_PORT_ENV_LEGACY = "RCLONE_MANAGER_SOURCE_PORT"
 # It proves exactly one version: this one. A release cut after this
 # installer was written has no digest here and cannot get one, which is
 # the reason the --image default is pinned rather than floating.
-CARRIED_RELEASE = "0.7.2"
+CARRIED_RELEASE = "0.8.0"
 CARRIED_RELEASE_DIGEST = None
 
 # Where that release lives. Split into two halves rather than written as
@@ -631,12 +630,19 @@ class Preflight:
         """
         machine = os.uname().machine
         arch = SUPPORTED_ARCH.get(machine)
+        if arch is None and os.environ.get("RETND_E2E_ACCEPT_HOST_ARCH") == "1" and machine in ("aarch64", "arm64"):
+            # Only the two-machine proof sets this (#1489): it builds the image
+            # for the daemon it runs on, so on an arm64 Mac the machines are
+            # arm64 by construction and the install it drives is consistent.
+            arch = "arm64"
+            self.note("RETND_E2E_ACCEPT_HOST_ARCH=1: accepting this host's own architecture for the e2e proof")
         if arch is None:
             raise Refusal(
                 EXIT_PREREQ_ARCH,
                 f"this host reports {machine}, and the release is built for "
                 f"{sorted(set(SUPPORTED_ARCH.values()))} only.",
-                "There is no image for this architecture. Building one is a project decision, not an installer flag.",
+                "There is no image for this architecture. Releases publish linux/amd64 only (#1452). On an ARM NAS or "
+                "Raspberry Pi, build from source (docs/deployment.md) or stay on 0.7.2, the last release with a linux/arm64 image.",
             )
         self.arch = arch
         self.note(f"architecture {machine} maps to the released {arch}")
@@ -2150,6 +2156,12 @@ def archive_plan(args):
         args.config_dir / "config.yaml",
         args.config_dir / "ssh_keys",
         args.config_dir / "known_hosts.d",
+        # The managed encryption keys (#1295). A factory reset moves the
+        # journal, and with it the registry rows that name these keys, so
+        # the keys have to move with it: leaving them behind orphans them
+        # beside a fresh install and gives the archive a journal whose
+        # encrypted copies name keys it does not hold.
+        args.config_dir / "retained_copy_keys",
     ]
 
 
@@ -2213,6 +2225,11 @@ def destroy_preview(args):
     if known.is_dir():
         n = len([p for p in known.iterdir() if p.is_file()])
         lines.append(f"{n} pinned host key file(s) (config/known_hosts.d)")
+    managed = args.config_dir / "retained_copy_keys"
+    if managed.is_dir():
+        n = len([p for p in managed.iterdir() if p.is_file()])
+        lines.append(f"{n} managed encryption key(s) (config/retained_copy_keys): copies encrypted "
+                     f"under them are unreadable without the key or its recovery bundle")
     if not lines:
         lines.append("nothing: no administrator record, catalog or configuration is here to destroy")
     # Named, not left to be discovered. Everything below survives a
@@ -2226,7 +2243,8 @@ def destroy_preview(args):
 
 # How many archives may sit under --prefix before this refuses to make
 # another. Each one holds a copy of config/ssh_keys, which is where the
-# engine keeps the SSH keys an operator imported, so an unbounded pile is
+# engine keeps the SSH keys an operator imported, and of
+# config/retained_copy_keys, its managed encryption keys, so an unbounded pile is
 # an installer that multiplies private key material every time it runs.
 #
 # A refusal rather than a prune, and the choice is deliberate. This whole
@@ -2275,7 +2293,7 @@ def archive_state(args, *, move: bool):
             f"{len(archives)} archives are already under {args.prefix}, and the limit is "
             f"{ARCHIVE_LIMIT}:\n" + "\n".join(f"  {a}" for a in archives),
             "Each one holds a copy of config/ssh_keys, which is where the engine keeps the SSH keys "
-            "you imported, so leaving them to pile up spreads private key material with every "
+            "you imported, and of config/retained_copy_keys, its managed encryption keys, so leaving them to pile up spreads private key material with every "
             "upgrade. This will not delete them for you, because moving rather than deleting is the "
             "whole reason the archive is recoverable. Look at what you still need, then remove the "
             "rest by hand and re-run.",
@@ -2341,15 +2359,16 @@ def archive_state(args, *, move: bool):
     return archive, captured
 
 
-# The two directories the ENGINE creates and owns inside the config
-# directory: the keys an operator imports through the Web UI, and the host
-# keys it pins per source. container/compose.yaml documents both as
-# siblings of config.yaml (issue #196).
-ENGINE_OWNED_CONFIG_DIRS = ("ssh_keys", "known_hosts.d")
+# The directories the ENGINE creates and owns inside the config
+# directory: the keys an operator imports through the Web UI, the host
+# keys it pins per source, and the managed encryption keys for retained
+# copies (#1295). container/compose.yaml documents them as siblings of
+# config.yaml (issue #196).
+ENGINE_OWNED_CONFIG_DIRS = ("ssh_keys", "known_hosts.d", "retained_copy_keys")
 
 
 def prepare_engine_config_dirs(args) -> None:
-    """Create the engine's two on-demand stores, 0700, before it does.
+    """Create the engine's on-demand stores, 0700, before it does.
 
     This ran BEFORE stage_payload, when neither the prefix nor the config
     directory existed yet, so on a fresh install every path it looked at
@@ -2711,9 +2730,9 @@ EMBEDDED_COMPOSE_YAML = """\
 #
 # This file builds for the machine running `docker compose`, i.e. it's meant
 # to be run ON the UGREEN NAS itself (or against a matching architecture).
-# To cross-build and publish a linux/amd64 + linux/arm64 image ahead of
-# time instead, use `docker buildx build --platform=...` directly; see
-# docs/deployment.md.
+# To cross-build an image ahead of time instead, use
+# `docker buildx build --platform=...` directly; see docs/deployment.md.
+# Releases publish linux/amd64 only (#1452).
 #
 # Nothing below reads a secret from this file or from the environment: real
 # credential material (the SSH private key) lives only at the host path
@@ -2830,7 +2849,6 @@ x-canonical-runtime:
   # container/release-manifest.json, so the three cannot drift.
   architectures:
     - amd64
-    - arm64
 
   # The profiles `--profile=` below may name. Checked against the profile
   # table the executable actually implements
@@ -3406,7 +3424,7 @@ services:
 """
 
 # Written by scripts/install/embed_compose.py alongside the blob above.
-EMBEDDED_COMPOSE_SHA256 = "a0255eb73f038c2d82206cbe6eecd97bafe99db042c9d0c40e601a7121e6cbf0"
+EMBEDDED_COMPOSE_SHA256 = "e8c7789d2677ccc040bd7a13153226d598927a5618ab320d38708e84f3d23429"
 
 
 def embedded_compose_bytes() -> bytes:
@@ -6818,8 +6836,8 @@ def cmd_uninstall(args) -> int:
         say(f"  {label:<14} {path}")
     if args.workflows_dir.is_dir():
         say(f"  {'--workflows':<14} {args.workflows_dir}")
-    say("They hold the SQLite journal, the administrator record, the backups themselves, and any")
-    say("hook scripts you wrote.")
+    say("They hold the SQLite journal, the administrator record, the backups themselves,")
+    say("the managed encryption keys (config/retained_copy_keys), and any hook scripts you wrote.")
     say("Remove them by hand if that is really what you want.")
     say("")
     say("NOT removed by this command: if `install` or `network-doctor` ever repaired this host's")
@@ -7393,7 +7411,7 @@ def _add_install_prereq_groups(sp: argparse.ArgumentParser) -> None:
                               "test, so this installer needs no checkout on the host. Supply it to install "
                               "a locally modified runtime from a checkout; naming a path that does not "
                               "exist is still a refusal.")
-    runtime.add_argument("--image", default="ghcr.io/retnd/retnd:0.7.2",
+    runtime.add_argument("--image", default="ghcr.io/retnd/retnd:0.8.0",
                          action=_RecordsThatItWasSupplied,
                          help="Image reference both services run.")
     runtime.add_argument("--release", default=CARRIED_RELEASE,
@@ -7567,7 +7585,7 @@ def build_parser() -> argparse.ArgumentParser:
             "      --prefix /volume1/retnd \\\n"
             "      --ssh-key /volume1/retnd/secrets/id_ed25519 \\\n"
             "      --known-hosts /volume1/retnd/secrets/known_hosts \\\n"
-            "      --image ghcr.io/retnd/retnd:0.7.2\n"
+            "      --image ghcr.io/retnd/retnd:0.8.0\n"
         ),
     )
     _add_shared_groups(sp_install)

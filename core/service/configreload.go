@@ -117,6 +117,9 @@ func (b *BackupService) adoptConfig(cfg *config.Config) string {
 	// and turn every recovery test validator into "not configured".
 	newInner.Stages = prevInner.Stages
 	newInner.Recoverer = prevInner.Recoverer
+	// Key custody belongs to the process for the same reason: a reload that
+	// forgot it would refuse every encrypted copy until a restart (#993).
+	newInner.Keys = prevInner.Keys
 	// What has been announced is a property of the process, not of one
 	// configuration: a reload that dropped it would announce every standing
 	// failure again.

@@ -113,6 +113,81 @@ func TestTheSiteReferenceExtractorCanActuallyFail(t *testing.T) {
 	}
 }
 
+// The command table checks top-level commands only, and `encryption` has
+// one row for a whole family of verbs. A verb added under it (EPIC T's
+// `suites` and `reencrypt`, and before them `encrypt-existing`) never
+// moved the check above, which is how `encrypt-existing` went missing from
+// the row the day it landed. So the encryption row is held to
+// core/cmd/retnd/encryption.go's own dispatch table, the same way the table
+// is held to main.go's: every verb that table registers has to appear in
+// the row as a <code> span that starts with it.
+var (
+	encryptionVerbsBlock = regexp.MustCompile(`(?s)var encryptionVerbs = map\[string\]func\(args \[\]string\) int\{(.*?)\n\}`)
+	encryptionRow        = regexp.MustCompile(`(?s)<tr><td><code>encryption</code></td>(.*?)</tr>`)
+)
+
+func registeredEncryptionVerbs(t *testing.T, src string) []string {
+	t.Helper()
+	block := encryptionVerbsBlock.FindStringSubmatch(src)
+	if block == nil {
+		t.Fatal("could not find the `var encryptionVerbs = map[string]func(args []string) int{...}` table in core/cmd/retnd/encryption.go; this test reads it to decide which encryption verbs exist")
+	}
+	var out []string
+	for _, m := range commandsMapKey.FindAllStringSubmatch(block[1], -1) {
+		out = append(out, m[1])
+	}
+	sort.Strings(out)
+	return out
+}
+
+// undocumentedVerbs returns the verbs the row does not name. A verb counts
+// as named when a <code> span in the row starts with it, with or without
+// the `retnd encryption ` prefix the row's first span carries.
+func undocumentedVerbs(row string, verbs []string) []string {
+	var missing []string
+	for _, v := range verbs {
+		named := regexp.MustCompile(`<code>(retnd encryption )?` + regexp.QuoteMeta(v) + `(&lt;| |</code>)`)
+		if !named.MatchString(row) {
+			missing = append(missing, v)
+		}
+	}
+	return missing
+}
+
+func TestTheSiteReferenceEncryptionRowNamesEveryEncryptionVerb(t *testing.T) {
+	src, err := os.ReadFile(Path("core/cmd/retnd/encryption.go"))
+	if err != nil {
+		t.Fatalf("read encryption.go: %v", err)
+	}
+	verbs := registeredEncryptionVerbs(t, string(src))
+	if len(verbs) == 0 {
+		t.Fatal("read no verbs out of encryption.go's dispatch table")
+	}
+	row := encryptionRow.FindStringSubmatch(htmlRegion(t, readReference(t), "CLI-COMMANDS"))
+	if row == nil {
+		t.Fatal("docs/site/reference.html's command table has no `encryption` row to hold to the verbs")
+	}
+	if missing := undocumentedVerbs(row[1], verbs); len(missing) > 0 {
+		t.Errorf("docs/site/reference.html's `encryption` row does not name these verbs the binary registers: %v.\n"+
+			"Each needs a <code> span in that row that starts with the verb, the way `policy` and `decrypt` have one.", missing)
+	}
+}
+
+func TestTheEncryptionVerbCheckCanActuallyFail(t *testing.T) {
+	// The positive control: a row naming two of three verbs reports exactly
+	// the third, a verb that only occurs inside another word is not taken
+	// as named, and the table reader finds the keys at all.
+	row := `<td>Use <code>retnd encryption policy [--json]</code> and <code>copies &lt;x&gt;</code>; re-encrypting is not <code>decrypt</code>-adjacent prose.</td>`
+	got := undocumentedVerbs(row, []string{"copies", "policy", "reencrypt", "crypt"})
+	if len(got) != 2 || got[0] != "reencrypt" || got[1] != "crypt" {
+		t.Fatalf("want [reencrypt crypt] reported as missing, got %v", got)
+	}
+	verbs := registeredEncryptionVerbs(t, "var encryptionVerbs = map[string]func(args []string) int{\n\t\"policy\": cmdA,\n\n\t\"encrypt-existing\": cmdB,\n}")
+	if len(verbs) != 2 || verbs[0] != "encrypt-existing" || verbs[1] != "policy" {
+		t.Fatalf("the table reader read %v; want both keys, the one after the blank line included", verbs)
+	}
+}
+
 func TestTheSiteReferenceRegionMarkersAreThere(t *testing.T) {
 	// Both of them, and the installer one too even though this package
 	// does not read it: its own check lives in the installer's Python

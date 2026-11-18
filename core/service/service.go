@@ -97,6 +97,11 @@ type BackupService struct {
 
 	journal *state.Journal
 
+	// keys is key custody for encrypted retained copies (keycustody.go).
+	// It is also what inner.Keys holds, so the engine, a scrub and the
+	// encryption routes all reach one custodian.
+	keys *KeyCustody
+
 	// rootDefault is where this process looks for a workflow root when
 	// config.yaml names none (#1246). Zero, which New leaves it, looks
 	// for none; OpenWith sets it from the caller's options.
@@ -149,6 +154,14 @@ type BackupService struct {
 	// activityDone is closed when the activity feed's durable writer has
 	// flushed and stopped (liveactivity_durable.go).
 	activityDone chan struct{}
+
+	// audit is the agent audit trail's writer (agentaudit.go), and auditDone
+	// is closed when it has flushed and stopped.
+	audit     *agentAuditWriter
+	auditDone chan struct{}
+	// unattributedRefusals holds the feed back for refusals that name no
+	// token (agentaudit.go).
+	unattributedRefusals refusalFeed
 
 	// runOnce enforces this package's single-flight invariant: at most one
 	// executeRunCycle call may be inside internal/app.Service.RunCycle at a
@@ -356,6 +369,9 @@ func New(cfg *config.Config, journal *state.Journal, tr transport.Transport, log
 	b.logger = logger
 	b.activity = activity
 	inner := app.New(cfg, journal, tr, logger)
+	b.keys = NewKeyCustody(func() string { return b.configPath }, journal)
+	b.keys.UseConfig(func() *config.Config { return b.state.Load().inner.Config })
+	inner.Keys = b.keys
 	// The stage runner is wired here, and not with the lifecycle, because
 	// it needs no reconciliation: it runs scripts that are not backups, so
 	// there is no quiesced machine for a startup pass to account for.
@@ -391,6 +407,20 @@ func New(cfg *config.Config, journal *state.Journal, tr transport.Transport, log
 	go func() {
 		defer close(activityDone)
 		activity.durable.run(ctx)
+	}()
+
+	// The agent audit writer (agentaudit.go): one goroutine, its own channel
+	// for the reason the activity writer has one.
+	b.audit = newAgentAuditWriter(journal, logger.WithSink(nil))
+	// agents.audit_retention_days, read at start like the rest of the block.
+	if days := cfg.Agents.AuditRetentionDays; days > 0 {
+		b.audit.retention = time.Duration(days) * 24 * time.Hour
+	}
+	auditDone := make(chan struct{})
+	b.auditDone = auditDone
+	go func() {
+		defer close(auditDone)
+		b.audit.run(ctx)
 	}()
 
 	// EPIC L's engine, built here and switched on later. It is
@@ -717,6 +747,15 @@ func (b *BackupService) Close() error {
 		case <-time.After(closeDrainTimeout):
 			b.logger.Error(context.Background(), "close",
 				fmt.Errorf("timed out after %s waiting for the activity writer to flush", closeDrainTimeout))
+		}
+	}
+
+	if b.auditDone != nil {
+		select {
+		case <-b.auditDone:
+		case <-time.After(closeDrainTimeout):
+			b.logger.Error(context.Background(), "close",
+				fmt.Errorf("timed out after %s waiting for the agent audit writer to flush", closeDrainTimeout))
 		}
 	}
 

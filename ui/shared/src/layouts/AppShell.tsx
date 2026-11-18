@@ -122,13 +122,8 @@ export function AppShell({
         </div>
       ) : null}
 
-      <header
-        style={{
-          flex: "none", height: 52, display: "flex", alignItems: "center", gap: 16,
-          padding: "0 18px", background: "var(--surface)", borderBottom: "1px solid var(--border)"
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 206 }}>
+      <header className="shell-header">
+        <div className="shell-header__brand">
           <Logo size={24} title="retnd" />
           <Wordmark size={14} />
         </div>
@@ -156,14 +151,8 @@ export function AppShell({
         </div>
       </header>
 
-      <div style={{ flex: 1, display: "flex", alignItems: "stretch", minHeight: 0 }}>
-        <nav
-          aria-label="Sections"
-          style={{
-            flex: "none", width: 206, padding: "14px 10px", background: "var(--surface)",
-            borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 2
-          }}
-        >
+      <div className="shell-body">
+        <nav aria-label="Sections" className="shell-nav">
           {NAV.map((item) => {
             const count = item.count ? counts[item.count] : undefined;
             const shown = count && item.formatCount ? item.formatCount(count) : undefined;
@@ -220,8 +209,8 @@ export function AppShell({
             );
           })}
 
-          <div style={{ flex: 1, minHeight: 20 }} />
-          <div style={{ padding: "12px 10px", borderTop: "1px solid var(--border)" }}>
+          <div className="shell-nav__spacer" />
+          <div className="shell-nav__platform">
             <InfoTooltip id="shell.platform" block>
               <PlatformBadge compact />
             </InfoTooltip>
@@ -229,17 +218,10 @@ export function AppShell({
         </nav>
 
         <main
-          style={{
-            flex: 1, minWidth: 0, overflow: "auto",
-            paddingBottom: `var(--dock-height, ${DOCK_BAR_HEIGHT}px)`
-          }}
+          className="shell-main"
+          style={{ paddingBottom: `var(--dock-height, ${DOCK_BAR_HEIGHT}px)` }}
         >
-          <div
-            style={{
-              maxWidth: 1240, margin: "0 auto", padding: "24px 28px 64px",
-              display: "flex", flexDirection: "column", gap: 18
-            }}
-          >
+          <div className="shell-main__inner">
             {children}
           </div>
         </main>

@@ -967,14 +967,14 @@ def body(root: Path, dry_run: bool) -> int:
         # verifyCopy in two, an ungated Verify and a gated
         # VerifyWithAccess, and a mutation that took only one of them would
         # leave the other still reading the bytes back, which is a
-        # mutation that proves nothing. The anchor this used to carry was
-        # the pre-split one, and it stopped matching: the swap refused to
-        # plant, which is exactly what it is for.
+        # mutation that proves nothing. The anchor has been re-pinned twice
+        # as the tail moved (#437, then #992 and #1317 moved `observe` up
+        # into the body of verifyCopy), and each time it stopped matching:
+        # the swap refused to plant, which is exactly what it is for.
         #
-        # The three `_ =` lines are load-bearing too. Without them the
-        # mutant does not compile, and a mutant that does not compile
-        # fails the suite for a reason that has nothing to do with the
-        # promise.
+        # This plants into the plaintext tail only. A destination that
+        # holds ciphertext returns early through verifyEncrypted, so that
+        # path has its own control just below.
         d = mutant("destination-trusted-instead-of-verified")
         tracker.swap(
             d / "core/internal/placement/engine.go",
@@ -982,16 +982,10 @@ def body(root: Path, dry_run: bool) -> int:
             "\t\tres, err := Verify(ctx, e.Store, medium, candidate, want, e.now())\n"
             "\t\treturn res, want, err\n"
             "\t}\n"
-            "\t// observe spends a restore-status call only for a class that needs\n"
-            "\t// one, so a STANDARD destination costs exactly what it cost before.\n"
-            "\tobs := e.observe(ctx, medium, mv.DestinationKey, medium.StorageClass)\n"
-            "\tres, err := VerifyWithAccess(ctx, e.Store, medium, candidate, want, obs, e.now())\n"
+            "\tres, err := VerifyWithAccess(ctx, e.Store, medium, candidate, want, observed, e.now())\n"
             "\treturn res, want, err",
             "\t// PLANTED VIOLATION (scripts/conformance/selftest.sh): trust the\n"
             "\t// upload rather than reading it back, on both paths.\n"
-            "\t_ = gated\n"
-            "\t_ = medium\n"
-            "\t_ = candidate\n"
             '\treturn Result{Passed: true, Class: want, Detail: "planted"}, want, nil',
         )
         expect_check_fails(
@@ -1001,6 +995,36 @@ def body(root: Path, dry_run: bool) -> int:
             d,
             "does not hold the artifact's bytes",
             "TestTheCrashMatrixAgainstARealS3Endpoint",
+        )
+
+        # The same promise for a destination that holds ciphertext (#991,
+        # #992, #1317). verifyEncrypted is the only place an encrypted copy
+        # is opened again, and it returns early, above the tail planted
+        # above, so a mutation there is invisible to that control. Trust the
+        # upload instead of the decrypt-verify and a hostile endpoint's
+        # garbage becomes the copy the plaintext is retired for.
+        #
+        # `_ = stage` is load-bearing: the planted line no longer calls
+        # verifyEncryptedContent, the only reader of `stage`, and a mutant
+        # that does not compile fails for a reason that has nothing to do
+        # with the promise.
+        d = mutant("encrypted-destination-trusted-instead-of-decrypt-verified")
+        tracker.swap(
+            d / "core/internal/placement/encryption.go",
+            "\tres, err := verifyEncryptedContent(ctx, e.Store, e.Keys, keyID, suiteID, medium, candidate, e.now(), stage)\n",
+            "\t// PLANTED VIOLATION (scripts/conformance/selftest.sh): trust the\n"
+            "\t// upload rather than decrypting it back.\n"
+            "\t_ = stage\n"
+            '\tres, err := Result{Passed: true, Class: want, Detail: "planted"}, error(nil)\n',
+        )
+        expect_unit_check_fails(
+            tracker,
+            tally,
+            "an encrypted destination trusted instead of decrypt-verified",
+            d,
+            "the plaintext object is gone or changed after a destination that failed verification",
+            "./tests/movecrash/",
+            "TestACorruptedDestinationNeverRetiresThePlaintext_1291",
         )
 
         print()

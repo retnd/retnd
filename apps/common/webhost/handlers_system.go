@@ -212,6 +212,12 @@ type capabilitiesResponse struct {
 	// client that learns the gate is shut only by being refused by it is
 	// the problem this field exists to end.
 	DestructiveOperations destructiveOperationsResponse `json:"destructive_operations"`
+
+	// AgentsHTTPTransport is "on" when agents.http_transport resolved to on,
+	// and "off" otherwise, so an operator can tell whether the agent endpoint
+	// answers without reading config.yaml. Like DestructiveOperations it is
+	// this deployment's own setting and not a platform capability.
+	AgentsHTTPTransport string `json:"agents_http_transport"`
 }
 
 // destructiveOperationsResponse is DestructiveOperationsStatus in the
@@ -228,8 +234,10 @@ type destructiveOperationsResponse struct {
 
 	// InsecureTransportAckRequired says the browser behind THIS request
 	// reached retnd over plain HTTP from another machine, as the hop facing
-	// it judged (gate_profile.go), so a gated act needs the extra
-	// acknowledgement. It is computed from the request that asked, which is
+	// it judged (gate_profile.go), so an act that sends or returns a secret
+	// over that connection (a gated act, and the mint of an agent token) needs
+	// the extra acknowledgement. It does not depend on the gate's state: the
+	// mint asks with the gate shut. It is computed from the request that asked, which is
 	// why the read is answered Cache-Control: no-store.
 	InsecureTransportAckRequired bool `json:"insecure_transport_ack_required"`
 }
@@ -243,6 +251,10 @@ type destructiveOperationsResponse struct {
 // from the gate rather than from the adapter.
 func (h *handlers) systemCapabilities(w http.ResponseWriter, r *http.Request) {
 	c := h.platform.Capabilities()
+	agentsHTTPTransport := "off"
+	if h.agentPolicy.HTTPTransport {
+		agentsHTTPTransport = "on"
+	}
 	gateState, gateReason := gateStatus(h.enforce.gate)
 	_, stepUp := conditionsOf(h.enforce.gate)
 	// insecure_transport_ack_required is about the connection that asked, so
@@ -260,8 +272,9 @@ func (h *handlers) systemCapabilities(w http.ResponseWriter, r *http.Request) {
 			State:                        gateState,
 			Reason:                       gateReason,
 			StepUpRequired:               stepUp,
-			InsecureTransportAckRequired: h.enforce.insecureTransportAckNeeded(r),
+			InsecureTransportAckRequired: h.enforce.plainHTTPFromElsewhere(r),
 		},
+		AgentsHTTPTransport: agentsHTTPTransport,
 	})
 }
 

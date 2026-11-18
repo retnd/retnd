@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/state"
 )
 
@@ -81,6 +82,22 @@ type Reclaimer struct {
 
 	// Mediums resolves a medium id into somewhere reachable.
 	Mediums MediumResolver
+
+	// Encryption reads a copy's per-copy encryption record (EPIC N, #992).
+	// *state.Journal satisfies it. With a record, the copy's identity is
+	// proved against its STORED bytes, the size and the endpoint's
+	// checksum of the object at the key, which is the only identity an
+	// encrypted object has: the plaintext size and digest are never the
+	// object's, and comparing them refuses every encrypted copy. No key is
+	// involved at any point, and the object is never read.
+	//
+	// Nil means "no copy is known to be encrypted". An encrypted copy judged
+	// that way fails the size comparison and is refused, which is the safe
+	// direction, so a deployment that forgot to wire this cannot delete on
+	// the wrong numbers; it can only fail to delete.
+	Encryption interface {
+		PlacementEncryption(ctx context.Context, artifact model.ArtifactID, medium string) (state.PlacementEncryption, bool, error)
+	}
 
 	// Now is the clock the verification results are stamped with. Nil
 	// means time.Now.
@@ -158,6 +175,20 @@ func (r *Reclaimer) DeleteFromMedium(ctx context.Context, rec state.Record, medi
 	}
 
 	now := r.now()
+
+	// An encrypted copy is judged by what is at the key. The record is read
+	// here, at the moment of the delete, like every other fact in this
+	// function; a journal that cannot be read refuses.
+	if r.Encryption != nil {
+		enc, encrypted, err := r.Encryption.PlacementEncryption(ctx, rec.Artifact, medium)
+		if err != nil {
+			return refuse("the copy's encryption record could not be read: %v", err)
+		}
+		if encrypted {
+			stored := enc.StoredSize
+			p.Size, p.Hash, p.HashAlg = &stored, enc.StoredHash, enc.StoredHashAlg
+		}
+	}
 
 	// FR-16, first attribute: the object is there, at the size recorded
 	// for this placement. A medium that could not be asked is an error

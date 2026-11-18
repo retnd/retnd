@@ -391,13 +391,20 @@ func (e gateEnforcement) browserTransport(r *http.Request) string {
 
 // insecureTransportAckNeeded reports whether a gated act on this request
 // needs the insecure-transport acknowledgement (whether or not it carries
-// it). It is what GET /system/capabilities reports, so a screen asks exactly
-// when the router would refuse.
+// it). GET /system/capabilities reports the wider plainHTTPFromElsewhere, which
+// is true whenever this is.
 func (e gateEnforcement) insecureTransportAckNeeded(r *http.Request) bool {
 	secureTransport, _ := conditionsOf(e.gate)
-	if !secureTransport {
-		return false
-	}
+	return secureTransport && e.plainHTTPFromElsewhere(r)
+}
+
+// plainHTTPFromElsewhere is the transport half of the rule on its own: the
+// browser reached retnd over plain HTTP from another machine. It does not
+// read the gate, because the mint of an agent token (requireMintTransportAck)
+// asks the same consent with the destructive gate shut, and
+// GET /system/capabilities reports this, not the gated acts' narrower
+// answer, so a screen asks exactly when the router would refuse (Q17).
+func (e gateEnforcement) plainHTTPFromElsewhere(r *http.Request) bool {
 	v := e.browserTransport(r)
 	return v != BrowserTransportHTTPS && v != BrowserTransportLoopback
 }
@@ -436,6 +443,9 @@ type gatedAct struct {
 	// validatorUpload is an upload or edit of a custom recovery-test
 	// validator (#1203): new code the engine will run on the host.
 	validatorUpload bool
+	// keyExport is the export of a recovery bundle (#993): the one act that
+	// lets managed key material leave the deployment through the API.
+	keyExport bool
 }
 
 // sourceRecoveryAct is what decide needs from a source-host recovery: the
@@ -497,7 +507,38 @@ func (e gateEnforcement) decide(r *http.Request, act gatedAct) (gateRefusal, boo
 			name: "a validator upload", plural: "validator uploads", onHost: "retnd assurance validators add",
 		})
 	}
+	if act.keyExport {
+		// Fails closed for the validator upload's reason: where the gate is
+		// open the password is asked for, and where nothing can check it the
+		// answer is 503, not a bundle.
+		return e.checkStepUp(r, stepUpAct{
+			name: "a recovery bundle export", plural: "recovery bundle exports", onHost: "retnd encryption key export",
+		})
+	}
 	return gateRefusal{}, false
+}
+
+// requireMintTransportAck is the insecure-transport acknowledgement for
+// POST /agent/tokens. The response carries the token, so over plain HTTP from
+// another machine it is exposed the way an exported key is, and the engine
+// asks the same consent, so the browser and a remote `retnd agent token
+// create` behave alike. It is not an act of the destructive gate: the mint
+// touches no backup data, so a gateway profile with the gate shut is asked the
+// same and no gate state is read. It is a consent prompt, not an access
+// control, for the reason insecureTransportAckNeeded gives.
+func requireMintTransportAck(e gateEnforcement) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if e.plainHTTPFromElsewhere(r) && !insecureTransportAcknowledged(r) {
+				ref := newGateRefusal(http.StatusForbidden, "INSECURE_TRANSPORT_ACK_REQUIRED",
+					"the new token comes back over this connection, which is not encrypted and is not from this machine; open retnd over HTTPS, or acknowledge it in the request with the "+InsecureTransportHeader+" header",
+					"", "the mint's connection is not encrypted and not from this machine, and the request did not acknowledge that")
+				ref.write(w, r, "mint an agent token")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // newGateRefusal is every refusal decide makes. One constructor, with the

@@ -153,9 +153,12 @@ func TestGateRefusal1157_TheContractSaysWhoTheGateIsShutFor(t *testing.T) {
 	// outright; the mint, POST /recoveries and the redeem are gated for the
 	// source-host target kind, and say so the same way.
 	// #1203 adds the custom validator upload and its edit: both put code
-	// where the engine runs it on the host.
-	if gated != 8 {
-		t.Errorf("found %d gated operations, want 8 (POST /operations, retention/apply, the source-host write check, the three recovery routes gated per target kind, and the custom validator upload and edit): the list this test guards moved", gated)
+	// where the engine runs it on the host. #993's recovery bundle export is
+	// gated too, and the count never said so. #1361 puts the dry runs and
+	// the runs of encrypt-existing (#1291) and reencrypt (#1317) behind the
+	// gate, four more.
+	if gated != 13 {
+		t.Errorf("found %d gated operations, want 13 (POST /operations, retention/apply, the source-host write check, the three recovery routes gated per target kind, the custom validator upload and edit, the key bundle export, and the dry run and run of encrypt-existing and reencrypt): the list this test guards moved", gated)
 	}
 
 	create := string(doc.Components.Schemas["CreateBackupSetRequest"])

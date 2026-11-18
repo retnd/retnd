@@ -773,6 +773,164 @@ Recovery runs inside written budgets (`core/internal/recovery/budget`, #983), an
 
 The UI host (`retnd-ui`) is the front door in the two-container topology, so a download goes through its reverse proxy. That proxy bounds the wait for the engine's first response byte at five seconds and its server bounds a whole response at thirty, both right for JSON and both fatal to a download whose first request has to make the preparation read of the whole copy before the first byte. `/api/v1/recoveries/` gets its own proxy with no header bound and a write deadline that rolls with the client accepting bytes. A different gateway in front of that one needs the same treatment: a read timeout longer than the time to read the copy, and no response buffering.
 
+## Recorded decision: retained-copy encryption is fourteen operations, one write-only field and one route that returns key material (#993)
+
+EPIC N adds the `encryption` surface, all of it additive: nothing existing
+changes shape, and every new field on a request is optional.
+
+| Operation | Route |
+|---|---|
+| `getEncryptionPolicy`, `patchEncryptionPolicy`, `resetEncryptionPolicy` | `GET`, `PATCH /encryption/policy`, `POST /encryption/policy/reset` |
+| `setBackupSetEncryption`, `clearBackupSetEncryption` | `PUT`, `DELETE /backup-sets/{source}/{set}/encryption` |
+| `listEncryptionKeys`, `createEncryptionKey`, `rotateEncryptionKey`, `retireEncryptionKey` | `GET`, `POST /encryption/keys`, `POST .../keys/rotate`, `POST .../keys/{id}/retire` |
+| `exportRecoveryBundle`, `confirmRecoveryBundle` | `POST /encryption/keys/{id}/export`, `POST .../keys/{id}/confirm` |
+| `testEncryptionProvider` | `POST /encryption/providers/test` |
+| `listEncryptionCopies` | `GET /encryption/copies?artifact=` |
+| `startDecryptVerify` | `POST /encryption/verify` (answers `ScrubStarted`; cancel is the existing `POST /assurance/operations/{op}/cancel`) |
+| `planEncryptExisting`, `startEncryptExisting` | `GET`, `POST /encryption/encrypt-existing` (the dry run answers `EncryptExistingPlan`; the run answers `ScrubStarted` and is stopped by the same assurance cancel) |
+| `planReencrypt`, `startReencrypt` | `GET`, `POST /encryption/reencrypt?suite=&key=&deprecated=&destination=` (exactly one selector; the dry run answers `ReencryptPlan` grouped by suite and key; the run answers `ScrubStarted` and is stopped by the same assurance cancel) |
+
+Five error codes arrive with them: `ENCRYPTION_KEY_NOT_FOUND`,
+`ENCRYPTION_KEY_IN_USE` (the message names the copies), `ENCRYPTION_KEY_STATE`,
+`ENCRYPTION_KEY_UNRESOLVABLE` and `ENCRYPTION_UNAVAILABLE`.
+
+### A kopia set says it is satisfied by the repository
+
+`EncryptionSetPolicy.satisfied_by` is `"repository"` for a set on the `kopia` engine and absent
+for every other set (an additive field). That set's repository is always encrypted by kopia under
+the repository passphrase, so `required` on it layers nothing and no managed key is consulted
+(ADR 0028 decision 4).
+
+### The key-reference field is write-only
+
+A request declares an external key as `{file | env | command}`
+(`EncryptionKeyReference`). Nothing answers with that shape. A response says
+`{kind, source}` (`EncryptionKeyProviderState`), where `source` is the
+reference's own description: a path, a variable name, or an executable without
+its arguments. The reference type has no `UnmarshalJSON`
+(`core/internal/secretref`), so a description read back from a response cannot
+re-declare a key. No key id appears in any metric label.
+
+### The one route that returns key material, and the open question
+
+`exportRecoveryBundle` answers with a `RecoveryBundle`, the single shape that
+carries managed key material. It is the browser's "Download bundle" and the
+terminal's `encryption key export --out FILE`. It is gated like a validator
+upload (the destructive gate and, where the gate opens for local accounts, the
+password), answers `Cache-Control: no-store` as an attachment, and is never
+rendered.
+
+**Open decision, not settled here:** whether the API should return the bundle at
+all. The browser keeps the download for now. If the answer is no, the route is
+removed, the browser's export becomes an instruction to run the echoed command,
+and nothing else in this surface depends on it.
+
+### Fields the Backups list and the key card read (additive)
+
+`Placement` (so `GET /backups` and the artifact detail) gains `encrypted`,
+`encryption_key_id` and `encryption_key_resolvable`, all absent for a plaintext
+copy. `EncryptionCopy` gains `stored_digest` (the ciphertext bytes) and
+`plaintext_digest` (`artifacts.local_hash`), two different values by
+construction. `EncryptionKeyStatus` gains `copies_recording` (ACTIVE copies
+that record the key) and `bundle_exported_at` (absent if never exported).
+
+`Placement` also gains `encryption_suite` (#1318): the suite the copy's record
+names, which is its format id read back, never the policy's current suite.
+Absent for a plaintext copy and from an older server, so the Encrypted chip
+draws no id rather than a guessed one.
+
+### Progress stages for an encrypted copy
+
+`OperationProgress.stage` and `LiveActivitySet.stage` gain `encrypting` and
+`decrypt-verifying`, appended after the original five, so a client that handled the
+five still handles them as before and treats the new two as it treats any stage it
+does not draw. They carry the existing `bytes_transferred` and `bytes_total` (a
+non-zero total only when it is known, `bytes_per_second` absent). A decrypt-verify
+started with `POST /encryption/verify` still rides the scrub operation and reports
+`bytes_read` in its result; its durable record names no stage.
+
+### Not decided here
+
+External key provider support goes beyond the `file | env | command` reference and
+is not extended by this surface; it can be added later without breaking it.
+
+## Recorded decision: agent routes, and the bearer rule (EPIC U, #1343)
+
+EPIC U adds a first principal that is not a person, and with it the routes below and one rule about
+who may present what. The decision record is [ADR 0034](../adr/0034-an-agent-is-a-scoped-client-of-the-api.md);
+this section is what a client of `/api/v1` needs to know.
+
+### The routes
+
+| Route | Who may call it |
+|---|---|
+| `GET /agent/tokens`, `POST /agent/tokens`, `POST /agent/tokens/{id}/revoke` | a signed-in session only. `/agent/tokens` is on the deny list below, so no bearer token, of any scope, mints, lists or revokes a token |
+| `GET /agent/tools` | the catalogue: every tool with its scope and its static description, and every refused route with its reason |
+| `GET /agent/audit` | the audit, one row per call an agent made, paged by cursor |
+| `GET /agent/confirmations`, `POST /agent/confirmations/{id}/approve`, `POST /agent/confirmations/{id}/deny` | the operator's side of a confirmation. Approve needs a step-up (the password again) and takes no request body of its own: a body supplied at approval is refused |
+| `POST /agent/mcp`, `GET /agent/mcp`, `DELETE /agent/mcp` | the MCP endpoint, bearer only: a cookie session is refused. Answers `AGENT_HTTP_TRANSPORT_OFF` until `agents.http_transport: on` |
+
+A token is returned once, by `POST /agent/tokens`, in a field that exists on that response and no
+other. Every other route that mentions a token (the list, the revoke, the audit, the confirmations)
+carries its id and its eight-character prefix and never the token or its hash.
+
+### The bearer rule
+
+- A bearer is an agent token only if it carries the `rat_` prefix. Any other `Authorization`
+  header, `Bearer` or not, is not ours and is ignored, so a front proxy's own header is left alone.
+- A deployment with no token store at all (the first-run router, a backend that keeps no journal)
+  has nothing to check a `rat_` bearer against and ignores it, except on the denied routes below,
+  which refuse it. A deployment with a store and no tokens refuses a `rat_` bearer
+  `401 AGENT_TOKEN_INVALID`, the same as any unknown one.
+- A valid agent token authenticates as the principal `agent:<name>`, which is what every `Actor`
+  field records. An unknown, expired or revoked token is `401 AGENT_TOKEN_INVALID` before any
+  handler runs, and the refusal is audited. A token is looked up on every request, so a revocation
+  takes effect on the next one. A request that presents a bearer is never also given the benefit of
+  a cookie.
+- `requireCSRF` passes a bearer principal without cookies, and nobody else: CSRF defends a
+  credential the browser sends by itself, and a header is not one. A cookie session keeps the pair.
+- The denied routes refuse a bearer `403 AGENT_ROUTE_DENIED` whatever its scope, and the check
+  comes before the token is looked up. The list is `core/agenttools/denied.go`, and `GET
+  /agent/tools` returns every entry with its reason as a refusal row. By family: `/auth/*`,
+  `/system/first-run/*`, `/recoveries/*` and `POST` of a backup's `/recovery`; the token, audit and
+  confirmation routes (`/agent/tokens/*`, `/agent/audit/*`, `GET /agent/confirmations`, `POST
+  /agent/confirmations/*`); key custody (`/encryption/keys/*`, `/encryption/providers/*`);
+  storage credentials and SSH (`/storage-credentials/*`, `/storage-mediums/preflight`, a medium's
+  `preflight` and `configuration/*`, `/ssh-keys/*`, `/ssh/*`); workflow secrets, step logs and
+  validator scripts; and the changes nobody confirms their way into (create or delete a backup set
+  or a medium, a catalog rebuild, a retention apply, a quarantine reinstate).
+- Below that, a bearer reaches only what the catalogue offers, the floor. A safe request must hit
+  the route a read tool sits on (matched on the router's own pattern, so a deeper route that shares
+  a prefix is not offered), the state of a confirmation the token proposed, or the MCP endpoint;
+  anything else is `403 AGENT_ROUTE_DENIED`, though it is only a read. A change is never made
+  directly: a `read` token that tries is `403 AGENT_SCOPE_INSUFFICIENT`; an `operate` or
+  `configure` token on a route and action the catalogue has a tool over is told a person has to
+  confirm it (`409 AGENT_CONFIRMATION_REQUIRED`), and the change is a pending confirmation until
+  one does; any other change is `403 AGENT_ROUTE_DENIED` and creates nothing.
+- A token over `agents.rate_limit_per_minute` is refused `AGENT_RATE_LIMITED`, with the wait. The
+  MCP frames that are not tool calls (initialize, tools/list, ping, notifications) count too.
+- Every call a token makes is audited before it is dispatched. While the audit cannot be written
+  (the writer stayed full for five seconds, or the journal is refusing writes) the call is refused
+  `503 AGENT_AUDIT_UNAVAILABLE` and nothing runs, and that includes a raw bearer call that names no
+  tool. The next write that lands clears it.
+
+### The codes, which are compatibility surfaces
+
+`AGENT_TOKEN_INVALID`, `AGENT_TOKEN_NOT_FOUND` (404, a revoke of an id that is not there),
+`AGENT_SCOPE_INSUFFICIENT`, `AGENT_ROUTE_DENIED`, `AGENT_RATE_LIMITED`,
+`AGENT_HTTP_TRANSPORT_OFF`, `AGENT_AUDIT_UNAVAILABLE` (503), `AGENT_CONFIRMATION_REQUIRED`,
+`AGENT_CONFIRMATION_NOT_FOUND` (404), `AGENT_CONFIRMATION_EXPIRED` (409),
+`AGENT_CONFIRMATION_DECIDED` (409, already approved or denied), `AGENT_CONFIRMATION_TOKEN_ENDED`
+(409, the proposing token was revoked or expired before the decision),
+`AGENT_CONFIRMATION_LIMIT` (429) and `AGENT_CONFIRMATION_BODY_SUBSTITUTED`. Like the scope words
+(`read`, `operate`, `configure`), the tool names and the `agent_action` event, they are never
+renamed and never removed while a token or an audit row records them. A tool result carries the
+API's own `code`, `message` and correlation id, and an `exit_code` that equals what `retnd` exits
+with for the same call. One code exists only in a tool result and never on the wire:
+`AGENT_UNEXPECTED_ANSWER`, for a proposed change the engine answered as if it had run, which
+nothing here asked a person to approve; the result says to treat it as not confirmed and to tell an
+operator.
+
 ## Migration record: what was removed and what replaced it
 
 | removed | replaced by |

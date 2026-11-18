@@ -374,3 +374,80 @@ func TestTheStatesAndKindsAreTheOnesTheContractDeclares(t *testing.T) {
 		}
 	}
 }
+
+// #1303: the record carries bytes_read for a decrypt-verify. While the run is
+// going it is the live count the work adds to; once it has ended it is the
+// pass line's own total. It is a number, never more.
+func TestARunningDecryptVerifyReportsItsLiveBytesRead_1303(t *testing.T) {
+	r := newDurableRig(t)
+	op := &assuranceOp{id: "op-live", kind: opKindScrub, set: "alpha/nightly"}
+	r.svc.ops.mu.Lock()
+	r.svc.ops.add(op)
+	r.svc.ops.mu.Unlock()
+
+	var last int64
+	for _, n := range []int64{0, 65536, 65536, 1} {
+		op.addBytesRead(n)
+		rec, err := r.svc.AssuranceOperation(context.Background(), "op-live")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rec.State != AssuranceOpRunning || rec.BytesRead < last {
+			t.Fatalf("state %q bytes %d after %d: the count went backward or the run stopped", rec.State, rec.BytesRead, last)
+		}
+		last = rec.BytesRead
+	}
+	if last != 65536*2+1 {
+		t.Errorf("bytes_read = %d, want %d", last, 65536*2+1)
+	}
+}
+
+func TestAFinishedScrubReadsBytesReadFromItsPassLine_1303(t *testing.T) {
+	at := time.Now().UTC()
+	passed := []LiveActivityEvent{
+		{Sequence: 1, At: at, Event: obs.EventScrubStart, Fields: []LiveActivityField{{Key: "op_id", Value: "op-x"}}},
+		{Sequence: 2, At: at, Event: obs.EventScrubPass, Result: string(obs.ResultSuccess), Fields: []LiveActivityField{
+			{Key: "op_id", Value: "op-x"}, {Key: "failed", Value: "0"}, {Key: "could_not_complete", Value: "0"}, {Key: "bytes_read", Value: "196608"},
+		}},
+	}
+	if got := summariseAssuranceOperation("op-x", passed, false).BytesRead; got != 196608 {
+		t.Errorf("bytes_read = %d, want 196608", got)
+	}
+	// A pass line that says nothing, or something that is not a count, is 0:
+	// the record never invents a figure.
+	for _, v := range []string{"", "-5", "lots"} {
+		ev := append([]LiveActivityEvent(nil), passed...)
+		ev[1].Fields = []LiveActivityField{{Key: "op_id", Value: "op-x"}, {Key: "bytes_read", Value: v}}
+		if got := summariseAssuranceOperation("op-x", ev, false).BytesRead; got != 0 {
+			t.Errorf("bytes_read %q gave %d, want 0", v, got)
+		}
+	}
+	// A recovery test has no such figure.
+	rt := []LiveActivityEvent{{Sequence: 1, At: at, Event: obs.EventRecoveryTestEnd, Result: string(obs.ResultSuccess),
+		Fields: []LiveActivityField{{Key: "bytes_read", Value: "9"}}}}
+	if got := summariseAssuranceOperation("op-y", rt, false).BytesRead; got != 0 {
+		t.Errorf("a recovery test reported bytes_read %d", got)
+	}
+}
+
+// The record names no key: a canary key id and secret that ride the run's
+// lines are not copied into bytes_read, and the scan below can fail (its
+// control plants the canary where the scan looks).
+func TestTheBytesReadFigureCarriesNoKeyMaterial_1303(t *testing.T) {
+	const canary = "AGE-SECRET-KEY-1CANARY1303"
+	scan := func(rec AssuranceOperationRecord) bool {
+		raw, _ := json.Marshal(rec)
+		return strings.Contains(string(raw), canary)
+	}
+	if !scan(AssuranceOperationRecord{Reason: canary}) {
+		t.Fatal("control: the scan did not see a planted canary")
+	}
+	at := time.Now().UTC()
+	ev := []LiveActivityEvent{{Sequence: 2, At: at, Event: obs.EventScrubPass, Result: string(obs.ResultSuccess),
+		Fields: []LiveActivityField{{Key: "bytes_read", Value: "10"}, {Key: "key_id", Value: canary}}}}
+	rec := summariseAssuranceOperation("op-k", ev, false)
+	rec.Events = nil
+	if rec.BytesRead != 10 || scan(rec) {
+		t.Errorf("record %+v carries the canary or the wrong figure", rec)
+	}
+}

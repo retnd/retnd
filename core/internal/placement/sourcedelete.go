@@ -316,6 +316,9 @@ func (e *Engine) proveLocalSourceSafe(rec state.Record, src state.Placement) (st
 	// not FR-20's list; it is FR-16's identity idea applied to the local
 	// end, and it is here because a local file that changed size under a
 	// move is not the copy the destination was verified against.
+	// Local disk is plaintext by design (an encrypted copy only ever goes to
+	// a medium), so the plaintext size is the right one here; the encrypted
+	// case is proveMediumSourceSafe's.
 	if src.Size != nil && info.Size() != *src.Size {
 		return refuse("%q is %d bytes and the placement records %d", expected, info.Size(), *src.Size)
 	}
@@ -362,6 +365,25 @@ func (e *Engine) proveMediumSourceSafe(ctx context.Context, mv state.Move, src s
 		// different facts, and confusing them is how a source is recorded
 		// as deleted on the strength of a network failure.
 		return refuse("the medium could not be asked about %q: %v", src.Location, err)
+	}
+	// Which size the object has to be depends on what was written there. A
+	// plaintext copy's object is the artifact, so it is placements.size_bytes.
+	// An encrypted copy's object is the suite's ciphertext, header and
+	// per-chunk tags included, so it is placement_encryption.stored_size and
+	// never the plaintext size the placement row keeps (ADR 0033, "The size
+	// of an encrypted copy"). Comparing ciphertext with the plaintext size
+	// refused every re-home and re-encrypt of an encrypted copy at
+	// SOURCE_DELETE_PENDING (#1331). A record that cannot be read is a
+	// refusal: guessing "plaintext" here would accept the wrong object.
+	enc, encrypted, err := e.encryptionOf(ctx, mv.Artifact, src.Medium)
+	if err != nil {
+		return refuse("the copy's encryption record could not be read, so nothing here can say what size the object at %q should be: %v", src.Location, err)
+	}
+	if encrypted {
+		if info.Size != enc.StoredSize {
+			return refuse("the object at %q is %d bytes and its encryption record holds a stored size of %d", src.Location, info.Size, enc.StoredSize)
+		}
+		return medium, src.Location, nil
 	}
 	if src.Size != nil && info.Size != *src.Size {
 		return refuse("the object at %q is %d bytes and the placement records %d", src.Location, info.Size, *src.Size)

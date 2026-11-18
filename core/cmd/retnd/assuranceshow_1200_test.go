@@ -9,6 +9,7 @@ import (
 
 	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/service"
 )
 
 // #1200: `retnd assurance show <op>` is the Operation page's twin. It reads
@@ -175,5 +176,29 @@ func TestUsageListsAssuranceShow(t *testing.T) {
 	out := captureStderr(t, usage)
 	if !strings.Contains(out, "  assurance show <operation-id> [--json]") {
 		t.Error("usage() lacks `assurance show <operation-id> [--json]`")
+	}
+}
+
+// #1303: the scrub record's bytes_read is printed by `assurance show` as the
+// same number the API carries and the browser draws, and only when there is
+// one.
+func TestAssuranceShowPrintsTheBytesReadTheRecordCarries_1303(t *testing.T) {
+	var with, without strings.Builder
+	rec := apicontract.AssuranceOperationRecord{OperationID: "op-b", Kind: "scrub", State: "running", BackupSetID: rtSet, BytesRead: 196608}
+	writeAssuranceOperation(&with, rec)
+	if !strings.Contains(with.String(), "bytes read: 196608\n") {
+		t.Errorf("no bytes line in %q", with.String())
+	}
+	rec.BytesRead = 0
+	writeAssuranceOperation(&without, rec)
+	if strings.Contains(without.String(), "bytes read") {
+		t.Errorf("a record with no figure printed one: %q", without.String())
+	}
+}
+
+func TestAssuranceOperationContractCopiesBytesRead_1303(t *testing.T) {
+	got := assuranceOperationContract(service.AssuranceOperationRecord{OperationID: "op-b", Kind: "scrub", BytesRead: 42})
+	if got.BytesRead != 42 {
+		t.Errorf("BytesRead = %d, want 42", got.BytesRead)
 	}
 }

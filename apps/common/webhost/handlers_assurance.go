@@ -139,6 +139,7 @@ type assuranceOperationCancelledResponse struct {
 // client draws them with the same code it draws the live feed with.
 type assuranceOperationResponse struct {
 	BackupSetID string                      `json:"backup_set_id"`
+	BytesRead   int64                       `json:"bytes_read,omitempty"`
 	EndedAt     string                      `json:"ended_at"`
 	Events      []liveActivityEventResponse `json:"events"`
 	Kind        string                      `json:"kind"`
@@ -368,7 +369,7 @@ func (h *handlers) getAssuranceOperation(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	body := assuranceOperationResponse{
-		BackupSetID: rec.BackupSetID, Events: liveActivityEventsOf(rec.Events), Kind: rec.Kind,
+		BackupSetID: rec.BackupSetID, BytesRead: rec.BytesRead, Events: liveActivityEventsOf(rec.Events), Kind: rec.Kind,
 		OperationID: rec.OperationID, Reason: rec.Reason, Stage: rec.Stage, State: rec.State,
 	}
 	if !rec.StartedAt.IsZero() {

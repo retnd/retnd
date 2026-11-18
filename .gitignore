@@ -109,6 +109,7 @@ __pycache__/
 # $TMPDIR so a test never creates or removes anything outside the checkout it
 # belongs to.
 /.ci-local-gate-test/
+/.ci-fast-test/
 
 # scripts/perf/selftest.sh writes a deliberately-mutated baseline record here
 # under a throwaway host id, to prove the performance gate refuses an

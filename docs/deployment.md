@@ -5,6 +5,18 @@ This documents the container packaging for `core/cmd/retnd` (A3.9): what's in
 than just asserting it. It's meant to be read next to `container/Dockerfile` and
 `container/compose.yaml`, which carry the same reasoning inline as comments.
 
+## Supported platforms
+
+A release builds, hashes and verifies two targets (#1452): the `linux/amd64` container image (and the
+`retnd` command line for `linux/amd64`), and the `retnd` command line for macOS on Apple Silicon
+(`darwin/arm64`). Nothing else is published, so there is no `linux/arm64` image and the installer
+refuses an ARM host (exit 11) instead of letting `docker compose up` fail on an exec format error.
+
+If you run an ARM NAS or a Raspberry Pi, you have two options: build the image from source on the
+machine (see "Building and running it yourself" below, `--platform linux/arm64` still works because the
+Go code and the Dockerfile are unchanged), or stay on 0.7.2, the last release with a `linux/arm64`
+image. A source build is not a supported, verified artefact.
+
 ## The command is `retnd`, and `/retnd-web` survives for exactly one release
 
 EPIC R (#885) renamed the product. The engine CLI is `retnd`, the web host is
@@ -111,7 +123,7 @@ The image contains no `rclone` binary anywhere, and I checked that directly agai
 built image rather than trusting the design:
 
 ```
-$ docker create --platform linux/arm64 retnd:0.0.0-a3.9 version
+$ docker create --platform linux/amd64 retnd:0.0.0-a3.9 version
 $ docker export <container-id> | tar -tv | grep -i rclone
 $ echo $?
 1
@@ -183,7 +195,8 @@ Multi-stage build: the `golang` builder is discarded, and the final image is
 `gcr.io/distroless/static-debian12:nonroot` plus the one binary. No shell, no package
 manager, no libc (none needed, see `CGO_ENABLED=0` above).
 
-Built and measured directly, both architectures:
+Built and measured directly, both architectures (a record from before #1452; releases now publish
+linux/amd64 only, and the linux/arm64 row is what an ARM build from source looks like):
 
 | Architecture  | Built | Ran | Image size |
 |---------------|:-----:|:---:|-----------:|
@@ -197,8 +210,8 @@ cross-build; see below) plus `docker compose run --rm retnd` was also exercised
 end to end on linux/amd64, with the full read-only-rootfs/tmpfs/non-root/bind-mount shape
 from `container/compose.yaml` in effect, not just a bare `docker run`.
 
-To publish a genuinely multi-arch tag (a single reference that resolves to either
-architecture), build both platforms in one invocation and push:
+Releases publish linux/amd64 only (#1452). If you need a multi-arch tag of your own (for an ARM NAS or
+a Raspberry Pi, say), build the platforms you want in one invocation and push:
 
 ```
 docker buildx build \
@@ -293,8 +306,10 @@ is owned by uid 65532 specifically, not by whatever `PUID` you set.
 - `/data/state` (writable): the SQLite journal directory, see above.
 - `/data/backups` (writable): the NAS backup volume/share completed artifacts land on.
 - `/etc/retnd/config` (writable): the DIRECTORY holding the manager's YAML
-  config (FR-5), and the two stores the engine creates beside it, `ssh_keys/` and
-  `known_hosts.d/`.
+  config (FR-5), and the stores the engine creates beside it, `ssh_keys/` and
+  `known_hosts.d/`, plus `retained_copy_keys/` once you create a managed key for encrypted
+  retained copies (see [encrypted copies](encrypted-copies.md); the directory is `0700` and
+  the key file `0600`, and neither belongs on a volume a share exports).
 - `/etc/retnd/id_ed25519` (`:ro`): the SFTP client private key.
 - `/etc/retnd/known_hosts` (`:ro`): the pinned host keys (FR-6).
 
@@ -442,13 +457,14 @@ the result mean something.
 ## Building and running it yourself
 
 ```
-# One architecture, loaded into the local Docker for testing:
-docker buildx build --platform linux/arm64 \
+# One architecture, loaded into the local Docker for testing (use linux/arm64
+# on an ARM machine, that is the source-build route for an ARM NAS or Pi):
+docker buildx build --platform linux/amd64 \
   --build-arg VERSION=$(git describe --tags --always) \
   --build-arg COMMIT=$(git rev-parse HEAD) \
   -f container/Dockerfile -t retnd:dev --load .
 
-docker run --rm --platform linux/arm64 retnd:dev /retnd version
+docker run --rm --platform linux/amd64 retnd:dev /retnd version
 
 # The full deployment shape, via compose (starts the generic Web host —
 # see below — listening on LISTEN_PORT, default 8080):
@@ -911,9 +927,9 @@ posture, not an operating one.
 
 ## Release hashes
 
-`scripts/release/record-release-hashes.sh` builds `container/Dockerfile` for both
-`linux/amd64` and `linux/arm64`, extracts `/retnd` and `/retnd-web`
-from each built image, and writes their SHA-256 hashes (plus each build's local Docker
+`scripts/release/record-release-hashes.sh` builds `container/Dockerfile` for
+`linux/amd64` (the only architecture a release carries, #1452), extracts `/retnd` and `/retnd-web`
+from the built image, and writes their SHA-256 hashes (plus each build's local Docker
 image ID) to `container/release-manifest.json` — the Phase 4 TDD Gate's "binary
 SHA-256 and image/package digests," and §8's "release manifest SHALL prove core parity
 through binary hashes and image/package digests."

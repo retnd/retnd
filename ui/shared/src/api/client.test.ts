@@ -3469,4 +3469,50 @@ describe("httpApi, issues #1163 and #1164", () => {
     await httpApi.getOperation("op_1").catch(() => undefined);
     expect(headersOf(read)["X-Retnd-Insecure-Transport-Ack"]).toBeUndefined();
   });
+
+  // #1361 put the re-encrypt dry run (a GET) behind the destructive gate, so
+  // off loopback the engine wants the acknowledgement on that read too.
+  const PLAN = { copies: [] };
+  function planRefusedThenServed() {
+    return vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: async () => ({ error: { code: "INSECURE_TRANSPORT_ACK_REQUIRED", message: "refused" } })
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers(), json: async () => PLAN });
+  }
+
+  it("the gated re-encrypt dry run is retried with the acknowledgement after a yes", async () => {
+    const fetchMock = planRefusedThenServed();
+    vi.stubGlobal("fetch", fetchMock);
+    const confirm = vi.fn().mockResolvedValue(true);
+    setInsecureTransportConfirmer(confirm);
+
+    await httpApi.planReencrypt({ suite: "age/v1" });
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(headersOf(fetchMock, 0)["X-Retnd-Insecure-Transport-Ack"], "never unprompted").toBeUndefined();
+    expect(headersOf(fetchMock, 1)["X-Retnd-Insecure-Transport-Ack"]).toBe("acknowledged");
+  });
+
+  it("an acknowledged page sends it on the gated dry run's first attempt, and still not on a plain read", async () => {
+    vi.stubGlobal("fetch", refusedThenServed("INSECURE_TRANSPORT_ACK_REQUIRED"));
+    setInsecureTransportConfirmer(vi.fn().mockResolvedValue(true));
+    await httpApi.runCycle("cfg_7", "k11");
+
+    const plan = mockFetchOk(PLAN);
+    vi.stubGlobal("fetch", plan);
+    await httpApi.planReencrypt({ suite: "age/v1" });
+    expect(plan).toHaveBeenCalledTimes(1);
+    expect(headersOf(plan)["X-Retnd-Insecure-Transport-Ack"]).toBe("acknowledged");
+
+    const read = mockFetchOk({ operations: [] });
+    vi.stubGlobal("fetch", read);
+    await httpApi.getOperation("op_1").catch(() => undefined);
+    expect(headersOf(read)["X-Retnd-Insecure-Transport-Ack"]).toBeUndefined();
+  });
 });

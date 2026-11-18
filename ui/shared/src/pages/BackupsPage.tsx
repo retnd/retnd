@@ -30,6 +30,8 @@ import { useAsync } from "@shared/hooks/useAsync";
 import { useCausl } from "@shared/state/graph";
 import { healthNode, setsNode } from "@shared/state/appNodes";
 import { PageHeader } from "@shared/components/PageHeader";
+import { PlacementEncryptionChips } from "@shared/encryption/PlacementEncryptionChips";
+import { anyPlacementEncrypted, artifactsUnderKey } from "@shared/encryption/encryptionState";
 import { FieldHelp } from "@shared/components/FieldHelp";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
 import { RetentionBadges, RetentionPolicyBadge } from "@shared/components/RetentionBadge";
@@ -41,7 +43,7 @@ import { ClaimChips } from "@shared/assurance/ClaimChips";
 import { BUCKETS } from "@shared/assurance/claims";
 import type { Bucket } from "@shared/assurance/claims";
 import { bucketPhrase } from "@shared/assurance/buckets";
-import { useFactsIndex, useTally } from "@shared/assurance/verificationModel";
+import { useClaimsSettled, useFactsIndex, useTally } from "@shared/assurance/verificationModel";
 import { RetentionPreviewDialog } from "./RetentionPreviewDialog";
 import { bytes, stamp } from "@shared/utilities/format";
 import { useHoverTitle } from "@shared/hooks/useTooltips";
@@ -84,6 +86,8 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // Edits go through the batching hook: two in one tick both land.
   const [params, patchParams] = useBatchedSearchParams();
   const setFilter = params.get("set") ?? "";
+  const keyFilter = params.get("key") ?? "";
+  const clearKeyFilter = () => patchParams((n) => { n.delete("key"); }, { replace: true });
   const setSetFilter = (v: string) =>
     patchParams((n) => { if (v) n.set("set", v); else n.delete("set"); }, { replace: true });
   const [previewFor, setPreviewFor] = useState<string | null>(null);
@@ -196,6 +200,11 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // "could not ask" is not an answer to draw as one.
   const facts = useFactsIndex();
   const tally = useTally();
+  // #1428: the rows are held back until the claims have been read (or the read
+  // failed, or four seconds went by), so a row is drawn once, at the height its
+  // chips give it. Drawn first with "Unknown" chips, every row grew when the
+  // claims arrived and the page got far taller under the reader.
+  const holdRows = !useClaimsSettled(!!api.assurance);
   // The Dashboard's counts link here as ?assurance=<bucket>, and the filter
   // is the same definition the count is made of (claims.bucketsOf).
   const asked = params.get("assurance");
@@ -233,7 +242,10 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // an unread model is not "none of them", and a list that emptied while it
   // loaded would flash "No backups yet".
   const bucketIds = bucket && tally.known ? new Set(tally.ids[bucket]) : null;
-  const rows = bucketIds ? inRange.filter((a) => bucketIds.has(a.id)) : inRange;
+  const inBucket = bucketIds ? inRange.filter((a) => bucketIds.has(a.id)) : inRange;
+  // Issue #995: the key table's "N in Backups" link narrows the list to the
+  // backups with a copy recording that key.
+  const rows = artifactsUnderKey(inBucket, keyFilter);
   // Select-all means "everything the filter matches that can be recovered",
   // and nothing else: the ticked set is always read back through `rows`.
   const selectable = rows.filter((a) => unselectableReason(a) === null);
@@ -259,6 +271,9 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // reason. FR-35: a configuration that names no storage medium gets the
   // page it already had, with the same columns and the same widths, and
   // nothing new to read past.
+  // The same rule for the Encryption column (#995): it exists because a copy on
+  // this list is encrypted, and for no other reason.
+  const showsEncryption = rows.some((a) => anyPlacementEncrypted(a.placements));
   const showsMedium = rows.some((a) => a.placements.some((p) => p.medium !== "local"));
   // Counted off the rows LISTED, so the filter dropdown narrowing the table
   // to a governed set takes the footnote with it. When the list runs over
@@ -280,6 +295,12 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
         }
         actions={
           <>
+            {keyFilter ? (
+              <span role="status" data-key-filter={keyFilter} style={{ display: "inline-flex", gap: 8, alignItems: "center", fontSize: "var(--text-sm)" }}>
+                {"Copies under key " + keyFilter}
+                <button type="button" className="btn btn--sm btn--quiet" onClick={clearKeyFilter}>Show all</button>
+              </span>
+            ) : null}
             <FieldHelp label="Filter by backup set" help={FIELD_HELP.backupsSetFilter}>
               {(helpId) => (
                 <select
@@ -405,7 +426,10 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
         </div>
       ) : null}
       <MenuRuns runs={rowRuns.runs} assurance={api.assurance} readOnly={readOnly} onState={rowRuns.onState} onDismiss={rowRuns.dismiss} />
-      {!artifacts.data || artifacts.loading ? null : rows.length === 0 && fetched.length > 0 ? (
+      {artifacts.data && !artifacts.loading && holdRows ? (
+        <p role="status" data-testid="backups-reading-claims" style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>Reading what is known about each backup...</p>
+      ) : null}
+      {!artifacts.data || artifacts.loading || holdRows ? null : rows.length === 0 && fetched.length > 0 ? (
         <EmptyState title="No backups in that range">
           Nothing was received between those dates. Clear a date to widen the list.
         </EmptyState>
@@ -447,6 +471,7 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
                   <th scope="col"><InfoTooltip id="assurance.col.claims"><span>Assurance</span></InfoTooltip></th>
                   <th scope="col"><InfoTooltip id="backups.col.retention"><span>Retention</span></InfoTooltip></th>
                   {showsMedium ? <th scope="col"><InfoTooltip id="backups.col.medium"><span>Medium</span></InfoTooltip></th> : null}
+                  {showsEncryption ? <th scope="col"><InfoTooltip id="encryption.copies.col"><span>Encryption</span></InfoTooltip></th> : null}
                   <th scope="col"><InfoTooltip id="backups.col.status"><span>Status</span></InfoTooltip></th>
                   <th scope="col" className="actcell"><span className="visually-hidden">Actions</span></th>
                 </tr>
@@ -458,6 +483,7 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
                     a={a}
                     canRecover={canRecover}
                     showsMedium={showsMedium}
+                    showsEncryption={showsEncryption}
                     ticked={picked.has(a.id)}
                     facts={facts.byArtifact[a.id]}
                     claimsAvailable={!!api.assurance && !facts.error}
@@ -591,12 +617,13 @@ const NO_GROUPS: never[] = [];
 /** One row of the table. Memoised: the page re-renders on every operation poll
  *  and a table of a hundred rows should not be rebuilt each time (#1202). */
 const BackupRow = memo(function BackupRow({
-  a, canRecover, showsMedium, ticked, facts, claimsAvailable, menuAt, menuCtx,
+  a, canRecover, showsMedium, showsEncryption, ticked, facts, claimsAvailable, menuAt, menuCtx,
   onOpenBackup, onToggle, onOpenMenu, onCloseMenu, onRecover, onTest, onScrub, onRetry
 }: {
   a: BackupArtifact;
   canRecover: boolean;
   showsMedium: boolean;
+  showsEncryption: boolean;
   ticked: boolean;
   facts: BackupFacts | undefined;
   claimsAvailable: boolean;
@@ -661,6 +688,9 @@ const BackupRow = memo(function BackupRow({
       <td><RetentionCell artifact={a} /></td>
       {showsMedium ? (
         <td style={{ whiteSpace: "nowrap" }}><MediumCell artifact={a} /></td>
+      ) : null}
+      {showsEncryption ? (
+        <td data-encryption-list-cell=""><PlacementEncryptionChips placements={a.placements} /></td>
       ) : null}
       <td style={{ fontSize: "var(--text-sm)", color: "var(--text-2)", whiteSpace: "nowrap" }}>
         {a.remoteSourceRemovedAt ? "Remote source removed" : "Remote source retained"}

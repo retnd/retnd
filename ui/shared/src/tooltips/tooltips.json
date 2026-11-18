@@ -833,7 +833,7 @@
   },
   "dashboard.operation.stages": {
     "label": "Transfer stages",
-    "html": "The stages each backup passes through in order, with the current one emphasised and completed ones ticked. Bytes move only during transfer; the later stages prove the copy and record it."
+    "html": "The stages each backup passes through in order, with the current one emphasised and completed ones ticked. Bytes move only during transfer; the later stages prove the copy and record it. A copy under an encrypting policy adds two more rows, Encrypting and Decrypt-verifying, each with its own byte count: the first reads the artifact, the second reads the stored encrypted object back and checks it."
   },
   "dashboard.operation.no-progress": {
     "label": "No progress reading",
@@ -2062,5 +2062,245 @@
   "assurance.dashboard.card": {
     "label": "Assurance summary",
     "html": "<strong>Due</strong> counts backups whose content check is unknown, never run or overdue, and those whose recovery test is overdue. <strong>Overdue</strong> counts those where either check last passed too long ago. <strong>Degraded</strong> counts failed, incomplete or unreadable ones. A count is never shown as zero when it could not be read."
+  },
+  "encryption.card": {
+    "label": "Retained-copy encryption",
+    "html": "Whether the copies this product sends to a <strong>destination</strong> are written as ciphertext. The <strong>local</strong> copy is never encrypted. There is no cipher, chunk size or nonce to set: with encryption on, the one format choice is the <strong>suite</strong>, and the suite each copy was written under is recorded against it."
+  },
+  "encryption.enable": {
+    "label": "Encrypt copies sent to destinations",
+    "html": "Sets <code>retained_copy_encryption.mode</code> to <code>required</code> for the deployment, so every backup set that inherits refuses to write a destination copy in plaintext. The change goes through the same validation a hand-edited configuration gets and is applied without a restart. Turning it off writes <code>off</code>: new copies are plaintext again, and copies already written stay encrypted and readable through their recorded keys."
+  },
+  "encryption.keyProvider": {
+    "label": "Who holds the key",
+    "html": "<strong>Managed</strong> means this deployment creates the key and keeps it in a file only this service can read. <strong>External</strong> means you name where it comes from, as a file, an environment variable or a command, and it is read when a copy is written or verified. Nothing here accepts the key itself."
+  },
+  "encryption.bundle.export": {
+    "label": "Export recovery bundle",
+    "html": "Writes a file holding the key, integrity metadata and the steps to decrypt a copy on a clean machine. It is the one time the key leaves this deployment, it is saved as a download and nothing is shown on screen. Asks for your password again where the deployment checks it. It does not clear the warning: only confirming does."
+  },
+  "encryption.bundle.acknowledge": {
+    "label": "I understand this file can decrypt every copy",
+    "html": "Arms <strong>Download bundle</strong>. The tick is a statement that you know whoever holds the file can read every copy made under this key. The file is the only place the key goes."
+  },
+  "encryption.bundle.confirm": {
+    "label": "I have stored the bundle safely",
+    "html": "Records, durably, that a person holds the exported bundle somewhere this machine's loss would not take with it, and clears the missing-bundle warning here and on the Dashboard. It is a statement and not an upload: nothing is checked, and no key bytes are asked for. Refused if no bundle was exported for the key."
+  },
+  "encryption.key.rotate": {
+    "label": "Rotate key",
+    "html": "Creates a new active key. New copies use it from now on, every copy already made stays readable through the key id recorded against it, and nothing is re-encrypted. The new key has no confirmed bundle, so the missing-bundle warning returns until you export and confirm one."
+  },
+  "encryption.key.retire": {
+    "label": "Retire",
+    "html": "Takes a key out of service. Refused, naming the copies, while any active copy still records the key, because retiring it would make them unreadable. The active key cannot be retired: rotate first."
+  },
+  "encryption.set.mode": {
+    "label": "Encryption for this set",
+    "html": "<strong>Inherit</strong> follows the deployment and shows what it currently resolves to. <strong>Off</strong> writes this set's destination copies as plaintext whatever the deployment says. <strong>Required</strong> refuses a destination copy rather than write it in plaintext, before anything is deleted at the source or on the medium. A key reference can be given for the set only with Required."
+  },
+  "encryption.external.source": {
+    "label": "Where the key reference points",
+    "html": "A <strong>file</strong> path, the <strong>name</strong> of an environment variable, or a <strong>command</strong> whose output is the key. Exactly one. It is a reference: if what you type is key material rather than a reference, the server refuses it at load."
+  },
+  "encryption.external.test": {
+    "label": "Test reference",
+    "html": "Asks the service whether the reference resolves right now. <strong>Resolves</strong>, <strong>declared but unreachable</strong> (with the reason, naming the source and never its content) or <strong>not declared</strong>. It reports whether a key resolves and never what it is, how long it is or what it starts with."
+  },
+  "encryption.verify.run": {
+    "label": "Verify recoverable",
+    "html": "Reads one encrypted copy back from its destination, decrypts it with the key recorded against it and compares the plaintext digest to the one the catalog holds. A match is the only way to <strong>Verified recoverable</strong>. Nothing is written to disk. It is never run on a schedule and it costs the egress of reading the copy."
+  },
+  "encryption.verify.acceptCost": {
+    "label": "I accept this read",
+    "html": "Sent with the request as an acknowledgement that reading a billed medium costs money. Without it the engine refuses a copy that costs to read."
+  },
+  "encryption.state.plaintext": {
+    "label": "Plaintext",
+    "html": "This copy was written without encryption. It is drawn on purpose, so a plaintext local copy beside an encrypted off-site copy of the same backup reads as two different things."
+  },
+  "encryption.state.encrypted": {
+    "label": "Encrypted",
+    "html": "The copy was stored as ciphertext under a recorded key id and format. The id after the word is the suite the copy was written under, read from its own record. That is all it says: nothing about whether anybody can read it back. <strong>Verified recoverable</strong> is a separate chip."
+  },
+  "encryption.state.verifiedRecoverable": {
+    "label": "Verified recoverable",
+    "html": "A decrypt of the stored copy produced the plaintext digest the catalog holds, at the time shown (verification class <code>content</code>). Ciphertext existing, an existence check or a key resolving do not reach this."
+  },
+  "encryption.state.notVerified": {
+    "label": "Not decrypt-verified",
+    "html": "The copy is encrypted and nobody has asked to decrypt it yet. This is the default: a decrypt-verify costs egress and is never automatic."
+  },
+  "encryption.state.keyMissing": {
+    "label": "Key missing",
+    "html": "The key id recorded against this copy does not resolve right now. The copy keeps its Encrypted chip, no action here would make it recoverable, and it is never shown as a weaker check under a stronger name."
+  },
+  "encryption.state.decryptFailed": {
+    "label": "Decrypt failed",
+    "html": "A decrypt-verify ran and failed closed: the object is damaged, was changed, or is under a different key than recorded. No partial plaintext was written or shown. Recover from another copy."
+  },
+  "encryption.copies.col": {
+    "label": "Encryption",
+    "html": "One chip pair per copy, from that copy's own record and never inferred from the policy. A set that says required today can still hold a plaintext copy written yesterday."
+  },
+  "encryption.health.bundle": {
+    "label": "No confirmed recovery bundle",
+    "html": "Copies are encrypted under a key that exists only on this host. This stays, across reloads and restarts, until a person confirms an exported bundle. It blocks nothing."
+  },
+  "encryption.health.keyMissing": {
+    "label": "A required key cannot be resolved",
+    "html": "A set whose policy is required has a key that does not resolve, so its destination copies are refused rather than written in plaintext. Nothing is deleted when a copy is refused."
+  },
+  "encryption.digest.plaintext": {
+    "label": "Plaintext digest",
+    "html": "The digest of the backup's own bytes before any encryption, the value the catalog holds as <code>artifacts.local_hash</code>. A decrypt-verify compares against it. It is a different number from the stored-bytes digest on purpose."
+  },
+  "encryption.digest.stored": {
+    "label": "Stored-bytes digest",
+    "html": "The digest of the bytes this one copy holds at its destination, which for an encrypted copy are ciphertext. It describes this copy only, and it is supposed to differ from the plaintext digest."
+  },
+  "encryption.suite": {
+    "label": "Suite",
+    "html": "The construction new copies are encrypted with, from the list this build carries. A new copy is written only under the active key of the chosen suite, so choosing one with no active key leads through <strong>Rotate key</strong>, <strong>Download bundle</strong> and <strong>Confirm</strong>; until the rotation, copies under the policy are refused before anything is deleted. Every existing copy keeps the suite and key recorded against it and stays readable. Nothing is re-encrypted. The sentence under each suite is the build's own description of it."
+  },
+  "encryption.suite.status": {
+    "label": "Suite status",
+    "html": "A default suite is the one this build uses when the configuration says <code>default</code>. A supported suite writes and reads. A deprecated suite still writes and reads, health is degraded while copies or the active key use it, and the version it retires in is named. A retired suite's copies still read, decrypt-verify and recover, and nothing new is written under it, so it cannot be chosen."
+  },
+  "encryption.health.suite": {
+    "label": "Suite health",
+    "html": "Counts the active copies, and says whether the active key, are under a deprecated or retired suite. A deprecated suite keeps writing until its retirement version; a retired one reads and never writes. Re-encrypting moves each copy to another medium under the current suite and key. Nothing here blocks a backup, except a policy whose suite has no active key: those copies are refused, before anything is deleted, until a rotation."
+  },
+  "encryption.reencrypt": {
+    "label": "Re-encrypt under current suite",
+    "html": "Asks for a dry run first: each copy under the suite, the medium it would move to, and every copy the engine will not move with its reason (same medium only, key unavailable, already current). Running it moves each copy to another medium under the active suite and key, and retires the old copy only after the new one decrypt-verifies. No plaintext is written to local disk. It is never automatic."
+  },
+  "agents.card": {
+    "label": "Agents",
+    "html": "A client of this deployment with a token of its own. By default a token can <strong>look</strong> and nothing else. Anything an <code>operate</code> or <code>configure</code> token asks for waits in <strong>Pending confirmations</strong> until you approve it with your password. An agent is never handed key material, recipients, credentials or secrets, and every call it makes is recorded in the audit, reads included."
+  },
+  "agents.tokens": {
+    "label": "Tokens",
+    "html": "Every token this deployment has minted, revoked and expired ones included. A token is stored as a hash: the deployment keeps only the first eight characters so you can tell tokens apart."
+  },
+  "agents.confirmations": {
+    "label": "Pending confirmations",
+    "html": "Requests an <code>operate</code> or <code>configure</code> agent has made that have not run. Nothing here has executed. Approving replays the recorded request exactly as the agent made it; denying or letting it expire ends it."
+  },
+  "agents.audit": {
+    "label": "Audit",
+    "html": "One row per call an agent made, newest first, reads included. The trail is bounded: older rows are pruned by the deployment's retention."
+  },
+  "agents.scopes.list": {
+    "label": "What each scope can call",
+    "html": "The tools the deployment's catalogue lists for each scope, read from the engine. A tool that is not on this list cannot be called by an agent."
+  },
+  "agents.token.create": {
+    "label": "Create token",
+    "html": "Opens the dialog that mints a token. A token is created with a name, a scope and an expiry, and is shown once."
+  },
+  "agents.mint.name": {
+    "label": "Name",
+    "html": "The name the agent goes by. The token authenticates as <code>agent:name</code>, and that is the name on its rows here, in the audit and in the activity feed."
+  },
+  "agents.mint.scope": {
+    "label": "Scope",
+    "html": "What the token may ask for. <code>read</code> is the default and can look at this deployment and start or change nothing."
+  },
+  "agents.mint.scope.more": {
+    "label": "Allow more than reading",
+    "html": "Shows the two scopes that let an agent ask for changes. Opening it changes nothing but what you can see: a token created with it closed is a <code>read</code> token."
+  },
+  "agents.mint.scope.operate": {
+    "label": "operate",
+    "html": "Includes read, and can also ask for backups and checks to be started. Nothing runs until you approve each request here."
+  },
+  "agents.mint.scope.configure": {
+    "label": "configure",
+    "html": "Includes operate, and so read, and can also ask for a backup set to be enabled or disabled, or its retention or assurance settings changed. Nothing changes until you approve each request here."
+  },
+  "agents.mint.expiry": {
+    "label": "Expires in",
+    "html": "How long the token works before it is refused, as a number of days such as <code>90d</code> or a duration such as <code>720h</code>. The engine judges it: the longest it allows is one year, and there is no token that never expires."
+  },
+  "agents.mint.copy": {
+    "label": "Copy",
+    "html": "Writes the token to your clipboard. It does nothing else."
+  },
+  "agents.mint.stored": {
+    "label": "I have stored it",
+    "html": "Closes this dialog. The token cannot be shown again after this: the deployment keeps only a hash. If it is lost, revoke the token and make another."
+  },
+  "agents.token.prefix": {
+    "label": "Prefix",
+    "html": "The first eight characters of the token. They identify it and are not the token."
+  },
+  "agents.scope.read": {
+    "label": "read",
+    "html": "This token can look at the deployment and cannot start or change anything."
+  },
+  "agents.scope.operate": {
+    "label": "operate",
+    "html": "This token can ask for backups and checks to be started. Each request waits for your approval."
+  },
+  "agents.scope.configure": {
+    "label": "configure",
+    "html": "This token can ask for a backup set's settings to be changed. Each request waits for your approval."
+  },
+  "agents.status.active": {
+    "label": "Active",
+    "html": "The token's expiry is in the future and it has not been revoked."
+  },
+  "agents.status.expired": {
+    "label": "Expired",
+    "html": "The token's expiry has passed, so every request with it is refused. It stays listed."
+  },
+  "agents.status.revoked": {
+    "label": "Revoked",
+    "html": "A person ended this token. Its next request was refused, and it cannot be brought back, only replaced."
+  },
+  "agents.token.revoke": {
+    "label": "Revoke",
+    "html": "Ends the token. Its next request is refused, because the engine checks revocation on every request. It asks first."
+  },
+  "agents.confirm.expires": {
+    "label": "Expires",
+    "html": "A pending request that passes its expiry is refused if you approve it, and ends. The time shown is the deployment's; this page does not decide when a request has expired."
+  },
+  "agents.confirm.approve": {
+    "label": "Approve",
+    "html": "Opens the password field. Nothing is sent to the engine until you press <strong>Approve and run</strong>."
+  },
+  "agents.confirm.stepup": {
+    "label": "Your password",
+    "html": "Your own password, asked again before a request an agent made is run. It is sent once with the approval and not kept."
+  },
+  "agents.confirm.run": {
+    "label": "Approve and run",
+    "html": "Sends your password and runs the recorded request exactly as the agent asked, with no change. If the deployment refuses it, the refusal is shown here in its own words."
+  },
+  "agents.confirm.deny": {
+    "label": "Deny",
+    "html": "Ends the request without running it. It asks for no password, because denying changes nothing."
+  },
+  "agents.audit.token": {
+    "label": "Token",
+    "html": "Show the calls of one token, or of all of them. It hides nothing from the trail."
+  },
+  "agents.audit.since": {
+    "label": "Since",
+    "html": "Show only calls from the last stretch of time, as a duration such as <code>24h</code> or <code>7d</code>."
+  },
+  "agents.audit.older": {
+    "label": "Show older",
+    "html": "Asks the engine for the next page of older calls. The rows already shown do not move."
+  },
+  "agents.audit.details": {
+    "label": "Details",
+    "html": "Shows the transport the call came in on and its arguments after projection, as text. The arguments are what an agent supplied and are never run or followed."
+  },
+  "agents.audit.outcome": {
+    "label": "Outcome",
+    "html": "The status and code the engine answered with, the same code the command line prints."
   }
 }

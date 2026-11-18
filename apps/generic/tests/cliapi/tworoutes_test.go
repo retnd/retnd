@@ -716,6 +716,15 @@ type surface struct {
 	// operand it names exists.
 	needsArtifacts bool
 
+	// seed is a top-level block appended to the fixture's config before the
+	// row runs, for a write whose subject the stock fixture does not have.
+	// `encryption policy reset` removes the deployment's encryption block,
+	// and on a deployment with none it has nothing to remove: it exits 0,
+	// says the policy is off, and the engine's configuration is the same
+	// one it served before, which is the right answer and not a lost write
+	// (#1361).
+	seed string
+
 	// skipDirect is for the one command that does not exit on its own.
 	skipDirect bool
 
@@ -837,6 +846,9 @@ var surfaces = []surface{
 	{verb: "ssh-key", name: "list, with nothing serving", mode: "direct", exit: 0, routed: true,
 		note: "the key store belongs to whichever process uses the keys. It goes through the door configuration writes go through, so beside an engine it cannot reach it is refused rather than answering about a store that process does not read, and with nothing serving it lists this host's own (#1153)",
 		argv: func(f fixture) []string { return []string{"ssh-key", "list", "--config", f.configPath} }},
+	{verb: "agent", name: "token list, with nothing serving", mode: "direct", exit: 0, routed: true,
+		note: "agent tokens are rows in the journal of whichever process serves the deployment, and the token verbs go through the door configuration writes go through, so beside an engine they cannot reach they refuse rather than answer from a journal that engine does not read, and with nothing serving they act on this host's own. A fresh fixture has minted none, so the list is empty (#1345)",
+		argv: func(f fixture) []string { return []string{"agent", "token", "list", "--config", f.configPath} }},
 	{verb: "ssh", name: "host-key-probe, of a port nothing answers on", mode: "direct", exit: 1, routed: true,
 		note: "a probe is only worth running from the machine the backups travel from, so it goes through the same door as the key store. Nothing listens on port 1 here, so this refuses for the connection and writes nothing; a probe never trusts or persists anything (#1153)",
 		argv: func(f fixture) []string {
@@ -907,6 +919,12 @@ var surfaces = []surface{
 		argv: func(f fixture) []string {
 			return []string{"settings", "--config", f.configPath, "patch", "--timezone", "Europe/Berlin"}
 		}},
+	{verb: "encryption", name: "the policy of a deployment that encrypts nothing", mode: "", exit: 0,
+		note: "the encryption READ is this host's own file, as settings is; the writes below are the routed half",
+		argv: func(f fixture) []string { return []string{"encryption", "policy", "--config", f.configPath} }},
+	{verb: "encryption", name: "policy reset", mode: "direct", exit: 0, writes: true, routed: true,
+		seed: "retained_copy_encryption:\n  mode: required\n  key_provider:\n    managed: true\n",
+		argv: func(f fixture) []string { return []string{"encryption", "policy", "reset", "--config", f.configPath} }},
 	{verb: "workflow", name: "run list, on a deployment whose hooks have never run", mode: "", exit: 0,
 		says: "no workflow run is on record here",
 		note: "a workflow run is durable journal rows, written by whichever process executed it and readable by anything that can open the database, so this read needs no route to a serving engine and takes none; workflow.go's own preamble makes that argument and puts it beside `activity` without --follow. What the row pins is the empty answer, which distinguishes a deployment that configures no hooks from one whose hooks have not run yet and names the command that tells them apart",
@@ -938,6 +956,18 @@ func newFixture(t *testing.T, bin string, s surface) fixture {
 		setID:      "production/pg",
 		artifactID: "production/pg/db-2026-08-01.dump",
 		keyPath:    writePrivateKey(t),
+	}
+	if s.seed != "" {
+		cfg, err := os.OpenFile(configPath, os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			t.Fatalf("opening the fixture config: %v", err)
+		}
+		if _, err := cfg.WriteString("\n" + s.seed); err != nil {
+			t.Fatalf("seeding the fixture config: %v", err)
+		}
+		if err := cfg.Close(); err != nil {
+			t.Fatalf("closing the fixture config: %v", err)
+		}
 	}
 	if s.needsArtifacts {
 		// One real cycle, so the operand this row names is a backup that

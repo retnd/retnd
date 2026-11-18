@@ -202,3 +202,39 @@ func TestOperationProgress_StagesAreExactlyTheContractsEnum(t *testing.T) {
 		}
 	}
 }
+
+// Issue #1290: the contract names the two stages of an encrypted copy on both
+// schemas that carry a stage, additively after the five that were there, so
+// a client written before them still reads the first five as it did. Written
+// by reading and not run.
+func TestTheContractDeclaresTheEncryptedCopyStagesAfterTheOriginalFive_1290(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "api", "v1", "openapi.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Components struct {
+			Schemas map[string]struct {
+				Properties map[string]struct {
+					Enum []string `json:"enum"`
+				} `json:"properties"`
+			} `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"discovering", "transferring", "verifying", "committing", "cleaning-remote", "encrypting", "decrypt-verifying"}
+	for _, schema := range []string{"OperationProgress", "LiveActivitySet"} {
+		got := doc.Components.Schemas[schema].Properties["stage"].Enum
+		if len(got) != len(want) {
+			t.Errorf("%s.stage declares %v, want %v", schema, got, want)
+			continue
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("%s.stage[%d] = %q, want %q", schema, i, got[i], want[i])
+			}
+		}
+	}
+}

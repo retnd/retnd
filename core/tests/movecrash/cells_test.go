@@ -272,8 +272,17 @@ func TestTheCrashHarnessHasNoPhaseMachineOfItsOwn(t *testing.T) {
 		}
 		return true
 	})
-	if len(calls) != 1 || calls["RunCycle"] == 0 {
-		t.Errorf("the harness calls %v on the engine; it must call RunCycle and nothing else", calls)
+	// RunCycle is the engine's one entry point for moves. EncryptExisting is
+	// the operator's opt-in entry point (#1291) and runs the same advance loop
+	// over the same journal; the harness may start either one and nothing else.
+	for name := range calls {
+		if name != "RunCycle" && name != "EncryptExisting" {
+			t.Errorf("the harness calls %v on the engine; it must call RunCycle or EncryptExisting and nothing else", calls)
+			break
+		}
+	}
+	if calls["RunCycle"] == 0 || calls["EncryptExisting"] == 0 {
+		t.Errorf("the harness calls %v on the engine; each of its two entry points must be reachable from it", calls)
 	}
 }
 

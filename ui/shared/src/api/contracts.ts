@@ -31,12 +31,32 @@ import type {
 } from "./generated/contract";
 import type { BackupArtifact, BackupSet, CompletionMethod, RetentionPlan } from "@shared/types/backup";
 import type {
+  AgentAuditFilter, AgentAuditPage, AgentCatalogue, AgentConfirmation, AgentToken,
+  MintAgentTokenRequest, MintedAgentToken
+} from "@shared/types/agents";
+import type {
   ActivityEvent,
   Operation,
   SystemHealth,
   VersionInfo
 } from "@shared/types/operation";
 import type { LiveActivity, SetActivityEvent } from "@shared/types/activity";
+import type {
+  BundleReceipt,
+  CopyEncryption,
+  DecryptVerifyRequest,
+  EncryptionKey,
+  EncryptionOverride,
+  EncryptionPolicy,
+  EncryptionPolicyPatch,
+  EncryptionSuite,
+  ReencryptPlan,
+  ReencryptRequest,
+  ReencryptStart,
+  ExternalKeyReference,
+  ProviderProbe,
+  SetEncryption
+} from "@shared/types/encryption";
 // EPIC K's incremental vocabulary (issue #788). Declared in
 // types/snapshot.ts beside types/backup.ts rather than here, because a
 // snapshot is a domain object this UI renders and not a property of the
@@ -442,7 +462,8 @@ export interface RunningWork {
   /** The artifact being worked on, or "" during discovery. */
   artifact: string;
   /** One of the cycle's own stage names ("discovering", "transferring",
-   *  "verifying", "committing", "cleaning-remote"). */
+   *  "verifying", "committing", "cleaning-remote", and for an encrypted copy
+   *  "encrypting", "decrypt-verifying"). */
   stage: string;
 }
 
@@ -2557,6 +2578,9 @@ export interface AssuranceOperationRecord {
   stage: string;
   /** The end line's words for a run that did not pass. */
   reason: string;
+  /** Plaintext bytes a decrypt-verify scrub has read (issue #1303); absent
+   *  when none. The CLI's `assurance show` prints the same figure. */
+  bytesRead?: number;
   startedAt: string;
   endedAt: string;
   events: SetActivityEvent[];
@@ -3187,6 +3211,11 @@ export interface Capabilities {
   embeddedWindow: boolean;
   appStorePackaging: boolean;
   destructiveOperations: DestructiveOperations;
+  /**
+   * Q14 (#1367): whether the streamable HTTP agent transport is on, from
+   * CapabilitiesResponse.agents_http_transport (#1364).
+   */
+  agentsHttpTransport: "on" | "off";
 }
 
 /**
@@ -4154,4 +4183,64 @@ export interface RetndApi {
    *  runner socket and an SSH connection, so a dashboard on a timer here
    *  would be probing an operator's source host on a timer. */
   getBackupSetWorkflowValidation(source: string, set: string): Promise<WorkflowValidation>;
+
+  /**
+   * EPIC U (#1351): the Agents card. A token's secret is returned by
+   * `mintAgentToken` and nowhere else, and approving a confirmation replays
+   * the recorded request with no body, so no method here takes one.
+   */
+  listAgentTokens(): Promise<AgentToken[]>;
+  mintAgentToken(req: MintAgentTokenRequest): Promise<MintedAgentToken>;
+  revokeAgentToken(id: string): Promise<AgentToken>;
+  listAgentCatalogue(): Promise<AgentCatalogue>;
+  listAgentConfirmations(): Promise<AgentConfirmation[]>;
+  /** Answers the confirmation as it now stands: approved, with `execution` once
+   *  the replay has finished, or denied. REJECTS with the engine's refusal. */
+  approveAgentConfirmation(id: string, opts: StepUpOptions): Promise<AgentConfirmation>;
+  denyAgentConfirmation(id: string): Promise<AgentConfirmation>;
+  listAgentAudit(filter: AgentAuditFilter): Promise<AgentAuditPage>;
+
+  /**
+   * EPIC N, retained-copy encryption (#993, issue #995). Every write is
+   * validated, persisted and hot-reloaded by the route, so the per-set
+   * resolution a PATCH returns is the one the next decision uses.
+   *
+   * No method here returns key material. The one route that carries it, the
+   * recovery bundle, is {@link exportRecoveryBundle}, and what that hands
+   * back is a receipt: the client saves the file itself.
+   */
+  getEncryptionPolicy(): Promise<EncryptionPolicy>;
+  patchEncryptionPolicy(patch: EncryptionPolicyPatch): Promise<EncryptionPolicy>;
+  resetEncryptionPolicy(): Promise<EncryptionPolicy>;
+  setBackupSetEncryption(source: string, set: string, override: EncryptionOverride): Promise<SetEncryption>;
+  clearBackupSetEncryption(source: string, set: string): Promise<SetEncryption>;
+  listEncryptionKeys(): Promise<EncryptionKey[]>;
+  /** EPIC T (#1318): `suite` names the key's suite; absent, the policy's. */
+  createEncryptionKey(suite?: string): Promise<EncryptionKey>;
+  /** Rotating to another suite supersedes the old suite's active key in the
+   *  same durable write (T1.5). */
+  rotateEncryptionKey(suite?: string): Promise<EncryptionKey>;
+  /** REJECTS with ENCRYPTION_KEY_IN_USE (409) naming the copies that still record the key. */
+  retireEncryptionKey(id: string): Promise<EncryptionKey>;
+  /** POST .../export: gated like a validator upload. Saves the bundle as a
+   *  file and answers with a receipt; the material is never returned. */
+  exportRecoveryBundle(id: string, opts?: StepUpOptions): Promise<BundleReceipt>;
+  /** A statement that the exported bundle is stored safely, never an upload. */
+  confirmRecoveryBundle(id: string, digest?: string): Promise<EncryptionKey>;
+  testEncryptionProvider(req: { managedKeyId: string } | { external: ExternalKeyReference }): Promise<ProviderProbe>;
+  listEncryptionCopies(artifactId: string): Promise<CopyEncryption[]>;
+  /** Decrypt-verify one backup's encrypted copy. Answers 202 with the
+   *  operation id, which `cancelAssuranceOperation` stops. REJECTS with
+   *  ENCRYPTION_KEY_UNRESOLVABLE (409) before any byte is read. */
+  startDecryptVerify(req: DecryptVerifyRequest): Promise<ScrubStart>;
+
+  /**
+   * EPIC T, encryption suites (#1318 over T1.5, T2.1 and T2.2). The registry
+   * with its statuses, Describe() sentences and counts, and the re-encrypt
+   * operation: the dry run answers the plan and changes nothing; the run
+   * answers an operation id. Neither returns key material.
+   */
+  listEncryptionSuites(): Promise<EncryptionSuite[]>;
+  planReencrypt(req: ReencryptRequest): Promise<ReencryptPlan>;
+  startReencrypt(req: ReencryptRequest): Promise<ReencryptStart>;
 }

@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -135,7 +136,7 @@ func TestNoProductionCodeNamesAnETag(t *testing.T) {
 			continue
 		}
 		for i, line := range strings.Split(content, "\n") {
-			if strings.Contains(strings.ToLower(line), "etag") {
+			if namesETag(line) {
 				t.Errorf("%s:%d names an ETag:\n\t%s\nFR-32: an ETag is never a content hash, and the way this product keeps that true is by having nowhere to put one.", path, i+1, strings.TrimSpace(line))
 			}
 		}
@@ -151,10 +152,22 @@ func TestTheETagScanCanActuallyFail(t *testing.T) {
 	if !ok {
 		t.Fatal("the scan did not visit internal/transport/medium.go at all, so its verdict about every other file means nothing")
 	}
-	if !strings.Contains(strings.ToLower(content), "etag") {
+	if !namesETag(content) {
 		t.Fatal("the pattern this scan searches for matches nothing even in the file that definitely discusses ETags, so the scan above proves nothing")
 	}
+	// And the other way: an identifier that only spells the letters across a
+	// word boundary, as getAgent... does, is not an ETag.
+	if namesETag("func (c *Client) GetAgentConfirmation(ctx context.Context, id string)") || namesETag(`ID: "getAgentToken"`) {
+		t.Fatal("the scan reads getAgent... as an ETag, so every agent route trips it")
+	}
 }
+
+// etagWord is the word ETag as code spells it: ETag, Etag, ETAG or etag, and
+// not the same four letters across a camel-case boundary (getAgent...), which
+// a case-folded substring match would also find.
+var etagWord = regexp.MustCompile(`ETag|Etag|ETAG|(^|[^A-Za-z])etag`)
+
+func namesETag(s string) bool { return etagWord.MatchString(s) }
 
 // TestRetentionReadsNoMediumSuppliedValue is FR-32's second rule, held
 // structurally: internal/retention decides what is kept, and it must not

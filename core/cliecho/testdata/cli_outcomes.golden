@@ -5,6 +5,9 @@
 #
 # Re-pin with: UPDATE_CLI_OUTCOMES=1 go test ./cliecho -run TestEveryRouteOutcomeIsInTheGolden (from core/)
 
+DELETE /agent/mcp
+	no command: an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `retnd agent serve --stdio` serves the same tools without this route
+
 DELETE /assurance/validators/{name}
 	example: command
 	body that isn't JSON: command
@@ -14,6 +17,10 @@ DELETE /backup-sets/{source}/{set}
 	body that isn't JSON: command
 
 DELETE /backup-sets/{source}/{set}/assurance
+	example: command
+	body that isn't JSON: command
+
+DELETE /backup-sets/{source}/{set}/encryption
 	example: command
 	body that isn't JSON: command
 
@@ -44,6 +51,24 @@ GET /activity/live
 	example ?since=42: command
 	example ?scope=deployment: command
 	example ?backup_set=api-server%2Fvar-backups&scope=deployment: command
+
+GET /agent/audit
+	example: command
+	example ?before=120&limit=50&since=7d&token=agt_0123456789abcdef: command
+GET /agent/mcp
+	no command: an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `retnd agent serve --stdio` serves the same tools without this route
+
+GET /agent/confirmations
+	example: command
+
+GET /agent/confirmations/{id}
+	example: command
+
+GET /agent/tokens
+	example: command
+
+GET /agent/tools
+	example: command
 
 GET /assurance/default-validator-script
 	example: command
@@ -128,6 +153,27 @@ GET /backups
 	example ?setId=api-server%2Fvar-backups: command
 
 GET /backups/{source}/{set}/{name}
+	example: command
+
+GET /encryption/copies
+	example ?artifact=api-server%2Fvar-backups%2FMANIFEST-20260902T153521Z.txt: command
+
+GET /encryption/encrypt-existing
+	example ?destination=offsite&set=api-server%2Fvar-backups: command
+	example ?artifact=api-server%2Fvar-backups%2FMANIFEST-20260902T153521Z.txt&destination=offsite&set=api-server%2Fvar-backups: command
+
+GET /encryption/keys
+	example: command
+
+GET /encryption/policy
+	example: command
+
+GET /encryption/reencrypt
+	example ?suite=age%2Fv1: command
+	example ?destination=offsite&key=k0123456789abcdef: command
+	example ?deprecated=true&destination=offsite: command
+
+GET /encryption/suites
 	example: command
 
 GET /operations
@@ -247,6 +293,15 @@ PATCH /backup-sets/{source}/{set}/workflow
 	example {"before_dir":"","after_dir":"","script_timeout_seconds":0,"remote_exec_connection_ref":"pg-primary"}: command
 	body that isn't JSON: malformed: there is no verb that patches a backup set's workflow configuration from a request body
 
+PATCH /encryption/policy
+	corpus: command
+	example {"mode":"required","key_provider":{"managed":true}}: command
+	example {"suite":"age-pq/v1"}: command
+	example {"key_provider":{"external":{"file":"/run/secrets/retained-copy-key"}}}: command
+	example {"key_provider":{"external":{"command":["vault","kv","get"]}}}: command
+	example {"mode":"off"}: command
+	body that isn't JSON: malformed: there is no verb that patches the encryption policy from a request body that does not decode
+
 PATCH /settings
 	corpus with tiers: command
 	corpus without tiers: command
@@ -275,6 +330,26 @@ PATCH /settings/workflow
 	example {"disabled":true}: command
 	example {"disabled":false}: command
 	body that isn't JSON: malformed: there is no verb that patches the deployment's workflow configuration from a request body
+
+POST /agent/confirmations/{id}/approve
+	example: command
+	body that isn't JSON: command
+
+POST /agent/confirmations/{id}/deny
+	example: command
+	body that isn't JSON: command
+POST /agent/mcp
+	no command: an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `retnd agent serve --stdio` serves the same tools without this route
+
+POST /agent/tokens
+	corpus: command
+	example {"name":"triage"}: command
+	example {"name":"triage","scope":"read","expires_in":"30d"}: command
+	body that isn't JSON: malformed: the request body would not decode, so there is no command that says which token it minted
+
+POST /agent/tokens/{id}/revoke
+	example: command
+	body that isn't JSON: command
 
 POST /assurance/operations/{op}/cancel
 	example: command
@@ -416,6 +491,59 @@ POST /catalog/scan
 	example: command
 	body that isn't JSON: command
 
+POST /encryption/encrypt-existing
+	corpus: command
+	example {"backup_set_id":"api-server/var-backups","destination_medium":"offsite"}: command
+	example {"backup_set_id":"api-server/var-backups","artifact_id":"api-server/var-backups/MANIFEST-20260902T153521Z.txt","destination_medium":"offsite"}: command
+	body that isn't JSON: malformed: there is no verb that encrypts existing copies from a request body that does not decode
+
+POST /encryption/keys
+	example: command
+	example ?suite=age-pq%2Fv1: command
+	body that isn't JSON: command
+
+POST /encryption/keys/rotate
+	example: command
+	example ?suite=age-pq%2Fv1: command
+	body that isn't JSON: command
+
+POST /encryption/keys/{id}/confirm
+	corpus: command
+	example: command
+	example {"digest":"abababababababababababababababababababababababababababababababab"}: command
+	body that isn't JSON: command
+
+POST /encryption/keys/{id}/export
+	example: command
+	body that isn't JSON: command
+
+POST /encryption/keys/{id}/retire
+	example: command
+	body that isn't JSON: command
+
+POST /encryption/policy/reset
+	example: command
+	body that isn't JSON: command
+
+POST /encryption/providers/test
+	corpus: command
+	example {"managed_key_id":"k0123456789abcdef"}: command
+	example {"external":{"env":"RETAINED_COPY_KEY"}}: command
+	body that isn't JSON: malformed: there is no verb that tests a key provider from a request body that does not decode
+
+POST /encryption/reencrypt
+	corpus: command
+	example {"suite_id":"age/v1","destination_medium":"offsite"}: command
+	example {"key_id":"k0123456789abcdef","destination_medium":"offsite"}: command
+	example {"deprecated":true,"destination_medium":"offsite"}: command
+	body that isn't JSON: malformed: there is no verb that re-encrypts copies from a request body that does not decode
+
+POST /encryption/verify
+	corpus: command
+	example {"artifact_id":"api-server/var-backups/MANIFEST-20260902T153521Z.txt"}: command
+	example {"artifact_id":"api-server/var-backups/MANIFEST-20260902T153521Z.txt","medium":"offsite","acknowledge_egress":true}: command
+	body that isn't JSON: malformed: there is no verb that decrypt-verifies a backup from a request body that does not decode
+
 POST /operations
 	corpus action=run_cycle: command
 	corpus action=run_backup_set: command
@@ -546,6 +674,12 @@ PUT /assurance/validators/{name}
 	example {"pattern":"^MANIFEST-","script":"#!/usr/bin/env bash\nexit 0\n"}: command
 	example {"pattern":"^MANIFEST-","env":"workflow","script_sha256":"abababababababababababababababababababababababababababababababab"}: command
 	body that isn't JSON: malformed: there is no verb that replaces a validator from a request body
+
+PUT /backup-sets/{source}/{set}/encryption
+	corpus: command
+	example {"mode":"required","key_provider":{"managed":true}}: command
+	example {"mode":"inherit"}: command
+	body that isn't JSON: malformed: there is no verb that sets a backup set's encryption from a request body that does not decode
 
 PUT /backup-sets/{source}/{set}/retention
 	corpus with tiers: command

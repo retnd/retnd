@@ -29,16 +29,37 @@ import (
 // future field name even looks like it could carry one, for every field
 // this package writes.
 func TestManifestFieldsExcludeSecrets(t *testing.T) {
-	typ := reflect.TypeOf(Manifest{})
 	forbidden := []string{"key", "token", "password", "secret", "credential", "passphrase", "auth"}
-	for i := 0; i < typ.NumField(); i++ {
-		name := strings.ToLower(typ.Field(i).Name)
-		for _, f := range forbidden {
-			if strings.Contains(name, f) {
-				t.Errorf("Manifest field %q looks like it could carry a secret (matches %q); EPIC-B section 19.3 forbids SSH private keys, auth tokens, remote passwords and secret env values in recovery manifests", typ.Field(i).Name, f)
+	// allowed is the one name that matches the list and is not material:
+	// the id of the key a copy needs (EPIC N, #992). It is an identifier,
+	// asserted to be a plain string below, and nothing else gets a pass.
+	allowed := map[string]bool{"KeyID": true}
+
+	seen := map[reflect.Type]bool{}
+	var walk func(path string, typ reflect.Type)
+	walk = func(path string, typ reflect.Type) {
+		for typ.Kind() == reflect.Pointer || typ.Kind() == reflect.Slice {
+			typ = typ.Elem()
+		}
+		if typ.Kind() != reflect.Struct || typ == reflect.TypeOf(time.Time{}) || seen[typ] {
+			return
+		}
+		seen[typ] = true
+		for i := 0; i < typ.NumField(); i++ {
+			f := typ.Field(i)
+			name := strings.ToLower(f.Name)
+			for _, bad := range forbidden {
+				if strings.Contains(name, bad) && !allowed[f.Name] {
+					t.Errorf("Manifest field %s.%s looks like it could carry a secret (matches %q); EPIC-B section 19.3 forbids SSH private keys, auth tokens, remote passwords and secret env values in recovery manifests", path, f.Name, bad)
+				}
 			}
+			if allowed[f.Name] && f.Type.Kind() != reflect.String {
+				t.Errorf("%s.%s is allowed to match the secret-looking list only as an identifier, and it is a %s", path, f.Name, f.Type)
+			}
+			walk(path+"."+f.Name, f.Type)
 		}
 	}
+	walk("Manifest", reflect.TypeOf(Manifest{}))
 }
 
 // testManifest is the one valid manifest every test here starts from,

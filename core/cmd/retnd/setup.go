@@ -148,6 +148,12 @@ func openService(ctx context.Context, configPath string, withTransport bool) (*a
 	}
 
 	svc := app.New(cfg, journal, tr, logger())
+	// Key custody, so run, daemon and scrub can encrypt a copy and
+	// decrypt-verify one. It opens nothing until a key is needed (#993).
+	resolved := config.ResolvePath(configPath)
+	custody := service.NewKeyCustody(func() string { return resolved }, journal)
+	custody.UseConfig(func() *config.Config { return cfg })
+	svc.Keys = custody
 	return svc, cfg, cleanup, nil
 }
 

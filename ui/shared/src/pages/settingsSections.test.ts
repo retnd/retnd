@@ -27,4 +27,16 @@ describe("sectionForHash (#1188)", () => {
   it("builds links from the same table", () => {
     expect(settingsLink("assurance")).toBe("/settings#assurance");
   });
+
+  it("knows the retained-copy encryption card (#995), which the Dashboard rows link to", () => {
+    expect(sectionForHash("#encryption")).toBe("encryption");
+    expect(settingsLink("encryption")).toBe("/settings#encryption");
+  });
+
+  it("knows the Agents card (#1351), directly after encryption", () => {
+    expect(sectionForHash("#agents")).toBe("agents");
+    expect(settingsLink("agents")).toBe("/settings#agents");
+    const order = Object.keys(SETTINGS_SECTIONS);
+    expect(order.indexOf("agents")).toBe(order.indexOf("encryption") + 1);
+  });
 });

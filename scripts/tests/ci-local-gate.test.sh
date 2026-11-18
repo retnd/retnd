@@ -42,6 +42,9 @@
 #
 # Run directly (`bash scripts/tests/ci-local-gate.test.sh`) or let the gate
 # run it: scripts/ci-local.sh invokes it in a non-FAST run.
+# shellcheck disable=SC1090,SC2016
+# SC1090: GATE_LIB is a sandboxed copy of the library, sourced in subshells.
+# SC2016: the single quotes are deliberate (sed patterns and generated stubs).
 set -uo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -155,6 +158,8 @@ make_tree() { # -> path of a synthetic checkout carrying only the gate scripts
   # The toolchain pins (#1260): the gate refuses to start without them,
   # the same way it refuses without a linter, so every synthetic checkout
   # carries the real file. Group R is where the pin itself is measured.
+  mkdir -p "$tree/scripts/release"
+  if [ -f "$SCRIPTS_DIR/release/gate-shards.txt" ]; then cp "$SCRIPTS_DIR/release/gate-shards.txt" "$tree/scripts/release/"; fi
   mkdir -p "$tree/scripts/ci"
   if [ -f "$SCRIPTS_DIR/ci/pins.env" ]; then cp "$SCRIPTS_DIR/ci/pins.env" "$tree/scripts/ci/pins.env"; fi
   # The Docker probe is a property of the machine, not of the tree, so every
@@ -275,6 +280,10 @@ make_full_tree() {
   # a reason unrelated to what it measured, Group D's own control included.
   printf '#!/usr/bin/env bash\nexit 0\n' \
     >"$tree/scripts/tests/record-release-hashes-guards.test.sh"
+  # The fast tier's own suite (#1361), stubbed like its neighbours: it builds
+  # fixture repositories of its own and drives real git commits.
+  printf '#!/usr/bin/env bash\nexit 0\n' \
+    >"$tree/scripts/tests/ci-fast.test.sh"
 
   # .husky/pre-commit is the one caller that has to act on the exit status
   # rather than read the prose, so Group F drives the real hook in this tree.
@@ -285,9 +294,13 @@ make_full_tree() {
   # warning both ways).
   mkdir -p "$tree/.husky"
   cp "$REPO_ROOT/.husky/pre-commit" "$tree/.husky/pre-commit"
-  if [ -f "$REPO_ROOT/.husky/prepare-commit-msg" ]; then
-    cp "$REPO_ROOT/.husky/prepare-commit-msg" "$tree/.husky/prepare-commit-msg"
-  fi
+  # scripts/install-hooks.sh refuses a tree missing any of the four hooks it
+  # installs, so Group N4 needs all of them here, not just the two it reads.
+  for hook in prepare-commit-msg pre-merge-commit pre-push; do
+    if [ -f "$REPO_ROOT/.husky/$hook" ]; then
+      cp "$REPO_ROOT/.husky/$hook" "$tree/.husky/$hook"
+    fi
+  done
   chmod +x "$tree/.husky/"*
   (cd "$tree" && git config core.hooksPath .husky)
 
@@ -384,10 +397,13 @@ make_full_tree() {
   for t in first-run-report pin-on-main every-module-builds-on-its-own \
     release-refuses-an-ungated-publish local-gate-reference \
     release-moves-latest two-machine-ci-verdict record-published-release \
-    publish-image-guards published-provenance-guards; do
+    publish-image-guards published-provenance-guards epic-n-closure epic-t-closure epic-u-closure; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$t.test.sh"
   done
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/closure-no-pipe-grep-q.test.sh"
   mkdir -p "$tree/scripts/release"
+  # ci-docker.sh --host test (#1267): stand-ins and a fixture checkout, none of which a synthetic tree has.
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/ci-docker-remote.test.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/release/check-published-provenance.sh"
 
   # EPIC E's FR-35 compatibility mutation self-test (#242), stubbed for the
@@ -456,6 +472,17 @@ make_full_tree() {
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/docs/$docs.sh"
   done
 
+  # The docs-site capture tooling step (#926) runs `node --test` on the real
+  # tool test and then the checker, and the fixture has no docs/site/tools, so
+  # on any host with node on PATH the step failed before the gate reached its
+  # last line and every full-tree case below went red with no plant in it.
+  # Two stubs that exit 0 keep the step in the fixture without its browser
+  # and ffmpeg work.
+  mkdir -p "$tree/docs/site/tools"
+  for tool in check-tools check-tools.test; do
+    printf 'process.exit(0);\n' >"$tree/docs/site/tools/$tool.mjs"
+  done
+
   # Stubs for the release-script guard suites the gate runs, for the same
   # reason the four structure proofs above are stubbed: this fixture
   # measures which steps the gate chooses to run, not what those steps do,
@@ -517,6 +544,7 @@ make_full_tree() {
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$guard.test.sh"
   done
   mkdir -p "$tree/scripts/release"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/ci-docker-remote.test.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/release/check-published-provenance.sh"
 
   # The installer's unit tests (#262), which the gate runs by `cd`-ing into
@@ -581,8 +609,9 @@ make_full_tree() {
   # `docker` is -- whether a developer has ruff and mypy installed is a
   # property of the machine, and in the real tree the step ledgers when a
   # tool is missing, which is exactly what D1 asserts the absence of. But
-  # ci-local.sh prepends /opt/homebrew/bin to PATH ahead of everything, so a
-  # Homebrew-installed ruff SHADOWS the stub and runs for real. It ran for
+  # ci-local.sh used to prepend /opt/homebrew/bin to PATH ahead of everything
+  # (it only does that now when Homebrew is not on PATH at all, see D5b), so a
+  # Homebrew-installed ruff SHADOWED the stub and ran for real. It ran for
   # real the whole time this step was `ruff check scripts/bdtools`, and
   # passed only because that path happened to hold one clean file with no
   # configuration to find.
@@ -617,27 +646,41 @@ status=0
 scrub_env() {
   env -u CI_LOCAL_FAST -u CI_LOCAL_SKIP_JS -u CI_LOCAL_SKIP_DOCKER \
     -u CI_LOCAL_SELFTEST -u CI_LOCAL_SKIP_E2E -u CI_LOCAL_SKIP_TWO_MACHINE \
-    -u CI_LOCAL_RED -u CI -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
+    -u CI_LOCAL_RED -u CI_LOCAL_FULL -u CI_LOCAL_TIER -u GATE_SHARD -u CI -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
     -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_PREFIX "$@"
 }
 
 run_hook() { # <tree> [VAR=VAL ...]
   hook_tree="$1"
   shift
+  # CI_LOCAL_FULL=1: this suite measures the hook acting on the FULL gate's
+  # exit status. What the default fast tier does is scripts/tests/ci-fast.test.sh's.
   out="$(cd "$hook_tree" && scrub_env CI_LOCAL_LOCK_DIR="$hook_tree/.gate-lock" \
-    PATH="$hook_tree/bin:$PATH" "$@" sh .husky/pre-commit 2>&1)"
+    CI_LOCAL_FULL=1 PATH="$hook_tree/bin:$PATH" "$@" sh .husky/pre-commit 2>&1)"
   status=$?
 }
 
-run_gate() { # <tree> [VAR=VAL ...]
+run_gate() { # <tree> [VAR=VAL ...] [-- <ci-local.sh args...>]
   gate_tree="$1"
   shift
+  gate_envs=()
+  gate_args=()
+  gate_seen_dashes=0
+  for gate_arg in "$@"; do
+    if [ "$gate_seen_dashes" = 1 ]; then
+      gate_args+=("$gate_arg")
+    elif [ "$gate_arg" = "--" ]; then
+      gate_seen_dashes=1
+    else
+      gate_envs+=("$gate_arg")
+    fi
+  done
   # A developer running this suite under CI_LOCAL_FAST=1 would otherwise
   # silently turn every fail-closed case into a pass, and the gate exports
   # CI_LOCAL_SELFTEST=1 around this very script, which would otherwise reach
   # every synthetic run as an inherited skip.
   out="$(cd "$gate_tree" && scrub_env CI_LOCAL_LOCK_DIR="$gate_tree/.gate-lock" \
-    PATH="$gate_tree/bin:$PATH" "$@" bash scripts/ci-local.sh 2>&1)"
+    PATH="$gate_tree/bin:$PATH" ${gate_envs[@]+"${gate_envs[@]}"} bash scripts/ci-local.sh ${gate_args[@]+"${gate_args[@]}"} 2>&1)"
   status=$?
 }
 
@@ -658,7 +701,7 @@ run_git_commit() { # <tree> [VAR=VAL ...] -- <git commit args...>
   done
   [ "${1:-}" = "--" ] && shift
   out="$(cd "$commit_tree" && scrub_env CI_LOCAL_LOCK_DIR="$commit_tree/.gate-lock" \
-    PATH="$commit_tree/bin:$PATH" "${commit_vars[@]}" git commit "$@" 2>&1)"
+    CI_LOCAL_FULL=1 PATH="$commit_tree/bin:$PATH" "${commit_vars[@]}" git commit "$@" 2>&1)"
   status=$?
 }
 
@@ -906,6 +949,37 @@ assert_not_contains "D5 a stopped daemon cannot report success" 'ci-local: ok' "
 assert_contains "D5 the refusal explains itself" "$DOCKER_BANNER" "$out"
 assert_contains "D5 the refusal names the crash matrix" 'crash matrix' "$out"
 assert_not_contains "D5 nothing ran before the refusal" 'core/ go build' "$out"
+
+# D5b: the gate must not reorder a PATH the caller already set. A directory
+# LATER on the caller's PATH holds a working docker and a golangci-lint, the
+# way Homebrew's does on a Mac with both installed. The gate used to put that
+# directory first (Homebrew first, then the caller's golangci-lint ahead of
+# it), so the real docker beat this fixture's stopped stub and every docker
+# case in this file measured the host instead (#1442).
+tree="$(make_full_tree)"
+set_docker "$tree" unavailable
+mkdir -p "$tree/later-bin"
+printf '#!/bin/sh\nexit 0\n' >"$tree/later-bin/docker"
+printf '#!/bin/sh\nexit 0\n' >"$tree/later-bin/golangci-lint"
+chmod +x "$tree/later-bin/docker" "$tree/later-bin/golangci-lint"
+run_gate "$tree" PATH="$tree/bin:$tree/later-bin:$PATH"
+assert_nonzero "D5b a working docker later on PATH does not stand in for the stopped one first on it" "$status"
+assert_contains "D5b and the refusal is the stopped daemon's" "$DOCKER_BANNER" "$out"
+
+# D5c: the other start, a PATH with no /opt/homebrew/bin on it at all (a hook
+# run without a shell profile). The gate adds Homebrew then, but at the END:
+# put first, brew's docker (and brew's python3, ahead of a pinned venv's)
+# would beat everything the caller listed. Only bites on a machine that has
+# /opt/homebrew/bin, which is the machine it was found on.
+tree="$(make_full_tree)"
+set_docker "$tree" unavailable
+mkdir -p "$tree/later-bin"
+printf '#!/bin/sh\nexit 0\n' >"$tree/later-bin/golangci-lint"
+chmod +x "$tree/later-bin/golangci-lint"
+no_brew_path="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vx '/opt/homebrew/bin' | paste -sd: -)"
+run_gate "$tree" PATH="$tree/bin:$tree/later-bin:$no_brew_path"
+assert_nonzero "D5c with no Homebrew on PATH, Homebrew's docker does not stand in for the stopped one" "$status"
+assert_contains "D5c and the refusal is the stopped daemon's" "$DOCKER_BANNER" "$out"
 
 # D6: the out-loud opt-out proceeds and ledgers. The 'core/ go build'
 # assertion is the positive control against D5: same tree, same stopped
@@ -1460,8 +1534,12 @@ gate_step "core/ tests/crashmatrix under gotestwatch" >/dev/null
 kill -INT $$
 echo "REACHED-THE-LINE-AFTER-THE-SIGNAL"
 RUN
+# Started with SIGINT reset to its default: a self-test that was itself
+# started in the background (`&` from a non-interactive shell, nohup) hands
+# its children SIGINT ignored, a trap cannot take back a signal ignored on
+# entry, and `kill -INT $$` below would be a no-op (#1442).
 int_out="$(DOCKER_STUB_LOG="$int_log" PATH="$SANDBOX/intbin:$PATH" \
-  sh "$SANDBOX/interrupted-run.sh" "$GATE_LIB" 2>&1)"
+  perl -e '$SIG{INT}="DEFAULT"; exec @ARGV' sh "$SANDBOX/interrupted-run.sh" "$GATE_LIB" 2>&1)"
 int_status=$?
 assert_eq "J6 an interrupted run exits 130" 130 "$int_status"
 assert_not_contains "J6 an interrupted run stops where it was interrupted" \
@@ -1914,7 +1992,7 @@ else
     '.husky' "$(cd "$tree" && git config --get core.hooksPath)"
   assert_contains "N4 the installer says what it set" 'core.hooksPath' "$install_out"
   assert_contains "N4 and that it covers every worktree" 'worktree' "$install_out"
-  install_again="$(cd "$tree" && scrub_env bash "$installer" 2>&1)"
+  (cd "$tree" && scrub_env bash "$installer" >/dev/null 2>&1)
   assert_eq "N4 the installer is idempotent" 0 $?
   # The relative path is read from the SHARED config and resolves against
   # each worktree's own root, which is what makes one install cover every
@@ -2155,6 +2233,11 @@ mkdir -p "$lock_dir"
 # macOS and Linux.
 printf '2147483646\n' >"$lock_dir/pid"
 printf '%s\n' "$SANDBOX/gone" >"$lock_dir/where"
+# Taken on this host and this boot, which is what lets gate_lock_dead judge
+# the pid at all (#1331): without the two records the lock is unjudgeable and
+# only age reclaims it, so this case waited out GATE_LOCK_TIMEOUT instead.
+hostname >"$lock_dir/host"
+sh -c ". '$GATE_LIB' && gate_boot_id" >"$lock_dir/boot"
 q3_out="$(CI_LOCAL_LOCK_DIR="$lock_dir" GATE_LOCK_POLL=1 sh -c ". '$GATE_LIB' && gate_lock_acquire && echo RECLAIMED-AND-HELD && gate_lock_release" 2>&1)"
 assert_contains "Q3 a lock whose holder is gone is reclaimed" 'RECLAIMED-AND-HELD' "$q3_out"
 assert_contains "Q3 and the run says so" 'no longer exists' "$q3_out"
@@ -2211,13 +2294,23 @@ assert_contains "Q6 a plain step runs with the lock free" 'PERF-STEP: lock free'
 rm -rf "$lock_dir"
 mkdir -p "$lock_dir"
 printf '2147483646\n' >"$lock_dir/pid"
+hostname >"$lock_dir/host"
+sh -c ". '$GATE_LIB' && gate_boot_id" >"$lock_dir/boot"
+# The planted lock has to be one gate_lock_dead can judge (#1473). Without
+# the host and boot records it is only reclaimed by age, and the waiters
+# below sat out GATE_LOCK_STALE_AFTER (10 minutes) on every machine.
+if scrub_env sh -c ". '$GATE_LIB' && gate_lock_dead '$lock_dir'"; then
+  pass "Q7 the planted lock is judged dead at once"
+else
+  fail "Q7 the planted lock is judged dead at once" "no host and boot records, so only age would reclaim it"
+fi
 canary="$SANDBOX/lock-canary"
 violations="$SANDBOX/lock-violations"
 : >"$canary"; : >"$violations"
 cat >"$SANDBOX/racer.sh" <<'RACER'
 set -e
 . "$1"
-gate_lock_acquire >/dev/null 2>&1
+gate_lock_acquire >/dev/null 2>&1 || { echo "$$ never got the lock" >>"$3"; exit 0; }
 echo "$$" >>"$2"
 sleep 0.2
 others="$(grep -c . "$2")"
@@ -2225,8 +2318,8 @@ if [ "$others" -ne 1 ]; then echo "$$ saw $others inside" >>"$3"; fi
 : >"$2"
 gate_lock_release
 RACER
-for i in $(seq 1 12); do
-  CI_LOCAL_LOCK_DIR="$lock_dir" GATE_LOCK_POLL=0.05 sh "$SANDBOX/racer.sh" "$GATE_LIB" "$canary" "$violations" &
+for _ in $(seq 1 12); do
+  CI_LOCAL_LOCK_DIR="$lock_dir" GATE_LOCK_POLL=0.05 GATE_LOCK_TIMEOUT=60 sh "$SANDBOX/racer.sh" "$GATE_LIB" "$canary" "$violations" &
 done
 wait
 if [ -s "$violations" ]; then
@@ -2435,6 +2528,225 @@ set_golangci "$tree" "${pinned_lint:-0.0.0}" "1.27.0"
 run_gate "$tree"
 assert_contains "R4 the run says which Go it used" '==> toolchain: go ' "$out"
 assert_contains "R4 and which golangci-lint" "==> toolchain: golangci-lint ${pinned_lint:-0.0.0}" "$out"
+
+# ------------- Group U: a host with no usable gh ledgers, it does not fail (#1331)
+
+echo "==> U. checks that need GitHub, on a host with no usable gh"
+
+# core/tests/compat asks GitHub, through gh, whether every BLOCKED
+# conformance row still cites an open issue. The pinned container image has
+# no gh and no credential, so under scripts/ci-docker.sh that check used to
+# FAIL. The gate now probes gh and, when it is missing or logged out, hands
+# the Go tests a file (CI_LOCAL_GITHUB_LEDGER) to write the rows they could
+# not resolve into, and ledgers each line. The stub test below plays the
+# compat check. gh is made unusable with an empty GH_CONFIG_DIR and no
+# token rather than a stub alone, because the gate puts Homebrew's bin
+# first on PATH and a real gh there would shadow a stub.
+add_github_stub() { # <tree>
+  cat >"$1/core/github_test.go" <<'GOSTUB'
+package stub
+
+import (
+	"os"
+	"testing"
+)
+
+func TestGitHubCitations(t *testing.T) {
+	ledger := os.Getenv("CI_LOCAL_GITHUB_LEDGER")
+	if ledger == "" || os.Getenv("FIXTURE_BLOCKED") != "1" {
+		return
+	}
+	if err := os.WriteFile(ledger, []byte("FIXTURE row P9.9 cites an issue nobody asked GitHub about\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Skip("ledgered")
+}
+GOSTUB
+  printf '#!/bin/sh\nexit 1\n' >"$1/bin/gh"
+  chmod +x "$1/bin/gh"
+  mkdir -p "$1/.gh-config-empty"
+}
+
+tree="$(make_full_tree)"
+add_github_stub "$tree"
+set_golangci "$tree" "${pinned_lint:-0.0.0}" "1.27.0"
+run_gate "$tree" GH_CONFIG_DIR="$tree/.gh-config-empty" GH_TOKEN= GITHUB_TOKEN= FIXTURE_BLOCKED=1
+assert_eq "U1 a BLOCKED row nobody could check ends the run INCOMPLETE" "$INCOMPLETE" "$status"
+assert_contains "U1 the ledger names the row" 'FIXTURE row P9.9' "$out"
+assert_contains "U1 and says how to check it" 'gh auth status' "$out"
+assert_not_contains "U1 it cannot report success" 'ci-local: ok' "$out"
+
+# U2: the control. With no BLOCKED row nothing is written, and a host
+# without gh loses nothing, so the run is still ok.
+tree="$(make_full_tree)"
+add_github_stub "$tree"
+set_golangci "$tree" "${pinned_lint:-0.0.0}" "1.27.0"
+run_gate "$tree" GH_CONFIG_DIR="$tree/.gh-config-empty" GH_TOKEN= GITHUB_TOKEN= FIXTURE_BLOCKED=0
+assert_eq "U2 with no BLOCKED row a host without gh still ends ok" 0 "$status"
+assert_contains "U2 and says so" 'ci-local: ok' "$out"
+
+# ------------- Group V: every step heading carries a clock (#1456)
+
+echo "==> V. the step clock"
+
+# gate_clock is the one place the library reads the time, so these cases
+# replace it with a counter and measure the arithmetic instead of waiting.
+# V1 to V4 drive the library directly, V5 runs the real script.
+v_lib="gate_clock() { gate_clock_epoch=\$((\${gate_clock_epoch:-1000} + \${V_STEP:-10})); gate_clock_utc=2026-11-16T07:00:00Z; }"
+
+v1_out="$(sh -c ". '$GATE_LIB' && $v_lib && gate_announce 'first step'" 2>&1)"
+assert_contains "V1 the first heading carries the UTC clock and says the run started" '==> first step [2026-11-16T07:00:00Z, run start]' "$v1_out"
+
+v2_out="$(sh -c ". '$GATE_LIB' && $v_lib && V_STEP=10 && gate_announce 'first step' && V_STEP=37 && gate_announce 'second step'" 2>&1)"
+assert_contains "V2 the next heading says how long the step before it took" '==> second step [2026-11-16T07:00:00Z, previous step 37s]' "$v2_out"
+
+v3_out="$(sh -c ". '$GATE_LIB' && $v_lib && gate_install_traps && gate_announce 'only step' && V_STEP=5 && gate_summary" 2>&1)"
+assert_contains "V3 the summary times the last step and the whole run" '==> step clock: only step took 5s, run took 5s' "$v3_out"
+assert_eq "V3 and the verdict is still the last line, byte for byte" '==> ci-local: ok' "$(printf '%s\n' "$v3_out" | tail -n 1)"
+
+v4_out="$(sh -c ". '$GATE_LIB' && $v_lib && gate_install_traps && gate_announce 'a step that exits 1' && V_STEP=8 && exit 1" 2>&1)"
+assert_contains "V4 a failed run times the step that died" '==> step clock: a step that exits 1 took 8s, run took 8s' "$v4_out"
+assert_contains "V4 and the FAILED verdict still names the bare heading" '==> ci-local: FAILED (a step that exits 1)' "$v4_out"
+assert_eq "V4 exactly: merge-gate.sh reads the heading out of that line" 'a step that exits 1' "$(printf '%s\n' "$v4_out" | sed -n 's/^==> ci-local: FAILED (\(.*\))$/\1/p')"
+
+tree="$(make_full_tree)"
+# The browser step queues behind the workspace Playwright lock on this Mac;
+# the fixture's step is a stub, so it has no business waiting for it.
+run_gate "$tree" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh
+assert_contains "V5 a real run stamps the apps/common step" 'apps/common go build, vet, test -race (Docker' "$out"
+v5_clocked="$(printf '%s\n' "$out" | grep -c '^==> .* \[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z, \(run start\|previous step [0-9]*s\)\]$')"
+if [ "$v5_clocked" -ge 10 ]; then pass "V5 a real run stamps its step headings ($v5_clocked)"; else fail "V5 a real run stamps its step headings -- got $v5_clocked" "$out"; fi
+assert_contains "V5 and ends with the step clock before the verdict" '==> step clock: ' "$out"
+assert_eq "V5 the verdict is still the last line" '==> ci-local: ok' "$(printf '%s\n' "$out" | tail -n 1)"
+
+# ------------- Group W: the gate knows its shards (#1457)
+
+echo "==> W. shards: --list-shards, --shard, and a serial run that did not move"
+
+MANIFEST="$SCRIPTS_DIR/release/gate-shards.txt"
+# Strip the clock off a step heading, and keep only the lines that are headings
+# (gate_announce is the only thing that prints the clock).
+headings() { sed -nE 's/^(==> .*) \[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9:]*Z, (run start|previous step [0-9]+s)\]$/\1/p'; }
+
+# W1/W2: the manifest, and --list-shards pinned to it.
+if [ -f "$MANIFEST" ]; then pass "W1 scripts/release/gate-shards.txt exists"; else fail "W1 scripts/release/gate-shards.txt exists"; fi
+assert_eq "W1 the manifest opens with a comment that documents its format" '#' "$(head -c 1 "$MANIFEST" 2>/dev/null)"
+manifest_names="$(grep -vE '^[[:space:]]*(#|$)' "$MANIFEST" 2>/dev/null)"
+want_names="static
+core-kopia
+core-rest
+core-docker
+apps
+js
+e2e
+two-machine
+selftest-gate
+selftest-compat
+selftest-conformance
+selftest-recovery
+selftest-assurance
+structure
+gh-rows"
+assert_eq "W1 the manifest names the shards of the plan, in order" "$want_names" "$manifest_names"
+# In a bare fixture, never in the real checkout: a gate that does not know the
+# flag would start a full run of everything.
+tree="$(make_tree)"
+run_gate "$tree" -- --list-shards
+assert_eq "W2 --list-shards prints exactly the manifest's names" "$manifest_names" "$out"
+assert_eq "W2 and exits 0" 0 "$status"
+
+# W3: a shard that is not in the manifest is refused before anything runs.
+tree="$(make_full_tree)"
+run_gate "$tree" -- --shard no-such-shard
+assert_eq "W3 an unknown shard exits 2" 2 "$status"
+assert_contains "W3 and names the shards there are" 'core-docker' "$out"
+assert_not_contains "W3 and ran no step" '==> toolchain:' "$out"
+
+# W4: a serial run's steps, in order, are what they were before the shards
+# existed. The golden is the heading list of a full fixture run on the tree
+# as it stood before #1457.
+GOLDEN="$SCRIPTS_DIR/tests/testdata/ci-local-serial-steps.txt"
+tree="$(make_full_tree)"
+run_gate "$tree" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh
+serial_steps="$(printf '%s\n' "$out" | headings)"
+assert_eq "W4 the serial run still ends ok" 0 "$status"
+if [ -f "$GOLDEN" ]; then
+  assert_eq "W4 a serial run's step order is byte-identical to the golden" "$(cat "$GOLDEN")" "$serial_steps"
+else
+  fail "W4 $GOLDEN exists"
+fi
+
+# W5: every shard, against the same fixture.
+shard_union=""
+while IFS= read -r shard; do
+  [ -n "$shard" ] || continue
+  tree="$(make_full_tree)"
+  mkdir -p "$tree/core/tests/compat"
+  printf 'package compat\n\nimport "testing"\n\nfunc TestEveryBlockedRowCitesAnIssueThatIsStillOpen(t *testing.T) {}\n' >"$tree/core/tests/compat/matrix_test.go"
+  run_gate "$tree" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh -- --shard "$shard"
+  assert_eq "W5 shard $shard exits 0" 0 "$status"
+  assert_eq "W5 shard $shard ends with its own verdict" "==> ci-local: ok (shard $shard)" "$(printf '%s\n' "$out" | tail -n 1)"
+  assert_contains "W5 shard $shard says which shard it is" "==> shard: $shard" "$out"
+  steps="$(printf '%s\n' "$out" | headings)"
+  if [ -n "$steps" ]; then pass "W5 shard $shard runs at least one step"; else fail "W5 shard $shard runs at least one step" "$out"; fi
+  # Its steps are a subsequence of the serial run's, in the same order, except
+  # for the one step only a shard runs.
+  in_serial="$(printf '%s\n' "$steps" | grep -v 'TestEveryBlockedRow' || true)"
+  order_ok=1
+  last=0
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    n="$(printf '%s\n' "$serial_steps" | grep -nxF -- "$line" | head -n 1 | cut -d: -f1)"
+    if [ -z "$n" ] || [ "$n" -le "$last" ]; then order_ok=0; break; fi
+    last="$n"
+  done <<<"$in_serial"
+  if [ "$order_ok" = 1 ]; then pass "W5 shard $shard keeps the serial order"; else fail "W5 shard $shard keeps the serial order" "$steps"; fi
+  shard_union="$shard_union
+$steps"
+done <<<"$manifest_names"
+# W6: nothing in a serial run belongs to no shard.
+missing=""
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  printf '%s\n' "$shard_union" | grep -qxF -- "$line" || missing="$missing
+$line"
+done <<<"$serial_steps"
+assert_eq "W6 every step of a serial run belongs to a shard" "" "$missing"
+
+# W7: an INCOMPLETE shard says so, and says which one.
+tree="$(make_full_tree)"
+run_gate "$tree" CI_LOCAL_SKIP_TWO_MACHINE=1 -- --shard two-machine
+assert_eq "W7 an INCOMPLETE shard exits $INCOMPLETE" "$INCOMPLETE" "$status"
+assert_contains "W7 and its verdict names the shard" '==> ci-local: INCOMPLETE (shard two-machine)' "$out"
+
+# W8: an empty shard name is refused, not read as "no shard" (a runner with an
+# unset variable would otherwise start the whole serial gate).
+tree="$(make_full_tree)"
+run_gate "$tree" -- --shard ""
+assert_eq "W8 --shard with an empty name exits 2" 2 "$status"
+assert_contains "W8 and asks for a shard name" "exactly one shard name" "$out"
+
+# W9: --shard under CI_LOCAL_FAST=1 is refused (the fast branch has no package
+# split, so core-kopia and core-rest would each run everything).
+tree="$(make_full_tree)"
+run_gate "$tree" CI_LOCAL_FAST=1 -- --shard core-rest
+assert_eq "W9 --shard with CI_LOCAL_FAST=1 exits 2" 2 "$status"
+assert_contains "W9 and says the two do not combine" "CI_LOCAL_FAST" "$out"
+
+# W10: the structure shard runs Docker-backed Go suites, so without a daemon it
+# must not end ok.
+tree="$(make_full_tree)"
+mkdir -p "$tree/core/tests/compat"
+printf 'package compat\n\nimport "testing"\n\nfunc TestEveryBlockedRowCitesAnIssueThatIsStillOpen(t *testing.T) {}\n' >"$tree/core/tests/compat/matrix_test.go"
+set_docker "$tree" unavailable
+run_gate "$tree" -- --shard structure
+if [ "$status" -ne 0 ]; then pass "W10 the structure shard is not green without a Docker daemon"; else fail "W10 the structure shard is not green without a Docker daemon" "$out"; fi
+
+# W11: the shard name stays out of the environment, so the self-test that
+# selftest-gate runs does not inherit it and print shard verdicts.
+if grep -qE "^export GATE_SHARD" "$SCRIPTS_DIR/ci-local.sh"; then fail "W11 ci-local.sh does not export GATE_SHARD"; else pass "W11 ci-local.sh does not export GATE_SHARD"; fi
+scrub_out="$(GATE_SHARD=selftest-gate scrub_env bash -c 'echo "[${GATE_SHARD:-}]"')"
+assert_eq "W11 scrub_env clears GATE_SHARD" "[]" "$scrub_out"
 
 # ------------------------------------------------------------------ result
 
