@@ -376,6 +376,7 @@ def body(root: Path, dry_run: bool, shard: tuple[int, int] | None) -> int:
             d = selftest_swap.mutant(root, tmp, f"assurance-{i:02d}", dry_run=dry_run)
             tracker.swap(d / rel, old, new)
             expect_fails(tracker, tally, label, d, needle, where, pattern)
+            selftest_swap.discard(d, root)
 
         tracker.stale_summary()
         stale_count = tracker.stale_count
