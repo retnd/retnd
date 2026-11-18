@@ -18,15 +18,15 @@
   "imageReference": "ghcr.io/retnd/retnd:0.8.0",
   "releaseManifest": {
     "path": "container/release-manifest.json",
-    "sha256": "b4894c88136c22d3a11877948b12edf45927c0516376e73f4bf2cfdda2ec89c5",
+    "sha256": "5bd1a654b86e48719df424bf1c8a270bdab8b9a851a1f8b17c7b467fdb4030e3",
     "commit": "44593e010c41214396de6821ef8b1d36fb3f0ea2",
     "recordedBuildVersion": "0.8.0",
     "architectures": [
       "amd64"
     ],
-    "published": false,
+    "published": true,
     "registryDigests": {
-      "amd64": null
+      "amd64": "sha256:c4df9b823a0d4cd5e441bf459a1ecc0c36632a3f53b2b6992f5be0dd0e240a49"
     },
     "versionIsABuildStamp": false
   },
@@ -54,7 +54,7 @@
   },
   "checksums": {
     "path": "provenance/checksums.txt",
-    "sha256": "c43036e0b65f807e9c02f53d318f71f95fa9918576968c95e217bf4439de2e35",
+    "sha256": "59c001f36e72069bab78b6f6e9f3c648f4913a6b1078413dac74cf9c2dc9a0f0",
     "format": "sha256sum"
   },
   "artifacts": [
@@ -188,14 +188,12 @@
     "reason": "the source repository is public, so every declared link resolves for a reviewer outside the project"
   },
   "signing": {
-    "status": "unsigned",
+    "status": "signed",
     "method": "sigstore-keyless",
     "identity": "https://github.com/retnd/retnd/.github/workflows/release.yml@refs/heads/release",
     "transparencyLog": "https://rekor.sigstore.dev",
     "note": [
-      "Nothing has been pushed to ghcr.io/retnd/retnd:0.8.0, so there is no digest to sign and no signature to verify.",
-      "The mechanism is scripts/release/publish-image.sh; the key design is in docs/compliance/release-provenance.md.",
-      "There is no signing key to store, rotate or leak: the workflow's OIDC identity is exchanged for a short-lived Fulcio certificate at signing time."
+      "Verify with: cosign verify --certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-identity https://github.com/retnd/retnd/.github/workflows/release.yml@refs/heads/release ghcr.io/retnd/retnd:0.8.0"
     ]
   },
   "performance": {

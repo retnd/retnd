@@ -11,8 +11,8 @@
         "retnd-web": "46361a82046e05d1d6baf35b56e6c59f38deaeff96b51fbc3898edcd080013c3"
       },
       "local_image_id_sha256": "17036b997d9193ef3a436767a45393d6ac76a7e28cb16bc68f3ec989ca46b8a1",
-      "registry_digest": null
+      "registry_digest": "sha256:c4df9b823a0d4cd5e441bf459a1ecc0c36632a3f53b2b6992f5be0dd0e240a49"
     }
   ],
-  "index_digest": null
+  "index_digest": "sha256:1e15b5356eaf848c3c1e4167acbba19ff377140207bb56cd703796e27fd72635"
 }
