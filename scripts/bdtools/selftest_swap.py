@@ -391,6 +391,14 @@ def mutant(root: Path, tmp: Path, name: str, *, dry_run: bool) -> Path:
     return dest
 
 
+def discard(d: Path, root: Path) -> None:
+    """Remove a mutant copy once its control has its verdict, so the copies do
+    not pile up (127 of them at about 315 MB each in the recovery self-test).
+    The real tree, which `mutant` returns under `dry_run`, is never touched."""
+    if d != root:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 class Tally:
     """Pass/fail bookkeeping, shared by every selftest's `ok`/`bad` pair
     (`scripts/docs/selftest.sh` and `scripts/format/selftest.sh` both had

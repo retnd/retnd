@@ -1470,6 +1470,7 @@ def body(root: Path, dry_run: bool, shard: tuple[int, int] | None) -> int:
             for extra_rel, extra_old, extra_new in extras:
                 tracker.swap(d / extra_rel, extra_old, extra_new)
             expect_fails(tracker, tally, label, d, needle, where, pattern)
+            selftest_swap.discard(d, root)
 
         tracker.stale_summary()
         stale_count = tracker.stale_count
