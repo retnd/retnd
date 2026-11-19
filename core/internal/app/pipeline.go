@@ -73,7 +73,7 @@ func (s *Service) discoverOne(ctx context.Context, source transport.Source, bs c
 	// which files are unreadable; a failed one leaves the record as it
 	// was rather than clearing a warning nobody has checked.
 	if err == nil {
-		s.unreadableState().observe(bs.ID, res, s.now())
+		s.unreadableState().observe(bs.ID, res, s.now(), s.unreadableFreshFor(bs))
 	}
 	return res, err
 }

@@ -185,10 +185,13 @@ func (s *Service) BuildHealthReport(ctx context.Context, versionInfo VersionInfo
 				// set runs no snapshots" and "its snapshots measured
 				// zero" apart on every surface that renders them.
 				Snapshot: s.snapshotHealth(ctx, bs, unfinishedSnapshots),
-
-				// Issue #1541: complete source files the last pass could
-				// not open, in memory like LastSuccessfulPollAt above.
-				PendingUnreadable: s.unreadableState().pending(bs.ID),
+			}
+			// Issue #1541: complete source files the last pass could not
+			// open, in memory like LastSuccessfulPollAt above, and only for
+			// a set that is being discovered: a disabled set is never
+			// looked at, so it has nothing current to say.
+			if !bs.Disabled {
+				in.PendingUnreadable = s.unreadableState().pending(bs.ID, now, s.unreadableFreshFor(bs))
 			}
 			if stat, statErr := capacity.StatPath(bs.LocalPath); statErr == nil {
 				free := stat.AvailableBytes

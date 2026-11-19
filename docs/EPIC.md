@@ -790,7 +790,11 @@ a per-candidate discovery error, as a failed stat already is. An unreadable
 complete candidate is reported and never failed: the set's health carries
 how many are waiting and the oldest one's path and age, and once that
 oldest one has waited longer than the set's `stale_after` the set shows a
-warning naming it, without its state changing. Transfer is unchanged: an
+warning naming it, without its state changing. That record is kept in
+the engine's memory and reported only while the last pass that ran
+discovery on the set is recent (two poll intervals): a disabled set, or
+one whose passes have stopped reaching the source, reports none, and the
+next pass that looks starts the clock again. Transfer is unchanged: an
 artifact already DISCOVERED that is denied at its open is still FAILED
 under FR-22.
 

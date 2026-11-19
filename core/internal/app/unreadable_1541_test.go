@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/health"
 	"github.com/retnd/retnd/core/internal/transport"
 )
@@ -92,6 +93,17 @@ func adoptUnreadable(t *testing.T, next, prev *Service) {
 	m.Call([]reflect.Value{reflect.ValueOf(prev)})
 }
 
+// dailyPolled is the forge set as it runs: polled once a day, so a pass 25
+// or 30 hours after the last one is the next pass rather than a gap nobody
+// was watching (an unreadable file's record is only carried between passes
+// that are within two poll intervals of each other).
+func dailyPolled(t *testing.T, bs config.BackupSet) *config.Config {
+	t.Helper()
+	cfg := testConfig(t, testSource("production", bs))
+	cfg.PollInterval = config.Duration(24 * time.Hour)
+	return cfg
+}
+
 func onlySet(t *testing.T, svc *Service) health.BackupSetHealth {
 	t.Helper()
 	report, err := svc.BuildHealthReport(context.Background(), VersionInfo{})
@@ -113,7 +125,7 @@ func TestAnUnreadableSourceFileWarnsAfterStaleAfterAndNeverFailsTheSet_1541(t *t
 	tr.put("gitea-dump.dump", "root-only until published", epoch.Unix())
 
 	journal := openJournal(t)
-	svc := New(testConfig(t, testSource("production", bs)), journal, tr, nil)
+	svc := New(dailyPolled(t, bs), journal, tr, nil)
 	svc.Now = fixedNow(epoch)
 	svc.RunCycle(context.Background())
 
@@ -182,7 +194,7 @@ func TestAReloadKeepsHowLongAFileHasBeenUnreadable_1541(t *testing.T) {
 	tr := &unpublishedTransport{fakeTransport: newFakeTransport(), denied: map[string]bool{"gitea-dump.dump": true}}
 	tr.put("gitea-dump.dump", "root-only", epoch.Unix())
 
-	cfg := testConfig(t, testSource("production", bs))
+	cfg := dailyPolled(t, bs)
 	journal := openJournal(t)
 	before := New(cfg, journal, tr, nil)
 	before.Now = fixedNow(epoch)
