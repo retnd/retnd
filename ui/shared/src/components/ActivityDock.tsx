@@ -566,6 +566,7 @@ export function ActivityDock() {
     [feed.state.generations]
   );
 
+  const setsRef = useRef<string[]>([]);
   // #1505: a set's "Show in Terminal" opens this panel on that set's chip,
   // and drops a level filter, which would otherwise hide the very lines the
   // operator came for.
@@ -573,9 +574,13 @@ export function ActivityDock() {
     const onFocus = (e: Event) => {
       const setId = (e as CustomEvent<{ setId: string }>).detail?.setId;
       if (!setId) return;
+      // A set the latest reading does not name has no chip, and a filter
+      // with no chip is a terminal showing nothing and no way to see why.
+      const known = setsRef.current.includes(setId);
       setOpen(true);
-      setFilter(setId as DockFilter);
+      setFilter(known ? (setId as DockFilter) : "all");
       setLevel(null);
+      setAnnouncement(known ? "Terminal opened, showing " + setId : "Terminal opened");
     };
     window.addEventListener(DOCK_FOCUS_EVENT, onFocus);
     return () => window.removeEventListener(DOCK_FOCUS_EVENT, onFocus);
@@ -607,6 +612,9 @@ export function ActivityDock() {
   // their own: a set is configured or it is not, and the reading says so
   // on every poll.
   const sets = readingNow?.setIds ?? NO_SETS;
+  useEffect(() => {
+    setsRef.current = sets;
+  }, [sets]);
   const all = useMemo(
     () => withoutContradictedGaps(foldBrowserNotices(dockEntries(history, held), notices)),
     [history, held, notices]
