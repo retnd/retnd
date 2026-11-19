@@ -125,5 +125,10 @@ func wireBackupSetHealth(bs service.BackupSetHealth) apicontract.BackupSetHealth
 		FailedMoves:                  bs.Placement.FailedMoves,
 		FailedMoveOldestAgeSeconds:   int64(bs.Placement.OldestFailedMoveAge.Seconds()),
 		FailedMoveReason:             bs.Placement.FailedMoveReason,
+
+		PendingUnreadable:                 bs.PendingUnreadable,
+		PendingUnreadableOldestAgeSeconds: int64(bs.PendingUnreadableOldestAge.Seconds()),
+		PendingUnreadableOldestPath:       bs.PendingUnreadableOldestPath,
+		PendingUnreadableWarning:          bs.PendingUnreadableWarning,
 	}
 }

@@ -185,6 +185,10 @@ func (s *Service) BuildHealthReport(ctx context.Context, versionInfo VersionInfo
 				// set runs no snapshots" and "its snapshots measured
 				// zero" apart on every surface that renders them.
 				Snapshot: s.snapshotHealth(ctx, bs, unfinishedSnapshots),
+
+				// Issue #1541: complete source files the last pass could
+				// not open, in memory like LastSuccessfulPollAt above.
+				PendingUnreadable: s.unreadableState().pending(bs.ID),
 			}
 			if stat, statErr := capacity.StatPath(bs.LocalPath); statErr == nil {
 				free := stat.AvailableBytes

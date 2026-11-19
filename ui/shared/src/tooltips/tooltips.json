@@ -931,6 +931,10 @@
     "label": "State note",
     "html": "The service's own sentence about why this set is in the health state shown above it. It is the first thing to read when a set is stale or failing."
   },
+  "sets.card.pending-unreadable": {
+    "label": "Not published yet",
+    "html": "Source files the engine's last discovery pass found complete but could not open, usually because the producer has not made them readable to the backup account yet. They are not taken, so they cannot fail; each is checked again on every pass and taken the first time it can be read. Once the oldest has waited longer than this set's stale threshold, this says which file and for how long. It never changes the set's health state."
+  },
   "sets.card.newest-known-good": {
     "label": "Newest known-good",
     "html": "How long ago the most recent backup that passed its validation was taken. This is the age of what could actually be recovered, which a merely finished run is not."
