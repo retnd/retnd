@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/retnd/retnd/core/internal/alert"
+	"github.com/retnd/retnd/core/internal/obs"
 )
 
 // EPIC O, O1.3 (FR-101): which one sink a configuration delivers through,
@@ -293,6 +294,9 @@ func TestAlertSelection_AnUnreadableURLIsLoudAndHeals(t *testing.T) {
 			if got := status(); got != "unresolvable" {
 				t.Fatalf("url status = %q after a pass, want unresolvable", got)
 			}
+			if got := destinationStates(t, svc); len(got) != 1 || got[0] != "unresolvable" {
+				t.Fatalf("activity feed alert_destination states = %v, want exactly one unresolvable, said once and not per pass", got)
+			}
 
 			if name != "missing file" {
 				return
@@ -305,6 +309,35 @@ func TestAlertSelection_AnUnreadableURLIsLoudAndHeals(t *testing.T) {
 			if got := status(); got != "ok" {
 				t.Fatalf("url status = %q once the file exists, want ok: the state must heal itself", got)
 			}
+			if got := destinationStates(t, svc); len(got) != 2 || got[1] != "ok" {
+				t.Fatalf("activity feed alert_destination states = %v, want the heal said once after the failure", got)
+			}
+			// The held condition went out in the same tick that healed.
+			if receiver.hits.Load() != 1 {
+				t.Fatalf("receiver got %d requests after the heal, want the held alert delivered once", receiver.hits.Load())
+			}
 		})
 	}
+}
+
+// destinationStates is every alert_destination state the deployment's
+// activity feed holds, oldest first.
+func destinationStates(t *testing.T, svc *BackupService) []string {
+	t.Helper()
+	live, err := svc.LiveActivity(context.Background(), LiveActivityRequest{DeploymentOnly: true, Limit: liveActivityMaxLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	if live.Deployment == nil {
+		return out
+	}
+	for _, e := range live.Deployment.Events {
+		if e.Event != obs.EventAlertDestination {
+			continue
+		}
+		v, _ := eventField(e, "status")
+		out = append(out, v)
+	}
+	return out
 }

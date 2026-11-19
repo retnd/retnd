@@ -79,7 +79,7 @@ describe("the alert delivery controls", () => {
 
   it("says loudly when the webhook URL cannot be read, and not when it can", async () => {
     const base = createMockApi();
-    const withStatus = (urlStatus: string): RetndApi => ({
+    const withStatus = (urlStatus: "ok" | "unresolvable" | "invalid"): RetndApi => ({
       ...base,
       getObservabilitySettings: async () => {
         const s = await base.getObservabilitySettings();
@@ -94,5 +94,24 @@ describe("the alert delivery controls", () => {
     show(withStatus("ok"));
     await screen.findByTestId("alert-webhook-url-state");
     expect(screen.queryByTestId("alert-webhook-unresolvable")).toBeNull();
+    expect(screen.queryByTestId("alert-webhook-invalid")).toBeNull();
+    cleanup();
+    show(withStatus("invalid"));
+    const invalid = await screen.findByTestId("alert-webhook-invalid");
+    expect(invalid.getAttribute("role")).toBe("alert");
+    expect(invalid.textContent).toContain("not an acceptable URL");
+    expect(screen.queryByTestId("alert-webhook-unresolvable")).toBeNull();
+  });
+
+  it("reads url_status off the wire, and leaves it unset when the engine sent none", async () => {
+    const { fromWireObservabilitySettings } = await import("@shared/api/client");
+    const wire = {
+      metrics: { enabled: false, min_rebuild_interval_seconds: 15, scrape_token: { exists: false } },
+      logs: { level: "info", level_in_force: "info", level_source: "config" },
+      alerts: { delivery: "webhook", webhook: { dialect: "generic", url_set: true, allow_insecure_http: false, refresh_interval_seconds: 240, resolve_ttl_seconds: 600 } }
+    };
+    expect(fromWireObservabilitySettings(wire as never).alerts.webhook.urlStatus).toBeUndefined();
+    const withStatus = { ...wire, alerts: { ...wire.alerts, webhook: { ...wire.alerts.webhook, url_status: "unresolvable" } } };
+    expect(fromWireObservabilitySettings(withStatus as never).alerts.webhook.urlStatus).toBe("unresolvable");
   });
 });

@@ -474,6 +474,12 @@ func TestWebhookUnresolvableIsLoudKeepsTheMapAndHeals(t *testing.T) {
 		t.Fatal("the state changed without a change in the reference")
 	}
 
+	// The activity feed hears about it once, on the change, not on every
+	// pass: a line per poll would bury the one that matters.
+	if got := destinationEvents(t, &logs); len(got) != 1 || got[0]["status"] != alert.URLStatusUnresolvable || got[0]["level"] != "ERROR" || got[0]["result"] != "error" {
+		t.Fatalf("alert_destination events after two failing passes = %v, want one ERROR line saying unresolvable", got)
+	}
+
 	// A probe on its own (no condition) also reports, and heals.
 	mu.Lock()
 	broken = false
@@ -482,11 +488,57 @@ func TestWebhookUnresolvableIsLoudKeepsTheMapAndHeals(t *testing.T) {
 	if got := d.SinkStatus(); got != alert.URLStatusOK {
 		t.Fatalf("status after the reference became readable = %q, want %q", got, alert.URLStatusOK)
 	}
-	d.Observe(ctx, stale, nil, t0.Add(6*time.Minute))
+	if got := destinationEvents(t, &logs); len(got) != 2 || got[1]["status"] != alert.URLStatusOK || got[1]["result"] != "success" {
+		t.Fatalf("alert_destination events after the heal = %v, want a second line saying ok", got)
+	}
+	if strings.Contains(logs.String(), r.srv.URL) {
+		t.Fatal("the URL reached the log")
+	}
+
+	// The held alert goes out on the first pass after the heal, not at the
+	// next slot of a ladder that only grew because there was no URL.
+	d.Observe(ctx, stale, nil, t0.Add(2*time.Minute))
 	if r.count() != 1 {
-		t.Fatalf("the retry delivered %d requests, want 1", r.count())
+		t.Fatalf("the first pass after the heal delivered %d requests, want 1", r.count())
 	}
 	if snap := d.FiringSnapshot(); !snap[stale[0].Key()] {
 		t.Fatalf("firing map = %v, want the condition delivered after the heal", snap)
 	}
+	d.Probe(ctx)
+	if got := destinationEvents(t, &logs); len(got) != 2 {
+		t.Fatalf("a steady ok said something again: %v", got)
+	}
+}
+
+// A first read that works is not a heal, so it says nothing.
+func TestWebhookFirstGoodReadIsQuiet(t *testing.T) {
+	r := newReceiver(t, 200)
+	var logs bytes.Buffer
+	d := alert.NewDispatcher(r.sink(t, alert.DialectGeneric), obs.New(&logs, obs.LevelDebug))
+	d.Probe(context.Background())
+	if d.SinkStatus() != alert.URLStatusOK {
+		t.Fatalf("status = %q, want ok", d.SinkStatus())
+	}
+	if got := destinationEvents(t, &logs); len(got) != 0 {
+		t.Fatalf("a destination that was never broken announced a heal: %v", got)
+	}
+}
+
+// destinationEvents decodes every alert_destination line logged so far.
+func destinationEvents(t *testing.T, logs *bytes.Buffer) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+		if line == "" {
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(line), &m); err != nil {
+			t.Fatalf("log line is not JSON: %q", line)
+		}
+		if m["event"] == obs.EventAlertDestination {
+			out = append(out, m)
+		}
+	}
+	return out
 }
