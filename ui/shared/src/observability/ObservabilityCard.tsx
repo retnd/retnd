@@ -18,6 +18,7 @@
 import { useEffect, useState } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import type { ObservabilitySettings } from "@shared/api/contracts";
+import { AlertDeliveryControls } from "@shared/observability/AlertDeliveryControls";
 import { apiErrorOf, describeFailure, isNotConfigured } from "@shared/api/failure";
 
 export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
@@ -74,6 +75,9 @@ export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
               </div>
             ))}
           </dl>
+        )}
+        {settings && (
+          <AlertDeliveryControls alerts={settings.alerts} readOnly={readOnly} onSaved={setSettings} />
         )}
       </div>
     </section>

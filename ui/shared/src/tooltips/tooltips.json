@@ -2302,5 +2302,25 @@
   "agents.audit.outcome": {
     "label": "Outcome",
     "html": "The status and code the engine answered with, the same code the command line prints."
+  },
+  "observability.alerts.delivery": {
+    "label": "Alert delivery",
+    "html": "Which <strong>one</strong> channel alerts go out through. <strong>platform</strong> is the platform's own notifier, which no shipped deployment has, so nothing is delivered. <strong>webhook</strong> posts each alert to the URL named by <code>url_ref</code> in config.yaml. Never both: switching keeps what has already been announced, so a standing alert is not announced again."
+  },
+  "observability.alerts.dialect": {
+    "label": "Webhook format",
+    "html": "<strong>generic</strong> posts one JSON object per alert, once, and stays quiet while the condition lasts. <strong>alertmanager</strong> posts the Alertmanager v2 array, re-sends a condition that is still true before it expires, and closes it when it clears."
+  },
+  "observability.alerts.insecure-http": {
+    "label": "Plain http",
+    "html": "A webhook URL must be <strong>https</strong> unless you allow plain http here. Allow it only for a receiver on a network you trust, such as an Alertmanager on the compose network. Redirects are never followed and certificate checks cannot be turned off."
+  },
+  "observability.alerts.refresh": {
+    "label": "Refresh interval",
+    "html": "How often an Alertmanager alert that is still true is sent again, so the receiver does not expire it. It must be shorter than the expiry time."
+  },
+  "observability.alerts.resolve-ttl": {
+    "label": "Expiry time",
+    "html": "How long Alertmanager keeps an alert after it was last sent (<code>endsAt</code>). The refresh interval must be shorter than this, or the alert expires while the problem is still there."
   }
 }
