@@ -355,6 +355,14 @@ input, select, textarea, button {
   background: var(--term-scroll); border-radius: var(--radius-pill);
   border: 2px solid var(--term-bg);
 }
+/* #1509: the caption is the top of the terminal, in its own colours, and sits
+   above the scrolling box so it can never slide over a line. */
+.activity-log__caption {
+  background: var(--term-bg); color: var(--term-text);
+  font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 600;
+  padding: var(--space-2) var(--space-5);
+  border-top: 1px solid var(--border);
+}
 .activity-log__time { color: var(--term-time); }
 .activity-log__line--info { color: var(--term-info); }
 .activity-log__line--ok { color: var(--term-ok); }

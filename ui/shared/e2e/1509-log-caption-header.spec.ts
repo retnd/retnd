@@ -47,6 +47,8 @@ test.describe("#1509 the log caption is a header above the terminal", () => {
 
   test("#1509 scrolling the log does not move the caption, and nothing is drawn over it", async ({ page }) => {
     await opened(page);
+    // The first strip can sit below the fold; the check is about what is drawn where it is on screen.
+    await captionOf(page).scrollIntoViewIfNeeded();
     const before = (await captionOf(page).boundingBox())!;
     await logOf(page).evaluate((el) => { el.scrollTop = el.scrollHeight; });
     const after = (await captionOf(page).boundingBox())!;
