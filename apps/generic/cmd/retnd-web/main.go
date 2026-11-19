@@ -73,6 +73,7 @@ import (
 	"github.com/retnd/retnd/apps/generic/webui"
 	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/legacypath"
+	"github.com/retnd/retnd/core/prerename"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -505,6 +506,15 @@ func cmdServe(args []string) int {
 	// a provider app that never calls this is still safe; what running
 	// it here buys is the warning, the refusal, and the two paths being
 	// settled before the announcement names one.
+	//
+	// #1546 closes the gap the adoption left: core/legacypath no longer has
+	// a pre-rename path to adopt, so a deployment still mounted at its
+	// pre-0.5.0 path is refused here, naming both paths and the fix, instead
+	// of getting a default configuration written at the empty new path.
+	if err := prerename.Check(*configPath, *stateDatabase); err != nil {
+		fmt.Fprintln(os.Stderr, cliecho.WebBinary+":", err)
+		return exitFailure
+	}
 	preflight, err := legacypath.Run(*configPath, *stateDatabase)
 	if err != nil {
 		// The refusal is FR-38's fourth row: two populated directories
