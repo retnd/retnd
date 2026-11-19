@@ -321,6 +321,16 @@ describe("saying that earlier lines are gone", () => {
     expect(next.dropped).toBe(false);
   });
 
+  it("does not take it back while the window is full, even on a poll that happens to reach the service's oldest line (#1503)", () => {
+    // A busy set: the page trims on a burst (window of 3, five lines), then
+    // a quiet poll brings nothing new and the window starts at the service's
+    // oldest line by coincidence. The notice must stay, or it flashes.
+    const burst = mergeActivity(undefined, set("a/b", [event(1), event(2), event(3), event(4), event(5)], { oldestSequence: 1 }), 3);
+    expect(burst.dropped).toBe(true);
+    const quiet = mergeActivity(burst, set("a/b", [], { dropped: false, oldestSequence: 3 }), 3);
+    expect(quiet.dropped).toBe(true);
+  });
+
   it("still says it the moment the page's own window throws a line away", () => {
     const held = mergeActivity(undefined, set("a/b", [event(1), event(2), event(3)], { oldestSequence: 1 }), 2);
     expect(held.dropped).toBe(true);
