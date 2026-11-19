@@ -19,6 +19,7 @@
  * each, with a Run assurance button (issue #1174).
  */
 import "./assurance.css";
+import { useState } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { AssuranceLink } from "./AssuranceLink";
@@ -34,6 +35,10 @@ export function AssuranceDashboardCard({ readOnly = false }: { readOnly?: boolea
   const api = useApi();
   const tally = useTally();
   const facts = useFactsIndex();
+  // #1504: the counts stay on the card; the list of backups behind them is
+  // collapsed until asked for. It stays mounted when collapsed (hidden), so a
+  // run started from a row is not lost by closing the list.
+  const [listOpen, setListOpen] = useState(false);
   // #1428: the card is always present, with its counts unknown until the claims
   // are read. What grows when they arrive (the due list, the note) is held, and
   // so is what sits below the card (DashboardPage), so nothing moves.
@@ -42,6 +47,7 @@ export function AssuranceDashboardCard({ readOnly = false }: { readOnly?: boolea
   const known = tally.known;
   // How many of the untested backups sit in a set on the default configuration:
   // the reason there is nothing to test with, said beside the count.
+  const listed = new Set((["due", "overdue", "degraded"] as Bucket[]).flatMap((b) => tally.ids[b]).filter((id) => facts.byArtifact[id])).size;
   const onDefault = tally.ids.untested.filter((id) => facts.byArtifact[id]?.recoveryView.basis === "default").length;
   const cell = (b: Bucket) => {
     const n = tally[b];
@@ -71,7 +77,28 @@ export function AssuranceDashboardCard({ readOnly = false }: { readOnly?: boolea
       </div>
       <div className="card__body" style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
         {ORDER.map(cell)}
-        {settled ? <AssuranceDueList tally={tally} byArtifact={facts.byArtifact} readOnly={readOnly} /> : (
+        {settled ? (
+          <>
+            {listed > 0 ? (
+              <button
+                type="button"
+                className="btn btn--quiet"
+                aria-expanded={listOpen}
+                aria-controls="assurance-due-list"
+                onClick={() => setListOpen((v) => !v)}
+                style={{ flexBasis: "100%", justifyContent: "flex-start", gap: 8, color: "var(--accent)", fontWeight: 600 }}
+              >
+                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flex: "none", transition: "transform 120ms", transform: listOpen ? "rotate(90deg)" : "none" }}>
+                  <path d="M5 3l5 5-5 5" />
+                </svg>
+                {(listOpen ? "Hide " : "Show ") + listed + (listed === 1 ? " backup" : " backups")}
+              </button>
+            ) : null}
+            <div id="assurance-due-list" hidden={listed > 0 && !listOpen} style={{ flexBasis: "100%" }}>
+              <AssuranceDueList tally={tally} byArtifact={facts.byArtifact} readOnly={readOnly} />
+            </div>
+          </>
+        ) : (
           <span role="status" style={{ flexBasis: "100%", color: "var(--text-2)", fontSize: "var(--text-sm)" }}>Reading assurance...</span>
         )}
         {facts.error ? <span role="alert">Could not read assurance, so these are unknown rather than zero.</span> : null}

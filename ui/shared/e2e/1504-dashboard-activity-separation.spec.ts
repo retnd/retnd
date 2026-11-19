@@ -13,12 +13,12 @@
  */
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { open } from "./helpers";
+import { measureContrast, open, setTheme } from "./helpers";
 
 const strips = (p: Page) => p.getByRole("region", { name: /^Activity for / });
 const assurance = (p: Page) => p.getByRole("region", { name: "Assurance summary" });
 const dueList = (p: Page) => assurance(p).getByRole("list", { name: "Backups needing assurance" });
-const toggle = (p: Page) => assurance(p).getByRole("button", { name: /^assurance/i });
+const toggle = (p: Page) => assurance(p).getByRole("button", { name: /^(show|hide) \d+ backups?$/i });
 
 async function opened(p: Page) {
   await open(p, "/");
@@ -64,11 +64,11 @@ test.describe("#1504 separation between backup sets on the Dashboard", () => {
 });
 
 test.describe("#1504 the Assurance list collapses", () => {
-  test("#1504 it is collapsed by default, and the header still says how many need attention", async ({ page }) => {
+  test("#1504 it is collapsed by default, and the toggle says how many backups are behind it", async ({ page }) => {
     await opened(page);
     await expect(toggle(page)).toHaveAttribute("aria-expanded", "false");
+    await expect(toggle(page)).toHaveText("Show 3 backups");
     await expect(dueList(page)).toBeHidden();
-    await expect(assurance(page)).toContainText(/3 backups? need/i);
   });
 
   test("#1504 pressing the header opens the list and pressing it again closes it", async ({ page }) => {
@@ -86,4 +86,36 @@ test.describe("#1504 the Assurance list collapses", () => {
     await expect(assurance(page).getByTestId("assurance-degraded")).toBeVisible();
     await expect(assurance(page).getByTestId("assurance-due")).toBeVisible();
   });
+});
+
+test.describe("#1504 contrast of what this adds (WCAG AA)", () => {
+  for (const theme of ["light", "dark"] as const) {
+    test("#1504 the card edge is 3:1 against the card and the page, and the text is 4.5:1, in the " + theme + " theme", async ({ page }) => {
+      await opened(page);
+      await setTheme(page, theme);
+      const edge = await strips(page).first().evaluate((el) => {
+        const lum = (c: string) => {
+          const cv = document.createElement("canvas").getContext("2d")!;
+          cv.fillStyle = "#000";
+          cv.fillStyle = c;
+          cv.fillRect(0, 0, 1, 1);
+          const d = cv.getImageData(0, 0, 1, 1).data;
+          const f = (v: number) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+          return 0.2126 * f(d[0]) + 0.7152 * f(d[1]) + 0.0722 * f(d[2]);
+        };
+        const ratio = (a: string, b: string) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+        const root = getComputedStyle(document.documentElement);
+        const edgeColour = getComputedStyle(el).borderTopColor;
+        return {
+          onCard: ratio(edgeColour, getComputedStyle(el).backgroundColor),
+          onPage: ratio(edgeColour, root.getPropertyValue("--bg").trim())
+        };
+      });
+      console.log("CONTRAST #1504 card edge, " + theme + " | on card " + edge.onCard.toFixed(2) + ":1, on page " + edge.onPage.toFixed(2) + ":1 (needs 3)");
+      expect(edge.onCard).toBeGreaterThanOrEqual(3);
+      expect(edge.onPage).toBeGreaterThanOrEqual(3);
+      expect(await measureContrast(page, "1504 strips " + theme, '[aria-label^="Activity for "]')).toEqual([]);
+      expect(await measureContrast(page, "1504 assurance " + theme, '[aria-label="Assurance summary"]')).toEqual([]);
+    });
+  }
 });
