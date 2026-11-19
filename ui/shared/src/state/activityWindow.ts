@@ -93,6 +93,8 @@ export function mergeActivity(
     // notice back one burst later, so it flashed under the progress for as
     // long as the set was busy. A full window has no room to hold "the whole
     // buffer", so reaching the service's oldest line says nothing about a gap.
+    // (If a service ring were exactly as large as this window, a stale notice
+    // would now stay until the run resets: the conservative direction.)
     dropped: next.dropped || trimmed || ((!reachesTheServicesOldest || events.length >= buffer) && (previous?.dropped ?? false)),
     // The surface's own window can start later than the service's buffer
     // does. Reporting the service's bound while showing fewer lines would

@@ -26,8 +26,10 @@ async function watchNotice(p: Page, ms: number): Promise<boolean[]> {
     ({ text, ms: total }) =>
       new Promise<boolean[]>((resolve) => {
         const seen: boolean[] = [];
-        const strip = document.querySelector('section[aria-label^="Activity for "]');
         const timer = window.setInterval(() => {
+          // Looked up each time: a strip that remounts mid-watch must not
+          // leave the sampler reading a detached node.
+          const strip = document.querySelector('section[aria-label^="Activity for "]');
           seen.push(!!strip && (strip.textContent ?? "").includes(text));
         }, 50);
         window.setTimeout(() => {
