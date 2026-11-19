@@ -511,9 +511,11 @@ func TestMetrics_TheWorkflowExpositionIsAbsentNotZeroWhenNoEngineWasBuiltAndPres
 	}
 }
 
-// O-06. The health report is cached: N scrapes inside min_rebuild_interval
-// read one report, and the interval is what ends it. The report's own
-// generated-at timestamp is the evidence, read off the exposition.
+// O-06, the route half. The interval is what ends the cache: a scrape after it
+// shows a later generated-at timestamp. This does NOT prove scrapes inside the
+// interval are cached, because the timestamp has one-second resolution and a
+// rebuild-per-scrape mutant stays green here; that half is held by
+// core/service's TestTheHealthExpositionIsRebuiltOnlyWhenTheIntervalHasPassed.
 func TestMetrics_TheHealthReportIsCachedForTheRebuildInterval(t *testing.T) {
 	rig := newScrapeRig(t, "observability:\n  metrics:\n    enabled: true\n    min_rebuild_interval: 2s\n")
 	token := rig.mint()
