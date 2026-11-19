@@ -171,6 +171,14 @@ type fakeTransport struct {
 	// rather than its transfer. See
 	// TestRunCycle_ResumesAnArtifactLeftAtCommitting.
 	afterCopyToLocal func(localPartialPath string)
+
+	// statErrFor, when it has an entry for a remote path, is what Stat
+	// returns for that path instead of looking the object up. Issue #1528's
+	// automatic retirement reads Stat's classified answer as the proof that
+	// an object is gone, so a test needs to make Stat answer something other
+	// than not_found (permission_denied, transient) for an object the
+	// listing does not show.
+	statErrFor map[string]error
 }
 
 func newFakeTransport() *fakeTransport {
@@ -207,6 +215,9 @@ func (f *fakeTransport) List(ctx context.Context, source transport.Source) ([]tr
 func (f *fakeTransport) Stat(ctx context.Context, source transport.Source, remotePath string) (transport.RemoteArtifact, error) {
 	if f.failsFor(source) {
 		return transport.RemoteArtifact{}, f.failErr
+	}
+	if err, ok := f.statErrFor[remotePath]; ok {
+		return transport.RemoteArtifact{}, err
 	}
 	obj, ok := f.objects[remotePath]
 	if !ok {
