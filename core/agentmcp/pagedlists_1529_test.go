@@ -148,6 +148,20 @@ func walk(t *testing.T, sh shape, items, itemBytes int) []string {
 		for _, it := range p[key] {
 			seen = append(seen, it.N)
 		}
+		// A list that is itself named untrusted (a set's include patterns)
+		// leaves the data and arrives whole under its pointer.
+		if moved, ok := got.Untrusted["/"+key]; ok {
+			raw, _ := json.Marshal(moved)
+			var items []struct {
+				N int `json:"n"`
+			}
+			if err := json.Unmarshal(raw, &items); err != nil {
+				return append(problems, "the untrusted list does not decode: "+err.Error())
+			}
+			for _, it := range items {
+				seen = append(seen, it.N)
+			}
+		}
 		if got.NextCursor == "" {
 			break
 		}

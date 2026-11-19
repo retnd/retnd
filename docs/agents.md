@@ -129,8 +129,12 @@ A tool result can carry a code that never comes out of `/api/v1`: `INVALID_REQUE
 `ENGINE_UNREACHABLE` and `AGENT_RESULT_TOO_LARGE`, all with exit code 1. The last one is the one
 result with no CLI twin, because the CLI would simply print the whole answer. A result is capped at
 64 KiB. On a route that pages (it answers with a `next_cursor`) the server shrinks the page to fit.
-On a route that does not, an answer over the cap is refused with `AGENT_RESULT_TOO_LARGE` rather than
-cut, so an agent never mistakes a partial list for a complete one.
+On a route that does not, the server pages the list itself: the result holds as many whole items as
+fit and a `next_cursor`, and sending that back as `query.before` returns the next slice. A cursor is
+good only for the answer it came from, so if the list changed in between, the call is refused with
+`INVALID_REQUEST` and the agent asks again from the start. Nothing is ever cut without a cursor, so
+an agent never mistakes a partial list for a complete one. `AGENT_RESULT_TOO_LARGE` is left for an
+answer with no list in it, or a single item that is itself over the cap.
 
 ## Confirmations, from both sides
 

@@ -233,6 +233,19 @@ func (s *server) run(ctx context.Context, t agenttools.Row, raw json.RawMessage)
 	if err != nil {
 		return invalidArguments(err.Error())
 	}
+	var (
+		offset      int
+		fingerprint string
+	)
+	if cursor := query.Get("before"); strings.HasPrefix(cursor, pageCursorPrefix) {
+		var ok bool
+		if offset, fingerprint, ok = parsePageCursor(cursor); !ok {
+			return invalidArguments("query.before: that is not a cursor this server issued")
+		}
+		// The route has never heard of it: it is the server's own.
+		query = cloneQuery(query)
+		query.Del("before")
+	}
 	command := echo(t, routeParams(callRoute(t)), pathArgs, query)
 
 	var (
@@ -255,6 +268,9 @@ func (s *server) run(ctx context.Context, t agenttools.Row, raw json.RawMessage)
 		}
 		decoded = agenttools.Project(decoded)
 		if len(resp.Body) <= s.cfg.MaxResultBytes {
+			if fingerprint != "" {
+				return staleCursor(correlated, command)
+			}
 			data, untrusted := splitUntrusted(decoded, t.Untrusted)
 			res := Result{OK: true, Code: CodeOK, Message: staticOKMessage, CorrelationID: correlated, Command: command, Data: data, Untrusted: untrusted}
 			if m, ok := decoded.(map[string]any); ok {
@@ -271,7 +287,23 @@ func (s *server) run(ctx context.Context, t agenttools.Row, raw json.RawMessage)
 		// whole one, so that answer is refused instead (AGENT_RESULT_TOO_LARGE).
 		body, _ = decoded.(map[string]any)
 		if _, paged := body["next_cursor"]; !paged {
-			break
+			// The route has no page of its own, so the server pages the list.
+			if fingerprint != "" && fingerprint != pageFingerprint(resp.Body) {
+				return staleCursor(correlated, command)
+			}
+			page, next, more, ok := slicePage(body, offset, s.cfg.MaxResultBytes)
+			if !ok {
+				break
+			}
+			data, untrusted := splitUntrusted(page, t.Untrusted)
+			res := Result{OK: true, Code: CodeOK, Message: staticOKMessage, CorrelationID: correlated, Command: command, Data: data, Untrusted: untrusted}
+			if more {
+				res.NextCursor = pageCursorPrefix + strconv.Itoa(next) + ":" + pageFingerprint(resp.Body)
+			}
+			return res
+		}
+		if fingerprint != "" {
+			return staleCursor(correlated, command)
 		}
 		n := listLength(body)
 		if attempt >= maxPageAttempts || n < 2 || (prev > 0 && n >= prev) {
