@@ -773,7 +773,7 @@ function ActivityToolbar({
         </button>
       </InfoTooltip>
       {setId ? (
-        <button type="button" className="activity-toolbar__toggle" onClick={() => showSetInTerminal(setId)}>
+        <button type="button" className="activity-toolbar__toggle" data-set-id={setId} onClick={() => showSetInTerminal(setId)}>
           Show in Terminal
         </button>
       ) : null}
