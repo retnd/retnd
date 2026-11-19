@@ -4,7 +4,7 @@
  * refusal from the engine is shown where the change was made.
  */
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ApiProvider } from "@shared/api/ApiContext";
 import { createMockApi } from "@shared/api/mock";
@@ -57,7 +57,7 @@ describe("the alert delivery controls", () => {
     show(api);
     const state = await screen.findByTestId("alert-webhook-url-state");
     expect(state.textContent).toContain("No webhook URL is set");
-    expect(screen.queryAllByRole("textbox")).toHaveLength(0);
+    expect(within(screen.getByTestId("alert-delivery")).queryAllByRole("textbox")).toHaveLength(0);
   });
 
   it("shows the engine's refusal next to the control that caused it", async () => {

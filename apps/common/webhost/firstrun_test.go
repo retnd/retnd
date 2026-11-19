@@ -190,7 +190,9 @@ func TestUnconfiguredInstanceRefusesEveryRouteOutsideTheSetupSurface(t *testing.
 
 	var refused, allowed int
 	err := chi.Walk(routableFor(t, configured), func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
-		if strings.HasPrefix(route, "/health/") {
+		if strings.HasPrefix(route, "/health/") || route == "/metrics" {
+			// /metrics is infrastructure too (EPIC O, #899): outside /api/v1,
+			// with its own credential, and a 404 until it is switched on.
 			return nil
 		}
 		if firstRunSafeRoutes[method+" "+route] {
@@ -256,7 +258,7 @@ func TestUnconfiguredInstanceStillRequiresAuthentication(t *testing.T) {
 	var checked int
 	registered := map[string]bool{}
 	err := chi.Walk(routableFor(t, router), func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
-		if strings.HasPrefix(route, "/health/") {
+		if strings.HasPrefix(route, "/health/") || route == "/metrics" {
 			return nil
 		}
 		checked++

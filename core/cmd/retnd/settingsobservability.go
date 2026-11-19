@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -42,10 +42,6 @@ var observabilityPatchFlagNames = []string{
 	"metrics-enabled", "metrics-min-rebuild-interval", "logs-level", "alerts-delivery",
 	"webhook-dialect", "webhook-allow-insecure-http", "webhook-refresh-interval", "webhook-resolve-ttl",
 }
-
-// errScrapeStoreMissing is what rotate-scrape-token says until the
-// credential's store lands in the same epic.
-var errScrapeStoreMissing = errors.New("this build cannot keep a scrape credential yet")
 
 // cmdSettingsObservability is every `settings observability ...` form.
 func cmdSettingsObservability(args []string) int {
@@ -147,7 +143,31 @@ func cmdSettingsObservability(args []string) int {
 			return usageError("settings observability rotate-scrape-token: --%s belongs to `patch`", named[0])
 		}
 
-		return fail(fmt.Errorf("settings observability rotate-scrape-token: %w", errScrapeStoreMissing))
+		// Through the same door as `patch`: beside a serving engine the engine
+		// mints, so the credential lands where the endpoint verifies it, and
+		// with nothing serving it is written here, to be read when one starts.
+		route, cleanup, err := openConfigWriteRoute(ctx, *cfgPath)
+		if err != nil {
+			return fail(err)
+		}
+		defer cleanup()
+		logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
+		minted, err := route.MintScrapeToken(ctx)
+		if err != nil {
+			return fail(err)
+		}
+		if *asJSON {
+			return printWorkflowJSON(apicontract.MintedScrapeToken{
+				Token:       minted.Token,
+				ScrapeToken: observabilitySettingsWire(service.ObservabilitySettings{Metrics: service.ObservabilityMetricsSettings{ScrapeToken: minted.State}}).Metrics.ScrapeToken,
+			})
+		}
+		// The one place the plaintext is ever printed. It is not stored, so a
+		// lost credential is minted again and never recovered.
+		fmt.Println(minted.Token)
+		fmt.Fprintln(os.Stderr, "scrape token minted: shown once, and only a digest is kept. Any earlier token stopped working. Put it in Prometheus's credentials_file.")
+
+		return 0
 	}
 
 	return usageError("settings observability has no %q form; it has show, patch and rotate-scrape-token", rest[0])

@@ -227,6 +227,13 @@ type BackupService struct {
 	// b.state instead, so a reload moves them without moving this.
 	workflow *workflowRuntime
 
+	// scrape is the Prometheus scrape endpoint's state (scrape.go, EPIC O
+	// O1.1): the refusal counter, the loaded credential and the cached
+	// health exposition. Like workflow above it is per-deployment and not
+	// per-configuration, so a hot reload does not rebuild it and does not
+	// drop the cache.
+	scrape scrapeRuntime
+
 	// configPath is the YAML file this BackupService was opened from
 	// (Open), or "" for a BackupService built directly with New (every
 	// core/ test, which constructs its own *config.Config in memory and

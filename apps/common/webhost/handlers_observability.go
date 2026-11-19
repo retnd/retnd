@@ -128,15 +128,6 @@ func (h *handlers) updateObservabilitySettings(w http.ResponseWriter, r *http.Re
 	}
 }
 
-// mintScrapeToken is POST /api/v1/settings/observability/scrape-token.
-//
-// Until the scrape credential's store lands it answers NOT_CONFIGURED, which
-// is true: this deployment cannot yet keep one.
-func (h *handlers) mintScrapeToken(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Cache-Control", "no-store")
-	writeError(w, http.StatusServiceUnavailable, "NOT_CONFIGURED", "this deployment cannot keep a scrape credential")
-}
-
 func toObservabilityBody(s service.ObservabilitySettings) apicontract.ObservabilitySettingsResponse {
 	var created *string
 	if !s.Metrics.ScrapeToken.CreatedAt.IsZero() {
