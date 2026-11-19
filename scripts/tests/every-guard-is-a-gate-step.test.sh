@@ -1,26 +1,29 @@
 #!/usr/bin/env bash
-# Every self-test and guard script in the tree is a step of scripts/ci-local.sh
+# Every self-test and guard script is a step of scripts/ci-local.sh
 # (#1530, #1531, #1533), or is named, with an open issue, in
 # scripts/tests/testdata/unwired-guards.txt.
 #
 # scripts/ci-local.sh is the only gate (#1260), so a self-test that is not a
 # step there runs nowhere, and its PASS rows rest on one run. Three of them sat
-# in the tree like that for a release. This looks at four shapes of guard:
+# in the tree like that for a release. scripts/tests/gate_wiring.py reads the
+# gate and says which guards it really runs: a command line (not a comment, an
+# echo, a skip note, a step title or an `if [ -f ]` test) that names the path,
+# in a gate_seg_* function that a gate_run_segment line puts in a shard of
+# scripts/release/gate-shards.txt, with a `for t in a b` loop expanded. A script
+# the release job runs itself counts too. The guards it looks for are the
+# self-tests (selftest*.sh, ui-selftest.sh), the checks (check-*.sh,
+# verify-*.sh), the e2e gate, scripts/tests/*.test.sh and the browser specs'
+# Playwright config.
 #
-#   scripts/<dir>/selftest.sh       a mutation self-test
-#   scripts/<dir>/ui-selftest.sh    the browser-side one
-#   scripts/tests/*.test.sh         a guard's own test
-#   ui/shared/e2e/playwright.config.ts   the browser specs
-#
-# and asks whether the gate names its path on a line that is not a comment. A
-# path in the exemption file is allowed, and says why: `path <TAB> why #issue`,
-# with an issue number, because "unwired for now" with no owner is how these
-# were lost. An entry for a file that is gone, or that the gate now runs, is
-# refused too, so the list can only shrink.
+# An unwired guard is allowed only in the exemption file, `path <TAB> why #issue`,
+# with an issue number, because "unwired for now" with no owner is how these were
+# lost. An entry for a file that is gone, or that the gate now runs, is refused
+# too, so the list can only shrink.
 #
 # The checker runs against throwaway trees first, so a guard that has stopped
-# guarding fails here: an unwired script is named, a wired one is not, a path
-# that only a comment mentions is still unwired, and a bad exemption is refused.
+# guarding fails here. It is a static step of the gate, about a second, and it
+# runs in a CI_LOCAL_FAST=1 run as well on purpose: it reads text only, and the
+# cheapest place to learn a guard fell out of the gate is the iteration loop.
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -31,39 +34,44 @@ fail() { checks=$((checks + 1)); failures=$((failures + 1)); echo "    FAIL $1";
 
 # problems <root>: one line per thing wrong, nothing when the tree is fine.
 problems() {
-  local root=$1 gate="$1/scripts/ci-local.sh" exempt="$1/scripts/tests/testdata/unwired-guards.txt" f path why
-  local code
-  code="$(grep -vE '^[[:space:]]*#' "$gate" 2>/dev/null || true)"
-  local guards
-  guards="$(cd "$root" && {
-    ls scripts/*/selftest.sh scripts/*/ui-selftest.sh scripts/tests/*.test.sh ui/shared/e2e/playwright.config.ts 2>/dev/null
-  } | sort -u)"
-  for f in $guards; do
-    if printf '%s\n' "$code" | grep -qF -- "$f"; then continue; fi
-    if [ -f "$exempt" ] && grep -qE "^$(printf '%s' "$f" | sed 's/[.[\*^$/]/\\&/g')"$'\t' "$exempt"; then continue; fi
-    echo "$f is in the tree and is no step of scripts/ci-local.sh (wire it, or name it in scripts/tests/testdata/unwired-guards.txt with an issue)"
+  local root=$1 exempt="$1/scripts/tests/testdata/unwired-guards.txt" wired f path why
+  wired="$(python3 "$repo_root/scripts/tests/gate_wiring.py" "$root" | cut -f1)"
+  for f in $(python3 "$repo_root/scripts/tests/gate_wiring.py" "$root" --guards); do
+    if grep -qxF -- "$f" <<<"$wired"; then continue; fi
+    if [ -f "$exempt" ] && grep -qF -- "$f"$'\t' "$exempt"; then continue; fi
+    echo "$f is in the tree and is no executed step of scripts/ci-local.sh in a shard of the manifest (wire it, or name it in scripts/tests/testdata/unwired-guards.txt with an issue)"
   done
   [ -f "$exempt" ] || return 0
   while IFS=$'\t' read -r path why; do
     case "$path" in '' | '#'*) continue ;; esac
-    if ! printf '%s' "$why" | grep -qE '#[0-9]+'; then
+    if ! grep -qE '#[0-9]+' <<<"$why"; then
       echo "unwired-guards.txt: $path has no issue number in its reason"
     fi
     if [ ! -e "$root/$path" ]; then
       echo "unwired-guards.txt: $path is not in the tree any more, so its entry is stale"
-    elif printf '%s\n' "$code" | grep -qF -- "$path"; then
+    elif grep -qxF -- "$path" <<<"$wired"; then
       echo "unwired-guards.txt: $path is a gate step now, so its entry is stale"
     fi
   done <"$exempt"
 }
 
-# A throwaway tree: one self-test, one guard test, and a gate that names what it is given.
-mk() { # mk <dir> <gate text> [exemption text]
-  mkdir -p "$1/scripts/foo" "$1/scripts/tests/testdata"
+# A throwaway tree: one self-test and one guard test, a manifest with the shard
+# "static", and a gate whose body is given. $2 is the text of gate_seg_x's body.
+mk() { # mk <dir> <body of gate_seg_x> [exemption text] [run line]
+  mkdir -p "$1/scripts/foo" "$1/scripts/tests/testdata" "$1/scripts/release"
   : >"$1/scripts/foo/selftest.sh"
   : >"$1/scripts/tests/bar.test.sh"
-  printf '%s\n' "$2" >"$1/scripts/ci-local.sh"
+  printf 'static\n' >"$1/scripts/release/gate-shards.txt"
+  printf 'gate_seg_x() {\n%s\n}\n%s\n' "$2" "${4:-gate_run_segment \"static\" gate_seg_x}" >"$1/scripts/ci-local.sh"
   if [ -n "${3:-}" ]; then printf '%b\n' "$3" >"$1/scripts/tests/testdata/unwired-guards.txt"; fi
+}
+both='  bash scripts/foo/selftest.sh
+  bash scripts/tests/bar.test.sh'
+unwired_msg='scripts/foo/selftest.sh is in the tree'
+expect_unwired() { # expect_unwired <desc> <dir>
+  local out
+  out="$(problems "$2")"
+  if grep -q "$unwired_msg" <<<"$out"; then pass "$1"; else fail "$1"; fi
 }
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/every-guard.XXXXXX")"
@@ -71,37 +79,69 @@ case "$work" in /*/every-guard.*) ;; *) echo "refusing odd sandbox $work" >&2; e
 trap 'rm -rf "$work"' EXIT
 
 echo "==> the checker can fail (planted trees)"
-mk "$work/a" 'bash scripts/foo/selftest.sh
-bash scripts/tests/bar.test.sh'
+mk "$work/a" "$both"
 if [ -z "$(problems "$work/a")" ]; then pass "control: a gate that runs both is clean"; else fail "control: a gate that runs both is clean" "$(problems "$work/a")"; fi
 
-mk "$work/b" 'bash scripts/tests/bar.test.sh'
-if problems "$work/b" | grep -q 'scripts/foo/selftest.sh is in the tree'; then pass "a self-test the gate never runs is named"; else fail "a self-test the gate never runs is named"; fi
+mk "$work/b" '  bash scripts/tests/bar.test.sh'
+expect_unwired "a self-test the gate never runs is named" "$work/b"
 
-mk "$work/c" '# bash scripts/foo/selftest.sh would go here
-bash scripts/tests/bar.test.sh'
-if problems "$work/c" | grep -q 'scripts/foo/selftest.sh is in the tree'; then pass "a path that only a comment names is still unwired"; else fail "a path that only a comment names is still unwired"; fi
+mk "$work/c" '  # bash scripts/foo/selftest.sh would go here
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a path that only a comment names is unwired" "$work/c"
 
-mk "$work/d" 'bash scripts/tests/bar.test.sh' 'scripts/foo/selftest.sh\tneeds a browser, #1532'
+mk "$work/c2" '  echo "next: bash scripts/foo/selftest.sh"
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a path inside an echo is unwired" "$work/c2"
+
+mk "$work/c3" '  gate_note_skip "scripts/foo/selftest.sh (CI_LOCAL_SKIP=1)"
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a path inside a skip note is unwired" "$work/c3"
+
+mk "$work/c4" '  if [ -f scripts/foo/selftest.sh ]; then
+    echo "present"
+  fi
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a path that only an if [ -f ] tests is unwired" "$work/c4"
+
+mk "$work/c5" "$both" "" 'gate_run_segment "other" gate_seg_x'
+expect_unwired "a step in a shard the manifest does not list is unwired" "$work/c5"
+
+mk "$work/c6" "$both" "" '# nobody runs it'
+expect_unwired "a step in a segment nothing runs is unwired" "$work/c6"
+
+mk "$work/c7" '  bash scripts/tests/bar.test.sh
+  for t in selftest other; do
+    bash scripts/foo/$t.sh
+  done'
+if [ -z "$(problems "$work/c7")" ]; then pass "a for loop is expanded, so a wired script in one is seen"; else fail "a for loop is expanded, so a wired script in one is seen" "$(problems "$work/c7")"; fi
+
+mk "$work/c8" '  bash scripts/tests/bar.test.sh'
+mkdir -p "$work/c8/.github/workflows"
+printf 'jobs:\n  x:\n    steps:\n      - run: bash scripts/foo/selftest.sh\n' >"$work/c8/.github/workflows/release.yml"
+printf '      run: bash scripts/foo/selftest.sh\n' >"$work/c8/.github/workflows/release.yml"
+if [ -z "$(problems "$work/c8")" ]; then pass "a script the release job runs counts as wired"; else fail "a script the release job runs counts as wired" "$(problems "$work/c8")"; fi
+
+mk "$work/d" '  bash scripts/tests/bar.test.sh' 'scripts/foo/selftest.sh\tneeds a browser, #1532'
 if [ -z "$(problems "$work/d")" ]; then pass "an exemption with an issue lets it by"; else fail "an exemption with an issue lets it by" "$(problems "$work/d")"; fi
 
-mk "$work/e" 'bash scripts/tests/bar.test.sh' 'scripts/foo/selftest.sh\tneeds a browser'
-if problems "$work/e" | grep -q 'no issue number'; then pass "an exemption with no issue number is refused"; else fail "an exemption with no issue number is refused"; fi
+mk "$work/e" '  bash scripts/tests/bar.test.sh' 'scripts/foo/selftest.sh\tneeds a browser'
+out="$(problems "$work/e")"
+if grep -q 'no issue number' <<<"$out"; then pass "an exemption with no issue number is refused"; else fail "an exemption with no issue number is refused"; fi
 
-mk "$work/f" 'bash scripts/foo/selftest.sh
-bash scripts/tests/bar.test.sh' 'scripts/foo/selftest.sh\tneeds a browser, #1532'
-if problems "$work/f" | grep -q 'is a gate step now'; then pass "an exemption for a script the gate now runs is stale"; else fail "an exemption for a script the gate now runs is stale"; fi
+mk "$work/f" "$both" 'scripts/foo/selftest.sh\tneeds a browser, #1532'
+out="$(problems "$work/f")"
+if grep -q 'is a gate step now' <<<"$out"; then pass "an exemption for a script the gate now runs is stale"; else fail "an exemption for a script the gate now runs is stale"; fi
 
-mk "$work/g" 'bash scripts/foo/selftest.sh
-bash scripts/tests/bar.test.sh' 'scripts/gone/selftest.sh\twas a browser one, #1532'
-if problems "$work/g" | grep -q 'not in the tree any more'; then pass "an exemption for a script that is gone is stale"; else fail "an exemption for a script that is gone is stale"; fi
+mk "$work/g" "$both" 'scripts/gone/selftest.sh\twas a browser one, #1532'
+out="$(problems "$work/g")"
+if grep -q 'not in the tree any more' <<<"$out"; then pass "an exemption for a script that is gone is stale"; else fail "an exemption for a script that is gone is stale"; fi
 
 echo "==> the real tree"
 real="$(problems "$repo_root")"
 if [ -z "$real" ]; then
-  pass "every self-test and guard script is a gate step or an exemption with an issue"
+  pass "every self-test and guard script is an executed gate step or an exemption with an issue"
 else
-  fail "every self-test and guard script is a gate step or an exemption with an issue" "$real"
+  fail "every self-test and guard script is an executed gate step or an exemption with an issue" "$real"
 fi
 
 echo "every-guard-is-a-gate-step: $((checks - failures))/$checks passed"
