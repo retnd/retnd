@@ -97,6 +97,7 @@ import { clock } from "@shared/utilities/format";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
 import { copyText } from "@shared/utilities/copyText";
+import { DOCK_FOCUS_EVENT } from "@shared/state/dockFocus";
 
 const STORAGE = {
   open: "retnd.dock.open",
@@ -565,6 +566,26 @@ export function ActivityDock() {
     [feed.state.generations]
   );
 
+  const setsRef = useRef<string[]>([]);
+  // #1505: a set's "Show in Terminal" opens this panel on that set's chip,
+  // and drops a level filter, which would otherwise hide the very lines the
+  // operator came for.
+  useEffect(() => {
+    const onFocus = (e: Event) => {
+      const setId = (e as CustomEvent<{ setId: string }>).detail?.setId;
+      if (!setId) return;
+      // A set the latest reading does not name has no chip, and a filter
+      // with no chip is a terminal showing nothing and no way to see why.
+      const known = setsRef.current.includes(setId);
+      setOpen(true);
+      setFilter(known ? (setId as DockFilter) : "all");
+      setLevel(null);
+      setAnnouncement(known ? "Terminal opened, showing " + setId : "Terminal opened");
+    };
+    window.addEventListener(DOCK_FOCUS_EVENT, onFocus);
+    return () => window.removeEventListener(DOCK_FOCUS_EVENT, onFocus);
+  }, []);
+
   useEffect(() => writeStored(STORAGE.open, open ? "1" : "0"), [open]);
   useEffect(() => writeStored(STORAGE.height, String(height)), [height]);
   useEffect(() => writeStored(STORAGE.filter, filter), [filter]);
@@ -591,6 +612,9 @@ export function ActivityDock() {
   // their own: a set is configured or it is not, and the reading says so
   // on every poll.
   const sets = readingNow?.setIds ?? NO_SETS;
+  useEffect(() => {
+    setsRef.current = sets;
+  }, [sets]);
   const all = useMemo(
     () => withoutContradictedGaps(foldBrowserNotices(dockEntries(history, held), notices)),
     [history, held, notices]
