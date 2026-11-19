@@ -86,7 +86,14 @@ export function mergeActivity(
     // that had since refilled from the service's whole buffer, and a gap
     // warning that fires when there is no gap teaches an operator to
     // ignore the real one.
-    dropped: next.dropped || trimmed || (!reachesTheServicesOldest && (previous?.dropped ?? false)),
+    //
+    // A window that is FULL never clears it (#1503). On a busy set the page
+    // trims on every burst, and the poll between two bursts can reach the
+    // service's oldest line again by coincidence: clearing then put the
+    // notice back one burst later, so it flashed under the progress for as
+    // long as the set was busy. A full window has no room to hold "the whole
+    // buffer", so reaching the service's oldest line says nothing about a gap.
+    dropped: next.dropped || trimmed || ((!reachesTheServicesOldest || events.length >= buffer) && (previous?.dropped ?? false)),
     // The surface's own window can start later than the service's buffer
     // does. Reporting the service's bound while showing fewer lines would
     // claim continuity the surface does not have.
