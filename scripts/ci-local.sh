@@ -755,6 +755,12 @@ bash scripts/tests/epic-t-closure.test.sh
 gate_step "the closure checks and their self-tests never pipe into grep -q under pipefail (#1482)"
 bash scripts/tests/closure-no-pipe-grep-q.test.sh
 
+# A self-test or guard script that is in the tree and in no step here runs
+# nowhere, and its PASS rows rest on one run (#1530, #1531, #1533). This names
+# the ones the gate does not run, and takes an exemption only with an issue.
+gate_step "every self-test and guard script is a step of this gate, or an exemption that names its open issue (#1530, #1531, #1533)"
+bash scripts/tests/every-guard-is-a-gate-step.test.sh
+
 # EPIC U's closing check (#1353), the same shape for the MCP server: the
 # canonical deployment is an empty diff against 9cd53e1f (an agent is a client of
 # /api/v1 and the engine runs exactly as before), the epic adds exactly one
@@ -1341,6 +1347,21 @@ if [ "$FAST" != "1" ]; then
 
   gate_step "architecture rules can actually fail (mutation self-test)"
   bash scripts/architecture/selftest.sh
+
+  # The three self-tests of the gate's own machinery that sat in the tree and
+  # in no step (#1533). Each runs against stand-ins for docker, ssh and rsync
+  # and a throwaway repository, so there is no daemon and no network: the
+  # shard runner (about a second), the --shard i/n split of the
+  # recovery and assurance self-tests (a few seconds), and the release e2e hooks
+  # and script (under half a minute, it makes a throwaway signing key).
+  gate_step "the shard runner refuses what it should and speaks the recorder's verdicts (#1460, #1533)"
+  bash scripts/tests/run-gate-shard.test.sh
+
+  gate_step "the --shard i/n split of the self-tests runs every control in exactly one slice (#1461, #1533)"
+  bash scripts/tests/selftest-shard.test.sh
+
+  gate_step "the release e2e hooks, the stamp guard and the release script behave as documented (#1375, #1533)"
+  bash scripts/tests/release-e2e.test.sh
 fi
 }
 
@@ -1465,6 +1486,33 @@ if [ "$FAST" != "1" ]; then
 fi
 }
 
+gate_seg_selftest_encryption() {
+if [ "$FAST" != "1" ]; then
+  # EPIC N and EPIC T (#1531): the retained-copy encryption and suite guards
+  # (the key never on a surface, no downgrade of a suite, a copy that opens
+  # with the documented command, the copy and verify path, the UI chips) are
+  # planted as real violations in real product files, and each has to turn
+  # the narrowed suite red naming the test the matrix row cites. The matrix
+  # rows' PASS dates are from the 0.8.0 run; this is what makes them a
+  # standing claim. Only the anchors half ran before, from check_anchors.py.
+  # No Docker, and the longest of the self-tests, so it is a shard of its own.
+  gate_step "the encryption and suite guards can actually fail (mutation self-test, #1531)"
+  bash scripts/encryption/selftest.sh
+fi
+}
+
+gate_seg_selftest_agents() {
+if [ "$FAST" != "1" ]; then
+  # EPIC U (#1530): the catalogue, the denied routes and the projection, the
+  # transports, the audit trail, the confirmations and the Agents card, each
+  # planted as a real violation in a real product file, and the narrowed suite
+  # has to go red naming the test. core/tests/agentgate refuses a PASS row
+  # whose control label is not in the file, and this is what runs them.
+  gate_step "the agent (MCP) guards can actually fail (mutation self-test, #1530)"
+  bash scripts/agents/selftest.sh
+fi
+}
+
 gate_seg_structure() {
 if [ "$FAST" != "1" ]; then
   gate_step "repository-structure dependency rules (§7.1), by actual deletion"
@@ -1520,6 +1568,8 @@ gate_run_segment "selftest-conformance" gate_seg_selftest_conformance
 gate_run_segment "selftest-assurance" gate_seg_selftest_retention
 gate_run_segment "selftest-recovery" gate_seg_selftest_recovery
 gate_run_segment "selftest-assurance" gate_seg_selftest_assurance
+gate_run_segment "selftest-encryption" gate_seg_selftest_encryption
+gate_run_segment "selftest-agents" gate_seg_selftest_agents
 gate_run_segment "structure" gate_seg_structure
 gate_run_segment "static" gate_seg_static_e
 gate_run_shard_only gh-rows gate_seg_gh_rows

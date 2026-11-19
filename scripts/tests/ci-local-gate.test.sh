@@ -401,6 +401,13 @@ make_full_tree() {
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$t.test.sh"
   done
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/closure-no-pipe-grep-q.test.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/every-guard-is-a-gate-step.test.sh"
+  # The self-tests of the gate's own machinery (#1533): the shard runner, the
+  # --shard i/n split of the self-tests, and the release e2e hooks. Each makes
+  # its own throwaway repositories and stand-in commands.
+  for t in run-gate-shard selftest-shard release-e2e; do
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$t.test.sh"
+  done
   mkdir -p "$tree/scripts/release"
   # ci-docker.sh --host test (#1267): stand-ins and a fixture checkout, none of which a synthetic tree has.
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/ci-docker-remote.test.sh"
@@ -441,6 +448,14 @@ make_full_tree() {
   # each copy.
   mkdir -p "$tree/scripts/assurance"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/assurance/selftest.sh"
+
+  # The encryption (EPIC N and T, #1531) and agent (EPIC U, #1530) mutation
+  # self-tests, stubbed for the reason above: each copies the tree for every
+  # planted violation and builds core/ in the copy, and the encryption one
+  # has over a hundred of them.
+  mkdir -p "$tree/scripts/encryption" "$tree/scripts/agents"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/encryption/selftest.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/agents/selftest.sh"
 
   # The race detector's own mutation self-test (#417), stubbed for the
   # seventh time for the seventh identical reason: the real one copies the
@@ -2645,6 +2660,8 @@ selftest-compat
 selftest-conformance
 selftest-recovery
 selftest-assurance
+selftest-encryption
+selftest-agents
 structure
 gh-rows"
 assert_eq "W1 the manifest names the shards of the plan, in order" "$want_names" "$manifest_names"

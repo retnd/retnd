@@ -196,8 +196,8 @@ CONTROLS = [
     Control(
         "AGENTS the second-migration guard left out of the closing check",
         ("U2.5",),
-        [(CLOSED_SH, 'if printf \'%s\\n\' "$added" | grep -qxF "$want" && [ -z "$unexpected" ] && [ -z "$touched" ]; then',
-          'if printf \'%s\\n\' "$added" | grep -qxF "$want"; then # ' + PLANT.split("// ", 1)[1] + "extra migrations pass.")],
+        [(CLOSED_SH, 'if grep -qxF "$want" <<<"$added" && [ -z "$unexpected" ] && [ -z "$touched" ]; then',
+          'if grep -qxF "$want" <<<"$added"; then # ' + PLANT.split("// ", 1)[1] + "extra migrations pass.")],
         "",
         cmd=["bash", "scripts/tests/epic-u-closure.test.sh"],
         needles=["FAIL migrations: a second new migration is refused, and named"],
