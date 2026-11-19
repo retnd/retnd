@@ -342,6 +342,49 @@ fx "$fix" CI_LOCAL_RED="#1361: red tests for the tier" -- sh "$SANDBOX/foreign/p
 assert_nonzero "B7 a hook file from outside this checkout is refused" "$status"
 assert_contains "B7 and the refusal names the fix" 'bash scripts/install-hooks.sh' "$out"
 
+# B8: a pathspec commit (git commit -- <paths>, what the shared commit helper
+# does) of a file that was never `git add`ed. Git builds a temporary index
+# for it and points GIT_INDEX_FILE there; the real index has none of it, so
+# a tier that reads the real index scoped to 0 paths and checked nothing
+# (#1554). It has to scope to the one path and run its checks, and the
+# commit's index must not leak into what the checks run.
+fix="$(make_repo)"
+cat >"$fix/bin/go" <<'STUB'
+#!/usr/bin/env bash
+echo "${PWD#"$FIX_ROOT"/}: go $* tier=${CI_LOCAL_TIER:-}" >>"$FIX_LOG"
+echo "go $1 index=${GIT_INDEX_FILE:-unset}" >>"$FIX_LOG"
+exit 0
+STUB
+chmod +x "$fix/bin/go"
+(cd "$fix" && printf 'package a\n\nvar X = 1\n' >core/internal/a/a.go)
+fx "$fix" -- git commit -qm "pathspec" -- core/internal/a/a.go
+c="$(calls "$fix")"
+assert_eq "B8 a pathspec commit of an unstaged file commits" 0 "$status"
+assert_contains "B8 the tier scoped to the one path" 'scoped to 1 changed path(s)' "$out"
+assert_contains "B8 vet ran on its package" 'core: go vet ./internal/a' "$c"
+assert_contains "B8 test ran on its package" 'core: go test' "$c"
+assert_not_contains "B8 the neighbouring package was not touched" './internal/b' "$c"
+assert_contains "B8 the checks never see the commit's index" 'go vet index=unset' "$c"
+assert_eq "B8 the commit was made" 2 "$(commit_count "$fix")"
+assert_contains "B8 and stamped fast" 'Local-Gate: fast' "$(last_message "$fix")"
+
+# B9: whatever the tier did, a commit that changes files may not go through
+# on a run that scoped to 0 paths: that run checked nothing (#1554). A fast
+# tier that loses the commit's index is stood in for by a stub that always
+# says 0. An empty commit scoping to 0 is fine, and is the control.
+fix="$(make_repo)"
+printf '#!/usr/bin/env bash\necho "==> ci-fast: the fast tier, scoped to 0 changed path(s) (staged). The full gate is scripts/ci-local.sh."\necho "==> ci-local: ok"\nexit 0\n' >"$fix/scripts/ci-fast.sh"
+(cd "$fix" && git add scripts/ci-fast.sh && git -c core.hooksPath=/dev/null commit -qm "blind tier" && printf 'more\n' >>docs/x.md && git add docs/x.md)
+fx "$fix" -- git commit -qm "nothing checked"
+assert_nonzero "B9 a non-empty commit on a 0-path run is refused" "$status"
+assert_contains "B9 and says why" 'scoped to 0 changed paths' "$out"
+assert_contains "B9 and names the issue" '#1554' "$out"
+assert_eq "B9 no commit was made" 2 "$(commit_count "$fix")"
+(cd "$fix" && git reset -q docs/x.md && git checkout -q docs/x.md)
+fx "$fix" -- git commit -q --allow-empty -m "empty"
+assert_eq "B9 an empty commit on a 0-path run still commits" 0 "$status"
+assert_eq "B9 and was made" 3 "$(commit_count "$fix")"
+
 # --------------------------------------- Group C: the pre-merge check
 
 echo "==> C. scripts/merge-gate.sh"
