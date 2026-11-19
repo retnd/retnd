@@ -278,6 +278,10 @@ var contractBindings = map[string]contractBinding{
 	"listAgentTokens":  {nil, apicontract.ListAgentTokensResponse{}, "/api/v1/agent/tokens"},
 	"mintAgentToken":   {apicontract.MintAgentTokenRequest{}, apicontract.MintedAgentToken{}, "/api/v1/agent/tokens"},
 	"revokeAgentToken": {nil, apicontract.AgentToken{}, "/api/v1/agent/tokens/agt_1/revoke"},
+	// EPIC O (#898): the observability block and the scrape credential's mint.
+	"getObservabilitySettings":    {nil, apicontract.ObservabilitySettingsResponse{}, "/api/v1/settings/observability"},
+	"updateObservabilitySettings": {apicontract.UpdateObservabilitySettingsRequest{}, apicontract.ObservabilitySettingsResponse{}, "/api/v1/settings/observability"},
+	"mintScrapeToken":             {nil, apicontract.MintedScrapeToken{}, "/api/v1/settings/observability/scrape-token"},
 	// EPIC U (#1348): the audit trail.
 	"listAgentAudit": {nil, apicontract.ListAgentAuditResponse{}, "/api/v1/agent/audit"},
 	"listAgentTools": {nil, apicontract.AgentToolsResponse{}, "/api/v1/agent/tools"},

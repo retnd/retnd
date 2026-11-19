@@ -47,6 +47,7 @@ import type {
   WorkflowRecoveryHold,
   WorkflowRun,
   AssuranceSettings,
+  ObservabilitySettings,
   BackupSetAssurance,
   WorkflowSettings,
   WorkflowStepLogPage,
@@ -3279,6 +3280,19 @@ function defaultSetWorkflowEnvironment(): WorkflowEnvVariable[] {
   ];
 }
 
+/** The observability block as a deployment that never wrote it reads: the
+ *  defaults, which are everything off. */
+function defaultObservabilitySettings(): ObservabilitySettings {
+  return {
+    metrics: { enabled: false, minRebuildIntervalSeconds: 15, scrapeToken: { exists: false, prefix: "", createdAt: null } },
+    logs: { level: "info", levelInForce: "info", levelSource: "config" },
+    alerts: {
+      delivery: "platform",
+      webhook: { dialect: "generic", urlSet: false, allowInsecureHttp: false, refreshIntervalSeconds: 240, resolveTtlSeconds: 600 }
+    }
+  };
+}
+
 function defaultAssuranceSettings(): AssuranceSettings {
   return {
     configured: false,
@@ -4437,6 +4451,7 @@ export function createMockApi(
     workflowSettings.afterDir = "";
   }
   const assuranceSettings = defaultAssuranceSettings();
+  const observabilitySettings = defaultObservabilitySettings();
   if (scenario === "backups-many-ceiling-2") assuranceSettings.maxDownloadStreams = 2;
   const mockRecovery = createMockRecovery(scenario);
 
@@ -6111,6 +6126,28 @@ export function createMockApi(
     },
 
     ...validatorsApi,
+    getObservabilitySettings: () => delay(structuredClone(observabilitySettings)),
+    patchObservabilitySettings: (patch) => {
+      const o = observabilitySettings;
+      if (patch.metricsEnabled !== undefined) o.metrics.enabled = patch.metricsEnabled;
+      if (patch.metricsMinRebuildIntervalSeconds !== undefined) o.metrics.minRebuildIntervalSeconds = patch.metricsMinRebuildIntervalSeconds;
+      if (patch.logsLevel !== undefined) {
+        o.logs.level = patch.logsLevel;
+        o.logs.levelInForce = patch.logsLevel;
+      }
+      if (patch.alertsDelivery !== undefined) o.alerts.delivery = patch.alertsDelivery;
+      if (patch.webhookDialect !== undefined) o.alerts.webhook.dialect = patch.webhookDialect;
+      if (patch.webhookAllowInsecureHttp !== undefined) o.alerts.webhook.allowInsecureHttp = patch.webhookAllowInsecureHttp;
+      if (patch.webhookRefreshIntervalSeconds !== undefined) o.alerts.webhook.refreshIntervalSeconds = patch.webhookRefreshIntervalSeconds;
+      if (patch.webhookResolveTtlSeconds !== undefined) o.alerts.webhook.resolveTtlSeconds = patch.webhookResolveTtlSeconds;
+      return delay(structuredClone(o));
+    },
+    mintScrapeToken: () => {
+      const created = new Date().toISOString();
+      const token = "rsc_" + Math.random().toString(36).slice(2).padEnd(43, "0");
+      observabilitySettings.metrics.scrapeToken = { exists: true, prefix: token.slice(0, 8), createdAt: created };
+      return delay({ token, scrapeToken: structuredClone(observabilitySettings.metrics.scrapeToken) });
+    },
     getAssuranceSettings: () => delay(structuredClone(assuranceSettings)),
     listStagingDirectories: (path) => mockHostBrowse(path ?? ""),
     patchAssuranceSettings: (patch) => {

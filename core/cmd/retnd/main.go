@@ -1162,6 +1162,20 @@ commands:
                                                   the scrub schedule, most overdue first: each copy's last-assured time, when
                                                   it is next due under its set's resolved cadence, and whether that has
                                                   passed. A copy nobody has looked at is overdue, never fine
+  settings observability [--json]                report the resolved deployment-wide observability block: whether GET
+                                                  /metrics answers and whether a scrape credential has been minted, the
+                                                  log floor and where the one in force came from, and the alert channel.
+                                                  Never a secret. A config that sets none reports the defaults, which are
+                                                  everything off
+  settings observability patch [--metrics-enabled[=false]] [--metrics-min-rebuild-interval D]
+                        [--logs-level L] [--alerts-delivery platform|webhook]
+                        [--webhook-dialect generic|alertmanager] [--webhook-allow-insecure-http[=false]]
+                        [--webhook-refresh-interval D] [--webhook-resolve-ttl D] [--json]
+                                                  change the block in place. Beside a serving engine this command has a
+                                                  route to, that is PATCH /api/v1/settings/observability against the
+                                                  engine; with nothing serving, the file is written here
+  settings observability rotate-scrape-token     mint the Prometheus scrape credential and print it once. Minting again
+                                                  replaces the previous one at once; only a digest is kept
   backup-set assurance <source/backup-set> [--json]
                                                   one backup set's resolved assurance policy and whether it is the set's own
   backup-set assurance <source/backup-set> [--scrub-cadence D] [--scrub-strategy S]
