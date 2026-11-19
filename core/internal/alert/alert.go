@@ -528,6 +528,12 @@ type Dispatcher struct {
 	// observes the condition, and removed by the first pass that both
 	// fails to observe it and was able to tell.
 	firing map[string]*firingCondition
+
+	// destination is the last state of the sink's destination this
+	// dispatcher reported (refresh.go's noteDestination), so a state is
+	// said once when it changes and not on every pass. Empty until the
+	// first report, and always empty for a sink with no such notion.
+	destination string
 }
 
 // firingCondition is everything Dispatcher remembers about one currently
@@ -734,7 +740,9 @@ func (d *Dispatcher) deliver(ctx context.Context, a Alert) error {
 	ctx, cancel := context.WithTimeout(ctx, deliveryTimeout)
 	defer cancel()
 
-	if err := d.sink.Deliver(ctx, a); err != nil {
+	err := d.sink.Deliver(ctx, a)
+	d.noteDestination(ctx, err)
+	if err != nil {
 		d.logger.Error(ctx, "alert-delivery",
 			fmt.Errorf("delivering the %s alert for %s: %w", a.Kind, a.Scope, err))
 		return err

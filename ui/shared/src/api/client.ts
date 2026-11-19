@@ -3128,7 +3128,7 @@ function fromWireAssuranceSettings(s: WireAssuranceSettingsResponse): AssuranceS
   };
 }
 
-function fromWireObservabilitySettings(s: WireObservabilitySettingsResponse): ObservabilitySettings {
+export function fromWireObservabilitySettings(s: WireObservabilitySettingsResponse): ObservabilitySettings {
   return {
     metrics: {
       enabled: s.metrics?.enabled === true,
@@ -3149,6 +3149,7 @@ function fromWireObservabilitySettings(s: WireObservabilitySettingsResponse): Ob
       webhook: {
         dialect: s.alerts?.webhook?.dialect ?? "generic",
         urlSet: s.alerts?.webhook?.url_set === true,
+        ...(s.alerts?.webhook?.url_status ? { urlStatus: s.alerts.webhook.url_status } : {}),
         allowInsecureHttp: s.alerts?.webhook?.allow_insecure_http === true,
         refreshIntervalSeconds: s.alerts?.webhook?.refresh_interval_seconds ?? 0,
         resolveTtlSeconds: s.alerts?.webhook?.resolve_ttl_seconds ?? 0

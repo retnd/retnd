@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "656294a516e51c2adb15c002253d803fc31e2ecffbac49063e42f310b5c18a1b";
+export const CONTRACT_SHA256 = "57fb766d08bf925b382c68f948876ca5bd9ff23e6a16e08fca35036579fce0ca";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -5158,6 +5158,7 @@ export interface WireObservabilityWebhookSettings {
   refresh_interval_seconds: number;
   resolve_ttl_seconds: number;
   url_set: boolean;
+  url_status?: "ok" | "unresolvable" | "invalid" | "unknown";
 }
 
 /** One durable operation record. Timestamp fields are omitted, not

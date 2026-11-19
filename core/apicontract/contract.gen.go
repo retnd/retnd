@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "656294a516e51c2adb15c002253d803fc31e2ecffbac49063e42f310b5c18a1b"
+const ContractSHA256 = "57fb766d08bf925b382c68f948876ca5bd9ff23e6a16e08fca35036579fce0ca"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -3932,6 +3932,7 @@ type ObservabilityWebhookSettings struct {
 	RefreshIntervalSeconds int64  `json:"refresh_interval_seconds"`
 	ResolveTtlSeconds      int64  `json:"resolve_ttl_seconds"`
 	URLSet                 bool   `json:"url_set"`
+	URLStatus              string `json:"url_status,omitempty"`
 }
 
 // Operation is one durable operation record. Timestamp fields are omitted, not

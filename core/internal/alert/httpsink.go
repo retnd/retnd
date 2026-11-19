@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sync/atomic"
 	"time"
 
 	"github.com/retnd/retnd/core/internal/config"
@@ -44,52 +45,109 @@ const maxWebhookResponse = 64 << 10
 // Private, loopback and link-local targets are allowed on purpose (see
 // config.CheckWebhookURL).
 //
-// The URL is a secret. It is held as obs.Secret, revealed only to build the
-// request, and no error or log line this type produces contains it: a
+// The URL is a secret. It is read from its source for each request, revealed
+// only to build that request, and no error or log line this type produces contains it: a
 // failure reports the host and the status code, nothing else.
 type HTTPSink struct {
-	url     obs.Secret
-	host    string
-	dialect string
-	ttl     time.Duration
-	refresh time.Duration
-	client  *http.Client
+	// source reads the URL. It is called at every delivery attempt and
+	// never cached, so a rotated secret is used by the next alert and a
+	// reference that stops reading is noticed at once.
+	source            func(context.Context) (obs.Secret, error)
+	allowInsecureHTTP bool
+	dialect           string
+	ttl               time.Duration
+	refresh           time.Duration
+	client            *http.Client
+	// status is what the last read of the URL found. A pointer, so the
+	// struct stays copyable and Format can keep its value receiver (which
+	// is what stops fmt walking a dereferenced sink).
+	status *atomic.Int32
 }
+
+// What the last attempt to read the URL found. Unknown is "not tried yet".
+const (
+	URLStatusUnknown      = "unknown"
+	URLStatusOK           = "ok"
+	URLStatusUnresolvable = "unresolvable"
+	URLStatusInvalid      = "invalid"
+)
 
 var (
 	_ Sink           = (*HTTPSink)(nil)
 	_ RefreshingSink = (*HTTPSink)(nil)
 )
 
-// NewHTTPSink validates the target and builds the sink. resolveTTL is
-// the Alertmanager dialect's endsAt offset and refreshInterval how often a
-// still-observed condition is re-sent; both are ignored (and refresh is
-// off) in the generic dialect.
-func NewHTTPSink(target obs.Secret, dialect string, resolveTTL, refreshInterval time.Duration, allowInsecureHTTP bool) (*HTTPSink, error) {
+// NewHTTPSink builds the sink. source reads the URL (a secret) and is called
+// at every delivery, so the sink holds no URL of its own: nothing to leak,
+// nothing to go stale. resolveTTL is the Alertmanager dialect's endsAt offset
+// and refreshInterval how often a still-observed condition is re-sent; both
+// are ignored (and refresh is off) in the generic dialect.
+func NewHTTPSink(source func(context.Context) (obs.Secret, error), dialect string, resolveTTL, refreshInterval time.Duration, allowInsecureHTTP bool) (*HTTPSink, error) {
 	if dialect != DialectGeneric && dialect != DialectAlertmanager {
 		return nil, fmt.Errorf("unknown webhook dialect %q", dialect)
 	}
-	raw := target.Reveal()
-	if err := config.CheckWebhookURL(raw, allowInsecureHTTP); err != nil {
-		return nil, err
-	}
-	u, _ := url.Parse(raw)
 	if dialect == DialectAlertmanager && (refreshInterval <= 0 || refreshInterval >= resolveTTL) {
 		return nil, errors.New("the webhook refresh interval must be positive and shorter than resolve_ttl")
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	return &HTTPSink{
-		url:     target,
-		host:    u.Host,
-		dialect: dialect,
-		ttl:     resolveTTL,
-		refresh: refreshInterval,
+		source:            source,
+		allowInsecureHTTP: allowInsecureHTTP,
+		dialect:           dialect,
+		ttl:               resolveTTL,
+		refresh:           refreshInterval,
+		status:            new(atomic.Int32),
 		client: &http.Client{
 			Transport:     transport,
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 	}, nil
+}
+
+// resolve reads the URL now and judges it. The returned secret is for the
+// one request and is not kept; the host is the only part that may appear in
+// an error. Either failure leaves the sink's status saying so.
+func (w *HTTPSink) resolve(ctx context.Context) (target obs.Secret, host string, err error) {
+	target, err = w.source(ctx)
+	if err != nil {
+		w.status.Store(statusUnresolvable)
+		return obs.Secret{}, "", fmt.Errorf("the webhook URL is unresolvable (observability.alerts.webhook.url_ref): %w", err)
+	}
+	raw := target.Reveal()
+	if err := config.CheckWebhookURL(raw, w.allowInsecureHTTP); err != nil {
+		w.status.Store(statusInvalid)
+		return obs.Secret{}, "", fmt.Errorf("the webhook URL is invalid: %w", err)
+	}
+	u, _ := url.Parse(raw)
+	w.status.Store(statusOK)
+	return target, u.Host, nil
+}
+
+const (
+	statusOK int32 = iota + 1
+	statusUnresolvable
+	statusInvalid
+)
+
+// Probe reads and judges the URL without sending anything, so the status is
+// true between alerts too.
+func (w *HTTPSink) Probe(ctx context.Context) error {
+	_, _, err := w.resolve(ctx)
+	return err
+}
+
+// URLStatus says what the last read of the URL found.
+func (w *HTTPSink) URLStatus() string {
+	switch w.status.Load() {
+	case statusOK:
+		return URLStatusOK
+	case statusUnresolvable:
+		return URLStatusUnresolvable
+	case statusInvalid:
+		return URLStatusInvalid
+	}
+	return URLStatusUnknown
 }
 
 // Deliver sends the first notification for an occurrence.
@@ -142,7 +200,11 @@ func (w *HTTPSink) post(ctx context.Context, a Alert, endsAt time.Time) error {
 		}{a.Kind.String(), a.Scope, a.Title, a.Message, a.ObservedAt.UTC().Format(time.RFC3339), 1})
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, w.url.Reveal(), bytes.NewReader(body))
+	target, host, err := w.resolve(ctx)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.Reveal(), bytes.NewReader(body))
 	if err != nil {
 		return errors.New("the webhook request could not be built")
 	}
@@ -151,7 +213,7 @@ func (w *HTTPSink) post(ctx context.Context, a Alert, endsAt time.Time) error {
 	if err != nil {
 		// err is a *url.Error carrying the full URL, so it is classified
 		// and dropped rather than wrapped.
-		return fmt.Errorf("webhook delivery to %s failed: %s", w.host, classifyTransportError(err))
+		return fmt.Errorf("webhook delivery to %s failed: %s", host, classifyTransportError(err))
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxWebhookResponse))
@@ -159,9 +221,9 @@ func (w *HTTPSink) post(ctx context.Context, a Alert, endsAt time.Time) error {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
 		return nil
 	case resp.StatusCode >= 300 && resp.StatusCode < 400:
-		return fmt.Errorf("webhook %s answered %d: redirects are never followed", w.host, resp.StatusCode)
+		return fmt.Errorf("webhook %s answered %d: redirects are never followed", host, resp.StatusCode)
 	default:
-		return fmt.Errorf("webhook %s answered %d", w.host, resp.StatusCode)
+		return fmt.Errorf("webhook %s answered %d", host, resp.StatusCode)
 	}
 }
 
@@ -189,5 +251,5 @@ func isCertError(err error) bool {
 // printing the URL: fmt reaches unexported fields by reflection, where
 // obs.Secret's own Format never runs.
 func (w HTTPSink) Format(f fmt.State, _ rune) {
-	_, _ = fmt.Fprintf(f, "HTTPSink{%s, %s}", w.dialect, w.host)
+	_, _ = fmt.Fprintf(f, "HTTPSink{%s}", w.dialect)
 }

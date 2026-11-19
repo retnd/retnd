@@ -451,11 +451,11 @@ func TestWebhookUnresolvableIsLoudKeepsTheMapAndHeals(t *testing.T) {
 	d := alert.NewDispatcher(sink, obs.New(&logs, obs.LevelDebug))
 	ctx := context.Background()
 
-	if got := d.SinkStatus(); got != alert.URLStatusUnknown {
+	if got := d.DestinationStatus(); got != alert.URLStatusUnknown {
 		t.Fatalf("status before anything was tried = %q, want %q", got, alert.URLStatusUnknown)
 	}
 	d.Observe(ctx, stale, nil, t0)
-	if got := d.SinkStatus(); got != alert.URLStatusUnresolvable {
+	if got := d.DestinationStatus(); got != alert.URLStatusUnresolvable {
 		t.Fatalf("status = %q after a failed resolve, want %q", got, alert.URLStatusUnresolvable)
 	}
 	if !strings.Contains(logs.String(), "unresolvable") {
@@ -470,7 +470,7 @@ func TestWebhookUnresolvableIsLoudKeepsTheMapAndHeals(t *testing.T) {
 
 	// Still broken at the next pass inside the retry delay: stays loud, no request.
 	d.Observe(ctx, stale, nil, t0.Add(time.Minute))
-	if d.SinkStatus() != alert.URLStatusUnresolvable || r.count() != 0 {
+	if d.DestinationStatus() != alert.URLStatusUnresolvable || r.count() != 0 {
 		t.Fatal("the state changed without a change in the reference")
 	}
 
@@ -485,7 +485,7 @@ func TestWebhookUnresolvableIsLoudKeepsTheMapAndHeals(t *testing.T) {
 	broken = false
 	mu.Unlock()
 	d.Probe(ctx)
-	if got := d.SinkStatus(); got != alert.URLStatusOK {
+	if got := d.DestinationStatus(); got != alert.URLStatusOK {
 		t.Fatalf("status after the reference became readable = %q, want %q", got, alert.URLStatusOK)
 	}
 	if got := destinationEvents(t, &logs); len(got) != 2 || got[1]["status"] != alert.URLStatusOK || got[1]["result"] != "success" {
@@ -516,8 +516,8 @@ func TestWebhookFirstGoodReadIsQuiet(t *testing.T) {
 	var logs bytes.Buffer
 	d := alert.NewDispatcher(r.sink(t, alert.DialectGeneric), obs.New(&logs, obs.LevelDebug))
 	d.Probe(context.Background())
-	if d.SinkStatus() != alert.URLStatusOK {
-		t.Fatalf("status = %q, want ok", d.SinkStatus())
+	if d.DestinationStatus() != alert.URLStatusOK {
+		t.Fatalf("status = %q, want ok", d.DestinationStatus())
 	}
 	if got := destinationEvents(t, &logs); len(got) != 0 {
 		t.Fatalf("a destination that was never broken announced a heal: %v", got)

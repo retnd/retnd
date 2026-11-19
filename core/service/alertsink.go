@@ -9,6 +9,7 @@ import (
 	"github.com/retnd/retnd/core/internal/alert"
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/obs"
 	"github.com/retnd/retnd/core/internal/secretref"
 )
 
@@ -30,11 +31,13 @@ func (b *BackupService) alertSinkFor(ctx context.Context, cfg *config.Config) (a
 	switch a := cfg.Observability.Alerts; a.Delivery {
 	case config.ObservabilityDeliveryWebhook:
 		w := a.Webhook
-		target, err := secretref.Resolve(ctx, secretref.Ref{File: w.URLRef.File, Env: w.URLRef.Env, Command: w.URLRef.Command})
-		if err != nil {
-			return nil, fmt.Errorf("observability.alerts.webhook.url_ref: %w", err)
-		}
-		hs, err := alert.NewHTTPSink(target, w.Dialect, w.ResolveTTL, w.RefreshInterval, w.AllowInsecureHTTP)
+		ref := secretref.Ref{File: w.URLRef.File, Env: w.URLRef.Env, Command: w.URLRef.Command}
+		// The URL is read at every delivery (custody checked each time, the
+		// value never kept), so a rotated file is used by the next alert and
+		// an unreadable one is a state the sink reports, never a silence.
+		hs, err := alert.NewHTTPSink(func(ctx context.Context) (obs.Secret, error) {
+			return secretref.Resolve(ctx, ref)
+		}, w.Dialect, w.ResolveTTL, w.RefreshInterval, w.AllowInsecureHTTP)
 		if err != nil {
 			return nil, fmt.Errorf("observability.alerts.webhook: %w", err)
 		}
@@ -74,6 +77,9 @@ func (b *BackupService) carryAlerts(ctx context.Context, prev, next *app.Service
 	}
 	if next.EnableAlerts(sink) {
 		next.Alerts.AdoptState(prev.Alerts)
+		// So the settings read is true from the first moment, not after the
+		// first alert.
+		next.Alerts.Probe(ctx)
 	}
 }
 

@@ -75,7 +75,9 @@ func (d *Dispatcher) refreshDue(entry *firingCondition, now time.Time) (attempt,
 func (d *Dispatcher) refreshOne(ctx context.Context, a attempt, now time.Time) {
 	ctx, cancel := context.WithTimeout(ctx, deliveryTimeout)
 	defer cancel()
-	if err := d.refreshing().Refresh(ctx, a.alert, now); err != nil {
+	err := d.refreshing().Refresh(ctx, a.alert, now)
+	d.noteDestination(ctx, err)
+	if err != nil {
 		d.logger.Error(ctx, "alert-delivery",
 			fmt.Errorf("refreshing the %s alert for %s: %w", a.alert.Kind, a.alert.Scope, err))
 		d.mu.Lock()
@@ -94,7 +96,9 @@ func (d *Dispatcher) refreshAndResolve(ctx context.Context, now time.Time, resol
 	}
 	for _, a := range resolved {
 		cctx, cancel := context.WithTimeout(ctx, deliveryTimeout)
-		if err := rs.Resolve(cctx, a, now); err != nil {
+		err := rs.Resolve(cctx, a, now)
+		d.noteDestination(cctx, err)
+		if err != nil {
 			d.logger.Error(cctx, "alert-delivery",
 				fmt.Errorf("resolving the %s alert for %s: %w", a.Kind, a.Scope, err))
 		}
@@ -145,9 +149,14 @@ func (d *Dispatcher) AdoptState(prev *Dispatcher) {
 		c := *v
 		copied[k] = &c
 	}
+	// The destination state travels too, so a reference that stays broken
+	// across a reload is not announced a second time, and one that the
+	// reload fixed is recognised as a heal (which lifts the retry ladder).
+	destination := prev.destination
 	prev.mu.Unlock()
 	d.mu.Lock()
 	d.firing = copied
+	d.destination = destination
 	d.mu.Unlock()
 }
 
@@ -164,4 +173,89 @@ func (d *Dispatcher) FiringSnapshot() map[string]bool {
 		out[k] = v.delivered
 	}
 	return out
+}
+
+// URLStatusSink is a Sink that can say whether the destination it delivers
+// to can be read at all, so an unreadable one is a visible state and not a
+// silence. HTTPSink is the only one.
+type URLStatusSink interface {
+	Sink
+	Probe(ctx context.Context) error
+	URLStatus() string
+}
+
+// Probe asks the sink to check its destination without sending anything, so
+// the status is true between alerts as well as at them. A change of state
+// reaches the activity feed through noteDestination.
+func (d *Dispatcher) Probe(ctx context.Context) {
+	if d == nil {
+		return
+	}
+	if s, ok := d.sink.(URLStatusSink); ok {
+		d.noteDestination(ctx, s.Probe(ctx))
+	}
+}
+
+// noteDestination compares what the sink now says about its destination
+// with what this dispatcher last reported, and speaks only on a change: one
+// EventAlertDestination line when the destination stops being usable, and
+// one when it heals. err is the call that just ran; it is the reason given
+// for a bad state and is ignored otherwise (a receiver answering 500 is a
+// delivery failure, logged by deliver, not a destination that cannot be
+// read).
+//
+// A heal also lifts the retry ladder off every condition still waiting to
+// be delivered. The ladder exists to stop hammering a receiver that is down,
+// and these attempts never reached one: holding the alert for up to an hour
+// after the reference reads again would be a second silence on top of the
+// first. The firing map is otherwise untouched, so nothing is re-announced.
+func (d *Dispatcher) noteDestination(ctx context.Context, err error) {
+	s, ok := d.sink.(URLStatusSink)
+	if !ok {
+		return
+	}
+	status := s.URLStatus()
+	if status == URLStatusUnknown {
+		return
+	}
+	d.mu.Lock()
+	prev := d.destination
+	if status == prev {
+		d.mu.Unlock()
+		return
+	}
+	d.destination = status
+	healed := status == URLStatusOK && (prev == URLStatusUnresolvable || prev == URLStatusInvalid)
+	if healed {
+		for _, entry := range d.firing {
+			if !entry.delivered {
+				entry.attempts = 0
+				entry.lastAttempt = time.Time{}
+			}
+		}
+	}
+	d.mu.Unlock()
+
+	switch {
+	case healed:
+		d.logger.AlertDestination(ctx, URLStatusOK, "")
+	case status != URLStatusOK:
+		detail := status
+		if err != nil {
+			detail = err.Error()
+		}
+		d.logger.AlertDestination(ctx, status, detail)
+	}
+}
+
+// DestinationStatus is what the last read of the sink's destination found, or the
+// empty string when the sink has no such notion (the platform sink).
+func (d *Dispatcher) DestinationStatus() string {
+	if d == nil {
+		return ""
+	}
+	if s, ok := d.sink.(URLStatusSink); ok {
+		return s.URLStatus()
+	}
+	return ""
 }

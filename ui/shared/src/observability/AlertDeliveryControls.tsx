@@ -9,6 +9,12 @@
  * config.yaml names where it is kept (a file, an environment variable or a
  * command), and this card says only whether one is set.
  *
+ * A URL the engine cannot use is never a quiet state: `urlStatus` is what the
+ * engine's last read of the reference found, and `unresolvable` (it does not
+ * read) or `invalid` (it reads, and is not an acceptable URL) is an alert in
+ * the card, because both mean nobody is being told anything. The engine holds
+ * the alerts and retries, and the alert goes away on its own once it heals.
+ *
  * Every control saves as it changes (a select on change, a number on blur),
  * so the card needs no button, and a refusal from the engine is shown where
  * the change was made. Tooltip ids are `observability.alerts.*`, a prefix of
@@ -22,6 +28,14 @@ import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
 
 type Alerts = ObservabilitySettings["alerts"];
+
+const alertBox: React.CSSProperties = {
+  color: "var(--text)",
+  border: "1px solid var(--danger)",
+  background: "var(--danger-quiet)",
+  borderRadius: "var(--radius-md)",
+  padding: 8
+};
 
 export function AlertDeliveryControls({
   alerts,
@@ -109,8 +123,20 @@ export function AlertDeliveryControls({
             : "No webhook URL is set. Name where it is kept (url_ref) in config.yaml, or no alert is delivered."}
         </p>
       )}
+      {webhook && alerts.webhook.urlStatus === "unresolvable" && (
+        <div role="alert" style={alertBox} data-testid="alert-webhook-unresolvable">
+          The webhook URL cannot be read (observability.alerts.webhook.url_ref in config.yaml). Alerts are held and
+          retried, and go out as soon as it reads again.
+        </div>
+      )}
+      {webhook && alerts.webhook.urlStatus === "invalid" && (
+        <div role="alert" style={alertBox} data-testid="alert-webhook-invalid">
+          The webhook URL reference reads, but what it holds is not an acceptable URL (https, or http with plain http
+          allowed, and no user or password in it). Alerts are held and retried until it is.
+        </div>
+      )}
       {error && (
-        <div role="alert" style={{ color: "var(--text)", border: "1px solid var(--danger)", background: "var(--danger-quiet)", borderRadius: "var(--radius-md)", padding: 8 }} data-testid="alert-delivery-error">
+        <div role="alert" style={alertBox} data-testid="alert-delivery-error">
           {error}
         </div>
       )}

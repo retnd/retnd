@@ -125,7 +125,12 @@ func (b *BackupService) EnableAlerts(sink AlertSink) bool {
 		b.logger.Error(ctx, "alert-sink", err)
 		return false
 	}
-	return b.state.Load().inner.EnableAlerts(built)
+	inner := b.state.Load().inner
+	on := inner.EnableAlerts(built)
+	if on {
+		inner.Alerts.Probe(ctx)
+	}
+	return on
 }
 
 // sinkAdapter translates internal/alert's Sink into this package's

@@ -831,6 +831,19 @@ path), so the file holds a reference and never the URL. It is not shown in the
 settings, in an error or in a log line; a failure names the host and the status code.
 Settings answer only whether one is set.
 
+The reference is read again for every delivery, so replacing the file's contents (or
+the variable, or what the command prints) takes effect at the next alert with no
+restart and no settings change. A reference that cannot be read is never a quiet
+state. Alerting stays on, the settings report `url_status: unresolvable` (or
+`invalid` when it reads and holds something that is not an acceptable URL), the
+Observability card in Settings shows it as an alert, and the activity feed gets one
+`alert_destination` error line when it happens. The alert waits, nothing is lost or
+marked as told, and the engine keeps trying. The moment the reference reads again the
+feed gets one `alert_destination` line saying so, and the waiting alert goes out on
+the next pass rather than at the next step of the retry ladder. The engine reads the
+reference on every alerting pass, not only when an alert is due, so you find out
+before the next incident does. A `command` reference therefore runs once per pass.
+
 Two fixed formats, neither templatable. `generic` posts one JSON object per alert
 (`kind`, `scope`, `title`, `message`, `observed_at`, `schema`) once, and stays quiet
 while the condition lasts. `alertmanager` posts the v2 array with `labels.alertname`
