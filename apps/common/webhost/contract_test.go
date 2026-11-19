@@ -579,16 +579,9 @@ func TestContract_RouterAndContractDeclareTheSameOperations(t *testing.T) {
 	// What chi actually serves, as method+pattern.
 	registered := map[string]bool{}
 	err := chi.Walk(routable, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
-		if route == "/metrics" {
-			// Outside /api/v1 and outside this contract (EPIC O, #899): the
-			// Prometheus scrape endpoint answers a scraper holding its own
-			// credential, in the exposition text format and not in JSON.
-			return nil
-		}
-		if route == "/health/live" || route == "/health/ready" {
-			// Deliberately outside /api/v1 and outside this contract: they
-			// are unauthenticated infrastructure probes for an
-			// orchestrator, not operations a client of this API calls.
+		if isListedRootRoute(method, route) {
+			// Outside /api/v1 and outside this contract: the probes and the
+			// scrape endpoint, each with its reason in the one list.
 			return nil
 		}
 		registered[method+" "+route] = true

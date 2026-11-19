@@ -2812,6 +2812,14 @@ func onOff(v bool) string {
 // resolved, an entry or a reason, and so the route-to-verb guard in
 // apps/common/webhost (issue #1150) can tell a probe somebody thought about
 // from a route somebody forgot.
+//
+// It is also THE list of routes that deliberately live on the root router
+// outside /api/v1 (RootRoutesOutsideAPI), one line per route with its reason.
+// Every route guard in apps/common/webhost reads it, so a guard cannot quietly
+// grow its own exemption: a root route that is not listed here is held to the
+// guards like any other.
+func RootRoutesOutsideAPI() map[string]string { return RecordedReasons() }
+
 func RecordedReasons() map[string]string {
 	return map[string]string{
 		"GET /health/live":  "an unauthenticated liveness probe for an orchestrator, deliberately outside /api/v1 and the spec; `" + WebBinary + " healthcheck --url` is the command that calls any probe",
