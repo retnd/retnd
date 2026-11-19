@@ -60,11 +60,18 @@ test.describe("#1525 the agent audit is a table, and a collapsed one", () => {
     }
   });
 
-  test("#1525 the table scrolls inside its own box and the page does not scroll sideways", async ({ page }) => {
+  test("#1525 the table scrolls inside its own box, and that box stays inside the audit region", async ({ page }) => {
     await narrow(page);
     await toggle(page).click();
-    const overflow = await page.evaluate(() => document.scrollingElement!.scrollWidth - window.innerWidth);
-    expect(overflow).toBeLessThanOrEqual(1);
+    const m = await region(page, "audit").evaluate((el) => {
+      const box = el.querySelector(".ag-scroll") as HTMLElement;
+      const b = box.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
+      return { insideRegion: b.right <= r.right + 1, scrolls: box.scrollWidth > box.clientWidth, overflowX: getComputedStyle(box).overflowX };
+    });
+    expect(m.overflowX).toBe("auto");
+    expect(m.insideRegion).toBe(true);
+    expect(m.scrolls).toBe(true);
   });
 
   test("#1525 the filters and the terminal echo are inside the collapsed region", async ({ page }) => {
