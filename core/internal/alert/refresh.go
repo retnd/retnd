@@ -37,8 +37,21 @@ func (d *Dispatcher) refreshing() RefreshingSink {
 	if d == nil {
 		return nil
 	}
-	rs, _ := d.sink.(RefreshingSink)
-	return rs
+	// An interval of zero (or less) means the sink does not refresh. It must
+	// never read as "due on every pass".
+	if rs, ok := d.sink.(RefreshingSink); ok && rs.RefreshInterval() > 0 {
+		return rs
+	}
+	return nil
+}
+
+// RefreshEvery is how often this dispatcher's sink wants a still-observed
+// condition re-sent, or zero when its sink is observe-once.
+func (d *Dispatcher) RefreshEvery() time.Duration {
+	if rs := d.refreshing(); rs != nil {
+		return rs.RefreshInterval()
+	}
+	return 0
 }
 
 func (d *Dispatcher) refreshes() bool { return d.refreshing() != nil }

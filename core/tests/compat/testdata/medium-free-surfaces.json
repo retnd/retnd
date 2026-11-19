@@ -102,7 +102,9 @@
         "63-invalid-encryption-required-without-provider.yaml validate: REFUSED invalid config: sources[0].backup_sets[0].retained_copy_encryption.key_provider: mode required needs a key provider, on the set or on the deployment",
         "64-invalid-encryption-unknown-suite.yaml validate: REFUSED invalid config: retained_copy_encryption.suite: \"aes-256-military-grade\" is not a suite this build has; name default or one of [age/v1 age-pq/v1]",
         "66-invalid-agent-unknown-scope.yaml load: REFUSED parsing config \"testdata/configs/66-invalid-agent-unknown-scope.yaml\": yaml: unmarshal errors: | line 13: field scope not found in type config.AgentsBlock",
-        "67-invalid-inline-scrape-token.yaml validate: REFUSED invalid config: observability.metrics.token: a scrape token is never written in config.yaml; run `retnd settings observability rotate-scrape-token` to mint one, which prints it once and keeps only a digest"
+        "67-invalid-inline-scrape-token.yaml validate: REFUSED invalid config: observability.metrics.token: a scrape token is never written in config.yaml; run `retnd settings observability rotate-scrape-token` to mint one, which prints it once and keeps only a digest",
+        "68-invalid-webhook-scheme.yaml validate: REFUSED invalid config: observability.alerts.webhook.url_ref: the webhook URL scheme must be https (or http with allow_insecure_http)",
+        "69-invalid-refresh-ge-ttl.yaml validate: REFUSED invalid config: observability.alerts.webhook.refresh_interval: 10m0s must be below resolve_ttl 10m0s, or a refresh arrives after the receiver has already expired the alert"
       ]
     },
     "02-artifact-rows-after-migration": {

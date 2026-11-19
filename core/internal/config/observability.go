@@ -232,5 +232,7 @@ func (c *Config) resolveObservability(v *validator) {
 			p, out.Alerts.Webhook.RefreshInterval, out.Alerts.Webhook.ResolveTTL)
 	}
 
+	validateWebhookDelivery(v, p, out.Alerts)
+
 	c.Observability = out
 }
