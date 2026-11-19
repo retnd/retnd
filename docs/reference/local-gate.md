@@ -41,6 +41,21 @@ The last line of a run is one of three verdicts, and the exit status matches:
 Only a step that declares itself INCOMPLETE through the ledger may end a run
 at 3. A stray exit 3 from a command the gate did not mark is read as FAILED.
 
+A step the stall watchdog stopped ends the run `==> ci-local: FAILED (STALLED: <step>, <why>)`
+with exit 1 (#1540). Every step is watched from the first one on: no output
+for `RETND_GATE_STALL_MIN` minutes, or a run past the step's hard cap (1.5
+times the duration this host last recorded for it, never less than two stall
+windows, or `RETND_GATE_STEP_CAP_MIN` when there is no record), and the
+watchdog prints the last 40 lines the step printed, its processes and the
+containers labelled `retnd-test=<this worktree's owner>`, stops the processes
+(TERM, then KILL after `GATE_STALL_GRACE` seconds), removes those containers
+and ends the run. Durations are recorded in
+`<git common dir>/ci-local-step-durations.<hostname>`. While the watchdog runs,
+the gate's output goes through `tee` into the log it measures, so a step sees
+a pipe rather than a terminal. A step can override its limits with
+`gate_step "<heading>" --stall-min N --cap-min N` (the core `go test` steps
+take `--stall-min 50`, because `go test` prints a package only when it ends).
+
 ## Variables the gate reads
 
 | variable | default | what it does |
@@ -65,6 +80,10 @@ at 3. A stray exit 3 from a command the gate did not mark is read as FAILED.
 | `GATE_LOCK_POLL` | `5` | seconds between attempts while waiting for the lock |
 | `GATE_LOCK_TIMEOUT` | `7200` | seconds a run waits for the lock before refusing (FAILED, with the holder's pid, host and worktree and the `rm -r` that breaks it) |
 | `GATE_LOCK_STALE_AFTER` | `600` | a lock whose holder cannot be judged (another host's pid, a lock from before a reboot, no pid file) is reclaimed once it is this old. A lock whose holder is a dead pid on this host and boot is reclaimed at once |
+| `RETND_GATE_STALL_MIN` | `10` | minutes a step may print nothing before the stall watchdog stops it and the run ends `FAILED (STALLED: ...)`. Fractions are fine; `0` turns the no-progress check off |
+| `RETND_GATE_STEP_CAP_MIN` | `180` | the hard cap, in minutes, of a step this host has no recorded duration for (a recorded step gets 1.5 times its record, never less than two stall windows). `0` turns the hard cap off; both at `0` turn the watchdog off |
+| `GATE_STALL_POLL` | `15` | seconds between the stall watchdog's looks at the log |
+| `GATE_STALL_GRACE` | `10` | seconds between the TERM and the KILL the watchdog sends a stalled step's processes |
 | `GOLANGCI_LINT_DIR` | unset | a directory to put ahead of `PATH` so a specific golangci-lint wins over Homebrew's |
 | `GOLANGCI_LINT_VERSION` | from `scripts/ci/pins.env` | the linter the gate is pinned to. A run with another version is ledgered INCOMPLETE and the release check refuses its record. `scripts/ci-docker.sh` builds the image with it |
 | `RUFF_VERSION`, `MYPY_VERSION` | from `scripts/ci/pins.env` | the ruff and mypy `scripts/ci-docker.sh` builds into the gate image (with `python3-yaml`), so the Python lint step runs there instead of being ledgered. The gate itself uses whichever ruff and mypy are on `PATH` |
