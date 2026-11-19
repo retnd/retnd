@@ -189,6 +189,27 @@ else
 fi
 run_runner env FAKE_VERDICT="==> ci-local: ok (shard core-docker)" CI_DOCKER_MEMORY=6g CI_DOCKER_CPUS=4 bash "$runner" core-docker --host mars --out "$work/out"
 grep -q 'memory=6g cpus=4' "$work/log/ci-docker-env" && pass "M2 the per-shard fence (CI_DOCKER_MEMORY, CI_DOCKER_CPUS) reaches ci-docker" || fail "M2 fence" "$(cat "$work/log/ci-docker-env")"
+# The ui-browser shard drives a Chromium through 127 spec files, and heavy
+# retnd steps stay off the Mac (#1532, #1537): with no --host it goes to mars,
+# and --host mac takes an explicit opt-in.
+run_runner env -u RETND_UI_BROWSER_ALLOW_LOCAL FAKE_VERDICT="==> ci-local: ok (shard ui-browser)" bash "$runner" ui-browser --out "$work/out"
+if [ "$(rc)" = 0 ] && grep -q -- '--host devshell@192.168.0.100' "$work/log/ci-docker" && [ ! -s "$work/log/ci-local" ] && result_has "host=mars" ui-browser; then
+  pass "M3 the ui-browser shard with no --host runs on mars, not on this machine"
+else
+  fail "M3 ui-browser default host" "rc=$(rc) $(cat "$work/log/ci-local" "$work/stdout")"
+fi
+run_runner env -u RETND_UI_BROWSER_ALLOW_LOCAL bash "$runner" ui-browser --host mac --out "$work/out"
+if [ "$(rc)" = 2 ] && [ ! -s "$work/log/ci-local" ] && [ ! -s "$work/log/ci-docker" ] && grep -q -- '--host mars' "$work/stdout"; then
+  pass "M4 --host mac is refused for the ui-browser shard, naming --host mars, and nothing runs"
+else
+  fail "M4 ui-browser on the mac" "rc=$(rc) $(cat "$work/stdout")"
+fi
+run_runner env RETND_UI_BROWSER_ALLOW_LOCAL=1 FAKE_VERDICT="==> ci-local: ok (shard ui-browser)" bash "$runner" ui-browser --host mac --out "$work/out"
+if [ "$(rc)" = 0 ] && grep -q 'stand-in ci-local --shard ui-browser' "$work/log/ci-local" && [ ! -s "$work/log/ci-docker" ]; then
+  pass "M5 RETND_UI_BROWSER_ALLOW_LOCAL=1 runs it on this machine (the gate then takes the Playwright lock)"
+else
+  fail "M5 ui-browser opt-in" "rc=$(rc) $(cat "$work/stdout")"
+fi
 
 # --- R what a reader of the result can trust ---------------------------------
 run_runner env FAKE_VERDICT="==> ci-local: ok (shard static)" bash "$runner" static --host mars --out "$work/out"

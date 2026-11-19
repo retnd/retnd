@@ -1,3 +1,1 @@
 # path<TAB>why, with an issue number. See scripts/tests/every-guard-is-a-gate-step.test.sh.
-scripts/assurance/ui-selftest.sh	needs node, ui/shared dependencies and a Playwright browser, which the build hosts lack: #1532
-ui/shared/e2e/playwright.config.ts	the 127 browser specs have no gate step yet, and a first run on a lane with Chromium has to show which are red: #1537

@@ -1,10 +1,33 @@
 # The browser e2e signal
 
-The Playwright suite used to live in `ui/shared/e2e/`. It does not any
-more: issue #158 moved it to
+The Playwright suite used to live in `ui/shared/e2e/`. Issue #158 moved it to
 [`retnd/retnd-tests`](https://github.com/retnd/retnd-tests)
 as Suite B, so it tests this product the way an operator meets it, from
 outside, with nothing but a browser and a built artefact.
+
+That is only half the story now. Specs came back into `ui/shared/e2e/` one
+issue at a time (127 files by #1537), each the proof a piece of UI work
+landed with, driven by `ui/shared/e2e/playwright.config.ts` against `vite`
+and the in-process mock API. They are not Suite B and they do not run at the
+pin: the `ui-browser` shard of `scripts/ci-local.sh` runs every one of them,
+and EPIC Q's assurance UI self-test after them, in the Chromium lane
+(`ui-browser.sh`, which execs `scripts/bdtools/e2e/ui_browser.py`). The lane
+starts the pinned Playwright image with this tree mounted read-only, installs
+`ui/shared` inside it, and runs under a hard cap, a ten-minute stall check
+and, for the specs, a per-test timeout. A red spec fails the gate; a machine
+that cannot run the lane ends the run INCOMPLETE; `CI_LOCAL_SKIP_UI_BROWSER=1`
+leaves it out loud. Heavy steps stay off the maintainer's Mac, so the shard
+runs on MARS (`run-gate-shard.sh` sends it there when no host is named), and a
+Mac ledgers both steps unless `RETND_UI_BROWSER_ALLOW_LOCAL=1` asks for them,
+which then go through the Playwright lock:
+
+    bash scripts/release/run-gate-shard.sh ui-browser --host mars
+
+To run one spec the way the gate does, on a Linux docker host:
+
+    bash scripts/e2e/ui-browser.sh specs ui/shared/e2e/playwright.config.ts 1351-agents-card.spec.ts
+
+The rest of this page is about Suite B.
 
 This directory is what replaced it, and the replacement had to land in the
 same change as the removal. Issue #197 is why: before it, the suite had no
