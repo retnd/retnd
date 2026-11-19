@@ -265,3 +265,40 @@ func TestWithPreservesRedaction(t *testing.T) {
 		t.Errorf("With's own attached attr was lost: backup_set = %v", lines[0]["backup_set"])
 	}
 }
+
+// FR-100 (#900): the floor is movable, because a PATCH to
+// observability.logs.level has to take effect without a restart, and it has
+// to reach every Logger derived from the one the process holds.
+func TestSetFloorMovesTheLevelWithoutARestart(t *testing.T) {
+	var buf bytes.Buffer
+	l := New(&buf, LevelInfo)
+	derived := l.With("k", "v").WithRedaction(nil)
+	ctx := context.Background()
+
+	derived.Event(ctx, LevelDebug, "probe", "quiet at info")
+	if buf.Len() != 0 {
+		t.Fatalf("a debug line was written at an info floor: %s", buf.String())
+	}
+	l.SetFloor(LevelDebug)
+	if l.Floor() != LevelDebug || derived.Floor() != LevelDebug {
+		t.Fatalf("Floor() = %v / %v after SetFloor(debug), want debug on both", l.Floor(), derived.Floor())
+	}
+	derived.Event(ctx, LevelDebug, "probe", "loud at debug")
+	if !strings.Contains(buf.String(), "loud at debug") {
+		t.Errorf("a Logger derived before the move did not follow it; wrote %q", buf.String())
+	}
+	l.SetFloor(LevelError)
+	buf.Reset()
+	l.Event(ctx, LevelWarn, "probe", "warn")
+	if buf.Len() != 0 {
+		t.Errorf("a warn line was written at an error floor: %s", buf.String())
+	}
+}
+
+func TestFloorOnANilLoggerIsSafe(t *testing.T) {
+	var l *Logger
+	l.SetFloor(LevelDebug)
+	if got := l.Floor(); got != LevelInfo {
+		t.Errorf("nil Logger Floor() = %v, want INFO", got)
+	}
+}

@@ -435,11 +435,16 @@ const (
 // runtime.Version(). None of these are secret; they exist to make "which
 // build is this" answerable from a log line alone, without shelling into
 // the host to run `retnd version`.
+//
+// log_schema is the version of the log line's field schema (FR-100,
+// LogSchemaVersion). It lives here and in the shipped pipelines' schema
+// stream label, and is deliberately not a field of every line.
 func (l *Logger) Startup(ctx context.Context, binaryVersion, commit, goVersion string) {
 	l.emit(ctx, LevelInfo, EventStartup, cliecho.Binary+" starting",
 		slog.String("version", binaryVersion),
 		slog.String("commit", commit),
 		slog.String("go_version", goVersion),
+		slog.String("log_schema", LogSchemaVersion),
 	)
 }
 

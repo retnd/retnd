@@ -1,0 +1,76 @@
+# Promtail pipeline for the retnd log stream (FR-100, EPIC O).
+#
+# This is an example, not a supported deployment. It is the executable half
+# of docs/observability.md's label discipline: the stream is already
+# newline-delimited JSON, and this pipeline turns it into a Loki stream with
+# exactly four labels and everything else left as fields.
+#
+#   labels:  job, instance, level, schema
+#   fields:  time, msg, event, result, action, action_id, backup_set, and
+#            whatever per-event attrs a line carries (parse them at query time
+#            with `| json`)
+#
+# Do NOT promote event, action, action_id or backup_set to labels. A Loki
+# label is a stream dimension: every distinct value is a new stream, and a
+# new stream is an index entry and a chunk that is cut early. action_id is
+# minted per action, so promoting it makes one stream per cycle, per
+# connection test and per API call, forever. That is unbounded label
+# cardinality, the failure that makes a Loki install fall over, and it
+# charges you for it in index size, not in anything you can see on a
+# dashboard. event and backup_set are bounded but not free: 53 events times
+# your backup sets times four levels is a lot of tiny streams, and a field
+# filter (`| json | event="cycle_end"`) costs nothing to add.
+#
+# The schema label is the log schema version (obs.LogSchemaVersion). It is a
+# stream label, set here, and not a field of every line: a per-line version
+# is bytes on every line to answer a question that changes once a year. The
+# same number is on the startup event as log_schema.
+#
+# Log shipping is an egress decision. The stream can carry operator-authored
+# text (hook script output, msg strings, refusal reasons), and nothing here
+# can promise otherwise; see docs/observability.md.
+#
+# Input: the engine's stdout captured as plain NDJSON into
+# /var/log/retnd/*.log. If you read Docker's own json-file driver output
+# instead, put `- docker: {}` as the first pipeline stage so the wrapper is
+# removed before the JSON is parsed.
+#
+# Environment (run promtail with -config.expand-env=true):
+#   LOKI_URL  where Loki listens, no trailing path. Default http://loki:3100
+#   INSTANCE  the instance label. Default retnd
+server:
+  disable: true
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: ${LOKI_URL:http://loki:3100}/loki/api/v1/push
+
+scrape_configs:
+  - job_name: retnd
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: retnd
+          instance: ${INSTANCE:retnd}
+          schema: "1"
+          __path__: /var/log/retnd/*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            ts: time
+      - timestamp:
+          source: ts
+          format: RFC3339Nano
+      - template:
+          source: level
+          template: '{{ ToLower .Value }}'
+      - labels:
+          level:
+      # The file target adds the path as a filename label. It is not part of
+      # the documented set, and a rotated path would be a new stream.
+      - labeldrop:
+          - filename

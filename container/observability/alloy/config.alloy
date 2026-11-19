@@ -1,0 +1,82 @@
+// Grafana Alloy pipeline for the retnd log stream (FR-100, EPIC O).
+//
+// This is an example, not a supported deployment. It does what
+// promtail/promtail.yaml does, with the same four labels:
+//
+//   labels:  job, instance, level, schema
+//   fields:  everything else on the line, parsed at query time with `| json`
+//
+// Do NOT promote event, action, action_id or backup_set to labels. action_id
+// is minted per action, so a label on it is one new Loki stream per cycle,
+// per connection test and per API call: unbounded label cardinality, paid for
+// in index size and in a chunk cut early per stream. event and backup_set are
+// bounded but multiply (53 events times your backup sets times four levels)
+// for no query a field filter does not already answer.
+//
+// schema is the log schema version (obs.LogSchemaVersion), set here as a
+// stream label and not carried on every line; the same number is on the
+// startup event as log_schema.
+//
+// Log shipping is an egress decision. The stream can carry operator-authored
+// text (hook output, msg strings, refusal reasons); see docs/observability.md.
+//
+// Input: the engine's stdout captured as plain NDJSON into
+// /var/log/retnd/*.log. If you read Docker's json-file driver output instead,
+// add a stage.docker {} before the json stage.
+//
+// Environment:
+//   LOKI_URL  where Loki listens, no trailing path. Default http://loki:3100
+//   INSTANCE  the instance label. Default retnd
+
+local.file_match "retnd" {
+  path_targets = [{
+    "__path__" = "/var/log/retnd/*.log",
+    "job"      = "retnd",
+    "instance" = coalesce(sys.env("INSTANCE"), "retnd"),
+    "schema"   = "1",
+  }]
+}
+
+loki.source.file "retnd" {
+  targets    = local.file_match.retnd.targets
+  forward_to = [loki.process.retnd.receiver]
+}
+
+loki.process "retnd" {
+  stage.json {
+    expressions = {
+      level = "level",
+      ts    = "time",
+    }
+  }
+
+  stage.timestamp {
+    source = "ts"
+    format = "RFC3339Nano"
+  }
+
+  stage.template {
+    source   = "level"
+    template = "{{ ToLower .Value }}"
+  }
+
+  stage.labels {
+    values = {
+      level = "",
+    }
+  }
+
+  // The file source adds the path as a filename label. It is not part of the
+  // documented set, and a rotated path would be a new stream.
+  stage.label_drop {
+    values = ["filename"]
+  }
+
+  forward_to = [loki.write.retnd.receiver]
+}
+
+loki.write "retnd" {
+  endpoint {
+    url = string.format("%s/loki/api/v1/push", coalesce(sys.env("LOKI_URL"), "http://loki:3100"))
+  }
+}

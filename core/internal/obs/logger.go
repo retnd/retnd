@@ -60,6 +60,12 @@ const (
 type Logger struct {
 	base *slog.Logger
 
+	// floor is the handler's level, held as a LevelVar so SetFloor can
+	// move it. Every copy With and WithRedaction make shares the pointer,
+	// which is what lets a Logger handed out at startup follow a later
+	// PATCH.
+	floor *slog.LevelVar
+
 	// redact, when non-nil, is run over msg and every string-valued attr
 	// in emit before either reaches base. See WithRedaction and
 	// Redactor's own doc (redact.go); a nil value here is "redact
@@ -103,8 +109,10 @@ func New(w io.Writer, minLevel Level) *Logger {
 	if w == nil {
 		w = io.Discard
 	}
-	h := slog.NewJSONHandler(w, &slog.HandlerOptions{Level: minLevel})
-	return &Logger{base: slog.New(h)}
+	floor := new(slog.LevelVar)
+	floor.Set(minLevel)
+	h := slog.NewJSONHandler(w, &slog.HandlerOptions{Level: floor})
+	return &Logger{base: slog.New(h), floor: floor}
 }
 
 // With returns a Logger that attaches args to every event it logs from
@@ -302,4 +310,24 @@ func (l *Logger) tap(level Level, m mark, event, msg string, attrs []slog.Attr) 
 		Action:   m.action,
 		ActionID: m.actionID,
 	})
+}
+
+// SetFloor moves the minimum level this Logger writes, and every Logger
+// derived from it with With or WithRedaction, without a restart. It is how a
+// PATCH to observability.logs.level takes effect (FR-100). A nil Logger
+// ignores it.
+func (l *Logger) SetFloor(level Level) {
+	if l == nil || l.floor == nil {
+		return
+	}
+	l.floor.Set(level)
+}
+
+// Floor reports the minimum level this Logger writes now. A nil Logger
+// reports INFO, the default floor.
+func (l *Logger) Floor() Level {
+	if l == nil || l.floor == nil {
+		return LevelInfo
+	}
+	return l.floor.Level()
 }
