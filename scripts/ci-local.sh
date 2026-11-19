@@ -1497,10 +1497,12 @@ if [ "$FAST" != "1" ]; then
   # standing claim. Only the anchors half ran before, from check_anchors.py.
   # No Docker, and the longest of the self-tests, so it is a shard of its own.
   #
-  # The browser and capture controls (about a dozen) need the Playwright lock
-  # and its pinned image, which the build hosts do not have, so they are left
-  # out loud with RETND_SELFTEST_SKIP_BROWSER=1 and wait for a lane that has a
-  # browser (#1537). Every other control runs.
+  # The controls that drive a browser or the capture rig, start docker, or run
+  # a retnd-tests case (sixteen of them) need things a gate host does not have
+  # inside its container, so they are left out loud with
+  # RETND_SELFTEST_SKIP_BROWSER=1 and wait for a lane that has them (#1537).
+  # Every other control runs. Two copycrypt controls allocate several GiB, so
+  # this shard needs a fence above 4 GB.
   gate_step "the encryption and suite guards can actually fail (mutation self-test, #1531)"
   RETND_SELFTEST_SKIP_BROWSER=1 bash scripts/encryption/selftest.sh
 fi
@@ -1513,8 +1515,8 @@ if [ "$FAST" != "1" ]; then
   # planted as a real violation in a real product file, and the narrowed suite
   # has to go red naming the test. core/tests/agentgate refuses a PASS row
   # whose control label is not in the file, and this is what runs them.
-  # The browser and capture controls are left out loud, as for the encryption
-  # one above (#1537).
+  # The browser, docker and capture controls are left out loud, as for the
+  # encryption one above (#1537).
   gate_step "the agent (MCP) guards can actually fail (mutation self-test, #1530)"
   RETND_SELFTEST_SKIP_BROWSER=1 bash scripts/agents/selftest.sh
 fi

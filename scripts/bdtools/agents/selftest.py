@@ -149,6 +149,14 @@ def caught(c: Control, code: int, out: str) -> tuple[bool, str]:
     return True, "; ".join(lines)[:400] + (f" | {detail[:300]}" if detail else "")
 
 
+def needs_lane(cmd: list[str]) -> bool:
+    """A control that drives a browser or the capture rig (the Playwright
+    lock), starts docker itself, or runs a case from the retnd-tests checkout:
+    none of which a gate host has inside its own container."""
+    line = " ".join(cmd)
+    return cmd[0].endswith("xdg-pw-lock.sh") or "docker " in line or "retnd_tests_case.sh" in line
+
+
 def selected(c: Control, only: list[str]) -> bool:
     return not only or any(o in c.label or o in c.rows for o in only)
 
@@ -194,9 +202,9 @@ def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | 
         # Playwright lock on a machine that has the pinned image; the gate hosts
         # do not (#1537). Say so out loud, run the rest, and leave the skipped
         # ones to a lane that has a browser.
-        browser = [c for c in controls if c.cmd and c.cmd[0].endswith("xdg-pw-lock.sh")]
+        browser = [c for c in controls if c.cmd and needs_lane(c.cmd)]
         controls = [c for c in controls if c not in browser]
-        print(f"==> RETND_SELFTEST_SKIP_BROWSER=1: not running {len(browser)} browser or capture controls, which need the Playwright lock and image")
+        print(f"==> RETND_SELFTEST_SKIP_BROWSER=1: not running {len(browser)} controls that need the Playwright lock, a docker daemon or the retnd-tests checkout")
     labels = [c.label for c in CONTROLS]
     dupes = sorted({x for x in labels if labels.count(x) > 1})
     if dupes:
