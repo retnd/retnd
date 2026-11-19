@@ -356,7 +356,9 @@ echo "go $1 index=${GIT_INDEX_FILE:-unset}" >>"$FIX_LOG"
 exit 0
 STUB
 chmod +x "$fix/bin/go"
-(cd "$fix" && printf 'package a\n\nvar X = 1\n' >core/internal/a/a.go)
+# The stub is committed, so the working tree differs from the commit only by
+# the one path and the stamp can be fast rather than unverified.
+(cd "$fix" && git add bin/go && git -c core.hooksPath=/dev/null commit -qm "index-reporting go" && printf 'package a\n\nvar X = 1\n' >core/internal/a/a.go)
 fx "$fix" -- git commit -qm "pathspec" -- core/internal/a/a.go
 c="$(calls "$fix")"
 assert_eq "B8 a pathspec commit of an unstaged file commits" 0 "$status"
@@ -365,7 +367,7 @@ assert_contains "B8 vet ran on its package" 'core: go vet ./internal/a' "$c"
 assert_contains "B8 test ran on its package" 'core: go test' "$c"
 assert_not_contains "B8 the neighbouring package was not touched" './internal/b' "$c"
 assert_contains "B8 the checks never see the commit's index" 'go vet index=unset' "$c"
-assert_eq "B8 the commit was made" 2 "$(commit_count "$fix")"
+assert_eq "B8 the commit was made" 3 "$(commit_count "$fix")"
 assert_contains "B8 and stamped fast" 'Local-Gate: fast' "$(last_message "$fix")"
 
 # B9: whatever the tier did, a commit that changes files may not go through

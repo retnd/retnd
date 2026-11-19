@@ -115,6 +115,22 @@ while [ $# -gt 0 ]; do
 done
 
 here="$(cd "$(dirname "$0")" && pwd)"
+
+# The index being committed (#1554). In a hook git points GIT_INDEX_FILE at
+# it, and on a pathspec commit (git commit -- <paths>, which is what the
+# shared commit helper runs) that is a temporary index holding exactly the
+# commit, while the real index holds none of an unstaged path. Reading the
+# real index scoped such a commit to 0 paths and checked nothing. So it is
+# kept here, absolute, before any cd, and used for the staged list alone;
+# the variable itself is still unset below, so no go test or npm run under
+# this script can write into the commit's index.
+commit_index=""
+case "${GIT_INDEX_FILE:-}" in
+  "") ;;
+  /*) commit_index="$GIT_INDEX_FILE" ;;
+  *) commit_index="$(pwd)/$GIT_INDEX_FILE" ;;
+esac
+
 if [ -n "$root_arg" ]; then
   cd "$root_arg"
 fi
@@ -446,7 +462,13 @@ trap 'fast_leave_queue; gate_on_signal HUP 129' HUP
 # The changed paths, newline separated. A path with a newline in it splits
 # here, which can only make the sweep look at a file that is not there.
 case "$mode" in
-  staged) changed="$(git diff --cached --name-only -z --no-renames --diff-filter=ACMRD | tr '\0' '\n')" ;;
+  staged)
+    if [ -n "$commit_index" ]; then
+      changed="$(GIT_INDEX_FILE="$commit_index" git diff --cached --name-only -z --no-renames --diff-filter=ACMRD | tr '\0' '\n')"
+    else
+      changed="$(git diff --cached --name-only -z --no-renames --diff-filter=ACMRD | tr '\0' '\n')"
+    fi
+    ;;
   base) changed="$(git diff --name-only -z --no-renames "$base...HEAD" | tr '\0' '\n')" ;;
   list) changed="$(cat "$paths_file")" ;;
 esac
