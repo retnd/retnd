@@ -541,6 +541,14 @@ type firingCondition struct {
 	delivered   bool
 	attempts    int
 	lastAttempt time.Time
+
+	// alert is what was first rendered for this occurrence (its
+	// ObservedAt is the occurrence's start), and sentAt is when a sink
+	// last accepted it. Only a RefreshingSink reads either: refresh.go
+	// re-sends alert while it is still observed and resolves it when it
+	// is not.
+	alert  Alert
+	sentAt time.Time
 }
 
 const (
@@ -623,15 +631,22 @@ func (d *Dispatcher) Observe(ctx context.Context, conditions []Condition, uneval
 	}
 
 	var delivered []Alert
-	for _, a := range d.plan(conditions, unevaluated, now) {
+	pending, resolved := d.plan(conditions, unevaluated, now)
+	for _, a := range pending {
+		if a.refresh {
+			d.refreshOne(ctx, a, now)
+			continue
+		}
 		if err := d.deliver(ctx, a.alert); err != nil {
 			continue
 		}
 		d.mu.Lock()
 		a.entry.delivered = true
+		a.entry.sentAt = now
 		d.mu.Unlock()
 		delivered = append(delivered, a.alert)
 	}
+	d.refreshAndResolve(ctx, now, resolved)
 	return delivered
 }
 
@@ -642,12 +657,15 @@ func (d *Dispatcher) Observe(ctx context.Context, conditions []Condition, uneval
 type attempt struct {
 	entry *firingCondition
 	alert Alert
+	// refresh marks a re-send of an already-delivered condition (see
+	// refresh.go) rather than its first delivery.
+	refresh bool
 }
 
 // plan is the whole of Observe's state update and the only part that
 // takes the lock: it records what is now observed, forgets what has
 // resolved, and returns the deliveries to make once the lock is gone.
-func (d *Dispatcher) plan(conditions []Condition, unevaluated []Subject, now time.Time) []attempt {
+func (d *Dispatcher) plan(conditions []Condition, unevaluated []Subject, now time.Time) (pending []attempt, resolved []Alert) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -660,7 +678,6 @@ func (d *Dispatcher) plan(conditions []Condition, unevaluated []Subject, now tim
 		unknown[s.Key()] = struct{}{}
 	}
 
-	var pending []attempt
 	for _, c := range conditions {
 		if c.Kind == "" {
 			continue
@@ -673,10 +690,14 @@ func (d *Dispatcher) plan(conditions []Condition, unevaluated []Subject, now tim
 
 		entry, observed := d.firing[key]
 		if !observed {
-			entry = &firingCondition{}
+			entry = &firingCondition{alert: c.alert(now)}
 			d.firing[key] = entry
 		}
+		entry.alert.Message = c.Detail
 		if entry.delivered {
+			if due, ok := d.refreshDue(entry, now); ok {
+				pending = append(pending, due)
+			}
 			continue
 		}
 		if entry.attempts > 0 && now.Sub(entry.lastAttempt) < retryDelay(entry.attempts) {
@@ -698,10 +719,13 @@ func (d *Dispatcher) plan(conditions []Condition, unevaluated []Subject, now tim
 		if _, cannotTell := unknown[key]; cannotTell {
 			continue
 		}
+		if entry := d.firing[key]; entry.delivered && d.refreshes() {
+			resolved = append(resolved, entry.alert)
+		}
 		delete(d.firing, key)
 	}
 
-	return pending
+	return pending, resolved
 }
 
 // deliver makes one bounded delivery attempt and reports whether an
