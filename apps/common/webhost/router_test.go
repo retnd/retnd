@@ -473,7 +473,14 @@ var destructiveGateExemptRoutes = map[string]bool{
 	// PATCH /settings already settles for turning FR-19's protection off:
 	// the posture is visible in the response and on the feed, and nothing
 	// here can cause an unattended deletion.
-	"PATCH /api/v1/settings/assurance":                    true,
+	"PATCH /api/v1/settings/assurance": true,
+	// EPIC O (#898): the observability block is one block of config.yaml,
+	// rewritten and hot-reloaded like the two above it. A scrape endpoint, a
+	// log floor and an alert channel reach no backup datum, and the mint
+	// changes who may read the exposition and touches nothing else. Both are
+	// session-only: a bearer is refused AGENT_ROUTE_DENIED before the gate.
+	"PATCH /api/v1/settings/observability":                true,
+	"POST /api/v1/settings/observability/scrape-token":    true,
 	"PATCH /api/v1/backup-sets/{source}/{set}/assurance":  true,
 	"DELETE /api/v1/backup-sets/{source}/{set}/assurance": true,
 
