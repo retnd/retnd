@@ -96,6 +96,15 @@ export interface FieldHelpCopy {
  * its pop-up and a missing one is a field that never had it.
  */
 export const FIELD_HELP = {
+  // -------------------------------------------------------- observability
+
+  observabilityLogsLevel: {
+    what: "The quietest line the engine writes to its log. Debug writes everything, info is the default, warn keeps warnings and errors, error keeps only errors.",
+    example: "warn",
+    effect:
+      "Saves warn as the engine's configured floor and applies it to the next line with no restart. It moves the engine only: the web-ui container has no config.yaml and reads the environment alone. The environment still wins, so RETND_DEBUG=1 gives debug and a LOG_LEVEL of debug, info, warn or error beats this setting, and the line beside the control says which one is in force. An unset or unrecognised LOG_LEVEL leaves this setting in charge."
+  },
+
   // ------------------------------------------------------------ assurance
 
   assuranceScrubEvery: {

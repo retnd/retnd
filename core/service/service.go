@@ -675,6 +675,9 @@ func OpenWith(ctx context.Context, configPath string, opts OpenOptions) (*Backup
 		return nil, nil, err
 	}
 
+	// The floor was the environment's alone until the configuration could be
+	// read; now the configured level takes its place under the environment.
+	applyLogFloor(logger, cfg)
 	svc := New(cfg, journal, rclone.New(), logger)
 	svc.useWorkflowRootDefault(opts.WorkflowRoot)
 	// Resolved, not as supplied: --config may name the configuration

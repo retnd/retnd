@@ -18,6 +18,7 @@
 import { useEffect, useState } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import type { ObservabilitySettings } from "@shared/api/contracts";
+import { LogLevelControl } from "./LogLevelControl";
 import { apiErrorOf, describeFailure, isNotConfigured } from "@shared/api/failure";
 
 export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
@@ -75,6 +76,7 @@ export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
             ))}
           </dl>
         )}
+        {settings ? <LogLevelControl logs={settings.logs} readOnly={readOnly} onSaved={setSettings} /> : null}
       </div>
     </section>
   );
