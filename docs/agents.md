@@ -128,13 +128,23 @@ The other four `agents:` settings, all optional, and what they default to:
 A tool result can carry a code that never comes out of `/api/v1`: `INVALID_REQUEST`,
 `ENGINE_UNREACHABLE` and `AGENT_RESULT_TOO_LARGE`, all with exit code 1. The last one is the one
 result with no CLI twin, because the CLI would simply print the whole answer. A result is capped at
-64 KiB. On a route that pages (it answers with a `next_cursor`) the server shrinks the page to fit.
-On a route that does not, the server pages the list itself: the result holds as many whole items as
-fit and a `next_cursor`, and sending that back as `query.before` returns the next slice. A cursor is
-good only for the answer it came from, so if the list changed in between, the call is refused with
-`INVALID_REQUEST` and the agent asks again from the start. Nothing is ever cut without a cursor, so
-an agent never mistakes a partial list for a complete one. `AGENT_RESULT_TOO_LARGE` is left for an
-answer with no list in it, or a single item that is itself over the cap.
+64 KiB, counting the `data` and the `untrusted` object together. On a route that pages (it answers
+with a `next_cursor`) the server shrinks the page to fit, and the `untrusted` pointers of such a page are
+the page's own. On a route that does not, the server pages the list itself: the result holds as many whole
+items of the answer's largest array as fit and a `next_cursor`, and sending that back as `query.before`
+returns the next slice. On those slices an `untrusted` pointer names the item's place in the whole list
+(`/operations/40/result` is the forty-first item, wherever its page starts), and the call the engine sees,
+and so the audit row and the echoed `command`, say which item the page starts at (`mcp_page`, and
+`# items from 40`).
+
+A cursor is good for the same list in the same order. It does not cover a field that changes while you
+walk (a progress counter), but it does cover which items there are: if one was added, dropped or moved,
+or the server restarted, the call is refused with `INVALID_REQUEST` ("that cursor is not for this answer").
+That is not a failure of the walk, it means the list moved: ask again without `before` and start over.
+Only one array is sliced, the other arrays of the answer arrive whole on every page, and
+`AGENT_RESULT_TOO_LARGE` is left for an answer with no list, a single item that is itself over the cap, or
+other arrays that are over it on their own. Nothing is ever cut without a cursor, so an agent never
+mistakes a partial list for a complete one.
 
 ## Confirmations, from both sides
 

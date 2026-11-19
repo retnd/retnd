@@ -98,9 +98,9 @@ func readShapes(t *testing.T) []shape {
 // no page of its own, and follows next_cursor until it ends. It returns what
 // went wrong: a refusal, a repeated or skipped item, a cursor that reached the
 // engine.
-func walk(t *testing.T, sh shape, items, itemBytes int) []string {
+func walk(t *testing.T, sh shape, key string, items, itemBytes int) []string {
 	t.Helper()
-	key := sh.arrays[0]
+	sh.tool.Untrusted = append(slices.Clone(sh.tool.Untrusted), key+"[].pad")
 	body := func() json.RawMessage {
 		var b strings.Builder
 		b.WriteString(`{"` + key + `":[`)
@@ -113,10 +113,13 @@ func walk(t *testing.T, sh shape, items, itemBytes int) []string {
 		b.WriteString("]}")
 		return json.RawMessage(b.String())
 	}()
-	var problems []string
+	var problems, pagesSeen []string
 	caller := &fakeCaller{respond: func(c Call) (Response, error) {
 		if c.Query.Get("before") != "" {
 			problems = append(problems, "the engine was sent before="+c.Query.Get("before"))
+		}
+		if c.Query.Get("mcp_page") != "" {
+			pagesSeen = append(pagesSeen, c.Query.Get("mcp_page"))
 		}
 		return Response{Body: body, CorrelationID: "cid"}, nil
 	}}
@@ -136,8 +139,9 @@ func walk(t *testing.T, sh shape, items, itemBytes int) []string {
 		}
 		_ = res
 		data, _ := json.Marshal(got.Data)
-		if len(data) > DefaultMaxResultBytes {
-			problems = append(problems, "a page is "+strconv.Itoa(len(data))+" bytes, over the cap")
+		moved, _ := json.Marshal(got.Untrusted)
+		if len(data)+len(moved) > DefaultMaxResultBytes {
+			problems = append(problems, "a page is "+strconv.Itoa(len(data)+len(moved))+" bytes with its untrusted values, over the cap")
 		}
 		var p map[string][]struct {
 			N int `json:"n"`
@@ -145,8 +149,17 @@ func walk(t *testing.T, sh shape, items, itemBytes int) []string {
 		if err := json.Unmarshal(data, &p); err != nil {
 			return append(problems, "the page does not decode: "+err.Error())
 		}
+		first := len(seen)
 		for _, it := range p[key] {
 			seen = append(seen, it.N)
+		}
+		// Untrusted pointers name an item's place in the whole list, not on
+		// its page: the pad of item n is at /<array>/<n>/pad.
+		for i := first; i < len(seen); i++ {
+			if _, ok := got.Untrusted["/"+key+"/"+strconv.Itoa(seen[i])+"/pad"]; !ok {
+				problems = append(problems, fmt.Sprintf("item %d has no untrusted pointer /%s/%d/pad on its page", seen[i], key, seen[i]))
+				break
+			}
 		}
 		// A list that is itself named untrusted (a set's include patterns)
 		// leaves the data and arrives whole under its pointer.
@@ -167,6 +180,9 @@ func walk(t *testing.T, sh shape, items, itemBytes int) []string {
 		}
 		args["query"] = map[string]any{"before": got.NextCursor}
 	}
+	if items > 0 && len(pagesSeen) == 0 && len(seen) > 0 && len(seen) < items {
+		problems = append(problems, "later pages did not tell the engine where in the list they were")
+	}
 	want := make([]int, items)
 	for i := range want {
 		want[i] = i
@@ -177,6 +193,77 @@ func walk(t *testing.T, sh shape, items, itemBytes int) []string {
 	return problems
 }
 
+// walkRouted is the same walk for a route that pages itself: it answers
+// `limit` items from the row named by before, with a next_cursor, and the
+// server has to halve the limit until a page fits and follow the cursor.
+func walkRouted(t *testing.T, sh shape, key string, items, itemBytes int) []string {
+	t.Helper()
+	pad := strings.Repeat("x", itemBytes)
+	caller := &fakeCaller{respond: func(c Call) (Response, error) {
+		start, limit := 0, 200
+		if b := c.Query.Get("before"); b != "" {
+			start, _ = strconv.Atoi(strings.TrimPrefix(b, "row-"))
+		}
+		if l := c.Query.Get("limit"); l != "" {
+			limit, _ = strconv.Atoi(l)
+		}
+		end := min(start+limit, items)
+		var b strings.Builder
+		b.WriteString(`{"` + key + `":[`)
+		for i := start; i < end; i++ {
+			if i > start {
+				b.WriteString(",")
+			}
+			fmt.Fprintf(&b, `{"n":%d,"pad":%q}`, i, pad)
+		}
+		next := ""
+		if end < items {
+			next = "row-" + strconv.Itoa(end)
+		}
+		b.WriteString(`],"next_cursor":` + strconv.Quote(next) + `}`)
+		return Response{Body: json.RawMessage(b.String()), CorrelationID: "cid"}, nil
+	}}
+	cs := connectTools(t, []agenttools.Row{sh.tool}, caller, 0)
+	args := map[string]any{}
+	for _, p := range routeParams(callRoute(sh.tool)) {
+		args[p] = "x"
+	}
+	var seen []int
+	for page := 0; page < 400; page++ {
+		_, got := call(t, cs, sh.tool.Tool, args)
+		if !got.OK {
+			return []string{"refused " + got.Code + ": " + got.Message}
+		}
+		data, _ := json.Marshal(got.Data)
+		var p map[string]json.RawMessage
+		if err := json.Unmarshal(data, &p); err != nil {
+			return []string{"the page does not decode: " + err.Error()}
+		}
+		var its []struct {
+			N int `json:"n"`
+		}
+		if err := json.Unmarshal(p[key], &its); err != nil {
+			return []string{"the array does not decode: " + err.Error()}
+		}
+		for _, it := range its {
+			seen = append(seen, it.N)
+		}
+		if got.NextCursor == "" {
+			break
+		}
+		args["query"] = map[string]any{"before": got.NextCursor}
+	}
+	if len(seen) != items {
+		return []string{fmt.Sprintf("the routed walk returned %d items, want %d", len(seen), items)}
+	}
+	for i, n := range seen {
+		if n != i {
+			return []string{"the routed walk skipped or repeated an item"}
+		}
+	}
+	return nil
+}
+
 // Falsify: make the pager refuse (AGENT_RESULT_TOO_LARGE) as the server did
 // before #1529, or have it cut the list without a cursor.
 func TestEveryListReadToolCanBeWalkedWhenItsAnswerIsOverTheCap(t *testing.T) {
@@ -185,18 +272,25 @@ func TestEveryListReadToolCanBeWalkedWhenItsAnswerIsOverTheCap(t *testing.T) {
 		if len(sh.arrays) == 0 {
 			continue
 		}
-		if sh.routePaged {
-			if !sh.hasLimit {
-				t.Errorf("%s: the route pages with next_cursor and takes no limit, so the server has no smaller page to ask for", sh.tool.Tool)
-			}
+		if sh.routePaged && !sh.hasLimit {
+			t.Errorf("%s: the route pages with next_cursor and takes no limit, so the server has no smaller page to ask for", sh.tool.Tool)
 			continue
 		}
 		driven[sh.tool.Tool] = true
-		t.Run(sh.tool.Tool, func(t *testing.T) {
-			for _, problem := range walk(t, sh, 200, 1000) {
-				t.Error(problem)
-			}
-		})
+		// Each array of the answer takes a turn as the one that is too big.
+		for _, key := range sh.arrays {
+			t.Run(sh.tool.Tool+"/"+key, func(t *testing.T) {
+				var problems []string
+				if sh.routePaged {
+					problems = walkRouted(t, sh, key, 200, 1000)
+				} else {
+					problems = walk(t, sh, key, 200, 1000)
+				}
+				for _, problem := range problems {
+					t.Error(problem)
+				}
+			})
+		}
 	}
 	// A guard that walked nothing would pass. These are the reads this issue
 	// is about, and the artifact lists #1528 owns.
@@ -219,7 +313,7 @@ func TestTheWalkSeesAnItemThatCanNeverFit(t *testing.T) {
 	if len(sh.arrays) == 0 {
 		t.Fatal("operations_list has no array in the contract")
 	}
-	if got := walk(t, sh, 3, DefaultMaxResultBytes+1); len(got) == 0 {
+	if got := walk(t, sh, sh.arrays[0], 3, DefaultMaxResultBytes+1); len(got) == 0 {
 		t.Error("a list whose single item is over the cap was walked without a complaint")
 	}
 }
@@ -258,7 +352,7 @@ func TestACursorTheServerDidNotIssueIsAUsageError(t *testing.T) {
 	caller := okBody(`{"operations":[]}`)
 	tools := []agenttools.Row{row("operations_list", "GET", "/operations", "Operations.")}
 	cs := connectTools(t, tools, caller, 0)
-	for _, bad := range []string{"retnd-page:", "retnd-page:x:y", "retnd-page:-1:abc", "retnd-page:5"} {
+	for _, bad := range []string{"retnd-page:", "retnd-page:x:y", "retnd-page:-1:abc", "retnd-page:5", "retnd-page:5:abc:operations", "retnd-page:5:" + strings.Repeat("a", 32) + ":"} {
 		res, got := call(t, cs, "operations_list", map[string]any{"query": map[string]any{"before": bad}})
 		if !res.IsError || got.Code != CodeInvalidRequest || got.ExitCode != ExitUsage {
 			t.Errorf("before=%q gave %+v, want INVALID_REQUEST, exit 2", bad, got)
@@ -266,5 +360,41 @@ func TestACursorTheServerDidNotIssueIsAUsageError(t *testing.T) {
 	}
 	if len(caller.calls) != 0 {
 		t.Errorf("the engine was asked %d times for a cursor nobody issued", len(caller.calls))
+	}
+}
+
+// A live list keeps its cursor while its rows change underneath it: the
+// fingerprint is the items' identity, not their progress.
+func TestACursorSurvivesAVolatileFieldAndNothingElse(t *testing.T) {
+	progress := 0
+	list := func() json.RawMessage {
+		var b strings.Builder
+		b.WriteString(`{"operations":[`)
+		for i := 0; i < 200; i++ {
+			if i > 0 {
+				b.WriteString(",")
+			}
+			fmt.Fprintf(&b, `{"id":"op-%d","progress":%d,"pad":%q}`, i, progress, strings.Repeat("x", 1000))
+		}
+		b.WriteString("]}")
+		return json.RawMessage(b.String())
+	}
+	caller := &fakeCaller{respond: func(Call) (Response, error) { return Response{Body: list(), CorrelationID: "cid"}, nil }}
+	cs := connectTools(t, []agenttools.Row{row("operations_list", "GET", "/operations", "Operations.")}, caller, 0)
+	_, first := call(t, cs, "operations_list", nil)
+	progress = 7
+	_, second := call(t, cs, "operations_list", map[string]any{"query": map[string]any{"before": first.NextCursor}})
+	if !second.OK {
+		t.Fatalf("a progress counter moved and the cursor was refused: %+v", second)
+	}
+	if !strings.Contains(second.Command, "# items from ") {
+		t.Errorf("page two's command %q does not say where in the list it is", second.Command)
+	}
+	last := caller.calls[len(caller.calls)-1]
+	if last.Query.Get("mcp_page") == "" || last.Query.Get("before") != "" {
+		t.Errorf("the engine was asked %v, want mcp_page set and no before", last.Query)
+	}
+	if strings.Contains(first.NextCursor, "op-") || len(strings.Split(first.NextCursor, ":")) != 4 {
+		t.Errorf("cursor %q should be prefix, offset, tag and array and carry no item", first.NextCursor)
 	}
 }

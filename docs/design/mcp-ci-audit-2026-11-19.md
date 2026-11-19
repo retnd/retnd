@@ -101,12 +101,19 @@ over 64 KiB was `AGENT_RESULT_TOO_LARGE` with "narrow the call", and `operations
 the intended behaviour, so nothing noticed the dead end.
 
 I made the server page a list itself when the route cannot: whole items of the largest array that fit, and a
-cursor `retnd-page:<offset>:<fingerprint of the full answer>` that comes back as `query.before`. A cursor from
-an answer that has since changed is refused, so a walk never skips or repeats an item, and a route's own
-cursor still wins. The guard drives every read tool that answers an array from a fake engine answering 200 KiB
-and needs every item back exactly once; a list whose single item is over the cap is still a refusal, and a
-control proves the guard sees it. I broke the pager three ways (no cursor, no fingerprint check, a zero budget)
-and each turned tests red.
+cursor `retnd-page:<offset>:<tag>:<array>` that comes back as `query.before`. The tag is an HMAC under a key
+made at process start, over the array's name and the identity (the id, or the whole item when it has none) of
+its items, taken from the projected answer. So it reveals nothing about a hidden field, it survives a changing
+progress counter, and it is refused (`INVALID_REQUEST`, start over) when an item came, went or moved, or the
+server restarted. The cap counts `data` and `untrusted` together, untrusted pointers name the item's place in
+the whole list, and later pages tell the engine (`mcp_page`, so the audit row) and the echoed command where
+they start. A route's own cursor still wins. The limits: only one array is sliced (the others travel whole on
+every page), and the pointers of a route-paged page stay page-local. The guard drives every read tool that
+answers an array, each of its arrays in turn, both through the server's pager and, for a route that carries
+`next_cursor`, through the route's limit path, and checks data plus untrusted against the cap and the
+pointers. A list whose single item is over the cap is still a refusal, and a control proves the guard sees it.
+I broke the pager three ways again after this rework (tag unchecked, zero budget, local pointers) and each
+turned tests red.
 
 I did not give each route a `limit` and a cursor of its own. That is the better answer for the artifact lists,
 which #1528 does, but for the rest it is a contract entry, regenerated bindings, a CLI flag and the
@@ -115,9 +122,10 @@ web/CLI parity guards per route, which is a feature each.
 ## What I left to #1528
 
 The artifact list filters and paging (`backups_list`, `quarantine_list`: a state filter, a set filter, a page)
-and the new retire tool, with its catalogue row and its gate checks. The pager above does not meet its work:
-it only steps in for a route that has no `next_cursor`, and the guard drives both lists so that if #1528 gives
-them a cursor, nothing here has to change.
+and the new retire tool, with its catalogue row and its gate checks. The pager above does not meet its work: it
+only steps in for a route that has no `next_cursor`, and the guard drives each tool by whichever path its
+route has, so when #1528 gives those two lists a cursor they move from the server's pager to the route's
+limit path with no change to the guard.
 
 ## The CI defects, and the fix
 
@@ -164,7 +172,9 @@ What I would do, in this order:
 2. **A docs or spec commit does not need Go in the hook.** The compat test reads Markdown and checks paths exist.
    Let the hook run a small shell or Python check of the same shape (one row per gate line, cited files exist),
    and leave the real compat package to the pre-merge status and the release gate, which `ci-fast.sh` already
-   says is where the live half of it belongs.
+   says is where the live half of it belongs. This is only sound if the small check reads the same matrix
+   data as `matrix_test.go` (the parsing of the rows, the gate lines and the cited paths, ideally one shared
+   file both read). A second, hand-written parser drifts, or passes on a matrix the Go test would refuse.
 3. **If the Mac is loaded, send the Go steps to MARS.** When `uptime` is above a threshold, run the staged
    package tests through `scripts/ci-docker.sh --host` instead of locally, which already exists (#1267).
 

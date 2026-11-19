@@ -234,19 +234,24 @@ func (s *server) run(ctx context.Context, t agenttools.Row, raw json.RawMessage)
 		return invalidArguments(err.Error())
 	}
 	var (
-		offset      int
-		fingerprint string
+		cur    pageCursor
+		paging bool
 	)
-	if cursor := query.Get("before"); strings.HasPrefix(cursor, pageCursorPrefix) {
-		var ok bool
-		if offset, fingerprint, ok = parsePageCursor(cursor); !ok {
+	if before := query.Get("before"); strings.HasPrefix(before, pageCursorPrefix) {
+		if cur, paging = parsePageCursor(before); !paging {
 			return invalidArguments("query.before: that is not a cursor this server issued")
 		}
-		// The route has never heard of it: it is the server's own.
+		// The route has never heard of it: it is the server's own. The
+		// engine, and so the audit row, is told where in the list this call
+		// is by mcp_page, which no route reads, and the echoed command says so.
 		query = cloneQuery(query)
 		query.Del("before")
+		query.Set("mcp_page", strconv.Itoa(cur.offset))
 	}
 	command := echo(t, routeParams(callRoute(t)), pathArgs, query)
+	if paging {
+		command += " # items from " + strconv.Itoa(cur.offset)
+	}
 
 	var (
 		body       map[string]any
@@ -268,7 +273,7 @@ func (s *server) run(ctx context.Context, t agenttools.Row, raw json.RawMessage)
 		}
 		decoded = agenttools.Project(decoded)
 		if len(resp.Body) <= s.cfg.MaxResultBytes {
-			if fingerprint != "" {
+			if paging {
 				return staleCursor(correlated, command)
 			}
 			data, untrusted := splitUntrusted(decoded, t.Untrusted)
@@ -288,21 +293,9 @@ func (s *server) run(ctx context.Context, t agenttools.Row, raw json.RawMessage)
 		body, _ = decoded.(map[string]any)
 		if _, paged := body["next_cursor"]; !paged {
 			// The route has no page of its own, so the server pages the list.
-			if fingerprint != "" && fingerprint != pageFingerprint(resp.Body) {
-				return staleCursor(correlated, command)
-			}
-			page, next, more, ok := slicePage(body, offset, s.cfg.MaxResultBytes)
-			if !ok {
-				break
-			}
-			data, untrusted := splitUntrusted(page, t.Untrusted)
-			res := Result{OK: true, Code: CodeOK, Message: staticOKMessage, CorrelationID: correlated, Command: command, Data: data, Untrusted: untrusted}
-			if more {
-				res.NextCursor = pageCursorPrefix + strconv.Itoa(next) + ":" + pageFingerprint(resp.Body)
-			}
-			return res
+			return s.pageList(t, body, cur, paging, correlated, command)
 		}
-		if fingerprint != "" {
+		if paging {
 			return staleCursor(correlated, command)
 		}
 		n := listLength(body)
@@ -313,7 +306,48 @@ func (s *server) run(ctx context.Context, t agenttools.Row, raw json.RawMessage)
 		query = cloneQuery(query)
 		query.Set("limit", strconv.Itoa(n/2))
 	}
-	return Result{Code: CodeResultTooLarge, Message: "the answer is larger than " + strconv.Itoa(s.cfg.MaxResultBytes) + " bytes and this route has no smaller page to ask for; narrow the call", CorrelationID: correlated, Command: command, ExitCode: ExitFailure}
+	return tooLarge(s.cfg.MaxResultBytes, correlated, command)
+}
+
+// pageList answers an over-cap list from a route with no cursor with one
+// slice of it. body is the projected answer.
+func (s *server) pageList(t agenttools.Row, body map[string]any, cur pageCursor, paging bool, correlated, command string) Result {
+	array := cur.array
+	if !paging {
+		array = largestArray(body)
+	}
+	items, _ := body[array].([]any)
+	if array == "" || (paging && (items == nil || pageTag(array, items) != cur.tag || cur.offset >= len(items))) {
+		if paging {
+			return staleCursor(correlated, command)
+		}
+		return tooLarge(s.cfg.MaxResultBytes, correlated, command)
+	}
+	// The cap is on Data and Untrusted together, and the split changes the
+	// size, so the slice is measured after it and cut again until it fits.
+	budget := s.cfg.MaxResultBytes
+	for i := 0; i < maxPageAttempts*4 && budget > 0; i++ {
+		page, next, more, ok := slicePage(body, array, cur.offset, budget)
+		if !ok {
+			break
+		}
+		data, untrusted := splitUntrusted(deepCopy(page), t.Untrusted)
+		untrusted = globalPointers(untrusted, array, cur.offset)
+		if over := encodedSize(data) + encodedSize(untrusted) - s.cfg.MaxResultBytes; over > 0 {
+			budget -= over
+			continue
+		}
+		res := Result{OK: true, Code: CodeOK, Message: staticOKMessage, CorrelationID: correlated, Command: command, Data: data, Untrusted: untrusted}
+		if more {
+			res.NextCursor = pageCursor{offset: next, tag: pageTag(array, items), array: array}.String()
+		}
+		return res
+	}
+	return tooLarge(s.cfg.MaxResultBytes, correlated, command)
+}
+
+func tooLarge(max int, correlated, command string) Result {
+	return Result{Code: CodeResultTooLarge, Message: "the answer is larger than " + strconv.Itoa(max) + " bytes and this route has no smaller page to ask for; narrow the call", CorrelationID: correlated, Command: command, ExitCode: ExitFailure}
 }
 
 // listLength is the length of the first array a body carries, which is the
