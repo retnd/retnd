@@ -94,8 +94,8 @@ reses logo was, and each change answers one of the three things it has to do:
 
 ### Where it lives, and why it is under `docs/site/`
 
-`docs/site/assets/logo.svg`, not a repository-level `assets/`. `.github/workflows/pages.yml`
-publishes `docs/site` and nothing else, so a logo outside that tree is one the site's own
+`docs/site/assets/logo.svg`, not a repository-level `assets/`. the Site workflow in
+retnd/retnd-org publishes `docs/site` and nothing else, so a logo outside that tree is one the site's own
 pages cannot reach on the published origin: `../../assets/logo.svg` resolves from a
 checkout and is a 404 from Pages. A copy inside the tree would be a second logo, which is
 the thing this file replaced seven of. Inside it, the file is also covered by that
