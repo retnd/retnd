@@ -79,7 +79,7 @@ export function AssuranceDashboardCard({ readOnly = false }: { readOnly?: boolea
         {ORDER.map(cell)}
         {settled ? (
           <>
-            {listed > 0 ? (
+            {listed > 0 || listOpen ? (
               <button
                 type="button"
                 className="btn btn--quiet"
@@ -91,10 +91,10 @@ export function AssuranceDashboardCard({ readOnly = false }: { readOnly?: boolea
                 <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flex: "none", transition: "transform 120ms", transform: listOpen ? "rotate(90deg)" : "none" }}>
                   <path d="M5 3l5 5-5 5" />
                 </svg>
-                {(listOpen ? "Hide " : "Show ") + listed + (listed === 1 ? " backup" : " backups")}
+                {(listOpen ? "Hide " : "Show ") + (listed > 0 ? listed + (listed === 1 ? " backup" : " backups") : "the list")}
               </button>
             ) : null}
-            <div id="assurance-due-list" hidden={listed > 0 && !listOpen} style={{ flexBasis: "100%" }}>
+            <div id="assurance-due-list" hidden={!listOpen} style={{ flexBasis: "100%" }}>
               <AssuranceDueList tally={tally} byArtifact={facts.byArtifact} readOnly={readOnly} />
             </div>
           </>

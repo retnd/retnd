@@ -50,6 +50,7 @@ import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { copyText } from "@shared/utilities/copyText";
 import { encryptionEventText } from "@shared/encryption/feedText";
 import { Link, useInRouterContext } from "react-router-dom";
+import { backupSetPath } from "@shared/utilities/routes";
 import { showSetInTerminal } from "@shared/state/dockFocus";
 import { stageWords as stageWordsOf } from "@shared/types/operation";
 import {
@@ -691,7 +692,7 @@ export function UnfinishedActionsNotice({ actions, onTerminal = false }: { actio
   );
 }
 
-function ActivityLogView({ events, label }: { events: SetActivityEvent[]; label: string }) {
+function ActivityLogView({ events, label, caption }: { events: SetActivityEvent[]; label: string; caption: boolean }) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const latest = events.length > 0 ? events[events.length - 1].sequence : 0;
 
@@ -705,8 +706,11 @@ function ActivityLogView({ events, label }: { events: SetActivityEvent[]; label:
 
   return (
     <div className="activity-log" role="log" aria-live="polite" aria-label={"Terminal log for " + label} ref={scroller}>
-      {/* #1504: a log scrolled into view on its own still says whose it is. */}
-      <div
+      {/* #1504: a log scrolled into view on its own still says whose it is.
+          Only where the page does not already say it: a set's own page has
+          its name in the header two lines up. The log is named for the set
+          either way. */}
+      {caption ? <div
         style={{
           position: "sticky", top: 0, margin: "calc(var(--space-2) * -1) calc(var(--space-3) * -1) var(--space-2)",
           padding: "var(--space-1) var(--space-3)", background: "var(--accent-quiet)", color: "var(--text)",
@@ -714,7 +718,7 @@ function ActivityLogView({ events, label }: { events: SetActivityEvent[]; label:
         }}
       >
         Terminal log for {label}
-      </div>
+      </div> : null}
       {events.map((e) => {
         const line = activityLine(e);
         return (
@@ -868,7 +872,7 @@ export function ActivityStrip({
   // The set's name opens its details page, where the Dashboard is a router.
   const nameNode = (
     heading && inRouter
-      ? <Link to={"/sets/" + set.id} aria-label={"Open backup set " + set.id} style={{ color: "var(--link, var(--accent))", textDecoration: "underline", textUnderlineOffset: 3 }}>{set.name}</Link>
+      ? <Link to={backupSetPath(set.source, set.set)} style={{ color: "var(--link, var(--accent))", textDecoration: "underline", textUnderlineOffset: 3 }}>{set.name}</Link>
       : set.name
   );
 
@@ -1003,7 +1007,7 @@ export function ActivityStrip({
       <UnfinishedActionsNotice actions={activity.unfinishedActions ?? []} />
 
       <ActivityToolbar events={activity.events} open={open} onToggle={() => setOpen((v) => !v)} setId={activity.setId} />
-      {open ? <ActivityLogView events={activity.events} label={set.name} /> : null}
+      {open ? <ActivityLogView events={activity.events} label={set.name} caption={heading} /> : null}
     </section>
   );
 }

@@ -63,6 +63,32 @@ test.describe("#1504 separation between backup sets on the Dashboard", () => {
   });
 });
 
+test.describe("#1504 each set's name opens its details page", () => {
+  test("#1504 the name is a link to the set's page, built the way every other link to it is", async ({ page }) => {
+    await opened(page);
+    const link = strips(page).first().getByRole("link");
+    await expect(link).toHaveAttribute("href", /^\/sets\/[^/]+\/[^/]+$/);
+    await link.click();
+    await expect(page).toHaveURL(/\/sets\/[^/]+\/[^/]+$/);
+  });
+
+  test("#1504 the link's accessible name is its visible text, so voice control can say it", async ({ page }) => {
+    await opened(page);
+    const link = strips(page).first().getByRole("link");
+    await expect(link).toHaveAccessibleName((await link.textContent())!.trim());
+  });
+
+  test("#1504 a set's own page keeps its look: no card edge and no caption repeating its header", async ({ page }) => {
+    await open(page, "/sets/production/postgres-primary");
+    const strip = strips(page).first();
+    await expect(strip).toBeVisible();
+    expect(await strip.evaluate((el) => parseFloat(getComputedStyle(el).borderTopWidth))).toBe(0);
+    await expect(strip.getByText(/^Terminal log for /)).toHaveCount(0);
+    // The log is still named for the set, for a screen reader.
+    await expect(strip.getByRole("log")).toHaveAccessibleName(/Terminal log for /);
+  });
+});
+
 test.describe("#1504 the Assurance list collapses", () => {
   test("#1504 it is collapsed by default, and the toggle says how many backups are behind it", async ({ page }) => {
     await opened(page);
