@@ -85,8 +85,10 @@ CONTROLS = [
     (
         "a terminal command echoed that the CLI does not have",
         "src/assurance/assuranceCommands.ts",
-        'return "retnd scrub " + setId;',
-        'return "retnd scrub-now " + setId; // ' + PLANT,
+        # Re-anchored for #1532: #1253's review quoted every id a twin prints,
+        # and this control had planted nothing since.
+        'return "retnd scrub " + shellQuote(setId);',
+        'return "retnd scrub-now " + shellQuote(setId); // ' + PLANT,
         ["src/test/assurance-wiring.test.ts"],
         [],
         "assurance-wiring",
@@ -249,10 +251,35 @@ def body(root: Path) -> int:
     return harness.EXIT_OK
 
 
+def check_anchors(root: Path) -> int:
+    """Every control's anchor is still in the file it plants into (#1532).
+
+    No node and no browser, so it runs with the static checks
+    (scripts/selftest/check-anchors.sh) and a refactor that moves an anchor
+    is caught in a second rather than at the end of the browser lane.
+    """
+    stale = 0
+    for label, rel, old, _new, _units, _specs, _needle in CONTROLS:
+        path = root / "ui" / "shared" / rel
+        if not path.is_file() or old not in path.read_text():
+            print(f"  STALE ANCHOR: {label}: ui/shared/{rel} no longer contains the text this control plants over")
+            stale += 1
+    if stale:
+        print(f"FAIL: {stale} of {len(CONTROLS)} assurance UI anchors no longer match the tree.", file=sys.stderr)
+        return harness.EXIT_FAILED
+    print(f"OK: all {len(CONTROLS)} assurance UI mutation anchors still name code that is in this tree.")
+    return harness.EXIT_OK
+
+
 def main(argv: list[str]) -> int:
     harness.set_program(PROGRAM)
     harness.install_signal_handlers()
     root = harness.repo_root(Path(__file__))
+    if argv == ["--check-anchors"]:
+        return harness.finish(lambda: check_anchors(root))
+    if argv:
+        print(f"usage: {sys.argv[0]} [--check-anchors]", file=sys.stderr)
+        return harness.EXIT_USAGE
     return harness.finish(lambda: body(root))
 
 
