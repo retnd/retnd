@@ -412,6 +412,14 @@ def commit_of(root: Path) -> str:
 def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | None) -> int:
     tally = selftest_swap.Tally()
     controls = [c for c in CONTROLS if selected(c, only)]
+    if os.environ.get("RETND_SELFTEST_SKIP_BROWSER") == "1":
+        # The controls that drive a browser or the capture rig go through the
+        # Playwright lock on a machine that has the pinned image; the gate hosts
+        # do not (#1537). Say so out loud, run the rest, and leave the skipped
+        # ones to a lane that has a browser.
+        browser = [c for c in controls if c.cmd and c.cmd[0].endswith("xdg-pw-lock.sh")]
+        controls = [c for c in controls if c not in browser]
+        print(f"==> RETND_SELFTEST_SKIP_BROWSER=1: not running {len(browser)} browser or capture controls, which need the Playwright lock and image")
     labels = [c.label for c in CONTROLS]
     dupes = sorted({x for x in labels if labels.count(x) > 1})
     if dupes:
