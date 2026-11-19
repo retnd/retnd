@@ -107,7 +107,9 @@ func TestObservabilitySettings_ADeploymentThatNeverWroteTheBlockReadsEverythingO
 }
 
 func TestObservabilitySettings_APatchIsReResolvedAndPersisted(t *testing.T) {
-	path := writeObservabilityRouteConfig(t, "")
+	// A webhook delivery names where its URL is kept (#901), and a file that
+	// is not provisioned yet is not a refusal.
+	path := writeObservabilityRouteConfig(t, "observability:\n  alerts:\n    webhook:\n      url_ref:\n        file: /nonexistent/webhook-url\n")
 	router, closeRouter := gatedBoundaryRouter(t, path)
 	defer closeRouter()
 
