@@ -2888,6 +2888,37 @@ assert_contains "X11 a Linux host runs the specs" "$UI_BROWSER_STUB specs" "$out
 assert_not_contains "X11 bare, with no lock to take" 'PW-LOCK-HELD' "$out"
 assert_eq "X11 and the shard ends ok" "==> ci-local: ok (shard ui-browser)" "$(printf '%s\n' "$out" | tail -n 1)"
 
+# X12: the lane half of the encryption and agents self-tests runs in this
+# shard, and only that half; their own shards leave it out by name (#1543).
+selftest_stubs() { # <tree> <encryption exit> <agents exit>
+  printf '#!/usr/bin/env bash\necho "SELFTEST-STUB encryption lane=$RETND_SELFTEST_LANE"\nexit %s\n' "$2" >"$1/scripts/encryption/selftest.sh"
+  printf '#!/usr/bin/env bash\necho "SELFTEST-STUB agents lane=$RETND_SELFTEST_LANE"\nexit %s\n' "$3" >"$1/scripts/agents/selftest.sh"
+}
+tree="$(make_full_tree)"
+selftest_stubs "$tree" 0 0
+run_gate "$tree" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh -- --shard ui-browser
+assert_contains "X12 the ui-browser shard runs the encryption self-test's lane half" "SELFTEST-STUB encryption lane=only" "$out"
+assert_contains "X12 and the agents self-test's" "SELFTEST-STUB agents lane=only" "$out"
+assert_eq "X12 and ends ok" "==> ci-local: ok (shard ui-browser)" "$(printf '%s\n' "$out" | tail -n 1)"
+tree="$(make_full_tree)"
+selftest_stubs "$tree" 0 0
+run_gate "$tree" -- --shard selftest-encryption
+assert_contains "X12 the selftest-encryption shard leaves the lane half out" "SELFTEST-STUB encryption lane=skip" "$out"
+tree="$(make_full_tree)"
+selftest_stubs "$tree" 0 0
+run_gate "$tree" -- --shard selftest-agents
+assert_contains "X12 the selftest-agents shard leaves the lane half out" "SELFTEST-STUB agents lane=skip" "$out"
+tree="$(make_full_tree)"
+selftest_stubs "$tree" 1 0
+run_gate "$tree" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh -- --shard ui-browser
+assert_nonzero "X12 a lane control that did not go red fails the run" "$status"
+assert_contains "X12 the verdict line names the step" "ci-local: FAILED (the encryption and suite guards' browser and capture controls" "$out"
+tree="$(make_full_tree)"
+selftest_stubs "$tree" 0 3
+run_gate "$tree" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh -- --shard ui-browser
+assert_contains "X12 a lane the agents self-test could not run is ledgered" '==> ci-local: INCOMPLETE (shard ui-browser)' "$out"
+assert_eq "X12 it exits $INCOMPLETE" "$INCOMPLETE" "$status"
+
 # ------------------------------------------------------------------ result
 
 echo

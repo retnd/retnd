@@ -1189,7 +1189,7 @@ gate_seg_ui_browser() {
 # Mac unless RETND_UI_BROWSER_ALLOW_LOCAL=1 says so (see gate_ui_browser).
 if [ "$FAST" != "1" ]; then
   if [ "${CI_LOCAL_SKIP_UI_BROWSER:-0}" = "1" ]; then
-    gate_note_skip "the ui/shared browser specs and the assurance UI mutation self-test, which are the only automated execution either of them gets (CI_LOCAL_SKIP_UI_BROWSER=1)"
+    gate_note_skip "the ui/shared browser specs, the assurance UI mutation self-test and the lane half of the encryption and agents self-tests, which are the only automated execution any of them gets (CI_LOCAL_SKIP_UI_BROWSER=1)"
   else
     gate_docker_step "ui/shared browser specs (ui/shared/e2e), every file, in the pinned Playwright image (#1537)"
     gate_ui_browser "the ui/shared browser specs" bash scripts/e2e/ui-browser.sh specs ui/shared/e2e/playwright.config.ts
@@ -1199,6 +1199,20 @@ if [ "$FAST" != "1" ]; then
     # Its anchors are also checked statically by scripts/selftest/check-anchors.sh.
     gate_docker_step "the assurance UI guards can actually fail (browser mutation self-test, #1532)"
     gate_ui_browser "the assurance UI mutation self-test" bash scripts/e2e/ui-browser.sh run bash scripts/assurance/ui-selftest.sh
+
+    # The lane half of the encryption (#1531) and agents (#1530) mutation
+    # self-tests (#1543): their browser spec, vitest, tsc, contrast and
+    # capture controls, which their own shards leave out by name because those
+    # have no docker. Each control plants its violation in a copy of the tree
+    # and runs its narrowed command through this lane from the copy, twice
+    # (planted, then not), so the copy has to sit where the daemon sees the
+    # same path: TMPDIR, which scripts/ci-docker.sh shares with a Linux host.
+    # The capture controls use the image scripts/e2e/capture.Dockerfile
+    # describes (scripts/e2e/ui-capture.sh builds it). A 3 is ledgered.
+    gate_docker_step "the encryption and suite guards' browser and capture controls can actually fail, in the Chromium lane (#1531, #1543)"
+    gate_ui_browser "the encryption self-test's lane controls" env RETND_SELFTEST_LANE=only bash scripts/encryption/selftest.sh
+    gate_docker_step "the agent guards' browser and capture controls can actually fail, in the Chromium lane (#1530, #1543)"
+    gate_ui_browser "the agents self-test's lane controls" env RETND_SELFTEST_LANE=only bash scripts/agents/selftest.sh
   fi
 fi
 }

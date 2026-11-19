@@ -49,6 +49,8 @@
 ==> browser e2e + CLI smoke, from retnd-tests at the pinned sha (#197), the browser suite judged against the known-red ratchet (#1260)
 ==> ui/shared browser specs (ui/shared/e2e), every file, in the pinned Playwright image (#1537)
 ==> the assurance UI guards can actually fail (browser mutation self-test, #1532)
+==> the encryption and suite guards' browser and capture controls can actually fail, in the Chromium lane (#1531, #1543)
+==> the agent guards' browser and capture controls can actually fail, in the Chromium lane (#1530, #1543)
 ==> two throwaway machines, one temporary network, one real backup (#356)
 ==> three-layer boundaries, static checks (§7.1, #165)
 ==> installer prerequisite refusals (#262)
