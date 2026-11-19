@@ -662,7 +662,8 @@ scrub_env() {
   env -u CI_LOCAL_FAST -u CI_LOCAL_SKIP_JS -u CI_LOCAL_SKIP_DOCKER \
     -u CI_LOCAL_SELFTEST -u CI_LOCAL_SKIP_E2E -u CI_LOCAL_SKIP_TWO_MACHINE \
     -u CI_LOCAL_RED -u CI_LOCAL_FULL -u CI_LOCAL_TIER -u GATE_SHARD -u CI -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
-    -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_PREFIX "$@"
+    -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_PREFIX \
+    -u RETND_GATE_STALL_MIN -u RETND_GATE_STEP_CAP_MIN -u GATE_STALL_POLL -u GATE_STALL_GRACE "$@"
 }
 
 run_hook() { # <tree> [VAR=VAL ...]
@@ -2633,6 +2634,123 @@ v5_clocked="$(printf '%s\n' "$out" | grep -c '^==> .* \[20[0-9][0-9]-[0-9][0-9]-
 if [ "$v5_clocked" -ge 10 ]; then pass "V5 a real run stamps its step headings ($v5_clocked)"; else fail "V5 a real run stamps its step headings -- got $v5_clocked" "$out"; fi
 assert_contains "V5 and ends with the step clock before the verdict" '==> step clock: ' "$out"
 assert_eq "V5 the verdict is still the last line" '==> ci-local: ok' "$(printf '%s\n' "$out" | tail -n 1)"
+
+# ------------- Group X: a step that stalls is stopped, and says so (#1540)
+
+echo "==> X. the stall watchdog"
+
+# Every case runs the real gate on the selftest-recovery shard, whose one step
+# is scripts/recovery/selftest.sh, and replaces that stub with the behaviour
+# under test. The limits are fractions of a minute so a case takes seconds:
+# 0.1 is a 6s no-progress window. The docker stand-in logs every call and
+# answers the watchdog's label query with one container, so "its containers
+# were stopped" is a call this suite can read back.
+X_HEADING='the recovery guards can actually fail (mutation self-test, #976)'
+X_KNOBS=(RETND_GATE_STALL_MIN=0.1 GATE_STALL_POLL=0.5 GATE_STALL_GRACE=2)
+
+x_tree() { # -> a full tree with a logging docker and a private TMPDIR
+  x_t="$(make_full_tree)"
+  mkdir -p "$x_t/tmp"
+  cat >"$x_t/bin/docker" <<'DOCKER'
+#!/bin/sh
+echo "$*" >>"$(dirname "$0")/../docker.log"
+case "$*" in
+  *label=retnd-test=*)
+    case "$*" in
+      *--format*) echo "cafe0001 fixture-step-container Up 2 minutes alpine:3.20" ;;
+      *) echo cafe0001 ;;
+    esac ;;
+esac
+exit 0
+DOCKER
+  chmod +x "$x_t/bin/docker"
+  printf '%s\n' "$x_t"
+}
+
+x_step() { # <tree> <body of the step>
+  printf '#!/usr/bin/env bash\n%s\n' "$2" >"$1/scripts/recovery/selftest.sh"
+}
+
+# The dockerlease owner of a tree, computed the way core/tests/dockerlease does.
+x_owner() {
+  x_top="$(cd "$1" && git rev-parse --show-toplevel)"
+  if command -v sha256sum >/dev/null 2>&1; then printf '%s' "$x_top" | sha256sum | cut -c1-12
+  else printf '%s' "$x_top" | shasum -a 256 | cut -c1-12; fi
+}
+
+x_run() { # <tree> [VAR=VAL ...]; sets out, status and x_took (seconds)
+  x_began="$(date +%s)"
+  x_t="$1"
+  shift
+  run_gate "$x_t" TMPDIR="$x_t/tmp" "$@" -- --shard selftest-recovery
+  x_took=$(( $(date +%s) - x_began ))
+}
+
+# X1: a step that prints a line and goes quiet is stopped well before it would
+# have ended, its processes and containers go, and the run says STALLED.
+tree="$(x_tree)"
+x_step "$tree" 'echo "planted: the recovery self-test is about to go quiet"
+sleep 120 &
+echo "$!" >.quiet-child.pid
+wait'
+x_run "$tree" "${X_KNOBS[@]}"
+assert_eq "X1 a silent step fails the run" 1 "$status"
+assert_contains "X1 and the verdict says STALLED and names the step" "==> ci-local: FAILED (STALLED: $X_HEADING, no output for" "$out"
+assert_contains "X1 and names the shard" "shard selftest-recovery)" "$out"
+case "$(printf '%s\n' "$out" | tail -n 1)" in
+  "==> ci-local: FAILED (STALLED: $X_HEADING, "*) pass "X1 the STALLED verdict is the last line" ;;
+  *) fail "X1 the STALLED verdict is the last line" "$(printf '%s\n' "$out" | tail -n 3)" ;;
+esac
+if [ "$x_took" -lt 60 ]; then pass "X1 the step was stopped, not waited out (${x_took}s of its 120s)"; else fail "X1 the step was stopped, not waited out (${x_took}s)" "$out"; fi
+assert_contains "X1 the diagnostics carry the tail of its output" "        planted: the recovery self-test is about to go quiet" "$out"
+assert_contains "X1 and its processes" "sleep 120" "$out"
+assert_contains "X1 and the segment it was in" "segment: gate_seg_selftest_recovery" "$out"
+x_child="$(cat "$tree/.quiet-child.pid" 2>/dev/null || echo none)"
+if [ "$x_child" != none ] && ! kill -0 "$x_child" 2>/dev/null; then pass "X1 the step's own child process is gone"; else fail "X1 the step's own child process is gone (pid $x_child)"; kill "$x_child" 2>/dev/null; fi
+x_docker="$(cat "$tree/docker.log" 2>/dev/null)"
+assert_contains "X1 the containers asked about are this worktree's dockerlease ones" "label=retnd-test=$(x_owner "$tree")" "$x_docker"
+assert_contains "X1 and they were removed" "rm -f cafe0001" "$x_docker"
+assert_contains "X1 and the run says so" "stopped and removed container cafe0001" "$out"
+assert_eq "X1 the watchdog left nothing in TMPDIR" "" "$(ls "$tree/tmp")"
+
+# X2: a slow step that keeps talking is left alone, though it runs past the
+# no-progress window, and the shard still ends ok. This is the control for
+# X1: the same shard and fixture can end ok.
+tree="$(x_tree)"
+x_step "$tree" 'for i in 1 2 3 4 5 6 7 8 9 10 11 12; do echo "chatty $i"; sleep 1; done'
+x_run "$tree" "${X_KNOBS[@]}"
+assert_not_contains "X2 a chatty slow step is not STALLED" "STALLED" "$out"
+assert_contains "X2 it ran to its end" "chatty 12" "$out"
+assert_eq "X2 and the shard ends ok" "==> ci-local: ok (shard selftest-recovery)" "$(printf '%s\n' "$out" | tail -n 1)"
+assert_eq "X2 with status 0" 0 "$status"
+x_rec="$(awk -F '\t' -v h="$X_HEADING" '$2 == h { print $1 }' "$tree/.git/ci-local-step-durations.$(hostname)" 2>/dev/null)"
+if [ -n "$x_rec" ] && [ "$x_rec" -ge 11 ]; then pass "X2 the step's duration is recorded for the next run's cap (${x_rec}s)"; else fail "X2 the step's duration is recorded for the next run's cap" "[$x_rec]"; fi
+assert_eq "X2 the watchdog left nothing in TMPDIR" "" "$(ls "$tree/tmp")"
+
+# X3: a step that keeps talking and never ends is stopped at its hard cap.
+tree="$(x_tree)"
+x_step "$tree" 'i=0; while [ $i -lt 240 ]; do i=$((i + 1)); echo "endless $i"; sleep 0.5; done'
+x_run "$tree" "${X_KNOBS[@]}" RETND_GATE_STEP_CAP_MIN=0.2
+assert_eq "X3 an endless chatty step fails the run" 1 "$status"
+assert_contains "X3 at its hard cap, as STALLED" "==> ci-local: FAILED (STALLED: $X_HEADING, still running after" "$out"
+assert_contains "X3 and the cap is the one asked for" "past its 12s hard cap" "$out"
+if [ "$x_took" -lt 60 ]; then pass "X3 and it did not run its 120s (${x_took}s)"; else fail "X3 and it did not run its 120s (${x_took}s)" "$out"; fi
+
+# X4: with a recorded duration, the cap is 1.5 times it (here 10s -> 15s, above
+# the floor of two 6s windows), not RETND_GATE_STEP_CAP_MIN's 180 minutes.
+tree="$(x_tree)"
+printf '10\t%s\n' "$X_HEADING" >"$tree/.git/ci-local-step-durations.$(hostname)"
+x_step "$tree" 'i=0; while [ $i -lt 240 ]; do i=$((i + 1)); echo "endless $i"; sleep 0.5; done'
+x_run "$tree" "${X_KNOBS[@]}"
+assert_contains "X4 a recorded 10s step is capped at 15s" "past its 15s hard cap" "$out"
+assert_eq "X4 and that fails the run" 1 "$status"
+
+# X5: a limit that is not a number of minutes is refused before any step.
+tree="$(x_tree)"
+x_run "$tree" RETND_GATE_STALL_MIN=ten
+assert_nonzero "X5 RETND_GATE_STALL_MIN=ten is refused" "$status"
+assert_contains "X5 and says what it wants" "have to be a number of minutes" "$out"
+assert_not_contains "X5 and no step ran" "$X_HEADING [" "$out"
 
 # ------------- Group W: the gate knows its shards (#1457)
 
