@@ -474,8 +474,12 @@ func TestWebhookUnresolvableIsLoudKeepsTheMapAndHeals(t *testing.T) {
 		t.Fatal("the state changed without a change in the reference")
 	}
 
+	// Probes between passes find it still broken too.
+	d.Probe(ctx)
+	d.Probe(ctx)
+
 	// The activity feed hears about it once, on the change, not on every
-	// pass: a line per poll would bury the one that matters.
+	// pass or probe: a line per poll would bury the one that matters.
 	if got := destinationEvents(t, &logs); len(got) != 1 || got[0]["status"] != alert.URLStatusUnresolvable || got[0]["level"] != "ERROR" || got[0]["result"] != "error" {
 		t.Fatalf("alert_destination events after two failing passes = %v, want one ERROR line saying unresolvable", got)
 	}
