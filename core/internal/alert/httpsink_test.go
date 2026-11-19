@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -52,6 +53,11 @@ func newReceiver(t *testing.T, status int) *receiver {
 	return r
 }
 
+// fixedURL is a URL source that always answers u.
+func fixedURL(u string) func(context.Context) (obs.Secret, error) {
+	return func(context.Context) (obs.Secret, error) { return obs.NewSecret(u), nil }
+}
+
 func (r *receiver) count() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -70,7 +76,7 @@ func (r *receiver) last(t *testing.T) recorded {
 
 func (r *receiver) sink(t *testing.T, dialect string) *alert.HTTPSink {
 	t.Helper()
-	s, err := alert.NewHTTPSink(obs.NewSecret(r.srv.URL+"/hook"), dialect, 10*time.Minute, 4*time.Minute, true)
+	s, err := alert.NewHTTPSink(fixedURL(r.srv.URL+"/hook"), dialect, 10*time.Minute, 4*time.Minute, true)
 	if err != nil {
 		t.Fatalf("NewHTTPSink: %v", err)
 	}
@@ -199,7 +205,7 @@ func TestWebhookAlertmanagerRefreshesBeforeResolveTTL(t *testing.T) {
 }
 
 func TestWebhookAlertmanagerRefreshIntervalMustBeBelowTTL(t *testing.T) {
-	u := obs.NewSecret("https://alertmanager.example.invalid/api/v2/alerts")
+	u := fixedURL("https://alertmanager.example.invalid/api/v2/alerts")
 	for _, refresh := range []time.Duration{10 * time.Minute, 11 * time.Minute, 0} {
 		if _, err := alert.NewHTTPSink(u, alert.DialectAlertmanager, 10*time.Minute, refresh, false); err == nil {
 			t.Errorf("refresh %v against ttl 10m was accepted", refresh)
@@ -229,8 +235,17 @@ func TestWebhookURLGuards(t *testing.T) {
 		} else if strings.Contains(err.Error(), "hooks.example.invalid") || strings.Contains(err.Error(), "pw@") {
 			t.Errorf("%s: the refusal echoes the URL: %v", tc.name, err)
 		}
-		if _, err := alert.NewHTTPSink(obs.NewSecret(tc.url), alert.DialectGeneric, 0, 0, tc.insecure); err == nil {
-			t.Errorf("%s: NewHTTPSink accepted %q", tc.name, tc.url)
+		// The URL is resolved at each delivery, so the guard is judged there
+		// too, and it must refuse before any request is made.
+		sink, err := alert.NewHTTPSink(fixedURL(tc.url), alert.DialectGeneric, 0, 0, tc.insecure)
+		if err != nil {
+			t.Fatalf("%s: NewHTTPSink: %v", tc.name, err)
+		}
+		derr := sink.Deliver(context.Background(), alert.Alert{Kind: alert.StaleBackup, Scope: "s", ObservedAt: t0})
+		if derr == nil {
+			t.Errorf("%s: Deliver accepted %q", tc.name, tc.url)
+		} else if strings.Contains(derr.Error(), "pw@") || strings.Contains(derr.Error(), "hooks.example.invalid") {
+			t.Errorf("%s: the delivery error echoes the URL: %v", tc.name, derr)
 		}
 	}
 	// The negative control that keeps the guard honest: the bundle's own
@@ -254,7 +269,7 @@ func TestWebhookNeverFollowsRedirects(t *testing.T) {
 	}))
 	t.Cleanup(redirector.Close)
 
-	sink, err := alert.NewHTTPSink(obs.NewSecret(redirector.URL+"/hook"), alert.DialectGeneric, 0, 0, true)
+	sink, err := alert.NewHTTPSink(fixedURL(redirector.URL+"/hook"), alert.DialectGeneric, 0, 0, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +301,7 @@ func TestWebhookTLSVerificationIsOn(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
 	t.Cleanup(srv.Close)
-	sink, err := alert.NewHTTPSink(obs.NewSecret(srv.URL+"/hook"), alert.DialectGeneric, 0, 0, false)
+	sink, err := alert.NewHTTPSink(fixedURL(srv.URL+"/hook"), alert.DialectGeneric, 0, 0, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +328,7 @@ func TestWebhookResponseIsBounded(t *testing.T) {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	sink, _ := alert.NewHTTPSink(obs.NewSecret(srv.URL), alert.DialectGeneric, 0, 0, true)
+	sink, _ := alert.NewHTTPSink(fixedURL(srv.URL), alert.DialectGeneric, 0, 0, true)
 	if err := sink.Deliver(context.Background(), alert.Alert{Kind: alert.StaleBackup, Scope: "s", ObservedAt: t0}); err != nil {
 		t.Fatalf("a 200 with a huge body failed: %v", err)
 	}
@@ -330,7 +345,7 @@ func TestWebhookURLNeverLeaksIntoErrorsOrLogs(t *testing.T) {
 	url := srv.URL + secretPath
 	host := strings.TrimPrefix(srv.URL, "http://")
 
-	sink, err := alert.NewHTTPSink(obs.NewSecret(url), alert.DialectGeneric, 0, 0, true)
+	sink, err := alert.NewHTTPSink(fixedURL(url), alert.DialectGeneric, 0, 0, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,3 +400,93 @@ func TestDispatcherAdoptStateCarriesFiringAndDelivered(t *testing.T) {
 }
 
 func sprint(v any) string { return fmt.Sprintf("%v %+v %#v", v, v, v) }
+
+// Decision 4: the URL is resolved at every delivery attempt, so a rotated
+// file is picked up by the next alert with no PATCH and no restart.
+func TestWebhookResolvesTheURLAtEachDelivery(t *testing.T) {
+	first, second := newReceiver(t, 200), newReceiver(t, 200)
+	var mu sync.Mutex
+	current := first.srv.URL + "/hook"
+	sink, err := alert.NewHTTPSink(func(context.Context) (obs.Secret, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return obs.NewSecret(current), nil
+	}, alert.DialectGeneric, 0, 0, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := alert.Alert{Kind: alert.StaleBackup, Scope: "s", ObservedAt: t0}
+	if err := sink.Deliver(context.Background(), a); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	current = second.srv.URL + "/hook"
+	mu.Unlock()
+	if err := sink.Deliver(context.Background(), a); err != nil {
+		t.Fatal(err)
+	}
+	if first.count() != 1 || second.count() != 1 {
+		t.Fatalf("deliveries went first=%d second=%d, want one each: a rotated URL must be used by the next alert", first.count(), second.count())
+	}
+}
+
+// Decision 3: a URL that cannot be read is loud, keeps the firing map, is
+// retried on the ladder, and heals itself.
+func TestWebhookUnresolvableIsLoudKeepsTheMapAndHeals(t *testing.T) {
+	r := newReceiver(t, 200)
+	var mu sync.Mutex
+	broken := true
+	sink, err := alert.NewHTTPSink(func(context.Context) (obs.Secret, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if broken {
+			return obs.Secret{}, errors.New("the secret file does not exist")
+		}
+		return obs.NewSecret(r.srv.URL + "/hook"), nil
+	}, alert.DialectGeneric, 0, 0, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	d := alert.NewDispatcher(sink, obs.New(&logs, obs.LevelDebug))
+	ctx := context.Background()
+
+	if got := d.SinkStatus(); got != alert.URLStatusUnknown {
+		t.Fatalf("status before anything was tried = %q, want %q", got, alert.URLStatusUnknown)
+	}
+	d.Observe(ctx, stale, nil, t0)
+	if got := d.SinkStatus(); got != alert.URLStatusUnresolvable {
+		t.Fatalf("status = %q after a failed resolve, want %q", got, alert.URLStatusUnresolvable)
+	}
+	if !strings.Contains(logs.String(), "unresolvable") {
+		t.Fatalf("a webhook that cannot be built said nothing in the log: %q", logs.String())
+	}
+	if snap := d.FiringSnapshot(); len(snap) != 1 || snap[stale[0].Key()] {
+		t.Fatalf("firing map = %v, want the condition kept and undelivered", snap)
+	}
+	if r.count() != 0 {
+		t.Fatal("a request was made without a URL")
+	}
+
+	// Still broken at the next pass inside the retry delay: stays loud, no request.
+	d.Observe(ctx, stale, nil, t0.Add(time.Minute))
+	if d.SinkStatus() != alert.URLStatusUnresolvable || r.count() != 0 {
+		t.Fatal("the state changed without a change in the reference")
+	}
+
+	// A probe on its own (no condition) also reports, and heals.
+	mu.Lock()
+	broken = false
+	mu.Unlock()
+	d.Probe(ctx)
+	if got := d.SinkStatus(); got != alert.URLStatusOK {
+		t.Fatalf("status after the reference became readable = %q, want %q", got, alert.URLStatusOK)
+	}
+	d.Observe(ctx, stale, nil, t0.Add(6*time.Minute))
+	if r.count() != 1 {
+		t.Fatalf("the retry delivered %d requests, want 1", r.count())
+	}
+	if snap := d.FiringSnapshot(); !snap[stale[0].Key()] {
+		t.Fatalf("firing map = %v, want the condition delivered after the heal", snap)
+	}
+}

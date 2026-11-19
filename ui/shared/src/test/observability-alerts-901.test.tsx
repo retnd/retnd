@@ -76,4 +76,23 @@ describe("the alert delivery controls", () => {
     show(createMockApi(), true);
     expect(((await screen.findByLabelText("Alert delivery")) as HTMLSelectElement).disabled).toBe(true);
   });
+
+  it("says loudly when the webhook URL cannot be read, and not when it can", async () => {
+    const base = createMockApi();
+    const withStatus = (urlStatus: string): RetndApi => ({
+      ...base,
+      getObservabilitySettings: async () => {
+        const s = await base.getObservabilitySettings();
+        return { ...s, alerts: { ...s.alerts, delivery: "webhook", webhook: { ...s.alerts.webhook, urlSet: true, urlStatus } } };
+      }
+    });
+    show(withStatus("unresolvable"));
+    const alert = await screen.findByTestId("alert-webhook-unresolvable");
+    expect(alert.getAttribute("role")).toBe("alert");
+    expect(alert.textContent).toContain("cannot be read");
+    cleanup();
+    show(withStatus("ok"));
+    await screen.findByTestId("alert-webhook-url-state");
+    expect(screen.queryByTestId("alert-webhook-unresolvable")).toBeNull();
+  });
 });

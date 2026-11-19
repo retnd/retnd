@@ -232,3 +232,79 @@ func TestAlertSelection_AnUnchangedBlockBuildsNoNewSink(t *testing.T) {
 // waitStale lets the 1ms stale_after the alerting fixtures use outrun the
 // cycle that just finished (the same floor alerts_test.go waits).
 func waitStale() { time.Sleep(20 * time.Millisecond) }
+
+// Decision 3: a webhook whose URL cannot be read must never be silent. The
+// service says so through the settings read, keeps the firing map, and heals
+// when the reference becomes readable.
+func TestAlertSelection_AnUnreadableURLIsLoudAndHeals(t *testing.T) {
+	secrets := filepath.Join(t.TempDir(), "secrets")
+	if err := os.Mkdir(secrets, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	urlFile := filepath.Join(secrets, "webhook-url")
+	for name, ref := range map[string]string{
+		"missing file":    "file: " + urlFile,
+		"failing command": `command: ["/bin/false"]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_ = os.Remove(urlFile)
+			configPath := writeAlertingConfigFile(t, true)
+			content, err := os.ReadFile(configPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			block := "observability:\n  alerts:\n    delivery: webhook\n    webhook:\n      dialect: generic\n      allow_insecure_http: true\n      url_ref:\n        " + ref + "\n"
+			if err := os.WriteFile(configPath, append(content, block...), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			svc, cleanup, err := Open(context.Background(), configPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = cleanup() })
+			ctx := context.Background()
+
+			if !svc.EnableAlerts(nil) {
+				t.Fatal("an unreadable URL switched alerting off: a webhook that cannot be built must stay on and say so")
+			}
+			status := func() string {
+				s, err := svc.ObservabilitySettings(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return s.Alerts.Webhook.URLStatus
+			}
+			if got := status(); got != "unresolvable" {
+				t.Fatalf("url status = %q right after wiring, want unresolvable", got)
+			}
+
+			svc.state.Load().inner.RunCycle(ctx)
+			waitStale()
+			svc.state.Load().inner.AlertTick(ctx)
+			snap := svc.state.Load().inner.Alerts.FiringSnapshot()
+			if len(snap) != 1 {
+				t.Fatalf("firing map = %v, want the stale condition kept", snap)
+			}
+			for k, delivered := range snap {
+				if delivered {
+					t.Fatalf("condition %q reads delivered with no URL to deliver to", k)
+				}
+			}
+			if got := status(); got != "unresolvable" {
+				t.Fatalf("url status = %q after a pass, want unresolvable", got)
+			}
+
+			if name != "missing file" {
+				return
+			}
+			receiver := newWebhookReceiver(t)
+			if err := os.WriteFile(urlFile, []byte(receiver.srv.URL+"/hook"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			svc.state.Load().inner.AlertTick(ctx)
+			if got := status(); got != "ok" {
+				t.Fatalf("url status = %q once the file exists, want ok: the state must heal itself", got)
+			}
+		})
+	}
+}
