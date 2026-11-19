@@ -97,6 +97,7 @@ import { clock } from "@shared/utilities/format";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
 import { copyText } from "@shared/utilities/copyText";
+import { DOCK_FOCUS_EVENT } from "@shared/state/dockFocus";
 
 const STORAGE = {
   open: "retnd.dock.open",
@@ -564,6 +565,21 @@ export function ActivityDock() {
       ),
     [feed.state.generations]
   );
+
+  // #1505: a set's "Show in Terminal" opens this panel on that set's chip,
+  // and drops a level filter, which would otherwise hide the very lines the
+  // operator came for.
+  useEffect(() => {
+    const onFocus = (e: Event) => {
+      const setId = (e as CustomEvent<{ setId: string }>).detail?.setId;
+      if (!setId) return;
+      setOpen(true);
+      setFilter(setId as DockFilter);
+      setLevel(null);
+    };
+    window.addEventListener(DOCK_FOCUS_EVENT, onFocus);
+    return () => window.removeEventListener(DOCK_FOCUS_EVENT, onFocus);
+  }, []);
 
   useEffect(() => writeStored(STORAGE.open, open ? "1" : "0"), [open]);
   useEffect(() => writeStored(STORAGE.height, String(height)), [height]);

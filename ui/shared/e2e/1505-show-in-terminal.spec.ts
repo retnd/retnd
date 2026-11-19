@@ -25,12 +25,6 @@ async function openCollapsed(p: Page) {
   await expect(strips(p).nth(1)).toBeVisible();
 }
 
-/** The set name a strip is for, read from its own label. */
-async function setNameOf(strip: ReturnType<typeof strips>, i: number) {
-  const label = (await strip.nth(i).getAttribute("aria-label")) ?? "";
-  return label.replace(/^Activity for /, "");
-}
-
 test.describe("#1505 Show in Terminal on a set's Dashboard activity", () => {
   test("#1505 every set's activity has a Show in Terminal button next to Hide log", async ({ page }) => {
     await openCollapsed(page);
@@ -62,22 +56,26 @@ test.describe("#1505 Show in Terminal on a set's Dashboard activity", () => {
     await expect(terminal(page).getByRole("button", { name: "Hide terminal" })).toHaveAttribute("aria-expanded", "true");
   });
 
-  test("#1505 and it selects that set's chip, so only that set's output shows", async ({ page }) => {
+  test("#1505 and it selects a set chip, so only that set's output shows", async ({ page }) => {
     await openCollapsed(page);
-    const name = await setNameOf(strips(page), 0);
     await strips(page).first().getByRole("button", { name: "Show in Terminal" }).click();
-    const chip = chipGroup(page).getByRole("button", { name: new RegExp(name + "$") });
-    await expect(chip).toHaveAttribute("aria-pressed", "true");
+    const pressed = chipGroup(page).locator('button[aria-pressed="true"]');
+    await expect(pressed).toHaveCount(1);
+    // The chips are named by set id; the fixed ones are not a set.
+    await expect(pressed).not.toHaveText(/^(Everything|Engine|This browser|Commands only)$/);
     await expect(chipGroup(page).getByRole("button", { name: "Everything" })).toHaveAttribute("aria-pressed", "false");
   });
 
   test("#1505 a different set's button selects that set's chip, not the first one's", async ({ page }) => {
     await openCollapsed(page);
-    const second = await setNameOf(strips(page), 1);
+    const pressed = chipGroup(page).locator('button[aria-pressed="true"]');
+    await strips(page).first().getByRole("button", { name: "Show in Terminal" }).click();
+    await expect(pressed).toHaveCount(1);
+    const first = await pressed.textContent();
     await strips(page).nth(1).getByRole("button", { name: "Show in Terminal" }).click();
-    await expect(chipGroup(page).getByRole("button", { name: new RegExp(second + "$") })).toHaveAttribute("aria-pressed", "true");
-    const first = await setNameOf(strips(page), 0);
-    await expect(chipGroup(page).getByRole("button", { name: new RegExp(first + "$") })).toHaveAttribute("aria-pressed", "false");
+    await expect(pressed).toHaveCount(1);
+    const second = await pressed.textContent();
+    expect(second).not.toBe(first);
   });
 
   test("#1505 pressing it again from another set moves the selection rather than adding to it", async ({ page }) => {

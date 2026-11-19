@@ -49,6 +49,7 @@ import type { StatusTone } from "@shared/components/StatusBadge";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { copyText } from "@shared/utilities/copyText";
 import { encryptionEventText } from "@shared/encryption/feedText";
+import { showSetInTerminal } from "@shared/state/dockFocus";
 import { stageWords as stageWordsOf } from "@shared/types/operation";
 import {
   recoveryEndText, recoveryStageText, recoveryStartText, recoveryTestEndText, recoveryTestStartText,
@@ -771,6 +772,11 @@ function ActivityToolbar({
           {open ? "Hide log" : "Show log"}
         </button>
       </InfoTooltip>
+      {setId ? (
+        <button type="button" className="activity-toolbar__toggle" onClick={() => showSetInTerminal(setId)}>
+          Show in Terminal
+        </button>
+      ) : null}
       <InfoTooltip id="activity.strip.line-count">
         <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-3)" }}>
           {events.length} {events.length === 1 ? "line" : "lines"}
