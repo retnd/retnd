@@ -6,23 +6,22 @@
 # U2.2 has no control here: nothing in the tree reads docs/design/1350-agents.html
 # (no guard, no test), so there is no proof for a planted violation to turn red.
 #
-# Playwright runs only through the workspace lock, one run at a time, in the
-# pinned e2e image, with the copy mounted at its own path and the real tree's
-# ui/shared/node_modules linked in (the same arrangement as
-# scripts/bdtools/encryption/controls_ui.py). The Go and shell controls run
-# wherever the driver runs.
+# The browser specs and the capture control run in the Chromium lane
+# (scripts/e2e/ui-browser.sh, and scripts/e2e/ui-capture.sh for the capture
+# rig), from the planted copy: the lane mounts the copy read-only at its own
+# path, makes its own linux install of ui/shared, and brings the pinned image,
+# a cap and a stall check, so nothing here names a machine (#1543). The same
+# arrangement as scripts/bdtools/encryption/controls_ui.py. The Go and shell
+# controls run wherever the driver runs.
 
 from typing import TYPE_CHECKING
+
+from bdtools import selftest_lane
 
 if TYPE_CHECKING:
     # Only for the type checker: at run time selftest.py execs this file
     # with both names already in scope.
     from bdtools.agents.selftest import PLANT, Control
-
-UI_LOCK = "/Users/rom/workspace/xdg-pw-lock.sh"
-UI_TREE = "/Users/rom/workspace/retnd-lanes/rel080-matrix-wt"
-UI_PW_IMAGE = "mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e"
-UI_LINKS = ["ui/shared/node_modules"]
 
 MINT_DIALOG = "ui/shared/src/agents/MintDialog.tsx"
 TOKENS_REGION = "ui/shared/src/agents/TokensRegion.tsx"
@@ -35,27 +34,7 @@ AGENTGATE = "core/tests/agentgate/matrix_test.go"
 MCP_SERVER = "core/agentmcp/server.go"
 PROJECT_GO = "core/agenttools/project.go"
 WEBHOST_MCP = "apps/common/webhost/agentmcp.go"
-
-
-def ui_playwright(spec: str, grep: str = "") -> list[str]:
-    g = f' -g "{grep}"' if grep else ""
-    return [UI_LOCK, "sh", "-c",
-            'w=$(cd ../.. && pwd -P); l=$(readlink "$w/ui/shared/node_modules" || echo "$w"); docker run --rm --init --cpus 3 --memory 4g --shm-size 1g --user 501:20 '
-            f'-e HOME=/tmp/h -e CI=1 -v "$w:$w" -v "$l:$l" -v {UI_TREE}:{UI_TREE} -w "$w/ui/shared" {UI_PW_IMAGE} '
-            f'npx playwright test -c e2e/playwright.config.ts --output /tmp/h/pw-out {spec}{g}']
-
-CAP_TREE = "/Users/rom/workspace/retnd-lanes/rel080-cap-wt"
-CAP_TAG = "retnd-capture:1.62.1"
 CAP_HARNESS = "docs/site/tools/harness.mjs"
-
-
-def capture(args: str) -> list[str]:
-    # From the copy's root; the linked node_modules resolves into the real tree.
-    # The image is the pinned Playwright image plus ffmpeg (retnd-capture:1.62.1).
-    return [UI_LOCK, "sh", "-c",
-            'w=$(pwd -P) && l=$(readlink "$w/ui/shared/node_modules" || echo "$w") && docker run --rm --init --cpus 3 --memory 5g --shm-size 1g --user 501:20 '
-            f'-e HOME=/tmp/h -v "$w:$w" -v "$l:$l" -v {CAP_TREE}:{CAP_TREE} -w "$w" {CAP_TAG} '
-            f'node docs/site/tools/capture-agents.mjs {args}']
 
 
 CONTROLS = [
@@ -70,10 +49,8 @@ CONTROLS = [
          (TOKENS_REGION, "data-token-prefix=\"\">{t.prefix}</td>",
           "data-token-prefix=\"\">{t.prefix}<i hidden>{(globalThis as any).__lastSecret}</i></td>")],
         "",
-        module="ui/shared",
-        cmd=ui_playwright("e2e/1351-agents-mint.spec.ts", "after I have stored it the token is nowhere"),
+        cmd=selftest_lane.spec("e2e/1351-agents-mint.spec.ts", "after I have stored it the token is nowhere"),
         needles=["after I have stored it the token is nowhere", "1 failed"],
-        links=UI_LINKS,
         timeout="20m",
     ),
     Control(
@@ -82,10 +59,8 @@ CONTROLS = [
         [(CONFIRM_REGION, "disabled={busy || !hasPassword} onClick={() => void approve()}",
           "disabled={busy} onClick={() => void approve()} /* " + PLANT.split("// ", 1)[1] + "no password needed. */")],
         "",
-        module="ui/shared",
-        cmd=ui_playwright("e2e/1351-agents-confirmations.spec.ts", "pressing Approve asks for the password and runs nothing"),
+        cmd=selftest_lane.spec("e2e/1351-agents-confirmations.spec.ts", "pressing Approve asks for the password and runs nothing"),
         needles=["pressing Approve asks for the password and runs nothing", "1 failed"],
-        links=UI_LINKS,
         timeout="20m",
     ),
     Control(
@@ -94,10 +69,8 @@ CONTROLS = [
         [(TOKENS_REGION, "{catalogue.data!.tools.filter((t) => t.scope === s).map((t) => <li key={t.name}><code>{t.name}</code></li>)}",
           "{catalogue.data!.tools.filter((t) => t.scope === s).map((t) => <li key={t.name}><code>{t.name}</code></li>)}{s === \"read\" ? <li key=\"planted\"><code>planted_tool</code></li> : null}{/* " + PLANT.split("// ", 1)[1] + "a tool the catalogue does not list. */}")],
         "",
-        module="ui/shared",
-        cmd=ui_playwright("e2e/1351-agents-card.spec.ts", "lists what the catalogue lists, by scope"),
+        cmd=selftest_lane.spec("e2e/1351-agents-card.spec.ts", "lists what the catalogue lists, by scope"),
         needles=["lists what the catalogue lists, by scope", "1 failed"],
-        links=UI_LINKS,
         timeout="20m",
     ),
     Control(
@@ -106,10 +79,8 @@ CONTROLS = [
         [(AGENTS_CSS, ".ag-secondary { color: var(--text-2); font-size: var(--text-xs); }",
           ".ag-secondary { color: var(--border); font-size: var(--text-xs); } /* " + PLANT.split("// ", 1)[1] + "ink under 4.5 to 1. */")],
         "",
-        module="ui/shared",
-        cmd=ui_playwright("e2e/1351-agents-contrast.spec.ts", "the tokens region, the scope list and the transport line"),
+        cmd=selftest_lane.spec("e2e/1351-agents-contrast.spec.ts", "the tokens region, the scope list and the transport line"),
         needles=["the tokens region, the scope list and the transport line", "1 failed"],
-        links=UI_LINKS,
         timeout="20m",
     ),
     Control(
@@ -165,10 +136,8 @@ CONTROLS = [
         [(MOCK_AGENTS, '"destructive operations are refused over HTTP in this release,',
           '"destructive operations are blocked over HTTP in this release,')],
         "",
-        module="ui/shared",
-        cmd=ui_playwright("e2e/1352-agent-equivalence.spec.ts", "an approved run_cycle at the shut gate"),
+        cmd=selftest_lane.spec("e2e/1352-agent-equivalence.spec.ts", "an approved run_cycle at the shut gate"),
         needles=["an approved run_cycle at the shut gate", "1 failed"],
-        links=UI_LINKS,
         timeout="20m",
     ),
     # ------------------------------------------------------------ U2.5
@@ -226,9 +195,8 @@ CONTROLS = [
         [(CAP_HARNESS, "  await page.clock.setFixedTime(FROZEN_TIME);",
           "  // " + PLANT.split("// ", 1)[1] + "the clock is not pinned.")],
         "",
-        cmd=capture("--check --only audit"),
+        cmd=selftest_lane.capture("docs/site/tools/capture-agents.mjs", "--check --only audit"),
         needles=["NOT REPRODUCIBLE", "agents-audit"],
-        links=UI_LINKS,
         timeout="20m",
     ),
 ]

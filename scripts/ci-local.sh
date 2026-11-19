@@ -761,6 +761,15 @@ bash scripts/tests/closure-no-pipe-grep-q.test.sh
 gate_step "every self-test and guard script is a step of this gate, or an exemption that names its open issue (#1530, #1531, #1533)"
 bash scripts/tests/every-guard-is-a-gate-step.test.sh
 
+# The agents and encryption self-tests' controls used to hard-code paths on
+# the maintainer's Mac and a hand-built capture image, so the gate left about
+# twenty of them out wholesale (#1543). This lists every control that would
+# not run on a Linux gate host and refuses any without an allowed reason, and
+# checks each self-test's lane half is a step of the ui-browser shard. Static,
+# a second or two: it imports the two self-tests and reads this file.
+gate_step "every agents and encryption self-test control runs on a Linux gate host, in the Chromium lane or where the driver runs, or skips for an allowed reason (#1543)"
+bash scripts/tests/selftest-linux-skips.test.sh
+
 # EPIC U's closing check (#1353), the same shape for the MCP server: the
 # canonical deployment is an empty diff against 9cd53e1f (an agent is a client of
 # /api/v1 and the engine runs exactly as before), the epic adds exactly one
@@ -1497,14 +1506,15 @@ if [ "$FAST" != "1" ]; then
   # standing claim. Only the anchors half ran before, from check_anchors.py.
   # No Docker, and the longest of the self-tests, so it is a shard of its own.
   #
-  # The controls that drive a browser or the capture rig, start docker, or run
-  # a retnd-tests case (sixteen of them) need things a gate host does not have
-  # inside its container, so they are left out loud with
-  # RETND_SELFTEST_SKIP_BROWSER=1 and wait for a lane that has them (#1537).
-  # Every other control runs. Two copycrypt controls allocate several GiB, so
-  # this shard needs a fence above 4 GB.
+  # The controls whose proof is a browser spec, vitest, tsc, the browser
+  # contrast check or the capture rig (thirteen of them) go through the
+  # Chromium lane, and this shard has no docker, so it leaves them out by name
+  # with RETND_SELFTEST_LANE=skip and the ui-browser shard runs them (#1543).
+  # The three retnd-tests cases need a checkout no shard hands the self-test
+  # yet (#1548), and say so, counted. Every other control runs. Two copycrypt
+  # controls allocate several GiB, so this shard needs a fence above 4 GB.
   gate_step "the encryption and suite guards can actually fail (mutation self-test, #1531)"
-  RETND_SELFTEST_SKIP_BROWSER=1 bash scripts/encryption/selftest.sh
+  RETND_SELFTEST_LANE=skip bash scripts/encryption/selftest.sh
 fi
 }
 
@@ -1515,10 +1525,10 @@ if [ "$FAST" != "1" ]; then
   # planted as a real violation in a real product file, and the narrowed suite
   # has to go red naming the test. core/tests/agentgate refuses a PASS row
   # whose control label is not in the file, and this is what runs them.
-  # The browser, docker and capture controls are left out loud, as for the
-  # encryption one above (#1537).
+  # The browser and capture controls run in the ui-browser shard's Chromium
+  # lane and are left out here by name, as for the encryption one above (#1543).
   gate_step "the agent (MCP) guards can actually fail (mutation self-test, #1530)"
-  RETND_SELFTEST_SKIP_BROWSER=1 bash scripts/agents/selftest.sh
+  RETND_SELFTEST_LANE=skip bash scripts/agents/selftest.sh
 fi
 }
 

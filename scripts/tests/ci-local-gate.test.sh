@@ -402,6 +402,8 @@ make_full_tree() {
   done
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/closure-no-pipe-grep-q.test.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/every-guard-is-a-gate-step.test.sh"
+  # It imports the real agents and encryption self-tests (#1543).
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/selftest-linux-skips.test.sh"
   # The self-tests of the gate's own machinery (#1533): the shard runner, the
   # --shard i/n split of the self-tests, and the release e2e hooks. Each makes
   # its own throwaway repositories and stand-in commands.

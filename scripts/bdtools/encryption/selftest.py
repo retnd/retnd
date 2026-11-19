@@ -57,7 +57,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from bdtools import harness, selftest_swap
+from bdtools import harness, selftest_lane, selftest_swap
 
 PROGRAM = "encryption selftest"
 
@@ -88,6 +88,10 @@ class Control:
     cmd: list[str] = field(default_factory=list)
     needles: list[str] = field(default_factory=list)
     links: list[str] = field(default_factory=list)
+    # Something outside the tree the control cannot run without, a key of
+    # bdtools.selftest_lane.NEEDS: it is left out, counted and named, unless
+    # the variables that provide it are set (#1543).
+    needs: str = ""
 
 
 # ---------------------------------------------------------------- EPIC T
@@ -358,7 +362,12 @@ def gate(work: Path, c: Control, race: bool) -> tuple[int, str]:
     env["GOWORK"] = "off"
     if c.cmd:
         cwd = work if c.module == "core" else work / c.module
-        proc = harness.sh(c.cmd, check=False, capture=True, cwd=cwd, env=env)
+        cmd = c.cmd
+        if selftest_lane.in_lane(cmd):
+            # On a Mac, through the Playwright lock (body() leaves the lane
+            # controls out when there is none); elsewhere, as it is.
+            cmd = [*(selftest_lane.lock_prefix() or []), *cmd]
+        proc = harness.sh(cmd, check=False, capture=True, cwd=cwd, env=env)
         return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
     tops = sorted({n.split("/", 1)[0] for n in c.names})
     pattern = "^(" + "|".join(re.escape(t) for t in tops) + ")$" if tops else "^$"
@@ -398,14 +407,6 @@ def caught(c: Control, code: int, out: str) -> tuple[bool, str]:
     return True, "; ".join(lines)[:400] + (f" | {detail[:300]}" if detail else "")
 
 
-def needs_lane(cmd: list[str]) -> bool:
-    """A control that drives a browser or the capture rig (the Playwright
-    lock), starts docker itself, or runs a case from the retnd-tests checkout:
-    none of which a gate host has inside its own container."""
-    line = " ".join(cmd)
-    return cmd[0].endswith("xdg-pw-lock.sh") or "docker " in line or "retnd_tests_case.sh" in line
-
-
 def selected(c: Control, only: list[str]) -> bool:
     return not only or any(o in c.label or o in c.rows for o in only)
 
@@ -420,14 +421,25 @@ def commit_of(root: Path) -> str:
 def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | None) -> int:
     tally = selftest_swap.Tally()
     controls = [c for c in CONTROLS if selected(c, only)]
-    if os.environ.get("RETND_SELFTEST_SKIP_BROWSER") == "1":
-        # The controls that drive a browser or the capture rig go through the
-        # Playwright lock on a machine that has the pinned image; the gate hosts
-        # do not (#1537). Say so out loud, run the rest, and leave the skipped
-        # ones to a lane that has a browser.
-        browser = [c for c in controls if c.cmd and needs_lane(c.cmd)]
-        controls = [c for c in controls if c not in browser]
-        print(f"==> RETND_SELFTEST_SKIP_BROWSER=1: not running {len(browser)} controls that need the Playwright lock, a docker daemon or the retnd-tests checkout")
+    # Which controls run here (#1543): RETND_SELFTEST_LANE=skip leaves the
+    # Chromium lane's half out by name, =only runs just that half, and a
+    # control that needs something outside the tree is left out, counted and
+    # named, until the variables that provide it are set. --check-anchors
+    # checks every anchor whatever the split.
+    incomplete: list[str] = []
+    if not dry_run:
+        try:
+            mode = selftest_lane.mode_from_env(os.environ)
+        except ValueError as e:
+            harness.die(str(e))
+        controls, left = selftest_lane.plan(controls, mode, os.environ)
+        selftest_lane.announce(left)
+        in_lane = [c for c in controls if c.cmd and selftest_lane.in_lane(c.cmd)]
+        if in_lane and selftest_lane.lock_prefix() is None:
+            # A browser never runs bare on the maintainer's Mac.
+            print(f"==> not running {len(in_lane)} Chromium lane controls: this is a Mac and there is no Playwright lock at RETND_PW_LOCK to take")
+            incomplete += [c.label for c in in_lane]
+            controls = [c for c in controls if c not in in_lane]
     labels = [c.label for c in CONTROLS]
     dupes = sorted({x for x in labels if labels.count(x) > 1})
     if dupes:
@@ -455,6 +467,12 @@ def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | 
                 if tracker.stale_verdict(c.label) or tracker.anchors_only(c.label):
                     continue
                 code, out = gate(work, c, race)
+                if c.cmd and selftest_lane.in_lane(c.cmd) and code == harness.EXIT_INCOMPLETE:
+                    # The lane's 3: this machine could not run it (no daemon,
+                    # no image, the install inside failed). Not a verdict.
+                    print(f"    the Chromium lane could not run on this machine:\n{out[-2000:]}")
+                    incomplete.append(c.label)
+                    continue
                 if EXPLORE:
                     fails = [x.strip() for x in out.splitlines() if "--- FAIL" in x or "build failed" in x or x.startswith("FAIL")]
                     print("EXPLORE " + c.label + ":\n    " + "\n    ".join(fails[:40]))
@@ -471,6 +489,10 @@ def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | 
                 verdict, green = "NOT CAUGHT", "-"
             else:
                 gcode, gout = gate(work, c, race)
+                if c.cmd and selftest_lane.in_lane(c.cmd) and gcode == harness.EXIT_INCOMPLETE:
+                    print(f"    the Chromium lane could not run the unplanted tree on this machine:\n{gout[-2000:]}")
+                    incomplete.append(c.label)
+                    continue
                 if gcode != 0:
                     tally.bad(f"{c.label}. The narrowed test FAILED on the unplanted tree, so its red means nothing.", gout[-6000:])
                     verdict, green = "RED ON A CLEAN TREE", "red"
@@ -501,6 +523,16 @@ def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | 
             file=sys.stderr,
         )
         return harness.EXIT_FAILED
+    if incomplete:
+        print(file=sys.stderr)
+        print(
+            f"INCOMPLETE: {len(incomplete)} encryption controls could not run in the Chromium lane on this machine "
+            f"({tally.passed} others went red naming their test and green again):",
+            file=sys.stderr,
+        )
+        for label in incomplete:
+            print(f"    {label}", file=sys.stderr)
+        return harness.EXIT_CANNOT_RUN
     print()
     if dry_run:
         print(f"OK: all {checked} encryption mutation anchors still name code that is in this tree.")

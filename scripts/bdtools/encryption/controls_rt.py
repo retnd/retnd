@@ -8,6 +8,9 @@
 # them. They need RETND_TESTS_DIR (that checkout, with Suite C's npm
 # dependencies and Playwright browser installed) and RETND_COMMIT in the
 # environment, and Suite C needs ui/shared's node_modules in the real tree.
+# They say so with needs="retnd-tests", so a run without the two variables
+# leaves them out counted and named (bdtools/selftest_lane.py) rather than
+# failing on a missing checkout; no gate shard hands them one yet (#1548).
 
 from typing import TYPE_CHECKING
 
@@ -46,6 +49,7 @@ CONTROLS = [
         [(CONFIG_RCE_RT, "\ts, ok := lookupSuite(declared)\n\tif !ok {\n\t\tvar known []string",
           "\ts, ok := lookupSuite(declared)\n\tif !ok {\n\t\treturn declared, false " + PLANT.strip() + "\n\t}\n\tif !ok {\n\t\tvar known []string")],
         "",
+        needs="retnd-tests",
         cmd=["bash", CASE, "a", "encryption/an-unknown-suite-fails-load"],
         needles=["--- FAIL: TestCLIContract/encryption/an-unknown-suite-fails-load"],
         timeout="30m",
@@ -56,6 +60,7 @@ CONTROLS = [
         [("core/cmd/retnd/encryption.go", "fmt.Printf(\"  suite: %s (configured: %s)\\n\", p.Suite, p.SuiteConfigured)",
           "fmt.Printf(\"  suite: %s (configured: %s)\\n\", \"age-pq/v1\", p.SuiteConfigured) " + PLANT.strip())],
         "",
+        needs="retnd-tests",
         cmd=["bash", CASE, "a", "encryption/a-key-created-under-age-v1-stays-age-v1"],
         needles=["--- FAIL: TestCLIContract/encryption/a-key-created-under-age-v1-stays-age-v1"],
         timeout="30m",
@@ -66,6 +71,7 @@ CONTROLS = [
         [(SCRUB_CLI, "\tif sum.Failed+sum.CouldNotComplete+sum.SkippedHeld+sum.SkippedLeased+sum.Refused > 0 {\n\t\treturn 1\n\t}",
           "\tif sum.Failed+sum.CouldNotComplete+sum.SkippedHeld+sum.SkippedLeased+sum.Refused > 0 {\n\t\treturn 0 " + PLANT.strip() + "\n\t}")],
         "",
+        needs="retnd-tests",
         cmd=["bash", CASE, "c", "specs/exit-codes.986.spec.ts", "a corrupted copy fails its scrub"],
         needles=["1 failed", "a failed scrub must not exit 0"],
         links=["ui/shared/node_modules"],

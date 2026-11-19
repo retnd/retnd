@@ -21,6 +21,7 @@
 ==> the EPIC T closing check refuses a moved canonical deployment or a migration other than 0020 and 0021, and can still fail (#1320)
 ==> the closure checks and their self-tests never pipe into grep -q under pipefail (#1482)
 ==> every self-test and guard script is a step of this gate, or an exemption that names its open issue (#1530, #1531, #1533)
+==> every agents and encryption self-test control runs on a Linux gate host, in the Chromium lane or where the driver runs, or skips for an allowed reason (#1543)
 ==> the EPIC U closing check refuses a moved canonical deployment, a migration other than 0022 or a BLOCKED row, and can still fail (#1353)
 ==> core/ go build
 ==> core/ go vet

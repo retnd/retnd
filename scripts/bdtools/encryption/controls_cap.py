@@ -5,47 +5,25 @@
 # defined.
 #
 # Each control runs one manifest id through capture-encryption.mjs in the
-# pinned Playwright image plus ffmpeg (the GIFs need it; the image is built from
-# CAP_DOCKERFILE when no image has that tag yet; nothing here compares the PNGs with
-# committed bytes, so whether ImageMagick is there to quantise them does not
-# matter),
-# through the workspace lock (one browser run at a time), with the copy mounted
-# at its own path and the real tree's ui/shared/node_modules linked in. That
-# node_modules needs `npm ci` plus `playwright-core@1.62.1 --no-save`,
-# installed inside the same image, so the harness can borrow Playwright.
+# Chromium lane, through scripts/e2e/ui-capture.sh, from the planted copy. That
+# builds the capture image from scripts/e2e/capture.Dockerfile (the lane's
+# pinned Playwright image plus ffmpeg, which the GIFs need) and hands it to the
+# lane, which brings the read-only mount, a linux install of ui/shared whose
+# playwright-core the harness borrows, a cap and a stall check (#1543). Nothing
+# here compares the PNGs with committed bytes, so whether ImageMagick is there
+# to quantise them does not matter.
 
 from typing import TYPE_CHECKING
+
+from bdtools import selftest_lane
 
 if TYPE_CHECKING:
     # Only for the type checker: at run time selftest.py execs this file
     # with both names already in scope.
     from bdtools.encryption.selftest import Control
 
-import os
-
-CAP_LOCK = "/Users/rom/workspace/xdg-pw-lock.sh"
-# The tree whose ui/shared/node_modules the copy links to: the one the run is made from.
-CAP_TREE = os.environ.get("RETND_CAP_TREE", "/Users/rom/workspace/retnd-lanes/rel080-cap-wt")
-CAP_IMAGE = "mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e"
-CAP_LINKS = ["ui/shared/node_modules"]
-CAP_TAG = "retnd-capture:1.62.1"
-CAP_DOCKERFILE = (
-    f"FROM {CAP_IMAGE}\\n"
-    "RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*\\n"
-)
-
 CAP_HARNESS = "docs/site/tools/harness.mjs"
 CAP_MOCK = "ui/shared/src/encryption/mockEncryption.ts"
-
-
-def capture(args: str) -> list[str]:
-    # Run from the copy's root. The linked node_modules resolves into the real
-    # tree, which is mounted at its own path too.
-    return [CAP_LOCK, "sh", "-c",
-            f'{{ docker image inspect {CAP_TAG} >/dev/null 2>&1 || printf "{CAP_DOCKERFILE}" | docker build -q -t {CAP_TAG} - >/dev/null; }} && '
-            'w=$(pwd -P) && docker run --rm --init --cpus 3 --memory 5g --shm-size 1g --user 501:20 '
-            f'-e HOME=/tmp/h -v "$w:$w" -v {CAP_TREE}:{CAP_TREE} -w "$w" {CAP_TAG} '
-            f'node docs/site/tools/capture-encryption.mjs {args}']
 
 
 CONTROLS = [
@@ -55,9 +33,8 @@ CONTROLS = [
         [(CAP_HARNESS, "  await page.clock.setFixedTime(FROZEN_TIME);",
           "  // PLANTED VIOLATION (scripts/bdtools/encryption/selftest.py): the clock is not pinned.")],
         "",
-        cmd=capture("--check --only rotated"),
+        cmd=selftest_lane.capture("docs/site/tools/capture-encryption.mjs", "--check --only rotated"),
         needles=["NOT REPRODUCIBLE", "encryption-08-rotated"],
-        links=CAP_LINKS,
         timeout="20m",
     ),
     Control(
@@ -66,9 +43,8 @@ CONTROLS = [
         [(CAP_MOCK, '      description: canary ? PQ_CANARY : "age v1 with a hybrid ML-KEM-768 and X25519 recipient; 128-bit security level.",',
           '      description: canary || scenario === "encryption-suite-change" ? PQ_CANARY : "age v1 with a hybrid ML-KEM-768 and X25519 recipient; 128-bit security level.", // PLANTED VIOLATION (scripts/bdtools/encryption/selftest.py)')],
         "",
-        cmd=capture("--only suite-select"),
+        cmd=selftest_lane.capture("docs/site/tools/capture-encryption.mjs", "--only suite-select"),
         needles=["encryption-25-suite-select would photograph key material or a canary value"],
-        links=CAP_LINKS,
         timeout="20m",
     ),
     Control(
@@ -77,9 +53,8 @@ CONTROLS = [
         [(CAP_MOCK, '      description: canary ? PQ_CANARY : "age v1 with a hybrid ML-KEM-768 and X25519 recipient; 128-bit security level.",',
           '      description: canary || scenario === "encryption-suite-change" ? PQ_CANARY : "age v1 with a hybrid ML-KEM-768 and X25519 recipient; 128-bit security level.", // PLANTED VIOLATION (scripts/bdtools/encryption/selftest.py)')],
         "",
-        cmd=capture("--only suite-flow"),
+        cmd=selftest_lane.capture("docs/site/tools/capture-encryption.mjs", "--only suite-flow"),
         needles=["encryption-suite-flow would photograph key material or a canary value"],
-        links=CAP_LINKS,
         timeout="20m",
     ),
 ]
