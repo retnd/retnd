@@ -788,7 +788,7 @@ alerts:
 A config file with no `alerts:` block at all keeps working exactly as before and
 notifies nobody, so turning this on is always a deliberate edit.
 
-**Where the alert goes is not configured here.** Delivery is the platform's own local
+**By default, where the alert goes is not configured here.** Delivery is the platform's own local
 notification capability, supplied by the provider app rather than by this file, which
 is why there is no URL, command or credential to get wrong. A platform that declares
 no native notification capability, and the generic Docker/Linux host is one, cannot
@@ -804,6 +804,49 @@ yourself. The connection stays refused until you do.
 **The same unresolved problem is reported once**, not once per poll. A condition that
 clears and later comes back does alert again, so a recurrence is never lost behind a
 notification you already dismissed.
+
+### Delivering alerts to a webhook
+
+`alerts.enabled` only decides whether anything is observed. To reach a person on a
+deployment whose platform has no notifier (the generic Docker/Linux host is one),
+choose the webhook channel. It is a selection and never a fan-out: exactly one
+channel is built, and switching it keeps what was already announced, so a standing
+alert is not announced again.
+
+```yaml
+observability:
+  alerts:
+    delivery: webhook          # platform (default) or webhook
+    webhook:
+      dialect: generic         # or alertmanager
+      url_ref:                 # where the URL is kept: file, env or command
+        file: /run/secrets/retnd-alert-webhook-url
+      allow_insecure_http: false
+      refresh_interval: 4m     # alertmanager only, must be below resolve_ttl
+      resolve_ttl: 10m
+```
+
+The URL is a credential (a Slack, Teams or Discord webhook carries its secret in the
+path), so the file holds a reference and never the URL. It is not shown in the
+settings, in an error or in a log line; a failure names the host and the status code.
+Settings answer only whether one is set.
+
+Two fixed formats, neither templatable. `generic` posts one JSON object per alert
+(`kind`, `scope`, `title`, `message`, `observed_at`, `schema`) once, and stays quiet
+while the condition lasts. `alertmanager` posts the v2 array with `labels.alertname`
+and `labels.scope`, re-sends a condition that is still true every `refresh_interval`
+so Alertmanager does not expire it, and closes it with `endsAt` set to now when it
+clears. Without that refresh an alert would resolve itself while the backup was still
+stale. If you run Prometheus, its rules over the `retnd_*` series into Alertmanager
+are the better source of truth for staleness; this format is for deployments that
+scrape nothing, and running both means two sources of truth about the same fact.
+
+What is refused: a URL that is not https (unless `allow_insecure_http` is set, which
+is for a receiver on a network you trust, such as `http://alertmanager:9093` on a
+compose network), a URL carrying `user:password@`, a non-HTTP scheme, and any redirect
+(a 3xx counts as a failed delivery and its `Location` is never followed or logged).
+Certificate verification cannot be turned off. Private and link-local targets are
+allowed on purpose, because the common correct target is on a private network.
 
 ## Metrics, and the one-release duplicate series
 
