@@ -2816,6 +2816,7 @@ func RecordedReasons() map[string]string {
 	return map[string]string{
 		"GET /health/live":  "an unauthenticated liveness probe for an orchestrator, deliberately outside /api/v1 and the spec; `" + WebBinary + " healthcheck --url` is the command that calls any probe",
 		"GET /health/ready": "an unauthenticated readiness probe for an orchestrator, deliberately outside /api/v1 and the spec; `" + WebBinary + " healthcheck --url` is the command that calls any probe",
+		"GET /metrics":      "the Prometheus scrape endpoint (EPIC O): a poll by a scraper holding the scrape credential, deliberately outside /api/v1 and the spec, and not an operator action. `" + Binary + " settings observability` turns it on and `" + Binary + " settings observability rotate-scrape-token` mints the credential",
 	}
 }
 

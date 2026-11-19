@@ -76,6 +76,11 @@ func TestNoAPIRouteBypassesAuthentication(t *testing.T) {
 			// health tests below for that claim.
 			return nil
 		}
+		if route == "/metrics" {
+			// Not public and not a session route: it has a credential of its
+			// own, and handlers_metrics_test.go drives every refusal it gives.
+			return nil
+		}
 
 		checked++
 		req := httptest.NewRequest(method, strings.ReplaceAll(route, "{id}", "op_1"), nil)
@@ -643,7 +648,7 @@ func TestEveryMutatingAPIRouteRefusesARequestWithNoCSRFPair(t *testing.T) {
 			// deliberately exempt from this gate.
 			return nil
 		}
-		if route == "/health/live" || route == "/health/ready" {
+		if route == "/health/live" || route == "/health/ready" || route == "/metrics" {
 			return nil
 		}
 		if destructiveGateExemptRoutes[method+" "+route] || destructiveGateTargetKindRoutes[method+" "+route] != nil {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/retnd/retnd/apps/common/auth/local"
 	"github.com/retnd/retnd/apps/common/platform/capabilities"
 	"github.com/retnd/retnd/core/envcompat"
 	"github.com/retnd/retnd/core/legacypath"
@@ -249,6 +250,11 @@ func debugShortcutEnv() bool {
 type handlers struct {
 	agents        AgentAccess
 	observability ObservabilityAccess
+	// scrape is the Prometheus endpoint's backend, the limiter that bounds the
+	// refusals one address may cause, and the forwarded-header rule that keys it.
+	scrape        ScrapeAccess
+	scrapeLimiter *local.RateLimiter
+	trustFwd      bool
 	confirmations AgentConfirmations
 	// router is the handler a confirmation's recorded request is replayed
 	// through (agentconfirmations.go): the whole /api/v1 chain, set once NewRouter
@@ -334,6 +340,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	agents, _ := cfg.Backend.(AgentAccess)
 	confirmations, _ := cfg.Backend.(AgentConfirmations)
 	observability, _ := cfg.Backend.(ObservabilityAccess)
+	scrape, _ := cfg.Backend.(ScrapeAccess)
 
 	// The agents: block as it resolved, for the limits and the transport. A
 	// backend that does not report one gets the defaults: transport off, sixty
@@ -350,6 +357,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	h := &handlers{
 		agents:        agents,
 		observability: observability,
+		scrape:        scrape,
+		scrapeLimiter: newScrapeLimiter(),
+		trustFwd:      cfg.TrustForwardedHeaders,
 		confirmations: confirmations,
 		agentPolicy:   policy,
 		platform:      cfg.Platform,
@@ -388,6 +398,23 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	r.Get("/health/live", healthLive)
 	r.Get("/health/ready", h.healthReady)
+	// The Prometheus scrape endpoint (EPIC O, #899), a sibling of the probes and
+	// outside the /api/v1 group: no recordActions, no CSRF, no destructive gate,
+	// no auditAgentCalls. Its own handler does authentication and nothing else,
+	// on every method so a refused method is counted rather than a bare 405.
+	r.Get("/metrics", h.metrics)
+	// Every other method on that path reaches the same handler, which counts it
+	// as a refused method once the credential has checked out. Registered as
+	// the mux's method-not-allowed answer rather than as a route per verb, so
+	// the route table says what is true: this is a GET route.
+	r.MethodNotAllowed(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path == "/metrics" {
+			h.metrics(w, req)
+
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
 
 	root := r
 	var proposer *agentProposer

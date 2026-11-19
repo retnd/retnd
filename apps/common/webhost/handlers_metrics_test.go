@@ -262,7 +262,7 @@ func TestMetrics_TheScrapeCredentialAndTheAgentTokenNeverCross(t *testing.T) {
 	if rec := rig.scrape("192.0.2.41:1000", "Bearer "+scrapeToken); rec.Code != http.StatusOK {
 		t.Errorf("the scrape credential on /metrics = %d, want 200", rec.Code)
 	}
-	read := httptest.NewRequest(http.MethodGet, "/api/v1/system/version", nil)
+	read := httptest.NewRequest(http.MethodGet, "/api/v1/system/health", nil)
 	read.RemoteAddr = addr
 	read.Header.Set("Authorization", "Bearer "+agent.Token)
 	if rec := serve(rig.public, read); rec.Code != http.StatusOK {

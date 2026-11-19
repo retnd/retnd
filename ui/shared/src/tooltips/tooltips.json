@@ -2302,5 +2302,29 @@
   "agents.audit.outcome": {
     "label": "Outcome",
     "html": "The status and code the engine answered with, the same code the command line prints."
+  },
+  "observability.card": {
+    "label": "Observability",
+    "html": "What this deployment offers to Prometheus, a log shipper and an alert receiver. <strong>Everything is off until you turn it on</strong>, and none of it is per backup set: a scrape endpoint, a log stream and an alert channel belong to the whole deployment."
+  },
+  "observability.metrics.enabled": {
+    "label": "Serve the scrape endpoint",
+    "html": "Turns <code>GET /metrics</code> on or off. Off, the route answers <code>404</code> and says nothing else. On, a request needs the scrape token, as a bearer token or as the password of basic auth (the username is ignored). The engine serves it on its own port inside the compose network; the published web port does not forward it."
+  },
+  "observability.metrics.interval": {
+    "label": "Report cache",
+    "html": "How long the engine reuses one health report before it reads the journal again, so any number of scrapers cost one read per interval. At least one second, 15 by default. How old the view is shows in <code>retnd_report_generated_timestamp_seconds</code>."
+  },
+  "observability.metrics.mint": {
+    "label": "Mint scrape token",
+    "html": "Makes the credential Prometheus scrapes with: a random 256-bit token starting <code>rsc_</code>, shown <strong>once</strong>. The engine keeps only a digest and the first eight characters. Minting again replaces the old token at once, so put the new one in Prometheus's credentials file and reload it. An agent token does not work on <code>/metrics</code>, and this token works nowhere else."
+  },
+  "observability.metrics.copy": {
+    "label": "Copy",
+    "html": "Writes the token to your clipboard. It does nothing else."
+  },
+  "observability.metrics.stored": {
+    "label": "I have stored it",
+    "html": "Hides the token. It cannot be shown again after this: the engine keeps only a digest. If it is lost, mint another."
   }
 }

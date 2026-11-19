@@ -16,7 +16,9 @@ func TestSettingsObservability_RotateScrapeTokenPrintsThePlaintextOnceAndNothing
 	configPath, _ := workflowFixture(t)
 
 	var code int
-	out := captureStdout(t, func() { code = run([]string{"settings", "observability", "rotate-scrape-token", "--config", configPath}) })
+	out := captureStdout(t, func() {
+		code = run([]string{"settings", "observability", "rotate-scrape-token", "--config", configPath})
+	})
 	if code != 0 {
 		t.Fatalf("rotate-scrape-token = %d, want 0; stdout:\n%s", code, out)
 	}
@@ -48,7 +50,9 @@ func TestSettingsObservability_RotateScrapeTokenPrintsThePlaintextOnceAndNothing
 		t.Fatal(err)
 	}
 
-	again := captureStdout(t, func() { code = run([]string{"settings", "observability", "rotate-scrape-token", "--config", configPath}) })
+	again := captureStdout(t, func() {
+		code = run([]string{"settings", "observability", "rotate-scrape-token", "--config", configPath})
+	})
 	if code != 0 || strings.Contains(again, token) || regexp.MustCompile(`rsc_[A-Za-z0-9_-]{43}`).FindString(again) == "" {
 		t.Errorf("a second mint must print a new credential and never the old one, got:\n%s", again)
 	}

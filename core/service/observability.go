@@ -95,7 +95,10 @@ func (r UpdateObservabilitySettingsRequest) isEmpty() bool {
 
 // ObservabilitySettings reports the block as this process is running it.
 func (b *BackupService) ObservabilitySettings(_ context.Context) (ObservabilitySettings, error) {
-	return observabilitySettingsOf(b.state.Load().inner.Config), nil
+	s := observabilitySettingsOf(b.state.Load().inner.Config)
+	s.Metrics.ScrapeToken = b.ScrapeTokenState()
+
+	return s, nil
 }
 
 func observabilitySettingsOf(cfg *config.Config) ObservabilitySettings {
@@ -199,5 +202,8 @@ func (b *BackupService) UpdateObservabilitySettings(_ context.Context, req Updat
 		return ObservabilitySettings{}, err
 	}
 
-	return observabilitySettingsOf(b.state.Load().inner.Config), nil
+	s := observabilitySettingsOf(b.state.Load().inner.Config)
+	s.Metrics.ScrapeToken = b.ScrapeTokenState()
+
+	return s, nil
 }
