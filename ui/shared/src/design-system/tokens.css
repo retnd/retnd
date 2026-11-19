@@ -25,6 +25,9 @@
   --surface-3: #f0f0ed;
   --border: #e0dfdc;
   --border-strong: #c8c7c3;
+  /* The edge of a card that has to be told from the next one at a glance
+     (#1504): 3.6:1 on --surface, 3.3:1 on --bg. */
+  --edge: #7d8796;
   /* The edge of a control that has to be found by its edge (a text box, a
      bordered list), and the fill of a bar. WCAG asks 3:1 against what it sits
      on, and --border-strong is 1.69:1 (light) and 1.81:1 (dark) on --surface.
@@ -89,6 +92,8 @@
   --surface-3: #262826;
   --border: #313331;
   --border-strong: #454745;
+  /* 3.7:1 on --surface, 4.1:1 on --bg. */
+  --edge: #6f7a8a;
   --text: #eceeeb;
   --text-2: #a3a6a2;
   /* 5.80:1 on --surface, 6.37:1 on --bg, 4.65:1 on --accent-quiet, the worst. */

@@ -18,10 +18,17 @@ import { measureContrast, open, setTheme } from "./helpers";
 const card = (page: Page) => page.getByRole("region", { name: "Assurance summary" });
 const list = (page: Page) => card(page).getByRole("list", { name: "Backups needing assurance" });
 const rowOf = (page: Page, file: string): Locator => list(page).getByRole("listitem").filter({ hasText: file });
+/** #1504: the list is collapsed until asked for, so a spec that reads its rows opens it first. */
+const expand = async (page: Page) => {
+  const t = card(page).getByRole("button", { name: /^show \d+ backups?$/i });
+  await expect(t).toBeVisible();
+  await t.click();
+};
 
 test.describe("#1174 the Assurance tile lists what is due and runs it per row", () => {
   test("#1174 every due, overdue or degraded backup is a row with its set, why and a Run assurance button", async ({ page }) => {
     await open(page, "/");
+    await expand(page);
     await expect(card(page).getByTestId("assurance-degraded")).toContainText("2");
     await expect(list(page).getByRole("listitem")).toHaveCount(3);
     const billing = rowOf(page, "billing-20260827.sql.gz");
@@ -36,6 +43,7 @@ test.describe("#1174 the Assurance tile lists what is due and runs it per row", 
   test("#1174 pressing a row's button shows that row in flight, then the tile counts refresh when the run ends", async ({ page }) => {
     test.setTimeout(120_000);
     await open(page, "/");
+    await expand(page);
     await expect(card(page).getByTestId("assurance-degraded")).toContainText("2");
     const billing = rowOf(page, "billing-20260827.sql.gz");
     await billing.getByRole("button", { name: /Run assurance for billing/ }).click();
@@ -56,6 +64,7 @@ test.describe("#1174 the Assurance tile lists what is due and runs it per row", 
 
   test("#1174 a set that can only refuse a test gets a disabled button and the reason beside it", async ({ page }) => {
     await open(page, "/", "assurance-no-validator");
+    await expand(page);
     const redis = rowOf(page, "redis-20260812.rdb.zst");
     await expect(redis).toBeVisible();
     const run = redis.getByRole("button", { name: /Run assurance for redis/ });
@@ -65,6 +74,7 @@ test.describe("#1174 the Assurance tile lists what is due and runs it per row", 
 
   test("#1174 control: with the destructive gate shut the button is still offered, because a recovery test is not a gated act", async ({ page }) => {
     await open(page, "/", "gate-shut");
+    await expand(page);
     const billing = rowOf(page, "billing-20260827.sql.gz");
     await expect(billing.getByRole("button", { name: /Run assurance for billing/ })).toBeEnabled();
     await billing.getByRole("button", { name: /Run assurance for billing/ }).click();
@@ -74,6 +84,7 @@ test.describe("#1174 the Assurance tile lists what is due and runs it per row", 
 
   test("#1174 the terminal twin of the button is printed", async ({ page }) => {
     await open(page, "/");
+    await expand(page);
     await expect(list(page)).toBeVisible();
     await expect(card(page)).toContainText("retnd recovery-test");
   });
@@ -81,6 +92,7 @@ test.describe("#1174 the Assurance tile lists what is due and runs it per row", 
   for (const theme of ["light", "dark"] as const) {
     test("#1174 the list is readable in the " + theme + " theme (WCAG AA)", async ({ page }) => {
       await open(page, "/");
+      await expand(page);
       await expect(list(page)).toBeVisible();
       await setTheme(page, theme);
       expect(await measureContrast(page, "1174 due list " + theme, '[aria-label="Assurance summary"]')).toEqual([]);

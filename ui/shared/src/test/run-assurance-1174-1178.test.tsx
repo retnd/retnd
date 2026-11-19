@@ -104,7 +104,11 @@ function renderTile(over: (api: RetndApi) => RetndApi = (a) => a) {
   return api;
 }
 
-const rowsList = () => screen.findByRole("list", { name: "Backups needing assurance" });
+// #1504: the list is collapsed until asked for, so open it first, as a person would.
+const rowsList = async () => {
+  await userEvent.click(await screen.findByRole("button", { name: /^show \d+ backups?$/i }));
+  return screen.findByRole("list", { name: "Backups needing assurance" });
+};
 
 describe("#1174 review: each row runs its own backup, and the list fans out nothing", () => {
   beforeEach(() => { resetGraphForTests(); resetAssuranceModelForTests(); sessionStorage.clear(); });

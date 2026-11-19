@@ -49,6 +49,8 @@ import type { StatusTone } from "@shared/components/StatusBadge";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { copyText } from "@shared/utilities/copyText";
 import { encryptionEventText } from "@shared/encryption/feedText";
+import { Link, useInRouterContext } from "react-router-dom";
+import { backupSetPath } from "@shared/utilities/routes";
 import { showSetInTerminal } from "@shared/state/dockFocus";
 import { stageWords as stageWordsOf } from "@shared/types/operation";
 import {
@@ -690,7 +692,7 @@ export function UnfinishedActionsNotice({ actions, onTerminal = false }: { actio
   );
 }
 
-function ActivityLogView({ events }: { events: SetActivityEvent[] }) {
+function ActivityLogView({ events, label, caption }: { events: SetActivityEvent[]; label: string; caption: boolean }) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const latest = events.length > 0 ? events[events.length - 1].sequence : 0;
 
@@ -703,7 +705,20 @@ function ActivityLogView({ events }: { events: SetActivityEvent[] }) {
   }, [latest]);
 
   return (
-    <div className="activity-log" role="log" aria-live="polite" ref={scroller}>
+    <div className="activity-log" role="log" aria-live="polite" aria-label={"Terminal log for " + label} ref={scroller}>
+      {/* #1504: a log scrolled into view on its own still says whose it is.
+          Only where the page does not already say it: a set's own page has
+          its name in the header two lines up. The log is named for the set
+          either way. */}
+      {caption ? <div
+        style={{
+          position: "sticky", top: 0, margin: "calc(var(--space-2) * -1) calc(var(--space-3) * -1) var(--space-2)",
+          padding: "var(--space-1) var(--space-3)", background: "var(--accent-quiet)", color: "var(--text)",
+          fontFamily: "var(--font-sans)", fontSize: "var(--text-xs)", fontWeight: 600
+        }}
+      >
+        Terminal log for {label}
+      </div> : null}
       {events.map((e) => {
         const line = activityLine(e);
         return (
@@ -847,12 +862,25 @@ export function ActivityStrip({
 }) {
   const [open, setOpen] = useState(true);
   const label = "Activity for " + set.name;
+  const inRouter = useInRouterContext();
+  // #1504: on the Dashboard a set's activity is its own block, with an edge
+  // on every side, so a column of them reads as separate sets and not as one
+  // long log. On a set's own page the page is the container, so none.
+  const card: CSSProperties = heading
+    ? { border: "1px solid var(--edge)", borderRadius: "var(--radius-lg, 12px)", overflow: "hidden", background: "var(--surface)" }
+    : {};
+  // The set's name opens its details page, where the Dashboard is a router.
+  const nameNode = (
+    heading && inRouter
+      ? <Link to={backupSetPath(set.source, set.set)} style={{ color: "var(--link, var(--accent))", textDecoration: "underline", textUnderlineOffset: 3 }}>{set.name}</Link>
+      : set.name
+  );
 
   if (activity === null) {
     return (
-      <section aria-label={label} style={{ padding: "var(--space-4) var(--space-5)" }}>
+      <section aria-label={label} style={{ padding: "var(--space-4) var(--space-5)", ...card }}>
         <InfoTooltip id="activity.strip.name" block>
-          <div style={{ fontWeight: 600, fontSize: "var(--text-md)" }}>{set.name}</div>
+          <div style={{ fontWeight: 600, fontSize: "var(--text-md)" }}>{nameNode}</div>
         </InfoTooltip>
         <InfoTooltip id="activity.strip.checking" block>
           <div style={{ color: "var(--text-2)", fontSize: "var(--text-sm)", marginTop: "var(--space-2)" }}>
@@ -888,7 +916,7 @@ export function ActivityStrip({
       : set.name + ": " + words;
 
   return (
-    <section aria-label={label}>
+    <section aria-label={label} style={card}>
       {heading ? (
         <div
           style={{
@@ -899,7 +927,7 @@ export function ActivityStrip({
         >
           <div style={{ minWidth: 0 }}>
             <InfoTooltip id="activity.strip.name" block>
-              <div style={{ fontWeight: 600, fontSize: "var(--text-md)" }}>{set.name}</div>
+              <div style={{ fontWeight: 600, fontSize: "var(--text-md)" }}>{nameNode}</div>
             </InfoTooltip>
             <InfoTooltip id="activity.strip.remote" block>
               <div style={{ color: "var(--text-3)", fontSize: "var(--text-xs)", fontFamily: "var(--font-mono)" }}>
@@ -979,7 +1007,7 @@ export function ActivityStrip({
       <UnfinishedActionsNotice actions={activity.unfinishedActions ?? []} />
 
       <ActivityToolbar events={activity.events} open={open} onToggle={() => setOpen((v) => !v)} setId={activity.setId} />
-      {open ? <ActivityLogView events={activity.events} /> : null}
+      {open ? <ActivityLogView events={activity.events} label={set.name} caption={heading} /> : null}
     </section>
   );
 }
