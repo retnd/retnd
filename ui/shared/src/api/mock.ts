@@ -234,6 +234,12 @@ export const SCENARIOS = [
   // meet an active filter.
   "dock-no-warnings",
   "dock-live-line",
+  // Issue #1503: a set that emits its transfer lines in bursts. One poll
+  // brings forty new lines and the next brings none, against a service ring
+  // of 250, which is what a long backlog looks like to the page's 300-line
+  // window: it trims on a burst and reaches the service's oldest line again
+  // on a quiet poll.
+  "activity-busy-set",
   // Issue #1157: a shut destructive gate. Restore, retention apply and the
   // runs refuse with the code and the sentence apps/common/webhost writes, so
   // a spec can press the control and read what the screen says back. Since
@@ -6288,6 +6294,11 @@ export function createMockApi(
   // also shows up there, stage by stage, in the engine's own event names and
   // with the same sequence on every poll (see assuranceLiveEvents).
   const live = served.getLiveActivity;
+  // Issue #1503: the busy set's ring, per mock instance. Forty lines arrive
+  // on every other poll; the service keeps the newest 250.
+  let busyPolls = 0;
+  let busyLatest = 400;
+  const BUSY_RING = 250;
   const routes: RetndApi = {
     ...served,
     startRecoveryTest: async (source, set, req) => {
@@ -6342,6 +6353,28 @@ export function createMockApi(
           const all = assuranceLiveEvents(s.setId).filter((e) => scenario !== OFF_TAIL_SCENARIO || !e.fields.op_id);
           const extra = all.filter((e) => e.sequence > since);
           const open = assuranceUnfinished(s.setId);
+          if (scenario === "activity-busy-set" && s === base.sets[0]) {
+            if (since > 0) {
+              busyPolls += 1;
+              if (busyPolls % 2 === 1) busyLatest += 40;
+            }
+            const oldest = Math.max(1, busyLatest - BUSY_RING + 1);
+            const held: SetActivityEvent[] = [];
+            for (let n = Math.max(oldest, since + 1); n <= busyLatest && held.length < 200; n++) {
+              held.push({
+                sequence: n, at: "2026-08-29T02:01:20+02:00", level: "info", event: "transfer_progress", scope: "set",
+                message: "transferring part " + n, fields: { backup_set: s.setId }
+              });
+            }
+            return {
+              ...s,
+              events: held,
+              truncated: held.length > 0 && held[held.length - 1].sequence < busyLatest,
+              dropped: since > 0 && since + 1 < oldest,
+              oldestSequence: oldest,
+              latestSequence: busyLatest
+            };
+          }
           return {
             ...s,
             events: extra.length ? [...s.events, ...extra] : s.events,
