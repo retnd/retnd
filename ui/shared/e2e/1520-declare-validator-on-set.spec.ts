@@ -10,7 +10,7 @@
  */
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { open } from "./helpers";
+import { measureContrast, open, setTheme } from "./helpers";
 
 const SET_PAGE = "/sets/production/postgres-primary";
 const block = (p: Page) => p.getByTestId("validation-block");
@@ -39,6 +39,8 @@ test.describe("#1520 Declare validator, from a backup set's page", () => {
   test("#1520 declaring one says what now checks this set, and returns focus to the button", async ({ page }) => {
     const dlg = await declare(page);
     await dlg.getByLabel("Name", { exact: true }).fill("postgres-set-check");
+    // No backup to derive a pattern from on a set's page, so the operator gives one.
+    await dlg.getByLabel("Artifact-name pattern").fill(String.raw`^postgres-prod-\d{8}\.dump\.zst$`);
     await dlg.getByRole("button", { name: "Start from the default script" }).click();
     await dlg.getByRole("button", { name: "Upload validator" }).click();
     await expect(dialog(page)).toHaveCount(0);
@@ -51,4 +53,13 @@ test.describe("#1520 Declare validator, from a backup set's page", () => {
     await expect(block(page)).toContainText(/recovery-test|validators? (are|is) kept/i);
     await expect(block(page)).toContainText("retnd assurance validators add");
   });
+
+  for (const theme of ["light", "dark"] as const) {
+    test("#1520 the card's new text reads at 4.5:1 in the " + theme + " theme", async ({ page }) => {
+      await open(page, SET_PAGE);
+      await expect(block(page).getByRole("button", { name: "Declare validator" })).toBeVisible();
+      await setTheme(page, theme);
+      expect(await measureContrast(page, "1520 validation card " + theme, '[data-testid="validation-block"]')).toEqual([]);
+    });
+  }
 });
