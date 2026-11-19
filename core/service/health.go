@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/app"
-	"github.com/backupdproject/backupd/core/internal/health"
+	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/health"
 )
 
 // This file is FR-24's health report as anything outside core/ sees it:
@@ -14,7 +14,7 @@ import (
 // set, from durable evidence.
 //
 // It is a projection of internal/health rather than a second opinion, and
-// that is the property the whole file exists to hold. `backupd
+// that is the property the whole file exists to hold. `retnd
 // status` and the Web UI run the same computation through the same call,
 // because two surfaces that each work health out for themselves will
 // eventually disagree, and the one that disagrees quietly is the one
@@ -36,7 +36,7 @@ import (
 // BackupSetHealth is one configured backup set's FR-24 verdict, in plain
 // provider-agnostic terms.
 //
-// It is the same computation `backupd status` prints, read through
+// It is the same computation `retnd status` prints, read through
 // core/service instead of a terminal, so the CLI and the Web UI cannot
 // disagree about whether a deployment is healthy.
 type BackupSetHealth struct {
@@ -133,7 +133,7 @@ type BackupSetHealth struct {
 	// and whether the relocations meant to close that gap are getting
 	// anywhere.
 	//
-	// It is the same computation `backupd status` prints, reached
+	// It is the same computation `retnd status` prints, reached
 	// through the same call, which is the property this whole type exists
 	// to hold: a CLI and a Web UI that compute health separately will
 	// eventually disagree about whether a deployment is healthy, and the
@@ -233,6 +233,10 @@ type PlacementHealth struct {
 type HealthReport struct {
 	GeneratedAt time.Time
 	BackupSets  []BackupSetHealth
+	// RetainedCount is every backup outside quarantine, the backups of
+	// removed sets included: the figure the sidebar's Backups badge reads
+	// (issue #1186). See internal/health.Report.RetainedCount.
+	RetainedCount int
 }
 
 // Health computes the FR-24 health report for every configured backup set.
@@ -271,8 +275,9 @@ func (b *BackupService) Health(ctx context.Context) (HealthReport, error) {
 	}
 
 	out := HealthReport{
-		GeneratedAt: report.GeneratedAt,
-		BackupSets:  make([]BackupSetHealth, 0, len(report.BackupSets)),
+		GeneratedAt:   report.GeneratedAt,
+		BackupSets:    make([]BackupSetHealth, 0, len(report.BackupSets)),
+		RetainedCount: report.RetainedCount,
 	}
 	for _, bs := range report.BackupSets {
 		set := toServiceBackupSetHealth(bs)
@@ -341,4 +346,13 @@ func toServiceBackupSetHealth(bs health.BackupSetHealth) BackupSetHealth {
 		out.FreeBytesKnown = true
 	}
 	return out
+}
+
+// BackupSetHealthFromReport is toServiceBackupSetHealth for a caller that
+// already holds the internal report, which is `retnd status --json` (issue
+// #1146): it computes the report itself from the journal and must put the
+// same fields on the wire the API does, so it goes through the one mapper
+// rather than growing a second.
+func BackupSetHealthFromReport(bs health.BackupSetHealth) BackupSetHealth {
+	return toServiceBackupSetHealth(bs)
 }

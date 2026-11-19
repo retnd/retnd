@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/backupdproject/backupd/core/internal/secretref"
+	"github.com/retnd/retnd/core/internal/secretref"
 )
 
 // The environment model's suite. Three properties, and each of them is one
@@ -73,9 +73,9 @@ func TestResolvePutsBuiltinsOverEverything(t *testing.T) {
 	}
 
 	resolved, err := env.Resolve(context.Background(), map[string]string{
-		"BACKUPD":               "1",
-		"BACKUPD_PHASE":         string(PhaseBefore),
-		"BACKUPD_BACKUP_STATUS": string(StatusUnknown),
+		"RETND":               "1",
+		"RETND_PHASE":         string(PhaseBefore),
+		"RETND_BACKUP_STATUS": string(StatusUnknown),
 	})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
@@ -84,11 +84,11 @@ func TestResolvePutsBuiltinsOverEverything(t *testing.T) {
 	got := environMap(t, resolved)
 
 	for name, want := range map[string]string{
-		"PGDATABASE":            "orders",
-		"BACKUPD":               "1",
-		"BACKUPD_PHASE":         "before",
-		"BACKUPD_BACKUP_STATUS": "unknown",
-		"PATH":                  "", // not in this environment: the baseline is a layer the CALLER supplies
+		"PGDATABASE":          "orders",
+		"RETND":               "1",
+		"RETND_PHASE":         "before",
+		"RETND_BACKUP_STATUS": "unknown",
+		"PATH":                "", // not in this environment: the baseline is a layer the CALLER supplies
 	} {
 		if want == "" {
 			if _, present := got[name]; present {
@@ -118,7 +118,7 @@ func TestResolvePutsBuiltinsOverEverything(t *testing.T) {
 }
 
 // Only a documented built-in may be injected. A typo'd
-// BACKUPD_BAKCUP_STATUS would otherwise become part of a hook's contract
+// RETND_BAKCUP_STATUS would otherwise become part of a hook's contract
 // and stay there for as long as somebody's script reads it.
 func TestResolveRefusesAnUndocumentedBuiltin(t *testing.T) {
 	t.Parallel()
@@ -128,7 +128,7 @@ func TestResolveRefusesAnUndocumentedBuiltin(t *testing.T) {
 		t.Fatalf("NewEnvironment: %v", err)
 	}
 
-	_, err = env.Resolve(context.Background(), map[string]string{"BACKUPD_BAKCUP_STATUS": "success"})
+	_, err = env.Resolve(context.Background(), map[string]string{"RETND_BAKCUP_STATUS": "success"})
 	if err == nil {
 		t.Fatal("a variable outside the documented built-in set was injected")
 	}
@@ -151,8 +151,17 @@ func TestResolveRefusesAnUndocumentedBuiltin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the documented built-in set was refused: %v", err)
 	}
-	if len(resolved.Names()) != len(all) {
-		t.Errorf("Resolve carried %d of %d built-ins", len(resolved.Names()), len(all))
+	// Every built-in exactly once, and nothing else: no second spelling
+	// of any name.
+	if want := len(all); len(resolved.Names()) != want {
+		t.Errorf("Resolve carried %d names for %d built-ins, want %d (each name once)",
+			len(resolved.Names()), len(all), want)
+	}
+	former := strings.Join([]string{"BACK", "UPD"}, "")
+	for _, name := range resolved.Names() {
+		if strings.HasPrefix(name, former) {
+			t.Errorf("Resolve exported %s, a name under the former brand", name)
+		}
 	}
 }
 
@@ -176,9 +185,9 @@ func TestValidateEnvNameRefusesUnusableAndReservedNames(t *testing.T) {
 		{"an equals sign", "MY=VAR", EnvNamePattern},
 		{"a NUL", "MY\x00VAR", "NUL"},
 		{"non-ASCII", "MYVAR\u00e9", EnvNamePattern},
-		{"the bare reserved name", "BACKUPD", "is reserved"},
-		{"a reserved built-in", "BACKUPD_RUN_ID", "is reserved"},
-		{"a reserved name this product does not set yet", "BACKUPD_ANYTHING_AT_ALL", "is reserved"},
+		{"the bare reserved name", "RETND", "is reserved"},
+		{"a reserved built-in", "RETND_RUN_ID", "is reserved"},
+		{"a reserved name this product does not set yet", "RETND_ANYTHING_AT_ALL", "is reserved"},
 	}
 
 	for _, tc := range cases {
@@ -200,7 +209,10 @@ func TestValidateEnvNameRefusesUnusableAndReservedNames(t *testing.T) {
 
 	// The positive control. Without it every row above would pass against
 	// a function that refused everything.
-	for _, name := range []string{"PATH", "_", "_X", "PGDATABASE", "a", "A1_b2"} {
+	// The former brand's names are ordinary names now: nothing exports
+	// them, so nothing is shadowed by an operator writing one.
+	former := strings.Join([]string{"BACK", "UPD"}, "")
+	for _, name := range []string{"PATH", "_", "_X", "PGDATABASE", "a", "A1_b2", former, former + "_BACKUP_STATUS"} {
 		if err := ValidateEnvName(name); err != nil {
 			t.Errorf("ValidateEnvName(%q) refused a perfectly ordinary name: %v", name, err)
 		}
@@ -353,7 +365,7 @@ func TestAResolvedSecretRoundTripsWithoutEverBeingExposed(t *testing.T) {
 		}
 	}
 
-	resolved, err := env.Resolve(context.Background(), map[string]string{"BACKUPD": "1"})
+	resolved, err := env.Resolve(context.Background(), map[string]string{"RETND": "1"})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}

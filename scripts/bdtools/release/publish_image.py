@@ -97,6 +97,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -115,7 +116,7 @@ KEY_PATHSPECS = [
 KEY_EXCLUDES = ["node_modules/*", "ui/shared/dist/*"]
 
 
-def refuse(message: str, *details: str) -> None:
+def refuse(message: str, *details: str) -> NoReturn:
     print(f"refusing: {message}", file=sys.stderr)
     for detail in details:
         print(detail, file=sys.stderr)
@@ -305,7 +306,7 @@ def run_guards(root: Path, guards_only: bool) -> tuple[str, str]:
 
 
 def publish(root: Path, reference: str, manifest_commit: str, manifest: Path) -> int:
-    platforms = os.environ.get("PLATFORMS", "linux/amd64,linux/arm64")
+    platforms = os.environ.get("PLATFORMS", "linux/amd64")
     sign = os.environ.get("SIGN", "1") == "1"
 
     print(f"==> Publishing {reference} ({platforms}) from {manifest_commit}", file=sys.stderr)
@@ -322,6 +323,7 @@ def publish(root: Path, reference: str, manifest_commit: str, manifest: Path) ->
     )
 
     version = json_string(manifest, "version")
+    # One build, one `--push`.
     harness.sh(
         [
             "docker", "buildx", "build",
@@ -344,7 +346,15 @@ def publish(root: Path, reference: str, manifest_commit: str, manifest: Path) ->
     print(f"==> index digest: {index_digest}", file=sys.stderr)
 
     if sign:
-        harness.sh(["cosign", "sign", "--yes", f"{reference}@{index_digest}"], capture=False)
+        # Signatures and attestations are bound to a package name as well as
+        # the digest, so the subject names the pushed reference.
+        sbom = root / SBOM_RELATIVE
+        subject = f"{reference}@{index_digest}"
+        harness.sh(["cosign", "sign", "--yes", subject], capture=False)
+        harness.sh(
+            ["cosign", "attest", "--yes", "--type", "spdxjson", "--predicate", str(sbom), subject],
+            capture=False,
+        )
 
     print(file=sys.stderr)
     raw = harness.sh_out(["docker", "buildx", "imagetools", "inspect", reference, "--raw"])
@@ -382,10 +392,10 @@ def main(argv: list[str]) -> int:
     reference, manifest_commit = run_guards(root, guards_only)
 
     if guards_only:
-        platforms = os.environ.get("PLATFORMS", "linux/amd64,linux/arm64")
+        platforms = os.environ.get("PLATFORMS", "linux/amd64")
         print(
-            f"==> GUARDS_ONLY=1: every guard passed; stopping before the push. Would publish {reference} "
-            f"for {platforms}",
+            f"==> GUARDS_ONLY=1: every guard passed; stopping before the push. Would publish "
+            f"{reference} for {platforms}",
             file=sys.stderr,
         )
         return harness.EXIT_OK

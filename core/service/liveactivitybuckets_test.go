@@ -27,10 +27,10 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/backupdproject/backupd/core/cliecho"
-	"github.com/backupdproject/backupd/core/internal/app"
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/obs"
+	"github.com/retnd/retnd/core/cliecho"
+	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/obs"
 )
 
 // oneSetService is the fixture these cases need: exactly one configured
@@ -69,7 +69,7 @@ func TestRecordAPIAction_AnActionOnASetThisDeploymentDoesNotHaveIsADeploymentLin
 		Actor: "alice", Method: "PATCH", Route: "/backup-sets/{source}/{set}",
 		Status: 404, ErrorCode: "BACKUP_SET_NOT_FOUND",
 		BackupSetID: "ghost-src/ghost-set",
-		Command:     "backupd backup-set patch ghost-src/ghost-set --stale-after 48h",
+		Command:     "retnd backup-set patch ghost-src/ghost-set --stale-after 48h",
 	})
 
 	live, err := svc.LiveActivity(context.Background(), LiveActivityRequest{})
@@ -97,7 +97,7 @@ func TestRecordAPIAction_StillLandsOnAConfiguredSet(t *testing.T) {
 	svc.RecordAPIAction(context.Background(), cliecho.APIAction{
 		Actor: "alice", Method: "PATCH", Route: "/backup-sets/{source}/{set}",
 		Status: 200, BackupSetID: "alpha/nightly",
-		Command: "backupd backup-set patch alpha/nightly --stale-after 48h",
+		Command: "retnd backup-set patch alpha/nightly --stale-after 48h",
 	})
 
 	live, err := svc.LiveActivity(context.Background(), LiveActivityRequest{})
@@ -158,7 +158,7 @@ func TestRecordAPIAction_ProbingThisAPIGrowsNothing(t *testing.T) {
 		svc.RecordAPIAction(context.Background(), cliecho.APIAction{
 			Actor: "alice", Method: "PATCH", Route: "/backup-sets/{source}/{set}",
 			Status: 404, ErrorCode: "BACKUP_SET_NOT_FOUND", BackupSetID: id,
-			Command: "backupd backup-set patch " + id + " --stale-after 48h",
+			Command: "retnd backup-set patch " + id + " --stale-after 48h",
 		})
 	}
 

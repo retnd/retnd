@@ -50,7 +50,7 @@
 // #624's "which world does this run in" question rather than leaving it
 // to be discovered. The engine that serves a deployment owns its
 // configuration file; a CLI beside a serving engine routes the check to
-// that engine (core/cmd/backupd's backupSetRoute), so the process
+// that engine (core/cmd/retnd's backupSetRoute), so the process
 // that clears the mark is always the process whose configuration the mark
 // is in. There is no version of this where one process proves a
 // connection and another edits the file.
@@ -66,9 +66,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/obs"
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // ErrConnectionNotProven is a write that declares what a backup set
@@ -103,7 +103,7 @@ var ErrConnectionNotProven = errors.New("service: the connection this backup set
 // the operator asked for.
 //
 // The way past it is to ask for read-only (`read_only: true`, the
-// wizard's control cleared, `backupd backup-set read-only <set> on`),
+// wizard's control cleared, `retnd backup-set read-only <set> on`),
 // which is not an override of this refusal but the honest description of
 // what that source can do. The other way past it is on the source
 // machine: grant the account write permission there and the next check
@@ -115,7 +115,7 @@ var ErrConnectionNotProven = errors.New("service: the connection this backup set
 // machine, and a client that read it as INVALID_REQUEST would tell an
 // operator their form was wrong when their form was fine and their
 // account was read-only.
-var ErrSourceNotWritable = errors.New("service: this source's credentials cannot write to it, so backupd cannot delete from it")
+var ErrSourceNotWritable = errors.New("service: this source's credentials cannot write to it, so retnd cannot delete from it")
 
 // refuseDeleteOnUnwritableSource is the one place issue #852's rule is
 // applied, and every write that can turn delete-from-source on goes

@@ -20,9 +20,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/backupdproject/backupd/apps/common/platform/capabilities"
-	"github.com/backupdproject/backupd/core/apicontract"
-	"github.com/backupdproject/backupd/core/service"
+	"github.com/retnd/retnd/apps/common/platform/capabilities"
+	"github.com/retnd/retnd/core/apicontract"
+	"github.com/retnd/retnd/core/service"
 )
 
 // This file is the Go half of issue #166's drift gate: it holds the
@@ -76,6 +76,7 @@ var contractBindings = map[string]contractBinding{
 	"getSystemCapabilities":   {nil, capabilitiesResponse{}, "/api/v1/system/capabilities"},
 	"getFirstRunStatus":       {nil, firstRunStatusResponse{}, "/api/v1/system/first-run"},
 	"completeFirstRun":        {backupSetSpec{}, completeFirstRunResponse{}, "/api/v1/system/first-run"},
+	"skipFirstRunStep":        {skipFirstRunRequest{}, firstRunStatusResponse{}, "/api/v1/system/first-run/skip"},
 	"listStorageStatus":       {nil, listStorageStatusResponse{}, "/api/v1/system/storage"},
 	"submitOperation":         {submitOperationRequest{}, operationResponse{}, "/api/v1/operations"},
 	"getOperation":            {nil, operationResponse{}, "/api/v1/operations/op_1"},
@@ -133,6 +134,14 @@ var contractBindings = map[string]contractBinding{
 	// 204 leaves no resource to describe.
 	"retryFailedIngestion": {retryFailedIngestionRequest{}, nil, "/api/v1/backups/src/set-1/backup.dump/retry"},
 	"reinstateArtifact":    {nil, artifactReinstateResponse{}, "/api/v1/quarantine/src/set-1/backup.dump/reinstate"},
+	// EPIC Q (#976): the recovery pair. The redeem's contract names two
+	// success shapes (the verified bytes, or the placement for a
+	// server-side target); the JSON one is the one with fields to hold.
+	"mintRecovery":   {recoveryMintRequest{}, recoveryMintResponse{}, "/api/v1/backups/src/set-1/backup.dump/recovery"},
+	"redeemRecovery": {nil, recoveryResultResponse{}, "/api/v1/recoveries/tok_abc"},
+	// #1106 and #1107: several backups, or a whole set, to one destination.
+	// The 200 names two content types; the pre-flight plan is the JSON one.
+	"recoverMany": {recoverManyRequestBody{}, recoverManyPlanBody{}, "/api/v1/recoveries"},
 	// Issue #443's medium preflight. Its path parameter is a single
 	// segment, unlike the artifact routes above, because a medium id is a
 	// single segment: config refuses one carrying a separator.
@@ -235,11 +244,77 @@ var contractBindings = map[string]contractBinding{
 	// carries none: the route is reached at its bare path and a client
 	// that sends nothing gets this deployment's whole history, which is
 	// the reading an operator asking "what is stuck here" makes.
-	"listWorkflowRuns":     {nil, listWorkflowRunsResponse{}, "/api/v1/workflow-runs"},
-	"getWorkflowRun":       {nil, workflowRunResponse{}, "/api/v1/workflow-runs/run_1"},
-	"listWorkflowRunSteps": {nil, listWorkflowStepsResponse{}, "/api/v1/workflow-runs/run_1/steps"},
-	"getWorkflowStepLogs":  {nil, workflowStepLogPageResponse{}, "/api/v1/workflow-runs/run_1/steps/step_1/logs"},
-	"listWorkflowRecovery": {nil, workflowRecoveryResponse{}, "/api/v1/workflow-recovery"},
+	"listWorkflowRuns": {nil, listWorkflowRunsResponse{}, "/api/v1/workflow-runs"},
+	// EPIC Q, Q1.4 (#982).
+	"getAssuranceSettings":     {nil, assuranceSettingsResponse{}, "/api/v1/settings/assurance"},
+	"updateAssuranceSettings":  {updateAssuranceSettingsRequest{}, assuranceSettingsResponse{}, "/api/v1/settings/assurance"},
+	"getBackupSetAssurance":    {nil, backupSetAssuranceResponse{}, "/api/v1/backup-sets/src/set-1/assurance"},
+	"updateBackupSetAssurance": {updateBackupSetAssuranceRequest{}, backupSetAssuranceResponse{}, "/api/v1/backup-sets/src/set-1/assurance"},
+	"resetBackupSetAssurance":  {nil, backupSetAssuranceResponse{}, "/api/v1/backup-sets/src/set-1/assurance"},
+	"listAssuranceDue":         {nil, assuranceDueResponse{}, "/api/v1/assurance/due"},
+	"listStagingDirectories":   {nil, stagingDirectoryResponse{}, "/api/v1/system/staging-directories"},
+	"startRecoveryTest":        {startRecoveryTestRequest{}, recoveryTestStartedResponse{}, "/api/v1/backup-sets/src/set-1/recovery-test"},
+	"startScrub":               {nil, scrubStartedResponse{}, "/api/v1/backup-sets/src/set-1/scrub"},
+	// Issues #1191 and #1193.
+	"describeSourceHost":       {nil, sourceHostBody{}, "/api/v1/backup-sets/src/set-1/source-host"},
+	"checkSourceHostWrite":     {nil, sourceHostBody{}, "/api/v1/backup-sets/src/set-1/source-host/write-check"},
+	"cancelAssuranceOperation": {nil, assuranceOperationCancelledResponse{}, "/api/v1/assurance/operations/op_1/cancel"},
+	"getRecoveryTestOutput":    {nil, recoveryTestOutputResponse{}, "/api/v1/backup-sets/src/set-1/recovery-test/output"},
+	// Issue #993. The handlers write apicontract's own types.
+	"getEncryptionPolicy":      {nil, apicontract.EncryptionPolicy{}, "/api/v1/encryption/policy"},
+	"patchEncryptionPolicy":    {apicontract.EncryptionPolicyPatch{}, apicontract.EncryptionPolicy{}, "/api/v1/encryption/policy"},
+	"resetEncryptionPolicy":    {nil, apicontract.EncryptionPolicy{}, "/api/v1/encryption/policy/reset"},
+	"setBackupSetEncryption":   {apicontract.EncryptionOverride{}, apicontract.EncryptionSetPolicy{}, "/api/v1/backup-sets/src/set-1/encryption"},
+	"clearBackupSetEncryption": {nil, apicontract.EncryptionSetPolicy{}, "/api/v1/backup-sets/src/set-1/encryption"},
+	"listEncryptionKeys":       {nil, apicontract.ListEncryptionKeysResponse{}, "/api/v1/encryption/keys"},
+	"createEncryptionKey":      {nil, apicontract.EncryptionKeyStatus{}, "/api/v1/encryption/keys"},
+	"rotateEncryptionKey":      {nil, apicontract.EncryptionKeyStatus{}, "/api/v1/encryption/keys/rotate"},
+	"retireEncryptionKey":      {nil, apicontract.EncryptionKeyStatus{}, "/api/v1/encryption/keys/k0123456789abcdef/retire"},
+	"exportRecoveryBundle":     {nil, apicontract.RecoveryBundle{}, "/api/v1/encryption/keys/k0123456789abcdef/export"},
+	"confirmRecoveryBundle":    {apicontract.ConfirmRecoveryBundleRequest{}, apicontract.EncryptionKeyStatus{}, "/api/v1/encryption/keys/k0123456789abcdef/confirm"},
+	"testEncryptionProvider":   {apicontract.EncryptionProviderTestRequest{}, apicontract.EncryptionProviderProbe{}, "/api/v1/encryption/providers/test"},
+	// EPIC U (#1345): the three agent token routes, bound to the contract's
+	// own types so the declared shape and the served shape cannot part.
+	"listAgentTokens":  {nil, apicontract.ListAgentTokensResponse{}, "/api/v1/agent/tokens"},
+	"mintAgentToken":   {apicontract.MintAgentTokenRequest{}, apicontract.MintedAgentToken{}, "/api/v1/agent/tokens"},
+	"revokeAgentToken": {nil, apicontract.AgentToken{}, "/api/v1/agent/tokens/agt_1/revoke"},
+	// EPIC U (#1348): the audit trail.
+	"listAgentAudit": {nil, apicontract.ListAgentAuditResponse{}, "/api/v1/agent/audit"},
+	"listAgentTools": {nil, apicontract.AgentToolsResponse{}, "/api/v1/agent/tools"},
+	// EPIC U (#1347): the MCP transport. A frame is free-form JSON-RPC, so
+	// there is no Go type to bind beyond the contract's own.
+	"postAgentMcp":   {apicontract.AgentMcpFrame{}, apicontract.AgentMcpFrame{}, "/api/v1/agent/mcp"},
+	"getAgentMcp":    {nil, nil, "/api/v1/agent/mcp"},
+	"deleteAgentMcp": {nil, nil, "/api/v1/agent/mcp"},
+	// EPIC U (#1349): the three confirmation routes.
+	"listAgentConfirmations":   {nil, apicontract.ListAgentConfirmationsResponse{}, "/api/v1/agent/confirmations"},
+	"getAgentConfirmation":     {nil, apicontract.AgentConfirmation{}, "/api/v1/agent/confirmations/cnf_1"},
+	"approveAgentConfirmation": {nil, apicontract.AgentConfirmation{}, "/api/v1/agent/confirmations/cnf_1/approve"},
+	"denyAgentConfirmation":    {nil, apicontract.AgentConfirmation{}, "/api/v1/agent/confirmations/cnf_1/deny"},
+	"listEncryptionSuites":     {nil, apicontract.ListEncryptionSuitesResponse{}, "/api/v1/encryption/suites"},
+	"listEncryptionCopies":     {nil, apicontract.ListEncryptionCopiesResponse{}, "/api/v1/encryption/copies"},
+	"startDecryptVerify":       {apicontract.StartDecryptVerifyRequest{}, apicontract.ScrubStarted{}, "/api/v1/encryption/verify"},
+	// Issues #1291 and #1317. The dry runs and the runs are bound to the
+	// same two paths, one method each.
+	"planEncryptExisting":  {nil, apicontract.EncryptExistingPlan{}, "/api/v1/encryption/encrypt-existing"},
+	"startEncryptExisting": {apicontract.StartEncryptExistingRequest{}, apicontract.ScrubStarted{}, "/api/v1/encryption/encrypt-existing"},
+	"planReencrypt":        {nil, apicontract.ReencryptPlan{}, "/api/v1/encryption/reencrypt"},
+	"startReencrypt":       {apicontract.StartReencryptRequest{}, apicontract.ScrubStarted{}, "/api/v1/encryption/reencrypt"},
+	// Issue #1203. The handlers write apicontract's own types, so the
+	// bindings are those types.
+	"listCustomValidators":        {nil, apicontract.ListCustomValidatorsResponse{}, "/api/v1/assurance/validators"},
+	"createCustomValidator":       {apicontract.CreateCustomValidatorRequest{}, apicontract.CustomValidator{}, "/api/v1/assurance/validators"},
+	"updateCustomValidator":       {apicontract.UpdateCustomValidatorRequest{}, apicontract.CustomValidator{}, "/api/v1/assurance/validators/manifest"},
+	"removeCustomValidator":       {nil, apicontract.CustomValidator{}, "/api/v1/assurance/validators/manifest"},
+	"getCustomValidatorScript":    {nil, apicontract.ValidatorScriptResponse{}, "/api/v1/assurance/validators/manifest/script"},
+	"previewCustomValidator":      {apicontract.PreviewCustomValidatorRequest{}, apicontract.CustomValidatorPreview{}, "/api/v1/assurance/validator-preview"},
+	"listCustomValidatorPatterns": {nil, apicontract.CustomValidatorPatternsResponse{}, "/api/v1/assurance/validator-patterns"},
+	"getDefaultValidatorScript":   {nil, apicontract.ValidatorScriptResponse{}, "/api/v1/assurance/default-validator-script"},
+	"getAssuranceOperation":       {nil, assuranceOperationResponse{}, "/api/v1/assurance/operations/op_1"},
+	"getWorkflowRun":              {nil, workflowRunResponse{}, "/api/v1/workflow-runs/run_1"},
+	"listWorkflowRunSteps":        {nil, listWorkflowStepsResponse{}, "/api/v1/workflow-runs/run_1/steps"},
+	"getWorkflowStepLogs":         {nil, workflowStepLogPageResponse{}, "/api/v1/workflow-runs/run_1/steps/step_1/logs"},
+	"listWorkflowRecovery":        {nil, workflowRecoveryResponse{}, "/api/v1/workflow-recovery"},
 	"resumeWorkflowCleanup": {nil, workflowRunResponse{},
 		"/api/v1/workflow-recovery/run_1/resume-cleanup"},
 	// The acknowledgement binds a request type and no response type: the
@@ -249,6 +324,11 @@ var contractBindings = map[string]contractBinding{
 		"/api/v1/workflow-recovery/run_1/acknowledge"},
 	"getRetentionErrorEnvelope": {nil, errorResponse{}, ""},
 	"getConfigRevisionStale":    {nil, configRevisionStaleResponse{}, ""},
+	// #906's save refusal, bound for its SHAPE the same way: it is the
+	// second structured error body in this package, and the fields a
+	// client draws the refusal from are exactly the ones that would
+	// drift if the contract and this struct stopped agreeing.
+	"getWorkflowScriptRejected": {nil, workflowScriptRejectedResponse{}, ""},
 }
 
 // nonRoutedBindings are the two entries above that describe a body shape
@@ -260,6 +340,7 @@ var contractBindings = map[string]contractBinding{
 var nonRoutedBindings = map[string]string{
 	"getRetentionErrorEnvelope": "ErrorResponse",
 	"getConfigRevisionStale":    "ConfigRevisionStaleResponse",
+	"getWorkflowScriptRejected": "WorkflowScriptRejectedResponse",
 }
 
 // contractEndpoints indexes the generated endpoint table by operation id.
@@ -658,8 +739,12 @@ func TestContract_DeclaredRequirementsMatchWhatTheRoutesEnforce(t *testing.T) {
 // ----------------------------------------------------------- error codes ---
 
 var (
-	writeErrorCode = regexp.MustCompile(`write(?:Auth)?Error\([^,]+,\s*[^,]+,\s*"([A-Z][A-Z0-9_]+)"`)
-	assignedCode   = regexp.MustCompile(`\.Code\s*=\s*"([A-Z][A-Z0-9_]+)"`)
+	// refuse is agentconfirmations.go's: it writes the error and reports
+	// the refusal to the audit in one call, with writeError's arguments.
+	writeErrorCode = regexp.MustCompile(`(?:write(?:Auth)?Error|refuse)\([^,]+,\s*[^,]+,\s*"([A-Z][A-Z0-9_]+)"`)
+	// gate_profile.go's one refusal constructor: status first, then the code.
+	gateRefusalCode = regexp.MustCompile(`newGateRefusal\([^,]+,\s*"([A-Z][A-Z0-9_]+)"`)
+	assignedCode    = regexp.MustCompile(`\.Code\s*=\s*"([A-Z][A-Z0-9_]+)"`)
 )
 
 // emittedWireCodes scans the two packages that actually put an error code
@@ -692,7 +777,7 @@ func emittedWireCodes(t *testing.T) map[string]string {
 				t.Fatalf("reading %s: %v", path, err)
 			}
 			files++
-			for _, re := range []*regexp.Regexp{writeErrorCode, assignedCode} {
+			for _, re := range []*regexp.Regexp{writeErrorCode, gateRefusalCode, assignedCode} {
 				for _, m := range re.FindAllStringSubmatch(string(src), -1) {
 					found[m[1]] = path
 				}
@@ -1199,8 +1284,20 @@ func TestContract_CapabilitiesAreDataAboutThePlatform(t *testing.T) {
 				t.Errorf("%s: capability %q = %v, want %v (a capability must report what the platform really does, never an emulation)", tc.wantPlatform, field, got, tc.wantAll)
 			}
 		}
-		if len(body) != len(apicontract.CapabilityFields)+1 {
-			t.Errorf("%s: the response carries %d fields; the contract declares %d capabilities plus platform. An undeclared field on this endpoint is drift.", tc.wantPlatform, len(body), len(apicontract.CapabilityFields)+1)
+		// Platform, and (#1165) destructive_operations: the deployment's own
+		// gate state, which is not a platform capability and so is not in
+		// CapabilityFields, but is declared by the contract all the same.
+		if _, ok := body["destructive_operations"].(map[string]any); !ok {
+			t.Errorf("%s: the response has no destructive_operations object: %v", tc.wantPlatform, body)
+		}
+		// And (#1347) agents_http_transport: the agents: block's transport
+		// switch, again the deployment's and not the platform's. A router
+		// with no policy answers off.
+		if body["agents_http_transport"] != "off" {
+			t.Errorf("%s: agents_http_transport = %v, want off for a deployment with no agents: block", tc.wantPlatform, body["agents_http_transport"])
+		}
+		if len(body) != len(apicontract.CapabilityFields)+3 {
+			t.Errorf("%s: the response carries %d fields; the contract declares %d capabilities plus platform, destructive_operations and agents_http_transport. An undeclared field on this endpoint is drift.", tc.wantPlatform, len(body), len(apicontract.CapabilityFields)+3)
 		}
 	}
 }
@@ -1356,6 +1453,18 @@ func TestContract_APathBuiltFromTheContractReachesTheResourceItNames(t *testing.
 			},
 		},
 		{
+			operation: "mintRecovery",
+			identity:  artifactID,
+			body:      `{"target":{"kind":"download"}}`,
+			csrf:      true,
+			arrange:   func(*backupSetFakeBackend) {},
+			reached: func(t *testing.T, b *backupSetFakeBackend, rec *httptest.ResponseRecorder) {
+				if got := b.lastRecoveryMint.ArtifactID; got != artifactID {
+					t.Errorf("the mint reached the backend for artifact %q, want %q (response %d %q)", got, artifactID, rec.Code, rec.Body.String())
+				}
+			},
+		},
+		{
 			operation: "retryFailedIngestion",
 			identity:  artifactID,
 			body:      "{}",
@@ -1425,7 +1534,7 @@ func TestContract_APathBuiltFromTheContractReachesTheResourceItNames(t *testing.
 			// id, is what this drives.
 			operation: "setBackupSetWorkflowEnvironment",
 			identity:  "production/postgres/PGPASSWORD",
-			body:      `{"secret":{"file":"/etc/backupd/pg.pass"}}`,
+			body:      `{"secret":{"file":"/etc/retnd/pg.pass"}}`,
 			csrf:      true,
 			arrange:   func(*backupSetFakeBackend) {},
 			reached: func(t *testing.T, b *backupSetFakeBackend, rec *httptest.ResponseRecorder) {
@@ -1434,7 +1543,7 @@ func TestContract_APathBuiltFromTheContractReachesTheResourceItNames(t *testing.
 					t.Errorf("the write reached the backend for scope %q variable %q, want %q and \"PGPASSWORD\" (response %d %q)",
 						fx.lastEnvScope, fx.lastEnvSet.Name, setID, rec.Code, rec.Body.String())
 				}
-				if fx.lastEnvSet.Secret.File != "/etc/backupd/pg.pass" {
+				if fx.lastEnvSet.Secret.File != "/etc/retnd/pg.pass" {
 					t.Errorf("the secret reference reached the backend as %+v, want the file the request named", fx.lastEnvSet.Secret)
 				}
 			},

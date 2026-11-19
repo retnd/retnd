@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
-	"github.com/backupdproject/backupd/core/internal/backupengine/source"
-	"github.com/backupdproject/backupd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/backupengine/source"
+	"github.com/retnd/retnd/core/internal/model"
 )
 
 // The two tag keys #781 counts distinct values of, written here as the
@@ -19,8 +19,8 @@ import (
 // either side of the port is a test failure and not a repository that
 // stops being able to say what it holds.
 const (
-	tagKeyBackupSet = "backupd.set"
-	tagKeyDomain    = "backupd.domain"
+	tagKeyBackupSet = "retnd.set"
+	tagKeyDomain    = "retnd.domain"
 )
 
 // recordingRepository is a StreamingRepository that keeps the requests it
@@ -79,7 +79,7 @@ func TestEverySnapshotCarriesTheBackupSetAndDomain(t *testing.T) {
 	repo := &recordingRepository{}
 	sink := source.RepositorySink{
 		Repo:   repo,
-		Source: backupengine.Source{Host: "nas", User: "backupd", Path: "/sets/photos"},
+		Source: backupengine.Source{Host: "nas", User: "retnd", Path: "/sets/photos"},
 		Ref:    testRef(t, "photos"),
 		Tags:   map[string]string{"schedule": "nightly"},
 	}
@@ -120,7 +120,7 @@ func TestTheIdentityTagsCannotBeOverwrittenByTheCaller(t *testing.T) {
 	repo := &recordingRepository{}
 	sink := source.RepositorySink{
 		Repo:   repo,
-		Source: backupengine.Source{Host: "nas", User: "backupd", Path: "/sets/photos"},
+		Source: backupengine.Source{Host: "nas", User: "retnd", Path: "/sets/photos"},
 		Ref:    testRef(t, "photos"),
 		Tags:   map[string]string{tagKeyBackupSet: "somebody/else", tagKeyDomain: "staging"},
 	}
@@ -159,7 +159,7 @@ func TestASinkThatCannotAttributeASnapshotRefusesToWriteIt(t *testing.T) {
 			repo := &recordingRepository{}
 			sink := source.RepositorySink{
 				Repo:   repo,
-				Source: backupengine.Source{Host: "nas", User: "backupd", Path: "/sets/photos"},
+				Source: backupengine.Source{Host: "nas", User: "retnd", Path: "/sets/photos"},
 				Ref:    tc.ref,
 			}
 

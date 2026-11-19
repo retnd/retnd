@@ -1,7 +1,7 @@
 # The submission bundle
 
 Everything a store or catalog reviewer is handed, for every target this project
-distributes. Work Package 5.4 (`docs/EPIC-B-multi-nas.md` §73),
+distributes. Work Package 5.4 (`docs/EPIC-B-multi-nas.md` §73), issue #90.
 
 One bundle, not one per store. The seven shared materials below describe the same product
 however it is packaged, and a per-store rewrite of any of them is a per-store opportunity
@@ -16,9 +16,9 @@ for a target with no store, its documented workflow.
 | `icon.svg` | The listing mark. Not the in-app icon: see below. |
 | `screenshots.md` | What to capture and how many, per store. The captures themselves are an operator step. |
 | `release-notes.md` | 1.0.0. |
-| `privacy-disclosure.md` | No personal data, no telemetry, nothing leaves the NAS. |
+| `privacy-disclosure.md` | No telemetry, nothing sent to the project; the only things that leave the NAS go to destinations the administrator configured (SFTP sources, storage destinations for retained copies, their own mail server). |
 | `permission-rationale.md` | Why the application asks for as little as it does, in the form a store asks the question. |
-| `support-source-license.md` | Support, source, and the licence row that is blocked on |
+| `support-source-license.md` | Support, source, and the licence row that is blocked on #88. |
 
 ## Per-target
 
@@ -27,7 +27,7 @@ for a target with no store, its documented workflow.
 | Synology DSM | `synology.md` | Synology Package Center |
 | TrueNAS | `truenas.md` | TrueNAS Apps catalog |
 | Unraid | `unraid.md` | Unraid Community Applications |
-| UGOS Pro | `ugreen.md` | UGREEN App Center ('s to submit,) |
+| UGOS Pro | `ugreen.md` | UGREEN App Center (EPIC D's to submit, #178) |
 | Generic Docker | `generic.md` | none: documented workflow |
 | OpenMediaVault | `openmediavault.md` | none: documented workflow |
 | Proxmox VE | `proxmox.md` | none: documented workflow |
@@ -39,17 +39,19 @@ the table is what a reviewer reads; the table is what stops the prose from rotti
 
 ## Two icons on purpose
 
-`ui/shared/public/icon.svg` is the in-app mark. It paints with `currentColor`, which is
-right inside a themed page and wrong on a store listing: outside any colour context
-`currentColor` resolves to the initial colour, so the same file that looks correct in the
-shell renders as a flat black shape on a store's own page, or as very nearly nothing on a
-dark one. It is the one icon defect that is invisible everywhere a developer looks and
-visible in the only place that matters, so this bundle ships `icon.svg` with explicit
-colours at the size the listings render, and the preflight fails a listing icon that
-depends on `currentColor`.
+`docs/site/assets/logo.svg` is the product's one logo. It paints with `currentColor`, and its own
+default render sets that colour from the *reader's* colour scheme, which is right inside
+a page that follows the same scheme and wrong on a store listing: the listing's tile
+is a background this file cannot see, so a reader in a dark scheme looking at a light
+tile gets white ink on white, and a reader outside any colour context gets a flat black
+shape. It is also a 122.2 x 48 lockup that names itself on `aria-label`, where a listing
+needs a square tile and a `<title>`. It is the one icon defect that is invisible
+everywhere a developer looks and visible in the only place that matters, so this bundle
+ships `icon.svg` with explicit colours at the size the listings render, and the
+preflight fails a listing icon that depends on `currentColor`.
 
 ## The recorded verdict
 
 `docs/conformance/submission-preflight.md` holds the generated, per-target readiness
-verdict, and 's consumes it rather than re-running any of these checks. Nothing
+verdict, and EPIC D's #178 consumes it rather than re-running any of these checks. Nothing
 in this directory is the answer to "is this ready"; that report is.

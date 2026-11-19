@@ -27,6 +27,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -34,13 +35,14 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/backupdproject/backupd/core/internal/app"
-	"github.com/backupdproject/backupd/core/internal/backend"
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/obs"
-	"github.com/backupdproject/backupd/core/internal/state"
-	"github.com/backupdproject/backupd/core/internal/transport"
-	"github.com/backupdproject/backupd/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/backend"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/legacypath"
 )
 
 // closeDrainTimeout bounds how long Close (below) waits for an in-flight
@@ -94,7 +96,35 @@ type BackupService struct {
 	configChanged chan struct{}
 
 	journal *state.Journal
-	logger  *obs.Logger
+
+	// keys is key custody for encrypted retained copies (keycustody.go).
+	// It is also what inner.Keys holds, so the engine, a scrub and the
+	// encryption routes all reach one custodian.
+	keys *KeyCustody
+
+	// rootDefault is where this process looks for a workflow root when
+	// config.yaml names none (#1246). Zero, which New leaves it, looks
+	// for none; OpenWith sets it from the caller's options.
+	rootDefault WorkflowRootDefault
+	logger      *obs.Logger
+
+	// recovery is the artifact-recovery machinery (recover.go): the grant
+	// table, the staging area and the verifying engine. Zero until first
+	// used, so a process that never recovers anything creates nothing.
+	recovery recoveryHost
+
+	// sourceHosts is the write-check cache, its single flight and its rate
+	// limit for the "Source host (SFTP)" recovery destination (#1193).
+	sourceHosts sourceHostChecks
+
+	// ops is the registry of running operator-started scrubs and recovery
+	// tests (assuranceoperations.go): the single-flight table for both, and
+	// what a cancel reaches them through.
+	ops assuranceOps
+
+	// testRecoverer stages the copy a recovery test reads. One for the life
+	// of the process, so its record of what it staged survives a hot reload.
+	testRecoverer *engineRecoverer
 
 	// activity is the live, in-memory feed of what each backup set is
 	// doing right now (issue #573, liveactivity.go). It is wired as the
@@ -120,6 +150,18 @@ type BackupService struct {
 	// closeDrainTimeout) instead of returning, and closing the journal,
 	// while one is still writing to it.
 	wg sync.WaitGroup
+
+	// activityDone is closed when the activity feed's durable writer has
+	// flushed and stopped (liveactivity_durable.go).
+	activityDone chan struct{}
+
+	// audit is the agent audit trail's writer (agentaudit.go), and auditDone
+	// is closed when it has flushed and stopped.
+	audit     *agentAuditWriter
+	auditDone chan struct{}
+	// unattributedRefusals holds the feed back for refusals that name no
+	// token (agentaudit.go).
+	unattributedRefusals refusalFeed
 
 	// runOnce enforces this package's single-flight invariant: at most one
 	// executeRunCycle call may be inside internal/app.Service.RunCycle at a
@@ -257,6 +299,14 @@ type BackupService struct {
 type configState struct {
 	inner    *app.Service
 	revision string
+	// workflowRoot is the root this process uses for this configuration
+	// (#1246): the file's, the mounted default, or none. It is the
+	// service's and not the Config's, so a copy of the running Config is
+	// exactly what the file says. revision does not cover it: the same
+	// file can resolve to the default on one start and to none on another
+	// (a mount that came or went), and that is the one fact about a
+	// running deployment the revision is not meant to carry.
+	workflowRoot WorkflowRootState
 }
 
 // New builds a BackupService from already-constructed dependencies. This
@@ -275,7 +325,7 @@ type configState struct {
 // New does NOT resolve a backup set's Validation.ValidatorID into a
 // runnable Validation.Command: that is load-time work, and
 // OpenConfigAndJournal (below) is where it happens, so it covers both
-// production entry points (Open here, and cmd/backupd's own
+// production entry points (Open here, and cmd/retnd's own
 // openService) in one place rather than each caller of this constructor
 // remembering it. A cfg handed to New with an unresolved ValidatorID is
 // not silently un-validated either: internal/lifecycle/verify.go refuses
@@ -318,7 +368,60 @@ func New(cfg *config.Config, journal *state.Journal, tr transport.Transport, log
 	logger = logger.WithSink(activity)
 	b.logger = logger
 	b.activity = activity
-	b.state.Store(&configState{inner: app.New(cfg, journal, tr, logger), revision: computeConfigRevision(cfg)})
+	inner := app.New(cfg, journal, tr, logger)
+	b.keys = NewKeyCustody(func() string { return b.configPath }, journal)
+	b.keys.UseConfig(func() *config.Config { return b.state.Load().inner.Config })
+	inner.Keys = b.keys
+	// The stage runner is wired here, and not with the lifecycle, because
+	// it needs no reconciliation: it runs scripts that are not backups, so
+	// there is no quiesced machine for a startup pass to account for.
+	inner.Stages = b
+	// The recovery test stages a copy through the recovery engine, so a
+	// copy on a storage medium can be tested at all.
+	b.testRecoverer = newEngineRecoverer(b)
+	inner.Recoverer = b.testRecoverer
+	b.state.Store(&configState{inner: inner, revision: computeConfigRevision(cfg)})
+
+	// The activity feed's events are durable (liveactivity_durable.go).
+	// The rings are refilled from what the last process stored, and one
+	// goroutine writes what this one files. Close drains it before the
+	// journal goes away.
+	activity.hydrate(ctx, journal, configuredSetIDs(cfg))
+	// A hold of the journal's one connection past state.SlowHoldThreshold
+	// names itself in the process log (#1247), so the next missed deadline
+	// can be traced to what held the journal. The tap is off: the hook runs
+	// while the connection is still held, and a line in the feed is a write
+	// to that same journal.
+	if journal != nil {
+		slowHolds := logger.WithSink(nil)
+		journal.SetSlowHoldHook(func(h state.SlowHold) {
+			slowHolds.JournalSlowHold(ctx, h.Op, h.Held, h.Waiters)
+		})
+	}
+	activity.durable = newActivityDurable(journal, logger)
+	// Not on b.wg: that group is the operations Close drains, and tests
+	// wait on it to mean "the work I started has finished". The writer runs
+	// until the service's context ends, so it has a channel of its own.
+	activityDone := make(chan struct{})
+	b.activityDone = activityDone
+	go func() {
+		defer close(activityDone)
+		activity.durable.run(ctx)
+	}()
+
+	// The agent audit writer (agentaudit.go): one goroutine, its own channel
+	// for the reason the activity writer has one.
+	b.audit = newAgentAuditWriter(journal, logger.WithSink(nil))
+	// agents.audit_retention_days, read at start like the rest of the block.
+	if days := cfg.Agents.AuditRetentionDays; days > 0 {
+		b.audit.retention = time.Duration(days) * 24 * time.Hour
+	}
+	auditDone := make(chan struct{})
+	b.auditDone = auditDone
+	go func() {
+		defer close(auditDone)
+		b.audit.run(ctx)
+	}()
 
 	// EPIC L's engine, built here and switched on later. It is
 	// constructed unconditionally, including for a deployment that
@@ -350,7 +453,7 @@ func New(cfg *config.Config, journal *state.Journal, tr transport.Transport, log
 
 // OpenConfigAndJournal loads and validates configPath and opens (migrating)
 // its configured SQLite journal at cfg.State.Database. This is the
-// bootstrap sequence Open (below) and cmd/backupd's own openService
+// bootstrap sequence Open (below) and cmd/retnd's own openService
 // helper both need — the exact same "read this config file, open/migrate
 // this journal" side effects, previously implemented twice — factored out
 // so it exists in exactly one place; see this package's introducing PR
@@ -364,12 +467,30 @@ func New(cfg *config.Config, journal *state.Journal, tr transport.Transport, log
 // lock is taken, and exactly what each failure between them does to the
 // data already on disk. What matters at THIS level is the contract it
 // gives every caller: a failure returns a non-nil error and a nil
-// *state.Journal, which Open (below) and cmd/backupd's openService
+// *state.Journal, which Open (below) and cmd/retnd's openService
 // both already treat as fatal, so a failed migration means no
 // BackupService is ever constructed and no daemon, API, scheduler tick or
 // transfer ever starts.
 func OpenConfigAndJournal(ctx context.Context, configPath string) (*config.Config, *state.Journal, func() error, error) {
 	configPath = config.ResolvePath(configPath)
+
+	// FR-38's preflight, and it sits HERE because this is the one door
+	// every caller opens a deployment through: both commands, every
+	// provider app, and `retnd check`. EPIC R renamed the container-
+	// internal configuration directory, so a deployment whose compose
+	// file still mounts the pre-rename path resolves a path that holds
+	// nothing — and the stat below would report that as "not set up yet"
+	// and hand a live deployment the first-run flow. legacypath.go has
+	// the whole argument and the table.
+	//
+	// Applying it before the stat rather than after is the point: the
+	// adoption has to change WHICH path the stat asks about, or it is a
+	// diagnosis printed underneath the damage.
+	cfgAdoption := legacypath.ForConfig(configPath)
+	if cfgAdoption.Outcome == legacypath.Ambiguous {
+		return nil, nil, nil, &legacypath.AmbiguousError{Adoption: cfgAdoption}
+	}
+	configPath = cfgAdoption.Path
 
 	// An absent configuration file is reported as its own error, before
 	// anything else is attempted (issue #176, firstrun.go). It is the one
@@ -411,6 +532,35 @@ func OpenConfigAndJournal(ctx context.Context, configPath string) (*config.Confi
 	if err := checkValidatorCatalogMembership(cfg); err != nil {
 		return nil, nil, nil, err
 	}
+
+	// The state half of FR-38's table, asserted on the path the
+	// configuration persists rather than on a default. A configuration
+	// that names its own journal cannot lose it to the rename; a
+	// half-completed migration that rewrote the configuration and did
+	// not move the mount produces exactly the second row, at the one
+	// path where taking the wrong branch means starting a fresh journal
+	// beside a real one.
+	stateAdoption := legacypath.ForStateDatabase(cfg.State.Database)
+	if stateAdoption.Outcome == legacypath.Ambiguous {
+		return nil, nil, nil, &legacypath.AmbiguousError{Adoption: stateAdoption}
+	}
+
+	// The adopted path replaces the persisted one IN THIS PROCESS'S
+	// LOADED CONFIGURATION, and that is the point rather than a
+	// convenience. Six things downstream derive a location from
+	// cfg.State.Database — the serving announcement liveengine.go makes,
+	// the deployment identity a routed write compares, the startup and
+	// journal locks, the validator script directory and the workflow
+	// spool — and every one of them has to name the directory the
+	// journal is really in. Opening the journal at one path while the
+	// locks, the announcement and the spool land at another is #571's
+	// split brain rebuilt out of two individually correct halves.
+	//
+	// It changes nothing on disk: this is the decoded configuration, and
+	// the operator's file still says what it says. The warning printed at
+	// startup is what asks them to move it, and the installer's
+	// `migrate-identity` is what does.
+	cfg.State.Database = stateAdoption.Path
 
 	journal, releaseJournal, err := runStartupSequence(ctx, cfg.State.Database)
 	if err != nil {
@@ -459,7 +609,7 @@ func OpenConfigAndJournal(ctx context.Context, configPath string) (*config.Confi
 // returned BackupService.
 //
 // The sink's level comes from the environment (obs.LevelFromEnv:
-// LOG_LEVEL, or BACKUPD_DEBUG=1 as the shortcut, with RM_DEBUG=1 kept
+// LOG_LEVEL, or RETND_DEBUG=1 as the shortcut, with RM_DEBUG=1 kept
 // as its deprecated alias) rather than from a constant.
 // This is the engine's composition root, so a hard-coded LevelInfo here
 // meant the ENGINE could not be turned up at all - the half of issue
@@ -468,7 +618,29 @@ func OpenConfigAndJournal(ctx context.Context, configPath string) (*config.Confi
 // process the trace describes to join it to. Unset is still INFO, so a
 // deployment that asked for nothing is byte-identical to before.
 func Open(ctx context.Context, configPath string) (*BackupService, func() error, error) {
-	logger := obs.New(os.Stdout, obs.LevelFromEnv())
+	return OpenWithLog(ctx, configPath, os.Stdout)
+}
+
+// OpenWithLog is Open with the structured log going to logTo instead of
+// standard output. A command whose standard output is data (recover writing
+// an artifact's bytes, or JSON a script parses) sends the log to standard
+// error with it, because a log line in the middle of a recovered file is a
+// corrupted file.
+func OpenWithLog(ctx context.Context, configPath string, logTo io.Writer) (*BackupService, func() error, error) {
+	return OpenWith(ctx, configPath, OpenOptions{LogTo: logTo})
+}
+
+// OpenWith is Open with options: where the log goes, and the default
+// workflow root this process looks for when config.yaml names none
+// (#1246). A zero WorkflowRoot looks for none, which is what Open and
+// OpenWithLog pass, so only an entry point that is a real deployment (the
+// engine's serve, the CLI's main) ever stats /workflows.
+func OpenWith(ctx context.Context, configPath string, opts OpenOptions) (*BackupService, func() error, error) {
+	logTo := opts.LogTo
+	if logTo == nil {
+		logTo = os.Stdout
+	}
+	logger := obs.New(logTo, obs.LevelFromEnv())
 
 	// Issue #665: loads the bundled backend manifests and refuses loudly
 	// if one is malformed, before anything else opens. Nothing reads the
@@ -492,11 +664,19 @@ func Open(ctx context.Context, configPath string) (*BackupService, func() error,
 		// this line is the only record of WHY it did: without it an
 		// operator diagnosing a container that will not come up has a
 		// non-zero exit code and nothing else.
-		logger.Error(ctx, "startup", err)
+		//
+		// An absent configuration is the exception (retnd#1049). It is a
+		// fresh install, not a failed start: the caller reads
+		// ErrConfigAbsent and chooses what to say, so an expected first
+		// run never reaches `docker logs` as an ERROR line.
+		if !errors.Is(err, ErrConfigAbsent) {
+			logger.Error(ctx, "startup", err)
+		}
 		return nil, nil, err
 	}
 
 	svc := New(cfg, journal, rclone.New(), logger)
+	svc.useWorkflowRootDefault(opts.WorkflowRoot)
 	// Resolved, not as supplied: --config may name the configuration
 	// DIRECTORY the packaging mounts (issue #196), and every write path
 	// below (CreateBackupSet, UpdateSettings, ImportSSHKey, the
@@ -558,6 +738,25 @@ func (b *BackupService) Close() error {
 	case <-time.After(closeDrainTimeout):
 		b.logger.Error(context.Background(), "close",
 			fmt.Errorf("timed out after %s waiting for an in-flight operation to finish", closeDrainTimeout))
+	}
+
+	// The activity writer flushes what it holds before the journal goes.
+	if b.activityDone != nil {
+		select {
+		case <-b.activityDone:
+		case <-time.After(closeDrainTimeout):
+			b.logger.Error(context.Background(), "close",
+				fmt.Errorf("timed out after %s waiting for the activity writer to flush", closeDrainTimeout))
+		}
+	}
+
+	if b.auditDone != nil {
+		select {
+		case <-b.auditDone:
+		case <-time.After(closeDrainTimeout):
+			b.logger.Error(context.Background(), "close",
+				fmt.Errorf("timed out after %s waiting for the agent audit writer to flush", closeDrainTimeout))
+		}
 	}
 
 	err := b.journal.Close()

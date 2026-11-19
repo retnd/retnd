@@ -57,12 +57,31 @@ func TestEventNamesAreStable(t *testing.T) {
 		{"EventDiskPressure", EventDiskPressure, "disk_pressure"},
 		{"EventAlert", EventAlert, "alert"},
 		{"EventAPIAction", EventAPIAction, "api_action"},
+		{"EventAgentAction", EventAgentAction, "agent_action"},
 		{"EventWorkflowRunStart", EventWorkflowRunStart, "workflow_run_start"},
 		{"EventWorkflowRunEnd", EventWorkflowRunEnd, "workflow_run_end"},
 		{"EventWorkflowStepStart", EventWorkflowStepStart, "workflow_step_start"},
 		{"EventWorkflowStepEnd", EventWorkflowStepEnd, "workflow_step_end"},
 		{"EventWorkflowBypassed", EventWorkflowBypassed, "workflow_bypassed"},
+		{"EventScrubPass", EventScrubPass, "scrub_pass"},
+		{"EventScrubStart", EventScrubStart, "scrub_start"},
+		{"EventScrubFailure", EventScrubFailure, "scrub_failure"},
+		{"EventRecoveryTest", EventRecoveryTest, "recovery_test"},
+		{"EventScrubUnknownObject", EventScrubUnknownObject, "scrub_unknown_object"},
+		{"EventScrubUnlisted", EventScrubUnlisted, "scrub_unlisted"},
 		{"EventError", EventError, "error"},
+		{"EventActivityPruneDeferred", EventActivityPruneDeferred, "activity_prune_deferred"},
+		{"EventJournalSlowHold", EventJournalSlowHold, "journal_slow_hold"},
+		{"EventKeyCreated", EventKeyCreated, "key_created"},
+		{"EventKeyRotated", EventKeyRotated, "key_rotated"},
+		{"EventKeyBundleExported", EventKeyBundleExported, "key_bundle_exported"},
+		{"EventKeyBundleConfirmed", EventKeyBundleConfirmed, "key_bundle_confirmed"},
+		{"EventKeyRetired", EventKeyRetired, "key_retired"},
+		{"EventEncryptionDefaultSuiteChanged", EventEncryptionDefaultSuiteChanged, "encryption_default_suite_changed"},
+		{"EventCopyEncrypting", EventCopyEncrypting, "copy_encrypting"},
+		{"EventCopyUploadingEncrypted", EventCopyUploadingEncrypted, "copy_uploading_encrypted"},
+		{"EventCopyVerifyingStored", EventCopyVerifyingStored, "copy_verifying_stored"},
+		{"EventCopyDecryptVerifying", EventCopyDecryptVerifying, "copy_decrypt_verifying"},
 	}
 	seen := make(map[string]string, len(cases))
 	for _, c := range cases {
@@ -394,6 +413,40 @@ func TestErrorEvent(t *testing.T) {
 	}
 }
 
+// A deferred prune is a warning with the error that deferred it, never an
+// error event: an alert rule counting errors must not count a lost race
+// (#1247).
+func TestActivityPruneDeferredEvent(t *testing.T) {
+	l, buf := newRecorder(t)
+	l.ActivityPruneDeferred(context.Background(), errors.New("context deadline exceeded"), time.Minute)
+
+	lines := decodeLines(t, buf)
+	if len(lines) != 1 {
+		t.Fatalf("%d lines", len(lines))
+	}
+	got := lines[0]
+	if got["event"] != EventActivityPruneDeferred || got["level"] != "WARN" || got["error"] != "context deadline exceeded" || got["retry_in"] == nil {
+		t.Errorf("got %#v", got)
+	}
+}
+
+// A slow hold names what held the journal, for how long, and how many
+// callers it kept waiting (#1247).
+func TestJournalSlowHoldEvent(t *testing.T) {
+	l, buf := newRecorder(t)
+	l.JournalSlowHold(context.Background(), "DELETE FROM activity_events", 12*time.Second, 3)
+
+	lines := decodeLines(t, buf)
+	if len(lines) != 1 {
+		t.Fatalf("%d lines", len(lines))
+	}
+	got := lines[0]
+	if got["event"] != EventJournalSlowHold || got["level"] != "WARN" || got["op"] != "DELETE FROM activity_events" ||
+		got["held_ms"] != float64(12000) || got["waiters"] != float64(3) {
+		t.Errorf("got %#v", got)
+	}
+}
+
 // TestAlertEvent proves the proactive-alert line carries the typed kind,
 // the backup set it was about, and the operator-facing text that went
 // out, at LevelWarn.
@@ -415,4 +468,218 @@ func TestAlertEvent(t *testing.T) {
 	if got["detail"] != "Backup set production/postgres-primary is STALE." {
 		t.Errorf("detail = %v, want the delivered message", got["detail"])
 	}
+}
+
+func TestScrubPassEvent(t *testing.T) {
+	l, buf := newRecorder(t)
+	l.ScrubPass(context.Background(), ScrubPassCounts{
+		Trigger: "schedule", Scope: "all-due", Selected: 1000, Checked: 990, Passed: 980,
+		Failed: 4, CouldNotComplete: 6, RequiresRestore: 0, SkippedHeld: 7, SkippedLeased: 3, BytesRead: 1 << 30,
+	})
+	line := decodeLines(t, buf)[0]
+	if line["event"] != EventScrubPass {
+		t.Fatalf("event = %v", line["event"])
+	}
+	// A pass with failures completed, and found something worth attention:
+	// warn, not error. The scrub did its job.
+	if line["result"] != string(ResultWarn) || line["level"] != "WARN" {
+		t.Errorf("a pass with failures logged outcome=%v level=%v, want warn", line["result"], line["level"])
+	}
+	for k, want := range map[string]float64{"selected": 1000, "checked": 990, "passed": 980, "failed": 4,
+		"could_not_complete": 6, "skipped_held": 7, "skipped_leased": 3} {
+		if line[k] != want {
+			t.Errorf("%s = %v, want %v", k, line[k], want)
+		}
+	}
+}
+
+func TestScrubPassEventWithoutFailuresIsSuccess(t *testing.T) {
+	l, buf := newRecorder(t)
+	l.ScrubPass(context.Background(), ScrubPassCounts{Trigger: "manual", Scope: "x", Selected: 2, Checked: 2, Passed: 2})
+	line := decodeLines(t, buf)[0]
+	if line["result"] != string(ResultSuccess) {
+		t.Errorf("outcome = %v, want success", line["result"])
+	}
+}
+
+// #1200: a pass an operator started carries its operation id, and says when
+// it was cancelled; a scheduled one carries neither.
+func TestScrubLinesCarryTheOperationIDOfAScrubNow(t *testing.T) {
+	l, buf := newRecorder(t)
+	l.ScrubPass(context.Background(), ScrubPassCounts{Trigger: "manual", Scope: "set a/b", OpID: "op-1", Cancelled: true, Selected: 1})
+	l.ScrubFailure(context.Background(), ScrubFailureInfo{OpID: "op-1", Artifact: "a/b/c.dump", Medium: "local", Class: "content", Reason: "bad"})
+	l.ScrubPass(context.Background(), ScrubPassCounts{Trigger: "schedule", Scope: "all due"})
+	l.ScrubFailure(context.Background(), ScrubFailureInfo{Artifact: "a/b/c.dump", Medium: "local", Class: "content", Reason: "bad"})
+	lines := decodeLines(t, buf)
+	if lines[0]["op_id"] != "op-1" || lines[0]["cancelled"] != true || lines[1]["op_id"] != "op-1" {
+		t.Errorf("a scrub now's lines = %v / %v, want op_id on both and cancelled on the pass", lines[0], lines[1])
+	}
+	for _, l := range lines[2:] {
+		if _, ok := l["op_id"]; ok {
+			t.Errorf("a scheduled line carries op_id: %v", l)
+		}
+		if _, ok := l["cancelled"]; ok {
+			t.Errorf("a scheduled line carries cancelled: %v", l)
+		}
+	}
+}
+
+// #1200: a scrub now writes a start line that carries its operation id, so a
+// run that is still going (or selected nothing) is on the record by that id.
+func TestAScrubNowWritesAStartLineWithItsOperationID(t *testing.T) {
+	l, buf := newRecorder(t)
+	l.ScrubStart(context.Background(), ScrubStartInfo{Trigger: "manual", Scope: "set a/b", OpID: "op-1"})
+	line := decodeLines(t, buf)[0]
+	if line["event"] != EventScrubStart || line["op_id"] != "op-1" || line["trigger"] != "manual" || line["scope"] != "set a/b" {
+		t.Fatalf("line = %#v", line)
+	}
+}
+
+// #1200: a recovery test stopped on request says so in a field of its own,
+// rather than in the wording of its reason.
+func TestARecoveryTestStoppedOnRequestSaysCancelledAsAField(t *testing.T) {
+	l, buf := newRecorder(t)
+	l.RecoveryTestEnd(context.Background(), "op-1", "a/b", "a/b/c.dump", "v", time.Second, ResultWarn, "stopped", true)
+	l.RecoveryTestEnd(context.Background(), "op-2", "a/b", "a/b/c.dump", "v", time.Second, ResultWarn, "shutdown", false)
+	lines := decodeLines(t, buf)
+	if lines[0]["cancelled"] != true {
+		t.Errorf("a cancelled end line = %v, want cancelled=true", lines[0])
+	}
+	if _, ok := lines[1]["cancelled"]; ok {
+		t.Errorf("an end line that was not cancelled carries cancelled: %v", lines[1])
+	}
+}
+
+func TestScrubFailureEventCarriesNoRawControlBytes(t *testing.T) {
+	l, buf := newRecorder(t)
+	l.ScrubFailure(context.Background(), ScrubFailureInfo{Artifact: "prod/pg/a.dump", Medium: "local", Class: "content", Reason: "bad\x1b[31m\x00 bytes"})
+	line := decodeLines(t, buf)[0]
+	if line["event"] != EventScrubFailure || line["result"] != string(ResultWarn) {
+		t.Fatalf("line = %#v", line)
+	}
+	reason, _ := line["reason"].(string)
+	for _, r := range reason {
+		if r < 0x20 || r == 0x7f {
+			t.Errorf("reason carries control byte %#x: %q", r, reason)
+		}
+	}
+	if line["artifact"] != "prod/pg/a.dump" || line["medium"] != "local" || line["class"] != "content" {
+		t.Errorf("line = %#v", line)
+	}
+}
+
+func TestRecoveryTestEventStatesTheGateAndTheTermination(t *testing.T) {
+	l, buf := newRecorder(t)
+	l.RecoveryTest(context.Background(), RecoveryTestFacts{
+		Artifact: "prod/pg/a.dump", Medium: "local", PlacementID: 42, State: "passed", DigestMatched: "matched",
+		ValidatorID: "pg-restore-check", Termination: "exited", Cleanup: "removed",
+	})
+	line := decodeLines(t, buf)[0]
+	if line["event"] != EventRecoveryTest || line["result"] != string(ResultSuccess) {
+		t.Fatalf("line = %#v", line)
+	}
+	if line["placement_id"] != float64(42) {
+		t.Errorf("placement_id = %v", line["placement_id"])
+	}
+	for k, want := range map[string]string{"digest": "matched", "validator": "pg-restore-check", "termination": "exited", "state": "passed"} {
+		if line[k] != want {
+			t.Errorf("%s = %v, want %q", k, line[k], want)
+		}
+	}
+}
+
+func TestRecoveryTestEventIsNeverAQuietSuccessWhenCleanupFailedOrNothingWasTested(t *testing.T) {
+	for name, tc := range map[string]struct {
+		facts RecoveryTestFacts
+		want  Result
+	}{
+		"pass with a cleanup failure": {RecoveryTestFacts{State: "passed", Cleanup: "failed"}, ResultWarn},
+		"failure":                     {RecoveryTestFacts{State: "failed"}, ResultWarn},
+		"refused for cost":            {RecoveryTestFacts{State: "refused_for_cost"}, ResultWarn},
+		"could not complete":          {RecoveryTestFacts{State: "could_not_complete"}, ResultWarn},
+		"not configured":              {RecoveryTestFacts{State: "not_configured"}, ResultInfo},
+	} {
+		t.Run(name, func(t *testing.T) {
+			l, buf := newRecorder(t)
+			l.RecoveryTest(context.Background(), tc.facts)
+			if got := decodeLines(t, buf)[0]["result"]; got != string(tc.want) {
+				t.Errorf("result = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// The four key-custody events each carry a result, the key id, and (for an
+// export) the digest, and a failed one is logged at the failure level.
+func TestKeyCustodyEventsCarryAResultAndNoMaterial(t *testing.T) {
+	for _, result := range []Result{ResultSuccess, ResultError} {
+		l, buf := newRecorder(t)
+		ctx := context.Background()
+		l.KeyCreated(ctx, "k1", result)
+		l.KeyRotated(ctx, "k1", "k2", result)
+		l.KeyBundleExported(ctx, "k2", "abc123", result)
+		l.KeyBundleConfirmed(ctx, "k2", result)
+
+		lines := decodeLines(t, buf)
+		events := []string{EventKeyCreated, EventKeyRotated, EventKeyBundleExported, EventKeyBundleConfirmed}
+		if len(lines) != len(events) {
+			t.Fatalf("%d lines, want %d", len(lines), len(events))
+		}
+		for i, line := range lines {
+			if line["event"] != events[i] || line["result"] != string(result) || line["level"] != result.Level().String() {
+				t.Errorf("%s with %s: got %#v", events[i], result, line)
+			}
+		}
+		if lines[2]["digest"] != "abc123" || lines[2]["key_id"] != "k2" || lines[1]["previous_key_id"] != "k1" {
+			t.Errorf("export/rotate attributes missing: %#v %#v", lines[2], lines[1])
+		}
+	}
+}
+
+// The four encrypted-copy stage events and the key retirement are #992's FR-23
+// catalog additions: each carries a result, names the copy by artifact and
+// medium, and a failed one is logged at the failure level. None of them has
+// anywhere to put material (the typed methods take ids and names), and the
+// key id is the only key-related string they carry.
+func TestEncryptedCopyStageEventsCarryAResultAndNoMaterial_992(t *testing.T) {
+	for _, result := range []Result{ResultSuccess, ResultError} {
+		l, buf := newRecorder(t)
+		ctx := context.Background()
+		l.CopyEncrypting(ctx, "prod/pg/a.dump", "offsite", result)
+		l.CopyUploadingEncrypted(ctx, "prod/pg/a.dump", "offsite", result)
+		l.CopyVerifyingStored(ctx, "prod/pg/a.dump", "offsite", result)
+		l.CopyDecryptVerifying(ctx, "prod/pg/a.dump", "offsite", "k0123", result)
+		l.KeyRetired(ctx, "k0123", result)
+
+		lines := decodeLines(t, buf)
+		events := []string{EventCopyEncrypting, EventCopyUploadingEncrypted, EventCopyVerifyingStored, EventCopyDecryptVerifying, EventKeyRetired}
+		if len(lines) != len(events) {
+			t.Fatalf("%d lines, want %d", len(lines), len(events))
+		}
+		for i, line := range lines {
+			if line["event"] != events[i] || line["result"] != string(result) || line["level"] != result.Level().String() {
+				t.Errorf("%s with %s: got %#v", events[i], result, line)
+			}
+		}
+		for i := 0; i < 4; i++ {
+			if lines[i]["artifact"] != "prod/pg/a.dump" || lines[i]["medium"] != "offsite" {
+				t.Errorf("%s does not name its copy: %#v", events[i], lines[i])
+			}
+		}
+		if lines[3]["key_id"] != "k0123" || lines[4]["key_id"] != "k0123" {
+			t.Errorf("the decrypt-verify and the retirement must name the key id: %#v %#v", lines[3], lines[4])
+		}
+	}
+}
+
+// A nil Logger is a safe no-op for the new methods too, which is what lets
+// the move engine carry an optional logger.
+func TestEncryptedCopyStageEventsAreNilSafe_992(t *testing.T) {
+	var l *Logger
+	ctx := context.Background()
+	l.CopyEncrypting(ctx, "a", "m", ResultSuccess)
+	l.CopyUploadingEncrypted(ctx, "a", "m", ResultSuccess)
+	l.CopyVerifyingStored(ctx, "a", "m", ResultSuccess)
+	l.CopyDecryptVerifying(ctx, "a", "m", "k", ResultSuccess)
+	l.KeyRetired(ctx, "k", ResultSuccess)
 }

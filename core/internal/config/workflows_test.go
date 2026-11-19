@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/secretref"
-	"github.com/backupdproject/backupd/core/internal/workflow"
+	"github.com/retnd/retnd/core/internal/secretref"
+	"github.com/retnd/retnd/core/internal/workflow"
 	"gopkg.in/yaml.v3"
 )
 
@@ -184,7 +184,7 @@ func literal(v string) *string { return &v }
 func workflowConfig() Config {
 	return Config{
 		PollInterval: Duration(time.Minute),
-		State:        State{Database: "/var/lib/backupd/state.db"},
+		State:        State{Database: "/var/lib/retnd/state.db"},
 		Workflows: Workflows{
 			Root:          "/workflows",
 			Global:        WorkflowStageDirs{BeforeDir: "global-before", AfterDir: "global-after"},
@@ -375,12 +375,12 @@ func TestValidateRefusesUnusableWorkflowConfigurations(t *testing.T) {
 		},
 		{
 			what:    "a reserved environment name",
-			mutate:  func(c *Config) { c.Workflows.Environment[0].Name = "BACKUPD_RUN_ID" },
+			mutate:  func(c *Config) { c.Workflows.Environment[0].Name = "RETND_RUN_ID" },
 			mustSay: "reserved",
 		},
 		{
 			what:    "a reserved environment name on a backup set",
-			mutate:  func(c *Config) { c.Sources[0].BackupSets[0].Environment[0].Name = "BACKUPD" },
+			mutate:  func(c *Config) { c.Sources[0].BackupSets[0].Environment[0].Name = "RETND" },
 			mustSay: "reserved",
 		},
 		{
@@ -534,7 +534,7 @@ func TestWorkflowSpoolDirSitsBesideTheStateDatabase(t *testing.T) {
 	t.Parallel()
 
 	cfg := workflowConfig()
-	if got, want := cfg.WorkflowSpoolDir(), "/var/lib/backupd/workflow-runs"; got != want {
+	if got, want := cfg.WorkflowSpoolDir(), "/var/lib/retnd/workflow-runs"; got != want {
 		t.Errorf("WorkflowSpoolDir() = %q, want %q", got, want)
 	}
 
@@ -556,7 +556,7 @@ func TestWorkflowBlockRoundTripsThroughYAML(t *testing.T) {
 	const doc = `
 poll_interval: 1m
 state:
-  database: /var/lib/backupd/state.db
+  database: /var/lib/retnd/state.db
 workflows:
   root: /workflows
   global:

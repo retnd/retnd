@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/placement"
-	"github.com/backupdproject/backupd/core/internal/state"
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/placement"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // This file is the ladder's own suite, and most of it is one promise
@@ -99,7 +99,7 @@ func mediumPlacement(content []byte) state.Placement {
 	size := int64(len(content))
 	return state.Placement{
 		Medium:   "offsite_s3",
-		Location: "backupd/production/pg/a.dump",
+		Location: "retnd/production/pg/a.dump",
 		Size:     &size,
 		Hash:     sha256Of(content),
 		HashAlg:  string(transport.SHA256),

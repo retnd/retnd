@@ -30,7 +30,7 @@ trees in a throwaway worktree.
 
 Ported from `scripts/architecture/check-core-dependency-rule.sh` (EPIC I,
 I1.6 / #672 / #697), which stays on disk as an `exec` shim because
-`scripts/ci-local.sh` runs it twice, `.github/workflows/ci.yml` runs it
+`scripts/ci-local.sh` runs it twice, `.github/workflows/ci.yml` (until #1260) ran it
 once, and `scripts/tests/ci-local-gate.test.sh` fabricates a file at that
 literal path.
 
@@ -274,7 +274,7 @@ from bdtools import harness
 
 PROGRAM = "check-core-dependency-rule"
 
-MODULE_PREFIX = "github.com/backupdproject/backupd/"
+MODULE_PREFIX = "github.com/retnd/retnd/"
 
 # The set of third-party NAS, container-manager and app-store SDK names no
 # core- or platform-layer module may pull in. The full Phase 6 platform

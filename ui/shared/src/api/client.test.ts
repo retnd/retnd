@@ -18,15 +18,22 @@
  * to.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { httpApi, newIdempotencyKey } from "./client";
-import { BackupdError, RequestFailure, toApiErrorCode } from "./contracts";
+import {
+  acknowledgeInsecureTransport,
+  httpApi,
+  insecureTransportIsAcknowledged,
+  newIdempotencyKey,
+  rememberInsecureTransportRequired,
+  setInsecureTransportConfirmer
+} from "./client";
+import { RetndError, RequestFailure, toApiErrorCode } from "./contracts";
 import type { ApiErrorCode } from "./contracts";
 import { progressPercent } from "@shared/types/operation";
 
 /** Sets document.cookie the way a browser would after the server issued
- *  a Set-Cookie header for backupd_csrf — jsdom's document.cookie setter
+ *  a Set-Cookie header for retnd_csrf — jsdom's document.cookie setter
  *  accepts the same "name=value" assignment form. */
-function setCsrfCookie(value: string, name = "backupd_csrf") {
+function setCsrfCookie(value: string, name = "retnd_csrf") {
   document.cookie = name + "=" + value;
 }
 
@@ -46,7 +53,7 @@ function mockFetchOk(body: unknown = undefined, status = 200) {
 describe("httpApi CSRF/bootstrap-token wiring", () => {
   beforeEach(() => {
     // Clear any cookie a previous test left behind.
-    clearCookie("backupd_csrf");
+    clearCookie("retnd_csrf");
     clearCookie("bm_csrf");
     window.history.pushState({}, "", "/");
   });
@@ -190,9 +197,9 @@ describe("httpApi CSRF/bootstrap-token wiring", () => {
       host: "smtp.example.net",
       port: 587,
       security: "starttls",
-      username: "backupd@example.com",
+      username: "retnd@example.com",
       password: "smtp-secret",
-      from: "backupd@example.com"
+      from: "retnd@example.com"
     });
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -472,8 +479,8 @@ describe("httpApi error envelope handling", () => {
     } catch (e) {
       caught = e;
     }
-    expect(caught).toBeInstanceOf(BackupdError);
-    const err = caught as BackupdError;
+    expect(caught).toBeInstanceOf(RetndError);
+    const err = caught as RetndError;
     expect(err.api.code).toBe("INVALID_REQUEST");
     expect(err.api.message).toBe("name is required");
     expect(err.api.correlationId).toBe("cid_test123");
@@ -494,8 +501,8 @@ describe("httpApi error envelope handling", () => {
     } catch (e) {
       caught = e;
     }
-    expect(caught).toBeInstanceOf(BackupdError);
-    const err = caught as BackupdError;
+    expect(caught).toBeInstanceOf(RetndError);
+    const err = caught as RetndError;
     expect(err.api.code).toBe("UNAUTHENTICATED");
     expect(err.api.correlationId).toBe("cid_flat456");
   });
@@ -517,8 +524,8 @@ describe("httpApi error envelope handling", () => {
     } catch (e) {
       caught = e;
     }
-    expect(caught).toBeInstanceOf(BackupdError);
-    expect((caught as BackupdError).api.correlationId).toBe("cid_nojson");
+    expect(caught).toBeInstanceOf(RetndError);
+    expect((caught as RetndError).api.correlationId).toBe("cid_nojson");
   });
 
   /**
@@ -1626,6 +1633,15 @@ describe("httpApi maps the wire shapes onto the domain types", () => {
     expect(Object.keys(got).filter((k) => k.endsWith("Bytes"))).toEqual([]);
   });
 
+  it("carries retained_count for the Backups badge, and an older engine's silence as null rather than zero (#1186)", async () => {
+    vi.stubGlobal("fetch", mockFetchOk({ generated_at: "2026-08-30T10:00:00Z", backup_sets: [], retained_count: 119 }));
+    expect((await httpApi.getHealth()).retainedCount).toBe(119);
+    vi.stubGlobal("fetch", mockFetchOk({ generated_at: "2026-08-30T10:00:00Z", backup_sets: [], retained_count: 0 }));
+    expect((await httpApi.getHealth()).retainedCount).toBe(0);
+    vi.stubGlobal("fetch", mockFetchOk({ generated_at: "2026-08-30T10:00:00Z", backup_sets: [] }));
+    expect((await httpApi.getHealth()).retainedCount).toBeNull();
+  });
+
   it("says so when nothing is configured, rather than declaring an empty deployment healthy in silence", async () => {
     vi.stubGlobal("fetch", mockFetchOk({ generated_at: "2026-08-30T10:00:00Z", backup_sets: [] }));
 
@@ -1685,8 +1701,8 @@ describe("httpApi maps the wire shapes onto the domain types", () => {
    * a record that really is broken.
    *
    * The captions and the ranks here are agreed verbatim with
-   * core/cmd/backupd/activity.go's table, which derives the same
-   * severity for `backupd activity --severity`. Issue #625 was the last time
+   * core/cmd/retnd/activity.go's table, which derives the same
+   * severity for `retnd activity --severity`. Issue #625 was the last time
    * those two drifted.
    */
   it("reads a successful in-place recovery as two calm rows, not as an attempt that failed and a quarantine", async () => {
@@ -2513,7 +2529,7 @@ describe("the incremental wire boundary", () => {
       domain: "offsite-b2",
       description: "Second copy, off site",
       isolation: "isolated",
-      passphrase: { file: "/etc/backupd/offsite-b2.passphrase" },
+      passphrase: { file: "/etc/retnd/offsite-b2.passphrase" },
       location: "",
       maintenanceOwner: "another-instance"
     });
@@ -2527,7 +2543,7 @@ describe("the incremental wire boundary", () => {
       id: "offsite-b2",
       description: "Second copy, off site",
       isolation: "isolated",
-      passphrase: { file: "/etc/backupd/offsite-b2.passphrase", env: "", command: [] },
+      passphrase: { file: "/etc/retnd/offsite-b2.passphrase", env: "", command: [] },
       maintenance_owner: "another-instance"
     });
   });
@@ -2536,7 +2552,7 @@ describe("the incremental wire boundary", () => {
     const body = await createdDomainBody({
       domain: "offsite-c3",
       isolation: "shared",
-      passphrase: { env: "BACKUPD_OFFSITE_C3_PASSPHRASE" }
+      passphrase: { env: "RETND_OFFSITE_C3_PASSPHRASE" }
     });
 
     // The one field that must never carry material: what crosses is the
@@ -2546,7 +2562,7 @@ describe("the incremental wire boundary", () => {
     expect(body).toEqual({
       id: "offsite-c3",
       isolation: "shared",
-      passphrase: { file: "", env: "BACKUPD_OFFSITE_C3_PASSPHRASE", command: [] }
+      passphrase: { file: "", env: "RETND_OFFSITE_C3_PASSPHRASE", command: [] }
     });
   });
 
@@ -2554,13 +2570,13 @@ describe("the incremental wire boundary", () => {
     const body = await createdDomainBody({
       domain: "vaulted",
       isolation: "shared",
-      passphrase: { command: ["/usr/bin/vault", "read", "-field=value", "secret/backupd"] }
+      passphrase: { command: ["/usr/bin/vault", "read", "-field=value", "secret/retnd"] }
     });
 
     expect(body.passphrase).toEqual({
       file: "",
       env: "",
-      command: ["/usr/bin/vault", "read", "-field=value", "secret/backupd"]
+      command: ["/usr/bin/vault", "read", "-field=value", "secret/retnd"]
     });
   });
 
@@ -2656,6 +2672,7 @@ describe("EPIC K's four acts send only what the operator answered", () => {
     await httpApi.releaseSnapshotHold({
       backupSetId: "nas-a/photos",
       holdId: "hold_1",
+      acknowledged: true,
       configRevision: "cfg_7",
       idempotencyKey: "key-4"
     });
@@ -2665,7 +2682,7 @@ describe("EPIC K's four acts send only what the operator answered", () => {
     expect(sentBody(released)).toEqual({
       action: "release_snapshot_hold",
       config_revision: "cfg_7",
-      snapshot_hold_release: { backup_set_id: "nas-a/photos", hold_id: "hold_1" }
+      snapshot_hold_release: { backup_set_id: "nas-a/photos", hold_id: "hold_1", acknowledged: true }
     });
     expect(headersOfCall(released)["Idempotency-Key"]).toBe("key-4");
   });
@@ -2677,3 +2694,825 @@ function headersOfCall(fetchMock: ReturnType<typeof mockFetchOk>): Record<string
   const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
   return (init.headers ?? {}) as Record<string, string>;
 }
+
+/**
+ * EPIC L's wire mapping (issue #814).
+ *
+ * Every field on the generated workflow shapes is optional, so what is
+ * asserted here is the ABSENCES and the narrowings — the choices no type
+ * can hold and that a page cannot recover from if they are wrong. Each
+ * case is one of them:
+ *
+ *   - a state this build does not recognise must not become a confident
+ *     verdict, in either the step or the run vocabulary;
+ *   - an absent exit code must stay null, because 0 is a success;
+ *   - a secret must arrive as a LOCATION, rebuilt field by field, so a
+ *     field added to the generated type cannot reach a surface
+ *     unreviewed;
+ *   - a PATCH must carry only the keys the caller named, because an
+ *     absent key means "leave this alone" and an empty string means
+ *     "clear this" — and clearing a stage directory disables that stage;
+ *   - the log follower must ask for the wait the service is willing to
+ *     hold for, since the service only ever clamps DOWN.
+ */
+describe("workflow wire mapping (apps/common/webhost/handlers_workflowruns.go)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("narrows a state this build does not know onto the one that says 'look at this'", async () => {
+    const fetchMock = mockFetchOk({
+      run_id: "wfr_1",
+      backup_set_id: "src/set-1",
+      state: "quantum_superposition",
+      backup_status: "transcendent",
+      steps: [{ step_id: "s1", script_name: "a.local.sh", state: "vibing", exit_code: 0 }]
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const run = await httpApi.workflowRun("wfr_1");
+
+    // Not "success", and not a cast straight through: an engine newer
+    // than this build must not be able to make a screen claim a pass.
+    expect(run.state).toBe("interrupted");
+    expect(run.backupStatus).toBe("unknown");
+    expect(run.steps[0].state).toBe("interrupted");
+  });
+
+  it("keeps a run-only state that the step vocabulary has no word for", async () => {
+    const fetchMock = mockFetchOk({ run_id: "wfr_1", state: "recovery_required" });
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect((await httpApi.workflowRun("wfr_1")).state).toBe("recovery_required");
+  });
+
+  it("tells exit code 0 from no exit code at all", async () => {
+    const fetchMock = mockFetchOk({
+      run_id: "wfr_1",
+      steps: [
+        { step_id: "ok", script_name: "a.local.sh", state: "success", exit_code: 0 },
+        // A step that was signalled and whose channel closed reports no
+        // code. Normalising this to 0 would turn "nobody knows what this
+        // did" into "it succeeded".
+        { step_id: "killed", script_name: "b.remote.sh", state: "timed_out" }
+      ]
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const steps = (await httpApi.workflowRun("wfr_1")).steps;
+    expect(steps[0].exitCode).toBe(0);
+    expect(steps[1].exitCode).toBeNull();
+    // And a running run has no duration rather than a zero one.
+    expect((await httpApi.workflowRun("wfr_1")).durationMs).toBeNull();
+  });
+
+  it("reports a step's confirmation as absent rather than as confirmed", async () => {
+    const fetchMock = mockFetchOk({
+      run_id: "wfr_1",
+      steps: [{ step_id: "s1", script_name: "a.local.sh", state: "timed_out" }]
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    // An engine that reported nothing is NOT an engine that confirmed the
+    // process stopped, and the surfaces that raise a warning key on
+    // `=== false` for exactly this reason.
+    expect((await httpApi.workflowRun("wfr_1")).steps[0].terminationConfirmed).toBeUndefined();
+  });
+
+  it("asks the log route for the wait the service is willing to hold for", async () => {
+    const fetchMock = mockFetchOk({ records: [], cursor: 12 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await httpApi.workflowStepLogs("wfr_1", "s1", { after: 12, wait: true });
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    // 5 seconds: core/service/workflowinspect.go clamps DOWN to its own
+    // ceiling and never raises a smaller value, so a smaller number here
+    // is a faster poll for the same output.
+    expect(url).toContain("wait=5");
+    expect(url).toContain("after=12");
+  });
+
+  it("omits a cursor that names no position rather than sending a zero", async () => {
+    const fetchMock = mockFetchOk({ records: [], cursor: 0 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await httpApi.workflowStepLogs("wfr_1", "s1");
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).not.toContain("after=");
+    expect(url).not.toContain("wait=");
+  });
+
+  it("reads a truncated page as truncated, and an absent flag as complete-unknown", async () => {
+    const fetchMock = mockFetchOk({
+      records: [{ seq: 4, stream: "stderr", at: "2026-09-12T02:15:40Z", text: "dropped", kind: "truncated" }],
+      cursor: 4,
+      truncated: true
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const page = await httpApi.workflowStepLogs("wfr_1", "s1");
+    expect(page.truncated).toBe(true);
+    // False from an absent field, in that direction: a follower reading
+    // `complete` as true would stop following a live step.
+    expect(page.complete).toBe(false);
+    expect(page.records[0].kind).toBe("truncated");
+    expect(page.records[0].stream).toBe("stderr");
+  });
+
+  it("rebuilds a secret reference field by field, and never as a value", async () => {
+    const fetchMock = mockFetchOk({
+      backup_set_id: "",
+      variables: [
+        { name: "PGPASSWORD", has_value: false, secret: { file: "/etc/retnd/secrets/pg" } },
+        // An empty literal is a real configuration and must not collapse
+        // into "no literal".
+        { name: "DUMP_LEVEL", has_value: true, value: "" },
+        // An empty secret block is not a reference at all.
+        { name: "PGHOST", has_value: true, value: "db.internal", secret: { file: "", env: "", command: [] } }
+      ]
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const env = await httpApi.listWorkflowEnvironment();
+
+    expect(env.variables[0].secret).toEqual({ file: "/etc/retnd/secrets/pg" });
+    expect(env.variables[0].value).toBeUndefined();
+    expect(env.variables[1].value).toBe("");
+    expect(env.variables[1].hasValue).toBe(true);
+    expect(env.variables[2].secret).toBeUndefined();
+  });
+
+  it("sends only the keys a workflow patch named, and an empty string as a clear", async () => {
+    const fetchMock = mockFetchOk({ configured: true });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await httpApi.patchWorkflowSettings({ beforeDir: "" });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    // Exactly one key: clearing the before directory disables that stage
+    // and must not carry the after directory or the timeout with it.
+    expect(JSON.parse(String(init.body))).toEqual({ before_dir: "" });
+  });
+
+  it("sends a per-set patch the same way, keeping an unnamed field absent", async () => {
+    const fetchMock = mockFetchOk({ backup_set_id: "src/set-1" });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await httpApi.patchBackupSetWorkflow("src", "set-1", { remoteExecConnectionRef: "src/set-1" });
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/backup-sets/src/set-1/workflow");
+    // The "source/set" spelling reaches the wire intact: remoteexec
+    // resolves it to the set's own source connection, and it is a real
+    // configuration rather than a malformed reference.
+    expect(JSON.parse(String(init.body))).toEqual({ remote_exec_connection_ref: "src/set-1" });
+  });
+
+  it("reads a runner block the service omitted as an address that is not configured", async () => {
+    const fetchMock = mockFetchOk({ configured: true, script_timeout_seconds: 300 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const settings = await httpApi.getWorkflowSettings();
+
+    // Never null: a settings screen has to be able to say "this
+    // deployment has not been told how to reach a runner", and an absent
+    // block is exactly that answer rather than a missing card.
+    expect(settings.runner).toEqual({ configured: false, socket: "", tokenFile: "" });
+    // And a timeout the service did not mark as configured is the
+    // product's own default, not a pinned value.
+    expect(settings.scriptTimeoutConfigured).toBe(false);
+  });
+
+  it("reads both validation verdicts as false when the service reported neither", async () => {
+    const fetchMock = mockFetchOk({ backup_set_id: "src/set-1", findings: [{ check: "x", severity: "surprise" }] });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const report = await httpApi.getBackupSetWorkflowValidation("src", "set-1");
+
+    expect(report.validForBackup).toBe(false);
+    expect(report.workflowValid).toBe(false);
+    // A severity this build cannot read is a warning and never an "ok":
+    // a check whose verdict is unreadable has not passed.
+    expect(report.findings[0].severity).toBe("warning");
+  });
+
+  /**
+   * Issue #906's shell verification, script by script.
+   *
+   * Every default asserted here is a claim this build must NOT make about
+   * a field the service did not send: a script whose lint block is absent
+   * has not been examined and has not parsed, and an empty findings list
+   * beside those two booleans is honest rather than clean.
+   */
+  it("maps a script's shell verification, and reads an absent block as 'nothing looked'", async () => {
+    const fetchMock = mockFetchOk({
+      backup_set_id: "src/set-1",
+      scripts: [
+        {
+          step_id: "s1",
+          script_name: "before/10-a.remote.sh",
+          lint: {
+            examined: true,
+            parsed: true,
+            findings: [
+              {
+                code: "BSH003",
+                severity: "error",
+                line: 12,
+                col: 8,
+                message: "root-level delete",
+                excerpt: {
+                  lines: [
+                    { number: 11, text: "# tidy up before the dump", truncated: false },
+                    { number: 12, text: "rm -rf \"$STAGING/var\"", truncated: true },
+                    // Line 0 is not a place in a file, and an entry that
+                    // is not an object at all is a later build or a
+                    // proxy: both are dropped rather than drawn, and
+                    // neither may throw while a findings panel is being
+                    // decoded.
+                    { number: 0, text: "not a line", truncated: false },
+                    "nonsense"
+                  ]
+                }
+              },
+              { code: "BSH000", severity: "unheard-of", line: 2, col: 1, message: "from a later build" }
+            ]
+          }
+        },
+        {
+          step_id: "s2",
+          script_name: "before/20-b.remote.sh",
+          lint: {
+            examined: false,
+            not_examined_reason: "larger than the verification reads",
+            parsed: false
+          }
+        },
+        { step_id: "s3", script_name: "before/30-c.remote.sh" }
+      ]
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const report = await httpApi.getBackupSetWorkflowValidation("src", "set-1");
+
+    expect(report.scripts[0].lint).toEqual({
+      examined: true,
+      parsed: true,
+      notExaminedReason: undefined,
+      parseError: undefined,
+      parseErrorLine: undefined,
+      parseErrorCol: undefined,
+      parseErrorExcerpt: { lines: [] },
+      findings: [
+        {
+          code: "BSH003",
+          severity: "error",
+          line: 12,
+          col: 8,
+          message: "root-level delete",
+          // The two unusable entries are gone and the two real lines
+          // survive, with `truncated` carried through: a surface that
+          // cut a line itself would be showing a line the file does not
+          // contain.
+          excerpt: {
+            lines: [
+              { number: 11, text: "# tidy up before the dump", truncated: false },
+              { number: 12, text: "rm -rf \"$STAGING/var\"", truncated: true }
+            ]
+          }
+        },
+        // A severity from a later build is a WARNING and never an error:
+        // an invented error would tell an operator their configuration
+        // cannot be saved when the service would save it.
+        {
+          code: "BSH000",
+          severity: "warning",
+          line: 2,
+          col: 1,
+          message: "from a later build",
+          // No excerpt on the wire is an EMPTY excerpt and never absent,
+          // so every reader can ask for `.lines.length` without a guard.
+          excerpt: { lines: [] }
+        }
+      ]
+    });
+    expect(report.scripts[1].lint.notExaminedReason).toBe("larger than the verification reads");
+    // The script with no block at all: not examined, not parsed, and an
+    // empty list that must never be drawn as clean.
+    expect(report.scripts[2].lint).toEqual({
+      examined: false,
+      parsed: false,
+      notExaminedReason: undefined,
+      parseError: undefined,
+      parseErrorLine: undefined,
+      parseErrorCol: undefined,
+      parseErrorExcerpt: { lines: [] },
+      findings: []
+    });
+  });
+
+  it("keeps a parse error's position, and drops a position of zero rather than pointing at line 0", async () => {
+    const fetchMock = mockFetchOk({
+      backup_set_id: "src/set-1",
+      scripts: [
+        {
+          step_id: "s1",
+          script_name: "a.sh",
+          lint: {
+            examined: true,
+            parsed: false,
+            parse_error: "unexpected EOF",
+            parse_error_line: 18,
+            parse_error_col: 24,
+            parse_error_excerpt: {
+              lines: [{ number: 18, text: "  mv \"$STAGE/a.yml\" \"$OUT", truncated: false }]
+            }
+          }
+        },
+        {
+          step_id: "s2",
+          script_name: "b.sh",
+          lint: { examined: true, parsed: false, parse_error: "refused", parse_error_line: 0, parse_error_col: 0 }
+        }
+      ]
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const report = await httpApi.getBackupSetWorkflowValidation("src", "set-1");
+
+    expect(report.scripts[0].lint.parseErrorLine).toBe(18);
+    expect(report.scripts[0].lint.parseErrorCol).toBe(24);
+    // Zero is not a place in a file: "line 0, column 0" is a position no
+    // editor can go to, so it is absent instead.
+    expect(report.scripts[1].lint.parseErrorLine).toBeUndefined();
+    expect(report.scripts[1].lint.parseErrorCol).toBeUndefined();
+    // The parser's own line, beside the position it named. It is carried
+    // on the lint block rather than on a finding because a file that does
+    // not parse has no findings: no rule ran on a tree that does not
+    // exist, so this is the only source an operator gets for it.
+    expect(report.scripts[0].lint.parseErrorExcerpt).toEqual({
+      lines: [{ number: 18, text: "  mv \"$STAGE/a.yml\" \"$OUT", truncated: false }]
+    });
+    // And an absent one is empty rather than undefined.
+    expect(report.scripts[1].lint.parseErrorExcerpt).toEqual({ lines: [] });
+  });
+
+  /**
+   * The 409 the save gate answers with, decoded onto the envelope.
+   *
+   * The whole reason it is a structured field: the message says the same
+   * thing in prose, and a client that parsed "at 12:8" back out of that
+   * sentence would break the day somebody rewords it.
+   */
+  it("carries a WORKFLOW_SCRIPT_REJECTED refusal's blocking scripts onto the thrown error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        headers: new Headers({ "x-correlation-id": "cid_wf409" }),
+        json: async () => ({
+          error: {
+            code: "WORKFLOW_SCRIPT_REJECTED",
+            message: "this configuration was not saved: 1 hook script it points at would not run"
+          },
+          blocking_scripts: [
+            {
+              script_name: "10-prune.local.sh",
+              dir: "/srv/hooks/before",
+              scope: "set",
+              phase: "before",
+              // Which set's stage this was reached through. A
+              // deployment-wide write re-resolves every set's stage
+              // directories, so a refusal can name a set the operator was
+              // not editing.
+              backup_set_id: "production/billing-mysql",
+              findings: [
+                {
+                  code: "BSH003",
+                  severity: "error",
+                  line: 12,
+                  col: 8,
+                  message: "root-level delete",
+                  excerpt: {
+                    lines: [{ number: 12, text: "rm -rf \"$STAGING/var\"", truncated: false }]
+                  }
+                }
+              ]
+            }
+          ]
+        })
+      })
+    );
+
+    const refusal = await httpApi
+      .patchBackupSetWorkflow("src", "set-1", { beforeDir: "/srv/hooks/before" })
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(refusal).toBeInstanceOf(RetndError);
+    expect((refusal as RetndError).api.code).toBe("WORKFLOW_SCRIPT_REJECTED");
+    expect((refusal as RetndError).api.correlationId).toBe("cid_wf409");
+    expect((refusal as RetndError).api.blockingScripts).toEqual([
+      {
+        scriptName: "10-prune.local.sh",
+        dir: "/srv/hooks/before",
+        scope: "set",
+        phase: "before",
+        backupSetId: "production/billing-mysql",
+        parseError: undefined,
+        parseErrorLine: undefined,
+        parseErrorCol: undefined,
+        parseErrorExcerpt: { lines: [] },
+        findings: [
+          {
+            code: "BSH003",
+            severity: "error",
+            line: 12,
+            col: 8,
+            message: "root-level delete",
+            excerpt: { lines: [{ number: 12, text: "rm -rf \"$STAGING/var\"", truncated: false }] }
+          }
+        ]
+      }
+    ]);
+  });
+
+  it("survives a malformed blocking list rather than crashing while reading a refusal", async () => {
+    // The worst failure on this path would be an exception thrown while
+    // decoding the refusal: the operator would get "this page could not
+    // read the answer" in place of a reason the service actually gave.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        headers: new Headers(),
+        json: async () => ({
+          error: { code: "WORKFLOW_SCRIPT_REJECTED", message: "not saved" },
+          blocking_scripts: [
+            null,
+            "nonsense",
+            // An excerpt that is a string, and a finding whose excerpt
+            // holds a number: the two shapes a hand-written proxy or a
+            // later build could produce, on the path where throwing would
+            // replace a refusal's reason with "this page could not read
+            // the answer".
+            {
+              parse_error_excerpt: "not an object",
+              findings: [42, { severity: "error", excerpt: { lines: [7] } }]
+            }
+          ]
+        })
+      })
+    );
+
+    const refusal = (await httpApi
+      .patchWorkflowSettings({ beforeDir: "/srv/hooks/before" })
+      .then(() => null)
+      .catch((e: unknown) => e)) as RetndError;
+
+    expect(refusal.api.message).toBe("not saved");
+    // The one entry that was an object survives, with every field
+    // defaulted; the two that were not are dropped rather than rendered
+    // as a script named "".
+    expect(refusal.api.blockingScripts).toEqual([
+      {
+        scriptName: "",
+        dir: "",
+        scope: "",
+        phase: "",
+        backupSetId: undefined,
+        parseError: undefined,
+        parseErrorLine: undefined,
+        parseErrorCol: undefined,
+        parseErrorExcerpt: { lines: [] },
+        findings: [{ code: "", severity: "error", line: 0, col: 0, message: "", excerpt: { lines: [] } }]
+      }
+    ]);
+  });
+});
+
+/**
+ * Issues #1163 and #1164 on the wire.
+ *
+ * Five things a screen cannot check for itself: the capability field's two new
+ * flags, the password riding a header and never the body, the acknowledgement
+ * riding the body only when it was given, the release acknowledgement, and
+ * the insecure-transport retry that happens once, only after an operator said
+ * yes, and never sends its header unprompted.
+ */
+describe("httpApi, issues #1163 and #1164", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    setInsecureTransportConfirmer(null);
+  });
+
+  const OPERATION = { operation_id: "op_1", status: "running", action: "restore_snapshot" };
+  const lastCall = (m: ReturnType<typeof vi.fn>, n = 0) => m.mock.calls[n] as [string, RequestInit];
+  const headersOf = (m: ReturnType<typeof vi.fn>, n = 0) => (lastCall(m, n)[1].headers ?? {}) as Record<string, string>;
+  const bodyOf = (m: ReturnType<typeof vi.fn>, n = 0) => JSON.parse(lastCall(m, n)[1].body as string) as Record<string, unknown>;
+
+  function refusedThenServed(code: string) {
+    return vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: async () => ({ error: { code, message: "refused" } })
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers(), json: async () => OPERATION });
+  }
+
+  it("reads both new capability flags and defaults them to false when the engine is older", async () => {
+    const withFlags = mockFetchOk({
+      platform: "generic",
+      native_auth: false,
+      native_notifications: false,
+      storage_picker: false,
+      embedded_window: false,
+      app_store_packaging: false,
+      destructive_operations: { state: "open", reason: "", step_up_required: true, insecure_transport_ack_required: true }
+    });
+    vi.stubGlobal("fetch", withFlags);
+    const caps = await httpApi.getCapabilities();
+    expect(caps.destructiveOperations).toEqual({ state: "open", reason: "", stepUpRequired: true, insecureTransportAckRequired: true });
+
+    const older = mockFetchOk({ platform: "generic", destructive_operations: { state: "open", reason: "" } });
+    vi.stubGlobal("fetch", older);
+    const old = await httpApi.getCapabilities();
+    expect(old.destructiveOperations.stepUpRequired).toBe(false);
+    expect(old.destructiveOperations.insecureTransportAckRequired).toBe(false);
+  });
+
+  it("sends the step-up password in a header, never in the body, and only when there is one", async () => {
+    // An encrypted (or same-machine) connection, as the capabilities said.
+    rememberInsecureTransportRequired(false);
+    const fetchMock = mockFetchOk(OPERATION);
+    vi.stubGlobal("fetch", fetchMock);
+    await httpApi.restoreSnapshot({
+      backupSetId: "nas-a/photos",
+      targetPath: "/data/x",
+      configRevision: "cfg_7",
+      idempotencyKey: "k1",
+      stepUpPassword: "hunter2-hunter2",
+      acknowledged: true
+    });
+    expect(headersOf(fetchMock)["X-Retnd-Step-Up-Password"]).toBe("hunter2-hunter2");
+    expect(JSON.stringify(bodyOf(fetchMock))).not.toContain("hunter2");
+    expect(bodyOf(fetchMock)).toEqual({
+      action: "restore_snapshot",
+      config_revision: "cfg_7",
+      snapshot_restore: { backup_set_id: "nas-a/photos", target_path: "/data/x", acknowledged: true }
+    });
+
+    const bare = mockFetchOk(OPERATION);
+    vi.stubGlobal("fetch", bare);
+    await httpApi.restoreSnapshot({ backupSetId: "nas-a/photos", targetPath: "/data/x", configRevision: "cfg_7", idempotencyKey: "k2" });
+    expect(headersOf(bare)["X-Retnd-Step-Up-Password"]).toBeUndefined();
+  });
+
+  it("sends the step-up password for a cold-storage restore the same way", async () => {
+    rememberInsecureTransportRequired(false);
+    const fetchMock = mockFetchOk({ operation_id: "op_2", status: "running", action: "restore_placement", restore: {} });
+    vi.stubGlobal("fetch", fetchMock);
+    await httpApi.restoreCopy({
+      artifactId: "a/b/c",
+      medium: "cold-store",
+      windowDays: 3,
+      acknowledged: true,
+      stepUpPassword: "hunter2-hunter2",
+      configRevision: "cfg_7",
+      idempotencyKey: "k3"
+    });
+    expect(headersOf(fetchMock)["X-Retnd-Step-Up-Password"]).toBe("hunter2-hunter2");
+    expect(JSON.stringify(bodyOf(fetchMock))).not.toContain("hunter2");
+  });
+
+  // The review of PR #1167: the password is the thing the transport prompt
+  // warns about, so it never crosses a connection the operator was not told
+  // about, not even once to be refused.
+  it("does not send a password over a connection the capabilities said needs the consent, until it is given", async () => {
+    rememberInsecureTransportRequired(true);
+    const fetchMock = mockFetchOk(OPERATION);
+    vi.stubGlobal("fetch", fetchMock);
+    const restore = () =>
+      httpApi.restoreSnapshot({
+        backupSetId: "nas-a/photos",
+        targetPath: "/data/x",
+        configRevision: "cfg_7",
+        idempotencyKey: "k11",
+        stepUpPassword: "hunter2-hunter2",
+        acknowledged: true
+      });
+    await expect(restore()).rejects.toMatchObject({ api: { code: "INSECURE_TRANSPORT_ACK_REQUIRED" } });
+    expect(fetchMock, "nothing was sent").not.toHaveBeenCalled();
+
+    setInsecureTransportConfirmer(vi.fn().mockResolvedValue(true));
+    await expect(acknowledgeInsecureTransport()).resolves.toBe(true);
+    await restore();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(headersOf(fetchMock)["X-Retnd-Insecure-Transport-Ack"], "the first request with the password carries the consent").toBe(
+      "acknowledged"
+    );
+    expect(headersOf(fetchMock)["X-Retnd-Step-Up-Password"]).toBe("hunter2-hunter2");
+  });
+
+  it("treats a connection nobody has described yet like one that needs the consent, where a password is involved", async () => {
+    const fetchMock = mockFetchOk(OPERATION);
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      httpApi.restoreCopy({
+        artifactId: "a/b/c",
+        medium: "cold-store",
+        windowDays: 3,
+        acknowledged: true,
+        stepUpPassword: "hunter2-hunter2",
+        configRevision: "cfg_7",
+        idempotencyKey: "k12"
+      })
+    ).rejects.toMatchObject({ api: { code: "INSECURE_TRANSPORT_ACK_REQUIRED" } });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("never retries a password-carrying request on the engine's transport refusal; the screen asks again itself", async () => {
+    rememberInsecureTransportRequired(false);
+    const fetchMock = refusedThenServed("INSECURE_TRANSPORT_ACK_REQUIRED");
+    vi.stubGlobal("fetch", fetchMock);
+    const confirm = vi.fn().mockResolvedValue(true);
+    setInsecureTransportConfirmer(confirm);
+    await expect(
+      httpApi.restoreSnapshot({
+        backupSetId: "nas-a/photos",
+        targetPath: "/data/x",
+        configRevision: "cfg_7",
+        idempotencyKey: "k13",
+        stepUpPassword: "hunter2-hunter2",
+        acknowledged: true
+      })
+    ).rejects.toMatchObject({ api: { code: "INSECURE_TRANSPORT_ACK_REQUIRED" } });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // And the refusal itself taught the client this connection needs it.
+    const again = mockFetchOk(OPERATION);
+    vi.stubGlobal("fetch", again);
+    await expect(
+      httpApi.restoreSnapshot({
+        backupSetId: "nas-a/photos",
+        targetPath: "/data/x",
+        configRevision: "cfg_7",
+        idempotencyKey: "k14",
+        stepUpPassword: "hunter2-hunter2",
+        acknowledged: true
+      })
+    ).rejects.toMatchObject({ api: { code: "INSECURE_TRANSPORT_ACK_REQUIRED" } });
+    expect(again).not.toHaveBeenCalled();
+  });
+
+  it("forgets the consent on sign-out and when the session ends", async () => {
+    setInsecureTransportConfirmer(vi.fn().mockResolvedValue(true));
+    await acknowledgeInsecureTransport();
+    vi.stubGlobal("fetch", mockFetchOk({}));
+    await httpApi.logout().catch(() => undefined);
+    expect(insecureTransportIsAcknowledged()).toBe(false);
+
+    await acknowledgeInsecureTransport();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: async () => ({ error: { code: "UNAUTHENTICATED", message: "no session" } })
+      })
+    );
+    await httpApi.runCycle("cfg_7", "k15").catch(() => undefined);
+    expect(insecureTransportIsAcknowledged()).toBe(false);
+  });
+
+  it("sends the release acknowledgement in the release's own parameters", async () => {
+    const fetchMock = mockFetchOk(OPERATION);
+    vi.stubGlobal("fetch", fetchMock);
+    await httpApi.releaseSnapshotHold({
+      backupSetId: "nas-a/photos",
+      holdId: "hold_1",
+      acknowledged: true,
+      configRevision: "cfg_7",
+      idempotencyKey: "k4"
+    });
+    expect(bodyOf(fetchMock)).toEqual({
+      action: "release_snapshot_hold",
+      config_revision: "cfg_7",
+      snapshot_hold_release: { backup_set_id: "nas-a/photos", hold_id: "hold_1", acknowledged: true }
+    });
+  });
+
+  it("asks once when the engine wants the insecure-transport acknowledgement, and retries with it only on yes", async () => {
+    const fetchMock = refusedThenServed("INSECURE_TRANSPORT_ACK_REQUIRED");
+    vi.stubGlobal("fetch", fetchMock);
+    const confirm = vi.fn().mockResolvedValue(true);
+    setInsecureTransportConfirmer(confirm);
+
+    await httpApi.runCycle("cfg_7", "k5");
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(headersOf(fetchMock, 0)["X-Retnd-Insecure-Transport-Ack"], "the first attempt never sends it unprompted").toBeUndefined();
+    expect(headersOf(fetchMock, 1)["X-Retnd-Insecure-Transport-Ack"]).toBe("acknowledged");
+    // The retry is the same logical request.
+    expect(headersOf(fetchMock, 1)["Idempotency-Key"]).toBe("k5");
+  });
+
+  it("a no leaves the refusal exactly as the engine gave it and sends nothing more", async () => {
+    const fetchMock = refusedThenServed("INSECURE_TRANSPORT_ACK_REQUIRED");
+    vi.stubGlobal("fetch", fetchMock);
+    setInsecureTransportConfirmer(vi.fn().mockResolvedValue(false));
+    await expect(httpApi.runCycle("cfg_7", "k6")).rejects.toMatchObject({ api: { code: "INSECURE_TRANSPORT_ACK_REQUIRED" } });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("with nobody to ask, the refusal stands and nothing is retried", async () => {
+    const fetchMock = refusedThenServed("INSECURE_TRANSPORT_ACK_REQUIRED");
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(httpApi.runCycle("cfg_7", "k7")).rejects.toMatchObject({ api: { code: "INSECURE_TRANSPORT_ACK_REQUIRED" } });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("only that one refusal is ever retried", async () => {
+    const fetchMock = refusedThenServed("DESTRUCTIVE_OPERATIONS_DISABLED");
+    vi.stubGlobal("fetch", fetchMock);
+    const confirm = vi.fn().mockResolvedValue(true);
+    setInsecureTransportConfirmer(confirm);
+    await expect(httpApi.runCycle("cfg_7", "k8")).rejects.toMatchObject({ api: { code: "DESTRUCTIVE_OPERATIONS_DISABLED" } });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("an acknowledged page keeps sending it, a refused one starts clean", async () => {
+    const fetchMock = refusedThenServed("INSECURE_TRANSPORT_ACK_REQUIRED");
+    vi.stubGlobal("fetch", fetchMock);
+    setInsecureTransportConfirmer(vi.fn().mockResolvedValue(true));
+    await httpApi.runCycle("cfg_7", "k9");
+
+    const next = mockFetchOk(OPERATION);
+    vi.stubGlobal("fetch", next);
+    await httpApi.runCycle("cfg_7", "k10");
+    expect(headersOf(next)["X-Retnd-Insecure-Transport-Ack"]).toBe("acknowledged");
+
+    // A read is not a request that needs it.
+    const read = mockFetchOk({ operations: [] });
+    vi.stubGlobal("fetch", read);
+    await httpApi.getOperation("op_1").catch(() => undefined);
+    expect(headersOf(read)["X-Retnd-Insecure-Transport-Ack"]).toBeUndefined();
+  });
+
+  // #1361 put the re-encrypt dry run (a GET) behind the destructive gate, so
+  // off loopback the engine wants the acknowledgement on that read too.
+  const PLAN = { copies: [] };
+  function planRefusedThenServed() {
+    return vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: async () => ({ error: { code: "INSECURE_TRANSPORT_ACK_REQUIRED", message: "refused" } })
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers(), json: async () => PLAN });
+  }
+
+  it("the gated re-encrypt dry run is retried with the acknowledgement after a yes", async () => {
+    const fetchMock = planRefusedThenServed();
+    vi.stubGlobal("fetch", fetchMock);
+    const confirm = vi.fn().mockResolvedValue(true);
+    setInsecureTransportConfirmer(confirm);
+
+    await httpApi.planReencrypt({ suite: "age/v1" });
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(headersOf(fetchMock, 0)["X-Retnd-Insecure-Transport-Ack"], "never unprompted").toBeUndefined();
+    expect(headersOf(fetchMock, 1)["X-Retnd-Insecure-Transport-Ack"]).toBe("acknowledged");
+  });
+
+  it("an acknowledged page sends it on the gated dry run's first attempt, and still not on a plain read", async () => {
+    vi.stubGlobal("fetch", refusedThenServed("INSECURE_TRANSPORT_ACK_REQUIRED"));
+    setInsecureTransportConfirmer(vi.fn().mockResolvedValue(true));
+    await httpApi.runCycle("cfg_7", "k11");
+
+    const plan = mockFetchOk(PLAN);
+    vi.stubGlobal("fetch", plan);
+    await httpApi.planReencrypt({ suite: "age/v1" });
+    expect(plan).toHaveBeenCalledTimes(1);
+    expect(headersOf(plan)["X-Retnd-Insecure-Transport-Ack"]).toBe("acknowledged");
+
+    const read = mockFetchOk({ operations: [] });
+    vi.stubGlobal("fetch", read);
+    await httpApi.getOperation("op_1").catch(() => undefined);
+    expect(headersOf(read)["X-Retnd-Insecure-Transport-Ack"]).toBeUndefined();
+  });
+});

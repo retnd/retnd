@@ -1,5 +1,5 @@
 {
-  "schema": "backupd/third-party-licenses/1",
+  "schema": "retnd/third-party-licenses/1",
   "note": [
     "Generated. Do not hand-edit: run `go run ./cmd/provenance -write` from apps/common.",
     "",
@@ -7,7 +7,7 @@
     "of the two binaries container/Dockerfile copies into the runtime stage, resolved",
     "for GOOS=linux on every architecture canonical.json claims. Every npm component",
     "is a non-dev entry of ui/shared/package-lock.json, which is what the frontend",
-    "build stage installs and what ends up embedded in backupd-web.",
+    "build stage installs and what ends up embedded in retnd-web.",
     "",
     "licenseSha256 is the SHA-256 of the licence text as it appears in the module,",
     "not of the SPDX id. An upstream that relicenses in place keeps its id and",
@@ -17,54 +17,90 @@
     "fails on any difference, so an undeclared dependency is a red build rather than",
     "a discrepancy nobody looks for."
   ],
-  "projectLicense": "Apache-2.0",
+  "projectLicense": "MIT",
   "components": [
     {
+      "name": "filippo.io/age",
+      "version": "v1.3.2",
+      "ecosystem": "go",
+      "licenseId": "BSD-3-Clause",
+      "licenseFile": "LICENSE",
+      "licenseSha256": "c5d65279d02955c0fc2294ae417c3add650d228f4f5c82bd6d531fc26c89cd96",
+      "linkedInto": [
+        "retnd",
+        "retnd-web"
+      ]
+    },
+    {
+      "name": "filippo.io/hpke",
+      "version": "v0.4.0",
+      "ecosystem": "go",
+      "licenseId": "BSD-3-Clause",
+      "licenseFile": "LICENSE",
+      "licenseSha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+      "linkedInto": [
+        "retnd",
+        "retnd-web"
+      ]
+    },
+    {
       "name": "github.com/Azure/azure-sdk-for-go/sdk/azcore",
-      "version": "v1.22.0",
+      "version": "v1.23.3",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "646f8936b8ddcd14e13e578ff6857e368780b0d1a4f6066bee89211923a373e2",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/Azure/azure-sdk-for-go/sdk/internal",
-      "version": "v1.12.0",
+      "version": "v1.13.0",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "646f8936b8ddcd14e13e578ff6857e368780b0d1a4f6066bee89211923a373e2",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/Azure/azure-sdk-for-go/sdk/storage/azblob",
-      "version": "v1.8.0",
+      "version": "v1.8.2",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "a096a435e19bb6b631da46992c011a39be563e97ce7366879ad516c772904632",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
+      ]
+    },
+    {
+      "name": "github.com/Azure/azure-sdk-for-go/sdk/storage/internal",
+      "version": "v0.1.0",
+      "ecosystem": "go",
+      "licenseId": "MIT",
+      "licenseFile": "LICENSE.txt",
+      "licenseSha256": "a096a435e19bb6b631da46992c011a39be563e97ce7366879ad516c772904632",
+      "linkedInto": [
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/IBM/go-sdk-core/v5",
-      "version": "v5.23.1",
+      "version": "v5.25.1",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
       "licenseSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -75,20 +111,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "824bddfe33ae618571aa62e069abddb08335d7b47efc1b3ed610d85f6c95306d",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
-      ]
-    },
-    {
-      "name": "github.com/abbot/go-http-auth",
-      "version": "v0.4.0",
-      "ecosystem": "go",
-      "licenseId": "Apache-2.0",
-      "licenseFile": "LICENSE",
-      "licenseSha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0",
-      "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -99,236 +123,236 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "fb119fabde05e05b70b07f445b3f41863b22326c0ebb5b7bee9f0309112d3640",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2",
-      "version": "v1.43.7",
+      "version": "v1.48.0",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream",
-      "version": "v1.7.18",
+      "version": "v1.7.24",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/config",
-      "version": "v1.32.30",
+      "version": "v1.33.9",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/credentials",
-      "version": "v1.19.29",
+      "version": "v1.20.11",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/feature/ec2/imds",
-      "version": "v1.18.30",
+      "version": "v1.20.4",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/feature/s3/manager",
-      "version": "v1.22.34",
+      "version": "v1.23.14",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/internal/configsources",
-      "version": "v1.4.38",
+      "version": "v1.5.11",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/internal/endpoints/v2",
-      "version": "v2.7.38",
+      "version": "v2.8.11",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/internal/v4a",
-      "version": "v1.4.39",
+      "version": "v1.5.11",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding",
-      "version": "v1.13.17",
+      "version": "v1.13.24",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/service/internal/checksum",
-      "version": "v1.9.31",
+      "version": "v1.11.8",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/service/internal/presigned-url",
-      "version": "v1.13.38",
+      "version": "v1.14.11",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/service/internal/s3shared",
-      "version": "v1.19.39",
+      "version": "v1.20.7",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/service/s3",
-      "version": "v1.107.3",
+      "version": "v1.114.5",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/service/signin",
-      "version": "v1.4.1",
+      "version": "v1.11.0",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/service/sso",
-      "version": "v1.32.1",
+      "version": "v1.38.5",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/service/ssooidc",
-      "version": "v1.37.1",
+      "version": "v1.43.5",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/aws/aws-sdk-go-v2/service/sts",
-      "version": "v1.44.1",
+      "version": "v1.51.9",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/aws/smithy-go",
-      "version": "v1.27.8",
+      "version": "v1.28.9",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
       "licenseSha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -339,8 +363,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -351,8 +375,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "0db7c9ebb3717e526f34f87dd1ee8bc77d36846e29cb0cec9246f7138fbe962b",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -363,8 +387,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "632b59709152e1b5bfd3e2794848bcd2f4c70e3e175646726dbf53439ea1dbe1",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -375,8 +399,8 @@
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "f566a9f97bacdaf00d9f21dd991e81dc11201c4e016c86b470799429a1c9a79c",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -387,8 +411,8 @@
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "6aec9a25b79730543306fe400a57d2737710149ff37730f93bd551d0d63a2a41",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -399,8 +423,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "07e9e3daaccc707c9b7d535ed1405a65d37919fdd42197fe55e68820e974688c",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -411,8 +435,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -423,20 +447,20 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/dustin/go-humanize",
-      "version": "v1.0.1",
+      "version": "v1.1.0",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE",
       "licenseSha256": "a973b4498c13eb74baa2a8e5c351426a6826f2fcdd909916dbe53ee2e755fd71",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -447,44 +471,44 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "c2eba69f20d05414538c3a5df7694dde392e065ff70882e1625e90f5d6659fff",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/gabriel-vasile/mimetype",
-      "version": "v1.4.13",
+      "version": "v1.4.15",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE",
       "licenseSha256": "b5a867655833aca9e27c97e28e43dcfc62be0ba0e84f24157afedf8fdaaa2fc1",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/go-chi/chi/v5",
-      "version": "v5.3.2",
+      "version": "v5.5.0",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE",
       "licenseSha256": "a2d51b7515acfaff2f7a88688650f2fc4fd99561383e72bba2305e3db59a1647",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/go-logr/logr",
-      "version": "v1.4.3",
+      "version": "v1.4.4",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
       "licenseSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -495,68 +519,68 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/go-openapi/errors",
-      "version": "v0.22.8",
+      "version": "v0.22.9",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/go-openapi/strfmt",
-      "version": "v0.27.0",
+      "version": "v0.27.3",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/go-playground/locales",
-      "version": "v0.14.1",
+      "version": "v0.14.2",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE",
       "licenseSha256": "a1a5ca382f9e8c646fa05240a74a6554bbc3084b5675f84c9eaafd3d95686612",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/go-playground/universal-translator",
-      "version": "v0.18.1",
+      "version": "v0.18.2",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE",
       "licenseSha256": "a55d0c6e1a35ee6cf13afb4bbc3c8801cc570d7ac8edcd5e4503892f1c7ff4f7",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/go-playground/validator/v10",
-      "version": "v10.30.3",
+      "version": "v10.30.5",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE",
       "licenseSha256": "9e321f6a1db81616a6c344d3aefddf9834fef23bdd913eae0db283dfa6753dff",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -567,20 +591,32 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "22adc4abdece712a737573672f082fd61ac2b21df878efb87ffcff4354a07f26",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/gofrs/flock",
-      "version": "v0.13.0",
+      "version": "v0.13.1",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",
       "licenseSha256": "f4c7b0fbdba9660126feab6388ceed10ff744b2c772a63132f64f9ab2ee5fa29",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
+      ]
+    },
+    {
+      "name": "github.com/google/jsonschema-go",
+      "version": "v0.4.3",
+      "ecosystem": "go",
+      "licenseId": "MIT",
+      "licenseFile": "LICENSE",
+      "licenseSha256": "2d56c53449691d85d9aea245eb8dac12713e9075d70d5557b82ae1e94805b357",
+      "linkedInto": [
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -591,8 +627,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "0a8d61ed3cbfd5312326e8126c31ce9c627a283adc99131b56896d29ada04b2d",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -603,8 +639,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -615,8 +651,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "60222c28c1a7f6a92c7df98e5c5f4459e624e6e285e0b9b94467af5f6ab3343d",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -627,8 +663,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "d6b1a865f1c8c697d343bd4e0ce61025f91898486a1f00d727f32e8644af77d3",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -639,20 +675,20 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "b985b1162daa4eb2059ba6d434a73f5a160370506d49f1c7e426ed1c554efb35",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/klauspost/compress",
-      "version": "v1.19.0",
+      "version": "v1.20.4",
       "ecosystem": "go",
-      "licenseId": "Apache-2.0",
+      "licenseId": "Apache-2.0 AND MIT",
       "licenseFile": "LICENSE",
       "licenseSha256": "0d9e582ee4bff57bf1189c9e514e6da7ce277f9cd3bc2d488b22fbb39a6d87cf",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -663,8 +699,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "5d966570d7a442d4e969892860a914e542c97f262c873baee8f0aa48e1f40212",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -675,8 +711,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "dd26a7abddd02e2d0aba97805b31f248ef7835d9e10da289b22e3b8ab78b324d",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -687,8 +723,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "7709cc030f078b17809884f92f33a2016944e1180312dc3f1371b02313d313ed",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -699,8 +735,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "345aa942daa8c117669a85bd75f44a8364faceee962812ddb5a576977e0610ee",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -711,8 +747,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "cd83acc95b12c0ee2a9271950b7f23be45294483b9e12869ef0d31fc9e8248f8",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -723,32 +759,32 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "dd26a7abddd02e2d0aba97805b31f248ef7835d9e10da289b22e3b8ab78b324d",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/lanrat/extsort",
-      "version": "v1.4.2",
+      "version": "v1.5.0",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
       "licenseSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/leodido/go-urn",
-      "version": "v1.4.0",
+      "version": "v1.5.0",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE",
       "licenseSha256": "fe81a9072afbfe0fe32b0bc99a852d697d14fbbca99b0b1878ac8f5dcbdd6ee6",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -759,20 +795,20 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "87baa92c3100cf37441761262d622db99492ee386a063460d4676143db49af57",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/mattn/go-colorable",
-      "version": "v0.1.15",
+      "version": "v0.1.16",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE",
       "licenseSha256": "88a2379b3ca34bf5c57127aff9dcb802bbb60ece0805cdbda65b3bd115f971d9",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -783,20 +819,20 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "08eab1118c80885fa1fa6a6dd7303f65a379fcb3733e063d20d1bbc2c76e6fa1",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/mattn/go-runewidth",
-      "version": "v0.0.24",
+      "version": "v0.0.31",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "LICENSE",
       "licenseSha256": "88a2379b3ca34bf5c57127aff9dcb802bbb60ece0805cdbda65b3bd115f971d9",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -807,8 +843,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -819,20 +855,20 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/minio/minio-go/v7",
-      "version": "v7.2.1",
+      "version": "v7.4.1",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -843,8 +879,20 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "22adc4abdece712a737573672f082fd61ac2b21df878efb87ffcff4354a07f26",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
+      ]
+    },
+    {
+      "name": "github.com/modelcontextprotocol/go-sdk",
+      "version": "v1.8.0",
+      "ecosystem": "go",
+      "licenseId": "Apache-2.0 AND MIT",
+      "licenseFile": "LICENSE",
+      "licenseSha256": "af679003d933f045393a6a029f43da113f9ae364eac651d9ae268392985580f5",
+      "linkedInto": [
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -855,8 +903,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "aa1376b9bc5dea6f30cdefde40c176a254f247d2814d0a9929395138631b2ae0",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -867,8 +915,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "3934f170f0645318a578cc3d3d79b4a03d5eed2764fd8d9ec908aeee4f23389b",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -879,20 +927,20 @@
       "licenseFile": "COPYING",
       "licenseSha256": "8cd2e9e750b90a04b7d82dbbca3930c696ae0309d7c10464f90a44f45754cd04",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/oklog/ulid/v2",
-      "version": "v2.1.1",
+      "version": "v2.1.2",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
       "licenseSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -903,20 +951,20 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "d92be025a93a34b7909098630f07243a03e6f6e79d0dd6e3eebd6593aeba21d8",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/peterh/liner",
-      "version": "v1.2.2",
+      "version": "v1.2.3",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "COPYING",
       "licenseSha256": "f941d86a7e3e2d58c4e6467b81298def48917bbf6773de80ef59a7431b8c3c74",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -927,8 +975,8 @@
       "licenseFile": "LICENSE.md",
       "licenseSha256": "430da36bd967b28fc662f05e9245306da10941e93911052114a20ef10e4410f8",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -939,8 +987,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "8d427fd87bc9579ea368fde3d49f9ca22eac857f91a9dec7e3004bdfab7dee86",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -951,8 +999,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "f5b5087b8e596d015cfea7db26527fe67a196c18ca37415c288dd2534ff74c37",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -963,68 +1011,68 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "2c71fbccf236906a9961d375625a08dc696c112a7ebcfbfd32900e80f8ecaa51",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/prometheus/client_golang",
-      "version": "v1.23.2",
+      "version": "v1.25.0",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
       "licenseSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/prometheus/client_model",
-      "version": "v0.6.2",
+      "version": "v0.6.3",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
       "licenseSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/prometheus/common",
-      "version": "v0.70.0",
+      "version": "v0.72.0",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
       "licenseSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/prometheus/procfs",
-      "version": "v0.21.1",
+      "version": "v0.22.0",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
       "licenseSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/rclone/rclone",
-      "version": "v1.75.1",
+      "version": "v1.76.0",
       "ecosystem": "go",
       "licenseId": "MIT",
       "licenseFile": "COPYING",
       "licenseSha256": "8cd2e9e750b90a04b7d82dbbca3930c696ae0309d7c10464f90a44f45754cd04",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -1035,8 +1083,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "dd26a7abddd02e2d0aba97805b31f248ef7835d9e10da289b22e3b8ab78b324d",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -1047,8 +1095,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "322a7e3b02cf18e38b7e6b18cafefb773df8676c65634b34e8a2beb931294a4b",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -1059,20 +1107,44 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "c480873f0ff2b7e2c539bdd84fb4da4178d8d02479c94924f7bffeafb7add358",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
+      ]
+    },
+    {
+      "name": "github.com/segmentio/asm",
+      "version": "v1.1.3",
+      "ecosystem": "go",
+      "licenseId": "MIT",
+      "licenseFile": "LICENSE",
+      "licenseSha256": "e2a78de21d6d8ded2dff0f3189cd32e011630d785da127ebfbc8949012c0947b",
+      "linkedInto": [
+        "retnd",
+        "retnd-web"
+      ]
+    },
+    {
+      "name": "github.com/segmentio/encoding",
+      "version": "v0.5.4",
+      "ecosystem": "go",
+      "licenseId": "MIT",
+      "licenseFile": "LICENSE",
+      "licenseSha256": "d6d71a1f7dc6539e371120cc7af6e3257e55ca79634d473211f217b8965b0f16",
+      "linkedInto": [
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "github.com/shirou/gopsutil/v4",
-      "version": "v4.26.6",
+      "version": "v4.26.9",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",
       "licenseSha256": "ad1e64b82c04fb2ee6bfe521bff01266971ffaa70500024d4ac767c6033aafb9",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -1083,8 +1155,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "b8514c577c1c4b46cee454d5a882b15fa411e72c5bd7f801f241591789fce61a",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -1095,8 +1167,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "17df22e31ef6a84f70909eed5185f41443a03dd05b14e8dec319d5c2bd7d7b3b",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -1107,8 +1179,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -1119,8 +1191,20 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
+      ]
+    },
+    {
+      "name": "github.com/yosida95/uritemplate/v3",
+      "version": "v3.0.2",
+      "ecosystem": "go",
+      "licenseId": "BSD-3-Clause",
+      "licenseFile": "LICENSE",
+      "licenseSha256": "0761aadfb1921103752869ee942d4a71bdd54494697684d4b13dc17ad9781191",
+      "linkedInto": [
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -1131,8 +1215,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "6d13d89b6c33df37f92553cc95cec278d8770ddc78c9de84620cc16dfb48cef6",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -1143,8 +1227,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "0589f544f68ffc436e6e21efec2cf7cc2dbb2ac09ce6cb8a8cdb75ab74489716",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -1155,8 +1239,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "f19854b341534d1f2314c0c70d9cd2bb4fa1f7c86fffdc4444ca33cccce412ba",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -1167,44 +1251,44 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "go.opentelemetry.io/otel",
-      "version": "v1.44.0",
+      "version": "v1.45.0",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
       "licenseSha256": "1ae07514be1d7bb33f0698f8d91fb51b8b9fe1463157ec1c72081a49b9bc6f40",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "go.opentelemetry.io/otel/metric",
-      "version": "v1.44.0",
+      "version": "v1.45.0",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
       "licenseSha256": "1ae07514be1d7bb33f0698f8d91fb51b8b9fe1463157ec1c72081a49b9bc6f40",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "go.opentelemetry.io/otel/trace",
-      "version": "v1.44.0",
+      "version": "v1.45.0",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
       "licenseSha256": "1ae07514be1d7bb33f0698f8d91fb51b8b9fe1463157ec1c72081a49b9bc6f40",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -1215,8 +1299,8 @@
       "licenseFile": "LICENSE.txt",
       "licenseSha256": "dcdabe03bef2382a130640d1c3a4cd5ec42aba1035095c38272fde694eb72405",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -1227,8 +1311,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "c2b97b3281be272711909076c8402499b4b5a3216196af47a25b1d3674d86152",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -1239,152 +1323,164 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "go.yaml.in/yaml/v3",
-      "version": "v3.0.4",
+      "version": "v3.0.5",
       "ecosystem": "go",
-      "licenseId": "Apache-2.0",
+      "licenseId": "Apache-2.0 AND MIT",
       "licenseFile": "LICENSE",
       "licenseSha256": "d18f6323b71b0b768bb5e9616e36da390fbd39369a81807cca352de4e4e6aa0b",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "golang.org/x/crypto",
-      "version": "v0.57.0",
-      "ecosystem": "go",
-      "licenseId": "BSD-3-Clause",
-      "licenseFile": "LICENSE",
-      "licenseSha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
-      "linkedInto": [
-        "backupd",
-        "backupd-web"
-      ]
-    },
-    {
-      "name": "golang.org/x/exp",
-      "version": "v0.0.0-20260709172345-9ea1abe57597",
-      "ecosystem": "go",
-      "licenseId": "BSD-3-Clause",
-      "licenseFile": "LICENSE",
-      "licenseSha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
-      "linkedInto": [
-        "backupd",
-        "backupd-web"
-      ]
-    },
-    {
-      "name": "golang.org/x/net",
       "version": "v0.58.0",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",
       "licenseSha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
+      ]
+    },
+    {
+      "name": "golang.org/x/exp",
+      "version": "v0.0.0-20260813180055-c1d0aacb2297",
+      "ecosystem": "go",
+      "licenseId": "BSD-3-Clause",
+      "licenseFile": "LICENSE",
+      "licenseSha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+      "linkedInto": [
+        "retnd",
+        "retnd-web"
+      ]
+    },
+    {
+      "name": "golang.org/x/net",
+      "version": "v0.62.0",
+      "ecosystem": "go",
+      "licenseId": "BSD-3-Clause",
+      "licenseFile": "LICENSE",
+      "licenseSha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+      "linkedInto": [
+        "retnd",
+        "retnd-web"
+      ]
+    },
+    {
+      "name": "golang.org/x/oauth2",
+      "version": "v0.37.0",
+      "ecosystem": "go",
+      "licenseId": "BSD-3-Clause",
+      "licenseFile": "LICENSE",
+      "licenseSha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+      "linkedInto": [
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "golang.org/x/sync",
-      "version": "v0.23.0",
+      "version": "v0.24.0",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",
       "licenseSha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "golang.org/x/sys",
-      "version": "v0.48.0",
+      "version": "v0.50.0",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",
       "licenseSha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "golang.org/x/term",
-      "version": "v0.46.0",
+      "version": "v0.47.0",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",
       "licenseSha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "golang.org/x/text",
-      "version": "v0.42.0",
+      "version": "v0.43.0",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",
       "licenseSha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "golang.org/x/time",
-      "version": "v0.15.0",
+      "version": "v0.16.0",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",
       "licenseSha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "google.golang.org/genproto/googleapis/rpc",
-      "version": "v0.0.0-20260715232425-e75dac1f907d",
+      "version": "v0.0.0-20261005182115-fad411399dd8",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "google.golang.org/grpc",
-      "version": "v1.84.0-dev.0.20260723093437-b6eac429d7b6",
+      "version": "v1.85.0-dev.0.20260825072537-93e31b48545e",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",
       "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "google.golang.org/protobuf",
-      "version": "v1.36.11",
+      "version": "v1.36.12",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",
       "licenseSha256": "4835612df0098ca95f8e7d9e3bffcb02358d435dbb38057c844c99d7f725eb20",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -1395,32 +1491,32 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "f6918bd93ffe07f4b2c61b8287c32cb3122e08aed0be50f1c7d0eddc87877a8f",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "gopkg.in/yaml.v3",
       "version": "v3.0.1",
       "ecosystem": "go",
-      "licenseId": "Apache-2.0",
+      "licenseId": "Apache-2.0 AND MIT",
       "licenseFile": "LICENSE",
       "licenseSha256": "d18f6323b71b0b768bb5e9616e36da390fbd39369a81807cca352de4e4e6aa0b",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "modernc.org/libc",
-      "version": "v1.75.6",
+      "version": "v1.79.0",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",
       "licenseSha256": "95ff867eb55a56935fa7492406cfa953fb7c13ca73f4c0a86ae05756b4605600",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -1431,8 +1527,8 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "bfa9bf72a72ca009fd62a8f84fca3dca67e51d93af96352723646599898b6cf5",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -1443,20 +1539,20 @@
       "licenseFile": "LICENSE",
       "licenseSha256": "59895e669f48f168b6b858358f6005779cdf40a265f7828813061b56af67b496",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "modernc.org/sqlite",
-      "version": "v1.58.0",
+      "version": "v1.61.0",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",
       "licenseSha256": "c6fe05491a60ae13bcd223088d2705e36dede24e5587226231d2459ada5c4822",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -1467,20 +1563,32 @@
       "licenseFile": "LICENSE-MIT",
       "licenseSha256": "ded78f83bdbffcdff5f79462cc9d655d9a1b1fcf5bba6359583ac9a1cf4fb980",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
+      ]
+    },
+    {
+      "name": "mvdan.cc/sh/v3",
+      "version": "v3.14.1",
+      "ecosystem": "go",
+      "licenseId": "BSD-3-Clause",
+      "licenseFile": "LICENSE",
+      "licenseSha256": "ce63850f77649f00d1394045e2794ffb09a5596beabac51c9548edd958845d7c",
+      "linkedInto": [
+        "retnd",
+        "retnd-web"
       ]
     },
     {
       "name": "sigs.k8s.io/yaml",
       "version": "v1.6.0",
       "ecosystem": "go",
-      "licenseId": "Apache-2.0",
+      "licenseId": "Apache-2.0 AND MIT",
       "licenseFile": "LICENSE",
       "licenseSha256": "5dc79da695aea39a47245008a168e3f7d461b686da8bec299fd55fee0393cbcc",
       "linkedInto": [
-        "backupd",
-        "backupd-web"
+        "retnd",
+        "retnd-web"
       ]
     },
     {
@@ -1492,7 +1600,7 @@
       "licenseSha256": "",
       "integrity": "sha512-MhkMWUHA3yHouB68Ezh40lJz5x6Pw5PGpQBVU6wOq4B47AimZ8jF1nUATjGSB/zyYmhg73MNBm6v+DgZE1XDcw==",
       "linkedInto": [
-        "backupd-web"
+        "retnd-web"
       ]
     },
     {
@@ -1504,7 +1612,7 @@
       "licenseSha256": "",
       "integrity": "sha512-q7j5geK7xs3UJSdm9/iytUNclBnLmYx1EnSeCFXHPeutdqgIMeFeHtUZgS3EhlKxdBEAu8OwtJCwmLrEzpSs7Q==",
       "linkedInto": [
-        "backupd-web"
+        "retnd-web"
       ]
     },
     {
@@ -1516,7 +1624,7 @@
       "licenseSha256": "",
       "integrity": "sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==",
       "linkedInto": [
-        "backupd-web"
+        "retnd-web"
       ]
     },
     {
@@ -1528,7 +1636,7 @@
       "licenseSha256": "",
       "integrity": "sha512-lyuxPGr/Wfhrlem2CL/UcnUc1zcqKAImBDzukY7Y5F/yQiNdko6+fRLevlw1HgMySw7f611UIY408EtxRSoK3Q==",
       "linkedInto": [
-        "backupd-web"
+        "retnd-web"
       ]
     },
     {
@@ -1540,7 +1648,7 @@
       "licenseSha256": "",
       "integrity": "sha512-wS+hAgJShR0KhEvPJArfuPVN1+Hz1t0Y6n5jLrGQbkb4urgPE/0Rve+1kMB1v/oWgHgm4WIcV+i7F2pTVj+2iQ==",
       "linkedInto": [
-        "backupd-web"
+        "retnd-web"
       ]
     },
     {
@@ -1552,7 +1660,7 @@
       "licenseSha256": "",
       "integrity": "sha512-5m4nQKp+rZRb09LNH59GM4BxTh9251/ylbKIbpe7TpGxfJ+9kv6BLkLBXIjjspbgbnIBNqlI23tRnTWT0snUIw==",
       "linkedInto": [
-        "backupd-web"
+        "retnd-web"
       ]
     },
     {
@@ -1564,7 +1672,7 @@
       "licenseSha256": "",
       "integrity": "sha512-5HfK7k5im7LTOB0EqCQmfvy4C13G92Ssj1VTmouTK3AJvyjKTnFuCV0vcMAD/JS+JC4DvDIBRrlAeJIFjh5VWg==",
       "linkedInto": [
-        "backupd-web"
+        "retnd-web"
       ]
     },
     {
@@ -1576,7 +1684,7 @@
       "licenseSha256": "",
       "integrity": "sha512-0RHKZz7wwffvkU+2MFVT2NnjK44ssLEV+m0CAJaS2Ksmorrwj7WxH00jO0SOCW26/tINUnJHToXblDs33I38YQ==",
       "linkedInto": [
-        "backupd-web"
+        "retnd-web"
       ]
     },
     {
@@ -1588,7 +1696,7 @@
       "licenseSha256": "",
       "integrity": "sha512-UOShsPwz7NrMUqhR6t0hWjFduvOzbtv7toDH1/hIrfRNIDBnnBWd0CwJTGvTpngVlmwGCdP9/Zl/tVrDqcuYzQ==",
       "linkedInto": [
-        "backupd-web"
+        "retnd-web"
       ]
     }
   ]

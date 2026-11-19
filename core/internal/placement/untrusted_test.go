@@ -1,8 +1,11 @@
 package placement_test
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -34,7 +37,7 @@ func productionGoFiles(t *testing.T) map[string]string {
 	out := map[string]string{}
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return err
+			return tolerateVanished(err)
 		}
 		if d.IsDir() {
 			if d.Name() == "testdata" || d.Name() == "node_modules" {
@@ -47,7 +50,7 @@ func productionGoFiles(t *testing.T) map[string]string {
 		}
 		content, readErr := os.ReadFile(path)
 		if readErr != nil {
-			return readErr
+			return tolerateVanished(readErr)
 		}
 		rel, relErr := filepath.Rel(root, path)
 		if relErr != nil {
@@ -63,6 +66,24 @@ func productionGoFiles(t *testing.T) map[string]string {
 		t.Fatalf("only %d production Go files were found under %s, which is too few for these scans to be checking anything", len(out), root)
 	}
 	return out
+}
+
+// tolerateVanished is the one error the walk may swallow: an entry that
+// readdir listed and that is gone by the time it is opened. Other
+// packages' tests create and remove temporary directories under the
+// module while this walk runs (cmd/retnd's .cli-validators-*, under
+// `go test ./...`), and a path that no longer exists is not a production
+// Go file. Every other error still fails the walk, because a walk that
+// silently visits less than it should is exactly the shape the absence
+// scans above must never take (#1260).
+func tolerateVanished(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 func coreModuleRoot(t *testing.T) string {
@@ -88,7 +109,8 @@ func coreModuleRoot(t *testing.T) string {
 // "nothing compares an ETag to a hash": there is nothing named to compare.
 //
 // Four files are allowed to say the word, and every one of them says it
-// to explain why it does not carry one.
+// to explain why it does not carry one. Three more say it because the
+// recovery download sends its own validator (see the map below).
 func TestNoProductionCodeNamesAnETag(t *testing.T) {
 	// Four files are allowed to say the word, and every one of them says
 	// it to explain why it does not carry one.
@@ -97,6 +119,16 @@ func TestNoProductionCodeNamesAnETag(t *testing.T) {
 		filepath.Join("internal", "transport", "rclone", "medium.go"):   true,
 		filepath.Join("internal", "transport", "contract", "medium.go"): true,
 		filepath.Join("internal", "placement", "ladder.go"):             true,
+
+		// The recovery download's HTTP validator (EPIC Q). It is a response
+		// header this product SENDS to a client so a download can be
+		// resumed, built from the artifact id and the digest the journal
+		// recorded. It is not read from any medium and is never compared
+		// with a content hash: the rule above is about the former, and
+		// these files are why the word has to appear at all.
+		filepath.Join("internal", "recovery", "export", "chunks.go"): true,
+		filepath.Join("service", "recover_run.go"):                   true,
+		filepath.Join("service", "recover_stream.go"):                true,
 	}
 
 	for path, content := range productionGoFiles(t) {
@@ -104,7 +136,7 @@ func TestNoProductionCodeNamesAnETag(t *testing.T) {
 			continue
 		}
 		for i, line := range strings.Split(content, "\n") {
-			if strings.Contains(strings.ToLower(line), "etag") {
+			if namesETag(line) {
 				t.Errorf("%s:%d names an ETag:\n\t%s\nFR-32: an ETag is never a content hash, and the way this product keeps that true is by having nowhere to put one.", path, i+1, strings.TrimSpace(line))
 			}
 		}
@@ -120,10 +152,22 @@ func TestTheETagScanCanActuallyFail(t *testing.T) {
 	if !ok {
 		t.Fatal("the scan did not visit internal/transport/medium.go at all, so its verdict about every other file means nothing")
 	}
-	if !strings.Contains(strings.ToLower(content), "etag") {
+	if !namesETag(content) {
 		t.Fatal("the pattern this scan searches for matches nothing even in the file that definitely discusses ETags, so the scan above proves nothing")
 	}
+	// And the other way: an identifier that only spells the letters across a
+	// word boundary, as getAgent... does, is not an ETag.
+	if namesETag("func (c *Client) GetAgentConfirmation(ctx context.Context, id string)") || namesETag(`ID: "getAgentToken"`) {
+		t.Fatal("the scan reads getAgent... as an ETag, so every agent route trips it")
+	}
 }
+
+// etagWord is the word ETag as code spells it: ETag, Etag, ETAG or etag, and
+// not the same four letters across a camel-case boundary (getAgent...), which
+// a case-folded substring match would also find.
+var etagWord = regexp.MustCompile(`ETag|Etag|ETAG|(^|[^A-Za-z])etag`)
+
+func namesETag(s string) bool { return etagWord.MatchString(s) }
 
 // TestRetentionReadsNoMediumSuppliedValue is FR-32's second rule, held
 // structurally: internal/retention decides what is kept, and it must not
@@ -167,5 +211,29 @@ func TestTheRetentionScanActuallyVisitsRetention(t *testing.T) {
 	}
 	if visited < 3 {
 		t.Fatalf("the retention scan visited %d files; internal/retention has more than that, so the filter is wrong and the scan proves nothing", visited)
+	}
+}
+
+// TestTheProductionWalkToleratesAnEntryThatVanishes pins the one error
+// the walk above may swallow. `go test ./...` runs every package at once,
+// and cmd/retnd's tests create and remove a temporary directory under
+// their own package (.cli-validators-*) while this package is walking the
+// module; an entry that readdir listed and that is gone by the time it is
+// opened is not a production file, and failing the ETag scan on it made
+// the gate's architecture check red for a reason that had nothing to do
+// with ETags (#1260). Anything else, a permission refusal included, still
+// fails the walk, because a walk that visits less than it should is the
+// exact shape these absence scans must not take.
+func TestTheProductionWalkToleratesAnEntryThatVanishes(t *testing.T) {
+	gone := &os.PathError{Op: "open", Path: "core/cmd/retnd/.cli-validators-1", Err: os.ErrNotExist}
+	if err := tolerateVanished(gone); err != nil {
+		t.Fatalf("an entry that vanished mid-walk failed the walk: %v", err)
+	}
+	denied := &os.PathError{Op: "open", Path: "core/service/x.go", Err: os.ErrPermission}
+	if err := tolerateVanished(denied); err == nil {
+		t.Fatal("a permission refusal was swallowed; only a vanished entry may be")
+	}
+	if err := tolerateVanished(nil); err != nil {
+		t.Fatalf("nil in, %v out", err)
 	}
 }

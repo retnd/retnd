@@ -2,7 +2,7 @@
 *.exe
 *.test
 *.out
-/backupd
+/retnd
 /dist/
 /bin/
 
@@ -11,10 +11,26 @@
 # They are 64 MB each, they trip the large-file push warning, and a
 # committed one also breaks the image-size gate, because the Docker build
 # context carries it into the image. Named explicitly rather than caught
-# by a pattern: /backupd above only covers the repository root, and these
+# by a pattern: /retnd above only covers the repository root, and these
 # land one directory down.
-/core/backupd
-/apps/backupd-web
+#
+# THE NAMES HERE ARE THE BUILD'S, NOT THE BRAND'S. R1.3 (#888) renamed
+# both commands and nothing swept this file, so from that day until #895
+# every pattern below named a binary this tree can no longer produce --
+# and `retnd` at the repository root, which it can, was ignored by
+# nothing. A 64 MB Mach-O binary was committed on exactly that path in
+# this epic and reached review; `git rm --cached retnd` took it back out.
+# An ignore rule that names yesterday's artifact is worse than no rule,
+# because the comment above it still reads as if the hole were covered.
+/core/retnd
+/apps/generic/retnd-web
+# `go build` run inside core/cmd/retnd drops the binary next to its sources,
+# and it reached a branch that way too (#1254).
+/core/cmd/retnd/retnd
+
+# Scratch directories tests make inside the repository because the hook
+# custody walk refuses a fixture under a world-writable /tmp (#1247).
+/.testtmp/
 
 # SQLite journals produced by local runs
 *.db
@@ -93,6 +109,7 @@ __pycache__/
 # $TMPDIR so a test never creates or removes anything outside the checkout it
 # belongs to.
 /.ci-local-gate-test/
+/.ci-fast-test/
 
 # scripts/perf/selftest.sh writes a deliberately-mutated baseline record here
 # under a throwaway host id, to prove the performance gate refuses an
@@ -101,7 +118,7 @@ __pycache__/
 # committed by an absent-minded `git add -A`.
 /docs/perf/baselines/selftest-tmp.json
 
-# Where scripts/bdtools/e2e/run_tests_repo_gate.py builds the backupd it
+# Where scripts/bdtools/e2e/run_tests_repo_gate.py builds the retnd it
 # hands to the pinned CLI smoke slice. Inside the working tree on purpose:
 # the alternative is a scratch directory under /tmp that the gate would then
 # have to delete, and nothing this repository's tooling creates should need
@@ -159,3 +176,19 @@ go.work.sum
 # custody walk, and it deliberately stops the process mid-run, so an
 # interrupted run leaves one behind more often than most.
 /core/internal/workflowrun/.wfrun-*
+
+# scripts/tests/release-refuses-an-ungated-publish.test.sh's and
+# scripts/tests/local-gate-record.test.sh's sandboxes (#575, #1260): the
+# throwaway repositories they drive the release gate's script and the
+# local-gate recorder against. Same reasoning as the sandboxes above, and
+# both remove theirs at the end of the run. The first of these had no
+# entry for as long as it existed, so an interrupted run left an untracked
+# directory for `git add -A` to find.
+/.release-gate-test/
+/.local-gate-record-test/
+
+# scripts/release/record-local-gate.sh runs the full gate in a detached
+# worktree here, inside the checkout for the same reason as every sandbox
+# above, and removes it on every exit. Ignored so that an interrupted run
+# does not make the checkout it was recording look dirty.
+/.local-gate-worktree/

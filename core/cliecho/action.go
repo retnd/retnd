@@ -49,4 +49,27 @@ type APIAction struct {
 	Gap         string
 	GapDetail   string
 	Placeholder bool
+
+	// Gate is the destructive gate's state at the moment it refused this
+	// action, and empty for every action the gate did not refuse (issue
+	// #1165). "shut" is the gate itself refusing; "open" is a gate that was
+	// open and one of the conditions it carries refusing (issue #1163: the
+	// insecure-transport acknowledgement, or a restore's acknowledgement or
+	// password), with GateReason saying which. It is what makes a refusal an
+	// audit entry rather than a 403 in a log: an operator reading it later
+	// needs to know what the gate said then, not what it says now.
+	Gate string
+	// GateReason is the reason the gate gave for that state, as
+	// GET /system/capabilities reports it.
+	GateReason string
+	// Operation is the act the gate refused: the action of POST /operations
+	// (run_cycle, verify_snapshot...), "retention_apply" for the retention
+	// route, or "run_immediately" for the run a create asked for. Empty when
+	// nothing was refused.
+	Operation string
+	// RunID, SnapshotID and HoldID are the snapshot-side things the refused
+	// act named, when it named any. The backup set is BackupSetID.
+	RunID      string
+	SnapshotID string
+	HoldID     string
 }

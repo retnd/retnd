@@ -1,0 +1,262 @@
+package obs
+
+import (
+	"context"
+	"log/slog"
+	"time"
+)
+
+// FR-23 catalog additions for EPIC Q (Q1.4, #982): artifact recovery and
+// recovery testing. Every name here is new. None of them renames or reshapes
+// anything already shipped, and the stable-names test in
+// assurance_events_test.go pins them the way events_test.go pins the older
+// ones.
+//
+// A scrub pass is not here: it has its own two events, EventScrubPass and
+// EventScrubFailure (events.go). A start/end/copy trio drafted for it in this
+// file never had a caller once the driver chose those, and a catalog entry
+// nothing emits is a promise nobody keeps, so it was deleted.
+//
+// # The pairing, and what each completion states
+//
+// Each long-running action is a start line and a completion line sharing an
+// action id, in the shape the cycle and the workflow run already use. The
+// completion always states a Result, so a client never infers an outcome
+// from a missing error field.
+//
+// # Event volume is a decision, not a side effect
+//
+// The activity feed is append-only and cursor-paged. A recovery or recovery
+// test is a start, one stage line per stage it enters, and an end.
+const (
+	// EventRecoveryStart, EventRecoveryStage and EventRecoveryEnd bracket
+	// one artifact recovery and name the stage it is in.
+	EventRecoveryStart = "recovery_start"
+	EventRecoveryStage = "recovery_stage"
+	EventRecoveryEnd   = "recovery_end"
+
+	// EventRecoveryTestStart and EventRecoveryTestEnd bracket one recovery
+	// test. Its stages are reported as EventRecoveryStage lines under the
+	// recovery_test action.
+	EventRecoveryTestStart = "recovery_test_start"
+	EventRecoveryTestEnd   = "recovery_test_end"
+
+	// EventRecoveryTestValidatorFallback says a custom validator's pattern
+	// matched the copy a recovery test was about and the test did not run
+	// its script (#1203).
+	EventRecoveryTestValidatorFallback = "recovery_test_validator_fallback"
+
+	// EventRecoveryTestValidatorEdited says a custom validator's script no
+	// longer hashes to the script_sha256 config.yaml pins, so the test ended
+	// could_not_complete without running it (#1222).
+	EventRecoveryTestValidatorEdited = "recovery_test_validator_edited"
+)
+
+// The action names the pairs above are bracketed under.
+const (
+	ActionRecovery     = "recovery"
+	ActionRecoveryTest = "recovery_test"
+)
+
+// RecoveryStage is one named step of a recovery or recovery test.
+type RecoveryStage struct {
+	// ID is the wire name carried in the "stage" field.
+	ID string
+	// Label is what a terminal and the browser both print.
+	Label string
+}
+
+// RecoveryStages is the stage sequence, in order. It is the single list the
+// CLI's --follow and the browser's follow both render from, so the two
+// cannot disagree about a name or an order. "Restoring archive" is skipped
+// when no thaw was requested, and Complete is last for a run that reached a
+// verdict it recorded as a pass. A run that stopped early or failed ends on the
+// last stage it entered.
+var RecoveryStages = []RecoveryStage{
+	{ID: "resolving_copy", Label: "Resolving copy"},
+	{ID: "restoring_archive", Label: "Restoring archive"},
+	{ID: "reading", Label: "Reading"},
+	{ID: "verifying", Label: "Verifying"},
+	{ID: "decrypting", Label: "Decrypting"},
+	{ID: "writing_target", Label: "Writing target"},
+	{ID: "validating", Label: "Validating"},
+	{ID: "cleaning_temporary_files", Label: "Cleaning temporary files"},
+	{ID: "complete", Label: "Complete"},
+}
+
+// StageLabel returns the label for a stage id, or "" for one this catalog
+// does not name.
+func StageLabel(id string) string {
+	for _, s := range RecoveryStages {
+		if s.ID == id {
+			return s.Label
+		}
+	}
+	return ""
+}
+
+// RecoveryStart logs EventRecoveryStart for the recovery opID.
+func (l *Logger) RecoveryStart(ctx context.Context, opID, backupSet, artifact string) {
+	l.emitMarked(ctx, LevelInfo, mark{action: ActionRecovery, actionID: opID},
+		EventRecoveryStart, "recovery starting",
+		slog.String("op_id", opID),
+		slog.String("backup_set", backupSet),
+		slog.String("artifact", artifact),
+	)
+}
+
+// RecoveryStage logs EventRecoveryStage: the recovery opID entered the
+// stage with this id. An id the catalog does not name is logged as given
+// with an empty label rather than dropped.
+func (l *Logger) RecoveryStage(ctx context.Context, opID, backupSet, stageID string) {
+	l.emitMarked(ctx, LevelInfo, mark{action: ActionRecovery, actionID: opID},
+		EventRecoveryStage, "recovery stage",
+		slog.String("op_id", opID),
+		slog.String("backup_set", backupSet),
+		slog.String("stage", stageID),
+		slog.String("stage_label", StageLabel(stageID)),
+	)
+}
+
+// RecoveryEnd logs EventRecoveryEnd for the recovery opID started.
+func (l *Logger) RecoveryEnd(ctx context.Context, opID, backupSet, artifact string, bytes int64, d time.Duration, result Result, reason string) {
+	attrs := []slog.Attr{
+		slog.String("op_id", opID),
+		slog.String("backup_set", backupSet),
+		slog.String("artifact", artifact),
+		slog.Int64("bytes", bytes),
+		slog.Duration("duration", d),
+	}
+	if reason != "" {
+		attrs = append(attrs, slog.String("reason", cleanReason(reason)))
+	}
+	l.emitMarked(ctx, result.Level(), mark{result: result, action: ActionRecovery, actionID: opID},
+		EventRecoveryEnd, "recovery finished", attrs...)
+}
+
+// RecoveryTestValidatorFallback logs EventRecoveryTestValidatorFallback for
+// the test opID: validator matched artifact, and ran is what stood in for it.
+// The validator is named by id only; see validatorRef. It is a warning and
+// not an error because the test still has a verdict, from a check the
+// operator did not pick for this name.
+func (l *Logger) RecoveryTestValidatorFallback(ctx context.Context, opID, backupSet, artifact, validator, ran string) {
+	l.emitMarked(ctx, LevelWarn, mark{action: ActionRecoveryTest, actionID: opID},
+		EventRecoveryTestValidatorFallback,
+		"the custom validator matched but did not run: "+cleanReason(ran),
+		slog.String("op_id", opID),
+		slog.String("backup_set", backupSet),
+		slog.String("artifact", artifact),
+		slog.String("validator", validatorRef(validator)),
+		slog.String("ran", cleanReason(ran)),
+	)
+}
+
+// RecoveryTestValidatorEdited logs EventRecoveryTestValidatorEdited for the
+// test opID: the script of validator hashes to found and config.yaml pins
+// pinned. Both are hex digests, so they are safe in a line as they are; the
+// validator is named by id only (see validatorRef). It is a warning because
+// the file the operator approved is not the file that is there.
+func (l *Logger) RecoveryTestValidatorEdited(ctx context.Context, opID, backupSet, artifact, validator, pinned, found string) {
+	l.emitMarked(ctx, LevelWarn, mark{action: ActionRecoveryTest, actionID: opID},
+		EventRecoveryTestValidatorEdited,
+		"the custom validator's script was edited on disk and was not run",
+		slog.String("op_id", opID),
+		slog.String("backup_set", backupSet),
+		slog.String("artifact", artifact),
+		slog.String("validator", validatorRef(validator)),
+		slog.String("pinned_sha256", hexOnly(pinned)),
+		slog.String("found_sha256", hexOnly(found)),
+	)
+}
+
+// hexOnly is s when it is a plain lower-case hex string and "(withheld)" when
+// it is anything else, so a digest field never carries more than a digest.
+func hexOnly(s string) string {
+	if len(s) == 0 || len(s) > 128 {
+		return "(withheld)"
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return "(withheld)"
+		}
+	}
+	return s
+}
+
+// RecoveryTestStart logs EventRecoveryTestStart. The validator is named by
+// id only; see validatorRef.
+func (l *Logger) RecoveryTestStart(ctx context.Context, opID, backupSet, artifact, validatorID string) {
+	msg := "recovery test starting"
+	if builtinID(validatorID) {
+		msg = "recovery test started: " + cleanReason(artifact) + " (built-in structure check)"
+	}
+	l.emitMarked(ctx, LevelInfo, mark{action: ActionRecoveryTest, actionID: opID},
+		EventRecoveryTestStart, msg,
+		slog.String("op_id", opID),
+		slog.String("backup_set", backupSet),
+		slog.String("artifact", artifact),
+		slog.String("validator", validatorRef(validatorID)),
+	)
+}
+
+// RecoveryTestEnd logs EventRecoveryTestEnd for the test opID started.
+// cancelled says the test was stopped by a cancel request; it rides on the
+// line as cancelled=true, because the result (warn) is the same for a test
+// that could not complete and the reason is words, not a field to branch on
+// (#1200). A test cut short by anything else, shutdown included, is not
+// cancelled.
+func (l *Logger) RecoveryTestEnd(ctx context.Context, opID, backupSet, artifact, validatorID string, d time.Duration, result Result, reason string, cancelled bool) {
+	attrs := []slog.Attr{
+		slog.String("op_id", opID),
+		slog.String("backup_set", backupSet),
+		slog.String("artifact", artifact),
+		slog.String("validator", validatorRef(validatorID)),
+		slog.Duration("duration", d),
+	}
+	if reason != "" {
+		attrs = append(attrs, slog.String("reason", cleanReason(reason)))
+	}
+	if cancelled {
+		attrs = append(attrs, slog.Bool("cancelled", true))
+	}
+	l.emitMarked(ctx, result.Level(), mark{result: result, action: ActionRecoveryTest, actionID: opID},
+		EventRecoveryTestEnd, "recovery test finished", attrs...)
+}
+
+// validatorRef renders a validator reference for the feed. It is an id, a
+// bare name, never a path: anything with a separator, a space or a control
+// byte, or longer than 64 bytes, is withheld, because validator identity
+// reaches a terminal and an operator's validator is untrusted input.
+func validatorRef(id string) string {
+	if id == "" || len(id) > 64 {
+		return "(withheld)"
+	}
+	for _, r := range id {
+		ok := r == '-' || r == '_' || r == '.' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+		if !ok {
+			return "(withheld)"
+		}
+	}
+	return id
+}
+
+// maxReasonBytes bounds a reason on the feed.
+const maxReasonBytes = 200
+
+// cleanReason makes a reason safe for a terminal: control and non-printing
+// bytes become spaces and the length is bounded. Reasons are the service's
+// own sentences, but a caller can fold a validator's words into one, and
+// validator output is untrusted terminal input.
+func cleanReason(s string) string {
+	out := make([]rune, 0, len(s))
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
+			r = ' '
+		}
+		out = append(out, r)
+		if len(out) >= maxReasonBytes {
+			break
+		}
+	}
+	return string(out)
+}

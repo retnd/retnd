@@ -28,12 +28,12 @@ than a diff.
   a stored value.
 - Proactive alerting on stale backups, repeated failures, a changed SSH host key, and
   critical storage pressure.
-- One canonical multi-architecture image on amd64 and arm64, wrapped by every provider
+- One canonical image on linux/amd64 (the release builds nothing else for Linux), wrapped by every provider
   package rather than rebuilt per platform.
 
 ### Removing a backup set
 
-Four things an administrator will notice, all from the same change, and
+Four things an administrator will notice, all from the same change (issue #391), and
 worth saying here rather than leaving to be found.
 
 - "Remove set configuration" on a backup set's page now removes the set. It used to close
@@ -43,7 +43,7 @@ worth saying here rather than leaving to be found.
   a set with the same source and name again takes those backups back, along with their
   retention history. Nothing this operation can reach deletes a byte of backup data.
 - The same operation is on the API (`DELETE /api/v1/backup-sets/{source}/{set}`) and on the
-  command line (`backupd backup-set remove <source/backup-set>`). Against a server that
+  command line (`retnd backup-set remove <source/backup-set>`). Against a server that
   is already running the command line uses that route; with nothing running it reaches the
   same code directly. See "The command line and a running server" below.
 - The Backups list now includes the backups of sets whose configuration has been removed.
@@ -67,9 +67,9 @@ told where that server is. Nothing is written behind the server's back and there
 restart afterwards.
 
 The command has to be told where the server is, and it is told through the environment.
-`BACKUP_MANAGER_API_URL` is the server's address, which is `http://127.0.0.1:8080` from inside
+`RETND_API_URL` is the server's address, which is `http://127.0.0.1:8080` from inside
 its own container or the published web port from a shell on the machine, and
-`BACKUP_MANAGER_API_USERNAME` and `BACKUP_MANAGER_API_PASSWORD` are the local administrator
+`RETND_API_USERNAME` and `RETND_API_PASSWORD` are the local administrator
 account the web interface already uses. The password is held in memory for the one command and
 written nowhere. These are environment variables rather than options because a password typed
 as an option is visible in every process listing on the machine.
@@ -119,7 +119,7 @@ installing, not after.
   of them, is refused rather than landed in the other one. The one arrangement that check
   cannot see through is a whole state directory copied to seed a second installation: the
   copy carries the original's identity, and the two then claim to be each other.
-- One engine per deployment. Starting a second `backupd daemon`, or a second web host,
+- One engine per deployment. Starting a second `retnd daemon`, or a second web host,
   against a state database another one is already serving is refused rather than started. Two
   of them would run two schedules over one set of backups and hold two independent copies of
   one configuration, which is the divergence everything above exists to prevent.

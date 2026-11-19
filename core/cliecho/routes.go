@@ -1,11 +1,14 @@
 package cliecho
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/url"
 	"strconv"
 	"strings"
 
-	"github.com/backupdproject/backupd/core/apicontract"
+	"github.com/retnd/retnd/core/apicontract"
+	"github.com/retnd/retnd/core/internal/backend"
 )
 
 // The table: every route the /api/v1 router registers, and what an
@@ -26,9 +29,9 @@ import (
 // A `why` is also a claim about this binary, and claims go stale: five of
 // these said a verb did not exist while the same tree shipped it, and one
 // of the five quoted a usage() line that had been replaced by the flag it
-// was denying. core/cmd/backupd's TestNoGapClaimsAVerbThisBinaryShips
+// was denying. core/cmd/retnd's TestNoGapClaimsAVerbThisBinaryShips
 // reads every sentence here against the verb tables now. A sentence that
-// names a shipped verb on purpose, as a counterexample ("`backupd
+// names a shipped verb on purpose, as a counterexample ("`retnd
 // run` is not this"), says so with namesShippedVerbs, and a sentence that
 // names one by accident fails.
 //
@@ -40,41 +43,23 @@ import (
 // because each of them is written in two places: the builder that refuses
 // with it, and the entry that declares it so Gaps can report it. A
 // sentence that could differ between those two would be a sentence the
-// guard in core/cmd/backupd checks a copy of.
+// guard in core/cmd/retnd checks a copy of.
 const (
-	gapRunCycle = "`" + Binary + " run` starts a cycle in your own shell, not in this engine, so it is a different act against a different process"
+	// #1253's review. An action apicontract doesn't define used to get
+	// run_cycle's sentence, which is an answer about a different act.
+	gapUnknownAction = "there is no verb for an operation action this binary doesn't define, and the engine refuses the request too"
 
-	gapRunBackupSet = "`" + Binary + " fetch --backup-set <source/backup-set>` runs that set's cycle in your own shell, not in this engine, so it is a different act against a different process"
+	// #1253's review. A request naming an action and leaving out the
+	// parameters that action reads is refused by the engine, and a nil
+	// here would print the route's "this body won't decode" sentence,
+	// which says something else.
+	gapMissingParameters = "there is no command for an operation request that leaves out the parameters its action reads, and the engine refuses it too"
 
-	gapDeploymentScope = "there is no flag that narrows `activity --follow` to the deployment's own events: --backup-set names one set, and naming none already means every set"
-
-	// Issue #624. The candidate half of the connection check has no verb
-	// and deliberately gets none, which is a decision rather than the next
-	// gap to close. A candidate is a form somebody is still typing: its
-	// values exist nowhere, so the command would have to carry all of
-	// them, and the moment they are worth carrying is the create, which
-	// proves the connection before it writes anything.
-	gapCandidateConnection = "there is no verb that checks a source that is not saved yet: `" + Binary + " backup-set create` proves the connection before it writes, and `" + Binary + " backup-set test-connection <source/backup-set>` re-checks one that exists"
-
-	// I2.2 (issue #669). Two gaps, and both are real rather than
-	// oversights, which is the distinction this table exists to make.
-	//
-	// `medium add` and `medium edit` take the flags they were written
-	// with - --type, --region, --endpoint, --bucket, --prefix,
-	// --storage-class, --upload-verification and the four credential
-	// spellings - and a manifest can declare a field none of them names.
-	// local_volume's `path` is exactly that, so a local volume cannot be
-	// configured from a terminal at all. Printing --path anyway would
-	// read correctly and fail on execution, which is worse than printing
-	// nothing: the entire reason these lines exist is that an operator
-	// can copy them.
-	gapConfigureMedium = "there is no verb that writes a destination's configuration in its backend's own field names: `" + Binary + " medium add` and `" + Binary + " medium edit` carry one flag per S3 field and have no --path, so a local volume cannot be configured from a terminal until they take a manifest's field ids"
-
-	// And a configuration that has not been written cannot be checked by
-	// id, because there is no id yet. `medium test-connection` checks
-	// what is SAVED, which is a different question and the one an
-	// operator would get a misleading answer to.
-	gapPreflightMediumConfiguration = "there is no verb that checks a destination's configuration before it is written: `" + Binary + " medium test-connection <medium-id>` checks the one already saved, and `" + Binary + " medium add` proves a destination as it declares it"
+	// #1253's review. Without --to, `recover` writes back where the
+	// backup came from, which is the production source host, so a
+	// recovery whose target this table can't spell gets no line at all
+	// rather than one that silently means something else.
+	gapRecoveryTarget = "there is no terminal destination for this recovery's target, and a recovery line without --to would write onto the source host, so none is printed"
 )
 
 // positiveQuery reads a query parameter that is a count, and reports 0
@@ -97,10 +82,22 @@ func positiveQuery(a Action, name string) int {
 	return n
 }
 
+// validatorEnvFlag echoes a validator's env (#1221) only when it is exactly one
+// of the two words the API accepts. The flag is a choice from a closed set, so
+// there is nothing of the operator's to leak, and anything else is a request
+// the engine refuses and has no business in a copyable command line.
+func validatorEnvFlag(c *cmd, env string) {
+	if env == "minimal" || env == "workflow" {
+		c.flag("env", env)
+	}
+}
+
 var routes = map[string]entry{
 	// ---------------------------------------------------------- system ---
 	key("GET", "/system/version"): {
-		build:    func(Action) *cmd { return newCmd("version") },
+		// --engine, because this route is the ENGINE's version, and bare
+		// `version` is this binary's own (#1152).
+		build:    func(Action) *cmd { return newCmd("version").bare("engine") },
 		examples: []Action{{}},
 	},
 	key("GET", "/system/health"): {
@@ -108,19 +105,43 @@ var routes = map[string]entry{
 		examples: []Action{{}},
 	},
 	key("GET", "/system/capabilities"): {
-		why: "capabilities are what the PLATFORM this deployment runs on can do, which is a question about the host rather than about backups; nothing on a terminal asks it",
+		// #1165. It used to be a gap ("nothing on a terminal asks it"); the
+		// terminal asks it now, and it is the way to read whether the
+		// engine's destructive gate is open.
+		build:    func(Action) *cmd { return newCmd("system", "capabilities") },
+		examples: []Action{{}},
+	},
+	key("GET", "/system/staging-directories"): {
+		// #1179. The staging folder browser's route: the terminal lists the same folders with `system staging`, and a path
+		// given to the page is the PATH given here.
+		build: func(a Action) *cmd {
+			c := newCmd("system", "staging")
+			if p := a.Query.Get("path"); p != "" {
+				c.argv = append(c.argv, p)
+			}
+			return c
+		},
+		examples: []Action{{}, {Query: url.Values{"path": {"daily/2026-10"}}}},
 	},
 	key("GET", "/system/storage"): {
-		why:               "there is no verb that reports FR-21's capacity reading. `settings` prints the thresholds it is compared against, not the free space measured against them",
-		namesShippedVerbs: []string{"settings"},
+		build:    func(Action) *cmd { return newCmd("storage") },
+		examples: []Action{{}},
 	},
 	key("GET", "/system/first-run"): {
-		why: "there is no verb that asks whether this instance has been configured; on a terminal the answer is whether config.yaml exists",
+		build:    func(Action) *cmd { return newCmd("system", "first-run") },
+		examples: []Action{{}},
+	},
+	key("POST", "/system/first-run/skip"): {
+		why: "skipping a step of the first-run guide is a choice about what the web interface shows next; a terminal has no guide to leave a step of",
 	},
 	key("POST", "/system/first-run"): {
 		// The first config.yaml, which usage() puts on `backup-set
 		// create`: "On an instance with no config.yaml yet this writes
-		// the first one instead (#176)". Same act, same verb.
+		// the first one instead (#176)". Same act, same verb, and since
+		// #1254 the same request too: pasted on the host whose wizard
+		// sent this, the line hands the first configuration to that
+		// engine as POST /system/first-run rather than being refused
+		// beside it.
 		build: func(a Action) *cmd {
 			var spec apicontract.BackupSetSpec
 			if !decode(a.Body, &spec) {
@@ -134,13 +155,13 @@ var routes = map[string]entry{
 
 	// ------------------------------------------------------ operations ---
 	key("POST", "/operations"): {
-		// Three actions arrive here and they are three different acts, so
+		// Seven actions arrive here and they are seven different acts, so
 		// this switch is on apicontract's own constants rather than on
 		// string literals. It used to be on "restore", which is not one
-		// of the three and never was: the client sends restore_placement
+		// of them and never was: the client sends restore_placement
 		// and run_backup_set, so NO real request matched that arm. Every
 		// restore and every per-set run fell through to a default whose
-		// sentence is about `backupd run`, a different verb for a
+		// sentence is about `retnd run`, a different verb for a
 		// different act, and the example body said "restore" too, so the
 		// dispatcher-driven parse test certified a branch production
 		// never reaches. A constant spelled in one place cannot be wrong
@@ -153,7 +174,7 @@ var routes = map[string]entry{
 			switch req.Action {
 			case apicontract.ActionRestorePlacement:
 				if req.Restore == nil {
-					return nil
+					return newCmd().refuse(gapMissingParameters)
 				}
 				c := newCmd("restore", req.Restore.ArtifactID).flag("medium", req.Restore.Medium)
 				if req.Restore.WindowDays > 0 {
@@ -163,19 +184,27 @@ var routes = map[string]entry{
 					c.bare("acknowledge")
 				}
 				return c
+			case apicontract.ActionRunCycle:
+				// `operation run` (#1250), and deliberately not `run`.
+				// usage() puts `run` among the commands that are
+				// "ordinary beside a running engine": it opens the service
+				// in the operator's own process and runs a cycle THERE,
+				// while this asked the serving engine to run one. Until
+				// #1250 there was no verb that did, and this arm printed a
+				// gap saying so.
+				return newCmd("operation", "run")
 			case apicontract.ActionRunBackupSet:
-				// Its own sentence, because it is its own act. `fetch`
-				// runs one backup set's cycle and is the verb an operator
-				// reaches for, and it is not this for the same reason
-				// `run` is not a run_cycle: usage() puts both among the
-				// commands that are "ordinary beside a running engine",
-				// so it opens the service in the operator's own process
-				// and runs the set THERE, while this asks the serving
-				// engine to run it. Answering with run_cycle's sentence,
-				// which is what happened until #599's review, sends
-				// somebody asking about one set to a verb about all of
-				// them.
-				return newCmd().refuse(gapRunBackupSet)
+				// The same verb with --backup-set, and not `fetch
+				// --backup-set` for the reason above: fetch runs the set
+				// in the operator's own process.
+				if req.BackupSetID == "" {
+					return newCmd().refuse(gapMissingParameters)
+				}
+				c := newCmd("operation", "run").flag("backup-set", req.BackupSetID)
+				if req.SkipWorkflowScripts {
+					c.bare("skip-workflow-scripts")
+				}
+				return c
 			case apicontract.ActionRestoreSnapshot:
 				// The gap this arm used to print is closed (#788):
 				// `snapshot restore` is the verb, and it is deliberately
@@ -184,7 +213,7 @@ var routes = map[string]entry{
 				// "get this file back out of last night's restore point"
 				// with a billed provider retrieval of a different object.
 				if req.SnapshotRestore == nil {
-					return nil
+					return newCmd().refuse(gapMissingParameters)
 				}
 				c := newCmd("snapshot", "restore", req.SnapshotRestore.BackupSetID).
 					flag("to", req.SnapshotRestore.TargetPath)
@@ -194,7 +223,7 @@ var routes = map[string]entry{
 				return c
 			case apicontract.ActionVerifySnapshot:
 				if req.SnapshotVerify == nil {
-					return nil
+					return newCmd().refuse(gapMissingParameters)
 				}
 				c := newCmd("snapshot", "verify", req.SnapshotVerify.BackupSetID)
 				c.flagIfSet("run", req.SnapshotVerify.RunID)
@@ -205,7 +234,7 @@ var routes = map[string]entry{
 				return c
 			case apicontract.ActionHoldSnapshot:
 				if req.SnapshotHold == nil {
-					return nil
+					return newCmd().refuse(gapMissingParameters)
 				}
 				c := newCmd("snapshot", "hold", req.SnapshotHold.BackupSetID).
 					flag("reason", req.SnapshotHold.Reason)
@@ -213,29 +242,23 @@ var routes = map[string]entry{
 				return c
 			case apicontract.ActionReleaseSnapshotHold:
 				if req.SnapshotHoldRelease == nil {
-					return nil
+					return newCmd().refuse(gapMissingParameters)
 				}
 				return newCmd("snapshot", "unhold", req.SnapshotHoldRelease.BackupSetID, req.SnapshotHoldRelease.HoldID)
 			default:
-				// The gap the issue names, and the one a lazier
-				// implementation gets wrong. `backupd run`
-				// exists and is NOT this: usage() puts it among the
-				// commands that are "ordinary beside a running engine",
-				// so it opens the service in the operator's own process
-				// and runs a cycle there. This asks the SERVING engine
-				// to run one. Printing `backupd run` would print
-				// a command that does something different to a
-				// different process.
-				return newCmd().refuse(gapRunCycle)
+				// An action apicontract doesn't define. It used to fall
+				// into run_cycle's arm and print that sentence, and a
+				// nil here would print the route's "won't decode"
+				// sentence instead; both are answers about something
+				// else (#1253's review).
+				return newCmd().refuse(gapUnknownAction)
 			}
 		},
 		// A body that will not decode names no action at all, so the
 		// route-level sentence is the one every other builder here gives
-		// for that case rather than one of the two below, which are
-		// answers about a specific act.
-		why:               "there is no verb that submits an operation from a request body",
-		refusals:          []string{gapRunCycle, gapRunBackupSet},
-		namesShippedVerbs: []string{"run", "fetch"},
+		// for that case.
+		why:      "there is no verb that submits an operation from a request body",
+		refusals: []string{gapUnknownAction, gapMissingParameters},
 		examples: []Action{
 			{Body: []byte(`{"action":"` + apicontract.ActionRestorePlacement + `","config_revision":"r1","restore":{"artifact_id":"api-server/var-backups/dump.tar","medium":"offsite_s3","window_days":7,"acknowledged":true}}`)},
 			{Body: []byte(`{"action":"` + apicontract.ActionRunBackupSet + `","config_revision":"r1","backup_set_id":"api-server/var-backups"}`)},
@@ -247,10 +270,14 @@ var routes = map[string]entry{
 		},
 	},
 	key("GET", "/operations"): {
-		why: "there is no verb that lists submitted operations; a cycle started from a terminal runs in that terminal and reports there",
+		build:    func(Action) *cmd { return newCmd("operation", "list") },
+		examples: []Action{{}},
 	},
 	key("GET", "/operations/{id}"): {
-		why: "there is no verb that polls one submitted operation, for the same reason the list above has none",
+		build: func(a Action) *cmd {
+			return newCmd("operation", "show", a.Params["id"])
+		},
+		examples: []Action{{Params: map[string]string{"id": "7b0c9a1e-0000-4000-8000-000000000002"}}},
 	},
 
 	// ----------------------------------------------------- backup sets ---
@@ -259,8 +286,11 @@ var routes = map[string]entry{
 		examples: []Action{{}},
 	},
 	key("GET", "/backup-sets/*"): {
-		why:               "`sources` lists every configured backup set; there is no verb that prints one on its own",
-		namesShippedVerbs: []string{"sources"},
+		// Issue #1151 gave this a verb. It was a gap that said "`sources`
+		// lists every configured backup set; there is no verb that prints
+		// one on its own", and `backup-set show` is that verb.
+		build:    func(a Action) *cmd { return newCmd("backup-set", "show", setID(a)) },
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
 	},
 	key("POST", "/backup-sets"): {
 		build: func(a Action) *cmd {
@@ -273,12 +303,16 @@ var routes = map[string]entry{
 		why: "there is no verb that creates a backup set from a request body",
 		examples: []Action{
 			{Body: []byte(`{"source_name":"api-server","name":"var-backups","host":"10.0.0.14","user":"backups","remote_path":"/var/backups","local_path":"/data/backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","completion_strategy":"stable","stable_for_seconds":300,"run_immediately":true,"acknowledge_repoint":true}`)},
+			// Written without the connection proven (#1253's review).
+			{Body: []byte(`{"source_name":"api-server","name":"var-backups","host":"10.0.0.14","user":"backups","remote_path":"/var/backups","local_path":"/data/backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","skip_connection_check":true}`)},
 			// The incremental shape (#788), which is the one the line
 			// used to get WRONG rather than incomplete: every flag below
 			// was dropped, so a kopia set into a declared repository
 			// domain printed a command that makes a whole-file artifact
 			// set under the same id.
 			{Body: []byte(`{"source_name":"api-server","name":"var-backups","host":"10.0.0.14","user":"backups","remote_path":"/var/backups","local_path":"/data/backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","completion_strategy":"rename","engine":"kopia","repository_domain":"production-vault","source_consistency":"quiesced","verification_level":"sample","verification_sample_percent":10,"verification_full_every_seconds":604800,"verification_restore_drill_every_seconds":2592000}`)},
+			// Re-declaring a set under its old lineage key (#1151).
+			{Body: []byte(`{"source_name":"api-server","name":"var-backups","host":"10.0.0.14","user":"backups","remote_path":"/srv/var-backups","local_path":"/data/backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","completion_strategy":"rename","engine":"kopia","repository_domain":"production-vault","uuid":"7d1c5a6e-3b8f-4c2a-9e41-0f6b2d8a5c13","source_mount_prefix":"/srv"}`)},
 		},
 	},
 	key("POST", "/backup-sets/test-connection"): {
@@ -289,30 +323,36 @@ var routes = map[string]entry{
 		// "no equivalent", which is what makes a gap actionable. #624
 		// shipped that verb, so this is a builder now.
 		//
-		// Only the PERSISTED mode has one. A candidate check is the step
-		// the wizard runs while an operator is still filling a form in,
-		// against values that exist nowhere yet: the equivalent command
-		// would have to carry the whole unsaved form, and what a terminal
-		// can do with it is run the create, which verifies before it
-		// writes. So the candidate mode refuses with the reason rather
-		// than printing a command that checks something else.
+		// Both modes have one since #1253. The candidate check is the
+		// step the wizard runs while an operator is still filling a form
+		// in, and for a long time it refused here on the reasoning that
+		// the values exist nowhere and the create proves the connection
+		// anyway. That left a terminal user unable to ask the one
+		// question the wizard answers before anything is written, so
+		// `backup-set test-connection --candidate` carries the form the
+		// way `medium test-connection --candidate` carries a destination.
+		// The key is a reference and the trusted line is public, so
+		// nothing on the line is a credential.
 		build: func(a Action) *cmd {
 			var req apicontract.TestConnectionRequest
 			if !decode(a.Body, &req) {
 				return nil
 			}
-			if req.BackupSetID == "" {
-				return newCmd().refuse(gapCandidateConnection)
+			if req.BackupSetID != "" {
+				return newCmd("backup-set", "test-connection", req.BackupSetID)
 			}
-			return newCmd("backup-set", "test-connection", req.BackupSetID)
+			c := newCmd("backup-set", "test-connection").bare("candidate")
+			c.flagIfSet("host", req.Host)
+			if req.Port != 0 {
+				c.flag("port", itoa(req.Port))
+			}
+			c.flagIfSet("user", req.User)
+			c.flagIfSet("ssh-key-id", req.SSHKeyID)
+			c.flagIfSet("known-hosts-line", req.KnownHostsLine)
+			c.flagIfSet("remote-path", req.RemotePath)
+			return c
 		},
-		why:      "there is no verb that checks a source that has not been saved yet",
-		refusals: []string{gapCandidateConnection},
-		// `backup-set` is named as the counterexample rather than as the
-		// gap: the refusal's whole point is that the thing to run instead
-		// is `backup-set create`, which proves the connection before it
-		// writes, or `backup-set test-connection` once the set exists.
-		namesShippedVerbs: []string{"backup-set"},
+		why: "there is no verb that checks a source connection from a request body",
 		examples: []Action{
 			{Body: []byte(`{"backup_set_id":"api-server/var-backups"}`)},
 			{Body: []byte(`{"host":"10.0.0.14","user":"backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","remote_path":"/var/backups"}`)},
@@ -355,6 +395,12 @@ var routes = map[string]entry{
 			if req.ValidatorID != nil {
 				c.flag("validator-id", *req.ValidatorID)
 			}
+			// Issue #1151. Zero is the request to inherit the
+			// deployment's cadence and is printed, for the reason the
+			// verification cadences below are.
+			if req.PollIntervalSeconds != nil {
+				c.flag("poll-interval", seconds(int64(*req.PollIntervalSeconds)))
+			}
 			// EPIC K's editable verification budget (#788), with the
 			// nil/non-nil rule every pointer on this body keeps. An
 			// explicit zero cadence is "stop doing this", which is a
@@ -388,15 +434,20 @@ var routes = map[string]entry{
 			if req.AcknowledgeHostKeyChange {
 				c.bare("acknowledge-host-key-change")
 			}
+			if req.SkipConnectionCheck {
+				c.bare("no-verify")
+			}
 			return c
 		},
 		why: "there is no verb that edits a backup set from a request body",
 		examples: []Action{
 			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
 				Body: []byte(`{"stale_after_seconds":172800}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
+				Body: []byte(`{"host":"10.0.0.15","skip_connection_check":true}`)},
 			// The duration shapes, and they are examples rather than a
 			// unit test's table because this is the corpus the dispatcher
-			// is driven with in core/cmd/backupd: a shape no
+			// is driven with in core/cmd/retnd: a shape no
 			// example carries is a shape nothing parses end to end. These
 			// three are the ones the old renderer got wrong (a bare
 			// seconds value, a value whose last unit ends in a zero, and
@@ -411,11 +462,17 @@ var routes = map[string]entry{
 				Body: []byte(`{"host":"10.0.0.15","port":2222,"user":"backups","remote_path":"/var/backups","local_path":"/data/backups","include":["*.gz","*.sql"],"completion_strategy":"stable","stable_for_seconds":300,"validator_id":"gzip","ssh_key_id":"key_2","known_hosts_line":"10.0.0.15 ssh-ed25519 AAAAC3Nz","acknowledge_repoint":true,"acknowledge_host_key_change":true}`)},
 			// EPIC K's verification budget (#788), in the corpus rather
 			// than only in a unit test for the reason the duration
-			// shapes above are: this is what core/cmd/backupd's
+			// shapes above are: this is what core/cmd/retnd's
 			// dispatcher parses end to end, so a flag no example carries
 			// is a flag nothing proves the binary takes back.
 			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
 				Body: []byte(`{"source_consistency":"quiesced","verification_level":"sample","verification_sample_percent":10,"verification_full_every_seconds":604800,"verification_restore_drill_every_seconds":2592000}`)},
+			// The per-set poll interval (#1151), once overriding and once
+			// returning to the deployment's.
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
+				Body: []byte(`{"poll_interval_seconds":900}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
+				Body: []byte(`{"poll_interval_seconds":0}`)},
 		},
 	},
 	key("DELETE", "/backup-sets/{source}/{set}"): {
@@ -516,8 +573,8 @@ var routes = map[string]entry{
 		},
 		why: "there is no verb that declares a repository domain from a request body",
 		examples: []Action{
-			{Body: []byte(`{"id":"offsite-b2","isolation":"isolated","description":"Second copy, off site","passphrase":{"file":"/etc/backupd/offsite-b2.passphrase"}}`)},
-			{Body: []byte(`{"id":"production","isolation":"shared","maintenance_owner":"another-instance","passphrase":{"env":"BACKUPD_PRODUCTION_PASSPHRASE"}}`)},
+			{Body: []byte(`{"id":"offsite-b2","isolation":"isolated","description":"Second copy, off site","passphrase":{"file":"/etc/retnd/offsite-b2.passphrase"}}`)},
+			{Body: []byte(`{"id":"production","isolation":"shared","maintenance_owner":"another-instance","passphrase":{"env":"RETND_PRODUCTION_PASSPHRASE"}}`)},
 		},
 	},
 	key("GET", "/repositories/{domain}/maintenance"): {
@@ -634,22 +691,20 @@ var routes = map[string]entry{
 		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"},
 			Body: []byte(`{"plan_id":"plan_01HX"}`)}},
 	},
-	// Two of these three are commands now. #600 built `backup-set
-	// edit-hold <source/backup-set> [--release]`, which reports a hold
-	// and gives one back, so the entries saying no verb read or released
-	// one were describing a tree that had one open in the next file.
+	// All three are commands now. #600 built `backup-set edit-hold
+	// <source/backup-set> [--release]`, which reports a hold and gives one
+	// back, and #1253 added --take, so a scripted multi-step edit can pause
+	// the set the way the browser's edit form does. A hold is a lease, so
+	// the line that takes one is also the line that renews it.
 	key("GET", "/backup-sets/{source}/{set}/edit-hold"): {
 		build:    func(a Action) *cmd { return newCmd("backup-set", "edit-hold", setID(a)) },
 		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
 	},
 	key("POST", "/backup-sets/{source}/{set}/edit-hold"): {
-		// The one that is still a gap, and usage() says the same thing in
-		// as many words: "There is no verb that TAKES a hold". A hold
-		// protects an editing session, a browser has one and a terminal
-		// does not, and a CLI edit is one `backup-set patch` that either
-		// runs or does not.
-		why:               "`backup-set edit-hold` reports a hold and releases one, and no verb TAKES one and leaves it held: a hold outliving the command that took it is exactly what a browser needs and a terminal does not",
-		namesShippedVerbs: []string{"backup-set"},
+		build: func(a Action) *cmd {
+			return newCmd("backup-set", "edit-hold", setID(a)).bare("take")
+		},
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
 	},
 	key("POST", "/backup-sets/{source}/{set}/edit-hold/release"): {
 		build: func(a Action) *cmd {
@@ -662,23 +717,169 @@ var routes = map[string]entry{
 	key("GET", "/backups"): {
 		build: func(a Action) *cmd {
 			c := newCmd("artifacts")
-			if set := a.Query.Get("backup_set"); set != "" {
+			// The route's one filter is setId (handlers_artifacts.go). It
+			// reads nothing else, so nothing else is echoed: a printed
+			// --source would show more than the panel being read.
+			if set := a.Query.Get("setId"); set != "" {
 				c.flag("backup-set", set)
-			}
-			if source := a.Query.Get("source"); source != "" {
-				c.flag("source", source)
 			}
 			return c
 		},
 		examples: []Action{
 			{},
-			{Query: mustQuery("backup_set=api-server/var-backups")},
-			{Query: mustQuery("source=api-server")},
+			{Query: mustQuery("setId=api-server/var-backups")},
 		},
 	},
 	key("GET", "/backups/{source}/{set}/{name}"): {
 		build:    func(a Action) *cmd { return newCmd("artifacts", artifactID(a)) },
 		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"}}},
+	},
+	key("POST", "/backups/{source}/{set}/{name}/recovery"): {
+		build: func(a Action) *cmd {
+			var req apicontract.RecoveryMintRequest
+			c := newCmd("recover", artifactID(a))
+			if !decode(a.Body, &req) {
+				// Not a bare `recover <id>`: without --to that line
+				// recovers onto the source host (#1253's review).
+				return nil
+			}
+			if req.Copy != "" && req.Copy != "best-available" {
+				c.flag("copy", req.Copy)
+			}
+			switch req.Target.Kind {
+			case apicontract.RecoveryTargetDownload:
+				c.flag("to", "-")
+			case apicontract.RecoveryTargetStaging:
+				c.flag("to", stagingName(req.Target.Path))
+			case apicontract.RecoveryTargetStorage:
+				to := "medium:" + req.Target.Medium
+				if req.Target.Key != "" {
+					to += "/" + req.Target.Key
+				}
+				c.flag("to", to)
+			case apicontract.RecoveryTargetSource:
+				sourceTarget(c, req.Target.Path, req.Target.AcknowledgedDestination)
+			default:
+				// A kind the contract doesn't have, a case variant or
+				// none at all. The engine refuses the request; the line
+				// it would have printed is the one place that refusal
+				// could turn into a write onto production.
+				return newCmd().refuse(gapRecoveryTarget)
+			}
+			if req.Acknowledged {
+				c.bare("acknowledge-cost")
+			}
+			return c
+		},
+		why:      "the request body would not decode, so there is no recovery to name a destination for",
+		refusals: []string{gapRecoveryTarget},
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"},
+				Body: []byte(`{"target":{"kind":"download"}}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"},
+				Body: []byte(`{"copy":"offsite_s3","acknowledged":true,"target":{"kind":"staging","path":"restore/dump.tar"}}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"},
+				Body: []byte(`{"target":{"kind":"storage","medium":"offsite_s3","key":"recovered/dump.tar"}}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"},
+				Body: []byte(`{"target":{"kind":"source","path":"retnd-recovered-20261015-101500-a1b2","acknowledged_destination":"sh1-0123456789abcdef0123456789abcdef"}}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"},
+				Body: []byte(`{"target":{"kind":"staging","path":"source:old"}}`)},
+		},
+	},
+	key("POST", "/recoveries"): {
+		build: func(a Action) *cmd {
+			var req apicontract.RecoveryManyRequest
+			c := newCmd("recover")
+			if !decode(a.Body, &req) {
+				// For the single recovery's reason: no bare `recover`.
+				return nil
+			}
+			if req.Set != "" {
+				c.flag("set", req.Set)
+			}
+			c.argv = append(c.argv, req.Artifacts...)
+			if req.NewestOnly {
+				c.bare("newest-only")
+			}
+			c.flagIfSet("since", req.Since)
+			c.flagIfSet("until", req.Until)
+			if req.Copy != "" && req.Copy != "best-available" {
+				c.flag("copy", req.Copy)
+			}
+			switch req.Target.Kind {
+			case apicontract.RecoveryTargetStaging:
+				c.flag("to", stagingName(req.Target.Path))
+			case apicontract.RecoveryTargetStorage:
+				to := "medium:" + req.Target.Medium
+				if req.Target.Key != "" {
+					to += "/" + req.Target.Key
+				}
+				c.flag("to", to)
+			case apicontract.RecoveryTargetSource:
+				sourceTarget(c, req.Target.Path, req.Target.AcknowledgedDestination)
+			default:
+				// Not download either: several backups have no single
+				// stream to write to, and the engine refuses that kind
+				// here.
+				return newCmd().refuse(gapRecoveryTarget)
+			}
+			// --all is what the request said (the review of #1256): the
+			// service refuses a whole set onto the source host without it, as
+			// the terminal does, so printing it only when it was sent keeps
+			// the line and the request in agreement.
+			if req.All {
+				c.bare("all")
+			}
+			if req.Preflight {
+				c.bare("preflight")
+			}
+			if req.Acknowledged {
+				c.bare("acknowledge-cost")
+			}
+			return c
+		},
+		why:      "the request body would not decode, so there is no recovery to name a destination for",
+		refusals: []string{gapRecoveryTarget},
+		examples: []Action{
+			{Body: []byte(`{"set":"api-server/var-backups","target":{"kind":"staging","path":"restore/var-backups"}}`)},
+			{Body: []byte(`{"set":"api-server/var-backups","newest_only":true,"acknowledged":true,"target":{"kind":"storage","medium":"offsite_s3","key":"recovered"}}`)},
+			{Body: []byte(`{"set":"api-server/var-backups","since":"2026-10-01T00:00:00Z","preflight":true,"target":{"kind":"staging","path":"restore/var-backups"}}`)},
+			{Body: []byte(`{"set":"api-server/var-backups","since":"2026-10-01T00:00:00Z","until":"2026-10-07T23:59:59Z","target":{"kind":"staging","path":"restore/var-backups"}}`)},
+			{Body: []byte(`{"artifacts":["api-server/var-backups/a.tar","api-server/var-backups/b.tar"],"target":{"kind":"staging","path":"restore/picked"}}`)},
+			{Body: []byte(`{"set":"api-server/var-backups","target":{"kind":"source","path":"retnd-recovered-20261015-101500-a1b2","acknowledged_destination":"sh1-0123456789abcdef0123456789abcdef"}}`)},
+			{Body: []byte(`{"set":"api-server/var-backups","newest_only":true,"target":{"kind":"source","path":"retnd-recovered-20261015-101500-a1b2","acknowledged_destination":"sh1-0123456789abcdef0123456789abcdef"}}`)},
+			{Body: []byte(`{"set":"api-server/var-backups","preflight":true,"target":{"kind":"source","path":"retnd-recovered-20261015-101500-a1b2"}}`)},
+			{Body: []byte(`{"artifacts":["api-server/var-backups/a.tar"],"target":{"kind":"staging","path":"-odd"}}`)},
+			{Body: []byte(`{"artifacts":["api-server/var-backups/a.tar"],"target":{"kind":"staging","path":"medium:x"}}`)},
+		},
+	},
+	// The description and the write check are one line apart (#1253).
+	// The browser describes on open, from configuration alone, and probes
+	// only on a button, because the probe writes a file on a production
+	// host; the terminal's preflight used to do both at once, so the
+	// description had no line of its own. It is the read-only preflight
+	// now, and --write-check is the button.
+	key("GET", "/backup-sets/{source}/{set}/source-host"): {
+		build: func(a Action) *cmd {
+			return sourceHostPreflight(a)
+		},
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Query: mustQuery("folder=retnd-recovered-20261015-101500-a1b2")},
+		},
+	},
+	key("POST", "/backup-sets/{source}/{set}/source-host/write-check"): {
+		build: func(a Action) *cmd {
+			return sourceHostPreflight(a).bare("write-check")
+		},
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Query: mustQuery("folder=retnd-recovered-20261015-101500-a1b2")},
+		},
+	},
+	key("GET", "/recoveries/{grant}"): {
+		why:               "a grant is minted and redeemed in one step by `" + Binary + " recover`, in your own shell, so there is no verb that redeems a grant somebody else minted: the token belongs to the browser session that asked for it",
+		namesShippedVerbs: []string{"recover"},
 	},
 	key("POST", "/backups/{source}/{set}/{name}/retry"): {
 		build: func(a Action) *cmd {
@@ -698,8 +899,8 @@ var routes = map[string]entry{
 
 	// ------------------------------------------------------ quarantine ---
 	key("GET", "/quarantine"): {
-		why:               "there is no verb that lists quarantined backups; `quarantine` only acts on one, and `artifacts` does not filter by quarantine",
-		namesShippedVerbs: []string{"artifacts", "quarantine"},
+		build:    func(a Action) *cmd { return newCmd("quarantine", "list") },
+		examples: []Action{{}},
 	},
 	key("POST", "/quarantine/{source}/{set}/{name}/revalidate"): {
 		build:    func(a Action) *cmd { return newCmd("quarantine", "revalidate", artifactID(a)) },
@@ -733,31 +934,29 @@ var routes = map[string]entry{
 			if n := positiveQuery(a, "limit"); n > 0 {
 				c.flag("limit", itoa(n))
 			}
-			// `before` is deliberately not echoed, for the same reason
-			// `since` is not on the live route below: it is a browser's
-			// paging cursor into a record it is already partway through,
-			// there is no flag for it, and a command run at a terminal
-			// starts at the newest page. Printing one that named a cursor
-			// would be printing a flag this binary does not have.
+			// `before` is the page behind a cursor, and since #1152 the
+			// binary has a flag for it. Only a cursor the feed could have
+			// issued is echoed (a positive row id), because the route reads
+			// anything else as no cursor and the binary refuses it: a line
+			// printing --before banana would be a command that exits 2.
+			if n := positiveQuery(a, "before"); n > 0 {
+				c.flag("before", itoa(n))
+			}
 			return c
 		},
-		examples: []Action{{}, {Query: mustQuery("limit=50")}},
+		examples: []Action{{}, {Query: mustQuery("limit=50")}, {Query: mustQuery("limit=50&before=120")}},
 	},
 	key("GET", "/activity/live"): {
 		build: func(a Action) *cmd {
-			// scope=deployment narrows the read to the deployment's own
-			// bucket and no set at all, and --backup-set cannot say it:
-			// naming no set already means every set. So this is a real
-			// gap on a route that otherwise has a command, and it is
-			// named as one rather than being answered with the wider
-			// read, which would print a command that shows an operator
-			// more than the panel they are reading does.
-			if a.Query.Get("scope") == "deployment" {
-				return newCmd().refuse(gapDeploymentScope)
-			}
 			c := newCmd("activity").bare("follow")
 			if set := a.Query.Get("backup_set"); set != "" {
+				// A named set wins over scope=deployment, the way the
+				// route answers it (a named set is the narrower
+				// question), and the CLI refuses the pair outright, so
+				// the pair is never echoed.
 				c.flag("backup-set", set)
+			} else if a.Query.Get("scope") == "deployment" {
+				c.flag("scope", "deployment")
 			}
 			if n := positiveQuery(a, "limit"); n > 0 {
 				c.flag("limit", itoa(n))
@@ -768,13 +967,12 @@ var routes = map[string]entry{
 			// now; there is no flag for it and there should not be one.
 			return c
 		},
-		refusals:          []string{gapDeploymentScope},
-		namesShippedVerbs: []string{"activity"},
 		examples: []Action{
 			{},
 			{Query: mustQuery("backup_set=api-server%2Fvar-backups&limit=25")},
 			{Query: mustQuery("since=42")},
 			{Query: mustQuery("scope=deployment")},
+			{Query: mustQuery("scope=deployment&backup_set=api-server%2Fvar-backups")},
 		},
 	},
 
@@ -872,7 +1070,7 @@ var routes = map[string]entry{
 			{Params: map[string]string{"id": "offsite_s3"},
 				Body: []byte(`{"region":"eu-west-1","storage_class":"GLACIER_IR"}`)},
 			{Params: map[string]string{"id": "offsite_s3"},
-				Body: []byte(`{"type":"s3","region":"eu-west-1","endpoint":"https://s3.eu-west-1.example.net","bucket":"acme-backups","prefix":"prod","storage_class":"STANDARD","upload_verification":"attested","credentials":{"file":"/etc/backupd/aws-credentials"}}`)},
+				Body: []byte(`{"type":"s3","region":"eu-west-1","endpoint":"https://s3.eu-west-1.example.net","bucket":"acme-backups","prefix":"prod","storage_class":"STANDARD","upload_verification":"attested","credentials":{"file":"/etc/retnd/aws-credentials"}}`)},
 		},
 	},
 	key("DELETE", "/storage-mediums/{id}"): {
@@ -894,7 +1092,7 @@ var routes = map[string]entry{
 		},
 		why: "there is no verb that proves an undeclared storage destination from a request body",
 		examples: []Action{
-			{Body: []byte(`{"id":"offsite_s3","type":"s3","region":"eu-central-1","endpoint":"https://s3.eu-central-1.example.net","bucket":"acme-backups","prefix":"prod","storage_class":"STANDARD","upload_verification":"readback","credentials":{"env":"BACKUP_MANAGER_S3_CREDENTIALS"}}`)},
+			{Body: []byte(`{"id":"offsite_s3","type":"s3","region":"eu-central-1","endpoint":"https://s3.eu-central-1.example.net","bucket":"acme-backups","prefix":"prod","storage_class":"STANDARD","upload_verification":"readback","credentials":{"env":"RETND_S3_CREDENTIALS"}}`)},
 		},
 	},
 	key("POST", "/storage-mediums/{id}/preflight"): {
@@ -920,15 +1118,42 @@ var routes = map[string]entry{
 		examples: []Action{{Params: map[string]string{"id": "offsite_s3"}}},
 	},
 	key("POST", "/storage-mediums/{id}/configuration/preflight"): {
-		// A whole-route gap and not a builder that refuses: there is no
-		// request on this route that HAS an equivalent, so the honest
-		// shape is no builder at all.
-		why:               gapPreflightMediumConfiguration,
-		namesShippedVerbs: []string{"medium"},
+		// The write-nothing form of the next route's verb: the same line
+		// with --preflight on the end, which is what makes the two
+		// readable as one command asked two ways.
+		build: func(a Action) *cmd {
+			var req apicontract.MediumConfigurationRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			return mediumConfigurationFlags(newCmd("medium", "configure", a.Params["id"]), req).bare("preflight")
+		},
+		why: "there is no verb that checks a destination's configuration from a request body",
+		examples: []Action{
+			{Params: map[string]string{"id": "usb_disk"},
+				Body: []byte(`{"backend":"local_volume","fields":[{"field":"path","value":"/mnt/usb"}],"credentials":{}}`)},
+		},
 	},
 	key("PUT", "/storage-mediums/{id}/configuration"): {
-		why:               gapConfigureMedium,
-		namesShippedVerbs: []string{"medium"},
+		// `medium configure`, since #1154: a destination in its backend's
+		// own field ids, so a local_volume's `path` is a thing a line can
+		// say. The path id, for the reason PUT /storage-mediums/{id}
+		// gives: the body names a backend and fields, never which
+		// destination.
+		build: func(a Action) *cmd {
+			var req apicontract.MediumConfigurationRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			return mediumConfigurationFlags(newCmd("medium", "configure", a.Params["id"]), req)
+		},
+		why: "there is no verb that configures a storage destination from a request body",
+		examples: []Action{
+			{Params: map[string]string{"id": "usb_disk"},
+				Body: []byte(`{"backend":"local_volume","fields":[{"field":"path","value":"/mnt/usb"},{"field":"prefix","value":"retnd"}],"credentials":{}}`)},
+			{Params: map[string]string{"id": "cold"},
+				Body: []byte(`{"backend":"s3","fields":[{"field":"bucket","value":"acme-backups"},{"field":"region","value":"eu-central-1"}],"credentials":{"credentials_id":"cred_01HX"}}`)},
+		},
 	},
 	key("PUT", "/storage-mediums/{id}/default"): {
 		// Moving the destination a newly created retention tier starts on
@@ -972,66 +1197,196 @@ var routes = map[string]entry{
 
 	// ------------------------------------------------------ validators ---
 	key("GET", "/validators"): {
-		why:               "there is no verb that lists the registered validators; on a terminal an id is named on `backup-set create --validator-id` and refused if it is not one",
-		namesShippedVerbs: []string{"backup-set"},
+		build:    func(Action) *cmd { return newCmd("validators") },
+		examples: []Action{{}},
 	},
 
 	// ------------------------------------------------------- backends ---
-	// EPIC I (#664). A gap entry rather than a command, and the gap is
-	// real: there is no verb that lists the registered backends at all.
-	// `medium add --backend <id>` takes one and refuses an id no manifest
-	// declares, so a terminal operator learns the set from a refusal
-	// rather than from a listing. Naming the missing verb here is the
-	// point of this table: a parity gap that is written down is a
-	// decision, and inventing a `medium backends` verb to satisfy this
-	// test would invert the rule, which exists so a missing verb is
-	// VISIBLE rather than absent.
+	// EPIC I (#664). The registered storage backends, which the Add
+	// destination dialog lists: `medium backends` prints the same set, so a
+	// terminal operator learns which ids `medium add --backend <id>` takes
+	// from a listing rather than from a refusal. It was a gap until that
+	// verb shipped (#1154).
 	key("GET", "/backends"): {
-		why:               "there is no verb that lists the registered backends; on a terminal one is named on `medium add --backend <id>` and refused if no manifest declares it",
-		namesShippedVerbs: []string{"medium"},
+		build:    func(Action) *cmd { return newCmd("medium", "backends") },
+		examples: []Action{{}},
+	},
+
+	// ------------------------------------------------------- agent ---
+	// EPIC U (#1345). The three token routes are session-only; the verbs are
+	// `retnd agent token ...`.
+	// The audit trail (#1348): GET /agent/audit is `retnd agent audit`. Only the
+	// filters the binary has a flag for are echoed, and a token id is echoed as
+	// the id it is (the route never carries the token).
+	key("GET", "/agent/audit"): {
+		build: func(a Action) *cmd {
+			c := newCmd("agent", "audit")
+			c.flagIfSet("token", a.Query.Get("token"))
+			c.flagIfSet("since", a.Query.Get("since"))
+			if n := positiveQuery(a, "limit"); n > 0 {
+				c.flag("limit", itoa(n))
+			}
+			// Only a cursor the trail could have issued, a positive row
+			// position, as the activity feed's is.
+			if n := positiveQuery(a, "before"); n > 0 {
+				c.flag("before", itoa(n))
+			}
+			return c
+		},
+		examples: []Action{{}, {Query: mustQuery("token=agt_0123456789abcdef&since=7d&limit=50&before=120")}},
+	},
+	key("GET", "/agent/tokens"): {
+		build:    func(Action) *cmd { return newCmd("agent", "token", "list") },
+		examples: []Action{{}},
+	},
+	key("POST", "/agent/tokens"): {
+		build: func(a Action) *cmd {
+			var req apicontract.MintAgentTokenRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("agent", "token", "create", req.Name)
+			if req.Scope != "" {
+				c.flag("scope", req.Scope)
+			}
+			if req.ExpiresIn != "" {
+				c.flag("expires-in", req.ExpiresIn)
+			}
+			return c
+		},
+		why: "the request body would not decode, so there is no command that says which token it minted",
+		examples: []Action{
+			{Body: []byte(`{"name":"triage"}`)},
+			{Body: []byte(`{"name":"triage","scope":"read","expires_in":"30d"}`)},
+		},
+	},
+	key("POST", "/agent/tokens/{id}/revoke"): {
+		build: func(a Action) *cmd {
+			return newCmd("agent", "token", "revoke", a.Params["id"])
+		},
+		examples: []Action{{Params: map[string]string{"id": "agt_0123456789abcdef"}}},
+	},
+	key("GET", "/agent/tools"): {
+		// #1346. The catalogue is fixed in the binary, so the verb that
+		// prints it asks no engine.
+		build:    func(Action) *cmd { return newCmd("agent", "tools") },
+		examples: []Action{{}},
+	},
+
+	// EPIC U (#1347). The streamable HTTP transport is a protocol endpoint, so
+	// the three methods have no verb of their own.
+	key("DELETE", "/agent/mcp"): {
+		why:               "an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `" + Binary + " agent serve --stdio` serves the same tools without this route",
+		namesShippedVerbs: []string{"agent"},
+	},
+	key("GET", "/agent/mcp"): {
+		why:               "an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `" + Binary + " agent serve --stdio` serves the same tools without this route",
+		namesShippedVerbs: []string{"agent"},
+	},
+	key("POST", "/agent/mcp"): {
+		why:               "an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `" + Binary + " agent serve --stdio` serves the same tools without this route",
+		namesShippedVerbs: []string{"agent"},
+	},
+
+	// EPIC U (#1349). The confirmations an agent's operate and configure calls
+	// become. Session-only; approve asks for the password again, which the verb
+	// reads from the same place a restore's does, and takes no body.
+	key("GET", "/agent/confirmations"): {
+		build:    func(Action) *cmd { return newCmd("agent", "confirmations", "list") },
+		examples: []Action{{}},
+	},
+	key("GET", "/agent/confirmations/{id}"): {
+		build: func(a Action) *cmd {
+			return newCmd("agent", "confirmations", "show", a.Params["id"])
+		},
+		examples: []Action{{Params: map[string]string{"id": "cnf_0123456789abcdef"}}},
+	},
+	key("POST", "/agent/confirmations/{id}/approve"): {
+		build: func(a Action) *cmd {
+			return newCmd("agent", "confirmations", "approve", a.Params["id"])
+		},
+		examples: []Action{{Params: map[string]string{"id": "cnf_0123456789abcdef"}}},
+	},
+	key("POST", "/agent/confirmations/{id}/deny"): {
+		build: func(a Action) *cmd {
+			return newCmd("agent", "confirmations", "deny", a.Params["id"])
+		},
+		examples: []Action{{Params: map[string]string{"id": "cnf_0123456789abcdef"}}},
 	},
 
 	// ------------------------------------------------------------- ssh ---
+	//
+	// The key store and the host-key probe had no verb until #1153, and
+	// each of these five entries was a written gap saying so. They name
+	// their verbs now. Key material and the passphrase are in the body
+	// and stay there: the key is a FILE on the command line and the
+	// passphrase is the first line of stdin, so the line is exportable.
 	key("POST", "/ssh-keys"): {
-		// Never a command, and the reason is the interesting half. This
-		// request carries private_key_pem and a passphrase, and the only
-		// place a key reaches the CLI is as a FILE on
-		// `backup-set create --ssh-key-file`. There is no import verb, so
-		// there is nothing to print, and what is printed instead names
-		// the flag and never the material.
-		why:               "a key reaches the CLI as a file on `backup-set create --ssh-key-file <the private key file you chose>`; there is no verb that imports one on its own, and the key itself never goes on a command line",
-		namesShippedVerbs: []string{"backup-set"},
+		build: func(a Action) *cmd {
+			var req struct {
+				Passphrase string `json:"passphrase"`
+			}
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("ssh-key", "import").placeholderFlag("file", "the private key file you chose")
+			if req.Passphrase != "" {
+				c.bare("passphrase-stdin")
+			}
+			return c
+		},
+		why: "the request body would not decode, so there is no command that says what it imported",
+		examples: []Action{
+			{Body: []byte(`{"private_key_pem":"x"}`)},
+			{Body: []byte(`{"private_key_pem":"x","passphrase":"y"}`)},
+		},
 	},
-	// The other import (#592), and a DIFFERENT gap from the one above,
-	// which is why it is a separate sentence rather than a clause on that
-	// one. A pasted key has nowhere to go on a command line at all. A
-	// selected candidate has an opaque id that would sit on one
-	// perfectly well, and the only thing missing is a verb that takes it.
+	// Selecting a candidate (#592). An opaque handle that sits on a command
+	// line perfectly well, and `ssh-key import --candidate` is the verb
+	// that takes it.
 	key("POST", "/ssh-keys/from-candidate"): {
-		why: "there is no verb that imports a key this machine already holds; the id is an opaque handle that would sit on a command line perfectly well, and `" + Binary + " ssh-key import --candidate ID` would be it",
+		build: func(a Action) *cmd {
+			var req struct {
+				CandidateID string `json:"candidate_id"`
+			}
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			return newCmd("ssh-key", "import").flagIfSet("candidate", req.CandidateID)
+		},
+		why: "the request body would not decode, so there is no command that says which candidate it selected",
+		examples: []Action{
+			{Body: []byte(`{"candidate_id":"cand_1"}`)},
+		},
 	},
 	key("POST", "/ssh/host-key-probe"): {
-		why: "there is no verb that probes a host key on its own; a terminal settles it with --trust-host-key or --known-hosts-line while creating or patching a set",
+		build: func(a Action) *cmd {
+			var req struct {
+				Host string `json:"host"`
+				Port int    `json:"port"`
+			}
+			if !decode(a.Body, &req) || req.Host == "" {
+				return nil
+			}
+			c := newCmd("ssh", "host-key-probe", req.Host)
+			if req.Port > 0 {
+				c.flag("port", itoa(req.Port))
+			}
+			return c
+		},
+		why: "the request names no host, so there is nothing to probe and no command that says what was probed",
+		examples: []Action{
+			{Body: []byte(`{"host":"source.example.internal","port":2222}`)},
+			{Body: []byte(`{"host":"source.example.internal","port":22}`)},
+		},
 	},
-
-	// The two reads the wizard's first step is built on (#592). Both are
-	// gaps rather than commands, and the gap sentence is doing real work
-	// here: `backup-set patch --ssh-key-id ID` has existed since #572 and
-	// takes an id nobody has, because nothing on either surface would
-	// print one. So this is the exact shape EPIC G's parity rule exists
-	// to make visible, and it names the verbs that would close it rather
-	// than saying "no equivalent".
-	//
-	// They stay gaps until those verbs exist. Printing a command this
-	// binary does not declare would be printing something an operator
-	// pastes and gets exit 2 from, which the dispatcher-driven parity
-	// test in core/cmd/backupd catches on purpose.
 	key("GET", "/ssh-keys"): {
-		why:               "there is no verb that lists the key store, which is why `backup-set patch --ssh-key-id ID` currently takes an id nothing will print for you. `" + Binary + " ssh-key list` would be it",
-		namesShippedVerbs: []string{"backup-set"},
+		build:    func(Action) *cmd { return newCmd("ssh-key", "list") },
+		examples: []Action{{}},
 	},
 	key("GET", "/ssh/key-candidates"): {
-		why: "there is no verb that scans this machine for keys it can offer, so the key the installer generated and mounted is reachable from the browser and not from a terminal. `" + Binary + " ssh-key discover` would be it",
+		build:    func(Action) *cmd { return newCmd("ssh-key", "discover") },
+		examples: []Action{{}},
 	},
 
 	// -------------------------------------------------------- settings ---
@@ -1091,6 +1446,11 @@ var routes = map[string]entry{
 					c.flag("safety-margin-bytes", itoa64(*cap.SafetyMarginBytes))
 				}
 			}
+			// Issue #1151: the deployment-wide poll interval, the one
+			// field of the service section the CLI can set.
+			if svc := req.Service; svc != nil && svc.PollIntervalSeconds != nil {
+				c.flag("poll-interval", seconds(int64(*svc.PollIntervalSeconds)))
+			}
 			// The acknowledgement rides beside a policy write and the CLI
 			// refuses it on a line that writes none.
 			if req.AcknowledgeMediumDisclosure && policy {
@@ -1104,6 +1464,9 @@ var routes = map[string]entry{
 			{Body: []byte(`{"capacity":{"cap_bytes":1099511627776,"warning_free_bytes":107374182400,"critical_free_bytes":53687091200,"safety_margin_bytes":1073741824}}`)},
 			{Body: []byte(`{"retention":{"tiers":[{"name":"daily","granularity":"day","keep":7}],"timezone":"Europe/Berlin"},"acknowledge_medium_disclosure":true}`)},
 			{Body: []byte(`{"retention":{"tiers":[{"name":"daily","granularity":"day","keep":7}]},"capacity":{"cap_bytes":1099511627776}}`)},
+			// The deployment's poll interval (#1151), in the corpus so the
+			// dispatcher parses the flag back end to end.
+			{Body: []byte(`{"service":{"poll_interval_seconds":3600}}`)},
 		},
 	},
 
@@ -1165,6 +1528,18 @@ var routes = map[string]entry{
 			if req.MaxScriptSizeBytes != nil {
 				c.flag("max-script-size-bytes", itoa64(*req.MaxScriptSizeBytes))
 			}
+			// The switch itself (#1246), on nil-ness like the rest: true
+			// turns workflows off and false turns them back on, and both
+			// are requests. This was missing until #1253's review, so a
+			// patch that disabled workflows echoed a line that changed
+			// nothing.
+			if req.Disabled != nil {
+				if *req.Disabled {
+					c.bare("disable")
+				} else {
+					c.bare("enable")
+				}
+			}
 			return c
 		},
 		why: "there is no verb that patches the deployment's workflow configuration from a request body",
@@ -1175,10 +1550,12 @@ var routes = map[string]entry{
 			// omissions: an empty directory disables that stage and a
 			// zero timeout gives the bound back to the deployment
 			// default. They are examples rather than a unit test's table
-			// because this corpus is what core/cmd/backupd parses end to
+			// because this corpus is what core/cmd/retnd parses end to
 			// end, and a shape no example carries is a shape nothing
 			// proves the binary takes.
 			{Body: []byte(`{"before_dir":"","after_dir":"","script_timeout_seconds":0}`)},
+			{Body: []byte(`{"disabled":true}`)},
+			{Body: []byte(`{"disabled":false}`)},
 		},
 	},
 	key("GET", "/settings/workflow/environment"): {
@@ -1272,6 +1649,505 @@ var routes = map[string]entry{
 		build:    func(a Action) *cmd { return newCmd("validate", "workflow", setID(a)) },
 		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
 	},
+	// ------------------------------------------------------- assurance ---
+	//
+	// EPIC Q, Q1.4 (#982). Every route is a real command. The patch
+	// builders print on nil-ness rather than non-zero for the reason the
+	// workflow ones do: an explicit zero or empty value CLEARS a setting
+	// back to its default, and a builder that dropped it would echo a
+	// command that does not make the edit the operator asked for.
+	key("GET", "/settings/assurance"): {
+		build:    func(Action) *cmd { return newCmd("settings", "assurance") },
+		examples: []Action{{}},
+	},
+	key("PATCH", "/settings/assurance"): {
+		build: func(a Action) *cmd {
+			var req apicontract.UpdateAssuranceSettingsRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("settings", "assurance", "patch")
+			if req.ScrubCadenceSeconds != nil {
+				c.flag("scrub-cadence", seconds(*req.ScrubCadenceSeconds))
+			}
+			if req.ScrubStrategy != nil {
+				c.flag("scrub-strategy", *req.ScrubStrategy)
+			}
+			if req.RecoveryTestMode != nil {
+				c.flag("recovery-test-mode", *req.RecoveryTestMode)
+			}
+			if req.RecoveryTestCadenceSeconds != nil {
+				c.flag("recovery-test-cadence", seconds(*req.RecoveryTestCadenceSeconds))
+			}
+			if req.RecoveryTestValidatorID != nil {
+				c.flag("recovery-test-validator", *req.RecoveryTestValidatorID)
+			}
+			if req.RecoveryTestBuiltinCheck != nil {
+				c.flag("recovery-test-builtin-check", *req.RecoveryTestBuiltinCheck)
+			}
+			if req.StagingRoot != nil {
+				c.flag("staging-root", *req.StagingRoot)
+			}
+			if req.StagingTtlSeconds != nil {
+				c.flag("staging-ttl", seconds(*req.StagingTtlSeconds))
+			}
+			if req.MaxConcurrentFullReads != nil {
+				c.flag("max-concurrent-full-reads", itoa64(*req.MaxConcurrentFullReads))
+			}
+			if req.MaxPerDestination != nil {
+				c.flag("max-per-destination", itoa64(*req.MaxPerDestination))
+			}
+			return c
+		},
+		why: "there is no verb that patches the deployment's assurance policy from a request body",
+		examples: []Action{
+			{Body: []byte(`{"scrub_cadence_seconds":43200}`)},
+			{Body: []byte(`{"recovery_test_mode":"required","recovery_test_validator_id":"pg-restore-check","recovery_test_cadence_seconds":2592000}`)},
+			{Body: []byte(`{"staging_ttl_seconds":3600,"max_concurrent_full_reads":4,"max_per_destination":2}`)},
+			{Body: []byte(`{"scrub_cadence_seconds":0,"scrub_strategy":"","staging_root":"/var/lib/retnd/staging"}`)},
+			{Body: []byte(`{"recovery_test_mode":"builtin","recovery_test_cadence_seconds":2592000}`)},
+			{Body: []byte(`{"recovery_test_builtin_check":"off"}`)},
+		},
+	},
+	key("GET", "/backup-sets/{source}/{set}/assurance"): {
+		build:    func(a Action) *cmd { return newCmd("backup-set", "assurance", setID(a)) },
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+	},
+	key("PATCH", "/backup-sets/{source}/{set}/assurance"): {
+		build: func(a Action) *cmd {
+			var req apicontract.UpdateBackupSetAssuranceRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("backup-set", "assurance", setID(a))
+			if req.ScrubCadenceSeconds != nil {
+				c.flag("scrub-cadence", seconds(*req.ScrubCadenceSeconds))
+			}
+			if req.ScrubStrategy != nil {
+				c.flag("scrub-strategy", *req.ScrubStrategy)
+			}
+			if req.RecoveryTestMode != nil {
+				c.flag("recovery-test-mode", *req.RecoveryTestMode)
+			}
+			if req.RecoveryTestCadenceSeconds != nil {
+				c.flag("recovery-test-cadence", seconds(*req.RecoveryTestCadenceSeconds))
+			}
+			if req.RecoveryTestValidatorID != nil {
+				c.flag("recovery-test-validator", *req.RecoveryTestValidatorID)
+			}
+			if req.RecoveryTestBuiltinCheck != nil {
+				c.flag("recovery-test-builtin-check", *req.RecoveryTestBuiltinCheck)
+			}
+			return c
+		},
+		why: "there is no verb that patches a backup set's assurance policy from a request body",
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Body: []byte(`{"scrub_cadence_seconds":7200}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
+				Body: []byte(`{"recovery_test_mode":"custom","recovery_test_cadence_seconds":172800,"recovery_test_validator_id":"pg-restore-check"}`)},
+		},
+	},
+	key("DELETE", "/backup-sets/{source}/{set}/assurance"): {
+		build: func(a Action) *cmd {
+			return newCmd("backup-set", "assurance", setID(a)).bare("reset")
+		},
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+	},
+	key("POST", "/backup-sets/{source}/{set}/recovery-test"): {
+		build: func(a Action) *cmd {
+			c := newCmd("recovery-test", setID(a))
+			var req apicontract.StartRecoveryTestRequest
+			if !decode(a.Body, &req) {
+				return c
+			}
+			if req.ArtifactID != "" {
+				c.flag("artifact", req.ArtifactID)
+			}
+			if req.Acknowledged {
+				c.bare("acknowledge-cost")
+			}
+			return c
+		},
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Body: []byte(`{}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
+				Body: []byte(`{"artifact_id":"api-server/var-backups/dump.tar","acknowledged":true}`)},
+		},
+	},
+	key("GET", "/backup-sets/{source}/{set}/recovery-test/output"): {
+		build: func(a Action) *cmd {
+			return newCmd("recovery-test", setID(a)).bare("show-output")
+		},
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+	},
+	key("POST", "/backup-sets/{source}/{set}/scrub"): {
+		build: func(a Action) *cmd {
+			return newCmd("scrub", setID(a))
+		},
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+	},
+	key("POST", "/assurance/operations/{op}/cancel"): {
+		build: func(a Action) *cmd {
+			return newCmd("assurance", "cancel", a.Params["op"])
+		},
+		examples: []Action{{Params: map[string]string{"op": "7b0c9a1e-0000-4000-8000-000000000001"}}},
+	},
+	// ----------------------- retained-copy encryption (#993, EPIC N) ---
+	//
+	// Every route has a verb. A key reference is never echoed whole: a file
+	// path and an environment variable name are source descriptions, and a
+	// command's arguments are not, so the command is a stand-in and the
+	// echo can be pasted, filled in and run without the arguments ever
+	// having been written to the activity feed.
+	key("GET", "/encryption/policy"): {
+		build:    func(a Action) *cmd { return newCmd("encryption", "policy") },
+		examples: []Action{{}},
+	},
+	key("PATCH", "/encryption/policy"): {
+		build: func(a Action) *cmd {
+			var req apicontract.EncryptionPolicyPatch
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("encryption", "policy", "patch").flagIfSet("mode", req.Mode).flagIfSet("suite", req.Suite)
+			return providerFlags(c, req.KeyProvider)
+		},
+		why: "there is no verb that patches the encryption policy from a request body that does not decode",
+		examples: []Action{
+			{Body: []byte(`{"mode":"required","key_provider":{"managed":true}}`)},
+			{Body: []byte(`{"suite":"age-pq/v1"}`)},
+			{Body: []byte(`{"key_provider":{"external":{"file":"/run/secrets/retained-copy-key"}}}`)},
+			{Body: []byte(`{"key_provider":{"external":{"command":["vault","kv","get"]}}}`)},
+			{Body: []byte(`{"mode":"off"}`)},
+		},
+	},
+	key("POST", "/encryption/policy/reset"): {
+		build:    func(a Action) *cmd { return newCmd("encryption", "policy", "reset") },
+		examples: []Action{{}},
+	},
+	key("PUT", "/backup-sets/{source}/{set}/encryption"): {
+		build: func(a Action) *cmd {
+			var req apicontract.EncryptionOverride
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("encryption", "backup-set", setID(a)).flag("mode", req.Mode)
+			return providerFlags(c, req.KeyProvider)
+		},
+		why: "there is no verb that sets a backup set's encryption from a request body that does not decode",
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Body: []byte(`{"mode":"required","key_provider":{"managed":true}}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Body: []byte(`{"mode":"inherit"}`)},
+		},
+	},
+	key("DELETE", "/backup-sets/{source}/{set}/encryption"): {
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "backup-set", setID(a)).bare("reset")
+		},
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+	},
+	key("GET", "/encryption/keys"): {
+		build:    func(a Action) *cmd { return newCmd("encryption", "key", "list") },
+		examples: []Action{{}},
+	},
+	key("POST", "/encryption/keys"): {
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "key", "create").flagIfSet("suite", a.Query.Get("suite"))
+		},
+		examples: []Action{{}, {Query: mustQuery("suite=age-pq%2Fv1")}},
+	},
+	key("POST", "/encryption/keys/rotate"): {
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "key", "rotate").flagIfSet("suite", a.Query.Get("suite"))
+		},
+		examples: []Action{{}, {Query: mustQuery("suite=age-pq%2Fv1")}},
+	},
+	key("POST", "/encryption/keys/{id}/retire"): {
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "key", "retire", a.Params["id"])
+		},
+		examples: []Action{{Params: map[string]string{"id": "k0123456789abcdef"}}},
+	},
+	key("POST", "/encryption/keys/{id}/export"): {
+		// The bundle goes to a file the operator names. It is never printed,
+		// so there is nothing on the line that could be the key.
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "key", "export", a.Params["id"]).placeholderFlag("out", "a path to write the bundle to")
+		},
+		examples: []Action{{Params: map[string]string{"id": "k0123456789abcdef"}}},
+	},
+	key("POST", "/encryption/keys/{id}/confirm"): {
+		build: func(a Action) *cmd {
+			var req apicontract.ConfirmRecoveryBundleRequest
+			c := newCmd("encryption", "key", "confirm", a.Params["id"])
+			if decode(a.Body, &req) {
+				c.flagIfSet("digest", req.Digest)
+			}
+			return c
+		},
+		examples: []Action{
+			{Params: map[string]string{"id": "k0123456789abcdef"}},
+			{Params: map[string]string{"id": "k0123456789abcdef"}, Body: []byte(`{"digest":"` + strings.Repeat("ab", 32) + `"}`)},
+		},
+	},
+	key("POST", "/encryption/providers/test"): {
+		build: func(a Action) *cmd {
+			var req apicontract.EncryptionProviderTestRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("encryption", "provider", "test").flagIfSet("managed-key", req.ManagedKeyID)
+			if req.External != nil {
+				providerFlags(c, &apicontract.EncryptionKeyProvider{External: req.External})
+			}
+			return c
+		},
+		why: "there is no verb that tests a key provider from a request body that does not decode",
+		examples: []Action{
+			{Body: []byte(`{"managed_key_id":"k0123456789abcdef"}`)},
+			{Body: []byte(`{"external":{"env":"RETAINED_COPY_KEY"}}`)},
+		},
+	},
+	// The suite table (EPIC T, #1315): a read, the same body as the verb's
+	// --json.
+	key("GET", "/encryption/suites"): {
+		build:    func(a Action) *cmd { return newCmd("encryption", "suites") },
+		examples: []Action{{}},
+	},
+	key("GET", "/encryption/copies"): {
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "copies", a.Query.Get("artifact"))
+		},
+		examples: []Action{{Query: mustQuery("artifact=api-server%2Fvar-backups%2FMANIFEST-20260902T153521Z.txt")}},
+	},
+	key("POST", "/encryption/verify"): {
+		build: func(a Action) *cmd {
+			var req apicontract.StartDecryptVerifyRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("encryption", "verify", req.ArtifactID).flagIfSet("medium", req.Medium)
+			if req.AcknowledgeEgress {
+				c.bare("allow-egress")
+			}
+			return c
+		},
+		why: "there is no verb that decrypt-verifies a backup from a request body that does not decode",
+		examples: []Action{
+			{Body: []byte(`{"artifact_id":"api-server/var-backups/MANIFEST-20260902T153521Z.txt"}`)},
+			{Body: []byte(`{"artifact_id":"api-server/var-backups/MANIFEST-20260902T153521Z.txt","medium":"offsite","acknowledge_egress":true}`)},
+		},
+	},
+	// Encrypting plaintext copies that already exist (#1291). The run and its
+	// dry run are one verb, told apart by --dry-run, because the dry run is
+	// the same question the run asks and the two are never wanted apart.
+	key("GET", "/encryption/encrypt-existing"): {
+		build: func(a Action) *cmd {
+			return newCmd("encryption", "encrypt-existing", a.Query.Get("set")).
+				flag("to", a.Query.Get("destination")).
+				flagIfSet("artifact", a.Query.Get("artifact")).
+				bare("dry-run")
+		},
+		examples: []Action{
+			{Query: mustQuery("set=api-server%2Fvar-backups&destination=offsite")},
+			{Query: mustQuery("set=api-server%2Fvar-backups&destination=offsite&artifact=api-server%2Fvar-backups%2FMANIFEST-20260902T153521Z.txt")},
+		},
+	},
+	key("POST", "/encryption/encrypt-existing"): {
+		build: func(a Action) *cmd {
+			var req apicontract.StartEncryptExistingRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			return newCmd("encryption", "encrypt-existing", req.BackupSetID).
+				flag("to", req.DestinationMedium).
+				flagIfSet("artifact", req.ArtifactID)
+		},
+		why: "there is no verb that encrypts existing copies from a request body that does not decode",
+		examples: []Action{
+			{Body: []byte(`{"backup_set_id":"api-server/var-backups","destination_medium":"offsite"}`)},
+			{Body: []byte(`{"backup_set_id":"api-server/var-backups","artifact_id":"api-server/var-backups/MANIFEST-20260902T153521Z.txt","destination_medium":"offsite"}`)},
+		},
+	},
+	// Re-encrypting copies under the active suite and key (#1317). One verb,
+	// the dry run told apart by --dry-run, as for encrypt-existing. Exactly
+	// one selector is meant to be set; the echo writes what the request
+	// carried, so a request with two selectors echoes a line the verb refuses
+	// for the same reason the route did.
+	key("GET", "/encryption/reencrypt"): {
+		build: func(a Action) *cmd {
+			c := newCmd("encryption", "reencrypt").
+				flagIfSet("suite", a.Query.Get("suite")).
+				flagIfSet("key", a.Query.Get("key"))
+			if a.Query.Get("deprecated") == "true" {
+				c = c.bare("deprecated")
+			}
+			return c.flagIfSet("to", a.Query.Get("destination")).bare("dry-run")
+		},
+		examples: []Action{
+			{Query: mustQuery("suite=age%2Fv1")},
+			{Query: mustQuery("key=k0123456789abcdef&destination=offsite")},
+			{Query: mustQuery("deprecated=true&destination=offsite")},
+		},
+	},
+	key("POST", "/encryption/reencrypt"): {
+		build: func(a Action) *cmd {
+			var req apicontract.StartReencryptRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("encryption", "reencrypt").
+				flagIfSet("suite", req.SuiteID).
+				flagIfSet("key", req.KeyID)
+			if req.Deprecated {
+				c = c.bare("deprecated")
+			}
+			return c.flag("to", req.DestinationMedium)
+		},
+		why: "there is no verb that re-encrypts copies from a request body that does not decode",
+		examples: []Action{
+			{Body: []byte(`{"suite_id":"age/v1","destination_medium":"offsite"}`)},
+			{Body: []byte(`{"key_id":"k0123456789abcdef","destination_medium":"offsite"}`)},
+			{Body: []byte(`{"deprecated":true,"destination_medium":"offsite"}`)},
+		},
+	},
+	// ------------------------------------------- custom validators (#1203) ---
+	key("GET", "/assurance/validators"): {
+		build: func(a Action) *cmd {
+			c := newCmd("assurance", "validators", "list")
+			c.flagIfSet("backup-set", a.Query.Get("backup_set"))
+			c.flagIfSet("artifact", a.Query.Get("artifact"))
+			return c
+		},
+		examples: []Action{
+			{},
+			{Query: mustQuery("backup_set=api-server%2Fvar-backups")},
+			{Query: mustQuery("artifact=api-server%2Fvar-backups%2FMANIFEST-20260902T153521Z.txt")},
+		},
+	},
+	key("POST", "/assurance/validators"): {
+		build: func(a Action) *cmd {
+			var req apicontract.CreateCustomValidatorRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("assurance", "validators", "add", req.Name).flag("pattern", req.Pattern)
+			c.flagIfSet("backup-set", req.BackupSetID)
+			validatorEnvFlag(c, req.Env)
+			// The script travelled inline; on a terminal it is a file. The
+			// placeholder says which one by size and hash, never by body.
+			return c.placeholderFlag("script", scriptIdentity(req.Script))
+		},
+		why: "there is no verb that uploads a validator from a request body",
+		examples: []Action{
+			{Body: []byte(`{"name":"manifest","pattern":"^MANIFEST-\\d{8}T\\d{6}Z\\.txt$","backup_set_id":"api-server/var-backups","script":"#!/usr/bin/env bash\nexit 0\n"}`)},
+			{Body: []byte(`{"name":"dumps","pattern":"\\.sql\\.gz$","script":"#!/usr/bin/env bash\nexit 0\n"}`)},
+			{Body: []byte(`{"name":"dumps","pattern":"\\.sql\\.gz$","env":"workflow","script":"#!/usr/bin/env bash\nexit 0\n"}`)},
+		},
+	},
+	key("PUT", "/assurance/validators/{name}"): {
+		build: func(a Action) *cmd {
+			var req apicontract.UpdateCustomValidatorRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("assurance", "validators", "update", a.Params["name"]).flag("pattern", req.Pattern)
+			// An update says where it goes: the request is a replacement, so
+			// an absent backup_set_id is global and the terminal has to be told
+			// so (--global), not left to infer it.
+			scopeFlag(c, req.BackupSetID)
+			validatorEnvFlag(c, req.Env)
+			// Without --script the terminal keeps the stored script by its
+			// hash, which is what script_sha256 is, so there is nothing to echo.
+			if req.Script != "" {
+				c.placeholderFlag("script", scriptIdentity(req.Script))
+			}
+			return c
+		},
+		why: "there is no verb that replaces a validator from a request body",
+		examples: []Action{
+			{Params: map[string]string{"name": "manifest"}, Body: []byte(`{"pattern":"^MANIFEST-","backup_set_id":"api-server/var-backups"}`)},
+			{Params: map[string]string{"name": "manifest"}, Body: []byte(`{"pattern":"^MANIFEST-","script":"#!/usr/bin/env bash\nexit 0\n"}`)},
+			{Params: map[string]string{"name": "manifest"}, Body: []byte(`{"pattern":"^MANIFEST-","env":"workflow","script_sha256":"` + strings.Repeat("ab", 32) + `"}`)},
+		},
+	},
+	key("DELETE", "/assurance/validators/{name}"): {
+		build: func(a Action) *cmd {
+			return newCmd("assurance", "validators", "remove", a.Params["name"])
+		},
+		examples: []Action{{Params: map[string]string{"name": "manifest"}}},
+	},
+	key("GET", "/assurance/validators/{name}/script"): {
+		build: func(a Action) *cmd {
+			return newCmd("assurance", "validators", "script", a.Params["name"])
+		},
+		examples: []Action{{Params: map[string]string{"name": "manifest"}}},
+	},
+	key("POST", "/assurance/validator-preview"): {
+		build: func(a Action) *cmd {
+			var req apicontract.PreviewCustomValidatorRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("assurance", "validators", "add")
+			if req.Replacing != "" {
+				c = newCmd("assurance", "validators", "update", req.Replacing)
+			}
+			c.flag("pattern", req.Pattern)
+			if req.Replacing != "" {
+				scopeFlag(c, req.BackupSetID)
+			} else {
+				c.flagIfSet("backup-set", req.BackupSetID)
+			}
+			return c.bare("dry-run")
+		},
+		why: "there is no verb that previews a pattern from a request body",
+		examples: []Action{
+			{Body: []byte(`{"pattern":"^MANIFEST-\\d{8}T\\d{6}Z\\.txt$"}`)},
+			{Body: []byte(`{"pattern":"^MANIFEST-","backup_set_id":"api-server/var-backups","replacing":"manifest"}`)},
+		},
+	},
+	key("GET", "/assurance/validator-patterns"): {
+		build: func(a Action) *cmd {
+			c := newCmd("assurance", "validators", "patterns")
+			c.flagIfSet("backup-set", a.Query.Get("backup_set"))
+			return c
+		},
+		examples: []Action{{}, {Query: mustQuery("backup_set=api-server%2Fvar-backups")}},
+	},
+	key("GET", "/assurance/default-validator-script"): {
+		build:    func(Action) *cmd { return newCmd("assurance", "validators", "default-script") },
+		examples: []Action{{}},
+	},
+	key("GET", "/assurance/operations/{op}"): {
+		// #1200. The Operation page's read: one scrub or recovery test's
+		// lines and how it ended, from the durable activity record.
+		build: func(a Action) *cmd {
+			return newCmd("assurance", "show", a.Params["op"])
+		},
+		examples: []Action{{Params: map[string]string{"op": "7b0c9a1e-0000-4000-8000-000000000001"}}},
+	},
+	key("GET", "/assurance/due"): {
+		build: func(a Action) *cmd {
+			c := newCmd("settings", "assurance", "due")
+			if set := a.Query.Get("backup_set"); set != "" {
+				c.flag("backup-set", set)
+			}
+			switch a.Query.Get("status") {
+			case "due":
+				c.bare("due")
+			case "overdue":
+				c.bare("overdue")
+			}
+			return c
+		},
+		examples: []Action{
+			{},
+			{Query: mustQuery("backup_set=api-server%2Fvar-backups&status=overdue")},
+			{Query: mustQuery("status=due")},
+		},
+	},
 	key("GET", "/workflow-runs"): {
 		build: func(a Action) *cmd {
 			c := newCmd("workflow", "run", "list")
@@ -1359,6 +2235,165 @@ var routes = map[string]entry{
 				Body: []byte(`{"reason":"unmounted the snapshot by hand and checked the database is writable"}`)},
 		},
 	},
+	// ------------------------------------------------------------ auth ---
+	//
+	// The twelve /auth routes are served by a separate router
+	// (apps/common/auth/local, mounted at /api/v1/auth/), so a walk of the
+	// engine router never sees them and this table had no entry for any.
+	// Each now carries one. They are browser-session plumbing or an
+	// account act with no terminal verb, and the reason says which.
+	key("POST", "/auth/login"): {
+		why: "a login opens a browser session, and a terminal holds no session: a routed command signs in with $RETND_API_USERNAME and $RETND_API_PASSWORD for the one invocation, so there is nothing to type",
+	},
+	key("POST", "/auth/enroll"): {
+		why: "the request body would not decode, so there is no command that says who it enrolled",
+		build: func(a Action) *cmd {
+			// The password is in the body and stays there: the verb reads
+			// the bootstrap token and then the password from stdin, and
+			// the token is a header the browser sends, which this line
+			// never sees. The recovery section is shown the way PATCH
+			// /auth/recovery shows it below, as stand-ins.
+			var req struct {
+				Username      string    `json:"username"`
+				RecoveryEmail string    `json:"recoveryEmail"`
+				Smtp          *smtpBody `json:"smtp"`
+			}
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("auth", "enroll").flag("username", req.Username).bare("token-stdin").bare("password-stdin")
+			if req.RecoveryEmail != "" {
+				c.placeholderFlag("recovery-email", "the recovery address")
+			}
+			smtpFlagsOnto(c, req.Smtp)
+			return c
+		},
+		examples: []Action{
+			{Body: []byte(`{"username":"admin","password":"x"}`)},
+			{Body: []byte(`{"username":"admin","password":"x","recoveryEmail":"ops@example.org","smtp":{"host":"smtp.example.org","port":2525,"security":"tls","username":"mailer","from":"retnd@example.org","password":"y"}}`)},
+		},
+	},
+	key("POST", "/auth/password"): {
+		build: func(Action) *cmd {
+			// Both passwords are in the body and neither goes on the line:
+			// the verb reads the current one and then the new one from stdin.
+			return newCmd("auth", "password").bare("password-stdin")
+		},
+		examples: []Action{{}},
+	},
+	key("POST", "/auth/logout"): {
+		why: "a logout ends a browser session, and a terminal holds none",
+	},
+	key("GET", "/auth/session"): {
+		build:    func(Action) *cmd { return newCmd("auth", "whoami") },
+		examples: []Action{{}},
+	},
+	key("POST", "/auth/forgot-password"): {
+		why: "the request body would not decode, so there is no command that says which account it asked about",
+		build: func(a Action) *cmd {
+			var req struct {
+				Username string `json:"username"`
+			}
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			return newCmd("auth", "forgot-password").flag("username", req.Username)
+		},
+		examples: []Action{{Body: []byte(`{"username":"admin"}`)}},
+	},
+	key("POST", "/auth/reset-password"): {
+		build: func(Action) *cmd {
+			// The token and the new password are both in the body and
+			// neither goes on the line: the verb reads one and then the
+			// other from stdin.
+			return newCmd("auth", "reset-password").bare("token-stdin").bare("password-stdin")
+		},
+		examples: []Action{{}},
+	},
+	key("POST", "/auth/verify-email"): {
+		build: func(Action) *cmd {
+			return newCmd("auth", "verify-email").bare("token-stdin")
+		},
+		examples: []Action{{}},
+	},
+	key("POST", "/auth/verify-email/resend"): {
+		build: func(Action) *cmd {
+			return newCmd("auth", "verify-email").bare("resend")
+		},
+		examples: []Action{{}},
+	},
+	key("GET", "/auth/recovery"): {
+		build:    func(Action) *cmd { return newCmd("auth", "recovery", "show") },
+		examples: []Action{{}},
+	},
+	key("PATCH", "/auth/recovery"): {
+		why: "the request body would not decode, so there is no command that says what it changed",
+		build: func(a Action) *cmd {
+			// The current password and the SMTP password are in the body
+			// and stay there: the verb takes them from stdin. The values
+			// that remain are an address and an endpoint an operator
+			// typed, which are shown as stand-ins all the same, because
+			// the line is exportable and a recovery address is the one
+			// thing an account's owner may not want in a pasted log.
+			var req struct {
+				RecoveryEmail *string   `json:"recoveryEmail"`
+				Smtp          *smtpBody `json:"smtp"`
+			}
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("auth", "recovery", "set").bare("current-password-stdin")
+			if req.RecoveryEmail != nil {
+				c.placeholderFlag("recovery-email", "the recovery address")
+			}
+			smtpFlagsOnto(c, req.Smtp)
+			return c
+		},
+		examples: []Action{
+			{Body: []byte(`{"currentPassword":"x","recoveryEmail":"ops@example.org"}`)},
+			{Body: []byte(`{"currentPassword":"x","smtp":{"host":"smtp.example.org","port":2525,"security":"tls","username":"mailer","from":"retnd@example.org","password":"y"}}`)},
+		},
+	},
+	key("POST", "/auth/recovery/test"): {
+		build:    func(Action) *cmd { return newCmd("auth", "recovery", "test") },
+		examples: []Action{{}},
+	},
+}
+
+// smtpBody is the SMTP section as POST /auth/enroll and PATCH
+// /auth/recovery both carry it.
+type smtpBody struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Security string `json:"security"`
+	Username string `json:"username"`
+	From     string `json:"from"`
+	Password string `json:"password"`
+}
+
+// smtpFlagsOnto puts an SMTP section onto an `auth` line the way both
+// verbs take it: the endpoint as stand-ins, the port as itself, and the
+// password as the stdin flag. A nil section adds nothing.
+func smtpFlagsOnto(c *cmd, s *smtpBody) {
+	if s == nil {
+		return
+	}
+	c.placeholderFlag("smtp-host", "the SMTP host")
+	if s.Port > 0 {
+		c.flag("smtp-port", itoa(s.Port))
+	}
+	if s.Security != "" {
+		c.placeholderFlag("smtp-security", "starttls, tls or none")
+	}
+	if s.Username != "" {
+		c.placeholderFlag("smtp-username", "the SMTP username")
+	}
+	if s.From != "" {
+		c.placeholderFlag("smtp-from", "the sender address")
+	}
+	if s.Password != "" {
+		c.bare("smtp-password-stdin")
+	}
 }
 
 // workflowEnvSetFlags puts one environment entry's value onto an `env
@@ -1423,8 +2458,8 @@ func workflowEnvSetExamples(params map[string]string) []Action {
 	bodies := []string{
 		`{"value":"UTC"}`,
 		`{"value":""}`,
-		`{"secret":{"file":"/etc/backupd/pg.passphrase"}}`,
-		`{"secret":{"env":"BACKUPD_PG_PASSWORD"}}`,
+		`{"secret":{"file":"/etc/retnd/pg.passphrase"}}`,
+		`{"secret":{"env":"RETND_PG_PASSWORD"}}`,
 		`{"secret":{"command":["vault","read","-field=password","secret/pg"]}}`,
 	}
 	out := make([]Action, 0, len(bodies))
@@ -1482,11 +2517,15 @@ func backupSetCreateCommand(spec apicontract.BackupSetSpec, runNow, acknowledgeR
 	// an incomplete reproduction of this set, it would be a working
 	// command that makes a DIFFERENT kind of set under the same id.
 	//
-	// The uuid is deliberately not echoed. It is the durable key a
-	// snapshot lineage hangs off, `backup-set create` has no flag for
-	// it, and it is minted by the service precisely so that nobody has
-	// to type one.
+	// The uuid is echoed when the request carried one (#1151). It used to
+	// be left out because `backup-set create` had no flag for it, which
+	// made a printed command mint a second lineage beside the one the
+	// request named. A request that carried none still prints none: the
+	// service mints it, and a placeholder here would be a command that
+	// forks the history on purpose.
 	c.flagIfSet("engine", spec.Engine)
+	c.flagIfSet("uuid", spec.Uuid)
+	c.flagIfSet("source-mount-prefix", spec.SourceMountPrefix)
 	c.flagIfSet("repository-domain", spec.RepositoryDomain)
 	c.flagIfSet("source-consistency", spec.SourceConsistency)
 	c.flagIfSet("verification-level", spec.VerificationLevel)
@@ -1514,6 +2553,13 @@ func backupSetCreateCommand(spec apicontract.BackupSetSpec, runNow, acknowledgeR
 	if acknowledgeRepoint {
 		c.bare("acknowledge-repoint")
 	}
+	// The request to write the set without proving the connection, for
+	// mediumSkipFlag's reason: a line without it runs a check the click
+	// skipped, and on a host this machine can't reach it fails where the
+	// click worked (#1253's review).
+	if spec.SkipConnectionCheck {
+		c.bare("no-verify")
+	}
 	return c
 }
 
@@ -1521,7 +2567,7 @@ func backupSetCreateCommand(spec apicontract.BackupSetSpec, runNow, acknowledgeR
 // command line, shared by add, edit and the candidate preflight.
 //
 // One helper for the three because both surfaces already treat them as
-// one: core/cmd/backupd declares a single flag set that all seven
+// one: core/cmd/retnd declares a single flag set that all seven
 // verbs read, and this API sends a single body shape to all three of
 // these routes, on the reasoning that what is proven and what is saved
 // must not be able to be different destinations.
@@ -1561,15 +2607,25 @@ func mediumSpecFlags(c *cmd, req apicontract.StorageMediumRequest) *cmd {
 	// endpointWithoutUserinfo: a credential can be spelled into this
 	// field, and this is the one flag here whose value is not printed
 	// exactly as the request sent it.
-	c.flagIfSet("endpoint", endpointWithoutUserinfo(req.Endpoint))
+	if endpoint, ok := endpointWithoutUserinfo(req.Endpoint); ok {
+		c.flagIfSet("endpoint", endpoint)
+	} else {
+		c.placeholderFlag("endpoint", withheldValue)
+	}
 	c.flagIfSet("bucket", req.Bucket)
 	c.flagIfSet("prefix", req.Prefix)
 	c.flagIfSet("storage-class", req.StorageClass)
 	c.flagIfSet("upload-verification", req.UploadVerification)
-	c.flagIfSet("credentials-id", req.Credentials.CredentialsID)
-	c.flagIfSet("credentials-file", req.Credentials.File)
-	c.flagIfSet("credentials-env", req.Credentials.Env)
-	if len(req.Credentials.Command) > 0 {
+	return mediumCredentialFlags(c, req.Credentials)
+}
+
+// mediumCredentialFlags echoes a credentials reference: the three that name
+// something this deployment already holds, and a placeholder for the fourth.
+func mediumCredentialFlags(c *cmd, creds apicontract.StorageMediumCredentialsReference) *cmd {
+	c.flagIfSet("credentials-id", creds.CredentialsID)
+	c.flagIfSet("credentials-file", creds.File)
+	c.flagIfSet("credentials-env", creds.Env)
+	if len(creds.Command) > 0 {
 		// Named and never printed, unlike its three siblings. Those name
 		// a reference this deployment already holds; this one is a
 		// program and its arguments, both of them the caller's words, and
@@ -1580,6 +2636,71 @@ func mediumSpecFlags(c *cmd, req apicontract.StorageMediumRequest) *cmd {
 		c.placeholderFlag("credentials-command", "the command that prints these credentials")
 	}
 	return c
+}
+
+// mediumConfigurationFlags echoes a configuration request as `medium
+// configure` flags (#1154). The fields come out in the request's own order,
+// which the API sorts by field id, so one configuration is one line.
+//
+// A url-kind field has its userinfo taken out for mediumSpecFlags' reason:
+// a credential can be spelled into a URL, and this panel is
+// copy-to-clipboard and exportable. Which fields those are comes from the
+// backend's manifest when the request names one, and `endpoint` always
+// counts, so a request that leaves the backend out (an edit of a declared
+// destination) cannot leak one by omission. An address the cut cannot read
+// is held back behind a placeholder (#1252). Every other field is printed
+// as sent, since a field value is configuration an operator typed and the
+// manifest gives a credential no field to be typed into.
+func mediumConfigurationFlags(c *cmd, req apicontract.MediumConfigurationRequest) *cmd {
+	c.flagIfSet("backend", req.Backend)
+	urlFields, credentialFields := manifestFieldKinds(req.Backend)
+	for _, f := range req.Fields {
+		// A credential-kind field is the one thing a manifest declares that
+		// is not a value an operator types into a command line. The API
+		// refuses it in this list, so no accepted request carries one, and
+		// a refused one must not put its content on an exportable panel.
+		if f.Field == "credentials" || credentialFields[f.Field] {
+			continue
+		}
+		value := f.Value
+		if f.Field == "endpoint" || urlFields[f.Field] {
+			cut, ok := endpointWithoutUserinfo(value)
+			if !ok {
+				c.placeholderFlag("field", f.Field+"="+withheldValue)
+				continue
+			}
+			value = cut
+		}
+		c.flag("field", f.Field+"="+value)
+	}
+	return mediumCredentialFlags(c, req.Credentials)
+}
+
+// manifestFieldKinds is which of a backend's fields are url-kind and which
+// are credential-kind, read off the bundled manifest. An unknown or absent
+// backend answers two empty sets, and the callers' fixed ids still apply.
+func manifestFieldKinds(backendID string) (urls, credentials map[string]bool) {
+	urls, credentials = map[string]bool{}, map[string]bool{}
+	if backendID == "" {
+		return urls, credentials
+	}
+	reg, err := backend.Bundled()
+	if err != nil {
+		return urls, credentials
+	}
+	m, err := reg.Backend(backendID)
+	if err != nil {
+		return urls, credentials
+	}
+	for _, f := range m.Fields {
+		switch f.Kind {
+		case backend.KindURL:
+			urls[f.ID] = true
+		case backend.KindCredential:
+			credentials[f.ID] = true
+		}
+	}
+	return urls, credentials
 }
 
 // mediumSkipFlag echoes issue #636's opt-out when the request carried it.
@@ -1626,4 +2747,94 @@ func onOff(v bool) string {
 	}
 
 	return "off"
+}
+
+// RecordedReasons is the written reason each route outside /api/v1 has no
+// verb and no entry in the table above, and is not in api/v1/openapi.json.
+// Nothing here is echoed: these are the two unauthenticated probes an
+// orchestrator calls, which are infrastructure and not operator actions.
+//
+// It exists so that "registered, with no answer" has two ways to be
+// resolved, an entry or a reason, and so the route-to-verb guard in
+// apps/common/webhost (issue #1150) can tell a probe somebody thought about
+// from a route somebody forgot.
+func RecordedReasons() map[string]string {
+	return map[string]string{
+		"GET /health/live":  "an unauthenticated liveness probe for an orchestrator, deliberately outside /api/v1 and the spec; `" + WebBinary + " healthcheck --url` is the command that calls any probe",
+		"GET /health/ready": "an unauthenticated readiness probe for an orchestrator, deliberately outside /api/v1 and the spec; `" + WebBinary + " healthcheck --url` is the command that calls any probe",
+	}
+}
+
+// sourceTarget spells the source-host target (issues #1191 and #1193):
+// `--to source:` for a fresh folder, `--to source:FOLDER` for a named one,
+// the colon always there so a staging folder called "source" stays one, and
+// --acknowledge-source-write when the request acknowledged its destination
+// (the terminal acknowledges the destination it resolves and prints).
+func sourceTarget(c *cmd, folder, acknowledged string) {
+	c.flag("to", "source:"+folder)
+	if acknowledged != "" {
+		c.bare("acknowledge-source-write")
+	}
+}
+
+// sourceHostPreflight is `recover --set S --to source:FOLDER --preflight`,
+// the read-only description of where a source-host recovery would write,
+// for the route's set and its optional folder (#1253).
+func sourceHostPreflight(a Action) *cmd {
+	c := newCmd("recover")
+	c.flag("set", setID(a))
+	c.flag("to", "source:"+a.Query.Get("folder"))
+	return c.bare("preflight")
+}
+
+// stagingName spells a staging name so the terminal cannot read it as
+// something else (#1193): a name that starts with "-" (standard output, or a
+// flag), "source:" (the source host) or "medium:" (another destination) is
+// written ./NAME, which means the same place under the staging root.
+func stagingName(name string) string {
+	if strings.HasPrefix(name, "-") || strings.HasPrefix(name, "source:") || strings.HasPrefix(name, "medium:") {
+		return "./" + name
+	}
+	return name
+}
+
+// scopeFlag is --backup-set S for a validator scoped to a set and --global for
+// one that applies in every set: `assurance validators update` needs one of
+// the two, so a request with no set echoes the second and not nothing.
+func scopeFlag(c *cmd, backupSetID string) {
+	if backupSetID != "" {
+		c.flag("backup-set", backupSetID)
+		return
+	}
+	c.bare("global")
+}
+
+// scriptIdentity is what the placeholder for an uploaded script says it
+// stands for: its size and SHA-256, which are what the engine records and
+// what `assurance validators list` prints, so the line can be matched to the
+// script without the script being in it.
+func scriptIdentity(script string) string {
+	sum := sha256.Sum256([]byte(script))
+	return "the script file you uploaded, " + strconv.Itoa(len(script)) + " bytes, sha256 " + hex.EncodeToString(sum[:])
+}
+
+// providerFlags appends the flags that declare a key provider. A managed
+// provider is --managed; an external one is its file path or its variable
+// name, which are source descriptions, or a stand-in for a command, whose
+// arguments are not and are never echoed.
+func providerFlags(c *cmd, p *apicontract.EncryptionKeyProvider) *cmd {
+	if p == nil {
+		return c
+	}
+	if p.Managed {
+		c.bare("managed")
+	}
+	if p.External != nil {
+		c.flagIfSet("external-file", p.External.File)
+		c.flagIfSet("external-env", p.External.Env)
+		if len(p.External.Command) > 0 {
+			c.placeholderFlag("external-command", "the command that prints the key")
+		}
+	}
+	return c
 }

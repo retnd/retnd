@@ -14,7 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/backupdproject/backupd/core/service"
+	"github.com/retnd/retnd/core/service"
 )
 
 // The setup surface of an instance that has no configuration yet.
@@ -52,9 +52,15 @@ type fakeFirstRun struct {
 	probed      string
 	activated   int
 	activateErr error
+
+	// deploymentID is what the first-run surface names its deployment as
+	// (#1254); empty is a surface that cannot name one.
+	deploymentID string
 }
 
 func (f *fakeFirstRun) Configured() bool { return f.configured }
+
+func (f *fakeFirstRun) DeploymentID() string { return f.deploymentID }
 
 // The looking half of the setup surface (#592). A first-run instance has
 // no configuration, so nothing can be USING a key, but it does have a
@@ -68,7 +74,7 @@ func (f *fakeFirstRun) ListSSHKeys(context.Context) ([]service.SSHKeyListing, er
 
 func (f *fakeFirstRun) DiscoverSSHKeyCandidates(context.Context) (service.SSHKeyDiscovery, error) {
 	return service.SSHKeyDiscovery{
-		Locations: []service.SSHKeyDiscoveryLocation{{Path: "/etc/backupd", Kind: "mount"}},
+		Locations: []service.SSHKeyDiscoveryLocation{{Path: "/etc/retnd", Kind: "mount"}},
 	}, nil
 }
 
@@ -133,6 +139,13 @@ var firstRunSafeRoutes = map[string]bool{
 	"GET /api/v1/system/capabilities": true,
 	"GET /api/v1/system/first-run":    true,
 
+	// retnd#1049: a fresh install answers the two reads every page makes
+	// with what is true (the defaults, an empty report) and skips are the
+	// guide's one write. None touches backup data.
+	"GET /api/v1/settings":               true,
+	"GET /api/v1/system/health":          true,
+	"POST /api/v1/system/first-run/skip": true,
+
 	// The setup flow itself. Each is either read-only in effect
 	// (host-key-probe, test-connection) or the setup write it exists for
 	// (both imports, first-run), and none of them touches, moves or
@@ -141,6 +154,11 @@ var firstRunSafeRoutes = map[string]bool{
 	// one this machine already holds both end with a reference in the
 	// store, and splitting them into two routes did not change what
 	// either is allowed to do before configuration exists.
+	// The key step's two reads (#592, registered by #1254): public halves
+	// and fingerprints of the store, and where a key could come from.
+	"GET /api/v1/ssh-keys":           true,
+	"GET /api/v1/ssh/key-candidates": true,
+
 	"POST /api/v1/ssh-keys":                    true,
 	"POST /api/v1/ssh-keys/from-candidate":     true,
 	"POST /api/v1/ssh/host-key-probe":          true,

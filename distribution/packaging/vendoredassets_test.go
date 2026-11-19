@@ -50,7 +50,7 @@ func vendoredFixture() VendoredAsset {
 		CarriedAs:      VendoredCarriedAsSource,
 		VendoredInto:   []string{"src/art.tsx"},
 		Marker:         "Example Artwork 1.2.3",
-		LinkedInto:     []string{"backupd-web"},
+		LinkedInto:     []string{"retnd-web"},
 		SourceURL:      "https://example.invalid/artwork-1.2.3.tgz",
 		RecordedIn:     []string{"NOTICE"},
 	}
@@ -239,7 +239,7 @@ func TestTheVendoredSweepActuallyReadsTheTree(t *testing.T) {
 	}
 }
 
-// TestTheShippedNoticeAttributesEveryVendoredAsset is Apache-2.0 §4(d)
+// TestTheShippedNoticeAttributesEveryVendoredAsset is third-party attribution
 // and CC BY 4.0 §3(a) asked of the file a recipient actually reads.
 //
 // It reads the checked-in NOTICE rather than the render, deliberately.
@@ -357,7 +357,7 @@ func vendoredFilesFixture() (VendoredAsset, map[string]string) {
 		VendoredInto:   []string{"ui/shared/public/fonts/Example-Regular.woff2"},
 		Digests:        map[string]string{"ui/shared/public/fonts/Example-Regular.woff2": SHA256Bytes([]byte(face))},
 		LicenceFile:    "ui/shared/public/fonts/LICENSE.txt",
-		LinkedInto:     []string{"backupd-web"},
+		LinkedInto:     []string{"retnd-web"},
 		SourceURL:      "https://example.invalid/example-sans-4.5.6.tgz",
 		RecordedIn:     []string{"NOTICE"},
 	}

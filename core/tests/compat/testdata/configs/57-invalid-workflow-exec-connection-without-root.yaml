@@ -6,7 +6,7 @@
 poll_interval: 15m
 
 state:
-  database: /var/lib/backupd/state.db
+  database: /var/lib/retnd/state.db
 
 workflows:
   exec_connections:
@@ -16,7 +16,7 @@ workflows:
         host: production.example.internal
         user: backup
         key_file: /run/secrets/backup_ssh_key
-        known_hosts: /etc/backupd/known_hosts
+        known_hosts: /etc/retnd/known_hosts
 
 sources:
   - id: production

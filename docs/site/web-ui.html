@@ -3,9 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>The web interface, in motion: backupd</title>
-  <meta name="description" content="Animated walkthroughs of the backupd web interface: the docked terminal, run controls, per-backup-set activity, retention previews, edit mode and dark mode.">
-  <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+  <title>The web interface, in motion: retnd</title>
+  <meta name="description" content="Animated walkthroughs of the retnd web interface: the docked terminal, run controls, per-backup-set activity, retention previews, edit mode and dark mode.">
   <link rel="icon" type="image/x-icon" href="assets/favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
@@ -21,8 +20,8 @@
 <header class="topbar" id="topbar">
   <div class="topbar-content">
     <a class="topbar-brand" href="index.html">
-      <img src="assets/logo-mark-light.svg" alt="backupd mark: a broken ring standing for a transfer cycle in progress">
-      <h1 class="brand-name">backup<span class="brand-dash">d</span></h1>
+      <img src="assets/logo.svg#svgView(viewBox(0,0,48,48))" alt="retnd mark: a broken ring standing for a transfer cycle in progress">
+      <h1 class="brand-name">retn<span class="brand-dash">d</span></h1>
     </a>
   </div>
 
@@ -48,6 +47,10 @@
         <span class="nav-label nav-label-full">The web interface</span>
         <span class="nav-label nav-label-short">Web UI</span>
       </a>
+      <a href="workflows.html" class="nav-item">
+        <span class="nav-label nav-label-full">Scripted workflows</span>
+        <span class="nav-label nav-label-short">Workflows</span>
+      </a>
       <a href="ssh.html" class="nav-item">
         <span class="nav-label nav-label-full">SSH &amp; connections</span>
         <span class="nav-label nav-label-short">SSH</span>
@@ -57,21 +60,21 @@
         <span class="nav-label nav-label-short">Ref</span>
       </a>
 
-      <a href="https://github.com/backupdproject/backupd" target="_blank" rel="noopener" class="nav-item nav-item-github" aria-label="GitHub repository">
+      <a href="https://github.com/retnd/retnd" target="_blank" rel="noopener" class="nav-item nav-item-github" aria-label="GitHub repository">
         <svg class="nav-icon nav-icon-github" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
           <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
         </svg>
         <span class="nav-label nav-label-full">GitHub</span>
       </a>
 
-      <a href="https://github.com/backupdproject/backupd/blob/main/README.md" target="_blank" rel="noopener" class="nav-item">
+      <a href="https://github.com/retnd/retnd/blob/main/README.md" target="_blank" rel="noopener" class="nav-item">
         <span class="nav-label nav-label-full">README</span>
       </a>
-      <a href="https://github.com/backupdproject/backupd/blob/main/docs/deployment.md" target="_blank" rel="noopener" class="nav-item">
+      <a href="https://github.com/retnd/retnd/blob/main/docs/deployment.md" target="_blank" rel="noopener" class="nav-item">
         <span class="nav-label nav-label-full">Deployment</span>
         <span class="nav-label nav-label-short">Deploy</span>
       </a>
-      <a href="https://github.com/backupdproject/backupd/issues" target="_blank" rel="noopener" class="nav-item">
+      <a href="https://github.com/retnd/retnd/issues" target="_blank" rel="noopener" class="nav-item">
         <span class="nav-label nav-label-full">Issues</span>
       </a>
 
@@ -121,7 +124,7 @@
   <section>
     <h2 id="terminal">The terminal at the bottom of every page</h2>
     <p>There is a log panel docked to the bottom of the browser window on every signed-in page. It answers one question: what has this deployment done recently, including the thing I just clicked. It reads the engine's own buffers, so two people watching one NAS see the same lines in the same order with the same sequence numbers and can quote a timestamp at each other.</p>
-    <p>It is pinned to the window, not to the end of the document, and that distinction is the whole of <a href="https://github.com/backupdproject/backupd/issues/617">#617</a>. In flow it rode the bottom of the page, so on anything longer than a screen the always-on panel had scrolled out of view and only appeared once you had already got to the bottom, which is the opposite of what an always-on panel is for. Watch the page move under it.</p>
+    <p>It is pinned to the window, not to the end of the document, and that distinction is the whole of <a href="https://github.com/retnd/retnd/issues/617">#617</a>. In flow it rode the bottom of the page, so on anything longer than a screen the always-on panel had scrolled out of view and only appeared once you had already got to the bottom, which is the opposite of what an always-on panel is for. Watch the page move under it.</p>
   <figure class="wide">
     <img src="screens/ui-terminal-pinned.gif" alt="The backup set page scrolling from top to bottom while the terminal stays fixed to the bottom of the window" loading="lazy">
     <figcaption><span class="clip-tag">clip</span>One backup set's page, scrolled from the top to the bottom and back. The terminal does not move, and the content column reserves room under itself so the last row of a long table can still be scrolled clear of it.</figcaption>
@@ -146,8 +149,9 @@
 
   <section>
     <h2 id="runs">Starting a run, and reading the answer</h2>
-    <p>Both run buttons are real now. Before <a href="https://github.com/backupdproject/backupd/issues/597">#597</a> two of them called the API with no error handler, an empty configuration revision and no idempotency key, and the third had no handler at all, so a refusal from the destructive gate, a stale revision, a malformed request and a dead engine were all pixel-identical to a button that did nothing.</p>
-    <p>What comes back is a notice with four parts, and each part is there for a reason. It states an outcome rather than leaving one to be inferred. It says what to do about it when there is something to do. It names the command the press was equivalent to, copy-pasteable exactly as written, which matters most on a <em>refusal</em>, because while the destructive gate is shut that command is the only remaining way to start the backup that was just refused. And it has a close control, which is <a href="https://github.com/backupdproject/backupd/issues/620">#620</a>: a banner you have read and cannot put away is a banner that pushes the page down forever.</p>
+    <p>Both run buttons are real now. Before <a href="https://github.com/retnd/retnd/issues/597">#597</a> two of them called the API with no error handler, an empty configuration revision and no idempotency key, and the third had no handler at all, so a refusal from the destructive gate, a stale revision, a malformed request and a dead engine were all pixel-identical to a button that did nothing.</p>
+    <p>What comes back is a notice with four parts, and each part is there for a reason. It states an outcome rather than leaving one to be inferred. It says what to do about it when there is something to do. It names the command the press was equivalent to, copy-pasteable exactly as written, which matters most on a <em>refusal</em>, because while the destructive gate is shut that command is the only remaining way to start the backup that was just refused. And it has a close control, which is <a href="https://github.com/retnd/retnd/issues/620">#620</a>: a banner you have read and cannot put away is a banner that pushes the page down forever.</p>
+    <p>Whether a press is refused depends on the profile (issues <a href="https://github.com/retnd/retnd/issues/1163">#1163</a> and <a href="https://github.com/retnd/retnd/issues/1164">#1164</a>). On a local-account profile the destructive gate is open, so a run, a retention plan and a restore go through; a restore asks for your password again and a tick, and releasing a hold asks for a tick. On a gateway profile (UGOS) starting a run, restoring a snapshot and applying a retention plan are refused until <a href="https://github.com/retnd/retnd/issues/92">#92</a> ships a verified gate: the screen says so before you press, says that retrying will not help, and shows the <code>retnd</code> command to run on the host instead. Verifying a snapshot and placing or releasing a hold are never refused, on any profile. The full list, with the one catch about stopping the web service for <code>run</code> and <code>fetch</code>, is under <a href="reference.html#cli-terminal-only">What the web interface can run, by profile</a>.</p>
     <p>The same line lands in the terminal at the bottom of the window, with a prompt in front of the command and a mark saying this browser wrote it. That is what makes the terminal the one place to look: whatever page you pressed the button on, and whichever of them you are on now, the answer to what just happened is in the same panel.</p>
   <figure class="wide">
     <img src="screens/ui-run-controls.gif" alt="Pressing Run this backup set, the notice appearing with the equivalent command, the same line arriving in the docked terminal, the This browser filter isolating it, then closing the notice" loading="lazy">
@@ -174,7 +178,7 @@
 
   <section>
     <h2 id="edit">Editing a set, and getting out of it</h2>
-    <p>Opening the editor takes a hold on that backup set. The hold is a real thing on the server with a command of its own, and it exists so a cycle does not start against a set somebody is halfway through changing. Which means leaving the editor has to give the hold back, and before <a href="https://github.com/backupdproject/backupd/issues/591">#591</a> there was a back link and no way to discard what you had typed, so an operator who opened the form just to read it walked away leaving the set held.</p>
+    <p>Opening the editor takes a hold on that backup set. The hold is a real thing on the server with a command of its own, and it exists so a cycle does not start against a set somebody is halfway through changing. Which means leaving the editor has to give the hold back, and before <a href="https://github.com/retnd/retnd/issues/591">#591</a> there was a back link and no way to discard what you had typed, so an operator who opened the form just to read it walked away leaving the set held.</p>
   <figure class="wide">
     <img src="screens/ui-edit-mode.gif" alt="Opening edit mode on a backup set, then leaving it with Cancel and exit edit mode" loading="lazy">
     <figcaption><span class="clip-tag">clip</span>Edit mode, and the way out that discards. Save all and exit is the other one, and the two are deliberately not the same button in two moods.</figcaption>
@@ -183,8 +187,51 @@
   </section>
 
   <section>
+    <h2 id="checks">Checking a copy now, following it, and stopping it</h2>
+    <p>The schedule is not the only thing that checks your copies. <strong>Scrub now</strong> re-checks every copy of a set straight away, and <strong>Run recovery test</strong> recovers the newest known good copy and runs your validator against it. Both start in the background and answer at once with an operation id, which is why closing the page does not stop either. This section has no clip yet, so it describes the controls rather than showing them.</p>
+    <p>While one is running it has a <strong>Cancel</strong> control. Pressing it does not stop the work on the spot: the operation reads <em>Cancelling</em> until its own end line arrives. A cancelled recovery test ends as a warning and not as a failed copy, because nobody saw the validator answer. Pressing <strong>Run recovery test</strong> while one is already running for the set joins the running one: the validator runs once, and each press still gets its own receipt.</p>
+    <p>What the newest recovery test printed is the <strong>Validator output</strong>, opened with <strong>Show validator output</strong>. It is kept, but bounded: 200 lines, 1 KiB a line, 32 KiB in all, with a closing line saying so when anything was cut. The terminal equivalents are <code>retnd scrub</code>, <code>retnd recovery-test --show-output</code> and <code>retnd assurance cancel</code>; the full reference is in <a href="reference.html#web-set-detail">Backup set detail</a>.</p>
+    <p>A download from <strong>Recover artifact</strong> is handled by your browser&rsquo;s own download manager, so the page does not draw a progress bar of its own. What it shows afterwards is how the download ended: a badge reading <strong>Completed</strong>, <strong>Interrupted at N of M bytes</strong> or <strong>Failed verification</strong>. None of the three is drawn as a success. <strong>Completed</strong> is neutral on purpose: it means the bytes were sent and matched the recorded digest, not that your browser kept the file. See <a href="reference.html#web-backup-detail">Backup detail</a> for what each means.</p>
+  </section>
+
+  <section>
+    <h2 id="encryption">Encrypting the copies you send away</h2>
+    <p>This section has no clip yet, so it describes the screens rather than showing them. Everything here is about copies written to a storage destination; your local copy is not touched. The background, and what encryption does not hide, is on <a href="index.html#encrypted-copies">the front page</a>.</p>
+    <p><strong>Settings, Retained-copy encryption.</strong> One switch, <em>Encrypt copies sent to destinations</em>, and a choice of who holds the key: the product, or a key you point at. There is no cipher or chunk-size control and the card says so. Turning it on with the product holding the key creates a key if there is none (the dialog echoes the commands it runs), then offers <strong>Download bundle</strong>; until you confirm you are keeping that file somewhere that is not this machine, the card keeps saying the deployment has no confirmed recovery bundle. <strong>Rotate</strong> lists what changes before you press it: new copies use the new key, every copy so far stays readable, nothing is re-encrypted.</p>
+    <p><strong>Settings, Suite.</strong> A choice of the encryption suites the build ships, each with its status badge and the one sentence the product states about it; a retired suite cannot be picked. Picking another suite opens <strong>Change the suite</strong>, one dialog with four steps in order: <strong>Change suite</strong> (which mints no key), <strong>Rotate key</strong>, <strong>Download bundle</strong> and <strong>Confirm</strong>. Until the rotation a required set&rsquo;s new copies are refused rather than written under another suite, and leaving half way lists what is still owed. On the Dashboard a deprecated or retired suite that copies still record gets its own line with the count, and <strong>Re-encrypt under current suite</strong> opens the dry run by key before anything moves. Every encrypted copy, on a backup&rsquo;s page and on the Backups list, carries a chip with the suite its record names.</p>
+    <p><strong>A set&rsquo;s own page.</strong> Under Retention, <em>Inherit</em>, <em>Off</em> or <em>Required</em>. Inherit shows what it resolves to. An incremental set shows the control disabled with the reason: its repository is already encrypted.</p>
+    <p><strong>A backup&rsquo;s page.</strong> Each copy shows <em>Plaintext</em>, or <em>Encrypted</em> beside a second chip that says whether it has been proved to open. Those are two statements, drawn as two chips. <strong>Verify recoverable</strong> reads the copy back and compares it with the artifact, which may cost egress, so it asks first.</p>
+    <p><strong>The Backups list</strong> gets an Encryption column, with the same chips, only when a copy on the list is encrypted, and a key&rsquo;s &ldquo;N in Backups&rdquo; link narrows the list to the backups under that key. While a copy is made the terminal, the activity strip and the operation panel show an &ldquo;Encrypting&rdquo; stage and then a &ldquo;Decrypt-verifying&rdquo; stage, each with its bytes. A standalone verify has no stage of its own; its decrypt row shows the bytes read so far while it runs, and the total once it ends. Every control echoes its <code>retnd encryption</code> command; the list is in <a href="reference.html#cli-commands">the reference</a>.</p>
+  </section>
+
+  <section>
+    <h2 id="agents">Letting an agent look: the Agents card</h2>
+    <p>This section describes the screens in words, because the clips are recorded by <code>docs/site/tools/capture-agents.mjs</code> against the mock API and are added to the page from that run (<code>node docs/site/tools/capture-agents.mjs --embeds html</code> prints the markup). What an agent is, how to connect one and what it can never do is in <a href="https://github.com/retnd/retnd/blob/main/docs/agents.md"><code>docs/agents.md</code></a>, and the commands behind every control are in <a href="reference.html#cli-commands">the reference</a>.</p>
+    <p><strong>Settings, Agents.</strong> One card, after Retained-copy encryption, that opens with what an agent is here: a client of this deployment with a token of its own, which can look and nothing else until you say so, and which can never get key material, credentials or secrets. It has four regions in the order you use them: the tokens, what is waiting for you, the audit, and a plain statement of whether the HTTP transport is on. A count on the card heading links to the confirmations when something is waiting, and the list is not reordered when something arrives, so the Approve button does not move under your cursor.</p>
+    <p><strong>Minting a token.</strong> The dialog takes a name, a scope (<code>read</code> is preselected and the other two say what they allow) and an expiry. The token is shown once, in a box of its own, and the dialog has one way out, <em>I have stored it</em>: no close button, and Escape and the backdrop do nothing. After that the list shows the name, the eight-character prefix, the scope, the owner, when it was created, when it expires, when it was last used and its status, and never the token or its hash. <strong>Revoke</strong> asks first, and the token is refused on its very next request.</p>
+    <p><strong>A confirmation.</strong> When an <code>operate</code> or <code>configure</code> token asks for something, the card lists it as <em>Waiting for you</em> with the exact <code>retnd</code> command, the set, the token and the time left. <strong>Approve</strong> asks for your password (a step-up), then runs the recorded request and nothing else. <strong>Deny</strong> ends it. When the operation gate is shut, approving a <code>run_cycle</code> is refused with the same sentence a person gets, and the confirmation records that it was.</p>
+    <p><strong>The audit.</strong> A table with a token filter and a time filter, one row per call, reads included: when, which token, which tool, the transport, the status and the code, with the arguments after projection one disclosure away. Every control on the card echoes its <code>retnd agent</code> command.</p>
+    <figure class="wide" id="agents-mint">
+      <img src="screens/agents-mint.gif" alt="Settings, Agents: the Create token dialog takes a name, shows the token once, and closes only when the operator says it is stored" loading="lazy">
+      <figcaption><span class="clip-tag">clip</span>Minting a token. read is the scope it opens on, the token is shown once, and the dialog's one way out is I have stored it. Afterwards the list holds the prefix and never the token.</figcaption>
+    </figure>
+    <figure class="wide" id="agents-approve">
+      <img src="screens/agents-approve.gif" alt="A pending confirmation on the Agents card with the exact retnd command on it, approved after the password is entered" loading="lazy">
+      <figcaption><span class="clip-tag">clip</span>A confirmation waiting for you, with the command it will run. Approve asks for your password, then replays the recorded request and nothing else.</figcaption>
+    </figure>
+    <figure class="wide" id="agents-refused">
+      <img src="screens/agents-refused.gif" alt="Approving a run_cycle confirmation while the operation gate is shut: the card shows the same refusal a person would get" loading="lazy">
+      <figcaption><span class="clip-tag">clip</span>Approving run_cycle with the operation gate shut. The refusal is the one retnd run gives, DESTRUCTIVE_OPERATIONS_DISABLED, and the confirmation records that it was refused.</figcaption>
+    </figure>
+    <figure class="wide" id="agents-audit">
+      <img src="screens/agents-audit.gif" alt="The Agents card's audit table filtered to one token, one row per call, reads included" loading="lazy">
+      <figcaption><span class="clip-tag">clip</span>The audit: one row per call, reads included, filtered by token and time.</figcaption>
+    </figure>
+  </section>
+
+  <section>
     <h2 id="theme">Dark mode</h2>
-    <p>The defect <a href="https://github.com/backupdproject/backupd/issues/618">#618</a> fixed was not that dark mode looked bad. It was that the application painted its own surfaces dark and left every native control at the browser's default, so a <code>select</code>, a number input and a file field drew black text on a dark field. It read correctly in light mode, where the browser's default happens to match, which is why it survived so long.</p>
+    <p>The defect <a href="https://github.com/retnd/retnd/issues/618">#618</a> fixed was not that dark mode looked bad. It was that the application painted its own surfaces dark and left every native control at the browser's default, so a <code>select</code>, a number input and a file field drew black text on a dark field. It read correctly in light mode, where the browser's default happens to match, which is why it survived so long.</p>
   <figure class="wide">
     <img src="screens/ui-dark-mode.gif" alt="The settings page switching to dark mode, scrolling through a form of native selects and number inputs, then switching back" loading="lazy">
     <figcaption><span class="clip-tag">clip</span>The settings page is the worst case and so it is the one in shot: it is mostly native controls. The choice is remembered per browser.</figcaption>
@@ -194,7 +241,29 @@
 
   <section>
     <h2 id="icons">The icons</h2>
-    <p>Everything drawn as an icon is Font Awesome Free 6.7.2, compiled into the bundle as paths rather than fetched, under CC-BY-4.0 and reproduced unmodified. Before <a href="https://github.com/backupdproject/backupd/issues/621">#621</a> they were Unicode glyphs, which means the navigation looked different on every operating system and sometimes rendered as an emoji. The typeface went the same way in <a href="https://github.com/backupdproject/backupd/issues/631">#631</a>: IBM Plex is vendored into the image and served from it, so an isolated deployment with no route to Google Fonts keeps the face it was designed in instead of silently falling back.</p>
+    <p>Everything drawn as an icon is Font Awesome Free 6.7.2, compiled into the bundle as paths rather than fetched, under CC-BY-4.0 and reproduced unmodified. Before <a href="https://github.com/retnd/retnd/issues/621">#621</a> they were Unicode glyphs, which means the navigation looked different on every operating system and sometimes rendered as an emoji. The typeface went the same way in <a href="https://github.com/retnd/retnd/issues/631">#631</a>: IBM Plex is vendored into the image and served from it, so an isolated deployment with no route to Google Fonts keeps the face it was designed in instead of silently falling back.</p>
+  </section>
+
+  <section>
+    <h2 id="workflows">The workflow surfaces have their own page</h2>
+    <p>Scripted backup workflows added four screens' worth of moving parts &mdash; a run timeline through five stages, a read-only terminal per script, a validation report with line numbers, and a hold that blocks a backup set until somebody resumes or acknowledges it &mdash; and every one of them is a thing that happens rather than a thing that sits still. They are on <a href="workflows.html">their own page</a> with their own clips, because the feature needs the prose around the pictures: what the five stages mean, why a local hook runs outside the engine's container, and why a crash leaves a blocked set rather than a retry.</p>
+    <div class="cards">
+      <a href="workflows.html#stages" class="clipping">
+        <span class="clipping-tag">Clip</span>
+        <p>The run timeline through all five stages, including the ones that had nothing to run.</p>
+        <span class="clipping-read">Watch it &rarr;</span>
+      </a>
+      <a href="workflows.html#terminals" class="clipping">
+        <span class="clipping-tag">Clip</span>
+        <p>One script selected, one terminal mounted, streaming what that hook printed.</p>
+        <span class="clipping-read">Watch it &rarr;</span>
+      </a>
+      <a href="workflows.html#recovery" class="clipping">
+        <span class="clipping-tag">Clip</span>
+        <p>A run needing recovery, and the two ways out of it.</p>
+        <span class="clipping-read">Watch it &rarr;</span>
+      </a>
+    </div>
   </section>
 
   <section>
@@ -211,7 +280,7 @@
 </main>
 
 <footer>
-  <p>backupd is Apache-2.0 licensed. <a href="https://github.com/backupdproject/backupd">View on GitHub</a></p>
+  <p>retnd is MIT licensed. <a href="https://github.com/retnd/retnd">View on GitHub</a></p>
   <p>Pictures taken against the development fixture API. No picture or clip on this page is evidence about a running engine.</p>
 </footer>
 

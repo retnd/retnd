@@ -46,7 +46,7 @@ than the thing this check exists to prove.
 
 Ported from `scripts/architecture/verify-core-without-distribution.sh`
 under EPIC I (I1.6 / #672 / #697). That path stays as a real, runnable
-`exec` shim: `scripts/ci-local.sh` and `.github/workflows/ci.yml` both
+`exec` shim: `scripts/ci-local.sh` (and, until #1260, `.github/workflows/ci.yml`) both
 name it, `scripts/architecture/selftest.sh` drives it directly inside two
 mutant copies of the tree, and `scripts/tests/ci-local-gate.test.sh`
 FABRICATES a file at that literal path in its synthetic-tree fixture.

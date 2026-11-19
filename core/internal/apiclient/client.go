@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/backupdproject/backupd/core/apicontract"
+	"github.com/retnd/retnd/core/apicontract"
 )
 
 // The three names on the wire that the generated binding does not carry.
@@ -35,19 +35,19 @@ import (
 // comparison covers it and so a reader can see the whole credential set in
 // one place.
 const (
-	sessionCookieName = "backupd_session"
-	csrfCookieName    = "backupd_csrf"
+	sessionCookieName = "retnd_session"
+	csrfCookieName    = "retnd_csrf"
 	csrfHeaderName    = "X-CSRF-Token"
 )
 
 // This client reads only the current names, with no legacy fallback, and
-// that asymmetry with the server (which reads both for one release after
-// #794) is deliberate rather than an omission. The compat window exists
-// for credentials already in a jar that outlives the upgrade; this
-// client's jar is per-process and per-invocation, so every token it ever
-// compares was issued by the engine it is talking to, in the same run,
-// under the current name. A fallback here would only add a name nothing
-// can produce.
+// that asymmetry with the server (which reads the two deprecated names
+// for one release after #794 and EPIC R's #885) is deliberate rather
+// than an omission. The compat window exists for credentials already in
+// a jar that outlives the upgrade; this client's jar is per-process and
+// per-invocation, so every token it ever compares was issued by the
+// engine it is talking to, in the same run, under the current name. A
+// fallback here would only add a name nothing can produce.
 
 // defaultTimeout bounds one request, not one command. Every operation this
 // package reaches is a configuration read or write against a local
@@ -66,10 +66,17 @@ const defaultTimeout = 30 * time.Second
 // The BINARY's own version is deliberately not read here. internal/app
 // reads build info to answer `version`, and its doc is explicit that a
 // second reader of it would be a second answer to a question that has one.
-// A caller that already knows its build (cmd/backupd does, from
+// A caller that already knows its build (cmd/retnd does, from
 // -ldflags) says so through Config.UserAgent, and this is what stands in
 // until one does.
-const defaultUserAgent = "backupd-cli (api " + apicontract.Version + ")"
+//
+// This name is a HARD CUT at the rename: there is no
+// `retnd-cli` fallback, because a User-Agent is read by log filters
+// and audit queries rather than by this product, and a client that sent
+// two names would make both of those wrong. It is called out in
+// CHANGELOG.md's [Unreleased] entry for exactly that reason -- somebody
+// downstream may be matching on it.
+const defaultUserAgent = "retnd-cli (api " + apicontract.Version + ")"
 
 // maxResponseBytes caps what is read from one response. The largest thing
 // on this API is a backup-set or artifact listing, and the cap exists so
@@ -135,9 +142,26 @@ type Config struct {
 	// #543's claim is that a command run through this route leaves the
 	// same audit trail as the Web UI, and a log line reading
 	// "Go-http-client/1.1" names no product, no version and no surface. A
-	// caller that knows its own build (cmd/backupd does, from
+	// caller that knows its own build (cmd/retnd does, from
 	// -ldflags) should say so here.
 	UserAgent string
+
+	// AcknowledgeInsecureTransport sends the insecure-transport
+	// acknowledgement on every operation behind the destructive gate
+	// and on the ones the contract marks InsecureTransportAck (#1250's
+	// review; the agent token mint). The engine refuses a gated act over plain http to
+	// anything but loopback unless the request carries it, and this is the
+	// operator saying, once and on purpose, that they know. Nothing sets it
+	// on their behalf: cmd/retnd sets it only when RETND_API_INSECURE_TRANSPORT
+	// says so.
+	AcknowledgeInsecureTransport bool
+
+	// BearerToken, when set, authenticates every request as an agent token
+	// (EPIC U): no sign-in, no cookie jar session and no CSRF pair, because a
+	// header is not a credential a browser sends by itself. It is held in
+	// memory and never printed. It excludes Username and Password; a client
+	// is one principal or the other.
+	BearerToken string
 }
 
 // Client talks to one engine. Safe for concurrent use: the sign-in is
@@ -151,6 +175,12 @@ type Client struct {
 	password string
 
 	userAgent string
+
+	// ackInsecure is Config.AcknowledgeInsecureTransport.
+	ackInsecure bool
+
+	// bearer is Config.BearerToken.
+	bearer string
 
 	// sleep waits between attempts. It is a field so the suite can prove
 	// this client sits out a full rate-limit window without spending a
@@ -194,7 +224,12 @@ func New(cfg Config) (*Client, error) {
 	}
 	base, err := url.Parse(strings.TrimSpace(cfg.BaseURL))
 	if err != nil {
-		return nil, &ConfigError{Field: "BaseURL", Value: cfg.BaseURL, Reason: "this is not a URL: " + err.Error(), Err: err}
+		// A fixed sentence and no parse error, on purpose (#1250's
+		// review). url.Parse quotes what it was given, and an address it
+		// cannot parse is very often one with a password in it whose "/"
+		// or "?" it read as the end of the host. Value goes through
+		// redactURL, which hides the userinfo of exactly that shape.
+		return nil, &ConfigError{Field: "BaseURL", Value: redactURL(cfg.BaseURL), Reason: "this is not a URL this client can parse"}
 	}
 	if base.Scheme != "http" && base.Scheme != "https" {
 		return nil, &ConfigError{Field: "BaseURL", Value: cfg.BaseURL, Reason: fmt.Sprintf("it has scheme %q, and /api/v1 is served over http or https", base.Scheme)}
@@ -231,6 +266,10 @@ func New(cfg Config) (*Client, error) {
 		return nil, &ConfigError{Field: "BaseURL", Value: cfg.BaseURL, Reason: fmt.Sprintf("it already ends in %s, and this takes the engine's address and appends %s itself", apicontract.BasePath, apicontract.BasePath)}
 	}
 
+	if cfg.BearerToken != "" && (cfg.Username != "" || cfg.Password != "") {
+		return nil, &ConfigError{Field: "BearerToken", Reason: "a client is signed in as a person or presents an agent token, never both"}
+	}
+
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		return nil, &ConfigError{Reason: "the session cookie jar could not be built: " + err.Error(), Err: err}
@@ -265,12 +304,14 @@ func New(cfg Config) (*Client, error) {
 	}
 
 	return &Client{
-		base:      base,
-		username:  cfg.Username,
-		password:  cfg.Password,
-		userAgent: userAgent,
-		sleep:     waitFor,
-		http:      &transport,
+		base:        base,
+		username:    cfg.Username,
+		password:    cfg.Password,
+		userAgent:   userAgent,
+		ackInsecure: cfg.AcknowledgeInsecureTransport,
+		bearer:      cfg.BearerToken,
+		sleep:       waitFor,
+		http:        &transport,
 	}, nil
 }
 
@@ -309,7 +350,7 @@ func (c *Client) callQuery(ctx context.Context, operation string, pathArgs []str
 	if err != nil {
 		return err
 	}
-	if !ep.Authenticated {
+	if !ep.Authenticated || c.bearer != "" {
 		return c.do(ctx, ep, pathArgs, query, body, out)
 	}
 
@@ -422,6 +463,10 @@ func (c *Client) do(ctx context.Context, ep apicontract.Endpoint, pathArgs []str
 			return &Unreachable{Operation: ep.ID, BaseURL: c.base.Redacted(), Err: unwrapURLError(err)}
 		}
 
+		if out, ok := ctx.Value(correlationOutCtx{}).(*string); ok {
+			*out = resp.Header.Get("X-Correlation-Id")
+		}
+
 		if wait, ok := rateLimitWait(ep, resp, attempt); ok {
 			drain(resp)
 			if err := c.wait(ctx, wait); err != nil {
@@ -459,7 +504,14 @@ func (c *Client) newRequest(ctx context.Context, ep apicontract.Endpoint, target
 	if hasBody {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if ep.CSRFRequired {
+	if c.bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+c.bearer)
+		extra, _ := ctx.Value(headersKey{}).(http.Header)
+		for k, v := range extra {
+			req.Header[k] = v
+		}
+	}
+	if ep.CSRFRequired && c.bearer == "" {
 		token := c.csrfToken()
 		if token == "" {
 			// The runtime issues this cookie in front of every response it
@@ -476,7 +528,103 @@ func (c *Client) newRequest(ctx context.Context, ep apicontract.Endpoint, target
 		}
 		req.Header.Set(csrfHeaderName, token)
 	}
+	if stepUpOperations[ep.ID] && c.password != "" {
+		req.Header.Set(stepUpHeaderName, c.password)
+	}
+	// An allowlist rather than "anything but none" (#1250's review): the
+	// key rides on a context the sign-in shares, so a value the generator
+	// emitted empty or new must not be read as permission to send it.
+	if key := idempotencyKeyFrom(ctx); key != "" && (ep.IdempotencyKey == "required" || ep.IdempotencyKey == "optional") {
+		req.Header.Set(idempotencyKeyHeaderName, key)
+	}
+	if c.ackInsecure && (ep.DestructiveGate || ep.InsecureTransportAck) {
+		req.Header.Set(insecureTransportHeaderName, insecureTransportAcknowledged)
+	}
+	// Only the one operation that is authorised by it: a token left on a
+	// context some other call inherits must not ride along.
+	if token := bootstrapTokenFrom(ctx); token != "" && ep.ID == "enrollAdministrator" {
+		req.Header.Set(bootstrapTokenHeaderName, token)
+	}
 	return req, nil
+}
+
+// idempotencyKeyHeaderName is the header POST /operations reads its key from
+// (apps/common/webhost's submitOperation), spelled here because this package
+// does not import the web host.
+const idempotencyKeyHeaderName = "Idempotency-Key"
+
+// insecureTransportHeaderName and insecureTransportAcknowledged are
+// webhost.InsecureTransportHeader and its one accepted value, spelled here
+// for the step-up header's reason.
+const (
+	insecureTransportHeaderName   = "X-Retnd-Insecure-Transport-Ack"
+	insecureTransportAcknowledged = "acknowledged"
+)
+
+// The key travels on the context rather than as another parameter through
+// call, callQuery and do, because one operation takes it and the sign-in and
+// every read share those paths (#1250). It is still per request: the key is
+// set by the one method that was handed it, and the 401 retry in callQuery
+// resends the same submission with the same key, which is what the key is for.
+type idempotencyKeyCtx struct{}
+
+func withIdempotencyKey(ctx context.Context, key string) context.Context {
+	return context.WithValue(ctx, idempotencyKeyCtx{}, key)
+}
+
+func idempotencyKeyFrom(ctx context.Context) string {
+	key, _ := ctx.Value(idempotencyKeyCtx{}).(string)
+	return key
+}
+
+// bootstrapTokenHeaderName is apps/common/auth/local's BootstrapTokenHeader,
+// spelled here for the step-up header's reason. The enrollment token
+// travels on the context the way the idempotency key does (#1253): one
+// operation carries it, and it is the authority for that one request
+// rather than a credential this client holds.
+const bootstrapTokenHeaderName = "X-Bootstrap-Token"
+
+type bootstrapTokenCtx struct{}
+
+func withBootstrapToken(ctx context.Context, token string) context.Context {
+	return context.WithValue(ctx, bootstrapTokenCtx{}, token)
+}
+
+func bootstrapTokenFrom(ctx context.Context) string {
+	token, _ := ctx.Value(bootstrapTokenCtx{}).(string)
+	return token
+}
+
+type correlationOutCtx struct{}
+
+// withCorrelationOut asks do to leave the answer's X-Correlation-Id in *out. It
+// travels in the context, as the bootstrap token does, so the dozens of calls
+// that do not want it are not touched: for them it is absent and do writes
+// nowhere. Only CallRoute passes one.
+func withCorrelationOut(ctx context.Context, out *string) context.Context {
+	return context.WithValue(ctx, correlationOutCtx{}, out)
+}
+
+// stepUpHeaderName is webhost.StepUpHeader, spelled here because this
+// package does not import the web host.
+const stepUpHeaderName = "X-Retnd-Step-Up-Password"
+
+// stepUpOperations are the operations this client answers the password
+// step-up for, with the administrator's password it already signs in with
+// (#1203). A terminal that holds that password has already proved what the
+// step-up asks a browser session to prove again. It is a list and not
+// "every gated operation" on purpose: a restore's step-up is paired with
+// an acknowledgement the operator has to give, and sending the password
+// on its own would be this client deciding something for them.
+var stepUpOperations = map[string]bool{
+	"createCustomValidator": true,
+	"updateCustomValidator": true,
+	// The bundle export (#993): the terminal that holds the password has
+	// already proved what the step-up asks a browser session to prove again.
+	"exportRecoveryBundle": true,
+	// Approving an agent's change (#1349): the terminal that holds the password
+	// has already proved what the step-up asks a browser session to prove again.
+	"approveAgentConfirmation": true,
 }
 
 // The rate limit this client is on the wrong side of, and why waiting is
@@ -602,7 +750,7 @@ func (c *Client) receive(ep apicontract.Endpoint, path string, resp *http.Respon
 	}
 
 	declared, ok := ep.ErrorCodes[resp.StatusCode]
-	if !ok {
+	if !ok && c.bearer == "" {
 		return violation(fmt.Sprintf("the operation declares %d on success and %s on failure", ep.SuccessStatus, statusList(ep)))
 	}
 
@@ -610,7 +758,12 @@ func (c *Client) receive(ep apicontract.Endpoint, path string, resp *http.Respon
 	if err != nil {
 		return violation(err.Error())
 	}
-	if !slices.Contains(declared, code) {
+	// An agent token meets refusals no operation declares one by one (the
+	// token is checked before the handler is reached), so under a bearer the
+	// AGENT_ family is accepted at any status; anything else must still be
+	// declared.
+	agentRefusal := c.bearer != "" && strings.HasPrefix(string(code), "AGENT_")
+	if !slices.Contains(declared, code) && !agentRefusal {
 		return violation(fmt.Sprintf("the code %q is not one of the %d the operation declares at %d (%s)",
 			code, len(declared), resp.StatusCode, codeList(declared)))
 	}
@@ -622,6 +775,7 @@ func (c *Client) receive(ep apicontract.Endpoint, path string, resp *http.Respon
 		Code:          code,
 		Message:       message,
 		CorrelationID: correlationID,
+		Header:        resp.Header.Clone(),
 	}
 }
 

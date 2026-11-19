@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/model"
 )
 
 // This file is the durable half of FR-30's move journal: one row in
@@ -379,6 +379,22 @@ func (j *Journal) AdvanceMove(ctx context.Context, a MoveAdvance) (Move, error) 
 	mv, err := getMove(ctx, tx, a.MoveID)
 	if err != nil {
 		return Move{}, err
+	}
+
+	// The encrypted record rides in the same transaction as the placement
+	// it describes, so a journal read at any instant has both or neither,
+	// and a refusal (a stored digest equal to the plaintext one, a stored
+	// size that does not exceed the plaintext's) rolls the phase back too.
+	for _, p := range a.Placements {
+		if p.Encryption == nil {
+			continue
+		}
+		if err := p.Encryption.validate(); err != nil {
+			return Move{}, err
+		}
+		if err := recordPlacementEncryptionTx(ctx, tx, mv.Artifact, p.Medium, *p.Encryption); err != nil {
+			return Move{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return Move{}, fmt.Errorf("state: commit advance move: %w", err)

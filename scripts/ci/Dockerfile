@@ -13,9 +13,11 @@
 # workspace whose node_modules were not installed. A gate whose verdict
 # depends on what somebody's laptop updated overnight is not a gate.
 #
-# Everything the gate shells out to is here and pinned: go, golangci-lint
-# at the version .github/workflows/ci.yml installs, node and npm at the
-# major that workflow uses, the docker CLI and the compose plugin.
+# Everything the gate shells out to is here and pinned (ffmpeg, for the
+# docs-site capture tooling check, is the distribution's, #1455): go, golangci-lint
+# at the version scripts/ci/pins.env names (scripts/ci-docker.sh passes it
+# in), node and npm at a fixed major, the docker CLI and the compose
+# plugin.
 #
 # The DAEMON is deliberately not here. scripts/ci-docker.sh explains why
 # this talks to the host's daemon through a mounted socket instead of
@@ -26,10 +28,22 @@
 ARG GO_VERSION=1.27
 FROM golang:${GO_VERSION}-bookworm
 
-# Restated from .github/workflows/ci.yml rather than fetched as latest.
-# A lint gate that changes underneath you is a gate that goes red for a
-# reason nobody in the repository caused.
-ARG GOLANGCI_LINT_VERSION=v2.13.2
+# From scripts/ci/pins.env, through scripts/ci-docker.sh, rather than
+# fetched as latest. A lint gate that changes underneath you is a gate that
+# goes red for a reason nobody in the repository caused. The default here
+# is the same number, for a build by hand.
+ARG GOLANGCI_LINT_VERSION=v2.15.0
+
+# The age CLI the suite vectors decrypt with (EPIC T, #1313), from
+# scripts/ci/pins.env the same way.
+ARG AGE_VERSION=v1.3.2
+
+# ruff and mypy, the gate's Python lint step (#672), from scripts/ci/pins.env
+# the same way (#1331). Without them the gate ledgers that step and a run in
+# this image could never end ok. Installed into their own venv so pip never
+# touches the distribution's python3.
+ARG RUFF_VERSION=0.17.4
+ARG MYPY_VERSION=2.4.1
 
 # node and npm copied out of the official image rather than installed
 # from a distribution repository, so this and CI are the same build and
@@ -46,12 +60,18 @@ RUN set -eux; \
     ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm; \
     ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx; \
     apt-get update; \
-    apt-get install -y --no-install-recommends python3 jq; \
+    apt-get install -y --no-install-recommends python3 python3-venv python3-yaml jq ffmpeg; \
     rm -rf /var/lib/apt/lists/*; \
     go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"; \
+    go install "filippo.io/age/cmd/age@${AGE_VERSION}"; \
+    python3 -m venv /opt/pylint; \
+    /opt/pylint/bin/pip install --no-cache-dir "ruff==${RUFF_VERSION}" "mypy==${MYPY_VERSION}"; \
+    ln -s /opt/pylint/bin/ruff /usr/local/bin/ruff; \
+    ln -s /opt/pylint/bin/mypy /usr/local/bin/mypy; \
     go clean -cache -modcache; \
     go version; node --version; npm --version; docker --version; \
-    docker compose version; golangci-lint --version; python3 --version
+    docker compose version; golangci-lint --version; python3 --version; age --version; \
+    python3 -c "import yaml"; ruff --version; mypy --version
 
 # Every checkout this runs against is bind-mounted from the host and is
 # owned by the host user, not by root. Without this git refuses it as
@@ -94,7 +114,7 @@ ARG CI_GID=1000
 RUN set -eux; \
     if ! getent group "${CI_GID}" >/dev/null; then groupadd -g "${CI_GID}" ci; fi; \
     useradd -o -u "${CI_UID}" -g "${CI_GID}" -d /ci -s /bin/bash -M ci; \
-    mkdir -p /ci/.cache/go-build /ci/go/pkg/mod /ci/.npm /ci/.cache/backupd-tests-gate; \
+    mkdir -p /ci/.cache/go-build /ci/go/pkg/mod /ci/.npm /ci/.cache/retnd-tests-gate; \
     chown -R "${CI_UID}:${CI_GID}" /ci; \
     chmod -R 0775 /ci; \
     getent passwd "${CI_UID}"

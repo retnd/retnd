@@ -16,6 +16,10 @@
  * build. A provider shell that wants something else passes it, which is
  * how the browser suite drives real screens against fixtures without this
  * file knowing that is happening.
+ *
+ * The mock is loaded with a dynamic import() (#1216), so the first render
+ * waits one module fetch in development and a production build, where the
+ * condition folds to false, never contains the mock or its fixtures.
  */
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -24,8 +28,8 @@ import { App } from "@shared/App";
 import { ApiProvider } from "@shared/api/ApiContext";
 import { PlatformProvider } from "@shared/platform/PlatformContext";
 import { httpApi } from "@shared/api/client";
-import { createMockApi, scenarioFromLocation } from "@shared/api/mock";
-import type { BackupdApi } from "@shared/api/contracts";
+import { withHttpAssurance } from "@shared/assurance/realAssurance";
+import type { RetndApi } from "@shared/api/contracts";
 import type { PlatformBridge } from "@shared/types/platform";
 import { TooltipAutoAttach } from "@shared/tooltips/TooltipAutoAttach";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -33,11 +37,8 @@ import { ErrorBoundary } from "./ErrorBoundary";
 /** The single mount path every provider shell calls. A provider supplies its
  *  bridge and, optionally, its own API instance. Nothing provider-specific
  *  lives below this line. */
-export function createApp(
-  container: HTMLElement,
-  bridge: PlatformBridge,
-  api: BackupdApi = import.meta.env.DEV ? createMockApi(scenarioFromLocation()) : httpApi
-) {
+export async function createApp(container: HTMLElement, bridge: PlatformBridge, provided?: RetndApi): Promise<void> {
+  const api = provided ?? (import.meta.env.DEV ? (await import("./devApi")).createDevApi() : withHttpAssurance(httpApi));
   createRoot(container).render(
     <StrictMode>
       <ErrorBoundary>

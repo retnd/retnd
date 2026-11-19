@@ -60,7 +60,7 @@ type Image struct {
 
 // ContainerPaths are the mount points inside the container. Identical for
 // every provider, because they are baked into the binaries' own defaults
-// (apps/generic/cmd/backupd-web's defaultConfigPath and
+// (apps/generic/cmd/retnd-web's defaultConfigPath and
 // defaultAuthStorePath) rather than chosen per platform.
 type ContainerPaths struct {
 	State   string `json:"state"`
@@ -75,6 +75,31 @@ type ContainerPaths struct {
 	Config     string `json:"config"`
 	SSHKey     string `json:"sshKey"`
 	KnownHosts string `json:"knownHosts"`
+
+	// Runtime, Workflows and RunnerToken are the workflow runner's three
+	// container paths, and they are declared here so that a mount of any
+	// of them is a path the canonical image KNOWS about. They are not
+	// roles every platform maps, which is the difference HostPlaneRoles
+	// below exists to hold.
+	//
+	// Runtime holds the runner's Unix socket and is the only directory the
+	// engine's container mounts from the host plane. Workflows holds the
+	// scripts, read-only: the engine reads them, and a process that could
+	// rewrite one could run anything it liked on the host. RunnerToken is
+	// the installation-scoped credential the engine presents on that
+	// socket (#877), read-only for the same reason the SSH key is.
+	Runtime     string `json:"runtime"`
+	Workflows   string `json:"workflows"`
+	RunnerToken string `json:"runnerToken"`
+
+	// Validators and ValidatorsSuperseded are the two directories under
+	// Workflows that the engine WRITES (#1246): custom recovery-test
+	// validators, and where a removed one's script is moved. Workflows is
+	// read-only, so they are mounted writable on their own over it, which
+	// keeps every hook script an operator wrote read-only. ValidatorRoles
+	// below says how optional they are.
+	Validators           string `json:"validators"`
+	ValidatorsSuperseded string `json:"validatorsSuperseded"`
 }
 
 // HostPaths are the platform's own default locations on the NAS
@@ -282,13 +307,23 @@ type Canonical struct {
 	// Profiles are the runtime profiles the canonical definition declares
 	// and the executable implements. An adapter may select one of these
 	// and nothing else.
-	Profiles       []string       `json:"profiles"`
-	Healthchecks   Healthchecks   `json:"healthchecks"`
-	ListenPort     int            `json:"listenPort"`
-	AuthMode       string         `json:"authMode"`
-	Commands       Commands       `json:"commands"`
-	Binaries       []string       `json:"binaries"`
-	ContainerPaths ContainerPaths `json:"containerPaths"`
+	Profiles     []string     `json:"profiles"`
+	Healthchecks Healthchecks `json:"healthchecks"`
+	ListenPort   int          `json:"listenPort"`
+	AuthMode     string       `json:"authMode"`
+	Commands     Commands     `json:"commands"`
+	Binaries     []string     `json:"binaries"`
+	// RetainedBinaries maps a pre-rename entrypoint the image still
+	// answers to onto the binary it is a hardlink of. Issue #890's
+	// one-release overlap; renameoverlap.go is the only reader and #895
+	// removes both.
+	//
+	// Separate from Binaries because the two answer different questions:
+	// Binaries is what the image CONTAINS, so it is what
+	// container/release-manifest.json has to record a SHA-256 for, and a
+	// hardlink has no hash of its own.
+	RetainedBinaries map[string]string `json:"retainedBinaries"`
+	ContainerPaths   ContainerPaths    `json:"containerPaths"`
 	// ConfigFileName is the file the engine reads inside the config
 	// directory.
 	ConfigFileName         string   `json:"configFileName"`
@@ -393,6 +428,16 @@ func (c ContainerPaths) ByRole(role string) (string, bool) {
 		return c.SSHKey, true
 	case "knownHosts":
 		return c.KnownHosts, true
+	case "runtime":
+		return c.Runtime, true
+	case "workflows":
+		return c.Workflows, true
+	case "runnerToken":
+		return c.RunnerToken, true
+	case "validators":
+		return c.Validators, true
+	case "validatorsSuperseded":
+		return c.ValidatorsSuperseded, true
 	}
 	return "", false
 }
@@ -417,6 +462,54 @@ func (h HostPaths) ByRole(role string) (string, bool) {
 // Roles is the fixed set of storage roles every platform maps, in a stable
 // order so table-driven tests report deterministically.
 var Roles = []string{"state", "backups", "config", "sshKey", "knownHosts"}
+
+// HostPlaneRoles are container paths the canonical image knows about and
+// does NOT require of every platform.
+//
+// The distinction is the point of this list, and collapsing it back into
+// Roles breaks the product in one direction or the other. These three
+// paths belong to the workflow runner, which is a host-plane feature: the
+// canonical compose stack mounts them, and a NAS store profile that never
+// deploys a runner has no business being told it is missing storage. Put
+// them in Roles and every one of those profiles fails for not mounting a
+// directory it has no use for. Leave them out of the contract altogether,
+// which is where they were until this list existed, and the reverse
+// happens: roleForContainerPath cannot name them, CheckRequiredMounts
+// reads each one as "a mount the binaries never read", and the two
+// profiles that DO deploy the canonical stack fail instead.
+//
+// So: known, and optional. A profile that mounts one is held to the write
+// mode canonical.json declares for it; a profile that mounts neither is
+// never asked about it.
+var HostPlaneRoles = []string{"runtime", "workflows", "runnerToken"}
+
+// ValidatorRoles are the custom validator directories (#1246): known,
+// optional, and held to their write mode when carried, like
+// HostPlaneRoles, and optional even for a profile that declares local
+// hooks, which HostPlaneRoles are not. A profile that carries the script
+// tree and not these still runs every hook; what it cannot do is keep a
+// validator uploaded through the API, and the engine says so in words
+// when one is uploaded. The canonical stack carries both.
+var ValidatorRoles = []string{"validators", "validatorsSuperseded"}
+
+// OptionalRoles is HostPlaneRoles and ValidatorRoles: every known role a
+// profile may leave out.
+func OptionalRoles() []string {
+	out := make([]string, 0, len(HostPlaneRoles)+len(ValidatorRoles))
+	out = append(out, HostPlaneRoles...)
+	out = append(out, ValidatorRoles...)
+	return out
+}
+
+// KnownRoles is every role the canonical image recognises, required or
+// not. Anything deciding "is this container path one of ours" reads this;
+// anything deciding "must this platform mount it" reads Roles.
+func KnownRoles() []string {
+	out := make([]string, 0, len(Roles)+len(HostPlaneRoles)+len(ValidatorRoles))
+	out = append(out, Roles...)
+	out = append(out, OptionalRoles()...)
+	return out
+}
 
 // Contains reports whether child is parent or sits underneath it, treating
 // both as cleaned absolute-style POSIX paths. It is deliberately textual:

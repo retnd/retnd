@@ -1,0 +1,23 @@
+# Recovery-test mode required with no validator on the set or on the
+# deployment. A test with nothing to run proves only that bytes came back,
+# so it is refused rather than quietly downgraded.
+poll_interval: 15m
+
+state:
+  database: /var/lib/retnd/state.db
+
+sources:
+  - id: production
+    backup_sets:
+      - id: postgres-primary
+        remote:
+          type: local
+        remote_path: /srv/exports/postgres-primary
+        local_path: /backups/production/postgres-primary
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h
+        assurance:
+          recovery_test:
+            mode: required

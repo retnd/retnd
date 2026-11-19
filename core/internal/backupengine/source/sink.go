@@ -6,10 +6,10 @@ import (
 	"io"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/sourceconsistency"
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/sourceconsistency"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // Streamer opens one object on a backup SOURCE for a single forward read.
@@ -278,7 +278,7 @@ func (s RepositorySink) Store(ctx context.Context, obj Object) (Stored, error) {
 // snapshotTags is the caller's tags plus the two this sink owns.
 //
 // The identity tags are written LAST, so a caller that passes
-// "backupd.set" itself does not get to say which set this is. They are
+// "retnd.set" itself does not get to say which set this is. They are
 // the repository's answer about its own contents, and a sink that let a
 // tag map overwrite them would make the co-tenancy signal something a
 // configuration file could lie about.

@@ -4,10 +4,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/alert"
-	"github.com/backupdproject/backupd/core/internal/capacity"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/alert"
+	"github.com/retnd/retnd/core/internal/capacity"
+	"github.com/retnd/retnd/core/internal/health"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // Work Package 3.5: turning verdicts this product already reached into
@@ -142,7 +143,7 @@ func (s *Service) runAlertTicks(ctx context.Context, interval time.Duration) {
 //
 // Three sources, all of them existing:
 //
-//   - BuildHealthReport, exactly as `backupd status` calls it, for
+//   - BuildHealthReport, exactly as `retnd status` calls it, for
 //     the FR-24 state and failure count of every configured backup set.
 //     Reusing it is the point: there is no second freshness rule here to
 //     drift away from internal/health's decideState, and the report is
@@ -285,6 +286,26 @@ func (s *Service) evaluateAlerts(ctx context.Context, report CycleReport) {
 	// as often.
 	conditions = append(conditions, s.RepositoryAlertConditions(ctx)...)
 
+	// EPIC N's refusal (#1294, FR-66): a required policy whose key cannot be
+	// resolved refuses the copy, and this is what tells whoever is on the
+	// other end of the notifier. See KeyCustodyAlertConditions.
+	keyConditions, keyUnevaluated := s.KeyCustodyAlertConditions(ctx, alertable)
+	conditions = append(conditions, keyConditions...)
+	unevaluated = append(unevaluated, keyUnevaluated...)
+	// And the other way round (#1304): copies already written under an
+	// external key whose reference was dropped.
+	extConditions, extUnevaluated := s.ExternalKeyAlertConditions(ctx, alertable, keyConditions)
+	conditions = append(conditions, extConditions...)
+	unevaluated = append(unevaluated, extUnevaluated...)
+
+	// EPIC Q's assurance conditions, from the same health report: a copy
+	// that keeps failing its scrub, a scrub that has lapsed, and a required
+	// recovery test that failed or has lapsed. They ride the dispatcher a
+	// configured notifier already has, with its de-duplication, so a failing
+	// scrub reaches the operator without anybody having written a script.
+	// The assurance-after scripts stay as the extension point beside this.
+	conditions = append(conditions, alert.AssuranceConditions(s.assuranceSignals(healthReport, alertable))...)
+
 	s.Alerts.Observe(ctx, conditions, unevaluated, s.now())
 }
 
@@ -294,7 +315,7 @@ func (s *Service) evaluateAlerts(ctx context.Context, report CycleReport) {
 // A backup set saved disabled (config.BackupSet.Disabled, issue #146's
 // "Save disabled" tier) is excluded, and that exclusion is the whole
 // reason this exists. BuildHealthReport reports a disabled set like any
-// other, correctly: `backupd status` should still show it, and
+// other, correctly: `retnd status` should still show it, and
 // FR-24 has no notion of a set being switched off. Alerting is a
 // different question. A disabled set is never polled, so its newest
 // known-good backup ages past stale_after and stays there forever, and
@@ -310,6 +331,32 @@ func (s *Service) alertableBackupSets() map[model.BackupSetID]bool {
 				continue
 			}
 			out[bs.ID] = true
+		}
+	}
+	return out
+}
+
+// assuranceSignals reduces the health report to what the alert layer is
+// allowed to say about assurance: counts and flags, never a path or a
+// validator's output (alert.AssuranceSignal has no field for either).
+func (s *Service) assuranceSignals(r health.Report, alertable map[model.BackupSetID]bool) []alert.AssuranceSignal {
+	var out []alert.AssuranceSignal
+	for _, bs := range r.BackupSets {
+		if !alertable[bs.Set] {
+			continue
+		}
+		sig := alert.AssuranceSignal{
+			BackupSet:           bs.Set.String(),
+			ScrubFailing:        bs.ScrubFailingCopies,
+			ScrubOverdue:        bs.ScrubOverdueCopies,
+			RecoveryTestFailing: bs.RecoveryTestFailed,
+			RecoveryTestOverdue: bs.RecoveryTestLapsed,
+		}
+		if cfg, ok := s.backupSet(bs.Set); ok {
+			sig.ValidatorID = cfg.Assurance.RecoveryTest.ValidatorID
+		}
+		if sig.ScrubFailing > 0 || sig.ScrubOverdue > 0 || sig.RecoveryTestFailing || sig.RecoveryTestOverdue {
+			out = append(out, sig)
 		}
 	}
 	return out

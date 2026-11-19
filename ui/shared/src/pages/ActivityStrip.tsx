@@ -47,6 +47,16 @@ import { bytes, clock, rate, relativeAge } from "@shared/utilities/format";
 import { StatusBadge } from "@shared/components/StatusBadge";
 import type { StatusTone } from "@shared/components/StatusBadge";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
+import { copyText } from "@shared/utilities/copyText";
+import { encryptionEventText } from "@shared/encryption/feedText";
+import { Link, useInRouterContext } from "react-router-dom";
+import { backupSetPath } from "@shared/utilities/routes";
+import { showSetInTerminal } from "@shared/state/dockFocus";
+import { stageWords as stageWordsOf } from "@shared/types/operation";
+import {
+  recoveryEndText, recoveryStageText, recoveryStartText, recoveryTestEndText, recoveryTestStartText,
+  scrubFailureText, scrubPassText, scrubStartText
+} from "@shared/assurance/feedText";
 
 /** How each line is coloured in the log. It is a display decision made
  *  here on purpose: the service carries the engine's own level, outcome
@@ -342,8 +352,8 @@ export function activityLine(e: SetActivityEvent): ActivityLine {
       // lines down. The wire carries a command bare and the "$ " belongs
       // to the terminal, and until the dock read this seam the two never
       // met on one screen: a notice only ever appeared in the per-set
-      // panel. They meet now, and one log printing `$ backupd run` for a
-      // request the engine served and `backupd run` for one it refused is two
+      // panel. They meet now, and one log printing `$ retnd run` for a
+      // request the engine served and `retnd run` for one it refused is two
       // renderings of the same thing three lines apart. RunControlNotice
       // draws the prompt too, so this is the third surface agreeing
       // rather than a new convention.
@@ -354,7 +364,7 @@ export function activityLine(e: SetActivityEvent): ActivityLine {
     case "api_action": {
       // Something somebody did through the API rather than something the
       // cycle did (issue #599). The engine composes the summary, the
-      // refusal's own words and the `backupd` command line; this
+      // refusal's own words and the `retnd` command line; this
       // lays them out. Rendering it here rather than only in the dock is
       // what gives a set's own strip, and every export, the same lines:
       // logText is built on this function.
@@ -377,7 +387,61 @@ export function activityLine(e: SetActivityEvent): ActivityLine {
       text = parts.join("\n");
       break;
     }
+    case "agent_action": {
+      // Something an agent did or was refused, or a change of its that is
+      // waiting on a person (EPIC U, #1348). The engine composes the
+      // sentence, which already names the agent and the tool; this adds what
+      // an operator needs to find the row behind it in `retnd agent audit`:
+      // the correlation id, and the confirmation when there is one. Reads
+      // never reach this feed (the trail has its own table), so a line here
+      // is always something that changed, was refused or needs deciding.
+      const parts = [e.message || e.event];
+      if (f.confirmation_id) parts.push("  confirmation " + f.confirmation_id + (f.state ? " (" + f.state + ")" : ""));
+      if (f.correlation_id) parts.push("  correlation id " + f.correlation_id);
+      text = parts.join("\n");
+      break;
+    }
+    // EPIC Q (issue #985): the events a scrub, a recovery and a recovery test
+    // produce. Each has its own sentence (assurance/feedText.ts, shared with
+    // the operation panel) rather than the fallback below, because the
+    // fallback prints `trigger=manual scope=set a/b selected=3 ...` and a
+    // scrub that found a copy wrong must read as that, in words, in the same
+    // place a passing one does. The colour is the line's stated result, as
+    // for every line.
+    case "scrub_start":
+      text = scrubStartText(e);
+      break;
+    case "scrub_pass":
+      text = scrubPassText(e);
+      break;
+    case "scrub_failure":
+      text = scrubFailureText(e);
+      break;
+    case "recovery_start":
+      text = recoveryStartText(e);
+      break;
+    case "recovery_stage":
+      text = recoveryStageText(e);
+      break;
+    case "recovery_end":
+      text = recoveryEndText(e);
+      break;
+    case "recovery_test_start":
+      text = recoveryTestStartText(e);
+      break;
+    case "recovery_test_end":
+      text = recoveryTestEndText(e);
+      break;
     default: {
+      // EPIC N (issue #995): the key's life and the stages of an encrypted
+      // copy have their own sentences (encryption/feedText.ts). They fall to
+      // the generic line below only when the engine names an event this build
+      // does not.
+      const encrypted = encryptionEventText(e);
+      if (encrypted !== null) {
+        text = encrypted;
+        break;
+      }
       // An event name this build has no rendering for. Its own message
       // plus its own fields is a worse line, not a broken one, and it is
       // what keeps a new event in the engine visible without a UI release.
@@ -518,7 +582,7 @@ function barFill(activity: SetActivity, live: boolean, stale: boolean): { classN
 function stepSentence(activity: SetActivity, stale: boolean): { lead: string; subject: string | null; trail: string } {
   const fraction = fractionWords(activity);
   const stage = activity.stage ?? "working";
-  const stageWords = stage.replace(/-/g, " ");
+  const stageWords = stageWordsOf(stage);
   if (activity.active) {
     // A reading nobody can refresh keeps its fraction and loses every
     // number that is a claim about now. A rate is measured over the last
@@ -535,12 +599,18 @@ function stepSentence(activity: SetActivity, stale: boolean): { lead: string; su
     }
     const parts: string[] = [];
     if (fraction) parts.push(fraction);
+    // The two stages of an encrypted copy (#1290) have no rate, so the
+    // bytes are what shows that one is moving: the artifact's read for
+    // encrypting, the stored object's for decrypt-verifying.
+    if ((stage === "encrypting" || stage === "decrypt-verifying") && activity.bytesTransferred !== null) {
+      parts.push(bytes(activity.bytesTransferred) + (activity.bytesTotal !== null ? " of " + bytes(activity.bytesTotal) : ""));
+    }
     if (activity.bytesPerSecond !== null) parts.push(rate(activity.bytesPerSecond));
     const left = remaining(activity);
     if (left) parts.push(left);
     if (activity.failures > 0) parts.push(failureWords(activity.failures) + " so far");
     parts.push("in progress");
-    const lead = stage.charAt(0).toUpperCase() + stage.slice(1).replace(/-/g, " ");
+    const lead = stageWordsOf(stage).charAt(0).toUpperCase() + stageWordsOf(stage).slice(1);
     return { lead: activity.artifact ? lead : lead + "…", subject: activity.artifact, trail: parts.join(" · ") };
   }
   if (activity.failures > 0) {
@@ -579,6 +649,14 @@ function stepSentence(activity: SetActivity, stale: boolean): { lead: string; su
   return { lead: "Idle", subject: null, trail: "no cycle has run since this service started" };
 }
 
+/** An action's name as a person says it. The two EPIC Q actions are said in
+ *  words; any other name is shown as the engine spelled it, never hidden. */
+function actionWords(action: string): string {
+  if (action === "recovery_test") return "Recovery test";
+  if (action === "recovery") return "Recovery";
+  return action;
+}
+
 /**
  * The line above the log for an action that announced itself and has not
  * said how it went (issue #625).
@@ -594,15 +672,19 @@ function stepSentence(activity: SetActivity, stale: boolean): { lead: string; su
  *
  * A warning tone rather than an error one, on purpose. Nothing has gone
  * wrong yet; something has failed to say that it has not.
+ *
+ * `onTerminal` is for the docked terminal, which is a dark surface in both
+ * themes: --warn is drawn for the page and is 3.84:1 on it in the light theme
+ * (#1235), so it takes the terminal's own warning ink there.
  */
-export function UnfinishedActionsNotice({ actions }: { actions: UnfinishedAction[] }) {
+export function UnfinishedActionsNotice({ actions, onTerminal = false }: { actions: UnfinishedAction[]; onTerminal?: boolean }) {
   if (actions.length === 0) return null;
   return (
     <InfoTooltip id="activity.unfinished-action" block>
-      <div style={{ padding: "0 var(--space-5) var(--space-3)", color: "var(--warn)", fontSize: "var(--text-xs)" }}>
+      <div style={{ padding: "0 var(--space-5) var(--space-3)", color: onTerminal ? "var(--term-warn)" : "var(--warn)", fontSize: "var(--text-xs)" }}>
         {actions.map((a) => (
           <div key={a.actionId}>
-            {a.action} started {relativeAge(a.startedAt)} and has not reported an outcome.
+            {actionWords(a.action)} started {relativeAge(a.startedAt)} and has not reported an outcome.
           </div>
         ))}
       </div>
@@ -610,7 +692,7 @@ export function UnfinishedActionsNotice({ actions }: { actions: UnfinishedAction
   );
 }
 
-function ActivityLogView({ events }: { events: SetActivityEvent[] }) {
+function ActivityLogView({ events, label, caption }: { events: SetActivityEvent[]; label: string; caption: boolean }) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const latest = events.length > 0 ? events[events.length - 1].sequence : 0;
 
@@ -623,7 +705,20 @@ function ActivityLogView({ events }: { events: SetActivityEvent[] }) {
   }, [latest]);
 
   return (
-    <div className="activity-log" role="log" aria-live="polite" ref={scroller}>
+    <div className="activity-log" role="log" aria-live="polite" aria-label={"Terminal log for " + label} ref={scroller}>
+      {/* #1504: a log scrolled into view on its own still says whose it is.
+          Only where the page does not already say it: a set's own page has
+          its name in the header two lines up. The log is named for the set
+          either way. */}
+      {caption ? <div
+        style={{
+          position: "sticky", top: 0, margin: "calc(var(--space-2) * -1) calc(var(--space-3) * -1) var(--space-2)",
+          padding: "var(--space-1) var(--space-3)", background: "var(--accent-quiet)", color: "var(--text)",
+          fontFamily: "var(--font-sans)", fontSize: "var(--text-xs)", fontWeight: 600
+        }}
+      >
+        Terminal log for {label}
+      </div> : null}
       {events.map((e) => {
         const line = activityLine(e);
         return (
@@ -662,11 +757,11 @@ function ActivityToolbar({
 
   const copy = useCallback(() => {
     const text = logText(events);
-    // Optional chaining rather than a guard: a browser without the async
-    // clipboard (an http:// origin, most notably) should leave the button
-    // inert rather than throw into a panel an operator is reading.
-    void navigator.clipboard?.writeText(text);
-    setCopied(true);
+    // copyText works on a plain-http origin too (retnd#1049), and "copied"
+    // is shown only when the text really was.
+    void copyText(text).then((outcome) => {
+      if (outcome === "copied") setCopied(true);
+    });
   }, [events]);
 
   useEffect(() => {
@@ -692,6 +787,11 @@ function ActivityToolbar({
           {open ? "Hide log" : "Show log"}
         </button>
       </InfoTooltip>
+      {setId ? (
+        <button type="button" className="activity-toolbar__toggle" data-set-id={setId} onClick={() => showSetInTerminal(setId)}>
+          Show in Terminal
+        </button>
+      ) : null}
       <InfoTooltip id="activity.strip.line-count">
         <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-3)" }}>
           {events.length} {events.length === 1 ? "line" : "lines"}
@@ -762,12 +862,25 @@ export function ActivityStrip({
 }) {
   const [open, setOpen] = useState(true);
   const label = "Activity for " + set.name;
+  const inRouter = useInRouterContext();
+  // #1504: on the Dashboard a set's activity is its own block, with an edge
+  // on every side, so a column of them reads as separate sets and not as one
+  // long log. On a set's own page the page is the container, so none.
+  const card: CSSProperties = heading
+    ? { border: "1px solid var(--edge)", borderRadius: "var(--radius-lg, 12px)", overflow: "hidden", background: "var(--surface)" }
+    : {};
+  // The set's name opens its details page, where the Dashboard is a router.
+  const nameNode = (
+    heading && inRouter
+      ? <Link to={backupSetPath(set.source, set.set)} style={{ color: "var(--link, var(--accent))", textDecoration: "underline", textUnderlineOffset: 3 }}>{set.name}</Link>
+      : set.name
+  );
 
   if (activity === null) {
     return (
-      <section aria-label={label} style={{ padding: "var(--space-4) var(--space-5)" }}>
+      <section aria-label={label} style={{ padding: "var(--space-4) var(--space-5)", ...card }}>
         <InfoTooltip id="activity.strip.name" block>
-          <div style={{ fontWeight: 600, fontSize: "var(--text-md)" }}>{set.name}</div>
+          <div style={{ fontWeight: 600, fontSize: "var(--text-md)" }}>{nameNode}</div>
         </InfoTooltip>
         <InfoTooltip id="activity.strip.checking" block>
           <div style={{ color: "var(--text-2)", fontSize: "var(--text-sm)", marginTop: "var(--space-2)" }}>
@@ -803,7 +916,7 @@ export function ActivityStrip({
       : set.name + ": " + words;
 
   return (
-    <section aria-label={label}>
+    <section aria-label={label} style={card}>
       {heading ? (
         <div
           style={{
@@ -814,7 +927,7 @@ export function ActivityStrip({
         >
           <div style={{ minWidth: 0 }}>
             <InfoTooltip id="activity.strip.name" block>
-              <div style={{ fontWeight: 600, fontSize: "var(--text-md)" }}>{set.name}</div>
+              <div style={{ fontWeight: 600, fontSize: "var(--text-md)" }}>{nameNode}</div>
             </InfoTooltip>
             <InfoTooltip id="activity.strip.remote" block>
               <div style={{ color: "var(--text-3)", fontSize: "var(--text-xs)", fontFamily: "var(--font-mono)" }}>
@@ -894,7 +1007,7 @@ export function ActivityStrip({
       <UnfinishedActionsNotice actions={activity.unfinishedActions ?? []} />
 
       <ActivityToolbar events={activity.events} open={open} onToggle={() => setOpen((v) => !v)} setId={activity.setId} />
-      {open ? <ActivityLogView events={activity.events} /> : null}
+      {open ? <ActivityLogView events={activity.events} label={set.name} caption={heading} /> : null}
     </section>
   );
 }

@@ -11,7 +11,7 @@ import (
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/object"
 
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // The compile-time assertion that this adapter really is the capability
@@ -28,7 +28,7 @@ var _ transport.SourceWriteProbe = (*Adapter)(nil)
 // between the two halves) knows immediately what wrote it and that
 // deleting it is safe. internal/mediumcheck's probeBody is the same
 // decision on the medium side.
-var probeBody = []byte("backupd write-permission probe. This file is written and deleted by a connection check and is safe to remove.\n")
+var probeBody = []byte("retnd write-permission probe. This file is written and deleted by a connection check and is safe to remove.\n")
 
 // The three refusals ProbeSourceWrite reports, as this package's own
 // errors, and the reason they are all it reports.
@@ -112,7 +112,18 @@ func (a *Adapter) ProbeSourceWrite(ctx context.Context, src transport.Source) er
 	if err != nil {
 		return transport.NewError(transport.Configuration, "probe_source_write", err)
 	}
+	return probeOn(ctx, f, name)
+}
 
+// probeOn is the probe itself, on an Fs already built, under the name the
+// caller chose. It is split out so the two not-removed shapes can be
+// forced in a unit test; ProbeSourceWrite is its only production caller.
+//
+// Both not-removed shapes come back as a *transport.ProbeNotRemovedError
+// carrying the probe's name (issue #1191), so the operator can be told
+// exactly which file of ours to delete. It still wraps ErrProbeNotRemoved,
+// and it still sits inside a classified *transport.Error.
+func probeOn(ctx context.Context, f fs.Fs, name string) error {
 	info := object.NewStaticObjectInfo(name, time.Now(), int64(len(probeBody)), true, nil, f)
 	written, err := f.Put(ctx, bytes.NewReader(probeBody), info)
 	if err != nil {
@@ -121,22 +132,22 @@ func (a *Adapter) ProbeSourceWrite(ctx context.Context, src transport.Source) er
 
 	if err := written.Remove(ctx); err != nil {
 		return transport.NewError(ClassifyCtx(ctx, err), "probe_source_write",
-			errors.Join(transport.ErrProbeNotRemoved, errProbeNotDeleted))
+			&transport.ProbeNotRemovedError{Name: name, Err: errProbeNotDeleted})
 	}
 
 	// The delete is CONFIRMED, for the reason the doc above gives: a
 	// backend that accepts a remove and keeps the object would otherwise
 	// be reported as one this manager may delete from. fs.ErrorObjectNotFound
-	// is the success condition here, so an error that is anything else —
-	// including a connection that dropped between the two calls — is
+	// is the success condition here, so an error that is anything else
+	// (including a connection that dropped between the two calls) is
 	// unconfirmed rather than confirmed, and unconfirmed is not writable.
 	if _, err := f.NewObject(ctx, name); !errors.Is(err, fs.ErrorObjectNotFound) {
 		if err == nil {
 			return transport.NewError(transport.Permanent, "probe_source_write",
-				errors.Join(transport.ErrProbeNotRemoved, errProbeStillThere))
+				&transport.ProbeNotRemovedError{Name: name, Err: errProbeStillThere})
 		}
 		return transport.NewError(ClassifyCtx(ctx, err), "probe_source_write",
-			errors.Join(transport.ErrProbeNotRemoved, errProbeNotDeleted))
+			&transport.ProbeNotRemovedError{Name: name, Err: errProbeNotDeleted})
 	}
 	return nil
 }

@@ -6,20 +6,24 @@ trying to figure out whether you can still get a file back.
 It was written when this product had no operator commands at all, and it works entirely
 against the SQLite journal and the NAS filesystem. That is still the ground truth, and it
 is still the right thing to read at 3am when you do not trust a summary — but it is no
-longer the only interface. `backupd status`, `backupd sources`, `backupd artifacts`,
-`backupd activity`, `backupd validate`, `backupd retention`, `backupd quarantine`,
-`backupd retry` and `backupd catalog rebuild` all exist and answer most of the questions
+longer the only interface. `retnd status`, `retnd sources`, `retnd artifacts`,
+`retnd activity`, `retnd validate`, `retnd retention`, `retnd quarantine`,
+`retnd retry` and `retnd catalog rebuild` all exist and answer most of the questions
 below without a SQL prompt; [the reference
-page](https://backupdproject.github.io/backupd/reference.html#cli-commands) has every one
+page](https://retnd.github.io/retnd/reference.html#cli-commands) has every one
 of them. Where a query below and a command disagree, the query is right about the journal
 and the command is right about what the serving process believes, and the difference itself
 is a finding.
 
-What has not changed, and is not a gap waiting to be filled: **restoring an artifact is
-not an automated command.** The design's answer to "how do I get a backup back" has always
-been "the journal tells you which local file is trustworthy, go and get it". That is the
-permanent shape rather than a workaround. (A backup set on the incremental engine is a
-different story and does have a restore verb — see the note below.)
+**This product recovers and exports the retained artifact; restoring it into an
+application remains the operator's responsibility.** `retnd recover` (and **Recover
+artifact** in the browser) reads one retained copy, proves the bytes are the ones the
+journal recorded, and hands them to one place you named. What it never does is run
+anything against those bytes: putting a database dump back into a database, or an image
+back onto a hypervisor, is still yours to do, and the rest of this page is written for
+the day the product is not in a state to help you do even the first half. (A backup set on
+the incremental engine has a verb of its own, `retnd snapshot restore`, and the next
+section puts all three side by side.)
 
 > **No terminal?** Everything below assumes a shell on the NAS. If you have only the web
 > interface, which is the normal case on a NAS appliance and the case every provider store
@@ -34,11 +38,35 @@ different story and does have a restore verb — see the note below.)
 > nothing on this page applies to it. Read
 > [incremental-runbooks.md](incremental-runbooks.md) instead: it covers a
 > repository that will not open, a snapshot that verified and one that did
-> not, credential recovery, and getting data back out with `backupd snapshot
+> not, credential recovery, and getting data back out with `retnd snapshot
 > restore`. The set's `engine:` key in `config.yaml` says which engine it
 > runs, as does `engine` on `GET /api/v1/backup-sets/{source}/{set}` and the
-> badge on its page in the web interface. (`backupd sources` does not report
+> badge on its page in the web interface. (`retnd sources` does not report
 > it.)
+
+## Three verbs that sound alike, side by side
+
+There are three commands in this product that an operator at 3am could reasonably mistake
+for each other, and picking the wrong one costs either money or time. They are not
+renamed and none of them absorbs another one. The new one is called `recover` on
+purpose: the other word already means two different things here.
+
+| | `retnd recover` | `retnd restore` | `retnd snapshot restore` |
+|---|---|---|---|
+| What it does | Reads one retained copy of an **artifact**, checks it against the digest the journal recorded, and delivers it to one target | Asks a storage provider to make an **archived object** readable again (FR-34's thaw) | Extracts a **snapshot** out of an encrypted repository into a local directory |
+| Applies to | Artifact-engine backup sets, any copy that can be read | A copy sitting in an archive storage class (`requires_restore`) | Backup sets whose `engine` is `kopia` only |
+| Writes bytes | Yes: to a browser download, a path under the staging root, or another configured destination | No, nothing anywhere; it changes what the provider will let you read | Yes: into a directory you name on the engine host |
+| Costs money | Only if the copy is chargeable to read, and then it refuses until you pass `--acknowledge-cost` | Always; it is billed and takes hours, so it refuses without `--acknowledge` | Reads the repository; no thaw |
+| Run it when | You need the file and the normal route to it (the share, the NAS file manager) is gone or not trusted | The copy you need is archived and you have decided to pay to read it | A `kopia` set, and you need files back |
+
+If the artifact is plainly on the NAS's disk and you can reach the share, copying it out of
+the share is still the fastest recovery there is, and nothing here asks you to do it any
+other way. `recover` is for the cases where that is not available, where you want the bytes
+re-checked on the way out, or where you are in the browser and have nothing else.
+
+Neither `recover` nor `restore` puts anything back into an application. Where the two meet
+an archived copy, the order is: `restore` first (and wait), then `recover`. A scheduled
+scrub never does the first step for you, which the cost section below explains.
 
 ## The one fact everything else depends on
 
@@ -69,7 +97,7 @@ sqlite3 /path/to/state.db "
 "
 ```
 
-What `backupd status` reports, and what `core/internal/health` decides it from:
+What `retnd status` reports, and what `core/internal/health` decides it from:
 
 - If the newest row across the whole set is `COMMITTED`, `REMOTE_DELETE_PENDING`,
   `COMPLETE` or `REMOTE_RETAINED`, and it's recent enough for your `stale_after` window,
@@ -132,7 +160,7 @@ strength of that alone; you don't need to re-verify it before copying it out, th
 re-running whatever validator the backup set's config names is never wrong if the stakes
 are high enough to justify the time.
 
-Copy it wherever the restore actually needs to happen. There is no `backupd restore`
+Copy it wherever the restore actually needs to happen. There is no `retnd restore`
 command to do this for you; a plain `cp`, `scp`, or whatever your restore target needs is
 the entire remaining procedure once you have the right path.
 
@@ -183,7 +211,7 @@ gone). Its one exit is back to `DISCOVERED`, meaning a fresh attempt has a real 
 succeeding.
 
 This self-heals the next time discovery and reconciliation run against this backup set,
-which `backupd daemon` does on the poll interval and `backupd reconcile` does on demand.
+which `retnd daemon` does on the poll interval and `retnd reconcile` does on demand.
 On a deployment with nothing serving it, that pass does not happen on its own. Your options, in order of how much you should trust the result:
 
 1. If you or someone else has already wired a runner against these packages (calling
@@ -230,7 +258,7 @@ That's a real operational consequence, not a cosmetic one:
   producer side, manual cleanup, a shorter retention window configured at the source), it
   will fill up on a long enough timeline, in every deployment that follows this project's
   own hardening advice. Monitor remote disk usage independently of this project; don't
-  assume `backupd` is freeing space on the source just because backups keep landing
+  assume `retnd` is freeing space on the source just because backups keep landing
   successfully on the NAS.
 - If you need remote pruning to actually happen in this deployment shape, the honest options
   are: relax the SFTP account's hardening to allow a remote hash command (trading delete-
@@ -243,26 +271,26 @@ That's a real operational consequence, not a cosmetic one:
 ## Step 6: retention decided this backup should be deleted, but it's still there
 
 That's expected, not a bug. A verdict and a deletion are two different things here, and
-nothing crosses between them on its own. [`docs/storage-mediums.md`](storage-mediums.md) and `backupd retention` are the longer
+nothing crosses between them on its own. [`docs/storage-mediums.md`](storage-mediums.md) and `retnd retention` are the longer
 version:
 
 - `core/internal/retention.GFSDecide` only classifies artifacts into keep/not-kept-by-GFS. It
   contains no deletion code at all. A `Keep: false` verdict is a candidate, not an order.
-- Deletion is real, and it is deliberately somewhere else. FR-20 landed in
+- Deletion is real, and it is deliberately somewhere else. FR-20 (issue #21) landed in
   `core/internal/retention/prune.go`: `PruneApply` removes the positively identified local
-  file, and since the object on a storage medium beside it. FR-19's last-known-good
-  protection landed with it and does protect the newest good backup.
+  file, and since #239 the object on a storage medium beside it. FR-19's last-known-good
+  protection (issue #20) landed with it and does protect the newest good backup.
 - Nothing schedules that. The only thing that runs `PruneApply` is the API's retention
   preview/apply pair (`core/service`): `PreviewRetention` issues a `plan_id`, and
   `ApplyRetentionPlan` deletes only against that `plan_id`, and only while the plan it
   re-derives still matches the one an administrator reviewed. No cycle, no daemon and no
   timer ever calls it, so local disk usage grows until somebody applies a plan.
-- `backupd retention` is a preview in both of its modes and deletes nothing, with or
+- `retnd retention` is a preview in both of its modes and deletes nothing, with or
   without `--dry-run`. That is not a gap waiting to be filled: a CLI that deleted backups
   without the `plan_id` confirmation the HTTP path insists on would be a second, weaker
-  authorisation path to the same act.
-- `backupd retention apply <source/backup-set> --acknowledge` is the terminal's own
-  way in, and it is not that second path: it goes through the same
+  authorisation path to the same act (issue #431).
+- `retnd retention apply <source/backup-set> --acknowledge` is the terminal's own
+  way in (issue #602), and it is not that second path: it goes through the same
   `PreviewRetention`/`ApplyRetentionPlan` pair, prints the plan it is about to apply, and
   refuses with `RETENTION_PLAN_STALE` and zero deletions if the set moved in between.
   `--acknowledge` is required, and the refusal without it says what it consents to.
@@ -273,7 +301,7 @@ be safe to remove"; applying them is somebody's deliberate act, through the API 
 that verb.
 
 One thing to know before reading a preview taken AFTER an apply: deleting a file does not
-change the journal, so `backupd retention` goes on listing a pruned artifact as
+change the journal, so `retnd retention` goes on listing a pruned artifact as
 `DELETE` (it reads FR-18/FR-19 classification and never looks at the disk), while the API's
 own preview reports `REFUSE` for it, because FR-20's checks stat the path and find nothing
 there. Both are describing the same backup set; only one of them has looked.
@@ -293,13 +321,13 @@ you.
 First, read why:
 
 ```
-backupd artifacts production/postgres/dump-2026-09-04.zst
+retnd artifacts production/postgres/dump-2026-09-04.zst
 ```
 
 The `reason` line is the literal sentence the manager recorded at the moment it gave up.
 Three shapes come up most:
 
-- **A transient failure that ran out of attempts** ("copy failed: transient:..."). The
+- **A transient failure that ran out of attempts** ("copy failed: transient: ..."). The
   source was unreachable or the link dropped. If it is back, there is nothing else to fix.
 - **A final-name collision.** A file is already sitting where this backup's final copy
   belongs. Move or remove it first; a retry re-checks before it copies a byte, so retrying
@@ -314,7 +342,7 @@ Three shapes come up most:
 Then put it back into the pipeline:
 
 ```
-backupd retry production/postgres/dump-2026-09-04.zst --note "the NAS came back"
+retnd retry production/postgres/dump-2026-09-04.zst --note "the NAS came back"
 ```
 
 That moves the row from `FAILED` to `DISCOVERED` and the next cycle picks it up like any
@@ -333,14 +361,888 @@ The one thing it refuses is a backup whose backup set is no longer in the config
 Sending it back to a set no cycle walks would leave it somewhere nothing picks up and no
 recovery path reaches. Create a backup set with the same source and name first.
 
+## Step 8: a backup set is refusing to run and says its workflow needs recovery
+
+This one is not about an artifact. Nothing in `artifacts` is wrong, and every query above
+will report the set as healthy right up to the moment its next backup does not happen.
+
+What you see is a refusal: a manual run of the set is refused, the scheduler stops visiting
+it, and a `WorkflowRecoveryRequired` condition is raised naming the set and the run. Any
+command that opens the data plane — `retnd fetch`, `retnd daemon` — says so once on the
+way up, before it does anything:
+
+```
+retnd: 2 workflow cleanup(s) from an interrupted run are outstanding; the affected backup sets refuse to run until each is resumed or acknowledged (`retnd workflow recovery show`)
+```
+
+`retnd status` will not tell you. It has no workflow section at all; it reports the set's
+artifacts, and they are fine. The command that answers is:
+
+```
+retnd workflow recovery show
+```
+
+One block per outstanding scope: the run id, the backup set, whether it is the global or the
+set-scoped half, when that scope was entered and how long ago that is by this host's clock,
+where the scripts a resume would execute are retained, and the two commands that end it.
+Beside a serving engine it asks that process, because the refusal a run will actually meet
+lives in that process's memory as well as in the journal; with nothing serving the
+deployment it reads the durable rows instead.
+
+**What it means.** A workflow run has five stages around the backup — global before, this
+set's before, the backup, this set's after, global after — and the "after" stages are the
+ones that put the machine back: thaw the database, unmount the snapshot, restart what was
+stopped. This product records that it has ENTERED a scope before it runs the first hook in
+that scope, and then the process died. On the next start, reconciliation found a step still
+sitting at `running`, whose exit status nobody observed and nobody ever will, and recorded
+it as `interrupted` rather than `failed`. Those are not the same finding: "this script
+reported failure" and "this script's outcome is unknown and its side effects may be
+half-applied" lead to different next moves, and `core/internal/workflow/states.go` keeps
+them apart deliberately. The run moved to `recovery_required`, its captured script bytes
+were retained instead of being reclaimed, the backup set was blocked, and **nothing was
+replayed**. No hook ran. That is the whole of what the restart did.
+
+So the source machine may be sitting quiesced right now, with a perfectly good backup beside
+it. That pairing — a healthy artifact and a machine that was never put back — is why this is
+a hold rather than a warning, and why no amount of waiting clears it.
+
+It is worth knowing what this is *not*. A cleanup that ran and failed is a different row and
+blocks nothing: the obligation was attempted and what happened is recorded, so it is
+discharged (`ObligationFailed` in `core/internal/workflow/obligation.go`), the run is
+`cleanup_failed`, and the set keeps running. That case still means the machine may not be
+back the way the workflow found it — it just means a person, not this product, is the only
+one who can decide that, and there is no hold to lift afterwards.
+
+**What to do.** There are exactly two exits and no third. There is no dismiss, no "ignore",
+and `--skip-workflow-scripts` is not a way past it: a run carrying that flag is refused for
+a blocked set exactly as an ordinary run is, and even where it does run it leaves the
+obligations exactly as it found them, which is what stops a flag from settling a recovery
+it knows nothing about (`core/internal/state/workflowlifecycle.go`).
+
+1. **Read the hold.** `retnd workflow recovery show`, above. If you want it out of the
+   journal instead — because nothing is serving the deployment, or because you do not trust
+   a summary:
+
+   ```bash
+   sqlite3 /path/to/state.db "
+     SELECT o.backup_set_id, o.run_id, o.scope, o.entered_at, r.script_spool_ref
+     FROM workflow_cleanup_obligations o
+     JOIN workflow_runs r ON r.run_id = o.run_id
+     WHERE o.state = 'recovery_required'
+     ORDER BY o.entered_at ASC;
+   "
+   ```
+
+   `entered_at` is the column to read first. It is when the scope was entered, which is the
+   nearest thing the journal has to "how long has this database been left quiesced". Oldest
+   first, for that reason.
+
+2. **Find out what was actually left half-done**, which is a question about the steps:
+
+   ```bash
+   sqlite3 /path/to/state.db "
+     SELECT step_order, step_id, scope, phase, target, script_name, state, started_at, exit_code
+     FROM workflow_steps
+     WHERE run_id = 'wfr_01HX...'
+     ORDER BY step_order ASC;
+   "
+   ```
+
+   The `interrupted` row is the script that was mid-flight. `exit_code` is NULL for it and
+   that is not a gap in the record: no process status ever reached this product, and NULL and
+   0 are emphatically different answers here. `pending` rows after it are hooks that never
+   started. `retnd workflow run log <run-id> --step <step-id>` prints whatever that script
+   managed to say before the process went away, which is usually the fastest way to find out
+   how far it got.
+
+3. **Resume the cleanup**, if the right answer is for this product to finish what it owes:
+
+   ```
+   retnd workflow recovery resume-cleanup wfr_01HX...
+   ```
+
+   It runs only the eligible "after" stages, out of that run's own captured bytes, each one
+   re-verified against the sha256 recorded when the plan was taken. The hooks are told
+   `RETND_RECOVERY=1` and `RETND_CLEANUP_REASON=interrupted_run`, so a script that wants
+   to be careful about a half-applied state can tell this apart from an ordinary unwind. It
+   exits non-zero if the run is still not settled afterwards, because then the backup set is
+   still blocked. Beside a serving engine it is handed to that process, and beside one this
+   command cannot reach it is refused rather than performed here — a resume in a second
+   process would write the journal and leave the serving engine still refusing the set it
+   just unblocked.
+
+4. **Or acknowledge it**, if you have already put the machine back by hand:
+
+   ```
+   retnd workflow recovery acknowledge wfr_01HX... --reason "thawed the database and unmounted /snap by hand"
+   ```
+
+   This executes nothing. It records that a person took responsibility, unblocks the set, and
+   the reason is required — a blank one is refused. That is not ceremony: the entire value of
+   an acknowledgement is answering, six months later, why a backup set was unblocked without
+   its cleanup ever having run. It is stored beside the run, with the actor the surface that
+   took it knows about, and you can read it back:
+
+   ```bash
+   sqlite3 /path/to/state.db "
+     SELECT run_id, scope, acknowledged_at, acknowledged_by, acknowledge_reason
+     FROM workflow_cleanup_obligations
+     WHERE state = 'manually_acknowledged'
+     ORDER BY acknowledged_at DESC;
+   "
+   ```
+
+The run's own row is the other half of the picture, and the two axes on it are separate on
+purpose — a run can be terminal with its recovery still outstanding, which is exactly the
+pair the spool must not be reclaimed under:
+
+```bash
+sqlite3 /path/to/state.db "
+  SELECT run_id, backup_set_id, state, recovery_state,
+         backup_status, workflow_status, cleanup_status,
+         started_at, finished_at, script_spool_ref
+  FROM workflow_runs
+  WHERE recovery_state IN ('required', 'in_progress');
+"
+```
+
+Mind the two spellings, because they are easy to misread as a typo: the run's `state` is
+`recovery_required`, and the `recovery_state` beside it is `required`. The schema is
+`core/migrations/0012_workflow_runs.sql` and `core/migrations/0013_workflow_lifecycle.sql`;
+every one of these vocabularies is plain TEXT with no CHECK constraint, enforced in Go on the
+write path, so a typo in a `WHERE` clause here gets you an empty result rather than an error.
+
+What a resume does not do, and what it cannot promise:
+
+- **It does not re-run the backup.** Only the "after" stages that are still owed.
+- **It does not read `/workflows`, and it does not pick up a config edit made while the
+  daemon was down.** Everything it executes comes out of that run's own spool, verified
+  against the hashes taken when the plan was made, with the environment the run was planned
+  with and its secret references re-resolved. Editing a hook script after the interruption
+  changes nothing about what a recovery executes. If the hook itself is what is broken, a
+  resume will faithfully run the broken one again; fix the machine by hand and acknowledge
+  instead.
+- **A resume that cannot account for everything lands back at `recovery_required`**, durably,
+  and the set stays blocked. It does not half-settle and it does not give up quietly.
+- **Two processes cannot unwind one run at once.** A scope moves to `in_progress` durably
+  before a hook runs, and a second caller that finds it there is refused.
+- **A hook that deliberately detached a child is outside the termination guarantee.**
+  `nohup`, `setsid`, a double fork: such a process is outside the group the reaper can reach,
+  so the step records termination as `unconfirmed` rather than claiming a clean stop, and the
+  per-step working directory is deliberately kept as the forensic record of what may still be
+  writing in there. See `docs/ssh-setup.md` and `docs/adr/0021-remote-ssh-exec.md`.
+
+The hard case this whole mechanism was built for is a power cut, or anything else that
+kills the host outright. It is worth spelling out end to end, because the sequence is not
+obvious from the outside:
+
+1. The machine comes back and `retnd` starts. Its first act on the data plane is the
+   workflow reconciliation, and a failure there ends the invocation rather than proceeding —
+   a process that cannot work out which sets are blocked must not take a backup over a
+   machine that may still be quiesced.
+2. Every run that was in flight is marked, its interrupted steps recorded as `interrupted`,
+   its unsettled scopes moved to `recovery_required`, its spool retained. Sets with an
+   outstanding scope are blocked; every other set runs normally. The startup line quoted at
+   the top of this step is printed once.
+3. Go and look at the source machines named by `retnd workflow recovery show` **before**
+   you clear anything. The journal can tell you which hooks never ran; it cannot tell you
+   what state the other end is actually in. A `df`, a `mount`, and whatever the "before" hook
+   does in reverse is the check.
+4. Clear each hold with one of the two exits above — resume if the scripts should finish the
+   job, acknowledge with a reason if you did it yourself. That is the only way recovery state
+   is ever cleared: nothing ages out, no restart settles anything, and a clean run of the set
+   cannot happen in the meantime because the set is refused.
+
+What this product does **not** promise is that the machine was put back. Power-loss cleanup
+is not guaranteed and cannot be: the hooks that would have un-quiesced the source were never
+going to run with the power off. What is guaranteed is that the fact is durable, that the set
+stops rather than taking a backup over a half-applied state, and that clearing it takes a
+person saying so. If the "after" hooks are load-bearing for your source — a database left in
+backup mode, a filesystem left frozen — the source's own startup is where that has to be made
+safe, not here.
+
+## Getting an artifact back with `retnd recover`
+
+```bash
+retnd recover <artifact-id> --to <name-under-the-staging-root>
+retnd recover <artifact-id> --copy <medium> --acknowledge-cost
+retnd recover <artifact-id> --json
+```
+
+`<artifact-id>` is what `retnd artifacts` prints. `--copy` names a storage medium, and the
+default, `best-available`, picks the readable copy with the strongest verification class
+the journal has recorded for it. `--to` names where the bytes go. There are three kinds of
+target: a stream to your browser or terminal (the **Recover artifact** dialog's *Download in
+this browser*, or `--to -`), a path under the configured staging root, and another configured storage
+destination. The staging root is a host setting and is not something a single recovery
+can move. Unless `assurance.staging_root` says otherwise it is `recovery-staging` beside
+the state database, and recoveries and recovery tests share that one directory. A change
+to the root, its TTL or the read ceilings is read once, so it takes effect when the
+serving process next starts.
+
+Choosing the target in the web interface no longer means typing from memory (#1179). *Staging
+path on the host* shows the folders below the staging root, on the machine retnd runs on, and
+*Use this folder* puts the chosen one in the field (for one backup it adds the backup's own file
+name, because a single recovery's target is `folder/name`; a set or a selection takes the folder
+alone). *Configured destination* is a drop-down of every destination under Settings, Storage
+destinations, and says *None configured* when there are none. On a selection, *Download in this
+browser* makes one link per backup, each from its own single-use grant and each checked against its
+recorded digest by the host as it sends it, and you open each link yourself. It is offered for at most
+as many backups as the engine streams downloads at once (four unless the platform sets fewer, reported
+as `max_download_streams` by `GET /api/v1/settings/assurance`), because the download past that ceiling
+would be refused. A bigger selection goes to a staging folder or a destination. The page counts the
+links you opened, never files arriving, says when the links stop working (a grant lasts two minutes)
+and can make fresh ones. An archived copy is left out and named, because a download link lasts minutes
+and a restore takes hours. The terminal twin is one `retnd recover <id> --to - > <file>` per backup.
+
+The folder list is the host's, so the terminal has it too: `retnd system staging [PATH]` prints
+the same folders as the names `--to` takes, one per line on stdout so a script can read them (the
+root and any note go to stderr). It reads only. It reaches nothing outside the staging root, it
+refuses a name that is absolute, climbs with `..` or goes through a symbolic link, and it never lists
+a link or a file. It asks the engine and refuses without a route to it, because the folders are on
+the engine's machine. The route is `GET /api/v1/system/staging-directories`: a folder that is not
+there is a 404 `DIRECTORY_NOT_FOUND` (the page steps back up to the folder above), one the host may
+not read is a 409 `DIRECTORY_NOT_READABLE`, and a listing reads at most 100,000 entries, returns at
+most 1,000 folders (the first by name, marked as cut) and gives up after ten seconds. The staging
+root's custody check runs again on every listing.
+
+What happens, in order, and why the order is the point:
+
+1. **A grant is minted.** It is short-lived, single-use and tied to the session that asked
+   for it. It is refused on a second use, after it expires, and once that session ends.
+2. **The copy is chosen from the journal.** The work list is the `placements` rows for the
+   artifact, never a listing of a destination. A copy the journal records as pending
+   deletion or gone is not offered.
+3. **Cost is decided before anything is read.** If the only readable copy is chargeable to
+   read, `recover` refuses and says which copy and what reading it costs. If the only copy
+   is archived, it refuses and starts no provider job. Passing `--acknowledge-cost` is the
+   explicit yes, and an acknowledged archive recovery starts exactly one thaw and reports
+   that the recovery has not happened yet.
+4. **The bytes are checked against the recorded digest.** For a staging or storage target
+   they are read through a bounded buffer into a staging file and the digest is compared
+   with the artifact's recorded digest; a copy whose size and recorded class are unchanged
+   and whose bytes were flipped mid-file fails here, before anything is placed. For a
+   download nothing is staged. The host first checks that the copy is there, is the size it
+   recorded and can be read, and (once per artifact, then remembered as a file of digests, 32
+   bytes per 4 MiB) reads the whole copy against the recorded digest, so a damaged copy is
+   refused with its own error before your browser is sent a byte. It then sends the copy
+   straight from where it lives, 4 MiB at a time, checking each piece against that digest
+   before it goes out.
+5. **Only then is the file handed over**, to exactly one target. A staging or storage target
+   is placed under an atomic unique name: a client that disconnects halfway, or a process
+   killed mid-write, leaves nothing that looks like a finished file, staging names are swept
+   on a TTL and reconciled at startup, and a failure to clean up is reported separately from
+   a failure to recover, because one means you did not get your bytes and the other means a
+   disk is filling. A download that fails partway is cut off: the connection is aborted
+   short of the length it promised, so an incomplete file is never mistaken for a whole one.
+   Every download ends in exactly one of three ways, and each writes its own row to the
+   action log and the activity feed, so a page never has to guess which one it is looking
+   at:
+
+   | Outcome | Logged as | Means |
+   |---|---|---|
+   | Completed | `recovery verified` | The ranges served added up to the whole artifact and the digest matched. The row names it |
+   | Interrupted at N of M | `recovery interrupted` | Something other than a bad byte stopped it, most often the client going away. `bytes` is what this request had sent, `total_bytes` is M, and `reached` is the offset N where a resume starts |
+   | Failed verification | `recovery failed verification` | A piece or the whole did not match what the journal recorded, or the copy lost bytes. `bytes` and `total_bytes` say how far it got, and `error_code` says which copy is damaged |
+
+   The page draws these as the badges **Completed**, **Interrupted at N of M bytes** and
+   **Failed verification**, and none of them is drawn as a success: **Completed** is neutral
+   because it means bytes were sent and matched, not that the browser kept the file. An interrupted download is not a failed copy, and a failed
+   verification is not a dropped connection: the first calls for asking again, the second
+   for recovering from another copy.
+
+What a download's checks prove, and what they do not. They prove each piece sent matched the
+digest of the same piece when the whole copy was last read, and that whole read matched the
+digest recorded when the backup was ingested. They do not prove the copy cannot change
+between that read and the transfer (the per-piece check stops it at the first bad piece, and
+what was sent before was good), that your connection holds, or that a storage provider keeps
+answering. A download that was interrupted can be resumed: its `ETag` is the same for every
+link, so a client sending `Range` with `If-Range` under a new link gets the bytes the first
+attempt would have. The first download of a billed remote copy reads it twice, once to
+prepare and once to send.
+
+Some things this is not:
+
+- **It is not a seventh action on `POST /api/v1/operations`.** That route is behind the
+  destructive-operations gate, which is shut on every deployment this repository can build
+  (see [what has not been proven](https://retnd.github.io/retnd/index.html#honest)), so a
+  recovery filed there would be refused. Recovery has its own pair of routes outside that
+  gate, and it completes on a deployment where the gate reports false.
+- **It is not authorised per person.** This product has one tier of signed-in identity and
+  no roles, so anyone signed in can recover any retained artifact. I would rather say that
+  here than imply a boundary that is not there. What stands in for authorisation is audit:
+  every grant and every range served writes an action-log row naming the actor, the
+  artifact, the copy, the target and the outcome.
+- **It does not run a program.** No subprocess is started on any recovery path.
+- **It does not apply to an `engine: kopia` set.** It refuses with a sentence naming
+  `retnd snapshot restore`.
+
+Two optional features change what a "copy" can be, and `recover` works with both absent:
+
+- **Encrypted retained copies (EPIC N, #967), when present.** `recover` does not decrypt. It
+  still requires what it reads to match the artifact's recorded *plaintext* digest, which a
+  ciphertext object cannot, so an encrypted copy is never counted as a recovery. Opening one
+  is `retnd encryption decrypt` ([below](#when-the-catalog-is-gone-and-some-copies-are-encrypted)).
+  With no copy encrypted there is nothing to decrypt and every claim on this page is still
+  computable.
+- **Offline and removable media (EPIC P, #955), when present.** Whether a destination that
+  is expected to be offline counts as unreadable or as simply away is P's policy, and this
+  page does not restate or second-guess it. What `recover` guarantees is only that a copy it
+  cannot read is never counted as one it could.
+
+## Getting a whole backup set back with `retnd recover --set`
+
+```bash
+retnd recover --set <source/backup-set> --to <folder-under-the-staging-root>
+retnd recover --set <source/backup-set> --newest-only --to <folder>
+retnd recover --set <source/backup-set> --since 2026-10-01 --to medium:<id>/<prefix>
+retnd recover --set <source/backup-set> --since 2026-10-01 --until 2026-10-07 --to <folder>
+retnd recover <id> <id> ... --to <folder>
+retnd recover --set <source/backup-set> --to <folder> --preflight
+```
+
+This is the same recovery as above, done for every retained restore point of a set (or for
+a list of ids) into **one** destination, as one operation. It is the **Recover this backup
+set** button on the set's page, and `POST /api/v1/recoveries` over the API. I did not write
+a second restore path: each file is planned from the journal, read through the same bounded
+buffer, compared with the digest recorded at ingestion and only then handed over, exactly
+as a single recovery does it, so every refusal and budget above applies to every file.
+
+What it does that a shell loop over single recoveries does not:
+
+- **A pre-flight before byte one.** It prints how many backups there are and how big they
+  are, how many are quarantined, lost or not a restore point, how many need a thaw, what
+  reading them costs, and the staging disk's free space against the total. If the files do
+  not fit it refuses with the numbers (`RECOVERY_NO_SPACE` or `RECOVERY_BELOW_RESERVE`),
+  and if any read is billed it refuses (`RECOVERY_COST_NOT_ACKNOWLEDGED`) with the count and
+  the total, until `--acknowledge-cost` gives **one** yes for the whole set. Nothing is
+  read or thawed before that. `--preflight` stops there.
+- **Which backups.** A restore point is a backup in `COMMITTED`, `REMOTE_DELETE_PENDING`,
+  `COMPLETE` or `REMOTE_RETAINED` (Step 2 above). `--newest-only` takes the newest one,
+  `--since` the ones that arrived at or after a date and `--until` the ones that arrived at
+  or before one, so the two together are the Backups page's received-date range. "Arrived"
+  is `discovered_at`, which nothing changes afterwards: a backup whose set went read-only
+  and came back keeps its day, where the time it last changed (`updated_at`) would move it.
+  `--newest-only` picks by arrival too. A bare `YYYY-MM-DD` is that whole day in UTC
+  (`--until 2026-10-07` keeps a backup from 23:30 that day) and an RFC 3339 time is that
+  moment; `--until` before `--since` is refused. With `--newest-only` it is the newest
+  restore point inside the range. `retnd artifacts --since DATE --until DATE` lists the same
+  backups first, if you want to look before you recover, and `POST /api/v1/recoveries` takes
+  the same pair as `since` and `until` (RFC 3339 times). Quarantined and lost backups are listed in
+  the pre-flight and the summary and are never included, and neither is a backup that is
+  not yet a restore point.
+- **A folder per set.** Files land under `<folder>/<source>/<backup-set>/`, each with the
+  unique name a single recovery gives its file, so two runs cannot collide and nothing is
+  ever replaced. For a storage destination the key is `<prefix>/<source>/<backup-set>/<name>`
+  and an object that is already there fails that one file.
+- **One operation.** One progress line per file with a running total, one cancel (Ctrl-C in
+  the terminal, **Cancel the recovery** in the browser) that discards the file being read
+  and leaves nothing that looks finished, and one result summary: recovered, failed,
+  skipped, needs a thaw, quarantined, lost.
+- **A manifest.** `recovery-manifest.json` is written beside the files, listing every row of
+  the request (recovered or not) with its status, size and SHA-256. It and the summary are
+  built from the same rows, so they agree with each other, and the files named in it are
+  the files on disk. A cancelled run still writes it, with `"outcome": "cancelled"`.
+- **One failing file does not stop the rest.** A copy that fails its digest is reported
+  failed, is not written, and the other files still arrive. The exit status is 0 when every
+  row was recovered and **32** when some were not (failed, needs a thaw, quarantined or
+  lost). A pre-flight refusal exits with the same per-code number a single recovery uses.
+- **An archived copy is still a thaw first.** With `--acknowledge-cost` one provider restore
+  is started per archived backup and those rows are reported as *needs a thaw*; run the
+  command again when they are readable.
+
+There is no browser download of a set. Many files would have to be built into one archive
+that the host keeps until it is collected, and the host does not hold that much for you; a
+set goes to a folder under the staging root or to another storage destination, and each
+backup can still be downloaded from its own page. `--to -` is refused for the same reason.
+
+**A set on the incremental (`kopia`) engine** has no files to copy. Its backups are
+restore points inside an encrypted repository, so the whole set is a snapshot restore, and
+`recover --set` refuses with a sentence naming `retnd snapshot restore <source/backup-set>`
+rather than pretend the two are one operation.
+
+## Sending a backup back to its source host
+
+With no `--to`, `retnd recover` sends the backup back where it came from (#1191): an SFTP upload onto the set's own source host, over the set's own settings, into a new folder `retnd-recovered-<date>-<time>-<4 hex>` under the set's remote path. That writes onto a production machine, so it needs `--acknowledge-source-write`, which acknowledges the destination retnd prints first. Without it, retnd refuses before it opens any connection (`RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED`, exit 40) and names the exact `sftp://` folder it would have written to:
+
+```
+retnd recover production/postgres-primary/postgres-prod-20260828.dump.zst --acknowledge-source-write
+retnd recover --set production/postgres-primary --newest-only --to source:retnd-recovered-incident-4711 --acknowledge-source-write
+retnd recover --set production/postgres-primary --to source: --preflight
+```
+
+The colon matters. `--to source:` is a fresh folder on the source host, and `--to source:FOLDER` one you name (one segment starting with `retnd-recovered-`, then letters, digits, `.`, `_` or `-`, not ending in a dot). `--to source` with no colon is a staging folder called "source", as it always was. A whole set onto the source host needs `--newest-only`, `--since`, `--until` or `--all`, because the default act should never be "every retained backup onto a production volume". A range that keeps every retained restore point (`--until 2099-01-01`, say) is that act by another name, so it is refused with the count and still needs `--all`. `POST /api/v1/recoveries` holds the request to the same rule, with `"all": true` as its spelling of `--all`, and refuses it with 400 and the same sentence; a `preflight` request is not held to it, as `--preflight` is not.
+
+**Where the default does not apply.** A set that does not pull over SFTP (or an incremental one) has no source host, and a set declared `read_only: true` is never written to, so for both `--to` stays required and the usage error says why.
+
+**What happens before a byte is read.** retnd checks the destination again from the configuration, then runs the write check (the connection test's probe: one file written, removed and confirmed gone) unless one ran in the last five minutes, then asks the host how much space is free. A read-only pull account is refused there (`RECOVERY_SOURCE_HOST_READ_ONLY`, exit 39), a probe that could not remove its own file is too (`RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE`, exit 43, naming the file to delete), an unreachable host is `RECOVERY_SOURCE_HOST_UNREACHABLE` (exit 41, worth trying again), and a run that does not fit the host's free space less the staging reserve is `RECOVERY_SOURCE_HOST_NO_SPACE` (exit 42). `--to source: --preflight` prints the destination, from configuration and the last write check, without recovering anything and without touching the host, which is what the recovery dialog shows when it opens; `--to source: --preflight --write-check` runs that check as well, the dialog's "Check write access" button.
+
+**How each file lands.** The folder is claimed with a rename that fails when anything is already at that name, so retnd only ever writes into a folder it has just created. Each file is written as `.<name>.retnd-partial-<random>` in that folder and then renamed into place with a plain SFTP rename, which the server refuses when the name is taken, so nothing is ever replaced and a dropped connection never leaves a short file under a real name. If the temporary file cannot be removed after a failure, the error names it so you can delete it. Where the host lets retnd run `sha256sum`, the placed file's digest is checked on the host; where it does not (a chrooted SFTP-only account, for example), the result says `verified: size`. A set run writes `manifest-<operation id>.json` beside the files.
+
+**If the configuration changes.** The acknowledgement is for one host, account, remote path, folder and host-key file. retnd works the destination out again before every file, and if the set has moved to another host, been declared `read_only`, or stopped being SFTP, nothing more is written and the rest of the run is reported as refused.
+
+**What to do with a recovered folder afterwards.** retnd never deletes on the source host, so the folder stays until you act on it:
+
+- To **adopt** it (make the recovered file the live one), move or rename the file out of the folder on the host, for example `mv retnd-recovered-.../dump.zst ../`. Once it is out of the folder, the next backup run sees it like any other file, so do this knowing that a set which deletes from its source will back it up and then delete it.
+- To **remove** it, delete the folder on the host once you no longer need it. Nothing in retnd refers to it.
+- **Production-side tooling**: a rotation script, a mirror or a cleanup job on the source host sees these folders too. If one of them would prune, mirror or re-process `retnd-recovered-*`, exclude the name there.
+
+**Discovery.** The next backup run skips a `retnd-recovered-*` folder directly under the remote path, and only there: a folder of that name deeper in the tree is yours and is backed up like anything else. The run logs how many files it skipped, and `retnd fetch --dry-run` and the connection test skip and count the same files. A retnd build older than #1191 does not know this rule, so if you downgrade, its next run would take these files for new backups.
+
+In the web interface the same choice is "Source host (SFTP)", first in every recovery dialog and preselected where it can work. Opening the dialog does not touch the host: ticking "I understand this writes N bytes onto HOST" or pressing "Check write access" runs the write check, and on a local-account profile Recover asks for your password again.
+
+## What "verified" does and does not mean: three claims, not one
+
+A tick that says "verified" is the dangerous thing here, because a HEAD request that found
+an object of the right size and a validator that ran your own restore check against the
+real bytes are very different amounts of evidence. So the product keeps three claims, in
+three places, with three ages, and nothing is allowed to merge them:
+
+| Claim | What it says | What it does not say |
+|---|---|---|
+| **Stored** | The journal holds a placement for this artifact on that medium | That anyone has read the bytes since |
+| **Content verified**, with an age | A check **read the bytes** and they matched the recorded digest | That the file is usable by your application |
+| **Recovery tested**, with an age | The newest known good copy was recovered to an isolated path, its digest matched the artifact's, and then **your validator** accepted it | That your application will come up, or that older copies are good |
+| **Recovered, readable**, with an age | The newest known good copy was recovered to an isolated path, its digest matched the artifact's, and then the built-in structure check read it end to end as the gzip, zstd or tar file it is and every integrity field it carries checked out. No validator was involved | That an application can use the file. It proves the file decodes, nothing more, and it never counts as **Recovery tested** |
+
+The Content chip says how many copies stand behind it. A bare **Content verified** is drawn
+only when every copy is content verified; otherwise it reads, for example, **Content
+verified · 1 of 3 copies, 2 never checked**, with a dashed edge. A checksum pass with a
+validator failure therefore reads as **Content verified / Recovery
+test failed**, and never as one green tick. A class achieved without reading bytes (an
+`existence` check) is recorded as what it was and is never shown as content verification;
+the scheduled pass cannot go above `existence` against a storage medium.
+
+"Not a pass" has more than one reason, and each reason is its own value rather than a
+quiet default to good:
+
+| State | Means |
+|---|---|
+| `unknown` | Nothing has checked this copy. It is the zero value, it is **due**, and a rebuilt catalog yields it for every copy |
+| not configured | Assurance is off for this set |
+| never run | It is configured and has not run yet |
+| overdue | It last passed, and is later than its cadence |
+| refused for cost | The scheduler declined because reading would cost egress and nobody acknowledged it |
+| could not complete | The check started and did not finish. That is a fact about the endpoint, not about the copy |
+| `failed` | The check finished and the bytes were wrong |
+| `requires_restore` | The copy is archived. It never counts toward a satisfied policy |
+
+The fourth row is the built-in structure check, and it exists so that a set with no
+validator can still produce an honest result. When a backup set declares no validator (none
+named by `validator_id` and none found in its recovery-test directory), a recovery test
+recovers the copy and matches the digest exactly as it does for a validator, and then reads
+the recovered file in the engine's own process. It recognises `.tar.gz`, `.tar.zst`,
+`.tgz`, `.tzst`, `.gz`, `.zst` and `.tar` by file name, then picks the reader by the file's
+magic bytes. It verifies the CRC-32 of every gzip member, the content checksum of every zstd
+frame that carries one, and every tar header and entry size, and it extracts nothing and
+prints no member name. The journal stores a well-formed result as `passed` under the
+reserved check identity `retnd-builtin-structure` (a new stored state would have meant
+rebuilding an existing table, so there is no schema change and no migration). Everything that
+leaves the engine reports it as `recovery_state` **`readable`** instead: the API, the CLI's
+`--json`, the stored output and the chip, which labels it **Recovered, readable**. On the
+wire, `passed` therefore only ever means a validator accepted the copy.
+
+The precedence is fixed. A declared validator that exists runs, and the built-in check is
+never consulted. A declared validator that is missing is `could_not_complete` and never falls
+back. Only a set with no validator at all reaches the built-in check. A file type it has no
+reader for (a `.dump`, say) is refused before anything is staged, as `not_configured` with a
+reason that names the type, so nobody pays for a billed copy to learn the check cannot apply.
+Hitting the check's bounds is `could_not_complete`, never `failed`: a wall-clock budget of 2
+hours, a ceiling of 4 TiB of decoded bytes, and a zstd window ceiling of 128 MiB (the decoder
+runs on one goroutine in low-memory mode). A zstd dictionary frame and a decoder panic end the
+same way. There is deliberately no decompression-ratio cap, because sparse images legitimately
+compress thousands to one. A file that
+is truncated, fails a checksum, or is not the format its name says is `failed`.
+
+A built-in result never satisfies `mode: required`. That mode still means "the operator's
+validator accepted it", and a set under it stays degraded (the reason reads "the last pass
+was the built-in structure check, not a validator") until a validator pass is recorded.
+
+## Scrubbing and recovery tests: what runs on its own, and what it costs
+
+A scrub is a scheduled re-check of the copies the journal records. It is driven from the
+copy's own record (`next_due_at`), so a reconciliation or a catalog rebuild cannot reset
+the clock on a copy nobody re-read. A **recovery test** is the stronger thing: recover,
+digest, then your validator (or, where you declared none, the built-in structure check).
+
+### What runs on its own, with nothing configured
+
+Both `retnd serve` and `retnd daemon` run an assurance pass at every poll, with no
+`assurance:` block and no `revalidation:` block:
+
+- **The scrub.** It takes the copies that are due (a copy with no record is due now, and a
+  rebuilt catalog makes every copy due) and checks them, at most 50 per set per pass.
+  A copy is due again after `assurance.scrub.cadence`, 7 days unless you say otherwise.
+  A local copy is re-read and re-hashed (`auto` and `content`; `existence` only checks it
+  is there), and a copy on a storage medium gets an existence check, whatever the strategy
+  says. Reads run under the host's ceilings, two full reads at once and one per
+  destination by default.
+- **The recovery test, only where you asked for one.** The default mode is `off`, and with
+  it no test runs. A set whose mode is `required` or `custom` and whose validator script is
+  in place is tested on `assurance.recovery_test.cadence`, 30 days unless you say
+  otherwise.
+- **The built-in structure check, only where you asked for it.** `assurance.recovery_test.mode`
+  also takes the value `builtin`, globally or on a set. A set whose mode is `builtin` is
+  recovered and read end to end by the built-in check on the same `cadence` (30 days unless
+  you say otherwise), with no validator needed. A set under `builtin` that names a
+  `validator_id` is refused at config load. If the set's newest known good copy has a name
+  the check has no reader for, the tick skips the set and says nothing, because every run
+  would only be refused. `off` and `inherit` (resolving to `off`)
+  never run it on a schedule, and `required` and `custom` still need a `validator_id` and
+  are never satisfied by a built-in result. `mode: builtin` combined with `builtin_check:
+  off` is refused when the configuration loads ("mode builtin runs the built-in structure
+  check, so builtin_check: off refuses it; set builtin_check to structure or choose another
+  mode"), because it would schedule a check that is switched off. An unattended test never pays: if the newest known good copy can only be read
+  at a cost, the test is recorded as refused for cost and nothing is read. Under
+  `retnd daemon` the copy tested is a local one.
+- **A set that requires a test is degraded until one passes.** A mode of `required` that
+  nobody has satisfied is not a quiet default to good.
+
+The deployment-wide `assurance:` block has a default good enough that you should not need
+to set it. A backup set can say `inherit` (the default), `off`, `required` or `custom`
+for its recovery test (or `builtin`, described above), and inherits the scrub cadence and strategy unless it names its
+own. Resolution happens in `Validate`, so a change to the global default moves every set
+that inherits it on the next pass, with no restart. The host-scoped settings in the table
+below are the exception: they are read once, so they take effect when the serving process
+next starts.
+
+| Knob | Per set? |
+|---|---|
+| Scrub cadence and strategy (`auto`, `existence`, `content`) | Yes |
+| Recovery-test mode (`inherit`, `off`, `builtin`, `required`, `custom`) and its validator | Yes |
+| Built-in check when no validator is declared (`builtin_check`: `structure` or `off`) | Yes |
+| Environment a validator starts with (`validator_env`: `minimal` or `workflow`) | Yes, and each custom validator can say its own (`env`) |
+| Recovery staging root and TTL | **No.** One staging filesystem, shared by recoveries and recovery tests |
+| Concurrency ceilings (full reads, per destination) | **No.** One host |
+
+Writing a block that names nothing under a set is refused, because it would silently mean
+"inherit" under a different spelling. A set whose recovery-test mode is `required` or
+`custom` needs a validator, on the set or on the deployment, and that is checked when the
+configuration loads. A `validator_id` that begins `retnd-` is refused at that point too
+("ids beginning retnd- are the product's own built-in checks"), and the prefix is reserved for
+good, so a validator script you name `retnd-anything.local.sh` has to be renamed before it
+can be used.
+
+`builtin_check` takes `structure` (the default) or `off`. It is allowed with every mode, and
+it governs the manual **Run recovery test** as well as the schedule: `off` means a set with
+no validator is refused as before, with a reason saying the built-in check is off.
+
+`validator_env` takes `minimal` (the default) or `workflow`. It is allowed with every mode.
+`minimal` starts the validator with the `RECOVERY_TEST_*` variables, the product's own
+`RETND_*` facts and the baseline `PATH`. `workflow` also hands it the backup set's merged
+workflow environment, secrets included, the same variables its backup hooks get. Leave it
+on `minimal` unless the script really needs one of those variables: a validator runs against
+a recovered copy and is more likely than a backup hook to be written by someone else. A set
+can opt in on its own, or opt back out when the deployment has opted in, and a value that is
+not exactly one of the two words is refused when the configuration loads, so a typo can
+never open the larger environment. The set's key is set in the configuration file; the
+settings screens and the CLI do not show it yet, and they leave it alone when they save.
+A custom validator (see *Custom validators by backup name* below) can say its own `env` as
+well, and that is the narrowest setting, so it wins: the validator's `env`, then the set's
+`validator_env`, then the deployment's, then `minimal`. The set's `validator_env` is the
+default for the set's own script (`validator_id`, or the one in its `recovery-test`
+directory) and for any custom validator whose entry states no `env`.
+
+**A configuration that uses the `assurance:` key cannot be read by a build that predates
+it.** The loader rejects unknown keys, so downgrading after you have added the block fails
+closed with a message naming the key. That is deliberate, and it is the one thing to know
+before you reach for this feature in the middle of an incident: add the block while
+things are calm.
+
+### Cost: a scheduled pass never thaws
+
+Every read that bills is a refusal at the moment of spend, not a note in a document. An
+unattended scrub reaches at most `existence` against a storage medium, never downloads and
+never starts a thaw; an archived copy is recorded as `requires_restore`. Recovering an
+archived copy is always a person saying yes to a named cost.
+
+### Running one by hand: scrub now, recovery test, follow and cancel
+
+The scheduler is not the only way to start either check. Both can be started on demand, and
+a running one can be stopped.
+
+- **Scrub now.** `POST /api/v1/backup-sets/{source}/{set}/scrub`, or `retnd scrub
+  <source>/<set>`, which runs the same code. It checks every copy of the set whether or not
+  the copy is due, at the strongest class that costs nothing, and skips a set that is held
+  for editing, exactly as the scheduler does. The route answers `202` at once with an
+  operation id, and the pass carries on in the background: a browser that navigates away does
+  not cancel it. Only one scrub of a set runs at a time, so a double click does not become
+  two passes over the same copies.
+- **Recovery test now.** `POST /api/v1/backup-sets/{source}/{set}/recovery-test`, or `retnd
+  recovery-test <source>/<set>`. It also answers `202` with an operation id. If a test of
+  that set is already running and the new request asks for the same thing (same artifact,
+  same cost acknowledgement), the request **coalesces**: it gets `202` with the *running*
+  operation's id, the validator runs once, and every caller still gets a receipt of its own.
+  A request that asks for something different is refused rather than quietly joined. A set
+  that declares no validator (none named by `validator_id` and none found in its
+  recovery-test directory) runs the built-in structure check instead, provided
+  `builtin_check` is `structure` and the newest known good copy has a name the check
+  recognises. Otherwise the answer is `not_configured` with the reason (which names the file
+  type when that is the cause), and the page disables **Run recovery test** for it, with that
+  reason beside the button, because the per-set assurance answer carries
+  `effective_check` (`validator`, `builtin` or `none`, with `effective_check_reason` when
+  `none`) from the same dry run the test makes first; the button is withheld only for `none`,
+  and a set the built-in check can read keeps it, with a line saying the built-in structure
+  check will run. The same answer carries `recovery_test.validator_declared` and
+  `builtin_check`, and a placement in the artifact response carries `recovery_check` (`validator` or `builtin`) beside its verdict.
+  For a built-in run `retnd recovery-test` prints a `check:` line (`built-in structure check
+  (no validator is declared for this backup set)`) and a `format:` line such as `zstd, 1
+  frame, content checksum verified, 48.2 GiB decoded and discarded`, and `--json` carries
+  `"check": "builtin"`; a validator run prints neither. `retnd settings assurance patch` and
+  `retnd backup-set assurance` take `--recovery-test-builtin-check structure|off`.
+- **Follow.** `retnd recover <artifact> --follow` and `retnd recovery-test <set> --follow`
+  print the stages as the engine passes through them, in the order it emits them:
+  `resolving_copy`, `reading`, `verifying`, `writing_target`, `cleaning_temporary_files`,
+  `complete`. `complete` is the stage of a run that recorded a pass: a recovery test that
+  was refused, failed or could not finish stops on the last stage it entered, and its closing
+  line says so (`recovery test passed`, `failed`, `not run` or `did not complete`, with the
+  same `state=` field as before). The stage lines go to **standard error**, so `retnd recover <artifact> --to -
+  --follow` still writes nothing but the artifact's bytes to standard output, and a pipe
+  into `sha256sum` stays right. `--follow` leaves the exit status alone.
+- **Cancel.** `retnd assurance cancel <operation-id>`, or `POST
+  /api/v1/assurance/operations/{op}/cancel`. The operation's kind is `scrub` or
+  `recovery_test`. The answer carries `status: "cancelling"`: it says the operation was told
+  to stop, not that it has stopped, and the operation's own end line on the activity feed is
+  what says it did. A cancel stops the read, the hash of the staged copy and the validator's
+  whole process group. A cancelled recovery test ends with the result `warn`: it is not
+  recorded as a failed copy, because nobody saw the validator answer. An id that nothing is
+  running under (never started, already finished, or another process's) is not found, never
+  a success. Operations live in the memory of the process serving the deployment, so the CLI
+  needs `RETND_API_URL` and the two credential variables, and from a terminal with no
+  deployment of its own `RETND_API_DEPLOYMENT_ID` as well. The route is deliberately not
+  under `/operations`, so it answers on a deployment whose destructive gate is shut.
+
+### What the validator printed
+
+The newest recovery test's output is kept, one test's worth per backup set: a later test of
+the same set replaces it. It is bounded, because it is untrusted: at most 200 records, at
+most 1 KiB per record, at most 32 KiB in all, and when anything was cut a single
+`truncation` record is the **last** one. Only the runner writes a truncation record, so a
+reader can branch on a record's `kind` (`output` or `truncation`). No raw control byte is
+stored.
+
+Read it with `retnd recovery-test <source>/<set> --show-output`, which runs no test, or
+`GET /api/v1/backup-sets/{source}/{set}/recovery-test/output`. Before any test of the set has
+ended, the answer says nothing was recorded. For a built-in structure check the four stored
+records say which check ran, what it recognised (the format and the magic bytes), how many
+frames or members it read and how many bytes it decoded and discarded, and that this proves
+the file decodes end to end and does not prove an application can use it.
+
+### Validators are untrusted
+
+The validator is a script of yours: `validator_id` is the file name of a `NAME.local.sh` in
+`recovery-test/<source>/<set>` under the workflow root, written without the suffix. It is
+not picked from a list of registered validators, and a name that could not be a script's
+file name is refused when you save it. It runs the way every other hook runs, through the
+host workflow runner, with the same custody checks, shell verification and fail-closed
+timeout. Its environment is smaller than a hook's: the `RECOVERY_TEST_*` variables, the
+product's `RETND_*` facts and the baseline `PATH`, with the set's workflow variables (secrets
+included) only when you opt in with `validator_env: workflow`, or, for a custom validator, its own `env: workflow`. It is run **against a recovered copy in an isolated
+path**, never against the durable file, and the path reaches it as `RECOVERY_TEST_FILE`.
+The runner's container cannot see the staging directory unless you declare it with
+`--hook-mount`, and a script that cannot open the file fails rather than passing. Its output is untrusted terminal input: no raw control byte reaches a
+structured field, a notification or the docked terminal, and a truncation is marked in a
+way its own output cannot forge. The newest test's output is kept
+and bounded (see *What the validator printed* above). What it can and cannot reach is in
+[the runtime contract](runtime-contract.md#validators-and-recovery-staging).
+
+### Custom validators by backup name
+
+`validator_id` is one script for a whole backup set. When one set holds backups of different
+kinds (a manifest, a database dump, an archive), you can attach a script to the kind instead:
+a **custom validator** is a `NAME.local.sh` and a regular expression over the backup's file
+name (never its path), for one backup set or for every set. Manage them in Settings >
+Assurance, with `retnd assurance validators`, or with `/api/v1/assurance/validators`.
+
+For the copy a recovery test is about to check, the first of these that applies runs:
+
+1. a custom validator scoped to the copy's backup set whose pattern matches its name;
+2. a global custom validator whose pattern matches;
+3. the set's `validator_id`;
+4. the one script in `recovery-test/<source>/<set>`;
+5. the built-in structure check.
+
+Two patterns at the same scope that both match one name are an ambiguity, and the test ends
+`could not complete` rather than picking one. Saving a pattern is refused when it would share
+an existing backup with another validator at that scope, but a backup that arrives later can
+still match both, so `retnd assurance validators list` (and the Settings card) warn about each
+such backup in the journal. When a pattern matched and the test ran something else (the host
+workflow runner is not wired, say), a `recovery_test_validator_fallback` warning is left in the
+activity feed.
+
+**Each custom validator says what environment its script starts with.** `env` is `minimal` (the
+default) or `workflow`, and nothing else: any other spelling (`Workflow`, `all`, a padded value)
+is refused when the configuration loads and when you save, and a refused value never counts as
+the opt-in. `minimal` is the `RECOVERY_TEST_*` variables, the product's `RETND_*` facts and the
+baseline `PATH`; `workflow` adds the backup set's merged workflow environment, secrets included,
+the way a backup hook gets it. The validator's own `env` beats the set's `validator_env` and the
+deployment's, in both directions, so one validator can opt in alone, and one can stay `minimal`
+under a set that opted in. A hand-written entry with no `env` follows the set. One made with
+`retnd assurance validators add|update --env minimal|workflow` or the API always states it, so
+it does not start following a later opt-in on the set; delete the line in `config.yaml` if you
+want it to. An edit replaces the validator whole, so an edit that leaves `env` out is `minimal`,
+never what the validator had before. The list shows the environment each validator really gets.
+
+The workflow root is `workflows.root` in `config.yaml`, or `/workflows` when the file names
+none and that directory is there, which is where every packaged stack mounts the workflows
+directory. The Settings card, `retnd settings workflow`, `retnd assurance validators list` and
+`retnd check` say when it is that default. `retnd settings workflow patch --disable` (or the older
+`--root ""`) writes `workflows.disabled: true`, which turns workflows off, default included, and
+`--enable` turns them back on. A retnd older than this refuses a `config.yaml` with `disabled` in
+it, so turn workflows back on, or delete the line, before you downgrade.
+
+**`name` and `validator_id` are different things.** A custom validator's `name` is NAME in its
+`NAME.local.sh` under `<workflow root>/recovery-test-validators/`, chosen by you, unique across
+the deployment (compared without regard to case, since a case-insensitive volume would make
+`Foo` and `foo` one file), is at most 64 bytes, and never begins `retnd-`. `validator_id` names
+a script in a set's own `recovery-test/<source>/<set>` directory. They share the file-name rules
+and nothing else.
+
+The `name` is also the validator's one id in what a test leaves behind: the activity feed's
+`validator` field and the copy's recorded result both carry it, so a line in the feed can be
+joined to a result without knowing two spellings. That is why a name is capped at 64 bytes (the
+feed withholds a longer id). A test decided by a set's `validator_id` is recorded under the
+script's file name (`NAME.local.sh`) as it always was, and so is the built-in check under its
+reserved id; results written before this release name a custom validator by its file, and the
+list reads both spellings and shows the newer.
+
+What a pattern may be:
+
+- Go RE2 (no lookaround or backreferences), at most 512 bytes, matching anywhere in the name
+  unless you anchor it with `^` and `$`. `retnd assurance validators patterns` suggests
+  anchored ones from the backups you already have.
+- No repeat count above 255, and at most 1000 compiled instructions. RE2 cannot backtrack, but
+  a repeat of a repeat is still a large program, and the pattern is matched against every
+  backup name each time you preview or list, so those are refused when you save.
+
+How scripts are kept:
+
+- An upload is held to the check that gates saving a workflow, and written to a temporary file
+  in the directory and renamed in (directory `0750`, file `0640`), then the entry goes into
+  `assurance.validators` in `config.yaml`. Only `recovery-test-validators` and its `.superseded`
+  sibling have to be writable, so a read-only workflow tree with those two mounted writable over
+  it (the packaged layout) keeps validators fine. Anything in the directory that `config.yaml` does not name is moved aside
+  on the next upload, and the 64 validator limit counts files.
+- Removing a validator, or a backup set that has some, **moves** the script to
+  `recovery-test-validators.superseded` beside the directory, under its own name (with a
+  number after it when that name is taken). Nothing is deleted.
+- An edit (`PUT`) replaces the validator whole. It carries the pattern, the scope, and either the
+  new script or `script_sha256` to keep the stored one, which is refused if the stored script is
+  no longer that one, and its `env` (left out means `minimal`). Leaving the scope out means every set, which is why
+  `retnd assurance validators update` makes you say `--backup-set` or `--global`.
+- `config.yaml` pins the script: every upload and edit writes the script's SHA-256 into the
+  entry as `script_sha256`, and a recovery test runs the script only if the file still hashes to
+  it (checked against the very bytes the runner is about to execute). A script someone changed
+  on disk since it was saved, by hand, by a sync tool or by an interrupted write, is not run:
+  the test ends `could not complete` with "edited on disk" and the two hashes, an
+  `recovery_test_validator_edited` warning is left in the feed, and `list` shows the validator as
+  `edited_on_disk`. The states are `pinned`, `unpinned`, `edited_on_disk` and `missing`.
+  To accept what is on disk, read it and send it again (`update --script FILE`, or `PUT` with
+  `script`); keeping it by `script_sha256` is refused for an edited script, because the list
+  shows the hash of what is on disk and echoing it back would approve code nobody read.
+- A crash between writing a script and writing `config.yaml` can leave a script the file does
+  not name (moved aside on the next upload), or on an edit a new script under the old pin.
+  The first is inert. The second is `edited_on_disk` and is refused at run time instead of being
+  run under an approval it never had; saving the validator again clears it.
+- An entry written before pinning (or by hand) has no `script_sha256`. It is accepted and runs as
+  it always did, and `list` shows it as `unpinned`. Nothing rewrites your `config.yaml` for you:
+  the next save of that validator pins it, and so does an edit that keeps the script by its hash.
+  You may also write `script_sha256` into `config.yaml` yourself (64 lower-case hex digits).
+- Each upload, edit and removal writes a `validator_uploaded`, `validator_updated` or
+  `validator_removed` event with the name, scope, pattern, `env`, the script's SHA-256 and size, the
+  hash now pinned, the hash that was pinned before (`previous_pinned_sha256`) and the script's
+  state (never the script).
+
+**An older retnd refuses a `config.yaml` that has `assurance.validators` in it**, because the
+key is new and unknown keys are refused. Remove the validators (or the block) before going
+back to a release without this feature.
+
+The upload check is a lint and **not a sandbox**: it stops common shell mistakes, not a script
+that does harm on purpose. A validator runs the way every other hook does, in the runner's
+container, with the small environment unless you opt it in (`env: workflow`, which hands it the
+set's merged workflow environment, secrets included, if you put them there). Installing one is as serious as adding a hook, which is why uploading and editing ask
+for the administrator's password again, and are refused outright where the destructive gate is
+shut.
+
+## When the catalog itself is gone
+
+Everything above assumes the journal answers. When it does not, this page's reason for
+existing applies in full: the retained artifacts are ordinary files in the backup root, and
+each one has a sidecar `<name>.manifest.json` written beside it when it was committed. Two
+ways forward, in this order:
+
+1. **Rebuild the catalog** with `retnd catalog rebuild`, which reconstructs the journal
+   from those manifests. Afterwards every copy reads `unknown`, which means due and never
+   fresh, so a scrub will re-establish what was actually checked. A rebuild does not make
+   anything look verified that was not.
+2. **Recover by hand.** Pick the file the way Step 2 describes and copy it out of the share.
+   You lose the digest check on the way out (compare the file against the manifest's
+   `checksum` yourself, using the hash its `checksum_algorithm` names), and you have not lost anything else. `recover` was never
+   the only way to this file, only the way that checks it for you.
+
+### When the catalog is gone and some copies are encrypted
+
+A sidecar written after a copy was encrypted carries that copy's non-secret description:
+the suite it was written under (`format_id`, `age/v1` or `age-pq/v1`), the **id** of the key
+it needs, the plaintext and stored digests and
+sizes, and when it last decrypted to the artifact. It never carries a key. `retnd catalog
+rebuild` reads it and tells you, per encrypted copy, which key it needs and whether this
+deployment knows that key: either the backup set has no key provider configured, or the
+managed key is not in the key registry (a fresh deployment does not have it until you run
+`retnd encryption key import --bundle FILE`), or the set names an external
+provider. The rebuild never opens the key file and never runs an
+external key command, so it works on a machine that has no keys. It also does not adopt the
+copy into the journal; a medium copy comes back only through the sidecar's say-so, and a
+sidecar is a proposal. A sidecar naming a suite this build does not know is reported as an
+unknown suite, never as plaintext and never as verified.
+
+Whether a key actually opens a copy is a different question, and `retnd validate <artifact>
+--content` answers it. With the key unavailable it says it could not check. It does not
+report an existence check in its place.
+
+On a machine that cannot get the key back into a deployment, which is every machine
+after a lost host, the copy is opened with `retnd encryption decrypt` and the key from the recovery
+bundle, as [recovery without a terminal](recovery-without-a-terminal.md#6-an-encrypted-copy-has-to-be-opened-on-a-machine-with-no-state)
+walks through, per suite (the stock `age` tool is the independent fallback there: any release
+opens an `age/v1` copy, an `age-pq/v1` copy needs age 1.3 or newer, and the bundle's `format`
+field is the thing to check first). `retnd recover` itself does not
+decrypt, and `retnd encryption key import --bundle FILE` is what makes a rebuilt deployment know the key. The operations
+guide, [encrypted copies](encrypted-copies.md), covers keeping the bundle and what losing it
+means.
+
+## When a scrub or a recovery test fails
+
+| What you see | What it means | What to do |
+|---|---|---|
+| Scrub: `failed`, `existence` class | An object of the wrong size, or none, is at that key | Run `retnd validate <artifact> --content` for a read of the bytes; if the copy is damaged, recover from another copy |
+| Scrub `--content` of an encrypted copy: `could not complete`, "the key it needs cannot be resolved here" | This deployment cannot open the key the copy was written under. It says nothing about the copy | Get the key back (managed: `retnd encryption key import --bundle FILE` with its recovery bundle, while no engine serves the deployment; external: make the reference resolve), then run it again. An unattended scrub does not need the key and keeps checking the stored size |
+| Scrub: `could not complete` | The endpoint did not answer. It says nothing about the copy | Fix reachability. Three failed or incomplete checks in a row degrade the set's health and raise `SCRUB_FAILING` once through your alert channels, and it clears on a later pass |
+| Scrub: `requires_restore` | The copy is archived | `retnd restore` (billed, hours), then `recover`. A scrub never starts that for you |
+| Scrub skipped for a set | The set is under an edit hold | The skip is visible; release the hold |
+| Recovery test: `Content verified`, `Recovery test failed` | The bytes are right and your validator said no | `RECOVERY_TEST_FAILING` is raised through your alert channels. The browser and `retnd recovery-test <source/backup-set>` show the verdict and the reason the engine recorded, and `retnd recovery-test <source/backup-set> --show-output` shows what the validator printed. The product is telling you the file is intact and your check disagrees |
+| Recovery test: `Recovered, readable` | The built-in structure check read the copy end to end and found it well formed. No validator ran | Nothing is wrong. It is a weaker claim than **Recovery test passed** on purpose, and it does not satisfy `mode: required`. Declare a validator if you need the stronger one |
+| Recovery test: `Recovery test failed` with the built-in check | The copy matched its recorded digest, so it is what was ingested, and it does not read as a complete file of the format it is (truncated, a bad checksum, or not the format its name says) | `RECOVERY_TEST_FAILING` is raised and names the check as the built-in structure check. Look at the source that produced the file, because the bytes are exactly what was backed up |
+| Recovery test: ended `warn` after a cancel | Someone ran `retnd assurance cancel`, so nobody saw the validator answer | Not a failed copy. Run the test again if you still want the answer |
+| Download: `recovery interrupted` | The transfer stopped short, most often because the client went away | Ask for a new link and resume from the `reached` offset. The copy is not implicated |
+| Download: `recovery failed verification` | A piece or the whole did not match the recorded digest | Treat that copy as damaged and recover from another copy |
+| Recovery test: failed before the validator ran | The digest did not match | Treat the copy as damaged. This is a content failure, not a validator one |
+| Recovery test: pass, but a cleanup failure is shown | The recovered copy could not be removed from staging | The claim is unaffected; the staging disk is filling. Clear it and check the staging TTL |
+| A validator that always exits 0 | It never opened the file, and the digest gate is what the pass was recorded against | Fix the validator; it proves nothing about the application |
+
 ## Quick reference
 
 | Symptom in the journal | Meaning | What to do |
 |---|---|---|
 | Newest row is `COMMITTED`/`REMOTE_DELETE_PENDING`/`COMPLETE`/`REMOTE_RETAINED`, recent | Healthy | Nothing |
 | No good row inside `stale_after` | Stale | Investigate why new backups aren't landing |
-| `FAILED`, no `next_retry_at` | The attempt did not finish and nothing will try again on its own | Read the reason, fix it, then `backupd retry <id>` (Step 7) |
+| `FAILED`, no `next_retry_at` | The attempt did not finish and nothing will try again on its own | Read the reason, fix it, then `retnd retry <id>` (Step 7) |
 | `QUARANTINED_LOST` anywhere | Irrecoverable loss | Restore from the next-newest good row; report the gap honestly |
 | Newest good row is `QUARANTINED` | Content suspect, source may still exist | Manual re-fetch or re-run reconciliation yourself |
 | `REMOTE_DELETE_PENDING` stuck, `remote_delete_error` set | Expected refusal under a hardened SFTP account | Monitor remote disk directly; this is not corrupting anything |
 | `Keep: false` from GFS but the file is still there | Expected; a verdict is not a deletion, and nothing applies one on a timer | Apply a retention plan through the API if the space is needed |
+| You need the file now and the share is not an option | The artifact still exists | `retnd recover <artifact-id>` (see above), after `retnd restore` if the only copy is archived |
+| You need the whole backup set back | Its restore points are retained | `retnd recover --set <source/backup-set> --to <folder>`; add `--preflight` first to see the size, the cost and whether it fits |
+| A copy reads `unknown` after a catalog rebuild | Nothing has checked it since | Expected; it is due, and a scrub settles it |
+| A `workflow_cleanup_obligations` row is `recovery_required` | An interrupted run's cleanup is unaccounted for, and that set is blocked | `retnd workflow recovery show`, then resume or acknowledge (Step 8) |
+| A `workflow_steps` row is `interrupted`, `exit_code` NULL | Nobody saw that script exit; its side effects may be half-applied | Look at the source machine before clearing anything (Step 8) |
+| Run is `cleanup_failed`, `recovery_state` is `none` | The cleanup ran and did not succeed; nothing is blocked and the machine may not be back | Read the step's log and put the machine back yourself; there is no hold to lift |

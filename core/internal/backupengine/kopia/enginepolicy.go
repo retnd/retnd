@@ -15,7 +15,7 @@ import (
 //
 // # The behaviour this exists to stop
 //
-// backupd is the retention engine for the snapshots it writes: which
+// retnd is the retention engine for the snapshots it writes: which
 // snapshot may be deleted is decided in internal/snapshotretention, from
 // the catalog, after GFS classification, last-known-good protection and
 // operator holds have been applied, and the decision is carried out one
@@ -53,7 +53,7 @@ import (
 // reason OR a pin), and the vendor's DeleteManifest -- which is what this
 // adapter's DeleteSnapshot calls -- ignores pins entirely. That asymmetry
 // is exactly the arrangement this product needs: the engine may never
-// expire a snapshot backupd wrote, and backupd may still delete one when
+// expire a snapshot retnd wrote, and retnd may still delete one when
 // its own retention pass decides to.
 //
 // The other mechanism is the stored GLOBAL policy, set to keep everything.
@@ -104,7 +104,7 @@ import (
 //
 // Changing it would un-protect every manifest already written, so it is a
 // stored identifier and not a cosmetic string.
-const enginePin = "backupd"
+const enginePin = "retnd"
 
 // pinManifest marks one manifest as this product's before it is saved, so
 // that no retention policy in this repository -- global, host, path, or
@@ -207,13 +207,13 @@ func disableEngineRetention(ctx context.Context, rep repo.Repository) error {
 	}
 	updated.RetentionPolicy = neutralizeRetention(updated.RetentionPolicy)
 
-	if err := repo.WriteSession(ctx, rep, repo.WriteSessionOptions{Purpose: "backupd:disable-engine-retention"},
+	if err := repo.WriteSession(ctx, rep, repo.WriteSessionOptions{Purpose: "retnd:disable-engine-retention"},
 		func(ctx context.Context, w repo.RepositoryWriter) error {
 			return policy.SetPolicy(ctx, w, policy.GlobalPolicySourceInfo, &updated) //nolint:wrapcheck // wrapped by the caller with the sentence that matters
 		}); err != nil {
 		return fmt.Errorf(
 			"kopia: this repository's own snapshot retention is enabled and could not be turned off (%w); "+
-				"every manifest backupd writes here is pinned, so the engine cannot expire one, but a snapshot written by anything else in this repository can still be deleted by it",
+				"every manifest retnd writes here is pinned, so the engine cannot expire one, but a snapshot written by anything else in this repository can still be deleted by it",
 			err)
 	}
 

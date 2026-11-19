@@ -15,7 +15,7 @@
  * behaviour that is correct for a singleton resource would show one
  * artifact's fields under another artifact's URL.
  */
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { useAsync } from "@shared/hooks/useAsync";
@@ -23,13 +23,17 @@ import { PageHeader } from "@shared/components/PageHeader";
 import { StatusBadge } from "@shared/components/StatusBadge";
 import { RetentionBadges, RetentionPolicyBadge } from "@shared/components/RetentionBadge";
 import { LifecycleTimeline } from "@shared/components/LifecycleTimeline";
+import { ArtifactAssuranceCard } from "@shared/assurance/RecoverArtifact";
+import { useBackupFacts } from "@shared/assurance/verificationModel";
+import type { BackupFacts } from "@shared/assurance/verificationModel";
 import { PlacementList } from "@shared/components/PlacementList";
+import { EncryptionDigests } from "@shared/encryption/EncryptionDigests";
+import { VerifyRecoverableDialog } from "@shared/encryption/VerifyRecoverableDialog";
 import { ErrorState } from "@shared/components/EmptyState";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
 import { bytes, stamp } from "@shared/utilities/format";
-import { BackupdError, RequestFailure } from "@shared/api/contracts";
-import type { ApiErrorCode } from "@shared/api/contracts";
+import { RETRY_ACCEPTED, isRetryable, retryRefusalSentence } from "./retryIngestion";
 import type { ArtifactRetentionPolicy, BackupArtifact } from "@shared/types/backup";
 
 export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
@@ -77,6 +81,45 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
   // while somebody reads one backup's detail. When a third reader
   // appears, that is the change to make.
   const settings = useAsync(() => api.getSettings(), [api]);
+  // What is known about this backup's verification (issue #1134): the lifecycle,
+  // the Validation result and the Copies block below read the same facts the
+  // Assurance card above does.
+  const facts = useBackupFacts(artifactId);
+  // EPIC N (issue #995): each copy's own encryption record, read once for the
+  // page. A server that does not offer the route, or a deployment with no
+  // configuration to encrypt under, reads as "no encryption information": the
+  // Encryption column is then not drawn, which is not a claim that anything is
+  // plaintext.
+  const copies = useAsync(
+    () =>
+      typeof api.listEncryptionCopies === "function"
+        ? api.listEncryptionCopies(artifactId).catch(() => null)
+        : Promise.resolve(null),
+    [api, artifactId]
+  );
+  const [verifying, setVerifying] = useState<string | null>(null);
+  const [failedVerify, setFailedVerify] = useState<Record<string, string>>({});
+  const [verifyEnded, setVerifyEnded] = useState(false);
+  // The page is re-read when the dialog is CLOSED, not when the run ends: a
+  // re-read blanks the page while it loads, and the ending is what the
+  // operator is reading in the dialog.
+  const onVerifyEnded = useCallback((r: { medium: string; ok: boolean; reason: string | null }) => {
+    setFailedVerify((m) => {
+      const next = { ...m };
+      if (r.ok || r.reason === null) delete next[r.medium];
+      else next[r.medium] = r.reason;
+      return next;
+    });
+    setVerifyEnded(true);
+  }, []);
+  const closeVerify = () => {
+    setVerifying(null);
+    if (verifyEnded) {
+      setVerifyEnded(false);
+      artifact.reload();
+      copies.reload();
+    }
+  };
 
   if (artifact.error) return <ErrorState {...artifact.error} onRetry={artifact.reload} />;
   // Both checks matter: `data` is null only before the first successful
@@ -118,7 +161,7 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
   // it is not quarantined. Comparing against the one state this page has
   // a behaviour for leaves every other state alone, which is what a
   // client that does not own the lifecycle graph should do.
-  const stuck = a.state === "FAILED";
+  const stuck = isRetryable(a);
 
   const retryIngestion = () => {
     setRecovery(null);
@@ -129,19 +172,12 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
         // Accepted, not recovered, and the difference is measurable: the
         // CLI's `retry` exits 0 and prints "re-entering the pipeline" for
         // a backup whose very next cycle lands FAILED again on the same
-        // FR-12 collision (measured in a container against a real backupd).
+        // FR-12 collision (measured in a container against a real retnd).
         // The verb's success says the row moved to DISCOVERED and nothing
         // about what happens next, so this sentence must not read as "it
         // is fixed", and the page goes and looks rather than asserting an
         // outcome the response does not carry.
-        setRecovery({
-          tone: "ok",
-          text:
-            "Re-attempted: the service accepted the request and has not carried it out yet, so what this page " +
-            "shows below is the state the next attempt leaves. If its local copy was already good and the retry " +
-            "keeps meeting a final-name collision, that retry verifies the copy against the remote object and " +
-            "trusts it in place. While this card is still here, the backup is still FAILED."
-        });
+        setRecovery({ tone: "ok", text: RETRY_ACCEPTED + " While this card is still here, the backup is still FAILED." });
         artifact.reload();
       })
       .catch((e: unknown) => setRecovery({ tone: "bad", text: retryRefusalSentence(e) }))
@@ -155,12 +191,14 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
         title={
           <span style={{ display: "inline-flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <span className="mono" style={{ fontSize: 19 }}>{a.filename}</span>
-            <StatusBadge
-              tone={a.validation === "verified" ? "ok" : "danger"}
-              icon={a.validation === "verified" ? "success" : "failure"}
-            >
-              {a.validation === "verified" ? "Verified" : "Failed"}
-            </StatusBadge>
+            {/* The green "Verified" that stood here said an ingest-time check had
+                passed, next to the Assurance card below that says what is known now.
+                That badge is retired (EPIC Q). A validation that failed is still said. */}
+            {a.validation === "failed" ? (
+              <StatusBadge tone="danger" icon="failure">
+                Failed validation
+              </StatusBadge>
+            ) : null}
             {/* One or the other, never both (issue #523). A backup whose
                 set was removed still has the tiers the journal last
                 recorded, and showing them here would say a chain is
@@ -173,6 +211,8 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
           </span>
         }
       />
+
+      <ArtifactAssuranceCard artifactId={a.id} readOnly={readOnly} />
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 14, alignItems: "start" }}>
         <section className="card">
@@ -195,7 +235,10 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
             <Row label="Producer timestamp" value={stamp(a.producedAt)} mono tip="backups.detail.produced-at" />
             <Row label="Received timestamp" value={stamp(a.receivedAt)} mono tip="backups.detail.received-at" />
             <Row label="Size" value={bytes(a.sizeBytes) + " \u00b7 " + a.sizeBytes + " B"} mono tip="backups.detail.size" />
-            <Row label="Checksum" value={a.checksumAlgorithm + ":" + a.checksum} mono tip="backups.detail.checksum" />
+            {/* The word "plaintext" only on a backup that has an encrypted copy, so a
+                deployment with encryption off reads the label it always did. */}
+            <Row label={copies.data?.some((c) => c.encrypted) ? "Checksum (plaintext)" : "Checksum"} value={a.checksumAlgorithm + ":" + a.checksum} mono tip="backups.detail.checksum" />
+            <EncryptionDigests copies={copies.data} />
             {/* The verdict, and separately what to do about it. They were
                 one ternary and it printed "Failed" for a backup whose
                 validation had never run, which is the #662 artifact
@@ -204,7 +247,7 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
                 row labelled "Validation result" that reports a failure
                 nothing measured is the same class of untruth as the card
                 below not rendering at all. */}
-            <Row label="Validation result" value={validationResultSentence(a, stuck)} tip="backups.detail.validation" />
+            <Row label="Validation result" value={validationResultSentence(a, stuck, facts)} tip="backups.detail.validation" testId="validation-result" />
             <Row label="Retention classes" value={a.retentionClasses.join(", ") || "unclassified"} tip="backups.detail.retention-classes" />
             {/* Spelled out in the field list as well as badged in the
                 header, because this row is the sentence an operator can
@@ -223,7 +266,7 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
           <div className="card__header">
             <InfoTooltip id="backups.detail.lifecycle-card"><h2 className="eyebrow">Lifecycle</h2></InfoTooltip>
           </div>
-          <LifecycleTimeline artifact={a} />
+          <LifecycleTimeline artifact={a} facts={facts} />
           <p style={{ margin: 0, padding: "0 22px 20px", fontSize: "var(--text-sm)", color: "var(--text-3)", maxWidth: "60ch" }}>
             Remote deletion is a lifecycle consequence of a proven NAS copy — never
             an independent file operation.
@@ -265,90 +308,25 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
       ) : null}
 
       <div style={{ marginTop: 14 }}>
-        <PlacementList placements={a.placements} storage={settings.data?.schema.storage} />
+        <PlacementList
+          placements={a.placements}
+          storage={settings.data?.schema.storage}
+          showRecovery={!!facts}
+          encryption={copies.data}
+          failedVerify={failedVerify}
+          onVerify={setVerifying}
+        />
+        {verifying !== null && copies.data?.find((c) => c.medium === verifying) ? (
+          <VerifyRecoverableDialog
+            artifactId={artifactId}
+            copy={copies.data.find((c) => c.medium === verifying) as NonNullable<typeof copies.data>[number]}
+            onClose={closeVerify}
+            onEnded={onVerifyEnded}
+          />
+        ) : null}
       </div>
     </>
   );
-}
-
-/**
- * What this card says when the retry did not go through.
- *
- * It rendered `e.message` bare, which fails the operator in the exact way
- * #662 complains about the docked terminal: a control that refuses and
- * explains nothing. Three things are added and none of them is invented.
- *
- * The correlation id, whenever the response carried one. It is the only
- * token that ties what an operator saw to what the engine logged, and the
- * position #662 was filed from — a NAS with no shell — is exactly the
- * position where quoting that id into an issue is all somebody can do.
- *
- * A next step for the two refusals whose own message cannot carry one.
- * ARTIFACT_NOT_FAILED means the row moved while this page was open (a
- * cycle, another browser, or the operator's own earlier press): the page
- * is stale rather than wrong, and reloading is the whole remedy. An
- * authentication or CSRF refusal is about the session and not about the
- * backup at all, so it must not read as a verdict on the backup.
- *
- * And the two non-refusals RequestFailure labels, kept apart, because
- * "nothing came back" leaves it genuinely unknown whether the retry was
- * carried out, and telling somebody to press again when it may already
- * have run is advice with a cost.
- *
- * # There is deliberately no destructive-gate branch
- *
- * POST /api/v1/backups/{source}/{set}/{name}/retry carries requireCSRF
- * and NOT requireDestructiveGate (router.go:425), the generated contract
- * records `destructiveGate: false` for `retryFailedIngestion`, and
- * webhost's own contract walk asserts that a closed production gate must
- * NOT refuse an operation declared ungated. So this button does not 403
- * on the shipped NotYetImplementedGate, DESTRUCTIVE_OPERATIONS_DISABLED
- * is not among the codes this route can emit, and a branch explaining
- * issue #92 here would be this page inventing a refusal the server never
- * sends — the same species of untruth as the fixture that used to gate
- * the card above.
- */
-function retryRefusalSentence(e: unknown): string {
-  if (e instanceof BackupdError) {
-    const step = RETRY_REFUSAL_NEXT_STEP[e.api.code] ?? "";
-    return [e.api.message, step, correlationSuffix(e.api.correlationId)].filter((part) => part !== "").join(" ");
-  }
-  if (e instanceof RequestFailure) {
-    const said =
-      e.kind === "no-response"
-        ? "The backup service did not answer, so whether the re-attempt was started is unknown. Reload this page" +
-          " before pressing again: if the backup is no longer FAILED, it did start."
-        : "The backup service answered with something this build could not read, so what happened to the" +
-          " re-attempt is unknown. Reload this page to see the backup's current state.";
-    return [said, correlationSuffix(e.correlationId)].filter((part) => part !== "").join(" ");
-  }
-  // Not a refusal and not a request failure, so it did not come out of the
-  // request at all (RequestFailure's own doc makes that distinction the
-  // point of the type): it came out of what was chained onto it, and there
-  // is nothing honest to add to it.
-  return e instanceof Error ? e.message : String(e);
-}
-
-/** The refusals whose own sentence cannot say what to do next, because
- *  what to do next is about this page or this session rather than about
- *  the backup. Every other code is reported in the engine's own words
- *  alone, which is the house rule: a paraphrase kept in a frontend
- *  eventually says something the engine does not. */
-const RETRY_REFUSAL_NEXT_STEP: Partial<Record<ApiErrorCode, string>> = {
-  ARTIFACT_NOT_FAILED:
-    "This backup is no longer FAILED, so this page is showing a state it has already left. Reload it to see" +
-    " where the backup is now.",
-  UNAUTHENTICATED: "This is about the session, not about the backup. Sign in again and the re-attempt is still available.",
-  CSRF_TOKEN_MISSING: "This is about the session, not about the backup. Reload the page and press again.",
-  CSRF_TOKEN_MISMATCH: "This is about the session, not about the backup. Reload the page and press again."
-};
-
-/** The correlation id as a clause, or nothing at all when the response
- *  carried none. Never a placeholder: an id an operator quotes has to be
- *  one the engine's log actually contains (the rule fromWireTransition
- *  states for the same field one file over). */
-function correlationSuffix(correlationId: string | undefined): string {
-  return correlationId ? "Correlation id " + correlationId + "." : "";
 }
 
 /**
@@ -367,13 +345,20 @@ function correlationSuffix(correlationId: string | undefined): string {
  * The pointer is appended rather than substituted for the verdict, for
  * the same reason: where to go is not a verdict.
  */
-function validationResultSentence(a: BackupArtifact, stuck: boolean): string {
+function validationResultSentence(a: BackupArtifact, stuck: boolean, facts: BackupFacts | null): string {
+  // "Pending" is what the wire says for a backup no ingest-time validator ruled
+  // on. That is not the same as nothing having checked it since: a scrub that
+  // read the copy back and matched its hash is a recorded fact (issue #1134),
+  // and this row says so instead of contradicting the Copies block under it.
+  const sinceIngest = facts?.contentAt
+    ? "Not recorded at ingest. Content verified " + stamp(facts.contentAt) + " (the copy was read back and its hash matched)."
+    : null;
   const verdict =
     a.validation === "verified"
       ? "Checksum passed"
       : a.validation === "failed"
         ? "Failed"
-        : "Not recorded — nothing has validated this backup";
+        : sinceIngest ?? "Not recorded — nothing has validated this backup";
   if (stuck) {
     return verdict + " · this backup is FAILED and not quarantined, so it is not on the Quarantine page: see Recovery below";
   }
@@ -404,7 +389,7 @@ function retentionPolicySentence(policy: ArtifactRetentionPolicy): string {
     default:
       return (
         "This server did not say, so this page cannot tell you whether anything will ever delete this" +
-        " backup. Updating Backupd restores the answer; the backupd unconfigured command" +
+        " backup. Updating retnd restores the answer; the retnd unconfigured command" +
         " has it in the meantime."
       );
   }
@@ -417,7 +402,7 @@ function retentionPolicySentence(policy: ArtifactRetentionPolicy): string {
  *  The icon sits beside the label rather than inside it, and the label
  *  keeps an element of its own, so the term a reader searches for is
  *  still exactly the term on screen. */
-function Row({ label, value, mono, tip }: { label: string; value: string; mono?: boolean; tip: TooltipId }) {
+function Row({ label, value, mono, tip, testId }: { label: string; value: string; mono?: boolean; tip: TooltipId; testId?: string }) {
   return (
     <>
       <dt style={{ color: "var(--text-2)" }}>
@@ -426,6 +411,7 @@ function Row({ label, value, mono, tip }: { label: string; value: string; mono?:
       </dt>
       <dd
         className={mono ? "mono" : undefined}
+        data-testid={testId}
         style={{ margin: 0, wordBreak: "break-all" }}
       >
         {value}

@@ -25,6 +25,7 @@
  * here is the footer naming what it is running on.
  */
 import { useCallback, useEffect, useState } from "react";
+import { OperationDetailPage } from "@shared/assurance/OperationDetailPage";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import "@shared/design-system/tokens.css";
 import "@shared/design-system/typography.css";
@@ -37,6 +38,8 @@ import { useResource } from "@shared/state/resource";
 import { configuredNode, countsNode, healthNode, operationsNode, quarantineNode, readOnlyNode, setsNode, versionNode } from "@shared/state/appNodes";
 import { AppShell } from "@shared/layouts/AppShell";
 import { WarningBanner } from "@shared/components/WarningBanner";
+import { FirstRunGuide } from "@shared/components/FirstRunGuide";
+import type { FirstRunStatus } from "@shared/api/contracts";
 import { RecoveryVerificationBanner } from "@shared/components/RecoveryVerificationBanner";
 import { DashboardPage } from "@shared/pages/DashboardPage";
 import { BackupSetsPage } from "@shared/pages/BackupSetsPage";
@@ -54,6 +57,11 @@ import { SnapshotRestorePage } from "@shared/pages/SnapshotRestorePage";
 import { SnapshotRetentionPage } from "@shared/pages/SnapshotRetentionPage";
 import { RepositoryHealthPage } from "@shared/pages/RepositoryHealthPage";
 import { RepositoryMaintenancePage } from "@shared/pages/RepositoryMaintenancePage";
+// EPIC L's run screen (issue #814). Routed top-level rather than under a
+// backup set, matching the API's own /workflow-runs/{run}: a run outlives
+// the configuration that produced it, and "what is stuck in this
+// deployment" is not a question any one set's page can be asked.
+import { WorkflowRunPage } from "@shared/pages/WorkflowRunPage";
 import { ActivityPage } from "@shared/pages/ActivityPage";
 import { QuarantinePage } from "@shared/pages/QuarantinePage";
 import { SettingsPage } from "@shared/pages/SettingsPage";
@@ -68,24 +76,24 @@ import { ForgotPasswordPage } from "@shared/auth/ForgotPasswordPage";
 import { ResetPasswordPage } from "@shared/auth/ResetPasswordPage";
 import { VerifyEmailPage } from "@shared/auth/VerifyEmailPage";
 import { ServiceUnreachablePage, SessionCheckFailedPage } from "@shared/pages/SessionCheckFailure";
+import { InsecureTransportPrompt } from "@shared/components/InsecureTransportPrompt";
 import { TooltipOptOutDialog } from "@shared/components/TooltipOptOutDialog";
 import { isServiceUnreachable } from "@shared/api/failure";
+import { applyTheme, resolveTheme } from "@shared/theme";
+import type { Theme } from "@shared/theme";
 
-const THEME_KEY = "backupd.theme";
 
 export function App() {
   const api = useApi();
   const { auth, authError, authLoading, refreshAuth, bridge } = usePlatform();
   const navigate = useNavigate();
 
-  const [theme, setTheme] = useState<"light" | "dark">(() => {
-    const stored = window.localStorage.getItem(THEME_KEY);
-    return stored === "dark" ? "dark" : "light";
-  });
+  // #1236: index.html has already put the theme on the root element before the
+  // first paint, so this starts from what is there instead of overwriting it.
+  const [theme, setTheme] = useState<Theme>(resolveTheme);
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    window.localStorage.setItem(THEME_KEY, theme);
+    applyTheme(theme);
   }, [theme]);
 
   // Issue #176: which mode this instance is in, asked before anything
@@ -104,6 +112,8 @@ export function App() {
   // cannot be navigated, because the engine is not serving the new
   // configuration yet and a restart is the only thing that helps.
   const [restartRequired, setRestartRequired] = useState(false);
+  // retnd#1049: where the guided setup stands, from the same answer.
+  const [firstRun, setFirstRun] = useState<FirstRunStatus | null>(null);
 
   useEffect(() => {
     if (!auth?.authenticated) return;
@@ -111,7 +121,9 @@ export function App() {
     api
       .getFirstRunStatus()
       .then((status) => {
-        if (!cancelled) setConfigured(status.configured);
+        if (cancelled) return;
+        setConfigured(status.configured);
+        setFirstRun(status);
       })
       .catch(() => {
         // An instance that cannot answer this is far more likely to be an
@@ -141,6 +153,22 @@ export function App() {
   const health = useResource(healthNode, () => api.getHealth(), [api], signedIn);
   const version = useResource(versionNode, () => api.getVersion(), [api], signedIn);
   const sets = useResource(setsNode, () => api.listSets(), [api], signedIn);
+  // retnd#1049: the guide's backup-set step is derived from the sets that
+  // exist, so it is asked again when their number changes.
+  const setCount = sets.data?.length;
+  useEffect(() => {
+    if (!signedIn || setCount === undefined) return;
+    let cancelled = false;
+    api
+      .getFirstRunStatus()
+      .then((status) => {
+        if (!cancelled) setFirstRun(status);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [api, signedIn, setCount]);
   // Owns the one fetch of quarantineNode (#101, matching health/sets
   // above): the header's quarantine badge (countsNode, below) and
   // QuarantinePage's own list both read this same node, via the
@@ -193,7 +221,7 @@ export function App() {
   // answering" is only true for a request that got no reply and for a
   // refusal written by the proxy in front of the service; the other
   // rejections this gate sees — an unreadable body, a typed refusal that
-  // is not about the session — are Backupd answering, and putting that
+  // is not about the session — are retnd answering, and putting that
   // heading over them contradicted the ErrorState directly underneath
   // it.
   if (authError) {
@@ -245,28 +273,19 @@ export function App() {
           verified account, which is the overwhelmingly common case. */}
       <RecoveryVerificationBanner />
 
-      {configured ? null : (
-        // Deliberately no button of its own: the two pages that can act on
-        // this (the dashboard and the backup-sets list) already offer
-        // "Add backup set", and a banner repeating it puts the same
-        // primary action on one page twice.
-        // Not dismissible (#620), and for a reason the tone hides: this
-        // sits ABOVE <Routes>, so it is mounted once for the session and
-        // no navigation unmounts it. A dismissal here would last until a
-        // hard reload, and its body says "Until that is done nothing is
-        // backed up". An operator who clears that and forgets believes
-        // they have backups they do not have.
-        <WarningBanner
-          tone="info"
-          eyebrow="First run"
-          title="Backupd has no configuration yet"
-          dismissible={false}
-        >
-          {"Add your first backup set, under Backup sets, and Backupd writes its " +
-            "configuration for you. Until that is done nothing is backed up, and the " +
-            "pages here have nothing behind them to show."}
-        </WarningBanner>
-      )}
+      {/* retnd#1049: the guide replaces the old one-paragraph banner. It
+          is above <Routes> for the same reason that banner was, and is not
+          dismissible for the same reason (#620). It renders nothing once no
+          step is pending. */}
+      {firstRun ? (
+        <FirstRunGuide
+          status={firstRun}
+          configured={configured !== false}
+          onSkip={async (step) => {
+            setFirstRun(await api.skipFirstRunStep(step));
+          }}
+        />
+      ) : null}
 
       {readOnly && version.data ? (
         // Not dismissible (#620), same position above the outlet and a
@@ -276,7 +295,7 @@ export function App() {
         // refusal into an application that silently does nothing.
         <WarningBanner
           tone="warn"
-          title="Backupd update required"
+          title="retnd update required"
           eyebrow="Version mismatch"
           dismissible={false}
         >
@@ -341,7 +360,13 @@ export function App() {
             because nobody has claimed it. */}
         <Route path="/repositories/health" element={<RepositoryHealthPage />} />
         <Route path="/repositories/maintenance" element={<RepositoryMaintenancePage />} />
+        {/* EPIC L (#814). One segment, because a workflow run id is
+            opaque and single-segment — the engine mints it — unlike a
+            backup set id, which is source and set joined by "/". Callers
+            build the URL with workflowRunPath() (utilities/routes.ts). */}
+        <Route path="/workflow-runs/:runId" element={<WorkflowRunPage readOnly={readOnly} />} />
         <Route path="/backups" element={<BackupsPage readOnly={readOnly} />} />
+        <Route path="/assurance/operations/:id" element={<OperationDetailPage readOnly={readOnly} />} />
         {/* And three, not one, for the same reason one route up: an
             artifact id (model.ArtifactID.String()) is a backup set id
             plus the file's name, so it is source, set and name, and the
@@ -375,8 +400,8 @@ export function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
-      <p style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--text-3)" }}>
-        {"Backupd running on " + bridge.name}
+      <p data-testid="app-footer" style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
+        {"retnd running on " + bridge.name}
         {" \u00b7 "}
         <button
           onClick={() => navigate("/catalog-recovery")}
@@ -395,6 +420,13 @@ export function App() {
           inside the shell so its Settings link has a page to reach.
           Renders nothing until its node says otherwise. */}
       <TooltipOptOutDialog />
+
+      {/* Issue #1163: asks, in words, before a gated act goes over a
+          connection that is not encrypted. Mounted once for the same reason
+          as the dialog above: the question is the same wherever the press
+          was, and api/client.ts is what raises it. Renders nothing until
+          asked. */}
+      <InsecureTransportPrompt />
     </AppShell>
   );
 }

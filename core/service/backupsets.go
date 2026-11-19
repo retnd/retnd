@@ -18,9 +18,9 @@
 // recomputing ConfigRevision — so the change is visible to every other
 // method on this BackupService (ListBackupSets, GetBackupSet,
 // SubmitRunCycle) immediately, without an operator restarting the
-// process, and visible to `backupd sources`/any other CLI
+// process, and visible to `retnd sources`/any other CLI
 // invocation the next time one runs, since that command already reads
-// the same file fresh on every invocation (core/cmd/backupd/
+// the same file fresh on every invocation (core/cmd/retnd/
 // sources.go).
 //
 // This was previously out of core/service's scope by design (see
@@ -41,12 +41,12 @@ import (
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/obs"
-	"github.com/backupdproject/backupd/core/internal/sourcecheck"
-	"github.com/backupdproject/backupd/core/internal/transport"
-	"github.com/backupdproject/backupd/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/sourcecheck"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport/rclone"
 )
 
 // defaultSourceName groups every backup set created through the API under
@@ -707,8 +707,8 @@ func (b *BackupService) CreateBackupSet(ctx context.Context, req CreateBackupSet
 	defer b.configMu.Unlock()
 
 	// Re-read from disk, not b.state.Load().inner.Config: this is the same "always
-	// read fresh" discipline `backupd sources` already uses
-	// (core/cmd/backupd/sources.go), and it is what makes this
+	// read fresh" discipline `retnd sources` already uses
+	// (core/cmd/retnd/sources.go), and it is what makes this
 	// method safe even if configPath was edited by hand (or by a second
 	// process) since this BackupService last loaded it — the write below
 	// is always based on the file's actual current content, never a
@@ -756,6 +756,19 @@ func (b *BackupService) CreateBackupSet(ctx context.Context, req CreateBackupSet
 		return CreateBackupSetResult{}, err
 	}
 
+	// The first set of a deployment that was started on its default
+	// configuration (retnd#1049) seeds the local destination, exactly as
+	// CreateInitialConfig does for the setup flow, so both doors leave the
+	// same file behind. Counted before the append below, and only when no
+	// destination has been declared yet: a deployment that already has
+	// sets or mediums is never touched by this.
+	seedLocal := len(cfg.StorageMediums) == 0
+	for _, src := range cfg.Sources {
+		if len(src.BackupSets) > 0 {
+			seedLocal = false
+		}
+	}
+
 	found := false
 	for i := range cfg.Sources {
 		if cfg.Sources[i].Name == sourceName {
@@ -766,6 +779,13 @@ func (b *BackupService) CreateBackupSet(ctx context.Context, req CreateBackupSet
 	}
 	if !found {
 		cfg.Sources = append(cfg.Sources, config.Source{Name: sourceName, BackupSets: []config.BackupSet{newSet}})
+	}
+	if seedLocal {
+		localMedium, err := seedLocalStorageMedium(ctx, cfg, req.SkipConnectionCheck)
+		if err != nil {
+			return CreateBackupSetResult{}, err
+		}
+		cfg.StorageMediums = append(cfg.StorageMediums, localMedium)
 	}
 
 	// Encoded before cfg.Validate, which resolves Retention and Alerts IN
@@ -1518,7 +1538,7 @@ func testConnectionVia(ctx context.Context, tr transport.Transport, configPath s
 		return ConnectionTestResult{}, err
 	}
 
-	tmp, err := os.CreateTemp("", "backupd-test-connection-known-hosts-*")
+	tmp, err := os.CreateTemp("", "retnd-test-connection-known-hosts-*")
 	if err != nil {
 		return ConnectionTestResult{}, fmt.Errorf("service: preparing connection test: %w", err)
 	}
@@ -1609,7 +1629,7 @@ func testConnectionVia(ctx context.Context, tr transport.Transport, configPath s
 			if err != nil {
 				return 0, err
 			}
-			return len(entries), nil
+			return listedCandidates(entries), nil
 		},
 		// The same write probe the persisted mode runs, over the same
 		// candidate source (issue #852). The wizard needs this answer

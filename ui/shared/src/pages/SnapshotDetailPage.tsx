@@ -36,6 +36,7 @@ import { useApi } from "@shared/api/ApiContext";
 import { ConfirmationDialog } from "@shared/components/ConfirmationDialog";
 import { Note, Row, Rows } from "@shared/components/Definitions";
 import { EmptyState, ErrorState } from "@shared/components/EmptyState";
+import { Acknowledgement } from "@shared/components/Acknowledgement";
 import { CONSISTENCY_COPY, VERIFICATION_COPY, VerificationBadge } from "@shared/components/EngineBadge";
 import { MetricCard } from "@shared/components/MetricCard";
 import { OperationProgress } from "@shared/components/OperationProgress";
@@ -73,6 +74,9 @@ export function SnapshotDetailPage({ readOnly }: { readOnly: boolean }) {
 
   const [holdReason, setHoldReason] = useState("");
   const [holdOpen, setHoldOpen] = useState(false);
+  // Issue #1164: releasing lifts a protection, so the dialog waits for an
+  // explicit tick and the request carries it.
+  const [releaseAcknowledged, setReleaseAcknowledged] = useState(false);
   const [releasing, setReleasing] = useState<SnapshotHold | null>(null);
 
   if (detail.error)
@@ -171,6 +175,7 @@ export function SnapshotDetailPage({ readOnly }: { readOnly: boolean }) {
           </>
         }
       />
+
 
       {[verify.failure, hold.failure, release.failure].map((failure, index) =>
         failure ? (
@@ -394,7 +399,10 @@ export function SnapshotDetailPage({ readOnly }: { readOnly: boolean }) {
                           className="btn btn--sm btn--destructive"
                           aria-label={"Release hold " + h.holdId}
                           disabled={readOnly || release.busy || !release.ready}
-                          onClick={() => setReleasing(h)}
+                          onClick={() => {
+                            setReleaseAcknowledged(false);
+                            setReleasing(h);
+                          }}
                         >
                           Release
                         </button>
@@ -468,7 +476,7 @@ export function SnapshotDetailPage({ readOnly }: { readOnly: boolean }) {
         eyebrow="The retention chain governs it again"
         title="Release this hold"
         confirmLabel="Release hold"
-        disabled={release.busy}
+        disabled={release.busy || !releaseAcknowledged}
         onCancel={() => setReleasing(null)}
         onConfirm={() => {
           const target = releasing;
@@ -479,6 +487,7 @@ export function SnapshotDetailPage({ readOnly }: { readOnly: boolean }) {
               api.releaseSnapshotHold({
                 backupSetId: setId,
                 holdId: target.holdId,
+                acknowledged: releaseAcknowledged,
                 configRevision,
                 idempotencyKey
               }),
@@ -496,6 +505,11 @@ export function SnapshotDetailPage({ readOnly }: { readOnly: boolean }) {
               "retention chain again. The next pass may delete it. Releasing deletes nothing " +
               "by itself, and any other hold on this snapshot still holds it."}
         </p>
+        <div data-release-ack style={{ marginTop: 14 }}>
+          <Acknowledgement checked={releaseAcknowledged} onChange={setReleaseAcknowledged}>
+            {"I understand that releasing this hold lets the next retention run delete the snapshot."}
+          </Acknowledgement>
+        </div>
       </ConfirmationDialog>
     </>
   );

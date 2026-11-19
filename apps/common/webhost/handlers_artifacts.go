@@ -4,7 +4,7 @@
 //
 // Nothing here computes anything. Every value comes from
 // core/service.BackupService's own read models, which in turn read the
-// FR-9 journal `backupd artifacts` and `status` already print: the
+// FR-9 journal `retnd artifacts` and `status` already print: the
 // data has existed since the first migration, and what was missing was a
 // boundary. That is why these routes could be built at all without
 // inventing a second source of truth for what a backup is.
@@ -20,7 +20,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/backupdproject/backupd/core/service"
+	"github.com/retnd/retnd/core/service"
 )
 
 // artifactResponse is one backup's wire shape, a field-for-field mirror of
@@ -108,6 +108,29 @@ type placementResponse struct {
 
 	Access string `json:"access"`
 	Status string `json:"status"`
+
+	// The copy's own scrub and recovery-test record (EPIC Q, #985). Every one
+	// is ABSENT for a copy nobody has checked: the unknown state is the
+	// absence, never a value a client could read as fine.
+	AssuranceState        string `json:"assurance_state,omitempty"`
+	LastCheckedAt         string `json:"last_checked_at,omitempty"`
+	LastFailureAt         string `json:"last_failure_at,omitempty"`
+	LastFailureReason     string `json:"last_failure_reason,omitempty"`
+	ConsecutiveFailures   int    `json:"consecutive_failures,omitempty"`
+	RecoveryState         string `json:"recovery_state,omitempty"`
+	RecoveryTestedAt      string `json:"recovery_tested_at,omitempty"`
+	RecoveryFailureReason string `json:"recovery_failure_reason,omitempty"`
+	// RecoveryCheck says which check produced the verdict in recovery_state:
+	// "validator" or "builtin" (#1111). Absent when there is none to attribute.
+	RecoveryCheck string `json:"recovery_check,omitempty"`
+
+	// The copy's encryption state (#993), absent for a plaintext copy. An id,
+	// never material.
+	Encrypted               bool   `json:"encrypted,omitempty"`
+	EncryptionKeyID         string `json:"encryption_key_id,omitempty"`
+	EncryptionKeyResolvable *bool  `json:"encryption_key_resolvable,omitempty"`
+	// EncryptionSuite is the suite the copy's record names (#1318).
+	EncryptionSuite string `json:"encryption_suite,omitempty"`
 }
 
 // listArtifactsResponse is the body of both GET /api/v1/backups and GET
@@ -468,6 +491,16 @@ func (h *handlers) writeArtifactActionError(w http.ResponseWriter, r *http.Reque
 	}
 }
 
+// unlessUnknown turns the journal's zero-value "unknown" into an absent field.
+// The wire's rule for a copy nobody has checked is absence, so a client has one
+// way to read it and no value that could pass for good news.
+func unlessUnknown(s string) string {
+	if s == "unknown" {
+		return ""
+	}
+	return s
+}
+
 // toPlacementResponses projects an artifact's copies onto the wire.
 //
 // The result is always a non-nil slice, so a backup with no copy serves
@@ -488,6 +521,21 @@ func toPlacementResponses(placements []service.Placement) []placementResponse {
 			VerifiedAt:        formatTime(p.VerifiedAt),
 			Access:            p.Access,
 			Status:            p.Status,
+
+			AssuranceState:        unlessUnknown(p.ScrubState),
+			LastCheckedAt:         formatTime(p.ScrubLastCheckedAt),
+			LastFailureAt:         formatTime(p.ScrubLastFailureAt),
+			LastFailureReason:     p.ScrubLastFailureReason,
+			ConsecutiveFailures:   p.ScrubConsecutiveFailures,
+			RecoveryState:         unlessUnknown(p.RecoveryState),
+			RecoveryTestedAt:      formatTime(p.RecoveryTestedAt),
+			RecoveryFailureReason: p.RecoveryFailureReason,
+			RecoveryCheck:         p.RecoveryCheck,
+
+			Encrypted:               p.Encrypted,
+			EncryptionKeyID:         p.EncryptionKeyID,
+			EncryptionKeyResolvable: p.EncryptionKeyResolvable,
+			EncryptionSuite:         p.EncryptionSuite,
 		})
 	}
 	return out

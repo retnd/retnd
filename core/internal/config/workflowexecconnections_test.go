@@ -20,7 +20,7 @@ func execConnectionYAML(id, extra string) string {
 	return `
 poll_interval: 15m
 state:
-  database: /var/lib/backupd/state.db
+  database: /var/lib/retnd/state.db
 workflows:
   root: /workflows
   global:
@@ -30,10 +30,10 @@ workflows:
       remote:
         type: sftp
         host: db.example.com
-        user: backupd-hooks
-        known_hosts: /etc/backupd/known_hosts
+        user: retnd-hooks
+        known_hosts: /etc/retnd/known_hosts
         key:
-          file: /etc/backupd/hooks.key
+          file: /etc/retnd/hooks.key
 ` + extra + `
 sources:
   - id: production
@@ -42,10 +42,10 @@ sources:
         remote:
           type: sftp
           host: db.example.com
-          user: backupd-transfer
-          known_hosts: /etc/backupd/known_hosts
+          user: retnd-transfer
+          known_hosts: /etc/retnd/known_hosts
           key:
-            file: /etc/backupd/transfer.key
+            file: /etc/retnd/transfer.key
         remote_path: /var/backups
         local_path: /srv/backups/db
         completion:
@@ -71,7 +71,7 @@ func TestAnExecConnectionIsConfigurableSeparatelyFromTheTransferRemote(t *testin
 	if got[0].Name != "db-hooks" {
 		t.Errorf("id = %q", got[0].Name)
 	}
-	if got[0].Remote.User != "backupd-hooks" {
+	if got[0].Remote.User != "retnd-hooks" {
 		t.Errorf("user = %q; the execution credential is not the transfer credential", got[0].Remote.User)
 	}
 
@@ -81,7 +81,7 @@ func TestAnExecConnectionIsConfigurableSeparatelyFromTheTransferRemote(t *testin
 	if !ok {
 		t.Fatal("WorkflowExecConnection did not find the connection the config declares")
 	}
-	if conn.Remote.User != "backupd-hooks" {
+	if conn.Remote.User != "retnd-hooks" {
 		t.Errorf("resolved user = %q", conn.Remote.User)
 	}
 	if set := cfg.Sources[0].BackupSets[0]; set.Remote.User == conn.Remote.User {
@@ -107,9 +107,9 @@ func TestExecConnectionRefusals(t *testing.T) {
         type: sftp
         host: other.example.com
         user: someone
-        known_hosts: /etc/backupd/known_hosts
+        known_hosts: /etc/retnd/known_hosts
         key:
-          file: /etc/backupd/other.key`),
+          file: /etc/retnd/other.key`),
 		mustSay: "declared twice",
 	}, {
 		name:    "an id that could be read as a backup set id",
@@ -120,19 +120,19 @@ func TestExecConnectionRefusals(t *testing.T) {
 		// daemon's own host, which is what a NAME.local.sh already is.
 		name: "a local execution connection",
 		yaml: strings.Replace(execConnectionYAML("db-hooks", ""),
-			"        type: sftp\n        host: db.example.com\n        user: backupd-hooks\n        known_hosts: /etc/backupd/known_hosts\n        key:\n          file: /etc/backupd/hooks.key",
+			"        type: sftp\n        host: db.example.com\n        user: retnd-hooks\n        known_hosts: /etc/retnd/known_hosts\n        key:\n          file: /etc/retnd/hooks.key",
 			"        type: local", 1),
 		mustSay: "must be \"sftp\"",
 	}, {
 		name: "host-key verification turned off",
 		yaml: strings.Replace(execConnectionYAML("db-hooks", ""),
-			"        known_hosts: /etc/backupd/known_hosts\n        key:\n          file: /etc/backupd/hooks.key",
-			"        known_hosts: none\n        key:\n          file: /etc/backupd/hooks.key", 1),
+			"        known_hosts: /etc/retnd/known_hosts\n        key:\n          file: /etc/retnd/hooks.key",
+			"        known_hosts: none\n        key:\n          file: /etc/retnd/hooks.key", 1),
 		mustSay: "host-key verification",
 	}, {
 		name: "no key at all",
 		yaml: strings.Replace(execConnectionYAML("db-hooks", ""),
-			"        key:\n          file: /etc/backupd/hooks.key\n", "", 1),
+			"        key:\n          file: /etc/retnd/hooks.key\n", "", 1),
 		mustSay: "key",
 	}, {
 		name: "a reference naming nothing at all",

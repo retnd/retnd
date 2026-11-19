@@ -3,16 +3,17 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/capacity"
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/health"
-	"github.com/backupdproject/backupd/core/internal/lifecycle"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/placement"
-	"github.com/backupdproject/backupd/core/internal/retention"
-	"github.com/backupdproject/backupd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/capacity"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/health"
+	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/placement"
+	"github.com/retnd/retnd/core/internal/retention"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // FR-24's `status`, assembled from inputs that know nothing about each other.
@@ -46,7 +47,7 @@ import (
 // A free-space reading is allowed to be missing, because it is a live reading
 // of something outside the journal and its absence is itself reportable.
 
-// BuildHealthReport is `backupd status`' use case (FR-24). It calls
+// BuildHealthReport is `retnd status`' use case (FR-24). It calls
 // internal/health.ComputeBackupSetHealth once per configured backup set,
 // against that set's freshly-loaded journal rows, and bundles the result
 // with the process-liveness half of FR-24 built from versionInfo.
@@ -102,8 +103,10 @@ func (s *Service) BuildHealthReport(ctx context.Context, versionInfo VersionInfo
 		return health.Report{}, fmt.Errorf("app: health: connection refusals: %w", err)
 	}
 	haltReasons := make(map[model.BackupSetID]string, len(halts))
+	haltSeen := make(map[model.BackupSetID]time.Time, len(halts))
 	for _, h := range halts {
 		haltReasons[h.Set] = h.Reason
+		haltSeen[h.Set] = h.ObservedAt
 	}
 
 	// Every relocation this journal still has open, indexed by backup
@@ -161,12 +164,18 @@ func (s *Service) BuildHealthReport(ctx context.Context, versionInfo VersionInfo
 			}
 
 			in := health.BackupSetInputs{
+				// The set's resolved assurance policy, so a set that
+				// requires a recovery test is degraded until one passes and
+				// the scrub cadence the alert reads is the one in force.
+				RecoveryTestRequired: bs.Assurance.RecoveryTestEnabled(),
+				ScrubCadence:         bs.Assurance.Scrub.Cadence.Duration(),
 				LastSuccessfulPollAt: s.lastPollAt(bs.ID),
 				LastRetentionRunAt:   s.lastRetentionAt(bs.ID),
 				// Absent from the map means no refusal is on record, which
 				// is the honest empty rather than a claim that this set is
 				// reachable.
-				HaltReason: haltReasons[bs.ID],
+				HaltReason:     haltReasons[bs.ID],
+				HaltObservedAt: haltSeen[bs.ID],
 				// FR-30's own question, asked of every set on every report
 				// (issue #602). See retentionHoldReason.
 				RetentionHoldReason: retentionHoldReason(now, bs, records),
@@ -185,7 +194,96 @@ func (s *Service) BuildHealthReport(ctx context.Context, versionInfo VersionInfo
 			sets = append(sets, health.ComputeBackupSetHealth(bs.ID, records, reinstated, evidence, bs.StaleAfter.Duration(), in, now))
 		}
 	}
-	return health.NewReport(process, sets, now), nil
+	report := health.NewReport(process, sets, now)
+	retained, err := s.retainedCount(ctx, sets)
+	if err != nil {
+		return health.Report{}, err
+	}
+	report.RetainedCount = retained
+	kc := s.keyCustodyHealth(ctx)
+	report.KeyCustody = kc
+	return report, nil
+}
+
+// keyCustodyHealth is health.Report.KeyCustody (EPIC N, FR-66). A
+// deployment with no custodian wired, or one that encrypts nothing and holds
+// no keys, gets the zero section, which reads "this deployment encrypts
+// nothing". A custodian that cannot be read degrades only this section
+// (Unevaluated says why): failing the report would silence the alert pass
+// behind it for every other condition.
+func (s *Service) keyCustodyHealth(ctx context.Context) health.KeyCustodyHealth {
+	custody, ok := s.Keys.(interface {
+		Health(ctx context.Context, enabled bool) (health.KeyCustodyHealth, error)
+	})
+	if !ok {
+		return health.KeyCustodyHealth{}
+	}
+	enabled := false
+	for _, src := range s.Config.Sources {
+		for _, bs := range src.BackupSets {
+			if bs.EncryptsRetainedCopies() {
+				enabled = true
+			}
+		}
+	}
+	h, err := custody.Health(ctx, enabled)
+	if err != nil {
+		reason := strings.Join(strings.Fields(err.Error()), " ")
+		return health.KeyCustodyHealth{Enabled: enabled, Unevaluated: reason}
+	}
+	// A dropped external reference strands the copies under its key (#1304).
+	// This is the alert tick's last probe, read as it stands: a health build
+	// runs on every request and must never resolve a reference, a command
+	// reference least of all.
+	if r, ok := s.Keys.(externalKeyRisks); ok {
+		h.ExternalKeysAtRisk = r.LastExternalKeysAtRisk()
+	}
+	// Copies per suite (#1315): one grouped journal read, no key touched.
+	// A custodian whose Health already counted them (for its own per-suite
+	// section) has filled the map, and the read is not made twice. A read
+	// that fails leaves the counts out rather than the section.
+	if j, ok := s.Journal.(interface {
+		ActiveEncryptedCopiesBySuite(ctx context.Context) (map[string]int, error)
+	}); ok && h.EncryptedCopiesBySuite == nil {
+		if bySuite, err := j.ActiveEncryptedCopiesBySuite(ctx); err == nil {
+			h.EncryptedCopiesBySuite = bySuite
+		}
+	}
+	return h
+}
+
+// retainedCount is the deployment's figure for the sidebar's Backups badge
+// (issue #1186): every backup outside quarantine, the configured sets' from
+// the reads this report already made, and those of sets whose configuration
+// was removed, which ListArtifacts still lists and which are still on
+// storage. Only the removed sets cost a read here, and a deployment that has
+// never removed one pays a single query for the list of set ids.
+//
+// A failure fails the report, for the reason the reinstatement history does
+// above: a number that silently left some backups out would be a confident
+// wrong answer on every screen.
+func (s *Service) retainedCount(ctx context.Context, sets []health.BackupSetHealth) (int, error) {
+	n := 0
+	configured := map[string]bool{}
+	for _, bs := range sets {
+		n += bs.RetainedCount
+		configured[bs.Set.String()] = true
+	}
+	known, err := s.Journal.ListBackupSetIDs(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("app: health: listing the backup sets on record: %w", err)
+	}
+	for _, id := range known {
+		if configured[id.String()] {
+			continue
+		}
+		records, err := s.Journal.ListByBackupSet(ctx, id)
+		if err != nil {
+			return 0, fmt.Errorf("app: health: listing %s: %w", id, err)
+		}
+		n += health.CountRetained(records)
+	}
+	return n, nil
 }
 
 // retentionHoldReason is FR-30's question asked of one backup set for the
@@ -205,7 +303,7 @@ func (s *Service) BuildHealthReport(ctx context.Context, versionInfo VersionInfo
 //
 // Unlike placementEvidence next door, this runs for every backup set,
 // including every deployment that predates EPIC E, so it must not become a
-// new way for `backupd status` to fail: that promise is exactly
+// new way for `retnd status` to fail: that promise is exactly
 // what placementEvidence's gate is for. LastKnownGoodUnconfirmed can only
 // fail one way, by the retention chain refusing to resolve, and a
 // deployment in that state has a real condition worth reporting anyway. So
@@ -264,7 +362,7 @@ type movesBySet map[model.BackupSetID][]state.Move
 // What the gate buys is that no deployment predating EPIC E changes
 // behaviour at all: it runs no retention classification on a status call,
 // and it does not have to have a journal that can read the move table.
-// Both of those would be new ways for `backupd status` to fail for
+// Both of those would be new ways for `retnd status` to fail for
 // a deployment that has never asked for any of this.
 //
 // # Why a failure here fails the whole report

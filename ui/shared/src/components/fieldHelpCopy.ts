@@ -39,9 +39,9 @@
  * none of it was cheap to wire honestly. What is left with no entry today,
  * and why:
  *
- *   - The wizard's "Transfer verification" toggle (Storage & validation
- *     step). It stayed, because it is true — every artifact this product
- *     creates is transfer-verified, unconditionally, with no field
+ *   - The wizard's "Transfer verification" toggle (Completion and
+ *     validation step). It stayed, because it is true — every artifact this
+ *     product creates is transfer-verified, unconditionally, with no field
  *     anywhere that could turn that off — but it is `disabled` now, not a
  *     control: a checkbox with nothing behind it doesn't get a tooltip
  *     explaining a choice, because there is no choice to explain.
@@ -96,17 +96,82 @@ export interface FieldHelpCopy {
  * its pop-up and a missing one is a field that never had it.
  */
 export const FIELD_HELP = {
+  // ------------------------------------------------------------ assurance
+
+  assuranceScrubEvery: {
+    what: "How often every backup set that follows the deployment re-reads its recorded copies and compares their digests.",
+    example: "7d",
+    effect:
+      "Saves 7d as the deployment's cadence. Every set that follows the deployment then scrubs every 7d, and a set with its own policy keeps its value. A whole number with a unit of s, m, h or d, and nothing under 1h, is the only shape accepted; anything else is refused and nothing changes."
+  },
+
+  assuranceScrubStrategy: {
+    what: "What a scrub reads. Auto picks the strongest read the copy's destination allows at no cost, existence only checks the copy is still there and the right size, content re-reads and re-hashes every byte.",
+    example: "auto",
+    effect:
+      "Saves the choice. An existence check is never reported as content verification, and a content read of a copy on a storage medium costs egress, so a scheduled scrub never does it on its own."
+  },
+
+  assuranceRecoveryTestMode: {
+    what: "Whether a recovery test runs on a schedule. Off never runs one. Builtin runs the product's own structure check on its cadence, with no validator. Required runs your validator on its cadence, and a set that requires one is degraded until one passes.",
+    example: "required",
+    effect:
+      "Saves the mode. Required needs a validator, and the server refuses the save until one is named. Builtin needs the built-in check set to structure, and the server refuses the pair of builtin with off, naming both keys. A built-in pass never satisfies required: a set that requires a test stays degraded until your validator accepts a copy. A scheduled test never thaws an archive."
+  },
+
+  assuranceRecoveryTestEvery: {
+    what: "How often a recovery test is due.",
+    example: "30d",
+    effect:
+      "Saves the cadence. A whole number with a unit of s, m, h or d, and nothing under 24h, because a recovery test reads a whole copy back. Empty returns to the default."
+  },
+
+  assuranceValidator: {
+    what: "The name of the script a recovery test runs, without its .local.sh suffix. A name is never a path, and the server asks for one when the mode is required.",
+    example: "pg-restore-check",
+    effect:
+      "Saves the name. The name selects the script: the engine runs NAME.local.sh from the set's recovery-test directory under the workflow root, after it has re-read the recovered copy and matched its digest, and it records the claim and the script's hash itself. A name that could not be a script's file name is refused when you save, and the script can never write Content verified or Recovery tested."
+  },
+
+  assuranceBuiltinCheck: {
+    what: "Whether the product's own structure check may run when a backup set declares no validator. Structure lets it run; off keeps the old answer, that a set with no validator is refused a recovery test.",
+    example: "structure",
+    effect:
+      "Saves the choice for every set that does not pin its own. With structure, Run recovery test (or retnd recovery-test) on a set with no validator recovers the newest known good copy, matches its digest, and then reads the file end to end as gzip, zstd or tar, or a tar inside either, checking every checksum the format carries and extracting nothing. It starts when you press the button or run the command, and on a schedule only when the mode is builtin. It never satisfies required, and a validator you declare always runs instead of it. A file name it has no reader for, a .dump for example, is refused before anything is staged, so no copy is read or paid for. A pass reads Recovered, readable: the file decodes, which is not the same as an application being able to use it. Off with the builtin mode is refused."
+  },
+
+  assuranceSetBuiltinCheck: {
+    what: "Whether the product's own structure check may run for this one backup set when it declares no validator, instead of following the deployment.",
+    example: "off",
+    effect:
+      "Saves the choice as part of this set's own policy. With structure, Run recovery test (or retnd recovery-test) on this set with no validator recovers its newest known good copy, matches the digest and reads the file end to end as gzip, zstd or tar, or a tar inside either, extracting nothing. It runs on a schedule only when this set's mode is builtin, it never satisfies required, and a validator the set declares always runs instead. A file name it has no reader for is refused before anything is staged. Off with the builtin mode is refused, and so is a validator id beginning retnd-."
+  },
+
+  assuranceSetScrubEvery: {
+    what: "How often this one backup set scrubs, instead of following the deployment's cadence.",
+    example: "12h",
+    effect:
+      "Saves 12h for this set only, as part of the set's own policy. Changing the deployment's cadence afterwards does not move this set, which is the point of an own policy."
+  },
+
+  assuranceSetValidator: {
+    what: "The name of the script this set's recovery test runs, without its .local.sh suffix. A name is never a path.",
+    example: "pg-restore-check",
+    effect:
+      "Saves the name as part of this set's own policy. The name selects the script: NAME.local.sh under recovery-test/<source>/<set> in the workflow root, started by the engine after it has re-read the copy and matched its digest. Show validator output displays the newest test's recorded verdict and what the script printed, as bounded plain text; it runs no test, and the same text is `retnd recovery-test <set> --show-output`."
+  },
+
   // ---------------------------------------------------------------- auth
 
   loginUsername: {
-    what: "The Backupd account created on this NAS. Separate from the NAS's own administrator account, and separate from any login on a server you back up.",
+    what: "The retnd account created on this NAS. Separate from the NAS's own administrator account, and separate from any login on a server you back up.",
     example: "backup-admin",
     effect:
       "Checked against the single administrator account this instance stores locally. No NAS OS account and no remote host is contacted, so a NAS password will not work here even if it is the one you use everywhere else."
   },
 
   loginPassword: {
-    what: "The password set for that Backupd account when it was created, or the one it was last rotated to.",
+    what: "The password set for that retnd account when it was created, or the one it was last rotated to.",
     example: "a passphrase of at least 12 characters",
     effect:
       "A match starts a signed-in session in this browser and replaces this form with the application. A miss is reported as one combined failure, so a wrong username and a wrong password cannot be told apart from the message, and repeated attempts from one address are rate limited rather than answered faster."
@@ -163,7 +228,7 @@ export const FIELD_HELP = {
     what: "The mailbox a password-reset link is sent to. It is the only way back into this account: the reset flow mails a link and does nothing else, so an address nobody can read is the same as no recovery at all.",
     example: "ops@example.com",
     effect:
-      "Backupd sends a confirmation message to this address over the SMTP endpoint below, immediately, and refuses to save anything if that message cannot be delivered. So the address is never recorded as reachable on the strength of it looking plausible, and a mailbox on the NAS this is backing up is the one to avoid: it is unreadable in exactly the failure this exists for."
+      "retnd sends a confirmation message to this address over the SMTP endpoint below, immediately, and refuses to save anything if that message cannot be delivered. So the address is never recorded as reachable on the strength of it looking plausible, and a mailbox on the NAS this is backing up is the one to avoid: it is unreadable in exactly the failure this exists for."
   },
 
   recoveryCurrentPassword: {
@@ -174,7 +239,7 @@ export const FIELD_HELP = {
   },
 
   smtpHost: {
-    what: "The mail submission server Backupd connects out to. Any provider that accepts authenticated submission works; there is no mail server inside this product.",
+    what: "The mail submission server retnd connects out to. Any provider that accepts authenticated submission works; there is no mail server inside this product.",
     example: "mail.smtp2go.com",
     effect:
       "Every recovery message, including the confirmation sent when this form is saved, is submitted over a connection to this host. It is dialled from the NAS, so a host only reachable from your workstation will look correct here and fail when it is actually needed."
@@ -195,8 +260,8 @@ export const FIELD_HELP = {
   },
 
   smtpUsername: {
-    what: "The account Backupd authenticates to the mail server as. Usually the mailbox itself, or an API-key username the provider issued for submission.",
-    example: "backupd@example.com",
+    what: "The account retnd authenticates to the mail server as. Usually the mailbox itself, or an API-key username the provider issued for submission.",
+    example: "retnd@example.com",
     effect:
       "Sent on every submission. It is stored in this deployment's own configuration, so an API key scoped to sending mail is a better thing to put here than a human mailbox's own password."
   },
@@ -210,9 +275,9 @@ export const FIELD_HELP = {
 
   smtpFrom: {
     what: "The address recovery mail is sent from. Most providers refuse to submit mail from a domain the account is not authorised for.",
-    example: "backupd@example.com",
+    example: "retnd@example.com",
     effect:
-      "Becomes the From header on every message Backupd sends, and is what the mailbox above filters and replies to. A domain this SMTP account may not send as is rejected at submission time, which is reported here as a failure to save rather than as mail that silently never arrives."
+      "Becomes the From header on every message retnd sends, and is what the mailbox above filters and replies to. A domain this SMTP account may not send as is rejected at submission time, which is reported here as a failure to save rather than as mail that silently never arrives."
   },
 
   forgotUsername: {
@@ -291,7 +356,7 @@ export const FIELD_HELP = {
     what: "Where this tier's backups live: the hard drive on this machine, or a storage destination the configuration declares.",
     example: "offsite_s3 (STANDARD_IA)",
     effect:
-      "A backup that only this tier keeps is uploaded to that medium, verified there, and then its copy on this machine is deleted. That deletion is what the setting is for. A medium on an archive storage class cannot be read on demand at all: getting a backup back from one means asking for a restore and waiting hours, and the provider reports no progress while it waits. Reading anything back off a medium is billed by your provider, and Backupd holds no price list, so it will not show you a figure."
+      "A backup that only this tier keeps is uploaded to that medium, verified there, and then its copy on this machine is deleted. That deletion is what the setting is for. A medium on an archive storage class cannot be read on demand at all: getting a backup back from one means asking for a restore and waiting hours, and the provider reports no progress while it waits. Reading anything back off a medium is billed by your provider, and retnd holds no price list, so it will not show you a figure."
   },
 
   protectLastKnownGood: {
@@ -321,7 +386,7 @@ export const FIELD_HELP = {
     what: "Which backup set's retained artifacts the table lists.",
     example: "production/postgres-primary",
     effect:
-      "Refetches the artifact list for that set alone, so the totals in the page header count only its backups. It also enables Preview retention, which needs one named set to plan a retention pass against."
+      "Refetches the artifact list for that set alone, so the totals in the page header count only its backups. It also enables Preview retention, which needs one named set to plan a retention pass against. The choice is kept in the address as ?set=SOURCE/SET, so a link, a reload or a pasted address lands on the same list."
   },
 
   // -------------------------------------------------------------- sets
@@ -334,7 +399,7 @@ export const FIELD_HELP = {
   // keys every journal row, artifact id and recovery manifest it has ever
   // produced, so renaming one is a migration rather than an edit.
   editSetHost: {
-    what: "The hostname or address Backupd connects to for this backup set's source.",
+    what: "The hostname or address retnd connects to for this backup set's source.",
     effect:
       "Saving this box writes only the host, and the next cycle connects to the new one. The trusted host key is NOT re-fetched: pointing a set at a different machine without re-verifying its fingerprint would be trusting a host nobody looked at. The Trusted host key box below is where a genuinely different server's key goes, and it asks before it replaces one.",
     example: "prod-db-01.internal"
@@ -346,22 +411,22 @@ export const FIELD_HELP = {
       "Saving this box writes only the port. The set's own backups on this NAS are untouched; only where the next cycle connects changes."
   },
   editSetUser: {
-    what: "The account Backupd authenticates as on that host.",
+    what: "The account retnd authenticates as on that host.",
     example: "backup-agent",
     effect:
       "Saving this box writes only the user. The private key is unchanged and never leaves this NAS, so a new account has to already trust the same key for the next cycle to connect."
   },
   editSetRemotePath: {
-    what: "The absolute folder on the source that Backupd reads backups out of.",
+    what: "The absolute folder on the source that retnd reads backups out of.",
     example: "/var/backups/postgresql",
     effect:
       "Saving this box writes only the remote folder, and the next cycle discovers artifacts there instead. Backups already retained on this NAS stay exactly where they are, and nothing on the source is moved or deleted."
   },
   editSetLocalPath: {
-    what: "The absolute folder on this NAS that Backupd writes this set's backups into.",
+    what: "The absolute folder on this NAS that retnd writes this set's backups into.",
     example: "/mnt/tank/backups/production/postgres",
     effect:
-      "Saving this box writes only the destination, and the next cycle writes new backups there. Backups already written to the old folder are NOT moved, and Backupd will keep listing them from where they are."
+      "Saving this box writes only the destination, and the next cycle writes new backups there. Backups already written to the old folder are NOT moved, and retnd will keep listing them from where they are."
   },
   editSetInclude: {
     what: "A comma-separated list of filename patterns to back up. Matched against the artifact's own name, not its path.",
@@ -370,14 +435,14 @@ export const FIELD_HELP = {
       "Saving this box writes only the include list. Widening it means the next cycle discovers files it was ignoring; narrowing it means it stops discovering some, and clearing the box entirely means no pattern filters discovery at all. Nothing already backed up is deleted either way."
   },
   editSetCompletion: {
-    what: "How Backupd decides a file on the source has finished being written and is safe to copy.",
+    what: "How retnd decides a file on the source has finished being written and is safe to copy.",
     example: "Atomic rename",
     effect:
       "Saving this box writes only the completion method. Stable file size infers completion rather than being told about it, which is materially less assurance than a producer-provided rename or marker, and the page says so beside the value."
   },
 
   editSetStableFor: {
-    what: "How long a file's size and timestamp have to stay unchanged before Backupd treats it as finished. Only used by the stable file size method.",
+    what: "How long a file's size and timestamp have to stay unchanged before retnd treats it as finished. Only used by the stable file size method.",
     example: "300",
     effect:
       "Saving this box writes only the window. Too short and a slow write can be copied half-finished; too long and every backup waits that much longer before it is collected. This is the setting that makes the stable-size method usable at all, which is why it appears the moment you choose that method."
@@ -387,7 +452,7 @@ export const FIELD_HELP = {
   // say so, because an empty box that means "leave it alone" is the one
   // shape on this form an operator can misread as "there is nothing set".
   editSetSSHKey: {
-    what: "The id of a private key this Backupd has already imported, replacing the key this backup set signs in with. Leave it empty to keep the current key.",
+    what: "The id of a private key this retnd has already imported, replacing the key this backup set signs in with. Leave it empty to keep the current key.",
     example: "key_9f3c1ab2",
     effect:
       "Saving this box writes only the key reference, and the next cycle authenticates with the new key. Nothing is checked against the source first, so a key the source account does not accept shows up as a failed connection on the next cycle rather than as a refusal here. The box is empty because a key is a reference to material this page never sees, not a value to show back."
@@ -412,39 +477,39 @@ export const FIELD_HELP = {
     what: "The address of the remote server this backup set pulls artifacts from over SFTP.",
     example: "prod-db-01.internal",
     effect:
-      "Used to probe and verify the host's SSH fingerprint on the next step, then to actually connect and transfer files once saved. If you already trusted a fingerprint for this host on the Verify server step, changing this and leaving the field revokes that trust, since it no longer matches what was trusted, and you'll need to fetch and trust the new address's fingerprint before you can save."
+      "Used to probe and verify the host's SSH fingerprint on the next step, then to actually connect and transfer files once saved. If you already trusted a fingerprint for this host on the Connection test step, changing this and leaving the field revokes that trust, since it no longer matches what was trusted, and you'll need to fetch and trust the new address's fingerprint before you can save."
   },
 
   wizardSshPort: {
     what: "The TCP port the remote server's SSH/SFTP service listens on.",
     example: "22",
     effect:
-      "Sent with every probe and connection attempt to that host. Leave it blank, or clear it entirely, and Backupd treats it as port 22 rather than refusing to proceed. Like the hostname, changing this after trusting a fingerprint on the Verify server step revokes that trust, since port is part of what was trusted."
+      "Sent with every probe and connection attempt to that host. Leave it blank, or clear it entirely, and retnd treats it as port 22 rather than refusing to proceed. Like the hostname, changing this after trusting a fingerprint on the Connection test step revokes that trust, since port is part of what was trusted."
   },
 
   wizardUsername: {
-    what: "The account on the remote server Backupd signs in as over SSH.",
+    what: "The account on the remote server retnd signs in as over SSH.",
     example: "backup-agent",
     effect:
-      "Sent as the SSH username on every connection this backup set makes. That account needs read access to the remote folder you set on the Discovery step, and, once an artifact completes its full verify-and-commit chain, delete access there too: Backupd removes the remote copy after that (FR-15)."
+      "Sent as the SSH username on every connection this backup set makes. That account needs read access to the directory you set on this same Source step, and, once an artifact completes its full verify-and-commit chain, delete access there too: retnd removes the remote copy after that (FR-15)."
   },
 
   wizardKeySource: {
     what: "How this backup set authenticates to the remote server. Only one of the three choices actually lets you finish this wizard today.",
     example: "Import key",
     effect:
-      "The first two options above each open their own panel below, but neither is wired to a save yet: picking either one and clicking any Save button is refused, with a message pointing you at the third option instead. That one is the one that actually lets Save succeed, once its key is imported below and the host is trusted on the next step."
+      "The first two options above each open their own panel below, but neither is wired to a save yet: picking either one and clicking any Save button is refused, with a message pointing you at the third option instead. That one is the one that actually lets Save succeed, once its key is imported below and the host is trusted further down this same Connection test step."
   },
 
   wizardPrivateKey: {
-    what: "The SSH private key Backupd will use to sign in to the remote server. Pasted once, then discarded from this screen.",
+    what: "The SSH private key retnd will use to sign in to the remote server. Pasted once, then discarded from this screen.",
     example: "-----BEGIN OPENSSH PRIVATE KEY-----…",
     effect:
       "Sent once to the backend when you click Import key, which hands back a fingerprint and an internal reference and nothing else; the pasted text is cleared from this page immediately afterward and the key material never appears here again. It has to be an unencrypted OpenSSH or PEM key: a passphrase-protected one fails to parse and is refused, since nothing later in this flow can ask for the passphrase."
   },
 
   wizardRemoteFolder: {
-    what: "The directory on the remote server Backupd watches for finished backup artifacts.",
+    what: "The directory on the remote server retnd watches for finished backup artifacts.",
     example: "/backups/postgresql/",
     effect:
       "Sent as this set's remote path, and it has to be an absolute one; the server refuses the save otherwise. Only files discovered directly under this one directory are ever considered for this backup set, and each is then checked against the include patterns below."
@@ -458,7 +523,7 @@ export const FIELD_HELP = {
   },
 
   wizardCompletionMethod: {
-    what: "How Backupd decides a remote file has finished being written, rather than still being uploaded by its producer (FR-8).",
+    what: "How retnd decides a remote file has finished being written, rather than still being uploaded by its producer (FR-8).",
     example: "Completion marker / manifest",
     effect:
       "Atomic rename and Completion marker both wait for a positive signal from whatever writes the file; one that never gets renamed, or never gets its marker, is never treated as complete and is never backed up, no matter how long it sits there. Stable file size / timestamp instead treats a file as done once it has looked unchanged for a period fixed at one hour, rather than waiting for a signal from the producer, which this wizard doesn't let you adjust; it exists for a producer that can't signal completion at all, and it's a weaker guarantee than the other two."
@@ -468,11 +533,11 @@ export const FIELD_HELP = {
     what: "The local directory on this NAS where this backup set's verified artifacts are committed and kept.",
     example: "/data/backups/production/postgres/",
     effect:
-      "Sent as this set's local path, and it has to be an absolute one. Every transferred, verified artifact is written here, and retention deletes old ones from here too, so this needs to be a path Backupd can actually write to, with room for however much you plan to retain."
+      "Sent as this set's local path, and it has to be an absolute one. Every transferred, verified artifact is written here, and retention deletes old ones from here too, so this needs to be a path retnd can actually write to, with room for however much you plan to retain."
   },
 
   wizardValidatorId: {
-    what: "An optional external check Backupd runs against every artifact after it's transferred (FR-13), on top of that built-in verification.",
+    what: "An optional external check retnd runs against every artifact after it's transferred (FR-13), on top of that built-in verification.",
     example: "None (transfer verification only)",
     effect:
       "Choosing a validator sends its id with the save, and every future artifact in this set runs that check before being trusted. An artifact the validator rejects is quarantined rather than committed, and its remote copy is kept rather than deleted, permanently: FR-13 requires a required validator's failure to block deletion of the source, and that block outlives even a later reinstatement out of quarantine."
@@ -488,7 +553,7 @@ export const FIELD_HELP = {
   // ---------------------------------------------------- service behaviour
 
   pollInterval: {
-    what: "How often Backupd checks every backup source for new backup files to collect.",
+    what: "How often retnd checks every backup source for new backup files to collect.",
     example: "15",
     effect:
       "The deployment-wide default, in minutes, and the cadence every backup set that does not set its own follows. It takes effect on the next check, with no restart. Shorter means a finished backup is collected sooner and every source is contacted more often; longer means the opposite. One minute is the shortest this product accepts, so a mistyped value cannot turn a schedule into pressure on the machine you are backing up. It changes only how often a pass runs, never what a pass is allowed to do."
@@ -522,5 +587,60 @@ export const FIELD_HELP = {
     example: "10 GB",
     effect:
       "A transfer that would itself drop the remaining headroom to or below this number never begins. Nothing is deleted to make room for it: the transfer is simply skipped and retried on a later cycle, once space has been freed some other way."
+  },
+
+  // ------------------------------------------- retained-copy encryption
+
+  // Issue #995 (EPIC N). Read out of core/internal/config/retainedcopyencryption.go
+  // (RetainedCopyKeyProvider, the validate rules) and core/internal/secretref.
+  // The box takes a REFERENCE for exactly one of three sources; a key can never
+  // be typed into it. The format, cipher and chunk size have no field anywhere,
+  // by design (docs/design/994-retained-copy-encryption.html, section 11).
+  encryptionExternalReference: {
+    what: "Where the key that encrypts retained copies comes from: a path to a file, the name of an environment variable, or a command, depending on the choice above. It names the key and is never the key.",
+    example: "/etc/retnd/keys/offsite.key",
+    effect:
+      "The reference is saved as its description and read again each time a copy is written or verified, so the key itself is never stored in the configuration or the catalog. With Required on, a copy is refused rather than written in plaintext whenever the reference does not resolve. A command is split on spaces and run without a shell, and only its name is ever echoed or shown back. If what you type is key material rather than a reference, the server refuses it when the configuration loads and nothing is saved."
+  },
+
+  // Issue #1318 (EPIC T). Read out of the suite policy as T1.4 and T1.5 fix
+  // it (the global `suite:` field, `default | <id>`, Validate refusing an
+  // unknown or retired id, the active-key mismatch refusal before any
+  // destructive step) and ADR 0033 D6. What a suite IS is not written here:
+  // the option shows the registry's own Describe() sentence, from the route.
+  encryptionSuite: {
+    what: "Which suite new retained copies are encrypted with, chosen from the suites this build carries. Each one is a single library construction, described in its own words under its name.",
+    example: "age-pq/v1",
+    effect:
+      "The policy's suite field is set to that id, through the same validation a hand-edited configuration gets. A new copy is then written only under the active key of that suite. If it has none, copies under the policy are refused before anything is deleted until you rotate a key under it, export its bundle and confirm it; nothing is ever written under another suite instead. Existing copies keep the suite and key recorded against them and stay readable, and nothing is re-encrypted. A retired suite cannot be chosen."
+  },
+  // Issue #1351 (EPIC U). Read out of the agent routes (#1345, #1348, #1349):
+  // the token's name becomes the agent:<name> principal, the expiry is judged
+  // by the engine (90d default, one year ceiling), the approval's password is
+  // the step-up header of one request, and the audit route takes a token and
+  // a duration. docs/design/1350-agents.html section 10.
+  agentsMintName: {
+    what: "The name this agent goes by wherever the product names who did something.",
+    example: "nightly-triage",
+    effect:
+      "The token is minted as agent:nightly-triage, and that is the name on its rows here, in the audit, in the activity feed and in retnd agent audit."
+  },
+  agentsMintExpiry: {
+    what: "How long the token works before it is refused.",
+    example: "90d",
+    effect:
+      "From the moment you create it, requests with this token are accepted for 90 days and refused after that. The longest the engine allows is one year, and it says so if you ask for more."
+  },
+  agentsAuditToken: {
+    what: "Show the calls of one token, or of all of them.",
+    example: "agent:nightly-triage",
+    effect:
+      "The table asks the engine for that token's calls only, newest first. It hides nothing from the trail; All tokens shows it all again."
+  },
+  agentsAuditSince: {
+    what: "Show only calls from the last stretch of time.",
+    example: "24h",
+    effect:
+      "The table asks the engine for calls from the last 24 hours. Calls older than the trail's retention are no longer there to show."
   }
 } as const satisfies Record<string, FieldHelpCopy>;

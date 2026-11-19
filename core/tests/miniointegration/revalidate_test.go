@@ -11,14 +11,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/placement"
-	"github.com/backupdproject/backupd/core/internal/revalidate"
-	"github.com/backupdproject/backupd/core/internal/state"
-	"github.com/backupdproject/backupd/core/internal/transport"
-	"github.com/backupdproject/backupd/core/internal/transport/rclone"
-	"github.com/backupdproject/backupd/core/tests/machines"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/placement"
+	"github.com/retnd/retnd/core/internal/revalidate"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/tests/machines"
 )
 
 // Whether revalidation against a real S3 endpoint checks existence without
@@ -100,7 +100,7 @@ func TestRevalidationAgainstMinioExistenceChecksAndNeverDownloads(t *testing.T) 
 		t.Fatalf("NewArtifactID: %v", err)
 	}
 
-	key, err := transport.MediumKey("backupd", artifact)
+	key, err := transport.MediumKey("retnd", artifact)
 	if err != nil {
 		t.Fatalf("MediumKey: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestRevalidationAgainstMinioNoticesAnObjectThatIsGone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewArtifactID: %v", err)
 	}
-	key, err := transport.MediumKey("backupd", artifact)
+	key, err := transport.MediumKey("retnd", artifact)
 	if err != nil {
 		t.Fatalf("MediumKey: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestAttestingAMinioPlacementIsRefused(t *testing.T) {
 	if err := os.WriteFile(local, content, 0o600); err != nil {
 		t.Fatalf("writing the source file: %v", err)
 	}
-	const key = "backupd/production/postgres-primary/backup.dump"
+	const key = "retnd/production/postgres-primary/backup.dump"
 	if _, err := adapter.UploadFromLocal(ctx, medium, local, key, transport.UploadOptions{}); err != nil {
 		t.Fatalf("UploadFromLocal: %v", err)
 	}

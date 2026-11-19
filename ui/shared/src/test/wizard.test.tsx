@@ -23,12 +23,22 @@ import { PlatformProvider } from "@shared/platform/PlatformContext";
 import { genericBridge } from "../../../../apps/generic/frontend/platform";
 import { ApiProvider } from "@shared/api/ApiContext";
 import { createMockApi } from "@shared/api/mock";
-import { BackupdError } from "@shared/api/contracts";
-import type { BackupdApi } from "@shared/api/contracts";
+import { RetndError } from "@shared/api/contracts";
+import type { RetndApi } from "@shared/api/contracts";
 import { graph, resetGraphForTests } from "@shared/state/graph";
 import { versionNode } from "@shared/state/appNodes";
 import { wizardHostKeyChangedNode } from "@shared/state/wizardNodes";
-import { acknowledgeRemoteDeletion, proveTheSource, railStep, walkToReview } from "./wizardWalk";
+import { acknowledgeRemoteDeletion, proveTheSource, railLabels, railStep, walkToReview } from "./wizardWalk";
+import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
+
+/** The step a sentence sends an operator to, as the sentence itself
+ *  names it: "…on the Connection test step" -> "Connection test". Only
+ *  a CAPITALISED name is a step name — "on the next step" is a relative
+ *  direction and names nothing that could go stale. */
+const NAMED_STEPS = (text: string): string[] =>
+  [...text.matchAll(/\b(?:on|to) (?:the |this )?(?:same )?([A-Z][A-Za-z ]*?) step\b/g)].map(
+    (m) => m[1]
+  );
 
 // Issue #146 (B2.7): the wizard now reads useApi() (step 2's import, step
 // 3's host-key probe, step 6's Save buttons all call through it), so
@@ -36,7 +46,7 @@ import { acknowledgeRemoteDeletion, proveTheSource, railStep, walkToReview } fro
 // deterministic fixture ui/shared/e2e's own Playwright suite runs
 // against (playwright.config.ts's own comment), reused here for the
 // same reason.
-function renderWizard(readOnly = false, api: BackupdApi = createMockApi()) {
+function renderWizard(readOnly = false, api: RetndApi = createMockApi()) {
   return render(
     <MemoryRouter>
       <ApiProvider api={api}>
@@ -52,7 +62,7 @@ function renderWizard(readOnly = false, api: BackupdApi = createMockApi()) {
  *  (rather than a bare MemoryRouter) so navigate("/sets") on a
  *  successful save (issue #146) is observable — renderWizard alone has
  *  nowhere for that navigation to land. */
-function renderWizardWithRoutes(api: BackupdApi) {
+function renderWizardWithRoutes(api: RetndApi) {
   return render(
     <MemoryRouter initialEntries={["/sets/new"]}>
       <ApiProvider api={api}>
@@ -181,6 +191,50 @@ describe("add backup set wizard", () => {
 
     expect(screen.getByText(/resolve that on the Connection test step/i)).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/Authentication step|Verify server step/);
+  });
+
+  // The other half of the same rule, on the surface the case above
+  // structurally cannot see (#923). The "generate" panel's banner is the
+  // refusal an operator meets on the STEP, before any Save, and it went
+  // on naming the "Authentication" step #788 deleted for as long as it
+  // did precisely because the case above never selects this radio: the
+  // banner is never rendered, so its sentence never enters
+  // document.body for that `not.toMatch` to fail against.
+  //
+  // What is asserted is the rule and not the wording: the step this copy
+  // names is pulled out of the sentence and looked up in the rail the
+  // wizard is drawing. A reintroduced "Authentication", or a relabelled
+  // rail that leaves this sentence behind, fails here.
+  it("refuses key generation by naming a step the rail actually draws", async () => {
+    renderWizard();
+    await userEvent.click(railStep("Connection test"));
+    await userEvent.click(screen.getByRole("radio", { name: /Generate dedicated SSH key/ }));
+
+    const banner = screen.getByText(/Generating a key on save/);
+    const named = NAMED_STEPS(banner.textContent ?? "");
+    // The refusal is only useful if it says where to go instead, so an
+    // empty list is a failure rather than a vacuous pass.
+    expect(named.length).toBeGreaterThan(0);
+    for (const step of named) expect(railLabels()).toContain(step);
+  });
+
+  // Same rule again, over the wizard's field help — the other operator-
+  // visible copy that names steps, and where #788 left three stale
+  // references nothing was checking (#923): hostname and port both sent
+  // an operator to "Verify server", and the username entry sent them to
+  // "Discovery" for a field that is two rows above it on Source now.
+  it("names only real steps in the wizard's own field help", () => {
+    renderWizard();
+    const labels = railLabels();
+
+    for (const [key, copy] of Object.entries(FIELD_HELP)) {
+      if (!key.startsWith("wizard")) continue;
+      for (const sentence of [copy.what, copy.effect, copy.example]) {
+        for (const step of NAMED_STEPS(sentence ?? "")) {
+          expect(labels, key + " names a step the rail does not have: " + step).toContain(step);
+        }
+      }
+    }
   });
 
   it("blocks saving until remote deletion is acknowledged", async () => {
@@ -622,7 +676,7 @@ describe("add backup set wizard", () => {
     it("says so when the validator catalog cannot be loaded, rather than showing an empty picklist (issue #162)", async () => {
       const api = createMockApi();
       vi.spyOn(api, "listValidators").mockRejectedValue(
-        new BackupdError({ code: "INTERNAL", message: "nope", correlationId: "cid_2" })
+        new RetndError({ code: "INTERNAL", message: "nope", correlationId: "cid_2" })
       );
       renderWizard(false, api);
       await proveTheSource();
@@ -663,7 +717,7 @@ describe("add backup set wizard", () => {
     it("surfaces a failed save inline instead of navigating or silently doing nothing", async () => {
       const api = createMockApi();
       vi.spyOn(api, "createBackupSet").mockRejectedValue(
-        new BackupdError({ code: "INVALID_REQUEST", message: "remote_path is required", correlationId: "cid_1" })
+        new RetndError({ code: "INVALID_REQUEST", message: "remote_path is required", correlationId: "cid_1" })
       );
       renderWizardWithRoutes(api);
 
@@ -683,7 +737,7 @@ describe("add backup set wizard", () => {
     it("offers a create-anyway decision, not a field error, when the id already has history somewhere else", async () => {
       const api = createMockApi();
       const create = vi.spyOn(api, "createBackupSet").mockRejectedValueOnce(
-        new BackupdError({
+        new RetndError({
           code: "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED",
           message: "3 artifact(s) are already on record for api/postgres-primary",
           correlationId: "cid_2"

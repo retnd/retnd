@@ -3,16 +3,17 @@
 Design artifacts, kept because the decisions in them are still the ones the
 product ships. Nothing here is generated and nothing here is a build input.
 
-`Backupd.dc.html` is the interactive design the shared frontend was built
+The first `.dc.html` canvas in this directory is the interactive design the shared frontend was built
 from: every screen, both themes, every provider treatment and the risk states.
 `docs/deployment.md` cites it as the source for what the UI is supposed to do
 when the two disagree.
 
 `Logo Options.dc.html` is the logo exploration. **Option 1a, "Cycle", is the one
-that was selected**, and it ships as `ui/shared/public/icon.svg`, tinted by
-`--accent` so no provider carries an asset of its own. That sentence is the only
-record of which option won, so it lives here rather than in a pull request
-somebody has to go and find.
+that was selected**, and it ships as the `#mark` group of `docs/site/assets/logo.svg`, the
+one logo file (the in-app `Logo` component draws the same ring in `--accent`, so no
+provider carries an asset of its own). That sentence is the only record of which
+option won, so it lives here rather than in a pull request somebody has to go and
+find.
 
 The `*.html` files with a matching `*.png` are per-issue design notes: one screen
 or one interaction, the reasoning next to the picture, dated by the issue that
@@ -23,6 +24,15 @@ build does.
 
 `tier-destinations.md` is the same thing in prose for the storage-tier work.
 
+`brand-assets.md` is the exception to everything above: it is the inventory of
+every brand asset in the tree, and it **is** kept in step, because
+`scripts/brand/check-brand-assets.sh` fails the gate both when a row names a
+file that is gone and when a file has no row. It also carries the construction
+of the drawn wordmark and FR-44's outstanding human acceptance step.
+`893-16px-wordmark-or-monogram.html` is the dated note beside it, for the one
+decision that issue had to take: at 16 pixels the favicon is the mark, not the
+wordmark and not a `d` monogram.
+
 `788-incremental-ui-mockup.md` is the design gate for incremental backup in
 the web UI (issue #788): thirteen screens plus the eight-step add-backup-set
 wizard, the decisions each of them was asking for a verdict on, and what the
@@ -32,7 +42,7 @@ description of the current build.
 
 ## What used to be here
 
-`PR_BODY.md` was the pull request description for, committed to the tree by
+`PR_BODY.md` was the pull request description for #108, committed to the tree by
 accident along with the frontend it described. Every product decision in it is
 recorded properly somewhere else: the dependency and provider-isolation
 invariants in `docs/EPIC-B-multi-nas.md` §7.1, service health versus backup

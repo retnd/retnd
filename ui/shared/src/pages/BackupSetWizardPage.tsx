@@ -1,5 +1,5 @@
 /**
- * Adding a backup set, in six steps, and the same six steps as an
+ * Adding a backup set, in eight steps, and the same steps as an
  * unconfigured instance's first run.
  *
  * Nearly all of the state here is local, and that is a decision rather
@@ -27,7 +27,7 @@ import { useNavigate } from "react-router-dom";
 import { usePlatform } from "@shared/platform/PlatformContext";
 import { useApi } from "@shared/api/ApiContext";
 import { useAsync } from "@shared/hooks/useAsync";
-import { BackupdError } from "@shared/api/contracts";
+import { RetndError } from "@shared/api/contracts";
 import type { ConnectionTestOutcome, SSHKeyListing, ValidatorCatalogEntry } from "@shared/api/contracts";
 import { describeFailure } from "@shared/api/failure";
 import { PageHeader } from "@shared/components/PageHeader";
@@ -120,13 +120,13 @@ const VERIFICATION_ORDER: readonly VerificationLevel[] = [
 ];
 
 /** Shown only until the real probe (issue #146) resolves for the first
- *  time — see the "Verify server" step below — so step 3 never renders
+ *  time — see the "Connection test" step below — so step 2 never renders
  *  a completely blank fingerprint while that request is in flight.
  *  Never what "Trust host" actually trusts: that always reads the real
  *  probedKnownHostsLine state, never this constant. */
 
 function errorMessage(e: unknown, fallback: string): string {
-  return e instanceof BackupdError ? e.api.message : fallback;
+  return e instanceof RetndError ? e.api.message : fallback;
 }
 
 function completionStrategyFor(method: CompletionMethod): "rename" | "marker" | "stable" {
@@ -825,7 +825,7 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
         firstRun ? "Could not save this configuration." : "Could not save this backup set."
       );
       if (
-        e instanceof BackupdError &&
+        e instanceof RetndError &&
         e.api.code === "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED"
       ) {
         // Not a save error under the buttons. The service is not saying
@@ -886,7 +886,7 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
     saveHint =
       connectionResult !== null && !connectionResult.ok
         ? "The connection test did not pass. Fix what it reports and test connection again before saving."
-        : "Test connection before saving. Trusting the host key proves which machine answers, not that this key works or that the folder can be read. To build configuration for a source that cannot be reached yet, use backupd backup-set create --no-verify.";
+        : "Test connection before saving. Trusting the host key proves which machine answers, not that this key works or that the folder can be read. To build configuration for a source that cannot be reached yet, use retnd backup-set create --no-verify.";
   } else if (saveError) {
     saveHint = saveError;
   }
@@ -921,7 +921,7 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
           {step === 1 ? (
             <StepBody
               title="Source"
-              lede="The remote server that produces the backup artifacts. Backupd pulls — it is never given write access to your data."
+              lede="The remote server that produces the backup artifacts. retnd pulls — it is never given write access to your data."
             >
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(228px, 1fr))", gap: "15px 18px" }}>
                 <Field
@@ -949,8 +949,21 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
                   label="Directory to back up" value={remoteFolder} onChange={setRemoteFolder} mono span
                   help={FIELD_HELP.wizardRemoteFolder}
                 />
+                {/* Issue #927: this said "Ignore paths matching" while
+                    being, in every other respect, an INCLUDE list — the
+                    state, the `include` it is sent as, its own field help
+                    and the two other surfaces that draw the same data
+                    ("Include patterns" on the edit form, "Include" on the
+                    detail page) all agree. An operator who believed the
+                    label and typed `*.tmp` here got a set that backs up
+                    only `*.tmp`: discovery drops a non-matching basename
+                    with a bare `continue`, so nothing refuses the save and
+                    no run reports an error — the symptom is empty backups,
+                    noticed days later. The wording is editSetInclude's own
+                    ("filename patterns to back up"), which also keeps it
+                    parallel to the directory field above it. */}
                 <Field
-                  label="Ignore paths matching" value={includePatterns} onChange={setIncludePatterns} mono
+                  label="Filename patterns to back up" value={includePatterns} onChange={setIncludePatterns} mono
                   help={FIELD_HELP.wizardIncludePatterns}
                 />
               </div>
@@ -960,7 +973,7 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
           {step === 2 ? (
             <StepBody
               title="Connection test"
-              lede="What Backupd could actually do with these credentials, right now. Every line below is a thing it tried, not a thing it assumes."
+              lede="What retnd could actually do with these credentials, right now. Every line below is a thing it tried, not a thing it assumes."
             >
               <div className="eyebrow" style={{ fontSize: "var(--text-xs)", marginBottom: 10 }}>
                 Credentials
@@ -987,7 +1000,7 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
                       checked={keySource === "generate"} onChange={() => setKeySource("generate")}
                     />
                     <Choice
-                      name="keysrc" title="Use managed key" detail="Reuse an existing Backupd key"
+                      name="keysrc" title="Use managed key" detail="Reuse an existing retnd key"
                       checked={keySource === "managed"} onChange={() => setKeySource("managed")}
                     />
                     <Choice
@@ -1008,13 +1021,22 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
                   is already refused at save (see handleSave/saveHint
                   below), exactly like "Use managed key", so both panels
                   now say the same honest thing instead of inventing
-                  detail for a path that cannot be saved. */}
+                  detail for a path that cannot be saved.
+
+                  Issue #923: this banner and saveHint's own "generate"
+                  branch are one refusal said twice, so they have to name
+                  the same step. #788 folded the credentials into
+                  "Connection test" and fixed the hint but not this
+                  sentence, which went on sending an operator to an
+                  "Authentication" step the rail no longer has — and to a
+                  control that is in fact directly below this banner. */}
               {keySource === "generate" ? (
                 <div className="banner banner--info" style={{ marginTop: 18, fontSize: "var(--text-sm)" }}>
                   <span aria-hidden="true">i</span>
                   <span>
-                    Generating a key on save isn&rsquo;t available yet — import a key on the Authentication
-                    step instead.
+                    Generating a key on save isn&rsquo;t available yet — pick a key this
+                    deployment already holds, or import one, on this Connection test step
+                    instead.
                   </span>
                 </div>
               ) : null}
@@ -1373,7 +1395,7 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
                             tone="ok"
                             eyebrow="Write permission"
                             tip="wizard.incremental.write-probe"
-                            title="Backupd can write to, and delete from, the source"
+                            title="retnd can write to, and delete from, the source"
                             dismissible={false}
                           >
                             {"A scratch file was created under " + remoteFolder + " and removed again." +
@@ -1389,10 +1411,10 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
                             dismissible={false}
                           >
                             Backups will run: reading is all a backup needs. Deleting the original
-                            after a verified backup will be unavailable, because Backupd will not
+                            after a verified backup will be unavailable, because retnd will not
                             offer to remove a file it has not proved it can remove. Read-only is a
                             perfectly good posture for a backup account, and the recommended one
-                            unless you want Backupd to free space on the server for you.
+                            unless you want retnd to free space on the server for you.
                           </WarningBanner>
                         )
                       ) : null}
@@ -1428,9 +1450,9 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
                 </Choice>
                 <Choice
                   name="wizard-engine"
-                  title={ENGINE_COPY.kopia.name}
+                  title={ENGINE_COPY["kopia"].name}
                   wire="engine=kopia"
-                  detail={ENGINE_COPY.kopia.summary}
+                  detail={ENGINE_COPY["kopia"].summary}
                   checked={engine === "kopia"}
                   onChange={() => setEngine("kopia")}
                 >
@@ -1453,7 +1475,7 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
                 >
                   Snapshots and whole-file backups are different objects in different places.
                   Switching a set that has run would leave everything it has collected behind and
-                  start again from nothing, so Backupd asks you to create a new set instead — and
+                  start again from nothing, so retnd asks you to create a new set instead — and
                   the edit form for a saved set has no field for this at all.
                 </WarningBanner>
               </div>
@@ -1565,7 +1587,7 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
           {step === 5 ? (
             <StepBody
               title="Source consistency"
-              lede="What you have arranged on the server for the duration of a run. Backupd records this rather than detecting it, and reports a run that contradicts it."
+              lede="What you have arranged on the server for the duration of a run. retnd records this rather than detecting it, and reports a run that contradicts it."
             >
               {incremental ? (
                 <>
@@ -1594,12 +1616,12 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
                     <div style={{ marginTop: 16 }}>
                       <WarningBanner
                         tone="info"
-                        eyebrow="What Backupd will do about it"
+                        eyebrow="What retnd will do about it"
                         tip="wizard.incremental.consistency"
                         title="A change seen during a run will be reported, not ignored"
                         dismissible={false}
                       >
-                        You have told Backupd that nothing writes to this source during a run. If
+                        You have told retnd that nothing writes to this source during a run. If
                         something does, the backup still completes and the run says so, because a
                         snapshot you believe is a point in time and is not is the failure worth
                         reporting.
@@ -1619,7 +1641,7 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
               lede={
                 incremental
                   ? "How far each backup is checked before it counts as a restore point. A run that proves less than the level you pick fails, so this is a floor and not a target."
-                  : "How Backupd knows an artifact is finished being written, and how it is proven good once it arrives."
+                  : "How retnd knows an artifact is finished being written, and how it is proven good once it arrives."
               }
             >
               {incremental ? (
@@ -1712,7 +1734,7 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
           {step === 7 ? (
             <StepBody
               title="Storage, retention and holds"
-              lede="Where the copy on this NAS lives, how long backups are kept, and whether Backupd may free space on the server."
+              lede="Where the copy on this NAS lives, how long backups are kept, and whether retnd may free space on the server."
             >
               <div className="eyebrow" style={{ fontSize: "var(--text-xs)", marginBottom: 10 }}>
                 Storage
@@ -1847,7 +1869,7 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
                       </InfoTooltip>
                       <span>
                         The connection test could not create a file under this remote path, so
-                        Backupd cannot delete there. Deleting the original after backup is
+                        retnd cannot delete there. Deleting the original after backup is
                         unavailable until the account is granted write permission on the source.
                       </span>
                     </p>
@@ -1855,7 +1877,7 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
 
                   {readOnlyEffective ? (
                     <p style={{ margin: 0, fontSize: 13.5, maxWidth: "78ch" }}>
-                      Backupd will keep every backup from this source's remote
+                      retnd will keep every backup from this source's remote
                       copy for good, however completely it passes transfer, verification
                       and commit. Releasing that storage, if it is ever wanted, is a
                       decision made outside this manager.
@@ -1864,7 +1886,7 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
                     <>
                       <p style={{ margin: 0, fontSize: 13.5, maxWidth: "78ch" }}>
                         After a backup has been successfully transferred, verified, durably
-                        committed to this NAS, and recorded as safe, Backupd will
+                        committed to this NAS, and recorded as safe, retnd will
                         delete the original backup artifact from the remote server.
                       </p>
                       <ol
@@ -2259,7 +2281,7 @@ function NotForThisEngine({ what }: { what: string }) {
 
 /**
  * The artifact engine's answer to "how is a backup proven good": how
- * Backupd knows a file is finished being written, and which registered
+ * retnd knows a file is finished being written, and which registered
  * validator reads it once it arrives.
  *
  * It is a component rather than inline JSX because it is the OTHER branch

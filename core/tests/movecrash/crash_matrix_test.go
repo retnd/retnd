@@ -49,13 +49,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/artifactstore"
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/placement"
-	"github.com/backupdproject/backupd/core/internal/state"
-	"github.com/backupdproject/backupd/core/internal/transport"
-	"github.com/backupdproject/backupd/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/internal/artifactstore"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/placement"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport/rclone"
 )
 
 const (
@@ -136,6 +136,10 @@ type world struct {
 	hash     string
 	key      string
 
+	// keyDir, when set, is a managed key directory the harness is told to
+	// encrypt under (-encrypt-dir). Empty for every plaintext cell.
+	keyDir string
+
 	// store is the restarting process's own medium store, kept so a cell
 	// can ask it what it actually read.
 	store *guardedStore
@@ -151,6 +155,16 @@ type world struct {
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
+	return newWorldOver(t, []byte(strings.Repeat("the durable bytes of one backup artifact. ", 64)))
+}
+
+// newWorldOver is newWorld over an artifact of the caller's choosing. The
+// encrypted cells use it with a fixture that crosses age's 64 KiB chunk
+// boundary and ends in a partial chunk (multiChunkArtifact), because a
+// single-chunk artifact cannot tell a transform that seals every chunk from
+// one that seals the first (docs/epic-checklist.md section 12).
+func newWorldOver(t *testing.T, content []byte) *world {
+	t.Helper()
 	dir := t.TempDir()
 	root := filepath.Join(dir, "backups")
 	bucket := filepath.Join(dir, "bucket")
@@ -161,7 +175,6 @@ func newWorld(t *testing.T) *world {
 		}
 	}
 
-	content := []byte(strings.Repeat("the durable bytes of one backup artifact. ", 64))
 	sum := sha256.Sum256(content)
 	hash := hex.EncodeToString(sum[:])
 
@@ -270,6 +283,9 @@ func (w *world) crashTo(destination string, extra ...string) harnessResult {
 		"-artifact", crashArtifact, "-destination", destination,
 		"-second-medium", crashSecondMedium, "-second-bucket", w.secondBucket,
 	}, extra...)
+	if w.keyDir != "" {
+		args = append(args, "-encrypt-dir", w.keyDir)
+	}
 
 	return w.runHarness(args)
 }

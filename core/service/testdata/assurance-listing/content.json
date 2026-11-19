@@ -1,0 +1,343 @@
+{
+  "about": "Shared vectors for the assurance listing (#1174): facts and a fixed now in, rendered claim states, buckets and the tile row's sentence out. Asserted by core/service (go test) and ui/shared/src/test/assurance-listing-vectors.test.ts (vitest). Change one side and both must still pass.",
+  "cases": [
+    {
+      "name": "content verified and a validator passed",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/content-verified-and-a-validator-passed.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T09:00:00Z",
+            "recovery_state": "passed",
+            "recovery_tested_at": "2026-10-14T11:00:00Z"
+          }
+        ]
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "pass",
+        "buckets": [],
+        "reason": "Content: content verified 3h ago. Recovery: recovery test passed 60m ago."
+      }
+    },
+    {
+      "name": "never scrubbed and never tested",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/never-scrubbed-and-never-tested.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate"
+          }
+        ]
+      },
+      "want": {
+        "content": "never_run",
+        "recovery": "never_run",
+        "buckets": [
+          "due",
+          "untested"
+        ],
+        "reason": "Content: never run. Recovery: never run."
+      }
+    },
+    {
+      "name": "a failed scrub",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/a-failed-scrub.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "scrub_state": "failed",
+            "scrub_last_failure_at": "2026-10-14T11:00:00Z"
+          }
+        ]
+      },
+      "want": {
+        "content": "failed",
+        "recovery": "never_run",
+        "buckets": [
+          "degraded",
+          "due",
+          "untested"
+        ],
+        "reason": "Content: content check failed 60m ago. Recovery: never run."
+      }
+    },
+    {
+      "name": "a scrub that could not complete",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/a-scrub-that-could-not-complete.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "scrub_state": "could_not_complete",
+            "scrub_last_checked_at": "2026-10-14T10:00:00Z"
+          }
+        ]
+      },
+      "want": {
+        "content": "could_not_complete",
+        "recovery": "never_run",
+        "buckets": [
+          "degraded",
+          "due",
+          "untested"
+        ],
+        "reason": "Content: could not complete 2h ago. Recovery: never run."
+      }
+    },
+    {
+      "name": "an archived copy that needs a thaw",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/an-archived-copy-that-needs-a-thaw.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "requires_restore",
+            "recovery_state": "passed",
+            "recovery_tested_at": "2026-10-14T11:00:00Z"
+          }
+        ]
+      },
+      "want": {
+        "content": "requires_restore",
+        "recovery": "pass",
+        "buckets": [],
+        "reason": "Content: archived: thaw needed. Recovery: recovery test passed 60m ago."
+      }
+    },
+    {
+      "name": "nothing readable",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/nothing-readable.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "unreachable"
+          }
+        ]
+      },
+      "want": {
+        "content": "no_readable_copy",
+        "recovery": "never_run",
+        "buckets": [
+          "degraded",
+          "due",
+          "untested"
+        ],
+        "reason": "Content: no readable copy. Recovery: never run."
+      }
+    },
+    {
+      "name": "quarantined",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/quarantined.zst",
+        "quarantined": true,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T09:00:00Z"
+          }
+        ]
+      },
+      "want": {
+        "content": "failed",
+        "recovery": "never_run",
+        "buckets": [
+          "degraded",
+          "due",
+          "untested"
+        ],
+        "reason": "Content: content check failed. Recovery: never run."
+      }
+    },
+    {
+      "name": "only a copy waiting to be deleted",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/only-a-copy-waiting-to-be-deleted.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "DELETE_PENDING",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T09:00:00Z"
+          }
+        ]
+      },
+      "want": {
+        "content": "never_run",
+        "recovery": "unknown",
+        "buckets": [
+          "due",
+          "untested"
+        ],
+        "reason": "Content: never run. Recovery: unknown."
+      }
+    },
+    {
+      "name": "existence checked only",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/existence-checked-only.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "existence",
+            "verified_at": "2026-10-12T12:00:00Z"
+          }
+        ]
+      },
+      "want": {
+        "content": "existence_only",
+        "recovery": "never_run",
+        "buckets": [
+          "due",
+          "untested"
+        ],
+        "reason": "Content: existence checked only 2d ago. Recovery: never run."
+      }
+    },
+    {
+      "name": "attested only",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/attested-only.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "attested",
+            "verified_at": "2026-10-14T07:00:00Z"
+          }
+        ]
+      },
+      "want": {
+        "content": "attested_only",
+        "recovery": "never_run",
+        "buckets": [
+          "due",
+          "untested"
+        ],
+        "reason": "Content: attested only 5h ago. Recovery: never run."
+      }
+    },
+    {
+      "name": "one of two copies content verified",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/one-of-two-copies-content-verified.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T09:00:00Z",
+            "recovery_state": "passed",
+            "recovery_tested_at": "2026-10-14T11:55:00Z"
+          },
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "medium": "offsite"
+          }
+        ]
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "pass",
+        "buckets": [],
+        "reason": "Content: content verified · 1 of 2 copies, 1 never checked 3h ago. Recovery: recovery test passed 5m ago."
+      }
+    },
+    {
+      "name": "the strongest class wins",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/the-strongest-class-wins.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "existence",
+            "verified_at": "2026-10-14T11:00:00Z"
+          },
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-13T06:00:00Z"
+          }
+        ]
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "never_run",
+        "buckets": [
+          "due",
+          "untested"
+        ],
+        "reason": "Content: content verified · 1 of 2 copies, 1 existence only 30h ago. Recovery: never run."
+      }
+    },
+    {
+      "name": "a failed copy beats a verified one",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/a-failed-copy-beats-a-verified-one.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T11:00:00Z"
+          },
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "scrub_state": "failed",
+            "scrub_last_checked_at": "2026-10-14T08:00:00Z"
+          }
+        ]
+      },
+      "want": {
+        "content": "failed",
+        "recovery": "never_run",
+        "buckets": [
+          "degraded",
+          "due",
+          "untested"
+        ],
+        "reason": "Content: content check failed 4h ago. Recovery: never run."
+      }
+    }
+  ]
+}

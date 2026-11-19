@@ -16,12 +16,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/lifecycle"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/retention"
-	"github.com/backupdproject/backupd/core/internal/state"
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/retention"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // The acceptance line #238 handed to #239, recorded on both issues: the
@@ -156,7 +156,7 @@ func moveTestMediums() []config.StorageMedium {
 		Type:   config.StorageMediumTypeS3,
 		Region: "us-east-1",
 		Bucket: "nas-backups",
-		Prefix: "backupd",
+		Prefix: "retnd",
 	}}
 }
 
@@ -256,7 +256,7 @@ func TestRunCycle_MovesTheArtifactTheChainSaysBelongsElsewhere(t *testing.T) {
 		t.Fatalf("Moves = %+v, want the planned move to have completed", report.Moves)
 	}
 
-	key, err := transport.MediumKey("backupd", artifact)
+	key, err := transport.MediumKey("retnd", artifact)
 	if err != nil {
 		t.Fatalf("MediumKey: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestRunCycle_LeavesAMovedArtifactCompleteOnTheNextCycle(t *testing.T) {
 			artifact, rec.State, moveTestMedium, strings.Join(findings, "\n\t"))
 	}
 
-	key, err := transport.MediumKey("backupd", artifact)
+	key, err := transport.MediumKey("retnd", artifact)
 	if err != nil {
 		t.Fatalf("MediumKey: %v", err)
 	}

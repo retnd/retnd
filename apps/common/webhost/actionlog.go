@@ -8,10 +8,11 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/backupdproject/backupd/core/cliecho"
+	"github.com/retnd/retnd/core/cliecho"
 )
 
 // Every action taken through this API, recorded where an operator can
@@ -37,7 +38,7 @@ import (
 // exactly the refusals an operator most needs to see, and not one of them
 // reaches a handler body.
 //
-// It also settles where the echoed `backupd` command comes from.
+// It also settles where the echoed `retnd` command comes from.
 // The command is a function of the route and the request, both of which
 // are right here, so it is built once, in Go, in core/cliecho, and never
 // composed in a browser (see that package for why that matters).
@@ -63,6 +64,118 @@ import (
 // core/service.BackupService implements this.
 type ActionRecorder interface {
 	RecordAPIAction(ctx context.Context, action cliecho.APIAction)
+}
+
+// selfAuditedKey carries a flag a handler raises when it has written its own
+// action-log row, naming things this middleware cannot see (the copy
+// chosen, the target, the code of a refusal). Recording the request here
+// too would write two rows for one act, and "one mint writes one row" is a
+// claim somebody counts.
+//
+// A flag the handler raises, rather than a list of routes, because a
+// request can be refused before its handler runs (no session, no CSRF
+// pair) and those are exactly the refusals that must still be recorded.
+type selfAuditedKey struct{}
+
+// markSelfAudited tells recordActions this request has its own row.
+func markSelfAudited(ctx context.Context) {
+	if f, ok := ctx.Value(selfAuditedKey{}).(*atomic.Bool); ok {
+		f.Store(true)
+	}
+}
+
+// gateNoteKey carries a note a gate refusal leaves for recordActions
+// (issue #1165).
+//
+// A refusal by the destructive gate is an audit entry in its own right: who
+// asked, which act, which set or snapshot, what state the gate was in. The
+// first two are in the request and the last is in the gate, and the gate is
+// consulted in two places that do not share a code path: requireDestructiveGate
+// for the routes behind it, and createBackupSet for the run a create asks
+// for, which is a 201 and so is not a refusal by status. Both leave this note,
+// and recordActions turns it into the fields of the one entry it was already
+// going to write. A second entry would be a second line in the feed for one
+// refusal, and "exactly one" is a claim somebody counts.
+type gateNoteKey struct{}
+
+type gateNote struct {
+	refused     bool
+	state       string
+	reason      string
+	operation   string // set by the caller when the route and body cannot say
+	backupSetID string // likewise
+	// code and message are what the refusal said, for the one refusal that
+	// writes no error envelope (a create whose run was refused answers 201).
+	code    string
+	message string
+}
+
+// noteRefusal records that this request was refused by the gate or by one of
+// the conditions an open gate carries, and why.
+func noteRefusal(ctx context.Context, note gateNote) {
+	n, ok := ctx.Value(gateNoteKey{}).(*gateNote)
+	if !ok {
+		return
+	}
+	note.backupSetID = n.backupSetID
+	*n = note
+}
+
+// noteGateRefusal records that the gate refused this request, and the state
+// it was in when it did. operation is "" when the route and the body say
+// which act it was (the middleware case), and a name when only the handler
+// knows (run_immediately).
+func noteGateRefusal(ctx context.Context, gate DestructiveGate, operation string) {
+	state, reason := gateStatus(gate)
+	ref := newGateRefusal(http.StatusForbidden, "DESTRUCTIVE_OPERATIONS_DISABLED", destructiveGateRefusal, state, reason)
+	ref.note(ctx, operation)
+}
+
+// noteGateRefusedSet names the set a refused create made, which exists only
+// after the create has run.
+func noteGateRefusedSet(ctx context.Context, backupSetID string) {
+	if n, ok := ctx.Value(gateNoteKey{}).(*gateNote); ok {
+		n.backupSetID = backupSetID
+	}
+}
+
+// gateTarget reads what a refused gated request asked for. Nothing in it is
+// taken from anywhere but the route and the ids in the body: the entry is
+// readable by anyone who can read the feed, so it names the act and its
+// target and carries no credential, no header and no free text.
+func gateTarget(route string, params map[string]string, body []byte) (operation, set, run, snapshot, hold string) {
+	switch {
+	case route == "/operations":
+		// The handler's own decoder, so the act an entry names is the act the
+		// handler ran. A body it could not fully read still names what it
+		// could, which is what an operator reading a refusal wants.
+		req, _ := decodeSubmitOperation(body)
+		operation = string(req.Action)
+		switch req.Action {
+		case ActionRunBackupSet:
+			set = req.BackupSetID
+		case ActionRestoreSnapshot:
+			if p := req.SnapshotRestore; p != nil {
+				set, snapshot = p.BackupSetID, p.SnapshotID
+			}
+		case ActionVerifySnapshot:
+			if p := req.SnapshotVerify; p != nil {
+				set, run = p.BackupSetID, p.RunID
+			}
+		case ActionHoldSnapshot:
+			if p := req.SnapshotHold; p != nil {
+				set, run = p.BackupSetID, p.RunID
+			}
+		case ActionReleaseSnapshotHold:
+			if p := req.SnapshotHoldRelease; p != nil {
+				set, hold = p.BackupSetID, p.HoldID
+			}
+		}
+	case strings.HasSuffix(route, "/retention/apply"):
+		operation = "retention_apply"
+		set = backupSetOfRoute(params)
+	}
+	return operation, set, run, snapshot, hold
 }
 
 // maxRecordedBodyBytes bounds what this middleware buffers in order to
@@ -92,10 +205,16 @@ func recordActions(recorder ActionRecorder) func(http.Handler) http.Handler {
 			}
 
 			body := drainBody(r)
+			selfAudited := &atomic.Bool{}
+			note := &gateNote{}
+			r = r.WithContext(context.WithValue(context.WithValue(r.Context(), selfAuditedKey{}, selfAudited), gateNoteKey{}, note))
 			capture := &capturingWriter{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(capture, r)
 
 			route := routePatternOf(r)
+			if selfAudited.Load() {
+				return
+			}
 			if route == "" {
 				// Nothing matched, so there is no action to name: a 404
 				// on a path this API does not have is not an operator
@@ -110,6 +229,27 @@ func recordActions(recorder ActionRecorder) func(http.Handler) http.Handler {
 				Body:   body,
 			})
 			code, message := capture.refusal()
+			setID := backupSetOfRoute(routeParamsOf(r))
+			var operation, runID, snapshotID, holdID string
+			if note.refused {
+				var targetSet string
+				operation, targetSet, runID, snapshotID, holdID = gateTarget(route, routeParamsOf(r), body)
+				if note.operation != "" {
+					operation = note.operation
+				}
+				if targetSet == "" {
+					targetSet = note.backupSetID
+				}
+				if targetSet != "" {
+					setID = targetSet
+				}
+				// A create whose run was refused answers 201, so no error
+				// envelope was written and the status does not say it was
+				// refused. The note does.
+				if code == "" {
+					code, message = note.code, note.message
+				}
+			}
 			action := cliecho.APIAction{
 				Actor:       actorFromContext(r.Context()),
 				Method:      r.Method,
@@ -117,10 +257,27 @@ func recordActions(recorder ActionRecorder) func(http.Handler) http.Handler {
 				Status:      capture.status,
 				ErrorCode:   code,
 				Message:     message,
-				BackupSetID: backupSetOfRoute(routeParamsOf(r)),
+				BackupSetID: setID,
 				Gap:         line.Gap,
 				GapDetail:   line.GapDetail,
 				Placeholder: line.Placeholder,
+			}
+			if note.refused {
+				action.Gate, action.GateReason = note.state, note.reason
+				action.Operation, action.RunID, action.SnapshotID, action.HoldID = operation, runID, snapshotID, holdID
+			}
+			// Releasing a hold lifts a protection, and it is off the
+			// destructive gate (issue #1164), so no refusal note names it.
+			// The feed is the record of who released which hold: the actor is
+			// already on the entry, the line carries its own time, and this
+			// adds the act and the hold, on success and on refusal alike.
+			if !note.refused && route == "/operations" {
+				if op, set, _, _, hold := gateTarget(route, routeParamsOf(r), body); op == string(ActionReleaseSnapshotHold) {
+					action.Operation, action.HoldID = op, hold
+					if set != "" {
+						action.BackupSetID = set
+					}
+				}
 			}
 			// Bare: the "$ " a terminal draws in front of it is the
 			// terminal's, and a script reading the journal wants a
@@ -205,6 +362,12 @@ type capturingWriter struct {
 	status int
 	body   bytes.Buffer
 }
+
+// Unwrap lets http.ResponseController reach the real writer. Without it a
+// handler behind this middleware cannot flush or move its write deadline,
+// which a streamed answer (POST /recoveries) needs: the first line would sit
+// in the server's buffer until the whole run had ended.
+func (c *capturingWriter) Unwrap() http.ResponseWriter { return c.ResponseWriter }
 
 func (c *capturingWriter) WriteHeader(status int) {
 	c.status = status

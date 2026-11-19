@@ -2,7 +2,7 @@
  * Issue #795. The Activity page showing nothing on a real UGREEN NAS
  * because the web-ui container could not reach the engine container:
  *
- *     serve-ui: dial tcp: lookup rclone-manager: no such host
+ *     serve-ui: dial tcp: lookup retnd: no such host
  *
  * That is one deployment fault with TWO different shapes on the browser's
  * side, and the difference is the whole of why this file exists.
@@ -45,7 +45,7 @@ import { RequestFailure } from "@shared/api/contracts";
 import { PlatformProvider } from "@shared/platform/PlatformContext";
 import { genericBridge } from "../../../../apps/generic/frontend/platform";
 import { resetGraphForTests } from "@shared/state/graph";
-import type { ActivityFeedPage, BackupdApi } from "@shared/api/contracts";
+import type { ActivityFeedPage, RetndApi } from "@shared/api/contracts";
 import type { AsyncState } from "@shared/hooks/useAsync";
 import type { ActivityEvent } from "@shared/types/operation";
 import type { BackupSet } from "@shared/types/backup";
@@ -111,7 +111,6 @@ const SET: BackupSet = {
   username: "backup-agent",
   remoteFolder: "/backups/postgresql/",
   includePatterns: ["*.dump.zst"],
-  excludePatterns: ["*.tmp"],
   completionMethod: "completion-marker",
   stableForSeconds: 0,
   destination: "/data/backups/production/postgres/",
@@ -159,7 +158,7 @@ const EVENT: ActivityEvent = {
   correlationId: "cid_event1"
 };
 
-function withProviders(api: BackupdApi, page: "activity" | "dashboard") {
+function withProviders(api: RetndApi, page: "activity" | "dashboard") {
   return render(
     <MemoryRouter>
       <ApiProvider api={api}>
@@ -200,7 +199,7 @@ describe("a request that got no reply reaches the operator as one", () => {
     const alert = screen.getByRole("alert");
     // The distinction #598 typed and #795 needs on screen: this says
     // nothing came back, not that something came back unreadable.
-    expect(alert.textContent).toContain("Backupd did not answer");
+    expect(alert.textContent).toContain("retnd did not answer");
     expect(alert.textContent).not.toContain("could not read the answer");
     // The route that failed and the browser's own words for why, so a
     // screenshot of this banner is worth something to whoever reads it.
@@ -257,7 +256,7 @@ describe("a request that got no reply reaches the operator as one", () => {
 
     const panel = recentActivityPanel();
     const alert = within(panel).getByRole("alert");
-    expect(alert.textContent).toContain("Backupd did not answer");
+    expect(alert.textContent).toContain("retnd did not answer");
     expect(alert.textContent).toContain("TypeError: Failed to fetch");
     // A NAS where nothing has ever happened and a NAS whose engine is
     // unreachable must not look the same on this panel.
@@ -294,7 +293,7 @@ describe("a bodyless 502 from serve-ui names the hop that failed", () => {
     // unexpected response." The backup service returned nothing at all —
     // the sentence names the wrong machine, and offers no next step on a
     // fault whose next step is "look at the other container".
-    expect(alert.textContent).toContain("could not reach the Backupd service");
+    expect(alert.textContent).toContain("could not reach the retnd service");
     expect(alert.textContent).toMatch(/running|reach/i);
     expect(alert.textContent).not.toContain("returned an unexpected response");
   });
@@ -317,7 +316,7 @@ describe("a bodyless 502 from serve-ui names the hop that failed", () => {
     await act(async () => {});
 
     const panel = recentActivityPanel();
-    expect(within(panel).getByRole("alert").textContent).toContain("could not reach the Backupd service");
+    expect(within(panel).getByRole("alert").textContent).toContain("could not reach the retnd service");
   });
 
   it("still shows a typed refusal's own words when the service did answer", async () => {
@@ -338,7 +337,7 @@ describe("a bodyless 502 from serve-ui names the hop that failed", () => {
     // has said more than any sentence written here could.
     const alert = screen.getByRole("alert");
     expect(alert.textContent).toContain("the scheduler is restarting");
-    expect(alert.textContent).not.toContain("could not reach the Backupd service");
+    expect(alert.textContent).not.toContain("could not reach the retnd service");
   });
 
   it("keeps a typed 5xx's own words even for a code this bundle has never heard of", async () => {
@@ -359,7 +358,7 @@ describe("a bodyless 502 from serve-ui names the hop that failed", () => {
         json: async () => ({
           error: {
             code: "SCHEDULER_MAINTENANCE",
-            message: "Backupd is in a maintenance window until 04:00 and is not reading the journal."
+            message: "retnd is in a maintenance window until 04:00 and is not reading the journal."
           }
         })
       })
@@ -369,7 +368,7 @@ describe("a bodyless 502 from serve-ui names the hop that failed", () => {
 
     const alert = screen.getByRole("alert");
     expect(alert.textContent).toContain("maintenance window until 04:00");
-    expect(alert.textContent).not.toContain("could not reach the Backupd service");
+    expect(alert.textContent).not.toContain("could not reach the retnd service");
     expect(alert.textContent).toContain("cid_typed503");
   });
 
@@ -386,7 +385,7 @@ describe("a bodyless 502 from serve-ui names the hop that failed", () => {
         status: 500,
         headers: new Headers({
           "x-correlation-id": "cid_marked500",
-          "x-backupd-proxy-error": "upstream-unreachable"
+          "x-retnd-proxy-error": "upstream-unreachable"
         }),
         json: async () => {
           throw new SyntaxError("Unexpected end of JSON input");
@@ -396,7 +395,7 @@ describe("a bodyless 502 from serve-ui names the hop that failed", () => {
     withProviders(httpApi, "activity");
     await act(async () => {});
 
-    expect(screen.getByRole("alert").textContent).toContain("could not reach the Backupd service");
+    expect(screen.getByRole("alert").textContent).toContain("could not reach the retnd service");
   });
 
   it("names no hop for an untyped refusal that nothing identified", async () => {
@@ -421,7 +420,7 @@ describe("a bodyless 502 from serve-ui names the hop that failed", () => {
     await act(async () => {});
 
     const alert = screen.getByRole("alert");
-    expect(alert.textContent).not.toContain("could not reach the Backupd service");
+    expect(alert.textContent).not.toContain("could not reach the retnd service");
     expect(alert.textContent).toContain("cid_untyped500");
   });
 });

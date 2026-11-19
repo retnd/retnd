@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/hostrunner"
-	"github.com/backupdproject/backupd/core/internal/remoteexec"
-	"github.com/backupdproject/backupd/core/internal/workflow"
-	"github.com/backupdproject/backupd/core/internal/workflowexec"
+	"github.com/retnd/retnd/core/internal/hostrunner"
+	"github.com/retnd/retnd/core/internal/remoteexec"
+	"github.com/retnd/retnd/core/internal/workflow"
+	"github.com/retnd/retnd/core/internal/workflowexec"
 )
 
 // The one seam between "what to run next" and "how a hook actually runs".
@@ -229,7 +229,7 @@ func (e LocalExecutor) ExecuteStep(ctx context.Context, req StepRequest) (StepOu
 		})
 	}))
 	if err != nil {
-		return localFailure(err), nil
+		return localFailure(ctx, err), nil
 	}
 
 	return localOutcome(result), nil
@@ -242,12 +242,29 @@ func (e LocalExecutor) ExecuteStep(ctx context.Context, req StepRequest) (StepOu
 // Anything else is the socket, which is transport loss. The distinction
 // is what an operator needs: one is something to fix in the
 // configuration, the other is something to fix in the deployment.
-func localFailure(err error) StepOutcome {
+//
+// One more case comes before the socket: the step's own context ran out.
+// That is the step's script_timeout expiring while the runner was silent
+// (stopped, wedged, or gone without closing its socket), and it is a
+// TIMEOUT, not a lost transport (#931): the bound the operator configured
+// is what ended the step. Termination is reported as unconfirmed, because
+// the only party that could have proved the hook stopped is the runner
+// that stopped answering; the client closing the connection is what makes
+// a live runner read the lease as expired and kill the process group.
+func localFailure(ctx context.Context, err error) StepOutcome {
 	var refusal *hostrunner.Failure
 	if errors.As(err, &refusal) {
 		return StepOutcome{
 			Disposition: DispositionNotAttempted,
 			Detail:      refusal.Error(),
+		}
+	}
+
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return StepOutcome{
+			Disposition: DispositionTimedOut,
+			Certainty:   workflowexec.TerminationUnconfirmed,
+			Detail:      "the step's timeout expired while the workflow runner was not answering, so nothing proved the hook stopped: " + err.Error(),
 		}
 	}
 
@@ -331,7 +348,7 @@ func (e RemoteExecutor) ExecuteStep(ctx context.Context, req StepRequest) (StepO
 	}
 
 	result, runErr := client.Run(ctx, remoteexec.Request{
-		Token:        req.Step.ID,
+		Token:        remoteexec.StepToken(req.RunID, req.Step.ID),
 		Environ:      req.Environ,
 		Script:       req.Script.Body,
 		Sink:         req.Sink,
@@ -350,9 +367,11 @@ func (e RemoteExecutor) ExecuteStep(ctx context.Context, req StepRequest) (StepO
 // The ORDER of these tests is the contract. A timeout and a cancellation
 // are told apart by sentinel before anything looks at the exit code,
 // because a step that was killed may still carry a signal name and must
-// not be read as having reported anything; and an observed exit code is
-// only believed when there is no error at all, which is what keeps
-// transport loss out of the exit-code field.
+// not be read as having reported anything; a refusal that happened BEFORE
+// the channel existed is not an outcome nobody saw but a step that never
+// started; and an observed exit code is only believed when there is no
+// error at all, which is what keeps transport loss out of the exit-code
+// field.
 func remoteOutcome(r remoteexec.Result, err error) StepOutcome {
 	out := StepOutcome{
 		Chunks:    r.Chunks,
@@ -368,6 +387,17 @@ func remoteOutcome(r remoteexec.Result, err error) StepOutcome {
 	case errors.Is(err, remoteexec.ErrStepSignaled):
 		out.Disposition = DispositionSignaled
 		out.Detail = "killed by " + r.Signal + " on the remote host"
+	case errors.Is(err, remoteexec.ErrConnection), errors.Is(err, remoteexec.ErrExecCapability):
+		// Nothing of the hook ran: the connection would not open, the
+		// request was refused before a session was asked for, or the
+		// account proved not to be exec-capable. Reporting that as
+		// transport loss says the side effects may be half applied,
+		// which sends an operator looking for a partially quiesced
+		// database that does not exist -- and it hid #919 for two
+		// milestones, where every remote step was refused by this
+		// package's own token rule and reported as a lost connection.
+		out.Disposition = DispositionNotAttempted
+		out.Detail = err.Error()
 	case err != nil:
 		out.Disposition = DispositionTransportLost
 		out.Detail = err.Error()

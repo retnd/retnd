@@ -3,9 +3,9 @@
 
 Ported off `scripts/release/record-release-hashes.sh`.
 
-Builds `container/Dockerfile` for each of linux/amd64 and linux/arm64,
-extracts both shipped binaries (`/backupd` and `/backupd-web`) from each built
-image, hashes them with SHA-256, and writes the result to
+Builds `container/Dockerfile` for linux/amd64 (the only image
+architecture a release carries, #1452), extracts both shipped binaries
+(`/retnd` and `/retnd-web`) from the built image, hashes them with SHA-256, and writes the result to
 `container/release-manifest.json` -- a record a reviewer (or a future
 provider package) can diff against a claim of core parity, rather than
 trusting it by assertion.
@@ -211,7 +211,7 @@ def run_guards(root: Path, env: dict[str, str]) -> tuple[str, str, str, Path, li
     unsafe = env.get("UNSAFE_LOCAL_BUILD", "0") == "1"
     version = env.get("VERSION") or _git(["describe", "--tags", "--always"], cwd=root)
     commit = env.get("COMMIT") or _git(["rev-parse", "HEAD"], cwd=root)
-    arches = (env.get("ARCHES") or "amd64 arm64").split()
+    arches = (env.get("ARCHES") or "amd64").split()
     reachable_from = env.get("REACHABLE_FROM", "origin/main")
 
     if unsafe:
@@ -272,7 +272,7 @@ def run_guards(root: Path, env: dict[str, str]) -> tuple[str, str, str, Path, li
 
 
 def build_and_hash(root: Path, arch: str, version: str, commit: str) -> dict[str, object]:
-    tag = f"backupd:release-hashes-{arch}"
+    tag = f"retnd:release-hashes-{arch}"
     harness.step(f"Building linux/{arch} ({tag})")
     harness.sh(
         [
@@ -289,19 +289,23 @@ def build_and_hash(root: Path, arch: str, version: str, commit: str) -> dict[str
         capture=False,
     )
 
-    cid = harness.sh_out(["docker", "create", "--platform", f"linux/{arch}", tag, "/backupd", "version"])
+    cid = harness.sh_out(["docker", "create", "--platform", f"linux/{arch}", tag, "/retnd", "version"])
     tmp = Path(tempfile.mkdtemp())
     try:
-        # /backupd and /backupd-web, never the compatibility symlinks beside them
-        # (the 0.3.3 CLI rename): `docker cp` without `-L` copies a link
-        # as a link, and the local names below are the keys
-        # `binary_sha256` records under, not the renamed CLI.
-        harness.sh(["docker", "cp", f"{cid}:/backupd", str(tmp / "backupd")])
-        harness.sh(["docker", "cp", f"{cid}:/backupd-web", str(tmp / "backupd-web")])
+        # The two REAL files, never the compatibility name beside them.
+        # 0.3.3 renamed the CLI and #890 renamed the container paths, and
+        # the image now carries /retnd, /retnd-web and /retnd-web, where
+        # the third is a HARDLINK to the second rather than a third
+        # binary. Hashing it would record the same bytes twice under two
+        # keys and invite a later check that compares a name with itself.
+        # `docker cp` without `-L` copies a link as a link anyway, and the
+        # local names below are the keys `binary_sha256` records under.
+        harness.sh(["docker", "cp", f"{cid}:/retnd", str(tmp / "retnd")])
+        harness.sh(["docker", "cp", f"{cid}:/retnd-web", str(tmp / "retnd-web")])
         harness.sh(["docker", "rm", cid])
 
-        backupd_sha = sha256_of(tmp / "backupd")
-        backupd_web_sha = sha256_of(tmp / "backupd-web")
+        retnd_sha = sha256_of(tmp / "retnd")
+        retnd_web_sha = sha256_of(tmp / "retnd-web")
         local_image_id = (
             harness.sh_out(["docker", "images", "--no-trunc", "--format", "{{.ID}}", tag])
             .splitlines()[0]
@@ -312,7 +316,7 @@ def build_and_hash(root: Path, arch: str, version: str, commit: str) -> dict[str
 
     return {
         "architecture": arch,
-        "binary_sha256": {"backupd": backupd_sha, "backupd-web": backupd_web_sha},
+        "binary_sha256": {"retnd": retnd_sha, "retnd-web": retnd_web_sha},
         "local_image_id_sha256": local_image_id,
         "registry_digest": None,
     }
@@ -332,8 +336,11 @@ NOTE = (
     "distribution/packaging's release-manifest-integrity check re-asks the same question on every run. "
     "binary_sha256 is hashed from the two binaries extracted out of the built image, so it is real "
     "evidence of what was compiled. registry_digest is the digest ghcr.io assigns "
-    "ghcr.io/backupdproject/backupd on push (docker buildx build --push prints it, docker buildx "
-    "imagetools inspect reads it back)."
+    "ghcr.io/retnd/retnd on push (docker buildx build --push prints it, docker buildx "
+    "imagetools inspect reads it back). "
+    "binary_sha256 keys match the two executable paths in the image: retnd and retnd-web. A manifest that "
+    "already records a published release is historical evidence and must not be rewritten merely to rename "
+    "a key; a new semantic version records the names its image actually carries."
 )
 
 

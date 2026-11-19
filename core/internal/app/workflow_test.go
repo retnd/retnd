@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/model"
 )
 
 // What the workflow seam may and may not say about a pass it wrapped
@@ -16,7 +16,7 @@ import (
 // business outcome that a completed cycle reports as counts, and a
 // systemic failure is a cycle that could not be performed. The lifecycle
 // has to be told which of those happened -- an "after" hook reads it as
-// BACKUPD_BACKUP_STATUS -- and the sentinel it is told it with must not
+// RETND_BACKUP_STATUS -- and the sentinel it is told it with must not
 // then come back out as the pass's own Err, because that is what turns a
 // counted artifact failure into a cycle nobody ran.
 

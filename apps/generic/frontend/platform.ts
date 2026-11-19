@@ -3,7 +3,7 @@ import { readLocalAccountSession } from "@shared/platform/localSession";
 import type { PlatformBridge } from "@shared/types/platform";
 
 /** The visual baseline (§23). No NAS-provider branding, no host chrome,
- *  Backupd local authentication. Every other provider is a delta on this. */
+ *  retnd local authentication. Every other provider is a delta on this. */
 export const genericBridge: PlatformBridge = {
   id: "generic",
   name: "Generic Docker / Linux",

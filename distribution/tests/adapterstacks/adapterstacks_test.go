@@ -5,7 +5,7 @@
 //
 // Every adapter gates its web UI on `depends_on: <engine>: condition:
 // service_healthy`, and every adapter derived the engine's health check
-// from canonical.json, which said `backupd status`. That is FR-24's
+// from canonical.json, which said `retnd status`. That is FR-24's
 // backup-freshness verdict, and it exits non-zero on a fresh install by
 // design, because a fresh install has backed nothing up. So on every
 // adapter the one container an operator installed the app to reach never
@@ -67,7 +67,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/backupdproject/backupd/distribution/compose"
+	"github.com/retnd/retnd/distribution/compose"
 )
 
 // ---------------------------------------------------------------------
@@ -113,7 +113,7 @@ func requireDocker(t *testing.T) {
 // same time takes the name over, and this run then quietly tests that
 // checkout's image instead of its own. The tag carries the pid and the
 // process start time so two runs on one machine cannot collide either.
-var imageReference = "backupd:adapterstacks-" +
+var imageReference = "retnd:adapterstacks-" +
 	strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 
 var build struct {
@@ -137,7 +137,7 @@ func buildImage(t *testing.T) string {
 		cmd := exec.Command("docker", "build",
 			"-f", filepath.Join(root, "container", "Dockerfile"),
 			"-t", imageReference,
-			"--label", "com.backupd.test=adapterstacks",
+			"--label", "com.retnd.test=adapterstacks",
 			"--load",
 			root,
 		)
@@ -189,9 +189,17 @@ func TestMain(m *testing.M) {
 // the configuration mount is a directory at all (issue #196), and an
 // empty one is the only honest shape for an install nobody has
 // configured. The engine serves the first-run setup flow from it, and
-// `backupd status` exits non-zero in it, which every test below
+// `retnd status` exits non-zero in it, which every test below
 // reads back rather than assumes.
-func freshInstall(t *testing.T) string {
+//
+// That last sentence stopped being true of the empty directory with #1049:
+// the engine now writes a default config.yaml on its first start, and
+// `retnd status` on an install with no configuration yet prints a
+// first-run notice and exits 0. The negative backup-freshness verdict #206
+// is about now needs a backup set that has never run, so neverRun adds a
+// config.yaml with exactly one (the shape apps/generic/tests/dockercli
+// builds too). Both fixtures are run for every adapter.
+func freshInstall(t *testing.T, neverRun bool) string {
 	t.Helper()
 	dir := t.TempDir()
 	// 0o777 because the runtime image runs as a fixed non-root uid that
@@ -199,7 +207,7 @@ func freshInstall(t *testing.T) string {
 	// hard permission failure at the first write; a macOS Docker Desktop
 	// daemon is lenient about it, which is exactly how a fixture like this
 	// passes locally and fails on a real runner.
-	for _, sub := range []string{"state", "backups", "config"} {
+	for _, sub := range []string{"state", "backups", "config", "workflows", "run", "workflows/recovery-test-validators", "workflows/recovery-test-validators.superseded"} {
 		if err := os.MkdirAll(filepath.Join(dir, sub), 0o777); err != nil {
 			t.Fatalf("MkdirAll %s: %v", sub, err)
 		}
@@ -207,31 +215,88 @@ func freshInstall(t *testing.T) string {
 			t.Fatalf("Chmod %s: %v", sub, err)
 		}
 	}
+	if neverRun {
+		for _, sub := range []string{"backups/remote", "backups/local"} {
+			path := filepath.Join(dir, sub)
+			if err := os.MkdirAll(path, 0o777); err != nil {
+				t.Fatalf("MkdirAll %s: %v", sub, err)
+			}
+			if err := os.Chmod(path, 0o777); err != nil {
+				t.Fatalf("Chmod %s: %v", sub, err)
+			}
+		}
+		config := "" +
+			"poll_interval: 1h\n" +
+			"state:\n" +
+			"  database: /data/state/state.db\n" +
+			"sources:\n" +
+			"  - id: production\n" +
+			"    backup_sets:\n" +
+			"      - id: never-backed-up\n" +
+			"        remote:\n" +
+			"          type: local\n" +
+			"        remote_path: /data/backups/remote\n" +
+			"        local_path: /data/backups/local\n" +
+			"        include:\n" +
+			"          - \"*.dump\"\n" +
+			"        completion:\n" +
+			"          strategy: rename\n" +
+			"        stale_after: 1s\n" +
+			"retention:\n" +
+			"  timezone: UTC\n" +
+			"  week_starts_on: monday\n"
+		if err := os.WriteFile(filepath.Join(dir, "config", "config.yaml"), []byte(config), 0o644); err != nil {
+			t.Fatalf("WriteFile config.yaml: %v", err)
+		}
+	}
 	return dir
 }
 
 // freshInstallHostPaths lays a fixture directory out as the host side of
-// the five canonical storage roles, keyed by the CONTAINER path an
-// adapter mounts them at.
+// every canonical container path an adapter may mount, keyed by the
+// CONTAINER path it mounts them at.
 //
 // Keyed by the container side because that is the half the binaries fix
 // and every adapter therefore agrees on. The host side is exactly what
 // this rewrite replaces.
+//
+// The three host-plane paths are here for the same reason the five
+// storage roles are, and their absence took four adapters out of this
+// suite without taking them out of its list: EPIC L (#877, #921) gave
+// apps/casaos, apps/openmediavault, apps/portainer and apps/proxmox a
+// /workflows mount, a /data/run mount and the runner's credential file,
+// and rewriteAdapterCompose refuses a container path this map does not
+// carry. So those four failed before the stack was ever started, on the
+// rewrite rather than on the runtime, and the acceptance criterion this
+// suite exists for was unproven on exactly the adapters carrying the
+// newest mounts. They are empty and unconfigured on purpose: no
+// config.yaml names a runner, so nothing connects to the socket
+// directory, and an empty read-only script tree is what a fresh install
+// really has. The two validator directories under it (#1246) are here for
+// the same reason as the rest.
 func freshInstallHostPaths(t *testing.T, dir string) map[string]string {
 	t.Helper()
 	keyFile := filepath.Join(dir, "id_ed25519")
 	knownHosts := filepath.Join(dir, "known_hosts")
-	for _, f := range []string{keyFile, knownHosts} {
+	runnerToken := filepath.Join(dir, "workflow-runner.token")
+	for _, f := range []string{keyFile, knownHosts, runnerToken} {
 		if err := os.WriteFile(f, nil, 0o644); err != nil {
 			t.Fatalf("WriteFile %s: %v", f, err)
 		}
 	}
 	return map[string]string{
-		"/data/state":                     filepath.Join(dir, "state"),
-		"/data/backups":                   filepath.Join(dir, "backups"),
-		"/etc/backupd/config":      filepath.Join(dir, "config"),
-		"/etc/backupd/id_ed25519":  keyFile,
-		"/etc/backupd/known_hosts": knownHosts,
+		"/data/state":                      filepath.Join(dir, "state"),
+		"/data/backups":                    filepath.Join(dir, "backups"),
+		"/etc/retnd/config":                filepath.Join(dir, "config"),
+		"/etc/retnd/id_ed25519":            keyFile,
+		"/etc/retnd/known_hosts":           knownHosts,
+		"/workflows":                       filepath.Join(dir, "workflows"),
+		"/data/run":                        filepath.Join(dir, "run"),
+		"/etc/retnd/workflow-runner.token": runnerToken,
+		// The custom validator directories (#1246), writable and inside
+		// the same script tree, which is how every adapter mounts them.
+		"/workflows/recovery-test-validators":            filepath.Join(dir, "workflows", "recovery-test-validators"),
+		"/workflows/recovery-test-validators.superseded": filepath.Join(dir, "workflows", "recovery-test-validators.superseded"),
 	}
 }
 
@@ -537,20 +602,20 @@ func containerState(t *testing.T, id string) string {
 	return inspect(t, id).State.Status
 }
 
-// statusExitCode runs `backupd status` inside a running container.
+// statusExitCode runs `retnd status` inside a running container.
 //
 // This is the control the whole file turns on: without it a green run
 // proves only that some stack came up, and a fixture that had quietly
 // become healthy would pass while saying nothing at all about the defect.
 func statusExitCode(t *testing.T, id string) (int, string) {
 	t.Helper()
-	out, err := exec.Command("docker", "exec", id, "/backupd", "status").CombinedOutput()
+	out, err := exec.Command("docker", "exec", id, "/retnd", "status").CombinedOutput()
 	if err == nil {
 		return 0, string(out)
 	}
 	exit, ok := err.(*exec.ExitError)
 	if !ok {
-		t.Fatalf("docker exec %s /backupd status: %v\n%s", id, err, out)
+		t.Fatalf("docker exec %s /retnd status: %v\n%s", id, err, out)
 	}
 	return exit.ExitCode(), string(out)
 }
@@ -594,8 +659,8 @@ func getWithTransportRetry(t *testing.T, url string, timeout time.Duration) *htt
 
 // serviceRunning names a rewritten definition's service by the COMMAND it
 // runs, never by what it is called: the adapters call them
-// backupd/backupd-ui and the canonical definition calls them
-// backupd/web-ui, so a lookup keyed on the name would stop finding
+// retnd/retnd-ui and the canonical definition calls them
+// retnd/web-ui, so a lookup keyed on the name would stop finding
 // them the moment one was renamed.
 func serviceRunning(t *testing.T, file, subcommand string) string {
 	t.Helper()
@@ -649,61 +714,71 @@ func TestEveryDerivedAdapterBringsUpTheWebUIOnAFreshInstall(t *testing.T) {
 
 	for _, rel := range artifacts {
 		t.Run(rel, func(t *testing.T) {
-			dir := freshInstall(t)
-			file := rewriteAdapterCompose(t, rel, image, dir)
-
-			project, out, err := up(t, file)
-			if err != nil {
-				t.Errorf("%s does not come up on a fresh install: %v\n%s", rel, err, out)
-				engine := project.containerIDIfAny(t, serviceRunning(t, file, "serve"))
-				if engine == "" {
-					t.FailNow()
-				}
-				logs, _ := exec.Command("docker", "logs", engine).CombinedOutput()
-				t.Fatalf("the engine's last health probe said %q; engine logs:\n%s", lastHealthOutput(t, engine), logs)
-			}
-
-			engineName := serviceRunning(t, file, "serve")
-			uiName := serviceRunning(t, file, "serve-ui")
-
-			engineID := project.containerID(t, engineName)
-			if got := healthStatus(t, engineID, 90*time.Second); got != "healthy" {
-				t.Fatalf("%s: the engine's container health is %q on a fresh install, want %q; the web UI waits on it, so anything else means it never starts. The probe's last output was %q",
-					rel, got, "healthy", lastHealthOutput(t, engineID))
-			}
-
-			// The control, per adapter: this fresh install really is one
-			// the backup-freshness verdict refuses, so the web UI came up
-			// THROUGH a negative verdict rather than because the fixture
-			// happened to be healthy.
-			code, statusOut := statusExitCode(t, engineID)
-			if code == 0 {
-				t.Fatalf("%s: `backupd status` exited 0 inside this fixture, so it is not the fresh install this test claims to run:\n%s", rel, statusOut)
-			}
-
-			uiID := project.containerID(t, uiName)
-			if got := containerState(t, uiID); got != "running" {
-				logs, _ := exec.Command("docker", "logs", uiID).CombinedOutput()
-				t.Fatalf("%s: the web UI container is %q, want %q; logs:\n%s", rel, got, "running", logs)
-			}
-
-			base := "http://127.0.0.1:" + publishedPort(t, uiID, "8080/tcp")
-			resp := getWithTransportRetry(t, base+"/", 30*time.Second)
-			resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				t.Errorf("%s: GET %s/ on a fresh install status = %d, want %d (the web UI's own static shell, which is what the first-run flow is served from)",
-					rel, base, resp.StatusCode, http.StatusOK)
-			}
-
-			// The proxy half, which is what makes it a working page rather
-			// than a container that merely started: /health/ is forwarded
-			// to the engine unchanged, so a 200 here is the engine
-			// answering through the UI container on a fresh install.
-			live := getWithTransportRetry(t, base+"/health/live", 30*time.Second)
-			live.Body.Close()
-			if live.StatusCode != http.StatusOK {
-				t.Errorf("%s: GET %s/health/live (proxied to the engine) status = %d, want %d", rel, base, live.StatusCode, http.StatusOK)
-			}
+			t.Run("NoConfigurationYet", func(t *testing.T) { bringsUpTheWebUI(t, rel, image, false) })
+			t.Run("BackupSetNeverRun", func(t *testing.T) { bringsUpTheWebUI(t, rel, image, true) })
 		})
+	}
+}
+
+func bringsUpTheWebUI(t *testing.T, rel, image string, neverRun bool) {
+	dir := freshInstall(t, neverRun)
+	file := rewriteAdapterCompose(t, rel, image, dir)
+
+	project, out, err := up(t, file)
+	if err != nil {
+		t.Errorf("%s does not come up on a fresh install: %v\n%s", rel, err, out)
+		engine := project.containerIDIfAny(t, serviceRunning(t, file, "serve"))
+		if engine == "" {
+			t.FailNow()
+		}
+		logs, _ := exec.Command("docker", "logs", engine).CombinedOutput()
+		t.Fatalf("the engine's last health probe said %q; engine logs:\n%s", lastHealthOutput(t, engine), logs)
+	}
+
+	engineName := serviceRunning(t, file, "serve")
+	uiName := serviceRunning(t, file, "serve-ui")
+
+	engineID := project.containerID(t, engineName)
+	if got := healthStatus(t, engineID, 90*time.Second); got != "healthy" {
+		t.Fatalf("%s: the engine's container health is %q on a fresh install, want %q; the web UI waits on it, so anything else means it never starts. The probe's last output was %q",
+			rel, got, "healthy", lastHealthOutput(t, engineID))
+	}
+
+	// The control, per adapter. With a backup set that has never
+	// run, the backup-freshness verdict refuses, so the web UI came
+	// up THROUGH a negative verdict rather than because the fixture
+	// happened to be healthy. With no configuration yet, #1049 says
+	// `status` is a first-run notice and exits 0, and a failure here
+	// means that notice regressed into a failing health check.
+	code, statusOut := statusExitCode(t, engineID)
+	if neverRun && code == 0 {
+		t.Fatalf("%s: `retnd status` exited 0 inside the fixture whose only backup set has never run, so it is not the negative verdict this test claims to run:\n%s", rel, statusOut)
+	}
+	if !neverRun && (code != 0 || !strings.Contains(statusOut, "first run")) {
+		t.Fatalf("%s: `retnd status` on an install with no configuration yet exited %d and said %q, want exit 0 and the first-run notice (#1049)", rel, code, statusOut)
+	}
+
+	uiID := project.containerID(t, uiName)
+	if got := containerState(t, uiID); got != "running" {
+		logs, _ := exec.Command("docker", "logs", uiID).CombinedOutput()
+		t.Fatalf("%s: the web UI container is %q, want %q; logs:\n%s", rel, got, "running", logs)
+	}
+
+	base := "http://127.0.0.1:" + publishedPort(t, uiID, "8080/tcp")
+	resp := getWithTransportRetry(t, base+"/", 30*time.Second)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("%s: GET %s/ on a fresh install status = %d, want %d (the web UI's own static shell, which is what the first-run flow is served from)",
+			rel, base, resp.StatusCode, http.StatusOK)
+	}
+
+	// The proxy half, which is what makes it a working page rather
+	// than a container that merely started: /health/ is forwarded
+	// to the engine unchanged, so a 200 here is the engine
+	// answering through the UI container on a fresh install.
+	live := getWithTransportRetry(t, base+"/health/live", 30*time.Second)
+	live.Body.Close()
+	if live.StatusCode != http.StatusOK {
+		t.Errorf("%s: GET %s/health/live (proxied to the engine) status = %d, want %d", rel, base, live.StatusCode, http.StatusOK)
 	}
 }

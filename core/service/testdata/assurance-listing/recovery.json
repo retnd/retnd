@@ -1,0 +1,191 @@
+{
+  "about": "Shared vectors for the assurance listing (#1174): facts and a fixed now in, rendered claim states, buckets and the tile row's sentence out. Asserted by core/service (go test) and ui/shared/src/test/assurance-listing-vectors.test.ts (vitest). Change one side and both must still pass.",
+  "cases": [
+    {
+      "name": "a recovery test failed",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/a-recovery-test-failed.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T09:00:00Z",
+            "recovery_state": "failed",
+            "recovery_tested_at": "2026-10-13T10:00:00Z"
+          }
+        ]
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "failed",
+        "buckets": [
+          "degraded"
+        ],
+        "reason": "Content: content verified 3h ago. Recovery: recovery test failed 26h ago."
+      }
+    },
+    {
+      "name": "a recovery test could not complete",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/a-recovery-test-could-not-complete.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T09:00:00Z",
+            "recovery_state": "could_not_complete",
+            "recovery_tested_at": "2026-10-13T12:00:00Z"
+          }
+        ]
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "could_not_complete",
+        "buckets": [
+          "degraded"
+        ],
+        "reason": "Content: content verified 3h ago. Recovery: could not complete 24h ago."
+      }
+    },
+    {
+      "name": "the built-in check passed",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/the-built-in-check-passed.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T09:00:00Z",
+            "recovery_state": "readable",
+            "recovery_check": "builtin",
+            "recovery_tested_at": "2026-10-14T10:00:00Z"
+          }
+        ]
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "pass_builtin",
+        "buckets": [],
+        "reason": "Content: content verified 3h ago. Recovery: recovered, readable 2h ago."
+      }
+    },
+    {
+      "name": "a validator pass outranks a built-in one",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/a-validator-pass-outranks-a-built-in-one.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T09:00:00Z",
+            "recovery_state": "readable",
+            "recovery_tested_at": "2026-10-14T11:00:00Z"
+          },
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "medium": "offsite",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T09:00:00Z",
+            "recovery_state": "passed",
+            "recovery_tested_at": "2026-10-14T03:00:00Z"
+          }
+        ]
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "pass",
+        "buckets": [],
+        "reason": "Content: content verified 3h ago. Recovery: recovery test passed 9h ago."
+      }
+    },
+    {
+      "name": "a recovery test overdue",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/a-recovery-test-overdue.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T09:00:00Z",
+            "recovery_state": "overdue",
+            "recovery_tested_at": "2026-08-05T12:00:00Z"
+          }
+        ]
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "overdue",
+        "buckets": [
+          "overdue",
+          "due"
+        ],
+        "reason": "Content: content verified 3h ago. Recovery: overdue 70d ago."
+      }
+    },
+    {
+      "name": "a recovery test skipped for cost",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/a-recovery-test-skipped-for-cost.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T09:00:00Z",
+            "recovery_state": "refused_for_cost",
+            "recovery_tested_at": "2026-10-14T06:00:00Z"
+          }
+        ]
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "refused_for_cost",
+        "buckets": [],
+        "reason": "Content: content verified 3h ago. Recovery: skipped: read would cost egress."
+      }
+    },
+    {
+      "name": "a recovery pass with no time is not evidence",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/a-recovery-pass-with-no-time-is-not-evid.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T09:00:00Z",
+            "recovery_state": "passed"
+          }
+        ]
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "unknown",
+        "buckets": [
+          "untested"
+        ],
+        "reason": "Content: content verified 3h ago. Recovery: unknown."
+      }
+    }
+  ]
+}

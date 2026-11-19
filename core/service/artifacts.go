@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/app"
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/lifecycle"
-	"github.com/backupdproject/backupd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // This file is where an operator's judgement enters a pipeline that
@@ -299,6 +299,7 @@ func (b *BackupService) ListArtifacts(ctx context.Context, filter ArtifactFilter
 		}
 		out = append(out, a)
 	}
+	b.annotateEncryption(ctx, out)
 	return out, nil
 }
 
@@ -323,7 +324,9 @@ func (b *BackupService) GetArtifact(ctx context.Context, id string) (Artifact, e
 			return Artifact{}, err
 		}
 	}
-	return a, nil
+	one := []Artifact{a}
+	b.annotateEncryption(ctx, one)
+	return one[0], nil
 }
 
 // attachQuarantineReason populates a.QuarantineReason with the literal

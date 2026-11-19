@@ -31,7 +31,7 @@
 //     field name out of habit.
 //
 // Report exists only to bundle one ProcessHealth with every configured
-// backup set's BackupSetHealth so a renderer (the `backupd status`
+// backup set's BackupSetHealth so a renderer (the `retnd status`
 // CLI, or an optional HTTP handler, both separate issues) can print both
 // halves from one already-computed value, without recomputing anything and
 // without either half leaking into the other's answer.
@@ -91,7 +91,7 @@ package health
 import (
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/model"
 )
 
 // State is one of the four backup-set health states FR-24 names. See the
@@ -149,6 +149,13 @@ func NewProcessHealth(in ProcessInputs) ProcessHealth {
 	return ProcessHealth(in)
 }
 
+// ScrubFailureThreshold is how many scheduled checks of one copy have to
+// fail in a row before the set is degraded and an alert is raised. One miss
+// is a blip, and the pacing already retries a struggling copy sooner than a
+// healthy one, so three in a row is a pattern. It is a constant with a
+// default today; making it configurable is the settings work's business.
+const ScrubFailureThreshold = 3
+
 // BackupSetInputs is what one backup set's BackupSetHealth needs that
 // cannot be derived from its journal rows: a connectivity/liveness signal
 // for the most recent discovery poll, when retention last ran, and free
@@ -164,6 +171,21 @@ func NewProcessHealth(in ProcessInputs) ProcessHealth {
 // nothing here is allowed to reach a verdict. That is the opposite of
 // what the placement evidence is for on both counts.
 type BackupSetInputs struct {
+	// ScrubCadence is the set's resolved scrub cadence. It is read for one
+	// thing: a copy whose last scrub passed and whose next one is a whole
+	// cadence late is reported in ScrubOverdueCopies. Zero reports none.
+	ScrubCadence time.Duration
+
+	// RecoveryTestRequired says the operator requires the newest known good
+	// copy to have a current, passing recovery test (EPIC Q, #980). When it
+	// does not, a failed or missing test degrades nothing: it is a claim a
+	// surface shows, and requiring it is a decision.
+	//
+	// It can only turn HEALTHY into DEGRADED and it reads the claim off the
+	// copy's own record. It never reaches back and changes a backup that
+	// already succeeded: that backup is still the newest good one.
+	RecoveryTestRequired bool
+
 	// LastSuccessfulPollAt is when discovery last completed successfully
 	// for this set. It is a liveness signal, not evidence of freshness: a
 	// set can be polled successfully every cycle while its source has
@@ -196,6 +218,13 @@ type BackupSetInputs struct {
 	// never reaches decideState. That is not a convention: decideState's
 	// evidence parameter has no field it could arrive through.
 	HaltReason string
+
+	// HaltObservedAt is when HaltReason was last seen (issue #1146), zero
+	// when no refusal is on record. It is the LAST observation, not the
+	// first: the journal replaces the row on every refused cycle. It is
+	// display-only and CLI-only, like HaltReason, and never reaches
+	// decideState.
+	HaltObservedAt time.Time
 
 	// RetentionHoldReason is why retention for this backup set is refusing
 	// to delete anything, or empty when it is not (FR-30, issue #602).
@@ -279,7 +308,7 @@ type BackupSetHealth struct {
 	// operator got. Issue #662's session opens with it, and with a count
 	// of three, over a set whose objects all read "(already known)": the
 	// report said intervention was needed and then said nothing about on
-	// what, so the operator had to go hunting through `backupd artifacts` to
+	// what, so the operator had to go hunting through `retnd artifacts` to
 	// find out which three, before they could type anything. This
 	// manager knows, so it says.
 	//
@@ -287,7 +316,7 @@ type BackupSetHealth struct {
 	// hasStuckFailure is what decideState reads, and this is the display
 	// half, exactly like Failures and CurrentTransfers beside it.
 	//
-	// It reaches `backupd status` only. core/service's toServiceBackupSetHealth
+	// It reaches `retnd status` only. core/service's toServiceBackupSetHealth
 	// does not copy it into the API's BackupSetHealth, so it is absent
 	// from the contract and from every Web UI surface built on it; a
 	// caller checking this expecting an HTTP-served answer will not find
@@ -302,6 +331,40 @@ type BackupSetHealth struct {
 	// merely-recoverable kind.
 	QuarantinedCount     int
 	QuarantinedLostCount int
+
+	// RetainedCount is how many backups this set holds outside quarantine
+	// (issue #1186): every journal row whose state is not QUARANTINED or
+	// QUARANTINED_LOST, in-flight and failed ones included, because those
+	// are rows the Backups page lists too. Quarantine is left out because it
+	// has its own count above and its own badge, and a backup counted in
+	// both would be counted twice. See CountRetained.
+	RetainedCount int
+
+	// ScrubFailingCopies is how many of this set's ACTIVE copies have
+	// failed, or been unable to complete, their scheduled check
+	// ScrubFailureThreshold times running (EPIC Q, #978). It degrades a
+	// HEALTHY set and softens nothing stronger, and it is reported
+	// whatever the verdict turns out to be.
+	ScrubFailingCopies int
+
+	// ScrubOverdueCopies is how many ACTIVE copies passed their last scrub
+	// and are now a whole cadence past the time the next one was due (EPIC
+	// Q, C13). A copy nobody has scrubbed yet is not counted: that is
+	// "unknown", which every surface already shows, and counting it would
+	// raise an alert on every fresh install before the first pass ran. It
+	// degrades nothing; it feeds the SCRUB_OVERDUE alert.
+	ScrubOverdueCopies int
+
+	// RecoveryTestFailed says the newest known good copy's last recovery
+	// test failed. RecoveryTestUnmet is why a REQUIRED recovery test is not
+	// met, or empty when it is met or none is required. Neither reaches the
+	// verdict except through RecoveryTestRequired (see BackupSetInputs).
+	RecoveryTestFailed bool
+	// RecoveryTestLapsed says a test that had passed is past its cadence, or
+	// the last attempt was refused for cost or could not complete. A copy no
+	// test has run on yet is neither failed nor lapsed.
+	RecoveryTestLapsed bool
+	RecoveryTestUnmet  string
 
 	// ReinstatedRemoteRetainedCount is how many artifacts in this set were
 	// reinstated out of quarantine and still have a remote source this
@@ -412,6 +475,10 @@ type BackupSetHealth struct {
 	// from journal evidence alone, and that State is usually STALE, which
 	// is true and incomplete. This is the missing half of the sentence.
 	HaltReason string
+
+	// HaltObservedAt is when HaltReason was last observed (issue #1146);
+	// zero when no refusal is on record. See BackupSetInputs.
+	HaltObservedAt time.Time
 
 	// RetentionHoldReason is why retention for this set is refusing to
 	// delete anything, empty when nothing is holding it (FR-30, issue
@@ -573,6 +640,22 @@ type Report struct {
 	// subsystem; it is reporting the absence of one. See
 	// WorkflowHealth's own doc.
 	Workflow WorkflowHealth
+
+	// RetainedCount is every backup the journal holds outside quarantine,
+	// across every set, removed ones included (issue #1186): the configured
+	// sets' RetainedCount summed, plus the backups of sets whose
+	// configuration was removed, which stay on storage and on the Backups
+	// page. It is the figure the sidebar's Backups badge reads. The caller
+	// that assembles the report sets it, like Workflow above, because only
+	// that caller reads the removed sets' rows. See CountRetained.
+	RetainedCount int
+
+	// KeyCustody is EPIC N's section (#990, FR-66): whether the keys behind
+	// encrypted retained copies could be recovered if this host were lost.
+	// Assigned by the caller exactly as Workflow is, for the same reason,
+	// and its zero value reads "this deployment encrypts nothing". See
+	// KeyCustodyHealth's own doc (keycustody.go).
+	KeyCustody KeyCustodyHealth
 }
 
 // NewReport bundles an already-computed ProcessHealth and set of

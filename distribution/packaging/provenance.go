@@ -88,6 +88,11 @@ var licenceMarkers = []struct {
 	{"MPL-2.0", []string{"Mozilla Public License, version 2.0"}},
 	{"EPL-2.0", []string{"Eclipse Public License - v 2.0"}},
 	{"CDDL-1.0", []string{"COMMON DEVELOPMENT AND DISTRIBUTION LICENSE"}},
+	// A LICENSE that carries both texts, as the Go MCP SDK's does while it
+	// moves from MIT to Apache-2.0 (contributions nobody relicensed stay
+	// MIT), is both. It sits above the single rows because their needles
+	// are ANDed and the Apache row would otherwise claim it alone.
+	{"Apache-2.0 AND MIT", []string{"Apache License", "Version 2.0", "Permission is hereby granted, free of charge"}},
 	{"Apache-2.0", []string{"Apache License", "Version 2.0"}},
 	{"CC0-1.0", []string{"CC0 1.0 Universal"}},
 	{"BSD-3-Clause", []string{"Redistribution and use in source and binary forms", "Neither the name"}},
@@ -170,7 +175,7 @@ type Inventory struct {
 }
 
 // InventorySchema is the current shape's identifier.
-const InventorySchema = "backupd/third-party-licenses/1"
+const InventorySchema = "retnd/third-party-licenses/1"
 
 // ParseInventory reads an inventory document.
 func ParseInventory(data []byte) (Inventory, error) {
@@ -224,8 +229,8 @@ type GoBuildTarget struct {
 // binary appearing in the Dockerfile and not here is a difference someone
 // has to make on purpose.
 var ShippedGoBinaries = []GoBuildTarget{
-	{Binary: "backupd", ModuleDir: "core", Package: "./cmd/backupd"},
-	{Binary: "backupd-web", ModuleDir: "apps/generic", Package: "./cmd/backupd-web"},
+	{Binary: "retnd", ModuleDir: "core", Package: "./cmd/retnd"},
+	{Binary: "retnd-web", ModuleDir: "apps/generic", Package: "./cmd/retnd-web"},
 }
 
 // GoModuleRef is one module in a binary's linked graph.
@@ -237,7 +242,7 @@ type GoModuleRef struct {
 
 // firstPartyModulePrefix is this repository's own module namespace.
 // Modules under it are the product, not third-party dependencies of it.
-const firstPartyModulePrefix = "github.com/backupdproject/backupd/"
+const firstPartyModulePrefix = "github.com/retnd/retnd/"
 
 // GoLinkedModules lists the third-party modules linked into one binary
 // for one target platform.
@@ -320,7 +325,7 @@ func parseGoListModules(out string) ([]GoModuleRef, error) {
 // isFirstPartyModule reports whether a module path is this repository's
 // own. The prefix has a trailing slash, so the bare namespace is matched
 // separately rather than by loosening the prefix, which would also match
-// a hypothetical github.com/backupdproject/backupd-anything.
+// a hypothetical github.com/retnd/retnd-anything.
 func isFirstPartyModule(path string) bool {
 	return path == strings.TrimSuffix(firstPartyModulePrefix, "/") ||
 		strings.HasPrefix(path, firstPartyModulePrefix)
@@ -385,7 +390,7 @@ func NPMProductionComponents(data []byte) ([]Component, error) {
 			Ecosystem:  EcosystemNPM,
 			LicenseID:  pkg.License,
 			Integrity:  pkg.Integrity,
-			LinkedInto: []string{"backupd-web"},
+			LinkedInto: []string{"retnd-web"},
 		})
 	}
 	SortComponents(out)
@@ -483,7 +488,7 @@ func BuildSPDX(inv Inventory, name, namespace, created string) SPDXDocument {
 		DocumentNamespace: namespace,
 		CreationInfo: SPDXCreationInfo{
 			Created:  created,
-			Creators: []string{"Tool: backupd-provenance", "Organization: Roman Goldmann"},
+			Creators: []string{"Tool: retnd-provenance", "Organization: Roman Goldmann"},
 		},
 	}
 	for _, c := range inv.Components {
@@ -532,7 +537,7 @@ func BuildSPDX(inv Inventory, name, namespace, created string) SPDXDocument {
 // ---------------------------------------------------------------------
 
 // ProvenanceSchema is the current bundle shape's identifier.
-const ProvenanceSchema = "backupd/release-provenance/1"
+const ProvenanceSchema = "retnd/release-provenance/1"
 
 // ProvenanceDir is where the generated compliance artifacts live.
 //
@@ -745,7 +750,7 @@ func ArtifactParityComplaints(targets map[string]DistributionTarget, recorded []
 // repository with no tags is an abbreviated commit) and the tag every
 // provider package advertises is a semantic version that resolves
 // nowhere. The moment a push happens, the two must be the same string,
-// or `docker run ghcr.io/backupdproject/backupd:1.0.0 /backupd
+// or `docker run ghcr.io/retnd/retnd:1.0.0 /retnd
 // version` answers with a commit SHA that the listing never mentions.
 func VersionParityComplaints(published bool, canonicalTag, manifestVersion, bundleVersion string, versionIsABuildStamp bool) []string {
 	var out []string

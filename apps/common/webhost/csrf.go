@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/backupdproject/backupd/apps/common/csrf"
+	"github.com/retnd/retnd/apps/common/csrf"
 )
 
 // This package verifies CSRF tokens and never issues them.
@@ -43,6 +43,14 @@ import (
 // long as SOME caller upstream of it guarantees one).
 func requireCSRF(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A bearer principal passes and nobody else does (ADR 0034 D4): CSRF
+		// defends a credential the browser sends by itself, and a token in
+		// an Authorization header is not one. The principal is put on the
+		// context only by authenticateBearer, after the token was checked.
+		if _, ok := agentPrincipalFrom(r.Context()); ok {
+			next.ServeHTTP(w, r)
+			return
+		}
 		err := csrf.Verify(r)
 		switch {
 		case err == nil:

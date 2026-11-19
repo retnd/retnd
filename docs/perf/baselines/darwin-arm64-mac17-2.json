@@ -1,5 +1,5 @@
 {
-  "schema": "backupd/perf-baseline/1",
+  "schema": "retnd/perf-baseline/1",
   "workload": "phase6-baseline-v1",
   "host_id": "darwin-arm64-mac17-2",
   "host": {
@@ -72,9 +72,13 @@
       "spread_percent_of_median": 8.033
     },
     "image_size_bytes": {
-      "value": 69704266,
+      "value": 107583421,
       "architecture": "arm64",
-      "platform": "linux/arm64"
+      "platform": "linux/arm64",
+      "commit": "57107cd84adb3c40191c3d81f33fee66c8b5b106",
+      "working_tree_dirty": false,
+      "captured_at": "2026-11-14T18:34:44Z",
+      "reason": "Re-cut for the image alone after accounting for the 8,037,478-byte move since 7ea6287d (40.8% is the MCP agent server from EPIC #1352); see docs/perf/README.md. The timing medians above still describe the top-level commit."
     }
   },
   "detail": {

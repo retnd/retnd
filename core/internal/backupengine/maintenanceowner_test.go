@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
-	"github.com/backupdproject/backupd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/model"
 )
 
 func domainID(t *testing.T, id string) model.RepositoryDomainID {
@@ -196,7 +196,7 @@ func TestCreateRefusesAnIncompleteClaim(t *testing.T) {
 func TestStoreRefusesARelativeDirectory(t *testing.T) {
 	t.Parallel()
 
-	if _, err := backupengine.NewFileMaintenanceOwnershipStore("var/lib/backupd"); err == nil {
+	if _, err := backupengine.NewFileMaintenanceOwnershipStore("var/lib/retnd"); err == nil {
 		t.Errorf("NewFileMaintenanceOwnershipStore accepted a relative directory")
 	}
 }

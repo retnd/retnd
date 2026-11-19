@@ -10,8 +10,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/backupdproject/backupd/core/cliecho"
-	"github.com/backupdproject/backupd/core/service"
+	"github.com/retnd/retnd/core/cliecho"
+	"github.com/retnd/retnd/core/service"
 )
 
 // The parity guard, and the recording it rides on (issue #599).
@@ -125,8 +125,11 @@ func TestEveryAPIRouteNamesItsCLIEquivalentOrTheGap(t *testing.T) {
 
 	// The other direction, so the table cannot quietly accumulate entries
 	// for routes that no longer exist and go on claiming coverage.
+	// The /auth routes are served by a separate router, so they are
+	// part of what "registers it" means here (issue #1150).
+	everything := everyRegisteredRoute(t)
 	for _, r := range cliecho.Routes() {
-		if !registered[r] {
+		if !registered[r] && !everything[r] {
 			t.Errorf("core/cliecho answers for %q and no router registers it; an entry for a route that no longer exists is coverage that is not there", r)
 		}
 	}
@@ -252,12 +255,14 @@ func TestARefusalIsRecordedWithItsReason(t *testing.T) {
 	if got.Route != "/operations" {
 		t.Errorf("the refusal names route %q", got.Route)
 	}
-	// And it is the named gap, not a misleading `backupd run`.
-	if got.Command != "" {
-		t.Errorf("run_cycle echoed the command %q; `backupd run` opens the service in the operator's own process and runs a cycle THERE", got.Command)
+	// And it is the engine-side twin (#1250), not a misleading `retnd run`,
+	// which opens the service in the operator's own process and runs a
+	// cycle THERE.
+	if want := cliecho.Binary + " operation run"; got.Command != want {
+		t.Errorf("run_cycle echoed the command %q, want %q", got.Command, want)
 	}
-	if !strings.Contains(got.GapDetail, "not in this engine") {
-		t.Errorf("the gap does not say why `backupd run` is not the answer: %q", got.GapDetail)
+	if got.Gap != "" {
+		t.Errorf("run_cycle still carries a gap: %q", got.GapDetail)
 	}
 }
 

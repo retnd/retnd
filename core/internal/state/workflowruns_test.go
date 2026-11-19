@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/secretref"
-	"github.com/backupdproject/backupd/core/internal/workflow"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/secretref"
+	"github.com/retnd/retnd/core/internal/workflow"
 )
 
 // The workflow plan's durable half (EPIC L, #808).
@@ -38,7 +38,7 @@ func testWorkflowPlan(runID string) WorkflowPlan {
 		panic("the fixture's backup set id is not one model accepts: " + err.Error())
 	}
 
-	spool := "/var/lib/backupd/workflow-runs/" + runID
+	spool := "/var/lib/retnd/workflow-runs/" + runID
 	scripts := spool + "/scripts/"
 
 	mount := workflow.StepID(0, workflow.ScopeGlobal, workflow.PhaseBefore, "10-mount.local.sh")

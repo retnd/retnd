@@ -5,7 +5,7 @@ import { StorageDestinationsCard } from "@shared/pages/StorageDestinationsCard";
 import { ApiProvider } from "@shared/api/ApiContext";
 import type {
   BackendCatalog,
-  BackupdApi,
+  RetndApi,
   StorageMedium
 } from "@shared/api/contracts";
 import { createMockApi } from "@shared/api/mock";
@@ -155,7 +155,7 @@ function instance(id: string, over: Partial<StorageMedium>): StorageMedium {
  *  confirm step is WHAT it hands on, not what it writes. */
 function renderWizard(
   existing: StorageMedium[],
-  overrides: Partial<BackupdApi> = {}
+  overrides: Partial<RetndApi> = {}
 ) {
   const api = {
     ...createMockApi(),
@@ -167,7 +167,7 @@ function renderWizard(
     updateStorageMedium: vi.fn(),
     preflightStorageMediumCandidate: vi.fn(),
     ...overrides
-  } as unknown as BackupdApi;
+  } as unknown as RetndApi;
   const confirmed = vi.fn<(backendId: string, instanceId: string) => void>();
   render(
     <ApiProvider api={api}>
@@ -456,27 +456,19 @@ describe("confirming (#668 step 3)", () => {
     expect(api.updateStorageMedium).not.toHaveBeenCalled();
   });
 
-  it("names no equivalent command, because these steps run none", async () => {
+  it("names medium backends and medium configure, and runs neither (#1252)", async () => {
     await reachConfirm();
 
     const shown = group().textContent ?? "";
-    // This step used to print `backupd medium add usb_dock --backend
-    // local_volume`, and `medium` has no --backend flag at all
-    // (core/cmd/backupd/medium.go:183) — the line failed on
-    // execution with "flag provided but not defined". `--type` would not
-    // have fixed it either: there is no `medium add` equivalent to a step
-    // that writes nothing, since an instance carrying no values is
-    // refused by ValidateInstance. So the gap is NAMED, the way
-    // core/cliecho names a route with no verb.
-    //
-    // Asserted as the absence of a runnable line AND the presence of the
-    // reason, because either half alone is satisfiable by a defect:
-    // printing nothing at all passes the first, and printing a broken
-    // line beside the prose passes the second.
+    // These steps write nothing, so no runnable line is printed for them.
+    // What they stand for on a terminal is `medium backends` (the choice)
+    // and `medium configure` (the one write, printed by the next step).
+    // `medium add` cannot declare a local volume at all, having no --path.
+    expect(shown).not.toContain("retnd medium add");
     expect(shown).not.toContain("--backend");
-    expect(shown).not.toContain("backupd medium add usb_dock");
+    expect(shown).toContain("retnd medium backends");
+    expect(shown).toContain("retnd medium configure");
     expect(shown).toContain("These steps run none");
-    expect(shown).toContain("printed by the configure step");
   });
 });
 
@@ -499,7 +491,7 @@ describe("the destinations list (#668, the Main artboard)", () => {
           instance("warm_tier", { type: "s3", bucket: "warm", region: "eu-west-1" })
         ])
       )
-    } as BackupdApi;
+    } as RetndApi;
     render(
       <ApiProvider api={api}>
         <StorageDestinationsCard readOnly={false} />

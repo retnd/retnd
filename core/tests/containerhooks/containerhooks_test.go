@@ -31,8 +31,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/hostrunner"
-	"github.com/backupdproject/backupd/core/tests/machines"
+	"github.com/retnd/retnd/core/internal/hostrunner"
+	"github.com/retnd/retnd/core/tests/machines"
 )
 
 // hookLabel selects every container this product's host runner created.
@@ -201,16 +201,16 @@ func TestTheEnvelopeHoldsInsideTheContainer(t *testing.T) {
 	out := &collector{}
 
 	values := map[string]string{
-		"BACKUPD_TEST_SUBSTITUTION": "$(touch /tmp/pwned)`touch /tmp/pwned`",
-		"BACKUPD_TEST_QUOTES":       `he said "hi"; rm -rf /; '\''`,
-		"BACKUPD_TEST_NEWLINE":      "first\nsecond\ttab\\",
-		"BACKUPD_TEST_UTF8":         "café — 日本語 — Ω — 🔒",
+		"RETND_TEST_SUBSTITUTION": "$(touch /tmp/pwned)`touch /tmp/pwned`",
+		"RETND_TEST_QUOTES":       `he said "hi"; rm -rf /; '\''`,
+		"RETND_TEST_NEWLINE":      "first\nsecond\ttab\\",
+		"RETND_TEST_UTF8":         "café — 日本語 — Ω — 🔒",
 	}
 	names := []string{
-		"BACKUPD_TEST_SUBSTITUTION",
-		"BACKUPD_TEST_QUOTES",
-		"BACKUPD_TEST_NEWLINE",
-		"BACKUPD_TEST_UTF8",
+		"RETND_TEST_SUBSTITUTION",
+		"RETND_TEST_QUOTES",
+		"RETND_TEST_NEWLINE",
+		"RETND_TEST_UTF8",
 	}
 	vars := make([]hostrunner.EnvVar, 0, len(names)+5)
 	for _, name := range names {
@@ -300,7 +300,7 @@ func TestTheContainmentIsWhatItClaims(t *testing.T) {
 printf 'socket=%s\n' "$(ls /var/run/docker.sock 2>/dev/null || ls /run/docker.sock 2>/dev/null || echo absent)"
 printf 'rootfs=%s\n' "$(touch /forbidden 2>/dev/null && echo writable || echo read-only)"
 printf 'tmp=%s\n' "$(touch /tmp/scratch 2>/dev/null && echo writable || echo read-only)"
-printf 'workdir=%s\n' "$(touch "$BACKUPD_WORK_DIR/dump" 2>/dev/null && echo writable || echo read-only)"
+printf 'workdir=%s\n' "$(touch "$RETND_WORK_DIR/dump" 2>/dev/null && echo writable || echo read-only)"
 printf 'network=%s\n' "$( (exec 3<>/dev/tcp/1.1.1.1/443) >/dev/null 2>&1 && echo reachable || echo none)"
 printf 'privileged=%s\n' "$(cat /proc/self/status 2>/dev/null | awk '/CapEff/ {print $2}')"
 `
@@ -427,7 +427,10 @@ func TestAnEngineThatDisconnectsLeavesNoContainerBehind(t *testing.T) {
 	go func() { served <- server.Serve(serveCtx) }()
 	t.Cleanup(func() {
 		stopServing()
-		<-served
+		// Serve's error after a stop is the stop itself; the cleanup only
+		// waits for it to return.
+		serveErr := <-served
+		_ = serveErr
 		_ = server.Close()
 	})
 
@@ -460,7 +463,10 @@ func TestAnEngineThatDisconnectsLeavesNoContainerBehind(t *testing.T) {
 	}
 
 	killEngine()
-	<-executed
+	// Only that the hook ran is waited for here; what it reported is read
+	// off the runner below.
+	executedErr := <-executed
+	_ = executedErr
 
 	// The runner terminates the container on its own timeline, so this
 	// waits for it rather than asserting the instant after the
@@ -487,7 +493,7 @@ func TestAnEngineThatDisconnectsLeavesNoContainerBehind(t *testing.T) {
 // hook that ran somewhere else instead.
 func TestACapabilityRefusalNamesTheMissingPieceAndRunsNothing(t *testing.T) {
 	_, err := hostrunner.ProveContainerCapability(context.Background(), hostrunner.ContainerConfig{
-		Image: "backupd.invalid/no-such-hook-image:0",
+		Image: "retnd.invalid/no-such-hook-image:0",
 		User:  fmt.Sprintf("%d:%d", os.Geteuid(), os.Getegid()),
 	})
 	if err == nil {
@@ -496,7 +502,7 @@ func TestACapabilityRefusalNamesTheMissingPieceAndRunsNothing(t *testing.T) {
 	if !hostrunner.IsCode(err, hostrunner.CodeContainerUnavailable) {
 		t.Fatalf("the refusal is not a container-capability refusal, so nothing upstream can tell it from a hook that failed: %v", err)
 	}
-	if !strings.Contains(err.Error(), "docker pull backupd.invalid/no-such-hook-image:0") {
+	if !strings.Contains(err.Error(), "docker pull retnd.invalid/no-such-hook-image:0") {
 		t.Fatalf("the refusal does not say how to fix it: %v", err)
 	}
 	// And the runner that holds that refusal cannot be served at all,

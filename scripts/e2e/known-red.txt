@@ -1,0 +1,68 @@
+# The web-ui ratchet (#1260): the browser specs from retnd-tests that are
+# allowed to fail at this pin, one per line, judged by
+# scripts/bdtools/e2e/web_ui_ratchet.py against the Playwright JSON report of
+# every full gate run.
+#
+# #913 refreshed the specs (retnd-tests#99) and took every drift entry off:
+# the wizard, backup-sets, backups, shell, dashboard, activity and
+# provider-treatment ones, plus the two recovery ones, were all stale specs
+# and none was a product defect. Two flaky entries are left, and cap= came
+# down to match. The paragraph below is the list as it was written.
+#
+# Every one of these was red on main on 2026-10-21, the day the local gate
+# became the only gate, and every one is UI drift in the spec rather than a
+# product defect somebody has confirmed: the add-backup-set wizard grew from
+# six steps to eight with a locked rail (#864), the shell, backups table,
+# dashboard and activity pages moved on, and the specs still describe the
+# old shapes. The list is the price of not holding every commit hostage to
+# 33 spec refreshes at once, and it is a ratchet, not a parking lot:
+#
+#   * cap= only goes down. scripts/bdtools/tests/web_ui_ratchet.py pins the
+#     ceiling it started at (39: the 33 red on the day, four wizard cases
+#     that stopped skipping once the rig handed the suite its source
+#     machine, and two flakes), so the list cannot grow past what it held
+#     when it was written, and lowering cap= here is how a refresh is
+#     recorded for good.
+#   * a listed spec that passes fails the gate until its line is removed.
+#   * an entry is good through its expiry date (UTC) and fails the gate the
+#     day after; the date is a promise, not a decoration. They are
+#     staggered by page so the list cannot go red all at once, and every
+#     refusal says which date to renew to if a refresh is not ready.
+#   * floor= is the fewest cases a run may report and still count; a
+#     report far shorter than the suite did not run the suite.
+#   * the cap, the skip budget, the entry set and every expiry are also
+#     held against main's copy of this file (web_ui_ratchet.against_baseline)
+#     so none of them can grow in the same commit that would pass it.
+#   * every entry cites retnd-tests#43, the suite's own open issue, rather
+#     than the pull request that wrote this list, which closes.
+#   * pin= has to be the sha in scripts/e2e/tests-repo.pin, so a pin bump
+#     revisits this list in the same change.
+#   * skips= is the most skipped cases a run may report (a skip is the same
+#     colour as a pass in an exit status, #1049): 92 skipped and 3 that did
+#     not run, which the report's own summary counts together, once the
+#     suite had its source machine. The 92nd arrived with retnd-tests#95:
+#     workflow-recovery's "names the run, its spool and both ways out"
+#     skips itself when no run is held, and the crash case ahead of it
+#     now releases its hold instead of failing and leaving two behind.
+#     A blocking case that skips itself proves nothing; it needs a hold
+#     of its own in retnd-tests, and this budget comes back down with it.
+#   * `| flaky` on an entry means the spec was seen to pass and to fail on
+#     the same tree in two baselines, so it is allowed either answer until
+#     its expiry. The expiry is the whole point of the marker: a flake
+#     nobody chases is a spec that tests nothing.
+#   * the two blocking files (safety-invariants, workflow-recovery) can
+#     never be listed; their specs are refreshed instead.
+#
+# Entry: <file> :: <describe › title> | <issue> | <owner> | <expiry>[ | flaky]
+# The file is as the Playwright report names it, relative to the suite's
+# test directory (wizard.spec.ts, not e2e/wizard.spec.ts). A title ending
+# in ` *` is a prefix: six retnd-tests titles end in a parenthesis naming
+# that repository's old issue tracker, and the former-name guard allows
+# that word in no tracked file here, so they are listed up to it.
+pin=9a697fb1be7ba09957bf8868a21f85bf1cf71587
+cap=2
+skips=95
+floor=200
+
+terminal-dock.spec.ts :: a table taller than the window it is read in › its last row can be scrolled entirely clear of the terminal | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-11-30 | flaky
+workflow-config.spec.ts :: a backup set's workflow configuration, in a browser › with the Host Workflow Runner stopped, the check says the runner is why | https://github.com/retnd/retnd-tests/issues/43 | spdrman | 2026-11-30 | flaky

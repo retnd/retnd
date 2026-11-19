@@ -1,24 +1,23 @@
 # Source code and the written offer
 
-Backupd, `com.iasbuilt.backupd`. This is the source and
+retnd, `com.iasbuilt.retnd`. This is the source and
 source-offer material §73 Work Package 5.2 requires, and it is what the
 `source-offer` link in `distribution/packaging/compliance.json` resolves to.
 
 ## The licence
 
-Backupd is distributed under the **Apache License, Version 2.0**. The
+retnd is distributed under the **MIT License**. The
 full text is in `LICENSE` at the root of the source tree, and it is the same
 text a distributed package carries.
 
-Apache-2.0 was chosen over the equally available MIT for reasons that are
-specific to how this product ships, and they are recorded in full in
+MIT was chosen to match libviprs, and the reasoning is recorded in full in
 `distribution/packaging/compliance.json` under `license.rationale` rather than
-summarised here. In short: it grants patent rights explicitly and terminates
-them on patent litigation, which is the clause a store's legal review looks for
-before agreeing to redistribute somebody's binary; it defines the NOTICE file,
-which gives the third-party attribution this project owes a defined place; and
-it requires changed files to be marked, which matters for a product built around
-redistributing someone else's compiled packages.
+summarised here. In short: one set of terms across both projects, and the only
+thing it asks of a recipient is the licence text and the copyright line. It has
+no explicit patent grant and no defined NOTICE file, so the third-party
+attribution this project owes is carried by a generated `NOTICE` that a test
+checks for coverage. Releases up to 0.5.1 were distributed under Apache-2.0 and
+stay under it; 0.6.0 is the first under MIT.
 
 That choice is available because every component linked into a shipped
 artifact is either permissively licensed or one of the non-permissive licences
@@ -33,7 +32,7 @@ obligation is recorded and this file does not actually carry the offer.
 
 The one dependency worth naming here is **rclone**, which is MIT licensed and is
 consumed as a Go module rather than as an executable: its packages are compiled
-directly into `/backupd` behind a narrow transport adapter. There is no
+directly into `/retnd` behind a narrow transport adapter. There is no
 `rclone` binary anywhere in the image, and `container/Dockerfile` says so and is
 checked on it.
 
@@ -42,8 +41,7 @@ binaries and the production npm packages built into the embedded web bundle, is
 listed with its version, its SPDX licence identifier and the SHA-256 of its
 licence text in:
 
-- `NOTICE`, the human-readable attribution file Apache-2.0 section 4(d) refers
-  to, grouped by licence;
+- `NOTICE`, the human-readable attribution file, grouped by licence;
 - `provenance/third-party-licenses.json`, the machine-readable
   inventory;
 - `provenance/sbom.spdx.json`, an SPDX 2.3 SBOM of the same set.
@@ -54,10 +52,10 @@ because it is neither a module nor a package: material vendored into this
 repository's own tree.
 
 The icon artwork compiled into the web bundle is Font Awesome Free,
-carried as SVG path data rather than pulled in as a package, and it
+carried as SVG path data rather than pulled in as a package (#621), and it
 is CC BY 4.0. The typeface the web UI renders in is IBM Plex Sans and IBM
 Plex Mono, carried as woff2 files served out of the image rather than
-fetched from a font service, and it is SIL OFL 1.1. Both are
+fetched from a font service (#631), and it is SIL OFL 1.1. Both are
 attribution licences. `docs/compliance/bundled-icon-artwork.md` and
 `docs/compliance/bundled-webfonts.md` are the full records: the creator,
 the release, the licence and its text, and a statement about modification.
@@ -83,18 +81,18 @@ rclone's `s3` backend through `github.com/IBM/go-sdk-core/v5`, which
 `backend/s3`'s `ibm_signer.go` imports with no build tag, so registering the
 backend and not linking them is not something this project can choose. They are
 genuinely in the binaries and not only in `go.mod`: `go tool nm` on a
-linux/amd64 `backupd` finds 17 `go-retryablehttp` symbols and one
+linux/amd64 `retnd` finds 17 `go-retryablehttp` symbols and one
 `go-cleanhttp` symbol surviving dead-code elimination, `NewClient`,
 `DefaultRetryPolicy`, `DefaultBackoff` and `DefaultPooledTransport` among them.
 
 MPL-2.0 is file-level weak copyleft. Its reciprocity reaches the covered files
 and nothing this project writes, and §3.3 permits a Larger Work that combines
 them with other code to ship under other terms, which is what this release
-does under Apache-2.0.
+does under MIT.
 
 **The obligation.** §3.3 lets a Larger Work ship under terms of our choice
 *provided we also comply with the MPL for the covered software*, so the
-Apache-2.0 choice rests on §3.2 being met rather than on §3.3 alone.
+MIT choice rests on §3.2 being met rather than on §3.3 alone.
 
 §3.2(a) obliges anyone distributing the covered files in executable form to make
 their Source Code Form available as §3.1 describes, and to inform recipients of
@@ -118,10 +116,10 @@ corresponding source is the module archive upstream published, served
 immutably and without an account:
 
 - `github.com/hashicorp/go-cleanhttp@v0.5.2` (MPL-2.0), linked into
-  `backupd` and `backupd-web`:
+  `retnd` and `retnd-web`:
   <https://proxy.golang.org/github.com/hashicorp/go-cleanhttp/@v/v0.5.2.zip>
 - `github.com/hashicorp/go-retryablehttp@v0.7.8` (MPL-2.0), linked into
-  `backupd` and `backupd-web`:
+  `retnd` and `retnd-web`:
   <https://proxy.golang.org/github.com/hashicorp/go-retryablehttp/@v/v0.7.8.zip>
 
 Two things make those addresses an answer rather than a gesture. They are
@@ -162,7 +160,7 @@ licence, this offer and the machine-readable inventory the other two point at,
 without needing this repository, which is private. The image also says so to
 `docker inspect`, which is the only question you can ask it without opening it:
 `org.opencontainers.image.licenses` is the licence id and
-`com.iasbuilt.backupd.licenses.path` is `/licenses`.
+`com.iasbuilt.retnd.licenses.path` is `/licenses`.
 
 The image has no shell, so read them from outside it. `docker create` needs a
 command named because this image sets no `ENTRYPOINT` and no `CMD` on purpose,
@@ -170,14 +168,14 @@ and the container is never started, so the command never runs:
 
 ```
 docker image inspect --format '{{json .Config.Labels}}' <image>
-docker create --name bm <image> /backupd version
-docker cp bm:/licenses .
-docker rm bm
+docker create --name retnd-licenses <image> /retnd version
+docker cp retnd-licenses:/licenses .
+docker rm retnd-licenses
 ```
 
 That was not always true. The runtime stage used to copy the two binaries and
 the frontend bundle and nothing else, which was a gap in delivery rather than
-in the offer, and it applied to Apache-2.0 section 4(d) just as much as to the
+in the offer, and it applied to the licence and NOTICE just as much as to the
 MPL. Two checks stand behind the table now, and they are different in kind on
 purpose. `TestTheImageCarriesTheLicenceMaterials` in `distribution/packaging`
 reads the runtime stage and refuses a `COPY` that is missing, comes out of a
@@ -211,27 +209,27 @@ has to notice.
 
 ## Getting the source
 
-The source repository is <https://github.com/backupdproject/backupd>.
+The source repository is <https://github.com/retnd/retnd>.
 
 It is public, and that is recorded rather than assumed, in
 `distribution/packaging/compliance.json` (`sourceRepository.visibility`) and in
 `provenance/release-provenance.json` (`links.publiclyReachable`). Both are read
-from `gh repo view backupdproject/backupd --json visibility`, and both said
+from `gh repo view retnd/retnd --json visibility`, and both said
 private for a while after the repository stopped being private, which is issue
-'s finding: a recorded measurement with a note asserting its freshness is
+#484's finding: a recorded measurement with a note asserting its freshness is
 worse than an unmeasured value, because the note is what stops anyone checking.
 
-Access is a fact about convenience rather than about the licence. Apache-2.0
-obliges the project to pass the licence and the notices along with any
+Access is a fact about convenience rather than about the licence. MIT
+obliges the project to pass the licence and the copyright line along with any
 distributed copy, which the packages do, and it never obliged a public
 repository. So the offer below stands regardless: somebody holding a package
 and no browser is owed the source by the licence, not by the repository being
 open.
 
 **Written offer.** Anyone who has received a
-distributed copy of Backupd may obtain the complete corresponding source
+distributed copy of retnd may obtain the complete corresponding source
 for that copy by opening an issue at
-<https://github.com/backupdproject/backupd/issues>, or by contacting the
+<https://github.com/retnd/retnd/issues>, or by contacting the
 distributor of the package they received. The copy supplied is the exact commit
 recorded in `container/release-manifest.json` for that release, which is the
 same commit the binaries were built from and the same commit the SBOM describes.

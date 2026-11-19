@@ -11,7 +11,7 @@ on a TrueNAS system. Run
 to change that.
 
 
-## Converted to a thin adapter
+## Converted to a thin adapter (issue #169)
 
 Everything here is now **derived** from the one authoritative Compose runtime
 definition rather than authored beside it. `distribution/packaging`'s
@@ -25,10 +25,10 @@ that means in practice for this directory:
   build-time constant;
 - the Web UI container sets `UI_ROOT=/ui/bundles`, so it serves this
   platform's own frontend bridge out of the canonical image rather than the
-  generic one. A missing bundle is a hard start failure, never a
+  generic one (issue #180). A missing bundle is a hard start failure, never a
   silent fall back;
 - the configuration mount is a writable **directory** holding `config.yaml`
-  instead of a read-only single file.
+  instead of a read-only single file (issue #196).
 
 The upgrade path from the Phase 4 packaging, including the one renamed mount,
 is in
@@ -39,11 +39,11 @@ No state or backup data moves.
 
 | Path | What it is |
 | --- | --- |
-| `compose/backupd.yaml` | The custom-app deployment. Paste it into Apps, Discover Apps, Custom App, Install via YAML. Usable today. |
+| `compose/retnd.yaml` | The custom-app deployment. Paste it into Apps, Discover Apps, Custom App, Install via YAML. Usable today. |
 | `catalog/app.yaml` | Catalog entry metadata: title, version, categories, icon, sources, run-as context. |
 | `catalog/questions.yaml` | The install wizard: image reference, five storage paths, the published port, and the uid/gid. |
 | `catalog/ix_values.yaml` | A default for every question. |
-| `catalog/templates/docker-compose.yaml` | What the catalog renders. The same two containers as `compose/backupd.yaml`, with the answers substituted. `distribution/packaging` renders it against `ix_values.yaml` on every commit and puts the result through every rule the paste-in compose file gets: the canonical image, the five storage roles and their host paths, read-only mounts, the single published port, the commands, and the full hardening set. The template stays loop-free and conditional-free so that stays possible. |
+| `catalog/templates/docker-compose.yaml` | What the catalog renders. The same two containers as `compose/retnd.yaml`, with the answers substituted. `distribution/packaging` renders it against `ix_values.yaml` on every commit and puts the result through every rule the paste-in compose file gets: the canonical image, the five storage roles and their host paths, read-only mounts, the single published port, the commands, and the full hardening set. The template stays loop-free and conditional-free so that stays possible. |
 | `frontend/platform.ts` | The shared platform bridge (§3.5). Provider identity and storage expectations only, no lifecycle behaviour. |
 
 There is deliberately no fourth thing. No Go, no shell, no install hook, no
@@ -51,12 +51,12 @@ TrueNAS-specific service. `distribution/packaging` fails the build if any appear
 
 ## Two containers, one image
 
-`backupd` runs `/backupd-web serve`: local authentication, the
+`retnd` runs `/retnd-web serve`: local authentication, the
 versioned `/api/v1` API and the backup scheduler in one process sharing one
 shutdown context. It holds the state database and the credentials, and it
 publishes no port.
 
-`backupd-ui` runs `/backupd-web serve-ui`: the shared static UI plus
+`web-ui` runs `/retnd-web serve-ui`: the shared static UI plus
 a reverse proxy to the engine. It is the only container with a published port, and
 it mounts nothing at all.
 
@@ -64,32 +64,32 @@ Same image, different argv. The image ships no `ENTRYPOINT` and no `CMD` on
 purpose, because no single default would be right for both of its binaries.
 
 Both containers override the image's baked-in healthcheck, for two different
-reasons. The image runs `/backupd status`, which needs a config file and a
+reasons. The image runs `/retnd status`, which needs a config file and a
 state database the Web UI container does not have, so left inherited there it
 would report unhealthy forever while working perfectly.
 
 The engine's override is the one that decides whether you get a page at all. The
-Web UI will not start until the engine reports healthy, and `backupd
+Web UI will not start until the engine reports healthy, and `retnd
 status` is FR-24's backup-freshness verdict: it exits non-zero on any DEGRADED,
 STALE or FAILING set, and on a fresh install, which has backed nothing up yet. So
 the engine asks `/health/live` instead, a liveness probe that needs no
 configuration. Backup freshness is still reported, by the image's own HEALTHCHECK
 for a plain `docker run`, by the alerts block, and by
-`docker exec backupd /backupd status`; it just no longer decides
+`docker compose exec retnd /retnd status`; it just no longer decides
 whether a container starts.
 
 ## Storage
 
 | Role | Host default | In the container | Mode |
 | --- | --- | --- | --- |
-| State | `/mnt/tank/backupd/state` | `/data/state` | rw |
-| Backups | `/mnt/tank/backupd/backups` | `/data/backups` | rw |
-| Config | `/mnt/tank/backupd/config` | `/etc/backupd/config` | rw |
-| SSH key | `/mnt/tank/backupd/secrets/id_ed25519` | `/etc/backupd/id_ed25519` | ro |
-| Known hosts | `/mnt/tank/backupd/secrets/known_hosts` | `/etc/backupd/known_hosts` | ro |
+| State | `/mnt/tank/retnd/state` | `/data/state` | rw |
+| Backups | `/mnt/tank/retnd/backups` | `/data/backups` | rw |
+| Config | `/mnt/tank/retnd/config` | `/etc/retnd/config` | rw |
+| SSH key | `/mnt/tank/retnd/secrets/id_ed25519` | `/etc/retnd/id_ed25519` | ro |
+| Known hosts | `/mnt/tank/retnd/secrets/known_hosts` | `/etc/retnd/known_hosts` | ro |
 
 `config` is a writable **directory** holding `config.yaml`, not a read-only single
-file. Adding a backup set, saving settings and first-run setup all
+file (issue #196). Adding a backup set, saving settings and first-run setup all
 replace that file through a temp file created in its own directory, and the engine
 keeps `ssh_keys/` and `known_hosts.d/` beside it, so a single-file mount silently
 disables all three. It may be empty on a fresh install. The SSH key and
@@ -115,13 +115,13 @@ Web host provides: first-run administrator enrollment through a single-use token
 the engine prints to its own log, Argon2id password hashing, an HTTP-only session
 cookie, CSRF protection and per-IP rate limiting.
 
-TrueNAS accounts cannot log into Backupd and Backupd accounts cannot
+TrueNAS accounts cannot log into retnd and retnd accounts cannot
 log into TrueNAS. Nothing in this directory ships a credential, and
 `distribution/packaging` scans for one on every commit.
 
 ## config.yaml
 
-The engine no longer needs a configuration to start: as of an instance
+The engine no longer needs a configuration to start: as of issue #176 an instance
 with no `config.yaml` serves a first-run setup flow in the web UI that writes one
 for you. A config file that EXISTS and does not validate is still a hard start
 failure, deliberately, because replacing a configuration somebody already wrote
@@ -148,8 +148,8 @@ sources:
           host: "sftp.example.internal"
           user: "backup"
           key:
-            file: "/etc/backupd/id_ed25519"
-          known_hosts: "/etc/backupd/known_hosts"
+            file: "/etc/retnd/id_ed25519"
+          known_hosts: "/etc/retnd/known_hosts"
         remote_path: "/srv/backups"
         local_path: /data/backups
         include:
@@ -167,21 +167,20 @@ shape; this is the same thing with TrueNAS's paths.
 
 ## The image reference
 
-`ghcr.io/backupdproject/backupd:0.4.0` is the reference every package here
-carries, and it is not pushed yet. `distribution/packaging/canonical.json`
-records `image.published: false`, and `container/release-manifest.json` carries
-a `registry_digest` of `null` per architecture; those two move together, so
-either both describe a real push or neither does. Until the release workflow
-pushes 0.4.0 and the digests are recorded back, reach it the way the acceptance
-procedure's step 0 describes, by pushing to your own registry or side-loading a
-build. The previous release, `ghcr.io/backupdproject/backupd:0.3.3`, stays
-published and signed if you would rather run that. The reference is one question in the wizard and one line in the
-compose file, so substituting it is a one-place change.
+`ghcr.io/retnd/retnd:0.8.0` is the reference every package here
+carries. `distribution/packaging/canonical.json` and
+`container/release-manifest.json` jointly record whether it has been published:
+`image.published: true` requires an index digest and one registry digest per
+architecture. If those records still say `false` and `null`, make the image
+resolvable as the acceptance procedure's step 0 describes, by pushing to your
+own registry or side-loading a build. The reference is one question in the
+wizard and one line in the compose file, so substituting it is a one-place
+change.
 
 ## Contributing this to the TrueNAS catalog
 
 Copy `catalog/` into the TrueNAS apps repository as
-`ix-dev/community/backupd/` and run that repository's own validation and
+`ix-dev/community/retnd/` and run that repository's own validation and
 render tooling. That validator cannot run here, so it is step 8 of the acceptance
 procedure rather than a CI check. What CI does check on every commit: every
 question is consumed by the template and given a default, the rendered image is

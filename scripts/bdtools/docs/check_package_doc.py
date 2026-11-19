@@ -247,7 +247,7 @@ def body_against(root: Path, against: str) -> int:
         print(f"{PROGRAM}: {against} is not a commit in this repository", file=sys.stderr)
         raise SystemExit(harness.EXIT_USAGE) from None
 
-    with tempfile.TemporaryDirectory(prefix="backupd-package-doc-against.") as atmp_name:
+    with tempfile.TemporaryDirectory(prefix="retnd-package-doc-against.") as atmp_name:
         atmp = Path(atmp_name)
         tree_dir = atmp / "tree"
         tree_dir.mkdir()

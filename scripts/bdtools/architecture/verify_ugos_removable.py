@@ -17,7 +17,7 @@ suites cannot be fooled by any of them.
 
 Ported from `scripts/architecture/verify-ugos-removable.sh` under EPIC I
 (I1.6 / #672 / #697). That path stays as a real, runnable `exec` shim:
-`scripts/ci-local.sh` and `.github/workflows/ci.yml` both name it, and
+`scripts/ci-local.sh` names it (and `.github/workflows/ci.yml` did, until #1260), and
 `scripts/tests/ci-local-gate.test.sh` FABRICATES a file at that literal
 path in its synthetic-tree fixture.
 

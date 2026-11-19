@@ -28,13 +28,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/lifecycle"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/retention"
-	"github.com/backupdproject/backupd/core/internal/snapshotretention"
-	"github.com/backupdproject/backupd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/retention"
+	"github.com/retnd/retnd/core/internal/snapshotretention"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // pruneNow is the instant every decision in this file is taken as of, and
@@ -242,7 +242,7 @@ func verdictFor(t *testing.T, verdicts []snapshotretention.Verdict, snapshotID s
 // The two timelines are the same instants described two ways: a backup set
 // whose artifacts were discovered daily for a month, and a backup set
 // whose snapshot runs started daily for a month. If the classifier's
-// answer differs between them, then "backupd's retention semantics" has
+// answer differs between them, then "retnd's retention semantics" has
 // come to mean two different things depending on which engine wrote the
 // backup, which is precisely what an operator cannot be asked to reason
 // about.
@@ -616,7 +616,7 @@ func TestNothingIsDeletedWhileTheRestorePointCannotBeFound(t *testing.T) {
 	}
 }
 
-// TestOnlyABackupdApprovedManifestIsEverDeleted is the criterion in its
+// TestOnlyARetndApprovedManifestIsEverDeleted is the criterion in its
 // strongest available form for a unit test: the repository is asked to
 // delete exactly the ids the plan approved, and the run that is still
 // in flight, the run that failed, and the run holding the restore point
@@ -626,7 +626,7 @@ func TestNothingIsDeletedWhileTheRestorePointCannotBeFound(t *testing.T) {
 // real, so an engine that walked the repository rather than the catalog
 // would find it and, seeing no policy keeping it, remove a snapshot whose
 // own run has not finished deciding whether it is any good.
-func TestOnlyABackupdApprovedManifestIsEverDeleted(t *testing.T) {
+func TestOnlyARetndApprovedManifestIsEverDeleted(t *testing.T) {
 	ctx := context.Background()
 	j := openCatalog(t)
 	set := mustSet(t, "production", "postgres")
@@ -924,5 +924,66 @@ func TestAHoldPlacedDuringAPassStopsTheDeletesThatHaveNotHappened(t *testing.T) 
 	if run.Phase != state.PhaseSuccess || run.DeleteRequestedAt != nil {
 		t.Errorf("run-old-b is at %s with intent %v, want an untouched %s: nothing may be recorded against a snapshot the pass refused to delete",
 			run.Phase, run.DeleteRequestedAt, state.PhaseSuccess)
+	}
+}
+
+// Issue #1164 moves release-hold off the destructive gate, so these pin what
+// a hold and its release do to a prune, from the pruner outward. Releasing a
+// hold does not delete anything, and it does not make anything deletable that
+// the normal plan would have kept: the next pass decides on the policy's own
+// terms, exactly as it did before the hold existed.
+func TestAHoldIsNeverPrunedThroughRepeatedPassesAndAReleasedOneOnlyByThePlan(t *testing.T) {
+	ctx := context.Background()
+	j := openCatalog(t)
+	set := mustSet(t, "production", "postgres")
+	bs := backupSet(t, set, "uuid-hold-1164", dailyOnly())
+
+	record(t, j, set, bs.UUID, runSpec{runID: "run-old-held", snapshotID: "manifest-old-held", startedAt: pruneNow.AddDate(0, 0, -40)})
+	record(t, j, set, bs.UUID, runSpec{runID: "run-old-free", snapshotID: "manifest-old-free", startedAt: pruneNow.AddDate(0, 0, -39)})
+	record(t, j, set, bs.UUID, runSpec{runID: "run-fresh-held", snapshotID: "manifest-fresh-held", startedAt: pruneNow.AddDate(0, 0, -3)})
+	record(t, j, set, bs.UUID, runSpec{runID: "run-fresh-free", snapshotID: "manifest-fresh-free", startedAt: pruneNow.Add(-1 * time.Hour)})
+
+	for _, h := range []struct{ id, run string }{{"hold-old", "run-old-held"}, {"hold-fresh", "run-fresh-held"}} {
+		if _, err := j.PlaceSnapshotHold(ctx, state.SnapshotHoldRequest{HoldID: h.id, RunID: h.run, Reason: "incident", PlacedBy: "ops", At: pruneNow.Add(-time.Hour)}); err != nil {
+			t.Fatalf("PlaceSnapshotHold: %v", err)
+		}
+	}
+
+	repo := newFakeRepository()
+	pruner := snapshotretention.Pruner{Catalog: j, Repository: repo}
+
+	// Three passes with both holds in place: the held old one survives every
+	// time, and the old unheld one goes on the first.
+	for pass := 1; pass <= 3; pass++ {
+		if _, err := pruner.Apply(ctx, pruneNow, bs); err != nil {
+			t.Fatalf("Apply, pass %d: %v", pass, err)
+		}
+		for _, id := range repo.deletedIDs() {
+			if id == "manifest-old-held" || id == "manifest-fresh-held" {
+				t.Fatalf("pass %d deleted %s, which is held", pass, id)
+			}
+		}
+	}
+	if got := repo.deletedIDs(); !reflect.DeepEqual(got, []string{"manifest-old-free"}) {
+		t.Fatalf("with both holds in place the passes deleted %v, want only manifest-old-free", got)
+	}
+
+	// Release both. The old one is now outside every window and goes on the
+	// next pass; the fresh one is inside its window, so releasing its hold
+	// made nothing deletable, and the unheld fresh neighbour is untouched.
+	for _, id := range []string{"hold-old", "hold-fresh"} {
+		if err := j.ReleaseSnapshotHold(ctx, id, pruneNow, "alice"); err != nil {
+			t.Fatalf("ReleaseSnapshotHold: %v", err)
+		}
+	}
+	for pass := 1; pass <= 2; pass++ {
+		if _, err := pruner.Apply(ctx, pruneNow, bs); err != nil {
+			t.Fatalf("Apply after release, pass %d: %v", pass, err)
+		}
+	}
+	got := repo.deletedIDs()
+	want := []string{"manifest-old-free", "manifest-old-held"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("after the releases the repository has been asked to delete %v, want %v: a release must not make a snapshot the plan keeps deletable", got, want)
 	}
 }

@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/health"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/secretref"
-	"github.com/backupdproject/backupd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/health"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/secretref"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // EPIC K's health requirement (#788), checked as the three things it
@@ -110,7 +110,7 @@ func probeService(t *testing.T, engine backupengine.Engine, now time.Time) *Serv
 			ID:            domain.String(),
 			Isolation:     string(model.RepositoryShared),
 			Domain:        model.RepositoryDomain{ID: domain, Isolation: model.RepositoryShared},
-			PassphraseRef: secretref.Ref{Env: "BACKUPD_TEST_PASSPHRASE"},
+			PassphraseRef: secretref.Ref{Env: "RETND_TEST_PASSPHRASE"},
 		}},
 		Sources: []config.Source{{
 			Name: "production",

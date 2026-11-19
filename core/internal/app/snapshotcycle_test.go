@@ -12,14 +12,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
-	"github.com/backupdproject/backupd/core/internal/backupengine/kopia"
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/health"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/secretref"
-	"github.com/backupdproject/backupd/core/internal/state"
-	"github.com/backupdproject/backupd/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/backupengine/kopia"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/health"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/secretref"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport/rclone"
 )
 
 // The whole incremental engine on one wire, from the cycle an operator's
@@ -471,7 +471,7 @@ func TestRunCycle_TheScannedEntryCountSurvivesToEveryReport(t *testing.T) {
 		t.Errorf("source_complete = %v on a successful run; a skipped symlink is policy, not a hole in the backup", row.SourceComplete)
 	}
 
-	// And the health report, which is what `backupd status` and the
+	// And the health report, which is what `retnd status` and the
 	// dashboard render.
 	report, err := svc.BuildHealthReport(ctx, VersionInfo{})
 	if err != nil {

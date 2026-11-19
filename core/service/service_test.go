@@ -12,15 +12,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/app"
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/state"
 
 	// Imported so this test binary's build info includes
 	// github.com/rclone/rclone, exactly as app/version_test.go does, so
 	// BuildVersion's EngineVersion has something real to report instead of
 	// "unknown".
-	_ "github.com/backupdproject/backupd/core/internal/transport/rclone"
+	_ "github.com/retnd/retnd/core/internal/transport/rclone"
 )
 
 // resolveTestRetention fills in every backup set's resolved Retention, by
@@ -633,7 +633,8 @@ func TestClose_WaitsForInFlightOperationToFinish(t *testing.T) {
 	// release: give it a moment to (incorrectly) return early before
 	// proving it hasn't.
 	select {
-	case <-closeDone:
+	case closeErr := <-closeDone:
+		_ = closeErr // returning at all is the failure here, whatever it returned
 		t.Fatal("Close returned before the in-flight operation finished")
 	case <-time.After(50 * time.Millisecond):
 	}

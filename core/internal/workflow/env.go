@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/backupdproject/backupd/core/internal/obs"
-	"github.com/backupdproject/backupd/core/internal/secretref"
+	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/secretref"
 )
 
 // The environment a hook script runs with: what an operator may put in it,
@@ -35,15 +35,15 @@ import (
 // # Precedence, and the one layer that is not negotiable
 //
 // sanitized baseline < workflows.environment < backup-set environment <
-// BACKUPD_* built-ins.
+// RETND_* built-ins.
 //
 // The first three are ordinary: a more specific configuration wins, which
 // is the rule every other per-set override in this product follows. The
 // fourth is different in kind. The built-ins are not a layer an operator
 // competes with, they are the run's own facts, and a hook that reads
-// BACKUPD_BACKUP_STATUS has to be reading what this product observed --
+// RETND_BACKUP_STATUS has to be reading what this product observed --
 // not a value somebody wrote into a config file, and not one left over
-// from an earlier phase. So the whole BACKUPD_ prefix is REFUSED in
+// from an earlier phase. So the whole RETND_ prefix is REFUSED in
 // configuration (not overridden at merge time, refused at validation
 // time), because a key an operator can write and this product silently
 // discards is a key that looks like it works.
@@ -77,12 +77,12 @@ const EnvNamePattern = `^[A-Za-z_][A-Za-z0-9_]*$`
 
 // ReservedEnvPrefix is the namespace this product injects and an operator
 // may not configure.
-const ReservedEnvPrefix = "BACKUPD_"
+const ReservedEnvPrefix = "RETND_"
 
 // ReservedEnvName is the bare name this product also sets (to "1", so a
 // script can tell it is running under this product at all), and which is
 // reserved for the same reason as the prefix.
-const ReservedEnvName = "BACKUPD"
+const ReservedEnvName = "RETND"
 
 // ErrEnvName is every refusal about an environment entry's NAME: the
 // shape, the reservation, or a duplicate within one layer. One sentinel
@@ -108,43 +108,46 @@ var ErrEnvValue = errors.New("workflow: this workflow environment value cannot b
 //
 // Constants rather than three string literals at the one call site that
 // fills them in, because a typo there is silent: the fact is dropped, the
-// variable is exported empty, and `umount "$BACKUPD_SOURCE_PATH"`
+// variable is exported empty, and `umount "$RETND_SOURCE_PATH"`
 // unmounts nothing and exits 0.
 const (
-	EnvSourceHost  = "BACKUPD_SOURCE_HOST"
-	EnvSourcePath  = "BACKUPD_SOURCE_PATH"
-	EnvDestination = "BACKUPD_DESTINATION"
+	EnvSourceHost  = "RETND_SOURCE_HOST"
+	EnvSourcePath  = "RETND_SOURCE_PATH"
+	EnvDestination = "RETND_DESTINATION"
 )
 
 // builtinEnvNames is the full set of variables this product injects, in
 // the order they are documented.
 //
 // The list is exhaustive and it is checked against, not merely described:
-// ValidateEnvName refuses the whole BACKUPD_ prefix, so a built-in added
+// ValidateEnvName refuses the whole RETND_ prefix, so a built-in added
 // here later cannot collide with a key an operator already wrote. The
 // reason to enumerate them anyway is that the enumeration IS the contract
 // a hook author writes against, and a variable that is set but not listed
 // is one nobody can rely on.
+//
+// Every name here is exported exactly once, under this spelling. This
+// list is the contract a hook author writes against.
 var builtinEnvNames = []string{
 	ReservedEnvName,
-	"BACKUPD_RUN_ID",
-	"BACKUPD_BACKUP_SET_ID",
-	"BACKUPD_BACKUP_SET_NAME",
-	"BACKUPD_PHASE",
-	"BACKUPD_STEP_ID",
-	"BACKUPD_STEP_NAME",
-	"BACKUPD_STEP_TARGET",
+	"RETND_RUN_ID",
+	"RETND_BACKUP_SET_ID",
+	"RETND_BACKUP_SET_NAME",
+	"RETND_PHASE",
+	"RETND_STEP_ID",
+	"RETND_STEP_NAME",
+	"RETND_STEP_TARGET",
 	EnvSourceHost,
 	EnvSourcePath,
 	EnvDestination,
-	"BACKUPD_WORK_DIR",
-	"BACKUPD_BACKUP_STATUS",
-	"BACKUPD_WORKFLOW_STATUS",
-	"BACKUPD_CLEANUP_STATUS",
-	"BACKUPD_BACKUP_ERROR_CODE",
-	"BACKUPD_STARTED_AT",
-	"BACKUPD_RECOVERY",
-	"BACKUPD_CLEANUP_REASON",
+	"RETND_WORK_DIR",
+	"RETND_BACKUP_STATUS",
+	"RETND_WORKFLOW_STATUS",
+	"RETND_CLEANUP_STATUS",
+	"RETND_BACKUP_ERROR_CODE",
+	"RETND_STARTED_AT",
+	"RETND_RECOVERY",
+	"RETND_CLEANUP_REASON",
 }
 
 // BuiltinEnvNames returns every variable this product injects into a
@@ -159,11 +162,12 @@ func BuiltinEnvNames() []string { return append([]string(nil), builtinEnvNames..
 //
 // The test is the PREFIX plus the bare name, not membership of
 // builtinEnvNames, and the difference matters: reserving only the names
-// that exist today would let an operator configure BACKUPD_SOMETHING_NEW,
+// that exist today would let an operator configure RETND_SOMETHING_NEW,
 // which then silently stops working the release this product starts
 // setting it.
 func IsReservedEnvName(name string) bool {
-	return name == ReservedEnvName || strings.HasPrefix(name, ReservedEnvPrefix)
+	return name == ReservedEnvName ||
+		strings.HasPrefix(name, ReservedEnvPrefix)
 }
 
 // ValidateEnvName is the one place a name an operator wrote is judged.
@@ -187,7 +191,7 @@ func ValidateEnvName(name string) error {
 	if IsReservedEnvName(name) {
 		return fmt.Errorf(
 			"%w: %q is reserved. Every %s* variable is set by this product from the run it belongs to, and a hook reading %s has to be reading what this product observed rather than a value from a config file. Choose a name outside the %s namespace",
-			ErrEnvName, name, ReservedEnvPrefix, "BACKUPD_BACKUP_STATUS", ReservedEnvPrefix)
+			ErrEnvName, name, ReservedEnvPrefix, "RETND_BACKUP_STATUS", ReservedEnvPrefix)
 	}
 
 	return nil
@@ -405,7 +409,7 @@ type Resolved struct {
 // ValidateEnvName's reservation rule -- they are the thing it reserves.
 // They ARE checked for being known built-ins, so a caller cannot smuggle
 // an arbitrary variable in through this argument: a typo'd
-// BACKUPD_BAKCUP_STATUS would otherwise become part of a hook's contract
+// RETND_BAKCUP_STATUS would otherwise become part of a hook's contract
 // and stay there.
 //
 // A secret that will not resolve is a refusal, not an empty value. A hook

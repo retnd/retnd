@@ -1,0 +1,23 @@
+# A misspelt assurance key. Load's KnownFields(true) refuses it, which is
+# the same mechanism that makes this block a one-way door for older builds.
+poll_interval: 15m
+
+state:
+  database: /var/lib/retnd/state.db
+
+assurance:
+  scrub:
+    cadance: 24h
+
+sources:
+  - id: production
+    backup_sets:
+      - id: postgres-primary
+        remote:
+          type: local
+        remote_path: /srv/exports/postgres-primary
+        local_path: /backups/production/postgres-primary
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h

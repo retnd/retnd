@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/lifecycle"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // This file is RED item 3 of WP3.2's TDD plan (docs/EPIC-B-multi-nas.md
@@ -205,7 +205,7 @@ func TestRunCycle_RegisteredValidatorSuccessAllowsRemoteDeletionEndToEnd(t *test
 	source, bs := trailerMarkerBackupSet(t, localDir)
 
 	tr := newValidatorFakeTransport()
-	tr.put("backup.dump", []byte("payload bytes\n--RCLONE-MANAGER-BACKUP-COMPLETE--\n"), wp32Epoch.Unix())
+	tr.put("backup.dump", []byte("payload bytes\n--RETND-BACKUP-COMPLETE--\n"), wp32Epoch.Unix())
 
 	journal := openTestJournal(t)
 	svc := New(testConfig(source), journal, tr, nil)

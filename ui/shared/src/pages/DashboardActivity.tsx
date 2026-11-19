@@ -18,7 +18,6 @@ import { useActivityFeed } from "@shared/pages/useActivityFeed";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { BackupSet } from "@shared/types/backup";
 
-export { feedRestarted, mergeActivity } from "@shared/pages/useActivityFeed";
 
 export function DashboardActivity({ sets }: { sets: BackupSet[] | null }) {
   const feed = useActivityFeed();
@@ -26,8 +25,8 @@ export function DashboardActivity({ sets }: { sets: BackupSet[] | null }) {
   if (!sets || sets.length === 0) return null;
 
   return (
-    <section className="card" aria-label="Activity">
-      <div className="card__header">
+    <section aria-label="Activity" style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
+      <div className="card__header" style={{ padding: 0, border: "none" }}>
         <InfoTooltip id="dashboard.activity.panel">
           <h2 className="eyebrow">Activity</h2>
         </InfoTooltip>
@@ -52,10 +51,10 @@ export function DashboardActivity({ sets }: { sets: BackupSet[] | null }) {
           alive. That is the one thing nobody knows while the poll is
           failing, and it is the whole distinction this panel exists to
           draw. */}
-      {sets.map((set, i) => (
-        <div key={set.id} style={{ borderTop: i === 0 ? undefined : "1px solid var(--border)" }}>
-          <ActivityStrip set={set} activity={feed.held.get(set.id) ?? null} stale={feed.error !== null} />
-        </div>
+      {/* #1504: one block per set, with space between them, so it is plain
+          which log belongs to which set. */}
+      {sets.map((set) => (
+        <ActivityStrip key={set.id} set={set} activity={feed.held.get(set.id) ?? null} stale={feed.error !== null} />
       ))}
     </section>
   );

@@ -178,7 +178,7 @@ def body(root: Path, dry_run: bool) -> int:
         print("==> format selftest anchors: FAILED", file=sys.stderr)
         return harness.EXIT_FAILED
 
-    with tempfile.TemporaryDirectory(prefix="backupd-format-selftest.") as tmp_name:
+    with tempfile.TemporaryDirectory(prefix="retnd-format-selftest.") as tmp_name:
         tmp = Path(tmp_name)
 
         # -------------------------------------------------------------- F1

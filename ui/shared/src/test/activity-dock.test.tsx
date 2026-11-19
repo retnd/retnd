@@ -26,13 +26,13 @@ import {
   dockText,
   environmentPreamble,
   foldBrowserNotices,
-  foldReading,
   restartRule
 } from "@shared/components/ActivityDock";
+import { foldReading } from "@shared/state/activityWindow";
 import type { DockEntry } from "@shared/components/ActivityDock";
 import { clearBrowserNoticesForTests, emitBrowserNotice } from "@shared/state/browserNotices";
 import { resetGraphForTests } from "@shared/state/graph";
-import type { BackupdApi } from "@shared/api/contracts";
+import type { RetndApi } from "@shared/api/contracts";
 import type { DeploymentActivity, LiveActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
 
 function event(sequence: number, over: Partial<SetActivityEvent> = {}): SetActivityEvent {
@@ -173,6 +173,19 @@ describe("what is written in front of a line", () => {
   });
 });
 
+describe("an agent's action (#1348)", () => {
+  it("is labelled by the agent, never as you, even for a viewer who shares its name", () => {
+    const e = event(5, { event: "agent_action", scope: "deployment", fields: { actor: "agent:triage" } });
+    expect(dockPrefix(e, "triage").label).toBe("agent:triage");
+    expect(dockPrefix(e, "alice").action).toBe(true);
+  });
+
+  it("carries the set it concerns onto that set's prefix", () => {
+    const e = event(6, { event: "agent_action", scope: "set", fields: { actor: "agent:triage", backup_set: "a/b" } });
+    expect(dockPrefix(e, "alice").setId).toBe("a/b");
+  });
+});
+
 describe("an engine restart", () => {
   it("keeps the lines leading up to it and draws a rule, rather than dropping them", () => {
     const before = foldReading(undefined, reading({ sets: [set("a/b", [event(1), event(2)])] }));
@@ -190,6 +203,33 @@ describe("an engine restart", () => {
     expect(all[2]).toEqual({ kind: "restart", at: "2026-09-07T14:02:41Z" });
     expect(all[0].kind === "event" && all[0].event.event).toBe("commit");
     expect(all[3].kind === "event" && all[3].event.event).toBe("startup");
+  });
+
+  it("does not show a line twice when the engine kept its events across the restart", () => {
+    // Events are durable (migration 0017): the new process refills its feed
+    // from the journal and its numbering continues, so its first reading
+    // carries lines this panel already froze above the rule.
+    const before = foldReading(undefined, reading({ sets: [set("a/b", [event(1), event(2)])] }));
+    const history: DockEntry[] = [...dockEntries([], before), { kind: "restart", at: "2026-09-07T14:02:41Z" }];
+    const after = foldReading(
+      undefined,
+      reading({ epoch: "second-process", sets: [set("a/b", [event(1), event(2), event(3, { event: "startup" })])] })
+    );
+    const all = dockEntries(history, after);
+
+    expect(all.map((e) => (e.kind === "event" ? e.event.sequence : e.kind))).toEqual([1, 2, "restart", 3]);
+  });
+
+  it("still keeps a different line that happens to reuse a number", () => {
+    // An engine that does not keep its events restarts at 1. Its line 1 is
+    // not the dead process's line 1: they differ in time.
+    const before = foldReading(undefined, reading({ sets: [set("a/b", [event(1)])] }));
+    const history: DockEntry[] = [...dockEntries([], before), { kind: "restart", at: "2026-09-07T14:02:41Z" }];
+    const after = foldReading(
+      undefined,
+      reading({ epoch: "second-process", sets: [set("a/b", [event(1, { at: "2026-09-07T14:05:00Z" })])] })
+    );
+    expect(dockEntries(history, after).filter((e) => e.kind === "event")).toHaveLength(2);
   });
 
   it("says what the rule means rather than drawing a bare line", () => {
@@ -213,7 +253,7 @@ describe("the text an operator takes away", () => {
             actor: "alice",
             route: "PATCH /api/v1/backup-sets/{source}/{set}",
             // Bare on the wire: the prompt is this panel's to draw.
-            command: "backupd backup-set patch api-server/var-backups --stale-after 48h"
+            command: "retnd backup-set patch api-server/var-backups --stale-after 48h"
           }
         })
       },
@@ -224,7 +264,7 @@ describe("the text an operator takes away", () => {
     const lines = text.split("\n");
     expect(lines[0]).toContain("[api-server/var-backups]");
     expect(lines[1]).toContain("[you]");
-    expect(text).toContain("\n$ backupd backup-set patch api-server/var-backups --stale-after 48h");
+    expect(text).toContain("\n$ retnd backup-set patch api-server/var-backups --stale-after 48h");
     expect(lines[lines.length - 1]).toContain("engine restarted");
   });
 
@@ -239,13 +279,13 @@ describe("the text an operator takes away", () => {
           event: event(1, {
             event: "api_action",
             scope: "deployment",
-            fields: { actor: "alice", route: "POST /api/v1/catalog/rebuild", command: "backupd catalog rebuild" }
+            fields: { actor: "alice", route: "POST /api/v1/catalog/rebuild", command: "retnd catalog rebuild" }
           })
         }
       ],
       "alice"
     );
-    expect(text).toContain("\n$ backupd catalog rebuild");
+    expect(text).toContain("\n$ retnd catalog rebuild");
     expect(text).not.toContain("$ $");
   });
 
@@ -260,7 +300,7 @@ describe("the text an operator takes away", () => {
             fields: {
               actor: "alice",
               route: "PUT /api/v1/backup-sets/{source}/{set}/retention",
-              command: "backupd backup-set retention api-server/var-backups --policy-file <a file holding these tiers as a retention: block>",
+              command: "retnd backup-set retention api-server/var-backups --policy-file <a file holding these tiers as a retention: block>",
               command_runnable: "false"
             }
           })
@@ -268,7 +308,7 @@ describe("the text an operator takes away", () => {
       ],
       "alice"
     );
-    expect(text).toContain("$ backupd backup-set retention");
+    expect(text).toContain("$ retnd backup-set retention");
     expect(text).toContain("#   not runnable as printed");
     // And the control: a runnable command does not carry the note.
     const runnable = dockText(
@@ -278,7 +318,7 @@ describe("the text an operator takes away", () => {
           event: event(2, {
             event: "api_action",
             scope: "deployment",
-            fields: { actor: "alice", route: "POST /api/v1/catalog/rebuild", command: "backupd catalog rebuild" }
+            fields: { actor: "alice", route: "POST /api/v1/catalog/rebuild", command: "retnd catalog rebuild" }
           })
         }
       ],
@@ -299,22 +339,22 @@ describe("the text an operator takes away", () => {
             fields: {
               actor: "alice",
               route: "POST /api/v1/operations",
-              command_gap: "no backupd equivalent yet",
-              command_gap_detail: "`backupd run` starts a cycle in your own shell, not in this engine"
+              command_gap: "no retnd equivalent yet",
+              command_gap_detail: "`retnd run` starts a cycle in your own shell, not in this engine"
             }
           })
         }
       ],
       "alice"
     );
-    expect(text).toContain("# no backupd equivalent yet · POST /api/v1/operations");
+    expect(text).toContain("# no retnd equivalent yet · POST /api/v1/operations");
     expect(text).toContain("not in this engine");
   });
 
   it("puts the environment the commands need first, said once, and never the password", () => {
     const preamble = environmentPreamble("http://nas.local:8080", "alice");
     expect(preamble).toBe(
-      "export BACKUP_MANAGER_API_URL=http://nas.local:8080 BACKUP_MANAGER_API_USERNAME=alice BACKUP_MANAGER_API_PASSWORD=<your password>"
+      "export RETND_API_URL=http://nas.local:8080 RETND_API_USERNAME=alice RETND_API_PASSWORD=<your password>"
     );
 
     // Composed from the origin the page was loaded from rather than by
@@ -322,26 +362,26 @@ describe("the text an operator takes away", () => {
     // would type at their own shell; behind a proxy it is not what the
     // engine listens on.
     expect(environmentPreamble("https://nas.example.com", null)).toBe(
-      "export BACKUP_MANAGER_API_URL=https://nas.example.com BACKUP_MANAGER_API_USERNAME=<the administrator you sign in as> BACKUP_MANAGER_API_PASSWORD=<your password>"
+      "export RETND_API_URL=https://nas.example.com RETND_API_USERNAME=<the administrator you sign in as> RETND_API_PASSWORD=<your password>"
     );
     // A name a shell would split is quoted, so the line is still one an
     // operator can paste.
-    expect(environmentPreamble("http://nas.local:8080", "the admin")).toContain("BACKUP_MANAGER_API_USERNAME='the admin'");
+    expect(environmentPreamble("http://nas.local:8080", "the admin")).toContain("RETND_API_USERNAME='the admin'");
 
     const text = dockText(
-      [{ kind: "event", event: event(1, { event: "api_action", scope: "deployment", fields: { actor: "alice", command: "backupd catalog rebuild" } }) }],
+      [{ kind: "event", event: event(1, { event: "api_action", scope: "deployment", fields: { actor: "alice", command: "retnd catalog rebuild" } }) }],
       "alice",
       preamble
     );
     expect(text.split("\n")[0]).toBe(preamble);
     // Once, at the top, and not again beside the command.
-    expect(text.split("BACKUP_MANAGER_API_URL").length).toBe(2);
+    expect(text.split("RETND_API_URL").length).toBe(2);
   });
 });
 
 /** An api that answers one reading and then nothing new, which is what a
  *  quiet deployment looks like. */
-function dockApi(readings: LiveActivity[]): BackupdApi {
+function dockApi(readings: LiveActivity[]): RetndApi {
   let i = 0;
   return {
     getLiveActivity: () => {
@@ -349,10 +389,10 @@ function dockApi(readings: LiveActivity[]): BackupdApi {
       i++;
       return Promise.resolve(next);
     }
-  } as unknown as BackupdApi;
+  } as unknown as RetndApi;
 }
 
-function renderDock(api: BackupdApi) {
+function renderDock(api: RetndApi) {
   return render(
     <MemoryRouter>
       <PlatformProvider bridge={genericBridge}>
@@ -383,18 +423,18 @@ describe("the panel itself", () => {
       dockApi([
         reading({
           sets: [],
-          deployment: deployment([event(1, { scope: "deployment", event: "startup", message: "backupd starting" })])
+          deployment: deployment([event(1, { scope: "deployment", event: "startup", message: "retnd starting" })])
         })
       ])
     );
-    expect(await screen.findByText(/backupd starting/)).toBeInTheDocument();
+    expect(await screen.findByText(/retnd starting/)).toBeInTheDocument();
     expect(screen.getByText("[engine]")).toBeInTheDocument();
   });
 
   it("says the reading is not refreshing rather than drawing something that claims the process is alive", async () => {
     const api = {
       getLiveActivity: () => Promise.reject(new Error("the engine is not answering"))
-    } as unknown as BackupdApi;
+    } as unknown as RetndApi;
     renderDock(api);
     expect(await screen.findByText("not refreshing")).toBeInTheDocument();
   });
@@ -405,7 +445,7 @@ describe("the panel itself", () => {
       dockApi([
         reading({
           deployment: deployment([
-            event(1, { scope: "deployment", event: "startup", message: "backupd starting" }),
+            event(1, { scope: "deployment", event: "startup", message: "retnd starting" }),
             event(2, { scope: "deployment", event: "error", level: "error", message: "error", fields: { error: "the source refused the connection" } })
           ])
         })
@@ -452,19 +492,19 @@ describe("the panel itself", () => {
               scope: "deployment",
               event: "api_action",
               message: "patch /settings",
-              fields: { actor: "alice", route: "PATCH /api/v1/settings", command: "backupd settings patch --timezone Europe/Berlin" }
+              fields: { actor: "alice", route: "PATCH /api/v1/settings", command: "retnd settings patch --timezone Europe/Berlin" }
             })
           ])
         })
       ])
     );
-    await screen.findByText(/backupd settings patch/);
+    await screen.findByText(/retnd settings patch/);
     await act(async () => {
       await user.click(screen.getByRole("button", { name: /^copy$/i }));
     });
     expect(writeText).toHaveBeenCalledTimes(1);
     const copied = writeText.mock.calls[0][0] as string;
-    expect(copied).toContain("$ backupd settings patch --timezone Europe/Berlin");
+    expect(copied).toContain("$ retnd settings patch --timezone Europe/Berlin");
     // The first line of what is copied is the environment the command
     // needs, built from this page's own origin, so what is pasted is
     // runnable under it.
@@ -473,11 +513,11 @@ describe("the panel itself", () => {
   });
 
   it("draws the environment header at the top of the scrollback, from this page's own origin", async () => {
-    renderDock(dockApi([reading({ deployment: deployment([event(1, { scope: "deployment", event: "startup", message: "backupd starting" })]) })]));
-    await screen.findByText(/backupd starting/);
-    const header = screen.getByText(/^export BACKUP_MANAGER_API_URL=/);
-    expect(header.textContent).toContain("BACKUP_MANAGER_API_URL=" + window.location.origin);
-    expect(header.textContent).toContain("BACKUP_MANAGER_API_PASSWORD=<your password>");
+    renderDock(dockApi([reading({ deployment: deployment([event(1, { scope: "deployment", event: "startup", message: "retnd starting" })]) })]));
+    await screen.findByText(/retnd starting/);
+    const header = screen.getByText(/^export RETND_API_URL=/);
+    expect(header.textContent).toContain("RETND_API_URL=" + window.location.origin);
+    expect(header.textContent).toContain("RETND_API_PASSWORD=<your password>");
   });
 });
 
@@ -591,9 +631,9 @@ describe("what this browser wrote reaches the global terminal", () => {
         outcome: "refused",
         code: "DESTRUCTIVE_OPERATIONS_DISABLED",
         message: "This deployment will not start a backup run.",
-        remediation: "Run backupd run from a shell on this host instead.",
+        remediation: "Run retnd run from a shell on this host instead.",
         backupSetIds: ["api-server/var-backups", "media/weekly-archive"],
-        command: "backupd run"
+        command: "retnd run"
       });
     });
   }
@@ -610,7 +650,7 @@ describe("what this browser wrote reaches the global terminal", () => {
     // terminal drawing only the engine's feed shows nothing at all for
     // exactly the presses that need explaining.
     expect(await screen.findByText(/This deployment will not start a backup run/)).toBeInTheDocument();
-    expect(screen.getByText(/backupd run/)).toBeInTheDocument();
+    expect(screen.getByText(/retnd run/)).toBeInTheDocument();
   });
 
   it("shows it under This browser, the chip that rendered an empty log on every build that shipped", async () => {
@@ -681,10 +721,10 @@ describe("what this browser wrote reaches the global terminal", () => {
     expect(copied).toContain("[you]");
     expect(copied).toContain("This deployment will not start a backup run.");
     // With the prompt the panel draws in front of every other command,
-    // and only one of them: a log that printed `$ backupd run` for a request
-    // the engine served and `backupd run` for one it refused would be two
+    // and only one of them: a log that printed `$ retnd run` for a request
+    // the engine served and `retnd run` for one it refused would be two
     // renderings of the same thing in one export.
-    expect(copied).toContain("\n$ backupd run");
+    expect(copied).toContain("\n$ retnd run");
     expect(copied).not.toContain("$ $");
     vi.unstubAllGlobals();
   });

@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/backend"
-	"github.com/backupdproject/backupd/core/internal/backupengine"
-	"github.com/backupdproject/backupd/core/internal/backupengine/source"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/backend"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/backupengine/source"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // These tests drive source.Tree from the side the backup engine is on:
@@ -404,7 +404,7 @@ func TestOpenTreeDeliversTheSourceAsANestedTree(t *testing.T) {
 
 	rep := tree.Report()
 
-	var wantBytes int64 = int64(len("first at the root") + len("second at the root") + 9000 + len("b in sub") + len("c in deep"))
+	wantBytes := int64(len("first at the root") + len("second at the root") + 9000 + len("b in sub") + len("c in deep"))
 
 	if rep.Entries != 5 || rep.Stored != 5 || rep.Bytes != wantBytes {
 		t.Errorf("report = Entries %d, Stored %d, Bytes %d; want 5, 5, %d", rep.Entries, rep.Stored, rep.Bytes, wantBytes)

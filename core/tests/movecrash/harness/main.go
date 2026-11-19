@@ -41,15 +41,19 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
+	"time"
 
-	"github.com/backupdproject/backupd/core/internal/artifactstore"
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/placement"
-	"github.com/backupdproject/backupd/core/internal/state"
-	"github.com/backupdproject/backupd/core/internal/transport"
-	"github.com/backupdproject/backupd/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/internal/artifactstore"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/copycrypt"
+	"github.com/retnd/retnd/core/internal/keycustody"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/placement"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport/rclone"
 )
 
 func main() {
@@ -96,29 +100,46 @@ func run() error {
 		// binary put their two mediums on one endpoint; only the id and
 		// the bucket differ. Left empty, nothing about this harness
 		// changes and every existing invocation means what it meant.
-		secondMediumID = flag.String("second-medium", "", "a second medium id, for a hop between two mediums")
-		secondBucket   = flag.String("second-bucket", "", "the second medium's bucket")
-		endpoint       = flag.String("endpoint", "", "the medium's endpoint, for an s3 medium")
-		region         = flag.String("region", "", "the medium's region, for an s3 medium")
-		credentials    = flag.String("credentials-file", "", "a shared-credentials file, for an s3 medium")
-		source         = flag.String("source", "", "the backup set's source name")
-		set            = flag.String("set", "", "the backup set's name")
-		artifact       = flag.String("artifact", "", "the artifact's name")
-		destination    = flag.String("destination", "", "the medium the artifact should move to")
-		plan           = flag.Bool("plan", false, "plan a move for the artifact as well as resuming")
+		secondMediumID  = flag.String("second-medium", "", "a second medium id, for a hop between two mediums")
+		secondBucket    = flag.String("second-bucket", "", "the second medium's bucket")
+		endpoint        = flag.String("endpoint", "", "the medium's endpoint, for an s3 medium")
+		region          = flag.String("region", "", "the medium's region, for an s3 medium")
+		credentials     = flag.String("credentials-file", "", "a shared-credentials file, for an s3 medium")
+		source          = flag.String("source", "", "the backup set's source name")
+		set             = flag.String("set", "", "the backup set's name")
+		artifact        = flag.String("artifact", "", "the artifact's name")
+		destination     = flag.String("destination", "", "the medium the artifact should move to")
+		plan            = flag.Bool("plan", false, "plan a move for the artifact as well as resuming")
+		encryptExisting = flag.Bool("encrypt-existing", false, "run the operator's encrypt-existing entry point over the plan instead of an ordinary cycle")
+		reencrypt       = flag.Bool("reencrypt", false, "mark the plan as a re-encryption of an encrypted copy under the active key (#1317); read by -encrypt-existing only")
 
 		killAfterPhase       = flag.String("kill-after-phase", "", "die the instant a phase write with this target commits")
 		killAfterPlan        = flag.Bool("kill-after-plan", false, "die the instant the durable intent to move is recorded, before any phase write")
+		killAfterConsent     = flag.Bool("kill-after-consent", false, "die the instant the operator's opt-in for a move is durably recorded, before any phase write")
 		killAfterCopy        = flag.Bool("kill-after-copy", false, "die the instant a copy to the medium returns, before anything is journaled")
 		killAfterSourceWipe  = flag.Bool("kill-after-source-delete", false, "die the instant a local file is removed, before anything is journaled")
 		killAfterObjectWipe  = flag.Bool("kill-after-object-delete", false, "die the instant an object is removed from a medium, before anything is journaled")
 		killDuringStage      = flag.Bool("kill-during-stage", false, "die part-way through reading a medium object back onto local disk")
 		killAfterStage       = flag.Bool("kill-after-stage", false, "die the instant a local file is written, before anything is done with it")
 		corruptAfterCopy     = flag.Bool("corrupt-after-copy", false, "overwrite the object the copy just wrote, the way a hostile or broken endpoint would")
+		encryptDir           = flag.String("encrypt-dir", "", "a managed key directory; when set the backup set requires retained-copy encryption under its active key")
+		killDuringEncrypt    = flag.Bool("kill-during-encrypt", false, "die part-way through reading the local artifact into the encrypting pass")
+		killBeforeUpload     = flag.Bool("kill-before-upload", false, "die the instant before a local file is handed to the medium upload, after anything was written for it")
 		suppressKillRequests = flag.Bool("suppress-kill", false, "turn every self-kill into a no-op, to prove the suite's own kill assertion is not vacuous")
+		encryptSuite         = flag.String("encrypt-suite", "", "the suite the set's policy pins, with -encrypt-dir; empty is the default policy (the active key's suite)")
+		testSuite            = flag.String("test-suite", "", "ID=STATUS: inject a test suite over age/v1 with this status into this process's registry, through copycrypt.InjectForTest (#1319)")
 	)
 	flag.Parse()
 	suppressKill = *suppressKillRequests
+	if *testSuite != "" {
+		id, status, ok := strings.Cut(*testSuite, "=")
+		if !ok {
+			return fmt.Errorf("-test-suite wants ID=STATUS, got %q", *testSuite)
+		}
+		hook := &processT{}
+		defer hook.done()
+		copycrypt.InjectForTest(hook, copycrypt.AgeX25519{}, id, copycrypt.Status(status), "9.0.0")
+	}
 
 	ctx := context.Background()
 	setID := model.BackupSetID{Source: *source, Set: *set}
@@ -159,29 +180,53 @@ func run() error {
 
 	g := &invariantGuard{journal: journal, artifact: id}
 
+	bs := config.BackupSet{Name: *set, ID: setID, LocalPath: *root}
+	var keys *keycustody.Store
+	if *encryptDir != "" {
+		keys, err = keycustody.Open(*encryptDir, keycustody.NewJournalRegistry(journal), keycustody.AgeFormat{})
+		if err != nil {
+			return fmt.Errorf("opening the key store: %w", err)
+		}
+		bs.RetainedCopyEncryption = config.RetainedCopyEncryption{
+			Mode:        config.RetainedCopyEncryptionRequired,
+			KeyProvider: config.RetainedCopyKeyProvider{Managed: true},
+			Suite:       *encryptSuite,
+		}
+	}
+
 	engine := &placement.Engine{
-		Journal: &killerJournal{Journal: journal, killAfter: *killAfterPhase, killAfterPlan: *killAfterPlan, guard: g},
+		Journal: &killerJournal{Journal: journal, killAfter: *killAfterPhase, killAfterPlan: *killAfterPlan, killAfterConsent: *killAfterConsent, guard: g},
 		Store: &killerStore{
 			MediumStore: adapter, guard: g,
 			killAfterCopy: *killAfterCopy, corruptAfterCopy: *corruptAfterCopy,
 			killAfterDelete: *killAfterObjectWipe, killDuringRead: *killDuringStage,
+			killBeforeUpload: *killBeforeUpload,
 		},
 		Local: &killerLocal{
 			Local: local, guard: g,
 			killAfterRemove: *killAfterSourceWipe, killAfterPut: *killAfterStage,
+			killDuringOpen: *killDuringEncrypt,
 		},
 		Mediums:          resolver{mediums: mediums},
-		Sets:             sets{set: config.BackupSet{Name: *set, ID: setID, LocalPath: *root}},
+		Sets:             sets{set: bs},
 		Tiers:            noTierWantsIt{},
 		MaxMovesPerCycle: 4,
+	}
+	if keys != nil {
+		engine.Keys = keys
 	}
 
 	var plans []placement.Plan
 	if *plan {
-		plans = []placement.Plan{{Artifact: id, DestinationMedium: *destination}}
+		plans = []placement.Plan{{Artifact: id, DestinationMedium: *destination, Reencrypt: *reencrypt}}
 	}
 
-	report, err := engine.RunCycle(ctx, plans)
+	var report placement.CycleReport
+	if *encryptExisting {
+		report, err = engine.EncryptExisting(ctx, plans)
+	} else {
+		report, err = engine.RunCycle(ctx, plans)
+	}
 	if err != nil {
 		return fmt.Errorf("running a cycle: %w", err)
 	}
@@ -262,10 +307,25 @@ func (g *invariantGuard) violation(what string, err error) error {
 // and is compared, never interpreted: see this file's package doc.
 type killerJournal struct {
 	*state.Journal
-	killAfter     string
-	killAfterPlan bool
-	guard         *invariantGuard
-	fired         bool
+	killAfter        string
+	killAfterPlan    bool
+	killAfterConsent bool
+	guard            *invariantGuard
+	fired            bool
+}
+
+// RecordEncryptExisting is the durable write that says an operator asked for
+// this move to encrypt an existing plaintext copy. It is not a phase write
+// either, so it has a boolean seam of its own for the reason PlanMove does.
+func (j *killerJournal) RecordEncryptExisting(ctx context.Context, moveID int64, at time.Time) error {
+	if err := j.Journal.RecordEncryptExisting(ctx, moveID, at); err != nil {
+		return err
+	}
+	if !j.fired && j.killAfterConsent {
+		j.fired = true
+		selfDestruct("the operator's opt-in for a move committed")
+	}
+	return nil
 }
 
 // PlanMove is the first durable write a move makes, and it is not a phase
@@ -309,6 +369,7 @@ type killerStore struct {
 	corruptAfterCopy bool
 	killAfterDelete  bool
 	killDuringRead   bool
+	killBeforeUpload bool
 }
 
 // OpenObject can hand back a reader that dies part-way through, which is
@@ -365,6 +426,9 @@ func (r *dyingReader) Read(p []byte) (int, error) {
 }
 
 func (s *killerStore) UploadFromLocal(ctx context.Context, medium transport.Medium, localPath, key string, opts transport.UploadOptions) (transport.UploadResult, error) {
+	if s.killBeforeUpload {
+		selfDestruct("the local file " + localPath + " is complete and was about to be uploaded to " + key)
+	}
 	res, err := s.MediumStore.UploadFromLocal(ctx, medium, localPath, key, opts)
 	if err != nil {
 		return res, err
@@ -439,6 +503,20 @@ type killerLocal struct {
 	guard           *invariantGuard
 	killAfterRemove bool
 	killAfterPut    bool
+	killDuringOpen  bool
+}
+
+// Open can hand back a reader that dies part-way through, which is how a
+// cell lands a kill in the middle of the encrypting pass: the artifact is
+// read from the local store and nothing else opens it first. Like
+// -kill-during-stage it kills inside the read, so the temporary file the
+// pass writes through exists and is not yet at any name anything looks for.
+func (l *killerLocal) Open(ctx context.Context, locator string) (io.ReadCloser, error) {
+	rc, err := l.Local.Open(ctx, locator)
+	if err != nil || !l.killDuringOpen {
+		return rc, err
+	}
+	return &dyingReader{ReadCloser: rc, what: locator}, nil
 }
 
 // Put can die the instant a local file is written and linked into place,
@@ -532,4 +610,24 @@ func samePlace(a, b string) bool {
 		return false
 	}
 	return ra == rb
+}
+
+// processT is the part of testing.TB copycrypt.InjectForTest needs, for a
+// process that is not a test: a failure ends the run, and the cleanups run
+// when the run returns.
+type processT struct{ cleanups []func() }
+
+func (*processT) Helper() {}
+
+func (*processT) Fatalf(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "movecrash-harness: "+format+"\n", args...)
+	os.Exit(2)
+}
+
+func (p *processT) Cleanup(f func()) { p.cleanups = append(p.cleanups, f) }
+
+func (p *processT) done() {
+	for i := len(p.cleanups) - 1; i >= 0; i-- {
+		p.cleanups[i]()
+	}
 }

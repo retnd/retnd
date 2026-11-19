@@ -6,7 +6,7 @@ it is unticked and the evidence table at the bottom is empty, which is the
 honest state: ZimaOS is build-supported and uncertified.
 
 ZimaOS reads the same `x-casaos` block CasaOS does, so
-`apps/zimaos/compose/backupd.yml` is both the runtime definition and the
+`apps/zimaos/compose/retnd.yml` is both the runtime definition and the
 store submission.
 
 It is a separate procedure from the CasaOS one even though the stack is the same
@@ -15,40 +15,40 @@ submitted to two stores and separately certified, so a green CasaOS run says
 nothing about ZimaOS. Anything you find here that is genuinely a ZimaOS
 difference belongs in `apps/zimaos/README.md` as a finding.
 
- adds ZimaOS as new platform support. There was no Phase 4
+Issue #170 adds ZimaOS as new platform support. There was no Phase 4
 ZimaOS packaging, so nothing here is a migration from an earlier one.
 
 ## Step 0 — Prerequisites
 
 ### 0.1 Record the host
 
-- ZimaOS version (Settings, About) recorded in the evidence table
-- Architecture recorded (`uname -m`)
-- Container engine version recorded
+- [ ] ZimaOS version (Settings, About) recorded in the evidence table
+- [ ] Architecture recorded (`uname -m`)
+- [ ] Container engine version recorded
 
 ### 0.2 Make the canonical image resolvable
 
-`ghcr.io/backupdproject/backupd:0.4.0` is cut but not pushed yet:
-`distribution/packaging/canonical.json` records `image.published: false`, and
-`container/release-manifest.json` carries a `registry_digest` of `null` per
-architecture. So the reference does not resolve from the registry today, and the
-steps below are how you make it resolve, by pushing a build to a registry this host
-can reach or building elsewhere and loading it. The previous release,
-`ghcr.io/backupdproject/backupd:0.3.3`, stays published and signed if you would
-rather run that:
+The canonical reference is `ghcr.io/retnd/retnd:0.8.0`.
+`distribution/packaging/canonical.json` and
+`container/release-manifest.json` jointly record whether it has been published:
+`image.published: true` requires an index digest and one registry digest per
+architecture. If those records still say `false` and `null`, the reference does
+not resolve yet; push a build to a registry this host can reach or build
+elsewhere and load it. Once they record the published digests, the host can
+pull the canonical reference directly:
 
 ```bash
-docker buildx build --platform=linux/amd64,linux/arm64 -f container/Dockerfile -t backupd:acceptance .
-docker save backupd:acceptance | ssh admin@<host> 'docker load'
+docker buildx build --platform=linux/amd64 -f container/Dockerfile -t retnd:acceptance .
+docker save retnd:acceptance | ssh admin@<host> 'docker load'
 ```
 
-- The image is resolvable on the host, and the exact reference used is recorded
+- [ ] The image is resolvable on the host, and the exact reference used is recorded
 
 ### 0.3 Create the host paths
 
 ```bash
-mkdir -p /DATA/AppData/backupd/state /DATA/AppData/backupd/config \
-         /DATA/AppData/backupd/secrets /DATA/Backups/backupd
+mkdir -p /DATA/AppData/retnd/state /DATA/AppData/retnd/config \
+         /DATA/AppData/retnd/secrets /DATA/Backups/retnd
 ```
 
 The runtime image is distroless: no shell, no root step, nothing inside the
@@ -60,11 +60,11 @@ following `docs/ssh-setup.md`. Never commit either, and never paste a private ke
 into the evidence table.
 
 ```bash
-ssh-keygen -t ed25519 -N "" -f /DATA/AppData/backupd/secrets/id_ed25519
-ssh-keyscan -t ed25519 <sftp-host> > /DATA/AppData/backupd/secrets/known_hosts
+ssh-keygen -t ed25519 -N "" -f /DATA/AppData/retnd/secrets/id_ed25519
+ssh-keyscan -t ed25519 <sftp-host> > /DATA/AppData/retnd/secrets/known_hosts
 ```
 
-**Recurse only over what this step created.** `/DATA/Backups/backupd` is the retained
+**Recurse only over what this step created.** `/DATA/Backups/retnd` is the retained
 backup store: on a reinstall it already holds data this procedure did not write,
 and a recursive ownership change across it rewrites all of it with nothing to
 restore it from. So the private trees are chowned recursively and the backup root
@@ -73,30 +73,30 @@ fails the build if any procedure in this directory recurses over a backup root o
 a parent of one.
 
 ```bash
-chown -R 1000:1000 /DATA/AppData/backupd/state /DATA/AppData/backupd/config /DATA/AppData/backupd/secrets
-chown 1000:1000 /DATA/Backups/backupd
-chmod 600 /DATA/AppData/backupd/secrets/id_ed25519
+chown -R 1000:1000 /DATA/AppData/retnd/state /DATA/AppData/retnd/config /DATA/AppData/retnd/secrets
+chown 1000:1000 /DATA/Backups/retnd
+chmod 600 /DATA/AppData/retnd/secrets/id_ed25519
 ```
 
-- All four paths exist and are owned by the app's uid and gid
-- The recursive ownership change touched only state, config and secrets
-- It ran **after** the key and `known_hosts` were created
-- `/DATA/AppData/backupd/config` is writable by the app's uid and gid
-- Key material lives only on this host, redacted everywhere else
+- [ ] All four paths exist and are owned by the app's uid and gid
+- [ ] The recursive ownership change touched only state, config and secrets
+- [ ] It ran **after** the key and `known_hosts` were created
+- [ ] `/DATA/AppData/retnd/config` is writable by the app's uid and gid
+- [ ] Key material lives only on this host, redacted everywhere else
 
 ---
 
 ### 0.4 The configuration directory, and the config file that is now optional
 
 The engine's start gate is a liveness question, not a backup-freshness verdict
-. It declares
-`["CMD", "/backupd-web", "healthcheck", "--url", "http://127.0.0.1:8080/health/live"]`,
-derived from `container/compose.yaml`, and `backupd-ui` waits on that with
-`condition: service_healthy`. `/backupd status` is still FR-24's freshness
+(issue #206). It declares
+`["CMD", "/retnd-web", "healthcheck", "--url", "http://127.0.0.1:8080/health/live"]`,
+derived from `container/compose.yaml`, and `web-ui` waits on that with
+`condition: service_healthy`. `/retnd status` is still FR-24's freshness
 verdict and still the image's own baked-in `HEALTHCHECK`, and it exits non-zero on a
 fresh install by design, which is exactly why nothing waits on it any more. So a
 **fresh install reaches the web UI**: an empty configuration directory is a legitimate
-state, and the engine serves its first-run setup flow from it.
+state, and the engine serves its first-run setup flow from it (issue #176).
 
 **What this step still requires.** The configuration directory itself, created and
 owned by the app's uid and gid before the first start, because a bind mount does not
@@ -114,9 +114,9 @@ reads on its first start. Put it there over SSH or through the ZimaOS file manag
 the directory 0.3 created. Skip this block entirely to use the first-run flow instead.
 
 ```bash
-$EDITOR /DATA/AppData/backupd/config/config.yaml
-chown 1000:1000 /DATA/AppData/backupd/config/config.yaml
-chmod 600 /DATA/AppData/backupd/config/config.yaml
+$EDITOR /DATA/AppData/retnd/config/config.yaml
+chown 1000:1000 /DATA/AppData/retnd/config/config.yaml
+chmod 600 /DATA/AppData/retnd/config/config.yaml
 ```
 
 The container-side paths in it are fixed by this package and must not be changed:
@@ -127,91 +127,91 @@ annotated example is this same file with another platform's host paths, and
 **Never commit the config or paste one into the evidence table:** it names the SFTP
 host and user.
 
-- Either `config.yaml` is written into `/DATA/AppData/backupd/config` **before** the install
+- [ ] Either `config.yaml` is written into `/DATA/AppData/retnd/config` **before** the install
       and is valid, or that directory is left empty and the first-run flow writes it.
       A file that exists and does not validate is the one state that refuses the start,
       so record which of the two routes this run took
-- It is owned by the app's uid and gid and readable by them
-- It was written after 0.3's ownership fix-up, or chowned afterwards
-- The engine reported healthy on the first start, rather than restarting
+- [ ] It is owned by the app's uid and gid and readable by them
+- [ ] It was written after 0.3's ownership fix-up, or chowned afterwards
+- [ ] The engine reported healthy on the first start, rather than restarting
 
 ---
 
 ## Step 1 — Install
 
 1. In ZimaOS, install the app from its store, or use the custom-install route
-   with `apps/zimaos/compose/backupd.yml`.
+   with `apps/zimaos/compose/retnd.yml`.
 2. ZimaOS renders the install dialog out of the `x-casaos` block. Change nothing.
 3. Install.
 
-- ZimaOS accepted the file: no schema error, and the store build validated it
-- The app tile shows the title, icon, category and description from `x-casaos`
-- The install dialog listed the five volumes and the two environment values
+- [ ] ZimaOS accepted the file: no schema error, and the store build validated it
+- [ ] The app tile shows the title, icon, category and description from `x-casaos`
+- [ ] The install dialog listed the five volumes and the two environment values
       the per-service `x-casaos` blocks describe
-- Both containers reach `running`
-- `backupd` reports healthy (it declares the liveness probe
-      `/backupd-web healthcheck --url http://127.0.0.1:8080/health/live`,
-      not the image's own `/backupd status`: the web UI waits on this, and
+- [ ] Both containers reach `running`
+- [ ] `retnd` reports healthy (it declares the liveness probe
+      `/retnd-web healthcheck --url http://127.0.0.1:8080/health/live`,
+      not the image's own `/retnd status`: the web UI waits on this, and
       the backup-freshness verdict is non-zero on a fresh install)
-- `backupd-ui` reports healthy, having overridden the image's own healthcheck
-- The app claims `amd64` and `arm64`, and it installed on this machine's architecture
+- [ ] `web-ui` reports healthy, having overridden the image's own healthcheck
+- [ ] The app claims `amd64`, and it installed on this machine's architecture
 
 ## Step 2 — Web UI
 
-- The published port loads the shared web UI
-- The UI reports the deployment as a Docker Compose deployment, which is what
+- [ ] The published port loads the shared web UI
+- [ ] The UI reports the deployment as a Docker Compose deployment, which is what
       `apps/zimaos/README.md` says to expect: this adapter ships no platform
       bridge and serves the bundle compiled into the binary
-- The capability list shows no native authentication, no native
+- [ ] The capability list shows no native authentication, no native
       notifications, no embedded window and no storage picker, all four reported
       as unsupported rather than hidden
 
 ## Step 3 — Authentication
 
-- First start printed a one-time enrollment link (keep it out of the evidence table)
-- Enrollment asked for a recovery email address and the SMTP details to reach it,
+- [ ] First start printed a one-time enrollment link (keep it out of the evidence table)
+- [ ] Enrollment asked for a recovery email address and the SMTP details to reach it,
       beside the username and password. Use a mail account you control and keep the
       SMTP password out of the evidence table; record the host and port only
-- The confirmation message arrived at the recovery address, and it arrived
+- [ ] The confirmation message arrived at the recovery address, and it arrived
       **before** any account existed. Provoke the failure once, with a deliberately
       wrong port: the API answers `SMTP_SEND_FAILED` and no administrator is created
-- That failure did not consume the link. The same URL completed the enrollment
+- [ ] That failure did not consume the link. The same URL completed the enrollment
       once the SMTP details were corrected
-- Enrollment sets an administrator password, stored as an Argon2id hash, with the
+- [ ] Enrollment sets an administrator password, stored as an Argon2id hash, with the
       recovery address beside it in the same record and the SMTP password held as a
       secret reference rather than a value
-- The enrollment link is single-use and is rejected the second time
-- Forgot password answers identically for the administrator's username and for a
+- [ ] The enrollment link is single-use and is rejected the second time
+- [ ] Forgot password answers identically for the administrator's username and for a
       name that does not exist, and mails a single-use reset link to the recovery
       address; completing the reset sets the new password and signs out the session
       that asked
-- An unauthenticated request to `/api/v1/` is refused
-- The UI reports auth mode `local-account`, and no platform identity is trusted
+- [ ] An unauthenticated request to `/api/v1/` is refused
+- [ ] The UI reports auth mode `local-account`, and no platform identity is trusted
 
 ## Step 4 — Storage mapping and backup-root containment
 
-- Private state lands under `/DATA/AppData/backupd/state`
-- Retained artifacts land under `/DATA/Backups/backupd`
-- No SSH private key, `known_hosts`, config file or authentication record
-      exists anywhere under `/DATA/Backups/backupd`
-- The key and `known_hosts` are mounted read-only, and a write attempt from
+- [ ] Private state lands under `/DATA/AppData/retnd/state`
+- [ ] Retained artifacts land under `/DATA/Backups/retnd`
+- [ ] No SSH private key, `known_hosts`, config file or authentication record
+      exists anywhere under `/DATA/Backups/retnd`
+- [ ] The key and `known_hosts` are mounted read-only, and a write attempt from
       inside the container fails
-- The configuration directory is mounted **writable**: creating a backup set
+- [ ] The configuration directory is mounted **writable**: creating a backup set
       through the UI rewrites `config.yaml`, and saving a setting succeeds. This
-      is the shape fixed, and a read-only mount here makes all three
+      is the shape issue #196 fixed, and a read-only mount here makes all three
       write paths fail
 
 ## Step 5 — Container posture
 
-- Neither container is privileged, neither mounts a Docker socket, neither
+- [ ] Neither container is privileged, neither mounts a Docker socket, neither
       uses host networking or the host PID namespace, and neither adds a capability:
 
       ```bash
-      docker inspect backupd backupd-ui \
+      docker inspect retnd web-ui \
         --format '{{.Name}} priv={{.HostConfig.Privileged}} net={{.HostConfig.NetworkMode}} binds={{.HostConfig.Binds}}'
       ```
-- Both containers run as uid 1000, on a read-only root filesystem
-- The engine publishes no port: `docker ps` shows exactly one published port
+- [ ] Both containers run as uid 1000, on a read-only root filesystem
+- [ ] The engine publishes no port: `docker ps` shows exactly one published port
       for this app, and it belongs to the web UI container
 
 ## Step 6 — Update
@@ -224,24 +224,24 @@ Capture a baseline before the pull and compare after it, so "everything
 survived" is a diff rather than an impression:
 
 ```bash
-sha256sum /DATA/AppData/backupd/state/state.db | tee /root/zimaos-before-update.sha256
-find /DATA/Backups/backupd -type f -printf '%p %s\n' | sort > /root/zimaos-before-update.txt
+sha256sum /DATA/AppData/retnd/state/state.db | tee /root/zimaos-before-update.sha256
+find /DATA/Backups/retnd -type f -printf '%p %s\n' | sort > /root/zimaos-before-update.txt
 ```
 
 Then use ZimaOS's **Update** on the app tile.
 
 ```bash
-find /DATA/Backups/backupd -type f -printf '%p %s\n' | sort > /root/zimaos-after-update.txt
+find /DATA/Backups/retnd -type f -printf '%p %s\n' | sort > /root/zimaos-after-update.txt
 diff /root/zimaos-before-update.txt /root/zimaos-after-update.txt
 ```
 
-- The update pulled a new image and recreated both containers
-- `diff` of the retained-artifact listing is empty: the update moved no backup data
-- Backup sets, schedules, retained artifacts and the administrator account all persist,
+- [ ] The update pulled a new image and recreated both containers
+- [ ] `diff` of the retained-artifact listing is empty: the update moved no backup data
+- [ ] Backup sets, schedules, retained artifacts and the administrator account all persist,
       the account's recovery address and SMTP settings with it (a test send from
       Settings still succeeds after the update)
-- No re-enrollment was required
-- The new image version is reported in the UI
+- [ ] No re-enrollment was required
+- [ ] The new image version is reported in the UI
 
 ## Step 7 — Removal, and retained-backup safety
 
@@ -250,9 +250,9 @@ looking. **Capture the baseline first and write it outside the tree you are
 about to test**, so whatever damages the tree cannot damage the evidence:
 
 ```bash
-dd if=/dev/urandom of=/DATA/Backups/backupd/acceptance-canary.bin bs=1M count=8
-sha256sum /DATA/Backups/backupd/acceptance-canary.bin | tee /root/zimaos-canary.sha256
-find /DATA/Backups/backupd -type f -printf '%p %s\n' | sort > /root/zimaos-before-remove.txt
+dd if=/dev/urandom of=/DATA/Backups/retnd/acceptance-canary.bin bs=1M count=8
+sha256sum /DATA/Backups/retnd/acceptance-canary.bin | tee /root/zimaos-canary.sha256
+find /DATA/Backups/retnd -type f -printf '%p %s\n' | sort > /root/zimaos-before-remove.txt
 ```
 
 Now uninstall the app from ZimaOS, twice: once declining to delete the app's
@@ -263,18 +263,18 @@ Then verify against the baseline, before inspecting anything else:
 
 ```bash
 sha256sum -c /root/zimaos-canary.sha256
-find /DATA/Backups/backupd -type f -printf '%p %s\n' | sort > /root/zimaos-after-remove.txt
+find /DATA/Backups/retnd -type f -printf '%p %s\n' | sort > /root/zimaos-after-remove.txt
 diff /root/zimaos-before-remove.txt /root/zimaos-after-remove.txt
 ```
 
-- `sha256sum -c` says OK and `diff` is empty: every retained backup and
+- [ ] `sha256sum -c` says OK and `diff` is empty: every retained backup and
       artifact is untouched, byte for byte
-- Uninstalling with "delete data" accepted deleted no retained
+- [ ] Uninstalling with "delete data" accepted deleted no retained
       artifact either: the backup root is outside `/DATA/AppData`, and the same
       `sha256sum -c` and `diff` are still clean
-- `/DATA/AppData/backupd/state` still holds the catalogue, so a reinstall
+- [ ] `/DATA/AppData/retnd/state` still holds the catalogue, so a reinstall
       pointed at the same paths comes back with the same backup sets
-- Removing this adapter removes no core behaviour: the same image runs
+- [ ] Removing this adapter removes no core behaviour: the same image runs
       unchanged under `container/compose.yaml` on a plain Docker host
 
 ## Step 8 — The host management plane is untouched
@@ -287,18 +287,18 @@ dpkg -l > /root/zimaos-baseline-packages.txt 2>/dev/null || true
 ls /etc/systemd/system > /root/zimaos-baseline-units.txt 2>/dev/null || true
 ```
 
-- No package this procedure installed appears in a `diff` of the two package lists
-- No unit file was added
-- No entry was added under `/etc/cron.d` or to any crontab
-- ZimaOS's own app list, users and settings are unchanged apart
+- [ ] No package this procedure installed appears in a `diff` of the two package lists
+- [ ] No unit file was added
+- [ ] No entry was added under `/etc/cron.d` or to any crontab
+- [ ] ZimaOS's own app list, users and settings are unchanged apart
       from this app being gone
 
 ## Step 9 — Destructive-safety re-check
 
-- A backup set configured with a root outside `/DATA/Backups/backupd` is refused
-- A symlink inside the backup root that points outside it is not followed into a delete
-- A retention apply deletes only artifacts under the backup root
-- Nothing under the private state, config or secrets paths is ever a delete target
+- [ ] A backup set configured with a root outside `/DATA/Backups/retnd` is refused
+- [ ] A symlink inside the backup root that points outside it is not followed into a delete
+- [ ] A retention apply deletes only artifacts under the backup root
+- [ ] Nothing under the private state, config or secrets paths is ever a delete target
 
 ## Step 10 — Cross-check against the automated matrix
 
@@ -306,9 +306,9 @@ ls /etc/systemd/system > /root/zimaos-baseline-units.txt 2>/dev/null || true
 cd distribution && GOWORK=off go test ./packaging/ -count=1 -run TestCrossProviderConformanceMatrix -v
 ```
 
-- Every ZimaOS row the matrix reports as `PASS` still holds on the real host
-- Every row it reports as `PENDING_OPERATOR` is now decided by this procedure
-- No row it reports as `UNSUPPORTED` or `NOT_APPLICABLE` turned out to be
+- [ ] Every ZimaOS row the matrix reports as `PASS` still holds on the real host
+- [ ] Every row it reports as `PENDING_OPERATOR` is now decided by this procedure
+- [ ] No row it reports as `UNSUPPORTED` or `NOT_APPLICABLE` turned out to be
       supported here. If one did, `distribution/packaging/conformance.json` is
       stale and must be corrected rather than the check
 
@@ -319,15 +319,19 @@ cd distribution && GOWORK=off go test ./packaging/ -count=1 -run TestCrossProvid
 A workflow step whose target is `local` does not run in the engine container, and since
 issue #865 it does not run on a host shell either: it runs in an **ephemeral Docker
 container** launched by the **Host Workflow Runner**, a small version-pinned process
-systemd supervises as `backupd-workflow-runner.service`
+systemd supervises as `retnd-workflow-runner.service`
 (`docs/adr/0020-host-workflow-runner.md`, `docs/runtime-contract.md`).
 
 ZimaOS ships as a complete appliance operating system rather than as a layer over a
 distribution you administer, so there is no host session in which to install a systemd
 unit or add an account to the Docker socket's group. This is the one place the CasaOS
-and ZimaOS answers genuinely differ even though the stack is byte-for-byte the same
-compose file, and the running product cannot tell them apart: both select the generic
-runtime profile, so this document is the only place the difference is stated.
+and ZimaOS answers genuinely differ even though the two stacks are otherwise the same
+compose file: since issue #921 the CasaOS one carries the Host Workflow Runner's three
+mounts and this one deliberately does not, which is the only shape difference between
+them. The running product still cannot tell the two platforms apart — both select the
+generic runtime profile — so this document is where an operator is told, and
+`conformance.json`'s `localHooks: unavailable` plus
+`distribution/packaging`'s `CheckLocalHookMounts` are what hold the compose file to it.
 
 **Local workflow hooks are unavailable on this platform.** That is a refusal with a
 named mechanism rather than a gap, and it is worth being precise about which
@@ -341,7 +345,7 @@ mechanism, because two plausible ones are not it:
   and a NAME.local.sh has nowhere to run"*
   (`core/internal/workflowrun/engine.go`). A hook is refused, never skipped, so a
   run cannot report success with the hook quietly missing;
-- and **this procedure installs no `backupd-workflow-runner.service`**, grants no
+- and **this procedure installs no `retnd-workflow-runner.service`**, grants no
   group and fetches no hook image.
 
 What does **not** happen, so that nobody goes looking for it:
@@ -357,7 +361,7 @@ administer, and needs no Docker and no host unit on this NAS. The engine's own s
 of this is unchanged either way: the shipped package asks for no Docker socket, no
 `group_add` and no `DOCKER_HOST`.
 
-- [ ] No `backupd-workflow-runner.service` exists on this host, and nothing in this
+- [ ] No `retnd-workflow-runner.service` exists on this host, and nothing in this
       procedure created one
 - [ ] No account was added to a Docker socket group for this product, and the shipped
       containers mount no socket and declare no `group_add`

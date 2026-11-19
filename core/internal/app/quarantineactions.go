@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/lifecycle"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/state"
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // The four things an operator may do about a backup this manager stopped
@@ -202,7 +202,7 @@ func (s *Service) RetryQuarantinedIngestion(ctx context.Context, id model.Artifa
 // is where that whole decision and its argument live.
 //
 // Which of the two happened is not on the return value: a caller that has
-// to tell an operator reads the row back afterwards (`backupd retry` does).
+// to tell an operator reads the row back afterwards (`retnd retry` does).
 // Handing back only "no error" is what the API contract's own response for
 // this operation carries, and one method signature answering to two
 // surfaces is worth less than the row both of them can read.

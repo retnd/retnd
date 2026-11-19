@@ -51,10 +51,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/mediumcheck"
-	"github.com/backupdproject/backupd/core/internal/transport"
-	"github.com/backupdproject/backupd/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/mediumcheck"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport/rclone"
 )
 
 // ErrConfigAbsent is what Open returns when configPath does not exist at
@@ -138,7 +138,7 @@ func NewFirstRun(defaults FirstRunDefaults) (*FirstRun, error) {
 		return nil, fmt.Errorf("service: first run config path %q must be absolute", defaults.ConfigPath)
 	}
 	// Issue #196 made the packaged configuration mount a DIRECTORY, so
-	// `--config /etc/backupd/config` is a spelling an operator is
+	// `--config /etc/retnd/config` is a spelling an operator is
 	// actively invited to type (config.ResolvePath's own doc). Resolving
 	// it here, once, at the boundary where a deployment's answer becomes
 	// this type's, is what keeps everything derived from ConfigPath
@@ -181,6 +181,48 @@ func NewFirstRun(defaults FirstRunDefaults) (*FirstRun, error) {
 func (f *FirstRun) Configured() bool {
 	_, err := os.Stat(f.defaults.ConfigPath)
 	return !errors.Is(err, os.ErrNotExist)
+}
+
+// DeploymentID names the deployment this first-run surface is setting up,
+// or "" when it cannot.
+//
+// It is the identity the first-run announcement minted beside the journal
+// StateDatabase names (AnnounceServingFirstRun, through
+// announceServingJournal), read and never minted here, for the reason
+// BackupService.DeploymentID gives: the process about to serve a journal is
+// the only one that names it. GET /system/version reports it on a first-run
+// instance (#1254), because a terminal handing this deployment its first
+// configuration confirms which deployment it reached before it sends
+// anything, exactly as every other routed write does, and an instance that
+// named nothing would be refused as one that cannot be confirmed.
+//
+// An identity that cannot be read is "", which a client reads as "cannot
+// confirm" and refuses on. That is the right failure: the wizard in the
+// browser does not depend on it, and the terminal says what it could not
+// check.
+func (f *FirstRun) DeploymentID() string {
+	id, err := DeploymentIdentity(f.defaults.StateDatabase)
+	if err != nil {
+		return ""
+	}
+	return id
+}
+
+// ConfigDirProblem reports, for the first-run guide, that this deployment
+// has no configuration and the directory its default would be written into
+// cannot be written (retnd#1049). It returns that directory and the
+// operator-facing sentence (ConfigDirUnwritableMessage), or two empty
+// strings when there is nothing to report: a configuration already exists,
+// or the directory is fine.
+func (f *FirstRun) ConfigDirProblem() (dir, message string) {
+	if f.Configured() {
+		return "", ""
+	}
+	if err := ConfigDirWritable(f.defaults.ConfigPath); err == nil {
+		return "", ""
+	}
+	dir = filepath.Dir(f.defaults.ConfigPath)
+	return dir, ConfigDirUnwritableMessage(dir)
 }
 
 // ImportSSHKey is BackupService.ImportSSHKey for an instance that has no
@@ -290,6 +332,12 @@ func (f *FirstRun) CreateInitialConfig(ctx context.Context, req CreateBackupSetR
 
 	if f.Configured() {
 		return BackupSet{}, ErrAlreadyConfigured
+	}
+	// The wizard writes the first configuration there has ever been; over a
+	// journal that holds backups it would be the default-config overwrite
+	// again, through the other door (retnd#1049).
+	if err := CheckJournalIsFresh(ctx, f.defaults.StateDatabase); err != nil {
+		return BackupSet{}, err
 	}
 	if err := validateCreateRequest(req); err != nil {
 		return BackupSet{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)

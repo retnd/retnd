@@ -19,7 +19,7 @@ import (
 	"github.com/kopia/kopia/snapshot/policy"
 	"github.com/kopia/kopia/snapshot/upload"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/backupengine"
 )
 
 // This file is the set-scoped half of the adapter: one backup-set run
@@ -49,7 +49,7 @@ const (
 	// treeSnapshotPurpose names this adapter's write session in the
 	// vendor's own logs, so an interrupted session in a repository can be
 	// attributed to a backup run rather than to maintenance.
-	treeSnapshotPurpose = "backupd:snapshot-tree"
+	treeSnapshotPurpose = "retnd:snapshot-tree"
 
 	// treeRootDirName is the name the set's root directory carries in the
 	// manifest.

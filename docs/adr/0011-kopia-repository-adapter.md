@@ -82,8 +82,8 @@ exactly that.
 
 ### Local repositories live in a reserved namespace, and reserved means a predicate
 
-`<backup-root>/.backupd/repositories/<domain>/` holds blobs;
-`<backup-root>/.backupd/state/` holds this manager's own local state about
+`<backup-root>/.retnd/repositories/<domain>/` holds blobs;
+`<backup-root>/.retnd/state/` holds this manager's own local state about
 them. Both are under one reserved directory, and the rule is not the dot
 prefix — the dot prefix is politeness towards an operator browsing the
 share. The rule is `backupengine.LocalPathIsReserved`, one predicate,
@@ -229,7 +229,7 @@ there, which defeats the whole of the section above: an operator who kept
 the secret in a 0600 file or behind a Vault command got a plaintext copy
 anyway, made by the program they were trusting not to do that.
 
-So this adapter registers its **own** storage type, `backupd-s3`
+So this adapter registers its **own** storage type, `retnd-s3`
 (`kopia/s3connection.go`), and that is what gets persisted. Its config
 holds the bucket, the key prefix, the endpoint, the region, the TLS
 decision and an operator's `RootCA` — all coordinates, none of them
@@ -365,7 +365,7 @@ in this tree.
   maintenance left behind.
 - `RepositoryStats.Sources` is the co-tenancy number, and it counts
   distinct **backup-set tags** (`backupengine.TagKeyBackupSet`, the literal
-  `backupd.set`, set by the sink that writes the snapshot) rather than the
+  `retnd.set`, set by the sink that writes the snapshot) rather than the
   engine's own sources. A streaming backup set writes one engine source
   *per object*, so a count of those would report forty co-tenants for one
   set of forty database dumps, and two single-object sets would report two

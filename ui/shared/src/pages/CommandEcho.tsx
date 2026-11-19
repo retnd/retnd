@@ -1,5 +1,5 @@
 /**
- * The `backupd` command a UI action is equivalent to, shown beside the
+ * The `retnd` command a UI action is equivalent to, shown beside the
  * control that produces it (EPIC G's standing rule; G2.2, #594).
  *
  * The global terminal landed with #599 and prints these lines too, from
@@ -21,6 +21,23 @@
  * nothing starred out: there is no flag on this CLI surface that takes a
  * secret, so there is nothing here to redact. That argument lives in full
  * in storageDestinationCommands.ts.
+ *
+ * Retained-copy encryption (EPIC N, #995) is the one place a line is NOT
+ * runnable as printed, and it is said on the line itself rather than starred
+ * out: `--external-command` names the command whose output is a key, and the
+ * arguments of that command are the secret's address, so the echo carries an
+ * angle-bracket stand-in (the same one core/cliecho prints), and the bundle
+ * export names a placeholder file because the bundle is written to a file and
+ * never printed. Every other encryption line is the real command. The
+ * strings come from encryption/encryptionCommands.ts, which is also where the
+ * list of every mutating control and its echo is kept (the reverse-direction
+ * sweep).
+ *
+ * The encryption suites (EPIC T, #1318) add four lines from the same module:
+ * `retnd encryption suites` under the Suite choice, `policy patch --suite`
+ * and `key rotate --suite` on the change dialog's steps, and `reencrypt`
+ * (with `--dry-run` first) in the re-encrypt dialog. Each is the real
+ * command, so no suite action is ever one the terminal has no equivalent for.
  */
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 

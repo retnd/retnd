@@ -180,7 +180,7 @@ function IncrementalConfiguration({
       setEditing(false);
       onSaved();
     } catch (e) {
-      const failure = describeFailure(e, "Backupd could not save this set's incremental settings.");
+      const failure = describeFailure(e, "retnd could not save this set's incremental settings.");
       setSaveError({
         message: failure.message,
         ...(failure.correlationId ? { correlationId: failure.correlationId } : {})
@@ -200,7 +200,7 @@ function IncrementalConfiguration({
         <CellGrid>
           <Cell
             label="Engine"
-            value={ENGINE_COPY.kopia.name}
+            value={ENGINE_COPY["kopia"].name}
             wire="engine=kopia"
             tip="wizard.incremental.engine"
           />
@@ -244,7 +244,7 @@ function IncrementalConfiguration({
               ))}
             </div>
             <Note>
-              Backupd records what you arranged and reports a run that contradicts it. It never
+              retnd records what you arranged and reports a run that contradicts it. It never
               guesses which mode a source is in.
             </Note>
           </fieldset>

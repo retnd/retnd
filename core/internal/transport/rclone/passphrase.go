@@ -35,15 +35,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/rclone/rclone/lib/env"
 
-	"github.com/backupdproject/backupd/core/internal/obs"
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/procseam"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // passphraseCommandTimeout mirrors keyCommandTimeout: a passphrase
@@ -139,7 +139,7 @@ func resolvePassphraseFromCommand(argv []string) (obs.Secret, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), passphraseCommandTimeout)
 	defer cancel()
 
-	c := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	c := procseam.CommandContext(ctx, argv[0], argv[1:]...)
 	c.Env = []string{"PATH=/usr/local/bin:/usr/bin:/bin"}
 	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	c.Cancel = func() error {

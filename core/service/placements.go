@@ -27,10 +27,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/archive"
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/placement"
-	"github.com/backupdproject/backupd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/archive"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/placement"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // MediumTypeLocal is what a local placement reports as its kind.
@@ -96,6 +97,53 @@ type Placement struct {
 	// knows is GONE never reaches here at all, because a row for it would
 	// read as a copy.
 	Status string
+
+	// Encrypted, EncryptionKeyID and EncryptionKeyResolvable are the copy's
+	// encryption state for the Backups list (#993), filled in by
+	// annotateEncryption and zero for a plaintext copy. An id, never material.
+	Encrypted               bool
+	EncryptionKeyID         string
+	EncryptionKeyResolvable *bool
+
+	// EncryptionSuite is the suite the copy's record names (#1318): its
+	// format_id, which is the suite id (ADR 0033), read back and never the
+	// policy's current suite. Empty for a plaintext copy.
+	EncryptionSuite string
+
+	// ScrubState, ScrubNextDueAt and ScrubLastCheckedAt are this copy's own
+	// scrub record (migration 0016), read back from the journal. ScrubState
+	// is "unknown" for a copy nobody has scrubbed, and the two times are the
+	// zero time when the copy has none: no due time means due now, never
+	// "never due". The schedule a surface shows (AssuranceDue) is read from
+	// these, so it is the same clock the scrub driver keeps.
+	ScrubState         string
+	ScrubNextDueAt     time.Time
+	ScrubLastCheckedAt time.Time
+
+	// ScrubLastFailureAt, ScrubLastFailureReason and ScrubConsecutiveFailures
+	// are why a surface can say a copy FAILED instead of "never run": a failed
+	// scrub clears the copy's class and time, so without these the failure is
+	// invisible at this boundary (panel finding C8, #985). The reason is the
+	// journal's bounded, stripped text, the same one the scrub logged. They
+	// survive a later pass except the streak, which a pass resets to zero.
+	ScrubLastFailureAt       time.Time
+	ScrubLastFailureReason   string
+	ScrubConsecutiveFailures int
+
+	// RecoveryState is this copy's recovery-test claim, one of the
+	// state.Recovery* verdicts ("unknown" for a copy no test has evaluated),
+	// with when it was last tested and, for a failure, the journal's reason.
+	// A separate home from ScrubState because passing one says nothing about
+	// the other.
+	RecoveryState         string
+	RecoveryTestedAt      time.Time
+	RecoveryFailureReason string
+
+	// RecoveryCheck says which check produced the verdict in RecoveryState:
+	// "validator" (the operator's script) or "builtin" (the product's
+	// structure check), empty when there is no passed or failed verdict to
+	// attribute (#1111).
+	RecoveryCheck string
 }
 
 // StorageMediumSummary is one configured storage medium, described with
@@ -402,6 +450,24 @@ func toServicePlacement(p state.Placement, idx mediumIndex) Placement {
 	if p.VerifiedAt != nil {
 		out.VerifiedAt = *p.VerifiedAt
 	}
+	out.ScrubState = p.AssuranceState
+	if p.NextDueAt != nil {
+		out.ScrubNextDueAt = *p.NextDueAt
+	}
+	if p.LastCheckedAt != nil {
+		out.ScrubLastCheckedAt = *p.LastCheckedAt
+	}
+	if p.LastFailureAt != nil {
+		out.ScrubLastFailureAt = *p.LastFailureAt
+	}
+	out.ScrubLastFailureReason = p.LastFailureReason
+	out.ScrubConsecutiveFailures = p.ConsecutiveFailures
+	out.RecoveryState = WireRecoveryState(p.RecoveryState, p.RecoveryValidatorID)
+	if p.RecoveryTestedAt != nil {
+		out.RecoveryTestedAt = *p.RecoveryTestedAt
+	}
+	out.RecoveryFailureReason = p.RecoveryFailureReason
+	out.RecoveryCheck = recoveryCheckOf(p)
 	return out
 }
 
@@ -651,3 +717,18 @@ func VerificationClasses() []string {
 func PlacementStatuses() []string {
 	return []string{state.PlacementActive, state.PlacementDeletePending}
 }
+
+// recoveryCheckOf says which check produced a copy's recovery verdict; the
+// rule lives in internal/app so the terminal reads the same one (#1147).
+func recoveryCheckOf(p state.Placement) string { return app.RecoveryCheckOf(p) }
+
+// WireRecoveryState is the ONE place a stored recovery state becomes the one
+// every surface serialises (#1111): a built-in structure pass is "readable"
+// on the wire. The rule lives in internal/app so the terminal reads the same
+// one (#1147).
+func WireRecoveryState(stored, validatorID string) string {
+	return app.WireRecoveryState(stored, validatorID)
+}
+
+// WireRecoveryReadable is the wire spelling of a built-in structure pass.
+const WireRecoveryReadable = app.WireRecoveryReadable

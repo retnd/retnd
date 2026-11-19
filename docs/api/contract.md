@@ -4,7 +4,7 @@
 the TypeScript client: the document. Both sides are generated from it, and both
 are held to it by checks that fail CI rather than by review.
 
- (B6.2) is where this came from. Before it, the boundary existed but
+Issue #166 (B6.2) is where this came from. Before it, the boundary existed but
 nothing described it: the Go handlers were the only statement of the request and
 response shapes, `ui/shared/src/api/contracts.ts` held a hand-transcribed copy of
 the error-code list, and `ui/shared/src/api/client.ts` held a second
@@ -44,14 +44,14 @@ A Go struct can express a field's name and type. It cannot express whether the
 operation needs a session, whether it needs a CSRF token, whether it requires an
 `Idempotency-Key`, which optimistic-concurrency token it reads, whether the
 destructive gate stands in front of it, or which typed errors it can return.
-Those are precisely the things requires to become contract *data*
+Those are precisely the things #166 requires to become contract *data*
 ("authentication requirements become explicit contract data rather than handler
 convention, which makes an unauthenticated destructive endpoint a contract
 violation a test can catch"). Under Go-first they would have to live in
 annotations beside the structs, which is a second hand-maintained format with
 none of OpenAPI's tooling and all of its drift risk.
 
-There is a second reason. 's adapter conformance gate has to compare an
+There is a second reason. #90's adapter conformance gate has to compare an
 adapter's declared API compatibility against the canonical runtime's contract.
 That comparison needs a document that exists independently of building Go. A
 contract that is an output of `go build` is not that.
@@ -62,7 +62,7 @@ Two consequences follow, and both are deliberate.
 - The handlers are **not** generated. They still declare their own structs, and
   a reflection test compares those structs to the generated ones field by field.
   Making the handlers use the generated types is a behaviour-preserving move
-  worth doing, but is explicit that behaviour is not rewritten in the same
+  worth doing, but #81 is explicit that behaviour is not rewritten in the same
   step that a boundary is introduced, so it is not done here.
 - The generator is in this repository (`scripts/api/gen-bindings.go`), stdlib
   only, no module. Every other gate here is shaped the same way, and an
@@ -81,7 +81,7 @@ Edit `api/v1/openapi.json`, run that, commit both generated files:
 
 | generated file | consumed by |
 |---|---|
-| `core/apicontract/contract.gen.go` | the Go conformance tests, and `core/internal/apiclient`, the CLI's own client |
+| `core/apicontract/contract.gen.go` | the Go conformance tests, and `core/internal/apiclient`, the CLI's own client (issue #541) |
 | `ui/shared/src/api/generated/contract.ts` | `ui/shared/src/api/contracts.ts` and `client.ts`, directly |
 
 Both carry a `DO NOT EDIT` banner. Editing either one by hand fails CI.
@@ -106,7 +106,7 @@ produced by the same Go program as the Go one.
 ### `scripts/api/check-contract-drift.sh` says an implementation type reached the public schema
 
 A schema name, property name, enum value, path or operation id in the contract
-names rclone, SQLite, a filesystem path or a provider SDK. 's standing
+names rclone, SQLite, a filesystem path or a provider SDK. #81's standing
 constraint forbids that on `/api/v1`, and the issue is explicit that if a public
 shape leaks one, the contract is wrong, not the check. Rename the field to say
 what it means rather than what implements it.
@@ -125,7 +125,7 @@ obeys, and they are the ones that reach `apicontract.Endpoint`. So the generated
 bindings can be byte-for-byte correct while the published document tells an
 outside reader something else entirely, which is what happened: fifteen of the
 forty-six operations were mutating, sat behind `requireCSRF` at runtime, and
-said nothing about CSRF in `security` (PR review). The fix is the contract,
+said nothing about CSRF in `security` (PR #546 review). The fix is the contract,
 in whichever direction is true of the route, and then `scripts/api/generate.sh`.
 
 A `security` block this rule cannot read is a failure too, never a skip. It
@@ -144,7 +144,7 @@ This gate exists because the two checks above only cover *generated* files, and
 `client.ts` is not one. It is hand-written on top of the generated module and
 imports nothing from it but types and the error-code registry, so every request
 path it builds is a string literal that the binding comparison cannot see. Issue
- measured what that cost: fourteen such pairs, four of the six shipped pages
+#211 measured what that cost: fourteen such pairs, four of the six shipped pages
 failing outright against a real engine, and every suite in the repository green,
 because the browser tests run against `createMockApi`, which implements whatever
 the client asks for.
@@ -181,7 +181,7 @@ Three properties are worth knowing before changing it:
   `scripts/api/generate.sh`, then implement it in
   `apps/common/webhost/router.go`), or the client stops calling it.
 
-### `go test./webhost/` says the contract hashes to something else
+### `go test ./webhost/` says the contract hashes to something else
 
 `api/v1/openapi.json` was edited and the bindings were not regenerated. This is
 the same failure the drift script reports, caught in the ordinary test run so a
@@ -193,7 +193,7 @@ regenerate without shelling out to the generator. The full comparison, and the
 only thing that also catches a hand edit to the *body* of a generated file, is
 the drift script.
 
-### `go test./webhost/` says a field is in the handler type but not in the contract
+### `go test ./webhost/` says a field is in the handler type but not in the contract
 
 A handler's request or response shape moved and the contract did not. This is
 the **Go drift** gate. Add the field to `api/v1/openapi.json`, regenerate, and
@@ -239,7 +239,7 @@ on the unmutated tree. A gate nobody has watched fail is a gate that might not
 be able to.
 
 Three of them plant the removal of a single line from `scripts/ci-local.sh`.
-That script is what `.husky/pre-commit` runs, and `.github/workflows/ci.yml`
+That script is what `.husky/pre-commit` runs, the only gate since #1260 (`.github/workflows/ci.yml`
 runs only on a pull request into `release`, so a check wired only into that
 file runs on nothing bound for `main` at all: `check-contract-drift.sh`
 therefore also asserts that `ci-local.sh` invokes all three of itself,
@@ -263,7 +263,7 @@ call.
 - a new value in a RESPONSE enum, provided the existing values keep their
   meaning. A response enum is what the server may say, not a closed set a
   client may assume: `BackendManifest.role` gained `remote_filesystem`
-  under `v1` when registered a backend that is a directory on
+  under `v1` when #731 registered a backend that is a directory on
   another host, and it will gain another the next time a shape appears
   that none of the existing values honestly describes. A client MUST
   preserve a value it does not recognise and render it as itself; one
@@ -303,7 +303,7 @@ serves, so a client and an adapter can both check rather than assume.
 `POST /operations` refuses with three different codes at 409, and they do not
 all carry the same body. `CONFIG_REVISION_STALE` carries the current revision
 in a structured top-level `config_revision` field, so a client retries against
-a value it can rely on instead of one parsed out of prose ( item 5);
+a value it can rely on instead of one parsed out of prose (#118 item 5);
 `IDEMPOTENCY_KEY_CONFLICT` and `OPERATION_ALREADY_RUNNING` go through the
 ordinary error envelope and have no such field.
 
@@ -311,7 +311,7 @@ The 409 body is therefore `oneOf(ConfigRevisionStaleResponse, ErrorResponse)`.
 Two alternatives were available and both were rejected:
 
 - **One schema with `config_revision` optional.** Simplest to generate, and it
-  throws away the item 5 guarantee at the type level: every client reading
+  throws away the #118 item 5 guarantee at the type level: every client reading
   `.config_revision` after a `CONFIG_REVISION_STALE` would be reading an
   optional field, which is the thing that guarantee exists to prevent.
 - **Giving the stale case its own status.** Cleanest typing, but changing which
@@ -327,7 +327,7 @@ bindings in silence, so the generator now fails on one rather than emitting it.
 
 ## Recorded decision: live progress is a nested object that disappears
 
- `Operation` is a durable, crash-safe record: submitted, started,
+Issue #221. `Operation` is a durable, crash-safe record: submitted, started,
 finished, plus a result or an error. Live transfer progress is the opposite
 kind of thing, and the contract keeps the two apart rather than growing the
 record a set of counters.
@@ -362,7 +362,7 @@ before the end. The byte counters describe the ONE artifact being copied, and
 the counters beside them (`backup_sets_done` of `backup_sets_total`,
 `artifacts_done`) say where in the cycle that artifact sits. `backup_sets_total`
 is exact rather than estimated: it is a count of the enabled sets in the
-configuration snapshot the cycle started with. removed nine fields
+configuration snapshot the cycle started with. Issue #211 removed nine fields
 the UI displayed that nothing computed, and a cycle-level percentage would have
 been the tenth.
 
@@ -372,7 +372,7 @@ has started and moved nothing is a measured zero; `omitempty` on a plain
 
 ## Recorded decision: a placement is a copy, and absence is not presence
 
- (, FR-34). An artifact's copies reach a client as
+Issue #240 (EPIC E, FR-34). An artifact's copies reach a client as
 `Artifact.placements`, and the shape is built so three different facts stay
 three different facts. They all read the same if a schema is careless, and the
 one that gets rendered as a green tick is the one an operator acts on.
@@ -382,7 +382,7 @@ because the journal recorded a finished copy. An artifact still transferring has
 none, and the `.partial` file `local_path` names is deliberately not one. The
 array is REQUIRED for the same reason: an optional array has three readings (a
 copy exists, no copy exists, the server did not say), and only two of them are
-ever true, so a client is always handed `` rather than a missing key it has to
+ever true, so a client is always handed `[]` rather than a missing key it has to
 interpret.
 
 **A copy the journal knows is gone is not served at all.** `status` admits
@@ -428,7 +428,7 @@ stores.
 
 ## Recorded decision: on a retention verdict, no medium means local
 
- (, FR-27 and FR-30). The retention preview carries three
+Issue #430 (EPIC E, FR-27 and FR-30). The retention preview carries three
 placement facts: `RetentionPlan.moves`, `RetentionPlan.unconfirmed_placements`,
 and `medium` on every verdict. Two of the three are spelled by absence, and I
 want the reason on the record rather than inferred from a diff.
@@ -436,10 +436,10 @@ want the reason on the record rather than inferred from a diff.
 **A verdict on the implicit local medium carries no `medium` key.** The obvious
 alternative was to serve `"medium": "local"` everywhere, the way
 `Placement.medium` already does, and I did not take it. Every deployment
-written before holds every copy locally, so that spelling would have put
+written before EPIC E holds every copy locally, so that spelling would have put
 a new key on every verdict of every response those deployments serve, to say
 the only thing that was ever true of them. Absence says the same thing and
-leaves them byte for byte as they were. `backupd retention` made the
+leaves them byte for byte as they were. `retnd retention` made the
 same call for the same reason (`mediumSuffix`), so the two operator surfaces
 now read alike instead of each having its own convention.
 
@@ -467,7 +467,7 @@ the operator read them is refused like any other stale plan.
 
 ## Recorded decision: the settings write carries a consent, not a setting
 
- (FR-27). `UpdateSettingsRequest.acknowledge_medium_disclosure` is the
+Issue #240 (FR-27). `UpdateSettingsRequest.acknowledge_medium_disclosure` is the
 only field on that request that asks for no change. It permits one.
 
 A write that newly sends a retention tier's artifacts to a non-local medium is
@@ -505,7 +505,7 @@ so a client that round-trips what it was served cannot re-consent by accident.
 
 ## Recorded decision: the two shapes `POST /system/first-run` declares
 
- adds the first-run setup pair, `GET` and `POST /system/first-run`.
+Issue #176 adds the first-run setup pair, `GET` and `POST /system/first-run`.
 Both shapes below were settled when they were declared rather than after,
 because a shape in this document is fixed until `v2`, and the two questions
 had answers that were not obvious.
@@ -627,7 +627,7 @@ landed must be able to ask the same question again with the same idempotency
 key and get the same answer, and "place a hold twice" is otherwise two holds.
 
 **CLI and Web parity becomes a property of the contract.** There is one
-mutating surface, so `backupd snapshot restore` and the Restore screen submit
+mutating surface, so `retnd snapshot restore` and the Restore screen submit
 the same operation with the same parameters. A second route for the browser
 is how two surfaces stop agreeing.
 
@@ -732,6 +732,205 @@ of the deployment: `REPOSITORY_DOMAIN_EXISTS` and
 
 There is still no route that EDITS, REMOVES or TRANSFERS a domain.
 
+## Recorded decision: recovery is a mint and a stream, and the stream is the first byte-range response in `/api/v1`
+
+EPIC Q (#976) adds two routes, and the second one is different from every other route in this document: it does not answer JSON.
+
+`POST /backups/{source}/{set}/{name}/recovery` mints a grant. `GET /recoveries/{grant}` redeems it. I did not make recovery a seventh `POST /operations` action because that route sits behind `requireDestructiveGate`, the only gate this repository ships never passes, and a recovery submitted there would be refused on every deployment it can build. A recovery reads. It deletes and overwrites nothing, so the mint carries `requireCSRF` and not the gate, which is the tier `retryFailedIngestion` already uses for an action with no effect on backup data.
+
+There is no role on `AuthContext`, so every authenticated caller can recover every backup. I wrote that down instead of hiding it, and the answer is audit: the grant is bound to the session that minted it (actor plus the session's lapse), single-use, short-lived, and gone when that session ends. Every mint and every served range writes one row to the action log naming the actor, the backup, the copy, the target and how it went, and a refusal or a failed range writes a row saying so. The generic action recorder skips a request whose handler wrote its own row, so one mint is one row...
+
+### What the stream promises
+
+- **A download is streamed from the retained copy, never staged, and refused before its first byte when it cannot complete.** Redeeming re-plans from the journal, then runs a pre-flight: the copy exists and is a regular file or a stat-able object, its size is the recorded size, its medium is readable now (not archive-class and unrestored, and a destination's own checksum, where it can attest one, does not contradict ours), and a verifying read of the whole copy matched the recorded SHA-256 and left a digest for every 4 MiB chunk. A failure there is an error response with its own code (`RECOVERY_NOT_READABLE`, `RECOVERY_LOCAL_COPY_CORRUPT`, `RECOVERY_REMOTE_COPY_CORRUPT`, and the others below) and no `200`. The first chunk a request will send is verified before the status line as well. The verifying read is made once per artifact and kept (digests only, 32 bytes per chunk), so a second download or a resume does not repeat it; for a billed remote copy the first download therefore reads the copy twice, once to prepare and once to send.
+- **What the pre-flight does not prove.** That the copy is still intact when the last chunk is read, that the client stays connected, or that a remote provider keeps answering. Every chunk is checked against its digest before any of it is sent, so bytes that rot after the preparation stop the stream at the first bad chunk: what already went out was good, and the bad chunk never does.
+- **A truncated body is never a clean end.** `Content-Length` is always set. If the copy fails verification mid-stream the server aborts the connection (HTTP/1) or resets the stream (HTTP/2) short of that length, so a client sees an incomplete body. When a request reads the whole artifact in order the whole-content SHA-256 is also computed on the way and compared before the last chunk is released. The end of a download is recorded in the action log as `recovery verified`, with the digest it matched, only when the ranges served add up to the whole artifact.
+- **Resume.** `ETag` is a strong validator derived from the artifact id and the recorded SHA-256, the same for every grant, copy and server process. `Range` with `If-Range: <ETag>` resumes a download, under the same grant or a new one after a crash or a sign-in, and returns the same bytes the first attempt would have. A stale `If-Range` gets the whole artifact. `Repr-Digest: sha-256=:<base64>:` carries the recorded digest of the whole artifact (also on a `206`), so a client can compare the digest of what it saved.
+- **`200` or `206`, `application/octet-stream`, `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`, `Accept-Ranges: bytes`.** The file name is the backup's own, escaped, and cannot add a header.
+- **One range per request.** Several in one are `416`, because an audit row names a range and a multipart answer has none. A client that wants resumability asks for the next range with the same link while the grant is open.
+- **The grant is spent** when every byte has been served (the ranges served so far, in any order and however they overlap, cover the whole copy; a tail range alone does not), when a request fails (a client that went away at 50% counts), when the client stops coming back inside the grant's lifetime (a timer in the serving process lets the download go, with no later request needed), or when the session ends (a logout, a password rotation or reset, or the session's own lapse). After that the same link is `410 RECOVERY_GRANT_USED`.
+- **A staging or storage target answers `200` JSON** (`RecoveryResult`) on the first request and streams nothing.
+- **The memory it needs is one chunk** (4 MiB), whatever the artifact's size, and a download uses no staging disk at all. (`RECOVERY_BELOW_RESERVE` and `RECOVERY_NO_SPACE` still apply to the staging and storage targets, which do stage.) `docs/perf/epic-q-recovery.md` has the measured peak resident set size for a 4 GiB artifact in both processes.
+
+### Several backups, or a whole set, to one destination: `POST /recoveries` (#1106, #1107)
+
+`POST /recoveries` recovers a list of backups (`artifacts`) or every restore point of a set (`set`, optionally `newest_only` or `since`) to one `staging` or `storage` target, as one operation. It is the same recovery as the mint and redeem above, done file by file by the same service code, so every refusal and budget above applies to each file. It carries `requireCSRF` and not the destructive gate, for the same reason the mint does, and it is not a `POST /operations` action.
+
+- **`preflight: true` answers `200` JSON** with the plan: every row with its status (`ready`, `needs_thaw`, `quarantined`, `unrecoverable`, `skipped`), the totals, the cost (`chargeable_count`, `chargeable_bytes`), the staging disk's `free_bytes` and `reserve_bytes`. When the run itself would be refused (the cost is not acknowledged, the files do not fit) the plan carries a `refusal` with the code and the sentence, which has the numbers in it, so a page can draw both.
+- **Without it, a refusal before the run is an ordinary error response** (`409 RECOVERY_COST_NOT_ACKNOWLEDGED`, `507 RECOVERY_NO_SPACE`, `400 RECOVERY_TARGET_INVALID`, `409 RECOVERY_USE_SNAPSHOT_RESTORE`) and nothing was read. A run answers `200 application/x-ndjson`: a `plan` line once the pre-flight passed, a `start` and an `item` line per file with `done_bytes` and `total_bytes`, and a `result` line last (`cancelled: true` when it was cancelled). Closing the connection cancels the run; the file being read is discarded and the manifest still records what was done.
+- **`download` is not a target.** Many files do not fit one browser download without an archive the host would have to build and keep. The refusal says where a set can go.
+- **The manifest** (`recovery-manifest.json`, beside the files, or at the key beside the objects) lists every row of the request with its status, size and SHA-256, and is built from the same rows as the `result` line.
+- **The UI host proxies the exact path `/api/v1/recoveries` on the same rolling-deadline proxy as the grant prefix.** A subtree pattern alone would answer the POST with a redirect, which turns it into a GET.
+
+### What it costs, and what refuses
+
+Recovery runs inside written budgets (`core/internal/recovery/budget`, #983), and every one is a refusal at the moment of spend:
+
+- **`429` with `Retry-After`** when a budget is full. `RECOVERY_READS_BUSY` (this host already runs its ceiling of full reads of retained copies), `RECOVERY_DESTINATION_BUSY` (the same, against that one destination) and `RECOVERY_DOWNLOADS_BUSY` (the process already streams its ceiling of downloads). Nothing was read, nothing was billed, and the grant is not spent: ask again with the same link.
+- **`507`** for `RECOVERY_BELOW_RESERVE`, when staging the copy would take the staging filesystem under its free-space reserve, and `RECOVERY_NO_SPACE` when it filled anyway.
+- Two operators asking for the same copy at the same moment share one read: a staged recovery shares the staging read, and a download shares the preparation read that builds its chunk index. Each is handed their own file or stream and writes their own audit row. The preparation read takes a read slot for its duration; the streaming after it takes none, because it is paced by the client and can take hours. It is bounded by the download-stream ceiling instead, which the first request takes and the grant keeps until it is spent.
+- The limits are properties of the host, not of a backup set. A platform adjusts them for every set at once through `capabilities.HostLimits`.
+
+The UI host (`retnd-ui`) is the front door in the two-container topology, so a download goes through its reverse proxy. That proxy bounds the wait for the engine's first response byte at five seconds and its server bounds a whole response at thirty, both right for JSON and both fatal to a download whose first request has to make the preparation read of the whole copy before the first byte. `/api/v1/recoveries/` gets its own proxy with no header bound and a write deadline that rolls with the client accepting bytes. A different gateway in front of that one needs the same treatment: a read timeout longer than the time to read the copy, and no response buffering.
+
+## Recorded decision: retained-copy encryption is fourteen operations, one write-only field and one route that returns key material (#993)
+
+EPIC N adds the `encryption` surface, all of it additive: nothing existing
+changes shape, and every new field on a request is optional.
+
+| Operation | Route |
+|---|---|
+| `getEncryptionPolicy`, `patchEncryptionPolicy`, `resetEncryptionPolicy` | `GET`, `PATCH /encryption/policy`, `POST /encryption/policy/reset` |
+| `setBackupSetEncryption`, `clearBackupSetEncryption` | `PUT`, `DELETE /backup-sets/{source}/{set}/encryption` |
+| `listEncryptionKeys`, `createEncryptionKey`, `rotateEncryptionKey`, `retireEncryptionKey` | `GET`, `POST /encryption/keys`, `POST .../keys/rotate`, `POST .../keys/{id}/retire` |
+| `exportRecoveryBundle`, `confirmRecoveryBundle` | `POST /encryption/keys/{id}/export`, `POST .../keys/{id}/confirm` |
+| `testEncryptionProvider` | `POST /encryption/providers/test` |
+| `listEncryptionCopies` | `GET /encryption/copies?artifact=` |
+| `startDecryptVerify` | `POST /encryption/verify` (answers `ScrubStarted`; cancel is the existing `POST /assurance/operations/{op}/cancel`) |
+| `planEncryptExisting`, `startEncryptExisting` | `GET`, `POST /encryption/encrypt-existing` (the dry run answers `EncryptExistingPlan`; the run answers `ScrubStarted` and is stopped by the same assurance cancel) |
+| `planReencrypt`, `startReencrypt` | `GET`, `POST /encryption/reencrypt?suite=&key=&deprecated=&destination=` (exactly one selector; the dry run answers `ReencryptPlan` grouped by suite and key; the run answers `ScrubStarted` and is stopped by the same assurance cancel) |
+
+Five error codes arrive with them: `ENCRYPTION_KEY_NOT_FOUND`,
+`ENCRYPTION_KEY_IN_USE` (the message names the copies), `ENCRYPTION_KEY_STATE`,
+`ENCRYPTION_KEY_UNRESOLVABLE` and `ENCRYPTION_UNAVAILABLE`.
+
+### A kopia set says it is satisfied by the repository
+
+`EncryptionSetPolicy.satisfied_by` is `"repository"` for a set on the `kopia` engine and absent
+for every other set (an additive field). That set's repository is always encrypted by kopia under
+the repository passphrase, so `required` on it layers nothing and no managed key is consulted
+(ADR 0028 decision 4).
+
+### The key-reference field is write-only
+
+A request declares an external key as `{file | env | command}`
+(`EncryptionKeyReference`). Nothing answers with that shape. A response says
+`{kind, source}` (`EncryptionKeyProviderState`), where `source` is the
+reference's own description: a path, a variable name, or an executable without
+its arguments. The reference type has no `UnmarshalJSON`
+(`core/internal/secretref`), so a description read back from a response cannot
+re-declare a key. No key id appears in any metric label.
+
+### The one route that returns key material, and the open question
+
+`exportRecoveryBundle` answers with a `RecoveryBundle`, the single shape that
+carries managed key material. It is the browser's "Download bundle" and the
+terminal's `encryption key export --out FILE`. It is gated like a validator
+upload (the destructive gate and, where the gate opens for local accounts, the
+password), answers `Cache-Control: no-store` as an attachment, and is never
+rendered.
+
+**Open decision, not settled here:** whether the API should return the bundle at
+all. The browser keeps the download for now. If the answer is no, the route is
+removed, the browser's export becomes an instruction to run the echoed command,
+and nothing else in this surface depends on it.
+
+### Fields the Backups list and the key card read (additive)
+
+`Placement` (so `GET /backups` and the artifact detail) gains `encrypted`,
+`encryption_key_id` and `encryption_key_resolvable`, all absent for a plaintext
+copy. `EncryptionCopy` gains `stored_digest` (the ciphertext bytes) and
+`plaintext_digest` (`artifacts.local_hash`), two different values by
+construction. `EncryptionKeyStatus` gains `copies_recording` (ACTIVE copies
+that record the key) and `bundle_exported_at` (absent if never exported).
+
+`Placement` also gains `encryption_suite` (#1318): the suite the copy's record
+names, which is its format id read back, never the policy's current suite.
+Absent for a plaintext copy and from an older server, so the Encrypted chip
+draws no id rather than a guessed one.
+
+### Progress stages for an encrypted copy
+
+`OperationProgress.stage` and `LiveActivitySet.stage` gain `encrypting` and
+`decrypt-verifying`, appended after the original five, so a client that handled the
+five still handles them as before and treats the new two as it treats any stage it
+does not draw. They carry the existing `bytes_transferred` and `bytes_total` (a
+non-zero total only when it is known, `bytes_per_second` absent). A decrypt-verify
+started with `POST /encryption/verify` still rides the scrub operation and reports
+`bytes_read` in its result; its durable record names no stage.
+
+### Not decided here
+
+External key provider support goes beyond the `file | env | command` reference and
+is not extended by this surface; it can be added later without breaking it.
+
+## Recorded decision: agent routes, and the bearer rule (EPIC U, #1343)
+
+EPIC U adds a first principal that is not a person, and with it the routes below and one rule about
+who may present what. The decision record is [ADR 0034](../adr/0034-an-agent-is-a-scoped-client-of-the-api.md);
+this section is what a client of `/api/v1` needs to know.
+
+### The routes
+
+| Route | Who may call it |
+|---|---|
+| `GET /agent/tokens`, `POST /agent/tokens`, `POST /agent/tokens/{id}/revoke` | a signed-in session only. `/agent/tokens` is on the deny list below, so no bearer token, of any scope, mints, lists or revokes a token |
+| `GET /agent/tools` | the catalogue: every tool with its scope and its static description, and every refused route with its reason |
+| `GET /agent/audit` | the audit, one row per call an agent made, paged by cursor |
+| `GET /agent/confirmations`, `POST /agent/confirmations/{id}/approve`, `POST /agent/confirmations/{id}/deny` | the operator's side of a confirmation. Approve needs a step-up (the password again) and takes no request body of its own: a body supplied at approval is refused |
+| `POST /agent/mcp`, `GET /agent/mcp`, `DELETE /agent/mcp` | the MCP endpoint, bearer only: a cookie session is refused. Answers `AGENT_HTTP_TRANSPORT_OFF` until `agents.http_transport: on` |
+
+A token is returned once, by `POST /agent/tokens`, in a field that exists on that response and no
+other. Every other route that mentions a token (the list, the revoke, the audit, the confirmations)
+carries its id and its eight-character prefix and never the token or its hash.
+
+### The bearer rule
+
+- A bearer is an agent token only if it carries the `rat_` prefix. Any other `Authorization`
+  header, `Bearer` or not, is not ours and is ignored, so a front proxy's own header is left alone.
+- A deployment with no token store at all (the first-run router, a backend that keeps no journal)
+  has nothing to check a `rat_` bearer against and ignores it, except on the denied routes below,
+  which refuse it. A deployment with a store and no tokens refuses a `rat_` bearer
+  `401 AGENT_TOKEN_INVALID`, the same as any unknown one.
+- A valid agent token authenticates as the principal `agent:<name>`, which is what every `Actor`
+  field records. An unknown, expired or revoked token is `401 AGENT_TOKEN_INVALID` before any
+  handler runs, and the refusal is audited. A token is looked up on every request, so a revocation
+  takes effect on the next one. A request that presents a bearer is never also given the benefit of
+  a cookie.
+- `requireCSRF` passes a bearer principal without cookies, and nobody else: CSRF defends a
+  credential the browser sends by itself, and a header is not one. A cookie session keeps the pair.
+- The denied routes refuse a bearer `403 AGENT_ROUTE_DENIED` whatever its scope, and the check
+  comes before the token is looked up. The list is `core/agenttools/denied.go`, and `GET
+  /agent/tools` returns every entry with its reason as a refusal row. By family: `/auth/*`,
+  `/system/first-run/*`, `/recoveries/*` and `POST` of a backup's `/recovery`; the token, audit and
+  confirmation routes (`/agent/tokens/*`, `/agent/audit/*`, `GET /agent/confirmations`, `POST
+  /agent/confirmations/*`); key custody (`/encryption/keys/*`, `/encryption/providers/*`);
+  storage credentials and SSH (`/storage-credentials/*`, `/storage-mediums/preflight`, a medium's
+  `preflight` and `configuration/*`, `/ssh-keys/*`, `/ssh/*`); workflow secrets, step logs and
+  validator scripts; and the changes nobody confirms their way into (create or delete a backup set
+  or a medium, a catalog rebuild, a retention apply, a quarantine reinstate).
+- Below that, a bearer reaches only what the catalogue offers, the floor. A safe request must hit
+  the route a read tool sits on (matched on the router's own pattern, so a deeper route that shares
+  a prefix is not offered), the state of a confirmation the token proposed, or the MCP endpoint;
+  anything else is `403 AGENT_ROUTE_DENIED`, though it is only a read. A change is never made
+  directly: a `read` token that tries is `403 AGENT_SCOPE_INSUFFICIENT`; an `operate` or
+  `configure` token on a route and action the catalogue has a tool over is told a person has to
+  confirm it (`409 AGENT_CONFIRMATION_REQUIRED`), and the change is a pending confirmation until
+  one does; any other change is `403 AGENT_ROUTE_DENIED` and creates nothing.
+- A token over `agents.rate_limit_per_minute` is refused `AGENT_RATE_LIMITED`, with the wait. The
+  MCP frames that are not tool calls (initialize, tools/list, ping, notifications) count too.
+- Every call a token makes is audited before it is dispatched. While the audit cannot be written
+  (the writer stayed full for five seconds, or the journal is refusing writes) the call is refused
+  `503 AGENT_AUDIT_UNAVAILABLE` and nothing runs, and that includes a raw bearer call that names no
+  tool. The next write that lands clears it.
+
+### The codes, which are compatibility surfaces
+
+`AGENT_TOKEN_INVALID`, `AGENT_TOKEN_NOT_FOUND` (404, a revoke of an id that is not there),
+`AGENT_SCOPE_INSUFFICIENT`, `AGENT_ROUTE_DENIED`, `AGENT_RATE_LIMITED`,
+`AGENT_HTTP_TRANSPORT_OFF`, `AGENT_AUDIT_UNAVAILABLE` (503), `AGENT_CONFIRMATION_REQUIRED`,
+`AGENT_CONFIRMATION_NOT_FOUND` (404), `AGENT_CONFIRMATION_EXPIRED` (409),
+`AGENT_CONFIRMATION_DECIDED` (409, already approved or denied), `AGENT_CONFIRMATION_TOKEN_ENDED`
+(409, the proposing token was revoked or expired before the decision),
+`AGENT_CONFIRMATION_LIMIT` (429) and `AGENT_CONFIRMATION_BODY_SUBSTITUTED`. Like the scope words
+(`read`, `operate`, `configure`), the tool names and the `agent_action` event, they are never
+renamed and never removed while a token or an audit row records them. A tool result carries the
+API's own `code`, `message` and correlation id, and an `exit_code` that equals what `retnd` exits
+with for the same call. One code exists only in a tool result and never on the wire:
+`AGENT_UNEXPECTED_ANSWER`, for a proposed change the engine answered as if it had run, which
+nothing here asked a person to approve; the result says to treat it as not confirmed and to tell an
+operator.
+
 ## Migration record: what was removed and what replaced it
 
 | removed | replaced by |
@@ -747,17 +946,17 @@ domain types the rest of the app speaks. What changed is only where the wire
 half comes from.
 
 `apps/common/webhost/handlers_system.go` gained one field,
-`capabilities_response.platform`, because the capability shape documents
+`capabilities_response.platform`, because the capability shape #166 documents
 reports which platform the capabilities belong to. It is additive, and it is
 explicitly not something to branch on: the UI-side check above fails on a
 platform-name conditional in `ui/shared`.
 
 ## Recorded, deliberately not fixed here
 
- says an endpoint whose shape is genuinely wrong gets recorded rather than
+#166 says an endpoint whose shape is genuinely wrong gets recorded rather than
 redesigned in this issue. Three things qualify.
 
-1. **`httpApi` calls fourteen paths the runtime does not serve.** `getVersion`
+1. **`httpApi` calls fourteen paths the runtime does not serve.** `getVersion()`
    requests `/api/v1/version` while the runtime serves `/api/v1/system/version`,
    so the shared UI's version banner cannot ever have worked against a real
    server; `getHealth`, `listOperations`, `listActivity`, `listQuarantine`,
@@ -783,6 +982,6 @@ redesigned in this issue. Three things qualify.
 
 The capability response is also flat (`platform` and the five booleans as
 siblings) rather than nesting the booleans under a `capabilities` key the way
-'s illustrative JSON does. Nesting would break every existing reader for no
-gain the contract needs, and forbids reshaping endpoints beyond what the
+#166's illustrative JSON does. Nesting would break every existing reader for no
+gain the contract needs, and #166 forbids reshaping endpoints beyond what the
 contract requires.

@@ -8,7 +8,7 @@ store compose file under `apps/zimaos/`.
 That store's own published requirements: https://www.zimaspace.com/docs/developer/app-store-compose-x-casaos
 
 ZimaOS installs a third-party application by reading one docker-compose file carrying an
-`x-casaos` block, so `apps/zimaos/compose/backupd.yml` is both the runtime
+`x-casaos` block, so `apps/zimaos/compose/retnd.yml` is both the runtime
 definition and the whole submission. Everything outside `x-casaos` is derived from
 `container/compose.yaml` and held to it field by field; everything inside it is store
 presentation and reaches no Go package and no shared UI module.
@@ -53,14 +53,14 @@ privileged mode, and no mandatory telemetry. The current result for this target 
 
 ## Before submitting
 
-- `container/release-manifest.json` pins a commit that is on the main branch, so the
+- [ ] `container/release-manifest.json` pins a commit that is on the main branch, so the
       bytes in this submission can be traced to a recorded build. The preflight decides
       this; the box is here because a submission is checked by a person, not only by a gate.
-- The acceptance run in `docs/acceptance/store-submission-preflight.md` has been done on
+- [ ] The acceptance run in `docs/acceptance/store-submission-preflight.md` has been done on
       real hardware and accepted.
-- The acceptance run in `docs/acceptance/zimaos-app-store-install.md` has been done on
+- [ ] The acceptance run in `docs/acceptance/zimaos-app-store-install.md` has been done on
       real hardware and accepted.
-- The screenshots exist and are of that run.
+- [ ] The screenshots exist and are of that run.
 
 ### How to read the State column
 

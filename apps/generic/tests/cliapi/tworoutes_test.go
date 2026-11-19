@@ -26,11 +26,11 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/backupdproject/backupd/apps/common/auth/local"
-	"github.com/backupdproject/backupd/apps/common/platform/profile"
-	"github.com/backupdproject/backupd/apps/common/webhost/serve"
-	"github.com/backupdproject/backupd/core/apicontract"
-	"github.com/backupdproject/backupd/core/service"
+	"github.com/retnd/retnd/apps/common/auth/local"
+	"github.com/retnd/retnd/apps/common/platform/profile"
+	"github.com/retnd/retnd/apps/common/webhost/serve"
+	"github.com/retnd/retnd/core/apicontract"
+	"github.com/retnd/retnd/core/service"
 )
 
 // Issue #545, the last of #536: the two routes an operator can change this
@@ -47,7 +47,7 @@ import (
 // against a stand-in engine for exactly that reason, and both said so.
 //
 // A test can still put the two together, as long as it does not import
-// them both: this package runs the real backupd BINARY as a
+// them both: this package runs the real retnd BINARY as a
 // subprocess, and stands up the real apps/common/webhost/serve engine and
 // the real UI host in process. Nothing here is a stand-in. The CSRF cookie
 // is minted by apps/common/csrf, the session by apps/common/auth/local, the
@@ -83,7 +83,7 @@ import (
 //
 // There used to be a second, and #555 closed what it recorded. A routed
 // write compared nothing at all, so one wrong character in
-// $BACKUP_MANAGER_API_URL sent the change into a different deployment's
+// $RETND_API_URL sent the change into a different deployment's
 // engine and both surfaces reported success. It now asks the engine which
 // deployment it serves before it sends anything and refuses when that is
 // not the deployment the command was typed at, which is what
@@ -97,7 +97,7 @@ import (
 // # The Web UI itself
 //
 // A browser is not driven from here. The Web UI's data is these responses:
-// it holds no configuration of its own, and backupdproject/backupd-tests
+// it holds no configuration of its own, and retnd/retnd-tests
 // Suite B is what drives the rendered thing. What is driven here is the
 // exact HTTP surface the browser talks to, through the published port,
 // which is the half of "visible in the Web UI" that can be wrong.
@@ -129,7 +129,7 @@ type stack struct {
 // startStack brings up everything a real deployment has except the
 // container boundary, over the configuration configPath names.
 //
-// The order is the order apps/generic/cmd/backupd-web uses and it
+// The order is the order apps/generic/cmd/retnd-web uses and it
 // is load-bearing: AnnounceServing before service.Open, so a CLI that
 // arrives mid-start finds the announcement rather than a half-open
 // journal. core/service's liveengine.go has the whole arrangement.
@@ -153,7 +153,7 @@ func startStack(t *testing.T, configPath string) *stack {
 	// administrator was never written to and every login would fail for a
 	// reason that has nothing to do with what is under test.
 	storePath := filepath.Join(t.TempDir(), "local-auth.json")
-	// The same provisioning path `backupd-web auth create-admin`
+	// The same provisioning path `retnd-web auth create-admin`
 	// takes, rather than the bootstrap-token enrolment the neighbouring
 	// file uses: this test needs a username and password to hand the CLI,
 	// and that is the command an operator runs to get one.
@@ -324,7 +324,7 @@ type invocation struct {
 }
 
 func (r invocation) String() string {
-	return fmt.Sprintf("backupd %s\nexit %d\nstdout:\n%s\nstderr:\n%s",
+	return fmt.Sprintf("retnd %s\nexit %d\nstdout:\n%s\nstderr:\n%s",
 		strings.Join(r.argv, " "), r.code, r.stdout, r.stderr)
 }
 
@@ -335,16 +335,34 @@ func (r invocation) output() string { return r.stdout + r.stderr }
 // runCLI runs the real binary with the route settings env carries.
 //
 // The environment is built from scratch rather than inherited, so a
-// developer with $BACKUP_MANAGER_API_URL exported for their own deployment
+// developer with $RETND_API_URL exported for their own deployment
 // runs the same suite CI does. That is route.go's clearInheritedRouteSettings
-// one process boundary out.
+// one process boundary out, and it clears the deprecated spellings for the
+// same reason that function does: for one release this binary reads those
+// too (EPIC R, #885), so a scrub naming only the current three would
+// leave the route present on exactly the machine the compatibility window
+// exists for.
+//
+// The incremental engine's gate is blanked beside them, and for the same
+// defect rather than as tidying: RETND_INCREMENTAL_ENGINE beats
+// incremental_engine.enabled in config.yaml in BOTH directions
+// (core/internal/config/incrementalengine.go), so a developer who has
+// turned that engine on for their own deployment would otherwise drive
+// the snapshot and repository rows below against a different product
+// than CI does. Its deprecated spelling goes with it for #885's reason.
+// An empty value is "the file decides", which is what every fixture here
+// wants.
 func runCLI(t *testing.T, bin string, env map[string]string, argv ...string) invocation {
 	t.Helper()
 	cmd := exec.Command(bin, argv...)
 	cmd.Env = append(os.Environ(),
+		"RETND_API_URL=",
+		"RETND_API_USERNAME=",
+		"RETND_API_PASSWORD=",
 		"BACKUP_MANAGER_API_URL=",
 		"BACKUP_MANAGER_API_USERNAME=",
 		"BACKUP_MANAGER_API_PASSWORD=",
+		"RETND_INCREMENTAL_ENGINE=",
 	)
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
@@ -374,9 +392,9 @@ func asExitError(err error, target **exec.ExitError) bool {
 // routeTo is the environment that makes engine-attached mode carryable.
 func routeTo(base string) map[string]string {
 	return map[string]string{
-		"BACKUP_MANAGER_API_URL":      base,
-		"BACKUP_MANAGER_API_USERNAME": testAdmin,
-		"BACKUP_MANAGER_API_PASSWORD": testPassword,
+		"RETND_API_URL":      base,
+		"RETND_API_USERNAME": testAdmin,
+		"RETND_API_PASSWORD": testPassword,
 	}
 }
 
@@ -423,7 +441,7 @@ func createArgs(configPath, keyPath, id string, extra ...string) []string {
 		// Every test in this package is about where the change LANDS, on
 		// which route, in which mode, so they skip the check the way an
 		// operator building configuration offline does. Whether the check
-		// happens at all is core/cmd/backupd's own suite, and
+		// happens at all is core/cmd/retnd's own suite, and
 		// whether it happens against two real machines is
 		// scripts/e2e/two-machine-backup.sh.
 		"--no-verify",
@@ -460,7 +478,7 @@ const newSetID = "api/postgres"
 // with a published port at all, so it is what a NAS shell reaches; that
 // path adds StripUntrustedIdentity, SecurityHeaders, a reverse proxy and a
 // SECOND EnsureCSRFCookie in front of the engine's own, and a cold request
-// through it carries two Set-Cookie: backupd_csrf headers on one response. PR
+// through it carries two Set-Cookie: retnd_csrf headers on one response. PR
 // #546's review flagged that as untested and unreachable from where the
 // client lives. It is reachable from here.
 //
@@ -526,7 +544,7 @@ func TestARoutedMutationIsVisibleOverHTTPWithoutARestart(t *testing.T) {
 // #535 fixed.
 //
 // It is the shipped container's own default: nothing sets
-// $BACKUP_MANAGER_API_URL, so a `docker exec ... backupd backup-set
+// $RETND_API_URL, so a `docker exec ... retnd backup-set
 // create` finds a serving engine, has no route to it, and stops. That is
 // worth driving on its own, because the first proof passes on a deployment
 // that has been told where its engine is and most have not been.
@@ -698,6 +716,15 @@ type surface struct {
 	// operand it names exists.
 	needsArtifacts bool
 
+	// seed is a top-level block appended to the fixture's config before the
+	// row runs, for a write whose subject the stock fixture does not have.
+	// `encryption policy reset` removes the deployment's encryption block,
+	// and on a deployment with none it has nothing to remove: it exits 0,
+	// says the policy is off, and the engine's configuration is the same
+	// one it served before, which is the right answer and not a lost write
+	// (#1361).
+	seed string
+
 	// skipDirect is for the one command that does not exit on its own.
 	skipDirect bool
 
@@ -705,6 +732,20 @@ type surface struct {
 	// driven. A row with a surprising declaration and no note is a row
 	// somebody should have to justify in review.
 	note string
+
+	// says is a fragment of what this invocation prints, and it is what
+	// keeps an exit code from being the whole of a row's claim.
+	//
+	// An exit code cannot tell a refusal for the reason a row names from
+	// a refusal for any other reason: a binary that fell over before it
+	// read its configuration exits non-zero too, and so does one that
+	// refused for a subject the row never meant to name. The four rows
+	// #895 added are refusals or empty answers, so each names the
+	// sentence its outcome is recognisable by, and both arms below hold
+	// it to that sentence as well as to the code. The rows that predate
+	// #895 carry none; giving them one is worth doing and is not this
+	// issue's change.
+	says string
 }
 
 // surfaces is every dispatched verb, driven.
@@ -714,6 +755,18 @@ type surface struct {
 // good backups does not have (a quarantined artifact, a FAILED one, a
 // configured storage medium, an archived copy), and what their rows prove
 // is that they refuse for the missing subject and never for a route.
+//
+// Four verbs arrived from EPIC K and EPIC L with no row at all, and the
+// tripwire below has failed on them ever since; #895 is where they are
+// driven. Their subject is missing in a different way from the rows
+// above. `snapshot` and `repository` are refused by this deployment's
+// own incremental-engine gate, which is shut unless an operator opts in,
+// so the fixture cannot reach their answers by configuring anything it
+// already configures; `workflow` reads a journal that holds no hook run;
+// and `workflow-runner` asks a host the installer has never provisioned.
+// Three refusals and one empty answer, and each of the four names the
+// sentence it is recognisable by in says, because what makes a refusal
+// worth a row is which refusal it is.
 var surfaces = []surface{
 	{verb: "run", name: "one cycle", mode: "", exit: 0,
 		argv: func(f fixture) []string { return []string{"run", "--config", f.configPath} }},
@@ -736,8 +789,8 @@ var surfaces = []surface{
 		argv: func(f fixture) []string {
 			return []string{"backup-set", "--config", f.configPath, "remove", f.setID}
 		}},
-	{verb: "backup-set", name: "retention, setting a policy", mode: "direct", exit: 0, writes: true, routed: false,
-		note: "#543 left this unrouted on purpose: the policy is a whole chain read from flags or stdin and the preview beside it is #544's, so routing half of it would be worse than routing none",
+	{verb: "backup-set", name: "retention, setting a policy", mode: "direct", exit: 0, writes: true, routed: true,
+		note: "#543 left this unrouted; #1148 routed it, so beside a serving engine it is PUT /backup-sets/{source}/{set}/retention and the policy is still a whole chain read from flags or stdin",
 		argv: func(f fixture) []string {
 			// A whole chain, because an override replaces the
 			// deployment's whole chain rather than merging with it, and a
@@ -748,6 +801,8 @@ var surfaces = []surface{
 		}},
 	{verb: "artifacts", name: "the whole journal", mode: "direct", exit: 0, needsArtifacts: true,
 		argv: func(f fixture) []string { return []string{"artifacts", "--config", f.configPath} }},
+	{verb: "artifacts", name: "the count the console's Backups badge shows (#1186)", mode: "direct", exit: 0, needsArtifacts: true,
+		argv: func(f fixture) []string { return []string{"artifacts", "--count", "--config", f.configPath} }},
 	{verb: "activity", name: "the durable log", mode: "direct", exit: 0, needsArtifacts: true,
 		argv: func(f fixture) []string { return []string{"activity", "--config", f.configPath} }},
 	{verb: "activity", name: "the live feed, which only a serving engine has", skipDirect: true, exit: 0,
@@ -765,10 +820,54 @@ var surfaces = []surface{
 		argv: func(f fixture) []string { return []string{"reconcile", "--config", f.configPath} }},
 	{verb: "validate", name: "one durable copy", mode: "", exit: 0, needsArtifacts: true,
 		argv: func(f fixture) []string { return []string{"validate", "--config", f.configPath, f.artifactID} }},
+	{verb: "scrub", name: "one named backup, checked now whether or not it is due", mode: "direct", exit: 0, needsArtifacts: true,
+		note: "scrub reads copies and records what it found in the journal, so it writes no configuration, but unlike validate beside it the driver (#978) enters read mode and announces it, which makes it the sixth read that names a mode. Naming the artifact is the operator saying now, which makes the pass check it even though nothing is due yet, so the row proves work happened rather than an empty schedule",
+		argv: func(f fixture) []string { return []string{"scrub", "--config", f.configPath, f.artifactID} }},
 	{verb: "catalog", name: "rebuild, previewed", mode: "", exit: 0, needsArtifacts: true,
 		argv: func(f fixture) []string {
 			return []string{"catalog", "--config", f.configPath, "rebuild", "--dry-run"}
 		}},
+	{verb: "recovery-test", name: "the newest good copy of one set, refused because the fixture declares no validator", mode: "", exit: 1, needsArtifacts: true,
+		says: "no recovery-test validator is declared for this backup set",
+		note: "the terminal's door to the test the scheduler runs. It finds the newest known good copy and then stops, because the test is only worth running against a script the operator named and this fixture names none; that is the refusal an unconfigured deployment gets, and it is worth pinning for what it is not, which is a pass. It records its outcome in the journal and touches no configuration, and it names no mode",
+		argv: func(f fixture) []string { return []string{"recovery-test", "--config", f.configPath, f.setID} }},
+	{verb: "assurance", name: "cancel, with no engine serving to hold the operation", mode: "direct", exit: 1, routed: true,
+		says: "has no route to one",
+		note: "a running scrub or recovery test is the work of the serving process and its cancel function lives in that process's memory, so with nothing serving there is nothing to cancel. It refuses, naming how to reach an engine, rather than answering not-found from a world where the question has no meaning. It is routed (#980) because it can only ever be carried by an engine, so beside one it cannot reach it refuses and prints nothing, which is the opposite of what the reads test asks of a read",
+		argv: func(f fixture) []string {
+			return []string{"assurance", "cancel", "--config", f.configPath, "00000000-0000-4000-8000-000000000001"}
+		}},
+	{verb: "auth", name: "password, with no engine serving to hold the account", mode: "", exit: 1, routed: true,
+		says: "has no route to one",
+		note: "the administrator's account belongs to the process serving the deployment: its store is locked by that process and its sessions live in its memory, so a password changed anywhere else would leave signed-in sessions standing on a credential that no longer exists. With nothing serving there is nothing to change, so it refuses before it reads stdin, naming how to reach an engine and the offline retnd-web auth set-password for a locked-out account (#1155)",
+		argv: func(f fixture) []string {
+			return []string{"auth", "password", "--password-stdin", "--config", f.configPath}
+		}},
+	{verb: "ssh-key", name: "list, with nothing serving", mode: "direct", exit: 0, routed: true,
+		note: "the key store belongs to whichever process uses the keys. It goes through the door configuration writes go through, so beside an engine it cannot reach it is refused rather than answering about a store that process does not read, and with nothing serving it lists this host's own (#1153)",
+		argv: func(f fixture) []string { return []string{"ssh-key", "list", "--config", f.configPath} }},
+	{verb: "agent", name: "token list, with nothing serving", mode: "direct", exit: 0, routed: true,
+		note: "agent tokens are rows in the journal of whichever process serves the deployment, and the token verbs go through the door configuration writes go through, so beside an engine they cannot reach they refuse rather than answer from a journal that engine does not read, and with nothing serving they act on this host's own. A fresh fixture has minted none, so the list is empty (#1345)",
+		argv: func(f fixture) []string { return []string{"agent", "token", "list", "--config", f.configPath} }},
+	{verb: "ssh", name: "host-key-probe, of a port nothing answers on", mode: "direct", exit: 1, routed: true,
+		note: "a probe is only worth running from the machine the backups travel from, so it goes through the same door as the key store. Nothing listens on port 1 here, so this refuses for the connection and writes nothing; a probe never trusts or persists anything (#1153)",
+		argv: func(f fixture) []string {
+			return []string{"ssh", "host-key-probe", "127.0.0.1", "--port", "1", "--config", f.configPath}
+		}},
+	{verb: "operation", name: "list, with no engine serving to hold the operations", mode: "direct", exit: 1, routed: true,
+		says: "has no route to one",
+		note: "the operations a scrub or a recovery test starts live in the memory of the serving process, so with nothing serving there is nothing to list. It refuses, naming how to reach an engine, rather than answering an empty list from a world that has no operations (#1149)",
+		argv: func(f fixture) []string { return []string{"operation", "list", "--config", f.configPath} }},
+	{verb: "system", name: "capabilities, with no engine serving to declare a platform", mode: "", exit: 1, routed: true,
+		says: "system capabilities",
+		note: "what the platform can do, and whether the destructive gate is open, are facts about the serving process; this binary can only invent them, so with nothing serving it refuses rather than answer (#1152, #1165)",
+		argv: func(f fixture) []string { return []string{"system", "capabilities", "--config", f.configPath} }},
+	{verb: "validators", name: "the catalog compiled into this binary", mode: "", exit: 0,
+		note: "the catalog is a property of the binary, so it answers the same with or without a configuration or an engine (#1152)",
+		argv: func(f fixture) []string { return []string{"validators", "--config", f.configPath} }},
+	{verb: "storage", name: "the capacity reading", mode: "", exit: 0,
+		note: "this manager's own consumption against the volume it writes to, read from this host's own state; it writes nothing (#1154)",
+		argv: func(f fixture) []string { return []string{"storage", "--config", f.configPath} }},
 	{verb: "quarantine", name: "revalidate", mode: "", exit: 1, needsArtifacts: true,
 		note: "nothing here is quarantined, so this refuses for the missing subject",
 		argv: func(f fixture) []string {
@@ -793,12 +892,52 @@ var surfaces = []surface{
 		argv: func(f fixture) []string {
 			return []string{"restore", "--config", f.configPath, f.artifactID, "--medium", "no-such-medium", "--acknowledge"}
 		}},
+	{verb: "recover", name: "one backup, streamed to standard output", mode: "", exit: 0, needsArtifacts: true,
+		note: "--to - sends the bytes to standard output, so the row leaves nothing on disk to clean up; recovery reads a copy and writes no configuration, and it names no mode",
+		argv: func(f fixture) []string {
+			return []string{"recover", "--config", f.configPath, f.artifactID, "--to", "-"}
+		}},
+	{verb: "recover", name: "a whole backup set to a folder under the staging root", mode: "", exit: 0, needsArtifacts: true,
+		note: "--set recovers every restore point of the set into one destination through the same service call POST /api/v1/recoveries makes (#1106); like the single-backup row it reads copies and writes no configuration, so it names no mode, and what it writes is files under the staging root and a manifest beside them",
+		argv: func(f fixture) []string {
+			return []string{"recover", "--config", f.configPath, "--set", f.setID, "--to", "whole-set"}
+		}},
+	{verb: "snapshot", name: "list, refused because this deployment's incremental engine is switched off", mode: "", exit: 1,
+		says: "the incremental (kopia) backup engine is disabled in this deployment",
+		note: "EPIC K's whole surface sits behind a gate that is shut until a deployment opts in, and this fixture is an ordinary artifact-engine deployment, so the honest outcome here is that refusal and not a snapshot history. It is worth pinning for what it is not: an empty list would tell an operator this backup set has taken no snapshots, when what is true is that nothing in this deployment could have taken one",
+		argv: func(f fixture) []string {
+			return []string{"snapshot", "--config", f.configPath, "list", f.setID}
+		}},
+	{verb: "repository", name: "health, refused by that same shut gate rather than reporting no repositories", mode: "", exit: 1,
+		says: "the incremental (kopia) backup engine is disabled in this deployment",
+		note: "the other half of the gate above, and why both rows exist rather than one. `repository health` has an answer of its own for a deployment that declares no domain, and it never reaches it here, so what this row pins is which of those two an operator is actually being told: the domains are not missing, the engine that would hold them is off",
+		argv: func(f fixture) []string { return []string{"repository", "--config", f.configPath, "health"} }},
 	{verb: "settings", name: "the live policy", mode: "", exit: 0,
 		note: "the settings READ is not routed. #543 routed the write and left the read where it was, so this is one of the reads that still names no mode at all",
 		argv: func(f fixture) []string { return []string{"settings", "--config", f.configPath} }},
 	{verb: "settings", name: "patch", mode: "direct", exit: 0, writes: true, routed: true,
 		argv: func(f fixture) []string {
 			return []string{"settings", "--config", f.configPath, "patch", "--timezone", "Europe/Berlin"}
+		}},
+	{verb: "encryption", name: "the policy of a deployment that encrypts nothing", mode: "", exit: 0,
+		note: "the encryption READ is this host's own file, as settings is; the writes below are the routed half",
+		argv: func(f fixture) []string { return []string{"encryption", "policy", "--config", f.configPath} }},
+	{verb: "encryption", name: "policy reset", mode: "direct", exit: 0, writes: true, routed: true,
+		seed: "retained_copy_encryption:\n  mode: required\n  key_provider:\n    managed: true\n",
+		argv: func(f fixture) []string { return []string{"encryption", "policy", "reset", "--config", f.configPath} }},
+	{verb: "workflow", name: "run list, on a deployment whose hooks have never run", mode: "", exit: 0,
+		says: "no workflow run is on record here",
+		note: "a workflow run is durable journal rows, written by whichever process executed it and readable by anything that can open the database, so this read needs no route to a serving engine and takes none; workflow.go's own preamble makes that argument and puts it beside `activity` without --follow. What the row pins is the empty answer, which distinguishes a deployment that configures no hooks from one whose hooks have not run yet and names the command that tells them apart",
+		argv: func(f fixture) []string { return []string{"workflow", "run", "list", "--config", f.configPath} }},
+	{verb: "workflow-runner", name: "status, refused because this host has never provisioned a runner", mode: "", exit: 1,
+		says: "a deployment that has never provisioned the workflow runner has none",
+		note: "the one verb in this table that talks to a HOST rather than to a deployment, which is why it takes three host directories and no --config at all: the engine container is distroless and a `.local.sh` hook runs in a process outside it (#809). Nothing here provisions that runner and nothing should, so what is driven is the answer every machine the installer has not run on gives, and the row pins that it names the installer rather than leaving an operator to guess at a missing socket",
+		argv: func(f fixture) []string {
+			host := filepath.Dir(f.configPath)
+			return []string{"workflow-runner", "status",
+				"--runtime-dir", filepath.Join(host, "runner-run"),
+				"--workspace-dir", filepath.Join(host, "runner-workspace"),
+				"--secrets-dir", filepath.Join(host, "runner-secrets")}
 		}},
 	{verb: "version", name: "the build stamp", mode: "", exit: 0,
 		argv: func(_ fixture) []string { return []string{"version"} }},
@@ -818,6 +957,18 @@ func newFixture(t *testing.T, bin string, s surface) fixture {
 		artifactID: "production/pg/db-2026-08-01.dump",
 		keyPath:    writePrivateKey(t),
 	}
+	if s.seed != "" {
+		cfg, err := os.OpenFile(configPath, os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			t.Fatalf("opening the fixture config: %v", err)
+		}
+		if _, err := cfg.WriteString("\n" + s.seed); err != nil {
+			t.Fatalf("seeding the fixture config: %v", err)
+		}
+		if err := cfg.Close(); err != nil {
+			t.Fatalf("closing the fixture config: %v", err)
+		}
+	}
 	if s.needsArtifacts {
 		// One real cycle, so the operand this row names is a backup that
 		// exists rather than a string. A row whose subject is missing
@@ -836,7 +987,7 @@ func newFixture(t *testing.T, bin string, s surface) fixture {
 // The verbs are read out of the binary's own usage block rather than typed
 // here, so a verb that lands over there fails here without anybody
 // remembering this file exists. What makes that sound is
-// core/cmd/backupd's TestUsage_NamesEveryTopLevelCommand, which pins
+// core/cmd/retnd's TestUsage_NamesEveryTopLevelCommand, which pins
 // the usage block against the dispatch map itself; without it a verb could be
 // dispatchable and unlisted, and this would be blind to exactly the verb
 // nobody had thought about. The same blindness is why `backup-set remove`
@@ -955,6 +1106,9 @@ func TestEveryCommandStillWorksWithNothingServingAndNamesItsMode(t *testing.T) {
 			} else if !strings.Contains(got.output(), "mode: "+s.mode) {
 				t.Errorf("this command did not announce %q:\n%s", "mode: "+s.mode, got)
 			}
+			if s.says != "" && !strings.Contains(got.output(), s.says) {
+				t.Errorf("this row pins %q and the command never said it, so whatever it did here is not the outcome the row claims:\n%s", s.says, got)
+			}
 
 			after := readFile(t, f.configPath)
 			switch {
@@ -983,6 +1137,17 @@ func TestEveryCommandStillWorksWithNothingServingAndNamesItsMode(t *testing.T) {
 // driven with nothing serving in the test above and required to move the
 // file there. Together they say: this invocation can change the file, and
 // beside an engine it does not.
+//
+// A row that names what it prints is held to it here too. None of the
+// four reads #895 added puts a question to the serving process at all:
+// two of them are refused by this deployment's own incremental-engine
+// gate before anything is opened, one answers from durable journal rows
+// that whichever process wrote them leaves readable to anything that can
+// open the database, and the last is asking a host about its own runner
+// rather than asking this deployment anything. So an announcement must
+// not change a word of what they say, and a verb that quietly started
+// consulting that process would move its row here rather than go
+// unnoticed.
 func TestNoCommandChangesTheConfigurationBesideAnEngineItCannotReach(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs the real CLI")
@@ -995,7 +1160,7 @@ func TestNoCommandChangesTheConfigurationBesideAnEngineItCannotReach(t *testing.
 
 			// The announcement alone, with no HTTP surface behind it. That
 			// is what the probe reads, and it is also the honest shape of
-			// the case: a `backupd daemon` serves no HTTP at all,
+			// the case: a `retnd daemon` serves no HTTP at all,
 			// and an engine whose address nobody has configured is
 			// indistinguishable from one for a command with no route.
 			release, err := service.AnnounceServing(f.configPath)
@@ -1011,6 +1176,9 @@ func TestNoCommandChangesTheConfigurationBesideAnEngineItCannotReach(t *testing.
 			}
 			if s.writes && got.code == 0 {
 				t.Errorf("a configuration write beside an unreachable engine exited 0, so a script cannot tell it was refused:\n%s", got)
+			}
+			if s.says != "" && !strings.Contains(got.output(), s.says) {
+				t.Errorf("this row pins %q with nothing serving and said something else while a process was serving this deployment, so it answers one way on one arm and another way on the other:\n%s", s.says, got)
 			}
 		})
 	}
@@ -1251,7 +1419,7 @@ const modeLine = "mode: "
 // is the containerised operator's own default, which is the case #545's
 // first proof does NOT cover.
 //
-// Nothing in container/compose.yaml sets $BACKUP_MANAGER_API_URL, so on a
+// Nothing in container/compose.yaml sets $RETND_API_URL, so on a
 // shipped deployment today every read finds a serving engine, has no route
 // to it, and answers from the file. #544 chose to answer rather than refuse,
 // for a reason worth repeating: a write that cannot reach the engine has an
@@ -1309,8 +1477,8 @@ func TestAReadBesideAnEngineItCannotReachSaysSoRatherThanAnsweringAsIfNothingWer
 			}
 		})
 	}
-	if reads != 5 {
-		t.Fatalf("%d rows are recorded as reads that name a mode; #544 gave four surfaces one and #598 made activity the fifth, and a table that has lost or gained one is describing a different product", reads)
+	if reads != 7 {
+		t.Fatalf("%d rows are recorded as reads that name a mode; #544 gave four surfaces one, #598 made activity the fifth, #978 made scrub the sixth and #1186 added a second row for artifacts (--count, the console's Backups badge, which announces its mode exactly as the list does), and a table that has lost or gained one is describing a different product", reads)
 	}
 }
 
@@ -1322,7 +1490,7 @@ func TestAReadBesideAnEngineItCannotReachSaysSoRatherThanAnsweringAsIfNothingWer
 // config_revision against the one this command computed, so a read aimed
 // at the wrong engine refuses (that is
 // TestTheTwoRoutesCannotDisagreeAboutTheConfiguration's second case). A
-// WRITE compared nothing, so $BACKUP_MANAGER_API_URL was taken as naming
+// WRITE compared nothing, so $RETND_API_URL was taken as naming
 // this deployment's engine and one character wrong in a port named
 // somebody else's. The write landed there, this deployment's own
 // configuration file was untouched, and both surfaces reported success.
@@ -1372,7 +1540,7 @@ func TestARoutedWriteRefusesWhenTheEngineServesADifferentDeployment(t *testing.T
 	// mistyped port looks like from here.
 	got := runCLI(t, bin, routeTo(elsewhere.engineURL), createArgs(mine, writePrivateKey(t), newSetID)...)
 	if got.code == 0 {
-		t.Fatalf("a create typed at %s was accepted with the engine serving %s in $BACKUP_MANAGER_API_URL, so it went into a deployment nobody was looking at:\n%s", mine, theirs, got)
+		t.Fatalf("a create typed at %s was accepted with the engine serving %s in $RETND_API_URL, so it went into a deployment nobody was looking at:\n%s", mine, theirs, got)
 	}
 
 	// Both identities, because an operator who has just mistyped a URL
@@ -1428,7 +1596,7 @@ func TestARoutedWriteIsAcceptedByTheDeploymentItWasTypedAt(t *testing.T) {
 
 	got := runCLI(t, bin, routeTo(home.engineURL), createArgs(mine, writePrivateKey(t), newSetID)...)
 	if got.code != 0 {
-		t.Fatalf("a create typed at %s with that deployment's own engine in $BACKUP_MANAGER_API_URL was refused:\n%s", mine, got)
+		t.Fatalf("a create typed at %s with that deployment's own engine in $RETND_API_URL was refused:\n%s", mine, got)
 	}
 	if !contains(near.backupSets(), newSetID) {
 		t.Fatalf("the create was accepted and the deployment it was typed at does not have %s:\n%s", newSetID, got)
@@ -1459,7 +1627,7 @@ func TestARoutedWriteIsAcceptedByTheDeploymentItWasTypedAt(t *testing.T) {
 // announcement itself is the subject: what is being checked is that the
 // process serving the setup flow announces at all, and a test that made its
 // own announcement would be checking its own copy of main.go. So the engine
-// below is the real `backupd-web serve`, started as a subprocess
+// below is the real `retnd-web serve`, started as a subprocess
 // against a directory with no configuration in it, exactly as the container
 // starts it.
 
@@ -1468,26 +1636,39 @@ func TestARoutedWriteIsAcceptedByTheDeploymentItWasTypedAt(t *testing.T) {
 // above: the first-run announcement is main.go's to make.
 func buildWeb(t *testing.T, root string) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "backupd-web")
+	bin := filepath.Join(t.TempDir(), "retnd-web")
 	if runtime.GOOS == "windows" {
 		bin += ".exe"
 	}
-	cmd := exec.Command("go", "build", "-o", bin, "./cmd/backupd-web")
+	cmd := exec.Command("go", "build", "-o", bin, "./cmd/retnd-web")
 	cmd.Dir = filepath.Join(root, "apps", "generic")
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build backupd-web: %v\n%s", err, out)
+		t.Fatalf("build retnd-web: %v\n%s", err, out)
 	}
 	return bin
 }
 
 // firstRunStack is a deployment in the state an installer leaves behind:
-// no config.yaml at all, an administrator already enrolled, and the real
-// engine up and serving the setup flow.
+// no config.yaml, an administrator already enrolled, and the real engine
+// started against it.
+//
+// What the engine does next depends on whether it can write the
+// configuration directory (#1049). From startFirstRunStack it can: it writes
+// its own default config.yaml on that first start and is a configured engine
+// from its first second. From startSetupFlowStack it cannot, so it serves the
+// setup flow exactly as it did before #1049, which is the state #571 and the
+// wizard's own save were written against and which still exists on an
+// install whose configuration mount is read-only.
 type firstRunStack struct {
 	configPath    string
 	stateDatabase string
 	engineURL     string
+
+	// unlockConfigDir makes the configuration directory writable again,
+	// which is what an operator fixing the mount does. A no-op on a stack
+	// that never locked it.
+	unlockConfigDir func()
 
 	// log is everything the engine has printed so far, so a failure here
 	// carries the process's own account of what it did rather than only
@@ -1496,9 +1677,31 @@ type firstRunStack struct {
 }
 
 // startFirstRunStack performs steps 1 and 2 of #571: install, then enrol an
-// administrator through the Web UI. Nothing writes a configuration, which
-// is #176's whole point and the state the rest of this test is about.
+// administrator through the Web UI. Nothing of the test writes a
+// configuration. Since #1049 the engine does: on its first start it writes a
+// default config.yaml (no sources) and serves as a configured engine, so
+// "installed and not yet given a backup set" is an ordinary configured
+// state and no longer a setup flow.
 func startFirstRunStack(t *testing.T, webBin string) *firstRunStack {
+	t.Helper()
+	return startFreshInstall(t, webBin, false)
+}
+
+// startSetupFlowStack is the same install with the configuration directory
+// read-only, so the engine cannot write its default config.yaml and falls back
+// to serving the setup flow. That is the one way left to meet an engine with
+// no configuration (a read-only config mount), and it is the state #571's
+// guard and the wizard's first-run save still have to work in. The test is
+// skipped as root, where a mode bit restricts nothing.
+func startSetupFlowStack(t *testing.T, webBin string) *firstRunStack {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("a read-only configuration directory restricts nothing for root, so the engine would write its default config")
+	}
+	return startFreshInstall(t, webBin, true)
+}
+
+func startFreshInstall(t *testing.T, webBin string, lockConfigDir bool) *firstRunStack {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -1514,7 +1717,7 @@ func startFirstRunStack(t *testing.T, webBin string) *firstRunStack {
 	stateDatabase := filepath.Join(stateDir, "state.db")
 	storePath := filepath.Join(stateDir, "local-auth.json")
 
-	// Step 2, done the way `backupd-web auth create-admin` does it,
+	// Step 2, done the way `retnd-web auth create-admin` does it,
 	// because this test needs a password to sign in with. An operator
 	// redeems the bootstrap token instead and ends up with the same record.
 	if _, err := local.CreateAdmin(local.CreateAdminConfig{
@@ -1523,6 +1726,17 @@ func startFirstRunStack(t *testing.T, webBin string) *firstRunStack {
 		Password:  testPassword,
 	}); err != nil {
 		t.Fatalf("CreateAdmin: %v", err)
+	}
+
+	unlock := func() {}
+	if lockConfigDir {
+		// Registered after TempDir's own cleanup, so it runs first and the
+		// directory can be removed.
+		unlock = func() { _ = os.Chmod(dir, 0o700) }
+		t.Cleanup(unlock)
+		if err := os.Chmod(dir, 0o500); err != nil {
+			t.Fatalf("making %s read-only: %v", dir, err)
+		}
 	}
 
 	addr := freeAddr(t)
@@ -1536,7 +1750,7 @@ func startFirstRunStack(t *testing.T, webBin string) *firstRunStack {
 	)
 	cmd.Stdout, cmd.Stderr = out, out
 	if err := cmd.Start(); err != nil {
-		t.Fatalf("starting backupd-web: %v", err)
+		t.Fatalf("starting retnd-web: %v", err)
 	}
 	t.Cleanup(func() {
 		if err := cmd.Process.Signal(os.Interrupt); err != nil {
@@ -1552,6 +1766,8 @@ func startFirstRunStack(t *testing.T, webBin string) *firstRunStack {
 		stateDatabase: stateDatabase,
 		engineURL:     base,
 		log:           out.String,
+
+		unlockConfigDir: unlock,
 	}
 }
 
@@ -1704,7 +1920,14 @@ const exitEngineHoldsDeployment = 3
 // command went. A guard that refused and left the file written would satisfy
 // an exit-code assertion and fail this one.
 //
-// The second case is the control that keeps the first from being satisfied
+// Since #1049 a fresh install starts as a configured engine on its own
+// default config.yaml, so the first case below is the ordinary fresh install
+// and its precondition is that file, with no set in it. The setup flow is
+// still served when the configuration directory cannot be written, so the
+// second case keeps #571's original state alive through that door. Both must
+// refuse the same way and leave the same file behind.
+//
+// The last case is the control that keeps the others from being satisfied
 // by refusing everything. A genuinely bare host, with nothing serving and no
 // state directory yet, still writes its first configuration from the command
 // line, which is the case the direct path exists for and the one the
@@ -1716,22 +1939,19 @@ func TestAFirstCreateFromTheCLICannotLandBehindTheSetupFlow(t *testing.T) {
 	root := repoRoot(t)
 	bin := buildCLI(t, root)
 
-	t.Run("beside an engine serving the setup flow", func(t *testing.T) {
-		live := startFirstRunStack(t, buildWeb(t, root))
-		view := signIn(t, live.engineURL)
-
-		// The state #571 was reported from, asserted rather than assumed.
-		// Without these three the case below could pass on a deployment
-		// that was already configured, which is a different issue with a
-		// different answer.
-		if _, err := os.Stat(live.configPath); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("this deployment already has a configuration at %s (stat err = %v), so it is not the fresh install #571 is about", live.configPath, err)
-		}
-		if !notReady(t, live.engineURL) {
-			t.Fatalf("the engine is ready before anything has configured it, so it is not serving the setup flow:\n%s", live.log())
-		}
-		if sets := view.backupSetsOrUnconfigured(); len(sets) != 0 {
-			t.Fatalf("the engine already lists backup sets on a deployment with no configuration: %v", sets)
+	// refusedBesideTheEngine is the shared body: the create is refused the
+	// way #538, #542 and #551 already promise for any create beside an
+	// engine with no route, nothing is written, and the two surfaces still
+	// agree. wantConfig is whether the engine is expected to have left a
+	// config.yaml (its default) for the refusal to leave alone.
+	refusedBesideTheEngine := func(t *testing.T, live *firstRunStack, view *browser, wantConfig bool) {
+		t.Helper()
+		var before []byte
+		if wantConfig {
+			var err error
+			if before, err = os.ReadFile(live.configPath); err != nil {
+				t.Fatalf("a fresh install's engine should have written its default configuration to %s (#1049): %v\nengine log:\n%s", live.configPath, err, live.log())
+			}
 		}
 
 		got := runCLI(t, bin, nil, createArgs(live.configPath, writePrivateKey(t), newSetID,
@@ -1742,6 +1962,9 @@ func TestAFirstCreateFromTheCLICannotLandBehindTheSetupFlow(t *testing.T) {
 		if !equal(cliSets, engineSets) {
 			t.Fatalf("the CLI and the engine serving this deployment describe different worlds after a `backup-set create`, which is issue #535 on a fresh install.\nCLI:    %v\nengine: %v\n%s\nengine log:\n%s",
 				cliSets, engineSets, got, live.log())
+		}
+		if contains(cliSets, newSetID) {
+			t.Errorf("the refused create landed anyway: %v\n%s", cliSets, got)
 		}
 
 		// And the refusal is the one #538, #542 and #551 already promise
@@ -1756,9 +1979,62 @@ func TestAFirstCreateFromTheCLICannotLandBehindTheSetupFlow(t *testing.T) {
 		if !strings.Contains(got.output(), "refused here rather than downgraded") {
 			t.Errorf("the refusal did not say that nothing was written:\n%s", got)
 		}
-		if _, err := os.Stat(live.configPath); !errors.Is(err, os.ErrNotExist) {
-			t.Errorf("a refused create wrote %s underneath the engine serving the setup flow (stat err = %v)", live.configPath, err)
+		after, err := os.ReadFile(live.configPath)
+		switch {
+		case wantConfig && err != nil:
+			t.Errorf("the refused create removed %s: %v", live.configPath, err)
+		case wantConfig && !bytes.Equal(before, after):
+			t.Errorf("a refused create rewrote %s underneath the engine serving it\nbefore:\n%s\nafter:\n%s", live.configPath, before, after)
+		case !wantConfig && !errors.Is(err, os.ErrNotExist):
+			t.Errorf("a refused create wrote %s underneath the engine serving the setup flow (read err = %v)", live.configPath, err)
 		}
+	}
+
+	t.Run("beside an engine on a fresh install's default configuration", func(t *testing.T) {
+		live := startFirstRunStack(t, buildWeb(t, root))
+		view := signIn(t, live.engineURL)
+
+		// The state #1049 leaves behind, asserted rather than assumed.
+		// Without these the case below could pass on a deployment the
+		// engine never configured, which is a different state with a
+		// different answer.
+		if _, err := os.Stat(live.configPath); err != nil {
+			t.Fatalf("the engine wrote no default configuration to %s on a fresh install (#1049): %v\nengine log:\n%s", live.configPath, err, live.log())
+		}
+		if notReady(t, live.engineURL) {
+			t.Fatalf("a fresh install's engine is still answering 503 though it wrote its own configuration:\n%s", live.log())
+		}
+		if sets := view.backupSetsOrUnconfigured(); len(sets) != 0 {
+			t.Fatalf("a fresh install lists backup sets before anyone created one: %v", sets)
+		}
+
+		refusedBesideTheEngine(t, live, view, true)
+
+		// The engine is still the configured, ready engine it was, which is
+		// the remedy the operator actually has.
+		if notReady(t, live.engineURL) {
+			t.Errorf("the engine stopped being ready after a refused create:\n%s", live.log())
+		}
+	})
+
+	t.Run("beside an engine serving the setup flow", func(t *testing.T) {
+		live := startSetupFlowStack(t, buildWeb(t, root))
+		view := signIn(t, live.engineURL)
+
+		// The state #571 was reported from: an engine that could not write a
+		// configuration and is serving the setup flow instead.
+		if _, err := os.Stat(live.configPath); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("this deployment already has a configuration at %s (stat err = %v), so it is not the setup-flow state #571 is about", live.configPath, err)
+		}
+		if !notReady(t, live.engineURL) {
+			t.Fatalf("the engine is ready before anything has configured it, so it is not serving the setup flow:\n%s", live.log())
+		}
+		if sets := view.backupSetsOrUnconfigured(); len(sets) != 0 {
+			t.Fatalf("the engine already lists backup sets on a deployment with no configuration: %v", sets)
+		}
+
+		refusedBesideTheEngine(t, live, view, false)
+
 		// The setup flow is still there, which is the remedy the operator
 		// actually has: an instance torn down by this refusal would have
 		// traded one silent divergence for an install nobody can finish.
@@ -1863,35 +2139,18 @@ func TestTheWizardsReadOnlyChoiceSurvivesTheFirstRunSave(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs the real first-run engine")
 	}
-	live := startFirstRunStack(t, buildWeb(t, repoRoot(t)))
+	// Since #1049 a fresh install writes its own configuration and never
+	// serves the setup flow, so the route this test drives is only reachable
+	// on an engine that could not write one. The configuration directory is
+	// made writable again before the save, which is what an operator fixing
+	// the mount does, and the save is then the first configuration there has
+	// ever been exactly as it was before #1049.
+	live := startSetupFlowStack(t, buildWeb(t, repoRoot(t)))
 	view := signIn(t, live.engineURL)
-
-	spec := apicontract.BackupSetSpec{
-		SourceName:         "api",
-		Name:               "var-backups",
-		Host:               "source.example.internal",
-		Port:               2222,
-		User:               "backupuser",
-		SSHKeyID:           view.importSSHKey(writePrivateKey(t)),
-		KnownHostsLine:     aKnownHostsLine,
-		RemotePath:         "/srv/backups",
-		LocalPath:          filepath.Join(t.TempDir(), "backups"),
-		Include:            []string{"*.dump"},
-		CompletionStrategy: "rename",
-		StaleAfterSeconds:  172800,
-		// The tick under test. Everything above it is here so the save is
-		// a real one rather than a minimal one.
-		ReadOnly: true,
-		// Issue #624: the service proves a first set's connection in front
-		// of the write, and source.example.internal is a name that
-		// resolves nowhere. This case is about the read-only tick surviving
-		// a real save, activation and a read back, not about the check, so
-		// it skips it the way every `backup-set create` in this package
-		// does (createArgs). The check's own cases are in core/service and
-		// apps/common/webhost, and its real-machine proof is
-		// scripts/e2e/two-machine-backup.sh.
-		SkipConnectionCheck: true,
-	}
+	// Unlocked before the spec is built: importing the wizard's key writes
+	// into the same directory, so it needs the mount fixed as well.
+	live.unlockConfigDir()
+	spec := readOnlyWizardSpec(t, view)
 
 	code, body := view.post("/api/v1/system/first-run", spec)
 	if code != http.StatusCreated {
@@ -1907,12 +2166,77 @@ func TestTheWizardsReadOnlyChoiceSurvivesTheFirstRunSave(t *testing.T) {
 	if !saved.BackupSet.ReadOnly {
 		t.Errorf("the wizard's own 201 says the set it just created is not read-only, though that is what was asked for:\n%s", body)
 	}
+	assertReadOnlyServed(t, view, live, spec)
+}
 
-	// And what the Web UI would render, off the engine this process is now
-	// serving, with nothing restarted.
+// TestTheWizardsReadOnlyChoiceSurvivesTheFirstSetOnAFreshInstall is the same
+// question asked of the door every fresh install uses since #1049. The engine
+// has already written its default configuration, so the wizard's save is the
+// ordinary POST /backup-sets, which seeds the local destination into that
+// file. Read-only has to survive that path as well, for the same reason: it is
+// the declaration that stops this manager deleting remote copies, and a
+// silent discard leaves somebody believing they chose the safer posture.
+func TestTheWizardsReadOnlyChoiceSurvivesTheFirstSetOnAFreshInstall(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and runs the real engine")
+	}
+	live := startFirstRunStack(t, buildWeb(t, repoRoot(t)))
+	view := signIn(t, live.engineURL)
+	spec := readOnlyWizardSpec(t, view)
+
+	code, body := view.post("/api/v1/backup-sets", apicontract.CreateBackupSetRequest{BackupSetSpec: spec})
+	if code != http.StatusCreated {
+		t.Fatalf("a fresh install refused the wizard's first set with %d: %s\nengine log:\n%s", code, body, live.log())
+	}
+	var saved apicontract.CreateBackupSetResponse
+	if err := json.Unmarshal(body, &saved); err != nil {
+		t.Fatalf("decoding the create response: %v\n%s", err, body)
+	}
+	if !saved.ReadOnly {
+		t.Errorf("the 201 says the set just created is not read-only, though that is what was asked for:\n%s", body)
+	}
+	assertReadOnlyServed(t, view, live, spec)
+}
+
+// readOnlyWizardSpec is a complete wizard submission with the read-only tick
+// set. Everything beside the tick is here so the save is a real one rather
+// than a minimal one.
+func readOnlyWizardSpec(t *testing.T, view *browser) apicontract.BackupSetSpec {
+	t.Helper()
+	return apicontract.BackupSetSpec{
+		SourceName:         "api",
+		Name:               "var-backups",
+		Host:               "source.example.internal",
+		Port:               2222,
+		User:               "backupuser",
+		SSHKeyID:           view.importSSHKey(writePrivateKey(t)),
+		KnownHostsLine:     aKnownHostsLine,
+		RemotePath:         "/srv/backups",
+		LocalPath:          filepath.Join(t.TempDir(), "backups"),
+		Include:            []string{"*.dump"},
+		CompletionStrategy: "rename",
+		StaleAfterSeconds:  172800,
+		// The tick under test.
+		ReadOnly: true,
+		// Issue #624: the service proves a first set's connection in front
+		// of the write, and source.example.internal is a name that
+		// resolves nowhere. This case is about the read-only tick surviving
+		// a real save, activation and a read back, not about the check, so
+		// it skips it the way every `backup-set create` in this package
+		// does (createArgs). The check's own cases are in core/service and
+		// apps/common/webhost, and its real-machine proof is
+		// scripts/e2e/two-machine-backup.sh.
+		SkipConnectionCheck: true,
+	}
+}
+
+// assertReadOnlyServed reads the saved set back off the engine, which is what
+// the Web UI would render, with nothing restarted.
+func assertReadOnlyServed(t *testing.T, view *browser, live *firstRunStack, spec apicontract.BackupSetSpec) {
+	t.Helper()
 	sets := view.backupSetsOrUnconfigured()
 	if !contains(sets, "api/var-backups") {
-		t.Fatalf("the setup flow reported success and the engine does not serve the set: %v\nengine log:\n%s", sets, live.log())
+		t.Fatalf("the save reported success and the engine does not serve the set: %v\nengine log:\n%s", sets, live.log())
 	}
 	served := view.backupSet(t, "api/var-backups")
 	if !served.ReadOnly {

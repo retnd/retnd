@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/retnd/retnd/core/internal/procseam"
 )
 
 // The ephemeral container every local hook runs in (#865), and the four
@@ -123,7 +125,7 @@ const DefaultHookNetwork = "none"
 // files a quiesce hook writes and small enough that a runaway `yes >
 // /tmp/x` hits a bound instead of the host's memory: a tmpfs is RAM.
 //
-// Anything larger belongs in BACKUPD_WORK_DIR, which is on disk, is
+// Anything larger belongs in RETND_WORK_DIR, which is on disk, is
 // mounted read-write, and is the directory this runner cleans up.
 const HookTmpfsSize = "64m"
 
@@ -141,26 +143,26 @@ const HookPidsLimit = 512
 // banner and exits 0, a daemon that answers version and cannot start a
 // container: all three look like success. So the question asked is "did
 // MY bytes run in a container", which cannot be answered by accident.
-const containerProbeMarker = "backupd-container-probe-ok"
+const containerProbeMarker = "retnd-container-probe-ok"
 
 // containerNamePrefix begins the name of every container this runner
 // owns. Termination addresses a container by NAME rather than by id
 // because the name is minted here, before the container exists, which
 // means a launch that never reported an id is still a container this
 // runner can stop.
-const containerNamePrefix = "backupd-hook-"
+const containerNamePrefix = "retnd-hook-"
 
 // LabelHook, LabelRun and LabelStep mark a hook container as this
 // runner's, and say which step it is running.
 //
 // They are what makes an operator's `docker ps` legible -- a container
-// called backupd-hook-... with a run id on it, rather than an anonymous
+// called retnd-hook-... with a run id on it, rather than an anonymous
 // alpine -- and what a sweep of leftovers from a killed runner can select
 // on without ever touching a container it did not create.
 const (
-	LabelHook = "backupd.workflow-hook"
-	LabelRun  = "backupd.workflow-run"
-	LabelStep = "backupd.workflow-step"
+	LabelHook = "retnd.workflow-hook"
+	LabelRun  = "retnd.workflow-run"
+	LabelStep = "retnd.workflow-step"
 
 	// LabelInstance is the one label that is unique to a SINGLE launch,
 	// and it is what makes termination possible rather than merely
@@ -173,7 +175,7 @@ const (
 	// which is exactly the state a cancel landing inside a creation
 	// leaves behind, and the state in which a container used to be able
 	// to run on with nothing watching it (see Executor.reconcile).
-	LabelInstance = "backupd.workflow-instance"
+	LabelInstance = "retnd.workflow-instance"
 )
 
 // dockerProbeTimeout bounds the preflight's own docker calls. Generous,
@@ -233,7 +235,7 @@ type Bash struct {
 // has on the host.
 //
 // IDENTITY mounts, always, and that is a decision about meaning rather
-// than convenience: BACKUPD_WORK_DIR, a path in a hook's log line and the
+// than convenience: RETND_WORK_DIR, a path in a hook's log line and the
 // engine's own record of where a dump landed are then all one string. A
 // remapped mount would make "the hook wrote /work/dump.sql" a sentence
 // nobody can act on.
@@ -957,7 +959,7 @@ func (c Container) SyntaxCheck(ctx context.Context, script []byte) error {
 	// than this context, which is by then the cancelled one.
 	defer c.reconcileInstance(id.token)
 
-	cmd := exec.CommandContext(ctx, c.Docker, c.syntaxArgs(id)...)
+	cmd := procseam.CommandContext(ctx, c.Docker, c.syntaxArgs(id)...)
 	cmd.Stdin = bytes.NewReader(script)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -1031,7 +1033,7 @@ func (c Container) create(ctx context.Context, timeout time.Duration, env []stri
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, c.Docker, c.hookArgs(spec)...)
+	cmd := procseam.CommandContext(ctx, c.Docker, c.hookArgs(spec)...)
 	cmd.Env = env
 	cmd.Stdin = nil
 	var stdout, stderr bytes.Buffer
@@ -1189,7 +1191,7 @@ func (c Container) output(ctx context.Context, timeout time.Duration, args ...st
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, c.Docker, args...)
+	cmd := procseam.CommandContext(ctx, c.Docker, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

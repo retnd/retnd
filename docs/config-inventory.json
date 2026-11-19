@@ -2,8 +2,8 @@
   "generated_from": [
     "core/internal/config/config.go (every yaml struct tag, including nested)",
     "core/internal/config/validate.go (defaults, required-ness, resolution rules)",
-    "core/cmd/backupd (every flag definition and the pinned usage block in main.go)",
-    "apps/generic/cmd/backupd-web/main.go (serve, serve-ui, auth create-admin, healthcheck flags and env)",
+    "core/cmd/retnd (every flag definition and the pinned usage block in main.go)",
+    "apps/generic/cmd/retnd-web/main.go (serve, serve-ui, auth create-admin, healthcheck flags and env)",
     "apps/common/auth/local/store.go + apps/common/email/email.go (the #830 recovery-email/SMTP record)",
     "ui/shared/src (SettingsPage, CapacityCard, RetentionPolicyCard, StorageDestinationsCard, S3/Destination wizards, BackupSetWizardPage, backupSetEditFields.ts, BackupSetRetentionCard, RecoveryFields)"
   ],
@@ -19,15 +19,15 @@
   ],
   "what_is_in_here": "One entry per CONFIGURATION field: something that changes what this deployment is, and that persists. Purely operational CLI flags are deliberately excluded, because they select an action rather than configure anything: --dry-run, --json, --limit, --follow, --scope, --severity, --source/--backup-set filters, --note, --content, --days, --medium, --acknowledge, --acknowledge-repoint, --acknowledge-host-key-change, --acknowledge-medium-disclosure, --release, --run, --inherit, --candidate, --stdin, --policy-file and --tier/--tier-medium as a preview override. Where such a flag is the only way to write a persistent field (--no-verify writing connection_unverified, --policy-file and --tier writing a retention chain) it is listed on that field instead.",
   "summary": {
-    "total": 121,
-    "ui_already": 49,
+    "total": 136,
+    "ui_already": 59,
     "ui_to_add": 28,
-    "file_only": 44,
+    "file_only": 49,
     "by_scope": {
       "auth_smtp": 9,
-      "backup_set": 46,
+      "backup_set": 51,
       "capacity": 5,
-      "deployment": 32,
+      "deployment": 42,
       "medium": 13,
       "retention": 13,
       "source": 2,
@@ -39,8 +39,8 @@
       "deployment": 6,
       "source": 1
     },
-    "yaml_fields": 94,
-    "cli_reachable": 70,
+    "yaml_fields": 109,
+    "cli_reachable": 80,
     "env_reachable": 14
   },
   "known_asymmetries": [
@@ -57,7 +57,7 @@
       "default": null,
       "required": true,
       "scope": "deployment",
-      "description": "How often backupd checks each source for new backup files. The deployment-wide DEFAULT since #845: a backup set may override it for itself (sources[].backup_sets[].poll_interval). Validate refuses a non-positive value and anything under config.MinPollInterval (1m), so there is no default: every config states it.",
+      "description": "How often retnd checks each source for new backup files. The deployment-wide DEFAULT since #845: a backup set may override it for itself (sources[].backup_sets[].poll_interval). Validate refuses a non-positive value and anything under config.MinPollInterval (1m), so there is no default: every config states it.",
       "ui": {
         "configurable": true,
         "location": "Settings > Service behaviour",
@@ -85,7 +85,7 @@
       "yaml_path": "state.database",
       "cli_flags": [
         "backup-set create --state-database",
-        "backupd-web serve --state-database"
+        "retnd-web serve --state-database"
       ],
       "env": [],
       "type": "string (path)",
@@ -214,6 +214,186 @@
       }
     },
     {
+      "field": "retained_copy_encryption.mode",
+      "yaml_path": "retained_copy_encryption.mode",
+      "cli_flags": [
+        "encryption policy patch --mode"
+      ],
+      "env": [],
+      "type": "enum off|required",
+      "default": "\"\" (absent: every set resolves to off)",
+      "required": false,
+      "scope": "deployment",
+      "description": "Whether retained copies written to a storage medium are encrypted, deployment-wide. required with no usable key_provider is refused at load. Writing the key is a one-way door: a build before EPIC N refuses the file (#989).",
+      "ui": {
+        "configurable": true,
+        "location": "Settings > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "retained_copy_encryption.key_provider.managed",
+      "yaml_path": "retained_copy_encryption.key_provider.managed",
+      "cli_flags": [
+        "encryption policy patch --managed"
+      ],
+      "env": [],
+      "type": "bool",
+      "default": "false",
+      "required": false,
+      "scope": "deployment",
+      "description": "The key is the product's own managed key (a 0600 file under retained_copy_keys beside config.yaml). Exactly one of managed or external.",
+      "ui": {
+        "configurable": true,
+        "location": "Settings > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "retained_copy_encryption.key_provider.external.file",
+      "yaml_path": "retained_copy_encryption.key_provider.external.file",
+      "cli_flags": [
+        "encryption policy patch --external-file"
+      ],
+      "env": [],
+      "type": "string (path)",
+      "default": "\"\"",
+      "required": false,
+      "scope": "deployment",
+      "description": "External key reference (file), the secretref shape. Write-only: the API and CLI read it back as a description of its source. A set that requires encryption under such a reference writes encrypted copies through it, and the key must stay resolvable to verify them.",
+      "ui": {
+        "configurable": true,
+        "location": "Settings > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "retained_copy_encryption.key_provider.external.env",
+      "yaml_path": "retained_copy_encryption.key_provider.external.env",
+      "cli_flags": [
+        "encryption policy patch --external-env"
+      ],
+      "env": [],
+      "type": "string (env var NAME)",
+      "default": "\"\"",
+      "required": false,
+      "scope": "deployment",
+      "description": "External key reference (env), the secretref shape. Write-only: the API and CLI read it back as a description of its source. A set that requires encryption under such a reference writes encrypted copies through it, and the key must stay resolvable to verify them.",
+      "ui": {
+        "configurable": true,
+        "location": "Settings > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "retained_copy_encryption.key_provider.external.command",
+      "yaml_path": "retained_copy_encryption.key_provider.external.command",
+      "cli_flags": [
+        "encryption policy patch --external-command"
+      ],
+      "env": [],
+      "type": "[]string (argv)",
+      "default": "[] ",
+      "required": false,
+      "scope": "deployment",
+      "description": "External key reference (command), the secretref shape. Write-only: the API and CLI read it back as a description of its source. A set that requires encryption under such a reference writes encrypted copies through it, and the key must stay resolvable to verify them.",
+      "ui": {
+        "configurable": true,
+        "location": "Settings > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "sources[].backup_sets[].retained_copy_encryption.mode",
+      "yaml_path": "sources[].backup_sets[].retained_copy_encryption.mode",
+      "cli_flags": [
+        "encryption backup-set --mode"
+      ],
+      "env": [],
+      "type": "enum inherit|off|required",
+      "default": "inherit",
+      "required": false,
+      "scope": "backup_set",
+      "description": "One backup set's own answer to retained-copy encryption; inherit follows the deployment. An incremental (kopia) set draws the control disabled, since its repository is already encrypted.",
+      "ui": {
+        "configurable": true,
+        "location": "Backup set detail > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "sources[].backup_sets[].retained_copy_encryption.key_provider.managed",
+      "yaml_path": "sources[].backup_sets[].retained_copy_encryption.key_provider.managed",
+      "cli_flags": [
+        "encryption backup-set --managed"
+      ],
+      "env": [],
+      "type": "bool",
+      "default": "false",
+      "required": false,
+      "scope": "backup_set",
+      "description": "The set's own override to use the managed key. The per-set surface is mode and key_provider and nothing else.",
+      "ui": {
+        "configurable": true,
+        "location": "Backup set detail > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "sources[].backup_sets[].retained_copy_encryption.key_provider.external.file",
+      "yaml_path": "sources[].backup_sets[].retained_copy_encryption.key_provider.external.file",
+      "cli_flags": [
+        "encryption backup-set --external-file"
+      ],
+      "env": [],
+      "type": "string (path)",
+      "default": "\"\"",
+      "required": false,
+      "scope": "backup_set",
+      "description": "The set's own external key reference (file). Write-only, as at the deployment level.",
+      "ui": {
+        "configurable": true,
+        "location": "Backup set detail > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "sources[].backup_sets[].retained_copy_encryption.key_provider.external.env",
+      "yaml_path": "sources[].backup_sets[].retained_copy_encryption.key_provider.external.env",
+      "cli_flags": [
+        "encryption backup-set --external-env"
+      ],
+      "env": [],
+      "type": "string (env var NAME)",
+      "default": "\"\"",
+      "required": false,
+      "scope": "backup_set",
+      "description": "The set's own external key reference (env). Write-only, as at the deployment level.",
+      "ui": {
+        "configurable": true,
+        "location": "Backup set detail > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
+      "field": "sources[].backup_sets[].retained_copy_encryption.key_provider.external.command",
+      "yaml_path": "sources[].backup_sets[].retained_copy_encryption.key_provider.external.command",
+      "cli_flags": [
+        "encryption backup-set --external-command"
+      ],
+      "env": [],
+      "type": "[]string (argv)",
+      "default": "[] ",
+      "required": false,
+      "scope": "backup_set",
+      "description": "The set's own external key reference (command). Write-only, as at the deployment level.",
+      "ui": {
+        "configurable": true,
+        "location": "Backup set detail > Retained-copy encryption",
+        "recommendation": null
+      }
+    },
+    {
       "field": "capacity.cap_bytes",
       "yaml_path": "capacity.cap_bytes",
       "cli_flags": [
@@ -306,13 +486,13 @@
       "yaml_path": "incremental_engine.enabled",
       "cli_flags": [],
       "env": [
-        "BACKUPD_INCREMENTAL_ENGINE"
+        "RETND_INCREMENTAL_ENGINE"
       ],
       "type": "bool",
       "default": false,
       "required": false,
       "scope": "deployment",
-      "description": "EPIC K's production gate (#789): whether this deployment may run the incremental (kopia) backup engine at all. Defaults to FALSE, and an absent incremental_engine block is disabled. BACKUPD_INCREMENTAL_ENGINE overrides the file in BOTH directions (1|true|yes|on enables, 0|false|no|off disables, unset or empty defers to the file), and an unparseable value is refused at Validate rather than read as off. Resolved by config.IncrementalEngineEnabled() and nowhere else. With it off, creating or updating an engine: kopia set, that set's snapshot cycle, verification, maintenance, snapshot restore and the repository probes all refuse with config.ErrIncrementalEngineDisabled (409 INCREMENTAL_ENGINE_DISABLED, CLI exit 1); LOADING a configuration that declares kopia sets is deliberately NOT gated, so turning it off never stops a daemon whose artifact sets still have to run. Artifact backup sets are unaffected in either position. See docs/incremental-engine.md.",
+      "description": "EPIC K's production gate (#789): whether this deployment may run the incremental (kopia) backup engine at all. Defaults to FALSE, and an absent incremental_engine block is disabled. RETND_INCREMENTAL_ENGINE overrides the file in BOTH directions (1|true|yes|on enables, 0|false|no|off disables, unset or empty defers to the file), and an unparseable value is refused at Validate rather than read as off. Resolved by config.IncrementalEngineEnabled() and nowhere else. With it off, creating or updating an engine: kopia set, that set's snapshot cycle, verification, maintenance, snapshot restore and the repository probes all refuse with config.ErrIncrementalEngineDisabled (409 INCREMENTAL_ENGINE_DISABLED, CLI exit 1); LOADING a configuration that declares kopia sets is deliberately NOT gated, so turning it off never stops a daemon whose artifact sets still have to run. Artifact backup sets are unaffected in either position. See docs/incremental-engine.md.",
       "ui": {
         "configurable": false,
         "location": null,
@@ -1720,10 +1900,90 @@
       }
     },
     {
+      "field": "agents.http_transport",
+      "yaml_path": "agents.http_transport",
+      "cli_flags": [],
+      "env": [],
+      "type": "enum off|on",
+      "default": "off (a config that writes nothing resolves off)",
+      "required": false,
+      "scope": "deployment",
+      "description": "Whether the MCP endpoint at /api/v1/agent/mcp answers. Off, it refuses AGENT_HTTP_TRANSPORT_OFF. Off by default because a long-lived bearer on a plain-HTTP stream is a worse exposure than a session cookie that expires; the stdio transport (retnd agent serve --stdio) is not affected by it. Writing an `agents:` block is a one-way door: a build before EPIC U refuses a config.yaml that carries it (KnownFields). A config that writes nothing resolves the default.",
+      "ui": {
+        "configurable": false,
+        "location": null,
+        "recommendation": "file-only: a deployment-wide agent-access setting, read by the engine at start; the Agents card states whether the HTTP transport is on but does not change it"
+      }
+    },
+    {
+      "field": "agents.rate_limit_per_minute",
+      "yaml_path": "agents.rate_limit_per_minute",
+      "cli_flags": [],
+      "env": [],
+      "type": "int",
+      "default": "60",
+      "required": false,
+      "scope": "deployment",
+      "description": "Calls per agent token per minute across both transports. A token over the line is refused AGENT_RATE_LIMITED with the wait, and the refusal is audited. Writing an `agents:` block is a one-way door: a build before EPIC U refuses a config.yaml that carries it (KnownFields). A config that writes nothing resolves the default.",
+      "ui": {
+        "configurable": false,
+        "location": null,
+        "recommendation": "file-only: a deployment-wide agent-access setting, read by the engine at start; the Agents card states whether the HTTP transport is on but does not change it"
+      }
+    },
+    {
+      "field": "agents.confirmation_ttl",
+      "yaml_path": "agents.confirmation_ttl",
+      "cli_flags": [],
+      "env": [],
+      "type": "duration",
+      "default": "15m",
+      "required": false,
+      "scope": "deployment",
+      "description": "How long a pending confirmation waits for a person before it expires. An expired confirmation is refused AGENT_CONFIRMATION_EXPIRED and executes nothing. Writing an `agents:` block is a one-way door: a build before EPIC U refuses a config.yaml that carries it (KnownFields). A config that writes nothing resolves the default.",
+      "ui": {
+        "configurable": false,
+        "location": null,
+        "recommendation": "file-only: a deployment-wide agent-access setting, read by the engine at start; the Agents card states whether the HTTP transport is on but does not change it"
+      }
+    },
+    {
+      "field": "agents.audit_retention_days",
+      "yaml_path": "agents.audit_retention_days",
+      "cli_flags": [],
+      "env": [],
+      "type": "int",
+      "default": "90",
+      "required": false,
+      "scope": "deployment",
+      "description": "How many days of agent_audit rows are kept. Older rows are pruned. Every agent call, reads included, is one row. Writing an `agents:` block is a one-way door: a build before EPIC U refuses a config.yaml that carries it (KnownFields). A config that writes nothing resolves the default.",
+      "ui": {
+        "configurable": false,
+        "location": null,
+        "recommendation": "file-only: a deployment-wide agent-access setting, read by the engine at start; the Agents card states whether the HTTP transport is on but does not change it"
+      }
+    },
+    {
+      "field": "agents.max_pending_confirmations",
+      "yaml_path": "agents.max_pending_confirmations",
+      "cli_flags": [],
+      "env": [],
+      "type": "int",
+      "default": "5",
+      "required": false,
+      "scope": "deployment",
+      "description": "Open confirmations one agent token may have at a time. The next is refused AGENT_CONFIRMATION_LIMIT. Writing an `agents:` block is a one-way door: a build before EPIC U refuses a config.yaml that carries it (KnownFields). A config that writes nothing resolves the default.",
+      "ui": {
+        "configurable": false,
+        "location": null,
+        "recommendation": "file-only: a deployment-wide agent-access setting, read by the engine at start; the Agents card states whether the HTTP transport is on but does not change it"
+      }
+    },
+    {
       "field": "admin.username",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web auth create-admin --username"
+        "retnd-web auth create-admin --username"
       ],
       "env": [],
       "type": "string",
@@ -1741,7 +2001,7 @@
       "field": "admin.password_hash",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web auth create-admin --password-stdin"
+        "retnd-web auth create-admin --password-stdin"
       ],
       "env": [],
       "type": "string (hash)",
@@ -1759,7 +2019,7 @@
       "field": "admin.recovery_email",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web auth create-admin --recovery-email"
+        "retnd-web auth create-admin --recovery-email"
       ],
       "env": [],
       "type": "string (email address)",
@@ -1777,7 +2037,7 @@
       "field": "smtp.host",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web auth create-admin --smtp-host"
+        "retnd-web auth create-admin --smtp-host"
       ],
       "env": [],
       "type": "string",
@@ -1795,7 +2055,7 @@
       "field": "smtp.port",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web auth create-admin --smtp-port"
+        "retnd-web auth create-admin --smtp-port"
       ],
       "env": [],
       "type": "int (1-65535)",
@@ -1813,7 +2073,7 @@
       "field": "smtp.security",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web auth create-admin --smtp-security"
+        "retnd-web auth create-admin --smtp-security"
       ],
       "env": [],
       "type": "string enum: starttls | tls | none",
@@ -1831,7 +2091,7 @@
       "field": "smtp.username",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web auth create-admin --smtp-username"
+        "retnd-web auth create-admin --smtp-username"
       ],
       "env": [],
       "type": "string",
@@ -1849,7 +2109,7 @@
       "field": "smtp.password_ref",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web auth create-admin --smtp-password-stdin"
+        "retnd-web auth create-admin --smtp-password-stdin"
       ],
       "env": [],
       "type": "string (reference to stored secret)",
@@ -1867,7 +2127,7 @@
       "field": "smtp.from",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web auth create-admin --smtp-from"
+        "retnd-web auth create-admin --smtp-from"
       ],
       "env": [],
       "type": "string (email address)",
@@ -1885,12 +2145,12 @@
       "field": "config path",
       "yaml_path": null,
       "cli_flags": [
-        "--config (every backupd command except version)",
-        "backupd-web serve --config"
+        "--config (every retnd command except version)",
+        "retnd-web serve --config"
       ],
       "env": [],
       "type": "string (path to file or directory)",
-      "default": "/etc/backupd/config/config.yaml (a directory resolves to config.yaml inside it)",
+      "default": "/etc/retnd/config/config.yaml (a directory resolves to config.yaml inside it)",
       "required": false,
       "scope": "deployment",
       "description": "Which YAML file this process reads its whole configuration from. The packaged mount is the DIRECTORY, because the engine creates and atomically replaces the file.",
@@ -1904,8 +2164,8 @@
       "field": "listen address",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve --listen",
-        "backupd-web serve-ui --listen"
+        "retnd-web serve --listen",
+        "retnd-web serve-ui --listen"
       ],
       "env": [
         "LISTEN_ADDR"
@@ -1925,8 +2185,8 @@
       "field": "runtime profile",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve --profile",
-        "backupd-web serve-ui --profile"
+        "retnd-web serve --profile",
+        "retnd-web serve-ui --profile"
       ],
       "env": [
         "RUNTIME_PROFILE"
@@ -1946,7 +2206,7 @@
       "field": "trusted upstream CIDRs",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve --trusted-upstream"
+        "retnd-web serve --trusted-upstream"
       ],
       "env": [
         "TRUSTED_UPSTREAM_CIDRS"
@@ -1966,7 +2226,7 @@
       "field": "trusted gateway CIDRs",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve-ui --trusted-gateway"
+        "retnd-web serve-ui --trusted-gateway"
       ],
       "env": [
         "TRUSTED_GATEWAY_CIDRS"
@@ -1986,8 +2246,8 @@
       "field": "auth store path",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve --auth-store",
-        "backupd-web auth create-admin --auth-store"
+        "retnd-web serve --auth-store",
+        "retnd-web auth create-admin --auth-store"
       ],
       "env": [],
       "type": "string (path)",
@@ -2005,7 +2265,7 @@
       "field": "auth mode",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve --auth-mode"
+        "retnd-web serve --auth-mode"
       ],
       "env": [],
       "type": "string enum: local | gateway",
@@ -2023,7 +2283,7 @@
       "field": "trust forwarded headers",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve --trust-forwarded-headers"
+        "retnd-web serve --trust-forwarded-headers"
       ],
       "env": [
         "TRUST_FORWARDED_HEADERS"
@@ -2043,8 +2303,8 @@
       "field": "public base URL",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve --public-base-url",
-        "backupd-web auth create-admin --public-base-url"
+        "retnd-web serve --public-base-url",
+        "retnd-web auth create-admin --public-base-url"
       ],
       "env": [
         "PUBLIC_BASE_URL"
@@ -2064,7 +2324,7 @@
       "field": "upstream engine address",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve-ui --upstream"
+        "retnd-web serve-ui --upstream"
       ],
       "env": [
         "UPSTREAM_ADDR"
@@ -2084,7 +2344,7 @@
       "field": "UI bundle root",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve-ui --ui-root"
+        "retnd-web serve-ui --ui-root"
       ],
       "env": [
         "UI_ROOT"
@@ -2104,7 +2364,7 @@
       "field": "UI bundle directory",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve-ui --ui-dir"
+        "retnd-web serve-ui --ui-dir"
       ],
       "env": [
         "UI_DIR"
@@ -2124,7 +2384,7 @@
       "field": "healthcheck target URL",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web healthcheck --url"
+        "retnd-web healthcheck --url"
       ],
       "env": [
         "LISTEN_ADDR (derives the default)"
@@ -2146,14 +2406,14 @@
       "cli_flags": [],
       "env": [
         "LOG_LEVEL",
-        "BACKUPD_DEBUG",
+        "RETND_DEBUG",
         "RM_DEBUG (deprecated alias)"
       ],
       "type": "string level / bool shortcut",
       "default": "INFO",
       "required": false,
       "scope": "deployment",
-      "description": "The FR-23 structured-log level every service surface and `backupd daemon` read from the environment, so the one engine an operator can run headless is not the one they cannot turn up.",
+      "description": "The FR-23 structured-log level every service surface and `retnd daemon` read from the environment, so the one engine an operator can run headless is not the one they cannot turn up.",
       "ui": {
         "configurable": false,
         "location": null,
@@ -2165,7 +2425,8 @@
       "yaml_path": null,
       "cli_flags": [],
       "env": [
-        "BACKUP_MANAGER_API_URL"
+        "RETND_API_URL",
+        "BACKUP_MANAGER_API_URL (deprecated alias)"
       ],
       "type": "string (URL)",
       "default": "\"\" (no route: writes beside a serving engine are refused)",
@@ -2183,7 +2444,8 @@
       "yaml_path": null,
       "cli_flags": [],
       "env": [
-        "BACKUP_MANAGER_API_USERNAME"
+        "RETND_API_USERNAME",
+        "BACKUP_MANAGER_API_USERNAME (deprecated alias)"
       ],
       "type": "string",
       "default": "\"\"",
@@ -2201,7 +2463,8 @@
       "yaml_path": null,
       "cli_flags": [],
       "env": [
-        "BACKUP_MANAGER_API_PASSWORD"
+        "RETND_API_PASSWORD",
+        "BACKUP_MANAGER_API_PASSWORD (deprecated alias)"
       ],
       "type": "string (secret)",
       "default": "\"\"",

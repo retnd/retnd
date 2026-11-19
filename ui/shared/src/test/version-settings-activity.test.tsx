@@ -49,7 +49,6 @@ const SET: BackupSet = {
   username: "backup-agent",
   remoteFolder: "/backups/postgresql/",
   includePatterns: ["*.dump.zst"],
-  excludePatterns: ["*.tmp"],
   completionMethod: "completion-marker", stableForSeconds: 0,
   destination: "/data/backups/production/postgres/",
   retentionIsOverride: false,
@@ -202,7 +201,7 @@ describe("SettingsPage reads the shared version node", () => {
     const api = createMockApi();
     const versionError = {
       code: "unknown" as const,
-      message: "Backupd could not complete that request.",
+      message: "retnd could not complete that request.",
       correlationId: "test-correlation-id"
     };
 

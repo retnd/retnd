@@ -1,6 +1,6 @@
 # Synology DSM provider app
 
- / work package B4.4, `docs/EPIC-B-multi-nas.md` §72, the
+Issue #85 / work package B4.4, `docs/EPIC-B-multi-nas.md` §72, the
 Synology entry in §4A, and D-5 in §5.
 
 Synology is the one platform in Phase 4 that cannot consume the canonical
@@ -17,22 +17,21 @@ re-derives their SHA-256 against `container/release-manifest.json`.
 
 | SPK | INFO `arch` | Go target | DSM platforms | Status |
 |---|---|---|---|---|
-| `Backupd-x86_64-<version>.spk` | `x86_64` | `linux/amd64` | apollolake, avoton, braswell, broadwell, broadwellnk, broadwellntb, broadwellntbap, bromolow, cedarview, coffeelake, denverton, geminilake, grantley, kvmx64, purley, skylaked, v1000 | build-supported, **uncertified** |
-| `Backupd-armv8-<version>.spk` | `armv8` | `linux/arm64` | rtd1296, armada37xx, rtd1619, rtd1619b | build-supported, **uncertified** |
+| `retnd-x86_64-<version>.spk` | `x86_64` | `linux/amd64` | apollolake, avoton, braswell, broadwell, broadwellnk, broadwellntb, broadwellntbap, bromolow, cedarview, coffeelake, denverton, geminilake, grantley, kvmx64, purley, skylaked, v1000 | build-supported, **uncertified** |
 
 Family names and members come from Synology's Appendix A platform/arch
 mapping table, and are pinned in `spk/arch.go` so the table above and the
 package's own validation cannot drift apart.
 
-**Not supported, and not installable:** `i686` (evansport), `armv7`
-(alpine, alpine4k) and `armv5` (628x). The canonical release builds no
-32-bit binary, so there is nothing honest to package for them. DSM
-refusing the install on those units is the correct outcome.
+**Not supported, and not installable:** `armv8` (rtd1296, armada37xx,
+rtd1619, rtd1619b), `i686` (evansport), `armv7` (alpine, alpine4k) and `armv5`
+(628x). Releases build linux/amd64 only (#1452), so there is no arm64 or 32-bit binary and nothing honest to package for
+them. DSM refusing the install on those units is the correct outcome.
 
 "Uncertified" is §68's own word. A provider/architecture stays
 build-supported but uncertified until its acceptance procedure has been
 executed on real hardware, and §68 requires a representative DSM 7.x model
-**per claimed architecture** - so certifying both rows needs two machines.
+**per claimed architecture**, and there is one now, so certifying the row needs one machine.
 The procedure is
 [`docs/acceptance/synology-dsm-package-lifecycle.md`](../../docs/acceptance/synology-dsm-package-lifecycle.md).
 
@@ -45,18 +44,22 @@ across an upgrade lives there.
 The release binaries are the two executables inside the canonical OCI
 image, and they are extracted exactly the way
 `scripts/release/record-release-hashes.sh` extracts them to produce the
-manifest in the first place:
+manifest in the first place. The image's two real files are `/retnd` and
+`/retnd-web` (issue #890 renamed them; `/retnd-web` is a hardlink beside
+the second one for one release and there is no `/retnd` at all), and
+the local names below are the ones `spkctl build` looks for, which the
+package keeps unchanged:
 
 ```sh
 mkdir -p release/amd64
-cid=$(docker create --platform linux/amd64 backupd:<version> /backupd version)
-docker cp "${cid}:/backupd"     release/amd64/backupd
-docker cp "${cid}:/backupd-web" release/amd64/backupd-web
+cid=$(docker create --platform linux/amd64 retnd:<version> /retnd version)
+docker cp "${cid}:/retnd"     release/amd64/retnd
+docker cp "${cid}:/retnd-web" release/amd64/retnd-web
 docker rm "${cid}"
 ```
 
-The package also carries this provider's own UI bundle (,
-packaged by), which is built from the shared UI rather than extracted
+The package also carries this provider's own UI bundle (issue #180,
+packaged by #169), which is built from the shared UI rather than extracted
 from the image:
 
 ```sh
@@ -71,7 +74,7 @@ go run ./cmd/spkctl build --arch amd64 --version 0.1.0-1 \
     --binaries ../../release/amd64 \
     --ui-bundle ../../ui/shared/dist-bundles/synology \
     --out ../../dist
-go run ./cmd/spkctl verify --spk ../../dist/Backupd-x86_64-0.1.0-1.spk \
+go run ./cmd/spkctl verify --spk ../../dist/retnd-x86_64-0.1.0-1.spk \
     --manifest ../../container/release-manifest.json
 ```
 
@@ -92,13 +95,13 @@ fails the parity check.
 
 ## Two ways to install this release on DSM, and how to choose
 
-Since there are two, and neither replaces the other.
+Since issue #169 there are two, and neither replaces the other.
 
 | | `.spk` (this directory's `spk/`) | Container Manager project (`compose/`) |
 |---|---|---|
 | What it installs | the two native release binaries | the canonical OCI image, two containers |
 | Where it appears | Package Center, with a DSM desktop launcher | Container Manager → Project |
-| State lives in | `/var/packages/Backupd/{etc,var}` | host paths you choose under `/volume1` |
+| State lives in | `/var/packages/retnd/{etc,var}` | host paths you choose under `/volume1` |
 | Engine isolation | loopback bind, enforced by `start-stop-status` | a compose project network, enforced by topology |
 | Trusts forwarded headers | no, because any local process can reach loopback | yes, because only the Web UI container can reach the engine |
 | Needs Container Manager installed | no | yes |
@@ -107,14 +110,14 @@ Since there are two, and neither replaces the other.
 Take the `.spk` if you want the DSM desktop launcher and Package Center
 lifecycle. Take the Container Manager project if you would rather run the
 same image every other platform runs, or you already keep your containers
-there. The Container Manager path is also the one 's support table
+there. The Container Manager path is also the one EPIC B's support table
 names for Synology; the `.spk` predates it and is not being retired, which
 is a product decision and not this issue's to make.
 
-`compose/backupd.yml` and `compose/backupd.env` are the
+`compose/retnd.yml` and `compose/retnd.env` are the
 project. Container Manager → Project → Create → "Create docker-compose.yml"
 takes the first, and the environment field takes the second. Read
-`compose/backupd.env` before pasting: two paths in it are yours to
+`compose/retnd.env` before pasting: two paths in it are yours to
 set, and the compose file refuses to start rather than inventing either.
 The two installs can run side by side while you compare them, because the
 `.spk` publishes 8477 and the project defaults to 8080.
@@ -130,24 +133,26 @@ Package Center catalogue is a separate exercise with its own review.
 
 ## What runs, and where
 
-Two processes, both the same unmodified `backupd-web` release
+Two processes, both the same unmodified `retnd-web` release
 binary, differing only in their command - the same "one artifact, vary
 command" split `container/compose.yaml` already ships for the generic
 Docker app:
 
 | Process | Command | Listener |
 |---|---|---|
-| engine | `backupd-web serve` | `127.0.0.1:8478`, loopback only |
-| web UI | `backupd-web serve-ui` | `:8477`, the only LAN-facing port |
+| engine | `retnd-web serve` | `127.0.0.1:8478`, loopback only |
+| web UI | `retnd-web serve-ui` | `:8477`, the only LAN-facing port |
 
-The command an operator types on a Docker host is `backupd-web` since 0.3.3,
-and these two lines are deliberately not that. A `.spk` installs native
-binaries under its own package FHS, and this package names them the way
-`container/release-manifest.json` records them, so what DSM starts really
-is `${SYNOPKG_PKGDEST}/bin/backupd-web`. The release ARTIFACT kept
-its name; only the CLI was renamed. Extracting the binaries out of the
-image above reads them at `/backupd` and `/backupd-web` for that same reason: in
-the image those are the real files and the old names are symlinks.
+The command an operator types on a Docker host is `retnd-web` since issue
+#890, and these two lines are deliberately not that. A `.spk` installs
+native binaries under its own package FHS, and this package names them
+the way `container/release-manifest.json` recorded them for the release
+it ships, so what DSM starts really is
+`${SYNOPKG_PKGDEST}/bin/retnd-web`. The package's own artifact names
+are not the CLI's: only the command was renamed, twice, and the `.spk`
+layout has followed neither rename. Extracting the binaries out of the
+image above therefore reads `/retnd` and `/retnd-web`, the image's two
+real files, and writes them out under the names this package expects.
 
 Authentication is the reusable `local-auth` from the generic Web host.
 There is no DSM-specific auth path anywhere in this directory. Native DSM
@@ -164,10 +169,10 @@ here is not attributable to one verified peer.
 
 | Path | Holds | Upgrade | Uninstall |
 |---|---|---|---|
-| `/var/packages/Backupd/target` | the two binaries, the DSM UI files, the config seed | replaced | removed |
-| `/var/packages/Backupd/etc` | `config.yaml`, and the SSH key/known_hosts you put there | kept | kept |
-| `/var/packages/Backupd/var` | SQLite journal, `local-auth.json`, logs, pid files | kept | kept |
-| `/volume?/backupd` | backup data (a DSM shared folder) | kept | kept |
+| `/var/packages/retnd/target` | the two binaries, the DSM UI files, the config seed | replaced | removed |
+| `/var/packages/retnd/etc` | `config.yaml`, and the SSH key/known_hosts you put there | kept | kept |
+| `/var/packages/retnd/var` | SQLite journal, `local-auth.json`, logs, pid files | kept | kept |
+| `/volume?/retnd` | backup data (a DSM shared folder) | kept | kept |
 
 Both daemons' logs live under `var/log`, on the DSM system volume, and
 `var/` survives every upgrade and reboot. `common.sh` caps each at
@@ -191,6 +196,16 @@ data as well". `postuninst` deletes nothing at all, and
 `spk.ScanForUnsafeDeletes` fails the build if any shipped script grows a
 deletion whose target is not provably inside the package's own footprint.
 
+### Upgrading from the previous package id
+
+The package id is now `retnd` (it was the project's former name). To DSM an
+installed package under the previous id is a different package from this
+one, so an in-place upgrade does not happen... I did not write any migration
+code for it. Uninstall the old package first, keeping its data share (the
+shared folder survives an uninstall, as above), then install the `retnd`
+package. State under the old package's `etc` and `var` directories is not
+carried across, so copy `config.yaml` over by hand if you want to keep it.
+
 ### First start
 
 A fresh install does not start. `postinst` seeds
@@ -209,12 +224,12 @@ scan reads every file in both archives on every build.
 ## Known gaps
 
 1. ~~**The embedded UI is the generic provider bridge.**~~ **Closed by
-   ** It used to be true, and it used to be
+   issues #167 and #169.** It used to be true, and it used to be
    unavoidable: `serve-ui` served a bundle compiled into the release
    binary through `go:embed` with no flag to serve one from disk, so
    shipping the Synology bridge would have meant a Synology-specific
-   binary, which §3.7 forbids. made the bundle a run-time choice
-   (`--ui-dir`), and packaged it: the `.spk` now carries
+   binary, which §3.7 forbids. #167 made the bundle a run-time choice
+   (`--ui-dir`), and #169 packaged it: the `.spk` now carries
    `ui/shared/dist-bundles/synology` in its payload and
    `start-stop-status` serves it, with the release binary unchanged.
    `spk.Build` refuses a package built without that bundle, or with one

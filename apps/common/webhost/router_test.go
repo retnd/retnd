@@ -1,6 +1,7 @@
 package webhost
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -102,6 +103,17 @@ func TestNoAPIRouteBypassesAuthentication(t *testing.T) {
 // this list, is the CSRF one: see its own doc for why the two are
 // separate tests.)
 var destructiveGateExemptRoutes = map[string]bool{
+	// EPIC Q (#976) and #1106/#1107: the recovery mint and POST
+	// /recoveries are NOT exempt and NOT gated outright. They are gated per
+	// target kind: a download, a staging file or another storage
+	// destination reads and overwrites nothing and passes, and the source
+	// host (#1191) writes onto a production machine and goes through the
+	// gate, the acknowledgement and the step-up (requireSourceRecoveryGate,
+	// recovery_source.go). destructiveGateTargetKindRoutes below says so,
+	// and TestEveryRouteGatedPerTargetKindSaysSoInTheContract holds the
+	// contract's x-destructive-gate-target-kinds to it. They stay out of the
+	// CSRF walk's plain gate claim through that list, not this one.
+
 	// Issue #146 (B2.7): every one of these is "state-changing but
 	// non-destructive" or outright read-only under
 	// docs/EPIC-B-multi-nas.md §50 ("create/edit backup set", "generate
@@ -113,7 +125,36 @@ var destructiveGateExemptRoutes = map[string]bool{
 	"POST /api/v1/backup-sets/test-connection": true,
 	"POST /api/v1/ssh-keys":                    true,
 	"POST /api/v1/ssh-keys/from-candidate":     true,
-	"POST /api/v1/ssh/host-key-probe":          true,
+	// EPIC U (#1345): minting and revoking an agent token changes who may
+	// read this deployment and touches no backup data. The routes are
+	// session-only (a bearer is refused AGENT_ROUTE_DENIED before the gate
+	// is consulted), and a revoke is the safe direction.
+	"POST /api/v1/agent/tokens":             true,
+	"POST /api/v1/agent/tokens/{id}/revoke": true,
+	// EPIC U (#1349): approving and denying an agent's confirmation. Neither
+	// touches backup data itself: deny runs nothing, and approve replays the
+	// recorded request through this same router, where the gate is applied to
+	// the replay as it would be to the original (TestRunCycleApprovedMeetsTheShutGate
+	// AsAPersonWould). Session only, behind a step-up for approve.
+	"POST /api/v1/agent/confirmations/{id}/approve": true,
+	"POST /api/v1/agent/confirmations/{id}/deny":    true,
+	// EPIC U (#1347): the MCP transport's own frames. The endpoint changes
+	// nothing itself and is bearer only; every call inside it is an /api/v1
+	// request that meets this router's checks, the gate included, as the
+	// request it becomes.
+	"POST /api/v1/agent/mcp":          true,
+	"DELETE /api/v1/agent/mcp":        true,
+	"POST /api/v1/ssh/host-key-probe": true,
+
+	// Issue #1203. Removing a custom validator stops a script from running
+	// and deletes no backup datum: the class of clearing a stage directory
+	// under PATCH /settings/workflow. It has to work on a shut gate, so an
+	// operator can take a bad validator out wherever they could not have
+	// put one in. The preview is a POST that writes nothing at all. The
+	// upload and the edit are NOT here: they put code where the engine runs
+	// it, and are gated (handlers_customvalidators.go).
+	"DELETE /api/v1/assurance/validators/{name}": true,
+	"POST /api/v1/assurance/validator-preview":   true,
 
 	// Issue #419: the operator route out of FAILED. Same tier as the
 	// quarantine retry it sits beside, and for the same reason: it moves
@@ -131,7 +172,7 @@ var destructiveGateExemptRoutes = map[string]bool{
 	//
 	// What it writes is an object of its own: a fixed, tiny body at a
 	// randomly generated key under a reserved key segment
-	// (.backupd-preflight) that no configured artifact can produce,
+	// (.retnd-preflight) that no configured artifact can produce,
 	// because transport.MediumKey composes an artifact's key out of a
 	// source, a backup set and an artifact name and config lets none of
 	// the three carry a separator. The only object it deletes is that same
@@ -271,7 +312,8 @@ var destructiveGateExemptRoutes = map[string]bool{
 	// protects. TestCompleteFirstRun_RefusesOnceConfigured pins that
 	// refusal by its typed code, so this entry's justification is a test
 	// and not just this comment.
-	"POST /api/v1/system/first-run": true,
+	"POST /api/v1/system/first-run":      true,
+	"POST /api/v1/system/first-run/skip": true,
 
 	// Issue #211. Each of these is state-changing but non-destructive
 	// under the same §50 reading, and each handler's own doc carries the
@@ -420,6 +462,138 @@ var destructiveGateExemptRoutes = map[string]bool{
 	"DELETE /api/v1/backup-sets/{source}/{set}/workflow/environment/{name}": true,
 	"POST /api/v1/workflow-recovery/{run}/resume-cleanup":                   true,
 	"POST /api/v1/workflow-recovery/{run}/acknowledge":                      true,
+
+	// EPIC Q's assurance configuration (Q1.4, #982). Three writes, all
+	// configuration: they rewrite one block of config.yaml and hot-reload,
+	// the class PATCH /settings above sits in. None reaches a backup datum.
+	// A scrub cadence or a recovery-test mode changes WHEN the product
+	// reads a copy, never what it keeps, so it is not the deletion class
+	// this list guards. Turning the recovery test off or lengthening a
+	// cadence is a weaker posture, and that is exactly the case
+	// PATCH /settings already settles for turning FR-19's protection off:
+	// the posture is visible in the response and on the feed, and nothing
+	// here can cause an unattended deletion.
+	"PATCH /api/v1/settings/assurance":                    true,
+	"PATCH /api/v1/backup-sets/{source}/{set}/assurance":  true,
+	"DELETE /api/v1/backup-sets/{source}/{set}/assurance": true,
+
+	// A recovery test reads one copy through the recovery engine and writes a
+	// claim on that copy. It deletes and overwrites nothing, so it sits in the
+	// tier the recovery mint does: CSRF, and no destructive gate.
+	"POST /api/v1/backup-sets/{source}/{set}/recovery-test": true,
+
+	// Scrub now reads a set's copies and writes a verdict on each, and
+	// deletes nothing. Cancel stops one of those reads, or a recovery test,
+	// and is not under /operations for exactly that reason: stopping a read
+	// has to work on a deployment whose destructive gate is shut.
+	"POST /api/v1/backup-sets/{source}/{set}/scrub": true,
+	"POST /api/v1/assurance/operations/{op}/cancel": true,
+
+	// Retained-copy encryption (#993, #1296). The owner decided which of
+	// these are destructive (#1361): encrypt-existing and reencrypt are,
+	// because each retires an old copy, and carry the gate (router.go). The
+	// rest stay CSRF-only, each for one reason. Policy, set override and
+	// provider test change what the NEXT copy does and touch no copy that
+	// exists. Key create and confirm add or acknowledge a key. Rotate makes
+	// a new key active and keeps the old one readable. Retire is refused
+	// while any copy still needs the key (ErrEncryptionKeyInUse). Verify
+	// only reads. Export is not here: it carries its own gate and step-up.
+	"PATCH /api/v1/encryption/policy":                      true,
+	"POST /api/v1/encryption/policy/reset":                 true,
+	"PUT /api/v1/backup-sets/{source}/{set}/encryption":    true,
+	"DELETE /api/v1/backup-sets/{source}/{set}/encryption": true,
+	"POST /api/v1/encryption/keys":                         true,
+	"POST /api/v1/encryption/keys/rotate":                  true,
+	"POST /api/v1/encryption/keys/{id}/retire":             true,
+	"POST /api/v1/encryption/keys/{id}/confirm":            true,
+	"POST /api/v1/encryption/providers/test":               true,
+	"POST /api/v1/encryption/verify":                       true,
+}
+
+// destructiveGateTargetKindRoutes names the routes that are gated for some
+// target kinds and not others (#1193), and which kinds. They are on neither
+// list above: not exempt, because a source-host target does go through the
+// gate, and not gated outright, because every other target reads and
+// overwrites nothing. TestEveryRouteGatedPerTargetKindSaysSoInTheContract
+// holds openapi.json's x-destructive-gate-target-kinds to this map, and
+// TestTheTargetKindGateRefusesExactlyThoseKinds holds the router to it.
+var destructiveGateTargetKindRoutes = map[string][]string{
+	"POST /api/v1/backups/{source}/{set}/{name}/recovery": {"source"},
+	"POST /api/v1/recoveries":                             {"source"},
+	"GET /api/v1/recoveries/{grant}":                      {"source"},
+}
+
+func TestEveryRouteGatedPerTargetKindSaysSoInTheContract(t *testing.T) {
+	doc := loadOpenAPI1163(t)
+	raw := readRepoFile(t, "api", "v1", "openapi.json")
+	var kinds struct {
+		Paths map[string]map[string]struct {
+			TargetKinds []string `json:"x-destructive-gate-target-kinds"`
+			Gate        bool     `json:"x-destructive-gate"`
+		} `json:"paths"`
+	}
+	if err := json.Unmarshal([]byte(raw), &kinds); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for path, methods := range kinds.Paths {
+		for method, op := range methods {
+			if len(op.TargetKinds) == 0 {
+				continue
+			}
+			route := strings.ToUpper(method) + " /api/v1" + path
+			seen[route] = true
+			want, ok := destructiveGateTargetKindRoutes[route]
+			if !ok {
+				t.Errorf("the contract gates %s per target kind (%v) and the router's list does not", route, op.TargetKinds)
+				continue
+			}
+			if strings.Join(op.TargetKinds, ",") != strings.Join(want, ",") {
+				t.Errorf("%s: the contract gates kinds %v, the router %v", route, op.TargetKinds, want)
+			}
+			if op.Gate {
+				t.Errorf("%s is gated per target kind and also claims x-destructive-gate: every other kind is not gated", route)
+			}
+			if !strings.Contains(doc.Paths[path][method].Description, "source") {
+				t.Errorf("%s does not say which target is gated", route)
+			}
+		}
+	}
+	for route := range destructiveGateTargetKindRoutes {
+		if !seen[route] {
+			t.Errorf("the router gates %s per target kind and the contract does not say so (x-destructive-gate-target-kinds)", route)
+		}
+		if destructiveGateExemptRoutes[route] {
+			t.Errorf("%s is gated per target kind and still listed as exempt", route)
+		}
+	}
+}
+
+// TestTheTargetKindGateRefusesExactlyThoseKinds is the router's half: on a
+// shut gate the source kind is refused by the gate on both POST routes, and
+// the other kinds are not.
+func TestTheTargetKindGateRefusesExactlyThoseKinds(t *testing.T) {
+	for _, tc := range []struct{ route, path, source, other string }{
+		{"POST /api/v1/backups/{source}/{set}/{name}/recovery", "/api/v1/backups/production/postgres/dump.zst/recovery",
+			`{"target":{"kind":"source","path":"retnd-recovered-x","acknowledged_destination":"sh1-x"}}`, `{"target":{"kind":"staging","path":"x"}}`},
+		{"POST /api/v1/recoveries", "/api/v1/recoveries",
+			`{"set":"production/postgres","target":{"kind":"source","path":"retnd-recovered-x","acknowledged_destination":"sh1-x"}}`, `{"set":"production/postgres","target":{"kind":"staging","path":"x"}}`},
+	} {
+		if destructiveGateTargetKindRoutes[tc.route] == nil {
+			t.Fatalf("%s is not on the target-kind list", tc.route)
+		}
+		router := NewRouter(RouterConfig{Platform: allowingPlatform("alice"), Backend: newSyncFakeBackend(), Gate: NotYetImplementedGate{}, BinaryVersion: "test", Commit: "test"})
+		for body, wantGate := range map[string]bool{tc.source: true, tc.other: false} {
+			req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, csrfPaired(req))
+			gated := responseErrorCode(rec.Body.String()) == "DESTRUCTIVE_OPERATIONS_DISABLED"
+			if gated != wantGate {
+				t.Errorf("%s with %s: refused by the gate = %v, want %v (%d %s)", tc.route, body, gated, wantGate, rec.Code, rec.Body.String())
+			}
+		}
+	}
 }
 
 // TestEveryMutatingAPIRouteRefusesARequestWithNoCSRFPair walks the route
@@ -465,7 +639,7 @@ func TestEveryMutatingAPIRouteRefusesARequestWithNoCSRFPair(t *testing.T) {
 		if route == "/health/live" || route == "/health/ready" {
 			return nil
 		}
-		if destructiveGateExemptRoutes[method+" "+route] {
+		if destructiveGateExemptRoutes[method+" "+route] || destructiveGateTargetKindRoutes[method+" "+route] != nil {
 			return nil
 		}
 

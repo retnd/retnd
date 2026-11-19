@@ -1,0 +1,111 @@
+#!/usr/bin/env sh
+# Merging INTO `release` runs the full e2e, locally (#1375).
+#
+# git runs this for a merge that auto-commits. On any other branch it does
+# nothing. On `release` it runs the gate taken from HEAD (not from the tree
+# being merged, so a merged branch cannot swap it) and a red run aborts the
+# merge. A valid stamp for the exact tree being committed is reused.
+#
+# This hook sources nothing from the working tree or the merged tree before it
+# has decided: the skip parsing and the skip record are inline. A skip is
+# RELEASE_E2E_SKIP='<12+ chars>' or the Release-Gate-Override trailer in the
+# merge message; it waives the e2e too, and it is also what lets a merge into a
+# release whose HEAD has no gate yet go through. Without one, HEAD lacking the
+# gate scripts refuses the merge (fail closed).
+#
+# `merge --no-commit`, --squash and fast-forwards skip this hook; the
+# pre-push hook is what catches those.
+set -e
+
+# The hooks path guard, as in .husky/pre-commit (#1361): a relative core.hooksPath
+# is resolved against each worktree's own root, which is what install-hooks.sh
+# sets. An absolute or foreign one points every worktree at one checkout's hook,
+# possibly a stale one, and nothing about running it says so.
+hooks_top="$(git rev-parse --show-toplevel)"
+hooks_want="$(cd "$hooks_top/.husky" 2>/dev/null && pwd -P || true)"
+hooks_here="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P || true)"
+hooks_cfg="$(git config --get core.hooksPath || true)"
+hooks_bad=""
+case "$hooks_cfg" in
+  /* | "~"*) hooks_bad="core.hooksPath is an absolute path ($hooks_cfg)" ;;
+  "") ;;
+  *)
+    hooks_got="$(cd "$hooks_top" && cd "$hooks_cfg" 2>/dev/null && pwd -P || true)"
+    if [ "$hooks_got" != "$hooks_want" ]; then
+      hooks_bad="core.hooksPath ($hooks_cfg) does not resolve to this checkout's .husky"
+    fi
+    ;;
+esac
+if [ -z "$hooks_bad" ] && [ -z "$hooks_want" ]; then
+  hooks_bad="this checkout has no .husky directory"
+fi
+if [ -z "$hooks_bad" ] && [ "$hooks_here" != "$hooks_want" ]; then
+  hooks_bad="this hook is $hooks_here/pre-merge-commit, not $hooks_top/.husky/pre-merge-commit"
+fi
+if [ -n "$hooks_bad" ]; then
+  echo "==> pre-merge-commit: refusing to run. $hooks_bad." >&2
+  echo "    A hook from another checkout can be a stale one. Fix, once per clone (covers every" >&2
+  echo "    worktree): bash scripts/install-hooks.sh" >&2
+  exit 1
+fi
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE DH_UNFENCED
+branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+[ "$branch" = release ] || exit 0
+
+head_sha="$(git rev-parse HEAD)"
+skip=""
+if [ -n "${RELEASE_E2E_SKIP:-}" ]; then
+  [ "${#RELEASE_E2E_SKIP}" -ge 12 ] && skip="$RELEASE_E2E_SKIP"
+else
+  skip="$(git interpret-trailers --parse <"$(git rev-parse --git-path MERGE_MSG)" 2>/dev/null | sed -n 's/^Release-Gate-Override:[[:space:]]*//p' | tail -n 1)"
+  [ "${#skip}" -ge 12 ] || skip=""
+fi
+if [ -n "$skip" ]; then
+  d="$(git rev-parse --path-format=absolute --git-common-dir)/release-e2e"; mkdir -p "$d"
+  flat="$(printf '%s' "$skip" | tr -c '[:print:]' ' ')"   # no newline or escape from a reason can forge a record line
+  merging="$(git rev-parse -q --verify MERGE_HEAD 2>/dev/null || echo unknown)"
+  printf 'time=%s hook=pre-merge-commit reason=%s sha=%s old_tip=%s ref=refs/heads/release waived=e2e-run,gate-presence-check user=%s branch=%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$flat" "$merging" "$head_sha" "$(id -un)" "$branch" >>"$d/overrides.log"
+  echo "################################################################" >&2
+  echo "pre-merge-commit: release gate SKIPPED. Reason: $flat" >&2
+  echo "                  recorded in $d/overrides.log" >&2
+  echo "################################################################" >&2
+  exit 0
+fi
+
+tools="$(mktemp -d "${TMPDIR:-/tmp}/release-gate.XXXXXX")"
+trap 'rm -rf "$tools"' EXIT
+# Raw blobs from HEAD's tree: no .gitattributes (export-ignore, export-subst,
+# eol, filters) is consulted, unlike git archive and checkout-index.
+tab="$(printf '\t')"
+git ls-tree -r HEAD -- scripts/release-e2e.sh scripts/release-e2e scripts/release/gate-tree.sh scripts/ci-docker.sh scripts/ci >"$tools/.list" || true
+ok=1
+[ -s "$tools/.list" ] || ok=0
+while IFS="$tab" read -r meta path; do
+  [ -n "$meta" ] || continue
+  # shellcheck disable=SC2086
+  set -- $meta
+  if [ "$2" != blob ]; then ok=0; break; fi
+  mkdir -p "$tools/$(dirname "$path")"
+  if [ "$1" = 120000 ]; then ln -s "$(git cat-file blob "$3")" "$tools/$path" || ok=0
+  else git cat-file blob "$3" >"$tools/$path" || ok=0; [ "$1" != 100755 ] || chmod +x "$tools/$path"; fi
+done <"$tools/.list"
+for f in scripts/release-e2e.sh scripts/release-e2e/lib.sh scripts/release-e2e/attest.sh scripts/release/gate-tree.sh scripts/ci-docker.sh; do
+  [ -f "$tools/$f" ] || ok=0
+done
+if [ "$ok" != 1 ]; then
+  echo "==> pre-merge-commit: HEAD of $branch does not carry the release gate scripts, refusing the merge." >&2
+  echo "    An existing release adopting this gate for the first time needs a skip: RELEASE_E2E_SKIP='<reason>' or a Release-Gate-Override trailer in the merge message (recorded)." >&2
+  exit 1
+fi
+export RE_TOOLS="$tools"
+# shellcheck disable=SC1091
+. "$tools/scripts/release-e2e/lib.sh"
+
+tree="$(re_tree_id)"
+if re_stamp_ok "$tree"; then
+  echo "==> pre-merge-commit: a valid e2e stamp already exists for tree $tree." >&2
+  exit 0
+fi
+echo "==> pre-merge-commit: merging into $RELEASE_BRANCH, running the full e2e (gate from HEAD's copy)." >&2
+bash "$tools/scripts/release-e2e.sh"

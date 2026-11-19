@@ -14,8 +14,8 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/secretref"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/secretref"
 )
 
 // The run-start snapshot: the single function in this package that decides
@@ -226,6 +226,16 @@ type SnapshotRequest struct {
 	// finds there, so a path that means different things depending on the
 	// working directory is not acceptable.
 	SpoolRoot string
+
+	// Only, when set, is the file name of the one script this plan holds
+	// (#1204). Only that file is looked up (DiscoverOne): the rest of the
+	// directory is neither listed nor held to the name rule or the entry
+	// limit, and the others are never read, so one stray file cannot refuse
+	// the script that was asked for. The directory itself is still held to
+	// custody, and the named file to every rule a captured script is. A
+	// plan in which no stage holds it has no steps, and the caller decides
+	// what that means.
+	Only string
 }
 
 // Plan is the immutable result of a snapshot: the complete, ordered list
@@ -612,7 +622,14 @@ func snapshotInto(req SnapshotRequest, stages []StageSpec, dirs *spoolDirs, maxS
 			return Plan{}, err
 		}
 
-		scripts, err := Discover(dir)
+		var scripts []Script
+		if req.Only != "" {
+			// Told which script, so only that file is looked for. The rest
+			// of the directory is not this purpose's to judge (#1203).
+			scripts, err = DiscoverOne(dir, req.Only)
+		} else {
+			scripts, err = Discover(dir)
+		}
 		if err != nil {
 			return Plan{}, err
 		}
@@ -741,7 +758,30 @@ type capturedScript struct {
 	path   string
 }
 
-// captureScript is the one place a script's bytes are read, and it is
+// captureScript spools one script's bytes and records what they hash to.
+//
+// The READ is readScriptBytes, which is the one place a script's bytes
+// are read and which the static verification (#906) reaches through
+// Script.Read: a second reader would be a second answer about custody,
+// and the two callers must not be able to disagree about whether a file
+// is one this process may vouch for.
+func captureScript(src string, dirs *spoolDirs, stepID string, maxSize int64) (capturedScript, error) {
+	body, err := readScriptBytes(src, maxSize)
+	if err != nil {
+		return capturedScript{}, err
+	}
+
+	sum := sha256.Sum256(body)
+
+	dst, err := dirs.writeScript(stepID, body)
+	if err != nil {
+		return capturedScript{}, err
+	}
+
+	return capturedScript{sha256: hex.EncodeToString(sum[:]), size: int64(len(body)), path: dst}, nil
+}
+
+// readScriptBytes is the one place a script's bytes are read, and it is
 // written to be raceable against nothing.
 //
 // The Lstat first is only for the MESSAGE: a symbolic link where a script
@@ -757,31 +797,31 @@ type capturedScript struct {
 // would otherwise make this open BLOCK until somebody wrote to the other
 // end. The refusal below is what rejects it; the flag is what makes sure
 // the refusal is reached at all.
-func captureScript(src string, dirs *spoolDirs, stepID string, maxSize int64) (capturedScript, error) {
+func readScriptBytes(src string, maxSize int64) ([]byte, error) {
 	if li, err := os.Lstat(src); err == nil && li.Mode()&os.ModeSymlink != 0 {
 		target, rerr := os.Readlink(src)
 		if rerr != nil {
 			target = "a target that cannot be read"
 		}
 
-		return capturedScript{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"%w: %s is a symbolic link to %s. The directories protecting the link say nothing about the ones protecting the file it points at, so this product will not execute what it finds through one; put the script itself in the hook directory",
 			ErrCustody, src, target)
 	}
 
 	f, err := os.OpenFile(src, os.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
 	if err != nil {
-		return capturedScript{}, fmt.Errorf("%w: %s cannot be opened: %w", ErrCustody, src, err)
+		return nil, fmt.Errorf("%w: %s cannot be opened: %w", ErrCustody, src, err)
 	}
 	defer f.Close() //nolint:errcheck // read-only
 
 	info, err := f.Stat()
 	if err != nil {
-		return capturedScript{}, fmt.Errorf("%w: %s cannot be inspected: %w", ErrCustody, src, err)
+		return nil, fmt.Errorf("%w: %s cannot be inspected: %w", ErrCustody, src, err)
 	}
 
 	if !info.Mode().IsRegular() {
-		return capturedScript{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"%w: %s is a %s, not a regular file, so its contents are supplied by whoever is on the other end of it",
 			ErrCustody, src, fileKind(info.Mode()))
 	}
@@ -790,7 +830,7 @@ func captureScript(src string, dirs *spoolDirs, stepID string, maxSize int64) (c
 	// world-WRITABLE one is a program any local account can change
 	// between now and the next backup. See discover.go's preamble.
 	if mode := info.Mode().Perm(); mode&0o022 != 0 {
-		return capturedScript{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"%w: %s has permissions %04o, which lets an account other than its owner rewrite it. This file is executed by this daemon, so its content has to be something only its owner can change; correct it (chmod go-w %s)",
 			ErrCustody, src, mode, src)
 	}
@@ -799,11 +839,11 @@ func captureScript(src string, dirs *spoolDirs, stepID string, maxSize int64) (c
 	// owned by an unaudited service account is a program that account can
 	// rewrite between tonight and tomorrow night; see checkOwnership.
 	if err := checkOwnership(src, info); err != nil {
-		return capturedScript{}, err
+		return nil, err
 	}
 
 	if info.Size() > maxSize {
-		return capturedScript{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"%w: %s is %d bytes and the limit is %d. A hook is a shell script; this product refuses the whole file rather than executing a prefix of it, because a prefix of a program is a different program",
 			ErrScriptTooLarge, src, info.Size(), maxSize)
 	}
@@ -814,29 +854,22 @@ func captureScript(src string, dirs *spoolDirs, stepID string, maxSize int64) (c
 	// is what makes the bound true regardless.
 	body, err := io.ReadAll(io.LimitReader(f, maxSize+1))
 	if err != nil {
-		return capturedScript{}, fmt.Errorf("%w: %s cannot be read: %w", ErrCustody, src, err)
+		return nil, fmt.Errorf("%w: %s cannot be read: %w", ErrCustody, src, err)
 	}
 
 	if int64(len(body)) > maxSize {
-		return capturedScript{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"%w: %s grew past the %d-byte limit while it was being read",
 			ErrScriptTooLarge, src, maxSize)
 	}
 
-	sum := sha256.Sum256(body)
-
-	dst, err := dirs.writeScript(stepID, body)
-	if err != nil {
-		return capturedScript{}, err
-	}
-
-	return capturedScript{sha256: hex.EncodeToString(sum[:]), size: int64(len(body)), path: dst}, nil
+	return body, nil
 }
 
 // planHashVersion prefixes the canonical form, so that a future change to
 // what the hash covers is a visibly different hash rather than a silent
 // collision in somebody's records.
-const planHashVersion = "backupd/workflow-plan/2"
+const planHashVersion = "retnd/workflow-plan/2"
 
 // hash computes ResolvedPlanHash over a canonical, line-oriented rendering
 // of the plan.

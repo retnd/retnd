@@ -142,18 +142,36 @@ type schema struct {
 }
 
 type oper struct {
-	OperationID string                `json:"operationId"`
-	Summary     string                `json:"summary"`
+	OperationID string `json:"operationId"`
+	Summary     string `json:"summary"`
+	// Description is read so the contract can carry prose a client author
+	// needs (issue #1157: every build of this release refuses the gated
+	// routes). It is documentation only and reaches no binding.
+	Description string                `json:"description"`
 	Tags        []string              `json:"tags"`
 	Security    []map[string][]string `json:"security"`
 	Parameters  []json.RawMessage     `json:"parameters"`
 	RequestBody *body                 `json:"requestBody"`
 	Responses   map[string]*response  `json:"responses"`
 	Gate        bool                  `json:"x-destructive-gate"`
-	Idempotency string                `json:"x-idempotency-key"`
-	Concurrency *string               `json:"x-optimistic-concurrency"`
-	CSRF        bool                  `json:"x-csrf-required"`
-	Authn       bool                  `json:"x-authenticated"`
+	// InsecureTransportAck marks an operation that is not behind the
+	// destructive gate but still asks for the insecure-transport
+	// acknowledgement over plain http from another machine (the agent token
+	// mint, whose response carries the token). Clients send the header on it.
+	InsecureTransportAck bool `json:"x-insecure-transport-ack"`
+	// GateExemptActions is read so the contract can say which actions of a
+	// gated route the gate lets by (issue #1164: POST /operations is gated
+	// per action). It is documentation the Go tests hold the router to, and
+	// reaches no binding.
+	GateExemptActions []string `json:"x-destructive-gate-exempt-actions"`
+	// GateTargetKinds is read for the same reason: the recovery routes are
+	// gated for one target kind only (issue #1191's source host), and the Go
+	// tests hold the router to the list. It reaches no binding.
+	GateTargetKinds []string `json:"x-destructive-gate-target-kinds"`
+	Idempotency     string   `json:"x-idempotency-key"`
+	Concurrency     *string  `json:"x-optimistic-concurrency"`
+	CSRF            bool     `json:"x-csrf-required"`
+	Authn           bool     `json:"x-authenticated"`
 }
 
 type body struct {
@@ -180,6 +198,7 @@ type endpoint struct {
 	CSRF           bool
 	Idempotency    string
 	Gate           bool
+	InsecureAck    bool
 	Concurrency    string
 	RequestSchema  string
 	ResponseSchema string
@@ -285,6 +304,7 @@ func flatten(doc document) []endpoint {
 				CSRF:          o.CSRF,
 				Idempotency:   o.Idempotency,
 				Gate:          o.Gate,
+				InsecureAck:   o.InsecureTransportAck,
 				ErrorCodes:    map[int][]string{},
 			}
 			if o.Concurrency != nil {
@@ -295,7 +315,13 @@ func flatten(doc document) []endpoint {
 				refuseOneOf(e.ID, "request body", body)
 				e.RequestSchema = refName(body)
 			}
-			for status, r := range o.Responses {
+			// In sorted order, so the answer is the same on every run. An
+			// operation that declares more than one success status is bound
+			// to the numerically highest, with that response's schema: the
+			// loop below keeps the last success it sees, and a Go map has
+			// no order to be last in (#1066).
+			for _, status := range sortedStatuses(o.Responses) {
+				r := o.Responses[status]
 				n, err := strconv.Atoi(status)
 				if err != nil {
 					fatal("operation %s has a non-numeric response status %q", e.ID, status)
@@ -355,6 +381,29 @@ func objectSchemaNames(doc document) []string {
 		}
 	}
 	sort.Strings(out)
+	return out
+}
+
+// sortedStatuses orders response statuses numerically, so "99" does not sort
+// after "404" the way it would as a string. Non-numeric keys sort last and are
+// refused by the caller with a message naming them.
+func sortedStatuses(m map[string]*response) []string {
+	out := sortedKeys(m)
+	sort.SliceStable(out, func(i, j int) bool {
+		a, errA := strconv.Atoi(out[i])
+		b, errB := strconv.Atoi(out[j])
+		switch {
+		case errA != nil && errB != nil:
+			return out[i] < out[j]
+		case errA != nil:
+			return false
+		case errB != nil:
+			return true
+		}
+
+		return a < b
+	})
+
 	return out
 }
 
@@ -562,6 +611,10 @@ type Endpoint struct {
 	CSRFRequired    bool
 	IdempotencyKey  string
 	DestructiveGate bool
+	// InsecureTransportAck is true for an operation outside the destructive
+	// gate that still needs X-Retnd-Insecure-Transport-Ack over plain http
+	// from another machine.
+	InsecureTransportAck bool
 	Concurrency     string
 	RequestSchema   string
 	ResponseSchema  string
@@ -575,8 +628,8 @@ var Endpoints = []Endpoint{
 `)
 	for _, e := range eps {
 		fmt.Fprintf(&b, "\t{\n\t\tID: %q, Method: %q, Path: %q,\n", e.ID, e.Method, e.Path)
-		fmt.Fprintf(&b, "\t\tAuthenticated: %t, CSRFRequired: %t, IdempotencyKey: %q, DestructiveGate: %t, Concurrency: %q,\n",
-			e.Authenticated, e.CSRF, e.Idempotency, e.Gate, e.Concurrency)
+		fmt.Fprintf(&b, "\t\tAuthenticated: %t, CSRFRequired: %t, IdempotencyKey: %q, DestructiveGate: %t, InsecureTransportAck: %t, Concurrency: %q,\n",
+			e.Authenticated, e.CSRF, e.Idempotency, e.Gate, e.InsecureAck, e.Concurrency)
 		fmt.Fprintf(&b, "\t\tRequestSchema: %q, ResponseSchema: %q, SuccessStatus: %d,\n", e.RequestSchema, e.ResponseSchema, e.SuccessStatus)
 		b.WriteString("\t\tErrorCodes: map[int][]ErrorCode{\n")
 		for _, status := range e.ErrorStatuses {
@@ -822,6 +875,7 @@ export interface ContractOperation {
   readonly csrfRequired: boolean;
   readonly idempotencyKey: string;
   readonly destructiveGate: boolean;
+  readonly insecureTransportAck: boolean;
   readonly concurrency: string;
   readonly requestSchema: string;
   readonly responseSchema: string;
@@ -833,8 +887,8 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
 `)
 	for _, e := range eps {
 		fmt.Fprintf(&b, "  {\n    id: %q,\n    method: %q,\n    path: %q,\n", e.ID, e.Method, e.Path)
-		fmt.Fprintf(&b, "    authenticated: %t,\n    csrfRequired: %t,\n    idempotencyKey: %q,\n    destructiveGate: %t,\n    concurrency: %q,\n",
-			e.Authenticated, e.CSRF, e.Idempotency, e.Gate, e.Concurrency)
+		fmt.Fprintf(&b, "    authenticated: %t,\n    csrfRequired: %t,\n    idempotencyKey: %q,\n    destructiveGate: %t,\n    insecureTransportAck: %t,\n    concurrency: %q,\n",
+			e.Authenticated, e.CSRF, e.Idempotency, e.Gate, e.InsecureAck, e.Concurrency)
 		fmt.Fprintf(&b, "    requestSchema: %q,\n    responseSchema: %q,\n    successStatus: %d,\n", e.RequestSchema, e.ResponseSchema, e.SuccessStatus)
 		b.WriteString("    errorCodes: {\n")
 		for _, status := range e.ErrorStatuses {
@@ -856,6 +910,13 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
 		props, required, embeds := properties(doc, s)
 		if d := s.Description; d != "" {
 			fmt.Fprintf(&b, "/** %s */\n", strings.ReplaceAll(wrapComment(d), "\n// ", "\n *  "))
+		}
+		// A free-form object (additionalProperties: true and nothing
+		// declared, as an MCP frame is) is a record, not an empty
+		// interface: TypeScript reads {} as "any non-nullish value".
+		if len(props) == 0 && len(embeds) == 0 && s.AdditionalProps != nil && *s.AdditionalProps {
+			fmt.Fprintf(&b, "export type Wire%s = Record<string, unknown>;\n\n", name)
+			continue
 		}
 		fmt.Fprintf(&b, "export interface Wire%s", name)
 		if len(embeds) > 0 {

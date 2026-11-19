@@ -11,8 +11,8 @@ import (
 	"github.com/kopia/kopia/repo/blob"
 	"github.com/kopia/kopia/repo/blob/s3"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
-	"github.com/backupdproject/backupd/core/internal/secretref"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/secretref"
 )
 
 // This file exists so that an S3 repository's credentials are never
@@ -69,7 +69,7 @@ import (
 // It is deliberately not the vendor's "s3": a config written by this
 // adapter must not be openable as a vendor s3 connection, because that is
 // precisely the config shape that expects to find credentials in itself.
-const s3StorageType = "backupd-s3"
+const s3StorageType = "retnd-s3"
 
 // s3Connection is everything <StateDir>/<domain>.config says about a
 // bucket repository.

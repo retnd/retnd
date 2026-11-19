@@ -5,7 +5,7 @@
 # I1.6 / #672). This file stays because the path is load bearing in three
 # places that are not this port's to move:
 #
-#   * scripts/ci-local.sh and .github/workflows/ci.yml both run
+#   * scripts/ci-local.sh (the only gate since #1260) runs
 #     `bash scripts/format/check-gofmt.sh`;
 #   * scripts/tests/ci-local-gate.test.sh FABRICATES a file at this
 #     literal path to drive the gate step it stubs;

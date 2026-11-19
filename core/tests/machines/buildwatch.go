@@ -364,12 +364,14 @@ func runDockerBuildWatched(ctx context.Context, b dockerBuildBounds, pollEvery t
 				// server-side BuildKit step down too is BuildKit's own
 				// business and not something this can promise.
 				_ = cmd.Process.Kill()
-				<-done
+				waitErr := <-done
+				_ = waitErr // the kill's own outcome; the timeout is the answer
 				return tap.Bytes(), fmt.Errorf("docker build hit a timeout, not a build failure: %s", trip)
 			}
 		case <-ctx.Done():
 			_ = cmd.Process.Kill()
-			<-done
+			waitErr := <-done
+			_ = waitErr // the kill's own outcome; the context's error is the answer
 			return tap.Bytes(), ctx.Err()
 		}
 	}

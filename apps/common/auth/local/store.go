@@ -155,6 +155,13 @@ type SMTPRecord struct {
 type storeFile struct {
 	Admin *AdminRecord `json:"admin"`
 	SMTP  *SMTPRecord  `json:"smtp,omitempty"`
+
+	// SetupSkips names the first-run guide steps an operator chose to skip
+	// for now (retnd#1049), so a skip survives a restart. Only a skip is
+	// stored: whether a step is done is derived from the thing the step
+	// sets up (the administrator, the SMTP record, a backup set), never
+	// recorded here, so it cannot drift from the truth.
+	SetupSkips []string `json:"setup_skips,omitempty"`
 }
 
 // ErrAlreadyEnrolled is returned by Store.Enroll when an administrator
@@ -520,4 +527,33 @@ func (s *Store) DeleteUnverifiedAdmin(now time.Time) (*SMTPRecord, bool, error) 
 		return nil, false, err
 	}
 	return removed, true, nil
+}
+
+// SetupSkips returns the first-run guide steps that have been skipped.
+func (s *Store) SetupSkips() ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f, err := s.load()
+	if err != nil {
+		return nil, err
+	}
+	return append([]string(nil), f.SetupSkips...), nil
+}
+
+// SkipSetupStep records that step was skipped, idempotently. The caller
+// validates the step name; this only persists it.
+func (s *Store) SkipSetupStep(step string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f, err := s.load()
+	if err != nil {
+		return err
+	}
+	for _, have := range f.SetupSkips {
+		if have == step {
+			return nil
+		}
+	}
+	f.SetupSkips = append(f.SetupSkips, step)
+	return s.save(f)
 }

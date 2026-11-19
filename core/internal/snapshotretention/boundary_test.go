@@ -22,7 +22,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/backupdproject/backupd/core/internal/snapshotretention"
+	"github.com/retnd/retnd/core/internal/snapshotretention"
 )
 
 // TestRetentionsRepositoryPortCannotReachRepositoryStorage pins the method
@@ -32,7 +32,7 @@ import (
 // guards against is an ADDITION with a plausible name: a Maintain "so the
 // pass can tidy up after itself", a Stats "so the preview can show how
 // much this would free", a bulk delete "because one call per snapshot is
-// slow". Each of those turns backupd's retention from a decision about
+// slow". Each of those turns retnd's retention from a decision about
 // manifests into a second, competing owner of the repository's storage,
 // which is exactly the arrangement EPIC K's #785 forbids and #786 exists
 // to own.

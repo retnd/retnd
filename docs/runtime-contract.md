@@ -1,6 +1,6 @@
 # The canonical runtime contract
 
- (B6.3), Phase 6.
+Issue #167 (B6.3), EPIC B #81 Phase 6.
 
 `container/compose.yaml` is the authoritative definition of how this product
 runs. Every other deployment artifact in this repository derives from it, and
@@ -28,7 +28,7 @@ prove the check can actually see it go.
 | `command-and-runtime-profile` | both services | the command **and** `--profile=<name>`, standardised as one field |
 | `listen-port` | web UI | the one published port; the engine deliberately publishes none |
 | `health-check` | both services | declared here, not inherited from the image and described in a comment |
-| `start-gate-liveness` | engine | the engine's healthcheck asks `/health/live`, never backup freshness: `web-ui` waits on it. Checked on every derived artifact too, not only here |
+| `start-gate-liveness` | engine | the engine's healthcheck asks `/health/live`, never backup freshness: `web-ui` waits on it. Checked on every derived artifact too, not only here (issue #206) |
 | `graceful-shutdown-period` | both services | `stop_grace_period`: 30s for the engine, 15s for the UI host |
 | `restart-policy` | both services | `unless-stopped` |
 | `ownership` | both services | explicit `user: PUID:PGID` |
@@ -36,8 +36,8 @@ prove the check can actually see it go.
 | `timezone` | engine | `TZ`, because retention is evaluated against calendar boundaries |
 | `private-state-mount` | engine | `/data/state` |
 | `backup-data-mount` | engine | `/data/backups` |
-| `configuration-mount` | engine | `/etc/backupd/config`, a writable directory holding `config.yaml` |
-| `secret-file-mount` | engine | `/etc/backupd/id_ed25519`, read-only |
+| `configuration-mount` | engine | `/etc/retnd/config`, a writable directory holding `config.yaml` (issue #196) |
+| `secret-file-mount` | engine | `/etc/retnd/id_ed25519`, read-only |
 | `resource-expectations` | document | `x-canonical-runtime.resources` |
 | `supported-architectures` | document | `x-canonical-runtime.architectures` |
 | `digest-policy` | document | `x-canonical-runtime.digest_policy` |
@@ -92,10 +92,23 @@ cannot introduce one: the prohibition rules run against every registered
 artifact, and `TestEveryComposeArtifactInTheTreeIsRegistered` fails when a
 compose file exists in the tree that nothing registered.
 
+## Retained-copy encryption, and why it does not touch this contract
+
+EPIC N adds no port, no mount, no capability, no group and no compose or packaging edit. A
+managed key is a `0600` file in a `0700` directory (`retained_copy_keys`) under the
+configuration mount that already exists and is already writable, and the encrypting copy
+path runs in the engine's own process with a staging file under the backup set's existing
+`local_path`. An external key reference is read with the same `file`, `env` or `command`
+resolvers every other secret uses, so a `command` is run by the engine exactly as a
+credential command already is. The prohibition list above is unchanged, and the key
+directory sits under the configuration mount rather than `/data/backups`, which is the
+separation the previous section is there to keep. The operations guide is
+[encrypted copies](encrypted-copies.md).
+
 ## Local hook scripts, and why they do not touch this contract
 
 EPIC L (#809) gives a backup set hook scripts, and a `.local.sh` hook means
-"run this on the machine backupd is installed on". The engine cannot run one:
+"run this on the machine retnd is installed on". The engine cannot run one:
 this image is distroless and has no shell, the container is read-only and
 non-root, and every capability is dropped. That is not an obstacle to work
 around — it is the contract above.
@@ -109,14 +122,15 @@ are this contract deleted:
 - run a **separate, version-matched, unprivileged process on the host** and let
   the engine ask it, over one Unix-domain socket, with a narrow vocabulary.
 
-backupd does the fourth. The engine gains exactly three bind mounts and nothing
-else:
+retnd does the fourth. The engine gains exactly three bind mounts for it and
+nothing else, plus the two custom validator directories described further down
+(#1246):
 
 ```text
 ${WORKFLOWS_DIR:-./workflows}:/workflows:ro    the hook scripts, READ-ONLY
 ${RUNTIME_DIR:-./run}:/data/run                the runner's socket directory,
                                                and nothing but the socket
-${RUNNER_TOKEN_FILE:-./secrets/workflow-runner.token}:/etc/backupd/workflow-runner.token:ro
+${RUNNER_TOKEN_FILE:-./secrets/workflow-runner.token}:/etc/retnd/workflow-runner.token:ro
                                                the runner's credential, ONE
                                                read-only FILE
 ```
@@ -131,7 +145,7 @@ mounts, so the configuration a Docker Compose deployment documents is:
 workflows:
   runner:
     socket: /data/run/workflow-runner.sock
-    token_file: /etc/backupd/workflow-runner.token
+    token_file: /etc/retnd/workflow-runner.token
 ```
 
 It is a single **file**, mounted read-only, exactly like the SSH key and
@@ -157,12 +171,12 @@ Neither mount uses `:?`, so a deployment whose `.env` predates EPIC L still
 starts.
 
 What is on the other end of that socket is deliberately not a shell. It is
-`backupd workflow-runner serve`, built from the same commit as the engine and
+`retnd workflow-runner serve`, built from the same commit as the engine and
 extracted from the same image by the installer, and it:
 
 - listens on a Unix socket only — there is no TCP listener and no address to
   configure — with the socket 0600 inside a 0700 directory;
-- additionally requires an installation-scoped credential from backupd's
+- additionally requires an installation-scoped credential from retnd's
   secrets area on every connection;
 - refuses an engine whose version is not exactly its own;
 - accepts four operations (`syntax-check`, `execute`, `cancel`, `status`) and
@@ -178,8 +192,8 @@ A local hook does not run on the host's shell either. Since #865 the runner
 launches one ephemeral container per hook:
 
 ```text
-docker create --name backupd-hook-<run>-<step>-<16 hex>
-           --label backupd.workflow-hook=1 (plus run, step and instance labels)
+docker create --name retnd-hook-<run>-<step>-<16 hex>
+           --label retnd.workflow-hook=1 (plus run, step and instance labels)
            --network none --security-opt no-new-privileges --cap-drop ALL
            --read-only --tmpfs /tmp --pids-limit 512 --user <uid>:<gid>
            --platform <the daemon's own> --entrypoint <bash in the image>
@@ -238,19 +252,111 @@ socket, no host namespace, no added capability, no unbounded host mount, no
 shell in the image. `docs/adr/0020-host-workflow-runner.md` carries the full
 argument.
 
+## Validators and recovery staging
+
+A recovery test runs an operator's own script (a validator, `NAME.local.sh` under
+`recovery-test/<source>/<set>` in the workflow root, chosen by the policy's `validator_id`)
+against a copy that has been recovered to an isolated path. It runs through the host
+workflow runner, the way every hook does. It sits inside the contract above rather than
+beside it, and it adds no privilege.
+
+What the validator can reach:
+
+- **The recovered copy, and nothing else on purpose.** It is run against a path under the
+  recovery staging root, never against the durable file in the backup root. The staging
+  root is host-scoped and global: one filesystem, shared by recoveries and recovery
+  tests, so no backup set can point it elsewhere. Unless `assurance.staging_root` says
+  otherwise it is `recovery-staging` beside the state database. The runner's container
+  sees it only if you declare it with `--hook-mount`; a script that cannot open the file
+  fails, and is not a pass.
+- **A small environment, not the engine's and not the hooks'.** The validator starts with
+  the `RECOVERY_TEST_*` variables, the product's own `RETND_*` facts and the baseline
+  `PATH`, and nothing else. The set's workflow variables, secrets included, are not in it,
+  and a secret's file or command is not even read on its behalf. An operator who wants
+  them there says so with `assurance.recovery_test.validator_env: workflow` (on the
+  deployment or on one set) or, for a custom validator, with that validator's own
+  `env: workflow`, which wins over the set's and the deployment's setting in both
+  directions. Anything other than exactly `minimal` or `workflow` is
+  refused when the configuration loads. It never inherits the engine's own environment, so
+  no credential, key or token of the engine's is in it either way.
+- **Its own process group and a timeout that fails closed.** A validator that never
+  returns is terminated along with its group and the result is a failure. A child that
+  deliberately detaches outside the group is outside what the reaper can reach, so
+  termination is recorded as unconfirmed rather than claimed.
+
+What it cannot do, and why this section adds no exception to the prohibition list: the
+containers stay distroless, non-root and read-only, with `cap_drop: ALL` and
+`no-new-privileges`. No Docker socket and no host-root mount is added for this, no shell is
+added to the engine image, and no new port is opened. The validator runs through the host
+workflow runner under the contract in
+[the host workflow runner ADR](adr/0020-host-workflow-runner.md), and a recovery itself
+starts no subprocess at all.
+
+Custom validators (a `NAME.local.sh` attached to a backup-name pattern, #1203) are the same
+kind of script and get the same reach. They live in `recovery-test-validators` under the
+workflow root, and uploading one over the API or with `retnd assurance validators` makes the
+engine write into that directory (a `0750` directory, `0640` files, renamed into place), which
+is the one thing this feature writes besides `config.yaml`. Removing one renames the script
+into `recovery-test-validators.superseded` beside it and deletes nothing. The workflow tree is
+mounted read-only, so the canonical stack (and the CasaOS, Portainer, Proxmox and
+OpenMediaVault stacks) mounts just those two directories writable over it, from the same host
+tree (#1246):
+
+```text
+${WORKFLOWS_DIR:-./workflows}/recovery-test-validators:/workflows/recovery-test-validators
+${WORKFLOWS_DIR:-./workflows}/recovery-test-validators.superseded:/workflows/recovery-test-validators.superseded
+```
+
+Every hook script an operator wrote stays read-only, and `config.yaml` cannot name either
+directory as a hook stage, so nothing an upload writes runs as a hook; `distribution/compose`
+refuses a writable mount under the tree with any other name or from any other host path. A
+deployment without the two mounts (an older compose file) answers `VALIDATORS_UNAVAILABLE` and
+says which directory it could not write. A move aside between the two mounts is a copy, and
+it only copies a regular file within the script size limit, without following a link or
+blocking on a FIFO.
+
+With no `workflows.root` in `config.yaml`, the engine uses `/workflows` when it is mounted, and
+the Settings card, `retnd settings workflow` and `retnd check` say it is the default. Two
+upgrade notes. Turning workflows off (`retnd settings workflow patch --disable`, or `--root
+""`) writes `workflows.disabled: true`, which a retnd older than #1246 refuses, so run `--enable`
+or delete the line before a downgrade. And a root cleared before #1246 left a file that looks
+like one that never had a root, so after the upgrade a deployment with `/workflows` mounted is on
+the default; `--disable` keeps it off. Uploading and editing
+sit behind the destructive gate and the password step-up, for the reason a recovery onto the
+source host does. The upload check is a lint, not a sandbox.
+
+The built-in structure check, which a recovery test runs instead of a validator when the set
+declares none, adds nothing to that list. It runs in the engine process: it uses the gzip
+and tar readers from the standard library and the zstd reader the binary already links, it
+starts no subprocess, no shell and no container, and it opens no port, mount or capability.
+It reads the staged copy once, decodes into a discard sink, writes nothing, extracts nothing,
+and is bounded by a wall-clock budget, a decoded-bytes ceiling and a zstd window ceiling, all
+of which end as `could_not_complete`. A decoder panic is caught at its boundary and recorded
+the same way. The deployment's composed files are unchanged by it.
+
+Its output is untrusted, and the engine keeps a bounded copy of it: the newest recovery
+test's output per backup set, at most 200 records, 1 KiB per record and 32 KiB in all, with a
+truncation record last when anything was cut and no control byte stored. It sits beside the
+verdict, the hash of the script that ran and a reason in the engine's own words, and it never
+decides the verdict. A validator that exits 0 without opening the file does not produce a
+recovery-test pass, because the digest of the recovered bytes was checked first and is
+what the pass is recorded against. The built-in check's result is stored as `passed` under the reserved
+identity `retnd-builtin-structure` and reported as `readable` on the wire, and no operator
+`validator_id` may begin `retnd-`.
+
 ## Runtime profiles
 
 A runtime profile is how one executable changes host-dependent behaviour
 without becoming a second build.
 
 ```
-backupd-web serve    --profile=generic
-backupd-web serve    --profile=ugos --trusted-upstream=172.19.0.2/32
-backupd-web serve-ui --profile=ugos --trusted-gateway=10.1.2.3/32 \
-                            --ui-root=/usr/share/backupd/ui
+retnd-web serve    --profile=generic
+retnd-web serve    --profile=ugos --trusted-upstream=172.19.0.2/32
+retnd-web serve-ui --profile=ugos --trusted-gateway=10.1.2.3/32 \
+                            --ui-root=/usr/share/retnd/ui
 ```
 
-Seven profiles exist: `generic`, `ugos`, and the five added when it
+Seven profiles exist: `generic`, `ugos`, and the five issue #169 added when it
 converted the shipped platform packaging (`truenas`, `unraid`,
 `openmediavault`, `proxmox`, `synology`). Those five declare no capability and
 no gateway, and that is the finding rather than an omission: every one of them
@@ -356,13 +462,13 @@ rather than a bare header name, and the engine strips as well so nothing
 downstream of it, a handler or a log line or a middleware added later, can read
 a value that was never trusted.
 
-'s proves the same boundary against the real UGOS gateway on real
+EPIC C's #92 proves the same boundary against the real UGOS gateway on real
 hardware. This side needs no UGREEN device: the synthetic trusted peer is
 loopback and the synthetic untrusted peer is everything else.
 
 ## Runtime-selected UI bundles
 
- `serve-ui` used to embed one bundle with `go:embed` and offer no
+Issue #180. `serve-ui` used to embed one bundle with `go:embed` and offer no
 alternative, and `ui/shared/vite.config.ts` picks the provider shell at build
 time from `VITE_PLATFORM`. Together those meant shipping Synology's bridge
 required compiling a Synology-specific binary, and section 3.7 requires every
@@ -396,7 +502,7 @@ change.
 
 ### Which carrier each adapter uses
 
- packaged this, and there are exactly three carriers because there
+Issue #169 packaged this, and there are exactly three carriers because there
 are exactly three kinds of thing that can hold a bundle.
 
 | Carrier | Who uses it | How the bundle is selected |
@@ -414,22 +520,22 @@ another provider, because a package that installs cleanly and shows the wrong
 interface is the failure mode this whole issue is about.
 
 **Five bundles in the image, and not seven.** `generic` is already compiled
-into the binary and duplicating it buys nothing. `ugos` is 's, and its
+into the binary and duplicating it buys nothing. `ugos` is EPIC D's, and its
 UPK carries its own. The rest is arithmetic against a gated budget: measured
 on `darwin-arm64-mac17-2`, `linux/arm64`, the image goes from 43,008,762 bytes
 to **44,811,244** bytes, which is +1,802,482 (+4.19%) against a ceiling of
 45,159,200 (1.05x). That leaves 347,956 bytes of headroom, which is less than
 one more bundle: this image can carry these five and not a sixth. Shipping all
-seven, as estimated, would have been roughly 2.4 MB and outside the gate.
+seven, as #167 estimated, would have been roughly 2.4 MB and outside the gate.
 
-That paragraph is 's measurement and it is left as it was taken. Both sides
-of it have since moved, and re-measured them on the same host and platform
+That paragraph is #180's measurement and it is left as it was taken. Both sides
+of it have since moved, and #635 re-measured them on the same host and platform
 on 2026-09-08: the five bundles now hold 3,503,996 bytes rather than 1,802,482,
-because put 139,744 bytes of woff2 into each one and, G and H grew
+because #632 put 139,744 bytes of woff2 into each one and EPIC F, G and H grew
 the JS chunk.
 
 **The arithmetic no longer decides the count, and the count is unchanged for a
-different reason.** 's sum worked because the baseline it measured against
+different reason.** #180's sum worked because the baseline it measured against
 was an image carrying no bundles, so each one had to be paid for out of the
 headroom. The baseline was re-captured at 69,704,266 with these five inside it,
 which means charging them to the 5% counts them twice. Re-derived there it points
@@ -438,7 +544,7 @@ puts five over by 18,783, and not charging them leaves 3,485,213 against
 1,401,598 for the two missing bundles, so seven would fit with 2,083,615 spare.
 
 What actually settles it is that `generic` is compiled into the binary and `ugos`
-ships in 's UPK. Those two have a carrier, so a directory for either is
+ships in EPIC D's UPK. Those two have a carrier, so a directory for either is
 bytes nobody serves. That holds whatever the image weighs. A reader sizing a
 sixth bundle should take the image size from `docs/perf/` and the count from that
 sentence, and not use either as an argument for the other.
@@ -457,9 +563,9 @@ serve-ui --profile=ugos    --ui-root /ui/bundles  ->  refuses to start:
 The third line is the one worth reading twice. A missing bundle is a hard
 start failure, never a silent fall back to the generic bridge, which is why
 carrying too FEW bundles is a loud failure and not a quiet reappearance of
+#180.
 
-
-**The four adapters adds share the first row with `generic`, and the
+**The four adapters #170 adds share the first row with `generic`, and the
 arithmetic above is why.** 347,956 bytes of headroom is less than one 352 KB
 bundle, so the image that carries five cannot carry six, let alone nine.
 Portainer, Dockge, CasaOS and ZimaOS therefore ship no frontend bridge at all:
@@ -471,7 +577,7 @@ That is not only a budget decision, and it would be the same decision with room
 to spare. A bridge for any of the four would need its platform id in the
 `/api/v1` contract, the capability table, the profile table and the bundle list,
 which is core and shared-UI code in four adapters whose own contract forbids
-exactly that: states it for two of them as "no CasaOS or ZimaOS import
+exactly that: #170 states it for two of them as "no CasaOS or ZimaOS import
 appears in either". None of the four has host-dependent behaviour for a profile
 to select, either. No native identity gateway, no notification bridge, no launch
 bridge, so a profile per platform would be four rows that change nothing but the
@@ -485,7 +591,7 @@ become the cheap way out of the pin.
 
 ## Deriving an adapter instead of authoring one
 
- Phase 4 shipped five platforms that agree with the canonical
+Issue #169. Phase 4 shipped five platforms that agree with the canonical
 runtime by review: each states its own image reference, its own mounts, its
 own port and its own health check, and nothing compared those statements to a
 single source. Five independently authored copies of one runtime definition is
@@ -517,14 +623,14 @@ per-role tests so `derive.go` can hold four metadata formats to them, including
 an Unraid XML template no Compose parser can read, and
 `TestTheCanonicalDefinitionIsWhereTheHealthChecksAreDecided` fails the build
 when the restatement stops matching. Nothing compared those two before issue
-, which is how the canonical definition came to declare a liveness probe
+#206, which is how the canonical definition came to declare a liveness probe
 while every adapter derived the backup-freshness verdict from a copy nobody
 had changed, for three work packages, with every suite green.
 
 The engine's check is a liveness question. Every adapter's web UI declares
 `depends_on: <engine>: condition: service_healthy`, so whatever it asks stands
 between an operator and the only LAN-facing container in the deployment.
-`backupd status` is FR-24's verdict and exits non-zero on a fresh
+`retnd status` is FR-24's verdict and exits non-zero on a fresh
 install by design, which made "install the app" and "reach the app" mutually
 exclusive on all nine adapters.
 
@@ -559,11 +665,11 @@ One mount is redeclared, and the host side of it does not move either:
 | | Phase 4 | Converted adapter |
 |---|---|---|
 | host path | `<appdata>/config/config.yaml` | `<appdata>/config` |
-| container path | `/etc/backupd/config.yaml` | `/etc/backupd/config` |
+| container path | `/etc/retnd/config.yaml` | `/etc/retnd/config` |
 | mode | `ro` | writable |
 
 The file an operator already has stays exactly where it is; what the adapter
-mounts is its parent directory, writable, which is The directory
+mounts is its parent directory, writable, which is issue #196. The directory
 has to be writable by the container's uid/gid before the first start, because
 a bind mount does not chown its source, and each platform's acceptance
 procedure step 0 now says so.
@@ -574,7 +680,7 @@ saying per platform rather than once:
 | platform | what carries the old answer | what stops it |
 |---|---|---|
 | generic, OpenMediaVault, Proxmox | an env file the operator edits | `CONFIG_FILE` became `CONFIG_DIR`, a fail-closed `${VAR:?}` reference, so an unconverted file stops the deployment with a message |
-| Synology (Container Manager) | `backupd.env` | the same, `${APPDATA:?...}/config` |
+| Synology (Container Manager) | `retnd.env` | the same, `${APPDATA:?...}/config` |
 | TrueNAS (catalog) | the platform, not a file | the question was renamed `config` to `configDir`, so an upgrade has no stored answer to carry forward and the wizard asks again |
 | Unraid | the operator's own template copy | nothing automatic: a changed `<Config>` Target does not retire a mapping already in the user template, so the old read-only file mapping has to be deleted by hand |
 | Synology (`.spk`) | the package's own layout | the package installs the directory itself |
@@ -583,18 +689,51 @@ The `${VAR:?}` claim only ever covered the first three rows. There is no
 `${VAR:?}` anywhere in a TrueNAS catalog answer or an Unraid template, and
 saying otherwise made a fail-closed guarantee out of a property those two
 platforms do not have. On TrueNAS the failure it hid was concrete: an upgrade
-that kept a Phase 4 answer of `<pool>/backupd/config/config.yaml` bind
-mounts that FILE at `/etc/backupd/config`, `--config` resolves to
-`/etc/backupd/config/config.yaml` inside it, and the engine crash-loops
+that kept a Phase 4 answer of `<pool>/retnd/config/config.yaml` bind
+mounts that FILE at the container's configuration mount — `/etc/retnd/config`
+as it was spelled then, `/etc/retnd/config` since issue #890 — `--config`
+resolves to `config.yaml` inside it, and the engine crash-loops
 on ENOTDIR with a message naming neither the mount nor the migration.
 
 Two things close that. The TrueNAS question carries a new identifier, so there
 is no answer to carry forward. And the engine now recognises the shape: when
 the configuration path's parent is a file rather than a directory it says so,
-names and points here, instead of reporting "not a directory".
+names issue #196 and points here, instead of reporting "not a directory".
 Unraid gets the same message, which is the only thing that can help there,
 because retiring an operator's existing mapping is not something a template
 can do.
+
+## Migrating across the #890 rename
+
+Issue #890 (R1.5, EPIC R #885) moves the deployment's own identity. It is the
+second compat-breaking generation change this document records, so it gets the
+same two tables as the configuration mount above: what moved, and what carries
+an old answer into the new world.
+
+Data does not move. `/data/state` and `/data/backups` carry no brand and are
+untouched, so an existing installation keeps its journal, its retained
+artifacts and its enrolled administrator across the change.
+
+| | before #890 | after #890 |
+|---|---|---|
+| container config path | `/etc/retnd/config` | `/etc/retnd/config` |
+| container key material | `/etc/retnd/id_ed25519`, `/etc/retnd/known_hosts` | `/etc/retnd/id_ed25519`, `/etc/retnd/known_hosts` |
+| container runner token | `/etc/retnd/workflow-runner.token` | `/etc/retnd/workflow-runner.token` |
+| image entrypoints | `/retnd`, `/retnd-web` | `/retnd`, `/retnd-web`, plus `/retnd-web` as a real hardlink for one release |
+| image `HEALTHCHECK` | `/retnd status` | `/retnd status` |
+| engine compose service | `retnd` | `retnd`; `web-ui` never named the product and does not move |
+| compose project name | implicit, from the directory | explicit `name: retnd`, so the default containers are `retnd-retnd-1` and `retnd-web-ui-1` |
+| systemd units | `retnd-bridge.service`, `retnd-bridge.timer`, `retnd-workflow-runner.service` | `retnd-bridge.service`, `retnd-bridge.timer`, `retnd-workflow-runner.service` |
+| `/data/state`, `/data/backups` | unchanged | unchanged |
+| image reference | `ghcr.io/retnd/retnd` | unchanged by this issue; #895 moves it, and pushes the old package path alongside the new one for one release because a GHCR package path is not covered by GitHub's transfer redirects |
+
+| what carries the old answer | what stops it |
+|---|---|
+| an operator's pinned copy of a previously published `compose.yaml`, which this repository cannot edit | nothing has to: the image carries `/retnd-web` as a real hardlink to `/retnd-web` — one inode, two names, no second copy of the binary and no shell wrapper, because the runtime image is distroless — so an unedited pinned file still starts. Kept for exactly one release and removed by #895. There is deliberately no `/retnd` beside it, because no compose file this project has ever shipped named `/retnd` in a `command:` or a `healthcheck:` |
+| a host directory bind-mounted at the old container path | FR-38's state-adoption preflight in `core/service`. For any resolved path with a path segment that is exactly `retnd` it also resolves the `retnd` counterpart, and ADOPTS the legacy location with a warning on every start rather than handing a first-run wizard to a deployment with years of journal in it. It refuses to start only on ambiguity — both populated, different device and inode — and names both paths when it does |
+| a provider adapter's own `command:`, service names and file names | issue #891 moved them as one cut: all eleven adapters name `retnd`, the `retnd` compose project and `retnd-retnd-1`/`retnd-web-ui-1`. Their HOST paths deliberately did not move — those are the operator's own directories, and §6 of `docs/EPIC-R-rename-retnd-to-retnd.md` cuts renaming them. The packaging gates still accept both entrypoint spellings from one place, `distribution/packaging/renameoverlap.go`, rather than each gate deciding for itself, because an operator's pinned copy of a provider file still says `/retnd-web`; `distribution/packaging/canonical.json`'s `retainedBinaries` is the data behind it and #895 deletes both |
+| the `binary_sha256` keys of an already-published release in `container/release-manifest.json` | nothing rewrites them. They record the SHA-256 of bytes that were built and pushed before the rename, which is evidence rather than a label, so every consumer accepts both spellings across the overlap release, new spelling first |
+| a pre-#196 single-file configuration mount, under either spelling | `distribution/packaging`'s `legacy-config-file-mount` rule, which derives the pre-rename spellings of both file shapes rather than hardcoding them, and refuses the mount with the three write paths it breaks named |
 
 ## Digest policy
 
@@ -605,7 +744,7 @@ by digest, not by tag: a tag can be moved, a digest cannot.
 `TestArchitecturesAgreeAcrossTheThreePlacesTheyAreWrittenDown` holds the
 architectures declared here, in `distribution/packaging/canonical.json` and in
 the release manifest to one value, so "the same source revision produces
-linux/amd64 and linux/arm64" is checkable rather than asserted.
+linux/amd64" is checkable rather than asserted.
 
 ## The engine plus web-ui deviation, and what it costs
 
@@ -623,7 +762,7 @@ canonical Go executable per architecture, no production Node server). The
 performance contract prohibits **adding** a data-path hop, and "one process
 wherever practical" is explicitly qualified.
 
-What owed was the measurement, because an already-shipped hop whose cost
+What #167 owed was the measurement, because an already-shipped hop whose cost
 nobody has measured is indistinguishable from one that is fine.
 
 `apps/generic/tests/perfbaseline/proxycost_test.go` (`PERF_PROXY_COST=1`) runs
@@ -648,7 +787,7 @@ end-to-end budget is dominated by the browser and the network in front of it.
 
 Two things worth noting rather than burying:
 
-- The number lines up with `docs/perf/gate.json`'s own reasoning. set the
+- The number lines up with `docs/perf/gate.json`'s own reasoning. #165 set the
   API-read noise floor at 0.05 ms and justified it as "below the cost of the
   cheapest structural regression this gate exists to catch, an added loopback
   proxy hop." The measured hop is 0.047 ms, which is just under that floor. The
@@ -665,10 +804,10 @@ second proxy would double a cost that is already about half the read.
 
 ## Performance evidence for this change
 
-All seven metrics 's performance contract names, measured with
+All seven metrics EPIC B #81's performance contract names, measured with
 `python3 scripts/bdtools/perf/capture_baseline.py --repeat 5` on the designated benchmark host
 `darwin-arm64-mac17-2`, workload `phase6-baseline-v1`, and compared against
-'s committed baseline with `scripts/perf/check-baseline.sh --compare`.
+#165's committed baseline with `scripts/perf/check-baseline.sh --compare`.
 Nothing was re-baselined.
 
 | metric | gated | baseline | this change | threshold | result |
@@ -684,7 +823,7 @@ Nothing was re-baselined.
 Two of those deserve more than a tick.
 
 **`api_read_p95_ms` moved 14.6% in ratio terms, and passed on the noise floor
-rather than on the ratio.** That is the gate working as designed it, not a
+rather than on the ratio.** That is the gate working as #165 designed it, not a
 gate being lenient: the absolute movement is 0.019 ms, and the within-run
 capture-to-capture spread of that same median was 62% of the median in this
 very run. At 0.13 ms a 10% budget is smaller than the measurement's own
@@ -700,8 +839,8 @@ the two-service topology leaking into the direct path.
 
 **`image_size_bytes` grew by 65,536 bytes.** That is the profile table, the
 gateway authenticator and the bundle resolver compiled into
-`/backupd-web`. It is 0.15% of the image against a 5% budget, and it is
-real growth rather than noise: recorded that two independent builds of the
+`/retnd-web`. It is 0.15% of the image against a 5% budget, and it is
+real growth rather than noise: #165 recorded that two independent builds of the
 same commit produced byte-identical image sizes, so there is no noise here to
 hide in and no reason to describe 64 KiB as anything but 64 KiB.
 
@@ -721,7 +860,7 @@ working with no change. What is new is additive:
 | `--profile=${RUNTIME_PROFILE:-generic}` on both commands | none; `generic` is what the previous build did |
 | `TZ: ${TZ:-UTC}` | none; UTC is what the image defaulted to |
 | `stop_grace_period` | the engine now gets 30s instead of Docker's 10s default, so a shutdown during a journal write is less likely to be killed mid-write |
-| explicit `healthcheck` on the engine | the engine's compose healthcheck is now `/health/live` rather than the image's `backupd status`, so a DEGRADED or unconfigured instance no longer keeps `web-ui` from starting. Backup freshness stays the image's own HEALTHCHECK, the alerts block, and `docker compose exec backupd /backupd status` |
+| explicit `healthcheck` on the engine | the engine's compose healthcheck is now `/health/live` rather than the image's own freshness verdict, so a DEGRADED or unconfigured instance no longer keeps `web-ui` from starting. Backup freshness stays the image's own HEALTHCHECK, the alerts block, and `docker compose exec retnd /retnd status` (that command was `docker compose exec retnd /retnd status` before issue #890 moved the service name and the entrypoints) |
 | `UI_DIR` / `UI_ROOT` on `web-ui` | none when unset, which is the default |
 | `x-canonical-runtime` | none at runtime; compose ignores unknown `x-` keys |
 

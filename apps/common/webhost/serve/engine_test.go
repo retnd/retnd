@@ -32,12 +32,12 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/backupdproject/backupd/apps/common/auth/local"
-	"github.com/backupdproject/backupd/apps/common/email/emailtest"
-	"github.com/backupdproject/backupd/apps/common/platform/capabilities"
-	"github.com/backupdproject/backupd/apps/common/platform/profile"
-	"github.com/backupdproject/backupd/apps/common/webhost/serve"
-	"github.com/backupdproject/backupd/core/service"
+	"github.com/retnd/retnd/apps/common/auth/local"
+	"github.com/retnd/retnd/apps/common/email/emailtest"
+	"github.com/retnd/retnd/apps/common/platform/capabilities"
+	"github.com/retnd/retnd/apps/common/platform/profile"
+	"github.com/retnd/retnd/apps/common/webhost/serve"
+	"github.com/retnd/retnd/core/service"
 )
 
 // testPlatformAdapter is a minimal capabilities.PlatformAdapter built only
@@ -65,7 +65,7 @@ func (a testPlatformAdapter) PlatformInfo(_ context.Context) (capabilities.Platf
 	return capabilities.PlatformInfo{ID: capabilities.PlatformGeneric, Name: "test"}, nil
 }
 
-// writeTestConfig mirrors core/cmd/backupd/main_test.go's own
+// writeTestConfig mirrors core/cmd/retnd/main_test.go's own
 // writeTestConfig: a minimal, valid config against real temp directories,
 // needing no network and no Docker.
 func writeTestConfig(t *testing.T) string {
@@ -225,7 +225,7 @@ func enrollAndLogIn(t *testing.T, h *engineHarness, client *http.Client, base st
 			"port":     sink.Port(),
 			"security": "none",
 			"username": "",
-			"from":     "backupd@example.test",
+			"from":     "retnd@example.test",
 		},
 	})
 	req, err := http.NewRequest(http.MethodPost, base+"/api/v1/auth/enroll", bytes.NewReader(body))
@@ -248,7 +248,7 @@ func enrollAndLogIn(t *testing.T, h *engineHarness, client *http.Client, base st
 	// Asserted rather than assumed: a 204 already implies the send
 	// succeeded, and this proves the message that succeeded is the
 	// verification message and that it reached the sink.
-	sink.WaitForMessage(t, "backupd: verify your recovery email", 10*time.Second)
+	sink.WaitForMessage(t, "retnd: verify your recovery email", 10*time.Second)
 }
 
 // TestEngine_UnauthenticatedDestructiveRequestIsRefused proves the
@@ -411,7 +411,7 @@ func newUIHarness(t *testing.T) *uiHarness {
 	}
 
 	staticFS := fstest.MapFS{
-		"index.html": &fstest.MapFile{Data: []byte("<html><body>generic backupd UI shell</body></html>")},
+		"index.html": &fstest.MapFile{Data: []byte("<html><body>generic retnd UI shell</body></html>")},
 	}
 
 	ui := httptest.NewServer(serve.NewUI(serve.UIConfig{Upstream: upstream, StaticFS: staticFS}))
@@ -490,7 +490,7 @@ func TestUI_StaticUIServedForNonAPIRoute(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("GET %s status = %d, want %d", path, resp.StatusCode, http.StatusOK)
 		}
-		if !strings.Contains(string(body), "generic backupd UI shell") {
+		if !strings.Contains(string(body), "generic retnd UI shell") {
 			t.Errorf("GET %s body = %q, want it to contain the static index.html content (SPA fallback)", path, body)
 		}
 	}

@@ -24,9 +24,9 @@
  * fine, and what the operator has is one decision to make about pointing
  * this set at different data.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { fetchResource, useResource } from "@shared/state/resource";
 import { graph } from "@shared/state/graph";
@@ -51,6 +51,20 @@ import { useActivityFeed } from "./useActivityFeed";
 import { emitBrowserNotice } from "@shared/state/browserNotices";
 import { WarningBanner } from "@shared/components/WarningBanner";
 import { HaltBanner } from "@shared/components/HaltBanner";
+// EPIC L (issue #814): this set's hooks, and the hold that stops it
+// running at all. The hold is read here rather than inside the card,
+// because it gates a control in the page header — the per-set Run —
+// and a card cannot disable a button it does not own.
+import { WorkflowRecoveryBanner, useWorkflowHold } from "@shared/components/WorkflowRecoveryBanner";
+import { SetWorkflowCard } from "@shared/pages/BackupSetWorkflowCard";
+import {
+  HOOK_DIR_KEYS,
+  HOOK_DIR_LABEL,
+  hookDirState,
+  useSetWorkflow,
+  workflowSaveFailureText
+} from "@shared/pages/useSetWorkflow";
+import type { HookDirKey } from "@shared/pages/useSetWorkflow";
 import { ConfirmationDialog } from "@shared/components/ConfirmationDialog";
 import { RemoveBackupSetDialog } from "@shared/components/RemoveBackupSetDialog";
 import { SSHAuthWizard } from "@shared/components/SSHAuthWizard";
@@ -69,7 +83,13 @@ import { Cell, Row } from "@shared/components/Definitions";
 import { BackupSetConfigurationCard } from "@shared/pages/BackupSetConfigurationCard";
 import type { TooltipId } from "@shared/tooltips/tooltips";
 import { RetentionPreviewDialog } from "./RetentionPreviewDialog";
+import { RecoverSetDialog } from "@shared/assurance/RecoverSet";
+import { AssuranceSection } from "@shared/assurance/AssuranceSection";
+import { ValidationBlock } from "@shared/assurance/ValidationBlock";
+import { useSetFacts } from "@shared/assurance/verificationModel";
+import { expectedEveryText, lastRunText, retainedText } from "@shared/assurance/setCardText";
 import { BackupSetRetentionCard } from "./BackupSetRetentionCard";
+import { SetEncryptionCard } from "@shared/encryption/SetEncryptionCard";
 import { EDIT_FIELDS, readEditFields, visibleEditFields, withCompanions } from "./backupSetEditFields";
 import type { EditField, EditFieldKey } from "./backupSetEditFields";
 import type { BackupSetPatch, RunningWork } from "@shared/api/contracts";
@@ -104,6 +124,10 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   const setId = source && setName ? source + "/" + setName : "";
   const api = useApi();
   const navigate = useNavigate();
+  // What is known about this set's verification (issue #1134): the Overview's
+  // Retained cell and the Validation block read the same model as the
+  // Assurance card between them.
+  const setFacts = useSetFacts(setId);
   // #829: the two run controls' hover copy is tooltip text like any
   // other, so it goes when the operator has turned tooltips off. Resolved
   // here, above this page's early returns, because that is where a hook
@@ -135,6 +159,11 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   // longer holds a version of its own. Taking one here as well would be a
   // second answer to the same question.
   const run = useRunControls({ kind: "set", id: setId });
+  // EPIC L (#814). One read of the deployment's hold set, filtered to
+  // this set, because that is the route the API offers and the holds are
+  // what the next run is actually refused against — a run row's own
+  // recovery_state would only be a prediction of that refusal.
+  const workflowHold = useWorkflowHold(setId);
   // The live feed for THIS set, narrowed by the `backup_set` the route
   // already takes (issue #596). It is held here rather than inside the
   // panel because the Test Connection button below asks it for a fresh
@@ -142,7 +171,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   // before it replies, so one poll then is the difference between a
   // terminal that fills in immediately and one that fills in whenever the
   // timer next fires.
-  const activityFeed = useActivityFeed(setId);
+  const activityFeed = useActivityFeed();
   const [testing, setTesting] = useState(false);
   // Issue #852: what the last connection test said about WRITING to this
   // source, or null when no test has answered in this session.
@@ -156,6 +185,9 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   // connection still gets the explanation rather than a silent no-op.
   const [sourceWritable, setSourceWritable] = useState<boolean | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  // #1106: the Recover this backup set dialog, and the button focus returns to.
+  const [recoverSetOpen, setRecoverSetOpen] = useState(false);
+  const recoverSetButton = useRef<HTMLButtonElement>(null);
   const [removeOpen, setRemoveOpen] = useState(false);
   // Issue #592. The SSH surface used to be two boxes in the edit list
   // above; it is a wizard now, opened from the Connection section, and it
@@ -235,6 +267,24 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   const [savedThisSession, setSavedThisSession] = useState<SavedField[]>([]);
   const [pendingExit, setPendingExit] = useState<ExitRoute | null>(null);
 
+  // ------------------------------------------------------- issue #1189
+  //
+  // The Workflow card's before and after directory boxes are part of this
+  // edit session even though they save through their own PATCH: SAVE ALL
+  // carries them, the CANCEL ledger names them, and a per-box Save of one
+  // is recorded in `savedThisSession` like any other. The set's workflow
+  // block is read here and handed to the card, so both draw one copy.
+  //
+  // `hookDraft` is what each box holds, undefined meaning "as saved";
+  // `partialSave` is the sentence for a SAVE ALL whose directories went
+  // live and whose set PATCH did not, because hooks run code on the next
+  // backup and CANCEL after that must not look like nothing happened.
+  const setWorkflow = useSetWorkflow(source, setName);
+  const [hookDraft, setHookDraft] = useState<Partial<Record<HookDirKey, string>>>({});
+  const [hookErrors, setHookErrors] = useState<Partial<Record<HookDirKey, string>>>({});
+  const [savingHooks, setSavingHooks] = useState<HookDirKey[]>([]);
+  const [partialSave, setPartialSave] = useState<string | null>(null);
+
   // The backup set this page is currently showing. Every piece of edit
   // state above belongs to ONE set, and React Router does not remount
   // this page for a :source/:set change alone (the same property this
@@ -269,6 +319,10 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     setRefusal(null);
     setSavedThisSession([]);
     setPendingExit(null);
+    setHookDraft({});
+    setHookErrors({});
+    setSavingHooks([]);
+    setPartialSave(null);
   }
 
   // The hold's lifetime, tied to `editing` rather than to any one button.
@@ -350,7 +404,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       setSourceWritable(result.writable);
       activityFeed.refresh();
     } catch (e) {
-      const failure = describeFailure(e, "Backupd could not test this backup set's connection.");
+      const failure = describeFailure(e, "retnd could not test this backup set's connection.");
       emitBrowserNotice({
         outcome: apiErrorOf(e) === null ? "unreachable" : "refused",
         code: apiErrorOf(e)?.code ?? "unknown",
@@ -382,7 +436,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     } catch (e) {
       const code = apiErrorOf(e)?.code ?? null;
       if (code === "BACKUP_SET_SOURCE_NOT_WRITABLE") setSourceWritable(false);
-      const failure = describeFailure(e, "Backupd could not change this backup set's read-only status.");
+      const failure = describeFailure(e, "retnd could not change this backup set's read-only status.");
       emitBrowserNotice({
         outcome: code === null ? "unreachable" : "refused",
         code: code ?? "unknown",
@@ -422,7 +476,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       const hold = await api.takeEditHold(source, setName);
       setStopped(hold.stopped);
     } catch (e) {
-      setEnterError(describeFailure(e, "Backupd could not pause this backup set for editing.").message);
+      setEnterError(describeFailure(e, "retnd could not pause this backup set for editing.").message);
       return;
     }
     const loaded = readEditFields(s);
@@ -450,7 +504,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       // race the hold exists to prevent, and doing it silently would be
       // worse than saying so.
       setEnterError(
-        describeFailure(e, "Backupd could not check whether a backup is running for this set.").message
+        describeFailure(e, "retnd could not check whether a backup is running for this set.").message
       );
       return;
     }
@@ -478,10 +532,10 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     // draft. See the `refusal` state above for why answering a refusal
     // must not go back to the boxes for the values.
     resend: BackupSetPatch | null = null
-  ): Promise<boolean> => {
+  ): Promise<SaveOutcome> => {
     // No draft is edit mode not being open, which is the same "nothing to
     // save" as an empty key list rather than a failure.
-    if (requested.length === 0 || !draft) return true;
+    if (requested.length === 0 || !draft) return SAVED;
     // Expanded here, once, rather than on the button that asked: every
     // save reaches this function, so a pair of boxes that have to travel
     // together (the completion method and its window) cannot be split by
@@ -494,7 +548,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     // this matters more here, not less.
     if (!snapshot || isSetEditStale(snapshot)) {
       setStale(true);
-      return false;
+      return { ok: false, reason: "this set changed somewhere else while it was being edited" };
     }
 
     let patch: BackupSetPatch;
@@ -511,7 +565,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       }
       if (Object.keys(problems).length > 0) {
         setFieldErrors((prev) => ({ ...prev, ...problems }));
-        return false;
+        return { ok: false, reason: Object.values(problems).join(" ") };
       }
     }
     // Whichever refusal is being answered, it is answered for the body
@@ -562,13 +616,13 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       setBaseline((prev) => applyKeys(prev, persisted, keys));
       setDraft((prev) => applyKeys(prev, persisted, keys));
       setFieldErrors((prev) => clearKeys(prev, keys));
-      return true;
+      return SAVED;
     } catch (e) {
       // Edit mode stays open and the typed value stays where it is; only
       // an explanation is added. Dropping back to view mode here would
       // discard the operator's work and show them the old value as
       // though nothing had happened.
-      const message = describeFailure(e, "Backupd could not save this change.").message;
+      const message = describeFailure(e, "retnd could not save this change.").message;
       const kind = REFUSALS_NEEDING_AN_ANSWER[apiErrorOf(e)?.code ?? ""];
       if (kind) {
         // Not a field error. The service is not saying the value is
@@ -576,10 +630,10 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
         // first, which is a decision with its own two answers rather than
         // a sentence under a box.
         setRefusal({ kind, keys, patch: refused, message, exitAfter });
-        return false;
+        return { ok: false, reason: message };
       }
       setFieldErrors((prev) => ({ ...prev, ...Object.fromEntries(keys.map((k) => [k, message])) }));
-      return false;
+      return { ok: false, reason: message };
     } finally {
       setSavingFields((prev) => prev.filter((key) => !keys.includes(key)));
     }
@@ -590,8 +644,67 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   // per-box Save already wrote, which is why it asks dirtyKeys() rather
   // than sending every field.
   const saveAllAndExit = async () => {
-    if (!(await saveFields(dirtyKeys(), null, true))) return;
+    setPartialSave(null);
+    // The Workflow card's before and after boxes write through their own
+    // PATCH (#1189). An emptied one is never sent from here: empty clears
+    // the directory and turns a stage of hooks off, which only its Clear
+    // button does. SAVE ALL stops and says so instead.
+    const emptied = HOOK_DIR_KEYS.filter((key) => hookStateOf(key) === "emptied");
+    if (emptied.length > 0) {
+      setHookErrors((prev) => ({
+        ...prev,
+        ...Object.fromEntries(emptied.map((key) => [key, EMPTIED_ON_SAVE_ALL]))
+      }));
+      return;
+    }
+    // The directories go first, and a refusal keeps edit mode open with
+    // the reason on screen, exactly as a refused box of this page's own
+    // does.
+    const hookKeys = HOOK_DIR_KEYS.filter((key) => hookStateOf(key) === "changed");
+    if (hookKeys.length > 0 && !(await saveHooks(hookKeys))) return;
+    const outcome = await saveFields(dirtyKeys(), null, true);
+    if (!outcome.ok) {
+      // Two writes, and only the second failed. The directories are live
+      // and will run on the next backup, so say which half that was.
+      if (hookKeys.length > 0) setPartialSave(partialSaveText(hookKeys, outcome.reason));
+      return;
+    }
     leaveEditMode();
+  };
+
+  const hookStateOf = (key: HookDirKey) =>
+    hookDirState(hookDraft[key], setWorkflow.workflow.data?.[key] ?? "");
+
+  /**
+   * Writes the directory boxes named in `keys`, or the explicit `values`
+   * given for them (Clear sends ""). The only path to the workflow PATCH
+   * from this page, so a per-box Save, a Clear and SAVE ALL all record
+   * what they wrote in the same ledger the page's own boxes use.
+   */
+  const saveHooks = async (
+    keys: HookDirKey[],
+    values: Partial<Record<HookDirKey, string>> = {}
+  ): Promise<boolean> => {
+    const patch: Partial<Record<HookDirKey, string>> = {};
+    for (const key of keys) patch[key] = values[key] ?? (hookDraft[key] ?? "").trim();
+    setSavingHooks((prev) => [...prev, ...keys]);
+    setHookErrors((prev) => omitKeys(prev, keys));
+    try {
+      const saved = await setWorkflow.write(patch);
+      const at = new Date().toISOString();
+      setSavedThisSession((prev) => [
+        ...prev.filter((entry) => !keys.includes(entry.key as HookDirKey)),
+        ...keys.map((key) => ({ key, value: saved[key], at }))
+      ]);
+      setHookDraft((prev) => omitKeys(prev, keys));
+      return true;
+    } catch (e) {
+      const text = workflowSaveFailureText(e, "that directory was not saved");
+      if (text) setHookErrors((prev) => ({ ...prev, ...Object.fromEntries(keys.map((k) => [k, text])) }));
+      return false;
+    } finally {
+      setSavingHooks((prev) => prev.filter((key) => !keys.includes(key)));
+    }
   };
 
   // The one way out of a refusal that actually writes. It re-sends the
@@ -607,7 +720,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   const confirmRefusal = async () => {
     const pending = refusal;
     if (!pending) return;
-    if (!(await saveFields(pending.keys, pending.kind, pending.exitAfter, pending.patch))) return;
+    if (!(await saveFields(pending.keys, pending.kind, pending.exitAfter, pending.patch)).ok) return;
     if (pending.exitAfter) leaveEditMode();
   };
 
@@ -622,6 +735,9 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     setRefusal(null);
     setSavedThisSession([]);
     setPendingExit(null);
+    setHookDraft({});
+    setHookErrors({});
+    setPartialSave(null);
   };
 
   // ------------------------------------------------------- issue #591
@@ -647,8 +763,10 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
    * into trouble.
    */
   const requestExit = (route: ExitRoute) => {
-    if (dirtyKeys().length === 0 && savedThisSession.length === 0 && !refusal) exitEditMode(route);
-    else setPendingExit(route);
+    const hooksDirty = HOOK_DIR_KEYS.some((key) => hookStateOf(key) !== "clean");
+    if (dirtyKeys().length === 0 && !hooksDirty && savedThisSession.length === 0 && !refusal) {
+      exitEditMode(route);
+    } else setPendingExit(route);
   };
 
   /** Every dirty box, the value typed into it and the value it goes back
@@ -656,8 +774,8 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
    *  empty, because their baseline is the absence of an instruction and
    *  not a value: an empty SSH key box means "keep the key this set
    *  already uses", which is a different sentence from "empty". */
-  const discardedFields = (): DiscardedField[] =>
-    dirtyKeys().map((key) => {
+  const discardedFields = (): DiscardedField[] => [
+    ...dirtyKeys().map((key) => {
       const field = fieldFor(key);
       return {
         key,
@@ -665,7 +783,14 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
         typed: draft?.[key] || "(empty)",
         returnsTo: field.writeOnly ? "unchanged" : baseline?.[key] || "(empty)"
       };
-    });
+    }),
+    ...HOOK_DIR_KEYS.filter((key) => hookStateOf(key) !== "clean").map((key) => ({
+      key,
+      label: HOOK_DIR_LABEL[key],
+      typed: (hookDraft[key] ?? "").trim() || "(empty)",
+      returnsTo: setWorkflow.workflow.data?.[key] || "(empty)"
+    }))
+  ];
 
   const reloadLatestValues = () => {
     const fresh = captureSetEditSnapshot();
@@ -722,7 +847,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
                 cycle (FR-6), which is core's job and not a reason to
                 take the fleet's run away from the operator (#231). */}
             {/* The per-set run this page has never had (#597). The
-                engine half has existed since FR-1 behind `backupd
+                engine half has existed since FR-1 behind `retnd
                 fetch --backup-set`; what was missing was a way to reach
                 it in the serving process, so the work takes the engine's
                 own single-flight lock and lands in its feeds instead of
@@ -732,13 +857,37 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
                 disabled set, and offering a control here that contradicts
                 that would need explaining every time. An operator who
                 means it can still run the command the notice prints. */}
+            {/* EPIC L (#814): unavailable while a workflow run is held
+                for this set. The engine refuses the next run of a held
+                set outright, so leaving this pressable would be offering
+                a control that answers 409 every time — which reads as
+                broken rather than as refused. The banner below is the
+                only way out, and it offers both of them.
+
+                Also unavailable while the hold list has not been read
+                yet: the gate is "no hold has been reported", and before
+                the first answer nothing has been reported either way, so
+                drawing this as available would be guessing. */}
             <button
               className="btn btn--primary"
-              disabled={readOnly || run.busy || !s.enabled}
+              disabled={
+                readOnly ||
+                run.busy ||
+                !s.enabled ||
+                workflowHold.hold !== null ||
+                workflowHold.loading ||
+                workflowHold.error !== null
+              }
               title={hoverTitle(
-                s.enabled
-                  ? "Runs one pass over this backup set only."
-                  : "This backup set is disabled, so a run would not visit it."
+                workflowHold.hold
+                  ? "A workflow run for this set is held for recovery, so the engine will refuse a run until it is settled."
+                  : workflowHold.loading
+                    ? "Checking whether a workflow run is holding this backup set."
+                    : workflowHold.error !== null
+                      ? "Whether a workflow run is holding this set could not be read, so a run is not offered."
+                      : s.enabled
+                        ? "Runs one pass over this backup set only."
+                        : "This backup set is disabled, so a run would not visit it."
               )}
               onClick={() => run.runBackupSet(s.id)}
             >
@@ -788,7 +937,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
               <InfoTooltip id="sets.detail.save-all">
                 <button
                   className="btn btn--primary"
-                  disabled={savingFields.length > 0}
+                  disabled={savingFields.length > 0 || savingHooks.length > 0}
                   onClick={() => void saveAllAndExit()}
                 >
                   SAVE ALL &amp; EXIT EDIT
@@ -816,7 +965,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
               <InfoTooltip id="sets.detail.cancel-edit">
                 <button
                   className="btn btn--caution"
-                  disabled={savingFields.length > 0}
+                  disabled={savingFields.length > 0 || savingHooks.length > 0}
                   onClick={() => requestExit("edit-mode")}
                 >
                   CANCEL &amp; EXIT EDIT MODE
@@ -843,9 +992,21 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
                 </button>
               </>
             ) : null}
+            {/* #1202: this set's backups are the Backups list filtered to
+                it, by the URL's own `set` parameter, so the list, its paging
+                and its selection are the ones that page already has. A
+                snapshot set's history is its Snapshots page, above. */}
+            {s.engine !== "kopia" ? (
+              <Link className="btn btn--edge" data-testid="set-backups-link" to={"/backups?set=" + encodeURIComponent(s.id)}>
+                Backups in this set
+              </Link>
+            ) : null}
             <InfoTooltip id="sets.detail.preview-retention" alignEnd>
               <button className="btn" disabled={readOnly} onClick={() => setPreviewOpen(true)}>Preview retention</button>
             </InfoTooltip>
+            {/* #1106: get the whole set back from the set itself. Off in the
+                same read-only state the single-backup Recover is off in. */}
+            <button ref={recoverSetButton} className="btn" disabled={readOnly} onClick={() => setRecoverSetOpen(true)}>Recover this backup set</button>
           </>
         }
       />
@@ -864,6 +1025,35 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
           changed is an administrator action taken out of band that this
           manager will not offer to perform (§77 invariant 5). */}
       <HaltBanner set={s} />
+
+      {/* EPIC L (#814). Above the panels, beside HaltBanner, because it
+          is a fact about the whole set and because it is the only thing
+          on screen explaining why the per-set Run control is
+          unavailable. A held set keeps every read on this page: an
+          operator diagnosing a hold needs the configuration, the
+          validation and the run that caused it. */}
+      {workflowHold.hold ? (
+        <div style={{ marginBottom: 14 }}>
+          <WorkflowRecoveryBanner
+            hold={workflowHold.hold}
+            readOnly={readOnly}
+            onSettled={workflowHold.reload}
+          />
+        </div>
+      ) : workflowHold.error ? (
+        <div style={{ marginBottom: 14 }}>
+          {/* An unreadable hold list is said out loud rather than
+              treated as "no holds": the second reading would offer a Run
+              the engine is about to refuse. */}
+          <WarningBanner
+            tone="warn"
+            title="Whether a workflow run is holding this backup set could not be read"
+            dismissKey={workflowHold.error}
+          >
+            {"Running this set is unavailable until that read succeeds (" + workflowHold.error + ")."}
+          </WarningBanner>
+        </div>
+      ) : null}
 
       {/* Issue #624: a backup set nobody ever proved, said out loud.
           This is what stops `--no-verify` being a hole rather than an
@@ -901,6 +1091,16 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
         <div style={{ marginBottom: 14 }}>
           <WarningBanner tone="warn" title="Could not open edit mode">
             {enterError}
+          </WarningBanner>
+        </div>
+      ) : null}
+      {/* Issue #1189: SAVE ALL is two writes, and this is the one outcome
+          where they came apart. The directories are live, so the banner
+          says so rather than letting CANCEL look like an undo. */}
+      {partialSave ? (
+        <div style={{ marginBottom: 14 }} data-testid="set-edit-partial-save">
+          <WarningBanner tone="warn" title="Only part of SAVE ALL was saved">
+            {partialSave}
           </WarningBanner>
         </div>
       ) : null}
@@ -954,7 +1154,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       {editing && stopped ? (
         <div style={{ marginBottom: 14 }}>
           <WarningBanner tone="info" title="A backup was stopped for this edit">
-            {"Backupd stopped " +
+            {"retnd stopped " +
               (stopped.artifact || "the cycle") +
               " at the " + stopped.stage + " stage. It stays incomplete rather than counting as a finished backup, and the next cycle after you leave edit mode picks it up again."}
           </WarningBanner>
@@ -987,7 +1187,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
               }}
             >
               <Cell label="Newest known-good" value={relativeAge(s.newestKnownGoodAt)} mono tip="sets.detail.newest-known-good" />
-              <Cell label="Last successful run" value={relativeAge(s.lastRunAt)} mono tip="sets.detail.last-run" />
+              <Cell label="Last successful run" value={lastRunText(s)} mono tip="sets.detail.last-run" />
               {/* "Not reported", not "0 \u00b7 0 B" and not "every 0h". Both
                   of these were literals in api/client.ts on every real
                   deployment, and a zero here is a claim about how much a
@@ -995,17 +1195,13 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
               <Cell
                 label="Retained"
                 tip="sets.detail.retained"
-                value={
-                  s.retainedCount === null || s.retainedBytes === null
-                    ? "Not reported"
-                    : s.retainedCount + " \u00b7 " + bytes(s.retainedBytes)
-                }
+                value={retainedText(s, setFacts)}
                 mono
               />
               <Cell
                 label="Expected cadence"
                 tip="sets.detail.expected-cadence"
-                value={s.expectedIntervalHours === null ? "Not reported" : "every " + s.expectedIntervalHours + "h"}
+                value={s.expectedIntervalHours === null ? expectedEveryText(s) : "every " + s.expectedIntervalHours + "h"}
                 mono
               />
               <Cell label="State" value={s.stateNote} tip="sets.detail.state" />
@@ -1138,7 +1334,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
             <dl style={{ margin: 0, display: "grid", gridTemplateColumns: "172px 1fr", gap: "11px 16px", fontSize: 13 }}>
               <Row label="Remote folder" value={s.remoteFolder} mono tip="sets.detail.remote-folder" />
               <Row label="Include" value={s.includePatterns.join(", ") || "\u2014"} mono tip="sets.detail.include" />
-              <Row label="Exclude" value={s.excludePatterns.join(", ") || "\u2014"} mono tip="sets.detail.exclude" />
+              {/* No Exclude row (#930): exclude_paths is config-file-only and the wire does not carry it, so a row here could only ever be a dash. */}
               <Row
                 label="Completion method"
                 tip="sets.detail.completion-method"
@@ -1172,6 +1368,33 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
               <ActivityTimeline events={events} dense />
             </div>
           </Section>
+
+          {/* EPIC L (#814). Below Activity rather than above it: an
+              operator arriving here is usually asking what this set did,
+              and the hooks either side of that are the next question,
+              not the first one. A set with no hooks configured anywhere
+              renders one sentence here and nothing else. */}
+          <SetWorkflowCard
+            source={s.source}
+            set={s.set}
+            readOnly={readOnly}
+            model={setWorkflow}
+            hooks={
+              editing
+                ? {
+                    draft: hookDraft,
+                    saving: savingHooks,
+                    errors: hookErrors,
+                    onChange: (key, value) => {
+                      setHookDraft((prev) => ({ ...prev, [key]: value }));
+                      setHookErrors((prev) => omitKeys(prev, [key]));
+                    },
+                    onSave: (key) => void saveHooks([key]),
+                    onClear: (key) => void saveHooks([key], { [key]: "" })
+                  }
+                : undefined
+            }
+          />
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
@@ -1190,29 +1413,13 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
             />
           </Section>
 
+          {/* EPIC N (issue #995): directly under Retention, in the same shape. */}
+          <SetEncryptionCard source={s.source} set={s.set} engine={s.engine} readOnly={readOnly} />
+
+          <AssuranceSection setId={s.id} readOnly={readOnly} />
+
           <Section title="Validation" tip="sets.detail.validation">
-            <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 10, fontSize: 13 }}>
-              {(["transfer", "checksum", "application"] as const).map((v) => {
-                const on = s.validations.includes(v);
-                return (
-                  <li key={v} style={{ display: "flex", gap: 9 }}>
-                    {/* The tick is artwork after #621 and the en dash
-                        beside it is still an en dash: one is a verdict
-                        and the other is "this is off", which is a thing
-                        a dash says and a picture does not. */}
-                    <span aria-hidden="true" style={{ color: on ? "var(--ok)" : "var(--text-3)" }}>
-                      {on ? <Icon name="success" /> : "\u2013"}
-                    </span>
-                    <InfoTooltip id={VALIDATION_TIPS[v]}>
-                      <span>
-                        {v === "transfer" ? "Transfer verification" : v === "checksum" ? "Checksum verification (SHA-256)" : "Application validation"}
-                        {on ? null : <span style={{ color: "var(--text-3)" }}> — not enabled</span>}
-                      </span>
-                    </InfoTooltip>
-                  </li>
-                );
-              })}
-            </ul>
+            <ValidationBlock set={s} readOnly={readOnly} />
           </Section>
 
           {/* Caution and destructive actions live apart from ordinary ones (§11, §35). */}
@@ -1255,7 +1462,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
               </InfoTooltip>
               {deleteFromSourceBlocked ? (
                 <p id="set-read-only-forced" style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--text-3)" }}>
-                  These SSH credentials are read-only on the source, so Backupd cannot delete
+                  These SSH credentials are read-only on the source, so retnd cannot delete
                   there. Grant the account write permission on the source to enable deleting
                   the original after backup.
                 </p>
@@ -1279,6 +1486,9 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       </div>
 
       <RetentionPreviewDialog source={s.source} set={s.set} open={previewOpen} onClose={() => setPreviewOpen(false)} />
+      {recoverSetOpen ? (
+        <RecoverSetDialog setId={s.id} engine={s.engine} returnFocus={recoverSetButton} onClose={() => setRecoverSetOpen(false)} />
+      ) : null}
 
       {/* Issue #350: entering edit mode stops any cycle running against
           this set, so an operator is told what that discards before it
@@ -1298,7 +1508,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
         }}
       >
         <p style={{ margin: 0 }}>
-          {"Backupd is " +
+          {"retnd is " +
             (warnAbout?.stage ?? "") +
             (warnAbout?.artifact ? " " + warnAbout.artifact : " this set's current cycle") +
             " right now. Editing this set stops it, and holds the schedule until you leave edit mode."}
@@ -1657,7 +1867,7 @@ function CancelEditDialog({
               {saved.map((entry) => (
                 <LedgerRow
                   key={entry.key}
-                  label={fieldFor(entry.key).label}
+                  label={labelOf(entry.key)}
                   value={(entry.value || "(empty)") + " \u00b7 " + clock(entry.at)}
                 />
               ))}
@@ -1743,7 +1953,7 @@ type ExitRoute = "edit-mode" | "backup-sets";
 
 /** One box a per-box Save actually wrote during this edit session. */
 interface SavedField {
-  key: EditFieldKey;
+  key: EditFieldKey | HookDirKey;
   /** The value now in the configuration, read back from the SERVER's own
    *  answer rather than from the text that was sent. The two write-only
    *  boxes answer "" to that and "" is not what was saved, so for those
@@ -1755,7 +1965,7 @@ interface SavedField {
 
 /** One box about to be thrown away, and what it goes back to. */
 interface DiscardedField {
-  key: EditFieldKey;
+  key: EditFieldKey | HookDirKey;
   label: string;
   typed: string;
   returnsTo: string;
@@ -1775,7 +1985,7 @@ function recordSaved(
   sent: Record<EditFieldKey, string>
 ): SavedField[] {
   const at = new Date().toISOString();
-  const next = prev.filter((entry) => !keys.includes(entry.key));
+  const next = prev.filter((entry) => !(keys as string[]).includes(entry.key));
   for (const key of keys) {
     next.push({ key, value: fieldFor(key).writeOnly ? sent[key] : persisted[key], at });
   }
@@ -1822,6 +2032,34 @@ const REFUSAL_TITLE: Record<AcknowledgeableRefusal, string> = {
   repoint: "This change points the backup set at different data",
   hostKey: "This change alters what host keys this backup set trusts"
 };
+
+/** What a save reports back: SAVE ALL needs the reason as well as the
+ *  answer, to say what did not go through after something else did. */
+type SaveOutcome = { ok: true } | { ok: false; reason: string };
+const SAVED: SaveOutcome = { ok: true };
+
+const EMPTIED_ON_SAVE_ALL =
+  "SAVE ALL doesn't clear a directory. Press Clear to stop this stage running, or type the directory back.";
+
+/** The sentence for a SAVE ALL that wrote the directories and then failed
+ *  the set PATCH (#1189). */
+function partialSaveText(keys: HookDirKey[], reason: string): string {
+  const names =
+    keys.length === 2
+      ? "The before and after workflow directories were"
+      : "The " + HOOK_DIR_LABEL[keys[0]].toLowerCase() + " was";
+  return names + " saved; the other changes were not: " + reason;
+}
+
+function labelOf(key: EditFieldKey | HookDirKey): string {
+  return key === "beforeDir" || key === "afterDir" ? HOOK_DIR_LABEL[key] : fieldFor(key).label;
+}
+
+function omitKeys<K extends string, V>(from: Partial<Record<K, V>>, keys: K[]): Partial<Record<K, V>> {
+  const next = { ...from };
+  for (const key of keys) delete next[key];
+  return next;
+}
 
 function fieldFor(key: EditFieldKey): EditField {
   const found = EDIT_FIELDS.find((f) => f.key === key);
@@ -1872,15 +2110,4 @@ function Section({ title, children, tip }: { title: string; children: React.Reac
     </section>
   );
 }
-
-/** Which explanation each validation stage carries. Three ids rather
- *  than one, because "the bytes arrived" and "the application can read
- *  what arrived" are different assurances and an operator deciding which
- *  to turn on is choosing between exactly those. */
-const VALIDATION_TIPS: Record<"transfer" | "checksum" | "application", TooltipId> = {
-  transfer: "sets.detail.validation.transfer",
-  checksum: "sets.detail.validation.checksum",
-  application: "sets.detail.validation.application"
-};
-
 

@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/snapshotlifecycle"
-	"github.com/backupdproject/backupd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/snapshotlifecycle"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // These tests run against the REAL journal, on a temporary database,
@@ -250,7 +250,7 @@ func request(set model.BackupSetID, repo snapshotlifecycle.Repository, tree *fak
 		SourceIdentity:    model.SourceIdentity("ab12cd34"),
 		Consistency:       model.ModeLiveBestEffort,
 		VerificationLevel: model.LevelStructural,
-		Source:            backupengine.Source{Host: "nas", User: "backupd", Path: "/srv/data"},
+		Source:            backupengine.Source{Host: "nas", User: "retnd", Path: "/srv/data"},
 		Repository:        repo,
 		OpenTree:          tree.open,
 	}

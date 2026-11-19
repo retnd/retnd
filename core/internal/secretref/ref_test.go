@@ -13,9 +13,9 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/secretref"
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/secretref"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // theSecret is the material every test in this file resolves. It is
@@ -163,9 +163,9 @@ func TestResolveFromEveryDeclaredSource(t *testing.T) {
 // process-wide state and the testing package refuses to let two tests
 // disagree about it.
 func TestResolveFromTheEnvironment(t *testing.T) {
-	t.Setenv("BACKUPD_TEST_SECRET", theSecret+"\n")
+	t.Setenv("RETND_TEST_SECRET", theSecret+"\n")
 
-	got, err := secretref.Resolve(context.Background(), secretref.Ref{Env: "BACKUPD_TEST_SECRET"})
+	got, err := secretref.Resolve(context.Background(), secretref.Ref{Env: "RETND_TEST_SECRET"})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}

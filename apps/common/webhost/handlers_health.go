@@ -1,6 +1,6 @@
 // This file is issue #211's authenticated health surface: FR-24's
 // backup-freshness verdict for every configured backup set, the same
-// computation `backupd status` prints.
+// computation `retnd status` prints.
 //
 // It is a different thing from /health/live and /health/ready
 // (handlers_system.go), and the difference is the point. Those two are
@@ -15,7 +15,7 @@ package webhost
 import (
 	"net/http"
 
-	"github.com/backupdproject/backupd/core/service"
+	"github.com/retnd/retnd/core/service"
 )
 
 // backupSetHealthResponse is one backup set's verdict. It carries no
@@ -135,6 +135,10 @@ type backupSetHealthResponse struct {
 type healthResponse struct {
 	GeneratedAt string                    `json:"generated_at"`
 	BackupSets  []backupSetHealthResponse `json:"backup_sets"`
+	// RetainedCount is every backup outside quarantine, removed sets'
+	// included: what the sidebar's Backups badge reads (issue #1186). Not
+	// omitempty, because zero is a real reading.
+	RetainedCount int `json:"retained_count"`
 }
 
 // systemHealth is GET /api/v1/system/health. Read-only (§50), so no CSRF
@@ -152,8 +156,9 @@ func (h *handlers) systemHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := healthResponse{
-		GeneratedAt: formatTime(report.GeneratedAt),
-		BackupSets:  make([]backupSetHealthResponse, 0, len(report.BackupSets)),
+		GeneratedAt:   formatTime(report.GeneratedAt),
+		BackupSets:    make([]backupSetHealthResponse, 0, len(report.BackupSets)),
+		RetainedCount: report.RetainedCount,
 	}
 	for _, bs := range report.BackupSets {
 		resp.BackupSets = append(resp.BackupSets, toBackupSetHealthResponse(bs))

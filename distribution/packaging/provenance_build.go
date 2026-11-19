@@ -62,7 +62,7 @@ var inventoryNote = []string{
 	"of the two binaries container/Dockerfile copies into the runtime stage, resolved",
 	"for GOOS=linux on every architecture canonical.json claims. Every npm component",
 	"is a non-dev entry of ui/shared/package-lock.json, which is what the frontend",
-	"build stage installs and what ends up embedded in backupd-web.",
+	"build stage installs and what ends up embedded in retnd-web.",
 	"",
 	"licenseSha256 is the SHA-256 of the licence text as it appears in the module,",
 	"not of the SPDX id. An upstream that relicenses in place keeps its id and",
@@ -109,7 +109,7 @@ component ships it, is listed in %s.
 It is generated from the module graph and the frontend lockfile on every run
 rather than maintained by hand.%s
 
-This file is the NOTICE file Apache-2.0 section 4(d) refers to. Redistributing
+This file carries the attribution for the third-party components in this work. Redistributing
 this work, or a derivative of it, means carrying this file with it.
 `
 

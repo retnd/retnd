@@ -3,7 +3,7 @@ spec §7.1 "Dependency enforcement"), under EPIC I (#672 / #697).
 
 Ported from `scripts/architecture/lib.sh`, which every check in that
 directory sourced. The bash paths all remain as `exec` shims: they are
-named by `scripts/ci-local.sh`, by `.github/workflows/ci.yml`, and --
+named by `scripts/ci-local.sh` (and, until #1260, by `.github/workflows/ci.yml`), and --
 load-bearingly -- FABRICATED at their literal paths by
 `scripts/tests/ci-local-gate.test.sh`, which stubs all ten of them in its
 synthetic-tree fixture. Deleting any of those paths turns that fixture
@@ -114,7 +114,6 @@ paths below.
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 import tempfile
@@ -251,23 +250,35 @@ def tracked_files(root: Path | str = ".") -> list[str]:
 
 @contextmanager
 def worktree(root: Path | str = ".") -> Iterator[Path]:
-    """A detached worktree of HEAD in a fresh temp directory.
+    """A detached worktree of HEAD in a fresh sibling directory.
 
     `--detach`, because this proves a property of the current tree rather
-    than making a branch anyone will commit on. Removal tolerates the
-    check's own `rm -rf` having already deleted files git expects to
-    find, which is the normal case here: deleting the tree under test is
-    the whole point.
+    than making a branch anyone will commit on. A sibling of the checkout
+    keeps security-sensitive tests out of a world-writable `/tmp` ancestry;
+    those tests correctly reject such paths as unsafe for executable hooks.
+    Removal tolerates the check's own `rm -rf` having already deleted files
+    git expects to find, which is the normal case here: deleting the tree
+    under test is the whole point.
     """
-    warn_if_dirty(root)
-    directory = Path(tempfile.mkdtemp(prefix="backupd-arch-check.", dir=os.environ.get("TMPDIR", "/tmp")))
-    harness.sh(["git", "-C", str(root), "worktree", "add", "--quiet", "--detach", str(directory), "HEAD"])
+    root_path = Path(root).resolve()
+    warn_if_dirty(root_path)
+    try:
+        directory = Path(tempfile.mkdtemp(prefix="retnd-arch-check.", dir=root_path.parent))
+    except PermissionError:
+        # Under scripts/ci-docker.sh only the checkout and its git dir are
+        # mounted, so the parent is a root-owned stub the gate user cannot
+        # write to (#1331). The shared git dir is the nearest place that is
+        # neither world-writable nor outside what the container can see.
+        common = harness.sh_out(["git", "-C", str(root_path), "rev-parse", "--git-common-dir"]).strip()
+        common_path = Path(common) if Path(common).is_absolute() else root_path / common
+        directory = Path(tempfile.mkdtemp(prefix="retnd-arch-check.", dir=common_path.resolve()))
+    harness.sh(["git", "-C", str(root_path), "worktree", "add", "--quiet", "--detach", str(directory), "HEAD"])
     try:
         yield directory
     finally:
-        if not harness.sh_ok(["git", "-C", str(root), "worktree", "remove", "--force", str(directory)]):
+        if not harness.sh_ok(["git", "-C", str(root_path), "worktree", "remove", "--force", str(directory)]):
             subprocess.run(["rm", "-rf", str(directory)], check=False)
-        harness.sh_ok(["git", "-C", str(root), "worktree", "prune"])
+        harness.sh_ok(["git", "-C", str(root_path), "worktree", "prune"])
 
 
 def resolve_toplevel() -> Path:

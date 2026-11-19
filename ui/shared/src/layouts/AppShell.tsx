@@ -39,6 +39,7 @@ import { usePlatform } from "@shared/platform/PlatformContext";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
 import type { SystemHealth, VersionInfo } from "@shared/types/operation";
+import { formatBackupsCount } from "./navCounts";
 
 export interface NavCounts {
   sets?: number;
@@ -63,6 +64,9 @@ const NAV: {
   icon: IconName;
   end?: boolean;
   count?: keyof NavCounts;
+  /** How this row's count reads, when a bare number would not do. A label
+   *  here makes the badge an image with that spoken form. */
+  formatCount?: (n: number) => { text: string; label?: string };
   alert?: boolean;
   /** What this section is, in the registry (issue #834). Named per row
    *  rather than derived from the route, so a renamed route is a compile
@@ -71,7 +75,7 @@ const NAV: {
 }[] = [
   { to: "/", label: "Dashboard", icon: "dashboard", end: true, tip: "nav.dashboard" },
   { to: "/sets", label: "Backup sets", icon: "backup-sets", count: "sets", tip: "nav.sets" },
-  { to: "/backups", label: "Backups", icon: "backups", count: "backups", tip: "nav.backups" },
+  { to: "/backups", label: "Backups", icon: "backups", count: "backups", formatCount: formatBackupsCount, tip: "nav.backups" },
   { to: "/activity", label: "Activity", icon: "activity", tip: "nav.activity" },
   {
     to: "/quarantine", label: "Quarantine", icon: "quarantine", count: "quarantine", alert: true,
@@ -114,18 +118,13 @@ export function AppShell({
             color: "var(--text-2)", fontFamily: "var(--font-mono)"
           }}
         >
-          {"Backupd \u2014 " + bridge.name}
+          {"retnd \u2014 " + bridge.name}
         </div>
       ) : null}
 
-      <header
-        style={{
-          flex: "none", height: 52, display: "flex", alignItems: "center", gap: 16,
-          padding: "0 18px", background: "var(--surface)", borderBottom: "1px solid var(--border)"
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 206 }}>
-          <Logo size={24} title="Backupd" />
+      <header className="shell-header">
+        <div className="shell-header__brand">
+          <Logo size={24} title="retnd" />
           <Wordmark size={14} />
         </div>
 
@@ -152,16 +151,11 @@ export function AppShell({
         </div>
       </header>
 
-      <div style={{ flex: 1, display: "flex", alignItems: "stretch", minHeight: 0 }}>
-        <nav
-          aria-label="Sections"
-          style={{
-            flex: "none", width: 206, padding: "14px 10px", background: "var(--surface)",
-            borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 2
-          }}
-        >
+      <div className="shell-body">
+        <nav aria-label="Sections" className="shell-nav">
           {NAV.map((item) => {
             const count = item.count ? counts[item.count] : undefined;
+            const shown = count && item.formatCount ? item.formatCount(count) : undefined;
             return (
               // One tooltip per row, covering the count inside it too: a
               // second host nested in this one would open two overlapping
@@ -195,15 +189,19 @@ export function AppShell({
                   {count ? (
                     <span
                       className="mono"
+                      // A bare span cannot carry a name, so a badge with a
+                      // spoken form is an image of its text with that form.
+                      role={shown?.label ? "img" : undefined}
+                      aria-label={shown?.label}
                       style={{
                         fontSize: "var(--text-xs)", padding: "1px 6px",
                         borderRadius: "var(--radius-pill)",
                         background: item.alert ? "var(--warn-quiet)" : undefined,
                         border: item.alert ? "1px solid var(--warn)" : undefined,
-                        color: item.alert ? "var(--text)" : "var(--text-3)"
+                        color: item.alert ? "var(--text)" : "var(--text-2)"
                       }}
                     >
-                      {count}
+                      {shown ? shown.text : count}
                     </span>
                   ) : null}
                 </NavLink>
@@ -211,8 +209,8 @@ export function AppShell({
             );
           })}
 
-          <div style={{ flex: 1, minHeight: 20 }} />
-          <div style={{ padding: "12px 10px", borderTop: "1px solid var(--border)" }}>
+          <div className="shell-nav__spacer" />
+          <div className="shell-nav__platform">
             <InfoTooltip id="shell.platform" block>
               <PlatformBadge compact />
             </InfoTooltip>
@@ -220,17 +218,10 @@ export function AppShell({
         </nav>
 
         <main
-          style={{
-            flex: 1, minWidth: 0, overflow: "auto",
-            paddingBottom: `var(--dock-height, ${DOCK_BAR_HEIGHT}px)`
-          }}
+          className="shell-main"
+          style={{ paddingBottom: `var(--dock-height, ${DOCK_BAR_HEIGHT}px)` }}
         >
-          <div
-            style={{
-              maxWidth: 1240, margin: "0 auto", padding: "24px 28px 64px",
-              display: "flex", flexDirection: "column", gap: 18
-            }}
-          >
+          <div className="shell-main__inner">
             {children}
           </div>
         </main>

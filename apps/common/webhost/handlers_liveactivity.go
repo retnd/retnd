@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/backupdproject/backupd/core/service"
+	"github.com/retnd/retnd/core/service"
 )
 
 // This file is issue #573's live feed: what each backup set is DOING,
@@ -225,6 +225,11 @@ func (h *handlers) getLiveActivity(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Query().Get("since"); raw != "" {
 		if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil && parsed > 0 {
 			req.Since = parsed
+		}
+	}
+	if raw := r.URL.Query().Get("before"); raw != "" {
+		if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil && parsed > 0 {
+			req.Before = parsed
 		}
 	}
 	if raw := r.URL.Query().Get("limit"); raw != "" {

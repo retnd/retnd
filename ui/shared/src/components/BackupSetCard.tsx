@@ -1,8 +1,12 @@
+import type { ReactNode } from "react";
 import type { BackupSet } from "@shared/types/backup";
+import { RecoveryLine } from "@shared/assurance/RecoveryLine";
+import { describeLastValidation, useSetFacts } from "@shared/assurance/verificationModel";
+import { expectedEveryText, lastRunText, retainedText } from "@shared/assurance/setCardText";
 import { HealthBadge, HEALTH_PRESENTATION, StatusBadge } from "./StatusBadge";
 import { EngineBadge } from "@shared/components/EngineBadge";
 import { backupSetIdentity } from "@shared/utilities/backupSetIdentity";
-import { bytes, relativeAge } from "@shared/utilities/format";
+import { relativeAge } from "@shared/utilities/format";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
 
@@ -72,6 +76,7 @@ export function BackupSetCard({
   actionsDisabled?: boolean;
 }) {
   const rowDisabled = actionsDisabled || busy;
+  const facts = useSetFacts(set.id);
   const tone = HEALTH_PRESENTATION[set.state].tone;
   const borderColor =
     set.state === "healthy"
@@ -159,7 +164,7 @@ export function BackupSetCard({
         }}
       >
         <Field label="Newest known-good" value={relativeAge(set.newestKnownGoodAt)} mono tip="sets.card.newest-known-good" />
-        <Field label="Last run" value={relativeAge(set.lastRunAt)} mono tip="sets.card.last-run" />
+        <Field label="Last run" value={lastRunText(set)} mono tip="sets.card.last-run" />
         {/* Issue #333. This used to read "0 / 0 / 0" on every card in
             every real deployment, because the daily/weekly/monthly numbers
             behind it were a hardcoded placeholder nothing computed. It
@@ -177,35 +182,35 @@ export function BackupSetCard({
             api/client.ts used to supply "not-run", 0 and 0 for them. "Not
             run" reads as reassuring, and it was being printed for sets
             whose validator may have been failing for a month. */}
+        {/* What the verification model has recorded wins over the server's
+            own field, which no real deployment fills (#1134): a card that says
+            "Not reported" beside a backup that was verified ten hours ago is
+            the card contradicting the page it opens. */}
         <Field
           label="Last validation"
           tip="sets.card.last-validation"
           value={
-            set.lastValidation === "passed"
-              ? "Passed"
-              : set.lastValidation === "failed"
-                ? "Failed"
-                : set.lastValidation === "not-run"
-                  ? "Not run"
-                  : "Not reported"
+            facts && facts.lastValidation.kind !== "none"
+              ? describeLastValidation(facts.lastValidation)
+              : set.lastValidation === "passed"
+                ? "Passed"
+                : set.lastValidation === "failed"
+                  ? "Failed"
+                  : set.lastValidation === "not-run"
+                    ? "Not run"
+                    : facts
+                      ? describeLastValidation(facts.lastValidation)
+                      : "Not reported"
           }
         />
-        <Field
-          label="Retained"
-          tip="sets.card.retained"
-          value={
-            set.retainedCount === null || set.retainedBytes === null
-              ? "Not reported"
-              : set.retainedCount + " \u00b7 " + bytes(set.retainedBytes)
-          }
-          mono
-        />
-        <Field
-          label="Expected every"
-          value={set.expectedIntervalHours === null ? "Not reported" : set.expectedIntervalHours + "h"}
-          mono
-          tip="sets.card.expected-every"
-        />
+        <Field label="Retained" tip="sets.card.retained" value={retainedText(set, facts)} mono />
+        <Field label="Expected every" value={expectedEveryText(set)} mono tip="sets.card.expected-every" />
+        {facts ? (
+          <Field
+            label="Recovery"
+            value={<RecoveryLine view={facts.recoveryView} />}
+          />
+        ) : null}
       </dl>
 
       <div
@@ -273,12 +278,13 @@ export function BackupSetCard({
   );
 }
 
-function Field({ label, value, mono, tip }: { label: string; value: string; mono?: boolean; tip?: TooltipId }) {
+function Field({ label, value, mono, tip }: { label: string; value: ReactNode; mono?: boolean; tip?: TooltipId }) {
+  const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   return (
     <div>
       <dt
         className="eyebrow"
-        style={{ fontSize: 10.5, letterSpacing: "0.06em" }}
+        style={{ fontSize: 10.5, letterSpacing: "0.06em", color: "var(--text-2)" }}
       >
         {label}
       </dt>
@@ -287,7 +293,7 @@ function Field({ label, value, mono, tip }: { label: string; value: string; mono
           children, so a host between the list and them would be a
           wrapper an assistive technology has to walk past to find the
           row. */}
-      <dd style={{ margin: "3px 0 0", fontFamily: mono ? "var(--font-mono)" : undefined }}>
+      <dd data-testid={"field-" + slug} style={{ margin: "3px 0 0", fontFamily: mono ? "var(--font-mono)" : undefined }}>
         {tip ? <InfoTooltip id={tip}><span>{value}</span></InfoTooltip> : value}
       </dd>
     </div>

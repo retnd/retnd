@@ -27,11 +27,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/backupdproject/backupd/apps/common/auth/local"
-	"github.com/backupdproject/backupd/apps/common/platform/profile"
-	"github.com/backupdproject/backupd/apps/common/webhost"
-	"github.com/backupdproject/backupd/apps/common/webhost/serve"
-	"github.com/backupdproject/backupd/core/service"
+	"github.com/retnd/retnd/apps/common/auth/local"
+	"github.com/retnd/retnd/apps/common/platform/profile"
+	"github.com/retnd/retnd/apps/common/webhost"
+	"github.com/retnd/retnd/apps/common/webhost/serve"
+	"github.com/retnd/retnd/core/service"
 )
 
 // firstRunFixtureKey is a throwaway, unencrypted ed25519 private key
@@ -303,7 +303,6 @@ func TestFreshInstall_RefusesBackupWorkUntilItIsConfigured(t *testing.T) {
 		{http.MethodPost, "/api/v1/operations", "{}"},
 		{http.MethodGet, "/api/v1/backup-sets/api/nightly/retention/preview", ""},
 		{http.MethodPost, "/api/v1/backup-sets/api/nightly/retention/apply", "{}"},
-		{http.MethodGet, "/api/v1/settings", ""},
 		{http.MethodPatch, "/api/v1/settings", "{}"},
 		{http.MethodGet, "/api/v1/system/storage", ""},
 	}

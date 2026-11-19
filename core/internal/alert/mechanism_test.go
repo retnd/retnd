@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/backupdproject/backupd/core/internal/alert"
+	"github.com/retnd/retnd/core/internal/alert"
 )
 
 // This file is this work package's own gate, in the same spirit as
@@ -155,7 +155,10 @@ func exportedNames(decl ast.Decl) []string {
 // SSH host key, critical storage pressure -- plus EPIC K's two, a
 // repository whose maintenance is failing (#786) and a repository that
 // cannot take a backup at all (#789), plus EPIC L's three workflow
-// conditions (#813), and nothing else.
+// conditions (#813), plus EPIC Q's four assurance kinds, plus EPIC N's one
+// (#990): a `required` encryption policy whose key cannot be resolved,
+// which is the only key-custody fact that resolves by itself and so the
+// only one that may be a condition rather than health. Nothing else.
 //
 // A new kind is how "one proactive mechanism for a few specific
 // conditions" quietly becomes the framework §71 rules out, so it takes an
@@ -180,6 +183,11 @@ func TestKindsAreExactlyTheDeliberatelyChosenConditions(t *testing.T) {
 		alert.WorkflowFailed,
 		alert.WorkflowCleanupFailed,
 		alert.WorkflowRecoveryRequired,
+		alert.ScrubOverdue,
+		alert.ScrubFailing,
+		alert.RecoveryTestOverdue,
+		alert.RecoveryTestFailing,
+		alert.EncryptionKeyUnresolvable,
 	}
 
 	if len(alert.Kinds) != len(want) {
@@ -199,9 +207,9 @@ func TestKindsAreExactlyTheDeliberatelyChosenConditions(t *testing.T) {
 func TestAlertingNeverDeletes(t *testing.T) {
 	banned := map[string]string{
 		`"os"`: "the filesystem",
-		`"github.com/backupdproject/backupd/core/internal/retention"`: "retention",
-		`"github.com/backupdproject/backupd/core/internal/lifecycle"`: "the artifact lifecycle",
-		`"github.com/backupdproject/backupd/core/internal/state"`:     "the journal",
+		`"github.com/retnd/retnd/core/internal/retention"`: "retention",
+		`"github.com/retnd/retnd/core/internal/lifecycle"`: "the artifact lifecycle",
+		`"github.com/retnd/retnd/core/internal/state"`:     "the journal",
 	}
 
 	for path, file := range parseProductionSources(t, parser.ImportsOnly) {

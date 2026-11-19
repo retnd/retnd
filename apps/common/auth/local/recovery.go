@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/backupdproject/backupd/apps/common/email"
+	"github.com/retnd/retnd/apps/common/email"
 )
 
 // Account recovery: the four routes and the three messages issue #830
@@ -49,8 +49,8 @@ import (
 // the verification link, and its subject lives with the rest of that
 // flow in verify.go (verifySubject).
 const (
-	resetSubject = "backupd: password reset"
-	testSubject  = "backupd: SMTP test"
+	resetSubject = "retnd: password reset"
+	testSubject  = "retnd: SMTP test"
 )
 
 // smtpSettingsRequest is the SMTP half of an enrollment or a settings
@@ -260,11 +260,11 @@ func (s *Service) smtpConfig() (email.Config, error) {
 // note), the bare token is sent instead of a link that would be
 // confidently wrong.
 func resetMessage(to, username, token, baseURL string) email.Message {
-	body := "A password reset was requested for the Backupd administrator " + username + ".\n\n"
+	body := "A password reset was requested for the retnd administrator " + username + ".\n\n"
 	if baseURL != "" {
 		body += "Open this link to set a new password:\n\n  " + baseURL + "/reset-password?token=" + token + "\n\n"
 	} else {
-		body += "Open Backupd's /reset-password page and enter this token:\n\n  " + token + "\n\n"
+		body += "Open retnd's /reset-password page and enter this token:\n\n  " + token + "\n\n"
 	}
 	body += "The link can be used once and expires in 30 minutes. Setting a new password " +
 		"signs out every existing session.\n\n" +
@@ -278,8 +278,8 @@ func testMessage(to string) email.Message {
 	return email.Message{
 		To:      to,
 		Subject: testSubject,
-		Body: "This is a test message from Backupd.\n\n" +
-			"Receiving it means the SMTP connection in Backupd's settings works and that " +
+		Body: "This is a test message from retnd.\n\n" +
+			"Receiving it means the SMTP connection in retnd's settings works and that " +
 			"account recovery can reach this address.\n",
 	}
 }
@@ -834,5 +834,5 @@ func (s *Service) logf(format string, args ...any) {
 	if s.log == nil {
 		return
 	}
-	fmt.Fprintf(s.log, format+"\n", args...)
+	_, _ = fmt.Fprintf(s.log, format+"\n", args...)
 }

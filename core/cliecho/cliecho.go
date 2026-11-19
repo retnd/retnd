@@ -1,4 +1,4 @@
-// Package cliecho names the command (Binary, `backupd`) that would have done the
+// Package cliecho names the command (Binary, `retnd`) that would have done the
 // same thing as an action taken in the Web UI (issue #599).
 //
 // # Why this exists at all
@@ -28,7 +28,7 @@
 // side of the wire:
 //
 //   - The correspondence already exists here.
-//     core/cmd/backupd/engineroute.go maps CLI arguments onto
+//     core/cmd/retnd/engineroute.go maps CLI arguments onto
 //     exactly the requests the UI sends. This is that same relation read
 //     in the other direction.
 //   - The flag spellings are pinned here. core/tests/compat holds usage()
@@ -53,7 +53,7 @@
 //     walks the registered route table and requires every route to have
 //     either a builder or an explicit no-equivalent entry carrying a
 //     reason. A route added with neither fails. That is the parity guard.
-//   - core/cmd/backupd's TestEveryEchoedCommandParses feeds every
+//   - core/cmd/retnd's TestEveryEchoedCommandParses feeds every
 //     command this package can emit through the real dispatcher, and
 //     requires it not to be a usage error. A renamed flag, a removed one
 //     or an argument in the wrong position fails there rather than being
@@ -61,7 +61,7 @@
 //     only ever as good as Examples() is wide: a shape no example carries
 //     is a shape nothing parses, which is how a duration renderer that
 //     ate a digit from half its input space stayed green.
-//   - core/cmd/backupd's TestNoGapClaimsAVerbThisBinaryShips reads
+//   - core/cmd/retnd's TestNoGapClaimsAVerbThisBinaryShips reads
 //     every gap sentence and fails if it names a verb the binary
 //     dispatches without saying it means to. A gap is a promise that
 //     there is no verb, and five of them outlived the verbs they
@@ -127,7 +127,7 @@ type Line struct {
 	Route string
 
 	// Command is the argv an operator could have typed, starting with
-	// "backupd", unquoted. Nil when there is no equivalent. Shell
+	// "retnd", unquoted. Nil when there is no equivalent. Shell
 	// below is what goes on the wire; this is what a parser is fed.
 	Command []string
 
@@ -250,7 +250,7 @@ func Echo(a Action) Line {
 // the verbs it names deliberately.
 //
 // It is exported for one reader: TestNoGapClaimsAVerbThisBinaryShips in
-// core/cmd/backupd, which is the only package that can see both
+// core/cmd/retnd, which is the only package that can see both
 // these sentences and the verb tables the binary dispatches on. Five of
 // these entries claimed a verb that this same tree ships (`activity`,
 // `activity --follow`, `retention apply`, `backup-set edit-hold` and a
@@ -336,7 +336,13 @@ func Examples() []Action {
 		if out[i].Method != out[j].Method {
 			return out[i].Method < out[j].Method
 		}
-		return string(out[i].Body) < string(out[j].Body)
+		if string(out[i].Body) != string(out[j].Body) {
+			return string(out[i].Body) < string(out[j].Body)
+		}
+		// Examples that differ only in their query would otherwise come out
+		// in map order, and a caller that takes the first (agenttools.Twin)
+		// would print a different command from one run to the next.
+		return out[i].Query.Encode() < out[j].Query.Encode()
 	})
 	return out
 }
@@ -360,17 +366,17 @@ type entry struct {
 	//
 	// They are declared here as well as being returned by the builder so
 	// that Gaps can report them. A sentence only a builder knows is a
-	// sentence the guard in core/cmd/backupd cannot check, and
+	// sentence the guard in core/cmd/retnd cannot check, and
 	// that guard is the reason five gap entries claiming verbs this tree
 	// ships were only found by somebody reading them.
 	refusals []string
 
-	// namesShippedVerbs are the `backupd` verbs this entry's
+	// namesShippedVerbs are the `retnd` verbs this entry's
 	// sentences name ON PURPOSE.
 	//
 	// Most gap sentences name a verb that does not exist, which is the
 	// point of them. Some name one that does, as a counterexample:
-	// "`backupd run` starts a cycle in your own shell, not in this
+	// "`retnd run` starts a cycle in your own shell, not in this
 	// engine" is telling an operator which verb is NOT the answer, and
 	// "`backup-set patch` refuses --disabled" is saying what the existing
 	// verb will not do. Listing the verb here is how that is told apart
@@ -533,23 +539,34 @@ func seconds(v int64) string {
 }
 
 // endpointWithoutUserinfo drops any credentials spelled into a storage
-// destination's endpoint URL.
+// destination's endpoint URL, and says whether it could.
 //
 // https://AKIA...:wJalr...@minio.internal:9000 is a spelling rclone
 // accepts, apicontract.StorageMediumRequest.Endpoint is deliberately
 // unvalidated, and the field is not credential-shaped by name, so it went
 // straight onto a copy-to-clipboard panel and past a leak test that knew
-// eight field names. Nothing here is clever about it: the userinfo is
-// whatever sits before the last "@" in the authority, and it is removed
-// rather than starred out, because the destination without it is still
-// the address an operator needs and the credential reaches the binary
-// through one of the four credential flags instead.
+// eight field names. The userinfo is whatever sits before the last "@" in
+// the authority, and it is removed rather than starred out, because the
+// destination without it is still the address an operator needs and the
+// credential reaches the binary through one of the four credential flags
+// instead.
+//
+// The authority ends at the first "/", "?" or "#", and a password typed
+// with one of those in it (https://u:pa/ss@host) ends it early: the cut
+// finds no "@" in "u:pa" and used to hand the whole string back, password
+// and all (#1252). So the result is checked rather than trusted. An "@"
+// anywhere in it means the address did not split the way the cut assumes,
+// and the answer is ("", false): the caller holds the value back instead
+// of guessing. That also holds back an address with a real "@" in its
+// path, which is the safe direction to be wrong in.
+// testdata/medium_configure_1252.json has the vectors, and the browser's
+// copy of this function is checked against the same file.
 //
 // Textual rather than through net/url on purpose. url.Parse reads the
 // spelling with no scheme ("KEY:SECRET@host:9000") as a path and finds no
 // userinfo in it at all, and that spelling is a credential on a line just
 // as much as the well-formed one is.
-func endpointWithoutUserinfo(raw string) string {
+func endpointWithoutUserinfo(raw string) (string, bool) {
 	scheme, rest := "", raw
 	if i := strings.Index(rest, "://"); i >= 0 {
 		scheme, rest = rest[:i+3], rest[i+3:]
@@ -561,8 +578,18 @@ func endpointWithoutUserinfo(raw string) string {
 	if at := strings.LastIndex(authority, "@"); at >= 0 {
 		authority = authority[at+1:]
 	}
-	return scheme + authority + tail
+	out := scheme + authority + tail
+	if strings.Contains(out, "@") {
+		return "", false
+	}
+	return out, true
 }
+
+// withheldValue is the stand-in for an address endpointWithoutUserinfo
+// could not read. It goes through placeholderFlag, so the line is marked
+// not runnable as printed and the slot stays visible: a medium configure
+// line with the field simply missing would unset it when run.
+const withheldValue = "the value, left out because it looks like it carries credentials"
 
 // shellQuote makes one argument safe to paste into a shell, and leaves
 // alone the ones that need nothing.
@@ -599,7 +626,7 @@ func shellQuote(s string) string {
 }
 
 // What the printed commands need beyond their own argv (the three
-// BACKUP_MANAGER_API_* variables usage() names) is deliberately NOT
+// RETND_API_* variables usage() names) is deliberately NOT
 // composed here. The engine does not know the address the reader would
 // type at their own shell to reach it: it knows what it is listening on,
 // which behind a reverse proxy or a Synology package is not that. The

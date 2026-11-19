@@ -14,9 +14,14 @@
  * advanced details, and it is omitted entirely when the failure carried
  * none, because an id that appears in no log is a false lead.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Banner } from "@shared/components/Banner";
+import { copyText } from "@shared/utilities/copyText";
+import { useServiceRecovery } from "@shared/utilities/useServiceRecovery";
+import type { FailureOrigin } from "@shared/api/contracts";
+import { isUnreachableMessage } from "@shared/api/failure";
+import type { CopyOutcome } from "@shared/utilities/copyText";
 import { Icon } from "@shared/design-system/icons";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
@@ -80,21 +85,6 @@ export function EmptyState({
  */
 const NOT_AN_ID = "unavailable";
 
-/** Copies text through the async clipboard, answering whether it worked.
- *  Every NAS deployment on a plain http:// origin has no
- *  navigator.clipboard at all, and a button whose entire job is getting a
- *  diagnostic off the screen has to say it could not rather than sit there
- *  looking like it worked (#598). */
-async function copyToClipboard(text: string): Promise<boolean> {
-  try {
-    if (!navigator.clipboard?.writeText) return false;
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export function ErrorState({
   message,
   remediation,
@@ -102,6 +92,7 @@ export function ErrorState({
   detail,
   onRetry,
   retriedAt,
+  origin,
   tip
 }: {
   message: string;
@@ -123,13 +114,30 @@ export function ErrorState({
    *  (#598). The caller owns this rather than this component, because this
    *  component unmounts for the moment the retry is in flight. */
   retriedAt?: string;
+  /** Where the failure came from (api/failure.ts). A failure that never
+   *  reached the service, or that the gateway in front of it wrote
+   *  (`no-response`, `gateway`), is drawn as the service-unreachable state
+   *  and, when a retry is on offer, clears itself once /health/live answers
+   *  again (retnd#1049). Every other origin, and an absent one, is a
+   *  refusal the service gave in its own words, which waiting does not
+   *  change, so it is neither marked nor polled. */
+  origin?: FailureOrigin;
   /** What the caller could not show, from the registry (#834). Wrapped
    *  around the headline, where the controls below keep their own
    *  explanations: the message itself is the service's words and says what
    *  broke, not what the operator has lost by it. */
   tip?: TooltipId;
 }) {
-  const [copied, setCopied] = useState<"idle" | "done" | "failed">("idle");
+  const [copied, setCopied] = useState<"idle" | CopyOutcome>("idle");
+  const detailRef = useRef<HTMLDivElement | null>(null);
+
+  // By recorded origin where the caller passed it, and by the headline where
+  // it spread only message/remediation/correlationId (most of them do).
+  const unreachable = origin === "gateway" || origin === "no-response" || isUnreachableMessage(message);
+  // Asks again by itself once the service answers, exactly as Try again
+  // would. Only when a retry is on offer: with none, there is nothing to
+  // run when it recovers.
+  useServiceRecovery(unreachable && !!onRetry, () => onRetry?.(), retriedAt);
 
   const id = correlationId === NOT_AN_ID ? undefined : correlationId;
   const lines = [id ? "correlation id " + id : undefined, detail]
@@ -145,7 +153,7 @@ export function ErrorState({
   // exactly as it was (#834).
   const headline = <div style={{ fontWeight: 600, fontSize: 13.5 }}>{message}</div>;
 
-  return (
+  const banner = (
     // Not dismissible (#620). Every caller renders this INSTEAD of the
     // content it could not load, so it is the surface rather than a
     // notice over one: putting it away would leave a blank panel and
@@ -170,9 +178,9 @@ export function ErrorState({
           ) : null}
           {/* Advanced details only — never a stack trace (§37). */}
           {advanced ? (
-            <details style={{ marginTop: 8, fontSize: "var(--text-sm)", color: "var(--text-3)" }}>
+            <details style={{ marginTop: 8, fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
               <summary style={{ cursor: "pointer" }}>Advanced details</summary>
-              <div className="mono" style={{ marginTop: 6, whiteSpace: "pre-wrap" }}>{advanced}</div>
+              <div ref={detailRef} className="mono" style={{ marginTop: 6, whiteSpace: "pre-wrap" }}>{advanced}</div>
               {/* The next thing an operator does with a failure is paste
                   it somewhere, and retyping four lines of exception text
                   off a screen is how the useful half gets left out. */}
@@ -181,16 +189,22 @@ export function ErrorState({
                   className="btn btn--sm"
                   style={{ marginTop: 8 }}
                   onClick={() => {
-                    void copyToClipboard(message + "\n" + (remediation ? remediation + "\n" : "") + advanced).then(
-                      (ok) => setCopied(ok ? "done" : "failed")
-                    );
+                    void copyText(
+                      message + "\n" + (remediation ? remediation + "\n" : "") + advanced,
+                      detailRef.current
+                    ).then(setCopied);
                   }}
                 >
                   Copy details
                 </button>
               </InfoTooltip>
-              {copied === "done" ? (
+              {copied === "copied" ? (
                 <span role="status" style={{ marginLeft: 8 }}>Copied</span>
+              ) : null}
+              {copied === "selected" ? (
+                <span role="status" style={{ marginLeft: 8 }}>
+                  Selected the details above. Press Ctrl+C (Cmd+C on a Mac) to copy.
+                </span>
               ) : null}
               {copied === "failed" ? (
                 <span role="status" style={{ marginLeft: 8 }}>
@@ -208,15 +222,23 @@ export function ErrorState({
               </InfoTooltip>
               {retriedAt ? (
                 <InfoTooltip id="common.error-retried-at">
-                  <span role="status" style={{ fontSize: "var(--text-sm)", color: "var(--text-3)" }}>
+                  <span role="status" style={{ fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
                     {"Tried again at " + retriedAt + ", and it failed the same way."}
                   </span>
                 </InfoTooltip>
               ) : null}
             </div>
           ) : null}
+          {unreachable && onRetry ? (
+            <div style={{ marginTop: 8, fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
+              This checks again every few seconds and clears itself when retnd answers.
+            </div>
+          ) : null}
         </div>
       </div>
     </Banner>
   );
+  // The wrapper is the state's name in the DOM: not configured yet is
+  // `first-run-not-configured`, the service being down is this (#1049).
+  return unreachable ? <div data-testid="service-unreachable">{banner}</div> : banner;
 }

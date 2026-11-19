@@ -9,7 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/backupdproject/backupd/apps/common/csrf"
+	"github.com/retnd/retnd/apps/common/csrf"
 )
 
 // gate_redteam_test.go is issue #87 (B5.1)'s attack on the destructive
@@ -79,7 +79,9 @@ func gateWalk(t *testing.T, gate DestructiveGate) map[string]struct {
 		if method == http.MethodGet || strings.HasPrefix(route, "/health") {
 			return nil
 		}
-		if destructiveGateExemptRoutes[method+" "+route] {
+		if destructiveGateExemptRoutes[method+" "+route] || destructiveGateTargetKindRoutes[method+" "+route] != nil {
+			// Gated per target kind: TestTheTargetKindGateRefusesExactlyThoseKinds
+			// walks those with a body of each kind.
 			return nil
 		}
 		req := httptest.NewRequest(method, strings.ReplaceAll(route, "{id}", "op_1"), strings.NewReader("{}"))

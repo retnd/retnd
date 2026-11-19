@@ -67,26 +67,26 @@ PVE administration guide documents.
 pveversion -v | head -3
 ```
 
-- PVE release recorded in the evidence table
-- Host has a storage the guest's disk can live on (`pvesm status`)
+- [ ] PVE release recorded in the evidence table
+- [ ] Host has a storage the guest's disk can live on (`pvesm status`)
 
 ### 0.2 Choose and create the storage the app will use
 
 The profile keeps every persistent path under one host directory or dataset, which
-is mounted into the guest at `/mnt/backupd`. On ZFS:
+is mounted into the guest at `/mnt/retnd`. On ZFS:
 
 ```bash
-zfs create -o mountpoint=/srv/backupd rpool/backupd
+zfs create -o mountpoint=/srv/retnd rpool/retnd
 ```
 
 or on a plain directory storage:
 
 ```bash
-mkdir -p /srv/backupd
+mkdir -p /srv/retnd
 ```
 
-- Host path created, recorded in the evidence table
-- It is **not** inside `/etc/pve`, `/var/lib/pve-cluster`, or any PVE-managed path
+- [ ] Host path created, recorded in the evidence table
+- [ ] It is **not** inside `/etc/pve`, `/var/lib/pve-cluster`, or any PVE-managed path
 
 ### 0.3 Create the guest
 
@@ -104,14 +104,14 @@ qm status "$VMID"; pct status "$VMID"
 Both commands MUST fail with "does not exist". If either one prints a status,
 that id belongs to an existing guest: pick another and re-run until both fail.
 
-- `qm status $VMID` and `pct status $VMID` both reported no such guest
-- The chosen VMID is written into the evidence table now, before anything is
+- [ ] `qm status $VMID` and `pct status $VMID` both reported no such guest
+- [ ] The chosen VMID is written into the evidence table now, before anything is
       created
 
 Default (VM). Use any current Debian or Ubuntu LTS cloud image:
 
 ```bash
-qm create "$VMID" --name backupd --memory 2048 --cores 2 \
+qm create "$VMID" --name retnd --memory 2048 --cores 2 \
   --net0 virtio,bridge=vmbr0 --scsihw virtio-scsi-single
 # import the cloud image, set --scsi0, --ide2 cloudinit, --boot order=scsi0
 qm set "$VMID" --ciuser admin --sshkeys ~/.ssh/id_ed25519.pub
@@ -129,9 +129,9 @@ If your PVE release predates virtiofs directory mappings, use an NFS or 9p share
 from the host, or give the VM its own disk and skip the host-side dataset. Record
 which you used.
 
-- Guest created and reachable over SSH
-- Host directory visible inside the guest at `/mnt/backupd`
-- `qm config $VMID` recorded
+- [ ] Guest created and reachable over SSH
+- [ ] Host directory visible inside the guest at `/mnt/retnd`
+- [ ] `qm config $VMID` recorded
 
 **Variant (unprivileged LXC).** Only if you accept the caveats in
 `apps/proxmox/README.md`:
@@ -139,12 +139,12 @@ which you used.
 ```bash
 pct create "$VMID" <template> --unprivileged 1 --features nesting=1,keyctl=1 \
   --memory 2048 --cores 2 --net0 name=eth0,bridge=vmbr0,ip=dhcp
-pct set "$VMID" --mp0 /srv/backupd,mp=/mnt/backupd
+pct set "$VMID" --mp0 /srv/retnd,mp=/mnt/retnd
 pct start "$VMID"
 ```
 
-- `pct config $VMID` shows `unprivileged: 1`
-- `pct config $VMID` shows the bind mount, and **no** `mp` pointing at `/etc/pve`
+- [ ] `pct config $VMID` shows `unprivileged: 1`
+- [ ] `pct config $VMID` shows the bind mount, and **no** `mp` pointing at `/etc/pve`
 
 ### 0.4 Install the container engine **inside the guest**, never on the host
 
@@ -153,19 +153,17 @@ ssh admin@<guest> 'curl -fsSL https://get.docker.com | sh'
 ssh admin@<guest> 'docker --version && docker compose version'
 ```
 
-- The engine is installed in the guest
-- `which docker` on the **PVE host** still returns nothing (step 9 re-checks this)
+- [ ] The engine is installed in the guest
+- [ ] `which docker` on the **PVE host** still returns nothing (step 9 re-checks this)
 
 ### 0.5 Make the canonical image resolvable
 
-`ghcr.io/backupdproject/backupd:0.4.0` is cut but not pushed yet:
-`distribution/packaging/canonical.json` records `image.published: false`, and
-`container/release-manifest.json` carries a `registry_digest` of `null` per
-architecture. So the reference does not resolve from the registry today, and the
-steps below are how you make it resolve, by pushing a build to a registry this host
-can reach or building elsewhere and loading it. The previous release,
-`ghcr.io/backupdproject/backupd:0.3.3`, stays published and signed if you would
-rather run that. Either push to your own registry:
+The canonical reference is `ghcr.io/retnd/retnd:0.8.0`.
+`distribution/packaging/canonical.json` and
+`container/release-manifest.json` jointly record whether it has been published:
+`image.published: true` requires an index digest and one registry digest per
+architecture. If those records still say `false` and `null`, the reference does
+not resolve yet. Push a build to a registry this host can reach:
 
 ```bash
 docker buildx build \
@@ -173,27 +171,27 @@ docker buildx build \
   --build-arg VERSION="$(git describe --tags --always)" \
   --build-arg COMMIT="$(git rev-parse HEAD)" \
   -f container/Dockerfile \
-  -t <your-registry>/backupd:<version> \
+  -t <your-registry>/retnd:<version> \
   --push .
 ```
 
 or side-load into the guest and set `IMAGE` in the env file to the loaded tag:
 
 ```bash
-docker save backupd:<version> | gzip > backupd.tar.gz
-scp backupd.tar.gz admin@<guest>:/tmp/
-ssh admin@<guest> 'gunzip -c /tmp/backupd.tar.gz | docker load'
+docker save retnd:<version> | gzip > retnd.tar.gz
+scp retnd.tar.gz admin@<guest>:/tmp/
+ssh admin@<guest> 'gunzip -c /tmp/retnd.tar.gz | docker load'
 ```
 
 The compose file reads the image reference from a single `IMAGE` variable in
-`apps/proxmox/compose/backupd.env`, so this is one line in one file.
+`apps/proxmox/compose/retnd.env`, so this is one line in one file.
 
-- Canonical image resolvable inside the guest, reference recorded
+- [ ] Canonical image resolvable inside the guest, reference recorded
 
 ### 0.6 Resolve paths, ownership, key material and config
 
 ```bash
-ssh admin@<guest> 'sudo mkdir -p /mnt/backupd/{state,backups,config,secrets}'
+ssh admin@<guest> 'sudo mkdir -p /mnt/retnd/{state,backups,config,secrets}'
 ```
 
 The runtime image is distroless: no shell, no root step, nothing inside the
@@ -205,8 +203,8 @@ Create the SSH key and pinned `known_hosts` **on the guest**, following
 key into the evidence table, and never put one in `apps/proxmox/`.
 
 ```bash
-ssh admin@<guest> 'ssh-keygen -t ed25519 -N "" -f /mnt/backupd/secrets/id_ed25519'
-ssh admin@<guest> 'ssh-keyscan -t ed25519 <sftp-host> > /mnt/backupd/secrets/known_hosts'
+ssh admin@<guest> 'ssh-keygen -t ed25519 -N "" -f /mnt/retnd/secrets/id_ed25519'
+ssh admin@<guest> 'ssh-keyscan -t ed25519 <sftp-host> > /mnt/retnd/secrets/known_hosts'
 ```
 
 **Chown last, once the files exist.** `ssh-keygen` writes the private key owned
@@ -217,8 +215,8 @@ SFTP connection fails with a permission error that points at the key rather than
 at this step. This is the same ordering the TrueNAS, Unraid and OpenMediaVault
 procedures already use.
 
-**Recurse only over what this step created.** `/mnt/backupd` is the shared
-host directory, and `/mnt/backupd/backups` is the retained backup store: on
+**Recurse only over what this step created.** `/mnt/retnd` is the shared
+host directory, and `/mnt/retnd/backups` is the retained backup store: on
 a reinstall both already hold data this procedure did not write, and a `chown -R`
 across either rewrites the ownership of all of it with nothing to restore it from.
 So the two private trees are chowned recursively and the share root and the backup
@@ -229,21 +227,21 @@ backup root or a parent of it.
 
 ```bash
 ssh admin@<guest> '
-  sudo chown -R 1000:100 /mnt/backupd/state /mnt/backupd/config /mnt/backupd/secrets
-  sudo chown 1000:100 /mnt/backupd /mnt/backupd/backups
-  sudo chmod 600 /mnt/backupd/secrets/id_ed25519
-  sudo -u "#1000" cat /mnt/backupd/secrets/id_ed25519 > /dev/null && echo readable
+  sudo chown -R 1000:100 /mnt/retnd/state /mnt/retnd/config /mnt/retnd/secrets
+  sudo chown 1000:100 /mnt/retnd /mnt/retnd/backups
+  sudo chmod 600 /mnt/retnd/secrets/id_ed25519
+  sudo -u "#1000" cat /mnt/retnd/secrets/id_ed25519 > /dev/null && echo readable
 '
 ```
 
-- `/mnt/backupd/{state,backups,config,secrets}` exist, owned by the app's uid/gid
-- The recursive chown touched only `state`, `config` and `secrets`; the share
+- [ ] `/mnt/retnd/{state,backups,config,secrets}` exist, owned by the app's uid/gid
+- [ ] The recursive chown touched only `state`, `config` and `secrets`; the share
       root and `backups` were chowned as mountpoints, not as trees
-- The chown ran **after** the key and `known_hosts` were created
-- `sudo -u '' cat.../secrets/id_ed25519` succeeded, and the key is mode 600
-- `/mnt/backupd/config` exists and is **writable** by the app's uid/gid
-- `config/config.yaml` written inside it and valid
-- Key material lives only on the guest, redacted everywhere else
+- [ ] The chown ran **after** the key and `known_hosts` were created
+- [ ] `sudo -u '#1000' cat .../secrets/id_ed25519` succeeded, and the key is mode 600
+- [ ] `/mnt/retnd/config` exists and is **writable** by the app's uid/gid
+- [ ] `config/config.yaml` written inside it and valid
+- [ ] Key material lives only on the guest, redacted everywhere else
 
 ---
 
@@ -258,24 +256,24 @@ would look healthy while writing the state database and every retained artifact
 somewhere the recovery story in step 8 cannot find them.
 
 ```bash
-ssh admin@<guest> 'mountpoint -q /mnt/backupd && echo mounted'
+ssh admin@<guest> 'mountpoint -q /mnt/retnd && echo mounted'
 ```
 
-- `mountpoint -q /mnt/backupd` succeeded in the guest, before `up -d`
+- [ ] `mountpoint -q /mnt/retnd` succeeded in the guest, before `up -d`
 
 ```bash
-scp apps/proxmox/compose/backupd.yml admin@<guest>:/opt/backupd/
-scp apps/proxmox/compose/backupd.env admin@<guest>:/opt/backupd/.env
-ssh admin@<guest> 'cd /opt/backupd && docker compose -f backupd.yml up -d'
+scp apps/proxmox/compose/retnd.yml admin@<guest>:/opt/retnd/
+scp apps/proxmox/compose/retnd.env admin@<guest>:/opt/retnd/.env
+ssh admin@<guest> 'cd /opt/retnd && docker compose -f retnd.yml up -d'
 ```
 
-- Both containers reach `running`
-- `backupd` reports healthy (it declares the liveness probe
-      `/backupd-web healthcheck --url http://127.0.0.1:8080/health/live`,
-      not the image's own `/backupd status`: the Web UI waits on this, and
+- [ ] Both containers reach `running`
+- [ ] `retnd` reports healthy (it declares the liveness probe
+      `/retnd-web healthcheck --url http://127.0.0.1:8080/health/live`,
+      not the image's own `/retnd status`: the Web UI waits on this, and
       the backup-freshness verdict is non-zero on a fresh install)
-- `backupd-ui` reports healthy (it overrides the image's own healthcheck)
-- `docker compose logs` shows no repeated restart
+- [ ] `web-ui` reports healthy (it overrides the image's own healthcheck)
+- [ ] `docker compose logs` shows no repeated restart
 
 ## Step 2 — Reproducibility
 
@@ -284,71 +282,71 @@ means a second operator following this file from a clean guest lands in the same
 place. Prove it rather than asserting it:
 
 ```bash
-qm clone "$VMID" "$((VMID + 1))" --name backupd-repro   # or pct clone
+qm clone "$VMID" "$((VMID + 1))" --name retnd-repro   # or pct clone
 ```
 
 Bring the clone up from step 0.5 onward against a *separate* host directory, using
 the same two files and no manual edits beyond the env file's documented
 substitutions.
 
-- Second guest reaches the same running state from the same two files
-- The only edits needed were inside `backupd.env`
-- Number of undocumented manual steps required: **must be zero**, record it
+- [ ] Second guest reaches the same running state from the same two files
+- [ ] The only edits needed were inside `retnd.env`
+- [ ] Number of undocumented manual steps required: **must be zero**, record it
 
 ## Step 3 — Web UI access
 
 PVE has no application navigation tree to appear in, by design. The Web UI is
 reached at the guest's own address and published port.
 
-- `http://<guest>:8080/` loads the shared Web UI
-- The UI reports the platform as Proxmox VE
-- The deployment label shown matches `apps/proxmox/frontend/platform.ts`
-- Nothing was added to the PVE Web UI to make this reachable
+- [ ] `http://<guest>:8080/` loads the shared Web UI
+- [ ] The UI reports the platform as Proxmox VE
+- [ ] The deployment label shown matches `apps/proxmox/frontend/platform.ts`
+- [ ] Nothing was added to the PVE Web UI to make this reachable
 
 ## Step 4 — Authentication (local-account only)
 
-- First start printed a one-time enrollment link (keep it out of the evidence table)
-- Enrollment asked for a recovery email address and the SMTP details to reach it,
+- [ ] First start printed a one-time enrollment link (keep it out of the evidence table)
+- [ ] Enrollment asked for a recovery email address and the SMTP details to reach it,
       beside the username and password. Use a mail account you control and keep the
       SMTP password out of the evidence table; record the host and port only
-- The confirmation message arrived at the recovery address, and it arrived
+- [ ] The confirmation message arrived at the recovery address, and it arrived
       **before** any account existed. Provoke the failure once, with a deliberately
       wrong port: the API answers `SMTP_SEND_FAILED` and no administrator is created
-- That failure did not consume the link. The same URL completed the enrollment
+- [ ] That failure did not consume the link. The same URL completed the enrollment
       once the SMTP details were corrected
-- Enrollment sets an administrator password, stored as an Argon2id hash, with the
+- [ ] Enrollment sets an administrator password, stored as an Argon2id hash, with the
       recovery address beside it in the same record and the SMTP password held as a
       secret reference rather than a value
-- The enrollment link is single-use and rejected the second time
-- Forgot password answers identically for the administrator's username and for a
+- [ ] The enrollment link is single-use and rejected the second time
+- [ ] Forgot password answers identically for the administrator's username and for a
       name that does not exist, and mails a single-use reset link to the recovery
       address; completing the reset sets the new password and signs out the session
       that asked. The mail leaves the guest, and it is the only outbound connection
       in this procedure that is not SFTP
-- An unauthenticated request to `/api/v1/` is refused
-- The UI reports auth mode `local-account`, not a PVE session
-- No PVE realm, PAM user, or PVE API token was created or used
+- [ ] An unauthenticated request to `/api/v1/` is refused
+- [ ] The UI reports auth mode `local-account`, not a PVE session
+- [ ] No PVE realm, PAM user, or PVE API token was created or used
 
 ## Step 5 — Storage mapping and backup-root containment
 
-- State lands under the host path mapped to `/mnt/backupd/state`
-- Retained artifacts land under the host path mapped to `/mnt/backupd/backups`
-- No SSH private key, `known_hosts`, config file or auth record exists anywhere
+- [ ] State lands under the host path mapped to `/mnt/retnd/state`
+- [ ] Retained artifacts land under the host path mapped to `/mnt/retnd/backups`
+- [ ] No SSH private key, `known_hosts`, config file or auth record exists anywhere
       inside the backup root (§19.2)
-- The key and `known_hosts` are mounted read-only, and a write attempt from
+- [ ] The key and `known_hosts` are mounted read-only, and a write attempt from
       inside the container fails
-- The configuration directory is mounted **writable**, and a write attempt from
-      inside the container succeeds (: the engine creates and atomically
+- [ ] The configuration directory is mounted **writable**, and a write attempt from
+      inside the container succeeds (issue #196: the engine creates and atomically
       replaces `config.yaml` there, and keeps `ssh_keys/` and `known_hosts.d/`
       beside it). These two boxes are each other's control: if both write attempts
       behave the same way, the mount modes are not being tested at all
 
 ## Step 6 — Engine reachability
 
-- The engine container publishes no port (`docker compose ps` shows one published port total)
-- `curl http://<guest>:8080/api/v1/...` works through the UI container
-- The engine's own port is not reachable from outside the guest
-- The PVE host's 8006 management port is unaffected
+- [ ] The engine container publishes no port (`docker compose ps` shows one published port total)
+- [ ] `curl http://<guest>:8080/api/v1/...` works through the UI container
+- [ ] The engine's own port is not reachable from outside the guest
+- [ ] The PVE host's 8006 management port is unaffected
 
 ## Step 7 — Update
 
@@ -361,24 +359,24 @@ diff rather than an impression:
 
 ```bash
 ssh admin@<guest> '
-  sha256sum /mnt/backupd/state/state.db | tee /tmp/before-update.sha256
-  find /mnt/backupd/backups -type f -printf "%p %s\n" | sort > /tmp/before-update.txt
+  sha256sum /mnt/retnd/state/state.db | tee /tmp/before-update.sha256
+  find /mnt/retnd/backups -type f -printf "%p %s\n" | sort > /tmp/before-update.txt
 '
-ssh admin@<guest> 'cd /opt/backupd && docker compose pull && docker compose up -d'
+ssh admin@<guest> 'cd /opt/retnd && docker compose pull && docker compose up -d'
 ssh admin@<guest> '
-  find /mnt/backupd/backups -type f -printf "%p %s\n" | sort > /tmp/after-update.txt
+  find /mnt/retnd/backups -type f -printf "%p %s\n" | sort > /tmp/after-update.txt
   diff /tmp/before-update.txt /tmp/after-update.txt
 '
 ```
 
-- `diff` of the retained-artifact listing is empty: the update moved no
+- [ ] `diff` of the retained-artifact listing is empty: the update moved no
       backup data
-- New image version reported by the UI
-- Backup sets, schedules, retained artifacts and the administrator account all survive,
+- [ ] New image version reported by the UI
+- [ ] Backup sets, schedules, retained artifacts and the administrator account all survive,
       the account's recovery address and SMTP settings with it (a test send from
       Settings still succeeds after the update)
-- No re-enrollment was required
-- Nothing on the PVE host changed (step 9 re-checks)
+- [ ] No re-enrollment was required
+- [ ] Nothing on the PVE host changed (step 9 re-checks)
 
 ## Step 8 — Recovery, removal, and retained-backup safety
 
@@ -395,14 +393,14 @@ through a virtiofs or `mp0` mapping, so it is the one where a mapping problem ca
 silently empty the guest's view of it.
 
 ```bash
-dd if=/dev/urandom of=/srv/backupd/backups/acceptance-canary.bin bs=1M count=8
-sha256sum /srv/backupd/backups/acceptance-canary.bin | tee /root/pve-canary.sha256
-find /srv/backupd -type f -printf '%p %s\n' | sort > /root/pve-before-destroy.txt
+dd if=/dev/urandom of=/srv/retnd/backups/acceptance-canary.bin bs=1M count=8
+sha256sum /srv/retnd/backups/acceptance-canary.bin | tee /root/pve-canary.sha256
+find /srv/retnd -type f -printf '%p %s\n' | sort > /root/pve-before-destroy.txt
 ```
 
 Confirm the id you are about to destroy is the one this procedure created:
 
-- `echo "$VMID"` prints the id recorded in the evidence table at step 0.3,
+- [ ] `echo "$VMID"` prints the id recorded in the evidence table at step 0.3,
       and `qm config "$VMID"` (or `pct config "$VMID"`) shows the guest this
       procedure built. **Do not run the next command until it does.**
 
@@ -414,18 +412,18 @@ Then verify against the baseline, before doing anything else:
 
 ```bash
 sha256sum -c /root/pve-canary.sha256
-find /srv/backupd -type f -printf '%p %s\n' | sort > /root/pve-after-destroy.txt
+find /srv/retnd -type f -printf '%p %s\n' | sort > /root/pve-after-destroy.txt
 diff /root/pve-before-destroy.txt /root/pve-after-destroy.txt
 ```
 
-- `sha256sum -c /root/pve-canary.sha256` says OK and
+- [ ] `sha256sum -c /root/pve-canary.sha256` says OK and
       `diff /root/pve-before-destroy.txt /root/pve-after-destroy.txt` is empty
-- A fresh guest re-created from step 0.3 onward, pointed at the same host
+- [ ] A fresh guest re-created from step 0.3 onward, pointed at the same host
       directory, comes up with the same backup sets and the same administrator account
-- `docker compose down -v` inside the guest deletes no retained artifact:
+- [ ] `docker compose down -v` inside the guest deletes no retained artifact:
       re-run the same `sha256sum -c` and `diff` after it and both are still
       clean (there is no named volume for `-v` to reach)
-- Removing the profile removes no core behaviour: the same image runs
+- [ ] Removing the profile removes no core behaviour: the same image runs
       unchanged under `container/compose.yaml` on a plain Docker host
 
 ## Step 9 — The PVE host management plane is untouched
@@ -443,16 +441,16 @@ find /etc/pve -type f -newermt '-1 day' > /root/pve-baseline-etcpve.txt
 sha256sum /usr/share/pve-manager/js/pvemanagerlib.js >> /root/pve-baseline-units.txt
 ```
 
-- `dpkg -l` differs by nothing this procedure installed
-- No new enabled systemd unit on the host
-- `which docker`, `which podman`, `which containerd` all empty on the host
-- No new file under `/etc/pve`
-- `pvemanagerlib.js` checksum unchanged, and no file added under `/usr/share/pve-manager/`
-- No crontab or `/etc/cron.*` entry added
-- The PVE Web UI at `https://<host>:8006/` looks and behaves exactly as before,
+- [ ] `dpkg -l` differs by nothing this procedure installed
+- [ ] No new enabled systemd unit on the host
+- [ ] `which docker`, `which podman`, `which containerd` all empty on the host
+- [ ] No new file under `/etc/pve`
+- [ ] `pvemanagerlib.js` checksum unchanged, and no file added under `/usr/share/pve-manager/`
+- [ ] No crontab or `/etc/cron.*` entry added
+- [ ] The PVE Web UI at `https://<host>:8006/` looks and behaves exactly as before,
       with no added menu item, panel, or tab
-- `pveversion -v` output unchanged
-- `systemctl status pveproxy pvedaemon pve-cluster` all still active, never restarted by this procedure
+- [ ] `pveversion -v` output unchanged
+- [ ] `systemctl status pveproxy pvedaemon pve-cluster` all still active, never restarted by this procedure
 
 If any of these differ, the deployment is **not** conformant and the evidence table
 must say so rather than being filled in green.
@@ -462,12 +460,12 @@ must say so rather than being filled in green.
 The host directory or dataset is new containment surface, so re-run the
 destructive-safety expectations against it specifically:
 
-- A backup set configured with a root outside `/mnt/backupd/backups` is refused
-- A symlink placed inside the backup root that points outside it is not followed
+- [ ] A backup set configured with a root outside `/mnt/retnd/backups` is refused
+- [ ] A symlink placed inside the backup root that points outside it is not followed
       into a delete
-- A retention apply deletes only artifacts under the backup root
-- Nothing under `/mnt/backupd/{state,config,secrets}` is ever a delete target
-- Destroying the guest mid-operation leaves the state database recoverable
+- [ ] A retention apply deletes only artifacts under the backup root
+- [ ] Nothing under `/mnt/retnd/{state,config,secrets}` is ever a delete target
+- [ ] Destroying the guest mid-operation leaves the state database recoverable
 
 ## Step 11 — Cross-check against the automated matrix
 
@@ -475,9 +473,9 @@ destructive-safety expectations against it specifically:
 cd distribution && go test ./packaging/ -run TestCrossProviderConformance -v
 ```
 
-- Every Proxmox row the matrix reports as `PASS` still holds on the real host
-- Every row it reports as `PENDING_OPERATOR` is now decided by this procedure
-- No row the matrix reports as `UNSUPPORTED` turned out to be supported here
+- [ ] Every Proxmox row the matrix reports as `PASS` still holds on the real host
+- [ ] Every row it reports as `PENDING_OPERATOR` is now decided by this procedure
+- [ ] No row the matrix reports as `UNSUPPORTED` turned out to be supported here
       (if one did, `distribution/packaging/conformance.json` is stale and must be corrected)
 
 ---
@@ -487,7 +485,7 @@ cd distribution && go test ./packaging/ -run TestCrossProviderConformance -v
 A workflow step whose target is `local` does not run in the engine container, and since
 issue #865 it does not run on a host shell either: it runs in an **ephemeral Docker
 container** launched by the **Host Workflow Runner**, a small version-pinned process
-systemd supervises as `backupd-workflow-runner.service`
+systemd supervises as `retnd-workflow-runner.service`
 (`docs/adr/0020-host-workflow-runner.md`, `docs/runtime-contract.md`).
 
 Local hooks are **available**, and the runner belongs **inside the container-host guest**
@@ -521,7 +519,29 @@ runner's account cannot reach the daemon. A deployment with an empty workflows
 directory is held to none of it, and `WORKFLOW_RUNNER=off` in the `.env` says so
 explicitly.
 
-- [ ] `systemctl is-active backupd-workflow-runner.service` reports `active`, and the
+And a fourth prerequisite, inside the guest rather than on the PVE host, which
+was missing until issue #921: the engine has to be able to see the runner. The
+stack mounts three paths for it, named in `retnd.env` with these values, and an
+operator who installs the runner somewhere else gets a refusal at the first hook
+rather than a hook that runs:
+
+| `retnd.env` | In the container | Why |
+|---|---|---|
+| `WORKFLOWS_DIR=/mnt/retnd/workflows` | `/workflows` (read-only) | the hook scripts the engine reads |
+| `$WORKFLOWS_DIR/recovery-test-validators` | `/workflows/recovery-test-validators` (writable) | custom validator scripts the engine writes when one is added (#1246) |
+| `$WORKFLOWS_DIR/recovery-test-validators.superseded` | `/workflows/recovery-test-validators.superseded` (writable) | where a removed validator's script is moved |
+| `RUNTIME_DIR=/mnt/retnd/run` | `/data/run` | where the runner's socket appears |
+| `RUNNER_TOKEN_FILE=/mnt/retnd/secrets/workflow-runner.token` | `/etc/retnd/workflow-runner.token` (read-only) | the credential the engine presents |
+
+So install the runner with `--workflows-dir` and `--runtime-dir` pointed at the
+first two, and its token written to the third. All three fail closed like every
+other host path in this profile, so a `retnd.env` copied from before them stops
+the deployment with the message naming the variable rather than landing a bind
+mount on the guest's root disk. None of them reaches the Docker daemon: the
+runner holds the socket's group, inside this guest, and the engine container
+gains nothing.
+
+- [ ] `systemctl is-active retnd-workflow-runner.service` reports `active`, and the
       account it runs as is recorded in the evidence table
 - [ ] That account is in the Docker socket's group (`id <account>`), and the engine
       container is **not**: `docker inspect` shows no socket mount, no `group_add` and no
@@ -529,7 +549,7 @@ explicitly.
 - [ ] The hook image is present on the host (`docker image inspect <the reference>`), and
       the reference the unit was installed with is recorded
 - [ ] A workflow with one `local` hook runs, and its container is gone afterwards
-      (`docker ps -a --filter label=backupd.workflow-hook=1` is empty)
+      (`docker ps -a --filter label=retnd.workflow-hook=1` is empty)
 
 
 ## Evidence (§68)
@@ -544,7 +564,7 @@ certified.
 | Architecture | |
 | Guest shape used (VM or unprivileged LXC) and its config | |
 | VMID chosen at step 0.3, and the evidence both `qm status` and `pct status` reported it free | |
-| Host storage / dataset used for `/mnt/backupd` | |
+| Host storage / dataset used for `/mnt/retnd` | |
 | How the host directory was shared into the guest | |
 | Package / image version | |
 | Image reference used, and how it was made resolvable | |

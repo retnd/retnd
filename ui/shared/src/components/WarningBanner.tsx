@@ -59,8 +59,20 @@ const ICON: Record<BannerTone, IconName> = {
   info: "info", ok: "success", warn: "warning", danger: "failure"
 };
 
+// info is --text-2, not --text-3 (retnd#1049): the eyebrow and the icon are
+// drawn in this colour on --surface-3, and --text-3 measures 2.93:1 there in
+// the light theme and 3.37:1 in the dark one, under both the 4.5:1 an eyebrow
+// needs and the 3:1 an icon does. --text-2 is 5.82:1 and 6.04:1.
 const COLOR: Record<BannerTone, string> = {
-  info: "var(--text-3)", ok: "var(--ok)", warn: "var(--warn)", danger: "var(--danger)"
+  info: "var(--text-2)", ok: "var(--ok)", warn: "var(--warn)", danger: "var(--danger)"
+};
+
+// The eyebrow is text, and --warn on --warn-quiet is 4.24:1 in the light theme
+// (#1235), under the 4.5:1 text needs. The warn eyebrow takes --warn pulled
+// toward the body ink; the icon beside it keeps the plain colour (3:1 is
+// enough for a non-text component).
+const EYEBROW_COLOR: Record<BannerTone, string> = {
+  ...COLOR, warn: "color-mix(in oklab, var(--warn) 75%, var(--text))"
 };
 
 /** The body as a key fragment, when it is prose. Anything else reads as
@@ -139,7 +151,7 @@ export function WarningBanner({
           <Explained tip={title ? undefined : tip}>
             <div
               className="eyebrow"
-              style={{ color: COLOR[tone], fontSize: "var(--text-xs)", letterSpacing: "0.09em" }}
+              style={{ color: EYEBROW_COLOR[tone], fontSize: "var(--text-xs)", letterSpacing: "0.09em" }}
             >
               {eyebrow}
             </div>

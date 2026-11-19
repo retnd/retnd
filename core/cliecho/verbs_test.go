@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/backupdproject/backupd/core/apicontract"
+	"github.com/retnd/retnd/core/apicontract"
 )
 
 // A gap is a promise that a verb does not exist, and this tree ships five
@@ -15,7 +15,7 @@ import (
 // at an operator who could have run one.
 //
 // The mechanical guard against a gap outliving the thing it describes is
-// in core/cmd/backupd, which is the only package that can see the
+// in core/cmd/retnd, which is the only package that can see the
 // verb tables. This is the other half: the commands themselves, pinned
 // here where the builders are.
 func TestTheRoutesWhoseVerbsNowExistNameThem(t *testing.T) {
@@ -86,6 +86,25 @@ func TestTheRoutesWhoseVerbsNowExistNameThem(t *testing.T) {
 				Body:   []byte(`{"tiers":[{"name":"daily","granularity":"day","keep":7}],"timezone":"Europe/Berlin","acknowledge_medium_disclosure":true}`)},
 			want: Binary + " backup-set retention api-server/var-backups --policy-file <a file holding this whole retention: block> --acknowledge-medium-disclosure",
 		},
+		{
+			// #1250: the Dashboard's "Run all enabled sets".
+			name:   "asking the engine to run every enabled set",
+			action: Action{Method: "POST", Route: "/operations", Body: []byte(`{"action":"` + apicontract.ActionRunCycle + `","config_revision":"r1"}`)},
+			want:   Binary + " operation run",
+		},
+		{
+			// #1250: the set page's "Run this backup set".
+			name: "asking the engine to run one set",
+			action: Action{Method: "POST", Route: "/operations",
+				Body: []byte(`{"action":"` + apicontract.ActionRunBackupSet + `","config_revision":"r1","backup_set_id":"api-server/var-backups"}`)},
+			want: Binary + " operation run --backup-set api-server/var-backups",
+		},
+		{
+			name: "asking the engine to run one set without its workflow scripts",
+			action: Action{Method: "POST", Route: "/operations",
+				Body: []byte(`{"action":"` + apicontract.ActionRunBackupSet + `","config_revision":"r1","backup_set_id":"api-server/var-backups","skip_workflow_scripts":true}`)},
+			want: Binary + " operation run --backup-set api-server/var-backups --skip-workflow-scripts",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			line := Echo(tc.action)
@@ -98,22 +117,16 @@ func TestTheRoutesWhoseVerbsNowExistNameThem(t *testing.T) {
 		})
 	}
 
-	// Taking a hold is the one gap on this surface that is still true, and
-	// usage() says so in as many words: "There is no verb that TAKES a
-	// hold". A fix that turned every neighbouring gap into a command and
-	// took this one with it would be inventing a verb.
-	take := Echo(Action{Method: "POST", Route: "/backup-sets/{source}/{set}/edit-hold",
-		Params: map[string]string{"source": "api-server", "set": "var-backups"}})
-	if len(take.Command) != 0 {
-		t.Errorf("taking an edit hold printed the command %v, and no verb takes one", take.Command)
-	}
+	// Taking a hold was the one gap on this surface that stayed true until
+	// #1253 gave `backup-set edit-hold` a --take; sourceverbs_1253_test.go
+	// pins that line.
 }
 
 // The /operations builder switched on `action == "restore"`, which is not
 // one of the three values the contract defines and not one any client has
 // ever sent. So no real request matched that arm: every restore and every
 // per-set run fell through to a default whose sentence is about
-// `backupd run`, a different verb for a different act. The
+// `retnd run`, a different verb for a different act. The
 // example body said "restore" too, so the end-to-end parse test certified
 // a branch production never reaches.
 //
@@ -126,24 +139,21 @@ func TestOperationsReadsTheActionsTheContractDefines(t *testing.T) {
 		t.Errorf("a %s prints\n  %s\nwant\n  %s", apicontract.ActionRestorePlacement, got, want)
 	}
 
-	// A per-set run is its own action and gets its own sentence. Whatever
-	// that sentence says, it must not be run_cycle's: those two are
-	// different acts, and a gap that describes the wrong one sends an
-	// operator to the wrong verb.
+	// A per-set run and a run of every set are two acts, and since #1250
+	// they are two command lines. Neither is `run` or `fetch`: those run the
+	// cycle in the operator's own process, and this asks the serving engine.
 	perSet := Echo(Action{Method: "POST", Route: "/operations",
 		Body: []byte(`{"action":"` + apicontract.ActionRunBackupSet + `","config_revision":"r1","backup_set_id":"api-server/var-backups"}`)})
 	cycle := Echo(Action{Method: "POST", Route: "/operations",
 		Body: []byte(`{"action":"` + apicontract.ActionRunCycle + `","config_revision":"r1"}`)})
-	if len(perSet.Command) == 0 && perSet.GapDetail == cycle.GapDetail {
-		t.Errorf("%s and %s print the same sentence:\n  %s\nOne runs every enabled set and the other runs exactly one, so a gap written for the first is not an answer about the second.",
-			apicontract.ActionRunBackupSet, apicontract.ActionRunCycle, perSet.GapDetail)
+	if got, want := perSet.Shell(), Binary+" operation run --backup-set api-server/var-backups"; got != want {
+		t.Errorf("a %s prints\n  %s\nwant\n  %s", apicontract.ActionRunBackupSet, got, want)
 	}
-	if len(perSet.Command) == 0 && !strings.Contains(perSet.GapDetail, "fetch") {
-		t.Errorf("the %s gap does not name the verb an operator would reach for (`fetch`), so it does not say why that verb is not the answer:\n  %s",
-			apicontract.ActionRunBackupSet, perSet.GapDetail)
+	if got, want := cycle.Shell(), Binary+" operation run"; got != want {
+		t.Errorf("a %s prints\n  %s\nwant\n  %s", apicontract.ActionRunCycle, got, want)
 	}
-	if len(cycle.Command) != 0 {
-		t.Errorf("%s printed the command %v; `"+Binary+" run` opens the service in the operator's own process and runs a cycle THERE", apicontract.ActionRunCycle, cycle.Command)
+	if perSet.Gap != "" || cycle.Gap != "" {
+		t.Errorf("a run still prints a gap: %q / %q", perSet.GapDetail, cycle.GapDetail)
 	}
 
 	// A snapshot restore is its own action too, and it now has its own
@@ -205,7 +215,7 @@ func TestOperationsReadsTheActionsTheContractDefines(t *testing.T) {
 	}
 }
 
-// Gaps() is what the guard in core/cmd/backupd reads, and a
+// Gaps() is what the guard in core/cmd/retnd reads, and a
 // declared list is only worth what it covers. This is the coverage half:
 // every sentence Echo can actually produce has to be in it.
 func TestEveryGapSentenceEchoCanPrintIsDeclared(t *testing.T) {
@@ -226,7 +236,7 @@ func TestEveryGapSentenceEchoCanPrintIsDeclared(t *testing.T) {
 		}
 		seen++
 		if !declared[line.GapDetail] {
-			t.Errorf("%s %s prints a gap sentence Gaps() does not declare:\n  %s\nThe guard in core/cmd/backupd reads that list, so an undeclared sentence is one nothing checks against the verb tables.",
+			t.Errorf("%s %s prints a gap sentence Gaps() does not declare:\n  %s\nThe guard in core/cmd/retnd reads that list, so an undeclared sentence is one nothing checks against the verb tables.",
 				a.Method, a.Route, line.GapDetail)
 		}
 	}

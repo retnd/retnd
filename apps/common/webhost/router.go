@@ -9,7 +9,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/backupdproject/backupd/apps/common/platform/capabilities"
+	"github.com/retnd/retnd/apps/common/platform/capabilities"
+	"github.com/retnd/retnd/core/envcompat"
+	"github.com/retnd/retnd/core/legacypath"
+	"github.com/retnd/retnd/core/service"
 )
 
 // The route table, which is where this package's security tiering
@@ -40,6 +43,11 @@ import (
 
 // RouterConfig is everything NewRouter needs to build the /api/v1 surface.
 type RouterConfig struct {
+	// AgentTools says what an agent's tool call stands for. Nil means the
+	// catalogue itself, core/agenttools (catalogueTools in
+	// agentconfirmations.go); a test names its own table.
+	AgentTools AgentToolResolver
+
 	// Platform supplies both the Authenticator every /api/v1 request is
 	// checked against (auth.go) and the capabilities GET
 	// /api/v1/system/capabilities reports.
@@ -55,6 +63,18 @@ type RouterConfig struct {
 	// omission.
 	Gate DestructiveGate
 
+	// StepUp re-checks the signed-in administrator's password before a
+	// restore runs on a profile whose gate opens for local accounts
+	// (issue #1163). Nil means no restore can pass that check: it fails
+	// closed.
+	StepUp StepUpVerifier
+
+	// TrustForwardedHeaders says the peer in front of this handler is the
+	// project's own edge proxy, whose X-Forwarded-Proto and X-Forwarded-For
+	// can be believed. It is the same value the session cookie's Secure flag
+	// is decided with, passed down so the two cannot disagree (issue #1163).
+	TrustForwardedHeaders bool
+
 	// FirstRun, when non-nil, is the setup surface of an instance that
 	// may have no configuration yet (issue #176, firstrun.go). Combined
 	// with a nil Backend it selects a completely different, much smaller
@@ -66,6 +86,27 @@ type RouterConfig struct {
 	// completed, so GET /api/v1/system/first-run keeps answering and a
 	// POST to it keeps refusing with 409 rather than 404.
 	FirstRun FirstRunClient
+
+	// AdoptedPaths is FR-38's list of this deployment's locations that
+	// are being served from a pre-rename path (core/legacypath), as the
+	// runtime decided them at startup. GET /api/v1/system/version
+	// reports it, which is the third of the three surfaces FR-38
+	// requires the adopted path on.
+	//
+	// It is a value passed in rather than something this package can
+	// work out, and that is the correct direction: the decision is taken
+	// once, before anything is opened or announced, by the process that
+	// owns the paths. A router that re-derived it would be a second
+	// opinion formed after the fact, and could disagree with the journal
+	// that is actually open.
+	//
+	// Nil on every normal deployment, which is what an empty response
+	// array means.
+	AdoptedPaths []legacypath.Adoption
+
+	// Setup, when non-nil, answers the first-run guide's questions about
+	// the administrator, the mail server and skipped steps (retnd#1049).
+	Setup SetupProgress
 
 	// OnConfigured, when non-nil, is called by POST
 	// /api/v1/system/first-run once the first configuration is durably
@@ -145,21 +186,20 @@ func DebugEnabled() bool { return envLogLevel() == slog.LevelDebug }
 // before there was anything to configure. An operator diagnosing a
 // report we cannot reproduce (issue #730: a browser that gets no HTTP
 // response at all while curl gets a clean 401) sets LOG_LEVEL=debug, or
-// BACKUPD_DEBUG=1 as the shortcut, and gets the debug events this
+// RETND_DEBUG=1 as the shortcut, and gets the debug events this
 // package and serve/ui.go emit; nobody who sets neither sees one extra
 // line.
 //
-// BACKUPD_DEBUG wins over LOG_LEVEL because it is the shortcut an
+// RETND_DEBUG wins over LOG_LEVEL because it is the shortcut an
 // operator is told to set over a phone call, and an unparseable
 // LOG_LEVEL falls back to INFO rather than refusing to start: a typo in
 // a diagnostic knob must never take a backup host down.
 //
-// RM_DEBUG is the same shortcut under this project's old name
-// (rclone-manager, issue #794) and is DEPRECATED: it is still honoured
-// so an upgrade does not silently turn a diagnosing operator's logs back
-// off, and it will be dropped a release after BACKUPD_DEBUG. The two are
-// OR'd rather than ranked because neither has ever had an "off" value -
-// only the documented 1 means anything.
+// One DEPRECATED spelling is still read, RM_DEBUG, the first product
+// name's (#794). It is still honoured so an upgrade does not silently
+// turn a diagnosing operator's logs back off, and core/envcompat ranks it
+// behind the current name and prints one deprecation notice per process.
+// The previous product name's spelling is not read at all.
 //
 // core/internal/obs.LevelFromEnv is the other reader of these same
 // variables, with the same precedence and the same fallback, and it is
@@ -169,8 +209,11 @@ func DebugEnabled() bool { return envLogLevel() == slog.LevelDebug }
 // to agree: a deployment where the two containers answered "how loud am
 // I" differently is the half of #730 where an operator got the proxy
 // trace and nothing from the process it describes. That includes the
-// deprecated alias: an operator who upgrades one container before the
-// other must not end up with one of them silently quiet.
+// deprecated aliases: an operator who upgrades one container before the
+// other must not end up with one of them silently quiet. The one thing
+// the two readers DO share is core/envcompat, which both can import and
+// which is what keeps "one notice per name per process" true when
+// `serve` runs both readers in a single process.
 func envLogLevel() slog.Level {
 	if debugShortcutEnv() {
 		return slog.LevelDebug
@@ -188,41 +231,59 @@ func envLogLevel() slog.Level {
 }
 
 // debugShortcutEnv reports whether the one-variable debug shortcut is
-// set, under its own name or under the deprecated RM_DEBUG alias. Only
-// the documented "1" counts, under either name: a knob whose typos mean
+// set, under its own name or under its deprecated alias. Only the
+// documented "1" counts, under every name: a knob whose typos mean
 // something is a knob that surprises the operator reading it back. The
-// engine's core/internal/obs.debugShortcut is the same two lines, for
-// the import-direction reason envLogLevel's own doc gives.
+// engine's core/internal/obs.debugShortcut is the same two lines over
+// the same envcompat.Rename, for the import-direction reason
+// envLogLevel's own doc gives.
 func debugShortcutEnv() bool {
-	return os.Getenv("BACKUPD_DEBUG") == "1" || os.Getenv("RM_DEBUG") == "1"
+	return envcompat.Any(envcompat.Rename{
+		Current: "RETND_DEBUG",
+		Legacy:  []string{"RM_DEBUG"},
+	}, "1")
 }
 
 // handlers bundles what the HTTP methods in handlers_system.go and
 // handlers_operations.go need, built once by NewRouter.
 type handlers struct {
+	agents        AgentAccess
+	confirmations AgentConfirmations
+	// router is the handler a confirmation's recorded request is replayed
+	// through (agentconfirmations.go): the whole /api/v1 chain, set once NewRouter
+	// has built it.
+	router http.Handler
+	// agentPolicy is the agents: block as it resolved, for GET
+	// /system/capabilities.
+	agentPolicy   service.AgentPolicy
 	platform      capabilities.PlatformAdapter
 	backend       BackupServiceClient
 	binaryVersion string
 	commit        string
 
-	// gate is the same DestructiveGate requireDestructiveGate wraps
-	// POST /api/v1/operations in (below). createBackupSet
-	// (handlers_backupsets.go) also consults it directly, NOT through
-	// that middleware: a plain "just persist" create is deliberately
-	// exempt from the gate at the route level (destructiveGateExemptRoutes,
-	// router_test.go — creating a backup set never touches remote or
-	// local backup data by itself), but request.run_immediately turns
-	// that same call into "also start a run_cycle", the exact action
-	// requireDestructiveGate exists to block — so createBackupSet checks
-	// gate itself, conditionally, only on that branch, rather than the
-	// route being gated unconditionally (mandatory review finding M3, PR
-	// #155).
-	gate DestructiveGate
+	// enforce is the gate together with what an open one still asks for
+	// (gate_profile.go): the step-up verifier and whether forwarded headers
+	// can be believed. The gated routes, createBackupSet's run_immediately
+	// and the capabilities read all ask enforce.decide or read enforce, so
+	// they cannot disagree about what the router will enforce.
+	//
+	// createBackupSet consults it directly, NOT through a middleware: a
+	// plain "just persist" create is deliberately exempt from the gate at
+	// the route level (destructiveGateExemptRoutes, router_test.go:
+	// creating a backup set never touches remote or local backup data by
+	// itself), but request.run_immediately turns that same call into "also
+	// start a run_cycle", so createBackupSet asks enforce.decide itself,
+	// only on that branch (mandatory review finding M3, PR #155).
+	enforce gateEnforcement
 
 	// firstRun and onConfigured are RouterConfig's own fields of the same
 	// names; see firstrun.go for what each is for.
 	firstRun     FirstRunClient
 	onConfigured func(context.Context) error
+	progress     SetupProgress
+
+	// adoptedPaths is RouterConfig.AdoptedPaths, carried unchanged.
+	adoptedPaths []legacypath.Adoption
 
 	// logger is RouterConfig.Logger, resolved: never nil after NewRouter,
 	// so internalError (refusal.go) has nothing to branch on.
@@ -267,14 +328,36 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		logger = newStdoutLogger()
 	}
 
+	// The backend keeps agent tokens when it can; one that cannot has no
+	// agent access, and a bearer request meets AGENT_TOKEN_INVALID.
+	agents, _ := cfg.Backend.(AgentAccess)
+	confirmations, _ := cfg.Backend.(AgentConfirmations)
+
+	// The agents: block as it resolved, for the limits and the transport. A
+	// backend that does not report one gets the defaults: transport off, sixty
+	// calls a minute.
+	policy := service.AgentPolicy{RateLimitPerMinute: 60}
+	if p, ok := cfg.Backend.(interface{ AgentPolicy() service.AgentPolicy }); ok {
+		policy = p.AgentPolicy()
+	}
+	var guard *agentGuard
+	if agents != nil {
+		guard = newAgentGuard(policy, cfg.TrustForwardedHeaders)
+	}
+
 	h := &handlers{
+		agents:        agents,
+		confirmations: confirmations,
+		agentPolicy:   policy,
 		platform:      cfg.Platform,
 		backend:       cfg.Backend,
 		binaryVersion: cfg.BinaryVersion,
 		commit:        cfg.Commit,
-		gate:          gate,
+		enforce:       gateEnforcement{gate: gate, stepUp: cfg.StepUp, trustFwd: cfg.TrustForwardedHeaders},
 		firstRun:      cfg.FirstRun,
 		onConfigured:  cfg.OnConfigured,
+		progress:      cfg.Setup,
+		adoptedPaths:  cfg.AdoptedPaths,
 		logger:        logger,
 		debug:         envLogLevel() == slog.LevelDebug,
 	}
@@ -303,8 +386,17 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	r.Get("/health/live", healthLive)
 	r.Get("/health/ready", h.healthReady)
 
+	root := r
+	var proposer *agentProposer
+	if confirmations != nil {
+		resolver := cfg.AgentTools
+		if resolver == nil {
+			resolver = catalogueTools{}
+		}
+		proposer = &agentProposer{confirmations: confirmations, resolver: resolver, root: root, revision: cfg.Backend.ConfigRevision}
+	}
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(authMiddleware(cfg.Platform))
+		r.Use(authMiddleware(cfg.Platform, agents, guard, proposer))
 		// After authentication, so a recorded line can name the actor,
 		// and over the WHOLE group, so it covers the refusals that never
 		// reach a handler at all: a CSRF failure and a
@@ -313,6 +405,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// handler body. See actionlog.go for why this is middleware
 		// rather than a line in every handler.
 		r.Use(recordActions(cfg.Recorder))
+		// Every request an agent made, reads included, which the action log
+		// above skips (EPIC U, #1348).
+		r.Use(auditAgentCalls(cfg.Backend))
 
 		r.Get("/system/version", h.systemVersion)
 		r.Get("/system/capabilities", h.systemCapabilities)
@@ -330,9 +425,18 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// pins it, at destructiveGateExemptRoutes (router_test.go).
 		r.Get("/system/first-run", h.firstRunStatus)
 		r.With(requireCSRF).Post("/system/first-run", h.completeFirstRun)
+		// retnd#1049: leave a guide step for later. Non-destructive and
+		// touches no backup data, so it is exempt from the gate like the
+		// POST above it.
+		r.With(requireCSRF).Post("/system/first-run/skip", h.skipFirstRunStep)
 		// Issue #104 (B3.4): FR-21's existing capacity refusal, surfaced
 		// honestly. Read-only, same as the two routes above.
 		r.Get("/system/storage", h.systemStorage)
+		// Issue #1179: the folders below the recovery staging root, for the
+		// staging folder browser. A read of the host's file system, so read-only by registration (no other verb
+		// exists), confined to that one root by the service, and outside
+		// the destructive gate like the reads above.
+		r.Get("/system/staging-directories", h.listStagingDirectories)
 		// Issue #211: FR-24's backup-freshness verdict, authenticated and
 		// inside /api/v1. Deliberately NOT the same thing as /health/live
 		// and /health/ready above, which are unauthenticated probes that
@@ -361,7 +465,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// destructiveGateExemptRoutes (router_test.go) with the rest.
 		r.With(requireCSRF).Post("/repositories", h.createRepositoryDomain)
 
-		r.With(requireCSRF, requireDestructiveGate(gate)).Post("/operations", h.submitOperation)
+		r.With(requireCSRF, requireOperationGate(h.enforce)).Post("/operations", h.submitOperation)
 		r.Get("/operations/{id}", h.getOperation)
 		// Issue #211: the list counterpart of the polling read above. GET
 		// on this path used to be a 405, which is what the shared UI's
@@ -389,7 +493,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// route is actually reached rather than swallowed by the
 		// catch-all.
 		r.Get("/backup-sets/{source}/{set}/retention/preview", h.previewRetention)
-		r.With(requireCSRF, requireDestructiveGate(gate)).Post("/backup-sets/{source}/{set}/retention/apply", h.applyRetention)
+		r.With(requireCSRF, requireRouteGate(h.enforce)).Post("/backup-sets/{source}/{set}/retention/apply", h.applyRetention)
 
 		// Issue #146 (B2.7): the add-backup-set wizard's (#98) write path.
 		// Every POST here carries requireCSRF: create-backup-set and
@@ -567,6 +671,26 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(requireCSRF).Put("/backup-sets/{source}/{set}/workflow/environment/{name}", h.setBackupSetWorkflowEnvironment)
 		r.With(requireCSRF).Delete("/backup-sets/{source}/{set}/workflow/environment/{name}", h.unsetBackupSetWorkflowEnvironment)
 		r.Get("/backup-sets/{source}/{set}/workflow/validation", h.getBackupSetWorkflowValidation)
+
+		// EPIC Q's per-set assurance policy (Q1.4, #982), registered with
+		// the same two named segments and literal tail as the retention and
+		// workflow sub-resources above, and for the same reason: a fixed
+		// arity and a literal tail ahead of the "/backup-sets/*" catch-all.
+		//
+		// CSRF on the two writes and no destructive gate: these edit
+		// configuration and hot-reload, and move no backup data.
+		r.Get("/backup-sets/{source}/{set}/assurance", h.getBackupSetAssurance)
+		r.With(requireCSRF).Patch("/backup-sets/{source}/{set}/assurance", h.updateBackupSetAssurance)
+		r.With(requireCSRF).Delete("/backup-sets/{source}/{set}/assurance", h.resetBackupSetAssurance)
+		// Run a recovery test now. CSRF and not the destructive gate: it
+		// reads one copy and writes a claim, and removes nothing.
+		r.With(requireCSRF).Post("/backup-sets/{source}/{set}/recovery-test", h.startRecoveryTest)
+		// What the newest recovery test printed, and "scrub this set now".
+		// Both sit beside the recovery test for its reason: a scrub reads and
+		// writes a verdict on each copy, the output is a read, and none of
+		// them deletes anything.
+		r.Get("/backup-sets/{source}/{set}/recovery-test/output", h.getRecoveryTestOutput)
+		r.With(requireCSRF).Post("/backup-sets/{source}/{set}/scrub", h.startScrub)
 		r.Get("/backup-sets/*", h.getBackupSet)
 
 		// Issue #211: the backups this deployment actually holds, and the
@@ -587,6 +711,39 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// a remote delete at all, because FAILED is only ever reached
 		// before COMMITTED.
 		r.With(requireCSRF).Post("/backups/{source}/{set}/{name}/retry", h.retryFailedIngestion)
+
+		// EPIC Q (#976): artifact recovery, as its own pair rather than a
+		// seventh POST /operations action, because that route is behind a
+		// destructive gate that never passes in this repository and a
+		// recovery would ship refused. The mint carries requireCSRF and
+		// NOT requireDestructiveGate: it reads, it deletes and overwrites
+		// nothing, and what it authorises is audited rather than gated
+		// (there is no role to gate on). The redeem is a GET, so it takes
+		// neither; the grant in its path is what it presents. See
+		// handlers_recovery.go for the whole argument.
+		//
+		// Issues #1191 and #1193: the one exception is a recovery onto the
+		// set's own source host, which writes onto a production machine.
+		// That target alone goes through the gate, the acknowledgement of
+		// its destination and the step-up (requireSourceRecoveryGate,
+		// recovery_source.go), on the mint, on POST /recoveries and again on
+		// the redeem that does the upload (requireSourceGrantGate); every
+		// other target passes untouched. openapi.json marks the three with
+		// x-destructive-gate-target-kinds.
+		r.With(requireCSRF, requireSourceRecoveryGate(h.enforce, h.backend, maxRecoveryMintBodyBytes, mintSourceTarget)).Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)
+		r.With(requireSourceGrantGate(h.enforce, h.backend)).Get("/recoveries/{grant}", h.redeemRecovery)
+		// #1106 and #1107: several backups, or a whole backup set, to one
+		// destination. The same tier as the mint (CSRF, no destructive
+		// gate except for the source host) for the same reason; see
+		// handlers_recoverymany.go.
+		r.With(requireCSRF, requireSourceRecoveryGate(h.enforce, h.backend, maxRecoverManyBodyBytes, recoverManySourceTarget)).Post("/recoveries", h.recoverMany)
+		// Issue #1193: where a set's source-host recovery would write, from
+		// configuration alone (a read, so a dialog may ask on open), and
+		// the write check, which writes and removes one probe file on that
+		// host and so runs only on the operator's say-so, behind CSRF and
+		// refused by a shut gate before anything is written.
+		r.Get("/backup-sets/{source}/{set}/source-host", h.describeSourceHost)
+		r.With(requireCSRF, requireDestructiveGate(h.enforce.gate)).Post("/backup-sets/{source}/{set}/source-host/write-check", h.checkSourceHostWrite)
 		r.Get("/activity", h.listActivity)
 		// Issue #573: what each backup set is DOING right now, as
 		// opposed to the durable record of what happened that the route
@@ -666,7 +823,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(requireCSRF).Put("/storage-mediums/{id}/configuration", h.configureStorageMedium)
 
 		// Issue #211: FR-9 catalog recovery, the API expression of
-		// `backupd catalog rebuild` and its --dry-run. Rebuild only
+		// `retnd catalog rebuild` and its --dry-run. Rebuild only
 		// ever adds records whose recovery manifests are already on disk
 		// and never removes or overwrites one, so it carries CSRF but not
 		// the destructive gate; see handlers_catalog.go for the argument
@@ -719,6 +876,38 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// in core, never a caller-supplied path, so there is no request
 		// shape that turns it into a filesystem oracle.
 		r.Get("/ssh-keys", h.listSSHKeys)
+
+		// EPIC U (#1345): the agent token routes. Session only: authMiddleware
+		// refuses a bearer here (core/agenttools' deny list), so a token can never
+		// mint, list or revoke a token.
+		r.Get("/agent/tokens", h.listAgentTokens)
+		r.With(requireCSRF, requireMintTransportAck(h.enforce)).Post("/agent/tokens", h.mintAgentToken)
+		r.With(requireCSRF).Post("/agent/tokens/{id}/revoke", h.revokeAgentToken)
+		// The audit trail (#1348): session only for the same reason.
+		r.Get("/agent/audit", h.listAgentAudit)
+		// EPIC U (#1347): the streamable HTTP transport. Bearer only and off
+		// unless agents.http_transport is on; see agentmcp.go. No requireCSRF:
+		// a cookie never reaches it, and a bearer is not a credential a browser
+		// sends by itself. The three methods the transport speaks and no
+		// others, so the route table, the contract and cliecho agree on what
+		// is served.
+		mcp := h.mcpEndpoint(root, policy, guard)
+		r.Post("/agent/mcp", mcp)
+		r.Get("/agent/mcp", mcp)
+		r.Delete("/agent/mcp", mcp)
+
+		// EPIC U (#1349): the confirmations an agent's operate and configure
+		// calls become. A person lists and decides them; core/agenttools' deny
+		// list keeps a token off all of it except GET /agent/confirmations/{id},
+		// which answers a token only for its own. Approve replays the recorded request through this
+		// router, so the gate and every other refusal apply to it as to a person.
+		r.Get("/agent/confirmations", h.listAgentConfirmations)
+		r.Get("/agent/confirmations/{id}", h.getAgentConfirmation)
+		r.With(requireCSRF).Post("/agent/confirmations/{id}/approve", h.approveAgentConfirmation)
+		r.With(requireCSRF).Post("/agent/confirmations/{id}/deny", h.denyAgentConfirmation)
+		// EPIC U (#1346): the catalogue. Static; a person reads it, and a
+		// token has it as the list of its own tools.
+		r.Get("/agent/tools", h.listAgentTools)
 		r.Get("/ssh/key-candidates", h.listSSHKeyCandidates)
 
 		// Issue #140 (B3.7): the one generic settings surface — a read
@@ -832,6 +1021,76 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(requireCSRF).Put("/settings/workflow/environment/{name}", h.setWorkflowEnvironment)
 		r.With(requireCSRF).Delete("/settings/workflow/environment/{name}", h.unsetWorkflowEnvironment)
 
+		// EPIC Q's deployment-wide assurance policy (Q1.4, #982), a
+		// sub-resource of /settings for the workflow block's reason: a
+		// client reads one path to learn how this deployment scrubs. The
+		// PATCH validates, writes and hot-reloads in one step, so every set
+		// that inherits the changed value decides under it on its next
+		// read. The schedule lives beside it, top level, because the
+		// question an operator asks of it is deployment-wide.
+		r.Get("/settings/assurance", h.getAssuranceSettings)
+		r.With(requireCSRF).Patch("/settings/assurance", h.updateAssuranceSettings)
+		r.Get("/assurance/due", h.listAssuranceDue)
+		// Stop a running scrub or recovery test. Deliberately not under
+		// /operations: that is the destructive gate's, and stopping a read
+		// deletes nothing, so it has to answer on a deployment whose gate is
+		// shut.
+		r.With(requireCSRF).Post("/assurance/operations/{op}/cancel", h.cancelAssuranceOperation)
+		// Custom recovery-test validators (#1203). The upload and the edit
+		// put code where the engine runs it on the host, so they carry the
+		// destructive gate and the step-up a recovery onto the source host
+		// does; removing one stops a script running and is CSRF alone, so a
+		// bad validator can be taken out on a shut gate. The preview is a
+		// POST that writes nothing. handlers_customvalidators.go has the
+		// argument; the names are static segments, so "default-validator-
+		// script" and "validator-patterns" can never be read as a {name}.
+		r.Get("/assurance/validators", h.listCustomValidators)
+		r.With(requireCSRF, requireValidatorGate(h.enforce)).Post("/assurance/validators", h.createCustomValidator)
+		r.With(requireCSRF, requireValidatorGate(h.enforce)).Put("/assurance/validators/{name}", h.updateCustomValidator)
+		r.With(requireCSRF).Delete("/assurance/validators/{name}", h.removeCustomValidator)
+		r.Get("/assurance/validators/{name}/script", h.getCustomValidatorScript)
+		r.With(requireCSRF).Post("/assurance/validator-preview", h.previewCustomValidator)
+		r.Get("/assurance/validator-patterns", h.listCustomValidatorPatterns)
+		r.Get("/assurance/default-validator-script", h.getDefaultValidatorScript)
+		// One scrub or recovery test read back by its id, running or long
+		// finished, from the durable activity record (#1200). Beside the
+		// cancel for the same reason: it reads, and answers with the gate
+		// shut.
+		r.Get("/assurance/operations/{op}", h.getAssuranceOperation)
+
+		// Retained-copy encryption (#993). The writes are CSRF; the export is
+		// the one act that lets key material leave the host, so it carries
+		// the destructive gate and the step-up as well (handlers_encryption.go
+		// has the argument). "rotate", "policy/reset" and "providers/test" are
+		// static segments, so none can be read as a {id}.
+		r.Get("/encryption/policy", h.getEncryptionPolicy)
+		r.With(requireCSRF).Patch("/encryption/policy", h.patchEncryptionPolicy)
+		r.With(requireCSRF).Post("/encryption/policy/reset", h.resetEncryptionPolicy)
+		r.With(requireCSRF).Put("/backup-sets/{source}/{set}/encryption", h.setBackupSetEncryption)
+		r.With(requireCSRF).Delete("/backup-sets/{source}/{set}/encryption", h.clearBackupSetEncryption)
+		r.Get("/encryption/keys", h.listEncryptionKeys)
+		r.With(requireCSRF).Post("/encryption/keys", h.createEncryptionKey)
+		r.With(requireCSRF).Post("/encryption/keys/rotate", h.rotateEncryptionKey)
+		r.With(requireCSRF).Post("/encryption/keys/{id}/retire", h.retireEncryptionKey)
+		r.With(requireCSRF, requireKeyExportGate(h.enforce)).Post("/encryption/keys/{id}/export", h.exportRecoveryBundle)
+		r.With(requireCSRF).Post("/encryption/keys/{id}/confirm", h.confirmRecoveryBundle)
+		r.With(requireCSRF).Post("/encryption/providers/test", h.testEncryptionProvider)
+		r.Get("/encryption/suites", h.listEncryptionSuites)
+		r.Get("/encryption/copies", h.listEncryptionCopies)
+		r.With(requireCSRF).Post("/encryption/verify", h.startDecryptVerify)
+		// Encrypting plaintext copies that already exist (#1291): the dry run
+		// reads, the run is a CSRF write that answers 202 with an operation
+		// the existing assurance cancel route stops. The run retires each
+		// plaintext copy, so both verbs sit behind the destructive gate
+		// (#1361), like retention apply.
+		r.With(requireRouteGate(h.enforce)).Get("/encryption/encrypt-existing", h.planEncryptExisting)
+		r.With(requireCSRF, requireRouteGate(h.enforce)).Post("/encryption/encrypt-existing", h.startEncryptExisting)
+		// Re-encrypting copies under the active suite and key (#1317): the
+		// same shape, selected by suite, key or deprecation across the
+		// deployment, and stopped by the same assurance cancel.
+		r.With(requireRouteGate(h.enforce)).Get("/encryption/reencrypt", h.planReencrypt)
+		r.With(requireCSRF, requireRouteGate(h.enforce)).Post("/encryption/reencrypt", h.startReencrypt)
+
 		// EPIC L's workflow runs and recovery (#813).
 		//
 		// Top-level rather than under /backup-sets, because of the reads
@@ -872,5 +1131,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(requireCSRF).Post("/workflow-recovery/{run}/acknowledge", h.acknowledgeWorkflowRecovery)
 	})
 
+	// Last, so the router a replay goes through is the finished one.
+	h.router = r
 	return r
 }

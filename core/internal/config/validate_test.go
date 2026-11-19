@@ -34,7 +34,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/backupdproject/backupd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/model"
 )
 
 // validConfig returns a Config that Validate accepts as-is. Individual
@@ -44,7 +44,7 @@ func validConfig() Config {
 	return Config{
 		PollInterval: Duration(15 * time.Minute),
 		State: State{
-			Database: "/var/lib/backupd/state.db",
+			Database: "/var/lib/retnd/state.db",
 		},
 		Sources: []Source{
 			{
@@ -58,7 +58,7 @@ func validConfig() Config {
 							Port:       22,
 							User:       "backup",
 							KeyFile:    "/run/secrets/backup_ssh_key",
-							KnownHosts: "/etc/backupd/known_hosts",
+							KnownHosts: "/etc/retnd/known_hosts",
 						},
 						RemotePath: "/backups/postgres",
 						LocalPath:  "/backups/production/postgres",
@@ -489,11 +489,11 @@ func TestKeyExactlyOneSourceRequired(t *testing.T) {
 		cfg := validConfig()
 		r := &cfg.Sources[0].BackupSets[0].Remote
 		r.KeyFile = ""
-		r.Key = Key{File: "/etc/backupd/id_ed25519"}
+		r.Key = Key{File: "/etc/retnd/id_ed25519"}
 		if err := cfg.Validate(); err != nil {
 			t.Fatalf("Validate: %v", err)
 		}
-		if r.KeyFile != "/etc/backupd/id_ed25519" {
+		if r.KeyFile != "/etc/retnd/id_ed25519" {
 			t.Fatalf("KeyFile = %q, want it normalized to match Key.File", r.KeyFile)
 		}
 	})
@@ -512,7 +512,7 @@ func TestKeyExactlyOneSourceRequired(t *testing.T) {
 		cfg := validConfig()
 		r := &cfg.Sources[0].BackupSets[0].Remote
 		r.KeyFile = ""
-		r.Key = Key{Command: []string{"/usr/local/bin/op", "read", "op://infra/backupd/private-key"}}
+		r.Key = Key{Command: []string{"/usr/local/bin/op", "read", "op://infra/retnd/private-key"}}
 		if err := cfg.Validate(); err != nil {
 			t.Fatalf("Validate: %v", err)
 		}
@@ -568,7 +568,7 @@ func TestKeyCommandExecutableMustBeAbsolute(t *testing.T) {
 	cfg := validConfig()
 	r := &cfg.Sources[0].BackupSets[0].Remote
 	r.KeyFile = ""
-	r.Key = Key{Command: []string{"op", "read", "op://infra/backupd/private-key"}}
+	r.Key = Key{Command: []string{"op", "read", "op://infra/retnd/private-key"}}
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("a relative key.command executable was accepted")
@@ -619,7 +619,7 @@ func TestKeyPassphraseExactlyOneSourceAllowed(t *testing.T) {
 
 	t.Run("command alone is accepted", func(t *testing.T) {
 		cfg := validConfig()
-		cfg.Sources[0].BackupSets[0].Remote.Key.Passphrase = Passphrase{Command: []string{"/usr/local/bin/op", "read", "op://infra/backupd/private-key-passphrase"}}
+		cfg.Sources[0].BackupSets[0].Remote.Key.Passphrase = Passphrase{Command: []string{"/usr/local/bin/op", "read", "op://infra/retnd/private-key-passphrase"}}
 		if err := cfg.Validate(); err != nil {
 			t.Fatalf("Validate: %v", err)
 		}
@@ -645,7 +645,7 @@ func TestKeyPassphraseExactlyOneSourceAllowed(t *testing.T) {
 
 func TestKeyPassphraseCommandExecutableMustBeAbsolute(t *testing.T) {
 	cfg := validConfig()
-	cfg.Sources[0].BackupSets[0].Remote.Key.Passphrase = Passphrase{Command: []string{"op", "read", "op://infra/backupd/private-key-passphrase"}}
+	cfg.Sources[0].BackupSets[0].Remote.Key.Passphrase = Passphrase{Command: []string{"op", "read", "op://infra/retnd/private-key-passphrase"}}
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("a relative key.passphrase.command executable was accepted")
@@ -685,7 +685,7 @@ func TestKeyEncryptionOptional(t *testing.T) {
 func TestKeyEncryptionExactlyOneSourceEnforced(t *testing.T) {
 	t.Run("file alone is accepted", func(t *testing.T) {
 		cfg := validConfig()
-		cfg.KeyEncryption = KeyEncryption{File: "/etc/backupd/key.dek"}
+		cfg.KeyEncryption = KeyEncryption{File: "/etc/retnd/key.dek"}
 		if err := cfg.Validate(); err != nil {
 			t.Fatalf("Validate: %v", err)
 		}
@@ -701,7 +701,7 @@ func TestKeyEncryptionExactlyOneSourceEnforced(t *testing.T) {
 
 	t.Run("command alone is accepted", func(t *testing.T) {
 		cfg := validConfig()
-		cfg.KeyEncryption = KeyEncryption{Command: []string{"/usr/local/bin/op", "read", "op://infra/backupd/dek"}}
+		cfg.KeyEncryption = KeyEncryption{Command: []string{"/usr/local/bin/op", "read", "op://infra/retnd/dek"}}
 		if err := cfg.Validate(); err != nil {
 			t.Fatalf("Validate: %v", err)
 		}
@@ -711,8 +711,8 @@ func TestKeyEncryptionExactlyOneSourceEnforced(t *testing.T) {
 		name string
 		ke   KeyEncryption
 	}{
-		{"file and env", KeyEncryption{File: "/etc/backupd/key.dek", Env: "BACKUP_KEY_DEK"}},
-		{"file and command", KeyEncryption{File: "/etc/backupd/key.dek", Command: []string{"/usr/local/bin/op", "read", "x"}}},
+		{"file and env", KeyEncryption{File: "/etc/retnd/key.dek", Env: "BACKUP_KEY_DEK"}},
+		{"file and command", KeyEncryption{File: "/etc/retnd/key.dek", Command: []string{"/usr/local/bin/op", "read", "x"}}},
 		{"env and command", KeyEncryption{Env: "BACKUP_KEY_DEK", Command: []string{"/usr/local/bin/op", "read", "x"}}},
 	} {
 		t.Run(tc.name+" together rejected", func(t *testing.T) {
@@ -727,7 +727,7 @@ func TestKeyEncryptionExactlyOneSourceEnforced(t *testing.T) {
 
 func TestKeyEncryptionCommandExecutableMustBeAbsolute(t *testing.T) {
 	cfg := validConfig()
-	cfg.KeyEncryption = KeyEncryption{Command: []string{"op", "read", "op://infra/backupd/dek"}}
+	cfg.KeyEncryption = KeyEncryption{Command: []string{"op", "read", "op://infra/retnd/dek"}}
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("a relative key_encryption.command executable was accepted")
@@ -756,7 +756,7 @@ func TestKeyValidateIsIdempotent(t *testing.T) {
 		key  Key
 	}{
 		{"deprecated key_file alone", Key{}},
-		{"key.file", Key{File: "/etc/backupd/id_ed25519"}},
+		{"key.file", Key{File: "/etc/retnd/id_ed25519"}},
 		{"key.env", Key{Env: "BACKUP_SSH_KEY"}},
 		{"key.command", Key{Command: []string{"/usr/local/bin/op", "read", "x"}}},
 	} {
@@ -1472,11 +1472,15 @@ func TestPollIntervalMustBePositive(t *testing.T) {
 	}
 }
 
-func TestAtLeastOneSourceRequired(t *testing.T) {
+// TestAConfigWithNoSourcesIsAccepted pins retnd#1049's relaxation. It
+// replaces TestAtLeastOneSourceRequired: a fresh install runs on a
+// default configuration that declares no sources, and refusing it would
+// be a first-run error for something nobody has configured yet.
+func TestAConfigWithNoSourcesIsAccepted(t *testing.T) {
 	cfg := validConfig()
 	cfg.Sources = nil
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("a config with no sources was accepted")
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("a config with no sources was refused: %v", err)
 	}
 }
 
@@ -1499,15 +1503,15 @@ func TestASourceWithNoBackupSetsIsAccepted(t *testing.T) {
 	}
 }
 
-// TestAnEmptySourceDoesNotWeakenTheWholeFileRule is the control beside it.
-// The relaxation above is one rule, not two: a configuration with no
-// sources at all is still refused, and removal can never produce one now
-// that the source stays behind.
-func TestAnEmptySourceDoesNotWeakenTheWholeFileRule(t *testing.T) {
+// TestAnEmptySourcesListIsAccepted is the control beside the relaxation
+// above. A configuration with no sources at all is what a fresh install
+// runs on until its first backup set exists (retnd#1049), so it is valid
+// and idle, whether the list is nil or empty.
+func TestAnEmptySourcesListIsAccepted(t *testing.T) {
 	cfg := validConfig()
 	cfg.Sources = []Source{}
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("a config with an empty (not nil) sources list was accepted")
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("a config with an empty sources list was refused: %v", err)
 	}
 }
 

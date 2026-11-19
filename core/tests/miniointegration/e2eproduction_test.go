@@ -13,18 +13,18 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
-	"github.com/backupdproject/backupd/core/internal/backupengine/kopia"
-	"github.com/backupdproject/backupd/core/internal/backupengine/source"
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/repomaintenance"
-	"github.com/backupdproject/backupd/core/internal/snapshotlifecycle"
-	"github.com/backupdproject/backupd/core/internal/snapshotretention"
-	"github.com/backupdproject/backupd/core/internal/state"
-	"github.com/backupdproject/backupd/core/internal/transport"
-	"github.com/backupdproject/backupd/core/internal/transport/rclone"
-	"github.com/backupdproject/backupd/core/tests/machines"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/backupengine/kopia"
+	"github.com/retnd/retnd/core/internal/backupengine/source"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/repomaintenance"
+	"github.com/retnd/retnd/core/internal/snapshotlifecycle"
+	"github.com/retnd/retnd/core/internal/snapshotretention"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/tests/machines"
 )
 
 // This file is #789's required scenario run against a repository in a
@@ -97,7 +97,7 @@ func TestTheRequiredProductionScenarioAgainstABucketRepository(t *testing.T) {
 	srcDir := filepath.Join(t.TempDir(), "source")
 	original := seedScenarioTree(t, srcDir)
 
-	journal, err := state.Open(ctx, filepath.Join(t.TempDir(), "backupd.db"))
+	journal, err := state.Open(ctx, filepath.Join(t.TempDir(), "retnd.db"))
 	if err != nil {
 		t.Fatalf("opening the journal: %v", err)
 	}
@@ -355,7 +355,7 @@ type bucketDeployment struct {
 }
 
 func (d *bucketDeployment) snapshotSource() backupengine.Source {
-	return backupengine.Source{Host: "backupd", User: d.domain.String(), Path: "/" + d.setUUID}
+	return backupengine.Source{Host: "retnd", User: d.domain.String(), Path: "/" + d.setUUID}
 }
 
 // run performs one whole snapshot run through the real driver, reading
@@ -392,7 +392,7 @@ func (d *bucketDeployment) run(t *testing.T, runID string) (snapshotlifecycle.Ru
 		Consistency:       model.ModeLiveBestEffort,
 		VerificationLevel: model.LevelStructural,
 		Source:            d.snapshotSource(),
-		Description:       "backupd " + d.set.String(),
+		Description:       "retnd " + d.set.String(),
 		Repository:        d.repo,
 		OpenTree: func(ctx context.Context) (snapshotlifecycle.SourceTree, error) {
 			tree, err := reader.OpenTree(ctx, src)
@@ -488,7 +488,7 @@ func (d *bucketDeployment) resolvedSet(t *testing.T) config.BackupSet {
 
 	yaml := fmt.Sprintf(`poll_interval: 15m
 state:
-  database: %[1]s/backupd.db
+  database: %[1]s/retnd.db
 retention:
   timezone: UTC
   week_starts_on: monday

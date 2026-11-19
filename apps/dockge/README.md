@@ -1,9 +1,9 @@
-# Backupd on Dockge
+# retnd on Dockge
 
 Dockge manages **the canonical Compose stack**. There is no Dockge packaging in
 this directory and there is deliberately no compose file here either, because
 adding one would create a second definition of the same stack for the same kind
-of host, which is the fork rules out.
+of host, which is the fork issue #170 rules out.
 
 This is new platform support, not a conversion: no Phase 4 issue targeted
 Dockge, so there is nothing here that replaces earlier packaging.
@@ -41,26 +41,26 @@ default.
 1. Create the stack directory and copy the canonical stack into it:
 
    ```
-   mkdir -p /opt/stacks/backupd
-   cp container/compose.yaml /opt/stacks/backupd/compose.yaml
-   cp container/.env.example /opt/stacks/backupd/.env
+   mkdir -p /opt/stacks/retnd
+   cp container/compose.yaml /opt/stacks/retnd/compose.yaml
+   cp container/.env.example /opt/stacks/retnd/.env
    ```
 
-2. Edit `/opt/stacks/backupd/.env`. Every host path in it must exist and
+2. Edit `/opt/stacks/retnd/.env`. Every host path in it must exist and
    be owned by `PUID:PGID` before the first start, because the runtime image is
    distroless and cannot create or chown anything for you:
 
    ```
-   mkdir -p /volume1/backupd/state /volume1/backups \
-            /volume1/backupd/config /volume1/backupd/secrets
-   chown 1000:1000 /volume1/backupd/state /volume1/backups \
-                   /volume1/backupd/config /volume1/backupd/secrets
+   mkdir -p /volume1/retnd/state /volume1/backups \
+            /volume1/retnd/config /volume1/retnd/secrets
+   chown 1000:1000 /volume1/retnd/state /volume1/backups \
+                   /volume1/retnd/config /volume1/retnd/secrets
    ```
 
 3. In Dockge, the stack appears on its own. Press **Start**, watch the two
    containers come up in the interactive log pane, and open the published port.
    The engine prints a one-time enrollment link on first start; it is in the
-   `backupd` container's log.
+   `retnd` container's log.
 
 Dockge's editor writes back to the same `compose.yaml`, so anything changed in
 its UI is a change to your copy of the canonical stack, not to this repository.
@@ -84,7 +84,7 @@ Dockge-specific workaround:
 
 This is written down here rather than fixed in code because it is not a Dockge
 incompatibility: it is the same choice every pull-based deployment of the
-canonical stack makes, and asks for a real incompatibility to be
+canonical stack makes, and issue #170 asks for a real incompatibility to be
 recorded before any code is written for one. Nothing in this repository was
 written for it.
 
@@ -104,9 +104,9 @@ The mounts are the canonical stack's, with `container/.env.example`'s defaults:
 | --- | --- | --- |
 | `STATE_DIR` | `/data/state` | the catalogue and the local administrator record. Private. |
 | `BACKUP_DIR` | `/data/backups` | retained artifacts, and nothing else. |
-| `CONFIG_DIR` | `/etc/backupd/config` | `config.yaml`, writable, plus `ssh_keys/` and `known_hosts.d/`. |
-| `SSH_KEY_FILE` | `/etc/backupd/id_ed25519` | the SFTP private key, read-only. |
-| `KNOWN_HOSTS_FILE` | `/etc/backupd/known_hosts` | the pinned host key, read-only. |
+| `CONFIG_DIR` | `/etc/retnd/config` | `config.yaml`, writable, plus `ssh_keys/` and `known_hosts.d/`. |
+| `SSH_KEY_FILE` | `/etc/retnd/id_ed25519` | the SFTP private key, read-only. |
+| `KNOWN_HOSTS_FILE` | `/etc/retnd/known_hosts` | the pinned host key, read-only. |
 
 The full operator procedure, including update, removal and the evidence that
 retained backups survived, is

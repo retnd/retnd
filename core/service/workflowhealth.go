@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/health"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/remoteexec"
+	"github.com/retnd/retnd/core/internal/health"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/remoteexec"
 )
 
 // FR-24's workflow section, filled in (#813): can this deployment still
@@ -75,9 +75,9 @@ type workflowProbeCache struct {
 // takes a context: the probes below are network calls and a caller's
 // cancellation has to reach them.
 func (b *BackupService) WorkflowHealth(ctx context.Context) health.WorkflowHealth {
-	cfg := b.state.Load().inner.Config
-
-	out := health.WorkflowHealth{Configured: cfg.WorkflowsConfigured()}
+	// The service's root (#1246), so health and `settings workflow` agree on
+	// whether a deployment on the mounted default runs workflows.
+	out := health.WorkflowHealth{Configured: b.workflowRoot().Path != ""}
 	if !out.Configured {
 		// A deployment that runs no workflows gets the zero value, which
 		// health.WorkflowHealth's own doc says reads as exactly that.
@@ -147,7 +147,7 @@ func (b *BackupService) probeWorkflowExecutors(ctx context.Context) (health.Work
 // probeHostRunner asks the runner what it is.
 //
 // Status and not a hook: the runner's own doc calls this the preflight
-// answer, and it is the same question `backupd validate` asks and the
+// answer, and it is the same question `retnd validate` asks and the
 // same one the engine asks before it dispatches a local step. Three
 // surfaces asking one question through one call is what stops them
 // disagreeing about whether a runner is usable.
@@ -255,19 +255,6 @@ func (b *BackupService) probeExecConnection(ctx context.Context, ref string) hea
 
 	out.Capable = true
 	out.Detail = "this connection accepted an exec channel and ran the bytes it was sent"
-
-	return out
-}
-
-// suspendedBackupSetIDs is SuspendedBackupSets as the strings every
-// surface above this one uses.
-func (b *BackupService) suspendedBackupSetIDs() []string {
-	sets := b.SuspendedBackupSets()
-
-	out := make([]string, 0, len(sets))
-	for _, s := range sets {
-		out = append(out, s.String())
-	}
 
 	return out
 }

@@ -153,11 +153,11 @@ from bdtools import harness, selftest_swap
 
 PROGRAM = "retention selftest"
 
-PACKAGES = ("./service/", "./internal/retention/", "./cmd/backupd/")
+PACKAGES = ("./service/", "./internal/retention/", "./cmd/retnd/")
 
 PRUNE_GO = "core/internal/retention/prune.go"
 LASTKNOWNGOOD_GO = "core/internal/retention/lastknowngood.go"
-RETENTIONAPPLY_GO = "core/cmd/backupd/retentionapply.go"
+RETENTIONAPPLY_GO = "core/cmd/retnd/retentionapply.go"
 RETENTIONAPPLYEVIDENCE_TEST_GO = "core/service/retentionapplyevidence_test.go"
 
 PASS_PATTERN = (
@@ -340,7 +340,7 @@ def expect_gate_passes(
 def body(root: Path, dry_run: bool) -> int:
     tally = selftest_swap.Tally()
 
-    with tempfile.TemporaryDirectory(prefix="backupd-retention-selftest.") as tmp_name:
+    with tempfile.TemporaryDirectory(prefix="retnd-retention-selftest.") as tmp_name:
         tmp = Path(tmp_name)
         tracker = selftest_swap.AnchorTracker(dry_run=dry_run, root=root, tmp=tmp)
 

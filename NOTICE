@@ -1,5 +1,5 @@
-backupd
-Copyright 2026 Roman Goldmann
+retnd
+Copyright (c) 2026 Roman Goldmann
 
 This product includes third-party software. Every dependency, with its version,
 the SPDX identifier of its licence and the SHA-256 of the licence text as that
@@ -12,7 +12,7 @@ some third-party material inside its own SOURCE, where no package manager can
 see it and nothing can derive it from the tree, and that material is listed
 under "Third-party material this project vendors into its own source" below.
 
-This file is the NOTICE file Apache-2.0 section 4(d) refers to. Redistributing
+This file carries the attribution for the third-party components in this work. Redistributing
 this work, or a derivative of it, means carrying this file with it.
 
 Source for the components that are not permissively licensed
@@ -33,10 +33,10 @@ MPL-2.0
   Licence:    https://mozilla.org/MPL/2.0/
   Components (2), and where to get each one's source:
     go github.com/hashicorp/go-cleanhttp@v0.5.2
-      linked into: backupd, backupd-web
+      linked into: retnd, retnd-web
       source:      https://proxy.golang.org/github.com/hashicorp/go-cleanhttp/@v/v0.5.2.zip
     go github.com/hashicorp/go-retryablehttp@v0.7.8
-      linked into: backupd, backupd-web
+      linked into: retnd, retnd-web
       source:      https://proxy.golang.org/github.com/hashicorp/go-retryablehttp/@v/v0.7.8.zip
 
 Third-party material this project vendors into its own source
@@ -57,7 +57,7 @@ Font Awesome Free 6.7.2
   Modification:   reproduced verbatim and unmodified
   What ships:     the SVG path data of fourteen icons, compiled into the web bundle
   Carried in:     ui/shared/src/design-system/icons.tsx
-  Linked into:    backupd-web
+  Linked into:    retnd-web
   Upstream:       https://registry.npmjs.org/@fortawesome/fontawesome-free/-/fontawesome-free-6.7.2.tgz
   Also stated in: docs/compliance/bundled-icon-artwork.md, ui/shared/index.html
 
@@ -70,7 +70,7 @@ IBM Plex Sans 1.1.0
   Modification:   reproduced verbatim and unmodified
   What ships:     the Latin1 woff2 subsets of the regular, medium, semibold and bold faces, served from the image
   Carried in:     ui/shared/public/fonts/IBMPlexSans-Regular-Latin1.woff2, ui/shared/public/fonts/IBMPlexSans-Medium-Latin1.woff2, ui/shared/public/fonts/IBMPlexSans-SemiBold-Latin1.woff2, ui/shared/public/fonts/IBMPlexSans-Bold-Latin1.woff2
-  Linked into:    backupd-web
+  Linked into:    retnd-web
   Upstream:       https://registry.npmjs.org/@ibm/plex-sans/-/plex-sans-1.1.0.tgz
   Also stated in: docs/compliance/bundled-webfonts.md, ui/shared/index.html, ui/shared/src/design-system/typography.css
 
@@ -83,64 +83,66 @@ IBM Plex Mono 2.5.0
   Modification:   reproduced verbatim and unmodified
   What ships:     the Latin1 woff2 subsets of the regular, medium and semibold faces, served from the image
   Carried in:     ui/shared/public/fonts/IBMPlexMono-Regular-Latin1.woff2, ui/shared/public/fonts/IBMPlexMono-Medium-Latin1.woff2, ui/shared/public/fonts/IBMPlexMono-SemiBold-Latin1.woff2
-  Linked into:    backupd-web
+  Linked into:    retnd-web
   Upstream:       https://registry.npmjs.org/@ibm/plex-mono/-/plex-mono-2.5.0.tgz
   Also stated in: docs/compliance/bundled-webfonts.md, ui/shared/index.html, ui/shared/src/design-system/typography.css
 
 Components by licence
 ---------------------
 
-Apache-2.0 (52)
-  go github.com/IBM/go-sdk-core/v5@v5.23.1
-  go github.com/abbot/go-http-auth@v0.4.0
-  go github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.18
-  go github.com/aws/aws-sdk-go-v2/config@v1.32.30
-  go github.com/aws/aws-sdk-go-v2/credentials@v1.19.29
-  go github.com/aws/aws-sdk-go-v2/feature/ec2/imds@v1.18.30
-  go github.com/aws/aws-sdk-go-v2/feature/s3/manager@v1.22.34
-  go github.com/aws/aws-sdk-go-v2/internal/configsources@v1.4.38
-  go github.com/aws/aws-sdk-go-v2/internal/endpoints/v2@v2.7.38
-  go github.com/aws/aws-sdk-go-v2/internal/v4a@v1.4.39
-  go github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding@v1.13.17
-  go github.com/aws/aws-sdk-go-v2/service/internal/checksum@v1.9.31
-  go github.com/aws/aws-sdk-go-v2/service/internal/presigned-url@v1.13.38
-  go github.com/aws/aws-sdk-go-v2/service/internal/s3shared@v1.19.39
-  go github.com/aws/aws-sdk-go-v2/service/s3@v1.107.3
-  go github.com/aws/aws-sdk-go-v2/service/signin@v1.4.1
-  go github.com/aws/aws-sdk-go-v2/service/sso@v1.32.1
-  go github.com/aws/aws-sdk-go-v2/service/ssooidc@v1.37.1
-  go github.com/aws/aws-sdk-go-v2/service/sts@v1.44.1
-  go github.com/aws/aws-sdk-go-v2@v1.43.7
-  go github.com/aws/smithy-go@v1.27.8
+Apache-2.0 (47)
+  go github.com/IBM/go-sdk-core/v5@v5.25.1
+  go github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.24
+  go github.com/aws/aws-sdk-go-v2/config@v1.33.9
+  go github.com/aws/aws-sdk-go-v2/credentials@v1.20.11
+  go github.com/aws/aws-sdk-go-v2/feature/ec2/imds@v1.20.4
+  go github.com/aws/aws-sdk-go-v2/feature/s3/manager@v1.23.14
+  go github.com/aws/aws-sdk-go-v2/internal/configsources@v1.5.11
+  go github.com/aws/aws-sdk-go-v2/internal/endpoints/v2@v2.8.11
+  go github.com/aws/aws-sdk-go-v2/internal/v4a@v1.5.11
+  go github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding@v1.13.24
+  go github.com/aws/aws-sdk-go-v2/service/internal/checksum@v1.11.8
+  go github.com/aws/aws-sdk-go-v2/service/internal/presigned-url@v1.14.11
+  go github.com/aws/aws-sdk-go-v2/service/internal/s3shared@v1.20.7
+  go github.com/aws/aws-sdk-go-v2/service/s3@v1.114.5
+  go github.com/aws/aws-sdk-go-v2/service/signin@v1.11.0
+  go github.com/aws/aws-sdk-go-v2/service/sso@v1.38.5
+  go github.com/aws/aws-sdk-go-v2/service/ssooidc@v1.43.5
+  go github.com/aws/aws-sdk-go-v2/service/sts@v1.51.9
+  go github.com/aws/aws-sdk-go-v2@v1.48.0
+  go github.com/aws/smithy-go@v1.28.9
   go github.com/coreos/go-semver@v0.3.1
   go github.com/coreos/go-systemd/v22@v22.7.0
-  go github.com/go-logr/logr@v1.4.3
+  go github.com/go-logr/logr@v1.4.4
   go github.com/go-logr/stdr@v1.2.2
-  go github.com/go-openapi/errors@v0.22.8
-  go github.com/go-openapi/strfmt@v0.27.0
+  go github.com/go-openapi/errors@v0.22.9
+  go github.com/go-openapi/strfmt@v0.27.3
   go github.com/hashicorp/cronexpr@v1.1.3
-  go github.com/klauspost/compress@v1.19.0
   go github.com/kopia/kopia@v0.23.1
-  go github.com/lanrat/extsort@v1.4.2
+  go github.com/lanrat/extsort@v1.5.0
   go github.com/minio/crc64nvme@v1.1.1
   go github.com/minio/md5-simd@v1.1.2
-  go github.com/minio/minio-go/v7@v7.2.1
-  go github.com/oklog/ulid/v2@v2.1.1
-  go github.com/prometheus/client_golang@v1.23.2
-  go github.com/prometheus/client_model@v0.6.2
-  go github.com/prometheus/common@v0.70.0
-  go github.com/prometheus/procfs@v0.21.1
+  go github.com/minio/minio-go/v7@v7.4.1
+  go github.com/oklog/ulid/v2@v2.1.2
+  go github.com/prometheus/client_golang@v1.25.0
+  go github.com/prometheus/client_model@v0.6.3
+  go github.com/prometheus/common@v0.72.0
+  go github.com/prometheus/procfs@v0.22.0
   go github.com/wk8/go-ordered-map/v2@v2.1.8
   go github.com/xanzy/ssh-agent@v0.3.3
   go go.opentelemetry.io/auto/sdk@v1.2.1
-  go go.opentelemetry.io/otel/metric@v1.44.0
-  go go.opentelemetry.io/otel/trace@v1.44.0
-  go go.opentelemetry.io/otel@v1.44.0
+  go go.opentelemetry.io/otel/metric@v1.45.0
+  go go.opentelemetry.io/otel/trace@v1.45.0
+  go go.opentelemetry.io/otel@v1.45.0
   go go.yaml.in/yaml/v2@v2.4.4
-  go go.yaml.in/yaml/v3@v3.0.4
-  go google.golang.org/genproto/googleapis/rpc@v0.0.0-20260715232425-e75dac1f907d
-  go google.golang.org/grpc@v1.84.0-dev.0.20260723093437-b6eac429d7b6
+  go google.golang.org/genproto/googleapis/rpc@v0.0.0-20261005182115-fad411399dd8
+  go google.golang.org/grpc@v1.85.0-dev.0.20260825072537-93e31b48545e
   go gopkg.in/ini.v1@v1.67.3
+
+Apache-2.0 AND MIT (5)
+  go github.com/klauspost/compress@v1.20.4
+  go github.com/modelcontextprotocol/go-sdk@v1.8.0
+  go go.yaml.in/yaml/v3@v3.0.5
   go gopkg.in/yaml.v3@v3.0.1
   go sigs.k8s.io/yaml@v1.6.0
 
@@ -150,10 +152,12 @@ BSD-2-Clause (4)
   go github.com/pkg/xattr@v0.4.12
   go github.com/zeebo/xxh3@v1.1.0
 
-BSD-3-Clause (25)
+BSD-3-Clause (30)
+  go filippo.io/age@v1.3.2
+  go filippo.io/hpke@v0.4.0
   go github.com/bahlo/generic-list-go@v0.2.0
   go github.com/edsrzf/mmap-go@v1.2.0
-  go github.com/gofrs/flock@v0.13.0
+  go github.com/gofrs/flock@v0.13.1
   go github.com/google/uuid@v1.6.0
   go github.com/jzelinskie/whirlpool@v0.0.0-20201016144138-0675e54bb004
   go github.com/klauspost/crc32@v1.3.0
@@ -161,29 +165,33 @@ BSD-3-Clause (25)
   go github.com/munnerz/goautoneg@v0.0.0-20191010083416-a7dc8b61c822
   go github.com/petar/GoLLRB@v0.0.0-20210522233825-ae3b015fd3e9
   go github.com/remyoudompheng/bigfft@v0.0.0-20230129092748-24d4a6f8daec
-  go github.com/shirou/gopsutil/v4@v4.26.6
+  go github.com/shirou/gopsutil/v4@v4.26.9
   go github.com/spf13/pflag@v1.0.10
-  go golang.org/x/crypto@v0.57.0
-  go golang.org/x/exp@v0.0.0-20260709172345-9ea1abe57597
-  go golang.org/x/net@v0.58.0
-  go golang.org/x/sync@v0.23.0
-  go golang.org/x/sys@v0.48.0
-  go golang.org/x/term@v0.46.0
-  go golang.org/x/text@v0.42.0
-  go golang.org/x/time@v0.15.0
-  go google.golang.org/protobuf@v1.36.11
-  go modernc.org/libc@v1.75.6
+  go github.com/yosida95/uritemplate/v3@v3.0.2
+  go golang.org/x/crypto@v0.58.0
+  go golang.org/x/exp@v0.0.0-20260813180055-c1d0aacb2297
+  go golang.org/x/net@v0.62.0
+  go golang.org/x/oauth2@v0.37.0
+  go golang.org/x/sync@v0.24.0
+  go golang.org/x/sys@v0.50.0
+  go golang.org/x/term@v0.47.0
+  go golang.org/x/text@v0.43.0
+  go golang.org/x/time@v0.16.0
+  go google.golang.org/protobuf@v1.36.12
+  go modernc.org/libc@v1.79.0
   go modernc.org/mathutil@v1.7.1
   go modernc.org/memory@v1.12.1
-  go modernc.org/sqlite@v1.58.0
+  go modernc.org/sqlite@v1.61.0
+  go mvdan.cc/sh/v3@v3.14.1
 
 CC0-1.0 (1)
   go github.com/zeebo/blake3@v0.2.4
 
-MIT (47)
-  go github.com/Azure/azure-sdk-for-go/sdk/azcore@v1.22.0
-  go github.com/Azure/azure-sdk-for-go/sdk/internal@v1.12.0
-  go github.com/Azure/azure-sdk-for-go/sdk/storage/azblob@v1.8.0
+MIT (51)
+  go github.com/Azure/azure-sdk-for-go/sdk/azcore@v1.23.3
+  go github.com/Azure/azure-sdk-for-go/sdk/internal@v1.13.0
+  go github.com/Azure/azure-sdk-for-go/sdk/storage/azblob@v1.8.2
+  go github.com/Azure/azure-sdk-for-go/sdk/storage/internal@v0.1.0
   go github.com/Max-Sum/base32768@v0.0.0-20230304063302-18e6ce5945fd
   go github.com/adrg/xdg@v0.5.3
   go github.com/beorn7/perks@v1.0.1
@@ -191,29 +199,32 @@ MIT (47)
   go github.com/cespare/xxhash/v2@v2.3.0
   go github.com/chmduquesne/rollinghash@v4.0.0+incompatible
   go github.com/clipperhouse/uax29/v2@v2.7.0
-  go github.com/dustin/go-humanize@v1.0.1
-  go github.com/gabriel-vasile/mimetype@v1.4.13
-  go github.com/go-chi/chi/v5@v5.3.2
-  go github.com/go-playground/locales@v0.14.1
-  go github.com/go-playground/universal-translator@v0.18.1
-  go github.com/go-playground/validator/v10@v10.30.3
+  go github.com/dustin/go-humanize@v1.1.0
+  go github.com/gabriel-vasile/mimetype@v1.4.15
+  go github.com/go-chi/chi/v5@v5.5.0
+  go github.com/go-playground/locales@v0.14.2
+  go github.com/go-playground/universal-translator@v0.18.2
+  go github.com/go-playground/validator/v10@v10.30.5
   go github.com/go-viper/mapstructure/v2@v2.5.0
+  go github.com/google/jsonschema-go@v0.4.3
   go github.com/klauspost/cpuid/v2@v2.4.0
   go github.com/klauspost/pgzip@v1.2.6
   go github.com/klauspost/reedsolomon@v1.14.0
-  go github.com/leodido/go-urn@v1.4.0
+  go github.com/leodido/go-urn@v1.5.0
   go github.com/mailru/easyjson@v0.9.2
-  go github.com/mattn/go-colorable@v0.1.15
+  go github.com/mattn/go-colorable@v0.1.16
   go github.com/mattn/go-isatty@v0.0.24
-  go github.com/mattn/go-runewidth@v0.0.24
+  go github.com/mattn/go-runewidth@v0.0.31
   go github.com/mitchellh/go-homedir@v1.1.0
   go github.com/natefinch/atomic@v1.0.1
   go github.com/ncw/swift/v2@v2.0.5
-  go github.com/peterh/liner@v1.2.2
+  go github.com/peterh/liner@v1.2.3
   go github.com/philhofer/fwd@v1.2.0
-  go github.com/rclone/rclone@v1.75.1
+  go github.com/rclone/rclone@v1.76.0
   go github.com/rfjakob/eme@v1.2.0
   go github.com/rs/xid@v1.6.0
+  go github.com/segmentio/asm@v1.1.3
+  go github.com/segmentio/encoding@v0.5.4
   go github.com/tinylib/msgp@v1.6.4
   go github.com/youmark/pkcs8@v0.0.0-20240726163527-a2c0da244d78
   go go.uber.org/multierr@v1.11.0

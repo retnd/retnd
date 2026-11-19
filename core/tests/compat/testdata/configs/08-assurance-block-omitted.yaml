@@ -1,0 +1,20 @@
+# EPIC Q, Q1.4 (#982), pinned valid: a config that mentions nothing about
+# assurance. It has to scrub usefully on the global default alone, and it
+# has to survive the wizard's re-marshal without growing an assurance key.
+poll_interval: 15m
+
+state:
+  database: /var/lib/retnd/state.db
+
+sources:
+  - id: production
+    backup_sets:
+      - id: postgres-primary
+        remote:
+          type: local
+        remote_path: /srv/exports/postgres-primary
+        local_path: /backups/production/postgres-primary
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h

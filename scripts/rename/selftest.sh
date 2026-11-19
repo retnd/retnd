@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Mutation self-test for the brand-drift guard (#794).
+# Mutation self-test for the brand-drift guard (#794, extended by #887).
 #
 # The guard (scripts/rename/check-brand-drift.sh) is green on this tree, and
 # a check that is green on the only tree anybody runs it against has proven
@@ -7,8 +7,15 @@
 # everything, or `git grep` could be looking at no files at all. So this
 # plants the drift the guard exists to catch, in a throwaway git repository
 # per case, and requires it to go red -- and plants the things it must NOT
-# catch (CONFIRM_DELETE, rclone's ibm_signer.go, the kept deprecated aliases)
-# and requires it to stay green.
+# catch (CONFIRM_DELETE, rclone's ibm_signer.go, the kept deprecated aliases,
+# and the nine look-alike identifiers that share the old name's first seven letters, which EPIC R must leave alone) and
+# requires it to stay green.
+#
+# The green cases are not decoration. #887 extends the guard to a name whose
+# first seven characters are this product's domain word, so the anchored
+# pattern has to distinguish `retnd_session` from `BackupDetailPage` 50
+# times over; a guard that flagged both would be deleted, and one that flagged
+# neither would read exactly as green as this one.
 #
 # Throwaway repositories rather than mutant copies of this tree, which is
 # where this differs from scripts/architecture/selftest.sh and the five other
@@ -29,6 +36,19 @@ set -uo pipefail
 
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 guard="$repo_root/scripts/rename/check-brand-drift.sh"
+
+# The former product name is never written out in this tree (#1109), so the
+# planted faults below build it from fragments at runtime, the way
+# core/tests/deploymentdiff builds apps/<provider>/. FN_UP is the upper-case
+# prefix, FN_CAP the capitalised display spelling, FN_CAPD the same with an
+# upper-case last letter, FN_LOW the lower-case one.
+fn_stem_up="BACKUP"
+fn_stem_cap="Backup"
+fn_stem_low="backup"
+FN_UP="${fn_stem_up}D"
+FN_CAP="${fn_stem_cap}d"
+FN_CAPD="${fn_stem_cap}D"
+FN_LOW="${fn_stem_low}d"
 
 checks=0
 failures=0
@@ -55,7 +75,7 @@ new_repo() {
     cd "$tree"
     git init -q
     mkdir -p core
-    printf 'package core\n\nconst Level = "BACKUPD_DEBUG"\n' >core/level.go
+    printf 'package core\n\nconst Level = "RETND_DEBUG"\n' >core/level.go
     git add -A
     git -c user.email=selftest@example.invalid -c user.name=selftest \
       commit -q -m "base"
@@ -63,15 +83,21 @@ new_repo() {
   echo "$tree"
 }
 
-# run_guard <tree> -> exit status in $status, combined output in $out
+# run_guard <tree> [guard]: exit status in $status, combined output in $out.
+#
+# The optional second argument is a MUTATED COPY of the guard, which is how
+# the two list-bookkeeping cases at the end of this file work: what they are
+# about is the `pending` list, and the only way to plant "this entry was
+# deleted" is to delete it. The copy lives outside the throwaway tree, so the
+# guard's exclusion of its own path is not what makes those cases pass.
 run_guard() {
-  out="$(cd "$1" && bash "$guard" 2>&1)"
+  out="$(cd "$1" && bash "${2:-$guard}" 2>&1)"
   status=$?
 }
 
-# green <label> <tree>: the guard must accept this tree.
+# green <label> <tree> [guard]: the guard must accept this tree.
 green() {
-  run_guard "$2"
+  run_guard "$2" "${3:-}"
   if [ "$status" -eq 0 ]; then
     pass "$1"
   else
@@ -80,17 +106,105 @@ green() {
   rm -rf "$2"
 }
 
-# red <label> <tree> <substring the report must name>
+# red <label> <tree> <substring the report must name>...
+#
+# Every substring is required, which is how a case demands that the report
+# name a file AND a line AND the identifier: a report somebody cannot open is
+# a report somebody disables.
 red() {
-  run_guard "$2"
+  local label="$1" tree="$2" needle
+  shift 2
+  run_guard "$tree"
   if [ "$status" -eq 0 ]; then
-    fail "$1 (the guard accepted it)" "$out"
-  elif ! printf '%s' "$out" | grep -Fq -- "$3"; then
-    fail "$1 (went red, but never named '$3')" "$out"
-  else
-    pass "$1"
+    fail "$label (the guard accepted it)" "$out"
+    rm -rf "$tree"
+    return
   fi
-  rm -rf "$2"
+  for needle in "$@"; do
+    if ! printf '%s' "$out" | grep -Fq -- "$needle"; then
+      fail "$label (went red, but never named '$needle')" "$out"
+      rm -rf "$tree"
+      return
+    fi
+  done
+  pass "$label"
+  rm -rf "$tree"
+}
+
+# red_with <guard> <label> <tree> <substring>...: `red`, against a mutated
+# copy of the guard rather than the guard itself.
+red_with() {
+  local mutant="$1" label="$2" tree="$3" needle
+  shift 3
+  run_guard "$tree" "$mutant"
+  if [ "$status" -eq 0 ]; then
+    fail "$label (the guard accepted it)" "$out"
+    rm -rf "$tree"
+    return
+  fi
+  for needle in "$@"; do
+    if ! printf '%s' "$out" | grep -Fq -- "$needle"; then
+      fail "$label (went red, but never named '$needle')" "$out"
+      rm -rf "$tree"
+      return
+    fi
+  done
+  pass "$label"
+  rm -rf "$tree"
+}
+
+# guard_with_pending <token>: the guard with one extra `pending` entry,
+# inserted at the top of that heredoc, printed to stdout as a path. The list is
+# empty on this tree, so this is how a case plants "an entry exists".
+guard_with_pending() {
+  local copy
+  copy="$(mktemp)"
+  awk -v line="$1" '
+    { print }
+    !added && $0 == "pending=\"$(" { getline nextline; print nextline; print line; added = 1 }
+  ' "$guard" >"$copy"
+  if cmp -s "$copy" "$guard"; then
+    fail "the self-test could not add a pending entry to the guard" \
+      "the pending heredoc was not found in $guard"
+  fi
+  echo "$copy"
+}
+
+# guard_without_alias <spec> [base]: the guard with one `aliases` entry
+# deleted, printed as a path. Matched on the line's FIRST field, because an
+# alias line carries its closing issue and its removal release after the
+# token (R1.4, #889) and a whole-line match would have to restate the
+# wording.
+#
+# `base` is an already-mutated copy, so two mutations can be composed: the
+# path-scoped cases below need one entry added AND one pending entry gone.
+guard_without_alias() {
+  local copy base="${2:-$guard}"
+  copy="$(mktemp)"
+  awk -v spec="$1" '$1 == spec { next } { print }' "$base" >"$copy"
+  if cmp -s "$copy" "$base"; then
+    fail "the self-test could not delete the alias entry '$1' from the guard" \
+      "no line in $base begins with the field '$1'"
+  fi
+  echo "$copy"
+}
+
+# guard_with_alias <line> [base]: the guard with one extra `aliases` entry,
+# inserted at the top of that heredoc. This is how the path-scoped alias
+# cases plant an entry that does not exist on this tree, and how the
+# malformed-entry case plants a shim with no removal release.
+guard_with_alias() {
+  local copy base="${2:-$guard}"
+  copy="$(mktemp)"
+  awk -v line="$1" '
+    { print }
+    !added && $0 == "aliases=\"$(" { getline nextline; print nextline; print line; added = 1 }
+  ' "$base" >"$copy"
+  if cmp -s "$copy" "$base"; then
+    fail "the self-test could not add an alias entry to the guard" \
+      "the aliases heredoc was not found in $base"
+  fi
+  echo "$copy"
 }
 
 # commit <tree> <path> <content>: a tracked file, because the guard scans
@@ -107,12 +221,13 @@ commit() {
   )
 }
 
-echo "==> brand-drift guard: mutation self-test (#794)"
+echo "==> brand-drift guard: mutation self-test (#794, #887)"
 
 # The control. A tree with nothing old-brand in it at all must be green, and
 # every allowlist entry in the guard is dead here, which is the other half of
-# the control: dead entries are REPORTED and do not fail the run, because
-# #794's own branches land by deleting the occurrences they name.
+# the control: dead entries are REPORTED and do not fail the run, because a
+# rename lands by deleting the occurrences it names -- which is exactly what
+# EPIC R's 141-token `pending` list is for.
 tree="$(new_repo)"
 run_guard "$tree"
 if [ "$status" -ne 0 ]; then
@@ -124,8 +239,8 @@ else
 fi
 rm -rf "$tree"
 
-# The four prefixes, one case each. This is the whole point of the guard: a
-# new identifier carrying a name this project no longer has.
+# The four #794 prefixes, one case each. This is the whole point of the guard:
+# a new identifier carrying a name this project no longer has.
 tree="$(new_repo)"
 commit "$tree" core/env.go 'package core
 
@@ -176,7 +291,7 @@ red "a staged-but-uncommitted creation goes red" "$tree" "RM_STAGED_ONLY"
 tree="$(new_repo)"
 commit "$tree" apps/common/auth/compat_test.go 'package auth
 
-// RM_DEBUG is the deprecated alias of BACKUPD_DEBUG.
+// RM_DEBUG is a deprecated alias.
 const legacyEnv = "RM_DEBUG"
 const legacySession = "bm_session"
 const legacyCSRF = "bm_csrf"'
@@ -198,17 +313,9 @@ const Alarm = "ALARM_STATE"
 const Key = "rm-debug"'
 green "substring lookalikes stay green (CONFIRM_, FORM_, ibm_signer, rm-debug)" "$tree"
 
-# The new prefix, which is what a violation is supposed to become.
-tree="$(new_repo)"
-commit "$tree" core/new.go 'package core
-
-const Debug = "BACKUPD_DEBUG"
-const Session = "backupd_session"'
-green "the replacement BACKUPD_/backupd_ names are green" "$tree"
-
 # The out-of-scope names are pinned to their files on purpose, and this is
 # the half of that decision that does work: RM_BASE_URL is the pinned
-# environment contract of backupdproject/backupd-tests, and it is still a
+# environment contract of retnd/retnd-tests, and it is still a
 # creation when it turns up somewhere new.
 tree="$(new_repo)"
 commit "$tree" core/service/copy.go 'package service
@@ -221,7 +328,7 @@ red "a pre-existing name in a file it is not pinned to goes red" "$tree" "RM_BAS
 # keep appearing, and the binding is checked at its source (api/v1/openapi.json)
 # instead.
 tree="$(new_repo)"
-commit "$tree" CHANGELOG.md '- renamed RM_EXCLUDED_ONE to BACKUPD_EXCLUDED_ONE'
+commit "$tree" CHANGELOG.md "- renamed RM_EXCLUDED_ONE to ${FN_UP}_EXCLUDED_ONE"
 commit "$tree" provenance/sbom.spdx.json '{"note": "RM_EXCLUDED_TWO"}'
 commit "$tree" core/apicontract/contract.gen.go 'package apicontract
 
@@ -234,7 +341,7 @@ green "history records and generated bindings are out of scope" "$tree"
 # measuring the exclusion rather than the pattern failing to match its own
 # content.
 tree="$(new_repo)"
-commit "$tree" docs/notes.md '- renamed RM_EXCLUDED_ONE to BACKUPD_EXCLUDED_ONE'
+commit "$tree" docs/notes.md "- renamed RM_EXCLUDED_ONE to ${FN_UP}_EXCLUDED_ONE"
 red "the same text outside an excluded path goes red" "$tree" "RM_EXCLUDED_ONE"
 
 # The guard excludes ITSELF and this file, because both write these names
@@ -249,6 +356,201 @@ green "the guard and its self-test are not scanned for their own contents" "$tre
 tree="$(new_repo)"
 commit "$tree" scripts/rename/other.sh '# RM_NEIGHBOUR'
 red "a third file in scripts/rename is scanned like anything else" "$tree" "RM_NEIGHBOUR"
+
+# ---------------------------------------------------------------------------
+# The `retnd` family, and the two earlier brands the org-wide grep found
+# still live (#887, FR-40). Eight patterns, a red case each, plus the alias
+# list's own bookkeeping (R1.4, #889).
+# ---------------------------------------------------------------------------
+
+
+# The former name (#1109). Every spelling is planted, and every one has to go
+# red and be named with file and line. There is no allowlist entry for any of
+# them any more, so no guard mutation is needed: the plain guard must refuse.
+tree="$(new_repo)"
+commit "$tree" core/env.go "package core
+
+const Key = \"${FN_UP}_NEW_THING\""
+red "a new upper-case-prefixed variable of the former name goes red" "$tree" \
+  "${FN_UP}_NEW_THING" "core/env.go:3:"
+
+tree="$(new_repo)"
+commit "$tree" "ui/shared/src/${FN_CAP}Widget.tsx" "export function ${FN_CAP}Widget() {
+  return null;
+}"
+red "a new capitalised display identifier of the former name goes red" "$tree" \
+  "${FN_CAP}Widget" "ui/shared/src/${FN_CAP}Widget.tsx:1:"
+
+# The BARE upper-case name: nothing after it, so no prefix rule can see it.
+# It used to be a kept alias; the alias is gone, so the bare form goes red.
+tree="$(new_repo)"
+commit "$tree" core/env.go "package core
+
+const Marker = \"${FN_UP}\""
+red "the bare upper-case name goes red" "$tree" \
+  "${FN_UP}" "core/env.go:3:"
+
+# ...and the bare pattern must not swallow the prefixed one: the report has to
+# name the full variable, not the bare name with a suffix nobody sees.
+tree="$(new_repo)"
+commit "$tree" core/run.go "package core
+
+const Key = \"${FN_UP}_RUN_ID\""
+red "a prefixed variable is reported in full, not as the bare name" "$tree" \
+  "${FN_UP}_RUN_ID"
+
+tree="$(new_repo)"
+commit "$tree" docs/synology.md "uninstall /var/packages/${FN_CAP}/ first"
+red "the capitalised name in a path goes red" "$tree" \
+  "${FN_CAP}" "docs/synology.md:1:"
+
+tree="$(new_repo)"
+commit "$tree" scripts/x.sh "systemctl status ${FN_LOW}.service"
+red "the lower-case name goes red" "$tree" \
+  "${FN_LOW}" "scripts/x.sh:1:"
+
+tree="$(new_repo)"
+commit "$tree" docs/h.md "The ${FN_CAPD} daemon."
+red "the capitalised name with an upper-case last letter goes red" "$tree" \
+  "${FN_CAPD}" "docs/h.md:1:"
+
+# FR-43's shim table, as a check rather than a paragraph: an alias entry
+# with no closing issue and no removal release is refused outright. An
+# undated shim is how RM_DEBUG reached its third rename.
+mutant="$(guard_with_alias 'RM_UNDATED_SHIM')"
+tree="$(new_repo)"
+red_with "$mutant" "an alias entry with no removal release is refused" "$tree" \
+  "RM_UNDATED_SHIM" "no closing issue and removal release"
+rm -f "$mutant"
+
+mutant="$(guard_with_alias 'RM_DATED_SHIM #895 the release after the one that ships this EPIC')"
+tree="$(new_repo)"
+commit "$tree" core/shim.go 'package core
+
+const Name = "RM_DATED_SHIM"'
+green "a dated alias entry allows its own token" "$tree" "$mutant"
+rm -f "$mutant"
+
+# The path-scoped form must allow its token only in the named file.
+mutant="$(guard_with_alias 'RM_SCOPED_SHIM@container/Dockerfile #895 the release after the one that ships this EPIC')"
+tree="$(new_repo)"
+commit "$tree" container/Dockerfile 'const Name = "RM_SCOPED_SHIM"'
+green "a path-scoped alias allows the token in the file it names" "$tree" "$mutant"
+
+tree="$(new_repo)"
+commit "$tree" container/other.yaml 'name: RM_SCOPED_SHIM'
+red_with "$mutant" "a path-scoped alias does not allow the token anywhere else" "$tree" \
+  "RM_SCOPED_SHIM" "container/other.yaml:1:"
+rm -f "$mutant"
+
+
+# The first brand's spelled-out environment prefix. `RM_[A-Z]` has been in
+# this guard since #794 and never saw `RCLONE_MANAGER_SOURCE_PORT`, which is
+# a documented operator-facing installer variable.
+tree="$(new_repo)"
+commit "$tree" scripts/install/install_docker_host.py 'PORT_ENV = "RCLONE_MANAGER_NEW_THING"'
+red "a new RCLONE_MANAGER_ environment variable goes red" "$tree" \
+  "RCLONE_MANAGER_NEW_THING" "scripts/install/install_docker_host.py:1:"
+
+# The two brand words themselves, case-insensitively, which is the half that
+# catches prose and wire sentinels rather than identifiers. R2.2 (#892) swept
+# the first brand off `pending`; what survives is pinned to the file that
+# records it -- a quoted DNS failure, a comment attributing RM_DEBUG to the
+# brand it came from, and the guard's own pattern list in two gate scripts --
+# so a new one anywhere else is a creation and this case needs no mutated
+# list any more. `backup_manager_state`
+# below never needed one, because it is a name that exists nowhere in this
+# tree.
+first_brand="rclone-"manager
+tree="$(new_repo)"
+commit "$tree" docs/history.md "This product used to be called $first_brand."
+red "the first brand name in new prose goes red" "$tree" \
+  "$first_brand" "docs/history.md:1:"
+
+tree="$(new_repo)"
+commit "$tree" core/env.go 'package core
+
+const Legacy = "backup_manager_state"'
+red "the second brand name in a new identifier goes red" "$tree" \
+  "backup_manager" "core/env.go:3:"
+
+# THE POSITIVE CONTROL, and the load-bearing half of this extension. Nine
+# real identifiers share the old name's first seven letters and continue with
+# a lowercase one, 50
+# occurrences between them, and none of them is the product's name; the domain
+# word `backup` is in another 9,800. A case-insensitive `retnd` pattern
+# flags every one, which is a guard that gets deleted in a week. Without this
+# case, "the guard is green" and "the guard matches nothing" are the same
+# observation.
+tree="$(new_repo)"
+commit "$tree" ui/shared/src/pages/lookalikes.tsx 'export function BackupDetailPage() {}
+export function BackupDefaultsPage() {}
+export const BackupDomainPolicy = {};
+export type BackupDetail = { id: string };
+export type BackupDomain = { id: string };
+export type BackupSet = { name: string };
+export const slug = "backup-set";
+export const dirEnv = "BACKUP_DIR";
+export const statusKey = "backup_status";
+export function openBackupDataPlane() {}
+export const backupDataPath = "x";'
+commit "$tree" core/mounts_test.go 'package core
+
+func TestBackupDataAreSeparateMounts(t *testing.T)                   {}
+func TestBackupDataOnEveryClaimedPlatform(t *testing.T)              {}
+func TestBackupDoesNotReturnWhileAWorkerIsStillReading(t *testing.T) {}
+func TestBackupDoesNotLeaveItRunningForever(t *testing.T)            {}
+
+// rclone ships backend/s3/ibm_signer.go, which is not a bm_ cookie.
+const vendored = "backend/s3/ibm_signer.go"'
+green "the nine look-alike identifiers, openBackupDataPlane, backupDataPath, BackupSet, backup-set, BACKUP_DIR, backup_status and ibm_signer stay green" "$tree"
+
+# The name this epic renames TO. A tree whose identifiers are all `retnd` is
+# what green is supposed to mean at the end of EPIC R, and it has to be green
+# through the patterns rather than through a list entry.
+tree="$(new_repo)"
+commit "$tree" core/new.go 'package core
+
+const Debug = "RETND_DEBUG"
+const Session = "retnd_session"
+const Metric = "retnd_backup_set_state"'
+green "the replacement RETND_/retnd_ names are green" "$tree"
+
+# ---------------------------------------------------------------------------
+# The `pending` list allows a rename-in-flight token anywhere, then exposes
+# both stale occurrences and later re-creations as soon as its entry is
+# removed.
+# ---------------------------------------------------------------------------
+
+# The pending list is empty on this tree (the former name was its last
+# entry), so these cases plant an entry in a mutated copy of the guard.
+mutant="$(guard_with_pending 'RM_PENDING_PROBE')"
+tree="$(new_repo)"
+commit "$tree" core/brandnewfile.go 'package core
+
+const Name = "RM_PENDING_PROBE"'
+green "a pending token is allowed in a file that did not exist" "$tree" "$mutant"
+
+# The same occurrences against the real guard, where the entry does not
+# exist: this is "a pending entry deleted while its occurrences still exist".
+tree="$(new_repo)"
+commit "$tree" core/session.go 'package core
+
+const Name = "RM_PENDING_PROBE"'
+commit "$tree" apps/common/csrf/csrf.go 'package csrf
+
+const Name = "RM_PENDING_PROBE"'
+red "a pending entry deleted while its occurrences still exist goes red" "$tree" \
+  "RM_PENDING_PROBE" "core/session.go:3:" "apps/common/csrf/csrf.go:3:"
+
+tree="$(new_repo)"
+commit "$tree" core/service/newsurface.go 'package service
+
+// Copied from a pre-rename branch.
+const Name = "RM_PENDING_PROBE"'
+red "a deleted occurrence re-added after its pending entry went goes red" "$tree" \
+  "RM_PENDING_PROBE" "core/service/newsurface.go:4:"
+rm -f "$mutant"
 
 echo "==> brand-drift guard self-test: $checks checks, $failures failure(s)"
 [ "$failures" -eq 0 ] || exit 1

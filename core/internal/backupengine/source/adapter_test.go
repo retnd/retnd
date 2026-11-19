@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/backend"
-	"github.com/backupdproject/backupd/core/internal/backupengine/source"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/sourceconsistency"
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/backend"
+	"github.com/retnd/retnd/core/internal/backupengine/source"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/sourceconsistency"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 func newAdapter(t *testing.T, deps source.Deps, opts source.Options) *source.Adapter {
@@ -971,7 +971,10 @@ func TestACancelledRunUnblocksAReadThatIsStuck(t *testing.T) {
 	cancel()
 
 	select {
-	case <-done:
+	case runErr := <-done:
+		// Returning is the assertion; which error it returned with is the
+		// subject of the cases above, not this one.
+		_ = runErr
 	case <-time.After(5 * time.Second):
 		t.Fatal("the run did not return after cancellation: a read blocked on a source is only reachable by closing it from the outside")
 	}

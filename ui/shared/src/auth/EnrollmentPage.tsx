@@ -82,13 +82,13 @@ export function describeEnrollmentFailure(e: unknown, linkCarriedToken: boolean)
         ? {
             message: "This enrolment link has expired or has already been used.",
             remediation:
-              "The username and password were not the problem: Backupd checks the one-time token in the link before it looks at them, and nothing was created. Restart Backupd and open the fresh enrolment link it prints to its own log, then enter these details again.",
+              "The username and password were not the problem: retnd checks the one-time token in the link before it looks at them, and nothing was created. Restart retnd and open the fresh enrolment link it prints to its own log, then enter these details again.",
             correlationId: api.correlationId
           }
         : {
             message: "This page was opened without an enrolment token.",
             remediation:
-              "Backupd prints a one-time enrolment link to its own log when it starts, ending in ?token=… . Open that link rather than this page. If the log has already scrolled past it, restart Backupd and it prints a fresh one.",
+              "retnd prints a one-time enrolment link to its own log when it starts, ending in ?token=… . Open that link rather than this page. If the log has already scrolled past it, restart retnd and it prints a fresh one.",
             correlationId: api.correlationId
           };
     case "ENROLLMENT_CLOSED":
@@ -124,7 +124,7 @@ export function describeEnrollmentFailure(e: unknown, linkCarriedToken: boolean)
       return {
         message: "That address was not accepted as an email address.",
         remediation:
-          "Backupd checked the recovery address and the From address against the mail standard rather than against a rough pattern, so this is one of the two rather than the password. Check both for a missing domain, a stray space or a trailing comma.",
+          "retnd checked the recovery address and the From address against the mail standard rather than against a rough pattern, so this is one of the two rather than the password. Check both for a missing domain, a stray space or a trailing comma.",
         correlationId: api?.correlationId
       };
     default:
@@ -163,12 +163,16 @@ export function EnrollmentPage({ onEnrolled }: { onEnrolled(): void }) {
   const tooShortId = useId();
   const mismatchId = useId();
   const badEmailId = useId();
+  // retnd#1049: account recovery is an optional second section. Skipped,
+  // the administrator is created from the credentials alone and recovery
+  // is finished later in Settings, so a missing mail server never stops a
+  // first install.
+  const [withRecovery, setWithRecovery] = useState(false);
   const valid =
     username.length > 0 &&
     password.length >= MIN_LENGTH &&
     confirm === password &&
-    looksLikeEmail(recoveryEmail) &&
-    smtpFieldsComplete(smtp);
+    (!withRecovery || (looksLikeEmail(recoveryEmail) && smtpFieldsComplete(smtp)));
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -176,7 +180,12 @@ export function EnrollmentPage({ onEnrolled }: { onEnrolled(): void }) {
     setBusy(true);
     setFailure(null);
     api
-      .enrollAdministrator(username, password, recoveryEmail.trim(), smtpInput(smtp))
+      .enrollAdministrator(
+        username,
+        password,
+        withRecovery ? recoveryEmail.trim() : undefined,
+        withRecovery ? smtpInput(smtp) : undefined
+      )
       .then(onEnrolled)
       .catch((e: unknown) => setFailure(describeEnrollmentFailure(e, bootstrapTokenFromLocation() !== null)))
       .finally(() => setBusy(false));
@@ -185,9 +194,9 @@ export function EnrollmentPage({ onEnrolled }: { onEnrolled(): void }) {
   return (
     <AuthFrame>
       <div className="eyebrow" style={{ fontSize: "var(--text-xs)" }}>First run</div>
-      <h1 style={{ margin: "8px 0 6px", fontSize: 21 }}>Create Backupd administrator</h1>
+      <h1 style={{ margin: "8px 0 6px", fontSize: 21 }}>Create retnd administrator</h1>
       <p style={{ margin: "0 0 22px", color: "var(--text-2)", fontSize: 13 }}>
-        This account manages Backupd only. It is separate from your NAS
+        This account manages retnd only. It is separate from your NAS
         operating-system account.
       </p>
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -233,6 +242,22 @@ export function EnrollmentPage({ onEnrolled }: { onEnrolled(): void }) {
             else on the screen. */}
         <div style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />
         <h2 style={{ margin: 0, fontSize: 15 }}>Account recovery</h2>
+        <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: "var(--text-sm)" }}>
+          <input
+            type="checkbox"
+            checked={withRecovery}
+            onChange={(e) => setWithRecovery(e.target.checked)}
+          />
+          <span>Set up email recovery now</span>
+        </label>
+        {withRecovery ? null : (
+          <p style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
+            Skipped for now. You can add a recovery address and a mail server later, under
+            Settings. Until then a forgotten password cannot be reset by email.
+          </p>
+        )}
+        {withRecovery ? (
+          <>
         <RecoveryAttention />
         <HelpField label="Recovery email" help={FIELD_HELP.recoveryEmail}>
           {/* aria-labelledby for the reason PasswordInput carries one: the
@@ -266,6 +291,8 @@ export function EnrollmentPage({ onEnrolled }: { onEnrolled(): void }) {
           onChange={(patch) => setSmtp((current) => ({ ...current, ...patch }))}
           passwordAutoComplete="new-password"
         />
+          </>
+        ) : null}
         {failure ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <ErrorState

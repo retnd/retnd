@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "kind": "retnd-e2e-attestation",
+  "tree_algo": "scripts/release/gate-tree.sh",
+  "tree": "53ee936bb511c50574d065083c2d5404ca2c9aba",
+  "commit": "51396d0c5987fd7da4a788625f69b624483a1180",
+  "version": "0.8.0",
+  "command": "bash scripts/e2e/run-tests-repo-gate.sh",
+  "host": "mars",
+  "e2e_time": "2026-11-18T07:14:08Z",
+  "verdict": "green"
+}

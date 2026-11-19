@@ -63,8 +63,8 @@ func TestSourceIdentity_SurvivesAChangedInstallPrefix(t *testing.T) {
 
 	identities := map[string]SourceIdentity{}
 	for _, prefix := range []string{
-		"/opt/backupd",
-		"/usr/local/backupd",
+		"/opt/retnd",
+		"/usr/local/retnd",
 		"/var/folders/9k/T/TestRun2847163094/001", // what t.TempDir() hands out
 	} {
 		identities[prefix] = mustIdentity(t, SourceIdentityInput{
@@ -274,7 +274,7 @@ func TestSourceIdentity_IsDeterministicAcrossProcesses(t *testing.T) {
 		Root:     SourceRoot{Path: "/backups/postgres"},
 	})
 
-	const want = "759d5e29091c6643655d328bfb422f6bd22362b745d3649b8e928f2d50b0950b"
+	const want = "0c83c786a44eb0bfc3d47717830633aa51329dbfd32cc7183df7c9470cf34eda"
 	if got.String() != want {
 		t.Errorf("the canonical source identity changed:\n  got  %s\n  want %s\n"+
 			"if this change is intended it re-identifies every source in every existing deployment, which re-reads and re-stores all of them", got, want)

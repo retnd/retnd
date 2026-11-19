@@ -29,10 +29,13 @@ import type { CycleOutcome, SystemHealth } from "@shared/types/operation";
 import { Banner } from "@shared/components/Banner";
 import { PageHeader } from "@shared/components/PageHeader";
 import { HealthSummary } from "@shared/components/HealthSummary";
+import { EncryptionHealthRows } from "@shared/encryption/EncryptionHealthRows";
 import { MetricCard } from "@shared/components/MetricCard";
 import { StorageGauge } from "@shared/components/StorageGauge";
 import { OperationProgress } from "@shared/components/OperationProgress";
 import { ActivityTimeline } from "@shared/components/ActivityTimeline";
+import { AssuranceDashboardCard } from "@shared/assurance/AssuranceDashboardCard";
+import { useClaimsSettled } from "@shared/assurance/verificationModel";
 import { DashboardActivity } from "@shared/pages/DashboardActivity";
 import { WarningBanner } from "@shared/components/WarningBanner";
 import { StatusBadge } from "@shared/components/StatusBadge";
@@ -82,6 +85,10 @@ export function DashboardPage({
   readOnly: boolean;
 }) {
   const api = useApi();
+  // #1428: what sits below the assurance card waits for it to settle, so the
+  // card growing when the claims arrive moves nothing. A failed activity read is
+  // never held back: that is state the operator has to see (#598).
+  const claimsSettled = useClaimsSettled(!!api.assurance);
   const navigate = useNavigate();
   // Issue #597. This page's copy of the run button had no onClick at all,
   // which is the copy an operator presses first, and the two that DID
@@ -181,7 +188,7 @@ export function DashboardPage({
             </InfoTooltip>
           }
         >
-          Connect Backupd to your first server to begin collecting and
+          Connect retnd to your first server to begin collecting and
           retaining verified backups.
         </EmptyState>
       </>
@@ -253,6 +260,8 @@ export function DashboardPage({
       ) : null}
 
       {h ? <HealthSummary health={h} /> : null}
+
+      {h ? <EncryptionHealthRows /> : null}
 
       {h ? (
         <section className="card" aria-label="Key metrics">
@@ -388,9 +397,11 @@ export function DashboardPage({
           an operator looks when something is wrong is the same place that
           was there when it was fine. It sits between what is running and
           what has happened because that is what it is: the middle. */}
-      <DashboardActivity sets={sets.data} />
+      <AssuranceDashboardCard readOnly={readOnly} />
 
-      <section className="card" aria-label="Recent activity">
+      {claimsSettled ? <DashboardActivity sets={sets.data} /> : null}
+
+      {claimsSettled || activity.error ? <section className="card" aria-label="Recent activity">
         <div className="card__header">
           <InfoTooltip id="dashboard.recent-activity">
             <h2 className="eyebrow">Recent activity</h2>
@@ -425,7 +436,7 @@ export function DashboardPage({
             <ActivityTimeline events={(activity.data ?? []).slice(0, 6)} dense />
           )}
         </div>
-      </section>
+      </section> : null}
     </>
   );
 }

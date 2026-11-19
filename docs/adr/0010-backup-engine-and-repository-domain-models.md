@@ -198,7 +198,7 @@ deployments that treat both as sensitive (`sensitive_endpoint`, #295); and
 a composite invites parsing, which would become a second, unvalidated way
 to build one.
 
-`identitySchema` (`backupd.source-identity.v1`) is mixed into every digest
+`identitySchema` (`retnd.source-identity.v1`) is mixed into every digest
 and pinned by a test, so a future change to the canonical form has to be
 taken as a **migration** — it re-identifies every source in every existing
 deployment — rather than arriving as a refactor.
@@ -330,7 +330,7 @@ directions. That is this package's existing rule for sftp fields on a local
 remote and for an `attested` upload verification no medium can achieve: a
 configuration the build validates and can never execute is worse than one
 it refuses, because the operator who wrote the key believes something about
-how their backup runs and `backupd check` told them it was fine.
+how their backup runs and `retnd check` told them it was fine.
 
 | Refused on an **artifact** set | Refused on an **incremental** set |
 | --- | --- |
@@ -412,7 +412,7 @@ scanner that looks for nothing.
   notion of a domain, or a snapshot lifecycle that wanted its own source
   identity, is now a change to this ADR rather than a local decision.
 - **A set this build cannot run is refused at run time, not at load
-  time.** A config naming `engine: kopia` boots, `backupd check` passes,
+  time.** A config naming `engine: kopia` boots, `retnd check` passes,
   and the cycle reports that one set as unrunnable while every artifact set
   beside it keeps working. The source of an incremental set is never read,
   copied or deleted by this build.

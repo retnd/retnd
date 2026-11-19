@@ -132,16 +132,13 @@ export interface AppCounts {
 
 export const countsNode = graph.derived<AppCounts>("app.counts", (get) => ({
   sets: get(setsNode).data?.length,
-  // The health report counts backup SETS, not the artifacts inside them,
-  // so the header's backup count comes from the health report's own
-  // per-set totals rather than from a retained-artifact figure. Nothing
-  // has ever computed that figure server-side: it came off the dev-server
-  // mock, and against a real backend it was undefined (issue #211).
-  backups: (() => {
-    const health = get(healthNode).data;
-    if (!health) return undefined;
-    return health.setsHealthy + health.setsDegraded + health.setsStale + health.setsFailing;
-  })(),
+  // The backups held outside quarantine (#1186), as the health report the
+  // shell already polls counts them (retained_count), so no screen
+  // downloads the whole list to read its length. This used to be summed
+  // from the health report's per-set verdicts, which counts backup SETS, so
+  // a deployment holding 119 backups in three sets read "3". Null from an
+  // engine too old to say is unknown, and draws no badge.
+  backups: get(healthNode).data?.retainedCount ?? undefined,
   quarantine: get(quarantineNode).data?.length
 }));
 

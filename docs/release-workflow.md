@@ -1,0 +1,439 @@
+# Release workflow
+
+This is the maintainer runbook for cutting and publishing a retnd release. It
+turns the policy in [`release-branch.md`](release-branch.md) and the supply-chain
+design in
+[`compliance/release-provenance.md`](compliance/release-provenance.md) into one
+ordered procedure.
+
+## Release model
+
+A release crosses three states:
+
+1. **Prepared on `main`.** The version, image references, binary hashes and
+   compliance bundle describe a candidate, but no registry identity exists yet.
+   `image.published` is `false`; every `registry_digest` and `index_digest` in
+   `container/release-manifest.json` is `null`.
+2. **Published from `release`.** A merge commit reaching `release` starts
+   `.github/workflows/release.yml`. The workflow requires the local-gate
+   record (`provenance/local-gate.json`, written by
+   `scripts/release/record-local-gate.sh` during prep) to describe the tree it
+   is publishing, rebuilds both architectures, checks manifest parity, pushes
+   the image, and signs and attests each pushed package path with the
+   workflow's keyless OIDC identity.
+3. **Recorded on `main` automatically.** The same workflow reads registry
+   digests back, commits them with `image.published: true`, copies the index
+   digest into the installer pin, regenerates and verifies provenance, and
+   merges the published release ancestry into `main`.
+
+`main` is where work and release metadata are prepared. `release` is an
+append-only publish destination: never branch from it, rebase it, force-push it
+or put product changes directly on it. A semantic version already pushed to the
+registry is immutable by policy. A correction gets a new version.
+
+## Files that define a release
+
+| File | Authority |
+| --- | --- |
+| `distribution/packaging/canonical.json` | Version, canonical image reference, architectures and published state |
+| `container/release-manifest.json` | Source commit, binary hashes, per-architecture registry digests and index digest |
+| `provenance/release-provenance.json` | Derived release, signing and compliance record |
+| `provenance/sbom.spdx.json` | SPDX SBOM distributed with the release |
+| `provenance/checksums.txt` | Digests of the distributed artifacts |
+| `provenance/local-gate.json` | The full local gate run this tree passed: its gate tree, tool versions and log hash |
+| `provenance/local-gate.log` | The output of that run, attached to the GitHub Release |
+| `scripts/e2e/known-red.txt` | The browser specs allowed to fail at the pinned retnd-tests sha, with issue, owner and expiry; the record carries the lane's counts |
+| `scripts/install/install_docker_host.py` | Installer-carried release version and immutable index digest |
+| `CHANGELOG.md` | Operator-visible release notes and upgrade effects |
+
+Do not edit generated provenance files independently. Generate them together
+with `distribution/cmd/provenance`.
+
+## 1. Prepare the candidate on `main`
+
+Start from a full, clean checkout. The hash recorder and parity checks need
+complete history and Docker Buildx.
+
+```bash
+git fetch origin main release
+git switch main
+git pull --ff-only origin main
+git status --short
+export VERSION=x.y.z
+```
+
+`git status --short` must be empty. Use the version without a leading `v`.
+Create or identify the release issue before opening either release-related pull
+request; every pull request body uses `Closes #N`.
+
+The pre-commit hook has to be installed in this clone, because it is the only
+gate there is and the recorder below refuses a clone without it:
+
+```bash
+bash scripts/install-hooks.sh   # once per clone; covers every worktree
+```
+
+Review `CHANGELOG.md`, then update the image block in
+`distribution/packaging/canonical.json`:
+
+- `image.tag` is `$VERSION`;
+- `image.reference` ends in `:$VERSION`;
+- `image.published` is `false`;
+
+Do not copy registry digests from the preceding release. A candidate has no
+registry identity until this candidate is pushed.
+
+Record the binaries built from the selected `main` commit. For 0.8.0 the hashes
+are recorded on the maintainer's Mac (Docker Desktop: arm64 native, amd64
+emulated), not on Mercury, which is reserved for benchmarks. That only gives the
+same bytes because the Dockerfile cross-compiles from `$BUILDPLATFORM` with
+digest-pinned bases, so the Go stages run natively and emit the amd64 binaries.
+Keep it that way: a base that isn't pinned by digest, or a stage that compiles
+under emulation, makes the amd64 hash depend on the host. Docker Desktop also
+needs the shell to leave the platform alone:
+
+```bash
+unset DOCKER_DEFAULT_PLATFORM   # a forced arm64 default breaks the amd64 images
+VERSION="$VERSION" bash scripts/release/record-release-hashes.sh
+```
+
+The command builds `linux/amd64` (the only image architecture a release carries, #1452), extracts `/retnd` and
+`/retnd-web`, and writes `container/release-manifest.json`. It refuses a commit
+that is not reachable from `origin/main`, a dirty image input, missing history,
+or a non-`HEAD` `COMMIT`. The generated registry and index digests remain
+`null`.
+
+Run the packaging suite. It names every adapter whose checked metadata still
+disagrees with `canonical.json`; update those adapter files rather than weakening
+the derivation check.
+
+```bash
+(
+  cd distribution
+  go test ./packaging -count=1
+  go run ./cmd/provenance -write
+  go run ./cmd/provenance
+)
+bash scripts/release/check-published-provenance.sh
+sha256sum -c provenance/checksums.txt
+```
+
+Commit this preparation on a branch and open a pull request into `main`. The
+pre-commit hook runs the full gate on that commit. The manifest may pin the
+`main` commit immediately before the metadata commit: that is the reviewed
+source tree whose binaries it records. After the preparation pull request
+merges, work from the resulting `main` tip.
+
+Last, on that `main` tip, record the gate run the release will be checked
+against:
+
+```bash
+git switch main
+git pull --ff-only origin main
+git status --short            # must be empty
+unset CI_LOCAL_FAST CI_LOCAL_SKIP_JS CI_LOCAL_SKIP_DOCKER CI_LOCAL_SKIP_E2E CI_LOCAL_SKIP_TWO_MACHINE
+unset DOCKER_DEFAULT_PLATFORM      # the recorder refuses a forced non-amd64 platform
+export VITEST_MAX_WORKERS=3        # the full gate on one machine, with the Playwright lock
+ssh-add ~/.ssh/retnd-release-attest   # the owner types the passphrase at the keyboard
+bash scripts/release/record-local-gate.sh
+```
+
+The recorder signs the record (`ssh-keygen -Y sign`, namespace `retnd-local-gate`),
+so the key has to be unlocked in ssh-agent before it starts. The owner does that
+at the keyboard; no unattended run can sign, and a run that reaches the signing
+step with a locked key stops for a passphrase it cannot get. The same goes for
+`release.sh` (the e2e attestation) later.
+
+It runs `scripts/ci-local.sh` in a fresh detached worktree at `HEAD` with
+`CI=1`, and writes `provenance/local-gate.json` and `provenance/local-gate.log`
+only when that run exits 0 with an empty skip ledger. It refuses a dirty tree,
+any `CI_LOCAL_FAST` or `CI_LOCAL_SKIP_*` variable in the environment, and a
+clone without the hook installed, and it writes nothing for an INCOMPLETE or
+FAILED run. It runs last on purpose: everything the hashes and the provenance
+bundle wrote is inside the tree it records, and only the two files it writes are
+left out of that hash (`scripts/release/gate-tree.sh` is the one definition of
+it, used by the recorder and by the release workflow).
+
+Commit both files on a branch, open a pull request into `main`, and merge it.
+The record is self-asserted, so this pull request is where a reviewer sees it.
+If anything else lands on `main` after this merge, the record no longer
+describes the tip and the release is refused; re-run the recorder on the new
+tip rather than override.
+
+## 2. Run the hosted dry run
+
+Dispatch the Release workflow against `main` without publishing:
+
+```bash
+gh workflow run release.yml --ref main \
+  -f publish=false \
+  -f confirm=""
+```
+
+Watch the run in GitHub Actions or with `gh run watch <run-id> --exit-status`.
+The dry run:
+
+- regenerates and compares the compliance bundle;
+- verifies `provenance/checksums.txt`;
+- runs the distribution supply-chain tests;
+- rebuilds both architectures and verifies binary parity with the manifest;
+- executes every publish guard with `DRY_RUN=1`.
+
+It does **not** log in to GHCR, install Cosign, push, sign, or merge anything
+back to `main`. A dry-run failure is still private: fix it on `main`, merge that
+fix, and dispatch a new dry run.
+
+## 3. Open and merge the release pull request
+
+Open a pull request whose head is `main` and whose base is `release`:
+
+```bash
+gh pr create --base release --head main \
+  --title "Release ${VERSION}" \
+  --body "Closes #N"
+```
+
+The diff must be a release cut already reviewed on `main`. Do not add product,
+adapter or UI changes directly to this pull request.
+
+There is no GitHub check to wait for. Merge with a real merge commit. Squash and
+rebase merges violate the append-only ancestry contract and are blocked by the
+release-branch ruleset.
+
+Merging is the publish action. The push to `release` starts the Release workflow;
+do not follow it with a `workflow_dispatch` publish of the same version.
+
+## 4. Observe the publishing run
+
+The jobs run in this order:
+
+1. `decide` sets `publish=true` for the push to `release`.
+2. `require-release-gate` reads `provenance/local-gate.json` off the published
+   commit, recomputes its gate tree with `scripts/release/gate-tree.sh`, and
+   refuses unless the record matches this tree, has an empty ledger, carries
+   the schema it reads, hashes the committed log, and was made with the Go
+   `release.yml` builds with.
+3. `compliance-artifacts` regenerates the compliance bundle, refuses drift and
+   uploads the bundle as a workflow artifact.
+4. `publish` verifies manifest parity, runs the publish guards, performs one
+   multi-platform Buildx push for every declared package path, reads the index
+   digest back, signs each path with Cosign and attaches the SPDX SBOM as an
+   attestation.
+5. `merge-back-to-main` merges the published commit with `--no-commit`, reads
+   the index and platform digests back from GHCR, updates the release manifest,
+   canonical published state and installer pin, regenerates provenance, runs
+   the focused consistency suites, creates one merge commit and pushes it to
+   `main`.
+6. `cli-binaries` runs after `publish` and builds the `retnd` command line for
+   linux/amd64 and darwin/arm64 (static, `CGO_ENABLED=0`,
+   stamped with the tag and the commit), packs each as `retnd_<tag>_<os>_<arch>.tar.gz`
+   and writes one `SHA256SUMS` over the two. It holds `contents: read` and nothing
+   else.
+7. `cli-darwin-smoke` runs the arm64 tarball on a `macos-latest` runner: it
+   checks the sum, unpacks it and runs `retnd version`.
+8. `github-release` (`contents: write`, the only job that gets it besides
+   `merge-back-to-main`) creates the `v<tag>` release on the published commit and
+   uploads the two tarballs, `SHA256SUMS` and the local-gate log as
+   `local-gate.log`.
+
+The three CLI jobs only run when this run publishes, and none of them holds
+`id-token`. They are downstream of `publish` on purpose: a release that failed to
+push the image never gets a GitHub Release. The tarballs are checksummed and not
+signed (see `docs/compliance/release-provenance.md`).
+
+Merging the reviewed pull request into `release` is the only publication
+action. Do not edit registry digests, run a second publish dispatch or open a
+post-publish metadata pull request. If any automated step fails, preserve the
+failed run and repair the workflow on `main`; never move an existing release
+tag or overwrite a published semantic version.
+
+Save the run URL on the release issue. The run is complete only when
+`merge-back-to-main` is green and `main` contains the automated merge commit.
+That commit is the durable registry record; publisher stdout is diagnostic
+output, not release metadata.
+
+The post-publish job enforces the transition as one unit:
+
+- `container/release-manifest.json` receives the registry's index digest and
+  each declared architecture's manifest digest;
+- `distribution/packaging/canonical.json` moves to `image.published: true`;
+- `scripts/install/install_docker_host.py` receives the same immutable index
+  digest;
+- `distribution/cmd/provenance` regenerates the compliance bundle;
+- packaging, installer, published-provenance and checksum checks must all pass
+  before anything is pushed to `main`.
+
+`scripts/release/record-published-release.py` performs the deterministic file
+update. It refuses malformed digests, version disagreement, missing
+architectures, duplicate platform entries and any architecture not declared by
+the candidate manifest.
+
+## 5. Verify the public release
+
+Verify by immutable digest, not only by the mutable tag:
+
+```bash
+DIGEST="sha256:..." # container/release-manifest.json index_digest
+cosign verify \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity \
+  'https://github.com/retnd/retnd/.github/workflows/release.yml@refs/heads/release' \
+  "ghcr.io/retnd/retnd@${DIGEST}"
+```
+
+Also confirm:
+
+- every declared architecture appears in `imagetools inspect`;
+- the compliance bundle workflow artifact contains `LICENSE`, `NOTICE`,
+  `provenance/` and `container/release-manifest.json`;
+- the installer accepts the canonical tag and pins it to the recorded index
+  digest;
+- `merge-back-to-main` is green and its automated merge commit is on `main`.
+
+Download a tarball from the `v<tag>` GitHub Release and check it against
+`SHA256SUMS` (`sha256sum -c --ignore-missing SHA256SUMS`, or `shasum -a 256 -c` on
+macOS). The tarballs are not signed, so the checksum file proves the download is
+intact and nothing more; the image signature above is what proves provenance.
+`local-gate.log` on the same page is the gate run the release was checked
+against; its SHA-256 is `log_sha256` in the published commit's
+`provenance/local-gate.json`.
+`github-release` creates the Git tag `v<tag>` on the first publish of a version and
+refreshes that release (tarballs and notes) on any later publish of the same version,
+so every publish of the package has a versioned release. Its notes link the package
+page, https://github.com/retnd/retnd/pkgs/container/retnd. Confirm the release page
+lists the four tarballs and `SHA256SUMS` before reporting it as published.
+
+## Failure and recovery
+
+| Failure | Action |
+| --- | --- |
+| Dry run fails | Fix `main`; rerun the dry run. Nothing public changed. |
+| `require-release-gate` refuses: the local-gate record is missing, INCOMPLETE, for a different tree, the wrong Go, or an unknown schema | Do not publish. Re-run `bash scripts/release/record-local-gate.sh` on the current `main` tip, merge the record, and cut again. A refusal after `main` moved is the check working. |
+| `merge-back-to-main` conflicts | Merge the published `release` commit into `main` manually with `--no-ff`; do not rewrite `release`. |
+| Push succeeds but signing fails | Preserve the run and registry digest, stop, and treat recovery as a release incident. Do not rebuild or move the same semantic tag casually: a second Buildx run may produce a different OCI digest. |
+| Public image is defective | Keep the published evidence immutable and cut a new patch version. Never delete or force-push `release` to hide it. |
+| Emergency gate override is unavoidable | Put `Release-Gate-Override: <reason>` with at least twelve characters in the release commit before it lands. The override is audited in append-only history; it is not a post-failure button. |
+
+A manual dispatch with `publish=true` is an exceptional recovery mechanism. It
+publishes only from `refs/heads/release` and requires `confirm` to equal the tag
+in `canonical.json`. Because it can rebuild an already-pushed tag, do not use it
+as the normal release path or as an automatic retry.
+
+## Before 0.8.0 ships: the traps this runbook has already met (#1410)
+
+- **Prepared on `main` is the only path for 0.8.0.** `release.sh`'s bump path moves
+  `canonical.json` on `release-prep/v<version>`, so that tree has no recorded
+  manifest hashes (the recorder refuses commits that aren't on `origin/main`) and
+  no matching local-gate record, and the release it produced could not publish.
+  Do sections 1 and 2 on `main` first, then run `release.sh`.
+- **Freeze `main`** from the gate record until the release PR merges. `release.sh`
+  refuses unless `HEAD` is `origin/main`'s tip, and any merge, Dependabot
+  included, invalidates the record.
+- **Both signatures need the key unlocked.** `ssh-add ~/.ssh/retnd-release-attest`
+  before `record-local-gate.sh` and again before `release.sh` if the agent was
+  restarted. The owner does it at the keyboard.
+- **Environment for the record.** `unset DOCKER_DEFAULT_PLATFORM` (the recorder
+  refuses it when it names anything but amd64) and `VITEST_MAX_WORKERS=3`.
+- **Verify by hand before merging the release PR.** This is a step, not a
+  courtesy: the hooks do not cover every kind of merge. Run both verifies shown at
+  the end of the `release.sh` section against `origin/release-prep/v<version>` and
+  merge only when both pass.
+- **A pull request into `release` closes no issues.** GitHub closes issues only
+  from a merge into the default branch, which is `main`. The `Closes #<issue>` in
+  the release PR is still there as the record, but close the release issue by hand
+  once the publish run and `cosign verify` are green, and keep a closing keyword
+  out of the PR that merges the cut into `main`, or the release issue closes
+  before anything is published.
+- **Known-red expiry.** The two entries in `scripts/e2e/known-red.txt` are good
+  through 2026-11-30 and the ratchet fails the gate the day after. If the release
+  slips past that, re-judge them first: re-run the two specs at the pin, and if
+  they pass, remove the lines (and lower `cap=`). If they still fail, renew them
+  in retnd-tests with a reason. The baseline check refuses an expiry that moves
+  later than `main`'s copy in the same change, so this is a decision made on
+  evidence, not a date edit.
+
+## Cutting the release PR with `scripts/release.sh` (#1375)
+
+`scripts/release.sh <version> --issue <N>` automates the step between "main is
+ready" and "a reviewed pull request into `release`". It never tags, publishes or
+merges: the tag `v<version>` is created by the publish flow described above, and the
+script prints that name so you can check it. That flow is `release.yml`, and it only
+runs while Actions is enabled. **With Actions off, merging the release pull request
+publishes nothing and nothing verifies either signature at merge time.** Turning Actions
+on for the one publish run is the owner's decision and is not part of this script. If you
+do not want to use the script, sections 1 to 3 above still work exactly as written.
+
+```bash
+git switch main && git pull --ff-only origin main
+bash scripts/release.sh 0.8.0 --issue 1331 --dry-run   # read-only checks, prints the plan (0.8.0 is prepared on main, so no bump commit)
+bash scripts/release.sh 0.8.0 --issue 1331              # asks once before the push; --yes skips that
+```
+
+Order, stopping at the first failure:
+
+1. Preconditions: `<version>` is `X.Y.Z` or `X.Y.Z-prerelease`; no tag `v<version>`
+   locally or on origin; the version is greater than `image.tag` in
+   `distribution/packaging/canonical.json` (`--allow-downgrade` overrides); clean tree; on
+   `main` containing origin's tip (run `git fetch` first; the script does not
+   fetch); `## [<version>]` exists in `CHANGELOG.md`; the signing key
+   `~/.ssh/retnd-release-attest` exists (only the path is checked, the key is never
+   read or printed) and `provenance/allowed_signers` has the key line for principal
+   `retnd-release` and namespace `retnd-e2e-attest`.
+2. Branch `release-prep/v<version>` and one commit `Release v<version>` from
+   `scripts/release/bump-version.sh`, before the e2e. **Prepared on main:** when
+   `canonical.json` already says `<version>` (unpublished) and `CHANGELOG.md` has its
+   section, which is the state 0.8.0 is in once its cut is on `main`, there is nothing
+   to bump. The branch is created at `main`'s tip with no bump commit and only
+   `release-attest/` is committed on it, so the release PR's gate tree is `main`'s tree
+   and the `record-local-gate.sh` record made on `main`'s tip stays valid. A published
+   version, or an older one, is still refused. The bump moves `image.tag`,
+   `image.reference` and `image.published=false` in `canonical.json`, and the old
+   version on every line (whole version tokens only) of the files the previous
+   `Prepare <old>` commit touched, then runs `go run ./cmd/provenance -write`. It
+   prints the lines still naming the old version. It leaves `CHANGELOG.md`,
+   `container/release-manifest.json`, `digests.txt`, `provenance/*` and lockfiles
+   alone on purpose.
+3. The full e2e (`scripts/release-e2e.sh`, see `release-branch.md`), writing the stamp. retnd-tests is a public repository, so the e2e clones it with no token; do not export or
+   configure one for it.
+4. `scripts/release-e2e/attest.sh sign` and then `verify --expect-version`. The
+   attestation (`release-attest/e2e.json` and `.sig`, an `ssh-keygen -Y` signature in the
+   `retnd-e2e-attest` namespace) records the tree, version, command, host and time.
+   Verify fails on a bad signature, a tree that is not the commit's tree (minus
+   `release-attest/e2e.json(.sig)` and `provenance/local-gate.*`), a version that differs
+   from the expected one or from `image.tag`, a `provenance/allowed_signers` with no key
+   for the `retnd-e2e-attest` namespace, and an `allowed_signers` that differs from
+   `origin/main`'s copy (`RETND_TRUST_REF` names another reference) unless the commit
+   carries a `Release-Gate-Override` trailer.
+5. Commit `release-attest/`, ask, push `release-prep/v<version>`, `gh pr create --base release
+   --title "Release v<version>"`, body naming the tag, the attestation and the stamp
+   (tree, host, time) and ending with `Closes #<issue>`. Rerunning after a red e2e on
+   the same branch resumes after the bump commit. Both commits go through the pre-commit
+   hook plainly.
+
+**How this differs from the process above.** The existing process prepares on
+`main` through a prep pull request (version shift, `record-release-hashes.sh` on the Mac,
+provenance, `record-local-gate.sh`) and then opens `main` into `release`. The script is
+the cut and attest layer for a `release-prep/v<version>` branch. It does not run
+`record-release-hashes.sh` (two architectures, needs a commit reachable from
+`origin/main`) or `record-local-gate.sh`: when `container/release-manifest.json`
+hashes are not yet recorded for the new version, do that prep first, or run those two
+after and note that `provenance/local-gate.*` and `release-attest/` are the only things
+allowed to change the tree afterwards. The `Release-Gate-Override` trailer is
+unchanged and is honoured by the local hooks as well as by `release.yml`.
+
+**The key.** There is no setup step: the owner's release key is already the one line in
+`provenance/allowed_signers` (principal `retnd-release`, namespaces `retnd-local-gate` and
+`retnd-e2e-attest`, fingerprint `SHA256:AwK0ZMvRajd0N2eQ4nGgPUa++/k4q4Rh3kNXi7Rkusw`),
+which `release-branch.md` explains. Signing uses `~/.ssh/retnd-release-attest`
+(`RELEASE_ATTEST_KEY` points elsewhere). If the key has a passphrase, have ssh-agent hold it.
+
+**What to review in the PR.** The bump commit's diff (every version location), the
+attestation (tree, version, host, time) matching the stamp line in the PR body,
+and that the last commit touches only `release-attest/`. Before you click merge, run both
+verifies by hand (the hooks do not cover every kind of merge, see `release-branch.md`):
+
+```bash
+git fetch origin && bash scripts/release-e2e/attest.sh verify --commit origin/release-prep/v$V --expect-version $V && PUBLISH=true bash scripts/release/verify-local-gate.sh origin/release-prep/v$V
+```
+
+Then merge by the usual rules. The publish flow takes it from there only if Actions is on.

@@ -64,10 +64,12 @@ import {
 } from "@shared/components/manifest/manifestFieldRules";
 import type { ManifestFieldValues } from "@shared/components/manifest/manifestFieldRules";
 import {
-  editConfigurationCommand,
+  configureCommand,
+  endpointNote,
   importCredentialsCommand,
-  testConnectionCommand
+  preflightCommand
 } from "@shared/pages/destinationConfigureCommands";
+import { setDefaultCommand } from "@shared/pages/storageDestinationCommands";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
 
@@ -221,7 +223,12 @@ export function DestinationConfigureWizard({
       }
 
       const answer = await api.preflightStorageMediumConfiguration(instanceId, {
-        ...(destination === null ? { backend: manifest.id } : {}),
+        // Named on every request (#1252). On a create there is no record
+        // to read it off; on a replace the engine checks it matches, so a
+        // form left open across a change to the destination is refused
+        // rather than reinterpreted, and the echoed line names it either
+        // way.
+        backend: manifest.id,
         fields: configurationValues(manifest, values),
         ...(reference ? { credentials: { credentialsId: reference } } : {})
       });
@@ -238,7 +245,7 @@ export function DestinationConfigureWizard({
     } finally {
       setBusy(false);
     }
-  }, [api, credential, credentialTyped, credentialsId, destination, instanceId, manifest, values]);
+  }, [api, credential, credentialTyped, credentialsId, instanceId, manifest, values]);
 
   const toTestStep = useCallback(() => {
     setStep("test");
@@ -251,10 +258,8 @@ export function DestinationConfigureWizard({
     setFailure(null);
     try {
       let saved = await api.configureStorageMedium(instanceId, {
-        // The backend is named on a create and left out on a replace,
-        // where the declared record already answers it and a request
-        // that disagreed would be refused.
-        ...(destination === null ? { backend: manifest.id } : {}),
+        // Named on every request, for runProbe's reason.
+        backend: manifest.id,
         fields: configurationValues(manifest, values),
         ...(credentialsId ? { credentials: { credentialsId } } : {})
       });
@@ -270,17 +275,17 @@ export function DestinationConfigureWizard({
     } finally {
       setBusy(false);
     }
-  }, [api, credentialsId, destination, instanceId, makeDefault, manifest, onSaved, values]);
+  }, [api, credentialsId, instanceId, makeDefault, manifest, onSaved, values]);
 
-  const echo = useMemo(() => {
-    if (values === null) return { command: "", fieldsWithNoFlag: [] as string[] };
-    return editConfigurationCommand(
-      manifest,
-      instanceId,
-      configurationValues(manifest, values),
-      destination === null
-    );
-  }, [destination, instanceId, manifest, values]);
+  // The terminal lines, from the same values the requests are built
+  // from (#1252). The credential is the reference the exchange returned,
+  // or nothing, which `medium configure` reads as "keep the stored one",
+  // the same as the request leaving `credentials` out.
+  const echoValues = useMemo(
+    () => (values === null ? null : configurationValues(manifest, values)),
+    [manifest, values]
+  );
+  const echoNote = echoValues === null ? null : endpointNote(manifest, echoValues);
 
   return (
     <div
@@ -379,10 +384,13 @@ export function DestinationConfigureWizard({
               </p>
             </Banner>
           ) : null}
-          <CommandEcho
-            label="the engine's own check, against what is already saved"
-            commands={[testConnectionCommand(instanceId)]}
-          />
+          {echoValues !== null ? (
+            <CommandEcho
+              label="the same check from a terminal, writing nothing"
+              commands={[preflightCommand(manifest, instanceId, echoValues, credentialsId)]}
+            />
+          ) : null}
+          <EndpointNote note={echoNote} />
           <Buttons
             onCancel={() => setStep("fields")}
             cancelLabel="Back"
@@ -409,21 +417,16 @@ export function DestinationConfigureWizard({
             currentDefault={currentDefault}
             onMakeDefaultChange={setMakeDefault}
           />
-          <CommandEcho label="the same thing from a terminal" commands={[echo.command]} />
-          {echo.fieldsWithNoFlag.length > 0 ? (
-            // A parity gap printed as a gap. `medium edit` has no flag
-            // for these field ids, so the line above configures less
-            // than this screen is about to save, and saying so is the
-            // whole point of printing commands at all (EPIC G's rule,
-            // argued in storageDestinationCommands.ts).
-            <p
-              data-testid="configure-command-gap"
-              style={{ margin: 0, fontSize: 12, color: "var(--text-3)", maxWidth: "74ch" }}
-            >
-              That command cannot carry {echo.fieldsWithNoFlag.join(", ")}: this CLI has no flag for
-              those fields yet, so the line above is not the whole of what this save writes.
-            </p>
+          {echoValues !== null ? (
+            <CommandEcho
+              label="the same thing from a terminal"
+              commands={[
+                configureCommand(manifest, instanceId, echoValues, credentialsId),
+                ...(makeDefault ? [setDefaultCommand(instanceId)] : [])
+              ]}
+            />
           ) : null}
+          <EndpointNote note={echoNote} />
           <Buttons
             onCancel={() => setStep("test")}
             cancelLabel="Back"
@@ -436,6 +439,28 @@ export function DestinationConfigureWizard({
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Said under the printed line whenever it is not the request byte for
+ * byte (#1252 review). A url field's userinfo is cut out of the line, and
+ * an address the cut cannot read is held back behind a placeholder, and
+ * either way somebody copying the line should know before they run it.
+ * The form refuses userinfo in a url field, so on this screen it is the
+ * second case that turns up, from a legitimate "@" after the host.
+ */
+function EndpointNote({ note }: { note: "stripped" | "withheld" | null }) {
+  if (note === null) return null;
+  return (
+    <p
+      data-testid="configure-endpoint-note"
+      style={{ margin: 0, fontSize: 12, color: "var(--text-2)", maxWidth: "74ch" }}
+    >
+      {note === "withheld"
+        ? "The endpoint is left out of that line because it has an @ in it, which can mean a username or password, so the line won't run as printed. Put the endpoint in by hand before you run it."
+        : "The username and password in the endpoint are left out of that line, so running it as printed configures the endpoint without them."}
+    </p>
   );
 }
 

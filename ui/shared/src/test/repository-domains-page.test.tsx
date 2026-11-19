@@ -29,15 +29,15 @@ import type { UserEvent } from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ApiProvider } from "@shared/api/ApiContext";
 import { createMockApi, resetMockFixtures } from "@shared/api/mock";
-import { BackupdError } from "@shared/api/contracts";
-import type { BackupdApi } from "@shared/api/contracts";
+import { RetndError } from "@shared/api/contracts";
+import type { RetndApi } from "@shared/api/contracts";
 import { resetGraphForTests } from "@shared/state/graph";
 import { RepositoryDomainNewPage } from "@shared/pages/RepositoryDomainNewPage";
 import { RepositoryDomainsPage } from "@shared/pages/RepositoryDomainsPage";
 import { clockSkew, failingProbes } from "@shared/pages/repositoryFleet";
 import type { CreateRepositoryDomainRequest, RepositoryHealth } from "@shared/types/snapshot";
 
-async function renderDomains(api: BackupdApi = createMockApi()): Promise<void> {
+async function renderDomains(api: RetndApi = createMockApi()): Promise<void> {
   render(
     <MemoryRouter>
       <ApiProvider api={api}>
@@ -123,12 +123,12 @@ describe("the domains table", () => {
 
   it("reports a maintenance read that failed as a failure, not as an unowned domain", async () => {
     const real = createMockApi();
-    const api: BackupdApi = {
+    const api: RetndApi = {
       ...real,
       getRepositoryMaintenance: (domain) =>
         domain === "offsite-b2"
           ? Promise.reject(
-              new BackupdError({
+              new RetndError({
                 code: "unknown",
                 message: "the maintenance record could not be read",
                 correlationId: "cid_test"
@@ -177,7 +177,7 @@ describe("the topology", () => {
 describe("what the page says when there is nothing to say", () => {
   it("tells a deployment with no domain apart from one whose read failed", async () => {
     const real = createMockApi();
-    const empty: BackupdApi = {
+    const empty: RetndApi = {
       ...real,
       listRepositories: () => Promise.resolve({ generatedAt: "2026-09-13T04:00:00+02:00", repositories: [] })
     };
@@ -194,13 +194,44 @@ describe("what the page says when there is nothing to say", () => {
     expect(screen.queryByText(/could not be read/)).toBeNull();
   });
 
-  it("reports a fleet read that failed as a failure", async () => {
+  // retnd#1049: a deployment that never turned the incremental engine on
+  // answers the read with 409 INCREMENTAL_ENGINE_DISABLED. That is a
+  // feature that is off, which is the normal state on a fresh install, so
+  // it is said as such and is not drawn as a failure.
+  it("says the feature is off, and does not draw an alert, when the incremental engine is disabled", async () => {
     const real = createMockApi();
-    const broken: BackupdApi = {
+    const disabled: RetndApi = {
       ...real,
       listRepositories: () =>
         Promise.reject(
-          new BackupdError({
+          new RetndError({
+            code: "INCREMENTAL_ENGINE_DISABLED",
+            message: "the incremental (kopia) backup engine is disabled in this deployment",
+            correlationId: "cid_off"
+          })
+        )
+    };
+
+    render(
+      <MemoryRouter>
+        <ApiProvider api={disabled}>
+          <RepositoryDomainsPage readOnly={false} />
+        </ApiProvider>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText(/Incremental backup is not turned on/i)).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/could not be read/)).toBeNull();
+  });
+
+  it("reports a fleet read that failed as a failure", async () => {
+    const real = createMockApi();
+    const broken: RetndApi = {
+      ...real,
+      listRepositories: () =>
+        Promise.reject(
+          new RetndError({
             code: "unknown",
             message: "the repository fleet could not be read",
             correlationId: "cid_test"
@@ -223,7 +254,7 @@ describe("what the page says when there is nothing to say", () => {
 
 describe("declaring a domain", () => {
   /** The screen, with whatever API a case needs behind it. */
-  function renderDefine(api: BackupdApi = createMockApi()) {
+  function renderDefine(api: RetndApi = createMockApi()) {
     render(
       <MemoryRouter initialEntries={["/repositories/new"]}>
         <ApiProvider api={api}>
@@ -239,7 +270,7 @@ describe("declaring a domain", () => {
   /** Fill in the two answers a declaration cannot be made without. */
   async function fillIdentity(user: UserEvent, id = "offsite-c2") {
     await user.type(screen.getByLabelText("Domain id"), id);
-    await user.type(screen.getByLabelText("Passphrase file on this NAS"), "/etc/backupd/" + id);
+    await user.type(screen.getByLabelText("Passphrase file on this NAS"), "/etc/retnd/" + id);
   }
 
   /** The same wizard, landing on the REAL fleet page rather than a stub.
@@ -248,7 +279,7 @@ describe("declaring a domain", () => {
    *  was called: the screen it lands on re-reads the fleet on mount, so
    *  a create whose domain never reached the list it navigates to passes
    *  every assertion made against a placeholder. */
-  function renderDefineOntoTheFleet(api: BackupdApi) {
+  function renderDefineOntoTheFleet(api: RetndApi) {
     render(
       <MemoryRouter initialEntries={["/repositories/new"]}>
         <ApiProvider api={api}>
@@ -311,7 +342,7 @@ describe("declaring a domain", () => {
       // The passphrase is a REFERENCE. A request carrying the secret
       // itself is the one failure on this screen that cannot be undone
       // by editing a form, because it is already in an access log.
-      passphrase: { file: "/etc/backupd/offsite-c2" },
+      passphrase: { file: "/etc/retnd/offsite-c2" },
       location: "",
       maintenanceOwner: "another-instance"
     });
@@ -331,12 +362,12 @@ describe("declaring a domain", () => {
     await user.click(screen.getByRole("button", { name: "An environment variable" }));
     await user.type(
       screen.getByLabelText("Passphrase environment variable"),
-      "BACKUPD_OFFSITE_C3_PASSPHRASE"
+      "RETND_OFFSITE_C3_PASSPHRASE"
     );
     await user.click(screen.getByRole("button", { name: "Create domain" }));
 
     await waitFor(() => expect(sent).not.toBeNull());
-    expect(sent!.passphrase).toEqual({ env: "BACKUPD_OFFSITE_C3_PASSPHRASE" });
+    expect(sent!.passphrase).toEqual({ env: "RETND_OFFSITE_C3_PASSPHRASE" });
   });
 
   it("explains a deployment that does not run the incremental engine, and stays put", async () => {
@@ -344,7 +375,7 @@ describe("declaring a domain", () => {
     const api = createMockApi();
     api.createRepositoryDomain = () =>
       Promise.reject(
-        new BackupdError({
+        new RetndError({
           code: "INCREMENTAL_ENGINE_DISABLED",
           message:
             "the incremental (kopia) backup engine is disabled in this deployment: set incremental_engine.enabled: true in config.yaml",
@@ -386,7 +417,7 @@ describe("declaring a domain", () => {
     expect(screen.getByRole("button", { name: "Create domain" })).toBeDisabled();
     await user.type(screen.getByLabelText("Domain id"), "offsite-c2");
     expect(screen.getByRole("button", { name: "Create domain" })).toBeDisabled();
-    await user.type(screen.getByLabelText("Passphrase file on this NAS"), "/etc/backupd/p");
+    await user.type(screen.getByLabelText("Passphrase file on this NAS"), "/etc/retnd/p");
     expect(screen.getByRole("button", { name: "Create domain" })).toBeEnabled();
   });
 

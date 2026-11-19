@@ -18,12 +18,12 @@
 // repository they point into can be opened. One field, one truth. It reads
 // public today, and it read private for a while after the repository had
 // stopped being private, which is issue #484: the value is measured with
-// `gh repo view backupdproject/backupd --json visibility`, nothing in this
+// `gh repo view retnd/retnd --json visibility`, nothing in this
 // package can re-measure it, and a note claiming it was measured is not
 // evidence that it still is.
 //
 // A licence the project has not read is a hard refusal rather than a
-// warning. The premise behind the Apache-2.0 choice is that every
+// warning. The premise behind the licence choice is that every
 // component linked into a shipped binary is either permissive or one of
 // the non-permissive licences this project accepts on purpose, with what
 // that acceptance obliges written down and discharged. That is a fact
@@ -421,14 +421,29 @@ func (c Compliance) TargetIDs() []string {
 
 // IsCopyleft reports whether an SPDX id is on the declared copyleft list.
 // It decides the wording of a complaint, never whether there is one.
+//
+// A conjunction ("Apache-2.0 AND MIT") is copyleft when any part is.
 func (c Compliance) IsCopyleft(spdxID string) bool {
-	return containsFold(c.License.CopyleftIDs, spdxID)
+	for _, part := range strings.Split(spdxID, " AND ") {
+		if containsFold(c.License.CopyleftIDs, part) {
+			return true
+		}
+	}
+	return false
 }
 
 // IsPermissive reports whether an SPDX id is on the declared permissive
 // allowlist. This is the one that decides.
+//
+// A conjunction ("Apache-2.0 AND MIT", a LICENSE that carries both texts) is
+// permissive only when every part is: both apply, so neither can be dropped.
 func (c Compliance) IsPermissive(spdxID string) bool {
-	return containsFold(c.License.PermissiveIDs, spdxID)
+	for _, part := range strings.Split(spdxID, " AND ") {
+		if !containsFold(c.License.PermissiveIDs, part) {
+			return false
+		}
+	}
+	return true
 }
 
 // AcceptedNonPermissive returns the recorded acceptance for an SPDX id.
@@ -471,12 +486,14 @@ func containsFold(list []string, want string) bool {
 }
 
 // undecidedLicenseMarkers are the substrings that make an SPDX string a
-// question rather than an answer. A choice ("(MIT OR GPL-3.0)"), a
-// conjunction, an exception ("GPL-2.0-or-later WITH
+// question rather than an answer. A choice ("(MIT OR GPL-3.0)"), an exception ("GPL-2.0-or-later WITH
 // Classpath-exception-2.0") and npm's "SEE LICENSE IN LICENSE" all
 // describe terms nobody has decided between, and every one of them is
 // non-empty, so the unidentified-licence rule below does not catch them.
-var undecidedLicenseMarkers = []string{" OR ", " AND ", " WITH ", "(", ")", "SEE LICENSE"}
+//
+// A bare conjunction ("Apache-2.0 AND MIT") is not on the list: it chooses
+// nothing, every part applies, and IsPermissive and IsCopyleft judge each part.
+var undecidedLicenseMarkers = []string{" OR ", " WITH ", "(", ")", "SEE LICENSE"}
 
 // LicenseExpressionIsUndecided reports whether an SPDX string states a
 // licence or only the range of licences something might be under.
@@ -572,7 +589,7 @@ func LinkComplaints(c Compliance, read ReadFileFunc) []string {
 // LicensePolicyComplaints says every way the third-party inventory
 // invalidates the project's own licence choice.
 //
-// The premise behind Apache-2.0 here is that every linked component is
+// The premise behind the licence choice here is that every linked component is
 // either permissive or one of the exact RELEASES this project accepts
 // under a non-permissive licence, with the obligation recorded. This is
 // that premise, executable. A component whose licence could not be

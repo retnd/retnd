@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/apps/common/email"
+	"github.com/retnd/retnd/apps/common/email"
 )
 
 // The command-line path has to produce a record indistinguishable from the
@@ -277,7 +277,7 @@ func TestCreateAdmin_MailsAVerificationLinkTheNextServiceCanRedeem(t *testing.T)
 		Username:      "bm-admin",
 		Password:      "correct-horse-battery-staple",
 		RecoveryEmail: "headless@example.test",
-		SMTP:          &email.Config{Host: "smtp.example.test", Port: 587, Security: email.SecurityStartTLS, From: "backupd@example.test"},
+		SMTP:          &email.Config{Host: "smtp.example.test", Port: 587, Security: email.SecurityStartTLS, From: "retnd@example.test"},
 		SendMail:      mail.send,
 		BaseURL:       "https://nas.example.test:8080/",
 		Now:           func() time.Time { return created },

@@ -96,11 +96,12 @@ PROMOTED = (
 )
 
 LISTACTIVITY = (
-    "func (b *BackupService) ListActivity(ctx context.Context, limit int) ([]ActivityEvent, error) {"
+    "func (b *BackupService) ListActivity(ctx context.Context, limit int, before string) "
+    "([]ActivityEvent, string, error) {"
 )
 LISTACTIVITY_RENAMED = (
-    "func (b *BackupService) ListActivityRenamedBySelftest(ctx context.Context, limit int) "
-    "([]ActivityEvent, error) {"
+    "func (b *BackupService) ListActivityRenamedBySelftest(ctx context.Context, limit int, before string) "
+    "([]ActivityEvent, string, error) {"
 )
 
 
@@ -134,7 +135,7 @@ def body(root: Path, dry_run: bool) -> int:
     tally = selftest_swap.Tally()
     subject_path = root / SUBJECT
 
-    with tempfile.TemporaryDirectory(prefix="backupd-docs-selftest.") as tmp_name:
+    with tempfile.TemporaryDirectory(prefix="retnd-docs-selftest.") as tmp_name:
         tmp = Path(tmp_name)
         tracker = selftest_swap.AnchorTracker(dry_run=dry_run, root=root, tmp=tmp)
         pristine = tmp / "activity.go.pristine"

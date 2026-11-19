@@ -30,9 +30,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/secretref"
-	"github.com/backupdproject/backupd/core/internal/workflow"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/secretref"
+	"github.com/retnd/retnd/core/internal/workflow"
 )
 
 // Config is the manager's whole runtime configuration (FR-5).
@@ -139,7 +139,47 @@ type Config struct {
 	// gate rather than an intention.
 	RepositoryDomains []RepositoryDomainConfig `yaml:"repository_domains,omitempty"`
 
-	Alerts        Alerts        `yaml:"alerts"`
+	Alerts Alerts `yaml:"alerts"`
+
+	// AgentsBlock is the deployment-wide `agents:` block (EPIC U, U1.4),
+	// global only, see agents.go. Nil means the operator wrote nothing,
+	// which resolves to the defaults, and omitempty keeps a config that
+	// never mentions it byte-identical through a re-marshal. A config
+	// carrying the key is refused by an older build under Load's
+	// KnownFields(true); U2.5's CHANGELOG names that door.
+	AgentsBlock *AgentsBlock `yaml:"agents,omitempty"`
+	// Agents is the resolved block, filled by Validate. Read this, never
+	// the pointer above.
+	Agents Agents `yaml:"-"`
+
+	// AssuranceBlock is the deployment-wide assurance policy (EPIC Q,
+	// Q1.4). Nil means "the operator wrote nothing", which resolves to
+	// good defaults, and omitempty keeps a config that never mentions it
+	// byte-identical through a re-marshal. A config carrying the key is
+	// refused by an older build under Load's KnownFields(true).
+	AssuranceBlock *AssuranceBlock `yaml:"assurance,omitempty"`
+	// Assurance is the resolved deployment-wide policy, filled by
+	// Validate. Read this, never the pointer above.
+	Assurance AssuranceDefaults `yaml:"-"`
+
+	// RetainedCopyEncryptionBlock is the deployment-wide retained-copy
+	// encryption policy (EPIC N, N1.1 / FR-59): mode and key_provider,
+	// see retainedcopyencryption.go. Nil means "the operator wrote
+	// nothing", which resolves to off, and omitempty keeps a config that
+	// never mentions it byte-identical through a re-marshal. A config
+	// carrying the key is refused by an older build under Load's
+	// KnownFields(true); the CHANGELOG names that door with the version.
+	//
+	// It is deliberately NOT a second meaning for KeyEncryption below.
+	// That field protects secret material this manager persists (#298,
+	// the SSH key store); this one decides whether the copies the
+	// artifact engine writes to a medium are readable to whoever holds
+	// the medium. ADR 0027 has the argument for keeping them apart.
+	RetainedCopyEncryptionBlock *RetainedCopyEncryptionBlock `yaml:"retained_copy_encryption,omitempty"`
+	// RetainedCopyEncryption is the resolved deployment-wide policy,
+	// filled by Validate. Read this, never the pointer above.
+	RetainedCopyEncryption RetainedCopyEncryption `yaml:"-"`
+
 	Capacity      Capacity      `yaml:"capacity,omitempty"`
 	KeyEncryption KeyEncryption `yaml:"key_encryption,omitempty"`
 
@@ -168,8 +208,9 @@ type Config struct {
 	// and a config file that never heard of workflows must not come
 	// back from one carrying a "workflows: {}" an older binary refuses
 	// outright under Load's KnownFields(true). Absent means this
-	// deployment runs no workflows, which is every configuration
-	// written before EPIC L.
+	// deployment names no root, which is every configuration written
+	// before EPIC L, and since #1246 the service runs it on the mounted
+	// default root when there is one (core/service's ResolveWorkflowRoot).
 	Workflows Workflows `yaml:"workflows,omitempty"`
 }
 
@@ -856,10 +897,33 @@ type BackupSet struct {
 	// a *Config has to remember: any mutation of the top-level Retention
 	// has to be followed by Validate (or ResolveBackupSetRetention), or
 	// every set goes on deciding under the policy that was in force when
-	// it was last resolved. cmd/backupd's retention override flags
+	// it was last resolved. cmd/retnd's retention override flags
 	// are the live instance of this, and were a silent no-op until they
 	// re-resolved.
 	Retention Retention `yaml:"-"`
+
+	// AssuranceConfig is this set's own assurance override (EPIC Q, Q1.4),
+	// in the three-field pattern RetentionConfig uses: nil means inherit
+	// the deployment's, Assurance below is the resolved answer Validate
+	// fills, and every consumer reads that, never this pointer. Any
+	// mutation of the global block must be followed by Validate, or every
+	// inheriting set goes on deciding under the old policy.
+	AssuranceConfig *AssuranceOverride `yaml:"assurance,omitempty"`
+	Assurance       Assurance          `yaml:"-"`
+
+	// RetainedCopyEncryptionConfig is this set's own retained-copy
+	// encryption override (EPIC N, N1.1 / FR-59), in the same three-field
+	// pattern: nil means inherit the deployment's policy, and the block's
+	// whole surface is mode (inherit | off | required) and key_provider.
+	// There is no per-set rotation cadence, format or chunk size, and
+	// there will not be: a format is a property of the build recorded per
+	// copy, a cadence is a property of a key, and neither is a property of
+	// a backup set. RetainedCopyEncryption below is the resolved answer
+	// Validate fills, and every consumer reads that, never this pointer.
+	// Any mutation of the global block must be followed by Validate, or
+	// every inheriting set goes on deciding under the old policy.
+	RetainedCopyEncryptionConfig *RetainedCopyEncryptionOverride `yaml:"retained_copy_encryption,omitempty"`
+	RetainedCopyEncryption       RetainedCopyEncryption          `yaml:"-"`
 
 	// ReadOnly is the fully-resolved answer to "may this backup set's
 	// remote source ever be deleted", filled in by Validate from
@@ -974,7 +1038,7 @@ type BackupSet struct {
 	Workflow *SetWorkflow `yaml:"workflow,omitempty"`
 
 	// Environment is this set's own workflow environment, which wins
-	// over the deployment-wide one and loses to the BACKUPD_* built-ins
+	// over the deployment-wide one and loses to the RETND_* built-ins
 	// (workflow.Resolve). It sits beside Workflow rather than inside it
 	// because an environment is a property of the BACKUP SET, not of its
 	// hook directories: #811's cleanup stage and #810's remote execution
@@ -1346,14 +1410,15 @@ type Command struct {
 // guaranteed to still verify today; this is what re-checks it without
 // waiting for a restore attempt to find out the hard way.
 //
-// It is entirely optional. The zero value (Hash false, Command nil) means
-// disabled: nothing is re-checked, ever, for this backup set, which is
-// exactly today's behavior and stays the default so an existing config
-// keeps working unchanged. Re-reading, and potentially re-hashing, a NAS's
-// worth of already-verified data has a real I/O cost, so an operator has
-// to opt in explicitly and choose both a cadence (Interval) and a scope
-// (MaxPerCycle) rather than this package guessing safe values for either;
-// see validateRevalidation.
+// It is optional, and since EPIC Q it is no longer what turns scrubbing on.
+// The scheduled scrub is driven by the set's resolved assurance policy
+// (assurance.scrub.cadence and .strategy; Assurance.Revalidation derives the
+// scrub configuration from it), so a default install scrubs. This block is
+// the older, explicit form and still wins for a set that enables it: a block
+// with Hash or Command set is used exactly as written, and both Interval and
+// MaxPerCycle are required with it, so an operator who chose a cadence and a
+// scope keeps them; see validateRevalidation. The zero value (Hash false,
+// Command nil) means "no explicit choice" and defers to the policy.
 type Revalidation struct {
 	// Interval is how long since an artifact's last check still counts as
 	// fresh; once exceeded, the artifact becomes due for another one.
@@ -1611,7 +1676,7 @@ type RetentionTier struct {
 	// used to record as inert and defer to #239 "when retention starts
 	// planning on it". #239 landed and it stopped being inert: an
 	// override replaced the file's chain with an all-local one, so
-	// `backupd retention --tier` previewed placement against local
+	// `retnd retention --tier` previewed placement against local
 	// beside a deployment sending monthly to S3, and printed it no less
 	// confidently. `--tier-medium NAME=MEDIUM_ID` answers it (issue #595,
 	// retention_flags.go): a repeatable flag rather than a fifth
@@ -2004,7 +2069,7 @@ type StorageMedium struct {
 	//
 	// A bucket name carrying a "/" is refused, because that is one
 	// specific mistake worth catching in words an operator can act on:
-	// "nas-backups/backupd" is a bucket and a prefix written into
+	// "nas-backups/retnd" is a bucket and a prefix written into
 	// one field, and the refusal says so rather than letting the backend
 	// report a bucket name it cannot resolve.
 	Bucket string `yaml:"bucket"`
@@ -2183,7 +2248,7 @@ type MediumCredentials struct {
 	// holds is a secret it cannot log.
 	//
 	// The file belongs under this manager's private state directory
-	// (/var/lib/backupd), never under the backup root: the backup
+	// (/var/lib/retnd), never under the backup root: the backup
 	// root is what a NAS deployment exports over SMB or AFP, and #298 was
 	// filed over precisely that exposure for the SSH key. This package
 	// does not enforce that placement, the same way it does not enforce it
@@ -2219,7 +2284,7 @@ const DefaultFileName = "config.yaml"
 // DefaultFileName inside it; anything else is returned unchanged.
 //
 // It exists because #196 made the packaged mount a directory, so
-// `--config /etc/backupd/config` is now the natural thing for an
+// `--config /etc/retnd/config` is now the natural thing for an
 // operator to type. Without this, that spelling fails with "is a
 // directory" from deep inside the YAML reader, which says nothing about
 // what to do instead.

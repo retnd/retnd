@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/obs"
-	"github.com/backupdproject/backupd/core/internal/workflow"
-	"github.com/backupdproject/backupd/core/internal/workflowexec"
+	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/workflow"
+	"github.com/retnd/retnd/core/internal/workflowexec"
 )
 
 // One run's log pipeline: redact, number, persist, fan out.
@@ -214,7 +214,7 @@ func (s *stepSink) emit(stream workflowexec.StreamID, payload []byte) error {
 		}
 
 		marker := fmt.Sprintf(
-			"[backupd] output truncated: this step reached the %d-byte persisted-output bound for one step. The hook is still running and its output is still being read; it is no longer being recorded.",
+			"[retnd] output truncated: this step reached the %d-byte persisted-output bound for one step. The hook is still running and its output is still being read; it is no longer being recorded.",
 			bound)
 
 		return s.rec.append(s.stepID, stream, workflow.LogTruncated, []byte(marker))

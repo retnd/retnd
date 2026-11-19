@@ -11,8 +11,33 @@ answers questions the interface does not ask. Neither page replaces the other. I
 a terminal, read that one; if you do not, everything below is reachable from the interface
 and none of it needs one.
 
-Three failures account for almost every message this project receives. Each gets a section
-below: what you see, what it actually means, and what to do about it in the interface.
+Three failures account for almost every message this project receives, a fourth
+(rarer, and the only one here that stops a backup set until you act) arrives with the
+scripted workflows, and a fifth is the day you try to get a backup out through the
+interface and it does not come. Each gets a section below: what you see, what it actually
+means, and what to do about it in the interface.
+
+One sentence sets the boundary for all of them: **this product recovers and exports the
+retained artifact; restoring it into an application remains the operator's
+responsibility.** The interface can hand you the file, checked. It cannot put it back into
+whatever the file came from.
+
+## What the interface can run, and what is terminal-only
+
+Which acts the interface will run depends on the profile you installed (issues #1163 and #1164).
+On a **local-account** profile (generic, TrueNAS, Unraid, OpenMediaVault, Proxmox, Synology) it
+will start a run, apply a retention plan, verify or hold a snapshot, release a hold and restore.
+A restore asks for your password again and a tick in the "I understand" box, releasing a hold
+asks for a tick too, and if you reach the interface over plain HTTP from another machine it
+first tells you the connection is not encrypted and waits for you to say go on.
+
+On a gateway profile (UGOS) the destructive gate stays shut until issue #92 ships a verified
+one, so starting a run, restoring a snapshot and applying a retention plan are refused with a
+403 (`DESTRUCTIVE_OPERATIONS_DISABLED`), and pressing again gets the same answer. Those are
+terminal-only there. Verifying a snapshot, placing a hold and releasing one work on every
+profile. If you have a shell, `docs/site/reference.html` lists the command for each; if you do
+not, none of the recovery steps below need one, because exporting a retained artifact (the
+`Recover` flow) is not one of the gated acts.
 
 ---
 
@@ -64,6 +89,9 @@ the one you want before you go looking for it.
 Take the newest artifact whose state is retained and verified. Do not take one that is
 still in flight or quarantined: those are exactly the two states that mean the application
 does not vouch for the bytes.
+
+If the share is not reachable, or you would like the file checked on the way out, the
+artifact's page has **Recover artifact**, which is section 5 below.
 
 ---
 
@@ -147,6 +175,23 @@ The application cannot tell these apart, and it deliberately does not guess. It 
    already retained is on your own storage, and the application refused to talk to the
    server rather than transferring anything to or from it.
 
+### Starting a check yourself, and stopping one
+
+**Scrub now** on a set re-checks all its copies straight away instead of waiting for the
+schedule, and **Run recovery test** does the same for the stronger test. Either starts in
+the background and answers at once with an operation id, so closing the page does not stop
+it. While one is running it has a **Cancel** button. Pressing it does not stop things on
+the spot: the operation shows as *Cancelling* until its own end line arrives. A cancelled
+recovery test finishes as a warning rather than a failure, because nobody saw the
+validator's answer. It is not recorded as a failed copy, and you can simply run it again.
+
+Pressing **Run recovery test** while one is already running for that set does not start a
+second: the press joins the one in progress, the validator runs once, and each press still
+gets its own receipt.
+
+Everything above has a command-line equivalent, and `docs/recovery.md` lists them. This page
+stays in the browser on purpose.
+
 ### While it is unresolved
 
 The set is stale and getting staler, and everything already retained is untouched and
@@ -155,6 +200,287 @@ safe to spend a day getting the fingerprint verified properly rather than cleari
 in the first ten minutes.
 
 ---
+
+## 4. A backup set will not run until a workflow is accounted for
+
+### What you see
+
+The set's page carries a red banner headed **Workflow recovery**: *This backup set will not
+run until a workflow run is accounted for*. It names the run, says the run stopped before
+its "after" hooks finished, and gives two facts underneath — how long the hold has stood,
+and where that run's scripts are being kept. The banner cannot be dismissed.
+
+While it is there, the set's own run control is unavailable rather than merely
+unsuccessful, and hovering it says why. Scheduled runs for this set stop happening. Every
+other set carries on as normal; this is one set's problem, not the application's.
+
+The same banner appears on the run's own page, which you reach from the run history in the
+set's Workflow panel.
+
+### What it means
+
+A backup with hooks runs in five stages: two before the backup, the backup, then two after
+it. The "after" stages are the ones that put the source machine back — thaw the database,
+release the snapshot, restart whatever was stopped for the copy.
+
+The application writes down that it has entered a stage before it runs the first script in
+that stage. Then the engine stopped: a restart, a crash, the NAS losing power. Coming back
+up, it found a script that had been running with nobody left to observe how it ended, and
+recorded that as *interrupted* rather than as *failed*. Those are different findings and
+the difference is the whole reason you are reading this: "the script reported failure" and
+"nobody knows how the script ended, and it may have half-done its work" call for different
+things next.
+
+So it blocked the set, kept that run's scripts exactly as they were, and **ran nothing**.
+Nothing was replayed, and no hook was retried on your behalf. That is deliberate: the
+source machine may be quiesced, mounted or paused right at this moment, and it may have a
+perfectly good backup sitting beside it. A healthy backup and a machine nobody put back is
+exactly the combination that would be hidden by carrying on.
+
+### What to do
+
+1. Open the set and read the banner. The **held since** time is the number that matters: it
+   is how long the source may have been left in that state, and it is the difference
+   between a NAS that rebooted four minutes ago and a database that has been frozen since
+   Tuesday.
+2. Open the run from the Workflow panel's run history. It draws all five stages and every
+   script in them, so you can see which one was interrupted and which ones never started.
+   Selecting a step shows the output it managed to produce before the process went away,
+   which is the closest thing there is to knowing how far it got.
+3. **Go and look at the source machine before you clear anything.** The application can
+   tell you which hooks never ran. It cannot tell you what state the other end is in, and
+   that is the question.
+4. Then choose one of the two controls on the banner. There are deliberately only two.
+   - **Resume cleanup** runs the "after" scripts that run still owes, from the copies kept
+     with the run itself, each one checked against the fingerprint taken when the run was
+     planned. Nothing anybody edited in the meantime decides what executes. What it costs:
+     it runs those scripts against the source machine now, so it is the right choice when
+     the scripts should finish the job and the machine is reachable and in one piece. If it
+     cannot account for everything afterwards, the hold comes straight back and the set
+     stays blocked, which is the honest outcome rather than a failure of the button.
+   - **Acknowledge** opens a box headed *What was done about this run*, and a **Record
+     acknowledgement** button underneath it. It executes nothing and changes nothing on the
+     source machine. What it does is unblock the set and record that a person took
+     responsibility. Words are required: the button stays unavailable until you write some.
+     What it costs: backups of this set start happening again with nothing having confirmed
+     the machine was put back, so this is the choice *after* you have put it back yourself,
+     not instead of doing so.
+5. There is no third control, and the absence is on purpose. No dismiss, no ignore, no
+   snooze. The alternative to those two is a source machine left in a state the application
+   cannot see, and a button that hid the banner would be a button that hid that.
+
+### Why the acknowledgement asks for words
+
+Because it is the only way a backup set is ever unblocked without its cleanup having run,
+and the question it has to answer is not today's. It is the one somebody asks six months
+later, reading the record: why did this set start backing up again when the application had
+said it could not account for the machine?
+
+What you write is kept with the run. You do not type a name — the acknowledgement is filed
+against the administrator whose session recorded it, which is the only attribution worth
+having.
+
+### Confirming it is clear
+
+The banner disappears and the set goes back to its schedule. That is the confirmation; the
+next scheduled run appearing in the set's history is the proof.
+
+Do not try to confirm it by starting a run from the interface. On every deployment this
+project packages, a backup started from a browser is refused outright — the interface can
+configure, inspect and unblock, and the engine's own schedule is what takes backups (issue
+#92). A refusal there tells you nothing about whether the hold is gone.
+
+### While it is unresolved
+
+Unlike a stale set, this one is not safe to leave for a day. Nothing already retained is at
+risk — every artifact is on your own storage and still verified — and no new backup of this
+set is being taken, which is the same loss staleness costs you. What is different is the
+other end: if the interrupted hook had stopped a database or frozen a filesystem, that is
+still true, and it is true for as long as the banner says *held since*.
+
+---
+
+## 5. A recovery or a recovery test did not complete
+
+### What you see
+
+You pressed **Recover artifact** on an artifact, or **Run recovery test** on a set, and it
+ended somewhere other than a finished file or a passing result. It reads one of:
+
+- **Failed: nothing saved**, or **Cancelled: nothing saved**. No download link, and no
+  file left anywhere that could be mistaken for a complete one.
+- A download that **stopped partway**: your browser shows it as failed or incomplete, and
+  the file in its download folder is smaller than the size the dialog told you to expect.
+  The application cut the transfer off on purpose (see below), so that an incomplete file is
+  never mistaken for a whole one. The artifact's page also says how it ended, in one of
+  three ways: **Completed**, **Interrupted at N of M bytes**, or **Failed verification**.
+  None of the three is drawn as a success. **Completed** is neutral because it means bytes
+  were sent and matched, not that your browser kept the file.
+- A **cost decision** instead of a download: the copy you chose is archived, or reading it
+  is billed, and the dialog is waiting for you to say yes or to back out.
+- **No readable copy**, or **Archived: thaw needed**, on the artifact's page.
+- **Content verified** beside **Recovery test failed** on the set.
+- **Recovered, readable** on the set, where you expected **Recovery test passed**. This is a
+  success of a smaller kind, described below.
+- A cleanup notice, saying a recovered copy could not be removed from the staging area.
+
+### What it means
+
+The recover action reads one retained copy and checks it against the digest the application
+recorded when it was committed. For a download it does that in two steps. First, before it
+sends anything, it checks that the copy is there, that it is the size it recorded, that its
+storage can be read, and (the first time this backup is downloaded, then remembered) it reads
+the whole copy against the recorded digest. Then it sends the copy straight from where it
+lives, 4 MiB at a time, checking each piece again as it goes. Nothing is copied to the host's
+disk first, so a download needs no free space there. The failures sort by where they happened,
+and the difference matters because the fix is different for each:
+
+- **Before any byte left:** the copy was unreadable, was archived, was billed and you had
+  not agreed, or its bytes did not match the recorded digest. A mismatch means that copy is
+  damaged. It is not a download problem and trying again will not change it.
+- **During the download, because the connection dropped:** the browser disconnected or you
+  cancelled. The application records this as *interrupted at N of M bytes*, where N is how
+  far it got and M is the size of the file, and N is where a resume starts. Nothing is kept
+  on the host, and a second try can carry on from the bytes you
+  already have: ask for a new link, and a client that resumes (a command-line tool using
+  `Range` and `If-Range` with the file's `ETag`, or a browser that restarts the transfer on
+  its own) gets exactly the bytes the first attempt would have. A browser that starts over
+  simply downloads it again.
+- **During the download, because a piece did not match:** the copy changed on its storage
+  after the application had checked it, so the transfer was cut off at the first bad piece.
+  What you received before that was good, the bad piece was never sent, and the file is
+  incomplete on purpose. The application records this as *failed verification*, which is
+  not the same finding as *interrupted*. That copy is damaged; recover from another copy.
+- **After the file was checked:** a recovery test ran *your* validator, and the validator
+  said no. The bytes are intact. The set shows **Content verified** and **Recovery test
+  failed** side by side on purpose, because "the file is fine" and "the file is usable by
+  your check" are different claims and are never averaged into one tick.
+- **After the file was checked, with no validator declared:** a recovery test of a set that
+  declares no validator reads the recovered file end to end with the built-in structure
+  check, inside the application, and records **Recovered, readable** when it is well formed.
+  That means the file decodes as the gzip, zstd or tar file it is. It does not mean any
+  application can use it, it is reported as its own state (`readable`, never `passed`), and it
+  never satisfies a set whose mode is `required`. If the file is truncated or fails a
+  checksum the set shows **Content verified** beside **Recovery test failed**, and the reason
+  says the check was the built-in one. A file type the check cannot read (a `.dump`, for
+  example) is refused before anything is staged, and the reason names the type.
+- **A cleanup notice** is its own thing. It does not turn a good result into a bad one or
+  the reverse. It says a disk is filling, which is a different problem from not having your
+  file.
+
+None of these is the application restoring anything. The boundary above holds on every
+path: it can give you the file, and putting it back is yours.
+
+### What to do
+
+1. Read which of the five shapes you have before pressing anything again.
+2. **A cost decision.** It names the copy and what reading it costs, and the buttons have
+   equal weight on purpose. Tick **I accept this cost** only if you mean it; backing out
+   starts nothing, and an archived copy is never thawed on a timer or by a scheduled
+   check, only by somebody agreeing here.
+3. **Failed before any byte left.** Open the artifact and look at its copies. If one is
+   marked **Archived: thaw needed**, that is a billed request that takes hours. If a copy
+   is marked failed or damaged, recover from another copy instead. If the page says **No
+   readable copy**, there is nothing to recover from through the interface, and the next
+   step is reaching the destination by whatever route your storage provider gives you.
+4. **Cancelled or disconnected (interrupted at N of M).** Start again, or resume from N. If it keeps dropping, a proxy in front of the
+   interface is closing long downloads; that is a gateway setting, not this application.
+5. **Recovery test failed, content verified.** The set shows that the test failed and the
+   reason the application recorded. Open **Show validator output** on the set to read what your
+   validator printed. It keeps the newest test's output only, cut to 200 lines, 1 KiB a
+   line and 32 KiB in all, and if anything was cut the last line says so. Fix the
+   validator or the thing it checks. The application is telling you the file is intact.
+   **Recovered, readable.** Nothing to fix. If you want the stronger claim, declare a
+   validator as `NAME.local.sh` under `recovery-test/<source>/<set>`; ids beginning `retnd-`
+   are reserved for the product's own checks and are refused. **Recovery test failed** from
+   the built-in check means the stored bytes themselves are damaged or are not what the name
+   says, so look at what produced them. **Not configured** with a reason that names a file
+   type means the check has no reader for that type, and **Not configured** with a reason that
+   says the built-in check is off means `builtin_check: off` is set for the set (the chip itself
+   only says Not configured; the reason is beside **Run recovery test**).
+6. **A cleanup notice.** Nothing is wrong with your result. Free space on the volume that
+   holds the staging area, and the leftover is removed on its next sweep.
+
+### While it is unresolved
+
+Nothing already retained is at risk, and no failure here deletes or changes a retained
+artifact. What is at risk is the claim: a set whose recovery test is failing or overdue is
+honestly shown as untested, and it stays that way until a test passes. It never shows the
+older, better result as if it were current.
+
+---
+
+## 6. An encrypted copy has to be opened on a machine with no state
+
+### What you see
+
+The deployment is gone (state, configuration, the application), the backup bucket is
+intact, and the objects in it are encrypted copies.
+
+### What it means
+
+An encrypted copy is an `age` v1 file and nothing else. It does not need this product, its
+catalog or its state to be opened. It needs the key it was written under, and that key
+exists in exactly one place off the host: the recovery bundle that was exported when the
+key was created. Which key a copy needs is written in the copy's sidecar (`key_id`) and in
+the bundle's own metadata. Losing the bundle and the host together loses the copies, and
+nothing can recreate the key.
+
+Each copy was also written under a **suite**, and the procedure is the same for both suites
+this build ships. The only difference is the oldest `age` that can open it:
+
+| Suite (the bundle's `format`, the sidecar's `format_id`) | Key line in the bundle's `material` | Oldest `age` that opens it |
+|---|---|---|
+| `age-pq/v1` (the default for a first key) | starts `AGE-SECRET-KEY-PQ-1` | 1.3 |
+| `age/v1` | starts `AGE-SECRET-KEY-1` | any release |
+
+### What to do
+
+This is the one procedure here that needs a terminal, on the machine you recover on, because
+the deployment that would have offered a button is the thing that is gone. You need the
+`retnd` binary, the encrypted object, its sidecar and the bundle. You do not need the
+deployment, its configuration or its state database.
+
+1. Find the bundle for the key id the sidecar names, and check its `format` field first: it
+   has to be the suite the sidecar's `format_id` names (`age/v1` or `age-pq/v1`). A bundle of
+   another suite is another key, and no tool will open the copy with it. Its `digest` field
+   should be the digest you were shown when you exported it (the export receipt prints the
+   same value). That compares the file with what you saved; `retnd` also refuses a bundle whose
+   digest does not cover its contents, so an edited file stops here.
+2. Open the copy:
+   `retnd encryption decrypt <object> --bundle <bundle.json> --sidecar <sidecar.json> --out <artifact-name>`
+   It takes the suite from the sidecar and refuses to guess when there is none. It hashes
+   the object first and compares that with the stored-bytes digest the sidecar
+   records, so a cut-short or altered copy is refused before the key is touched. It then
+   decrypts, and it creates `<artifact-name>` only after every chunk authenticated and the
+   plaintext digest equals the sidecar's `plaintext_digest`. A failure leaves no file at all,
+   not even a short one. It will not overwrite a file that is already there and it has no
+   way to write the artifact to the screen. It never prints the key.
+3. Read the refusal if there is one. "does not open this object" is the wrong key (check the
+   `key_id` the sidecar names against the bundle), "failed authentication" is a copy that was
+   cut short or altered, and a digest message names which digest, plaintext or stored, did
+   not match.
+4. Optionally, to make a deployment know the key so that its copies resolve there, run
+   `retnd encryption key import --bundle <bundle.json>` against it. The key is registered as
+   superseded (it opens old copies; new copies keep using the active key), the bundle counts
+   as confirmed, and running it twice changes nothing. It needs the deployment's own journal,
+   so it is refused while an engine is serving it.
+
+**The independent route.** If you would rather not trust this binary with the key, or you do
+not have it, the copy is an `age` v1 file and the `age` command line tool reads it: any
+release for an `age/v1` copy, **1.3 or newer** for an `age-pq/v1` copy (check `age --version`;
+an older one says no identity matched, which is not a wrong key). Copy the bundle's `material`
+field (one line that starts `AGE-SECRET-KEY-1` or `AGE-SECRET-KEY-PQ-1`) into `key.txt`,
+readable only by you, then, for either suite:
+`age -d -i key.txt <object> > <artifact-name>.tmp`
+This checks neither digest for you, so compare the result with the sidecar's
+`plaintext_digest` and rename it only when they match. `age` releases each authenticated chunk
+as it goes, so an interrupted run leaves a short file that looks like an artifact and is not,
+which is the reason for the temporary name.
+
+There is no way back if the bundle and the host are both gone. How to keep the bundle, what
+rotation does to it, and what the copies cost are in
+[encrypted copies](encrypted-copies.md).
 
 ## When none of these is it
 
@@ -176,7 +502,7 @@ in the first ten minutes.
 - **The console says the account is unverified and will be removed.** That is not a
   fault: a new administrator is *provisional* until somebody opens the link in the
   verification email sent to its recovery address. The banner names the deadline, and
-  if the address is not verified by it, Backupd deletes the administrator, signs every
+  if the address is not verified by it, retnd deletes the administrator, signs every
   session out and reopens enrollment — which puts you back at the setup wizard with the
   bootstrap link printed in the application's log, not in a dead end. Open the link from
   the mail (it works on a phone; it needs no session), or press **Resend link** on the
@@ -196,4 +522,4 @@ in the first ten minutes.
   you are signed in again, Settings is where the recovery address and the SMTP details
   are corrected, and it offers a test send so the next time is not another guess.
 - **Anything else.** Open an issue with the set's detail page and the failing run's error
-  message. https://github.com/backupdproject/backupd/issues
+  message. https://github.com/retnd/retnd/issues

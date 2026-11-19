@@ -4,9 +4,10 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/backupdproject/backupd/apps/common/platform/capabilities"
-	"github.com/backupdproject/backupd/apps/common/platform/profile"
-	"github.com/backupdproject/backupd/apps/common/webhost"
+	"github.com/retnd/retnd/apps/common/platform/capabilities"
+	"github.com/retnd/retnd/apps/common/platform/profile"
+	"github.com/retnd/retnd/apps/common/webhost"
+	"github.com/retnd/retnd/core/legacypath"
 )
 
 // The engine half of the two-container split: the process that holds the
@@ -65,16 +66,32 @@ type EngineConfig struct {
 	// with whatever Authenticator/AuthRoutes it actually wired up (a
 	// caller using apps/common/auth/local should always pass its
 	// Service's own TrustForwardedHeaders() here, exactly as
-	// apps/generic/cmd/backupd-web does).
+	// apps/generic/cmd/retnd-web does).
 	TrustForwardedHeaders bool
 
 	// Backend is the core/service.BackupService adapter (or a test
 	// double) every apps/common/webhost handler ultimately calls into.
 	Backend webhost.BackupServiceClient
 
+	// AdoptedPaths is FR-38's list of this deployment's locations that
+	// are being served from a pre-rename path, forwarded to
+	// webhost.NewRouter unchanged so GET /api/v1/system/version can
+	// report it.
+	//
+	// The host resolves this ONCE, before it opens or announces
+	// anything, and hands the answer down: see core/legacypath for why
+	// the decision cannot be re-derived later by anything that wants to
+	// stay in step with the journal that is actually open. Nil on every
+	// deployment whose paths are the ones this release resolves.
+	AdoptedPaths []legacypath.Adoption
+
 	// Gate decides whether POST /api/v1/operations may run; nil means
 	// webhost.NewRouter's own NotYetImplementedGate default.
 	Gate webhost.DestructiveGate
+
+	// StepUp re-checks the administrator's password before a restore on a
+	// local-account profile (issue #1163). Nil fails closed.
+	StepUp webhost.StepUpVerifier
 
 	// Recorder is where every action taken through /api/v1 is recorded so
 	// an operator can read it (issue #599). Left nil, newEngineHandler
@@ -90,6 +107,11 @@ type EngineConfig struct {
 	// NewEngine: that is what makes a fresh app-store install serve a
 	// setup flow instead of refusing to start.
 	FirstRun webhost.FirstRunClient
+
+	// Setup answers the first-run guide's questions about the
+	// administrator, the mail server and skipped steps (retnd#1049).
+	// Optional: nil is a platform with its own identity provider.
+	Setup webhost.SetupProgress
 
 	// Activate opens a real backend against the configuration the
 	// first-run flow has just written, and returns it together with the

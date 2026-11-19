@@ -256,7 +256,7 @@ func (s *Server) Listen() error {
 			return fmt.Errorf("%w: %s exists and is not a socket, so this runner will not remove it", ErrServer, path)
 		}
 		if conn, err := net.DialTimeout("unix", path, time.Second); err == nil {
-			conn.Close()
+			_ = conn.Close()
 			return fmt.Errorf("%w: another workflow runner is already listening on %s. One runner per installation: two would each own process groups the other cannot see", ErrServer, path)
 		}
 		if err := os.Remove(path); err != nil {
@@ -329,14 +329,14 @@ func (s *Server) Serve(ctx context.Context) error {
 		}
 		if !s.addConn(conn) {
 			// Shutdown won the race with this accept.
-			conn.Close()
+			_ = conn.Close()
 			continue
 		}
 		conns.Add(1)
 		go func() {
 			defer conns.Done()
 			defer s.forgetConn(conn)
-			defer conn.Close()
+			defer conn.Close() //nolint:errcheck // tearing down a connection that is done; a failed close has nothing to add to the result
 			s.handleConn(ctx, conn)
 		}()
 	}
@@ -493,7 +493,14 @@ func (s *Server) handleExecute(ctx context.Context, conn net.Conn, req Request) 
 		writeFailure(conn, failure)
 		return
 	}
-	defer s.release(key)
+	// forget is idempotent on purpose. The step has to be forgotten BEFORE its
+	// result is written (below), and the deferred call is only the safety net
+	// for a path that never gets there: run twice it would delete a claim that
+	// a later Execute for the same key made in between, and that step could no
+	// longer be cancelled.
+	var forgotten sync.Once
+	forget := func() { forgotten.Do(func() { s.release(key) }) }
+	defer forget()
 
 	// The lease watcher. A read returning ANYTHING ends the lease: EOF
 	// and a connection error are the engine going away, and unsolicited
@@ -524,6 +531,13 @@ func (s *Server) handleExecute(ctx context.Context, conn net.Conn, req Request) 
 
 	result, err := s.exec.Execute(runCtx, req, sink)
 
+	// The step is over, so it is no longer running. Forget it BEFORE the
+	// result is written: the client unblocks on that frame, and a cancel it
+	// sends straight away has to be answered not_found like any other step
+	// this runner is not running. Forgetting it after the write left a
+	// window in which that cancel succeeded for a step that had already
+	// reported (TestServer_CancelReachesAStepFromASecondConnection, hosted).
+	forget()
 	writes.Lock()
 	defer writes.Unlock()
 	if err != nil {

@@ -1,0 +1,27 @@
+# EPIC T (#1314), pinned valid: the deployment pins its encryption suite to
+# age/v1. A pinned id is honoured exactly; writing nothing, or
+# `suite: default`, keeps a deployment on the suite of its active managed
+# key and gives a deployment with no key the build's default (ADR 0033 D4).
+poll_interval: 15m
+
+state:
+  database: /var/lib/retnd/state.db
+
+retained_copy_encryption:
+  mode: required
+  suite: age/v1
+  key_provider:
+    managed: true
+
+sources:
+  - id: production
+    backup_sets:
+      - id: postgres-primary
+        remote:
+          type: local
+        remote_path: /srv/exports/postgres
+        local_path: /backups/production/postgres
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h

@@ -3,8 +3,8 @@ package sourceconsistency
 import (
 	"fmt"
 
-	"github.com/backupdproject/backupd/core/internal/backend"
-	"github.com/backupdproject/backupd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/backend"
+	"github.com/retnd/retnd/core/internal/model"
 )
 
 // This file is the projection Phase 0 promised and Phase 1 owes: the
@@ -56,10 +56,10 @@ import (
 var heldHashes = map[string][]string{
 	// The object store's md5 is a validator it already holds, so it costs
 	// a HEAD and not a GET. The caveat is per object rather than per
-	// backend - a multipart upload's ETag is a hash of hashes and not a
-	// content md5 - and Decide is what closes it: a policy whose premise
-	// is a remote hash, applied to an object that has none, reads the
-	// object.
+	// backend: a multipart upload's provider identifier is a hash of
+	// hashes, not a content md5. Decide closes that gap: a policy whose
+	// premise is a remote hash, applied to an object that has none, reads
+	// the object.
 	"s3": {"md5"},
 
 	// local_volume and sftp are deliberately absent. rclone can produce

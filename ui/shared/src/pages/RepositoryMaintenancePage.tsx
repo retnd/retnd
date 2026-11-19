@@ -13,7 +13,7 @@
  *
  * # Maintenance never touches a snapshot
  *
- * Every snapshot Backupd wrote is pinned, and only retention removes one.
+ * Every snapshot retnd wrote is pinned, and only retention removes one.
  * What maintenance removes is content nothing references any more, which
  * is why an overdue domain is a cost problem and not a data-loss one —
  * and why this page says so rather than letting "overdue" read as
@@ -29,6 +29,7 @@
  * schedule is working.
  */
 import { useApi } from "@shared/api/ApiContext";
+import { isNothingThereYet, nothingThereYetCopy } from "@shared/api/failure";
 import { Banner } from "@shared/components/Banner";
 import { Cell, CellGrid, Note, Row, Rows } from "@shared/components/Definitions";
 import { EmptyState, ErrorState } from "@shared/components/EmptyState";
@@ -60,6 +61,16 @@ export function RepositoryMaintenancePage() {
     />
   );
 
+  if (maintenance.error && isNothingThereYet(maintenance.error))
+    return (
+      <>
+        {header}
+        <EmptyState title="No repository domain yet">
+          {nothingThereYetCopy(maintenance.error)}
+        </EmptyState>
+      </>
+    );
+
   if (maintenance.error)
     return (
       <>
@@ -78,7 +89,7 @@ export function RepositoryMaintenancePage() {
 
       <Banner tone="info" dismissible={false}>
         <span style={{ fontSize: 13 }}>
-          {"Maintenance never touches a snapshot Backupd wrote: every one of them is pinned, and " +
+          {"Maintenance never touches a snapshot retnd wrote: every one of them is pinned, and " +
             "only retention removes them. What it removes is content nothing references any more."}
         </span>
       </Banner>

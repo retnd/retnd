@@ -32,8 +32,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/model"
 )
 
 // incrementalSet is a backup set resolved the way config.Validate resolves
@@ -138,7 +138,7 @@ func TestRunCycle_AnIncrementalSetNeverReachesTheArtifactPipeline(t *testing.T) 
 // loop alone.
 //
 // Fetch is not a shortcut into RunCycle: it calls reconcileOne, discoverOne
-// and processArtifacts itself. So `backupd fetch`, the fetch action on the
+// and processArtifacts itself. So `retnd fetch`, the fetch action on the
 // API and the button in the web UI were, until this guard, one operator
 // click away from walking an incremental set's source tree and offering
 // its files for deletion.

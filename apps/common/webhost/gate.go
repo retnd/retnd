@@ -112,3 +112,40 @@ type NotYetImplementedGate struct{}
 
 // Passed always reports false.
 func (NotYetImplementedGate) Passed() bool { return false }
+
+// gateShutReasonUntil92 is the reason the gate every shipped build has gives
+// for being shut: short enough to sit in a capability field and an audit
+// entry, and naming the issue whose work is the only thing that lifts it.
+const gateShutReasonUntil92 = "gate shut until #92"
+
+// Reason says why the gate is shut (issue #1165). It is a method on this
+// type rather than a field of DestructiveGate so that #92's own gate, when
+// it exists, can say something else, or nothing, without this package
+// having decided its vocabulary.
+func (NotYetImplementedGate) Reason() string { return gateShutReasonUntil92 }
+
+// gateReasoner is what a DestructiveGate may additionally implement to say
+// why it is shut. It is optional, and a gate that does not implement it is
+// reported shut with a generic reason, never silently open.
+type gateReasoner interface{ Reason() string }
+
+// gateStatus is the one place that turns a gate into the two strings the
+// wire and the audit entry both carry: "open" or "shut", and a short reason
+// (empty for open). A nil gate, and a gate that does not pass, are both shut,
+// by the same fail-closed rule destructiveGatePassed applies.
+//
+// It reads the gate every time it is called. A gate may change its answer
+// while the process runs, and a state read once at construction would go on
+// saying shut after it opened.
+func gateStatus(gate DestructiveGate) (state, reason string) {
+	if destructiveGatePassed(gate) {
+		return "open", ""
+	}
+	if r, ok := gate.(gateReasoner); ok && r.Reason() != "" {
+		return "shut", r.Reason()
+	}
+	if gate == nil {
+		return "shut", "no destructive gate is wired, so it fails closed"
+	}
+	return "shut", "the destructive gate has not passed"
+}

@@ -1,0 +1,81 @@
+# EPIC Q, Q1.4 (#982), pinned valid: a deployment-wide assurance block
+# (scrub cadence and strategy, a required recovery test with a validator,
+# and the host-scoped knobs that are global only) and four sets that
+# resolve it four ways: inheriting, turning the recovery test off, naming
+# a validator under mode required, and taking a cadence and validator of
+# its own under mode custom. A config carrying the assurance key is
+# refused outright by a build that predates it (Load's KnownFields(true)),
+# which is why this is the one-way-door fixture.
+poll_interval: 15m
+
+state:
+  database: /var/lib/retnd/state.db
+
+assurance:
+  scrub:
+    cadence: 72h
+    strategy: content
+  recovery_test:
+    mode: required
+    cadence: 360h
+    validator_id: generic-restore-check
+  staging_root: /var/lib/retnd/recovery-staging
+  staging_ttl: 12h
+  max_concurrent_full_reads: 3
+  max_per_destination: 2
+
+sources:
+  - id: production
+    backup_sets:
+      - id: inherits
+        remote:
+          type: local
+        remote_path: /srv/exports/inherits
+        local_path: /backups/production/inherits
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h
+      - id: opted-out
+        remote:
+          type: local
+        remote_path: /srv/exports/opted-out
+        local_path: /backups/production/opted-out
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h
+        assurance:
+          recovery_test:
+            mode: off
+      - id: own-validator
+        remote:
+          type: local
+        remote_path: /srv/exports/own-validator
+        local_path: /backups/production/own-validator
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h
+        assurance:
+          scrub:
+            cadence: 6h
+          recovery_test:
+            mode: required
+            validator_id: postgres-restore-check
+      - id: own-everything
+        remote:
+          type: local
+        remote_path: /srv/exports/own-everything
+        local_path: /backups/production/own-everything
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h
+        assurance:
+          scrub:
+            strategy: existence
+          recovery_test:
+            mode: custom
+            cadence: 48h
+            validator_id: media-restore-check

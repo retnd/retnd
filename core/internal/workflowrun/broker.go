@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/backupdproject/backupd/core/internal/workflow"
+	"github.com/retnd/retnd/core/internal/workflow"
 )
 
 // The log fan-out, and the one property it exists to guarantee: a slow or
@@ -58,10 +58,9 @@ const DefaultSubscriberQueue = 256
 // nil map, which is what the overwhelmingly common case (nobody watching)
 // costs.
 type Broker struct {
-	mu     sync.Mutex
-	next   uint64
-	subs   map[uint64]*Subscription
-	closed bool
+	mu   sync.Mutex
+	next uint64
+	subs map[uint64]*Subscription
 }
 
 // Subscription is one follower's live feed of one run.

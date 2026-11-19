@@ -28,7 +28,7 @@ const (
 	// <prefix>/workspace/workflow/<run>/<step>/.
 	WorkflowDirName = "workflow"
 
-	// TokenName is the installation-scoped credential, in backupd's
+	// TokenName is the installation-scoped credential, in retnd's
 	// secrets area beside the SSH key and the known_hosts file.
 	TokenName = "workflow-runner.token"
 )
@@ -40,7 +40,7 @@ const (
 // service account in a shared group (`users` on a Synology, `docker` on a
 // hobby host), so a group-readable working directory is a
 // world-readable-in-practice directory holding whatever a hook wrote into
-// BACKUPD_WORK_DIR -- which, for a database quiesce hook, is a dump.
+// RETND_WORK_DIR -- which, for a database quiesce hook, is a dump.
 const RuntimeDirMode os.FileMode = 0o700
 
 // ScriptFileMode is the mode of the runner-private copy of a step's
@@ -180,7 +180,7 @@ func (l Layout) RunDir(runID string) (string, error) {
 }
 
 // StepWorkDir is the private per-step working directory, exposed to the
-// hook as BACKUPD_WORK_DIR.
+// hook as RETND_WORK_DIR.
 func (l Layout) StepWorkDir(runID, stepID string) (string, error) {
 	run, err := l.RunDir(runID)
 	if err != nil {
@@ -196,7 +196,7 @@ func (l Layout) StepWorkDir(runID, stepID string) (string, error) {
 // read.
 //
 // It is a SIBLING of the working directory rather than a file inside it,
-// and that placement is the point: BACKUPD_WORK_DIR is the hook's, to
+// and that placement is the point: RETND_WORK_DIR is the hook's, to
 // write whatever it likes into, and a script living inside the directory
 // its own hook is rummaging around in is a script the hook can replace
 // while bash is still reading it.
@@ -335,7 +335,7 @@ func (l Layout) openWorkflowRoot() (*os.Root, error) {
 	if err != nil {
 		return nil, fmt.Errorf("hostrunner: this runner cannot open its workspace %s: %w", l.WorkspaceDir, err)
 	}
-	defer base.Close()
+	defer base.Close() //nolint:errcheck // read-only handle, closed after the lookups are done
 
 	if err := ensureDirAt(base, WorkflowDirName); err != nil {
 		return nil, err
@@ -411,7 +411,7 @@ func (l Layout) prepareStep(runID, stepID string, script []byte) (workDir, scrip
 	if err != nil {
 		return "", "", err
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck // read-only handle, closed after the lookups are done
 
 	if err := ensureDirAt(root, runID); err != nil {
 		return "", "", err
@@ -420,7 +420,7 @@ func (l Layout) prepareStep(runID, stepID string, script []byte) (workDir, scrip
 	if err != nil {
 		return "", "", fmt.Errorf("hostrunner: this runner cannot open the run directory %s: %w", runID, err)
 	}
-	defer run.Close()
+	defer run.Close() //nolint:errcheck // read-only handle, closed after the lookups are done
 
 	if err := ensureDirAt(run, stepID); err != nil {
 		return "", "", err
@@ -451,7 +451,7 @@ func (l Layout) removeStep(runID, stepID string) {
 	if err != nil {
 		return
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck // read-only handle, closed after the lookups are done
 
 	run, err := openDirAt(root, runID)
 	if err != nil {
@@ -459,7 +459,7 @@ func (l Layout) removeStep(runID, stepID string) {
 	}
 	_ = run.Remove(stepID + ScriptFileSuffix)
 	_ = run.RemoveAll(stepID)
-	run.Close()
+	_ = run.Close()
 
 	// Remove, not RemoveAll: it succeeds only when this was the run's
 	// last step, and leaves another step's directory alone.

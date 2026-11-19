@@ -1,0 +1,35 @@
+{
+  "schema": "retnd.local-gate/1",
+  "gate_tree": "53ee936bb511c50574d065083c2d5404ca2c9aba",
+  "head": "764a628c36862bad906f2c7f3775c0a851404a98",
+  "result": "ok",
+  "ledger": [],
+  "ledger_source": "log",
+  "started_at": "2026-11-18T04:59:14Z",
+  "duration_s": 6577,
+  "tools": {
+    "go": "go1.27.2",
+    "node": "v26.13.1",
+    "golangci_lint": "2.15.0",
+    "docker": "29.9.3"
+  },
+  "log_sha256": "89c4efbb30629a56456a5650a6183dc595be54649d06b922899e617869c8930b",
+  "web_ui_lane": {
+    "pin": "9a697fb1be7ba09957bf8868a21f85bf1cf71587",
+    "passed": 258,
+    "failed": 0,
+    "skipped": 93,
+    "listed_failures": 0,
+    "known_red_entries": 2,
+    "known_red_cap": 2,
+    "judged": "ok",
+    "problems": []
+  },
+  "env": {
+    "CI": "1",
+    "CI_LOCAL": "1",
+    "GOPATH": "/Users/rom/workspace/golang",
+    "VITEST_MAX_WORKERS": "3"
+  },
+  "note": "Written by scripts/release/record-local-gate.sh. gate_tree is scripts/release/gate-tree.sh over the recorded commit: its tree with this file and local-gate.log left out. require-release-gate in .github/workflows/release.yml recomputes it on the commit it publishes and refuses a mismatch."
+}

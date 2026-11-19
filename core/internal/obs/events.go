@@ -2,8 +2,9 @@ package obs
 
 import (
 	"context"
-	"github.com/backupdproject/backupd/core/cliecho"
+	"github.com/retnd/retnd/core/cliecho"
 	"log/slog"
+	"strings"
 	"time"
 )
 
@@ -190,7 +191,7 @@ const (
 
 	// EventAPIAction records one action somebody took through the
 	// /api/v1 surface: what was asked, by whom, what came back, and the
-	// `backupd` command that would have done the same thing
+	// `retnd` command that would have done the same thing
 	// (issue #599).
 	//
 	// It is the one event in this catalog that is not emitted by the
@@ -206,6 +207,23 @@ const (
 	// matters: a refusal is the case where an operator has nothing else
 	// to go on.
 	EventAPIAction = "api_action"
+
+	// EventAgentAction records one thing an agent did or was refused, or one
+	// confirmation of an agent's change changing state (EPIC U, #1348; FR-97).
+	//
+	// It is not EventAPIAction with a different actor. That event is what a
+	// request through /api/v1 did and has the route's command beside it; this
+	// one is about a token and a tool, and is the line an operator reads to
+	// answer "what is the agent doing". It is emitted for every mutating call,
+	// every refusal and every confirmation state change, always with a Result,
+	// and never for a read: the feed is bounded to 50,000 rows, reads are the
+	// bulk of an agent's traffic, and they have their own table
+	// (agent_audit) that is paged instead of trimmed.
+	//
+	// Confirmation states ride it as the state field: pending, approved,
+	// denied, expired. The line carries backup_set when the call concerns a
+	// set, so it lands on that set's strip.
+	EventAgentAction = "agent_action"
 
 	// EventSnapshotPhase records one incremental (EPIC K) snapshot run
 	// moving from one durable phase to another: the snapshot engine's
@@ -229,6 +247,49 @@ const (
 	// 100 GB tree as 100 GB uploaded -- and a log line with one byte
 	// count is the easiest place in the product to do it by accident.
 	EventSnapshotStats = "snapshot_stats"
+
+	// EventScrubPass records one finished scrub pass (EPIC Q, #978): how
+	// many copies it selected, checked, passed and failed, how many it
+	// skipped and why. It is ONE line per pass whatever the pass covered,
+	// because the durable feed is append-only and cursor-paged and a line per
+	// copy over a thousand due copies would be a volume decision made by
+	// accident. Per-copy progress is live-only.
+	EventScrubPass = "scrub_pass"
+
+	// EventScrubStart records the start of a scrub an operator asked for
+	// (Scrub now), carrying the operation id that request was answered
+	// with as op_id. A scheduled pass has no operation and writes none.
+	// With it a run is on the durable record from its first moment, so
+	// "what is that scrub doing" has an answer before the pass line, and
+	// for a pass that selects nothing (#1200).
+	EventScrubStart = "scrub_start"
+
+	// EventScrubFailure records one copy a scrub found wrong, or could not
+	// check. It is the only per-copy line a pass writes, and it exists for
+	// the copies an operator has to do something about.
+	EventScrubFailure = "scrub_failure"
+
+	// EventRecoveryTest records one finished recovery test (EPIC Q, #980):
+	// the newest known good copy of a backup set recovered to isolated
+	// staging, its bytes matched against the artifact's recorded digest, and
+	// the operator's validator run against them.
+	//
+	// It names the validator by the id the operator gave it, never by a
+	// path, and carries the digest gate's outcome and how the validator's
+	// process ended as fields of their own, because a pass and a validator
+	// that exited 0 are not the same claim. The validator's output is not on
+	// this line at all: it is untrusted terminal input, and the sanitised
+	// records a result carries are for the surfaces that render them.
+	EventRecoveryTest = "recovery_test"
+
+	// EventScrubUnknownObject records one object a destination holds at a key
+	// the journal has no placement for (QC-04). It is a finding, not a
+	// failure: no copy is wrong, and the scrub never touches the object.
+	EventScrubUnknownObject = "scrub_unknown_object"
+
+	// EventScrubUnlisted records a destination a scrub pass could not
+	// enumerate, so a quiet unknown-object count is never read as a clean one.
+	EventScrubUnlisted = "scrub_unlisted"
 
 	// EventWorkflowRunStart and EventWorkflowRunEnd bracket one EPIC L
 	// workflow run: the five-stage lifecycle internal/workflowrun drives
@@ -296,14 +357,84 @@ const (
 	// to (RemoteDelete, Retry, CycleEnd, ...) when one applies; reach for
 	// this only when none does.
 	EventError = "error"
+
+	// EventActivityPruneDeferred says the activity feed's prune lost the
+	// journal's connection to somebody else and will be tried again
+	// (#1247). It is a warning and not an error: nothing failed that a
+	// retry will not fix, and an alert keyed on "error" must not count it.
+	EventActivityPruneDeferred = "activity_prune_deferred"
+
+	// EventJournalSlowHold names a statement, cursor or transaction that
+	// kept the journal's one connection past state.SlowHoldThreshold, and
+	// how many callers waited behind it (#1247). It is what lets the next
+	// "context deadline exceeded" be traced to whatever held the journal.
+	EventJournalSlowHold = "journal_slow_hold"
+
+	// The four key-custody events are EPIC N's (#990), FR-23 catalog
+	// additions for the moments a managed encryption key's life changes.
+	// Each carries the key id and, for an export, the bundle digest; none
+	// can carry material, because the typed methods below take ids and
+	// digests and nothing else.
+
+	// EventKeyCreated records the first managed key being minted.
+	EventKeyCreated = "key_created"
+
+	// EventKeyRotated records a new active key superseding the previous
+	// one. Copies already written stay on the superseded key.
+	EventKeyRotated = "key_rotated"
+
+	// EventKeyBundleExported records a disaster-recovery bundle being
+	// written, with the digest a person later types back to confirm it.
+	EventKeyBundleExported = "key_bundle_exported"
+
+	// EventKeyBundleConfirmed records a person confirming they hold the
+	// bundle, which is what clears health.Report.KeyCustody's degraded
+	// state.
+	EventKeyBundleConfirmed = "key_bundle_confirmed"
+
+	// EventKeyRetired records a managed key leaving service (#992). It is
+	// only ever written after the journal has agreed that no ACTIVE copy
+	// records the key; a refusal is logged with ResultError and the
+	// refusal's own text goes to the caller.
+	EventKeyRetired = "key_retired"
+
+	// EventEncryptionDefaultSuiteChanged records the first cycle under a
+	// build whose default encryption suite differs from the one this
+	// deployment last ran under (EPIC T, #1314). It names both suite ids,
+	// once per change. It rotates nothing: a deployment with an active key
+	// keeps that key's suite (ADR 0033 D4).
+	EventEncryptionDefaultSuiteChanged = "encryption_default_suite_changed"
+
+	// The four stage events are EPIC N's (#992, FR-23 catalog additions) for
+	// the moments an encrypted copy passes a stage. They are emitted ONCE per
+	// copy per stage, on completion, with a Result, and never per chunk: the
+	// activity feed is append-only and cursor-paged, so a row per 64 KiB
+	// chunk of a multi-terabyte artifact would bury every other row in it.
+	// Each names the copy by artifact and medium and nothing else about the
+	// bytes; only the decrypt-verify also names the key id.
+
+	// EventCopyEncrypting is the encrypting pass into staging finishing.
+	EventCopyEncrypting = "copy_encrypting"
+
+	// EventCopyUploadingEncrypted is the upload of the staged ciphertext
+	// finishing.
+	EventCopyUploadingEncrypted = "copy_uploading_encrypted"
+
+	// EventCopyVerifyingStored is the stored bytes at the key having been
+	// read back and measured (the stored-bytes digest and size).
+	EventCopyVerifyingStored = "copy_verifying_stored"
+
+	// EventCopyDecryptVerifying is the decrypt-verify of the plaintext
+	// against the artifact's digest finishing.
+	EventCopyDecryptVerifying = "copy_decrypt_verifying"
 )
 
 // Startup logs EventStartup: binaryVersion and commit are normally the
-// values cmd/backupd's main.go already sets via -ldflags (default
+// values cmd/retnd's main.go already sets via -ldflags (default
 // "dev" / "none" in a non-release build), and goVersion is typically
 // runtime.Version(). None of these are secret; they exist to make "which
 // build is this" answerable from a log line alone, without shelling into
-// the host to run `backupd version`.
+// the host to run `retnd version`.
 func (l *Logger) Startup(ctx context.Context, binaryVersion, commit, goVersion string) {
 	l.emit(ctx, LevelInfo, EventStartup, cliecho.Binary+" starting",
 		slog.String("version", binaryVersion),
@@ -734,6 +865,27 @@ func (l *Logger) Error(ctx context.Context, op string, err error) {
 	)
 }
 
+// ActivityPruneDeferred logs EventActivityPruneDeferred at LevelWarn: the
+// activity feed's prune missed its deadline with err and is tried again in
+// retryIn.
+func (l *Logger) ActivityPruneDeferred(ctx context.Context, err error, retryIn time.Duration) {
+	l.emit(ctx, LevelWarn, EventActivityPruneDeferred, "activity events prune deferred",
+		slog.String("op", "activity_events_prune"),
+		slog.String("error", err.Error()),
+		slog.Duration("retry_in", retryIn),
+	)
+}
+
+// JournalSlowHold logs EventJournalSlowHold at LevelWarn: op kept the
+// journal's connection for held while waiters callers queued behind it.
+func (l *Logger) JournalSlowHold(ctx context.Context, op string, held time.Duration, waiters int64) {
+	l.emit(ctx, LevelWarn, EventJournalSlowHold, "journal connection held",
+		slog.String("op", op),
+		slog.Int64("held_ms", held.Milliseconds()),
+		slog.Int64("waiters", waiters),
+	)
+}
+
 // WorkflowRunStart logs EventWorkflowRunStart: one workflow run
 // beginning, over backupSet, with scripts hook scripts planned.
 //
@@ -884,5 +1036,294 @@ func (l *Logger) WorkflowBypassed(ctx context.Context, runID, backupSet, actor s
 		slog.String("backup_set", backupSet),
 		slog.String("actor", actor),
 		slog.Int("scripts", scripts),
+	)
+}
+
+// ScrubPassCounts is what one scrub pass did, as counts. It names no copy.
+type ScrubPassCounts struct {
+	// Trigger is "schedule" or "manual".
+	Trigger string
+	// Scope is what the pass was asked to cover, in words.
+	Scope string
+	// OpID is the operation id an operator's "scrub now" was answered with,
+	// or empty for a scheduled pass. When set it rides on the line as op_id,
+	// which is how the durable activity record finds the pass again by that
+	// id once the live feed has dropped it (#1200).
+	OpID string
+	// Cancelled says the pass stopped because its operation was cancelled,
+	// so the counts are of what ran before the stop.
+	Cancelled bool
+
+	Selected, Checked, Passed, Failed, CouldNotComplete, RequiresRestore int
+	SkippedHeld, SkippedLeased                                           int
+	BytesRead                                                            int64
+}
+
+// ScrubPass logs EventScrubPass. A pass that found a failure, could not
+// complete a check, or skipped a copy it was due to scrub completed with
+// something in it worth an operator's attention, so it is a warn: the scrub
+// did its job, which is not an error, and a skip must never read as success.
+func (l *Logger) ScrubPass(ctx context.Context, c ScrubPassCounts) {
+	result := ResultSuccess
+	if c.Failed > 0 || c.CouldNotComplete > 0 || c.SkippedHeld > 0 || c.SkippedLeased > 0 {
+		result = ResultWarn
+	}
+	attrs := []slog.Attr{
+		slog.String("trigger", c.Trigger),
+		slog.String("scope", scrubText(c.Scope)),
+	}
+	if c.OpID != "" {
+		attrs = append(attrs, slog.String("op_id", c.OpID))
+	}
+	attrs = append(attrs,
+		slog.Int("selected", c.Selected),
+		slog.Int("checked", c.Checked),
+		slog.Int("passed", c.Passed),
+		slog.Int("failed", c.Failed),
+		slog.Int("could_not_complete", c.CouldNotComplete),
+		slog.Int("requires_restore", c.RequiresRestore),
+		slog.Int("skipped_held", c.SkippedHeld),
+		slog.Int("skipped_leased", c.SkippedLeased),
+		slog.Int64("bytes_read", c.BytesRead),
+	)
+	if c.Cancelled {
+		attrs = append(attrs, slog.Bool("cancelled", true))
+	}
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventScrubPass, "scrub pass complete", attrs...)
+}
+
+// ScrubStartInfo says what a scrub an operator started is about to do.
+type ScrubStartInfo struct {
+	Trigger, Scope string
+	// OpID is the operation id the request was answered with.
+	OpID string
+}
+
+// ScrubStart logs EventScrubStart for a scrub now.
+func (l *Logger) ScrubStart(ctx context.Context, i ScrubStartInfo) {
+	l.emitMarked(ctx, LevelInfo, mark{}, EventScrubStart, "scrub starting",
+		slog.String("trigger", i.Trigger),
+		slog.String("scope", scrubText(i.Scope)),
+		slog.String("op_id", i.OpID),
+	)
+}
+
+// ScrubFailureInfo is one copy a scrub found wrong or could not check.
+type ScrubFailureInfo struct {
+	// OpID is the operation id of a pass an operator started, which rides
+	// on the line as op_id (#1200). A scheduled pass has none and its line
+	// carries none.
+	OpID     string
+	Artifact string
+	Medium   string
+	// Class is the class that ran, never the class asked for.
+	Class  string
+	Reason string
+}
+
+// ScrubFailure logs EventScrubFailure for one copy.
+func (l *Logger) ScrubFailure(ctx context.Context, f ScrubFailureInfo) {
+	attrs := []slog.Attr{
+		slog.String("artifact", f.Artifact),
+		slog.String("medium", f.Medium),
+		slog.String("class", f.Class),
+		slog.String("reason", scrubText(f.Reason)),
+	}
+	if f.OpID != "" {
+		attrs = append(attrs, slog.String("op_id", f.OpID))
+	}
+	l.emitMarked(ctx, ResultWarn.Level(), mark{result: ResultWarn}, EventScrubFailure, "scrub found a copy wrong or could not check it", attrs...)
+}
+
+// ScrubUnknownObject logs EventScrubUnknownObject for one object.
+func (l *Logger) ScrubUnknownObject(ctx context.Context, set, medium, key string, size int64) {
+	l.emitMarked(ctx, ResultWarn.Level(), mark{result: ResultWarn}, EventScrubUnknownObject, "a destination holds an object the journal does not know",
+		slog.String("set", set),
+		slog.String("medium", medium),
+		slog.String("key", scrubText(key)),
+		slog.Int64("size", size),
+	)
+}
+
+// ScrubUnlisted logs EventScrubUnlisted for one destination.
+func (l *Logger) ScrubUnlisted(ctx context.Context, set, medium, reason string) {
+	l.emitMarked(ctx, ResultWarn.Level(), mark{result: ResultWarn}, EventScrubUnlisted, "a scrub could not list a destination",
+		slog.String("set", set),
+		slog.String("medium", medium),
+		slog.String("reason", scrubText(reason)),
+	)
+}
+
+// scrubText makes free text safe for a structured field: control bytes
+// become spaces and the length is bounded. The reason comes from checks that
+// wrap filesystem and storage errors, and a log line is read in terminals.
+func scrubText(s string) string {
+	const max = 512
+	b := make([]rune, 0, len(s))
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
+			r = ' '
+		}
+		b = append(b, r)
+		if len(b) >= max {
+			break
+		}
+	}
+	return string(b)
+}
+
+// RecoveryTestFacts is what a finished recovery test says about itself,
+// restricted to values that are safe in a structured field.
+type RecoveryTestFacts struct {
+	Artifact string
+	Medium   string
+	// PlacementID is the copy's row id in the journal.
+	PlacementID int64
+	// State is one of internal/state's Recovery* values.
+	State string
+	// DigestMatched is "matched", "mismatched" or "not_compared".
+	DigestMatched string
+	// ValidatorID is the operator's name for the validator, never a path.
+	ValidatorID string
+	// Termination says how the validator's process ended.
+	Termination string
+	// Cleanup is "removed", "failed" or empty when nothing was staged.
+	Cleanup         string
+	OutputTruncated bool
+	Reason          string
+}
+
+// recoveryTestMessage words the closing line by what happened, so a line
+// that sits above state=not_configured never reads as a pass.
+func recoveryTestMessage(st string) string {
+	switch st {
+	case "passed":
+		return "recovery test passed"
+	case "failed":
+		return "recovery test failed"
+	case "not_configured", "never_run":
+		return "recovery test not run"
+	}
+	return "recovery test did not complete"
+}
+
+// RecoveryTest logs EventRecoveryTest. A pass is a success; a failure is a
+// warn (the test did its job and found the copy unusable); a refusal or an
+// attempt that could not complete is a warn too, because "nobody looked" must
+// not read as nothing wrong. A cleanup failure upgrades the line to a warn
+// even on a pass: the claim is fine and a disk is filling.
+func (l *Logger) RecoveryTest(ctx context.Context, f RecoveryTestFacts) {
+	result := ResultWarn
+	if f.State == "passed" && f.Cleanup != "failed" {
+		result = ResultSuccess
+	}
+	if f.State == "not_configured" || f.State == "never_run" {
+		result = ResultInfo
+	}
+	msg := recoveryTestMessage(f.State)
+	if f.State == "passed" && builtinID(f.ValidatorID) {
+		// A pass under the product's own identity proves the file decodes, not
+		// that the operator's validator accepted it (#1111). The state field
+		// above still says passed.
+		msg = "recovered and readable: " + scrubText(f.Artifact) + " (built-in check)"
+	}
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventRecoveryTest, msg,
+		slog.String("artifact", f.Artifact),
+		slog.String("medium", f.Medium),
+		slog.Int64("placement_id", f.PlacementID),
+		slog.String("state", f.State),
+		slog.String("digest", f.DigestMatched),
+		slog.String("validator", scrubText(f.ValidatorID)),
+		slog.String("termination", f.Termination),
+		slog.String("cleanup", f.Cleanup),
+		slog.Bool("output_truncated", f.OutputTruncated),
+		slog.String("reason", scrubText(f.Reason)),
+	)
+}
+
+// builtinID says whether a validator id is the product's own built-in check
+// (config's reserved retnd- prefix, which obs cannot import).
+func builtinID(id string) bool { return strings.HasPrefix(id, "retnd-") }
+
+// KeyCreated logs EventKeyCreated for the managed key keyID. The result
+// says whether the mint completed; a refused mint (a key already active, a
+// directory whose custody drifted) is ResultError with the refusal in the
+// caller's own error path, never here.
+func (l *Logger) KeyCreated(ctx context.Context, keyID string, result Result) {
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventKeyCreated, "managed encryption key created",
+		slog.String("key_id", keyID),
+	)
+}
+
+// KeyRotated logs EventKeyRotated: keyID is now active and previousKeyID is
+// superseded.
+func (l *Logger) KeyRotated(ctx context.Context, previousKeyID, keyID string, result Result) {
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventKeyRotated, "managed encryption key rotated",
+		slog.String("previous_key_id", previousKeyID),
+		slog.String("key_id", keyID),
+	)
+}
+
+// KeyBundleExported logs EventKeyBundleExported for keyID with the bundle's
+// integrity digest. The digest is not secret and belongs here: it is what
+// lets an operator match the bundle in their hand to the export the log
+// records.
+func (l *Logger) KeyBundleExported(ctx context.Context, keyID, digest string, result Result) {
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventKeyBundleExported, "encryption key recovery bundle exported",
+		slog.String("key_id", keyID),
+		slog.String("digest", digest),
+	)
+}
+
+// KeyBundleConfirmed logs EventKeyBundleConfirmed for keyID.
+func (l *Logger) KeyBundleConfirmed(ctx context.Context, keyID string, result Result) {
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventKeyBundleConfirmed, "encryption key recovery bundle confirmed",
+		slog.String("key_id", keyID),
+	)
+}
+
+// EncryptionDefaultSuiteChanged logs EventEncryptionDefaultSuiteChanged:
+// the build default moved from previous to current. Both are suite ids,
+// never anything about a key.
+func (l *Logger) EncryptionDefaultSuiteChanged(ctx context.Context, previous, current string, result Result) {
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventEncryptionDefaultSuiteChanged, "the build's default encryption suite changed; no key was rotated",
+		slog.String("previous_suite", previous),
+		slog.String("suite", current),
+	)
+}
+
+// KeyRetired logs EventKeyRetired for keyID.
+func (l *Logger) KeyRetired(ctx context.Context, keyID string, result Result) {
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventKeyRetired, "managed encryption key retired",
+		slog.String("key_id", keyID),
+	)
+}
+
+// CopyEncrypting logs EventCopyEncrypting for the copy of artifact on medium.
+func (l *Logger) CopyEncrypting(ctx context.Context, artifact, medium string, result Result) {
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventCopyEncrypting, "encrypted copy: encrypting",
+		slog.String("artifact", artifact), slog.String("medium", medium),
+	)
+}
+
+// CopyUploadingEncrypted logs EventCopyUploadingEncrypted.
+func (l *Logger) CopyUploadingEncrypted(ctx context.Context, artifact, medium string, result Result) {
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventCopyUploadingEncrypted, "encrypted copy: uploading",
+		slog.String("artifact", artifact), slog.String("medium", medium),
+	)
+}
+
+// CopyVerifyingStored logs EventCopyVerifyingStored.
+func (l *Logger) CopyVerifyingStored(ctx context.Context, artifact, medium string, result Result) {
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventCopyVerifyingStored, "encrypted copy: verifying stored bytes",
+		slog.String("artifact", artifact), slog.String("medium", medium),
+	)
+}
+
+// CopyDecryptVerifying logs EventCopyDecryptVerifying. keyID is the id of the
+// key the copy was opened with, an identifier and never material.
+func (l *Logger) CopyDecryptVerifying(ctx context.Context, artifact, medium, keyID string, result Result) {
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventCopyDecryptVerifying, "encrypted copy: decrypt-verifying",
+		slog.String("artifact", artifact), slog.String("medium", medium), slog.String("key_id", keyID),
 	)
 }

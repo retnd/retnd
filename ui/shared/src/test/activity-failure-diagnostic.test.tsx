@@ -1,10 +1,10 @@
 /**
  * Issue #598. The Activity page failing on a real NAS with nothing but
- * "Backupd could not complete that request." and "correlation id
+ * "retnd could not complete that request." and "correlation id
  * unavailable" under it.
  *
  * Every case here drives the same shape: `listActivity` rejects with an
- * exception that is NOT a `BackupdError`, which is what a dropped
+ * exception that is NOT a `RetndError`, which is what a dropped
  * connection, a truncated body and a mapper that threw all look like from
  * a page's side. What is asserted is never that the page failed. It is
  * that what reaches the operator names something: the exception's own
@@ -61,7 +61,6 @@ const SET: BackupSet = {
   username: "backup-agent",
   remoteFolder: "/backups/postgresql/",
   includePatterns: ["*.dump.zst"],
-  excludePatterns: ["*.tmp"],
   completionMethod: "completion-marker",
   stableForSeconds: 0,
   destination: "/data/backups/production/postgres/",
@@ -171,24 +170,48 @@ describe("the Activity page says what actually failed", () => {
     expect(noAnswer).toContain("Failed to fetch");
   });
 
-  it("offers a copy button, and says so when the browser has no clipboard", async () => {
-    renderActivity(unreadableBody());
-    await act(async () => {});
+  // retnd#1049. Every NAS deployment is a plain-http LAN origin, where
+  // navigator.clipboard does not exist. Copy details used to give up
+  // there; it now fails over to execCommand("copy"), then to selecting
+  // the details, and only says "Copied" when something was copied.
+  describe("Copy details on an origin with no async clipboard", () => {
+    const savedExec = document.execCommand;
+    afterEach(() => {
+      document.execCommand = savedExec;
+    });
 
-    const copy = screen.getByRole("button", { name: /copy details/i });
-    // Every NAS deployment on a plain http:// origin: navigator.clipboard
-    // is not defined at all, so a button whose entire job is getting a
-    // diagnostic off the screen has to say it could not rather than look
-    // like it worked.
-    await userEvent.click(copy);
-    await act(async () => {});
-    expect(screen.getByText(/could not copy/i)).toBeTruthy();
+    it("copies through the execCommand fallback and says Copied", async () => {
+      const exec = vi.fn(() => true);
+      document.execCommand = exec as unknown as typeof document.execCommand;
+      renderActivity(unreadableBody());
+      await act(async () => {});
+
+      await userEvent.click(screen.getByRole("button", { name: /copy details/i }));
+      await act(async () => {});
+
+      expect(exec).toHaveBeenCalledWith("copy");
+      expect(screen.getByText("Copied")).toBeTruthy();
+      expect(screen.queryByText(/could not copy/i)).toBeNull();
+    });
+
+    it("selects the details and says to press Ctrl+C when the copy command is refused", async () => {
+      document.execCommand = vi.fn(() => false) as unknown as typeof document.execCommand;
+      renderActivity(unreadableBody());
+      await act(async () => {});
+
+      await userEvent.click(screen.getByRole("button", { name: /copy details/i }));
+      await act(async () => {});
+
+      expect(screen.getByText(/press ctrl\+c/i)).toBeTruthy();
+      expect(screen.queryByText("Copied")).toBeNull();
+      expect(window.getSelection()?.toString() ?? "").not.toBe("");
+    });
   });
 
   it("still keeps a typed refusal's own message and correlation id", async () => {
-    const { BackupdError } = await import("@shared/api/contracts");
+    const { RetndError } = await import("@shared/api/contracts");
     renderActivity(
-      new BackupdError({ code: "INTERNAL", message: "failed to list activity", correlationId: "cid_real42" })
+      new RetndError({ code: "INTERNAL", message: "failed to list activity", correlationId: "cid_real42" })
     );
     await act(async () => {});
 
@@ -229,7 +252,9 @@ describe("the dashboard's Recent activity panel does not swallow the same failur
     );
     await act(async () => {});
 
-    const panel = screen.getByRole("region", { name: "Recent activity" });
+    // The panel waits for the assurance claims above it to settle (#1428), so a
+    // feed with nothing in it is found once they have, not on the first tick.
+    const panel = await screen.findByRole("region", { name: "Recent activity" }, { timeout: 4500 });
     expect(within(panel).queryByRole("alert")).toBeNull();
   });
 });

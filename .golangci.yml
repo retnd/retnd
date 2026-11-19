@@ -81,6 +81,13 @@ linters:
         linters:
           - staticcheck
         text: "SA5002"
+      # The production end-to-end harness's selfDestruct is the same
+      # function again, with the same trailing `for {}` and the same
+      # explanation in its doc comment.
+      - path: tests/e2eproduction/harness/main.go
+        linters:
+          - staticcheck
+        text: "SA5002"
       # webui.go's package doc discusses the go:embed directive in prose
       # ("go:embed cannot reach outside its own package's module tree"),
       # it isn't an attempted directive with a stray space before it —

@@ -9,7 +9,7 @@
 // disappear from the repository's own storage?
 //
 // The last one is the criterion the issue states as "repository pack files
-// are never directly pruned by backupd", and it is asserted as a
+// are never directly pruned by retnd", and it is asserted as a
 // directory-level fact: every blob file present before the pass is present
 // after it. Nothing weaker would do. A pass that deleted a manifest AND
 // the packs its content lived in would satisfy every assertion in
@@ -33,12 +33,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
-	"github.com/backupdproject/backupd/core/internal/backupengine/kopia"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/secretref"
-	"github.com/backupdproject/backupd/core/internal/snapshotretention"
-	"github.com/backupdproject/backupd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/backupengine/kopia"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/secretref"
+	"github.com/retnd/retnd/core/internal/snapshotretention"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // heldFileName and heldFileBody are what the restore has to hand back. A

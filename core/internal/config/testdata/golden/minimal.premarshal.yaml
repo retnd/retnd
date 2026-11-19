@@ -1,6 +1,6 @@
 poll_interval: 15m0s
 state:
-    database: /var/lib/backupd/state.db
+    database: /var/lib/retnd/state.db
 sources:
     - id: production
       backup_sets:
@@ -19,7 +19,7 @@ sources:
                     file: ""
                     env: ""
                     command: []
-            known_hosts: /etc/backupd/known_hosts
+            known_hosts: /etc/retnd/known_hosts
           remote_path: /backups/postgres
           local_path: /backups/production/postgres
           include: []

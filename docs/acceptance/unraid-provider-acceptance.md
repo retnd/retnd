@@ -19,9 +19,9 @@ cannot reach.
 ## The one structural thing to understand first
 
 Unraid's Docker template model describes exactly **one** container per template.
-The canonical image needs **two**: `/backupd-web serve` (the engine: API,
+The canonical image needs **two**: `/retnd-web serve` (the engine: API,
 scheduler, local authentication, no published port) and
-`/backupd-web serve-ui` (the static UI plus a reverse proxy, the only
+`/retnd-web serve-ui` (the static UI plus a reverse proxy, the only
 published port). There is no single command that does both, by design, so the
 package ships two templates.
 
@@ -38,14 +38,12 @@ it. If you skip it, the UI container starts, serves the static bundle, and then
 
 ### 0.1 Make the canonical image resolvable
 
-`ghcr.io/backupdproject/backupd:0.4.0` is cut but not pushed yet:
-`distribution/packaging/canonical.json` records `image.published: false`, and
-`container/release-manifest.json` carries a `registry_digest` of `null` per
-architecture. So the reference does not resolve from the registry today, and the
-steps below are how you make it resolve, by pushing a build to a registry this host
-can reach or building elsewhere and loading it. The previous release,
-`ghcr.io/backupdproject/backupd:0.3.3`, stays published and signed if you would
-rather run that. Either push to your own registry:
+The canonical reference is `ghcr.io/retnd/retnd:0.8.0`.
+`distribution/packaging/canonical.json` and
+`container/release-manifest.json` jointly record whether it has been published:
+`image.published: true` requires an index digest and one registry digest per
+architecture. If those records still say `false` and `null`, the reference does
+not resolve yet. Push a build to a registry this host can reach:
 
 ```bash
 docker buildx build \
@@ -53,29 +51,29 @@ docker buildx build \
   --build-arg VERSION="$(git describe --tags --always)" \
   --build-arg COMMIT="$(git rev-parse HEAD)" \
   -f container/Dockerfile \
-  -t <your-registry>/backupd:<version> \
+  -t <your-registry>/retnd:<version> \
   --push .
 ```
 
 or side-load, and edit `Repository` in the Unraid template editor at install time:
 
 ```bash
-docker save backupd:<version> | gzip > backupd.tar.gz
-scp backupd.tar.gz root@<unraid>:/mnt/user/
-ssh root@<unraid> 'gunzip -c /mnt/user/backupd.tar.gz | docker load'
+docker save retnd:<version> | gzip > retnd.tar.gz
+scp retnd.tar.gz root@<unraid>:/mnt/user/
+ssh root@<unraid> 'gunzip -c /mnt/user/retnd.tar.gz | docker load'
 ```
 
-- Canonical image resolvable on the NAS, reference recorded
+- [ ] Canonical image resolvable on the NAS, reference recorded
 
 ### 0.2 Create the user-defined network
 
 ```bash
-docker network create backupd
-docker network inspect backupd --format '{{.Driver}} {{.Name}}'
+docker network create retnd
+docker network inspect retnd --format '{{.Driver}} {{.Name}}'
 ```
 
-- A user-defined bridge network named `backupd` exists
-- It appears in the **Network Type** dropdown in Unraid's Docker template editor
+- [ ] A user-defined bridge network named `retnd` exists
+- [ ] It appears in the **Network Type** dropdown in Unraid's Docker template editor
 
 ### 0.3 Create the appdata and backup shares
 
@@ -84,25 +82,25 @@ Host-path defaults come from `distribution/packaging/canonical.json`
 and the Unraid frontend bridge already declare:
 
 ```bash
-mkdir -p /mnt/user/appdata/backupd/{state,config,secrets}
-mkdir -p /mnt/user/backups/backupd
-chmod 700 /mnt/user/appdata/backupd/secrets
+mkdir -p /mnt/user/appdata/retnd/{state,config,secrets}
+mkdir -p /mnt/user/backups/retnd
+chmod 700 /mnt/user/appdata/retnd/secrets
 ```
 
-`/mnt/user/backups` must be a real user share Backupd can write to, not a
+`/mnt/user/backups` must be a real user share retnd can write to, not a
 directory inside appdata. Appdata holds the catalog database; the share holds
 retained backup data. §19.2 makes those two separate security domains, and the
 whole removal criterion below depends on them being separate.
 
-The backup root is `backupd` **inside** that share, not the share itself.
+The backup root is `retnd` **inside** that share, not the share itself.
 `backups` is one of the likeliest names for a share you already use for something
 else, and this procedure creates directories, owns them and later checks nothing
 outside them changed. Keeping the app inside a directory of its own means every
 one of those steps only ever touches paths this procedure created.
 
-- `appdata/backupd/{state,config,secrets}` exist
-- A `backups` user share exists and is writable
-- `backups/backupd` exists and was created by this step
+- [ ] `appdata/retnd/{state,config,secrets}` exist
+- [ ] A `backups` user share exists and is writable
+- [ ] `backups/retnd` exists and was created by this step
 
 ### 0.4 Own them by the uid/gid the app runs as
 
@@ -112,8 +110,8 @@ nothing inside the container can chown these for you at startup.
 Unraid's conventional account is `99:100` (`nobody:users`):
 
 ```bash
-chown -R 99:100 /mnt/user/appdata/backupd
-chown 99:100 /mnt/user/backups/backupd
+chown -R 99:100 /mnt/user/appdata/retnd
+chown 99:100 /mnt/user/backups/retnd
 ```
 
 Only paths this procedure created, and the backup root non-recursively. A
@@ -122,13 +120,13 @@ any other tool has ever put in that share, is not reversible without an ownershi
 record nobody took, and crawls the `/mnt/user` FUSE layer for as long as that
 takes. On a reinstall the same command would rewrite the retained backup store.
 
-- `PUID`/`PGID` chosen and recorded
-- appdata tree and `backups/backupd` owned by that uid/gid
-- Nothing else in the `backups` share had its ownership changed
+- [ ] `PUID`/`PGID` chosen and recorded
+- [ ] appdata tree and `backups/retnd` owned by that uid/gid
+- [ ] Nothing else in the `backups` share had its ownership changed
 
 ### 0.5 Create the SSH key, the pinned known_hosts, and the config
 
-> **This step is packaging debt now, not engine behavior.** As of the
+> **This step is packaging debt now, not engine behavior.** As of issue #176 the
 > engine no longer needs a configuration to start: an instance with no
 > `config.yaml` serves a first-run setup flow, in the web UI, that writes one
 > for you. What still blocks that here is the package. The config is
@@ -137,105 +135,105 @@ takes. On a reinstall the same command would rewrite the retained backup store.
 > missing source gets a directory created for it). Until the packaged config
 > mount becomes a writable **directory**, this platform keeps the hand-written
 > config, and this step keeps its shell commands for that reason and no other.
-> That same mount is already what makes the existing create-backup-set
-> and settings write paths inert in a packaged container, so it is one
+> That same mount is already what makes the existing create-backup-set (#146)
+> and settings (#140) write paths inert in a packaged container, so it is one
 > packaging fix for three things.
 >
 > Nothing else here survives that fix: once the mount is writable, the key is
-> pasted into the setup flow's Authentication step, the host key is probed and
-> confirmed on its Verify server step, and no `config.yaml` is written by hand
+> pasted into the setup flow's Connection test step, the host key is probed and
+> confirmed on that same step, and no `config.yaml` is written by hand
 > at all.
 
-`/backupd-web serve` starts without a `config.yaml` and serves the
-first-run setup flow instead, but a config file that EXISTS and does not
+`/retnd-web serve` starts without a `config.yaml` and serves the
+first-run setup flow instead (#176), but a config file that EXISTS and does not
 validate is still a hard startup failure. Given the read-only mount above, create
 all three before the first start.
 
-**What still requires this step, precisely.** The configuration mount is
+**What still requires this step, precisely (issue #196).** The configuration mount is
 now a writable directory the application owns, so the container can create and replace
 `config.yaml` itself, and an empty directory is a legitimate state rather than a broken
 deployment. Two things nonetheless keep this step here. The directory itself must exist
 and be owned by the app's uid/gid before the first start, because a bind mount does not
-create or chown its source. And `/backupd-web serve` still refuses to start
+create or chown its source. And `/retnd-web serve` still refuses to start
 without a valid config: removing that refusal, and serving a first-run flow instead, is
-'s work and is not merged. Once it is, everything below except creating and owning
+#176's work and is not merged. Once it is, everything below except creating and owning
 the directory becomes optional.
 
 ```bash
-ssh-keygen -t ed25519 -N '' -f /mnt/user/appdata/backupd/secrets/id_ed25519
-ssh-keyscan -t ed25519 <your-sftp-host> > /mnt/user/appdata/backupd/secrets/known_hosts
-chmod 600 /mnt/user/appdata/backupd/secrets/id_ed25519
-chown 99:100 /mnt/user/appdata/backupd/secrets/*
+ssh-keygen -t ed25519 -N '' -f /mnt/user/appdata/retnd/secrets/id_ed25519
+ssh-keyscan -t ed25519 <your-sftp-host> > /mnt/user/appdata/retnd/secrets/known_hosts
+chmod 600 /mnt/user/appdata/retnd/secrets/id_ed25519
+chown 99:100 /mnt/user/appdata/retnd/secrets/*
 ```
 
 Verify the host key fingerprint out of band. Then write
-`/mnt/user/appdata/backupd/config/config.yaml` using the annotated example
+`/mnt/user/appdata/retnd/config/config.yaml` using the annotated example
 in `apps/unraid/README.md`.
 
 **Never commit the private key, the config, or any transcript containing them.**
 
-- Key pair generated, mode 0600, owned by `PUID:PGID`
-- `known_hosts` pinned, fingerprint verified out of band
-- `/mnt/user/appdata/backupd/config` exists and is **writable** by `PUID:PGID`
-- `config.yaml` written inside it and readable by `PUID:PGID`
+- [ ] Key pair generated, mode 0600, owned by `PUID:PGID`
+- [ ] `known_hosts` pinned, fingerprint verified out of band
+- [ ] `/mnt/user/appdata/retnd/config` exists and is **writable** by `PUID:PGID`
+- [ ] `config.yaml` written inside it and readable by `PUID:PGID`
 
 ---
 
 ## Step 1 — Install the engine template
 
-1. Copy `apps/unraid/template/backupd.xml` to
-   `/boot/config/plugins/dockerMan/templates-user/my-backupd.xml` on the
+1. Copy `apps/unraid/template/retnd.xml` to
+   `/boot/config/plugins/dockerMan/templates-user/my-retnd.xml` on the
    Unraid flash drive.
-2. **Docker → Add Container**, and pick `backupd` from the
+2. **Docker → Add Container**, and pick `retnd` from the
    **user templates** section of the template dropdown.
 3. Check every mapping against step 0's paths and the defaults the template
    supplied. Change nothing you did not have to.
 4. Apply.
 
-- The template loads in the editor with no missing or blank required field
-- Every `Config` element renders with the right type (Port, Path, Variable)
+- [ ] The template loads in the editor with no missing or blank required field
+- [ ] Every `Config` element renders with the right type (Port, Path, Variable)
       and the right default
-- The container starts
-- It reaches Docker health **healthy** (it inherits the image's own
-      `HEALTHCHECK`, `/backupd status`, which is the right answer here:
+- [ ] The container starts
+- [ ] It reaches Docker health **healthy** (it inherits the image's own
+      `HEALTHCHECK`, `/retnd status`, which is the right answer here:
       an Unraid template declares no start-ordering dependency, so nothing waits
       on this verdict and it is the backup-freshness badge FR-24 means it to be.
       On a fresh install it will be red until the first backup lands)
-- It has **no published port** (`docker port <engine>` prints nothing)
-- It is attached to the `backupd` network
+- [ ] It has **no published port** (`docker port <engine>` prints nothing)
+- [ ] It is attached to the `retnd` network
 
 ---
 
 ## Step 2 — Install the Web UI template
 
-1. Copy `apps/unraid/template/backupd-ui.xml` to
-   `/boot/config/plugins/dockerMan/templates-user/my-backupd-ui.xml`.
-2. **Docker → Add Container**, pick `backupd-ui`.
+1. Copy `apps/unraid/template/retnd-ui.xml` to
+   `/boot/config/plugins/dockerMan/templates-user/my-retnd-ui.xml`.
+2. **Docker → Add Container**, pick `retnd-ui`.
 3. Apply.
 
-- The container starts and reaches Docker health **healthy** via its own
-      `/backupd-web healthcheck` override, not the image's
-      `/backupd status` (which would fail: this container has no config
+- [ ] The container starts and reaches Docker health **healthy** via its own
+      `/retnd-web healthcheck` override, not the image's
+      `/retnd status` (which would fail: this container has no config
       file and no state database)
-- It publishes exactly one port
-- It is attached to the `backupd` network
-- It has **no** volume mappings at all: it never reads the config, the key,
+- [ ] It publishes exactly one port
+- [ ] It is attached to the `retnd` network
+- [ ] It has **no** volume mappings at all: it never reads the config, the key,
       `known_hosts`, or either data directory
 
 If it is unhealthy while the engine is healthy, the healthcheck override did not
-apply. Capture `docker inspect --format '{{json.Config.Healthcheck}}' <ui>` before
+apply. Capture `docker inspect --format '{{json .Config.Healthcheck}}' <ui>` before
 changing anything; that is a package bug.
 
 ---
 
 ## Step 3 — WebUI link
 
-- The container's Unraid context menu shows **WebUI**
-- Clicking it opens the shared Web UI, not a 404
-- The resolved URL matches the template's `<WebUI>` value with `[IP]` and
+- [ ] The container's Unraid context menu shows **WebUI**
+- [ ] Clicking it opens the shared Web UI, not a 404
+- [ ] The resolved URL matches the template's `<WebUI>` value with `[IP]` and
       `[PORT:8080]` substituted, and matches
       `apps/unraid/frontend/webui.json`'s `webui` field
-- The engine container's own context menu has **no** WebUI entry (it has no
+- [ ] The engine container's own context menu has **no** WebUI entry (it has no
       published port and must never be opened directly)
 
 ---
@@ -259,22 +257,22 @@ generic Web host provides (§13A).
    once signed out again, use **Forgot password** with an invented username and
    then with the real one.
 
-- No account exists before enrollment
-- The token appears only in the container log, never in any file under
+- [ ] No account exists before enrollment
+- [ ] The token appears only in the container log, never in any file under
       `apps/unraid/`
-- The wrong-port attempt fails with `SMTP_SEND_FAILED`, creates no account, and
+- [ ] The wrong-port attempt fails with `SMTP_SEND_FAILED`, creates no account, and
       leaves the same enrollment link usable
-- A confirmation message reaches the recovery address before the account exists
-- Enrollment succeeds, logout then login succeeds
-- The enrollment link is refused the second time
-- Forgot password answers the same for an invented username as for the real one,
+- [ ] A confirmation message reaches the recovery address before the account exists
+- [ ] Enrollment succeeds, logout then login succeeds
+- [ ] The enrollment link is refused the second time
+- [ ] Forgot password answers the same for an invented username as for the real one,
       and the reset link works once and signs every session out when spent
-- `GET /api/v1/system/capabilities` reports `nativeAuth: false`
-- `/mnt/user/appdata/backupd/state/local-auth.json` holds an Argon2id
+- [ ] `GET /api/v1/system/capabilities` reports `nativeAuth: false`
+- [ ] `/mnt/user/appdata/retnd/state/local-auth.json` holds an Argon2id
       hash, never a plaintext password, and holds the recovery address and SMTP
       settings with the SMTP password as a secret reference rather than a value:
       `grep` it for the password you typed and find nothing
-- Backupd's login is completely independent of Unraid's own root
+- [ ] retnd's login is completely independent of Unraid's own root
       password, and neither can log into the other
 
 ---
@@ -284,9 +282,9 @@ generic Web host provides (§13A).
 Run one backup cycle to completion, then:
 
 ```bash
-ls -la /mnt/user/backups/backupd
-ls -la /mnt/user/appdata/backupd/state
-grep -rIl 'PRIVATE KEY' /mnt/user/backups/backupd || echo "clean"
+ls -la /mnt/user/backups/retnd
+ls -la /mnt/user/appdata/retnd/state
+grep -rIl 'PRIVATE KEY' /mnt/user/backups/retnd || echo "clean"
 ```
 
 Then record a baseline for the removal check at the end of this procedure. The
@@ -298,25 +296,25 @@ hash and a full file listing **outside** the backup root, where whatever might
 damage that tree cannot reach the evidence:
 
 ```bash
-mkdir -p /root/backupd-acceptance
-head -c 8M /dev/urandom > /mnt/user/backups/backupd/canary.bin
-sha256sum /mnt/user/backups/backupd/canary.bin | tee /root/backupd-acceptance/canary.sha256
-find /mnt/user/backups/backupd -type f -printf '%p %s\n' | sort > /root/backupd-acceptance/backup-root.before
+mkdir -p /root/retnd-acceptance
+head -c 8M /dev/urandom > /mnt/user/backups/retnd/canary.bin
+sha256sum /mnt/user/backups/retnd/canary.bin | tee /root/retnd-acceptance/canary.sha256
+find /mnt/user/backups/retnd -type f -printf '%p %s\n' | sort > /root/retnd-acceptance/backup-root.before
 ```
 
-Keep `/root/backupd-acceptance` off the repository: the listing names your own backup
+Keep `/root/retnd-acceptance` off the repository: the listing names your own backup
 sets. Record only that it was taken, and the canary's hash, in the evidence table.
 
-- At least one completed artifact is under `/mnt/user/backups/backupd`
-- `state.db` and `local-auth.json` are under appdata, **not** under the
+- [ ] At least one completed artifact is under `/mnt/user/backups/retnd`
+- [ ] `state.db` and `local-auth.json` are under appdata, **not** under the
       backup root
-- No private key, `known_hosts`, or auth state anywhere under
-      `/mnt/user/backups/backupd` (§19.2)
-- Nothing was written anywhere else in the `backups` share
-- A sidecar recovery manifest sits next to the artifact and contains no
+- [ ] No private key, `known_hosts`, or auth state anywhere under
+      `/mnt/user/backups/retnd` (§19.2)
+- [ ] Nothing was written anywhere else in the `backups` share
+- [ ] A sidecar recovery manifest sits next to the artifact and contains no
       secret material (§19.3)
-- `canary.bin` written into the backup root and its hash recorded outside it
-- A full `find` listing of the backup root recorded outside it
+- [ ] `canary.bin` written into the backup root and its hash recorded outside it
+- [ ] A full `find` listing of the backup root recorded outside it
 
 ---
 
@@ -328,27 +326,27 @@ the case most likely to lose state.
 1. Capture a baseline first, from the Unraid terminal, so the checks below are a
    comparison rather than an impression:
    ```bash
-   sha256sum /mnt/user/appdata/backupd/state/state.db | tee /tmp/before-update.sha256
+   sha256sum /mnt/user/appdata/retnd/state/state.db | tee /tmp/before-update.sha256
    find /mnt/user/backups -type f -printf '%p %s\n' | sort > /tmp/before-update.txt
    ```
 2. Push or side-load a newer image tag.
-3. **Docker → backupd → Force Update** (or edit the tag and Apply). Do the
-   same for `backupd-ui`.
+3. **Docker → retnd → Force Update** (or edit the tag and Apply). Do the
+   same for `retnd-ui`.
 4. Compare afterwards:
    ```bash
    find /mnt/user/backups -type f -printf '%p %s\n' | sort > /tmp/after-update.txt
    diff /tmp/before-update.txt /tmp/after-update.txt
    ```
 
-- Both containers recreate and return to healthy
-- `diff` of the retained-artifact listing is empty: the update moved no
+- [ ] Both containers recreate and return to healthy
+- [ ] `diff` of the retained-artifact listing is empty: the update moved no
       backup data
-- The administrator account still exists (no re-enrollment prompt), with its
+- [ ] The administrator account still exists (no re-enrollment prompt), with its
       recovery address and SMTP settings intact
-- Logging back in with the same password works
-- Every backup set is still configured
-- Every artifact is still present and still listed
-- Unraid's own **Update Available** indicator clears afterwards
+- [ ] Logging back in with the same password works
+- [ ] Every backup set is still configured
+- [ ] Every artifact is still present and still listed
+- [ ] Unraid's own **Update Available** indicator clears afterwards
 
 ---
 
@@ -363,11 +361,11 @@ docker rm -f <engine container> <ui container>
 
 Re-add both from the same user templates, changing nothing.
 
-- Both containers come back healthy
-- Retained backup data survives untouched
-- The catalog survives
-- The administrator account survives, recovery address and SMTP settings included
-- The re-added containers pick up the saved template values, so nothing had
+- [ ] Both containers come back healthy
+- [ ] Retained backup data survives untouched
+- [ ] The catalog survives
+- [ ] The administrator account survives, recovery address and SMTP settings included
+- [ ] The re-added containers pick up the saved template values, so nothing had
       to be retyped
 
 ---
@@ -379,28 +377,28 @@ storage step, because after the removal there is nothing left to compare
 against, and any deletion the comparison turns up is a release blocker rather
 than a finding to triage.
 
-1. **Docker → backupd → Remove**, and remove the image too.
-2. Repeat for `backupd-ui`.
+1. **Docker → retnd → Remove**, and remove the image too.
+2. Repeat for `retnd-ui`.
 
-- Both containers are gone
+- [ ] Both containers are gone
 
 Check the backup root against the baseline recorded in the storage step, before
 looking at anything else:
 
 ```bash
-sha256sum -c /root/backupd-acceptance/canary.sha256
-find /mnt/user/backups/backupd -type f -printf '%p %s\n' | sort > /root/backupd-acceptance/backup-root.after
-diff /root/backupd-acceptance/backup-root.before /root/backupd-acceptance/backup-root.after
+sha256sum -c /root/retnd-acceptance/canary.sha256
+find /mnt/user/backups/retnd -type f -printf '%p %s\n' | sort > /root/retnd-acceptance/backup-root.after
+diff /root/retnd-acceptance/backup-root.before /root/retnd-acceptance/backup-root.after
 ```
 
-- `sha256sum -c` reports the canary `OK`
-- The `diff` against the recorded listing is empty, so the backup root is
+- [ ] `sha256sum -c` reports the canary `OK`
+- [ ] The `diff` against the recorded listing is empty, so the backup root is
       untouched, byte for byte, and every artifact is still readable
-- `/mnt/user/appdata/backupd` is untouched (Unraid does not delete
+- [ ] `/mnt/user/appdata/retnd` is untouched (Unraid does not delete
       appdata on container removal, and the package must not either)
-- Nothing elsewhere in the `backups` share changed
-- Nothing outside the declared host paths was touched
-- Reinstalling with the same paths adopts the existing catalog rather than
+- [ ] Nothing elsewhere in the `backups` share changed
+- [ ] Nothing outside the declared host paths was touched
+- [ ] Reinstalling with the same paths adopts the existing catalog rather than
       starting empty
 
 ---
@@ -411,14 +409,14 @@ Community Applications lists templates from a GitHub repository that CA's own
 feed indexes. That submission is an external step CA maintainers control, and no
 part of it can run on a developer laptop, so it lives here.
 
-- The templates pass CA's own template checks
-- `<TemplateURL>`, `<Project>`, `<Support>`, `<Icon>` and `<Overview>` all
+- [ ] The templates pass CA's own template checks
+- [ ] `<TemplateURL>`, `<Project>`, `<Support>`, `<Icon>` and `<Overview>` all
       resolve to real, reachable URLs
-- `<Category>` is a category CA actually recognises
-- `<Requires>` states the `docker network create backupd`
+- [ ] `<Category>` is a category CA actually recognises
+- [ ] `<Requires>` states the `docker network create retnd`
       prerequisite from step 0.2 clearly enough that a first-time installer sees
       it before installing
-- Installing from CA (not from a hand-copied file) produces the same result
+- [ ] Installing from CA (not from a hand-copied file) produces the same result
       as steps 1 and 2
 
 ---
@@ -428,7 +426,7 @@ part of it can run on a developer laptop, so it lives here.
 A workflow step whose target is `local` does not run in the engine container, and since
 issue #865 it does not run on a host shell either: it runs in an **ephemeral Docker
 container** launched by the **Host Workflow Runner**, a small version-pinned process
-systemd supervises as `backupd-workflow-runner.service`
+systemd supervises as `retnd-workflow-runner.service`
 (`docs/adr/0020-host-workflow-runner.md`, `docs/runtime-contract.md`).
 
 Two independent reasons, either one sufficient. Unraid rebuilds its operating system
@@ -450,7 +448,7 @@ mechanism, because two plausible ones are not it:
   and a NAME.local.sh has nowhere to run"*
   (`core/internal/workflowrun/engine.go`). A hook is refused, never skipped, so a
   run cannot report success with the hook quietly missing;
-- and **this procedure installs no `backupd-workflow-runner.service`**, grants no
+- and **this procedure installs no `retnd-workflow-runner.service`**, grants no
   group and fetches no hook image.
 
 What does **not** happen, so that nobody goes looking for it:
@@ -466,7 +464,7 @@ administer, and needs no Docker and no host unit on this NAS. The engine's own s
 of this is unchanged either way: the shipped package asks for no Docker socket, no
 `group_add` and no `DOCKER_HOST`.
 
-- [ ] No `backupd-workflow-runner.service` exists on this host, and nothing in this
+- [ ] No `retnd-workflow-runner.service` exists on this host, and nothing in this
       procedure created one
 - [ ] No account was added to a Docker socket group for this product, and the shipped
       containers mount no socket and declare no `group_add`

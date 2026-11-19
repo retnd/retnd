@@ -11,7 +11,7 @@
 > multi-provider spec has room for, and that detail is needed the moment anyone
 > actually builds the UGOS app.
 >
-> Read it as backing material for these issues, not as work in its own
+> Read it as backing material for these EPIC B issues, not as work in its own
 > right: B1.2 (developer environment and the minimal UPK proof), B1.3 (UGOS
 > authentication and the trusted-proxy boundary), and B4.2 (the UGOS provider
 > app and its UPK). Where the two documents disagree, `docs/EPIC-B-multi-nas.md`
@@ -23,18 +23,18 @@
 
 ---
 
-# EPIC: UGOS Pro UI, UPK Packaging, and Headless Docker Distribution for Backupd — Adversarial Consensus + Full TDD Revision
+# EPIC: UGOS Pro UI, UPK Packaging, and Headless Docker Distribution for retnd — Adversarial Consensus + Full TDD Revision
 
 ## Status
 
-**Type:** Reference material for 's UGOS provider work
-**Repository:** `backupdproject/backupd`
-**Parent / predecessor EPIC:** `Embedded-rclone NAS Backup Lifecycle Manager` (, complete)
-**Active EPIC:** `docs/EPIC-B-multi-nas.md`
-**Primary implementation root:** repository root (the `tools/backupd/` path this originally assumed was corrected when moved into its own repository)
-**Target platform:** UGREEN NAS / UGOS Pro
-**Primary UI distribution:** UGOS Pro Docker Application packaged as `.UPK`
-**Secondary distribution:** headless Docker image/package for terminal operation
+**Type:** Reference material for EPIC B's UGOS provider work  
+**Repository:** `retnd/retnd`  
+**Parent / predecessor EPIC:** `Embedded-rclone NAS Backup Lifecycle Manager` (EPIC A, complete)  
+**Active EPIC:** `docs/EPIC-B-multi-nas.md`  
+**Primary implementation root:** repository root (the `tools/retnd/` path this originally assumed was corrected when EPIC A moved into its own repository)  
+**Target platform:** UGREEN NAS / UGOS Pro  
+**Primary UI distribution:** UGOS Pro Docker Application packaged as `.UPK`  
+**Secondary distribution:** headless Docker image/package for terminal operation  
 **Initial architectures:** `linux/amd64`, `linux/arm64`
 
 ---
@@ -86,7 +86,7 @@ Required corrections:
 - accept UGOS identity headers only from a verified trusted gateway source;
 - strip/ignore forwarded identity headers from all untrusted peers;
 - prohibit release if the Docker service cannot be isolated or the proxy source cannot be authenticated;
-- use authenticated polling for v1 operation progress; optionally evaluate `fetch` streaming later;
+- use authenticated polling for v1 operation progress; optionally evaluate `fetch()` streaming later;
 - never place authentication tokens in query strings;
 - store SSH keys only in private application state;
 - reject deletion of keys referenced by active backup sets;
@@ -134,7 +134,7 @@ Critical findings:
 1. A twelve-step wizard is unnecessarily long and increases setup failure.
 2. "Restore Points" suggests restore functionality, but restore execution is explicitly out of scope.
 3. The most consequential behavior—deleting the remote source after safe ingestion—was not prominent enough in onboarding and configuration.
-4. A backupd that only shows failures when someone opens the UI is operationally weak.
+4. A retnd that only shows failures when someone opens the UI is operationally weak.
 5. Stable-size completion detection was presented alongside producer atomic rename/manifest as if they provided equivalent assurance.
 6. The UI did not provide a clear reinstall/recovery path when application state is lost but backup files remain.
 
@@ -157,7 +157,7 @@ Required corrections:
 
 Critical findings:
 
-1. Separate `backupd-ugos` and `backupd-cli` images create needless artifact drift when the design already embeds the UI in the same Go binary.
+1. Separate `retnd-ugos` and `retnd-cli` images create needless artifact drift when the design already embeds the UI in the same Go binary.
 2. Four image builds (UGOS/CLI × amd64/arm64) double the release surface without adding lifecycle isolation.
 3. "Same core version" is weaker than using the exact same executable/image digest.
 4. Upgrade rollback could fail if an older binary sees a newer schema.
@@ -289,7 +289,7 @@ Do not create a separate native UGOS backend unless a later architecture review 
 
 This model provides the strongest alignment between:
 
-- the existing containerized backupd deployment;
+- the existing containerized retnd deployment;
 - the requested terminal Docker package;
 - amd64/arm64 release builds;
 - reproducible builds;
@@ -322,9 +322,9 @@ UGOS .UPK
 │
 └── bundled image tar
       │
-      └── backupd:<exact-version>
+      └── retnd:<exact-version>
             │
-            ├── Go backupd
+            ├── Go retnd
             ├── embedded rclone
             ├── SQLite support
             ├── HTTP API
@@ -631,7 +631,7 @@ If a RED step is impossible because behavior depends exclusively on unavailable 
 Produce:
 
 ```text
-backupd:<version>
+retnd:<version>
 ```
 
 or equivalent repository-qualified image.
@@ -663,7 +663,7 @@ Exact file names are generated by `ugcli`.
 Publish the canonical image as the headless Docker package:
 
 ```text
-<registry>/iasbuilt/backupd:<version>
+<registry>/iasbuilt/retnd:<version>
 ```
 
 The headless distribution SHALL:
@@ -718,12 +718,12 @@ The implementation SHALL define these values centrally.
 Proposed values:
 
 ```text
-Display name: Backupd
-App ID:       com.iasbuilt.backupd
+Display name: retnd
+App ID:       com.iasbuilt.retnd
 Category:     backup
 ```
 
-`com.iasbuilt.backupd` is a proposed identifier and MUST be confirmed before the first externally distributed or App Center-submitted package because the UGOS application ID is intended to remain stable.
+`com.iasbuilt.retnd` is a proposed identifier and MUST be confirmed before the first externally distributed or App Center-submitted package because the UGOS application ID is intended to remain stable.
 
 Do not derive runtime filesystem paths from the human-readable display name.
 
@@ -735,13 +735,13 @@ Extend the predecessor layout approximately as follows:
 
 ```text
 tools/
-  backupd/
+  retnd/
     README.md
     go.mod
     go.sum
 
     cmd/
-      backupd/
+      retnd/
 
     internal/
       app/
@@ -839,7 +839,7 @@ MUST remain explicit.
 
 # 8. Single Runtime / Dual Distribution Rule
 
-For each release and architecture there SHALL be exactly one production backupd executable and one canonical container image.
+For each release and architecture there SHALL be exactly one production retnd executable and one canonical container image.
 
 The UGOS and terminal distributions SHALL therefore share:
 
@@ -877,16 +877,16 @@ A UI-only feature that belongs in `BackupService` SHALL be rejected in code revi
 The Go executable SHALL support at minimum:
 
 ```bash
-backupd run
-backupd daemon
-backupd serve
-backupd status
-backupd check
-backupd retention --dry-run
-backupd retention
-backupd reconcile
-backupd validate <artifact-id>
-backupd version
+retnd run
+retnd daemon
+retnd serve
+retnd status
+retnd check
+retnd retention --dry-run
+retnd retention
+retnd reconcile
+retnd validate <artifact-id>
+retnd version
 ```
 
 ## 9.1 Headless Docker default
@@ -894,13 +894,13 @@ backupd version
 The headless Docker distribution SHOULD default to:
 
 ```bash
-backupd daemon
+retnd daemon
 ```
 
 Users SHALL be able to override the command, for example:
 
 ```bash
-docker run --rm ... backupd check
+docker run --rm ... retnd check
 ```
 
 ## 9.2 UGOS Docker App default
@@ -908,7 +908,7 @@ docker run --rm ... backupd check
 The UPK Compose profile SHALL run the canonical image in a combined supervised mode such as:
 
 ```bash
-backupd serve --with-daemon --auth-mode=ugos
+retnd serve --with-daemon --auth-mode=ugos
 ```
 
 Exact command naming may vary.
@@ -938,7 +938,7 @@ Reason:
 - native UGOS desktop-window experience;
 - JSSDK support;
 - UGOS login/session integration;
-- no separate backupd password database.
+- no separate retnd password database.
 
 The application SHOULD initially support the UGOS `pc` client target.
 
@@ -962,7 +962,7 @@ static assets
 Go //go:embed
       │
       ▼
-single backupd executable
+single retnd executable
 ```
 
 The production UGOS container SHALL NOT require Node.js.
@@ -1116,7 +1116,7 @@ The v1 frontend SHALL observe long-running operation state through authenticated
 
 Native `EventSource` SHALL NOT be used because the documented UGOS authentication flow requires the custom `Ugreen-Ttk` header and native `EventSource` cannot reliably attach arbitrary authentication headers.
 
-A future streaming implementation MAY use authenticated `fetch` response streaming only after UGOS gateway buffering/streaming behavior is validated.
+A future streaming implementation MAY use authenticated `fetch()` response streaming only after UGOS gateway buffering/streaming behavior is validated.
 
 Authentication tokens MUST NEVER be placed in URLs/query strings.
 
@@ -1202,7 +1202,7 @@ A preview response SHALL include:
 }
 ```
 
-`POST.../retention/apply` MUST require the `plan_id` the administrator actually reviewed.
+`POST .../retention/apply` MUST require the `plan_id` the administrator actually reviewed.
 
 The server MUST apply **exactly that plan** only if its inventory/config preconditions remain valid. If backups or policy changed, return a conflict such as `RETENTION_PLAN_STALE` and require a new preview/confirmation.
 
@@ -1360,7 +1360,7 @@ Private state includes:
 Preferred container path:
 
 ```text
-/var/lib/backupd/
+/var/lib/retnd/
 ```
 
 The UPK SHALL mount this path from a **UGOS-owned private writable application location** proven in Phase 0.
@@ -1395,7 +1395,7 @@ Recovery metadata SHOULD preserve enough information to reconstruct safely:
 - checksum(s);
 - validation result summary;
 - retention-relevant timestamp;
-- backupd format version.
+- retnd format version.
 
 Recovery metadata MUST NOT contain:
 
@@ -1407,8 +1407,8 @@ Recovery metadata MUST NOT contain:
 Provide a dry-run recovery command such as:
 
 ```bash
-backupd catalog rebuild --dry-run
-backupd catalog rebuild
+retnd catalog rebuild --dry-run
+retnd catalog rebuild
 ```
 
 Reconstruction MUST NOT delete remote or local backup files.
@@ -1475,7 +1475,7 @@ Illustrative skeleton:
 
 ```yaml
 spec_version: "2.1"
-app_id: com.iasbuilt.backupd
+app_id: com.iasbuilt.retnd
 version: 0.1.0
 
 support_arch:
@@ -1489,7 +1489,7 @@ is_docker_app: true
 only_admin: true
 
 port: 29090
-proxy_path: backupd-api
+proxy_path: retnd-api
 open_type: inner
 
 tag_types:
@@ -1514,20 +1514,20 @@ parameters:
         description: Application logging verbosity.
 
 privacy_policy_link:
-  - https://<publisher>/backupd/privacy
+  - https://<publisher>/retnd/privacy
 
 # Current UGREEN project.yaml rules require these when
 # open-source code/components are used.
 license_agreement_link:
-  - https://<publisher>/backupd/licenses
+  - https://<publisher>/retnd/licenses
 source_code_link:
-  - https://<publisher>/backupd/source
+  - https://<publisher>/retnd/source
 technical_support_link:
-  - https://<publisher>/backupd/support
+  - https://<publisher>/retnd/support
 
 i18n:
   en-US:
-    name: Backupd
+    name: retnd
     description: Pull, verify, retain, and monitor remote backup artifacts.
     author: <publisher>
     publisher: <publisher>
@@ -1549,19 +1549,19 @@ Illustrative:
 
 ```yaml
 services:
-  backupd:
+  retnd:
     image: <exact-versioned-canonical-image-tag>
     restart: always
 
     environment:
       TZ: ${TZ}
-      BACKUP_MANAGER_LOG_LEVEL: ${LOG_LEVEL}
-      BACKUP_MANAGER_AUTH_MODE: ugos
-      BACKUP_MANAGER_DATA_DIR: /var/lib/backupd
-      BACKUP_MANAGER_BACKUP_ROOT: /data/backups
+      RETND_LOG_LEVEL: ${LOG_LEVEL}
+      RETND_AUTH_MODE: ugos
+      RETND_DATA_DIR: /var/lib/retnd
+      RETND_BACKUP_ROOT: /data/backups
 
     volumes:
-      - <verified-private-state-source>:/var/lib/backupd
+      - <verified-private-state-source>:/var/lib/retnd
       - ${BACKUP_ROOT}:/data/backups
 
     ports:
@@ -1598,7 +1598,7 @@ The default application page SHALL be a concise operations dashboard.
 Show:
 
 ```text
-Backupd        HEALTHY
+retnd        HEALTHY
 Last successful cycle  8 minutes ago
 Storage                1.8 TB free
 ```
@@ -1761,7 +1761,7 @@ Stable-size mode SHALL require:
 
 The UI SHALL prominently disclose:
 
-> After a backup has been transferred, verified, durably committed to the NAS, and recorded safe by Backupd, the original remote backup artifact is deleted from the source server.
+> After a backup has been transferred, verified, durably committed to the NAS, and recorded safe by retnd, the original remote backup artifact is deleted from the source server.
 
 The administrator SHALL acknowledge this behavior before enabling a new backup set.
 
@@ -2096,7 +2096,7 @@ including:
 
 ```json
 {
-  "backupd": "...",
+  "retnd": "...",
   "api_version": "v1",
   "ui_build": "...",
   "rclone": "...",
@@ -2125,7 +2125,7 @@ The headless package supports operators who want:
 Publish:
 
 ```text
-<registry>/iasbuilt/backupd:<version>
+<registry>/iasbuilt/retnd:<version>
 ```
 
 The image is the same architecture-specific image digest bundled into the matching UPK release.
@@ -2138,24 +2138,24 @@ A convenience `latest` tag MAY exist in the registry, but it SHALL NOT be used b
 
 ```bash
 docker run --rm \
-  -v /path/to/config:/etc/backupd:ro \
-  -v /path/to/state:/var/lib/backupd \
+  -v /path/to/config:/etc/retnd:ro \
+  -v /path/to/state:/var/lib/retnd \
   -v /path/to/backups:/data/backups \
-  <registry>/iasbuilt/backupd:0.1.0 \
-  backupd check
+  <registry>/iasbuilt/retnd:0.1.0 \
+  retnd check
 ```
 
 Daemon:
 
 ```bash
 docker run -d \
-  --name backupd \
+  --name retnd \
   --restart unless-stopped \
-  -v /path/to/config:/etc/backupd:ro \
-  -v /path/to/state:/var/lib/backupd \
+  -v /path/to/config:/etc/retnd:ro \
+  -v /path/to/state:/var/lib/retnd \
   -v /path/to/backups:/data/backups \
-  <registry>/iasbuilt/backupd:0.1.0 \
-  backupd daemon
+  <registry>/iasbuilt/retnd:0.1.0 \
+  retnd daemon
 ```
 
 The HTTP/UI listener SHALL be disabled by default in headless mode unless explicitly enabled.
@@ -2168,17 +2168,17 @@ Provide a supported example:
 
 ```yaml
 services:
-  backupd:
-    image: <registry>/iasbuilt/backupd:0.1.0
+  retnd:
+    image: <registry>/iasbuilt/retnd:0.1.0
     restart: unless-stopped
 
     command:
-      - backupd
+      - retnd
       - daemon
 
     volumes:
-      - ./config:/etc/backupd:ro
-      - ./state:/var/lib/backupd
+      - ./config:/etc/retnd:ro
+      - ./state:/var/lib/retnd
       - /mnt/backups:/data/backups
 
     read_only: true
@@ -2229,8 +2229,8 @@ linux/arm64
 Build matrix SHALL produce one canonical image per architecture:
 
 ```text
-backupd:<version>  linux/amd64
-backupd:<version>  linux/arm64
+retnd:<version>  linux/amd64
+retnd:<version>  linux/arm64
 ```
 
 For registry publication this MAY be represented by a multi-architecture manifest.
@@ -2255,10 +2255,10 @@ packaging/ugos/
 │   └── docker-compose.yaml
 ├── rootfs_amd64/
 │   └── images/
-│       └── backupd-<version>-amd64.tar
+│       └── retnd-<version>-amd64.tar
 └── rootfs_arm64/
     └── images/
-        └── backupd-<version>-arm64.tar
+        └── retnd-<version>-arm64.tar
 ```
 
 Do not put additional arbitrary files into Docker App `rootfs_common`.
@@ -2503,7 +2503,7 @@ If the target App Center region/current UGREEN rules require first-launch privac
 
 Backup setup itself SHALL be skippable so experienced administrators can enter the main UI and configure manually.
 
-The welcome screen SHALL make clear that Backupd:
+The welcome screen SHALL make clear that retnd:
 
 - manages backup artifacts that another system creates;
 - does not create the database/application backup itself;
@@ -2606,7 +2606,7 @@ The server operation SHALL continue if:
 
 Explicit cancellation, if supported, SHALL create a server-side cancellation request and propagate through the operation's own context. It SHALL NOT be coupled to the HTTP request context that originally created the job.
 
-A future authenticated `fetch` streaming transport MAY be added after UGOS gateway validation.
+A future authenticated `fetch()` streaming transport MAY be added after UGOS gateway validation.
 
 Native `EventSource` and query-string authentication tokens are prohibited.
 
@@ -2744,7 +2744,7 @@ A single logical release version SHALL identify:
 Example:
 
 ```text
-Backupd 1.2.0
+retnd 1.2.0
 OCI image       1.2.0
 UI              1.2.0
 UPK             1.2.0.0042
@@ -2992,7 +2992,7 @@ Container/CLI behavior SHALL be specified as integration tests before the packag
 
 Test:
 
-- `backupd check`;
+- `retnd check`;
 - one-cycle `run`;
 - daemon;
 - clean `SIGTERM`;
@@ -3113,7 +3113,7 @@ Attempt direct LAN access.
 
 Verify separately:
 
-- a UGOS-supported private writable state source for `/var/lib/backupd`;
+- a UGOS-supported private writable state source for `/var/lib/retnd`;
 - user-authorized backup root for `/data/backups`;
 - whether `path` parameter or `allow_add_access_path` is the better supported backup-root mechanism;
 - container read/write ownership;
@@ -3149,16 +3149,16 @@ Verify current requirements for:
 
 ### Phase 0 Acceptance
 
-- Minimal Docker App `.UPK` installs.
-- App opens inside UGOS desktop.
-- UGREEN frontend SDK initializes.
-- UGOS user authentication reaches backend.
-- Direct-port auth bypass is resolved.
-- Private state and user backup storage are separate and documented.
-- Trusted UGOS gateway source is proven and enforced.
-- Docker App Compose constraints are validated.
-- App Center OSS/privacy metadata requirements are documented.
-- At least one real UGREEN device passes the PoC.
+- [ ] Minimal Docker App `.UPK` installs.
+- [ ] App opens inside UGOS desktop.
+- [ ] UGREEN frontend SDK initializes.
+- [ ] UGOS user authentication reaches backend.
+- [ ] Direct-port auth bypass is resolved.
+- [ ] Private state and user backup storage are separate and documented.
+- [ ] Trusted UGOS gateway source is proven and enforced.
+- [ ] Docker App Compose constraints are validated.
+- [ ] App Center OSS/privacy metadata requirements are documented.
+- [ ] At least one real UGREEN device passes the PoC.
 
 ---
 
@@ -3235,14 +3235,14 @@ Implement authenticated operation polling. Streaming is deferred until UGOS prox
 
 ### Phase 1 Acceptance
 
-- API is versioned.
-- API invokes `BackupService`.
-- UGOS auth middleware exists.
-- Destructive routes require authorization.
-- API exposes no rclone types.
-- Long-running work returns operation IDs.
-- Durable operation polling works across browser reload/disconnect.
-- API contract tests pass.
+- [ ] API is versioned.
+- [ ] API invokes `BackupService`.
+- [ ] UGOS auth middleware exists.
+- [ ] Destructive routes require authorization.
+- [ ] API exposes no rclone types.
+- [ ] Long-running work returns operation IDs.
+- [ ] Durable operation polling works across browser reload/disconnect.
+- [ ] API contract tests pass.
 
 ---
 
@@ -3310,13 +3310,13 @@ Integrate Vite build into Go `embed`.
 
 ### Phase 2 Acceptance
 
-- UI opens inside UGOS.
-- UI authenticates via UGOS.
-- UI calls API.
-- UI build is embedded in production Go binary.
-- Production image contains no Node runtime.
-- Version mismatch handling works.
-- Basic accessibility checks pass.
+- [ ] UI opens inside UGOS.
+- [ ] UI authenticates via UGOS.
+- [ ] UI calls API.
+- [ ] UI build is embedded in production Go binary.
+- [ ] Production image contains no Node runtime.
+- [ ] Version mismatch handling works.
+- [ ] Basic accessibility checks pass.
 
 ---
 
@@ -3356,12 +3356,12 @@ Implement event/history view.
 
 ### Phase 3 Acceptance
 
-- Operators can determine whether backups are healthy without CLI.
-- Operators can inspect newest known-good restore point.
-- Retention classifications are visible.
-- Transfer progress is visible.
-- Quarantined artifacts are visible.
-- Process health and backup freshness are distinct.
+- [ ] Operators can determine whether backups are healthy without CLI.
+- [ ] Operators can inspect newest known-good restore point.
+- [ ] Retention classifications are visible.
+- [ ] Transfer progress is visible.
+- [ ] Quarantined artifacts are visible.
+- [ ] Process health and backup freshness are distinct.
 
 ---
 
@@ -3418,16 +3418,16 @@ Non-destructive.
 
 ### Phase 4 Acceptance
 
-- A new source can be configured entirely from UI.
-- No SSH private key is exposed back to browser after persistence.
-- Changed host key blocks operation.
-- Connection testing is non-destructive.
-- Retention preview is server-calculated and bound to inventory/config revision.
-- Retention application uses the exact confirmed `plan_id`; stale plans delete nothing.
-- Manual run uses normal lifecycle safety.
-- Configuration deletion does not delete retained backups.
-- Remote-source deletion behavior is explicitly acknowledged during setup.
-- Referenced SSH keys cannot be deleted.
+- [ ] A new source can be configured entirely from UI.
+- [ ] No SSH private key is exposed back to browser after persistence.
+- [ ] Changed host key blocks operation.
+- [ ] Connection testing is non-destructive.
+- [ ] Retention preview is server-calculated and bound to inventory/config revision.
+- [ ] Retention application uses the exact confirmed `plan_id`; stale plans delete nothing.
+- [ ] Manual run uses normal lifecycle safety.
+- [ ] Configuration deletion does not delete retained backups.
+- [ ] Remote-source deletion behavior is explicitly acknowledged during setup.
+- [ ] Referenced SSH keys cannot be deleted.
 
 ---
 
@@ -3471,12 +3471,12 @@ Add container health endpoint/check.
 
 ### Phase 5 Acceptance
 
-- Canonical image runs independently under Docker.
-- Image has exact version.
-- No `latest` dependency.
-- The same image supports headless daemon mode and UGOS UI/API/daemon mode safely.
-- Clean shutdown leaves state recoverable.
-- Both architecture images build.
+- [ ] Canonical image runs independently under Docker.
+- [ ] Image has exact version.
+- [ ] No `latest` dependency.
+- [ ] The same image supports headless daemon mode and UGOS UI/API/daemon mode safely.
+- [ ] Clean shutdown leaves state recoverable.
+- [ ] Both architecture images build.
 
 ---
 
@@ -3544,16 +3544,16 @@ Install version N, create state, update to N+1.
 
 ### Phase 6 Acceptance
 
-- amd64 UPK is generated.
-- arm64 UPK is generated or clearly marked uncertified pending hardware.
-- UPK installs through App Center manual installation.
-- Icon appears on desktop.
-- App opens in `inner` window.
-- Upgrade preserves state/backups.
-- Disable/enable is safe.
-- Uninstall does not unexpectedly delete user backup data.
-- Logs are accessible through documented UGOS path/tooling.
-- The image digest bundled in each UPK matches the published OCI release for that architecture.
+- [ ] amd64 UPK is generated.
+- [ ] arm64 UPK is generated or clearly marked uncertified pending hardware.
+- [ ] UPK installs through App Center manual installation.
+- [ ] Icon appears on desktop.
+- [ ] App opens in `inner` window.
+- [ ] Upgrade preserves state/backups.
+- [ ] Disable/enable is safe.
+- [ ] Uninstall does not unexpectedly delete user backup data.
+- [ ] Logs are accessible through documented UGOS path/tooling.
+- [ ] The image digest bundled in each UPK matches the published OCI release for that architecture.
 
 ---
 
@@ -3596,12 +3596,12 @@ Use the project's selected registry.
 
 ### Phase 7 Acceptance
 
-- Canonical image runs headlessly without UGOS.
-- `check`, `run`, `daemon`, `status`, `retention`, `reconcile`, and `version` work.
-- Docker Compose example works.
-- Version-pinned images are published.
-- State survives container replacement.
-- Exact architecture-specific image digest matches the corresponding UPK-bundled image.
+- [ ] Canonical image runs headlessly without UGOS.
+- [ ] `check`, `run`, `daemon`, `status`, `retention`, `reconcile`, and `version` work.
+- [ ] Docker Compose example works.
+- [ ] Version-pinned images are published.
+- [ ] State survives container replacement.
+- [ ] Exact architecture-specific image digest matches the corresponding UPK-bundled image.
 
 ---
 
@@ -3691,15 +3691,15 @@ Measure:
 
 ### Phase 8 Acceptance
 
-- Security review has no unresolved critical/high issue.
-- No auth bypass is known.
-- Secrets are redacted.
-- SBOM/checksums produced.
-- Upgrade failure is safe.
-- Unsupported downgrade fails closed.
-- Catalog can be rebuilt non-destructively after state loss.
-- At least one proactive failure/staleness alert path exists for App Center 1.0.
-- App does not materially interfere with ordinary NAS operation while idle.
+- [ ] Security review has no unresolved critical/high issue.
+- [ ] No auth bypass is known.
+- [ ] Secrets are redacted.
+- [ ] SBOM/checksums produced.
+- [ ] Upgrade failure is safe.
+- [ ] Unsupported downgrade fails closed.
+- [ ] Catalog can be rebuilt non-destructively after state loss.
+- [ ] At least one proactive failure/staleness alert path exists for App Center 1.0.
+- [ ] App does not materially interfere with ordinary NAS operation while idle.
 
 ---
 
@@ -3766,12 +3766,12 @@ Track requested changes as separate issues.
 
 ### Phase 9 Acceptance
 
-- App Center submission checklist is complete.
-- Release UPKs reproduce from tagged source.
-- Privacy/support metadata exists.
-- Required developer identity/materials are available.
-- No application code is downloaded outside the reviewed update mechanism.
-- App is ready for UGREEN submission.
+- [ ] App Center submission checklist is complete.
+- [ ] Release UPKs reproduce from tagged source.
+- [ ] Privacy/support metadata exists.
+- [ ] Required developer identity/materials are available.
+- [ ] No application code is downloaded outside the reviewed update mechanism.
+- [ ] App is ready for UGREEN submission.
 
 ---
 
@@ -3781,31 +3781,31 @@ In addition to functional completion, every applicable child issue SHALL demonst
 
 This EPIC is complete when:
 
-- The predecessor backupd core remains the only lifecycle engine.
-- The UI communicates only through the application service/API.
-- The UGOS edition is packaged as a Docker Application `.UPK`.
-- The headless Docker edition is separately consumable.
-- Both distributions use the same architecture-specific canonical OCI image digest.
-- UGOS authentication is used rather than a second local password database.
-- The UPK release is admin-only initially.
-- Direct access cannot bypass UGOS authentication.
-- The UI supports source configuration, host trust, retention, status, operations, restore-point visibility, and quarantine.
-- The UI cannot directly trigger arbitrary remote deletion.
-- Remote source deletion remains governed by predecessor lifecycle invariants.
-- UPK images are bundled and version-pinned.
-- UPK runtime does not self-update application code.
-- amd64 build works.
-- arm64 build works.
-- At least one target UGOS device has completed developer UPK testing.
-- Each architecture claimed as certified has been tested on representative hardware.
-- UPK updates preserve state and backups.
-- App state loss does not make retained backup artifacts unusable; catalog reconstruction is supported.
-- Headless Docker container survives update/replacement with mounted state.
-- UI/API/daemon terminate safely.
-- Security test suite passes.
-- Documentation covers both distributions.
-- App Center readiness documentation includes OSS/privacy/source-link requirements.
-- App Center 1.0 has proactive stale/failure alerting.
+- [ ] The predecessor retnd core remains the only lifecycle engine.
+- [ ] The UI communicates only through the application service/API.
+- [ ] The UGOS edition is packaged as a Docker Application `.UPK`.
+- [ ] The headless Docker edition is separately consumable.
+- [ ] Both distributions use the same architecture-specific canonical OCI image digest.
+- [ ] UGOS authentication is used rather than a second local password database.
+- [ ] The UPK release is admin-only initially.
+- [ ] Direct access cannot bypass UGOS authentication.
+- [ ] The UI supports source configuration, host trust, retention, status, operations, restore-point visibility, and quarantine.
+- [ ] The UI cannot directly trigger arbitrary remote deletion.
+- [ ] Remote source deletion remains governed by predecessor lifecycle invariants.
+- [ ] UPK images are bundled and version-pinned.
+- [ ] UPK runtime does not self-update application code.
+- [ ] amd64 build works.
+- [ ] arm64 build works.
+- [ ] At least one target UGOS device has completed developer UPK testing.
+- [ ] Each architecture claimed as certified has been tested on representative hardware.
+- [ ] UPK updates preserve state and backups.
+- [ ] App state loss does not make retained backup artifacts unusable; catalog reconstruction is supported.
+- [ ] Headless Docker container survives update/replacement with mounted state.
+- [ ] UI/API/daemon terminate safely.
+- [ ] Security test suite passes.
+- [ ] Documentation covers both distributions.
+- [ ] App Center readiness documentation includes OSS/privacy/source-link requirements.
+- [ ] App Center 1.0 has proactive stale/failure alerting.
 
 ---
 
@@ -3880,14 +3880,14 @@ TDD itself is part of the safety system. Any change to authentication, deletion,
 Create/update:
 
 ```text
-tools/backupd/README.md
-tools/backupd/docs/ugos-development.md
-tools/backupd/docs/ugos-install.md
-tools/backupd/docs/docker.md
-tools/backupd/docs/api.md
-tools/backupd/docs/security.md
-tools/backupd/docs/app-center-release.md
-tools/backupd/docs/testing-tdd.md
+tools/retnd/README.md
+tools/retnd/docs/ugos-development.md
+tools/retnd/docs/ugos-install.md
+tools/retnd/docs/docker.md
+tools/retnd/docs/api.md
+tools/retnd/docs/security.md
+tools/retnd/docs/app-center-release.md
+tools/retnd/docs/testing-tdd.md
 ```
 
 ## `ugos-development.md`
@@ -4021,7 +4021,7 @@ Do not paper over an unresolved security-sensitive question with an assumption.
 Dependency order:
 
 ```text
-Parent backupd core complete/stable enough
+Parent retnd core complete/stable enough
         ↓
 Phase 0 UGOS PoC/security gate
         ↓
@@ -4125,76 +4125,76 @@ This EPIC SHOULD be decomposed into child issues approximately as follows:
 
 Each issue below MUST include a prewritten automated test or hardware acceptance procedure.
 
-- UGOS developer environment and authorized test device
-- Minimal Docker App UPK PoC
-- UGOS `inner` React/JSSDK PoC
-- UGOS gateway authentication PoC
-- Direct-port authentication bypass test
-- UGOS persistent-path/update/uninstall experiment
-- amd64/arm64 packaging experiment
+- [ ] UGOS developer environment and authorized test device
+- [ ] Minimal Docker App UPK PoC
+- [ ] UGOS `inner` React/JSSDK PoC
+- [ ] UGOS gateway authentication PoC
+- [ ] Direct-port authentication bypass test
+- [ ] UGOS persistent-path/update/uninstall experiment
+- [ ] amd64/arm64 packaging experiment
 
 ### API/Core Adapter
 
-- Establish API contract-test harness and TDD fixtures
-- Establish SQLite durable-operation test fixtures
-- Establish trusted-proxy/auth spoof test fixtures
-- Establish idempotency/config-revision test fixtures
-- Establish retention-plan immutable-token test fixtures
-- Finalize `BackupService` UI use-case surface
-- HTTP API skeleton
-- UGOS authenticator/authorizer
-- Operations model
-- Durable operations + idempotency
-- Authenticated operation polling
-- Retention plan-id / inventory-revision contract
-- Configuration revision / optimistic concurrency
-- API contract and security tests
+- [ ] Establish API contract-test harness and TDD fixtures
+- [ ] Establish SQLite durable-operation test fixtures
+- [ ] Establish trusted-proxy/auth spoof test fixtures
+- [ ] Establish idempotency/config-revision test fixtures
+- [ ] Establish retention-plan immutable-token test fixtures
+- [ ] Finalize `BackupService` UI use-case surface
+- [ ] HTTP API skeleton
+- [ ] UGOS authenticator/authorizer
+- [ ] Operations model
+- [ ] Durable operations + idempotency
+- [ ] Authenticated operation polling
+- [ ] Retention plan-id / inventory-revision contract
+- [ ] Configuration revision / optimistic concurrency
+- [ ] API contract and security tests
 
 ### Frontend
 
-- Establish frontend component-test harness and mock API
-- Establish Playwright E2E harness
-- React/UGOS frontend scaffold
-- API client + UGOS token integration
-- App shell/navigation
-- Dashboard
-- Backup Sets list/detail
-- Add/Edit Backup Set wizard
-- SSH key management UI
-- Host-key trust UI
-- Backups and artifact detail
-- Retention editor/preview/apply
-- Activity/operations
-- Quarantine
-- Settings/Diagnostics
-- UI E2E tests
+- [ ] Establish frontend component-test harness and mock API
+- [ ] Establish Playwright E2E harness
+- [ ] React/UGOS frontend scaffold
+- [ ] API client + UGOS token integration
+- [ ] App shell/navigation
+- [ ] Dashboard
+- [ ] Backup Sets list/detail
+- [ ] Add/Edit Backup Set wizard
+- [ ] SSH key management UI
+- [ ] Host-key trust UI
+- [ ] Backups and artifact detail
+- [ ] Retention editor/preview/apply
+- [ ] Activity/operations
+- [ ] Quarantine
+- [ ] Settings/Diagnostics
+- [ ] UI E2E tests
 
 ### Packaging
 
-- Establish package/image verification test harness
-- Canonical production OCI image
-- Headless publication profile using canonical image
-- Multi-arch build
-- UGOS `project.yaml`
-- UGOS Docker Compose
-- UGOS icon
-- UPK staging automation
-- `ugcli pack` CI
-- UPK update/disable/uninstall tests
-- Headless Docker Compose example
-- Registry publication
+- [ ] Establish package/image verification test harness
+- [ ] Canonical production OCI image
+- [ ] Headless publication profile using canonical image
+- [ ] Multi-arch build
+- [ ] UGOS `project.yaml`
+- [ ] UGOS Docker Compose
+- [ ] UGOS icon
+- [ ] UPK staging automation
+- [ ] `ugcli pack` CI
+- [ ] UPK update/disable/uninstall tests
+- [ ] Headless Docker Compose example
+- [ ] Registry publication
 
 ### Release/App Center
 
-- Establish release acceptance checklist/test runner
-- SBOM/checksum/release provenance
-- Security review
-- App Center metadata
-- Privacy/help/release documentation
-- OSS license/source-code-link compliance
-- Catalog rebuild/state-loss recovery
-- Proactive alerting
-- UGREEN submission preflight
+- [ ] Establish release acceptance checklist/test runner
+- [ ] SBOM/checksum/release provenance
+- [ ] Security review
+- [ ] App Center metadata
+- [ ] Privacy/help/release documentation
+- [ ] OSS license/source-code-link compliance
+- [ ] Catalog rebuild/state-loss recovery
+- [ ] Proactive alerting
+- [ ] UGREEN submission preflight
 
 ---
 
@@ -4211,7 +4211,7 @@ download/install .UPK
         ↓
 App Center installs Docker dependency/app
         ↓
-Backupd icon appears
+retnd icon appears
         ↓
 open inside UGOS desktop
         ↓
@@ -4239,9 +4239,9 @@ docker pull canonical versioned image
         ↓
 mount config/state/backups
         ↓
-backupd check
+retnd check
         ↓
-backupd daemon
+retnd daemon
         ↓
 manage via CLI
 ```
@@ -4258,58 +4258,58 @@ For the same version/architecture, both paths MUST execute the same canonical im
 
 The implementation team SHALL re-check these documents at development and release time because UGOS developer interfaces can evolve.
 
-- UGREEN NAS Developer Platform
+- UGREEN NAS Developer Platform  
   https://developer.ugnas.com/
 
-- Development preparation
+- Development preparation  
   https://developer.ugnas.com/en/doc/backend/quick-start/prepare
 
-- Docker Application packaging
+- Docker Application packaging  
   https://developer.ugnas.com/doc/backend/quick-start/develop-docker-app.html
 
-- `project.yaml` configuration
+- `project.yaml` configuration  
   https://developer.ugnas.com/doc/tools/project-yaml.html
 
-- Application open mode
+- Application open mode  
   https://developer.ugnas.com/doc/backend/application/open-type.html
 
-- UGOS login authentication integration
+- UGOS login authentication integration  
   https://developer.ugnas.com/doc/backend/system-capabilities/login-auth.html
 
-- Application runtime environment / permissions
+- Application runtime environment / permissions  
   https://developer.ugnas.com/doc/backend/application/runtime-environment.html
 
-- UGREEN frontend samples
+- UGREEN frontend samples  
   https://developer.ugnas.com/en/doc/backend/quick-start/my-apps.html
 
-- `@ugreen-nas/builder-open`
+- `@ugreen-nas/builder-open`  
   https://developer.ugnas.com/en/doc/frontend/ugos-builder/
 
-- UGOS Core frontend SDK
+- UGOS Core frontend SDK  
   https://developer.ugnas.com/doc/frontend/ugos-core/install.html
 
-- App testing
+- App testing  
   https://developer.ugnas.com/doc/backend/quick-start/testing.html
 
-- UGOS App Center manual installation
+- UGOS App Center manual installation  
   https://support.ugnas.com/detail/article/en-US/116
 
-- UGREEN Docker
+- UGREEN Docker  
   https://support.ugnas.com/detail/article/en-US/236
 
-- UGREEN container applications
+- UGREEN container applications  
   https://support.ugnas.com/detail/article/en-US/539
 
-- App review / developer rules
+- App review / developer rules  
   https://developer.ugnas.com/doc/review/app-review/audit-key-points.html
 
-- Runtime environment / app data behavior
+- Runtime environment / app data behavior  
   https://developer.ugnas.com/doc/backend/application/runtime-environment.html
 
-- Open-source/compliance fields in `project.yaml`
+- Open-source/compliance fields in `project.yaml`  
   https://developer.ugnas.com/doc/tools/project-yaml.html
 
-- rclone license (MIT)
+- rclone license (MIT)  
   https://github.com/rclone/rclone/blob/master/docs/content/licence.md
 
 ---
@@ -4348,7 +4348,7 @@ The adversarial panel required these substantive changes from the prior draft:
 
 ```text
                          SOURCE CODE
-                  tools/backupd/
+                  tools/retnd/
                            │
                            ▼
                    BackupService/Core
@@ -4383,6 +4383,6 @@ Docker provides the portable runtime.
 
 The UI provides visibility and safe administrative workflows.
 
-The predecessor backupd core remains the authority for whether a remote backup may be deleted and which local restore points must survive.
+The predecessor retnd core remains the authority for whether a remote backup may be deleted and which local restore points must survive.
 
 The test suite is part of that authority: safety-critical behavior is specified in failing tests before implementation and remains permanently regression-protected.

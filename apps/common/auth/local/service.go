@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/backupdproject/backupd/apps/common/email"
-	"github.com/backupdproject/backupd/apps/common/platform/capabilities"
+	"github.com/retnd/retnd/apps/common/email"
+	"github.com/retnd/retnd/apps/common/platform/capabilities"
 
-	"github.com/backupdproject/backupd/core/cliecho"
+	"github.com/retnd/retnd/core/cliecho"
 )
 
 // The composition root: everything this package's doc comment lays out,
@@ -56,6 +56,12 @@ type Config struct {
 	// (issue #128). Zero means DefaultPasswordRateLimit.
 	PasswordRateLimit int
 
+	// StepUpRateLimit bounds VerifyStepUp calls, which are the password
+	// re-check a restore asks for on a local-account profile (issue #1163),
+	// per minute across the whole process. Zero means
+	// DefaultStepUpRateLimit.
+	StepUpRateLimit int
+
 	// RecoveryRateLimit bounds POST /forgot-password and POST
 	// /reset-password attempts per remote IP per minute. Zero means
 	// DefaultRecoveryRateLimit.
@@ -96,7 +102,7 @@ type Config struct {
 	// deleting a provisional administrator whose recovery address was
 	// never verified (verify.go, #830 §9). nil means os.Stdout, which
 	// is the stream a host's own startup PrintBootstrapNotice call
-	// already writes to (apps/generic/cmd/backupd-web), and the two have
+	// already writes to (apps/generic/cmd/retnd-web), and the two have
 	// to be the same stream for the notice to be findable at all.
 	//
 	// It is separate from Log because the two are different kinds of
@@ -134,10 +140,10 @@ type Config struct {
 	// no published port and joins no network but `internal`, which only
 	// `web-ui` (`serve-ui`, apps/common/webhost/serve.NewUI's reverse proxy)
 	// also joins - nothing else on the host, and nothing on the LAN, can
-	// ever be this Service's direct peer. apps/generic/cmd/backupd-web's
+	// ever be this Service's direct peer. apps/generic/cmd/retnd-web's
 	// `--trust-forwarded-headers` flag is what actually turns this on for
 	// that deployment; container/compose.yaml sets it for the
-	// `backupd` (engine) service only, never for `web-ui` itself
+	// `retnd` (engine) service only, never for `web-ui` itself
 	// (which correctly observes its own real TLS status directly and must
 	// never trust a forwarded header from just anyone hitting its
 	// published port).
@@ -167,6 +173,8 @@ const (
 	DefaultLoginRateLimit    = 10
 	DefaultEnrollRateLimit   = 5
 	DefaultPasswordRateLimit = 10
+	// DefaultStepUpRateLimit is VerifyStepUp's budget per minute.
+	DefaultStepUpRateLimit = 10
 	// DefaultRecoveryRateLimit bounds forgot-password and reset-password.
 	// Lower than the rest because the first of the two makes this process
 	// send mail on an unauthenticated request (Config.RecoveryRateLimit).
@@ -191,6 +199,7 @@ type Service struct {
 	forgotLimiter         *RateLimiter
 	resetLimiter          *RateLimiter
 	verifyLimiter         *RateLimiter
+	stepUpLimiter         *RateLimiter
 	sendMail              email.Sender
 	baseURL               string
 	log                   io.Writer
@@ -293,6 +302,12 @@ func New(cfg Config) (*Service, error) {
 	resetLimiter.now = now
 	verifyLimiter := NewRateLimiter(recoveryLimit, rateLimitWindow)
 	verifyLimiter.now = now
+	stepUpLimit := cfg.StepUpRateLimit
+	if stepUpLimit == 0 {
+		stepUpLimit = DefaultStepUpRateLimit
+	}
+	stepUpLimiter := NewRateLimiter(stepUpLimit, rateLimitWindow)
+	stepUpLimiter.now = now
 
 	s := &Service{
 		store:                 store,
@@ -307,6 +322,7 @@ func New(cfg Config) (*Service, error) {
 		forgotLimiter:         forgotLimiter,
 		resetLimiter:          resetLimiter,
 		verifyLimiter:         verifyLimiter,
+		stepUpLimiter:         stepUpLimiter,
 		sendMail:              sendMail,
 		baseURL:               strings.TrimRight(cfg.BaseURL, "/"),
 		log:                   log,
@@ -350,7 +366,7 @@ func (s *Service) Authenticator() capabilities.Authenticator {
 // TrustForwardedHeaders reports whether this Service was configured to
 // trust X-Forwarded-For/X-Forwarded-Proto from its immediate caller (see
 // Config.TrustForwardedHeaders's own doc for exactly when that is safe).
-// apps/generic/cmd/backupd-web calls this to fill
+// apps/generic/cmd/retnd-web calls this to fill
 // apps/common/webhost/serve.EngineConfig.TrustForwardedHeaders, which
 // decides the same thing for the CSRF cookie NewEngine issues
 // (EnsureCSRFCookie) that this Service's own session cookie already
@@ -386,7 +402,7 @@ func (s *Service) NeedsEnrollment() (bool, error) {
 // rather than this package's. It lands in the same log as every other
 // line the process writes, and it is usually the FIRST line a new
 // deployment shows anybody, so a prefix nothing else in the image uses is
-// the worst one to have. It said `backupd` until 0.3.3, which was
+// the worst one to have. It said `retnd` until 0.3.3, which was
 // already the wrong half of the pair (the CLI never prints this), and
 // the rename made it a name the product no longer answers to at all. It
 // reads core/cliecho.WebBinary now, the one place that name is spelled.
@@ -425,4 +441,48 @@ func (s *Service) PrintBootstrapNotice(w io.Writer, baseURL string) error {
 			token)
 	}
 	return err
+}
+
+// AdministratorCreated reports whether enrollment has happened, for the
+// first-run guide (retnd#1049). A store that cannot be read reports false:
+// the guide would rather offer a step that turns out to be done than hide
+// one that is not.
+func (s *Service) AdministratorCreated() bool {
+	admin, err := s.store.Admin()
+	return err == nil && admin != nil
+}
+
+// EmailConfigured reports whether a mail server has been set up for
+// account recovery, for the first-run guide (retnd#1049).
+func (s *Service) EmailConfigured() bool {
+	rec, err := s.store.SMTP()
+	return err == nil && rec != nil
+}
+
+// SetupSkips returns the guide steps that were skipped, durably.
+func (s *Service) SetupSkips() []string {
+	skips, err := s.store.SetupSkips()
+	if err != nil {
+		return nil
+	}
+	return skips
+}
+
+// SkipSetupStep records a skipped guide step so it survives a restart.
+func (s *Service) SkipSetupStep(step string) error {
+	return s.store.SkipSetupStep(step)
+}
+
+// OnSessionEnd registers fn to be told, with the user name and the expiry
+// the authenticator reported for it (Authenticator sets
+// AuthContext.SessionExpiresAt from the same value), whenever a session is
+// ended on purpose: logout, a password rotation, a reset. The host uses it
+// to revoke what was granted in that session, such as a recovery download.
+//
+// It is a setter and not a Config field because the host builds this
+// Service before the backup service it needs to tell exists. fn runs on the
+// request's goroutine after the session is already gone, so it must not
+// block; it may be replaced, and nil clears it.
+func (s *Service) OnSessionEnd(fn func(username string, expiresAt time.Time)) {
+	s.sessions.setOnEnd(fn)
 }

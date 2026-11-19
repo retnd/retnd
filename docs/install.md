@@ -1,6 +1,6 @@
-# Installing backupd on a Docker host
+# Installing retnd on a Docker host
 
- `scripts/install/install_docker_host.py` brings the engine and the Web UI
+Issue #262. `scripts/install/install_docker_host.py` brings the engine and the Web UI
 up on a machine you have SSH on, or refuses and tells you exactly which prerequisite
 stopped it.
 
@@ -8,8 +8,8 @@ stopped it.
 python3 scripts/install/install_docker_host.py install
 ```
 
-That is the whole command on a bare host. It installs under
-`~/backupd`, generates an SSH keypair and an empty `known_hosts` under
+That is the whole command on a bare host (issue #347). It installs under
+`~/retnd`, generates an SSH keypair and an empty `known_hosts` under
 `<prefix>/secrets` if they are not there, and prints the public half with a note that
 it belongs in the `authorized_keys` of whichever host you are backing up.
 
@@ -17,10 +17,10 @@ Every flag is still there when you want it, and naming one changes only that one
 
 ```
 python3 scripts/install/install_docker_host.py install \
-    --prefix /volume1/backupd \
-    --ssh-key /volume1/backupd/secrets/id_ed25519 \
-    --known-hosts /volume1/backupd/secrets/known_hosts \
-    --image ghcr.io/backupdproject/backupd:0.4.0
+    --prefix /volume1/retnd \
+    --ssh-key /volume1/retnd/secrets/id_ed25519 \
+    --known-hosts /volume1/retnd/secrets/known_hosts \
+    --image ghcr.io/retnd/retnd:0.8.0
 ```
 
 **One file, and no checkout.** Copy
@@ -70,6 +70,51 @@ reactions:
   Its own exit code because retrying will never change the answer, where retrying
   a 30 is reasonable.
 
+### Finishing the first run from a terminal
+
+A fresh install normally writes its own default `config.yaml` on first start, so it's a
+configured engine from its first second and `retnd backup-set create` beside it is an
+ordinary routed create. When it can't (the configuration directory isn't writable yet, or
+the state it found is ambiguous enough that it won't decide on its own), the engine serves
+the first-run setup flow instead and waits for its first configuration.
+
+On a headless install nobody is looking at that wizard, and stopping the engine to let the
+command line write `config.yaml` stops the container you typed it in. So `backup-set
+create` hands the first configuration to the engine instead, as `POST
+/api/v1/system/first-run`, which is the same request the wizard sends (#1254). It needs a
+route to the engine, the same three variables every routed write uses:
+
+```
+export RETND_API_URL=http://127.0.0.1:8080
+export RETND_API_USERNAME=admin
+read -rs RETND_API_PASSWORD && export RETND_API_PASSWORD
+retnd backup-set create api/postgres --host ... --ssh-key-file ... --known-hosts-line ...
+```
+
+`http://127.0.0.1:8080` is the engine's own listener from inside its container; from the
+host it's the published Web UI port. `retnd ssh-key import`, `list` and `discover` and `retnd
+ssh host-key-probe` go to the same engine with the same variables, so the key step works the
+same way (they find the engine through `$STATE_DATABASE` or the packaged journal path, since
+they take no `--state-database` of their own). The administrator has to exist first, so enroll it
+before you run this: with the link the install printed (or `enroll-link` above) in a browser,
+or from the same terminal with `retnd auth enroll --username admin --token-stdin
+--password-stdin`, piping the link (or its token) and then the password in as two lines. That
+one needs only `RETND_API_URL`, since there is no account to sign in as yet, and it is the way
+in when nobody can open the link, because `retnd-web auth create-admin` refuses while the
+serving container holds the store. Without the variables the command refuses with exit 3 and
+says how to give it a route, and nothing is written. The engine writes the configuration and starts serving it in place, and the
+command prints the set exactly as the engine wrote it. If the engine couldn't start serving
+it in place, the command says so and still exits 0, because the configuration is written:
+restart the engine and it picks it up. The engine can take a few minutes over this on a slow
+NAS (it proves the connection and opens its journal), so the command waits up to twelve
+minutes for the reply; if the reply still doesn't come, it asks the engine whether it's
+configured now and tells you which it is. If the wizard or another terminal finished first,
+it says nothing of yours was written, and `retnd sources` shows what the engine has.
+
+Beside an engine that's already configured, a create aimed at a path with no `config.yaml`
+(a mistyped `--config`, say) is still refused with exit 3 and nothing sent. That engine
+won't take a first configuration, so the fix is pointing `--config` at the right file.
+
 ### `--cli-only`: the command line, and no web host at all
 
 ```
@@ -78,17 +123,17 @@ python3 scripts/install/install_docker_host.py install --cli-only
 
 Everything above still happens (the directories, the keypair, the pinned image, every
 refusal), and then the deployment comes up a different shape. The engine container runs
-`/backupd daemon` instead of `/backupd-web serve`, the `web-ui` container is never started, and
+`/retnd daemon` instead of `/retnd-web serve`, the `web-ui` container is never started, and
 nothing publishes a port on the host, so no process in the deployment serves HTTP and
-the `backupd-web` binary is not executed anywhere. The installer writes a wrapper to
-`<prefix>/bin/backupd` and that is the interface:
+the `retnd-web` binary is not executed anywhere. The installer writes a wrapper to
+`<prefix>/bin/retnd` and that is the interface:
 
 ```
-~/backupd/bin/backupd status
-~/backupd/bin/backupd sources
+~/retnd/bin/retnd status
+~/retnd/bin/retnd sources
 ```
 
-It is `docker compose run --rm --no-deps --entrypoint /backupd backupd`, not
+It is `docker compose run --rm --no-deps --entrypoint /retnd retnd`, not
 `exec`, deliberately. `exec` needs a running container, and the first command anybody
 needs on a fresh CLI-only host runs before anything has been started. A one-off
 container gets the same image, mounts, uid and network as the engine, so a command that
@@ -97,17 +142,17 @@ starting the engine as a side effect of being run.
 
 **A fresh `--cli-only` install starts nothing, and that is the design.** A full install
 has a first-run wizard, so it can come up with no configuration at all and hand you a
-link. `backupd daemon` has no such thing: it is refused rather than started when there is no
+link. `retnd daemon` has no such thing: it is refused rather than started when there is no
 `config.yaml`, so starting it on a fresh host would produce a container that exits, gets
 restarted, exits again, and an installer that either claims success over a crash loop or
 waits out its timeout for a state that can never arrive. So it stages everything, starts
 nothing, exits 0, and prints the command that writes the first configuration. Creating
-the first backup set writes the first `config.yaml` along with it, so
+the first backup set writes the first `config.yaml` along with it (issue #176), so
 there is no file to hand-author first.
 
 Since there is nothing serving, there is no health endpoint to ask either. What the
 installer checks instead is that the container stays running for a settle window rather
-than for one sample: `backupd daemon` is running for part of every restart cycle, so a
+than for one sample: `retnd daemon` is running for part of every restart cycle, so a
 single `docker compose ps` would report a crash loop as an install about half the time.
 
 The shape is recorded as `CLI_ONLY` in the staged `.env` and adopted on a later run the
@@ -117,10 +162,10 @@ of a CLI-only deployment stays CLI-only, because an upgrade is not the place to 
 publishing a Web UI on the LAN of a host somebody deliberately installed without one.
 `--no-cli-only` converts it back, and says so.
 
-### Compatibility: `--prefix` no longer defaults to `/volume1/backupd`
+### Compatibility: `--prefix` no longer defaults to `/volume1/retnd`
 
-It defaults to `~/backupd`. If you have a script that relied on the old default
-being applied for you, pass `--prefix /volume1/backupd` explicitly. The old
+It defaults to `~/retnd`. If you have a script that relied on the old default
+being applied for you, pass `--prefix /volume1/retnd` explicitly. The old
 default was a guess at one NAS vendor's share layout that was wrong by a directory name
 on the actual UGREEN this was proven on, and wrong entirely on anything not
 Synology-shaped, so it never once saved anybody a flag.
@@ -142,12 +187,14 @@ group- or world-writable, since anyone holding that bit can replace the key what
 key file's own mode says. Ancestors *above* `--prefix` belong to whoever set the machine
 up, so those are named in a warning with the exact `chmod go-w` rather than changed.
 
-Seven subcommands: `preflight` checks and creates nothing, `install` checks then
+Eight subcommands: `preflight` checks and creates nothing, `install` checks then
 installs, `status` reports, `enroll-link` mints a fresh enrollment link,
 `uninstall` removes what the installer made, `network-doctor` diagnoses (and,
-asked to, repairs) Docker bridge networking, and `network-undo` removes exactly
-what a repair added. See [Known-good, and known-bad](#known-good-and-known-bad)
-below for what the last two are for.
+asked to, repairs) Docker bridge networking, `network-undo` removes exactly
+what a repair added, and `migrate-identity` moves an already-installed
+deployment onto the current container paths and unit names in one transaction.
+See [Known-good, and known-bad](#known-good-and-known-bad) below for what the
+two network commands are for.
 
 Flags are scoped to the subcommand that reads them, so `<subcommand> --help` lists only
 what that subcommand actually uses. A flag valid on one is not necessarily valid on
@@ -239,7 +286,22 @@ a machine that can reach the registry, `docker save` it, and bring the tarball o
 `latest` is refused, and so is anything else that is not an orderable version.
 A host installed from a moving tag records `VERSION=latest` in its `.env`, which
 orders against nothing, so no later installer can tell whether it is moving that
-host forwards or backwards. There is no `latest` tag to install anyway.
+host forwards or backwards. The registry does carry a `latest` tag (see below), but it
+is for people pulling by hand, not something to install a host from.
+
+### What `ghcr.io/retnd/retnd:latest` is, and is not
+
+Every release moves `latest` to the new version's index digest, so
+`docker pull ghcr.io/retnd/retnd:latest` gives you the newest release. It is the same
+digest as the version tag, which means the cosign signature and the SBOM attestation
+verify for `latest` exactly as they do for `0.8.0`. It only moves forward: a backport
+(a 0.5.x fix cut after 0.6.x) and a prerelease never take it, the same rule that decides
+which release GitHub marks "Latest".
+
+It is a moving name, so it is the wrong thing to put in a compose file, a script or a
+host's `.env`. Those keep pinning the version's digest (`image@sha256:...`), which is
+what the installer does by default and what `--release` resolves for you. `latest` is
+for humans and quick pulls.
 
 ### The digest, and why the default does not float
 
@@ -247,9 +309,9 @@ Preflight prints the reference it is about to install before anything is created
 and then proves it:
 
 ```
-  ok   installing ghcr.io/backupdproject/backupd:0.4.0
-  ok   ghcr.io/backupdproject/backupd:0.4.0 is sha256:..., the identity the release
-       manifest records for 0.4.0
+  ok   installing ghcr.io/retnd/retnd:0.8.0
+  ok   ghcr.io/retnd/retnd:0.8.0 is sha256:..., the identity the release
+       manifest records for 0.8.0
 ```
 
 A registry tag is a mutable pointer, which `scripts/release/publish-image.sh` says
@@ -261,24 +323,25 @@ HEAD against the registry settles it. If the tag has moved, this refuses with ex
 no dependency: the installer is standard library only because a NAS may not let you
 install anything.
 
-**Read the version you have before you expect that line.** A release is cut before it
-is pushed, and in that window the manifest records `index_digest: null`, the installer
-carries no digest, and what preflight prints is this instead:
+**Read the manifest state before you expect that line.** A release is cut before
+it is pushed. During that window the manifest records `index_digest: null`, the
+installer carries no digest, and preflight prints this instead:
 
 ```
-  ok   installing ghcr.io/backupdproject/backupd:0.4.0
-  !!   0.4.0 is cut and not pushed, so container/release-manifest.json records no
+  ok   installing ghcr.io/retnd/retnd:0.8.0
+  !!   0.8.0 is cut and not pushed, so container/release-manifest.json records no
        identity for it and there is nothing here to hold
-       ghcr.io/backupdproject/backupd:0.4.0 to.
+       ghcr.io/retnd/retnd:0.8.0 to.
 ```
 
-That is 0.4.0 today. It is a warning and never a refusal, and the difference is the
-whole design: the alternative was to move the version and leave 0.3.3's digest behind,
-which compares a perfectly correct 0.4.0 image against the previous release's identity
-and hands every operator exit 52 on a good install. The digest is filled in, and this
-installer reissued with it, when the release workflow has pushed and the digests are
-recorded back into the manifest. Until then, `--release 0.3.3` installs the last
-release this can prove, or `--image-archive` installs a build you made yourself.
+That warning is never a refusal. Copying 0.7.2's digest forward would compare a
+correct 0.8.0 image against the previous release's identity and reject it. After
+the release workflow pushes 0.8.0, its `merge-back-to-main` job reads the index
+digest from GHCR, updates the manifest and this installer together, regenerates
+provenance and runs the consistency suites before pushing the record to `main`.
+Until that automated commit lands, `--release 0.7.2` installs the last release
+this candidate installer can prove, or `--image-archive` installs a build you
+made yourself.
 
 That proof only covers the release the installer carries, and a release cut after
 this installer was written can never have a digest in it. That is why the `--image`
@@ -343,9 +406,32 @@ to prevent.
 
 Archives are not pruned, and they are not unlimited either. Each one holds a copy of
 `config/ssh_keys`, which is where the engine keeps the keys imported through the Web UI,
-so an unbounded pile is an installer that multiplies private key material every time it
+and of `config/retained_copy_keys`, where it keeps the managed encryption keys, so an
+unbounded pile is an installer that multiplies private key material every time it
 runs. Past five, `install` refuses and names them: deleting one for you would take back
 the recoverability that moving rather than deleting is there to provide.
+
+If you turned on retained-copy encryption with a managed key, that key is a file under
+`config/retained_copy_keys`, beside `config.yaml`. The installer treats it like `ssh_keys`:
+
+- `upgrade` copies it into the archive and leaves the live directory alone, so the running
+  install keeps its key.
+- `factory-reset` moves it into the archive together with `state.db`, which holds the key
+  registry. The archive stays self-consistent (the journal and the keys its encrypted copies
+  name), and the clean install starts with no key files nobody knows about. The preview
+  counts the key files and says that copies encrypted under them are unreadable without the
+  key or its recovery bundle.
+- `uninstall` removes nothing under the host directories, and says the managed keys are among
+  what it leaves in place.
+- On Synology the package scripts (`preupgrade`, `postupgrade`, `preuninst`, `postuninst`)
+  delete nothing and DSM keeps `etc/`, so the key directory survives upgrade and uninstall.
+
+An archive that holds key material is the same trade as the one that already holds
+`ssh_keys`: same host, same disk, created `0700`, and the managed key never protected
+against whoever owns the machine (it protects against whoever owns the bucket). The
+recovery bundle you exported is still the copy of the key that matters, so before any
+upgrade or reset on a deployment that encrypts, check that you can put your hand on it. See
+[encrypted copies](encrypted-copies.md).
 
 ## It will not adopt a layout you did not ask for
 
@@ -412,9 +498,78 @@ names neither `--mode` nor the mapping, so whoever hit it in a cron job had to c
 read the source. It still exits 2, and now it says which flag replaced theirs. A re-run
 with no mode flag at all is the other case, and that one exits 20 and names `--mode`.
 
+## Upgrading a deployment installed before the rename
+
+EPIC R (#885) renamed the product to `retnd`. The image entrypoints, the compose
+service, the container-internal paths and the systemd units moved with it (#890), and
+this is what each of the three upgrade paths does about it.
+
+**Through this installer, which moves everything in one transaction.**
+
+```bash
+python3 install_docker_host.py migrate-identity --prefix ~/retnd
+```
+
+It takes the stack down first — the engine opens the state database with
+`journal_mode=WAL`, so nothing here edits a file the engine still holds open — then
+restages the deployment so the mounts become `/etc/retnd/...`, rewrites every absolute
+container path the installed `config.yaml` names, renames `retnd-bridge.service`,
+`retnd-bridge.timer` and `retnd-workflow-runner.service` to their `retnd-`
+spellings, and brings the stack back up. The mounts move **before** `config.yaml` is
+rewritten, which is the opposite of the intuitive order and is the whole reason the
+intermediate state starts: the staged payload mounts your one host configuration
+directory at both `/etc/retnd/config` and `/etc/retnd/config` for the rollback
+window, so the un-rewritten `config.yaml` still resolves every path it names. Anything
+that fails after the rewrite puts `config.yaml` back byte for byte and brings the stack
+up on the pre-migration configuration. Re-running it on a deployment that has already
+moved finds nothing to move and says so.
+
+Two refusals it can produce, and each names its own fix:
+
+- **Exit 31**, when the configuration mount has moved and the persisted `config.yaml`
+  still names a pre-rename path in a shape the rewriter will not touch blind: a list
+  entry, a flow mapping or a multi-line scalar. It prints the line number and the line,
+  and leaves `config.yaml` exactly as it was. Change that one line to name `/etc/retnd`
+  and re-run. It refuses rather than skipping the line because the mount has already
+  moved by then, and a surviving `/etc/retnd` value is a deployment that starts,
+  reports healthy, and fails at the first backup cycle on a path nothing is mounted at.
+- **Exit 22**, when both spellings of a renamed unit are enabled on this host, which
+  happens if somebody copied a unit file across by hand or re-enabled an old one from a
+  saved command line. Both would start at boot, two oneshots would re-assert the same
+  four firewall rules against each other, and which one you are debugging would depend
+  on which systemd started last. Either let `migrate-identity` finish the rename, or
+  disable the pre-rename unit yourself with the `sudo systemctl disable --now
+  retnd-bridge.service` line the refusal prints for each pair it found.
+
+**With an unedited compose file you pinned yourself.** It still starts and still works,
+for one release. The old image reference resolves through the mirror published from the
+retained organisation, the image carries `/retnd-web` as a hardlink beside
+`/retnd-web`, and your `volumes:` lines still land on `/etc/retnd` and
+`/var/lib/retnd` — which the engine **adopts**: when the current path holds no state
+and the pre-rename path holds it, the deployment is served from the pre-rename path and
+warns on every start, naming the compose line to change and this installer's
+`migrate-identity` command. Nothing first-runs over an existing journal (FR-38), so the
+setup wizard is not a thing an upgrade can show you. The warning is the whole signal,
+and the window is one release: #895 deletes the adoption, the entrypoint hardlink and
+the image mirror together.
+
+**The one refusal an upgrade can meet instead of a warning** is two *different*
+populated directories, one at each container path. The engine refuses to start and
+names both, because choosing one journal silently is the worst option available. Keep
+the directory this deployment should serve, move the other aside, and start again. One
+host directory bind-mounted at both container paths — which is exactly what
+`migrate-identity` writes for the rollback window — is not that case: it is one device
+and one inode, and it starts normally.
+
+**On a `--cli-only` host**, the command is `retnd` and the wrapper is
+`<prefix>/bin/retnd`. An existing `<prefix>/bin/retnd` is rewritten with the same
+body rather than left alone or deleted, so the command already in your shell history
+keeps working for the same one release; left alone it would exec a `/retnd` the image
+no longer has.
+
 ## It derives from the canonical definition, it does not restate it
 
-`container/compose.yaml` is the canonical runtime contract, and
+`container/compose.yaml` is the canonical runtime contract (issue #167), and
 `distribution/compose` fails the build when a derived artifact stops matching it. The
 installer stages that file byte for byte and lays one override beside it carrying two
 keys per service: `image`, and `pull_policy: never`.
@@ -470,11 +625,11 @@ Not "the container started". Three conditions, and the third exists because a re
 install taught me it was a separate claim:
 
 1. Docker reports the engine healthy **by its own liveness probe**. Not
-   `backupd status`, which is a backup freshness verdict a fresh install
+   `retnd status`, which is a backup freshness verdict a fresh install
    legitimately fails; gating on that means the Web UI never starts, which is issue
-   
+   #206.
 2. The Web UI serves its bundle. A fresh install with no config serves a first-run
-   setup flow rather than refusing to start, which is
+   setup flow rather than refusing to start, which is issue #176.
 3. A request through the Web UI reaches the engine. `/health/ready` answering 503
    `not_ready` is a **pass**: that is the correct answer for an unconfigured instance.
    A request that never completes is not.
@@ -511,7 +666,7 @@ Two things a non-default port changes:
 - `POST /api/v1/ssh/host-key-probe` takes the port and opens a real connection, so it
   is the honest way to get the pinned line rather than typing one.
 
-The installer takes it as `--source-port`, or as `RCLONE_MANAGER_SOURCE_PORT` in the
+The installer takes it as `--source-port`, or as `RETND_SOURCE_PORT` in the
 environment, which is the one to prefer: a port on the command line is in shell history
 and in this host's process listing for as long as the install runs, and one in the
 environment is not. There is no default and nothing infers one. Supply it and preflight
@@ -520,6 +675,12 @@ which is the check that turns the field failure below into a refusal at the door
 Supply it as an empty string, which is what `--source-port "$SSH_PORT"` does when
 `SSH_PORT` is not exported, and it refuses rather than read that as silence. The value
 is never printed, never written into `.env`, and never written into this repository.
+
+`RETND_SOURCE_PORT` is the name from EPIC R onward. A host whose configuration
+management still exports the pre-rename `RCLONE_MANAGER_SOURCE_PORT` keeps working for
+one release: the installer reads it, prefers `RETND_SOURCE_PORT` when both are set, and
+prints one line naming the replacement. It is removed in the release after the one that
+ships EPIC R (#895), so move the variable at your convenience and before then.
 
 That preflight check exists because of a real failure. Pin a host key for a source on a
 non-default port using the line `ssh` showed you, without the port, and rclone reports
@@ -532,7 +693,7 @@ up and the first backup has run.
 A workflow step whose target is `local` does not run in the engine container, and since
 issue #865 it does not run on a host shell either: it runs in an **ephemeral Docker
 container** launched by the **Host Workflow Runner**, a small version-pinned process
-systemd supervises as `backupd-workflow-runner.service`
+systemd supervises as `retnd-workflow-runner.service`
 (`docs/adr/0020-host-workflow-runner.md`, `docs/runtime-contract.md`).
 
 A generic Docker host is this runner's own target, so local hooks are **available**
@@ -566,7 +727,7 @@ runner's account cannot reach the daemon. A deployment with an empty workflows
 directory is held to none of it, and `WORKFLOW_RUNNER=off` in the `.env` says so
 explicitly.
 
-- [ ] `systemctl is-active backupd-workflow-runner.service` reports `active`
+- [ ] `systemctl is-active retnd-workflow-runner.service` reports `active`
 - [ ] The `--puid` account is in the Docker socket's group, and the engine container is
       not: it mounts no socket and declares no `group_add`
 - [ ] The hook image named in the unit and in the `.env` is present on the host
@@ -587,7 +748,7 @@ did the host.
 
 It matters twice over. The Web UI reaches the engine over exactly that hop, so the page
 loaded and every API call hung. And the engine reaches an SFTP source over the same hop,
-so no backup could run at all. So the installer diagnoses it and fixes it.
+so no backup could run at all. So the installer diagnoses it and fixes it (issue #271).
 
 ### How it decides what is wrong
 
@@ -622,10 +783,10 @@ rather than tried out of ritual.
 Otherwise, four scoped rules:
 
 ```
-iptables -I DOCKER-USER 1 -i docker0 -m comment --comment backupd-bridge -j RETURN
-iptables -I DOCKER-USER 1 -i br-+    -m comment --comment backupd-bridge -j RETURN
-iptables -I INPUT       1 -i docker0 -m comment --comment backupd-bridge -j ACCEPT
-iptables -I INPUT       1 -i br-+    -m comment --comment backupd-bridge -j ACCEPT
+iptables -I DOCKER-USER 1 -i docker0 -m comment --comment retnd-bridge -j RETURN
+iptables -I DOCKER-USER 1 -i br-+    -m comment --comment retnd-bridge -j RETURN
+iptables -I INPUT       1 -i docker0 -m comment --comment retnd-bridge -j ACCEPT
+iptables -I INPUT       1 -i br-+    -m comment --comment retnd-bridge -j ACCEPT
 ```
 
 `RETURN` in `DOCKER-USER`, not `ACCEPT`, and the difference matters. An `ACCEPT` there
@@ -646,8 +807,11 @@ This edits a firewall on a machine reachable only over SSH.
   test asserting each of those strings is absent from every generated script.
 - Every rule is scoped to a Docker bridge interface. Never a blanket ACCEPT.
 - Idempotent by construction: each line is `iptables -C … || iptables -I …`.
-- Reversible: every rule carries the `backupd-bridge` comment, and
-  `network-undo` removes exactly those and nothing else.
+- Reversible: every rule carries the `retnd-bridge` comment, and
+  `network-undo` removes exactly those and nothing else. It also deletes rules
+  carrying the previous `retnd-bridge` comment, because a host repaired before
+  the rename (issue #890) is still carrying those and nothing else will ever look
+  for them again; new rules only ever get the current comment.
 - The host's own rules are never touched, replaced or reordered.
 - A healthy host is a no-op and is never asked for a password.
 
@@ -705,8 +869,8 @@ A test asserts no generated script ever invokes it, or `iptables-save`.
 #### What is installed instead
 
 ```
-/etc/systemd/system/backupd-bridge.service
-/etc/systemd/system/backupd-bridge.timer
+/etc/systemd/system/retnd-bridge.service
+/etc/systemd/system/retnd-bridge.timer
 ```
 
 The service owns exactly the four tagged rules and nothing else. Each is one `ExecStart`
@@ -749,7 +913,7 @@ the safety net for a host where that ordering turns out not to be enough.
 
 `iptables -C` prints nothing when the rule is already there, and `LogLevelMax=warning`
 keeps systemd's own start and finish lines out of the journal too. Measured on the target
-host: `journalctl -u backupd-bridge.service --since -12min` is empty across
+host: `journalctl -u retnd-bridge.service --since -12min` is empty across
 several fires.
 
 #### What it still does not guarantee
@@ -782,7 +946,7 @@ machine too.
 
 ```
 bridge networking: ok (gateway yes, egress yes)
-  persistence: backupd-bridge.timer enabled, next fire Mon 2026-08-31 22:26:26
+  persistence: retnd-bridge.timer enabled, next fire Mon 2026-08-31 22:26:26
 ```
 
 ### Verified, not assumed

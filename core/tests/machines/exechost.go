@@ -33,7 +33,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/tests/dockerlease"
+	"github.com/retnd/retnd/core/tests/dockerlease"
 )
 
 // The three accounts, by name. A test names the capability it wants rather
@@ -209,14 +209,19 @@ func startExecHost(t *testing.T, network, alias string, inNetwork bool) *ExecHos
 
 	authorizedDir := filepath.Join(runDir, "authorized")
 	must(t, os.MkdirAll(authorizedDir, 0o755), "create authorized dir")
-	copyFile(t, clientKey+".pub", filepath.Join(authorizedDir, "backupd.pub"))
+	// The name the image's sshd_config pins as its AuthorizedKeysFile
+	// (scripts/e2e/exec-host.Dockerfile). The two have to move together:
+	// a file under any other name is a key sshd never reads, and the
+	// failure is a 20-second authentication timeout rather than a
+	// missing-file error.
+	copyFile(t, clientKey+".pub", filepath.Join(authorizedDir, "retnd.pub"))
 
 	h.setStage("dockerlease.Sweep (reclaiming containers a killed run left behind)")
 	dockerlease.Sweep()
 
 	image := h.ensureExecHostImage(t)
 
-	name := fmt.Sprintf("backupd-gate-exec-%d", time.Now().UnixNano())
+	name := fmt.Sprintf("retnd-gate-exec-%d", time.Now().UnixNano())
 	h.mu.Lock()
 	h.containerName = name
 	h.mu.Unlock()
@@ -228,6 +233,7 @@ func startExecHost(t *testing.T, network, alias string, inNetwork bool) *ExecHos
 	if !inNetwork {
 		args = append(args, "-p", "127.0.0.1::22")
 	}
+	args = append(args, sshdNofile...)
 	args = append(args,
 		"-v", hostKeyEd25519+":/etc/ssh/ssh_host_ed25519_key:ro",
 		"-v", hostKeyEd25519+".pub:/etc/ssh/ssh_host_ed25519_key.pub:ro",
@@ -281,7 +287,7 @@ func (h *ExecHost) ensureExecHostImage(t *testing.T) string {
 	execHostImageOnce.Do(func() {
 		text := execHostDockerfile(t)
 		sum := sha256.Sum256([]byte(text))
-		tag := "backupd-machines-exechost:" + hex.EncodeToString(sum[:6])
+		tag := "retnd-machines-exechost:" + hex.EncodeToString(sum[:6])
 		h.setStage("docker image inspect " + tag)
 		if _, _, err := dockerRun(imageInspectTimeout, "image", "inspect", tag); err == nil {
 			execHostImageRef = tag

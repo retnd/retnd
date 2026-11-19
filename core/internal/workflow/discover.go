@@ -283,6 +283,41 @@ type Script struct {
 	path string
 }
 
+// Read returns this script's bytes, held to exactly the custody rules a
+// capture holds them to, and without spooling anything.
+//
+// # Why this exists beside Snapshot, which also reads the bytes
+//
+// Because #906 made a passing static verification a PRECONDITION OF
+// SAVING a workflow, and a save is not a run. Snapshot is what a run
+// does: it mints a run id, takes a spool directory, writes a copy of
+// every script into it and hashes the plan, because a run has to be able
+// to re-execute the exact bytes it verified. A configuration write has
+// nothing to recover and no state directory guarantee, so asking it to
+// build a spool in order to look at a file would make `settings workflow
+// patch` fail on a deployment where the verification is precisely what
+// is wanted.
+//
+// What it must NOT be is a second reader. Every rule about what this
+// process may vouch for -- no symbolic link, no fifo, nothing another
+// account can write, an owner this process trusts, a bounded size, a
+// file that grew mid-read refused rather than truncated -- lives in
+// readScriptBytes, and this is that function with the spool left out. A
+// verification that accepted a file a run would refuse, or the reverse,
+// would be worse than none.
+//
+// maxSize is the deployment's configured bound
+// (config.EffectiveMaxScriptSize), so the answer about "is this file too
+// big" is the same answer a run would give.
+//
+// The bytes are returned and the PATH still is not: Script.path stays
+// unexported for the reason its own field doc gives, and a caller that
+// wants to look at a script gets what it contained when this process
+// read it rather than a path it could re-open later.
+func (s Script) Read(maxSize int64) ([]byte, error) {
+	return readScriptBytes(s.path, maxSize)
+}
+
 // Discover lists the scripts in one resolved stage directory, in the
 // documented order, or refuses the directory's contents.
 //
@@ -337,6 +372,47 @@ func Discover(stageDir string) ([]Script, error) {
 	slices.SortFunc(scripts, func(a, b Script) int { return compareScriptNames(a.Name, b.Name) })
 
 	return scripts, nil
+}
+
+// DiscoverOne resolves the one script called name in a resolved stage
+// directory, or nothing when it is not there (#1203).
+//
+// It exists for a purpose that was told which script it runs, where listing
+// the directory is the wrong question. A directory shared by many named
+// scripts (the custom recovery-test validators) is held to Discover's whole
+// rule, so one README or one editor backup beside the script that was asked
+// for refused every one of them, and so did the 65th entry. The directory
+// itself is still held to custody (ResolveStage did that), and the file is
+// held to everything a captured script is: the name rule here, and
+// regular-file, owner, mode and size on the open descriptor at capture time.
+// What is not checked is the other entries, which this purpose never reads.
+//
+// A name that is not a script name, or one with a separator in it, is
+// refused, so the argument can never leave stageDir.
+func DiscoverOne(stageDir, name string) ([]Script, error) {
+	target, err := ParseScriptName(name)
+	if err != nil {
+		return nil, err
+	}
+
+	path := filepath.Join(stageDir, name)
+
+	info, err := os.Lstat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+
+		return nil, fmt.Errorf("%w: %s cannot be read: %w", ErrStageDir, path, err)
+	}
+
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf(
+			"%w: %s is a %s, not a regular file. A hook is a file this process reads once and copies; anything else is something whose contents are supplied by whoever is on the other end of it",
+			ErrCustody, path, fileKind(info.Mode().Type()))
+	}
+
+	return []Script{{Name: name, Target: target, path: path}}, nil
 }
 
 // MaxScriptsPerStage bounds how many entries one hook directory may have.

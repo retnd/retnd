@@ -33,7 +33,7 @@ import { ApiProvider } from "@shared/api/ApiContext";
 import { createMockApi } from "@shared/api/mock";
 import { httpApi } from "@shared/api/client";
 import { resetGraphForTests } from "@shared/state/graph";
-import type { BackupdApi, ManagerStorage } from "@shared/api/contracts";
+import type { RetndApi, ManagerStorage } from "@shared/api/contracts";
 import type { AsyncState } from "@shared/hooks/useAsync";
 import type { BackupSet } from "@shared/types/backup";
 import type { SystemHealth } from "@shared/types/operation";
@@ -85,7 +85,7 @@ const WIRE_HEALTH = {
 const VOLUME: ManagerStorage = {
   known: true,
   unknownReason: "",
-  measuredPath: "/home/rom/rclone-manager/backups",
+  measuredPath: "/home/rom/retnd/backups",
   totalBytes: VOLUME_TOTAL,
   freeBytes: VOLUME_FREE,
   availableBytes: VOLUME_FREE,
@@ -165,7 +165,7 @@ async function sharedVolumeSets(): Promise<BackupSet[]> {
       set: i === 0 ? "home-nightly" : "home-weekly",
       name: i === 0 ? "Home nightly" : "Home weekly",
       state: "healthy",
-      destination: "/home/rom/rclone-manager/backups/",
+      destination: "/home/rom/retnd/backups/",
       readOnly: false,
       readOnlyRetainedCount: 0
     };
@@ -175,7 +175,7 @@ async function sharedVolumeSets(): Promise<BackupSet[]> {
 }
 
 async function renderDashboard() {
-  const api: BackupdApi = { ...createMockApi(), getStorage: () => Promise.resolve(VOLUME) };
+  const api: RetndApi = { ...createMockApi(), getStorage: () => Promise.resolve(VOLUME) };
   const health: AsyncState<SystemHealth> = {
     data: await healthForSharedVolume(),
     error: null,

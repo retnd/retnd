@@ -1,6 +1,6 @@
 # Proxmox VE deployment profile
 
- / work package B4.5, `docs/EPIC-B-multi-nas.md` §72, the Proxmox
+Issue #86 / work package B4.5, `docs/EPIC-B-multi-nas.md` §72, the Proxmox
 entry in §4A, and D-9 in §5.
 
 Proxmox VE is the one target in Phase 4 with nothing to package into. It
@@ -15,7 +15,7 @@ format. There is no builder, no installer and no lifecycle code here, and
 `distribution/packaging` fails the build if any appears.
 
 
-## Converted to a thin adapter
+## Converted to a thin adapter (issue #169)
 
 Everything here is now **derived** from the one authoritative Compose runtime
 definition rather than authored beside it. `distribution/packaging`'s
@@ -29,10 +29,10 @@ that means in practice for this directory:
   build-time constant;
 - the Web UI container sets `UI_ROOT=/ui/bundles`, so it serves this
   platform's own frontend bridge out of the canonical image rather than the
-  generic one. A missing bundle is a hard start failure, never a
+  generic one (issue #180). A missing bundle is a hard start failure, never a
   silent fall back;
 - the configuration mount is a writable **directory** holding `config.yaml`
-  instead of a read-only single file.
+  instead of a read-only single file (issue #196).
 
 The upgrade path from the Phase 4 packaging, including the one renamed mount,
 is in
@@ -63,7 +63,7 @@ Two guest shapes are documented. The first is the default:
 | **VM** (default) | Higher | Full kernel isolation | Proxmox's own guidance for running a container engine. Nothing about it is unusual or unsupported. |
 | Unprivileged LXC (variant) | Lower | Shared kernel | Needs `features: nesting=1,keyctl=1`. Proxmox does not support a container engine inside an LXC; if it misbehaves after a PVE upgrade, that is the trade you took. Keep it unprivileged. |
 
-Both run the identical `compose/backupd.yml`. The only difference
+Both run the identical `compose/retnd.yml`. The only difference
 is how the guest is created and how the host directory reaches it.
 
 WP4.5's other listed option, an unprivileged LXC running the app binaries
@@ -79,17 +79,17 @@ unchanged.
 ## What the PVE host contributes
 
 Exactly one thing: a directory or dataset, shared into the guest at
-`/mnt/backupd`.
+`/mnt/retnd`.
 
 ```bash
-zfs create -o mountpoint=/srv/backupd rpool/backupd
+zfs create -o mountpoint=/srv/retnd rpool/retnd
 ```
 
 For a VM, share it in with a virtiofs directory mapping (PVE 8.4 and
 later) or an NFS export. For the LXC variant, a bind mount point:
 
 ```bash
-pct set <ctid> --mp0 /srv/backupd,mp=/mnt/backupd
+pct set <ctid> --mp0 /srv/retnd,mp=/mnt/retnd
 ```
 
 Everything persistent lives under that one path, split into four
@@ -97,10 +97,10 @@ directories that are four different things:
 
 | Guest path | Holds | Why it is separate |
 | --- | --- | --- |
-| `/mnt/backupd/state` | SQLite catalog, administrator record | Private application state (§19.2) |
-| `/mnt/backupd/backups` | Retained artifacts | The user backup root, a separate security domain |
-| `/mnt/backupd/config` | `config.yaml`, mounted writable | Validated before the listener opens; the engine also creates `ssh_keys/` and `known_hosts.d/` here |
-| `/mnt/backupd/secrets` | SSH key, pinned `known_hosts`, read-only | Never inside the backup root, never in this repository |
+| `/mnt/retnd/state` | SQLite catalog, administrator record | Private application state (§19.2) |
+| `/mnt/retnd/backups` | Retained artifacts | The user backup root, a separate security domain |
+| `/mnt/retnd/config` | `config.yaml`, mounted writable | Validated before the listener opens; the engine also creates `ssh_keys/` and `known_hosts.d/` here |
+| `/mnt/retnd/secrets` | SSH key, pinned `known_hosts`, read-only | Never inside the backup root, never in this repository |
 
 `distribution/packaging` enforces the containment rule in the last column
 on every commit: no key material, config or authentication state may sit

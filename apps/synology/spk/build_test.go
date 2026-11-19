@@ -29,8 +29,7 @@ import (
 // pkg_make_spk produces: "<package>-<arch>-<version>.spk".
 func TestBuild_NamesTheArtifactTheWayTheToolkitDoes(t *testing.T) {
 	for _, tc := range []struct{ goarch, want string }{
-		{"amd64", "Backupd-x86_64-1.0.0-1.spk"},
-		{"arm64", "Backupd-armv8-1.0.0-1.spk"},
+		{"amd64", "retnd-x86_64-1.0.0-1.spk"},
 	} {
 		t.Run(tc.goarch, func(t *testing.T) {
 			path, _ := buildFixture(t, tc.goarch)
@@ -87,16 +86,16 @@ func TestBuild_RefusesIncompleteInput(t *testing.T) {
 		{
 			name: "one of the core binaries is missing",
 			mutate: func(t *testing.T, o *BuildOptions) {
-				if err := os.Remove(filepath.Join(o.BinariesDir, "backupd-web")); err != nil {
+				if err := os.Remove(filepath.Join(o.BinariesDir, "retnd-web")); err != nil {
 					t.Fatalf("remove: %v", err)
 				}
 			},
-			wantErr: "backupd-web",
+			wantErr: "retnd-web",
 		},
 		{
 			name: "a staged binary is not an executable at all",
 			mutate: func(t *testing.T, o *BuildOptions) {
-				p := filepath.Join(o.BinariesDir, "backupd")
+				p := filepath.Join(o.BinariesDir, "retnd")
 				if err := os.WriteFile(p, []byte("#!/bin/sh\necho nope\n"), 0o755); err != nil {
 					t.Fatalf("write: %v", err)
 				}

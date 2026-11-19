@@ -65,9 +65,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/state"
-	"github.com/backupdproject/backupd/core/internal/workflow"
-	"github.com/backupdproject/backupd/core/internal/workflowexec"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/workflow"
+	"github.com/retnd/retnd/core/internal/workflowexec"
 )
 
 // benchHooksPerStage is how many scripts each of the four stage
@@ -96,7 +96,7 @@ var benchStages = []stage{globalBefore, setBefore, setAfter, globalAfter}
 // every error a benchmark can check, it checks itself against b, and the
 // journal directory the zero T would have removed is removed here
 // instead. Without the second part each row would leave a .wfrun-*
-// directory behind in the package directory.
+// directory behind in the repository's .testtmp/.
 func benchHarness(b *testing.B) (*harness, *testing.T) {
 	b.Helper()
 

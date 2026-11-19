@@ -4,8 +4,8 @@
 //
 // The defect it pins is a conjunction, which is why nothing in this repo
 // caught it. Every adapter gates its web UI on
-// `depends_on: backupd: condition: service_healthy`, and the
-// engine's health check was `backupd status`, which is FR-24's
+// `depends_on: retnd: condition: service_healthy`, and the
+// engine's health check was `retnd status`, which is FR-24's
 // backup-freshness verdict and exits non-zero on any DEGRADED, STALE or
 // FAILING set - a fresh install included, by design, because a fresh
 // install has never backed anything up. So the one container an operator
@@ -14,13 +14,24 @@
 // seeded HEALTHY (workingRemoteConfig, and its own doc says why it has
 // to be).
 //
+// # Since #1049
+//
+// A deployment that starts with an empty configuration directory now gets
+// a default config.yaml from the engine on its first start, and
+// `retnd status` on it prints a first-run notice and exits 0, because
+// "nothing is configured yet" is a state and not a failure. So the
+// backup-freshness verdict this file exists for is negative on a different
+// fixture than it used to be: an install whose one backup set has never
+// had anything backed up (neverRun below). Both shapes are covered, and
+// each one reads `retnd status` back rather than assuming what it says.
+//
 // # What "a fresh install" means here
 //
 // Literally what an app-store install produces and nothing softened: an
 // EMPTY configuration directory with no config.yaml in it, an empty state
 // directory, an empty backup directory, and no backup ever run. The
 // engine serves the first-run setup flow in that state and
-// `backupd status` exits non-zero in it, which is the pair the
+// `retnd status` exits non-zero in it, which is the pair the
 // defect lived in.
 //
 // Two tests, and the second is what gives the first its meaning. The
@@ -54,9 +65,15 @@ import (
 // not exist), which is why the configuration mount is a directory at all,
 // and an empty directory is the only honest shape for an install nobody
 // has configured. The engine serves the first-run setup flow from it, and
-// `backupd status` exits non-zero, which every test below reads
+// `retnd status` exits non-zero, which every test below reads
 // back rather than assumes.
-func freshInstall(t *testing.T) (dir string) {
+//
+// neverRun adds the one thing #1049 moved the negative verdict onto: a
+// config.yaml with a single backup set that has never had an artifact
+// discovered, which internal/health reports as DEGRADED and `retnd status`
+// exits 1 for. It is the same shape degradedConfig builds, pointed at
+// directories this stack's canonical mounts actually provide.
+func freshInstall(t *testing.T, neverRun bool) (dir string) {
 	t.Helper()
 	dir = t.TempDir()
 	// 0o777 for the same reason degradedConfig uses it: the runtime image
@@ -81,6 +98,40 @@ func freshInstall(t *testing.T) (dir string) {
 			t.Fatalf("WriteFile %s: %v", f, err)
 		}
 	}
+	if neverRun {
+		for _, sub := range []string{"backups/remote", "backups/local"} {
+			path := filepath.Join(dir, sub)
+			if err := os.MkdirAll(path, 0o777); err != nil {
+				t.Fatalf("MkdirAll %s: %v", sub, err)
+			}
+			if err := os.Chmod(path, 0o777); err != nil {
+				t.Fatalf("Chmod %s: %v", sub, err)
+			}
+		}
+		config := "" +
+			"poll_interval: 1h\n" +
+			"state:\n" +
+			"  database: /data/state/state.db\n" +
+			"sources:\n" +
+			"  - id: production\n" +
+			"    backup_sets:\n" +
+			"      - id: never-backed-up\n" +
+			"        remote:\n" +
+			"          type: local\n" +
+			"        remote_path: /data/backups/remote\n" +
+			"        local_path: /data/backups/local\n" +
+			"        include:\n" +
+			"          - \"*.dump\"\n" +
+			"        completion:\n" +
+			"          strategy: rename\n" +
+			"        stale_after: 1s\n" +
+			"retention:\n" +
+			"  timezone: UTC\n" +
+			"  week_starts_on: monday\n"
+		if err := os.WriteFile(filepath.Join(dir, "config", "config.yaml"), []byte(config), 0o644); err != nil {
+			t.Fatalf("WriteFile config.yaml: %v", err)
+		}
+	}
 	return dir
 }
 
@@ -103,7 +154,7 @@ func freshInstallEnvFile(t *testing.T, dir string, listenPort int) string {
 	return envPath
 }
 
-// statusExitCode runs `backupd status` inside a running container
+// statusExitCode runs `retnd status` inside a running container
 // and returns its exit code with the output it printed.
 //
 // This is the positive control the whole file turns on. Without it, a
@@ -112,14 +163,14 @@ func freshInstallEnvFile(t *testing.T, dir string, listenPort int) string {
 // the defect.
 func statusExitCode(t *testing.T, containerID string) (int, string) {
 	t.Helper()
-	cmd := exec.Command("docker", "exec", containerID, "/backupd", "status")
+	cmd := exec.Command("docker", "exec", containerID, "/retnd", "status")
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		return 0, string(out)
 	}
 	var exit *exec.ExitError
 	if !asExitError(err, &exit) {
-		t.Fatalf("docker exec %s /backupd status: %v\n%s", containerID, err, out)
+		t.Fatalf("docker exec %s /retnd status: %v\n%s", containerID, err, out)
 	}
 	return exit.ExitCode(), string(out)
 }
@@ -147,15 +198,24 @@ func containerState(t *testing.T, id string) string {
 // backup-freshness verdict is negative, and the web UI still starts and
 // serves.
 func TestComposeStack_FreshInstallBringsUpTheWebUI(t *testing.T) {
+	// No configuration yet: the engine writes its default, and `status`
+	// says first run and exits 0 (#1049).
+	t.Run("NoConfigurationYet", func(t *testing.T) { freshInstallBringsUpTheWebUI(t, false) })
+	// A backup set that has never run: the verdict #206 was about, still
+	// negative, and the web UI still has to come up.
+	t.Run("BackupSetNeverRun", func(t *testing.T) { freshInstallBringsUpTheWebUI(t, true) })
+}
+
+func freshInstallBringsUpTheWebUI(t *testing.T, neverRun bool) {
 	image := buildImage(t)
-	dir := freshInstall(t)
+	dir := freshInstall(t, neverRun)
 
 	project, out, err := upComposeFiles(t, image, freshInstallEnvFile(t, dir, 0), canonicalComposeFiles(t))
 	if err != nil {
 		t.Fatalf("docker compose up on a fresh install: %v\n%s", err, out)
 	}
 
-	engineID := project.containerID(t, "backupd")
+	engineID := project.containerID(t, "retnd")
 
 	// The engine's container health is a liveness answer now, so a fresh
 	// install reaches "healthy" even though it has backed nothing up.
@@ -165,15 +225,24 @@ func TestComposeStack_FreshInstallBringsUpTheWebUI(t *testing.T) {
 			got, "healthy", lastHealthOutput(t, engineID), logs)
 	}
 
-	// The control that makes the line above mean something. If this
-	// exits 0 the fixture is not a fresh install at all, and the test
-	// would pass just as happily against the engine health check that
-	// shipped.
+	// The control that makes the line above mean something. For the
+	// never-run fixture, an exit of 0 means it is not a negative verdict at
+	// all, and the test would pass just as happily against the engine
+	// health check that shipped. For the empty one, #1049 says the opposite:
+	// it must exit 0 and say it is the first run, so a non-zero exit there
+	// means the first-run notice regressed into a failure.
 	code, statusOut := statusExitCode(t, engineID)
-	if code == 0 {
-		t.Fatalf("`backupd status` exited 0 inside the fresh install this test is built on, so the fixture is already healthy and proves nothing about #206; status said:\n%s", statusOut)
+	if neverRun {
+		if code == 0 {
+			t.Fatalf("`retnd status` exited 0 inside the install whose only backup set has never run, so the fixture is already healthy and proves nothing about #206; status said:\n%s", statusOut)
+		}
+		t.Logf("`retnd status` exited %d on this install, as FR-24 intends:\n%s", code, statusOut)
+	} else {
+		if code != 0 || !strings.Contains(statusOut, "first run") {
+			t.Fatalf("`retnd status` on an install with no configuration yet exited %d and said %q, want exit 0 and the first-run notice (#1049)", code, statusOut)
+		}
+		t.Logf("`retnd status` exited 0 with the first-run notice, as #1049 intends:\n%s", statusOut)
 	}
-	t.Logf("`backupd status` exited %d on this fresh install, as FR-24 intends:\n%s", code, statusOut)
 
 	// The web UI container: it exists, it is running, and its own health
 	// check passes.
@@ -235,7 +304,7 @@ func getWithTransportRetry(t *testing.T, client *http.Client, url string, timeou
 }
 
 // statusGateOverride writes a compose override that restores the engine
-// health check this repository shipped: `backupd status`, the
+// health check this repository shipped: `retnd status`, the
 // backup-freshness verdict.
 //
 // The timings are compressed and nothing else is. What is under test is
@@ -248,9 +317,9 @@ func statusGateOverride(t *testing.T, dir string) string {
 	path := filepath.Join(dir, "status-gate-override.yaml")
 	content := "" +
 		"services:\n" +
-		"  backupd:\n" +
+		"  retnd:\n" +
 		"    healthcheck:\n" +
-		"      test: [\"CMD\", \"/backupd\", \"status\"]\n" +
+		"      test: [\"CMD\", \"/retnd\", \"status\"]\n" +
 		"      interval: 2s\n" +
 		"      timeout: 5s\n" +
 		"      start_period: 1s\n" +
@@ -272,18 +341,21 @@ func statusGateOverride(t *testing.T, dir string) string {
 // asking about backup freshness.
 func TestComposeStack_TheBackupFreshnessVerdictAsAStartGateKeepsTheWebUIDown(t *testing.T) {
 	image := buildImage(t)
-	dir := freshInstall(t)
+	// The never-run fixture, not the empty one: since #1049 an install with
+	// no configuration yet reports status 0, so only a backup set that has
+	// never run still gives the start gate the negative verdict to trip on.
+	dir := freshInstall(t, true)
 	override := statusGateOverride(t, dir)
 
 	project, out, err := upComposeFiles(t, image, freshInstallEnvFile(t, dir, 0), canonicalComposeFiles(t, override))
 	if err == nil {
-		t.Fatalf("`docker compose up -d` succeeded with `backupd status` as the engine's start gate on a fresh install, so this control cannot see the defect it exists to reproduce:\n%s", out)
+		t.Fatalf("`docker compose up -d` succeeded with `retnd status` as the engine's start gate on a fresh install, so this control cannot see the defect it exists to reproduce:\n%s", out)
 	}
 
 	// Assert WHY it failed, not merely that it did. A typo in the
 	// override, an image that is not there, or a missing env file all
 	// fail `up` too, and none of them would be this defect.
-	if !strings.Contains(out, "backupd") || !strings.Contains(strings.ToLower(out), "unhealthy") {
+	if !strings.Contains(out, "retnd") || !strings.Contains(strings.ToLower(out), "unhealthy") {
 		t.Fatalf("`docker compose up -d` failed, but not with the engine reporting unhealthy, so the failure is something other than the start gate:\n%s", out)
 	}
 
@@ -306,7 +378,7 @@ func TestComposeStack_TheBackupFreshnessVerdictAsAStartGateKeepsTheWebUIDown(t *
 	// And the engine itself is running and serving, which is what makes
 	// the gate's verdict wrong rather than merely unlucky: the container
 	// the UI was waiting on was up the whole time.
-	engineID := project.containerIDIfAny(t, "backupd")
+	engineID := project.containerIDIfAny(t, "retnd")
 	if engineID == "" {
 		t.Fatal("the engine has no container either, so this control reproduces a stack that never started rather than a start gate that never released")
 	}
@@ -315,7 +387,7 @@ func TestComposeStack_TheBackupFreshnessVerdictAsAStartGateKeepsTheWebUIDown(t *
 	}
 	code, statusOut := statusExitCode(t, engineID)
 	if code == 0 {
-		t.Errorf("`backupd status` exited 0 inside the engine this control declared unhealthy, so the two disagree and one of them is not measuring what it claims; status said:\n%s", statusOut)
+		t.Errorf("`retnd status` exited 0 inside the engine this control declared unhealthy, so the two disagree and one of them is not measuring what it claims; status said:\n%s", statusOut)
 	}
 }
 

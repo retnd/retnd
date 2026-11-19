@@ -142,7 +142,7 @@ PROGRAM = "architecture-selftest"
 
 # The traversal target name is deliberately one that does not exist, so a
 # regression fails these controls rather than deleting something.
-TRAVERSAL_ENTRY = "apps/../../backupd-selftest-traversal-target"
+TRAVERSAL_ENTRY = "apps/../../retnd-selftest-traversal-target"
 
 GIT_IDENTITY = ("-c", "user.email=selftest@example.invalid", "-c", "user.name=selftest")
 
@@ -397,7 +397,7 @@ def main(argv: list[str]) -> int:
     root = arch.resolve_toplevel()
     os.chdir(root)
 
-    tmp = Path(tempfile.mkdtemp(prefix="backupd-arch-selftest.", dir=os.environ.get("TMPDIR", "/tmp")))
+    tmp = Path(tempfile.mkdtemp(prefix="retnd-arch-selftest.", dir=os.environ.get("TMPDIR", "/tmp")))
     st = Selftest(root, tmp)
     try:
         return harness.finish(lambda: body(st))
@@ -438,6 +438,19 @@ def body(st: Selftest) -> int:
         "a new provider directory nobody classified",
         d,
         "apps/selftest-unclassified-provider/frontend/platform.ts",
+        "./scripts/architecture/check-layer-manifest.sh",
+    )
+
+    # A file at the repository root is the other way to slip through: no
+    # directory prefix to notice, so it is classified by an exact-name row
+    # or by nothing. CNAME did exactly that on main (#1136).
+    d = st.mutant("manifest-unclassified-root-file")
+    (d / "SELFTEST-UNCLASSIFIED-ROOT-FILE").write_text("nobody classified this\n")
+    harness.sh(["git", "-C", str(d), "add", "-A"])
+    st.expect_check_fails(
+        "a new root-level file nobody classified",
+        d,
+        "SELFTEST-UNCLASSIFIED-ROOT-FILE",
         "./scripts/architecture/check-layer-manifest.sh",
     )
 
@@ -492,7 +505,7 @@ def body(st: Selftest) -> int:
     )
 
     d = st.mutant("manifest-absolute")
-    _append(d / arch.MANIFEST, "\ndistribution    adapter     /backupd-selftest-absolute-target\n")
+    _append(d / arch.MANIFEST, "\ndistribution    adapter     /retnd-selftest-absolute-target\n")
     st.expect_check_fails(
         "a manifest entry naming an absolute path",
         d,
@@ -544,7 +557,7 @@ def body(st: Selftest) -> int:
     d = st.mutant("dep-core-to-distribution")
     (d / "apps/common/webhost").mkdir(parents=True, exist_ok=True)
     (d / "apps/common/webhost/selftest_reverse_import.go").write_text(
-        "package webhost\n\nimport _ \"github.com/backupdproject/backupd/distribution/packaging\"\n"
+        "package webhost\n\nimport _ \"github.com/retnd/retnd/distribution/packaging\"\n"
     )
     # The reverse import has to resolve, so the mutant module gets a
     # replace pointing at its own sibling copy. Without it `go list`
@@ -561,7 +574,7 @@ def body(st: Selftest) -> int:
     d = st.mutant("dep-platform-to-distribution")
     (d / "apps/generic/platform").mkdir(parents=True, exist_ok=True)
     (d / "apps/generic/platform/selftest_reverse_import.go").write_text(
-        "package platform\n\nimport _ \"github.com/backupdproject/backupd/distribution/packaging\"\n"
+        "package platform\n\nimport _ \"github.com/retnd/retnd/distribution/packaging\"\n"
     )
     _go_mod_edit(d / "apps/generic", "../../distribution")
     st.expect_check_fails(
@@ -612,7 +625,7 @@ def body(st: Selftest) -> int:
     d = st.mutant("dep-unclassified-module")
     (d / "apps/selftest-unclassified-provider").mkdir(parents=True, exist_ok=True)
     (d / "apps/selftest-unclassified-provider/go.mod").write_text(
-        "module github.com/backupdproject/backupd/apps/selftest-unclassified-provider\n\ngo 1.27.0\n"
+        "module github.com/retnd/retnd/apps/selftest-unclassified-provider\n\ngo 1.27.0\n"
     )
     harness.sh(["git", "-C", str(d), "add", "-A"])
     st.expect_check_fails(
@@ -633,7 +646,7 @@ def body(st: Selftest) -> int:
     d = st.mutant("dep-untracked-module")
     (d / ".claude/worktrees/selftest-planted/core").mkdir(parents=True, exist_ok=True)
     (d / ".claude/worktrees/selftest-planted/core/go.mod").write_text(
-        "module github.com/backupdproject/backupd/core\n\ngo 1.27.0\n"
+        "module github.com/retnd/retnd/core\n\ngo 1.27.0\n"
     )
     (d / "selftest-untracked-module").mkdir(parents=True, exist_ok=True)
     (d / "selftest-untracked-module/go.mod").write_text(
@@ -976,8 +989,8 @@ def _rewrite_layers_to_container(path: Path) -> None:
 def _go_mod_edit(module_dir: Path, replace_target: str) -> None:
     env = {**os.environ, "GOWORK": "off"}
     for arg in (
-        "-require=github.com/backupdproject/backupd/distribution@v0.0.0",
-        f"-replace=github.com/backupdproject/backupd/distribution={replace_target}",
+        "-require=github.com/retnd/retnd/distribution@v0.0.0",
+        f"-replace=github.com/retnd/retnd/distribution={replace_target}",
     ):
         harness.sh(["go", "mod", "edit", arg], cwd=module_dir, env=env)
 

@@ -4,14 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/discovery"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/obs"
-	"github.com/backupdproject/backupd/core/internal/placement"
-	"github.com/backupdproject/backupd/core/internal/reconcile"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/discovery"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/placement"
+	"github.com/retnd/retnd/core/internal/reconcile"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // FR-1's processing cycle: the one piece of work `run` performs once and
@@ -104,7 +106,7 @@ type BackupSetCycleResult struct {
 // report that spells it the same way it spells a source that has gone
 // unreachable makes an ordinary edit look like a backup that broke:
 // core/service would fail the operation the operator submitted,
-// `backupd run` would exit 1, and the activity feed would carry
+// `retnd run` would exit 1, and the activity feed would carry
 // "context canceled" as the reason a backup did not happen. In a product
 // whose whole job is to be believed about backups, a false alarm is not
 // a cosmetic defect.
@@ -230,7 +232,7 @@ type CycleReport struct {
 // RunCycle is FR-1's "one processing cycle": the single piece of business
 // logic `run` performs once and `daemon` repeats at poll_interval. Both
 // commands call exactly this method; neither has, or is allowed to have,
-// any cycle logic of its own (see this package's doc and cmd/backupd,
+// any cycle logic of its own (see this package's doc and cmd/retnd,
 // which only wires flags, signals and output formatting around this call).
 //
 // The cycle order matters and follows the EPIC directly: for each
@@ -278,6 +280,7 @@ func (s *Service) RunCycle(ctx context.Context) CycleReport {
 	start := s.now()
 	cycleID := start.Format(time.RFC3339Nano)
 	s.logger().CycleStart(ctx, cycleID)
+	s.noteDefaultSuite(ctx, start)
 
 	// Live progress, for a caller that installed an observer (progress.go).
 	// It has to be attached before the loop starts, so the first thing an
@@ -375,7 +378,7 @@ sourcesLoop:
 
 	// Issue #361's verdict, in the event stream, before anything that
 	// reads the cycle's state. `run` turns this into an exit status too
-	// (cmd/backupd/setup.go), but `daemon` has no exit status to
+	// (cmd/retnd/setup.go), but `daemon` has no exit status to
 	// turn it into, and a cycle that backed nothing up has to be visible
 	// to whatever is shipping these logs either way.
 	s.reportBarrenSets(ctx, report)
@@ -480,6 +483,24 @@ func (s *Service) processBackupSet(ctx context.Context, src config.Source, bs co
 		return result
 	}
 
+	// Issue #1191: the source host's write slot, for the whole pass. Both
+	// pipelines below hold up to two connections to an SFTP source, and the
+	// hosts this manager pulls from reset a third, which is exactly what a
+	// recovery uploading onto the same machine at the same time would be.
+	// So a pass and a source upload session take the same slot, and a pass
+	// waits here, before it has touched the source, while a recovery is
+	// writing there (and the other way round). A local source has no host
+	// and never waits.
+	releaseHost, err := transport.AcquireSourceHost(ctx, source)
+	if err != nil {
+		if stopped := stopReason(); stopped != nil {
+			err = stopped
+		}
+		result.Err = err
+		return result
+	}
+	defer releaseHost()
+
 	// EPIC K's engine dispatch: which pipeline this set gets, decided
 	// HERE, before reconcileOne, which is the last point before anything
 	// reads or writes this set's remote.
@@ -561,6 +582,13 @@ func (s *Service) processBackupSet(ctx context.Context, src config.Source, bs co
 	result.Discovery = discRes
 	discovered, alreadyKnown, pending, rejected, conflicts, errored := eventDiscoveryCounts(discRes)
 	s.logger().Discovery(ctx, bs.ID.String(), discovered, alreadyKnown, pending, rejected, conflicts, errored)
+	if discRes.SkippedRecovered > 0 {
+		// Once per pass, so the skip is never silent (#1193).
+		s.logger().Event(ctx, obs.LevelInfo, obs.EventDiscovery, "discovery left files in recovered folders alone",
+			slog.String("backup_set", bs.ID.String()),
+			slog.Int("skipped_recovered", discRes.SkippedRecovered),
+			slog.String("prefix", transport.RecoveredFolderPrefix))
+	}
 	if err != nil {
 		s.logger().Error(ctx, "discover", err)
 		result.Err = err

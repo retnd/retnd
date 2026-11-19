@@ -32,7 +32,7 @@ stops being standard-library-only fail immediately and say so, rather than
 hanging on a fetch.
 
 Paths in the output are rewritten back to the real ones, because a
-complaint about /var/folders/.../T/backupd-unowned.XXXX/bad.go is a
+complaint about /var/folders/.../T/retnd-unowned.XXXX/bad.go is a
 complaint nobody can act on.
 
 Exit code contract, which is all a gate step needs from it:
@@ -116,7 +116,7 @@ a missing `golangci-lint` is a FAILURE, not a skip
                       the subshell exit 127, `if !` took the failure
                       branch, and the "command not found" the shell wrote
                       to the redirected stream was quoted under the FAIL
-                      line. `.github/workflows/ci.yml` installs the
+                      line. The Docker gate image installs the
                       binary precisely so this reports "the linter says
                       no" rather than "the binary is missing" (#575).
   hazard in python:  STILL EXISTS and points the other way -- Python's
@@ -224,7 +224,7 @@ def _combined(argv: list[str], *, cwd: Path | None = None, env: dict[str, str] |
 
     A missing binary comes back as status 127 with the diagnostic as its
     output, which is what the shell did with it, and NOT as an exception:
-    `.github/workflows/ci.yml` installs golangci-lint so this check can
+    The Docker gate image installs golangci-lint so this check can
     say "the linter says no" (#575), and a check that skipped itself when
     its tool was missing would be #160 again.
     """
@@ -350,7 +350,7 @@ def check_directory(directory: str, files: list[str], *, tmp: Path, toplevel: Pa
 
     env = dict(os.environ, GOFLAGS="-mod=mod", GOPROXY="off")
     status, lint_out = _combined(
-        ["golangci-lint", "run", "--config", str(toplevel / ".golangci.yml"), "./..."],
+        ["golangci-lint", "run", "--allow-parallel-runners", "--config", str(toplevel / ".golangci.yml"), "./..."],
         cwd=mod,
         env=env,
     )
@@ -429,7 +429,7 @@ def body(argv: list[str]) -> int:
     checked = 0
 
     with tempfile.TemporaryDirectory(
-        prefix="backupd-unowned.",
+        prefix="retnd-unowned.",
         dir=os.environ.get("TMPDIR") or "/tmp",
     ) as tmpname:
         tmp = Path(tmpname)

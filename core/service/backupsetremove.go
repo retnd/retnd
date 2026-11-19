@@ -11,7 +11,7 @@
 // contract the Web UI's own confirmation dialog has been promising since
 // before this operation existed:
 //
-//	Backupd will stop collecting backups for <name>.
+//	retnd will stop collecting backups for <name>.
 //	<n> retained backups (<size>) stay on NAS storage and remain listed
 //	under Backups.
 //
@@ -127,7 +127,7 @@
 //
 // That is issue #418, and it now has an answer rather than only a
 // warning. The event below counts what this removal stranded, so the
-// moment it happens says so; `backupd unconfigured` lists it
+// moment it happens says so; `retnd unconfigured` lists it
 // afterwards along with everything else this set still holds; and
 // internal/app's ClearStranded (unconfigured.go) is the operator-driven
 // sweep that removes the .partial and ends the row. None of that touches
@@ -141,11 +141,11 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/backupdproject/backupd/core/internal/app"
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/obs"
-	"github.com/backupdproject/backupd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // RemoveBackupSet removes one backup set's configuration and hot-reloads,
@@ -241,6 +241,11 @@ func (b *BackupService) RemoveBackupSet(ctx context.Context, id string) error {
 		}
 	}()
 
+	// A custom validator scoped to this set goes with it (#1203): left in
+	// the file it would name a set that no longer exists, and the file
+	// would refuse to load.
+	droppedScripts := dropValidatorsForRemovedSet(cfg, id)
+
 	// Encoded before Validate, which resolves defaults in place; see
 	// SetBackupSetEnabled's own comment for the full reasoning and for
 	// what an unrelated edit would otherwise freeze into the file.
@@ -267,6 +272,10 @@ func (b *BackupService) RemoveBackupSet(ctx context.Context, id string) error {
 	b.adoptConfig(cfg)
 
 	removed = true
+	if root, why := workflowRootFor(b.workflowRoot()); why == "" {
+		// Moved aside, not deleted, like a validator removed on its own.
+		b.moveValidatorScriptsAside(ctx, root, droppedScripts...)
+	}
 
 	// On the record, at the moment it happens, and naming what stayed
 	// behind rather than only what went. A destructive control that

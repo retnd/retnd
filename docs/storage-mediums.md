@@ -21,24 +21,24 @@ an archive class is not a place a tier can deliver to.
 | What | State |
 | --- | --- |
 | `storage_mediums` and a tier's `medium` key are accepted, validated and round-tripped by a settings save | Landed |
-| Credentials are resolved from a file, an environment variable or a command | Landed |
-| Artifacts are recorded as living somewhere, and the recovery manifest says where | Landed: migration 0007 and the manifest's `placements` |
-| Verification classes, and revalidation that knows about mediums | Landed |
+| Credentials are resolved from a file, an environment variable or a command | Landed (#235) |
+| Artifacts are recorded as living somewhere, and the recovery manifest says where | Landed (#236): migration 0007 and the manifest's `placements` |
+| Verification classes, and revalidation that knows about mediums | Landed (#237) |
 | Artifacts actually MOVE between mediums when a tier says so | Landed, including a chain with two medium tiers |
-| Retention plans, previews and prune understand mediums | Landed, including across the HTTP boundary: the preview carries every move with both mediums, and every deletion with the medium it happens on |
+| Retention plans, previews and prune understand mediums | Landed, including across the HTTP boundary: the preview carries every move with both mediums, and every deletion with the medium it happens on (#430) |
 | The API and the UI show placements, access states and the disclosure | Landed |
-| A tier's destination is reachable from `backupd`, not only the browser | Landed: `retention --tier-medium NAME=MEDIUM_ID` previews a supplied chain against the destinations it names, `settings patch --policy-file` replaces the deployment's whole chain, and `backup-set retention --policy-file` already did one set's |
-| A medium can be proved to work before a cycle carries a real backup to it | Landed: `backupd medium test-connection` (`preflight` still works, see below), and a button on the settings form |
-| A medium can be DECLARED without hand-editing config.yaml, and proved before it is | Landed: a wizard on the settings page, and `backupd medium list/show/import-credentials/add/edit/remove` |
-| The drive backups already land on is a destination like any other, a tier picks one without leaving the tier, and one destination is the default | Landed: a picker under every tier in both editors, a `local` entry in the destinations list, `backupd medium default` and `settings patch --tier-medium` |
+| A tier's destination is reachable from `retnd`, not only the browser | Landed (#595): `retention --tier-medium NAME=MEDIUM_ID` previews a supplied chain against the destinations it names, `settings patch --policy-file` replaces the deployment's whole chain, and `backup-set retention --policy-file` already did one set's |
+| A medium can be proved to work before a cycle carries a real backup to it | Landed (#443): `retnd medium test-connection` (`preflight` still works, see below), and a button on the settings form |
+| A medium can be DECLARED without hand-editing config.yaml, and proved before it is | Landed (#594): a wizard on the settings page, and `retnd medium list/show/import-credentials/add/edit/remove` |
+| The drive backups already land on is a destination like any other, a tier picks one without leaving the tier, and one destination is the default | Landed (#622): a picker under every tier in both editors, a `local` entry in the destinations list, `retnd medium default` and `settings patch --tier-medium` |
 | Archive storage classes and the explicit restore operation | Landed as far as the vocabulary and the operation go; a tier ON an archive class is refused when the config loads, see below |
-| Backends are declared by a bundled manifest the engine loads at startup, refusing a malformed one loudly | Landed, nothing reads it yet |
+| Backends are declared by a bundled manifest the engine loads at startup, refusing a malformed one loudly | Landed (#665), nothing reads it yet |
 
 One limit is worth knowing before you write a chain, and it is the manager
 refusing to do something rather than doing it badly:
 
 - **A tier whose medium names `GLACIER` or `DEEP_ARCHIVE` cannot take
-  delivery of an artifact, and the config will not load**. The
+  delivery of an artifact, and the config will not load** (#428, #442). The
   manager will not delete a copy against a destination it could not read
   back, an archived object cannot be read back, and there is no
   `upload_verification` mode that says "existence is enough". So the pairing
@@ -53,7 +53,7 @@ refusing to do something rather than doing it badly:
 
 A chain with two medium tiers, which is the shape this document opens with
 (daily local, monthly `s3`, annual on a colder readable class), works end to
-end. The second hop is a move from one medium to another, and the
+end (#429). The second hop is a move from one medium to another, and the
 manager does it by reading the artifact down to a `.moves` directory under
 the backup set's own `local_path`, checking that what arrived hashes to what
 it recorded at ingestion, uploading that, and removing it. So a chain like
@@ -65,7 +65,7 @@ downloaded, and the copy it would have moved stays exactly where it is.
 Every reason a move does not happen is visible without reading logs. A cycle in which artifacts were due to move and none
 arrived says so on the `Last run cycle` panel, in the operation record the
 activity feed reads, in the FR-23 event stream under `op=move`, and in
-`backupd run`'s exit status, which becomes 1 with the engine's own reason
+`retnd run`'s exit status, which becomes 1 with the engine's own reason
 on stderr. A deployment that declares no storage medium attempts no moves, so
 none of that can fire for it.
 
@@ -81,19 +81,19 @@ looking for their snapshots in a bucket list.
 | Which engine uses it | `artifact` | `kopia` (see [`docs/incremental-engine.md`](incremental-engine.md)) |
 | Chosen by | a retention **tier**, per tier | a backup **set**, once, at creation |
 | Names where the bytes are | yes: bucket, endpoint, prefix, region, storage class | **no.** A domain names a boundary, a passphrase and a sharing rule; its storage is local, under the backup root |
-| Encrypted by this product | no; the medium's own at-rest encryption applies | always, with the domain's declared passphrase |
+| Encrypted by this product | no, unless a set requires it ([`retained_copy_encryption`](encrypted-copies.md)); otherwise the medium's own at-rest encryption applies | always, with the domain's declared passphrase |
 | Credential | `--credentials-id/-file/-env/-command`, per medium | a `passphrase` block naming `file`, `env` or `command`, per domain |
-| Declarable from the CLI or API | yes: `backupd medium add/edit/remove`, and a wizard | yes, declaring only: `backupd repository create`, `POST /repositories`, and the Define a repository domain screen. The declaration is written; the store is realized by the first backup run into the domain. There is no edit or remove verb |
-| Verified by | `backupd medium test-connection` | `backupd repository health` |
+| Declarable from the CLI or API | yes: `retnd medium add/edit/remove`, `retnd medium configure` for a backend's own field ids (the only way to declare a `local_volume` from a terminal, with `retnd medium backends` listing them), and a wizard | yes, declaring only: `retnd repository create`, `POST /repositories`, and the Define a repository domain screen. The declaration is written; the store is realized by the first backup run into the domain. There is no edit or remove verb |
+| Verified by | `retnd medium test-connection` | `retnd repository health` |
 
 A deployment can run both, and they do not interact: an artifact set's
 monthly tier can live in `offsite_s3` while an incremental set's snapshots
 live in the `production` repository domain, and neither knows the other
 exists. The one place they meet is the disk: a local repository's bytes sit
-under `<backup_root>/.backupd/repositories/<domain>/`, inside the reserved
+under `<backup_root>/.retnd/repositories/<domain>/`, inside the reserved
 namespace that artifact discovery, retention and prune are all forbidden to
 enter. If you exclude one path from a share or a scanner, exclude
-`.backupd`.
+`.retnd`.
 
 Repository storage is not a storage medium and cannot be pointed at one.
 The repository adapter does speak S3 natively, and that path is exercised
@@ -116,11 +116,11 @@ storage_mediums:
     region: us-east-1
     endpoint: ""                  # empty means the AWS endpoint for the region
     bucket: nas-backups
-    prefix: backupd        # key namespace inside the bucket
+    prefix: retnd        # key namespace inside the bucket
     storage_class: STANDARD
     upload_verification: readback # readback (default) or attested; see below
     credentials:
-      file: /var/lib/backupd/s3/offsite_s3.creds
+      file: /var/lib/retnd/s3/offsite_s3.creds
 
 retention:
   timezone: UTC
@@ -218,10 +218,10 @@ even runs. That refusal is deliberate and is not going to be softened.
 
 There is a fourth way to arrive at one of the three, for an operator who has
 just been handed an access key by their provider and has none of them yet
-. It does not add a schema field and does not soften the refusal above:
+(#594). It does not add a schema field and does not soften the refusal above:
 
 ```
-backupd medium import-credentials --stdin
+retnd medium import-credentials --stdin
 ```
 
 reads AWS shared-credentials text from standard input, writes it to a 0600 file
@@ -239,7 +239,7 @@ the fact that a file was written, and never the material: there is no read side
 for it at all, so the only way to get a stored credential back is to be root on
 the host, which is what the file's 0600 already assumes.
 
-Credential files belong under private state (`/var/lib/backupd`), never
+Credential files belong under private state (`/var/lib/retnd`), never
 under the backup root. Nothing that leaves this process carries key material:
 not a log line at any level, not an error message, not an API response, not the
 redacted config export, not a recovery manifest, and not object metadata in your
@@ -254,7 +254,7 @@ not there, a credentials file the daemon cannot read, or a policy that denies
 been chosen to leave local disk. There is a test now:
 
 ```
-backupd medium test-connection offsite_s3
+retnd medium test-connection offsite_s3
 ```
 
 and the same check sits behind a button on the settings form and under every
@@ -264,7 +264,7 @@ non-zero when any check fails, so it composes into a deployment script.
 
 The verb used to be `preflight` and still is: the same entry in the same
 dispatch table, kept as an alias so anything scripted against it goes on
-working. What changed in is which name the product says first. The same
+working. What changed in #622 is which name the product says first. The same
 idea was called "Verify" in the browser, `preflight` on the command line and
 "Test connection" on the source side of this same product, and one operator
 learning three words for one button is two words too many.
@@ -273,7 +273,7 @@ It answers for the drive on this machine too, which used to have nothing to
 test on the reasoning that no network was involved:
 
 ```
-backupd medium test-connection local
+retnd medium test-connection local
 ```
 
 A local destination fails in the shapes a remote one does, minus the credential,
@@ -291,12 +291,12 @@ step, weighed against your own `capacity.safety_margin_bytes` and
 `capacity.critical_free_bytes` rather than against a figure this product
 invented, because a transfer already refuses to start into less than the margin.
 
-Since the same eight checks also run against a destination that is **not
+Since #594 the same eight checks also run against a destination that is **not
 declared yet**, which is what lets a destination be proved before it is written
 down rather than after:
 
 ```
-backupd medium test-connection --candidate offsite_s3 --bucket nas-backups \
+retnd medium test-connection --candidate offsite_s3 --bucket nas-backups \
         --region us-east-1 --prefix monthly --credentials-id 9b41c7e2
 ```
 
@@ -307,13 +307,13 @@ non-interactive equivalent of the wizard's Save button staying disabled;
 
 ### A destination nobody ever proved says so, until somebody proves it
 
-Until that paragraph described only the first-party clients. The check
+Until #636 that paragraph described only the first-party clients. The check
 lived in `medium add` and in the wizard, so `POST /storage-mediums` accepted a
 destination nobody had verified and answered 201, and there was no mark either:
 a destination written unproven and one checked against a real bucket were the
 same destination in every list, on every screen and in every command's output,
-forever. That is the state calls a hole rather than an escape hatch, on the
-source side of the same product, and had already closed it there.
+forever. That is the state #624 calls a hole rather than an escape hatch, on the
+source side of the same product, and #628 had already closed it there.
 
 So the check is the engine's now. `CreateStorageMedium` and
 `UpdateStorageMedium` run the eight steps themselves and refuse with
@@ -346,7 +346,7 @@ One consequence is worth knowing before you meet it. Clearing the mark is a
 configuration write, so `medium test-connection <id>` now goes through the door
 the other configuration writes go through: beside an engine serving this
 deployment it is carried out there, and it is refused when nothing has said how
-to reach that engine (`BACKUP_MANAGER_API_URL`). It used to answer from this
+to reach that engine (`RETND_API_URL`). It used to answer from this
 host's own file. `medium list` and `medium show` are unchanged and still read
 locally, so looking at your own destinations works on a stock install.
 
@@ -365,7 +365,7 @@ Nothing is deleted and nothing is marked lost. The copies on that medium read as
 **unreachable**, which means this deployment currently has no way to ask about
 them, and is a different sentence from "the copy is gone". No prune runs against
 them, and no source copy anywhere is reclaimed on the strength of a placement
-that could not be confirmed. `backupd medium show <id>` lists what is
+that could not be confirmed. `retnd medium show <id>` lists what is
 there, per backup set, with a count of how many of those are the only confirmed
 copy of their backup anywhere.
 
@@ -383,7 +383,7 @@ medium's own storage class, reads it back byte for byte, checks the class the
 object actually landed in against the class the configuration claims, asks the
 endpoint whether the medium's declared `upload_verification` can actually be
 achieved there, and deletes the probe. The probe lives at a randomly named key
-under a reserved `.backupd-preflight/` segment inside the medium's own
+under a reserved `.retnd-preflight/` segment inside the medium's own
 prefix, which no configured artifact can produce.
 
 Eight checks, and each one names which of them failed and whose problem it is.
@@ -486,6 +486,77 @@ The rules that matter:
   the artifact having been "revalidated" in the sense a local artifact is.
 - An artifact on `GLACIER` or `DEEP_ARCHIVE` is `existence`-checkable only, until
   an explicit restore makes anything stronger possible.
+- **The scheduled scrub runs this, and `retnd scrub` runs it by hand.** The
+  daemon (and the web host) check each copy on its own schedule, which lives on
+  the copy: `next_due_at` in the journal, not the artifact row's clock, so a
+  reconciliation or a catalog rebuild cannot make a copy nobody re-read look
+  fresh. A rebuilt catalog reads `unknown` and every copy in it is due. The
+  result is recorded on the copy with the class that ran, and `Content verified`
+  only ever moves when the bytes were read. A copy in an archive class is
+  recorded as `requires_restore`: I never read it and never start a restore.
+  `retnd scrub --content --allow-egress` reads a copy on a medium in full, and
+  without both flags the read is refused.
+  The schedule is the `assurance:` policy: `assurance.scrub.cadence` (weekly
+  unless you say otherwise) is how often a copy is owed a look, and
+  `assurance.scrub.strategy` says what the look is (`auto` and `content` re-hash
+  a local copy, `existence` does not). A default install scrubs with no other
+  configuration. A set's older `revalidation:` block still works, and when it
+  turns hashing or a restore hook on it wins over the policy for that set.
+  Changing the cadence changes what is due on the next tick, and `/assurance/due`
+  reads the same per-copy schedule the scrub keeps.
+  Pacing is bounded: two full reads at once overall and one per destination by
+  default (`assurance.max_concurrent_full_reads` and `max_per_destination`,
+  read when the serving process starts), jitter on every due time, and a
+  capped backoff for a copy that fails or cannot be reached. A copy that fails
+  three scheduled checks in a row degrades its set's health, and the next
+  passing check clears that. You hear about it through the alerts you already
+  have (`SCRUB_FAILING`, once when the episode opens and a clear when it ends,
+  with `SCRUB_OVERDUE` for a copy nobody is getting to) and, if you want more,
+  through a script of your own: put `NAME.local.sh` scripts in
+  `assurance-after/sets/<source>/<set>` or `assurance-after/global` under the
+  workflow root and they run once when the episode opens (`ASSURANCE_EVENT` is
+  `scrub_failing`) and once when it closes (`scrub_recovered`), with the same
+  custody, shell verification and runner container as any other hook. That
+  directory is not the set's `after_dir`, whose scripts undo what a `before`
+  hook did to the source machine and have no business running because a scrub
+  failed. A set held for editing is skipped, and the skip is reported.
+- **A recovery test proves a copy is usable, and the validator is your script.**
+  Put one `NAME.local.sh` in `recovery-test/<source>/<set>` under the workflow
+  root. The engine recovers the newest known good copy to a private staging
+  directory, reads it back and checks its digest against the one recorded for
+  the artifact, and only then runs your script with `RECOVERY_TEST_FILE` (the
+  path), `RECOVERY_TEST_ARTIFACT`, `RECOVERY_TEST_DIGEST` and
+  `RECOVERY_TEST_SIZE` set. It records the result together with the name and
+  the hash of the script that ran. Your script never writes the claim: a script
+  that exits 0 without opening the file still cannot make a pass out of bytes
+  that did not match. The script starts with a small environment (those
+  variables, the product's `RETND_*` facts and a baseline `PATH`); the set's
+  workflow variables and secrets reach it only under `validator_env: workflow` (or a custom validator's own `env: workflow`)
+  (see the recovery guide). The runner's container cannot see the staging directory
+  unless you declare it with `--hook-mount`, and a script that cannot see the
+  file fails rather than passing. A set with no such directory reads `not
+  configured`, which is not a pass and not a failure. A failing test runs the
+  same `assurance-after` scripts the scrub does, with `ASSURANCE_EVENT` set to
+  `recovery_test_failed` and, when it passes again, `recovery_test_recovered`.
+
+
+- **A scrub also asks each medium what it holds, and tells you about anything
+  the journal does not know.** The journal is still the only thing that says
+  what is a copy: the scrub checks the keys the journal records and nothing
+  else, so an object sitting at some other key can never stand in for a copy
+  that has gone missing, and a copy that is missing is still a failed copy, counted
+  once, with one `scrub_failure` line. What the listing adds is the other
+  direction. For each medium that holds or held a copy for the set, the scrub
+  lists the set's own namespace (`<prefix>/<source>/<set>/`) and reports every
+  object whose key no placement names, as a `scrub_unknown_object` line, a count
+  in the summary, and an `unknown_objects` entry in `retnd scrub --json`. It
+  only reports: it never reads, moves or deletes the object, and it is not a
+  failure of any copy. A medium I could not list (the store cannot, or the listing
+  failed) is said so in `unlisted` and a `scrub_unlisted` line, so a quiet result
+  is never mistaken for a clean one. A scheduled pass lists only when it checked
+  something, and `retnd scrub` always lists, because a listing is a billed
+  request per medium. An upload that finished just before its placement was
+  recorded can show up once and clear on the next pass.
 - **A tier whose medium writes an archive class cannot take delivery of an
   artifact, and the move is refused before anything is uploaded.** Both settings
   `upload_verification` accepts need the object read back, a freshly written
@@ -495,7 +566,7 @@ The rules that matter:
   gives it for free, in the cycle report, every cycle, rather than uploading and
   discarding a copy to find out. That matters because `DEEP_ARCHIVE` has a
   180-day minimum billable duration: a copy deleted the second after it lands is
-  still charged for six months. tracks what the eventual answer
+  still charged for six months. Issue #428 tracks what the eventual answer
   should be.
 
 ### `upload_verification: attested` and rclone's s3 backend
@@ -506,11 +577,11 @@ copy to be deleted against a bad upload.
 
 It also does not work on `s3` in this build, and **the config is now refused at
 load rather than at the move**. rclone v1.75.0's s3 backend reports exactly one
-hash capability, MD5 (`backend/s3.Fs.Hashes` returns `hash.Set(hash.MD5)`), so
+hash capability, MD5 (`backend/s3.Fs.Hashes()` returns `hash.Set(hash.MD5)`), so
 it cannot produce a full-object SHA-256 attestation at all. There is nothing an
 s3 medium could ever do to satisfy the class.
 
-Until recently `backupd check` accepted `upload_verification: attested`
+Until recently `retnd check` accepted `upload_verification: attested`
 and the refusal arrived from the move engine instead: after the upload, at the
 verification step, on every cycle, forever, in a log line. `Validate` now names
 the reason and names `readback` as the way out, and `check` fails. Nothing about
@@ -526,7 +597,7 @@ MD5, so the product does not treat it as content in any code path.
 `GLACIER` and `DEEP_ARCHIVE` are cheap because reading them is slow and billed.
 The manager tells you what it knows and refuses to invent the rest.
 
-**Read before configuring a tier on one of these.** The vocabulary below
+**Read #428 before configuring a tier on one of these.** The vocabulary below
 is real and the restore operation is real, and they apply to a copy that is
 already on an archive class. What does not work yet is getting a copy THERE
 through a tier's `medium` key, because the move would have to delete a local
@@ -559,16 +630,50 @@ provider. Multiplying a guess by a guess and printing it in an operator console
 is how people make expensive decisions confidently, so this product does not do
 it.
 
+### What a scrub and a recovery do with an archive copy
+
+A scheduled scrub never thaws, and never downloads. Against a storage medium the strongest
+thing an unattended pass will do is an existence check, which asks the provider whether an
+object of the right size is at that key and reads none of its bytes. That is why a copy
+that has only ever been scrubbed reads **Existence checked**, and never **Content
+verified**: nothing read it.
+
+An archive-class copy is recorded as `requires_restore`, with no thaw started and no cost
+incurred, and it never counts toward a satisfied assurance policy. Recovering it is a
+decision a person makes: `retnd recover` refuses a chargeable or archived copy and names
+what reading it takes, and only `--acknowledge-cost` (or the cost box in the browser)
+starts exactly one provider request. When you would rather do the two steps yourself,
+`retnd restore` first, wait for the provider, then `recover`; the order does not change and
+neither step is done for you on a timer.
+
 ## Things the manager deliberately does not manage
 
 - **Bucket lifecycle rules, object lock and versioning.** The manager is the only
   retention authority. Setting a lifecycle rule on a managed bucket forks
   retention truth into a system the manager cannot see, and it is unsupported
   interference rather than a feature.
-- **Encryption of medium artifacts.** rclone's `crypt` backend is registered, and
-  wiring it up is not in this EPIC, because losing an encryption key loses every
-  offsite artifact and that custody problem deserves its own design rather than a
-  bolt-on.
+- **Encryption through rclone's `crypt` backend.** It is registered and not wired up,
+  because it derives its cipher from an rclone password rather than a key this product
+  holds, so the product could not tell you which key a copy needs. Encryption of retained
+  copies is a different feature (a backup set's `retained_copy_encryption`, EPIC N, written
+  up in [encrypted copies](encrypted-copies.md)) and it has these properties on a medium:
+  - **A tier that leaves the artifact only on a medium leaves only the encrypted copy.**
+    The disclosure above says the NAS copy is deleted once the upload is verified. With
+    encryption required, what remains is ciphertext, and opening it needs the key.
+  - **It protects content, not names.** The object key is still
+    `<prefix>/<source>/<set>/<artifact-name>`, so whoever holds the bucket can read the
+    names, sizes and timestamps of your backups and cannot read what is in them.
+  - **Deleting an encrypted copy needs no key.** Retention judges the object by its stored
+    size and, where the endpoint can attest one, its stored checksum, never by reading it.
+  - **An unattended scrub never decrypts.** It HEADs the object against its stored size.
+    `retnd validate --content` decrypts, needs the key, and says "could not check" when it
+    does not have it. It never falls back to a weaker answer.
+  - **A rotation changes the key for new copies only.** Older copies keep opening through
+    the key id recorded against them, and a key is retired only when no active copy still
+    records it. The refusal names the copies.
+  - **Moving an encrypted copy to another medium copies the same ciphertext** and accepts
+    the destination only after decrypting it with the key it was written under. Moving one
+    back to local disk is refused: a local copy is plaintext, so that is a restore.
 - **Per-backup-set medium overrides.** Mediums bind to tiers, and tiers are
   global. A per-set override is the same larger change a per-set retention policy
   already deferred, and the two stay deferred together.

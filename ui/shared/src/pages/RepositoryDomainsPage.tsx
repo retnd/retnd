@@ -30,7 +30,7 @@ import { StatusBadge } from "@shared/components/StatusBadge";
 import { EmptyState, ErrorState } from "@shared/components/EmptyState";
 import { Note, WireField } from "@shared/components/Definitions";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
-import { isNotConfigured } from "@shared/api/failure";
+import { isNothingThereYet } from "@shared/api/failure";
 import { relativeAge } from "@shared/utilities/format";
 import { backupSetPath } from "@shared/utilities/routes";
 import { clockSkew, failingProbes, loadRepositoryFleet } from "@shared/pages/repositoryFleet";
@@ -102,12 +102,13 @@ export function RepositoryDomainsPage({ readOnly }: { readOnly: boolean }) {
         </span>
       </Banner>
 
-      {isNotConfigured(fleet.error) ? (
+      {isNothingThereYet(fleet.error) ? (
         <section className="card">
           <div className="card__body">
-            <EmptyState title="This instance has no configuration yet">
-              Repository domains are declared by the backup sets that write to them. Add the first
-              incremental backup set and the domain it names appears here.
+            <EmptyState title="No repository domains yet">
+              {fleet.error?.code === "INCREMENTAL_ENGINE_DISABLED"
+                ? "Incremental backup is not turned on for this deployment, so there are no repository domains to declare. Nothing is needed here until you turn it on."
+                : "Repository domains are declared by the backup sets that write to them. Add the first incremental backup set and the domain it names appears here."}
             </EmptyState>
           </div>
         </section>

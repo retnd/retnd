@@ -11,7 +11,7 @@ the text they are shortened from.
 
 ## Name
 
-Backupd
+retnd
 
 ## One line
 
@@ -26,7 +26,7 @@ anything.
 
 ## Full description
 
-Backupd runs on your NAS and pulls backup artifacts off a remote SFTP source on a
+retnd runs on your NAS and pulls backup artifacts off a remote SFTP source on a
 schedule you choose. Every artifact it fetches is verified against the hash the source
 published before it counts as retained, and every artifact it holds is recorded in a
 durable local catalog, so the question "do I still have Tuesday's database dump, and is it
@@ -55,8 +55,9 @@ Stated in the listing because a reviewer reads it and an administrator installin
 strength of the first paragraph should not discover it afterwards.
 
 - It does not create backups. It collects and retains backups something else produced.
-- It does not restore into production for you. Recovery is a documented procedure that
-  tells you which local artifact is trustworthy and where it is.
+- It recovers and exports the retained artifact, and restoring it into an application remains
+  your responsibility: it will hand you the file, checked against the digest recorded when
+  it was committed, and it will not put it back into production for you.
 - It does not talk to any cloud service of ours. There is none.
 - It does not browse arbitrary remote files, and it is not a general-purpose SFTP client.
 

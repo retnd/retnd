@@ -16,7 +16,7 @@ import (
 	"github.com/kopia/kopia/fs"
 	"github.com/kopia/kopia/snapshot/snapshotfs"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/backupengine"
 )
 
 // This file is the restore path: a stored snapshot, or one directory or
@@ -65,7 +65,7 @@ import (
 // cancellation test asserts on. The rename is what publishes the file, so
 // nothing under the destination ever carries a real name and partial
 // content.
-const restoreWorkPrefix = ".backupd-restore-"
+const restoreWorkPrefix = ".retnd-restore-"
 
 // restoreCopyChunk is how many bytes one copy step moves before the
 // extractor looks at the context again.

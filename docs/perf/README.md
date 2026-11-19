@@ -1,9 +1,9 @@
 # Phase 6 performance baselines and the regression gate
 
- says the Phase 6 refactor is expected to be performance-neutral,
+EPIC B (#81) says the Phase 6 refactor is expected to be performance-neutral,
 and that reproducible baselines have to be captured *before* structural
 refactoring begins, because once code starts moving the pre-refactor number is
-gone for good. owns capturing them. This is where they live, what
+gone for good. Issue #165 owns capturing them. This is where they live, what
 they mean, and exactly what a later Phase 6 change has to beat.
 
 ## The one-line answer
@@ -25,7 +25,7 @@ deliberately on the benchmark host, and what CI enforces for those six is that a
 complete baseline exists and that the gate can still fail.
 
 **`image_size_bytes` is the exception, and is enforced on every full local gate
-run**. It is not a timing measurement: two builds of one commit produce
+run** (#635). It is not a timing measurement: two builds of one commit produce
 byte-identical sizes, so nothing about a loaded machine can move it, and
 `apps/generic/tests/dockercli` already builds `container/Dockerfile` for its
 licence and CLI proofs. `TestTheBuiltImageIsInsideTheRecordedSizeBudget` reads
@@ -64,7 +64,7 @@ has to change.
 it cannot drift from what actually ran (see
 `apps/generic/tests/perfbaseline/runtime_test.go`):
 
-- the real `backupd-web serve` binary, built from `apps/generic` with
+- the real `retnd-web serve` binary, built from `apps/generic` with
   `GOWORK=off`, driven over real HTTP on loopback with one keep-alive
   connection, never an in-process `httptest` handler;
 - a configuration of **15 backup sets across 3 sources**, local remotes, with
@@ -117,10 +117,10 @@ So:
 
 - **`idle_rss_bytes` and `image_size_bytes`** are gated on a ratio alone. Their
   noise is 45x and infinitely below the budget respectively, so the ratio is a
-  real gate. Nothing measured touches either: idle RSS is a process property
+  real gate. Nothing #635 measured touches either: idle RSS is a process property
   and an image size is a function of the tree and the target architecture.
 - **`transfer_mb_per_second`** was in that list on the strength of the 0.93%
-  above, and established that the 0.93% measures the wrong quantity. Both of
+  above, and #635 established that the 0.93% measures the wrong quantity. Both of
   those baselines were taken back to back on a quiet machine, so what they
   measured is repeatability under ONE condition, not sensitivity to condition,
   and a 256 MiB disk-to-disk copy is the metric here most exposed to the
@@ -137,7 +137,7 @@ So:
   baseline the ratio allows 0.185 ms and the floor allows 0.218 ms, so the floor
   always binds and the budget this metric really carries is **+29.8%**, not
   +10%. (Those two numbers were 0.143 ms and 0.180 ms, for +38.5%, against the
-  0.130 ms baseline this record replaced in The floor is absolute, so a
+  0.130 ms baseline this record replaced in #635. The floor is absolute, so a
   larger baseline narrows the effective budget rather than widening it, and
   `scripts/perf/selftest.sh` refuses the whole run if the floor ever stops
   binding first.) The floor is there because 0.05 ms is 2.6x the observed 0.019 ms
@@ -166,9 +166,9 @@ So:
   and the process consumes less CPU at idle than `ps` can resolve
   (`idle_cpu_floor_percent` in the record says what the floor is). They are
   review signals: a Phase 6 issue that moves one of them materially has to say
-  so and explain it, which is what asks for on idle memory too.
+  so and explain it, which is what #81 asks for on idle memory too.
 
-All seven metrics 's contract names are still **required to be
+All seven metrics EPIC B #81's contract names are still **required to be
 present**. `check-baseline.sh` refuses a record that is missing any of them, so
 a `--skip-image` capture can never be mistaken for a real baseline.
 
@@ -182,12 +182,188 @@ Derived from `gate.json` and `baselines/darwin-arm64-mac17-2.json`:
 | `transfer_mb_per_second` | 746.867 MB/s | below 448.120 MB/s | **448.120 MB/s (-40%)** |
 | `idle_rss_bytes` | 106,725,376 | above 117,397,913.6 | 117,397,913.6 (+10%) |
 | `config_write_p95_ms` | 11.586 ms | above 12.745 ms | 12.745 ms (+10%) |
-| `image_size_bytes` | 69,704,266 | above 73,189,479.3 | 73,189,479.3 (+5%) |
+| `image_size_bytes` | 107,583,421 | above 112,962,592.05 | 112,962,592.05 (+5%) |
 
 `api_read_p95_ms` is the only row with two conditions, and because both have to
 hold, the wider of the two is what is enforced. Here that is the floor, so read
 the last column rather than the ratio: 0.218 ms, not 0.185 ms. Every other row
 has a single condition and the two columns agree.
+
+## What moved between `7ea6287d` and `57107cd8`: the image only
+
+`TestTheBuiltImageIsInsideTheRecordedSizeBudget` went red in the full gate on a
+branch off main `57107cd8` at 107,583,421 bytes, 1.0807x the 99,545,943 record
+(#1444). It had been over for a while without anyone seeing it, because the
+full gate kept stopping at `apps/common golangci-lint` (#1442), which runs
+before apps/generic. So I did the same thing as last time: account first, re-cut
+second, image only.
+
+The control first. I built a clean `git archive` of each end with
+`docker build --platform linux/arm64 -f container/Dockerfile`, copied the
+components out with `docker create` plus `docker cp` and sized them with `stat`.
+`7ea6287d`'s components match the record's table below to the byte, and with
+the unchanged base they add up to 99,545,943. `57107cd8`'s add up to
+107,583,421, the figure the gate measured. The Go builder and distroless
+runtime digests are the same at both ends, so none of this is toolchain drift.
+
+| component | `7ea6287d` | `57107cd8` | delta |
+|---|---|---|---|
+| `retnd` | 44,695,712 | 48,169,120 | +3,473,408 |
+| `retnd-web` | 46,006,432 | 49,610,912 | +3,604,480 |
+| `/ui/bundles`, five adapter bundles | 6,671,311 | 7,627,576 | +956,265 |
+| `/licenses` | 58,510 | 61,835 | +3,325 |
+| distroless base layers | 2,113,978 | 2,113,978 | 0 |
+| **image** | **99,545,943** | **107,583,421** | **+8,037,478** |
+
+One trap for whoever does this next... I built these on a Docker that uses the
+containerd image store (colima), and there `docker image inspect`'s `.Size` is
+the *compressed* size: 36,449,123 and 39,146,245 for the same two images. The
+record is the uncompressed `overlay2` figure that Docker Desktop on this host
+reports, so I compared components, not `.Size`, across the two daemons.
+
+**3,276,800 bytes, 40.8% of the move, is the MCP agent server** (EPIC #1352: the
+`/api/v1/agent/mcp` endpoint and `retnd agent serve`). I measured it by building
+both commands at `57107cd8` with those two entry points
+(`core/cmd/retnd/agentserve.go`, `apps/common/webhost/agentmcp.go`) swapped for
+stubs, so nothing reachable imports `core/agentmcp` any more. `go version -m`
+then lists none of `modelcontextprotocol/go-sdk`, `google/jsonschema-go` or
+`segmentio/*`. `retnd` goes 48,169,120 -> 46,596,256 (1,572,864) and `retnd-web`
+goes 49,610,912 -> 47,906,976 (1,703,936). The SDK, its JSON schema and
+encoding dependencies, `core/agentmcp` and the tool table are all of it.
+
+**393,216 bytes is dependency bumps**, 196,608 per binary: `7ea6287d`'s own code
+built against `57107cd8`'s three `go.mod` files comes back at 44,892,320 and
+46,203,040. That's the AWS SDK v2 and smithy, gRPC, x/net, x/crypto,
+klauspost/compress, modernc's libc and sqlite, and rclone 1.75.1 -> 1.75.2,
+none of them new modules.
+
+**`/licenses` grew 3,325** because NOTICE and `third-party-licenses.json` gained
+entries for the modules that arrived: `filippo.io/age`, the MCP SDK,
+`jsonschema-go`, `segmentio`, `uritemplate` and `x/oauth2`.
+
+**The bundles grew 956,265 because the UI did.** Each bundle went from about
+1,334,213 to 1,525,466 bytes, and nearly all of it is the main JS chunk
+(1,147,732 -> 1,323,582): the agents card (#1351), the encryption and key
+custody screens (#1282 onwards), and the progress stages (#1298). The woff2
+duplication recorded below is unchanged.
+
+That leaves 1,703,936 in each binary as product Go code, and `retnd-web`'s share
+includes its embedded copy of the UI growing. The two leftovers match because
+both binaries are padded to 64 KiB on linux/arm64 and link the same core
+packages, so their growth rounds to the same 26 pages. 35,094 lines of non-test Go landed
+under `core/`, `apps/common/` and `apps/generic/` (1,743 deleted) over 106
+first-parent commits. By symbol size from unstripped builds of both ends, the
+largest movers are `core/service`, `core/internal/state`, `core/internal/placement`
+and `core/cliecho`. Copy encryption is the one new module family in there:
+`filippo.io/age` and `filippo.io/hpke` behind `core/internal/copycrypt` and
+`core/internal/keycustody` (#1279, #1293, #1302, #1323, #1326). Those come to
+about 6.5% of the symbol growth, so roughly 0.2 MB a binary. The agent tokens,
+access, audit and confirmation routes are product code in this bucket too, and
+the MCP stub left them in place.
+
+Nothing here looks like dead weight. The new modules are all reachable from a
+shipped 0.8.0 feature, and the bumps are routine ones.
+
+**What I re-cut.** `image_size_bytes` only, with its own `commit`, `captured_at`
+and `reason` in the record. The ratio stays at 1.05, so the new ceiling is
+112,962,592.05. The timing medians still describe `186ba0c7`, for the same
+reason the section below gives.
+
+## What moved between `186ba0c7` and `7ea6287d`: the image only
+
+`TestTheBuiltImageIsInsideTheRecordedSizeBudget` went red on main at 99.2 MB
+against the 69,704,266 record, and nothing else in the gate said so. I accounted
+for the move before touching the record, the same way #635 did, and this is that
+account. Every figure here comes from this host (`darwin-arm64-mac17-2`) on
+2026-10-15, with the same Go builder and distroless runtime digests at both ends,
+so none of it is toolchain drift.
+
+First the control. I built `186ba0c7` again from a clean `git archive` and it came
+back at **69,704,266**, to the byte. So the old record still describes its tree,
+and the measurement itself has not changed under it (same `overlay2` storage, same
+`docker image inspect` size). `7ea6287d`, the main this was found on, came back at
+**99,545,943** (1.428x). The components, copied out with `docker create` plus
+`docker cp` and sized with `stat`:
+
+| component | `186ba0c7` | `7ea6287d` | delta |
+|---|---|---|---|
+| `retnd` | 31,391,904 | 44,695,712 | +13,303,808 |
+| `retnd-web` | 32,637,088 | 46,006,432 | +13,369,344 |
+| `/ui/bundles`, five adapter bundles | 3,503,996 | 6,671,311 | +3,167,315 |
+| `/licenses` | 57,300 | 58,510 | +1,210 |
+| distroless base layers | 2,113,978 | 2,113,978 | 0 |
+| **image** | **69,704,266** | **99,545,943** | **+29,841,677** |
+
+Both columns sum to their image exactly.
+
+**17,301,504 bytes, 58.0% of the move, is the embedded Kopia engine** (EPIC K's
+incremental engine). I found where by building the CLI with the Dockerfile's own
+flags at first-parent commits along main: it sat at 31,654,048 right up to K3,
+then jumped to 40,960,160 across the one merge of K4 (#783, #831), which is where
+`core/internal/app` started calling `kopia.New()`. Kopia itself was already in
+`core/go.mod` from #823, but nothing reachable from a binary imported it until
+then. To get the figure on today's tree rather than on K4's, I built both commands
+at `7ea6287d` again with that one call (and its import) taken out: `retnd` goes
+44,695,712 -> 35,913,888 and `retnd-web` goes 44,630,176 -> 36,110,496 (the web
+binary built against the checked-in UI placeholder, so the embedded bundle stays
+out of it). That is 8,781,824 and 8,519,680. The first version of this account
+gave the web binary's "before" as 44,695,712, the CLI's figure to the byte, and
+a review rightly doubted two different binaries could match like that. I built
+it again from a clean `git archive` of `7ea6287d` in the pinned Go builder and it
+is 44,630,176, one 64 KiB page smaller: I had copied the CLI's number into the
+web binary's cell. Both binaries are padded to 64 KiB on linux/arm64, which is
+why a slip like that still looked plausible. The two "without Kopia" figures came
+back the same as before, to the byte. The dependency tree that arrives with
+`github.com/kopia/kopia/repo` is all of it: minio-go for the native S3 storage,
+klauspost's compress and reedsolomon, and also gRPC and OpenTelemetry, which
+come from Kopia's repository-server client rather than from anything retnd calls.
+`go mod why -m google.golang.org/grpc` says exactly that: `core/internal/backupengine/kopia`
+-> `github.com/kopia/kopia/repo` -> `google.golang.org/grpc`, and nothing else.
+Kopia's own module pulled it in at the untagged pseudo-version
+`v1.84.0-dev.0.20260723093437-b6eac429d7b6`, so a build depended on a commit on
+gRPC's development branch rather than a release. `v1.84.0` has since been tagged,
+and #1193 pins it in `core`, `apps/common` and `apps/generic`; `go mod why`
+gives the same chain afterwards, and the image-size check passes with it.
+I'm recording those last two as the one part of this that looks like weight
+nobody uses, rather than blessing it... trimming it means a Kopia build tag or a
+fork, which is a design question for EPIC K and not something to slip in here.
+
+**327,680 bytes of `retnd` is the shell parser** (`mvdan.cc/sh/v3`) that L7.5
+(#906, #910) added to verify hook scripts before a workflow is saved, measured
+across that one merge.
+
+**655,360 bytes of `retnd-web` is the embedded UI growing.** The web binary
+built against the placeholder `dist/` versus the same binary in the image was
+720,896 apart at `186ba0c7` (31,916,192 against 32,637,088) and 1,376,256 apart
+at `7ea6287d` (44,630,176 against 46,006,432), both re-measured for #1193 after
+the copy slip above; each gap had been given one 64 KiB page short, so the
+difference between them, the growth, did not change.
+
+**The bundles grew 3,167,315 because the UI did.** Each bundle's main JS chunk
+went from 526,005 to 1,134,195 bytes. I checked it is still minified, that
+`ui/shared/package.json` gained no runtime dependency over the range, and that no
+test or mock code (the `SCENARIOS` table, the recorded feeds, vitest) reached the
+production chunk. It is EPIC K, L and the assurance and recovery screens. The
+woff2 duplication the section below records is unchanged at 139,744 bytes a copy.
+
+That leaves 4,194,304 of `retnd` and the rest of `retnd-web` as product Go code:
+the workflow runner (EPIC L), the assurance and recovery work, and the API and CLI
+surfaces around them, landed over 244 first-parent commits.
+
+**When it went over.** The 5% ceiling of the old record is 73,189,479.3, and K4
+alone put each binary 9.3 MB past its old size, so the image has been over budget
+since 2026-09-12. Nothing caught it for a month because the only place this test
+fires is a full local gate on this host.
+
+**What I re-cut and what I left alone.** I changed `image_size_bytes` and nothing
+else, and the record says so: that metric carries its own `commit`, `captured_at`
+and `reason`, measured from a clean `git archive` of `7ea6287d` with the same
+`docker build --platform linux/arm64` the capture driver runs. The six timing
+medians still describe `186ba0c7`. Kopia and the workflow runner will have moved
+`idle_rss_bytes` and startup too, and I haven't measured those, so re-capturing
+them alongside would have been exactly the unaccounted re-cut the section below
+warns about. They want their own account, on a quiet machine, before anybody
+replaces them.
 
 ## What moved between `8ad3100` and `186ba0c7`, and why each of it moved
 
@@ -196,7 +372,7 @@ The record here was captured at `8ad3100` on 2026-08-31 and replaced at
 enough to need an account, and `image_size_bytes` moved to 1.62x of a metric
 gated at 1.05x. A baseline is not allowed to absorb a number like that on the
 grounds that it is the current number, so this is the accounting that was done
-before it was re-captured. Every figure below was produced on this host
+before it was re-captured (#635). Every figure below was produced on this host
 on 2026-09-08.
 
 ### `image_size_bytes`, 43,008,762 -> 69,704,266 (1.621x)
@@ -219,22 +395,23 @@ The components, copied back out of both images with `docker create` plus
 
 | component | `8ad3100` | `186ba0c7` | delta |
 |---|---|---|---|
-| `backupd` | 19,792,032 | 31,391,904 | +11,599,872 |
-| `backupd-web` | 21,102,752 | 32,637,088 | +11,534,336 |
+| `retnd` | 19,792,032 | 31,391,904 | +11,599,872 |
+| `retnd-web` | 21,102,752 | 32,637,088 | +11,534,336 |
 | `/ui/bundles`, five adapter bundles | not carried | 3,503,996 | +3,503,996 |
 | `/licenses` | not carried | 57,300 | +57,300 |
 | distroless base layers | 2,113,978 | 2,113,978 | 0 |
 | **image** | **43,008,762** | **69,704,266** | **+26,695,504** |
 
 Both columns sum to their image exactly, so nothing is unattributed. Both
-commits predate 0.3.3, so the binaries carry the names they had then;
-0.3.3 renamed them to `/backupd` and `/backupd-web`.
+commits predate every rename this project has had, so the rows above are
+labelled with the two binaries' current names, `retnd` and `retnd-web`, rather
+than with the names the measured images actually carried.
 
-**9,502,720 bytes of each binary is rclone's S3 backend**, which imported
-for 's MediumStore. Measured by building each command for `linux/arm64`
+**9,502,720 bytes of each binary is rclone's S3 backend**, which #369 imported
+for EPIC E's MediumStore. Measured by building each command for `linux/arm64`
 with the Dockerfile's own flags and then again with that one blank import
-commented out: `backupd` goes 31,391,904 -> 21,889,184 and
-`backupd-web` goes 31,981,728 -> 22,479,008. Identical deltas, because it
+commented out: `retnd` goes 31,391,904 -> 21,889,184 and
+`retnd-web` goes 31,981,728 -> 22,479,008. Identical deltas, because it
 is the same dependency tree in both: the AWS SDK v2, the IBM COS SDK, Swift,
 go-openapi and the rest of what arrived in `core/go.mod` alongside it. So
 19,005,440 bytes, **71.2% of the whole move, is one shipped feature**.
@@ -244,7 +421,7 @@ lines of non-test Go landed under `core/`, `apps/common/` and `apps/generic/`
 between the two commits, which is about 56 bytes of image per line: an
 unremarkable ratio, and the same order in both binaries.
 
-`/ui/bundles` is 's five adapter bundles and `/licenses` is 's licence
+`/ui/bundles` is #180's five adapter bundles and `/licenses` is #407's licence
 material. Neither existed to be measured when the old record was taken.
 
 Ruled out, so that "expected" means something: the Go builder and the distroless
@@ -255,12 +432,12 @@ v1.75.0. Each bundle's JS chunk is distinct (its own provider bridge), so there
 is no duplicate to remove there.
 
 One real duplication, recorded rather than blessed: the seven IBM Plex woff2
-faces added are byte-identical in all five bundles and embedded a sixth
-time in `backupd-web`. That is 139,744 bytes per copy and **558,976 bytes
+faces #632 added are byte-identical in all five bundles and embedded a sixth
+time in `retnd-web`. That is 139,744 bytes per copy and **558,976 bytes
 of pure redundancy** in `/ui/bundles`. It follows from a bundle being a
 self-contained document root, which is what `serve-ui --ui-root <root>/<profile>`
 resolves, so removing it needs a shared asset route and a change to every
-bundle's CSS. That is a design change, not a fix, and it is on rather than
+bundle's CSS. That is a design change, not a fix, and it is on #635 rather than
 quietly absorbed here.
 
 ### `idle_rss_bytes`, 98,861,056 -> 106,725,376 (1.08x, inside its 1.10 gate)
@@ -298,7 +475,7 @@ than about the tree. As defined by this workload, `startup_to_healthy_ms` is a
 for as long as the workload gives each capture an empty database. An operator
 restarting a container that already has its schema pays the warm number, which
 moved 14.4 ms -> 17.1 ms. Anyone reading this metric as "how long the engine
-takes to come up" is reading the wrong thing, and carries the note.
+takes to come up" is reading the wrong thing, and #635 carries the note.
 
 ### `transfer_mb_per_second`, 537.702 -> 746.867 (1.39x), and its ratio 0.90 -> 0.60
 
@@ -381,7 +558,7 @@ lenient: that metric's own spread within this capture was 64% of its median.
 ## About `working_tree_dirty: true` in the checked-in record
 
 The record names commit `186ba0c7` with `working_tree_dirty: true`, and that is
-accurate rather than sloppy. What was uncommitted at capture time is 's own
+accurate rather than sloppy. What was uncommitted at capture time is #635's own
 change: two `_test.go` files in `apps/generic/tests/dockercli`, and comment-only
 edits to `container/Dockerfile`, `ui/shared/scripts/build-bundles.mjs`,
 `distribution/packaging` and two documents. None of it is compiled into the
@@ -416,18 +593,18 @@ scripts/perf/selftest.sh
 
 Presence mode and the self-test take no measurements and run in seconds, so
 they are safe in ordinary CI. Compare mode is not wired into ordinary CI on
-purpose: allows the measurements to run on a dedicated stable benchmark
+purpose: #81 allows the measurements to run on a dedicated stable benchmark
 environment rather than blocking ordinary CI on noisy numbers, and a shared
 runner is not that environment.
 
 Plainly, so nobody reads "gated" as "enforced on every change": **no gate
 anywhere runs `--compare`,** and for six of the seven metrics that is still the
-whole story. `scripts/ci-local.sh` and `.github/workflows/ci.yml` wire presence
+whole story. `scripts/ci-local.sh` (the only gate since #1260) wires presence
 mode and the mutation self-test. Every timing number in a Phase 6 pull request
 is therefore an author self-report taken by hand on the host named above, and a
 reviewer who wants to reproduce one has to capture on that host.
 
-**`image_size_bytes` is the exception**. It is not a timing measurement,
+**`image_size_bytes` is the exception** (#635). It is not a timing measurement,
 so none of the reasoning above applies to it: two builds of one commit produce
 byte-identical sizes, load cannot move it, and nothing about a shared runner
 makes it noisy. What made it awkward to gate was cost, not noise, and that turned
@@ -443,8 +620,8 @@ of the tree AND the target architecture.
 
 That one condition is the whole limit on this arm, and it is worth stating
 precisely rather than as "it only runs locally". GitHub CI **does** run this
-package: `.github/workflows/ci.yml`'s `apps/generic build, vet, test` job runs
-`go test -race./...` in `apps/generic` on `ubuntu-latest`, `tests/dockercli` is
+package: `scripts/ci-local.sh`'s `apps/generic go build, vet, test -race` step runs
+`go test -race ./...` in `apps/generic` on `ubuntu-latest`, `tests/dockercli` is
 in that package list, there are no build tags or env guards on it, and Docker is
 present on the runner. So CI builds the image and then takes the skip, because
 `runtime.GOARCH` there is amd64 and the only checked-in record is arm64. CI pays
@@ -487,8 +664,9 @@ a red gate green is how the contract stops meaning anything; the record carries
 `commit`, `captured_at` and `working_tree_dirty` so a re-cut is visible in
 review.
 
-Shipping features does move them, and the record has been re-cut once, at
-`186ba0c7`. The order that made that legitimate is the part to copy:
+Shipping features does move them, and the record has been re-cut three times: in
+full at `186ba0c7` (#635), and for the image alone at `7ea6287d` (#1193) and at
+`57107cd8` (#1444). The order that made that legitimate is the part to copy:
 **account for it first, capture second.** "What moved between `8ad3100` and
 `186ba0c7`" above is what a re-cut has to look like. Every component of the
 26,695,504-byte image move is attributed to a named change by a measurement
@@ -498,7 +676,7 @@ down rather than folded into the new number. A re-capture with none of that
 behind it records a regression as the new normal, which is the one use this
 directory must never be put to.
 
-There is a second way to put it to that use, and nearly did. A threshold
+There is a second way to put it to that use, and #635 nearly did. A threshold
 that a normal run cannot meet fails on trees nobody regressed, and a gate that
 always fails gets ignored exactly as fast as a gate nobody runs: the same ending
 by a different road. So the rule has a second half. **A threshold is sized from

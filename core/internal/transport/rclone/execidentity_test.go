@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // #810's exec client needs an ssh.Signer and a known_hosts path for a
@@ -59,7 +59,7 @@ func TestSourceSignerResolvesEveryConfiguredKeyLocation(t *testing.T) {
 	})
 
 	t.Run("key_env", func(t *testing.T) {
-		const name = "BACKUPD_TEST_EXEC_KEY"
+		const name = "RETND_TEST_EXEC_KEY"
 		t.Setenv(name, string(pem))
 		signer, err := SourceSigner(execSource(t, func(s *transport.Source) {
 			s.KeyFile = ""

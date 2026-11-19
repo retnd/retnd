@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/backupdproject/backupd/core/internal/transport"
-	"github.com/backupdproject/backupd/core/internal/transport/contract"
-	"github.com/backupdproject/backupd/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport/contract"
+	"github.com/retnd/retnd/core/internal/transport/rclone"
 )
 
 // This file is the always-available half of the MediumStore evidence: the
@@ -252,7 +252,7 @@ func TestEveryMediumOperationReleasesItsFs(t *testing.T) {
 	// release rides on that reader's own Close instead.
 	byReader := map[string]bool{"OpenObject": true}
 
-	for _, method := range []string{"StatObject", "UploadFromLocal", "OpenObject", "ObjectChecksum", "DeleteObject", "ListObjects"} {
+	for _, method := range []string{"StatObject", "UploadFromLocal", "OpenObject", "OpenObjectRange", "ObjectChecksum", "DeleteObject", "ListObjects"} {
 		t.Run(method, func(t *testing.T) {
 			start := strings.Index(text, "func (a *Adapter) "+method+"(")
 			if start < 0 {
@@ -313,7 +313,7 @@ func TestEveryMediumOperationBoundsItsRetries(t *testing.T) {
 	}
 	text := string(source)
 
-	for _, method := range []string{"StatObject", "UploadFromLocal", "OpenObject", "ObjectChecksum", "DeleteObject", "ListObjects"} {
+	for _, method := range []string{"StatObject", "UploadFromLocal", "OpenObject", "OpenObjectRange", "ObjectChecksum", "DeleteObject", "ListObjects"} {
 		t.Run(method, func(t *testing.T) {
 			body := methodBody(t, text, method)
 			bound := strings.Index(body, "ctx = mediumContext(ctx)")

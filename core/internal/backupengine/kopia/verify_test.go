@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
-	"github.com/backupdproject/backupd/core/internal/backupengine/kopia"
-	"github.com/backupdproject/backupd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/backupengine/kopia"
+	"github.com/retnd/retnd/core/internal/model"
 )
 
 // This file is EPIC K's verification ladder, proved rung by rung against a
@@ -150,7 +150,7 @@ func newFixtureOfTree(t *testing.T, write func(srcDir string) (files, bytes int6
 		}
 	})
 
-	src := backupengine.Source{Host: "nas-01", User: "backupd", Path: srcDir}
+	src := backupengine.Source{Host: "nas-01", User: "retnd", Path: srcDir}
 
 	snap, err := rep.Snapshot(ctx, backupengine.SnapshotRequest{Source: src, Description: "the verification ladder"})
 	if err != nil {
@@ -636,7 +636,7 @@ func TestAVerificationThatReadNothingIsNotAContentClaim(t *testing.T) {
 // small enough that creating them costs a couple of seconds.
 const unrelatedBlobCount = 60000
 
-// TestASampledVerificationCostsTheSnapshotAndNotTheRepository is the heap
+// TestASampledVerificationCostsTheSnapshotAndNotTheRepository is the memory
 // bound on every rung above structural.
 //
 // The first implementation called blob.ReadBlobMap before the walk, which
@@ -648,21 +648,20 @@ const unrelatedBlobCount = 60000
 //
 // The two halves of the fix are asserted separately: the report is
 // unchanged (the packs this snapshot references are still all proven
-// present, so the rung still finds a missing one), and the peak heap of
-// the same verification does not move when the repository around it grows
+// present, so the rung still finds a missing one), and the bytes the same
+// verification allocates do not move when the repository around it grows
 // by 60,000 blobs.
 func TestASampledVerificationCostsTheSnapshotAndNotTheRepository(t *testing.T) {
-	// Deliberately no t.Parallel: peakHeap samples process-wide
-	// HeapAlloc, so a sibling test's allocations would be measured as
-	// this one's.
+	// Deliberately no t.Parallel: allocation is read process-wide, so a
+	// sibling test's allocations would be measured as this one's.
 	f := newVerifyFixture(t)
 	req := backupengine.VerifyRequest{Level: model.LevelContentSample, SamplePercent: 100}
 
-	clean, cleanPeak := verifyHeapCost(t, f, req)
+	clean, cleanAlloc := verifyAllocCost(t, f, req)
 
 	writeUnrelatedBlobs(t, repoDir(t, f.loc), unrelatedBlobCount)
 
-	loaded, loadedPeak := verifyHeapCost(t, f, req)
+	loaded, loadedAlloc := verifyAllocCost(t, f, req)
 
 	if loaded.FilesVerified != clean.FilesVerified || loaded.BlobsChecked != clean.BlobsChecked {
 		t.Errorf("the same verification read %d file(s) and checked %d blob(s) beside 60,000 unrelated ones, and %d/%d without them; what a snapshot proves cannot depend on what else is in the repository",
@@ -679,45 +678,70 @@ func TestASampledVerificationCostsTheSnapshotAndNotTheRepository(t *testing.T) {
 
 	// 4 MiB is the budget for "did not notice", stated in absolute bytes
 	// because the thing it forbids is absolute: a map of 60,000 blob
-	// records is tens of megabytes of live heap, and the fixed cost of
-	// walking a twelve-file snapshot is the same in both passes.
+	// records is tens of megabytes, and the fixed cost of walking a
+	// twelve-file snapshot is the same in both passes.
 	const budget = 4 << 20
 
-	if growth := int64(loadedPeak) - int64(cleanPeak); growth > budget {
-		t.Errorf("the same verification peaked at %d bytes of heap in a repository holding 60,000 unrelated blobs and %d bytes without them, %d more: it is paying for the whole blob namespace (blob.ReadBlobMap) rather than for the snapshot",
-			loadedPeak, cleanPeak, growth)
+	if growth := int64(loadedAlloc) - int64(cleanAlloc); growth > budget {
+		t.Errorf("the same verification allocated %d bytes in a repository holding 60,000 unrelated blobs and %d bytes without them, %d more: it is paying for the whole blob namespace (blob.ReadBlobMap) rather than for the snapshot",
+			loadedAlloc, cleanAlloc, growth)
 	}
 }
 
-// verifyHeapCost runs one verification and reports it with the peak heap
-// it held above a freshly collected baseline.
-func verifyHeapCost(t *testing.T, f *verifyFixture, req backupengine.VerifyRequest) (backupengine.VerifyReport, uint64) {
+// verifyAllocCost runs the verification several times and reports the FEWEST
+// bytes any one run allocated.
+//
+// Allocation, and not a sampled heap peak, which is what this used to read.
+// The tree walker allocates a fixed ~25 MB for its already-seen set on EVERY
+// verification, small snapshot or large, and the same cost is in the clean
+// pass and the loaded one. A verification of a twelve-file snapshot can finish
+// between two ticks of any sampler, so whether the clean pass was seen at all
+// depended on the speed of the machine: the difference between the passes, the
+// number this test asserts on, read either ~0 or ~26 MB. It was one run in
+// ten locally and every run of the core-without-apps job on a hosted runner.
+// TotalAlloc is cumulative, so there is no tick to fall between: the fixed cost
+// is in both passes and cancels, and what is left is what the repository
+// around the snapshot added.
+//
+// It is also the stricter claim. A map of every blob that is built, walked and
+// dropped never shows in a peak a sampler misses, and that is exactly what
+// blob.ReadBlobMap does.
+//
+// The lowest of three runs, so an allocation by some other goroutine during
+// one of them is not charged to the verification: what this test exists to
+// catch is in EVERY run.
+func verifyAllocCost(t *testing.T, f *verifyFixture, req backupengine.VerifyRequest) (backupengine.VerifyReport, uint64) {
 	t.Helper()
 
-	runtime.GC()
-
-	var base runtime.MemStats
-
-	runtime.ReadMemStats(&base)
+	const runs = 3
 
 	var (
 		report backupengine.VerifyReport
-		err    error
+		lowest uint64
 	)
 
-	peak := peakHeap(func() {
+	for i := range runs {
+		runtime.GC()
+
+		var before, after runtime.MemStats
+
+		runtime.ReadMemStats(&before)
+
+		var err error
+
 		report, err = f.repo.Verify(context.Background(), f.snapshot.ID, req)
-	})
+		if err != nil {
+			t.Fatalf("%s Verify: %v (%v)", req.Level, err, report.Errors)
+		}
 
-	if err != nil {
-		t.Fatalf("%s Verify: %v (%v)", req.Level, err, report.Errors)
+		runtime.ReadMemStats(&after)
+
+		if cost := after.TotalAlloc - before.TotalAlloc; i == 0 || cost < lowest {
+			lowest = cost
+		}
 	}
 
-	if peak <= base.HeapAlloc {
-		return report, 0
-	}
-
-	return report, peak - base.HeapAlloc
+	return report, lowest
 }
 
 // writeUnrelatedBlobs puts n blobs into a repository's storage that no

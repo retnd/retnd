@@ -207,9 +207,9 @@ func TestLinkReachabilityIsNotOverstated(t *testing.T) {
 // "support and source written, licence not chosen", and the missing
 // artifact is literally a LICENSE file in the tree.
 //
-// It asserts the licence is Apache-2.0 by reading the file rather than by
-// trusting the declaration, because a LICENSE file whose contents are MIT
-// under a declaration that says Apache-2.0 is worse than no file at all.
+// It asserts the licence is the declared one by reading the file rather than by
+// trusting the declaration, because a LICENSE file whose contents are a different licence
+// under a declaration that says otherwise is worse than no file at all.
 func TestProjectLicenseIsInTheTreeAndIsWhatItSaysItIs(t *testing.T) {
 	c := MustLoadCompliance()
 	if c.License.SPDXID == "" {
@@ -229,7 +229,7 @@ func TestProjectLicenseIsInTheTreeAndIsWhatItSaysItIs(t *testing.T) {
 }
 
 // TestLicensePolicyComplaints is the executable form of the premise
-// behind choosing Apache-2.0: every linked component is either permissive
+// behind the licence choice: every linked component is either permissive
 // or under one of the non-permissive licences this project accepts on
 // purpose with its obligation recorded. That is a fact about today's
 // go.mod, not a property of the project, so it is checked rather than
@@ -269,6 +269,12 @@ func TestLicensePolicyComplaints(t *testing.T) {
 		// npm registry metadata is actually full of.
 		{"npm's deprecated bare GPL id", base(Component{Name: "leftpad", Version: "1.0.0", Ecosystem: EcosystemNPM, LicenseID: "GPL-3.0"}), "not on the permissive allowlist"},
 		{"npm's deprecated bare LGPL id", base(Component{Name: "rightpad", Version: "1.0.0", Ecosystem: EcosystemNPM, LicenseID: "LGPL-2.1"}), "not on the permissive allowlist"},
+		// A conjunction is not a choice: every part applies, so it is decided,
+		// and permissive only when every part is. (The Go MCP SDK's LICENSE
+		// carries an Apache-2.0 text and the MIT text that still covers
+		// contributions nobody relicensed.)
+		{"a conjunction of permissive licences", base(Component{Name: "example.com/both", Version: "v1", Ecosystem: EcosystemGo, LicenseID: "Apache-2.0 AND MIT"}), ""},
+		{"a conjunction with a copyleft licence", base(Component{Name: "example.com/mixed", Version: "v1", Ecosystem: EcosystemGo, LicenseID: "Apache-2.0 AND GPL-3.0-only"}), "which is copyleft"},
 		{"a dual-licence choice", base(Component{Name: "eitheror", Version: "1.0.0", Ecosystem: EcosystemNPM, LicenseID: "(MIT OR GPL-3.0)"}), "an expression rather than a decided licence"},
 		{"a licence with an exception", base(Component{Name: "example.com/x", Version: "v1", Ecosystem: EcosystemGo, LicenseID: "GPL-2.0-or-later WITH Classpath-exception-2.0"}), "an expression rather than a decided licence"},
 		{"npm's read-the-file placeholder", base(Component{Name: "opaque", Version: "1.0.0", Ecosystem: EcosystemNPM, LicenseID: "SEE LICENSE IN LICENSE"}), "an expression rather than a decided licence"},
@@ -276,7 +282,7 @@ func TestLicensePolicyComplaints(t *testing.T) {
 		{"a permissive npm component", base(Component{Name: "react", Version: "19.0.0", Ecosystem: EcosystemNPM, LicenseID: "MIT"}), ""},
 		{"a component with no version", base(Component{Name: "example.com/n", Ecosystem: EcosystemGo, LicenseID: "MIT"}), "no version"},
 		{"an inventory that lists nothing", base(), "passes by default"},
-		{"an inventory generated against a different licence", Inventory{ProjectLicense: "MIT", Components: []Component{ok}}, "discharges nothing"},
+		{"an inventory generated against a different licence", Inventory{ProjectLicense: "Apache-2.0", Components: []Component{ok}}, "discharges nothing"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -297,7 +303,7 @@ func TestLicensePolicyComplaints(t *testing.T) {
 	}
 
 	// The switch. It used to decide whether a copyleft component was
-	// refused at all, which made the whole premise behind Apache-2.0
+	// refused at all, which made the whole premise behind the licence choice
 	// editable from a data file: one character in compliance.json and
 	// the refusal became a note, with every test still green because
 	// the real inventory has nothing to complain about either way.
@@ -334,7 +340,7 @@ func TestLicensePolicyComplaints(t *testing.T) {
 func TestTheCopyleftSwitchIsOnInTheShippedFile(t *testing.T) {
 	c := MustLoadCompliance()
 	if !c.License.CopyleftBlocksTheLicenseChoice {
-		t.Error("compliance.json has copyleftBlocksTheLicenseChoice false; the Apache-2.0 choice rests on the linked graph being permissive, and turning this off removes the sentence that says so from every complaint")
+		t.Error("compliance.json has copyleftBlocksTheLicenseChoice false; the licence choice rests on the linked graph being permissive, and turning this off removes the sentence that says so from every complaint")
 	}
 	if len(c.License.PermissiveIDs) == 0 {
 		t.Fatal("compliance.json declares no permissive allowlist, so the licence policy has nothing to admit against and would refuse the whole inventory")
@@ -496,7 +502,7 @@ func TestAnUnrecordedMPLModuleIsStillRefused(t *testing.T) {
 		Ecosystem:   EcosystemGo,
 		LicenseID:   "MPL-2.0",
 		LicenseFile: "LICENSE",
-		LinkedInto:  []string{"backupd"},
+		LinkedInto:  []string{"retnd"},
 	})
 	got := LicenceComplaints(c, inv, RepoReader())
 	if len(got) == 0 {
@@ -575,7 +581,7 @@ func TestAMissingReaderIsAComplaintAndNotACrash(t *testing.T) {
 	}
 }
 
-// TestNoticeAttributesEveryComponent is Apache-2.0 §4(d) checked for
+// TestNoticeAttributesEveryComponent is third-party attribution checked for
 // coverage. A NOTICE that exists and names nine of fifty-nine components
 // discharges the obligation for nine of them.
 func TestNoticeAttributesEveryComponent(t *testing.T) {
@@ -1079,7 +1085,7 @@ func TestAGenuineCopyleftLicenceIsRefusedAgainstTheRealFile(t *testing.T) {
 					Version:    "v1.0.0",
 					Ecosystem:  EcosystemGo,
 					LicenseID:  id,
-					LinkedInto: []string{"backupd"},
+					LinkedInto: []string{"retnd"},
 				}),
 			}
 			got := LicensePolicyComplaints(c, planted)
@@ -1100,7 +1106,7 @@ func TestAGenuineCopyleftLicenceIsRefusedAgainstTheRealFile(t *testing.T) {
 			ProjectLicense: live.ProjectLicense,
 			Components: append(append([]Component{}, live.Components...), Component{
 				Name: "github.com/planted/unknown", Version: "v1.0.0", Ecosystem: EcosystemGo,
-				LicenseID: "Parity-7.0.0", LinkedInto: []string{"backupd"},
+				LicenseID: "Parity-7.0.0", LinkedInto: []string{"retnd"},
 			}),
 		}
 		got := LicensePolicyComplaints(c, planted)
@@ -1118,7 +1124,7 @@ func TestAGenuineCopyleftLicenceIsRefusedAgainstTheRealFile(t *testing.T) {
 			ProjectLicense: live.ProjectLicense,
 			Components: append(append([]Component{}, live.Components...), Component{
 				Name: "github.com/planted/alsompl", Version: "v1.0.0", Ecosystem: EcosystemGo,
-				LicenseID: "MPL-2.0", LinkedInto: []string{"backupd"},
+				LicenseID: "MPL-2.0", LinkedInto: []string{"retnd"},
 			}),
 		}
 		got := LicenceObligationComplaints(c, planted, RepoReader())
@@ -1412,8 +1418,7 @@ func TestTheProseCarriesNoCountNobodyChecks(t *testing.T) {
 }
 
 // TestTheComplianceDocsNameTheCurrentAppID is the check issue #687 asks
-// for. The rename moved project.appId from com.iasbuilt.backupd to
-// com.iasbuilt.backupd (#685), and source-offer.md and
+// for. The rename moved project.appId (#685), and source-offer.md and
 // privacy-policy.md are store-submitted prose repeating the old id: the
 // blanket rewrite reached compliance.json's own field and its
 // mustMention lists but never touched the doc bodies, because nothing

@@ -1,0 +1,29 @@
+# EPIC U (#1347), valid: the agents block written out. The HTTP transport is
+# switched on, the rate limit is raised, and the confirmation window is
+# shortened. Every key is optional; a config that writes none of them
+# resolves http_transport off, 60 calls a minute, a 15m confirmation window,
+# 90 days of audit and five pending confirmations per token.
+poll_interval: 15m
+
+state:
+  database: /var/lib/retnd/state.db
+
+agents:
+  http_transport: "on"
+  rate_limit_per_minute: 120
+  confirmation_ttl: 10m
+  audit_retention_days: 30
+  max_pending_confirmations: 3
+
+sources:
+  - id: production
+    backup_sets:
+      - id: postgres-primary
+        remote:
+          type: local
+        remote_path: /srv/exports/postgres
+        local_path: /backups/production/postgres
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h

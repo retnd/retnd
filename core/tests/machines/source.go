@@ -45,8 +45,8 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 
-	"github.com/backupdproject/backupd/core/internal/transport"
-	"github.com/backupdproject/backupd/core/tests/dockerlease"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/tests/dockerlease"
 )
 
 // User is the fixed username created inside the container.
@@ -75,6 +75,21 @@ const containerUID = "1001"
 // wanted, the honest way to get it is to mirror the image somewhere we
 // control, not to pin a digest against a registry we do not.
 const serverImage = "atmoz/sftp:alpine"
+
+// sshdNofile is the open-file limit every sshd container here runs with,
+// passed as `--ulimit` rather than inherited from the daemon (#1331).
+//
+// The image's sshd is built with PAM, and its session process closes every
+// descriptor up to RLIMIT_NOFILE before it starts the sftp subsystem. A
+// daemon whose containers inherit LimitNOFILE=infinity (Debian's docker.io
+// package hands them 1073741816; MARS is one) turns that loop into minutes
+// of work per connection: authentication succeeds, the client sends the
+// subsystem request, and the version packet never arrives. rclone reads
+// that as a connection stuck in setup and the suite as a hang. A plain
+// OpenSSH sftp client against the bare image does exactly the same, and
+// the same session completes at once with this limit, so the fixture pins
+// what Docker Desktop and current Docker Engine already default to.
+var sshdNofile = []string{"--ulimit", "nofile=1024:524288"}
 
 // Every subprocess this fixture starts gets a timeout, because the
 // deadline-bounded retry loops further down only re-read their deadline
@@ -141,7 +156,7 @@ const (
 	// same way budgetEnv and graceEnv override the watchdog. The fixture's
 	// own tests use it to keep a deliberate retry loop short; nothing else
 	// should.
-	pullBackoffEnv = "RCLONE_MANAGER_SFTP_PULL_BACKOFF"
+	pullBackoffEnv = "RETND_SFTP_PULL_BACKOFF"
 	// pullBudget bounds the retries TOGETHER, which is the part retrying a
 	// five-minute timeout three times would otherwise get wrong: fifteen
 	// minutes of silence is not a fix for a gate that fails on network
@@ -171,8 +186,8 @@ const (
 	defaultGrace = 20 * time.Second
 	// budgetEnv and graceEnv override the two above, as Go durations.
 	// The fixture's own tests use them to keep a deliberate hang short.
-	budgetEnv = "RCLONE_MANAGER_SFTP_TEST_BUDGET"
-	graceEnv  = "RCLONE_MANAGER_SFTP_DEATH_GRACE"
+	budgetEnv = "RETND_SFTP_TEST_BUDGET"
+	graceEnv  = "RETND_SFTP_DEATH_GRACE"
 	// probeInterval is how often the watchdog asks docker whether the
 	// container is still there.
 	probeInterval = 500 * time.Millisecond
@@ -408,7 +423,7 @@ func startSourceOn(t *testing.T, f *Source, opts sourceOptions) *Source {
 	f.network = opts.Network
 	f.inNetwork = opts.InNetwork
 
-	name := fmt.Sprintf("backupd-gate-sftp-%d", time.Now().UnixNano())
+	name := fmt.Sprintf("retnd-gate-sftp-%d", time.Now().UnixNano())
 	f.mu.Lock()
 	f.containerName = name
 	f.mu.Unlock()
@@ -428,6 +443,7 @@ func startSourceOn(t *testing.T, f *Source, opts sourceOptions) *Source {
 	if !opts.InNetwork {
 		args = append(args, "-p", "127.0.0.1::22")
 	}
+	args = append(args, sshdNofile...)
 	args = append(args, opts.RunArgs...)
 	args = append(args,
 		"-v", hostKeyEd25519+":/etc/ssh/ssh_host_ed25519_key:ro",
@@ -572,7 +588,7 @@ func (f *Source) ensureSourceImage(t *testing.T) string {
 	imageOnce.Do(func() {
 		text := sourceDockerfile(t)
 		sum := sha256.Sum256([]byte(text))
-		tag := "backupd-machines-source:" + hex.EncodeToString(sum[:6])
+		tag := "retnd-machines-source:" + hex.EncodeToString(sum[:6])
 		f.setStage("docker image inspect " + tag)
 		if _, _, err := dockerRun(imageInspectTimeout, "image", "inspect", tag); err == nil {
 			imageRef = tag
@@ -1761,4 +1777,19 @@ func (f *Source) AuthorizeKey(t *testing.T, authorizedKeyLine string) {
 	if _, errOut, err := dockerRun(dockerExecTimeout, "exec", f.ContainerID(), "sh", "-c", script); err != nil {
 		t.Fatalf("machines: authorizing an extra key on %s: %v\n%s", f.ContainerID(), err, errOut)
 	}
+}
+
+// Inside runs argv inside the source machine's container and returns what
+// it printed (#1193: a test that drops the fixture's SSH sessions mid-upload
+// needs to list and signal processes there). It goes through the harness's
+// bounded docker call like everything else here, and a non-zero exit is an
+// answer, returned as output, exactly as ExecHost.Inside does.
+func (f *Source) Inside(t *testing.T, argv ...string) string {
+	t.Helper()
+	args := append([]string{"exec", f.containerID}, argv...)
+	stdout, stderr, err := dockerRun(dockerProbeTimeout, args...)
+	if err != nil && errors.Is(err, errDockerTimedOut) {
+		t.Fatalf("%s machines: `docker exec` on the source machine did not answer within %s: %v", infraMarker, dockerProbeTimeout, err)
+	}
+	return stdout + stderr
 }

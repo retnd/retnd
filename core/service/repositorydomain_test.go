@@ -26,9 +26,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/model"
 )
 
 // testRepositoryPassphrase is obviously fake and is written only into a
@@ -347,7 +347,7 @@ func TestCreateRepositoryDomain_RefusesRequestsConfigWouldNotAccept(t *testing.T
 		{"an isolation outside the two words", func(r *CreateRepositoryDomainRequest) { r.Isolation = "private" }},
 		{"no isolation, which is not a default", func(r *CreateRepositoryDomainRequest) { r.Isolation = "" }},
 		{"no passphrase source at all", func(r *CreateRepositoryDomainRequest) { r.Passphrase = RepositoryPassphraseRef{} }},
-		{"two passphrase sources", func(r *CreateRepositoryDomainRequest) { r.Passphrase.Env = "BACKUPD_DOMAIN_PASSPHRASE" }},
+		{"two passphrase sources", func(r *CreateRepositoryDomainRequest) { r.Passphrase.Env = "RETND_DOMAIN_PASSPHRASE" }},
 		{"a maintenance owner outside the two words", func(r *CreateRepositoryDomainRequest) { r.MaintenanceOwner = "somebody" }},
 		{"a storage location this deployment cannot honour", func(r *CreateRepositoryDomainRequest) {
 			r.Location = "b2://acme-backups/primary"

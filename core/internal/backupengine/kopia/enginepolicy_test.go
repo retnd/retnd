@@ -13,9 +13,9 @@ import (
 	"github.com/kopia/kopia/snapshot"
 	"github.com/kopia/kopia/snapshot/policy"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/secretref"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/secretref"
 )
 
 // The one claim this file makes: after this adapter opens a repository,
@@ -55,7 +55,7 @@ func TestTheEngineExpiresNothingInARepositoryThisAdapterOpened(t *testing.T) {
 	}
 	if len(expired) != 0 {
 		t.Errorf("the engine would expire %d of this product's snapshots (%v) during the next long backup; "+
-			"backupd decides which snapshots may be deleted, and a hold recorded in the catalog is invisible to this calculation",
+			"retnd decides which snapshots may be deleted, and a hold recorded in the catalog is invisible to this calculation",
 			len(expired), expired)
 	}
 
@@ -147,7 +147,7 @@ func repositoryWithSnapshots(t *testing.T, n int) (repo.Repository, snapshot.Sou
 }
 
 // adapterWithSnapshots is the same fixture seen through this product's own
-// boundary, for the assertions that are about what backupd can do rather
+// boundary, for the assertions that are about what retnd can do rather
 // than about what the vendor would compute.
 func adapterWithSnapshots(t *testing.T, n int) (backupengine.Repository, backupengine.Source) {
 	t.Helper()
@@ -343,14 +343,14 @@ func TestAPolicySomebodyElseSetCannotExpireThisProductsSnapshots(t *testing.T) {
 	}
 }
 
-// TestBackupdCanStillDeleteAPinnedSnapshot is the other half of the pin.
+// TestRetndCanStillDeleteAPinnedSnapshot is the other half of the pin.
 //
 // A pin that this product could not get past would have replaced an engine
 // that deletes snapshots behind the catalog with a repository whose
 // snapshots can never be removed at all, and retention would report
 // deletions that never happened. The vendor's own DeleteManifest ignores
 // pins, which is why the adapter's delete path uses it.
-func TestBackupdCanStillDeleteAPinnedSnapshot(t *testing.T) {
+func TestRetndCanStillDeleteAPinnedSnapshot(t *testing.T) {
 	ctx := context.Background()
 	opened, source := adapterWithSnapshots(t, 2)
 

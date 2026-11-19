@@ -75,14 +75,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/tests/dockerlease"
+	"github.com/retnd/retnd/core/tests/dockerlease"
 )
 
 // NetworkEnv, when set, names the network this test process is already a
 // container on. Start then attaches the machines to that network and
 // publishes nothing. Only a driver that put the process there should set
 // it.
-const NetworkEnv = "RCLONE_MANAGER_MACHINES_NETWORK"
+const NetworkEnv = "RETND_MACHINES_NETWORK"
 
 const (
 	dockerNetworkTimeout = 30 * time.Second
@@ -177,11 +177,13 @@ func capabilityUnavailable(t *testing.T, reason string, args ...any) {
 // (CI=true, which GitHub Actions and every other provider set).
 //
 // Automated CI is here because keying only on CI_LOCAL left the hole open
-// in the run that actually gates merging: .github/workflows/ci.yml's
-// core-build-vet-test job runs `go test -race ./...` with no CI_LOCAL, so
+// in the run that used to gate merging: .github/workflows/ci.yml's
+// core-build-vet-test job ran `go test -race ./...` with no CI_LOCAL, so
 // every suite reached through this package could skip there while the job
 // reported success. A skip in an automated run is a claim nobody makes and
-// nobody reads.
+// nobody reads. That workflow is gone (#1260) and the local gate is the
+// only gate, but CI=true stays honoured for anybody who runs these suites
+// under a hosted runner of their own.
 //
 // CI_LOCAL_SKIP_DOCKER=1 is honoured in both, because it is how a run says
 // out loud that it is proceeding without a daemon and it already ends that
@@ -249,7 +251,7 @@ func Start(t *testing.T) *Machines {
 	// created.
 	created := false
 	if !inNetwork {
-		name = fmt.Sprintf("backupd-machines-%d-%d", os.Getpid(), time.Now().UnixNano())
+		name = fmt.Sprintf("retnd-machines-%d-%d", os.Getpid(), time.Now().UnixNano())
 		t.Cleanup(func() {
 			if created {
 				removeNetwork(t, name)

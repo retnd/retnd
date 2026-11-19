@@ -228,12 +228,12 @@ shell text (`internal/workflowexec.StdinPayload`):
 
 ```
 unset BASH_ENV ENV SHELLOPTS BASHOPTS 2>/dev/null
-for __backupd_name in $(compgen -e 2>/dev/null); do ... unset -v ... done
-for __backupd_name in $(compgen -A function 2>/dev/null); do unset -f ... done
+for __retnd_name in $(compgen -e 2>/dev/null); do ... unset -v ... done
+for __retnd_name in $(compgen -A function 2>/dev/null); do unset -f ... done
 export PATH='...'        # workflow.SanitizedBaseline, then the resolved plan
 export NAME='...'
-__backupd_script='...'
-eval "$__backupd_script" 0</dev/null
+__retnd_script='...'
+eval "$__retnd_script" 0</dev/null
 ```
 
 - Every value, and the script itself, is a single-quoted literal. Inside

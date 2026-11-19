@@ -10,6 +10,26 @@
  * that were bound to the old one at import time. Both notes below spell
  * that out, because the obvious alternative (build a new graph per test)
  * looks like it should work and does not.
+ *
+ * # Where shared state goes
+ *
+ * - State more than one component reads is a node on this graph, created
+ *   with `registerInput` (or a `derived` over those), and read through
+ *   `useCausl`. Not a context with a `useState` behind it, and not a module
+ *   variable a component reads directly.
+ * - State one component owns stays in that component (`useState`, a ref).
+ * - A pure fold from one value to the next (a reading into a window, a list
+ *   into a page) is a plain function in its own module, tested without the
+ *   graph. state/activityWindow is the example.
+ * - A module-level controller (a poller, a reader, a confirmer) is allowed
+ *   only when it is all three of: instantiated, so its timers and flags are
+ *   fields of an object rather than loose module variables; keyed by the api
+ *   it talks to, so a different api gets a new instance and an answer to
+ *   the old one can never land in the new one's state; and test-resettable,
+ *   through an exported `reset...ForTests` that stops it and empties its
+ *   node. state/terminalStore's `TerminalReader` is the example.
+ * - It writes what it learns into a node and nowhere else, so components
+ *   never subscribe to the controller itself.
  */
 import { createCausl } from "@causlts/core";
 import type { InputNode } from "@causlts/core";

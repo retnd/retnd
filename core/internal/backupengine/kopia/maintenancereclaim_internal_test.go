@@ -15,7 +15,7 @@ import (
 	"github.com/kopia/kopia/repo/blob"
 	"github.com/kopia/kopia/repo/blob/filesystem"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/backupengine"
 )
 
 // Issue #786's "physical space reclamation is measurable", proved against
@@ -52,7 +52,7 @@ import (
 // clockedStorageType is the storage type name this file registers so that
 // a repository re-opened from its config file gets the wrapped storage
 // back rather than a plain filesystem one.
-const clockedStorageType = "backupd-test-clocked-filesystem"
+const clockedStorageType = "retnd-test-clocked-filesystem"
 
 // testClock is one repository's idea of the time, moved by the test.
 type testClock struct {

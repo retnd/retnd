@@ -1,6 +1,7 @@
 package backupengine_test
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -8,8 +9,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/retnd/retnd/core/internal/testenv"
 )
 
 // The vendor name is assembled rather than written so these tests can search
@@ -21,6 +25,23 @@ var vendorName = "ko" + "pia"
 // adapterDir is the one directory allowed to name the vendor: the adapter
 // subpackage, relative to this file.
 const adapterDir = "kopia"
+
+func importsPath(src []byte, want string) (bool, error) {
+	file, err := parser.ParseFile(token.NewFileSet(), "", src, parser.ImportsOnly)
+	if err != nil {
+		return false, err
+	}
+	for _, spec := range file.Imports {
+		path, err := strconv.Unquote(spec.Path.Value)
+		if err != nil {
+			return false, err
+		}
+		if path == want {
+			return true, nil
+		}
+	}
+	return false, nil
+}
 
 // TestEngineFileNamesNoVendor is the enforcement half of the package doc's
 // claim that no embedded-engine type appears in any signature in engine.go.
@@ -98,7 +119,11 @@ func TestNoVendorImportOutsideTheAdapter(t *testing.T) {
 
 		checked++
 
-		if strings.Contains(string(src), needle) {
+		imported, err := importsPath(src, needle)
+		if err != nil {
+			return fmt.Errorf("parsing imports in %s: %w", path, err)
+		}
+		if imported {
 			rel, _ := filepath.Rel(root, path)
 			t.Errorf("%s imports %s; every import of the embedded engine belongs in internal/backupengine/%s",
 				rel, needle, adapterDir)
@@ -219,6 +244,7 @@ func moduleRoot(t *testing.T) string {
 // the snapshot list for the dashboard" import would land, because it is far
 // from this package and its author has never read this file.
 func TestNoVendorImportAnywhereInTheRepository(t *testing.T) {
+	testenv.SkipIfCoreWithoutApps(t)
 	t.Parallel()
 
 	repo := repoRoot(t)
@@ -257,7 +283,11 @@ func TestNoVendorImportAnywhereInTheRepository(t *testing.T) {
 
 		checked++
 
-		if strings.Contains(string(src), needle) {
+		imported, err := importsPath(src, needle)
+		if err != nil {
+			return fmt.Errorf("parsing imports in %s: %w", path, err)
+		}
+		if imported {
 			rel, _ := filepath.Rel(repo, path)
 			t.Errorf("%s imports %s; every import of the embedded engine belongs in core/internal/backupengine/%s",
 				rel, needle, adapterDir)
@@ -323,6 +353,7 @@ var domainSurfaces = []struct {
 // Non-Go surfaces are text, where the same distinction is "the bare token,
 // quoted" versus "glued to an identifier".
 func TestNoVendorTypeInTheProductsOwnSurfaces(t *testing.T) {
+	testenv.SkipIfCoreWithoutApps(t)
 	t.Parallel()
 
 	repo := repoRoot(t)

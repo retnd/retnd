@@ -8,9 +8,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine/source"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/backupengine/source"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // sessionSource is a fake source that can hold ONE conversation open, and
@@ -55,13 +55,13 @@ type fakeSession struct {
 func (f *fakeSession) OpenStream(ctx context.Context, remotePath string) (io.ReadCloser, error) {
 	f.use()
 
-	return f.owner.fakeSource.OpenSourceStream(ctx, f.src, remotePath)
+	return f.owner.OpenSourceStream(ctx, f.src, remotePath)
 }
 
 func (f *fakeSession) StatSource(ctx context.Context, remotePath string) (transport.RemoteArtifact, error) {
 	f.use()
 
-	return f.owner.fakeSource.StatSource(ctx, f.src, remotePath)
+	return f.owner.StatSource(ctx, f.src, remotePath)
 }
 
 func (f *fakeSession) Close() error {

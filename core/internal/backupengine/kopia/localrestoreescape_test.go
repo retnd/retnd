@@ -20,9 +20,9 @@ import (
 	"github.com/kopia/kopia/snapshot/policy"
 	"github.com/kopia/kopia/snapshot/upload"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/secretref"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/secretref"
 )
 
 // This file is the adversarial half of the restore path (#787), and it is
@@ -32,7 +32,7 @@ import (
 // That is not a gap in the test, it is the point of it. The write path
 // refuses an entry name that is not a single ordinary path element
 // (kopia/tree.go's checkEntryName, backupengine/source.SafeRelPath), so a
-// snapshot holding "../../etc/cron.d/x" cannot come from a backupd run.
+// snapshot holding "../../etc/cron.d/x" cannot come from a retnd run.
 // It can come from a repository domain shared with another tool, from an
 // operator using the vendor's CLI against the same bucket, or from a
 // future build of this program with a bug in it -- and a restore that is
@@ -63,7 +63,7 @@ var hostileNames = []string{
 	".",
 	"",
 	"/absolute.txt",
-	"/etc/cron.d/backupd",
+	"/etc/cron.d/retnd",
 	`..\escaped.txt`,
 	`C:\escaped.txt`,
 	"C:escaped.txt",
@@ -491,7 +491,7 @@ func uploadStaticRoot(tb testing.TB, r *repository, entries []fs.Entry) (backupe
 
 	var id backupengine.SnapshotID
 
-	err = repo.WriteSession(ctx, r.rep, repo.WriteSessionOptions{Purpose: "backupd:test-plant"},
+	err = repo.WriteSession(ctx, r.rep, repo.WriteSessionOptions{Purpose: "retnd:test-plant"},
 		func(ctx context.Context, w repo.RepositoryWriter) error {
 			man, err := upload.NewUploader(w).Upload(ctx, virtualfs.NewStaticDirectory("planted", entries), policyTree, si)
 			if err != nil {

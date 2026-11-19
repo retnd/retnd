@@ -3,7 +3,8 @@ package webhost
 import (
 	"net/http"
 
-	"github.com/backupdproject/backupd/core/service"
+	"github.com/retnd/retnd/core/legacypath"
+	"github.com/retnd/retnd/core/service"
 )
 
 // The three system reads a client makes before it does anything else:
@@ -63,8 +64,10 @@ type versionResponse struct {
 	// So a routed WRITE compares this instead, and refuses when the
 	// engine it reached is not the deployment the command was typed at.
 	//
-	// Empty means this process cannot name its deployment (a nil backend,
-	// or an identity file that could not be read). A client must read
+	// A first-run instance names the deployment it is being set up as
+	// (#1254), from the identity its announcement minted. Empty means this
+	// process cannot name its deployment (neither a backend nor a first-run
+	// surface, or an identity file that could not be read). A client must read
 	// that as unable to confirm rather than as agreement: two processes
 	// that both answer nothing are not thereby one deployment.
 	DeploymentID string `json:"deployment_id"`
@@ -103,6 +106,36 @@ type versionResponse struct {
 	// nothing else. It is repeated here so a client that already fetches
 	// version does not need a second round trip.
 	Configured bool `json:"configured"`
+
+	// AdoptedPaths is FR-38's answer on the route the deployment check
+	// already reads (core/cmd/retnd's deploymentcheck.go), and it is here
+	// rather than on a route of its own for that reason: "which
+	// deployment am I talking to" and "which of its directories is
+	// actually live" are the same question asked one level down, and a
+	// client that already fetches this response should not need a second
+	// round trip to find out that the answer came from a pre-rename
+	// path.
+	//
+	// Empty on every deployment whose paths are the ones this release
+	// resolves, and never nil: an omitted array and an empty one are the
+	// same fact and the contract declares this field required, so a
+	// client never has to distinguish "no adoptions" from "this build
+	// does not report them".
+	//
+	// Two populated directories that are different directories never
+	// reach this field, because that deployment refuses to start: see
+	// core/legacypath.
+	AdoptedPaths []adoptedPathResponse `json:"adopted_paths"`
+}
+
+// adoptedPathResponse is one entry of the above: the pre-rename path in
+// use and the renamed path it would otherwise have used. A flat pair
+// rather than a single string, because an operator reading a support
+// transcript needs both — the one that is live and the one to move it to.
+type adoptedPathResponse struct {
+	What    string `json:"what"`
+	Serving string `json:"serving"`
+	Renamed string `json:"renamed"`
 }
 
 // systemVersion is GET /api/v1/system/version. It is the first call every
@@ -119,9 +152,18 @@ func (h *handlers) systemVersion(w http.ResponseWriter, r *http.Request) {
 	// package's existing "not fully wired yet is a degraded response, not
 	// a crash" posture.
 	var configRevision, deploymentID string
-	if h.backend != nil {
+	switch {
+	case h.backend != nil:
 		configRevision = h.backend.ConfigRevision()
 		deploymentID = h.backend.DeploymentID()
+	case h.firstRun != nil:
+		// A first-run instance has no backend and does have a deployment:
+		// announcing about its journal minted the identity this reads
+		// (#1254). Without it, `retnd backup-set create` could not confirm
+		// which deployment it was about to hand a first configuration to,
+		// and would refuse. The revision stays empty, because there is no
+		// configuration to hash yet.
+		deploymentID = h.firstRun.DeploymentID()
 	}
 	writeJSON(w, http.StatusOK, versionResponse{
 		APIVersion:     "v1",
@@ -133,6 +175,7 @@ func (h *handlers) systemVersion(w http.ResponseWriter, r *http.Request) {
 		DeploymentID:   deploymentID,
 		Ready:          isReady(h.backend),
 		Configured:     h.configured(),
+		AdoptedPaths:   adoptedPaths(h.adoptedPaths),
 	})
 }
 
@@ -160,15 +203,63 @@ type capabilitiesResponse struct {
 	StoragePicker       bool   `json:"storage_picker"`
 	EmbeddedWindow      bool   `json:"embedded_window"`
 	AppStorePackaging   bool   `json:"app_store_packaging"`
+
+	// DestructiveOperations is issue #1165's addition, and it is NOT a
+	// platform capability: it is this deployment's own destructive gate,
+	// read from the gate the router was built with at the moment of the
+	// request. It is here, rather than on a route of its own, because this
+	// is the read every client already makes to learn what to offer, and a
+	// client that learns the gate is shut only by being refused by it is
+	// the problem this field exists to end.
+	DestructiveOperations destructiveOperationsResponse `json:"destructive_operations"`
+
+	// AgentsHTTPTransport is "on" when agents.http_transport resolved to on,
+	// and "off" otherwise, so an operator can tell whether the agent endpoint
+	// answers without reading config.yaml. Like DestructiveOperations it is
+	// this deployment's own setting and not a platform capability.
+	AgentsHTTPTransport string `json:"agents_http_transport"`
+}
+
+// destructiveOperationsResponse is DestructiveOperationsStatus in the
+// contract: open or shut, and the reason when shut.
+type destructiveOperationsResponse struct {
+	State  string `json:"state"`
+	Reason string `json:"reason"`
+
+	// StepUpRequired says restores ask for the administrator's password
+	// again (issue #1163). It follows what the router will enforce, so a
+	// screen never asks for a password the engine will not check, or fails
+	// to ask for one it will.
+	StepUpRequired bool `json:"step_up_required"`
+
+	// InsecureTransportAckRequired says the browser behind THIS request
+	// reached retnd over plain HTTP from another machine, as the hop facing
+	// it judged (gate_profile.go), so an act that sends or returns a secret
+	// over that connection (a gated act, and the mint of an agent token) needs
+	// the extra acknowledgement. It does not depend on the gate's state: the
+	// mint asks with the gate shut. It is computed from the request that asked, which is
+	// why the read is answered Cache-Control: no-store.
+	InsecureTransportAckRequired bool `json:"insecure_transport_ack_required"`
 }
 
 // systemCapabilities is GET /api/v1/system/capabilities. It copies the
-// adapter's answer field for field and adds nothing of its own, which is
-// the point: a capability has exactly one place it is declared, and a
-// route that could enrich or override it would be a second one that
-// disagrees.
+// adapter's answer field for field and adds nothing of its own to the
+// platform's capabilities, which is the point: a capability has exactly one
+// place it is declared, and a route that could enrich or override it would
+// be a second one that disagrees. The one thing beside them,
+// destructive_operations (#1165), is not a platform capability and is read
+// from the gate rather than from the adapter.
 func (h *handlers) systemCapabilities(w http.ResponseWriter, r *http.Request) {
 	c := h.platform.Capabilities()
+	agentsHTTPTransport := "off"
+	if h.agentPolicy.HTTPTransport {
+		agentsHTTPTransport = "on"
+	}
+	gateState, gateReason := gateStatus(h.enforce.gate)
+	_, stepUp := conditionsOf(h.enforce.gate)
+	// insecure_transport_ack_required is about the connection that asked, so
+	// no cache may hand one caller's answer to another (issue #1163 review).
+	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, capabilitiesResponse{
 		Platform:            string(h.platform.ID()),
 		NativeAuth:          c.NativeAuth,
@@ -176,6 +267,14 @@ func (h *handlers) systemCapabilities(w http.ResponseWriter, r *http.Request) {
 		StoragePicker:       c.StoragePicker,
 		EmbeddedWindow:      c.EmbeddedWindow,
 		AppStorePackaging:   c.AppStorePackaging,
+
+		DestructiveOperations: destructiveOperationsResponse{
+			State:                        gateState,
+			Reason:                       gateReason,
+			StepUpRequired:               stepUp,
+			InsecureTransportAckRequired: h.enforce.plainHTTPFromElsewhere(r),
+		},
+		AgentsHTTPTransport: agentsHTTPTransport,
 	})
 }
 
@@ -208,4 +307,15 @@ func (h *handlers) healthReady(w http.ResponseWriter, r *http.Request) {
 // its own startup sequence completed.
 func isReady(backend BackupServiceClient) bool {
 	return backend != nil && backend.Ready()
+}
+
+// adoptedPaths translates the runtime's own FR-38 decisions into the
+// response shape, and returns an empty slice rather than nil so the
+// contract's required array is always present in the JSON.
+func adoptedPaths(in []legacypath.Adoption) []adoptedPathResponse {
+	out := make([]adoptedPathResponse, 0, len(in))
+	for _, a := range in {
+		out = append(out, adoptedPathResponse{What: a.What, Serving: a.Path, Renamed: a.Renamed})
+	}
+	return out
 }

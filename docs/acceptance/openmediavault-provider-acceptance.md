@@ -43,19 +43,17 @@ omv-extras   # enable the omv-extras repository if it is not already
 apt-get install openmediavault-compose
 ```
 
-- **Services → Compose** appears in the OMV Workbench
-- `docker --version` and `docker compose version` both work over SSH
+- [ ] **Services → Compose** appears in the OMV Workbench
+- [ ] `docker --version` and `docker compose version` both work over SSH
 
 ### 0.2 Make the canonical image resolvable
 
-`ghcr.io/backupdproject/backupd:0.4.0` is cut but not pushed yet:
-`distribution/packaging/canonical.json` records `image.published: false`, and
-`container/release-manifest.json` carries a `registry_digest` of `null` per
-architecture. So the reference does not resolve from the registry today, and the
-steps below are how you make it resolve, by pushing a build to a registry this host
-can reach or building elsewhere and loading it. The previous release,
-`ghcr.io/backupdproject/backupd:0.3.3`, stays published and signed if you would
-rather run that. Either push to your own registry:
+The canonical reference is `ghcr.io/retnd/retnd:0.8.0`.
+`distribution/packaging/canonical.json` and
+`container/release-manifest.json` jointly record whether it has been published:
+`image.published: true` requires an index digest and one registry digest per
+architecture. If those records still say `false` and `null`, the reference does
+not resolve yet. Push a build to a registry this host can reach:
 
 ```bash
 docker buildx build \
@@ -63,23 +61,23 @@ docker buildx build \
   --build-arg VERSION="$(git describe --tags --always)" \
   --build-arg COMMIT="$(git rev-parse HEAD)" \
   -f container/Dockerfile \
-  -t <your-registry>/backupd:<version> \
+  -t <your-registry>/retnd:<version> \
   --push .
 ```
 
 or side-load and set `IMAGE` in the env file to the loaded tag:
 
 ```bash
-docker save backupd:<version> | gzip > backupd.tar.gz
-scp backupd.tar.gz root@<omv>:/root/
-ssh root@<omv> 'gunzip -c /root/backupd.tar.gz | docker load'
+docker save retnd:<version> | gzip > retnd.tar.gz
+scp retnd.tar.gz root@<omv>:/root/
+ssh root@<omv> 'gunzip -c /root/retnd.tar.gz | docker load'
 ```
 
 The compose file reads the image reference from a single `IMAGE` variable in
-`apps/openmediavault/compose/backupd.env`, so this is a one-line change in
+`apps/openmediavault/compose/retnd.env`, so this is a one-line change in
 one file, never an edit scattered through the compose YAML.
 
-- Canonical image resolvable on the NAS, reference recorded
+- [ ] Canonical image resolvable on the NAS, reference recorded
 
 ### 0.3 Resolve the real filesystem paths
 
@@ -96,7 +94,7 @@ Find yours:
 ls -d /srv/dev-disk-by-uuid-*
 ```
 
-Set `DISK` in `backupd.env` and change nothing else. Every host path in
+Set `DISK` in `retnd.env` and change nothing else. Every host path in
 the compose file is written `${DISK}/...`, so the UUID appears exactly once, and
 the compose file itself needs no editing. `DISK` is referenced in the
 fail-closed `${DISK:?...}` form, so leaving it unset or misspelling it stops the
@@ -104,20 +102,20 @@ deployment instead of creating five directories in the wrong place.
 
 ```bash
 DISK=/srv/dev-disk-by-uuid-<your-uuid>
-mkdir -p "$DISK/appdata/backupd"/{state,config,secrets}
-mkdir -p "$DISK/backups/backupd"
-chmod 700 "$DISK/appdata/backupd/secrets"
+mkdir -p "$DISK/appdata/retnd"/{state,config,secrets}
+mkdir -p "$DISK/backups/retnd"
+chmod 700 "$DISK/appdata/retnd/secrets"
 ```
 
-The backup root is `backupd` **inside** `$DISK/backups`, not that
+The backup root is `retnd` **inside** `$DISK/backups`, not that
 directory itself, which is very likely one you already use. Every step below
 creates, owns and later inspects only paths this procedure created.
 
-- Real `dev-disk-by-uuid-<UUID>` path recorded
-- `appdata/backupd/{state,config,secrets}` and
-      `backups/backupd` exist
-- The UUID appears in exactly one place on the NAS, the env file's `DISK`
-- Starting the stack with `DISK` unset fails loudly rather than creating
+- [ ] Real `dev-disk-by-uuid-<UUID>` path recorded
+- [ ] `appdata/retnd/{state,config,secrets}` and
+      `backups/retnd` exist
+- [ ] The UUID appears in exactly one place on the NAS, the env file's `DISK`
+- [ ] Starting the stack with `DISK` unset fails loudly rather than creating
       paths (try it once, on purpose)
 
 ### 0.4 Own them by the uid/gid the app runs as
@@ -129,8 +127,8 @@ OMV's conventional service account is `uid 1000` for the first admin account;
 check yours with `id <your-admin-user>`.
 
 ```bash
-chown -R 1000:100 "$DISK/appdata/backupd"
-chown 1000:100 "$DISK/backups/backupd"
+chown -R 1000:100 "$DISK/appdata/retnd"
+chown 1000:100 "$DISK/backups/retnd"
 ```
 
 Only paths this procedure created, and the backup root non-recursively. A
@@ -138,13 +136,13 @@ Only paths this procedure created, and the backup root non-recursively. A
 already in it, fights the Workbench's own shared-folder ACL management, and on a
 reinstall would rewrite the retained backup store.
 
-- `PUID`/`PGID` chosen, recorded, and set in the env file
-- appdata tree and `backups/backupd` owned by that uid/gid
-- Nothing else under `$DISK/backups` had its ownership changed
+- [ ] `PUID`/`PGID` chosen, recorded, and set in the env file
+- [ ] appdata tree and `backups/retnd` owned by that uid/gid
+- [ ] Nothing else under `$DISK/backups` had its ownership changed
 
 ### 0.5 Create the SSH key, the pinned known_hosts, and the config
 
-> **This step is packaging debt now, not engine behavior.** As of the
+> **This step is packaging debt now, not engine behavior.** As of issue #176 the
 > engine no longer needs a configuration to start: an instance with no
 > `config.yaml` serves a first-run setup flow, in the web UI, that writes one
 > for you. What still blocks that here is the package. The config is
@@ -153,80 +151,80 @@ reinstall would rewrite the retained backup store.
 > missing source gets a directory created for it). Until the packaged config
 > mount becomes a writable **directory**, this platform keeps the hand-written
 > config, and this step keeps its shell commands for that reason and no other.
-> That same mount is already what makes the existing create-backup-set
-> and settings write paths inert in a packaged container, so it is one
+> That same mount is already what makes the existing create-backup-set (#146)
+> and settings (#140) write paths inert in a packaged container, so it is one
 > packaging fix for three things.
 >
 > Nothing else here survives that fix: once the mount is writable, the key is
-> pasted into the setup flow's Authentication step, the host key is probed and
-> confirmed on its Verify server step, and no `config.yaml` is written by hand
+> pasted into the setup flow's Connection test step, the host key is probed and
+> confirmed on that same step, and no `config.yaml` is written by hand
 > at all.
 
-`/backupd-web serve` starts without a `config.yaml` and serves the
-first-run setup flow instead, but a config file that EXISTS and does not
+`/retnd-web serve` starts without a `config.yaml` and serves the
+first-run setup flow instead (#176), but a config file that EXISTS and does not
 validate is still a hard startup failure. Given the read-only mount above, create
 all three before the first start.
 
-**What still requires this step, precisely.** The configuration mount is
+**What still requires this step, precisely (issue #196).** The configuration mount is
 now a writable directory the application owns, so the container can create and replace
 `config.yaml` itself, and an empty directory is a legitimate state rather than a broken
 deployment. Two things nonetheless keep this step here. The directory itself must exist
 and be owned by the app's uid/gid before the first start, because a bind mount does not
-create or chown its source. And `/backupd-web serve` still refuses to start
+create or chown its source. And `/retnd-web serve` still refuses to start
 without a valid config: removing that refusal, and serving a first-run flow instead, is
-'s work and is not merged. Once it is, everything below except creating and owning
+#176's work and is not merged. Once it is, everything below except creating and owning
 the directory becomes optional.
 
 ```bash
-ssh-keygen -t ed25519 -N '' -f "$DISK/appdata/backupd/secrets/id_ed25519"
-ssh-keyscan -t ed25519 <your-sftp-host> > "$DISK/appdata/backupd/secrets/known_hosts"
-chmod 600 "$DISK/appdata/backupd/secrets/id_ed25519"
-chown 1000:100 "$DISK/appdata/backupd/secrets/"*
+ssh-keygen -t ed25519 -N '' -f "$DISK/appdata/retnd/secrets/id_ed25519"
+ssh-keyscan -t ed25519 <your-sftp-host> > "$DISK/appdata/retnd/secrets/known_hosts"
+chmod 600 "$DISK/appdata/retnd/secrets/id_ed25519"
+chown 1000:100 "$DISK/appdata/retnd/secrets/"*
 ```
 
 Verify the host key fingerprint out of band. Then write
-`$DISK/appdata/backupd/config/config.yaml` using the annotated example in
+`$DISK/appdata/retnd/config/config.yaml` using the annotated example in
 `apps/openmediavault/README.md`.
 
 **Never commit the private key, the config, or any transcript containing them.**
 
-- Key pair generated, mode 0600, owned by `PUID:PGID`
-- `known_hosts` pinned, fingerprint verified out of band
-- `$DISK/appdata/backupd/config` exists and is **writable** by `PUID:PGID`
-- `config.yaml` written inside it and readable by `PUID:PGID`
+- [ ] Key pair generated, mode 0600, owned by `PUID:PGID`
+- [ ] `known_hosts` pinned, fingerprint verified out of band
+- [ ] `$DISK/appdata/retnd/config` exists and is **writable** by `PUID:PGID`
+- [ ] `config.yaml` written inside it and readable by `PUID:PGID`
 
 ---
 
 ## Step 1 — Install
 
 1. **Services → Compose → Files → Add**.
-2. Name: `backupd`.
-3. Paste `apps/openmediavault/compose/backupd.yml` into the **File** field.
-4. Paste `apps/openmediavault/compose/backupd.env`, with your step 0
+2. Name: `retnd`.
+3. Paste `apps/openmediavault/compose/retnd.yml` into the **File** field.
+4. Paste `apps/openmediavault/compose/retnd.env`, with your step 0
    substitutions, into the **Environment** field.
 5. Save, then **Up**.
 
-- The compose file saves with no validation error
-- `Up` completes and both services reach **running**
-- The engine service reaches health **healthy** (it declares the
-      liveness probe, `/backupd-web healthcheck --url
+- [ ] The compose file saves with no validation error
+- [ ] `Up` completes and both services reach **running**
+- [ ] The engine service reaches health **healthy** (it declares the
+      liveness probe, `/retnd-web healthcheck --url
       http://127.0.0.1:8080/health/live`, and NOT the image's own
-      `HEALTHCHECK`, `/backupd status`. The Web UI will not start until
+      `HEALTHCHECK`, `/retnd status`. The Web UI will not start until
       this reports healthy, and `status` is the backup-freshness verdict, which
       is non-zero on a fresh install that has backed nothing up)
-- The Web UI service reaches health **healthy** via its own
-      `/backupd-web healthcheck` override, not the image's
-      `/backupd status` (which would fail: no config, no state database)
-- The engine service publishes no port (`docker compose ps` shows a port
+- [ ] The Web UI service reaches health **healthy** via its own
+      `/retnd-web healthcheck` override, not the image's
+      `/retnd status` (which would fail: no config, no state database)
+- [ ] The engine service publishes no port (`docker compose ps` shows a port
       mapping only for the Web UI service)
 
 ---
 
 ## Step 2 — Verify from the Workbench
 
-- **Services → Compose → Files** lists `backupd` with status up
-- The plugin's **Logs** action shows both services' output
-- No error, warning or orphan-container notice appears in
+- [ ] **Services → Compose → Files** lists `retnd` with status up
+- [ ] The plugin's **Logs** action shows both services' output
+- [ ] No error, warning or orphan-container notice appears in
       **System → Notifications**
 
 ---
@@ -238,13 +236,13 @@ to find it must therefore be in the documentation.
 
 1. Open `http://<omv-host>:<published port>/` in a browser.
 
-- The shared Web UI loads
-- `apps/openmediavault/README.md` states the exact URL shape, states that the
+- [ ] The shared Web UI loads
+- [ ] `apps/openmediavault/README.md` states the exact URL shape, states that the
       port is set in one place in the env file, and states plainly that there is
       no OMV navigation entry and why
-- The published port does not collide with OMV's own Workbench port, and the
+- [ ] The published port does not collide with OMV's own Workbench port, and the
       README says what to change if it does
-- Nothing in OMV's own navigation tree, dashboard or service list was
+- [ ] Nothing in OMV's own navigation tree, dashboard or service list was
       modified by this install
 
 ---
@@ -257,7 +255,7 @@ Web host provides (§13A).
 1. Read the one-time enrollment link out of the **engine** service's log:
 
    ```bash
-   docker compose -p backupd logs backupd 2>&1 | grep -i enroll
+   docker compose -p retnd logs retnd 2>&1 | grep -i enroll
    ```
 
 2. Open it, enrol an administrator with a password you generate now, log out, log
@@ -268,22 +266,22 @@ Web host provides (§13A).
    once signed out again, use **Forgot password** with an invented username and
    then with the real one.
 
-- No account exists before enrollment
-- The token appears only in the service log, never in any file under
+- [ ] No account exists before enrollment
+- [ ] The token appears only in the service log, never in any file under
       `apps/openmediavault/`
-- The wrong-port attempt fails with `SMTP_SEND_FAILED`, creates no account, and
+- [ ] The wrong-port attempt fails with `SMTP_SEND_FAILED`, creates no account, and
       leaves the same enrollment link usable
-- A confirmation message reaches the recovery address before the account exists
-- Enrollment succeeds, logout then login succeeds
-- The enrollment link is refused the second time
-- Forgot password answers the same for an invented username as for the real one,
+- [ ] A confirmation message reaches the recovery address before the account exists
+- [ ] Enrollment succeeds, logout then login succeeds
+- [ ] The enrollment link is refused the second time
+- [ ] Forgot password answers the same for an invented username as for the real one,
       and the reset link works once and signs every session out when spent
-- `GET /api/v1/system/capabilities` reports `nativeAuth: false`
-- `$DISK/appdata/backupd/state/local-auth.json` holds an Argon2id
+- [ ] `GET /api/v1/system/capabilities` reports `nativeAuth: false`
+- [ ] `$DISK/appdata/retnd/state/local-auth.json` holds an Argon2id
       hash, never a plaintext password, and holds the recovery address and SMTP
       settings with the SMTP password as a secret reference rather than a value:
       `grep` it for the password you typed and find nothing
-- Backupd's login is completely independent of the OMV Workbench
+- [ ] retnd's login is completely independent of the OMV Workbench
       login, and neither can log into the other
 
 ---
@@ -293,9 +291,9 @@ Web host provides (§13A).
 Run one backup cycle to completion, then:
 
 ```bash
-ls -la "$DISK/backups/backupd"
-ls -la "$DISK/appdata/backupd/state"
-grep -rIl 'PRIVATE KEY' "$DISK/backups/backupd" || echo "clean"
+ls -la "$DISK/backups/retnd"
+ls -la "$DISK/appdata/retnd/state"
+grep -rIl 'PRIVATE KEY' "$DISK/backups/retnd" || echo "clean"
 ```
 
 Then record a baseline for the removal check at the end of this procedure. The
@@ -307,25 +305,25 @@ hash and a full file listing **outside** the backup root, where whatever might
 damage that tree cannot reach the evidence:
 
 ```bash
-mkdir -p /root/backupd-acceptance
-head -c 8M /dev/urandom > "$DISK/backups/backupd"/canary.bin
-sha256sum "$DISK/backups/backupd"/canary.bin | tee /root/backupd-acceptance/canary.sha256
-find "$DISK/backups/backupd" -type f -printf '%p %s\n' | sort > /root/backupd-acceptance/backup-root.before
+mkdir -p /root/retnd-acceptance
+head -c 8M /dev/urandom > "$DISK/backups/retnd"/canary.bin
+sha256sum "$DISK/backups/retnd"/canary.bin | tee /root/retnd-acceptance/canary.sha256
+find "$DISK/backups/retnd" -type f -printf '%p %s\n' | sort > /root/retnd-acceptance/backup-root.before
 ```
 
-Keep `/root/backupd-acceptance` off the repository: the listing names your own backup
+Keep `/root/retnd-acceptance` off the repository: the listing names your own backup
 sets. Record only that it was taken, and the canary's hash, in the evidence table.
 
-- At least one completed artifact is under `$DISK/backups/backupd`
-- `state.db` and `local-auth.json` are under appdata, **not** under the
+- [ ] At least one completed artifact is under `$DISK/backups/retnd`
+- [ ] `state.db` and `local-auth.json` are under appdata, **not** under the
       backup root
-- No private key, `known_hosts`, or auth state anywhere under
-      `$DISK/backups/backupd` (§19.2)
-- Nothing was written anywhere else under `$DISK/backups`
-- A sidecar recovery manifest sits next to the artifact and contains no
+- [ ] No private key, `known_hosts`, or auth state anywhere under
+      `$DISK/backups/retnd` (§19.2)
+- [ ] Nothing was written anywhere else under `$DISK/backups`
+- [ ] A sidecar recovery manifest sits next to the artifact and contains no
       secret material (§19.3)
-- `canary.bin` written into the backup root and its hash recorded outside it
-- A full `find` listing of the backup root recorded outside it
+- [ ] `canary.bin` written into the backup root and its hash recorded outside it
+- [ ] A full `find` listing of the backup root recorded outside it
 
 ---
 
@@ -334,26 +332,26 @@ sets. Record only that it was taken, and the canary's hash, in the evidence tabl
 1. Capture a baseline first, over SSH to the OMV box, so the checks below are a
    comparison rather than an impression:
    ```bash
-   sha256sum $DISK/appdata/backupd/state/state.db | tee /tmp/before-update.sha256
+   sha256sum $DISK/appdata/retnd/state/state.db | tee /tmp/before-update.sha256
    find $DISK/backups -type f -printf '%p %s\n' | sort > /tmp/before-update.txt
    ```
 2. Push or side-load a newer image tag and change `IMAGE` in the env file.
-3. **Services → Compose → Files → backupd → Pull**, then **Up**.
+3. **Services → Compose → Files → retnd → Pull**, then **Up**.
 4. Compare afterwards:
    ```bash
    find $DISK/backups -type f -printf '%p %s\n' | sort > /tmp/after-update.txt
    diff /tmp/before-update.txt /tmp/after-update.txt
    ```
 
-- Pull and Up both complete, and both services return to healthy
-- `diff` of the retained-artifact listing is empty: the update moved no
+- [ ] Pull and Up both complete, and both services return to healthy
+- [ ] `diff` of the retained-artifact listing is empty: the update moved no
       backup data
-- The administrator account still exists (no re-enrollment prompt), with its
+- [ ] The administrator account still exists (no re-enrollment prompt), with its
       recovery address and SMTP settings intact
-- Logging back in with the same password works
-- Every backup set is still configured
-- Every artifact is still present and still listed
-- The old image can be pruned without affecting the running deployment
+- [ ] Logging back in with the same password works
+- [ ] Every backup set is still configured
+- [ ] Every artifact is still present and still listed
+- [ ] The old image can be pruned without affecting the running deployment
 
 ---
 
@@ -363,14 +361,14 @@ Same image, destroyed and recreated containers. This is what an OMV reboot, a
 `Down` then `Up`, or a `docker system prune` does.
 
 ```bash
-docker compose -p backupd down
-docker compose -p backupd up -d
+docker compose -p retnd down
+docker compose -p retnd up -d
 ```
 
-- Both services come back healthy
-- Retained backup data survives untouched
-- The catalog survives
-- The administrator account survives, recovery address and SMTP settings included
+- [ ] Both services come back healthy
+- [ ] Retained backup data survives untouched
+- [ ] The catalog survives
+- [ ] The administrator account survives, recovery address and SMTP settings included
 
 ---
 
@@ -381,28 +379,28 @@ storage step, because after the removal there is nothing left to compare
 against, and any deletion the comparison turns up is a release blocker rather
 than a finding to triage.
 
-1. **Services → Compose → Files → backupd → Down**.
+1. **Services → Compose → Files → retnd → Down**.
 2. Then **Delete** the file entry.
 
-- Both containers are gone
+- [ ] Both containers are gone
 
 Check the backup root against the baseline recorded in the storage step, before
 looking at anything else:
 
 ```bash
-sha256sum -c /root/backupd-acceptance/canary.sha256
-find "$DISK/backups/backupd" -type f -printf '%p %s\n' | sort > /root/backupd-acceptance/backup-root.after
-diff /root/backupd-acceptance/backup-root.before /root/backupd-acceptance/backup-root.after
+sha256sum -c /root/retnd-acceptance/canary.sha256
+find "$DISK/backups/retnd" -type f -printf '%p %s\n' | sort > /root/retnd-acceptance/backup-root.after
+diff /root/retnd-acceptance/backup-root.before /root/retnd-acceptance/backup-root.after
 ```
 
-- `sha256sum -c` reports the canary `OK`
-- The `diff` against the recorded listing is empty, so the backup root is
+- [ ] `sha256sum -c` reports the canary `OK`
+- [ ] The `diff` against the recorded listing is empty, so the backup root is
       untouched, byte for byte, and every artifact is still readable
-- `$DISK/appdata/backupd` is untouched
-- Nothing elsewhere under `$DISK/backups` changed
-- Nothing outside the declared host paths was touched, and no OMV
+- [ ] `$DISK/appdata/retnd` is untouched
+- [ ] Nothing elsewhere under `$DISK/backups` changed
+- [ ] Nothing outside the declared host paths was touched, and no OMV
       configuration was modified
-- Re-adding the same compose file with the same paths adopts the existing
+- [ ] Re-adding the same compose file with the same paths adopts the existing
       catalog rather than starting empty
 
 Also run the destructive half on a scratch install: `docker compose down -v` and
@@ -410,7 +408,7 @@ confirm no named volume ever held retained backup data (every persistent path in
 this profile is a bind mount to a host path you chose, precisely so that `-v`
 cannot reach it).
 
-- `down -v` removes nothing under `$DISK/backups/backupd`
+- [ ] `down -v` removes nothing under `$DISK/backups/retnd`
 
 ---
 
@@ -419,7 +417,7 @@ cannot reach it).
 A workflow step whose target is `local` does not run in the engine container, and since
 issue #865 it does not run on a host shell either: it runs in an **ephemeral Docker
 container** launched by the **Host Workflow Runner**, a small version-pinned process
-systemd supervises as `backupd-workflow-runner.service`
+systemd supervises as `retnd-workflow-runner.service`
 (`docs/adr/0020-host-workflow-runner.md`, `docs/runtime-contract.md`).
 
 OpenMediaVault is Debian with systemd, and this deployment is an ordinary compose
@@ -452,7 +450,27 @@ runner's account cannot reach the daemon. A deployment with an empty workflows
 directory is held to none of it, and `WORKFLOW_RUNNER=off` in the `.env` says so
 explicitly.
 
-- [ ] `systemctl is-active backupd-workflow-runner.service` reports `active`, and the
+And a fourth prerequisite, on THIS side of the socket, which was missing until
+issue #921: the engine has to be able to see the runner. The compose file mounts
+three paths for it, all three under the same `$DISK` prefix as everything else,
+and an operator who installs the runner somewhere else gets a refusal at the
+first hook rather than a hook that runs:
+
+| Host path | In the container | Why |
+|---|---|---|
+| `$DISK/appdata/retnd/workflows` | `/workflows` (read-only) | the hook scripts the engine reads |
+| `$DISK/appdata/retnd/workflows/recovery-test-validators` | `/workflows/recovery-test-validators` (writable) | custom validator scripts the engine writes when one is added (#1246) |
+| `$DISK/appdata/retnd/workflows/recovery-test-validators.superseded` | `/workflows/recovery-test-validators.superseded` (writable) | where a removed validator's script is moved |
+| `$DISK/appdata/retnd/run` | `/data/run` | where the runner's socket appears |
+| `$DISK/appdata/retnd/secrets/workflow-runner.token` | `/etc/retnd/workflow-runner.token` (read-only) | the credential the engine presents |
+
+So install the runner with `--workflows-dir $DISK/appdata/retnd/workflows`,
+`--runtime-dir $DISK/appdata/retnd/run` and its token under
+`$DISK/appdata/retnd/secrets`. None of the three reaches the Docker daemon: the
+runner holds the socket's group on the host, and the engine container gains
+nothing.
+
+- [ ] `systemctl is-active retnd-workflow-runner.service` reports `active`, and the
       account it runs as is recorded in the evidence table
 - [ ] That account is in the Docker socket's group (`id <account>`), and the engine
       container is **not**: `docker inspect` shows no socket mount, no `group_add` and no
@@ -460,7 +478,7 @@ explicitly.
 - [ ] The hook image is present on the host (`docker image inspect <the reference>`), and
       the reference the unit was installed with is recorded
 - [ ] A workflow with one `local` hook runs, and its container is gone afterwards
-      (`docker ps -a --filter label=backupd.workflow-hook=1` is empty)
+      (`docker ps -a --filter label=retnd.workflow-hook=1` is empty)
 
 
 ## Evidence (§68)

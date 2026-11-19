@@ -20,7 +20,7 @@ alone.
 
 Ported from `scripts/architecture/verify-core-without-apps.sh` under
 EPIC I (I1.6 / #672 / #697). That path stays as a real, runnable `exec`
-shim: `scripts/ci-local.sh` and `.github/workflows/ci.yml` both name it,
+shim: `scripts/ci-local.sh` (and, until #1260, `.github/workflows/ci.yml`) both name it,
 and `scripts/tests/ci-local-gate.test.sh` FABRICATES a file at that
 literal path in its synthetic-tree fixture.
 
@@ -130,7 +130,7 @@ def go(args: list[str], module_dir: Path) -> None:
         ["go", *args],
         cwd=module_dir,
         capture=False,
-        env={**os.environ, "GOWORK": "off"},
+        env={**os.environ, "GOWORK": "off", "RETND_CORE_WITHOUT_APPS": "1"},
     )
 
 
@@ -147,7 +147,6 @@ def body(root: Path) -> int:
 
         print("==> go test ./... (core/, with apps/ deleted entirely)")
         go(["test", "./..."], tree / "core")
-
     print("OK: core/ builds and its full test suite passes with apps/ deleted entirely.")
     return harness.EXIT_OK
 

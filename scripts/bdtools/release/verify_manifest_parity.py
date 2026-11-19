@@ -98,16 +98,30 @@ def sha256_of(path: Path) -> str:
     return h.hexdigest()
 
 
+# The manifest records each shipped binary under its canonical name. Unknown
+# binaries retain their own key so the parity check reports them missing
+# instead of borrowing another binary's digest.
+MANIFEST_BINARY_KEYS: dict[str, tuple[str, ...]] = {
+    "retnd": ("retnd",),
+    "retnd-web": ("retnd-web",),
+}
+
+
 def recorded(manifest: Manifest, arch: str, binary: str) -> str | None:
     """The manifest's hash for `binary` under `arch`, or `None` if the
-    manifest carries no such entry. `None` rather than `""`: an empty
+    manifest carries no such entry under any accepted spelling of its key
+    (see MANIFEST_BINARY_KEYS). `None` rather than `""`: an empty
     string and a genuinely absent record must stay distinguishable, or a
     caller that treats them the same reports a hash mismatch against
     nothing instead of naming the real problem."""
     for entry in manifest.get("architectures", []):
         if entry.get("architecture") == arch:
-            value = entry.get("binary_sha256", {}).get(binary)
-            return str(value) if value is not None else None
+            hashes = entry.get("binary_sha256", {})
+            for key in MANIFEST_BINARY_KEYS.get(binary, (binary,)):
+                value = hashes.get(key)
+                if value is not None:
+                    return str(value)
+            return None
     return None
 
 
@@ -147,7 +161,7 @@ def run_guards(root: Path, manifest_path: Path) -> tuple[str, str, Manifest, lis
 
 def check_one(root: Path, arch: str, manifest: Manifest) -> list[str]:
     """Build `arch`, hash its two binaries, and return every mismatch line."""
-    tag = f"backupd:parity-{arch}"
+    tag = f"retnd:parity-{arch}"
     print(f"==> Building linux/{arch}", file=sys.stderr)
     version = manifest["version"]
     commit = manifest["commit"]
@@ -166,15 +180,15 @@ def check_one(root: Path, arch: str, manifest: Manifest) -> list[str]:
         capture=False,
     )
 
-    cid = harness.sh_out(["docker", "create", "--platform", f"linux/{arch}", tag, "/backupd", "version"])
+    cid = harness.sh_out(["docker", "create", "--platform", f"linux/{arch}", tag, "/retnd", "version"])
     tmp = Path(tempfile.mkdtemp())
     mismatches: list[str] = []
     try:
-        harness.sh(["docker", "cp", f"{cid}:/backupd", str(tmp / "backupd")])
-        harness.sh(["docker", "cp", f"{cid}:/backupd-web", str(tmp / "backupd-web")])
+        harness.sh(["docker", "cp", f"{cid}:/retnd", str(tmp / "retnd")])
+        harness.sh(["docker", "cp", f"{cid}:/retnd-web", str(tmp / "retnd-web")])
         harness.sh(["docker", "rm", cid])
 
-        for binary in ("backupd", "backupd-web"):
+        for binary in ("retnd", "retnd-web"):
             want = recorded(manifest, arch, binary)
             got = sha256_of(tmp / binary)
             if want is None:

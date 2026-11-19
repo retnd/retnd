@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/health"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/state"
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/health"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // Issue #245: a backup set the transport layer refuses to connect to backs
@@ -48,7 +48,7 @@ func keyPermissionsRefusal() error {
 
 // haltReasonOf reads one backup set's halt reason back through
 // BuildHealthReport, which is the read path GET /system/health and
-// `backupd status` both go through. Reading it through the report
+// `retnd status` both go through. Reading it through the report
 // rather than out of the journal directly is the point: a fact nothing
 // reports is the defect this issue is about.
 func haltReasonOf(t *testing.T, svc *Service, set model.BackupSetID) string {

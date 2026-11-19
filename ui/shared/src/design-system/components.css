@@ -59,6 +59,16 @@ input, select, textarea, button {
   color: var(--text); font: inherit; font-size: var(--text-base);
 }
 .input--mono { font-family: var(--font-mono); }
+/* A compact box for a row of controls beside a small button, and the edge
+   for a control on a card (--control-edge in tokens.css has the ratios). */
+.input--sm { height: 30px; padding: 0 9px; font-size: 13px; }
+.input--strong-edge { border-color: var(--control-edge); background: var(--surface); }
+.btn--strong-edge, .btn--strong-edge:disabled { border-color: var(--control-edge); }
+/* Placeholder text is text. The browser's default grey (#757575) is 4.4:1 on
+   the light --surface-2 a .input sits on and 3.7:1 on dark --surface, under
+   the 4.5:1 minimum, so every placeholder takes the secondary ink instead:
+   6.4:1 and 6.9:1 (#1189). */
+::placeholder { color: var(--text-2); opacity: 1; }
 
 /* Password reveal toggle (issue #344). The button sits inside the input's
    own box rather than beside it, so a revealable field keeps the same
@@ -97,7 +107,7 @@ input, select, textarea, button {
 .table thead tr { background: var(--surface-2); }
 .table th {
   text-align: left; padding: 9px 12px;
-  font-size: var(--text-sm); font-weight: 500; color: var(--text-3);
+  font-size: var(--text-sm); font-weight: 500; color: var(--text-2);
   border-bottom: 1px solid var(--border); white-space: nowrap;
 }
 .table td { padding: 11px 12px; border-bottom: 1px solid var(--border); }
@@ -413,4 +423,146 @@ input, select, textarea, button {
   .activity-bar__fill--busy::after,
   .activity-dot--pulse,
   .activity-spinner { animation: none; }
+}
+
+/* The dock's error and warning counts as toggles (issue #1115). The colour
+   says which level it is (--lvl); the STATE is carried by more than colour,
+   so a pressed button differs from a resting one in weight, underline and a
+   ring as well as its fill, and a disabled one by a dashed edge. Text stays
+   in --lvl at rest and goes to --text when pressed, because the danger and
+   warn inks do not clear 4.5:1 on the accent fill in dark; the ring keeps
+   the level colour. The edge is the level colour too, not the shared
+   --border-strong (1.7:1), so the control's boundary clears 3:1. */
+.activity-dock__level { font-family: inherit; color: var(--lvl); border-color: var(--lvl); }
+.activity-dock__level--error { --lvl: var(--danger); }
+.activity-dock__level--warn { --lvl: var(--warn); }
+.activity-dock__level:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
+.activity-dock__level[aria-pressed="true"] {
+  background: var(--accent-quiet); color: var(--text);
+  font-weight: 700; text-decoration: underline; text-underline-offset: 2px;
+  box-shadow: inset 0 0 0 1px var(--lvl);
+}
+.activity-dock__level:disabled {
+  color: var(--text-2); border-color: var(--text-2); border-style: dashed; cursor: default;
+}
+
+/* Anchors into the Settings page (issue #1188). The ids come from one table
+   (utilities/routes.ts). The scroll margin keeps a landed section's
+   heading clear of the top edge; smooth scrolling is only for readers who have
+   not asked for less motion; the section a link points at is outlined while
+   the URL's hash names it. The outline is --accent, 3:1 or better against the
+   page in both themes (measured in e2e/1188-settings-anchors.spec.ts), and it
+   is an outline rather than a colour change, so it does not depend on hue. */
+[data-settings-section] { scroll-margin-top: 16px; }
+[data-settings-section]:target, [data-settings-section][data-current] { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: var(--radius, 8px); }
+@media (prefers-reduced-motion: no-preference) {
+  /* Only while Settings is the page: scroll-behavior belongs to the scrolling
+     container, so it is set there, but only when it holds the Settings page.
+     Elsewhere the terminal's autoscroll and the paging buttons snap. */
+  html:has([data-settings-page]), main:has([data-settings-page]) { scroll-behavior: smooth; }
+}
+
+/* The menu button and its menu (issue #1202). The interaction lives in
+   components/ActionMenu.tsx; this is only its shape, in the anatomy the
+   field-help and tooltip pop-ups above already use (surface, rounded edge,
+   the large shadow). Two differences, both about contrast. The menu's edge
+   and the trigger's edge are a boundary somebody has to find, so they take
+   --text-2 (5.96:1 on the light page, 7.09:1 on the dark one) rather than
+   --border-strong (1.69:1) or --control-edge, which is only 3.11:1 on the
+   light page background the trigger also sits over. And a disabled item keeps
+   readable ink: it is aria-disabled, not disabled, because its reason is the
+   thing an operator came to read. */
+.amenu {
+  position: fixed; z-index: 60;
+  width: 352px; max-width: calc(100vw - 16px);
+  padding: 4px 0;
+  background: var(--surface);
+  border: 1px solid var(--text-2);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--text);
+  text-align: left;
+  cursor: default;
+}
+.amenu__group + .amenu__group { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 2px; }
+.amenu__group-label {
+  padding: 6px 12px 2px;
+  font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-2);
+}
+.amenu__item { display: flex; flex-direction: column; gap: 1px; padding: 6px 12px; cursor: pointer; outline: none; }
+.amenu__item:focus { background: var(--surface-3); }
+.amenu__item:focus-visible { box-shadow: inset 3px 0 0 var(--accent); }
+.amenu__label { font-weight: 500; color: var(--text); }
+.amenu__note { font-size: var(--text-xs); color: var(--text-2); }
+.amenu__item[aria-disabled="true"] { cursor: not-allowed; }
+.amenu__item[aria-disabled="true"] .amenu__label { color: var(--text-2); }
+.amenu__why { font-size: var(--text-xs); color: var(--text); overflow-wrap: anywhere; }
+.amenu__footer { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; padding: 8px 12px 6px; border-top: 1px solid var(--border); }
+.amenu__echo {
+  display: block; padding: 5px 8px;
+  font-size: var(--text-xs); color: var(--text-2);
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md);
+  overflow-x: auto; white-space: pre;
+}
+.amenu__trigger { gap: 6px; border-color: var(--text-2); }
+.amenu__caret { font-size: 10px; color: var(--text-2); }
+.btn--edge { border-color: var(--text-2); text-decoration: none; }
+.table tbody tr[data-menu-open="true"] { background: var(--surface-2); }
+.table .actcell { width: 1%; white-space: nowrap; text-align: right; }
+/* The set a Backups list is narrowed to (#1202), as a chip that clears it.
+   Body ink on the surface, with the same --text-2 edge as the menu. */
+.setchip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 1px 3px 1px 9px;
+  border: 1px solid var(--text-2); border-radius: var(--radius-pill);
+  background: var(--surface); color: var(--text); font-weight: 500;
+}
+.setchip__clear {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; color: var(--text-2); font-size: 14px; line-height: 1; cursor: pointer;
+}
+.setchip__clear:hover { background: var(--surface-3); color: var(--text); }
+.setchip__back { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+
+/* The app shell and the Settings grid (issue #1337). These were inline
+   styles, which cannot answer to a screen width. Wide screens keep the side
+   navigation and two Settings columns. Under 720px the navigation becomes a
+   strip of rows above the content that scrolls on its own, the content takes
+   the whole width with a 16px gutter, and Settings is one column, so a 360px
+   screen leaves 328px for the cards instead of about 150px. */
+.shell-header {
+  flex: none; min-height: 52px; display: flex; align-items: center; gap: 16px;
+  padding: 0 18px; background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.shell-header__brand { display: flex; align-items: center; gap: 10px; min-width: 206px; }
+.shell-body { flex: 1; display: flex; align-items: stretch; min-height: 0; }
+.shell-nav {
+  flex: none; width: 206px; padding: 14px 10px; background: var(--surface);
+  border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px;
+}
+.shell-nav__spacer { flex: 1; min-height: 20px; }
+.shell-nav__platform { padding: 12px 10px; border-top: 1px solid var(--border); }
+.shell-main { flex: 1; min-width: 0; overflow: auto; }
+.shell-main__inner {
+  max-width: 1240px; margin: 0 auto; padding: 24px 28px 64px;
+  display: flex; flex-direction: column; gap: 18px;
+}
+.settings-grid {
+  display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 14px; align-items: start;
+}
+@media (max-width: 720px) {
+  .shell-header { padding: 0 16px; flex-wrap: wrap; row-gap: 4px; padding-block: 6px; }
+  .shell-header__brand { min-width: 0; }
+  .shell-body { flex-direction: column; }
+  .shell-nav {
+    width: auto; flex-direction: row; overflow-x: auto; padding: 6px 16px; gap: 4px;
+    border-right: 0; border-bottom: 1px solid var(--border);
+  }
+  .shell-nav > * { flex: none; }
+  .shell-nav__spacer, .shell-nav__platform { display: none; }
+  .shell-main__inner { padding: 20px 16px 64px; }
+  .settings-grid { grid-template-columns: minmax(0, 1fr); }
 }

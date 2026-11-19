@@ -1,11 +1,15 @@
 # Release provenance, signing and the SBOM
 
- (B5.2). What a release records, how it is produced, how a signature
+Issue #88 (B5.2). What a release records, how it is produced, how a signature
 is made without this project ever holding a key, and what is deliberately left
 as an operator action.
 
 `docs/EPIC-B-multi-nas.md` §61 is the requirement list; §73 Work Package 5.2 is
 the compliance half. This document is the operator-facing side of both.
+
+The ordered maintainer procedure is
+[`docs/release-workflow.md`](../release-workflow.md); this document owns the
+design and verification details it relies on.
 
 ## The two halves of the release record, and why they are two files
 
@@ -13,7 +17,7 @@ the compliance half. This document is the operator-facing side of both.
 produced: the commit, the build version, the SHA-256 of both shipped binaries
 per architecture, the local image ID and the registry digest. Nothing goes in it
 that a build did not produce. `scripts/release/record-release-hashes.sh` writes
-it, and gave that script five refusals that between them stop a manifest
+it, and #174 gave that script five refusals that between them stop a manifest
 being recorded against a commit nobody can check out.
 
 `provenance/release-provenance.json` records everything derivable without a
@@ -26,7 +30,7 @@ along with `NOTICE`, `provenance/third-party-licenses.json`,
 The split follows one line: did a build produce this. Putting the compliance
 fields into the manifest would mean either running a two-architecture Docker
 build to change one string, or opening a no-build write path into the file that
-carries the build record. The second is a hole in exactly the guard put
+carries the build record. The second is a hole in exactly the guard #174 put
 there, so the record is two files and they are tied together by the manifest's
 own SHA-256, recorded in the bundle. Regenerate one without the other and
 `TestProvenanceBundleIsTiedToTheReleaseManifest` goes red.
@@ -52,6 +56,48 @@ build rather than an omission nobody looks for. Determinism is a prerequisite
 for that check rather than a nicety, which is why the SBOM's SPDX creation
 timestamp is read out of the release manifest instead of off the clock.
 
+### Forward only: what a regeneration may not restate
+
+`provenance/**` records artifacts that have been **pushed**, so it is
+regenerated forward and never rewritten. Most of the bundle is a derivation
+over the current tree and moves whenever a distributed artifact does — the
+digests of `NOTICE`, the licence inventory, the SBOM and the checksum manifest
+changed in most of the commits that have ever touched
+`release-provenance.json`, and they are supposed to. Four facts cannot move
+once a version's record says `published`:
+
+| Field | Why it is frozen |
+| --- | --- |
+| `releaseManifest.published` | a release that shipped did not un-ship |
+| `releaseManifest.recordedBuildVersion` | what the shipped binaries answer with |
+| `releaseManifest.architectures` | what was built |
+| `releaseManifest.registryDigests` | what was pushed, per architecture |
+
+```
+bash scripts/release/check-published-provenance.sh
+```
+
+refuses a change to any of them, naming the field, the value it was published
+as and the value the tree now claims. It runs in `scripts/ci-local.sh`, which
+the pre-commit hook runs on every commit, and
+`scripts/tests/published-provenance-guards.test.sh` is the proof it can still
+go red — four refusals and five controls, in throwaway repositories.
+
+`imageReference` and `signing.identity` are deliberately **not** frozen.
+EPIC R's FR-41 moves the registry path and re-issues the OIDC identity, and
+the documented `verify` command below presents the old identity for releases
+published before that cutover and the new one for releases after it. A guard
+that froze those two would refuse the cutover rather than protect anything;
+their correctness is held by `TestThePublishGateAgreesWithTheSigningIdentity`
+and `TestOnlyTheReleaseRefCanPublish` instead.
+
+The baseline is the merge base with `main` rather than the first record of a
+version ever written, because 0.4.0's registry digests were corrected three
+times before that release was really out (`b5825f60`, `aa752b0c`, `44d92fc7`).
+Anchoring on the first record would report those pre-release corrections as
+rewrites; anchoring on `main` enforces the claim that is actually wanted,
+which is that nothing landing from here restates a published fact.
+
 ## Signing: the key design
 
 **There is no signing key in this repository, and there should never be one.**
@@ -68,29 +114,70 @@ The identity a verifier pins is settled before the first signature rather than
 discovered after it. It is recorded in
 `provenance/release-provenance.json` under `signing.identity`, and
 `TestSigningRecordMatchesWhetherAnythingIsPublished` refuses a bundle that
-records no identity:
+records no identity.
+
+**It is two commands, and which one you want depends on the version you hold.**
+FR-41 (#895) transferred this repository from `retndproject/retnd` to
+`retnd/retnd` on 2026-09-15. GitHub builds the certificate SAN out of the
+repository the workflow run happened in, and a signature that has been issued
+cannot be reissued, so `0.3.3` and everything before it carries the old
+identity for as long as it exists, and everything published after the transfer
+carries the new one. `cosign verify` accepts exactly one identity to pin, so
+there is no single command that covers both, and pretending there is would be
+#510 again with the identity moved instead of the ref.
+
+For a release published **after** the transfer:
 
 ```
 cosign verify \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity 'https://github.com/backupdproject/backupd/.github/workflows/release.yml@refs/heads/release' \
-  ghcr.io/backupdproject/backupd:0.3.3
+  --certificate-identity 'https://github.com/retnd/retnd/.github/workflows/release.yml@refs/heads/release' \
+  ghcr.io/retnd/retnd:<version>
 ```
 
-That command passes against the published image, and it is the whole point of this
-section that it does. It is checked by running it, not by reading it.
+For `0.3.3` and every release **before** it — the last release published under
+the old coordinates:
+
+```
+cosign verify \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity 'https://github.com/retndproject/retnd/.github/workflows/release.yml@refs/heads/release' \
+  ghcr.io/retndproject/retnd:0.3.3
+```
+
+The second command is the one this project's records say passes, and it was the
+whole point of this section that it did. **Measured at the cutover, and it does
+not hold today.** On 2026-09-15, verifying the transfer,
+`gh api orgs/retndproject/packages?package_type=container` and
+`gh api orgs/retnd/packages?package_type=container` both answered an empty list,
+an anonymous `ghcr.io` pull token for either package path is refused with
+`DENIED: invalid token`, and `gh release list` names no release at all. So there
+is no image in either registry path for either command to be run against right
+now, and neither of them has been run since. That is recorded here rather than
+left as the sentence it replaced, because a compliance record claiming a command
+"is checked by running it" when the artifact is absent is the #484 failure —
+a stale reading under a note asserting its freshness — and it is the reason the
+first release published after the cutover is this epic's checkpoint rather than
+the transfer (ADR 0023, Decision 7). It is not FR-41's doing: the transfer moved
+coordinates, and what is missing was missing before it.
+
+Both identities are constants in `distribution/packaging/signing.go`
+(`SigningIdentity` and `PreCutoverSigningIdentity`) with the boundary release
+beside them, and `TestComplianceDocsPrintTheCommandThatPasses` refuses this file
+if it prints a pin that is neither of them, drops either one, or stops naming the
+release that divides them.
 
 The ref half of that identity is `refs/heads/release` because a push to `release` is
 what publishes (see the header of `.github/workflows/release.yml`). GitHub builds the
 certificate SAN out of the ref the run was triggered on, so the trigger decides the
-identity, and the two have to move together. is what happens when they do
+identity, and the two have to move together. Issue #510 is what happens when they do
 not: this printed a regexp anchored on `@refs/tags/` for long enough that the command
 above would answer
 
 ```
 Error: no matching signatures: none of the expected identities matched what was in
 the certificate, got subjects
-[https://github.com/backupdproject/backupd/.github/workflows/release.yml@refs/heads/release]
+[https://github.com/retndproject/retnd/.github/workflows/release.yml@refs/heads/release]
 with issuer https://token.actions.githubusercontent.com
 ```
 
@@ -115,13 +202,9 @@ asking about, out of the workflow file itself.
 
 Without it, one dispatch from a feature branch would put an image in a public registry
 signed under that branch's ref: an artifact this record does not describe and this
-command rejects, which is 's failure mode again except that a pushed image cannot
+command rejects, which is #510's failure mode again except that a pushed image cannot
 be taken back the way a wrong sentence can.
 
-The tag in that example is `0.3.3` rather than the `0.4.0` this tree declares, because
-`0.4.0` is not pushed yet and there is nothing at that tag to verify. `0.3.3` is the
-newest tag there is something to verify at. Move it once the release workflow has
-published, at the same time the digests are recorded back.
 
 The SBOM is attached as an attestation over the same digest
 (`cosign attest --type spdxjson`), not baked into the image. That keeps the
@@ -133,8 +216,8 @@ already hold rather than pulling an image to read it.
 release time through the environment and never written down:
 
 ```
-COSIGN_PRIVATE_KEY="$(pass show backupd/cosign)" \
-  cosign sign --key env://COSIGN_PRIVATE_KEY ghcr.io/backupdproject/backupd@<digest>
+COSIGN_PRIVATE_KEY="$(pass show retnd/cosign)" \
+  cosign sign --key env://COSIGN_PRIVATE_KEY ghcr.io/retnd/retnd@<digest>
 ```
 
 `scripts/release/publish-image.sh` enforces that. Guard 5 asks git for every path
@@ -159,7 +242,7 @@ guard was first written:
 * `id_rsa` and `id_ed25519` are matched as `*/id_rsa` and `*/id_ed25519` too. A
   git pathspec with no wildcard anchors at the repository root, so the bare forms
   only ever saw a key in the top directory, and this product mounts its SSH key
-  at `/etc/backupd/id_ed25519`.
+  at `/etc/retnd/id_ed25519`.
 
 `scripts/tests/publish-image-guards.test.sh` builds every fixture with this
 repository's real `.gitignore` in it, because the guard's answer depends on the
@@ -168,36 +251,33 @@ not hold where the script runs.
 
 ## Publishing
 
-`ghcr.io/backupdproject/backupd:0.4.0` is cut and not pushed.
-`distribution/packaging/canonical.json` records `image.published: false`, and the release
-manifest records the same fact from the other side as a `registry_digest` of `null` per
-architecture and a null `index_digest`. The two are held together by
-`TestReleaseManifestRegistryDigestTracksTheCanonicalPublishFlag`, so neither can move
-alone, and the push below is what fills both in.
+Before a push, `distribution/packaging/canonical.json` records
+`image.published: false`, and the release manifest records the same fact as a
+`registry_digest` of `null` per architecture and a null `index_digest`. After a
+push, all of those values move together. The packaging suite refuses either
+half-recorded state.
 
-`0.3.3` was pushed this way and remains the newest published release: its image index is
-`sha256:bc3cbcd4`, signed keylessly through the release workflow's own OIDC identity with
-the SBOM attested beside it, and each architecture's digest was read back with
-`docker buildx imagetools inspect` rather than taken from the push's own output. `0.3.2`,
-`0.3.1`, `0.3.0`, `0.2.0` and `0.1.0` before it were published the same way and stay
-where they are.
+This document deliberately does not name the “latest” version. The durable
+answers are `canonical.json`, the history of the manifest, and
+`docker buildx imagetools inspect ghcr.io/retnd/retnd:<version>`.
 
-The mechanism that did the push is not automatic, and a later release repeats it by
-hand:
+Publishing is performed by `.github/workflows/release.yml` after a merge commit
+reaches the append-only `release` branch. The maintainer first dispatches that
+workflow with `publish: false`; the dry run executes the parity build and every
+publish guard without logging in, pushing or signing. Merging the release pull
+request is the normal publish action.
+
+The workflow invokes:
 
 ```
-scripts/release/publish-image.sh
+bash scripts/release/publish-image.sh
 ```
 
-It is an operator action on purpose. It publishes a semantic version to a public
-registry, which is not a thing that is taken back cleanly; it needs a registry
-credential this repository does not and must not hold; and pushing from a branch
-would put an image in the registry built from a commit that is not on `main`,
-which is 's failure moved somewhere no ancestry check can reach. Guard 2
-refuses that last one by requiring `HEAD` to be the commit the release manifest
-records.
+with `DRY_RUN=0` only on the publishing path. The script still owns the
+publish-time refusals and requires the manifest commit to be reachable from
+rewrite-free history.
 
-Its six refusals have a control that runs on every full local gate:
+Its publish-time refusals have controls that run on every full local gate:
 `scripts/tests/publish-image-guards.test.sh` drives the real script in a
 throwaway repository per refusal, through the `GUARDS_ONLY=1` seam that stops
 after the guard block and before the first Docker command, and asserts the
@@ -214,28 +294,30 @@ correction is worse than no attestation at all.
 
 ### After a successful push
 
-Two edits, in this order:
+Read the registry state back with `docker buildx imagetools inspect`; never
+scrape the push's own output. Then update these facts together:
 
 1. `distribution/packaging/canonical.json`: `image.published` false to true.
 2. `container/release-manifest.json`: each architecture's `registry_digest`
-   null to the digest read back out of the registry.
+   and the multi-architecture `index_digest`.
+3. `scripts/install/install_docker_host.py`: `CARRIED_RELEASE` and
+   `CARRIED_RELEASE_DIGEST`, with the digest equal to the manifest's
+   `index_digest`.
 
-Then regenerate the bundle (`(cd distribution && go run./cmd/provenance -write)`)
-and run the gate. Doing one edit and not the other fails, which is the point:
-a published flag with no digest and a digest with no published flag are both
-half-truths.
-
-The digest is read back with `docker buildx imagetools inspect` rather than
-scraped out of the push's own output. The push reports what it believes it sent;
-the manifest is a claim about what the registry holds.
+Regenerate the bundle (`(cd distribution && go run ./cmd/provenance -write)`)
+and run the gate. Doing one edit and not the others fails, which is the point:
+a published flag with no digest, a digest with no published flag, or an
+installer pin naming a different image are all half-truths. The complete
+ordered procedure is in
+[`docs/release-workflow.md`](../release-workflow.md#5-record-what-the-registry-holds).
 
 ## Version parity
 
 `container/release-manifest.json`'s `version` is the `VERSION` build argument the
-binaries were stamped with, which is what `/backupd version` answers.
+binaries were stamped with, which is what `/retnd version` answers.
 `canonical.json`'s `image.tag` is the semantic version every provider package
 advertises. Those have to be the same string in a real release, and now they are:
-both record `0.4.0`, the tag cut for this release rather than the generator's
+both record `0.8.0`, the tag cut for this release rather than the generator's
 `git describe --tags --always` fallback that produced an abbreviated commit before
 this repository had any tags.
 
@@ -254,15 +336,25 @@ from that one field rather than asserted per link. §73 WP5.2's link criterion i
 met.
 
 That value went stale once and the note above it claimed it had been measured,
-which is how found it: the repository was made public and nothing came
+which is how issue #484 found it: the repository was made public and nothing came
 back to re-read the field, so the record said private for a repository anyone
-could open. Re-run `gh repo view backupdproject/backupd --json visibility` rather
+could open. Re-run `gh repo view retnd/retnd --json visibility` rather
 than trusting the note, and regenerate the bundle with
-`go run./cmd/provenance -write` from `distribution/`.
+`go run ./cmd/provenance -write` from `distribution/`.
 
 `docs/compliance/source-offer.md` stays either way. A link resolving is not the
-same as an offer having been made, and Apache-2.0 §4a is an obligation to whoever
+same as an offer having been made, and the MPL-2.0 source offer is an obligation to whoever
 received a package, not to whoever visits the repository.
+
+## The CLI tarballs
+
+Each GitHub Release carries two `retnd` tarballs (linux/amd64 and
+darwin/arm64) and a `SHA256SUMS` file covering them. They are **not signed**. The cosign
+signature and SBOM attestation above belong to the container image only, and the
+workflow jobs that build the tarballs hold no `id-token`, so they cannot mint a
+signing identity. `SHA256SUMS` lets you check that a download is intact and matches
+what the release job produced; it does not prove who produced it. If you need that
+proof, verify the image and take the binary from it.
 
 ## Verifying a release by hand
 
@@ -279,10 +371,10 @@ digests, and the image additionally by its signature.
 
 Stated here rather than left to be discovered:
 
-- **The performance evidence is pending.** The seven metric names lists are
+- **The performance evidence is pending.** The seven metric names #81 lists are
   pinned as a set so one cannot be dropped quietly, and every value is null,
-  naming the issue that will produce it., and have not merged.
-- **Reproducibility is proven for the binaries, not yet for the image.**
+  naming the issue that will produce it. #165, #167 and #170 have not merged.
+- **Reproducibility is proven for the binaries, not yet for the image.** #174
   showed that two runs of the hash recorder from the same clean checkout produce
   byte-identical `binary_sha256` values on both architectures. A digest-identical
   OCI image additionally needs the image's own layer metadata to be

@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/lifecycle"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // FR-14 against a local copy: what passes, what quarantines, and what is
@@ -117,7 +117,7 @@ func newRetainedFixture(t *testing.T) committedFixture {
 // TestValidateArtifact_RemoteRetained_QuarantinesOnCorruption is issue
 // #315's core proof for the operator-triggered path: before this fix,
 // ValidateArtifact refused every REMOTE_RETAINED artifact outright ("not a
-// durable restore point"), so `backupd validate <id>` gave an
+// durable restore point"), so `retnd validate <id>` gave an
 // operator no on-demand way to check a retained artifact's local copy
 // either, on top of reconcile.go's and internal/revalidate's own gaps.
 // This proves the refusal is gone and a corrupted local copy is actually

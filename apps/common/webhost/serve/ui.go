@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/backupdproject/backupd/apps/common/auth/local"
-	"github.com/backupdproject/backupd/apps/common/platform/profile"
-	"github.com/backupdproject/backupd/apps/common/webhost"
+	"github.com/retnd/retnd/apps/common/auth/local"
+	"github.com/retnd/retnd/apps/common/platform/profile"
+	"github.com/retnd/retnd/apps/common/webhost"
 )
 
 // The UI half of the two-container split: the only process with a
@@ -48,7 +48,7 @@ import (
 type UIConfig struct {
 	// Upstream is the engine's own base URL as reachable from the UI
 	// host - e.g. over an internal Docker network
-	// (http://backupd:8080, the compose service name resolved
+	// (http://retnd:8080, the compose service name resolved
 	// through Docker's embedded DNS), never a published host port.
 	Upstream *url.URL
 
@@ -96,7 +96,7 @@ type UIConfig struct {
 	// Debug turns on the per-request upstream trace below regardless of
 	// the environment. It only exists so a test can assert the trace
 	// without setting process-wide environment; a deployment turns it on
-	// with BACKUPD_DEBUG=1 (or the deprecated RM_DEBUG=1) or
+	// with RETND_DEBUG=1 (or the deprecated RM_DEBUG=1) or
 	// LOG_LEVEL=debug, which webhost.DebugEnabled reads.
 	Debug bool
 }
@@ -160,8 +160,15 @@ const defaultProxyResponseHeaderTimeout = 5 * time.Second
 // Response-only, and deleted from any upstream response by ModifyResponse
 // below: a marker that an upstream could set would be a marker that says
 // nothing.
+//
+// The rename to retnd (EPIC R, #885) is a HARD CUT here, with no alias
+// under the old name (FR-37). The producer is this file and the only
+// consumer is the bundle this same container serves
+// (ui/shared/src/api/transport.ts's PROXY_ERROR_HEADER): they ship in one
+// image and cannot be at different versions, so there is no deployment
+// in which one half reads a name the other half stopped writing.
 const (
-	ProxyErrorHeader = "X-Backupd-Proxy-Error"
+	ProxyErrorHeader = "X-Retnd-Proxy-Error"
 
 	// The one value, and the only one this proxy can honestly report:
 	// ErrorHandler fires when no response was produced at all, which for
@@ -231,6 +238,15 @@ func NewUI(cfg UIConfig) http.Handler {
 			// second place for the two to disagree about which peers
 			// are trusted.
 			pr.SetXForwarded()
+			// Issue #1163: this hop's own verdict about the browser's
+			// connection (TLS, on this machine, or neither), which the
+			// engine's insecure-transport prompt reads. The engine cannot
+			// work it out itself: its peer is this process, over loopback
+			// in the Synology package and over a container network
+			// everywhere else. Whatever the browser sent under this name is
+			// deleted first, for the reason X-Forwarded-For is above.
+			pr.Out.Header.Del(webhost.BrowserTransportHeader)
+			pr.Out.Header.Set(webhost.BrowserTransportHeader, webhost.BrowserTransportOf(pr.In))
 			// Issue #730. The engine logs every request under the id the
 			// edge minted (webhost.RequestScope), so forwarding it here
 			// is what makes the two containers of one deployment produce
@@ -267,7 +283,7 @@ func NewUI(cfg UIConfig) http.Handler {
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			attrs := []slog.Attr{
 				slog.String("method", r.Method),
-				slog.String("path", r.URL.Path),
+				slog.String("path", loggablePath(r.URL.Path)),
 				slog.String("correlation_id", webhost.CorrelationIDFrom(r.Context())),
 				slog.String("client_attempt_id", webhost.ClientAttemptIDOf(r)),
 				slog.String("error", err.Error()),
@@ -326,10 +342,25 @@ func NewUI(cfg UIConfig) http.Handler {
 		},
 	}
 
-	mux := http.NewServeMux()
-	mux.Handle("/health/", proxy)
-	mux.Handle("/api/v1/", proxy)
-	mux.Handle("/", staticHandler(cfg.StaticFS))
+	// EPIC Q (#976): a recovery download is the one /api/v1 response that is
+	// legitimately slow to START and long to FINISH. The engine reads and
+	// verifies the whole copy before it sends the first byte, which takes as
+	// long as the copy takes to read, and then streams it. The five second
+	// header bound above and the host's whole-response write timeout are
+	// right for every JSON route and would cut every download of any size,
+	// so this one path gets its own proxy with no header bound and a write
+	// deadline that rolls with the client accepting bytes instead.
+	//
+	// Nothing else is loosened: it is one path prefix, the engine's own
+	// session check and grant binding still stand in front of it, and the
+	// engine applies the same rolling bound to its own side of the hop.
+	downloadTransport := http.DefaultTransport.(*http.Transport).Clone()
+	downloads := *proxy
+	downloads.Transport = &debugTransport{base: downloadTransport, logger: logger, debug: debug}
+
+	// The mounts are a list (mounts.go) so the route-to-verb guard's rule
+	// can be held against this exact composition (#1253).
+	mux := newMux(uiMounts(proxy, rollingWriteDeadline(&downloads), staticHandler(cfg.StaticFS)))
 
 	// false: this container is the actual internet-facing edge (the only
 	// one with a published port) and already observes its own real TLS
@@ -410,7 +441,7 @@ func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		d.logger.Event(req.Context(), slog.LevelWarn, "proxy_error", "upstream round trip failed",
 			append(ids,
 				slog.String("method", req.Method),
-				slog.String("path", req.URL.Path),
+				slog.String("path", loggablePath(req.URL.Path)),
 				slog.Int64("elapsed_ms", elapsed),
 				slog.String("error", err.Error()))...)
 		return res, err
@@ -419,7 +450,7 @@ func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	d.logger.Event(req.Context(), slog.LevelDebug, "proxy_upstream_headers", "upstream response headers received",
 		append(ids,
 			slog.String("method", req.Method),
-			slog.String("path", req.URL.Path),
+			slog.String("path", loggablePath(req.URL.Path)),
 			slog.Int("status", res.StatusCode),
 			slog.Int64("content_length", res.ContentLength),
 			slog.String("content_encoding", res.Header.Get("Content-Encoding")),
@@ -427,7 +458,7 @@ func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			slog.Int64("elapsed_ms", elapsed))...)
 
 	if res.Body != nil {
-		ctx, method, path := req.Context(), req.Method, req.URL.Path
+		ctx, method, path := req.Context(), req.Method, loggablePath(req.URL.Path)
 		declared := res.ContentLength
 		res.Body = &observedBody{ReadCloser: res.Body, report: func(o *observedBody) {
 			level := slog.LevelDebug
@@ -534,4 +565,65 @@ func staticHandler(fsys fs.FS) http.Handler {
 		}
 		fileServer.ServeHTTP(w, r)
 	})
+}
+
+// downloadWriteIdle is how long a download may go without the browser
+// accepting a write before the connection is cut. It replaces the host's
+// whole-response write timeout on the recovery path, so a slow link
+// finishes and a stalled one is still released.
+const downloadWriteIdle = 60 * time.Second
+
+// rollingWriteDeadline pushes the connection's write deadline out by
+// downloadWriteIdle each time a header or a body chunk is written, at most
+// about once a second. Nothing is written while the engine is still
+// verifying the copy, so the first extension is when its headers arrive,
+// which is also when the first write needs one.
+func rollingWriteDeadline(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rw := &rollingWriter{ResponseWriter: w, rc: http.NewResponseController(w)}
+		next.ServeHTTP(rw, r)
+		_ = rw.rc.SetWriteDeadline(time.Time{})
+	})
+}
+
+type rollingWriter struct {
+	http.ResponseWriter
+	rc       *http.ResponseController
+	extended time.Time
+}
+
+func (w *rollingWriter) extend() {
+	now := time.Now()
+	if !w.extended.IsZero() && now.Sub(w.extended) < time.Second {
+		return
+	}
+	w.extended = now
+	_ = w.rc.SetWriteDeadline(now.Add(downloadWriteIdle))
+}
+
+func (w *rollingWriter) WriteHeader(status int) {
+	w.extend()
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *rollingWriter) Write(p []byte) (int, error) {
+	w.extend()
+	return w.ResponseWriter.Write(p)
+}
+
+// Flush keeps a streaming response streaming; ReverseProxy checks for it.
+func (w *rollingWriter) Flush() { _ = w.rc.Flush() }
+
+// Unwrap lets http.ResponseController reach the real writer.
+func (w *rollingWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// loggablePath is a request path fit for a log line. A recovery grant is a
+// bearer credential and it sits in the path of its redeem route, so what
+// follows that prefix is never logged.
+func loggablePath(p string) string {
+	const prefix = "/api/v1/recoveries/"
+	if strings.HasPrefix(p, prefix) {
+		return prefix + "{grant}"
+	}
+	return p
 }

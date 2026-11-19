@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/backupdproject/backupd/core/internal/artifactstore"
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/placement"
-	"github.com/backupdproject/backupd/core/internal/retention"
+	"github.com/retnd/retnd/core/internal/artifactstore"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/placement"
+	"github.com/retnd/retnd/core/internal/retention"
 )
 
 // This file is where FR-30's move engine is finally driven by something
@@ -63,7 +63,48 @@ func (s *Service) RunHomeMoves(ctx context.Context, plans []placement.Plan) (pla
 	if engine == nil {
 		return placement.CycleReport{}, nil
 	}
+	// The encrypted copy's two stages ride the same observer the cycle's own
+	// stages do (#1290). A caller with no observer has a nil tracker and the
+	// engine's callback stays nil, which is silent.
+	if prog := progressFrom(ctx); prog != nil {
+		engine.Progress = prog.observeCopy
+	}
 	return engine.RunCycle(ctx, plans)
+}
+
+// EncryptExisting is the operator's opt-in to encrypt retained copies that
+// already sit on a medium in the clear (#1291): it runs the move engine's
+// EncryptExisting over plans, from the medium each plaintext copy is on to the
+// destination each plan names. It is not part of RunCycle, nothing schedules
+// it, and a policy change never calls it. ctx is the only way to stop it, and
+// a cancelled ctx leaves the state placement.Engine.EncryptExisting documents.
+func (s *Service) EncryptExisting(ctx context.Context, plans []placement.Plan) (placement.CycleReport, error) {
+	engine, err := s.moveEngine()
+	if err != nil {
+		return placement.CycleReport{}, err
+	}
+	if engine == nil {
+		return placement.CycleReport{}, fmt.Errorf("app: this deployment declares no storage medium, so there is nowhere to encrypt a copy onto")
+	}
+	return engine.EncryptExisting(ctx, plans)
+}
+
+// CheckEncryptExisting is the dry run of EncryptExisting: one answer per plan,
+// in order, nil where a run would encrypt that copy and the engine's named
+// refusal where it would not. It writes nothing and reads no object.
+func (s *Service) CheckEncryptExisting(ctx context.Context, plans []placement.Plan) ([]error, error) {
+	engine, err := s.moveEngine()
+	if err != nil {
+		return nil, err
+	}
+	if engine == nil {
+		return nil, fmt.Errorf("app: this deployment declares no storage medium, so there is nowhere to encrypt a copy onto")
+	}
+	out := make([]error, len(plans))
+	for i, p := range plans {
+		out[i] = engine.CheckEncryptExisting(ctx, p)
+	}
+	return out, nil
 }
 
 // HomeMovePlans turns one backup set's retention report into the plans the
@@ -124,9 +165,10 @@ func (s *Service) moveEngine() (*placement.Engine, error) {
 			"app: this deployment's journal (%T) cannot record a move, so FR-30's durable-intent-before-every-side-effect ordering has nowhere to live", s.Journal)
 	}
 
-	return &placement.Engine{
+	engine := &placement.Engine{
 		Journal: journal,
 		Store:   s.MediumStore,
+		Logger:  s.Logger,
 		// The local end of a move addresses full paths that came from the
 		// journal or from the destination backup set's OWN store
 		// (placement.localArtifactPath, and placement.stagingPath for the
@@ -143,7 +185,11 @@ func (s *Service) moveEngine() (*placement.Engine, error) {
 		Tiers:            TierGuard{Service: s},
 		Now:              s.now,
 		MaxMovesPerCycle: s.Config.EffectiveMaxMovesPerCycle(),
-	}, nil
+	}
+	if keys, ok := s.Keys.(placement.Keys); ok {
+		engine.Keys = keys
+	}
+	return engine, nil
 }
 
 // backupSetsOf implements placement.BackupSets over a Service's own loaded

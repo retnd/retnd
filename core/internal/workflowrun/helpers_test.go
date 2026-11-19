@@ -6,14 +6,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/state"
-	"github.com/backupdproject/backupd/core/internal/workflow"
-	"github.com/backupdproject/backupd/core/internal/workflowexec"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/workflow"
+	"github.com/retnd/retnd/core/internal/workflowexec"
 )
 
 // The fixtures every suite in this package shares: a real journal, a real
@@ -33,10 +34,20 @@ import (
 // refuses any ancestor another account can write, and t.TempDir lands
 // under a mode-1777 /tmp on Linux. A fixture built there would be refused
 // for a reason about the harness rather than about the fixture.
+//
+// It is made under the repository's ignored .testtmp/ rather than beside
+// this package's sources, which is where it used to go: every test that
+// walks the source tree could then meet one mid-removal, and
+// core/tests/brandguard did (#1247).
 func custodyTempDir(t *testing.T) string {
 	t.Helper()
 
-	dir, err := os.MkdirTemp(".", ".wfrun-")
+	_, here, _, _ := runtime.Caller(0)
+	root := filepath.Join(filepath.Dir(here), "..", "..", "..", ".testtmp")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("creating %s: %v", root, err)
+	}
+	dir, err := os.MkdirTemp(root, ".wfrun-")
 	if err != nil {
 		t.Fatalf("creating a fixture directory: %v", err)
 	}
@@ -97,6 +108,10 @@ type tree struct {
 	spoolRoot string
 	dirs      map[stage]string
 	setID     model.BackupSetID
+
+	// timeout is the per-step bound the plan is snapshotted with. Zero
+	// takes 5s.
+	timeout time.Duration
 }
 
 // newTree lays out the four hook directories and the scripts in them.
@@ -179,7 +194,7 @@ func (tr *tree) snapshotWithEnv(t *testing.T, runID string, vars []workflow.EnvV
 			workflow.StageDirs{Before: tr.dirs[setBefore], After: tr.dirs[setAfter]},
 		),
 		Env:                     env,
-		Timeout:                 5 * time.Second,
+		Timeout:                 tr.stepTimeout(),
 		RemoteExecConnectionRef: "nas",
 		SpoolRoot:               tr.spoolRoot,
 	})
@@ -188,6 +203,14 @@ func (tr *tree) snapshotWithEnv(t *testing.T, runID string, vars []workflow.EnvV
 	}
 
 	return plan
+}
+
+func (tr *tree) stepTimeout() time.Duration {
+	if tr.timeout > 0 {
+		return tr.timeout
+	}
+
+	return 5 * time.Second
 }
 
 // recorder is the shared dispatch log both fake executors append to, so a

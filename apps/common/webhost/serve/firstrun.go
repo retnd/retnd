@@ -17,8 +17,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/backupdproject/backupd/apps/common/auth/local"
-	"github.com/backupdproject/backupd/apps/common/webhost"
+	"github.com/retnd/retnd/apps/common/auth/local"
+	"github.com/retnd/retnd/apps/common/webhost"
 )
 
 // ErrNoActivator is returned by NewFirstRunEngine when cfg carries a
@@ -195,23 +195,32 @@ func (e *FirstRunEngine) RunOnSchedule(ctx context.Context) error {
 // activate).
 func newEngineHandler(cfg EngineConfig, backend webhost.BackupServiceClient, onConfigured func(context.Context) error) http.Handler {
 	apiRouter := webhost.NewRouter(webhost.RouterConfig{
-		Platform:      cfg.Platform,
-		Backend:       backend,
-		Gate:          cfg.Gate,
-		FirstRun:      cfg.FirstRun,
-		OnConfigured:  onConfigured,
-		Recorder:      recorderFor(cfg, backend),
-		Logger:        cfg.Logger,
-		BinaryVersion: cfg.BinaryVersion,
-		Commit:        cfg.Commit,
+		Platform:              cfg.Platform,
+		Backend:               backend,
+		Gate:                  cfg.Gate,
+		StepUp:                cfg.StepUp,
+		TrustForwardedHeaders: cfg.TrustForwardedHeaders,
+		FirstRun:              cfg.FirstRun,
+		Setup:                 cfg.Setup,
+		OnConfigured:          onConfigured,
+		Recorder:              recorderFor(cfg, backend),
+		Logger:                cfg.Logger,
+		BinaryVersion:         cfg.BinaryVersion,
+		Commit:                cfg.Commit,
+		AdoptedPaths:          cfg.AdoptedPaths,
 	})
 
-	mux := http.NewServeMux()
-	if cfg.AuthRoutes != nil {
-		mux.Handle("/api/v1/auth/", http.StripPrefix("/api/v1/auth", cfg.AuthRoutes))
+	// The mounts are a list (mounts.go) so the route-to-verb guard's rule
+	// can be held against this exact composition (#1253).
+	// /api/v1/auth is mounted beside the API router, not inside it, so the
+	// router's own refusal of an agent token (AGENT_ROUTE_DENIED) never sees
+	// it. The wrap is here, on the config's handler, because the route-to-verb
+	// guard walks the auth router itself and not a decorated copy.
+	authRoutes := cfg.AuthRoutes
+	if authRoutes != nil {
+		authRoutes = webhost.AgentDeniedByMount(authRoutes)
 	}
-	mux.Handle("/health/", apiRouter)
-	mux.Handle("/api/v1/", apiRouter)
+	mux := newMux(engineMounts(apiRouter, authRoutes))
 
 	// Order matters and is the whole point of doing this here rather than
 	// inside the router. StripUntrustedIdentity is outermost, so a forged

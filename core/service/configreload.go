@@ -1,8 +1,8 @@
 package service
 
 import (
-	"github.com/backupdproject/backupd/core/internal/app"
-	"github.com/backupdproject/backupd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/config"
 )
 
 // This file is the shared tail of every configuration write: once the new
@@ -112,10 +112,25 @@ func (b *BackupService) adoptConfig(cfg *config.Config) string {
 	// configuration reload must not be the thing that quietly switches
 	// one on.
 	newInner.Workflow = prevInner.Workflow
+	// And the stage runner, which is this service and so never changes, but
+	// a reload that forgot it would silence every assurance notification
+	// and turn every recovery test validator into "not configured".
+	newInner.Stages = prevInner.Stages
+	newInner.Recoverer = prevInner.Recoverer
+	// Key custody belongs to the process for the same reason: a reload that
+	// forgot it would refuse every encrypted copy until a restart (#993).
+	newInner.Keys = prevInner.Keys
+	// What has been announced is a property of the process, not of one
+	// configuration: a reload that dropped it would announce every standing
+	// failure again.
+	newInner.AdoptAssuranceEpisodes(prevInner)
 	// Before the store, deliberately: see this function's doc.
 	newInner.AdoptPollSchedule(prevInner)
 	revision := computeConfigRevision(cfg)
-	b.state.Store(&configState{inner: newInner, revision: revision})
+	// Every reload re-reads the file, so the default workflow root is
+	// resolved again here (#1246): a mount that has appeared since the last
+	// one is picked up, and a root the write just named replaces it.
+	b.state.Store(&configState{inner: newInner, revision: revision, workflowRoot: ResolveWorkflowRoot(cfg, b.rootDefault)})
 	b.holds.forgetRemovedNamedIn(cfg)
 	// Last, once everything a woken loop would read is in place: the
 	// scheduler is asleep on a timer computed from the configuration this

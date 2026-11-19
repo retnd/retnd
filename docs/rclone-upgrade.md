@@ -18,7 +18,7 @@ removes exactly that human.
 
 ## Why this needs its own gate instead of just "green CI"
 
-Ordinary CI (`.github/workflows/ci.yml`) tells you the module still builds,
+The ordinary gate (`scripts/ci-local.sh`, run by the pre-commit hook) tells you the module still builds,
 vets clean, and passes whatever unit tests exist. That is necessary for an
 rclone upgrade but nowhere near sufficient. FR-2 lists eight requirements, and
 a dependency bump PR that only proves compilation is not a reviewed upgrade,
@@ -29,12 +29,12 @@ it's a `go build` with commentary.
 | # | Requirement | Status | Where |
 |---|---|---|---|
 | 1 | Dependency update | **Enforced** | The Dependabot/manual PR itself is the update. The gate workflow records the old and new pinned version. |
-| 2 | Compilation | **Enforced** | `go build./...` runs in both `ci.yml` and the dedicated gate workflow. |
-| 3 | Unit tests | **Partially enforced** | `go test./...` runs on every PR. Today the module has no `*_test.go` files, so this currently runs clean but exercises nothing. Once the suite lands (``), this line becomes real enforcement with no workflow changes needed, `go test./...` picks up whatever exists. |
-| 4 | Transport contract tests | **Pending** | Tracked in `` (A1.6). Will live under `core/internal/transport` as ordinary `_test.go` files, so it also rides on `go test./...` once written. |
-| 5 | SFTP integration tests | **Pending** | Tracked in `` (A2.13). Needs a disposable SFTP server (Docker is already available in this environment for exactly that). Not wired into any workflow yet because the suite doesn't exist to wire in. |
-| 6 | Crash / reconciliation tests | **Pending** | Tracked in ``. The crash matrix in `docs/EPIC.md` under Testing Requirements. |
-| 7 | Destructive-safety tests | **Pending** | Tracked in ``. Malicious paths, symlinks, replaced remote objects, malformed config, stale journal state. |
+| 2 | Compilation | **Enforced** | `go build ./...` runs in both `scripts/ci-local.sh` and the dedicated gate workflow. |
+| 3 | Unit tests | **Partially enforced** | `go test ./...` runs on every PR. Today the module has no `*_test.go` files, so this currently runs clean but exercises nothing. Once the suite lands (`#30`), this line becomes real enforcement with no workflow changes needed, `go test ./...` picks up whatever exists. |
+| 4 | Transport contract tests | **Pending** | Tracked in `#30` (A1.6). Will live under `core/internal/transport` as ordinary `_test.go` files, so it also rides on `go test ./...` once written. |
+| 5 | SFTP integration tests | **Pending** | Tracked in `#31` (A2.13). Needs a disposable SFTP server (Docker is already available in this environment for exactly that). Not wired into any workflow yet because the suite doesn't exist to wire in. |
+| 6 | Crash / reconciliation tests | **Pending** | Tracked in `#31`. The crash matrix in `docs/EPIC.md` under Testing Requirements. |
+| 7 | Destructive-safety tests | **Pending** | Tracked in `#31`. Malicious paths, symlinks, replaced remote objects, malformed config, stale journal state. |
 | 8 | Upstream release notes / changelog review | **Manual, permanently** | This is a human reading prose and judging risk. It cannot be automated away, and pretending otherwise would defeat the point. The gate workflow surfaces the changelog and release URLs for the exact version range so there's no excuse to skip it, but it does not and cannot verify that anyone read them. |
 
 "Pending" here means the suite does not exist in this repository yet, not
@@ -71,8 +71,8 @@ that workflow to actually invoke it, and flip this table's row to Enforced.
    go build ./...
    go vet ./...
    go test ./...
-   GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o /dev/null ./cmd/backupd
-   GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /dev/null ./cmd/backupd
+   GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o /dev/null ./cmd/retnd
+   GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /dev/null ./cmd/retnd
    ```
 5. **Check what got registered, not just what got imported.** See the next
    section, this has bitten people before.
@@ -83,7 +83,7 @@ that workflow to actually invoke it, and flip this table's row to Enforced.
 7. **Merge by hand.** Never squash-and-auto-merge a dependency PR for this
    ecosystem, see the rule at the top of this file.
 8. **Update the certified version** wherever it's recorded (`README.md`,
-   `backupd version` output) if that hasn't already been done as part
+   `retnd version` output) if that hasn't already been done as part
    of the PR.
 
 ## What actually gets pulled in: three different questions
@@ -105,7 +105,7 @@ is large.
 
 **What gets linked into the binary** is a much smaller set: the Go linker
 only includes code reachable from `main`. Building
-`./cmd/backupd` for `linux/arm64` with `CGO_ENABLED=0` produces a
+`./cmd/retnd` for `linux/arm64` with `CGO_ENABLED=0` produces a
 21MB binary, nowhere near what you'd get if every cloud SDK in the module
 graph were actually linked in. Unused packages in the module graph cost
 resolve time and disk in the module cache; they do not cost binary size,
@@ -125,7 +125,7 @@ _ "github.com/rclone/rclone/backend/sftp"
 But the adapter also imports `github.com/rclone/rclone/fs/operations` for
 `operations.Copy`, and `fs/operations` itself imports
 `github.com/rclone/rclone/backend/crypt`. Backend packages register
-themselves via `init`, so importing `fs/operations` silently registers a
+themselves via `init()`, so importing `fs/operations` silently registers a
 **third** backend, `crypt`, that nothing in this repository asked for by
 name. Confirm this yourself with:
 

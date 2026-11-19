@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/lifecycle"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/placement"
-	"github.com/backupdproject/backupd/core/internal/state"
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/placement"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // FR-30's prune half (issue #239): deleting an expired artifact whose
@@ -31,7 +31,7 @@ import (
 // destroys is a copy of a backup, and a suite that establishes the happy
 // path first grows its refusals as afterthoughts around it.
 
-const reclaimKey = "backupd/production/postgres-primary/expired.dump"
+const reclaimKey = "retnd/production/postgres-primary/expired.dump"
 
 var reclaimNow = time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
 

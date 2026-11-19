@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/backend"
-	"github.com/backupdproject/backupd/core/internal/backupengine/source"
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/backend"
+	"github.com/retnd/retnd/core/internal/backupengine/source"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // The stand-ins in this file exist for the cases a real filesystem cannot
@@ -351,8 +351,7 @@ func (s *recordingSink) discardCount() int {
 // none of it. It is what a bounded-memory measurement needs: a sink that
 // consumes the whole object without being the thing that allocates.
 type countingSink struct {
-	bytes atomic.Int64
-	next  atomic.Int64
+	next atomic.Int64
 }
 
 func (s *countingSink) Store(ctx context.Context, obj source.Object) (source.Stored, error) {

@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/lifecycle"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/obs"
-	"github.com/backupdproject/backupd/core/internal/state"
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // Issue #570: a failed transfer has to be able to record its own failure,
@@ -23,7 +23,7 @@ import (
 //
 // The field report is two attempts running against one artifact at the same
 // time, which nothing in this product stops: `runOnce` (core/service) is an
-// in-process lock, `backupd fetch` and `run` open the journal in a
+// in-process lock, `retnd fetch` and `run` open the journal in a
 // second process behind a SHARED lock, and attemptKey carries only the
 // artifact and its retry count, so two live attempts derive the same
 // idempotency keys. The loser's copy failed, and by the time it went to

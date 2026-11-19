@@ -18,8 +18,9 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 
-	"github.com/backupdproject/backupd/core/internal/transport"
-	"github.com/backupdproject/backupd/core/internal/workflowexec"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/workflow"
+	"github.com/retnd/retnd/core/internal/workflowexec"
 )
 
 // An SSH server this test binary runs, for the three behaviours a real
@@ -251,7 +252,7 @@ func connectTo(t *testing.T, server *fakeSSHD) *Client {
 	if err != nil {
 		t.Fatalf("marshalling the fixture client key: %v", err)
 	}
-	t.Setenv("BACKUPD_TEST_EXEC_KEY", string(pem.EncodeToMemory(block)))
+	t.Setenv("RETND_TEST_EXEC_KEY", string(pem.EncodeToMemory(block)))
 
 	addr := server.listener.Addr().(*net.TCPAddr)
 	knownHosts := filepath.Join(t.TempDir(), "known_hosts")
@@ -269,7 +270,7 @@ func connectTo(t *testing.T, server *fakeSSHD) *Client {
 			Host:       "127.0.0.1",
 			Port:       addr.Port,
 			User:       "hookuser",
-			KeyEnv:     "BACKUPD_TEST_EXEC_KEY",
+			KeyEnv:     "RETND_TEST_EXEC_KEY",
 			KnownHosts: knownHosts,
 		},
 	})
@@ -315,7 +316,7 @@ func TestARunOnAForcedCommandAccountIsRefusedRatherThanReportedAsSuccess(t *test
 
 	sink := &collectingSink{}
 	res, err := client.Run(t.Context(), Request{
-		Token:   "backupd-exec-forced",
+		Token:   "retnd-exec-forced",
 		Script:  []byte("printf 'the hook ran\\n'\n"),
 		Sink:    sink,
 		Timeout: 30 * time.Second,
@@ -331,9 +332,72 @@ func TestARunOnAForcedCommandAccountIsRefusedRatherThanReportedAsSuccess(t *test
 		t.Errorf("a refused step reported exit code %d, which is the forced command's status and not the hook's", *res.ExitCode)
 	}
 	for _, command := range server.commands() {
-		if strings.Contains(command, "backupd-exec-forced") {
+		if strings.Contains(command, "retnd-exec-forced") {
 			t.Errorf("the hook's own command was started on a connection that had not been proven exec-capable: %q", command)
 		}
+	}
+}
+
+// TestARefusalThatFinishesBeforeThePayloadIsStillAnExecCapabilityRefusal is the
+// answer to a hosted failure that no single run reproduces.
+//
+// Two kinds of account never read the probe they are sent, and both end the
+// session under the client's payload write: an internal-sftp account prints
+// its banner and exits 1, and a forced-command account runs its own program
+// and exits 0. Whether the write lands before the close or after it is a
+// race, and when it lost, runOnce returned the write error and threw away
+// the status and output the server had already given, so the refusal was
+// reported as ErrTransportLoss ("writing the execution envelope to the exec
+// channel: EOF"): a caller was told the connection was broken, and an
+// operator was told nothing about the capability that is missing. It was
+// seen on a hosted run once for each kind, in two different tests.
+//
+// Many preflights, because the window is microseconds wide: each one is a
+// fresh session, and any one of them classifying the refusal as a lost
+// connection is the defect.
+func TestARefusalThatFinishesBeforeThePayloadIsStillAnExecCapabilityRefusal(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		answer func(t *testing.T, s *fakeSession)
+	}{
+		{"an SFTP-only account, which prints a banner and exits 1", func(t *testing.T, s *fakeSession) {
+			t.Helper()
+			s.Print(t, "This service allows sftp connections only.\n")
+			s.Exit(1)
+		}},
+		{"a forced-command account, which runs its own program and exits 0", func(t *testing.T, s *fakeSession) {
+			t.Helper()
+			s.Print(t, "forced-command-only: this account runs its own program\n")
+			s.Exit(0)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := startFakeSSHD(t, tc.answer)
+			client := connectTo(t, server)
+
+			const attempts = 400
+
+			lost := 0
+
+			for range attempts {
+				_, err := client.Preflight(t.Context(), []byte("printf 'the hook ran\\n'\n"))
+				if err == nil {
+					t.Fatal("the account passed the exec preflight")
+				}
+
+				if !errors.Is(err, ErrExecCapability) {
+					lost++
+
+					if lost == 1 {
+						t.Errorf("the refusal is not an ErrExecCapability, so a caller cannot tell it from a broken connection: %v", err)
+					}
+				}
+			}
+
+			if lost > 0 {
+				t.Errorf("%d of %d refusals were reported as something other than a capability refusal", lost, attempts)
+			}
+		})
 	}
 }
 
@@ -359,7 +423,7 @@ func TestARunWithACapabilityForOtherBytesIsRefused(t *testing.T) {
 
 	sink := &collectingSink{}
 	_, err = client.Run(t.Context(), Request{
-		Token:      "backupd-exec-swapped",
+		Token:      "retnd-exec-swapped",
 		Script:     []byte("printf 'a different script entirely\\n'\n"),
 		Capability: capability,
 		Sink:       sink,
@@ -446,7 +510,7 @@ func TestAStalledConnectionAbortsWithinTheStepsBound(t *testing.T) {
 	sink := &collectingSink{}
 	start := time.Now()
 	res, err := client.Run(t.Context(), Request{
-		Token:   "backupd-exec-stalled",
+		Token:   "retnd-exec-stalled",
 		Script:  script,
 		Sink:    sink,
 		Timeout: 2 * time.Second,
@@ -569,6 +633,207 @@ func TestAHostThatCannotEnumerateItsEnvironmentIsRefused(t *testing.T) {
 	}
 	if !errors.Is(err, ErrExecCapability) {
 		t.Errorf("error %v is not an ErrExecCapability: %v", err, err)
+	}
+}
+
+// oversizedScript is a script too big for the exec channel's window, which
+// is what makes the payload write to a server that is not reading it still
+// be in flight when the step ends. A script that fitted would be written
+// into the window and reported as delivered, and the race these tests are
+// about would never happen.
+func oversizedScript() []byte {
+	script := make([]byte, 0, 4<<20+4)
+	script = append(script, "# "...)
+	for len(script) < 4<<20 {
+		script = append(script, 'x')
+	}
+
+	return append(script, '\n')
+}
+
+// TestAHookThatEndsUnderItsOwnPayloadWriteReportsItsExitStatus is #915: a
+// remote hook that ran, and said how it ended, reported as an outcome
+// nobody observed.
+//
+// A hook stops reading its payload the moment it exits -- an early
+// "exit 0", a script shorter than the stdin behind it, a hook killed on the
+// far side -- so the remote closes the channel's stdin while this side is
+// still writing and the write fails ON THE HOOK'S OWN ENDING. The server
+// here does exactly that: it reads nothing and exits, leaving a four
+// mebibyte payload parked on a two mebibyte window.
+//
+// The exit status is the step's outcome. Returning the write's failure
+// instead made every such step transport_lost, which is a hook whose side
+// effects may be half applied and whose exit code is nil -- reported for a
+// hook that in fact ran to completion and returned a status.
+func TestAHookThatEndsUnderItsOwnPayloadWriteReportsItsExitStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		code uint32
+	}{
+		{name: "a hook that succeeded", code: 0},
+		{name: "a hook that failed", code: 7},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// The step's own channel: not one byte of the payload is
+			// read before the status is sent and the channel closed.
+			exitAtOnce := func(t *testing.T, s *fakeSession) {
+				t.Helper()
+				s.Exit(tc.code)
+			}
+			server := startFakeSSHD(t, answerInternalSessions(exitAtOnce))
+			client := connectTo(t, server)
+
+			sink := &collectingSink{}
+			res, err := client.Run(t.Context(), Request{
+				Token:   "retnd-exec-earlyexit",
+				Script:  oversizedScript(),
+				Sink:    sink,
+				Timeout: 30 * time.Second,
+			})
+
+			if err != nil {
+				t.Fatalf("a hook that exited %d was reported as a failure: %v", tc.code, err)
+			}
+			if res.ExitCode == nil {
+				t.Fatalf("a hook that exited %d left no exit code, which is how this product spells \"nobody saw a status\"", tc.code)
+			}
+			if *res.ExitCode != int(tc.code) {
+				t.Errorf("exit code %d, want %d", *res.ExitCode, tc.code)
+			}
+		})
+	}
+}
+
+// TestAnExecChannelThatClosesWithoutAStatusIsStillTransportLoss is the
+// control for the test above, and the thing it must not have cost. The
+// write fails in exactly the same way here -- same unread oversized payload
+// -- but the channel closes with NO exit status, so nobody observed how the
+// hook ended, or whether it ran at all.
+//
+// That is transport loss, and it stays transport loss with a nil exit code:
+// the difference between the two tests is the status, which is the only
+// thing that may decide it.
+func TestAnExecChannelThatClosesWithoutAStatusIsStillTransportLoss(t *testing.T) {
+	vanish := func(t *testing.T, s *fakeSession) {
+		t.Helper()
+		_ = s.channel.Close()
+	}
+	server := startFakeSSHD(t, answerInternalSessions(vanish))
+	client := connectTo(t, server)
+
+	sink := &collectingSink{}
+	res, err := client.Run(t.Context(), Request{
+		Token:   "retnd-exec-nostatus",
+		Script:  oversizedScript(),
+		Sink:    sink,
+		Timeout: 30 * time.Second,
+	})
+
+	if err == nil {
+		t.Fatal("a channel that closed without an exit status was reported as a step that finished")
+	}
+	if !errors.Is(err, ErrTransportLoss) {
+		t.Errorf("error %v is not an ErrTransportLoss", err)
+	}
+	if res.ExitCode != nil {
+		t.Errorf("a step whose channel reported no status produced exit code %d", *res.ExitCode)
+	}
+}
+
+// TestAHookWhoseTokenCameFromARealStepIDRunsToCompletion is #919, and it
+// is a DIFFERENT failure from #915 and #918: there the channel opened, the
+// hook ran and a status came back that this product then mishandled. Here
+// no channel was ever opened. The engine handed Run a workflow step id as
+// the token, tokenRule refused it for the tilde that identity reserves,
+// and Request.validate returned before the preflight -- so every remote
+// workflow hook in the product was reported as a failure having never been
+// attempted at all.
+//
+// The assertions are therefore about the SESSION and not only the exit
+// status: the fixture records every command it was asked to run, so "a
+// session carrying this step's token was opened" is observed rather than
+// inferred from an absent error. Pass the raw step id here instead of the
+// derived token and this test fails with no such session and
+// ErrConnection, which is exactly what production did.
+func TestAHookWhoseTokenCameFromARealStepIDRunsToCompletion(t *testing.T) {
+	stepID := workflow.StepID(2, workflow.ScopeSet, workflow.PhaseBefore, "10-quiesce.remote.sh")
+	token := StepToken("wfr_2f1c9a54-8a1e-4c77-9f1b-7c3d2e5a6b90", stepID)
+
+	quiesce := func(t *testing.T, s *fakeSession) {
+		t.Helper()
+		s.ReadAll(t)
+		s.Print(t, "quiesced\n")
+		s.Exit(0)
+	}
+	server := startFakeSSHD(t, answerInternalSessions(quiesce))
+	client := connectTo(t, server)
+
+	sink := &collectingSink{}
+	res, err := client.Run(t.Context(), Request{
+		Token:   token,
+		Script:  []byte("printf 'quiescing\\n'\n"),
+		Sink:    sink,
+		Timeout: 30 * time.Second,
+	})
+
+	if err != nil {
+		t.Fatalf("a hook whose token was derived from step %q failed: %v", stepID, err)
+	}
+
+	opened := false
+	for _, command := range server.commands() {
+		if strings.HasSuffix(command, " -s "+token) {
+			opened = true
+		}
+	}
+	if !opened {
+		t.Fatalf("no session carried this step's token, so the hook never started; the server was asked to run %q", server.commands())
+	}
+
+	if res.ExitCode == nil {
+		t.Fatalf("the hook left no exit code, which is how this product spells \"nobody saw a status\"")
+	}
+	if *res.ExitCode != 0 {
+		t.Errorf("exit code %d, want 0", *res.ExitCode)
+	}
+	if !strings.Contains(sink.text, "quiesced") {
+		t.Errorf("the hook's output was not captured: %q", sink.text)
+	}
+}
+
+// TestARawStepIDNeverReachesTheServer is the control, and the reason
+// StepToken has to exist rather than tokenRule being widened to admit a
+// tilde. The token is interpolated unquoted into a command a shell on the
+// far side parses, so the refusal is right -- what was wrong was handing
+// it a string it must refuse and reporting the refusal as a connection
+// that had failed.
+//
+// Nothing reaches the server: not the probe, not the syntax check, not the
+// hook. That is the fact that separates this from every other remote
+// failure mode in this package.
+func TestARawStepIDNeverReachesTheServer(t *testing.T) {
+	stepID := workflow.StepID(2, workflow.ScopeSet, workflow.PhaseBefore, "10-quiesce.remote.sh")
+
+	refuseToRun := func(t *testing.T, s *fakeSession) {
+		t.Helper()
+		t.Errorf("the fixture was asked to run %q for a token no shell may be handed", s.command)
+		s.Exit(0)
+	}
+	server := startFakeSSHD(t, answerInternalSessions(refuseToRun))
+	client := connectTo(t, server)
+
+	sink := &collectingSink{}
+	if _, err := client.Run(t.Context(), Request{
+		Token:   stepID,
+		Script:  []byte("printf 'quiescing\\n'\n"),
+		Sink:    sink,
+		Timeout: 30 * time.Second,
+	}); !errors.Is(err, ErrConnection) {
+		t.Fatalf("a raw step id as the token = %v, want ErrConnection", err)
+	}
+	if commands := server.commands(); len(commands) != 0 {
+		t.Errorf("the server was asked to run %q for a step that was refused before it started", commands)
 	}
 }
 

@@ -19,7 +19,7 @@ package apicontract
 // They live in this package because it is the one both sides of the wire
 // may import. core/service and core/internal/archive define the action a
 // durable operation row is written with, and core/cliecho has to decide
-// which `backupd` command an action is equivalent to; core/service
+// which `retnd` command an action is equivalent to; core/service
 // imports core/cliecho, so cliecho cannot read the constants from there.
 // Before this file it read string literals instead, and one of them was
 // wrong: it switched on "restore", which no client has ever sent, so
@@ -86,3 +86,20 @@ const (
 	// is a request somebody eventually sends with the flag wrong.
 	ActionReleaseSnapshotHold = "release_snapshot_hold"
 )
+
+// Actions is every value SubmitOperationRequest.Action takes, in the
+// order above.
+//
+// It exists for the one reader that has to send every action rather than
+// switch on one: core/cliecho's canary corpus, which used to keep its own
+// copy of this list and let it go stale for months (#1253's review).
+// TestActionsListsEveryActionConstant fails on a constant left out of it.
+var Actions = []string{
+	ActionRunCycle,
+	ActionRunBackupSet,
+	ActionRestorePlacement,
+	ActionRestoreSnapshot,
+	ActionVerifySnapshot,
+	ActionHoldSnapshot,
+	ActionReleaseSnapshotHold,
+}

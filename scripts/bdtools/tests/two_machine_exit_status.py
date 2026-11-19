@@ -100,6 +100,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from bdtools.e2e import two_machine_backup
 from bdtools.tests import testkit
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[2]
@@ -192,6 +193,36 @@ def main() -> int:
             f"a command exiting 7 left the script with {status}, want 7: the translation is rewriting statuses "
             "it has no business touching",
             out,
+        )
+        # ------------------------------------------------------- case 4
+        # Not an exit status, but the same proof and the same hazard: a
+        # verdict that is about the environment and not the product. The
+        # connection-cap probe used to run from the bare upstream base
+        # image, and when that tag went single-platform (amd64) the probe
+        # container could not start on an arm64 daemon that pins its
+        # platform, which the proof reported as "the cap did not bite" and
+        # the gate as FAILED (#1260). The probe runs from the source
+        # machine image, built here from scripts/e2e/source-machine.Dockerfile,
+        # the one definition of the simulated VPS, which carries nc for
+        # exactly this.
+        argv = two_machine_backup.connection_cap_probe_argv("net-x", "label-y", "retnd-e2e-source:1", "10.0.0.3")
+        suite.check(
+            "retnd-e2e-source:1" in argv and two_machine_backup.SOURCE_BASE not in argv,
+            "the connection-cap probe container is built from the image it is handed, not the bare upstream base",
+            f"probe argv names {two_machine_backup.SOURCE_BASE} or not the image handed in: {argv}",
+            " ".join(argv),
+        )
+        suite.check(
+            "10.0.0.3" in " ".join(argv) and "--network" in argv and "net-x" in argv,
+            "and the probe still dials the source machine on the case's network",
+            f"probe argv: {argv}",
+            " ".join(argv),
+        )
+        proof_source = (REPO_ROOT / "scripts" / "bdtools" / "e2e" / "two_machine_backup.py").read_text()
+        suite.check(
+            "connection_cap_probe_argv(net, self.label, self.source_image, source_ip)" in proof_source,
+            "and the proof hands it the source machine image it built",
+            "the proof does not call connection_cap_probe_argv with self.source_image",
         )
     finally:
         shutil.rmtree(sandbox, ignore_errors=True)

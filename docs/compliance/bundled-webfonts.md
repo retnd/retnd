@@ -1,9 +1,9 @@
 # The bundled typeface, and the licence it is under
 
-Backupd serves IBM Plex Sans and IBM Plex Mono out of its own
+retnd serves IBM Plex Sans and IBM Plex Mono out of its own
 image. Those files are IBM's, they are under the SIL Open Font License
 1.1, and this file is the attribution and the record that licence asks
-for. is the change that put them there.
+for. Issue #631 is the change that put them there.
 
 ## The attribution
 
@@ -42,7 +42,7 @@ out. The files here came from the packages IBM publishes.
 
 Four places, and each is read on every run rather than trusted.
 
-`NOTICE` is the file Apache-2.0 §4(d) points a recipient of a built
+`NOTICE` is the file that points a recipient of a built
 artifact at, and it is generated from the register by `buildNotice`. This
 file is the full record for somebody who has the repository.
 `ui/shared/index.html` carries a short form in the running page, which is
@@ -64,7 +64,7 @@ asks for a URI to the licence rather than for its text.
 The licence text reaches the image through `ui/shared/public/`, which Vite
 copies into every bundle, rather than through a `COPY` line in
 `container/Dockerfile`. That is deliberate: the image carries six copies
-of the bundle (one compiled into `backupd-web`, five under
+of the bundle (one compiled into `retnd-web`, five under
 `/ui/bundles` for the adapters that have no other carrier), and a
 Dockerfile line would have put the licence beside one of them.
 
@@ -89,8 +89,8 @@ nothing draws with.
 ## Why the typeface is vendored rather than fetched
 
 Three constraints, and together they pick the shape. They are the same
-three the icon artwork answers to, which is not a coincidence: and
- are one defect at two layers, which is also why they share one
+three the icon artwork answers to, which is not a coincidence: #621 and
+#631 are one defect at two layers, which is also why they share one
 register rather than having one each.
 
 The product runs on a NAS. Not "usually has internet": an appliance on a
@@ -114,7 +114,7 @@ measured rather than derived. The built bundle grew from 538,914 bytes to
 `container/Dockerfile` on the same host, one either side of the change,
 put the image at 68,502,297 and 69,366,042 bytes, so the change costs
 863,745: about 730 KB in the `/ui/bundles` layer for the five adapter
-bundles and about 130 KB in `backupd-web` for the one compiled into
+bundles and about 130 KB in `retnd-web` for the one compiled into
 the binary. The complete faces rather than the Latin1 subsets would have
 been roughly three times that, about 2.5 MB, against 2,084,902 bytes of
 headroom in the last recorded measurement. So the subsetting is what keeps
@@ -138,10 +138,10 @@ it is not done here, it is filed as its own issue, and this paragraph is
 here so the next person to read a font-size figure in a compliance record
 knows which number the gate is actually failing on.
 
-That issue was, and it is resolved. The baseline was re-captured at
+That issue was #635, and it is resolved. The baseline was re-captured at
 `186ba0c7` on 2026-09-08 at 69,704,266 bytes, after the whole 26,695,504-byte
 move was accounted for: 71.2% of it is rclone's S3 backend compiled into both
-binaries for 's MediumStore, and the rest is the adapter bundles, the
+binaries for EPIC E's MediumStore, and the rest is the adapter bundles, the
 licence material and product code. `docs/perf/README.md` carries the working.
 The fonts measured here are inside that: 698,720 bytes across the five bundles
 and about 165,000 in the binary, which is the 863,745 above.

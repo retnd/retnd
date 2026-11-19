@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
-	"github.com/backupdproject/backupd/core/internal/backupengine/kopia"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/backupengine/kopia"
 )
 
 // TestVerifyReportsCancellationNotJustFindings is the regression for the
@@ -139,7 +139,7 @@ func TestOpenRepositoryConnectsTheRequestedStorage(t *testing.T) {
 	root := t.TempDir()
 
 	// One state directory, deliberately shared, which is what production
-	// looks like: /var/lib/backupd holds the connection config for every
+	// looks like: /var/lib/retnd holds the connection config for every
 	// repository this manager knows about, keyed by domain id.
 	stateDir := filepath.Join(t.TempDir(), "state")
 

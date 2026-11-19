@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/archive"
-	"github.com/backupdproject/backupd/core/internal/placement"
-	"github.com/backupdproject/backupd/core/internal/state"
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/archive"
+	"github.com/retnd/retnd/core/internal/placement"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
-// This file is issue #435: what `backupd validate <id>` does about
+// This file is issue #435: what `retnd validate <id>` does about
 // an artifact whose durable copies are all on storage mediums.
 //
 // # Why it is here at all

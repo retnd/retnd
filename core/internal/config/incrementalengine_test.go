@@ -126,7 +126,7 @@ func TestIncrementalEngineEnvironmentOverridesTheFile(t *testing.T) {
 // A typo in the gate is refused rather than read as "off". The usual rule
 // for a diagnostic knob is the opposite (an unparseable LOG_LEVEL must
 // never take a backup host down), and this is not a diagnostic knob:
-// silently reading BACKUPD_INCREMENTAL_ENGINE=ture as off would turn every
+// silently reading RETND_INCREMENTAL_ENGINE=ture as off would turn every
 // incremental backup in the deployment into a refusal, which is the exact
 // failure the operator was trying to avoid by setting it.
 func TestIncrementalEngineRefusesAnUnparseableEnvironmentValue(t *testing.T) {
@@ -215,5 +215,18 @@ func TestIncrementalEngineDisabledErrorNamesTheFlagAndSparesArtifactSets(t *test
 		if !strings.Contains(msg, want) {
 			t.Errorf("the refusal %q does not mention %q, so an operator reading it cannot act on it", msg, want)
 		}
+	}
+}
+
+// The previous product name's variable for this gate is not read any more:
+// a process that still has it set sees the gate exactly as if it were not.
+// The name is built from pieces so this file does not spell it.
+func TestThePreviousNamesIncrementalEngineVariableHasNoEffect(t *testing.T) {
+	t.Setenv(IncrementalEngineEnvVar, "")
+	t.Setenv(strings.Join([]string{"BACK", "UPD"}, "")+"_INCREMENTAL_ENGINE", "1")
+
+	c := validConfig()
+	if c.IncrementalEngineEnabled() {
+		t.Fatal("the gate opened because of a variable under the previous product name")
 	}
 }

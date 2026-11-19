@@ -20,7 +20,7 @@ is [`docs/recovery.md`](recovery.md) and is unaffected by anything here.
 
 ### The one thing to read before anything else
 
-**backupd never converts an `artifact` backup set into a `kopia` one.**
+**retnd never converts an `artifact` backup set into a `kopia` one.**
 Not on upgrade, not on a configuration reload, not when the incremental
 engine is enabled, not as a convenience, and there is no flag that asks
 it to. An existing artifact set keeps its engine, its artifacts, its
@@ -73,7 +73,7 @@ incremental_engine:
   enabled: true
 ```
 
-`BACKUPD_INCREMENTAL_ENGINE=1` in the environment does the same and overrides
+`RETND_INCREMENTAL_ENGINE=1` in the environment does the same and overrides
 the file in both directions, but on the standard container deployment it is
 for a command you launch yourself rather than for the long-running processes:
 `container/compose.yaml` declares the environment it passes through by name
@@ -97,7 +97,7 @@ repository_domains:
     description: Snapshots of the production upload tree
     isolation: shared
     passphrase:
-      file: /etc/backupd/secrets/production.passphrase
+      file: /etc/retnd/secrets/production.passphrase
 ```
 
 - `isolation` is required and has no default. `shared` means every set in
@@ -123,8 +123,8 @@ Generate one that is worth protecting:
 
 ```bash
 umask 077
-head -c 32 /dev/urandom | base64 > /etc/backupd/secrets/production.passphrase
-chmod 600 /etc/backupd/secrets/production.passphrase
+head -c 32 /dev/urandom | base64 > /etc/retnd/secrets/production.passphrase
+chmod 600 /etc/retnd/secrets/production.passphrase
 ```
 
 If this deployment sets `key_encryption`, note that it protects secret
@@ -140,7 +140,7 @@ either make the edits while nothing is serving the deployment, or restart
 the engine afterwards:
 
 ```bash
-docker compose -p backupd ... restart backupd
+docker compose -p retnd ... restart retnd
 ```
 
 Then confirm the domain is declared and see what the repository probe
@@ -149,7 +149,7 @@ with `reachable: false`, and that is the correct answer before the first
 run: nothing has been created there, deliberately.
 
 ```bash
-backupd repository health
+retnd repository health
 ```
 
 ### Step 4 — create the incremental set, beside the artifact one
@@ -157,7 +157,7 @@ backupd repository health
 A different set id. The old set keeps running.
 
 ```bash
-backupd backup-set create production/uploads-tree \
+retnd backup-set create production/uploads-tree \
   --engine kopia \
   --repository-domain production \
   --host nas-export.internal --user backup --remote-path /srv/uploads \
@@ -191,7 +191,7 @@ quiesce hook that stopped the wrong container gets found.
 ### Step 5 — first run, and where the bytes go
 
 ```bash
-backupd fetch --backup-set production/uploads-tree
+retnd fetch --backup-set production/uploads-tree
 ```
 
 The first run that needs one **creates** the repository, at the location
@@ -204,21 +204,21 @@ wrong filesystem, silently, until somebody needed a restore.)
 It lands here:
 
 ```text
-<backup_root>/.backupd/repositories/production/   the repository's blobs
-<backup_root>/.backupd/state/                     connection config, caches, maintenance ownership
+<backup_root>/.retnd/repositories/production/   the repository's blobs
+<backup_root>/.retnd/state/                     connection config, caches, maintenance ownership
 ```
 
-**Exclude `.backupd` from anything that walks the backup root** — an SMB
+**Exclude `.retnd` from anything that walks the backup root** — an SMB
 share, a virus scanner, a backup of the backup. Artifact management
 already treats that path as reserved and will not enter it.
 
 ### Step 6 — prove it before you trust it
 
 ```bash
-backupd snapshot list production/uploads-tree
-backupd snapshot show production/uploads-tree <run-id>
-backupd repository health
-backupd snapshot verify production/uploads-tree --level content_full
+retnd snapshot list production/uploads-tree
+retnd snapshot show production/uploads-tree <run-id>
+retnd repository health
+retnd snapshot verify production/uploads-tree --level content_full
 ```
 
 What to look at, and what a good answer looks like:
@@ -241,7 +241,7 @@ Then do the thing that actually matters, from a directory you can throw
 away:
 
 ```bash
-backupd snapshot restore production/uploads-tree --to /var/tmp/restore-drill
+retnd snapshot restore production/uploads-tree --to /var/tmp/restore-drill
 diff -r /var/tmp/restore-drill /srv/uploads | head
 ```
 
@@ -255,13 +255,13 @@ there is a period where both mechanisms hold the same data. When you are
 satisfied:
 
 ```bash
-backupd backup-set enabled production/uploads off     # stops the scheduler offering it; a pass inside it finishes
+retnd backup-set enabled production/uploads off     # stops the scheduler offering it; a pass inside it finishes
 # ... leave it off for as long as you want the artifacts retained ...
-backupd backup-set remove production/uploads          # configuration only
+retnd backup-set remove production/uploads          # configuration only
 ```
 
 `remove` is configuration only. The artifacts it collected **stay on
-storage and stay listed by `backupd artifacts`**, and creating the set
+storage and stay listed by `retnd artifacts`**, and creating the set
 again with the same source and name takes them back. Until you prune
 them, nothing has been given up.
 
@@ -269,7 +269,7 @@ them, nothing has been given up.
 
 Before step 7, rollback is: `backup-set enabled <incremental-set> off`,
 or turn the gate off entirely
-(`BACKUPD_INCREMENTAL_ENGINE=0`/`enabled: false`), which leaves the
+(`RETND_INCREMENTAL_ENGINE=0`/`enabled: false`), which leaves the
 artifact set backing up exactly as before. A configuration holding
 incremental sets still loads with the gate off; only the incremental
 sets report the refusal.
@@ -304,13 +304,13 @@ filesystem.
 Take the pressure off first:
 
 ```bash
-backupd backup-set enabled <source>/<set> off      # for every set in the affected domain
+retnd backup-set enabled <source>/<set> off      # for every set in the affected domain
 ```
 
 ### Step 1 — get the precise condition, not "it's broken"
 
 ```bash
-backupd repository health
+retnd repository health
 ```
 
 Every probe is reported separately because the remedies are different.
@@ -333,7 +333,7 @@ Overdue maintenance, a drifted clock and a failed verification are
 ### Step 2 — find out what is actually damaged
 
 ```bash
-backupd snapshot list <source>/<set>
+retnd snapshot list <source>/<set>
 ```
 
 Phases tell you where the damage is:
@@ -358,7 +358,7 @@ Then prove what is left, deepest check first, on the snapshot you would
 actually restore from:
 
 ```bash
-backupd snapshot verify <source>/<set> --level content_full
+retnd snapshot verify <source>/<set> --level content_full
 ```
 
 It exits non-zero when it finds damage. A structural pass proves the
@@ -367,7 +367,7 @@ manifest and the structure resolve; only a content pass reads the bytes.
 ### Step 3 — protect what is still good, before anything else touches it
 
 ```bash
-backupd snapshot hold <source>/<set> --reason "repository damage, incident <n>: do not let retention take this"
+retnd snapshot hold <source>/<set> --reason "repository damage, incident <n>: do not let retention take this"
 ```
 
 A hold stops retention deleting that snapshot whatever the tier chain
@@ -379,8 +379,8 @@ dares release, which makes it permanent by accident.
 Check what is already held, and what retention currently thinks:
 
 ```bash
-backupd snapshot holds <source>/<set>
-backupd snapshot retention <source>/<set>      # a preview; it deletes nothing
+retnd snapshot holds <source>/<set>
+retnd snapshot retention <source>/<set>      # a preview; it deletes nothing
 ```
 
 A `REFUSE` verdict is the one to read: it means the snapshot was a delete
@@ -392,8 +392,22 @@ opens nothing.
 
 ### Step 4 — get the data out
 
+This verb is for a backup set on the incremental engine only, and it is one of three
+commands that sound alike. `retnd recover` reads a retained **artifact** (an artifact-engine
+set), and `retnd restore` asks a provider to thaw an archived object. Pointing `recover`
+at a `kopia` set refuses with a sentence naming this command, so you cannot get the wrong
+one by accident... The three are side by side in [recovery.md](recovery.md#three-verbs-that-sound-alike-side-by-side).
+This product recovers and exports the retained artifact; restoring it into an application
+remains the operator's responsibility, and a restored tree is no different: it is files on a
+disk, and putting them back where an application expects them is yours.
+
+For the recovery-test claim, an incremental set does not get a second drill from the new
+assurance machinery. Its existing achieved verification level, including the
+`restore_drill` rung, is read as the claim, so there is one vocabulary and one producer
+for the set.
+
 ```bash
-backupd snapshot restore <source>/<set> --to /var/restore --conflict refuse
+retnd snapshot restore <source>/<set> --to /var/restore --conflict refuse
 ```
 
 - Without `--snapshot` it restores the set's last known good snapshot,
@@ -411,7 +425,7 @@ If the catalog itself is what you lost rather than the repository, the
 snapshot rows are recovered by this product's own crash reconciliation
 against the repository — a manifest the repository holds and the catalog
 never recorded is **adopted onto the row and then verified**, never
-deleted. `backupd catalog rebuild` is the artifact-side tool and
+deleted. `retnd catalog rebuild` is the artifact-side tool and
 reconstructs artifact rows from sidecar recovery manifests; it is not how
 snapshots come back.
 
@@ -423,7 +437,7 @@ maintenance thinks, remembering that it opens nothing and so answers
 while the repository is still unreachable:
 
 ```bash
-backupd repository maintenance <domain>
+retnd repository maintenance <domain>
 ```
 
 `owner` is the load-bearing line. Exactly one instance may maintain a
@@ -445,7 +459,7 @@ removes them is not exposed.
 When health is green and a `content_full` verification passes:
 
 ```bash
-backupd backup-set enabled <source>/<set> on
+retnd backup-set enabled <source>/<set> on
 ```
 
 ### If the repository is genuinely unrecoverable
@@ -488,7 +502,7 @@ the process actually receives, or fix the `command` that prints it.
 Restart the serving process (there is no reload), then:
 
 ```bash
-backupd repository health
+retnd repository health
 ```
 
 `credentials_valid: true` is the answer. Nothing needs rebuilding: the
@@ -547,7 +561,7 @@ directory tree an SMB or AFP share exports**. See
 ### A source's SSH key
 
 ```bash
-backupd backup-set test-connection <source>/<set>
+retnd backup-set test-connection <source>/<set>
 ```
 
 Seven named steps — `credentials`, `resolve`, `connect`, `host_key`,
@@ -561,7 +575,7 @@ entry on the far host.
 Rotate:
 
 ```bash
-backupd backup-set patch <source>/<set> --ssh-key-file /path/to/new/key
+retnd backup-set patch <source>/<set> --ssh-key-file /path/to/new/key
 ```
 
 The key is read once, validated, and copied into this deployment's own
@@ -591,9 +605,9 @@ thing from repository domains; see
 [`docs/storage-mediums.md`](storage-mediums.md#storage-mediums-and-repository-domains-are-different-things).
 
 ```bash
-backupd medium import-credentials --stdin      # reads AWS shared-credentials text, writes it 0600, prints an id
-backupd medium edit <medium-id> --credentials-id <new-id>
-backupd medium test-connection <medium-id>
+retnd medium import-credentials --stdin      # reads AWS shared-credentials text, writes it 0600, prints an id
+retnd medium edit <medium-id> --credentials-id <new-id>
+retnd medium test-connection <medium-id>
 ```
 
 There is deliberately no `--access-key-id` and no `--secret-access-key`
@@ -611,7 +625,7 @@ nothing here ever reports one back to be resubmitted.
 ```text
 the incremental (kopia) backup engine is disabled in this deployment: set
 incremental_engine.enabled: true in config.yaml, or
-BACKUPD_INCREMENTAL_ENGINE=1 in the environment, to enable it; existing
+RETND_INCREMENTAL_ENGINE=1 in the environment, to enable it; existing
 artifact backup sets are unaffected
 ```
 
@@ -643,8 +657,8 @@ variable in whatever launched the process — a systemd unit, a compose
 than the deployment's files:
 
 ```bash
-docker compose -p backupd ... exec backupd printenv BACKUPD_INCREMENTAL_ENGINE
-grep -n -A2 '^incremental_engine' /etc/backupd/config/config.yaml
+docker compose -p retnd ... exec retnd printenv RETND_INCREMENTAL_ENGINE
+grep -n -A2 '^incremental_engine' /etc/retnd/config/config.yaml
 ```
 
 - variable set to `1|true|yes|on` → enabled, whatever the file says;
@@ -664,7 +678,7 @@ at start. Then confirm against something that only works with the gate
 open:
 
 ```bash
-backupd repository health
+retnd repository health
 ```
 
 ### Deliberately keeping it off
@@ -674,5 +688,5 @@ That is a supported posture and needs no further action. Leave the
 in the feed on every cycle:
 
 ```bash
-backupd backup-set enabled <source>/<set> off
+retnd backup-set enabled <source>/<set> off
 ```

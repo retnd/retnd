@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/snapshotlifecycle"
-	"github.com/backupdproject/backupd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/snapshotlifecycle"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // One test per crash boundary #783 names, plus the two rules that hold
@@ -24,7 +24,7 @@ import (
 
 const testDomain = "vault"
 
-var testSource = backupengine.Source{Host: "nas", User: "backupd", Path: "/srv/data"}
+var testSource = backupengine.Source{Host: "nas", User: "retnd", Path: "/srv/data"}
 
 func reconciler(t *testing.T, j *state.Journal) *snapshotlifecycle.Reconciler {
 	t.Helper()
@@ -801,7 +801,7 @@ func TestReconcile_ASourceIdentityChangeDoesNotDeclareOldSnapshotsLost(t *testin
 	// nothing under it yet.
 	req := reconcileRequest(set, newFakeRepository())
 	req.SourceIdentity = model.SourceIdentity("ff99aa00")
-	req.Source = backupengine.Source{Host: "nas", User: "backupd", Path: "/srv/moved"}
+	req.Source = backupengine.Source{Host: "nas", User: "retnd", Path: "/srv/moved"}
 
 	rep, err := reconciler(t, j).Reconcile(context.Background(), req)
 	if err != nil {

@@ -211,7 +211,7 @@ def body(root: Path) -> int:
 
     baselines_before = sorted(p.name for p in (root / BASELINES).iterdir())
 
-    with tempfile.TemporaryDirectory(prefix="backupd-perf-selftest-") as tmp_str:
+    with tempfile.TemporaryDirectory(prefix="retnd-perf-selftest-") as tmp_str:
         tmp = Path(tmp_str)
 
         print("==> negative control: the real baseline and gate as checked in")

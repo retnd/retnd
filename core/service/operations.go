@@ -9,9 +9,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/backupdproject/backupd/core/apicontract"
-	"github.com/backupdproject/backupd/core/internal/app"
-	"github.com/backupdproject/backupd/core/internal/state"
+	"github.com/retnd/retnd/core/apicontract"
+	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // This file is the durable half of the operation model (§14): a caller
@@ -671,7 +671,7 @@ var runCycle = func(inner *app.Service, ctx context.Context) app.CycleReport {
 // operation failure. That decision is defensible and this issue is not the
 // place to overturn it. What it does mean is that a cycle which backed
 // nothing up finishes here looking exactly like one that backed
-// everything up, which is the same lie `backupd run` was telling
+// everything up, which is the same lie `retnd run` was telling
 // its cron job, told to whoever is reading the Web UI instead. These two
 // numbers are what tell the two apart, in the same terms the CLI now
 // prints and exits on: how many artifacts the cycle had a reason to

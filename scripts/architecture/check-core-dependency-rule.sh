@@ -11,7 +11,7 @@
 #
 #   * scripts/ci-local.sh runs `bash scripts/architecture/check-core-dependency-rule.sh`
 #     TWICE (once in the static repository-structure section, once at the
-#     head of the deletion-proof section) and .github/workflows/ci.yml
+#     head of the deletion-proof section); .github/workflows/ci.yml, until #1260,
 #     runs it once, as "core/app imports neither platform, distribution
 #     nor a NAS SDK (static check)";
 #   * scripts/tests/ci-local-gate.test.sh FABRICATES a file at this literal

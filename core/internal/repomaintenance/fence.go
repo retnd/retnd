@@ -4,8 +4,8 @@ import (
 	"context"
 	"sync"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
-	"github.com/backupdproject/backupd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/model"
 )
 
 // This file is the exclusive-operation fencing issue #786 requires, and
@@ -36,7 +36,7 @@ import (
 // # Why the fence is in-process, and what that does and does not claim
 //
 // It is a coordination primitive between this daemon's own passes, and it
-// is not a distributed lock. Two backupd instances sharing a state
+// is not a distributed lock. Two retnd instances sharing a state
 // directory are kept to one owner per repository by the ownership
 // record's atomic create and compare-and-set (run.go, and the store in
 // internal/backupengine); two instances that do NOT share a state

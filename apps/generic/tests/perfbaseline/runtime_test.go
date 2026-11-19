@@ -3,7 +3,7 @@
 // contract).
 //
 // Five of the contract's seven metrics are properties of the running
-// process and are measured here, against the real `backupd-web
+// process and are measured here, against the real `retnd-web
 // serve` binary over real HTTP, never against an in-process httptest
 // handler: idle RSS, startup-to-healthy time, /api/v1 read latency,
 // configuration write latency, and idle CPU. The remaining two live
@@ -66,7 +66,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/apps/common/email/emailtest"
+	"github.com/retnd/retnd/apps/common/email/emailtest"
 )
 
 // The workload constants below ARE the workload definition. Changing any
@@ -370,7 +370,7 @@ func round3(v float64) float64 {
 }
 
 const (
-	csrfCookie = "backupd_csrf"
+	csrfCookie = "retnd_csrf"
 	csrfHeader = "X-CSRF-Token"
 )
 
@@ -445,7 +445,7 @@ func enroll(t *testing.T, c *http.Client, base, bootstrapToken string) {
 	sink := emailtest.Start(t)
 
 	body := fmt.Sprintf(
-		`{"username":"perf","password":%q,"recoveryEmail":"perf@example.test","smtp":{"host":%q,"port":%d,"security":"none","username":"","from":"backupd@example.test"}}`,
+		`{"username":"perf","password":%q,"recoveryEmail":"perf@example.test","smtp":{"host":%q,"port":%d,"security":"none","username":"","from":"retnd@example.test"}}`,
 		password, sink.Host(), sink.Port())
 	req, err := http.NewRequest(http.MethodPost, base+"/api/v1/auth/enroll", strings.NewReader(body))
 	if err != nil {
@@ -464,7 +464,7 @@ func enroll(t *testing.T, c *http.Client, base, bootstrapToken string) {
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("enroll: status %d: %s", resp.StatusCode, payload)
 	}
-	sink.WaitForMessage(t, "backupd: verify your recovery email", 10*time.Second)
+	sink.WaitForMessage(t, "retnd: verify your recovery email", 10*time.Second)
 }
 
 var bootstrapTokenRE = regexp.MustCompile(`Enrollment bootstrap token: (\S+)`)
@@ -586,12 +586,12 @@ func repoRoot(t *testing.T) string {
 // per-module jobs do.
 func buildEngine(t *testing.T, repoRoot string) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "backupd-web")
-	cmd := exec.Command("go", "build", "-o", bin, "./cmd/backupd-web")
+	bin := filepath.Join(t.TempDir(), "retnd-web")
+	cmd := exec.Command("go", "build", "-o", bin, "./cmd/retnd-web")
 	cmd.Dir = filepath.Join(repoRoot, "apps", "generic")
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build backupd-web: %v\n%s", err, out)
+		t.Fatalf("build retnd-web: %v\n%s", err, out)
 	}
 	return bin
 }

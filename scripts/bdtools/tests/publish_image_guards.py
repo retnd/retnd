@@ -159,8 +159,9 @@ def new_repo(tmpdirs: list[str]) -> Path:
     (d / "core" / "main.go").write_text("package main\n")
     (d / "ui" / "marker").write_text("ui\n")
     (d / "container" / "Dockerfile").write_text("FROM scratch\n")
+    # The `image` block guard 1 reads.
     (d / "distribution" / "packaging" / "canonical.json").write_text(
-        '{ "image": { "reference": "ghcr.io/backupdproject/backupd:1.0.0", "published": false } }\n'
+        '{ "image": { "reference": "ghcr.io/retnd/retnd:1.0.0", "published": false } }\n'
     )
     (d / "container" / "release-manifest.json").write_text(
         '{ "version": "test", "commit": "0000000000000000000000000000000000000000" }\n'
@@ -311,7 +312,7 @@ def main() -> int:
         pin_manifest_to_head(repo)
         rc, out = run_guards(repo, "SKIP_PROVENANCE_CHECK=1")
         expect(rc, out, 0, "every guard passed")
-        expect(rc, out, 0, "Would publish ghcr.io/backupdproject/backupd:1.0.0")
+        expect(rc, out, 0, "Would publish ghcr.io/retnd/retnd:1.0.0")
 
         # --- guard 1: the files it reads are not there
         current = "canonical.json missing"
@@ -491,6 +492,23 @@ def main() -> int:
         expect(rc, out, 0, "stopping before docker buildx build")
         refute(out, "SKIP_PROVENANCE_CHECK=1 removes the check")
 
+        # --- the push set: image.reference and nothing else
+        #
+        # The GHCR mirror window (FR-39) used to add the retained package
+        # path to this set, and guard 7 required it. The retained
+        # organisation no longer exists, so that second push failed AFTER
+        # the canonical one had already landed, which left 0.5.0 in the
+        # registry unsigned. A release now pushes exactly the one reference
+        # canonical.json declares.
+        current = "a release publishes image.reference and no other package path"
+        repo = new_repo(tmpdirs)
+        pin_manifest_to_head(repo)
+        rc, out = run_guards(repo, "SKIP_PROVENANCE_CHECK=1")
+        expect(rc, out, 0, "every guard passed")
+        expect(rc, out, 0, "Would publish ghcr.io/retnd/retnd:1.0.0 for")
+        refute(out, "retndproject")
+        refute(out, "mirror")
+
         # --- the parity proof publish-image.sh runs before the push
         #
         # scripts/release/verify-manifest-parity.sh (#260) is the last
@@ -508,7 +526,8 @@ def main() -> int:
         (repo / "container" / "release-manifest.json").write_text(
             '{ "unsafe_local_build": true, "version": "test", "commit": "'
             + git(repo, "rev-parse", "HEAD").strip()
-            + '", "architectures": [ { "architecture": "amd64", "binary_sha256": { "backupd": "x", "backupd-web": "y" } } ] }\n'
+            + '", "architectures": [ { "architecture": "amd64", '
+            '"binary_sha256": { "retnd": "x", "retnd-web": "y" } } ] }\n'
         )
         rc, out = run_parity(repo)
         expect(rc, out, 2, 'stamped "unsafe_local_build": true')
@@ -518,7 +537,7 @@ def main() -> int:
         repo = new_repo(tmpdirs)
         (repo / "container" / "release-manifest.json").write_text(
             '{ "version": "test", "commit": "", "architectures": [ { "architecture": "amd64", '
-            '"binary_sha256": { "backupd": "x", "backupd-web": "y" } } ] }\n'
+            '"binary_sha256": { "retnd": "x", "retnd-web": "y" } } ] }\n'
         )
         rc, out = run_parity(repo)
         expect(rc, out, 2, "both are needed as build arguments")
@@ -544,7 +563,8 @@ def main() -> int:
         repo = new_repo(tmpdirs)
         (repo / "container" / "release-manifest.json").write_text(
             '{ "version": "test", "commit": "' + git(repo, "rev-parse", "HEAD").strip() + '", '
-            '"architectures": [ { "architecture": "amd64", "binary_sha256": { "backupd": "x", "backupd-web": "y" } } ] }\n'
+            '"architectures": [ { "architecture": "amd64", '
+            '"binary_sha256": { "retnd": "x", "retnd-web": "y" } } ] }\n'
         )
         stub = stub_docker(tmpdirs)
         rc, out = run_parity(repo, f"PATH={stub}{os.pathsep}{os.environ.get('PATH', '')}")
@@ -557,26 +577,26 @@ def main() -> int:
         current = "recorded() indexes by architecture and cannot cross-match another one's digest"
         swapped: dict[str, object] = {
             "architectures": [
-                {"architecture": "amd64", "binary_sha256": {"backupd": "AAA", "backupd-web": "AAW"}},
-                {"architecture": "arm64", "binary_sha256": {"backupd": "BBB", "backupd-web": "BBW"}},
+                {"architecture": "amd64", "binary_sha256": {"retnd": "AAA", "retnd-web": "AAW"}},
+                {"architecture": "arm64", "binary_sha256": {"retnd": "BBB", "retnd-web": "BBW"}},
             ]
         }
         got = {
             (arch, binary): parity.recorded(swapped, arch, binary)
             for arch in ("amd64", "arm64")
-            for binary in ("backupd", "backupd-web")
+            for binary in ("retnd", "retnd-web")
         }
         want = {
-            ("amd64", "backupd"): "AAA",
-            ("amd64", "backupd-web"): "AAW",
-            ("arm64", "backupd"): "BBB",
-            ("arm64", "backupd-web"): "BBW",
+            ("amd64", "retnd"): "AAA",
+            ("amd64", "retnd-web"): "AAW",
+            ("arm64", "retnd"): "BBB",
+            ("arm64", "retnd-web"): "BBW",
         }
         if got != want:
             fail(f"recorded() crossed architectures or binaries: {got} != {want}")
 
         current = "recorded() returns None, not an empty string, for a hash the manifest does not carry"
-        for arch, binary in (("amd64", "backupd-lite"), ("s390x", "backupd")):
+        for arch, binary in (("amd64", "retnd-lite"), ("s390x", "retnd")):
             value = parity.recorded(swapped, arch, binary)
             if value is not None:
                 fail(

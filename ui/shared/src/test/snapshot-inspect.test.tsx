@@ -19,7 +19,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { ApiProvider } from "@shared/api/ApiContext";
-import type { BackupdApi } from "@shared/api/contracts";
+import type { RetndApi } from "@shared/api/contracts";
 import { createMockApi, resetMockFixtures } from "@shared/api/mock";
 import { SnapshotDetailPage } from "@shared/pages/SnapshotDetailPage";
 import { graph, resetGraphForTests } from "@shared/state/graph";
@@ -32,7 +32,7 @@ const VERSION: VersionInfo = {
   engine: "1.68.2", configRevision: "cfg_9f4c1ab", ready: true, compatible: true
 };
 
-async function seed(api: BackupdApi) {
+async function seed(api: RetndApi) {
   const sets = await api.listSets();
   act(() => {
     graph.commit("test/seed", (tx) => {
@@ -42,7 +42,7 @@ async function seed(api: BackupdApi) {
   });
 }
 
-function renderSnapshot(api: BackupdApi, runId: string, readOnly = false) {
+function renderSnapshot(api: RetndApi, runId: string, readOnly = false) {
   return render(
     <MemoryRouter initialEntries={[snapshotPath("production", "postgres-primary", runId)]}>
       <ApiProvider api={api}>
@@ -206,11 +206,18 @@ describe("the snapshot inspector", () => {
     act(() => {
       screen.getByRole("button", { name: "Release hold hold_01J9Z6" }).click();
     });
+    // Releasing lifts a protection, so the dialog waits for an explicit tick
+    // (issue #1164) and sends it.
+    expect(screen.getByRole("button", { name: "Release hold" }).hasAttribute("disabled")).toBe(true);
+    act(() => {
+      screen.getByRole("checkbox", { name: /I understand/ }).click();
+    });
     act(() => {
       screen.getByRole("button", { name: "Release hold" }).click();
     });
 
     await waitFor(() => expect(release).toHaveBeenCalledTimes(1));
+    expect(release.mock.calls[0][0].acknowledged).toBe(true);
     expect(release.mock.calls[0][0].holdId).toBe("hold_01J9Z6");
     expect(release.mock.calls[0][0].idempotencyKey).toBeTruthy();
   });

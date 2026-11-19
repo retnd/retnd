@@ -13,15 +13,15 @@ since ci-local.sh runs under `set -e` from .husky/pre-commit, a red suite
 refuses the commit. It does two things:
 
   1. the CLI smoke slice (55 of Suite A's 60 cases) against a
-     backupd built from THIS working tree;
+     retnd built from THIS working tree;
   2. the browser suite against a real deployment built from THIS
      working tree, over the wire, through
      scripts/e2e/three-machine-web-ui.sh (#687: this used to start
      ui/shared's own Vite dev server over createMockApi and drive it
-     through RM_UI_DIR, until the tests repository dropped RM_UI_DIR
-     and moved Suite B onto RM_BASE_URL against a real deployment).
+     through RETND_UI_DIR, until the tests repository dropped RETND_UI_DIR
+     and moved Suite B onto RETND_BASE_URL against a real deployment).
 
-Both come from backupdproject/backupd-tests at the sha in tests-repo.pin,
+Both come from retnd/retnd-tests at the sha in tests-repo.pin,
 so the tests are versioned independently of the product and a new test
 cannot break in-flight work here until the pin is bumped. What is under
 test is never the pin's own idea of a build: it is the tree being
@@ -63,6 +63,8 @@ between.
 
 from __future__ import annotations
 
+import datetime
+import json
 import os
 import sys
 import time
@@ -75,7 +77,7 @@ from typing import NoReturn
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from bdtools import harness
-from bdtools.e2e import tests_pin
+from bdtools.e2e import tests_pin, web_ui_ratchet
 
 PROGRAM = "e2e gate"
 
@@ -125,6 +127,32 @@ def read_the_pin(root: Path) -> dict[str, str]:
 
 
 
+def require_on_main(pin: dict[str, str]) -> None:
+    """Refuse a pinned sha that is not on the tests repository's main (#1074).
+
+    This is what catches a hand edit of the pin file that skipped
+    bump_tests_pin.py. A branch head runs perfectly well, which is the
+    problem: nothing downstream can tell it was never merged.
+
+    A passing check is remembered per sha in a marker next to the checkout
+    cache, so the commit hook does not go to the network on every commit
+    once a pin has been shown to be on main. A sha on main stays on main,
+    so the marker never goes stale. The check is also done BEFORE the tools
+    check and the clone, so a bad pin is refused in the first second.
+    """
+    cache_home = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+    marker = Path(cache_home) / "retnd-tests-gate" / f"{pin['sha']}.on-main"
+    if marker.is_file():
+        return
+    harness.step(f"checking that the pinned tests commit {pin['sha'][:12]} is on main")
+    try:
+        tests_pin.require_on_main(pin["url"], pin["sha"])
+    except harness.Failure as failure:
+        refuse(failure.message, *failure.details)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(pin["url"] + "\n", encoding="utf-8")
+
+
 def require_the_tools() -> None:
     """git, go, node and npm, refused as a FAILURE rather than as a verdict.
 
@@ -156,13 +184,13 @@ def pinned_checkout(pin: dict[str, str]) -> Path:
     there.
     """
     cache_home = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
-    cache_root = Path(cache_home) / "backupd-tests-gate"
+    cache_root = Path(cache_home) / "retnd-tests-gate"
     checkout = cache_root / pin["sha"]
 
     if (checkout / ".complete").is_file():
         return checkout
 
-    harness.step(f"fetching backupd-tests at {pin['sha'][:12]}")
+    harness.step(f"fetching the tests repository at {pin['sha'][:12]}")
     cache_root.mkdir(parents=True, exist_ok=True)
     scratch = cache_root / f"scratch.{os.getpid()}.{int(time.time())}"
     scratch.mkdir(parents=True, exist_ok=True)
@@ -220,7 +248,7 @@ def pinned_checkout(pin: dict[str, str]) -> Path:
 
 
 def build_under_test(root: Path) -> dict[str, str]:
-    """backupd, built from THIS working tree.
+    """retnd, built from THIS working tree.
 
     The tests repository refuses to run against a build that will not say which
     commit it is, so the -ldflags here are load-bearing rather than cosmetic:
@@ -244,7 +272,7 @@ def build_under_test(root: Path) -> dict[str, str]:
     if unstaged != 0 or staged != 0:
         build_commit = head_sha + "-dirty"
 
-    harness.step("building backupd from this working tree")
+    harness.step("building retnd from this working tree")
     # The short sha comes out of its own checked call rather than out of a
     # command substitution inside the argument. In bash a failing `$(git
     # rev-parse --short HEAD)` there left the -ldflags with an empty
@@ -257,14 +285,14 @@ def build_under_test(root: Path) -> dict[str, str]:
             "-ldflags",
             f"-X main.version={short_sha} -X main.commit={build_commit}",
             "-o",
-            str(work / "backupd"),
-            "./cmd/backupd",
+            str(work / "retnd"),
+            "./cmd/retnd",
         ],
         capture=False,
         cwd=root / "core",
         env=dict(os.environ, GOWORK="off"),
     )
-    return {"binary": str(work / "backupd"), "commit": head_sha}
+    return {"binary": str(work / "retnd"), "commit": head_sha}
 
 
 def smoke_slice(root: Path, checkout: Path, build: dict[str, str]) -> None:
@@ -274,15 +302,15 @@ def smoke_slice(root: Path, checkout: Path, build: dict[str, str]) -> None:
         capture=False,
         env=dict(
             os.environ,
-            RM_MODE="local",
-            RM_BINARY=build["binary"],
-            RM_COMMIT=build["commit"],
-            RM_SOURCE_DIR=str(root),
+            RETND_MODE="local",
+            RETND_BINARY=build["binary"],
+            RETND_COMMIT=build["commit"],
+            RETND_SOURCE_DIR=str(root),
         ),
     )
 
 
-def browser_half(root: Path, checkout: Path) -> None:
+def browser_half(root: Path, checkout: Path, pin: dict[str, str]) -> None:
     web_ui = checkout / "suites" / "web-ui"
 
     # The suite's own unit test comes with it, and needs nothing this
@@ -291,53 +319,185 @@ def browser_half(root: Path, checkout: Path) -> None:
     harness.sh(["npm", "run", "--silent", "unit"], capture=False, cwd=web_ui)
 
     # #687: this used to start ui/shared's own Vite dev server over
-    # createMockApi and drive it through RM_UI_DIR, so a case's pass or
+    # createMockApi and drive it through RETND_UI_DIR, so a case's pass or
     # fail was a claim about a component rendering given a fixture and
     # not about the path an operator meets (browser -> serve-ui ->
     # reverse proxy -> serve -> SQLite). The tests repository retired
-    # RM_UI_DIR along with that suite (backupd-tests#65) in
-    # favour of RM_BASE_URL against a real deployment, and
+    # RETND_UI_DIR along with that suite (retnd-tests#65) in
+    # favour of RETND_BASE_URL against a real deployment, and
     # scripts/e2e/three-machine-web-ui.sh is that deployment: three
     # private Docker networks, the product's own two containers built
     # from this working tree, a real sshd standing in for the machine
     # being backed up, and a client container carrying the browser and
-    # the Playwright runner together. #197's host-Chromium probe and the
-    # free-port picking above it are both gone with the Vite server they
-    # served: the browser now lives inside a container this step builds,
-    # not on this machine, and RM_BASE_URL is a container name the rig
-    # hands the suite rather than a port this process has to pick.
+    # the Playwright runner together.
     #
-    # The rig's own exit code carries the same three-outcome vocabulary
-    # this harness uses: 0 passed, 3 is CANNOT RUN (a capability this
-    # machine does not have, most often no reachable Docker daemon),
-    # anything else failed. harness.finish's rule is that an unguarded 3
-    # is reported as a failure rather than borrowed as this gate's own
-    # verdict (see the PORTED-CHECK HAZARD NOTE below), so it is caught
-    # here and turned into a named refusal instead of the generic
-    # "exited 3" message, which would have been true but would not have
-    # said what to fix.
+    # #1260: the run is judged by its REPORT, not by its exit status. The
+    # suite had 37 failures on main the day the local gate became the only
+    # gate, so the ratchet #1260 decided on applies: a failure in a blocking file
+    # (web_ui_ratchet.BLOCKING_FILES) fails the gate whatever the list
+    # says, any other failure has to be on scripts/e2e/known-red.txt, a
+    # listed spec that passes fails the gate until it is taken off, and the
+    # list is keyed to the pin, capped and dated. The Playwright exit status
+    # is therefore read for exactly two things: 3 is the rig's CANNOT RUN,
+    # and any status with no report behind it is a crash. Both end this
+    # gate INCOMPLETE (harness.cannot_run, exit 3, which ci-local.sh
+    # ledgers), never ok: a lane that produced nothing to judge is a lane
+    # that did not run. A status of 1 with a report is the ordinary shape
+    # of a run with listed failures, and the judge decides.
+    #
+    # What the lane found is written to .e2e-gate/web-ui-lane.json, which
+    # scripts/release/record-local-gate.sh copies into
+    # provenance/local-gate.json as evidence: how many passed, failed,
+    # skipped and were listed, at which pin.
+    artifacts = root / ".e2e-gate" / "web-ui-artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    report_path = artifacts / "playwright-report.json"
+    report_path.unlink(missing_ok=True)
+    lane_path = root / ".e2e-gate" / "web-ui-lane.json"
+    lane_path.unlink(missing_ok=True)
+
+    list_path = root / web_ui_ratchet.KNOWN_RED
+    if not list_path.is_file():
+        refuse(f"{web_ui_ratchet.KNOWN_RED} is missing, so the browser lane has nothing to judge against.")
+    try:
+        known = web_ui_ratchet.parse_known_red(list_path.read_text(encoding="utf-8"))
+    except ValueError as bad:
+        refuse(f"{web_ui_ratchet.KNOWN_RED} does not parse: {bad}")
+
     harness.step(
-        "Suite B browser suite, against a real deployment built from this working tree, over the wire"
+        "Suite B browser suite, against a real deployment built from this working tree, over the wire, "
+        "judged against the known-red ratchet"
     )
     rig = root / "scripts" / "e2e" / "three-machine-web-ui.sh"
+    rig_status = 0
     try:
-        harness.sh(["bash", str(rig), "--suite", str(web_ui)], capture=False)
+        harness.sh(
+            ["bash", str(rig), "--suite", str(web_ui), "--artifacts", str(artifacts), "--", "--reporter=list,json"],
+            capture=False,
+        )
     except harness.CommandFailed as failed:
+        rig_status = failed.status
         if failed.status == 3:
-            refuse(
+            harness.cannot_run(
                 "three-machine-web-ui.sh could not perform the proof on this machine (exit 3).",
                 "Its own output above names the missing capability, most likely Docker.",
             )
+    if not report_path.is_file():
+        harness.cannot_run(
+            f"the browser lane left no Playwright report at {report_path} (the rig exited {rig_status}).",
+            "A run with nothing to judge is a run that did not happen, so this gate ends INCOMPLETE "
+            "rather than ok or failed.",
+        )
+    try:
+        parsed = web_ui_ratchet.load_report(report_path)
+    except ValueError as bad:
+        parsed = None
+        harness.note(f"the report at {report_path} is not JSON: {bad}")
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    verdict = web_ui_ratchet.judge(parsed, known, pin["sha"], today)
+    # The ratchet against main's copy of the list: the cap and the skip
+    # budget cannot grow, an entry cannot be added, an expiry cannot move
+    # later, without the diff saying so, because the one commit that edits
+    # the list is also the one that would pass it. origin/main is the
+    # anchor; a checkout with no origin/main (a fresh clone of a fork, a
+    # fixture) has nothing to ratchet against and says so.
+    base_text = harness.sh_out(["git", "show", f"origin/main:{web_ui_ratchet.KNOWN_RED}"], check=False)
+    baseline_problems: list[str] = []
+    if base_text.strip():
+        try:
+            baseline_problems = web_ui_ratchet.against_baseline(known, web_ui_ratchet.parse_known_red(base_text))
+        except ValueError as bad:
+            harness.note(
+                f"main's copy of {web_ui_ratchet.KNOWN_RED} does not parse ({bad}); nothing to ratchet against"
+            )
+    else:
+        harness.note(f"no origin/main copy of {web_ui_ratchet.KNOWN_RED} to ratchet against in this checkout")
+    if baseline_problems:
+        verdict = web_ui_ratchet.Verdict(
+            (*verdict.problems, *baseline_problems),
+            verdict.passed, verdict.failed, verdict.skipped, verdict.listed_failures,
+        )
+    lane_path.write_text(
+        json.dumps(
+            {
+                "pin": pin["sha"],
+                "passed": verdict.passed,
+                "failed": verdict.failed,
+                "skipped": verdict.skipped,
+                "listed_failures": verdict.listed_failures,
+                "known_red_entries": len(known.entries),
+                "known_red_cap": known.cap,
+                "judged": "ok" if verdict.ok else "refused",
+                "problems": list(verdict.problems),
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    harness.note(
+        f"browser lane: {verdict.passed} passed, {verdict.failed} failed "
+        f"({verdict.listed_failures} listed in {web_ui_ratchet.KNOWN_RED}), "
+        f"{verdict.skipped} skipped, at retnd-tests {pin['sha'][:12]}"
+    )
+    if not verdict.ok:
+        refuse("the browser lane does not hold against the known-red ratchet.", *verdict.problems)
+
+
+def fresh_first_run_half(root: Path, checkout: Path) -> None:
+    """The first-run specs (*.1049.spec.ts), against a rig nobody configured.
+
+    They guard themselves with `needs(isFresh(...))`, so on the seeded rig
+    above they skip, and a skip looks like a pass (retnd#1049). This runs
+    them where they can run, through three-machine-web-ui.sh --fresh, and
+    fails on the report rather than the exit status: any skipped case, no
+    case at all, or no report is a failure.
+    """
+    from bdtools.e2e import first_run_report  # local, so the import block stays untouched
+
+    web_ui = checkout / "suites" / "web-ui"
+    if not any((web_ui / "e2e").glob("*" + first_run_report.SPEC_SUFFIX)):
+        refuse(
+            f"the pinned tests checkout has no *{first_run_report.SPEC_SUFFIX} specs.",
+            "The first-run cases are what this step runs, so a pin that predates them gates nothing.",
+            "Move the pin to a retnd-tests commit that carries them.",
+        )
+    artifacts = root / ".e2e-gate" / "fresh-artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    report_path = artifacts / "playwright-report.json"
+    report_path.unlink(missing_ok=True)
+
+    harness.step("first-run specs, against a fresh rig (no backup set): none may skip")
+    rig = root / "scripts" / "e2e" / "three-machine-web-ui.sh"
+    try:
+        harness.sh(
+            [
+                "bash", str(rig), "--fresh", "--break-engine", "--suite", str(web_ui),
+                "--artifacts", str(artifacts), "--",
+                first_run_report.SPEC_FILTER, "--reporter=list,json",
+            ],
+            capture=False,
+        )
+    except harness.CommandFailed as failed:
+        if failed.status == 3:
+            refuse("three-machine-web-ui.sh --fresh could not perform the proof on this machine (exit 3).")
         raise
+    if not report_path.is_file():
+        refuse(f"the fresh rig run left no Playwright report at {report_path}.")
+    problems = first_run_report.judge(first_run_report.load(report_path))
+    if problems:
+        refuse("the first-run specs did not all run and pass against the fresh rig.", *problems)
 
 
 def body(root: Path) -> int:
     pin = read_the_pin(root)
+    require_on_main(pin)
     require_the_tools()
     checkout = pinned_checkout(pin)
     build = build_under_test(root)
     smoke_slice(root, checkout, build)
-    browser_half(root, checkout)
+    browser_half(root, checkout, pin)
+    fresh_first_run_half(root, checkout)
     return harness.EXIT_OK
 
 
@@ -347,7 +507,7 @@ def main() -> int:
     root = harness.repo_root(Path(__file__))
     # The bash cd'd to the repository root and then used relative paths
     # (core, ui/shared, scripts/e2e/tests-repo.pin) throughout. Kept, so
-    # that `go build ./cmd/backupd` and every path in a diagnostic
+    # that `go build ./cmd/retnd` and every path in a diagnostic
     # read the same as they did. Arguments are ignored, as they were: this
     # gate takes none and the shim passes "$@" through.
     os.chdir(root)
@@ -388,6 +548,14 @@ if __name__ == "__main__":
 #   held by:          tests_pin.read_pin being the only reader; an
 #                     environment variable now cannot reach the sha at
 #                     all, so there is no path left to watch.
+#
+# the pinned sha is on the tests repository's main (#1074, new in the port)
+#   hazard in bash:   ABSENT. The bash fetched whatever sha it was given, so
+#                     a branch head such as c75e4dd ran green and landed.
+#   hazard in python: STILL EXISTS: a require_on_main that returns without
+#                     looking would leave the pin unguarded and every run green.
+#   held by:          scripts/bdtools/tests/pin_on_main.py, which plants
+#                     exactly that no-op and asserts the suite notices.
 #
 # git, go, node and npm are on PATH
 #   hazard in bash:   a machine missing one of them fails somewhere deep
@@ -465,7 +633,7 @@ if __name__ == "__main__":
 #                     rather than an exception.
 #   held by:          build_under_test's two check=False calls and the
 #                     `!= 0` branch; measured after the port by building
-#                     in a dirty tree and reading `backupd version`.
+#                     in a dirty tree and reading `retnd version`.
 #
 # a red suite refuses the commit
 #   hazard in bash:   `make -C ... smoke` and `npm run e2e` were
@@ -498,7 +666,7 @@ if __name__ == "__main__":
 #                     exiting 3, which makes this gate exit 1.
 #
 # #687: the browser suite is a real deployment now, not this process's
-# own Vite dev server, so the free-port probe, the RM_UI_DIR node_modules
+# own Vite dev server, so the free-port probe, the RETND_UI_DIR node_modules
 # preflight and the host-Chromium probe above them are gone rather than
 # ported: nothing here binds a port, starts a dev server or launches a
 # browser on THIS machine any more, so there was nothing left in any of

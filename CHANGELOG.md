@@ -2,8 +2,1789 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-14
+
+0.8.0 is a minor release, and nearly all of it is one feature: encrypted retained copies (EPIC N, #967), with
+encryption suites on top (EPIC T, #1310), and an MCP server so an agent can look at a deployment without being
+trusted (EPIC U, #1343). It is off until you turn it on, and a deployment that never mentions
+it writes the same bytes and re-marshals the same `config.yaml` it always did... Turned on, the copy a set
+sends to a storage medium is an age v1 file under the `age-pq/v1` suite for a first key, and your local copy
+stays plaintext.
+
+A few things are worth reading before you upgrade:
+
+- **Releases build linux/amd64 and macOS arm64, and nothing else** (#1452). The image, the recorded
+  hashes in `container/release-manifest.json`, the package architecture claims and the CLI tarballs
+  (`linux_amd64` and `darwin_arm64`) are the two supported targets. The linux/arm64 image, the
+  linux/arm64, darwin/amd64 tarballs and the armv8 Synology package are no longer built or verified...
+  If you run an ARM NAS or a Raspberry Pi, the installer now refuses with that message: build from
+  source (`docs/deployment.md`) or stay on 0.7.2, the last release with a linux/arm64 image. The Go
+  code still cross-compiles for other targets, only the release artefacts changed.
+- Upgrading adds seven tables to `state.db` (migrations 0015, 0019, 0020 and 0021 create `encryption_keys`,
+  `placement_encryption`, `recovery_bundle_exports`, `recovery_bundle_confirmations`, `encrypt_existing_consents`,
+  `encryption_key_suites` and `encryption_default_suite`) and changes no existing table or row, so every copy
+  you already have reads as unencrypted. Like every release with a migration, 0.7.2 refuses a `state.db` this
+  build has opened, so keep the upgrade archive if you might roll back.
+- Writing `retained_copy_encryption:` (and, separately, its `suite:`) into `config.yaml` is a one-way door:
+  0.7.2 and older refuse the file as an unknown field. Keep the previous `config.yaml` if you want a way out.
+- If you lose the key and every copy of its recovery bundle, the encrypted copies are gone for good. Export
+  the bundle, keep it off this machine and out of the bucket, and confirm it; the health report nags until you do.
+- Migration 0022 adds three more tables (`agent_tokens`, `agent_confirmations`, `agent_audit`) and touches nothing
+  that exists. A deployment that never mints an agent token sees nothing of it, and 0.7.2 still refuses its `state.db`.
+- Writing `agents:` into `config.yaml` is a third one-way door: 0.7.2 and older refuse the file as an unknown field,
+  so keep the previous `config.yaml` if you want a way out. Turning the HTTP transport on is such a write.
+- A remote `retnd agent token create` over plain HTTP now exits 52 until you acknowledge the insecure transport.
+- The Go dependencies moved (the AWS SDK and `modernc.org/sqlite`), and `filippo.io/age` is new.
+
 ### Added
 
+- **The retained-copy encryption policy and its schema, ahead of the cipher** (#989, EPIC N). One new
+  top-level `retained_copy_encryption:` key with `mode: off | required` and a `key_provider` that is
+  either `managed: true` or an external `file`/`env`/`command` reference, plus a per-set
+  `retained_copy_encryption:` override of `mode: inherit | off | required` and `key_provider`, nothing
+  else. A config that never mentions the key resolves every set to `off` and re-marshals byte for byte
+  as before. `mode: required` with no usable provider is refused at load naming the key at fault, and
+  inline key material has no field to land in. Migration 0015 adds the key registry, the per-copy
+  encryption record with its stored-bytes digest, the recovery bundle exports and the durable
+  confirmation of a bundle by its digest (a key may be active, superseded by a rotation, or retired); every
+  existing copy reads as unencrypted and `placements.hash` is untouched. ADR 0027 picks the age v1
+  format and `filippo.io/age` for the cipher that lands in #991; nothing in this entry encrypts anything, the entries below do.
+  **One-way door:** a `config.yaml` carrying `retained_copy_encryption:` at either scope needs 0.8.0
+  or newer. 0.7.2 and every earlier build refuse it as an unknown field, so write the key only once a
+  rollback to 0.7.2 is off the table.
+- **Managed key custody for encrypted retained copies** (#990). A new `core/internal/keycustody` package generates
+  an age identity of the key's suite (X25519 for `age/v1`, the ML-KEM-768 + X25519 hybrid for `age-pq/v1`,
+  which is the default for a first key since the suites below), holds it as a 0600 file in a 0700 directory beside `config.yaml`
+  under the same custody rule `secretref` enforces, and gives every key a stable id with creation and retirement
+  times and a status. An external key is declared in `secretref`'s own shape and probed for whether it resolves,
+  never for what it is. A one-time recovery bundle carries the key with integrity metadata and plain instructions
+  (the stock `age` CLI opens a copy from it), and until someone confirms holding one the health report says so in a
+  new key custody section. A `required` set whose key cannot be resolved has a new `ENCRYPTION_KEY_UNRESOLVABLE`
+  alert kind and a condition builder for it, which the alert pass now feeds (#1294, below). Key create, rotate, bundle export and bundle confirm are new log events, each
+  with a result. The byte path, the routes and the CLI verbs landed in the entries below.
+- **The byte path for encrypted retained copies** (#991). For a backup set whose resolved
+  `retained_copy_encryption` is `required` and whose key is the managed one, a local-to-medium copy is
+  encrypted into the set's `.moves` staging directory as an age v1 file (64 KiB chunks, no setting for any of it),
+  and that staged file is what is uploaded. The copy is accepted only by a streaming decrypt whose plaintext digest
+  equals `artifacts.local_hash`; the digest of the stored bytes goes in `placement_encryption.stored_hash`, written
+  in the same transaction as the placement row, and the plaintext digest is never written there. An unresolvable
+  key refuses the copy before anything is encrypted or uploaded. A set that is `off`, or a deployment that never
+  mentions the key, writes the bytes it always did. A key declared as an external reference is saved and
+  tested here and writes copies from #1292.
+- **Lifecycle, retention, catalog rebuild and rotation for encrypted copies** (#992). Retention deletes an
+  encrypted object by its stored size and checksum and needs no key. A medium-to-medium move copies the ciphertext
+  as it is and accepts the destination only after a decrypt through the key id recorded on the source copy, and a
+  move back to local disk is refused, since that is a restore. A rotation changes the key for new copies only;
+  retiring a key an active copy still records, or the active key, is refused and names the copies. The recovery
+  sidecar of an encrypted copy now carries its non-secret description (format, key id, both digests and sizes, and
+  when it last decrypted), and `retnd catalog rebuild` says per encrypted copy which key it needs and whether this
+  deployment knows it, without opening a key. An unattended scrub never decrypts. An existing deployment's
+  sidecars are unchanged until it encrypts something.
+- **`retnd encryption` and `/api/v1/encryption`** (#993). Policy show, patch and reset, a set's `inherit | off |
+  required`, key list, create, rotate and retire, bundle export and confirm, provider test, per-copy state and a
+  decrypt-verify, each as a CLI verb and an API operation that land on one service method, so a refusal reads the
+  same on both. Fourteen operations (the suites, `reencrypt` and
+  `encrypt-existing` below add five more) and five error codes (`ENCRYPTION_KEY_NOT_FOUND`, `ENCRYPTION_KEY_IN_USE`,
+  `ENCRYPTION_KEY_STATE`, `ENCRYPTION_KEY_UNRESOLVABLE`, `ENCRYPTION_UNAVAILABLE`), all additive. A key reference is
+  write-only and reads back as a description of its source. The bundle export route returns key material (gated
+  like a validator upload, never cached); whether the API should return it at all is an open decision recorded in
+  `docs/api/contract.md`. Four unlabelled metric gauges and `health.Report.KeyCustody` report whether encryption is
+  on, degraded, and whether the active key has a confirmed bundle; none carries a key id.
+- **The web interface for encrypted copies** (#995). A "Retained-copy encryption" card on Settings, an Inherit /
+  Off / Required card under Retention on each set's page, Encrypted and Verified recoverable as two separate chips
+  on a backup's copies (and an Encryption column on the Backups list when a copy on it is encrypted), a Verify
+  recoverable dialog that asks before a read that may be billed, and two Dashboard warnings: no confirmed recovery
+  bundle, and a required key that cannot be resolved. Every control echoes its `retnd encryption` command. An
+  existing deployment sees none of it drawn until a key exists.
+- **`retnd encryption decrypt` and `retnd encryption key import`** (#1289, EPIC N). `decrypt` opens one encrypted copy
+  into one file from a recovery bundle (or an age identity file) and the copy's sidecar (or digests given by hand),
+  reading no configuration and no state, so a lost-host recovery no longer depends on the `age` CLI alone. It hashes the
+  object against the sidecar's stored-bytes digest before the key is used, writes to a temporary name in the destination
+  directory and renames it only after the last chunk authenticated and the plaintext digest matched, so a truncated or
+  altered copy leaves nothing behind. It refuses to replace a file, has no standard output form, and prints neither the
+  key nor the plaintext. `key import --bundle FILE` registers the bundle's key in a deployment as a superseded key (new
+  copies keep using the active one), records the bundle as confirmed, is idempotent and never prints the key. Neither
+  verb has an API route, since both take key material as input. The bundle's printed instructions, the recovery pages
+  and the site now name these verbs, and the `age` CLI stays documented as the independent fallback.
+- **External key providers write encrypted copies** (#1292, follow-up to EPIC N). A backup set whose
+  `key_provider` is an external `file`/`env`/`command` reference now encrypts its off-site copies instead of
+  being refused. The key is a row in the same `encryption_keys` registry a managed key uses (`provider =
+  'external'`, the recipient, a status, a time; an id derived from the recipient, so one key is one row
+  whatever reference reaches it), so re-home, decrypt-verify and scrub, which already take a key id, are
+  unchanged. The reference is resolved only inside the callback that encrypts or verifies; one that does not
+  resolve or is not an age identity is refused before anything is encrypted or uploaded, with no class
+  recorded. A reference that is pointed at another key registers that key as a new row; copies already
+  written open only while a reference yielding the old key stays declared. An external key is not exported in a recovery bundle and does not count
+  towards the unconfirmed-bundle state. No migration change.
+- **`ENCRYPTION_KEY_UNRESOLVABLE` is raised** (#1294, EPIC N follow-up). A daemon refusing every
+  off-site copy for a `required` set for want of a key now pages whoever is on the notifier. The alert pass now raises it for a `required` set (not a `kopia` set, not a disabled one) whose
+  managed key file is missing or unreadable, that has no active managed key, whose external reference does
+  not resolve, whose key is not of the suite the deployment pins, or that has no key custody. It fires once, resolves when the key resolves,
+  and a pass that cannot read the key registry leaves it as it was. A deployment that encrypts nothing never
+  opens or creates the key directory for this. The alert guard now also fails an outside function that
+  builds an alert kind and has no non-test caller.
+- **`required` on a `kopia` set is satisfied by its repository** (#1296, EPIC N follow-up).
+  A deployment whose only encrypted-by-policy sets are incremental ones, with a managed provider and no
+  key created, showed key custody as degraded and `retnd_retained_copy_encryption_enabled 1`, though no
+  managed key will ever encrypt anything for it. Health, the gauge and the copy path now read one
+  method, `config.BackupSet.EncryptsRetainedCopies()`. `EncryptionSetPolicy` gains an additive
+  `satisfied_by: "repository"` for a kopia set, and `retnd encryption policy show` prints the sentence
+  the web UI already drew. `required` is still accepted on a kopia set.
+- **A guard against dropping an external key reference that still has copies** (#1304, EPIC N follow-up).
+  An external key's row stores no reference, so removing a superseded one from the configuration left
+  every copy under it unreadable and nothing said so. The key-custody health section now lists each
+  external key that ACTIVE copies record and no declared reference yields (and reads degraded, whatever
+  the mode), and the alert pass raises `ENCRYPTION_KEY_UNRESOLVABLE` for each affected set, naming the key
+  and the copies. Retiring such a key was already refused naming the copies and still is. Nothing stores
+  the reference text or any key material; with no external key on record custody is not opened.
+- **Encrypting retained copies that already exist in plaintext** (#1291, a follow-up to EPIC N, not a
+  sub-issue of it). A plaintext copy on a medium under a set that is now `required` was refused a
+  medium-to-medium hop and nothing encrypted it. `retnd encryption encrypt-existing <source/set> --to
+  <medium> [--artifact A] [--dry-run]` (and `POST`/`GET /api/v1/encryption/encrypt-existing`) does, only when an
+  operator runs it: the plaintext object is streamed into the encrypting pass, the ciphertext goes to the other
+  medium, is decrypt-verified against the recorded plaintext digest and recorded, and only then is the plaintext
+  copy retired. It is the engine's ordinary journaled move with a recorded opt-in (migration 0019), so a crash
+  at any phase resumes and a failed verify keeps the plaintext as the only good copy. The destination has to be
+  another medium (one placement per backup per medium). `--dry-run` names, per backup, whether a run would
+  encrypt it or the refusal and its reason. A cancel from the terminal and from the browser (the existing
+  assurance cancel) both discard an unverified copy and leave the plaintext untouched. A policy change and the
+  retention cycle still never rewrite an existing copy. Retroactive encryption is API and CLI only in this
+  release, so no screen has a button for it.
+- **Progress stages for encrypted copies** (#1290, EPIC N). `OperationProgress.stage` and
+  `LiveActivitySet.stage` gain `encrypting` and `decrypt-verifying` (appended after the original five, so
+  existing clients are unaffected), each with byte progress that starts at a measured zero, never goes
+  backward, never passes its total and is cleared on cancel and on failure. The move engine reports them through
+  a new `Engine.Progress` callback into `app.Progress`, so the CLI and the browser show the same stage and
+  counters, and no reading carries a key or a key id. The operation checklist shows the two rows only for an
+  encrypted copy and the activity strip says how many bytes of which. A standalone `retnd encryption verify`
+  has no live stage; it gets a live byte count instead (#1303, below).
+- **Live byte progress for a standalone `retnd encryption verify`** (#1303, EPIC N). The
+  `AssuranceOperationRecord` gains an optional `bytes_read` (omitted when there is none), the plaintext a
+  decrypt-verify scrub has read: a live count while it runs, the pass line's total once it has ended. It only
+  grows while the run is going and carries no key or key id. `retnd assurance show` prints it as
+  `bytes read: N` and the Verify recoverable dialog's decrypt row draws the same figure.
+- **The installer knows about the managed encryption keys** (#1295, EPIC N follow-up). The archive
+  plan now includes `config/retained_copy_keys`: `upgrade` copies it into the archive (the live
+  directory is untouched), and `factory-reset` moves it together with `state.db`, so the archive
+  holds the journal and the keys its encrypted copies name, and the clean install has no orphaned
+  key files. The factory-reset preview counts the key files and says what losing them means, the
+  archive-limit refusal and `uninstall`'s "Left in place" text name the directory, and it joins
+  `ENGINE_OWNED_CONFIG_DIRS` so it is pre-created `0700`. The Synology scripts delete nothing, so
+  there is nothing to change there, and `docs/install.md` now says what each mode does.
+- **Documentation for encrypted retained copies** (#997). A new operations guide,
+  `docs/encrypted-copies.md`, and ADR 0028 (what an encrypted copy proves, why object names stay visible, why the
+  bundle warning is a health fact and not an alert, and what `required` means for a `kopia` set). It states what is
+  encrypted and what is not, object names included, the two digests under their column names, loss of the key
+  (there is no recovery path), and how to open a copy on a machine with no deployment, with `retnd encryption decrypt` or the stock
+  `age` tool and the bundle. It says plainly what this build does not do: `retnd recover`, `fetch` and
+  `restore` do not decrypt (opening a copy is `retnd encryption decrypt`), there is no KMS or Vault
+  provider, and nothing re-encrypts a copy onto the medium it is already on. README, the site pages, recovery, storage-mediums, install, deployment,
+  runtime-contract, the compliance and submission pages and the config inventory carry the matching changes.
+- **An MCP server, so an agent can look at a deployment without being trusted** (EPIC U, #1343: #1344 to #1353;
+  FR-91 to FR-98; ADR 0034). `retnd agent serve --stdio --token-file PATH` and, behind a setting, `/api/v1/agent/mcp`
+  speak the Model Context Protocol and call `/api/v1` with a bearer token, so a tool result carries the API's own code,
+  message and correlation id and the `exit_code` `retnd` would exit with. A token is minted by a signed-in
+  person (`retnd agent token create NAME`, the Agents card on Settings, `POST /api/v1/agent/tokens`), starts `rat_`,
+  is shown once, is stored as a SHA-256 and an eight-character prefix, has an owner and an expiry (90 days
+  by default, one year at most) and is checked on every request, so a revoked one is refused on its next call. The scope
+  is one of `read` (the default: starts nothing, changes nothing), `operate` and `configure`. A call under the last two
+  executes nothing: it becomes a pending confirmation with the exact command on it, and `retnd agent confirmations approve`
+  (or the card) replays the recorded body byte for byte after a step-up. The operation gate stays shut: approving
+  `run_cycle` there is `DESTRUCTIVE_OPERATIONS_DISABLED`, exit 50, as for a person. No scope reaches authentication,
+  first-run, key export, import, decrypt, recovery grants, SSH keys, storage credentials or token minting, and
+  every result passes one projection that strips key material and credentials. Text that came from outside the
+  deployment (file names, validator output, workflow logs, activity messages, remote host names) arrives inside an
+  `untrusted` field, never in a description or a prompt. Every call, reads included, is one row of `agent_audit`
+  (`retnd agent audit`, `GET /api/v1/agent/audit`, the card); only mutations, refusals and confirmation changes
+  reach the activity feed, as `agent_action`. `retnd agent tools` prints the catalogue. The docs are
+  [`docs/agents.md`](docs/agents.md), the README section, `docs/site/reference.html`'s `agent` row, the Agents section of
+  `web-ui.html` and the `index.html#honest` paragraph on what this does not prove.
+  - **What an existing deployment sees: nothing, until a token is minted.** No token means no agent access, the
+    `agents:` block resolves to `http_transport: off`, `rate_limit_per_minute: 60`, `confirmation_ttl: 15m`,
+    `audit_retention_days: 90` and `max_pending_confirmations: 5` when a config writes none of it, and the container
+    contract (`container/compose.yaml`, the per-platform compose files, the Unraid template and TrueNAS catalogue, the
+    packaging JSON and the capability contract) is byte-identical to the commit before the epic. Migration `0022`
+    adds three tables (`agent_tokens`, `agent_confirmations`, `agent_audit`) and touches nothing that exists.
+  - **A remote `retnd agent token create` over plain HTTP now exits 52 until you acknowledge it.** The token comes
+    back in the mint response, so the engine refuses `POST /api/v1/agent/tokens` over plain HTTP from another machine
+    with `403 INSECURE_TRANSPORT_ACK_REQUIRED` unless the request carries the insecure-transport acknowledgement, the
+    same one key export asks. The browser's mint dialog asks the person first, so both behave alike. Set
+    `RETND_API_INSECURE_TRANSPORT=acknowledged` for the CLI, or use HTTPS. Loopback needs nothing, and nothing changes
+    for a deployment that never mints a token. The scopes nest: `operate` includes `read`, and `configure` includes
+    `operate`.
+  - **One one-way door: a `config.yaml` that carries `agents:` cannot be parsed by an older build.** Configuration
+    is read with `KnownFields(true)`, so a build from before 0.8.0 refuses the file at load, and it meets migration
+    `0022` with `ErrUnknownSchemaVersion` and fails closed. A deployment that never writes `agents:` can still go back.
+    Turning the HTTP transport on is such a write.
+  - **What it does not prove.** A model can still be persuaded by what it reads: the tests show that persuasion
+    cannot act without a person reading the command, not that it will not happen. The HTTP transport is not
+    confidential, which is why it is off. Equal answers across surfaces were checked against the clients the
+    end-to-end suite drives (CLI, browser, both transports), not against every MCP client. The MCP
+    implementation is the one new dependency (ADR 0034 D6): the official Go SDK,
+    `github.com/modelcontextprotocol/go-sdk` v1.8.0. `scripts/release/check-epic-u-closed.sh` is the
+    release's check that the epic is closed.
+
+- **Encryption suites for retained copies** (EPIC T, #1310: #1311 to #1320). Every encrypted copy now
+  records the suite it was written under (its existing `format_id`, so `age/v1` keeps its exact meaning and
+  no copy record changes), from a registry compiled into the build. Two suites ship, both `filippo.io/age`
+  and no new module. The default for a first key is `age-pq/v1`, which every surface describes in the same
+  words as the Settings card: "age v1 file, one ML-KEM-768 + X25519 hybrid recipient, ChaCha20-Poly1305 in 64 KiB authenticated chunks. 128-bit security level, post-quantum key establishment. Not AES, not FIPS-validated. Opens with `age -d -i key.txt` (age 1.3 or newer)." `age/v1` stays supported, and `suite: default` (or no
+  `suite:` at all) keeps the active key's suite, so an upgrade changes no deployment's suite. `retnd encryption suites` and
+  `GET /api/v1/encryption/suites` list them with their status.
+  - **A key belongs to a suite** (migration 0020 adds the side table `encryption_key_suites`; a key with
+    no row there, which is every existing key, reads `age/v1`; migration 0021 records the build default
+    the deployment last ran under). There is still one active managed key at a
+    time, and a copy is written only when that key belongs to the policy's suite. Changing the suite is choose, rotate, export, confirm: `policy patch --suite`
+    answers `rotation_needed` and writes no key, `key rotate --suite <id>` mints the new suite's key and
+    supersedes the old suite's in one write, and the new bundle is unconfirmed until you confirm it. Until
+    the rotation, a `required` set's new copies are refused before anything destructive, never written
+    under another suite. The web UI walks the same four steps in one Change the suite dialog. Nothing
+    rotates on its own, and a build that moves the default says so once in an
+    `EncryptionDefaultSuiteChanged` event and changes nothing else.
+  - **Supported, deprecated, retired.** A deprecated suite still reads and writes and turns health
+    degraded with the count of active copies under it and the announced retirement version. A retired suite reads only: decrypt-verify, scrub,
+    moves, `decrypt` and recovery keep working on its copies, no new copy is written under it, and
+    `suite:` pinned to it is refused at load. No suite is removed while a copy records it.
+  - **`retnd encryption reencrypt --suite ID | --key ID | --deprecated [--to MEDIUM] [--dry-run]`**
+    (`GET` and `POST /api/v1/encryption/reencrypt`, and a Re-encrypt under current suite button on a
+    deprecated or retired suite's Dashboard line) writes the selected copies again under the active
+    suite and key, through the same journaled move as `encrypt-existing`: another medium, no plaintext
+    on local disk, the old copy retired only after the new one decrypt-verifies. The dry run groups the
+    copies by suite and key; a run needs `--to`.
+  - **One-way door:** a `config.yaml` that writes `retained_copy_encryption.suite` needs 0.8.0 or newer.
+    0.7.2 and every earlier build refuse it as an unknown field. Writing nothing means `suite: default` and
+    opens no door.
+  - The product never calls a suite "military-grade" and never prints a security level the code does not
+    state. `docs/encrypted-copies.md` has the suites, what the default meets and does not meet, and where
+    encryption enters the ingest path; the recovery pages give the per-suite procedure (the same
+    `age -d -i` line, age 1.3 or newer for `age-pq/v1`). ADR 0033 records the decision and supersedes one
+    sentence of ADR 0027.
+- **`scripts/ci-docker.sh --host ssh://user@host` runs the gate on another machine's Docker daemon** (#1267). Several
+  gates at once took a laptop to a load of 60 and more. Pointing `DOCKER_HOST` at another machine does not work, since
+  the gate's bind mounts are read from the daemon's disk and come up empty, so remote mode copies the tree first, runs
+  the unchanged gate, returns its exit status and removes what it created. A remote `DOCKER_HOST` without `--host` is
+  now refused. See `docs/reference/local-gate.md`.
+
+### Changed
+
+- **Encrypt-existing and re-encrypt are behind the destructive gate over HTTP** (#1361, changes 0.8.0 product
+  behaviour). `GET` and `POST /api/v1/encryption/encrypt-existing` and `/api/v1/encryption/reencrypt` now
+  refuse with `403 DESTRUCTIVE_OPERATIONS_DISABLED` on a gateway profile, as retention apply does, because a
+  run retires the old copy. They are open on a local-account profile, which on a non-loopback connection
+  still needs `X-Retnd-Insecure-Transport-Ack`. The terminal verbs have no gate and are unchanged.
+
+- **Dependency bumps** (#1268). The five open dependabot updates landed together: `modernc.org/sqlite`
+  1.61.0, `aws-sdk-go-v2` 1.47.4, its `s3` 1.114.5, `credentials` 1.20.11 and `sts` 1.51.5. `apps/common` and
+  `apps/generic` follow core's versions, so every module still resolves on its own without `go.work`.
+- **The scale budgets measure the live heap** (#1278). The memory sampler in the production e2e tests read
+  `HeapInuse`, which counts garbage the collector has not freed yet, so the deep-tree budget failed on timing
+  under a loaded gate. It reads `/gc/heap/live:bytes` plus the stack now. The budgets did not change.
+
+## [0.7.2] - 2026-10-24
+
+0.7.2 is a patch release on top of 0.7.1. The CLI now has a command for every route the web UI calls, guarded by
+route-to-verb parity checks. The source preflight default changed, and a whole-set restore without `all: true` is now
+refused with a 400 unless it is narrowed.
+
+### Added
+
+- **Enrolment, the reset flow and `whoami` from a terminal** (#1253). The enrollment page, the two
+  reset pages and the session read a browser makes on load had no terminal twin. `retnd auth enroll
+  --username U --token-stdin --password-stdin` makes the first administrator through the serving engine
+  with the token (or the whole enrollment link) on the first stdin line and the password on the second,
+  optionally `--recovery-email` with the `--smtp-*` flags; it needs only `RETND_API_URL`, so a headless
+  container can enrol where `retnd-web auth create-admin` refuses because the serving process holds the
+  store. `retnd auth forgot-password --username U` asks for the single-use reset link and says that the
+  engine answers the same way for every username, and `retnd auth reset-password --token-stdin
+  --password-stdin` redeems it. `retnd auth whoami [--json]` prints who the credentials sign in as. The
+  terminal panel echoes all four instead of saying there's no equivalent, and no token or password ever
+  goes on a line.
+- **`retnd operation run`, the terminal twin of the run buttons** (#1250). "Run all enabled sets" and "Run this
+  backup set" ask the engine to start a run with `POST /api/v1/operations`, and a terminal couldn't: `retnd run` and
+  `retnd fetch --backup-set` run the cycle in the CLI's own process, so a run started that way never showed in
+  `operation list`. `retnd operation run [--backup-set S] [--skip-workflow-scripts] [--follow] [--json]` posts the
+  same body the buttons do, with the engine's own `config_revision` and a fresh idempotency key each time. A reply
+  that goes missing is sent again with the same key, which the engine answers with the run it already started.
+  `--follow` (here and on `operation show`) sits out a few minutes of failed polls instead of calling the run
+  failed, and Ctrl-C stops following without stopping the run. `run` and `fetch` are unchanged, and the terminal
+  panel now echoes `retnd operation run` for both buttons instead of saying there's no equivalent.
+- **A remote terminal** (#1250). From a machine with no deployment of its own (no `config.yaml`, nothing serving
+  its default state database), `operation list|show|run`, `assurance cancel`, `backup-set edit-hold`, `auth` and
+  `activity --follow` now reach the engine with `RETND_API_URL` and the two credential variables alone, and say
+  which deployment they reached. `operation run` and `assurance cancel` also want `RETND_API_DEPLOYMENT_ID`. A host
+  that has a deployment never goes remote, so a stopped local engine with an address exported still refuses. Plain
+  http to anything but loopback needs `RETND_API_INSECURE_TRANSPORT=acknowledged`, and `RETND_API_CA_FILE` trusts a
+  self-signed reverse proxy on any route.
+- **`retnd backup-set test-connection --candidate`, the wizard's "Test connection" from a terminal** (#1253). The
+  backup set wizard proves a source before it saves it, with `POST /api/v1/backup-sets/test-connection` in its
+  candidate mode, and a terminal could only prove one as a side effect of `backup-set create`, which writes.
+  `retnd backup-set test-connection --candidate --host H --user U --ssh-key-id K --known-hosts-line L --remote-path P
+  [--port N] [--json]` runs the same six checks against the source those flags describe, names no set and writes
+  nothing, the way `medium test-connection --candidate` does for a destination. The key is an id `ssh-key import`
+  printed, never a file, so the check imports nothing either. The terminal panel echoes this line for the button
+  instead of saying there's no equivalent.
+- **`retnd backup-set edit-hold --take`** (#1253). The web UI takes an edit hold when its edit form opens, so no
+  cycle runs against the set while it's half changed, and a terminal could report and release a hold but not take
+  one. `--take` takes it, or renews one already held, and says what that stopped; a scripted edit of several
+  patches can now run under the same hold, and gives it back with `--release`. The terminal panel echoes it.
+- **Exit codes 50 to 52 for the engine's side of a route** (#1250). 50 is the destructive gate refusing any routed
+  command (a validator upload or a routed create used to exit 1 for it), 51 is "stopped watching, the operation may
+  still be running", and 52 is plain http refused. 10 to 49 stay reserved for `recover`.
+
+- **`retnd artifacts --since DATE --until DATE --assurance BUCKET`, and `--until` on `recover --set` and
+  `POST /recoveries`** (#1251). The Backups page's "Received on or after", "Received on or before" and
+  assurance bucket filters had no terminal twin: `artifacts` took no date bounds or bucket, and `recover
+  --set` only took `--since`. Both verbs now take the date pair, with both ends inclusive on when a backup
+  arrived (`discovered_at`). A bare `YYYY-MM-DD` is that whole day in UTC, so `--until 2026-10-07` keeps a
+  backup from 23:30 that day, and an RFC 3339 time is that moment. `--until` before `--since` is refused with
+  exit 2 (and with 400 on the API). On `artifacts` the range narrows the list, `--json` and `--count`; on
+  `recover --set` it narrows the set and `--newest-only` then picks the newest inside it. `artifacts
+  --assurance due|overdue|degraded|untested` keeps the backups in that bucket, classified exactly as
+  `assurance list --bucket` classifies them. `POST /api/v1/recoveries` takes `until` beside `since`, and
+  `all`, the API's spelling of `--all`; the action log prints them as `--until` and `--all`.
+
+### Changed
+
+- **The local pre-commit gate is the only gate** (#1260). `.github/workflows/ci.yml` is gone; nothing on GitHub
+  runs the tests any more. `scripts/install-hooks.sh` installs `.husky/pre-commit`, which runs `scripts/ci-local.sh`
+  on every commit, and a release publishes only a commit the gate has vouched for: `scripts/release/record-local-gate.sh`
+  runs the full gate on a clean worktree and writes `provenance/local-gate.json` (schema `retnd.local-gate/1`, with
+  the gate tree, the toolchain, the ledger and the log's hash) plus `provenance/local-gate.log`, and the `require-release-gate`
+  job in `release.yml` runs `scripts/release/verify-local-gate.sh` against that record and refuses anything short of
+  `==> ci-local: ok` on the exact tree being published. Red tests go in with `CI_LOCAL_RED="<why>"` (test files only,
+  never on `main` or `release`), stamped `Local-Gate: red <why>`; a `--no-verify` commit is stamped `Local-Gate:
+  unverified`. The gate now exports `CI=1`, pins golangci-lint through `scripts/ci/pins.env`, serialises its
+  Docker-backed steps across worktrees under a lock in the shared git dir, and sweeps only its own worktree's test
+  containers (`retnd-test=<owner>`). The browser e2e suite from retnd-tests is blocking for `safety-invariants` and
+  `workflow-recovery` and a ratchet for the rest (`scripts/e2e/known-red.txt`, every entry with an issue, an owner and an
+  expiry). `docs/reference/local-gate.md` lists every knob.
+
+- **`retnd recover --to source: --preflight` no longer writes a probe file on the source host** (#1253). It used
+  to describe where a source-host recovery would write and then run the write check, which writes one probe file
+  on the production host the backup came from and removes it. The recovery dialog in the web UI reads that
+  description on open from configuration alone and probes only when you press "Check write access", and the
+  terminal now draws the same line: `--preflight` prints the destination, its id and the last write check's
+  answer (or `not_checked`) without touching the host, and `--preflight --write-check` runs the probe as well. A
+  script that relied on `--preflight` to prove write access adds `--write-check`. The terminal panel now prints
+  the read-only line for the dialog's description instead of saying there's no equivalent, and the line with
+  `--write-check` for the button.
+- **`workflows.disabled` is a new key, and an older retnd refuses it** (#1246). Clearing the workflow root
+  (`retnd settings workflow patch --disable`, or the older `--root ""`) now writes `workflows.disabled: true`
+  into `config.yaml`, because an absent root now means "use the mounted default". A retnd older than this
+  release refuses a `config.yaml` with that key and won't start, so before you downgrade run `retnd settings
+  workflow patch --enable` or delete the line. The patch says this when it writes the key.
+- **A root you cleared before this release comes back as the default** (#1246). A `config.yaml` whose root
+  was cleared before now looks the same as one that never had one, so on upgrade a deployment with
+  `/workflows` mounted picks it up: custom validators become available, and the Settings card, `retnd
+  settings workflow`, `retnd check` and the health report say workflows are on, with the default root. No hook
+  runs because of it, since a hook directory still needs a root named in the file. If you meant it to stay
+  off, run `retnd settings workflow patch --disable`.
+
+- **A date range, and `--newest-only`, are about when a backup arrived** (#1251). `recover --set --since`,
+  `POST /recoveries` `since`, `--newest-only` and the Backups page's date filter used to read `updated_at`,
+  which moves on every transition, so a March backup whose set went read-only and back in October counted as
+  October's and could become the "newest" restore point. They read `discovered_at` now, which nothing
+  changes after arrival, and the Backups list's Time column shows it too, so the time you see on a row is the
+  time the range filters on.
+- **A range that keeps every retained backup of a set onto its source host needs `--all`, and so does the
+  API** (#1251). A range counts as saying which backups you meant, but `--until 2099-01-01` or `--since
+  1970-01-01` is the whole set by another name, so `recover --set` refuses it with exit 2 and the count,
+  before any network call, and asks for `--all`. `POST /api/v1/recoveries` holds a whole set onto its
+  source host to the same rule: without `newest_only` it needs `"all": true`, or a range that leaves
+  something out, and is refused with 400 and the same sentence otherwise (`preflight` is not held to it).
+  The web console sends `all` when you pick "Every retained restore point" for the source host, so its
+  terminal line and its request say the same thing.
+
+  **This is a behaviour change for API callers.** A `POST /api/v1/recoveries` request that sends a whole set
+  to its source host (`target.kind` `source`) with no `newest_only`, `since` or `until`, or with a range
+  that keeps every retained backup, used to run and is now refused with 400 `INVALID_REQUEST`. Adding
+  `"all": true` to the request restores the old behaviour exactly: the same backups go to the same place.
+  The guard is there because that request overwrites nothing but does put every retained backup onto a
+  production host, and an accidental one should have to say so.
+
+### Fixed
+
+- **A malformed `RETND_API_URL` no longer prints its password** (#1250). An address whose password held a `/` or
+  `?` doesn't parse, and the refusal used to quote it back in full. It now prints only the scheme.
+- **A headless install can finish its first run from a terminal** (#1254). When the engine is serving its
+  first-run setup flow (it could not write its own default `config.yaml`), `retnd backup-set create` used to
+  refuse with exit 3, on the reasoning that the operator was standing in front of the wizard. On a headless
+  install nobody is, and stopping the engine to let the command write the file stops the container it was
+  typed in. With `RETND_API_URL` and the two credential variables set, the create now hands the first
+  configuration to that engine as `POST /api/v1/system/first-run`, the request the wizard sends, and prints
+  the set the engine wrote; the line the Web UI's terminal echoes for that request does the same when pasted.
+  A first-run engine now names its deployment on `GET /api/v1/system/version`, which a routed write checks
+  before it sends anything. Beside an engine that is already configured, a first configuration is still
+  refused with exit 3 and nothing sent, and the refusal now also says how to reach a first-run engine.
+  `retnd ssh-key import|list|discover` and `retnd ssh host-key-probe` go to the same first-run engine, and
+  that engine now serves `GET /api/v1/ssh-keys` and `GET /api/v1/ssh/key-candidates`, which it used to answer
+  503 `NOT_CONFIGURED` although the wizard's key step reads them. The command waits up to twelve minutes for
+  the engine's reply, because bringing its service up can take that long on a slow NAS, and a reply that still
+  doesn't come is followed by asking whether the engine is configured now, so it reports what actually
+  happened.
+- **Terminal lines that did less than the click, or that a shell would split** (#1253). The line the terminal
+  records for an action and the lines printed beside the controls were checked again, and these were wrong:
+  disabling or enabling workflows in Settings echoed a bare `retnd settings workflow patch`, which changes
+  nothing (it now ends in `--disable` or `--enable`). Saving a backup set without proving the connection
+  echoed a line without `--no-verify`, on create, edit and the first-run write. A recovery whose target the
+  engine refused echoed `retnd recover <id>` with no `--to`, which on a terminal means the source host; it now
+  prints no line and says why, and so does an operation request that leaves out the parameters its action
+  reads. The run buttons logged `retnd run` for a run the engine served, where the engine's own echo says
+  `retnd operation run`; they print the engine's line now, and keep `retnd run` and `retnd fetch` only for the
+  refusal where the destructive gate shuts the HTTP route and those are the commands that still work. The
+  Operation page put the id from its address on the copyable line unquoted, so a crafted link could show
+  `retnd assurance show x; curl ...|sh` there; the Backups selection bar, the due list and the snapshot
+  restore notice printed ids unquoted too, and the storage destination lines now quote theirs. Every one of
+  those lines is quoted now.
+- **The hourly activity events prune no longer fails on a busy host or fills the terminal with errors**
+  (#1247). The prune ran its age delete and its row-bound delete under one 10 second deadline, and the row
+  bound found its cut-off by walking up to 50,000 rows of the table on every run. On a NAS whose page cache a
+  scrub had just evicted, that walk was disk reads behind a saturated disk, it held the journal's only
+  connection while it ran, and it missed its deadline about once an hour, each time as an error line in the
+  terminal. Each prune statement now has its own 5 second deadline and removes at most 1,000 rows, one pass
+  sends at most ten of them and picks up again five seconds later, and stopping the engine stops a pass
+  (the shutdown flush no longer prunes at all). The row bound counts the table from its smallest index on
+  each statement, which is still a full scan of that index but no longer of the rows, and then walks only
+  the rows it removes. The delete that coalesces recovery stage lines uses the `op_id` index it was meant
+  to instead of scanning the table inside the writer's transaction. A prune that loses a race for the
+  journal is retried a minute later with one `activity_prune_deferred` warning in the process log, never
+  in the terminal; contention that lasts an hour is an error, and any other failure (a disk fault, a full
+  disk, a read-only or corrupt database) is an error straight away, each at most once an hour. The journal
+  also now logs a `journal_slow_hold` warning naming any statement, cursor or transaction that keeps its
+  connection for more than a second, with how many callers waited behind it, so the next missed deadline
+  says what it was waiting for.
+- **The publish no longer leaves main failing the deployment tripwire** (#1247). The release workflow's
+  merge back into main flipped `canonical.json` to published without moving its line in
+  `core/tests/deploymentdiff/testdata/digests.txt`, so main failed that test after every release. The
+  recorder now moves that line with the publish (and refuses when anything else in the file changed or the
+  recorded line had already drifted), and the merge back runs the test before it pushes.
+- **The destination configure wizard prints `retnd medium configure`** (#1252). Its terminal lines were still
+  `medium add|edit` with a note saying the CLI couldn't carry a local volume's `path`, which stopped being true
+  when `medium configure --field` shipped in #1154. The review step now prints `retnd medium configure <id>
+  --backend B --field id=value ...` with the credential as `--credentials-id`, the same line the terminal
+  records after the save, and adds `retnd medium default <id>` when the default box is ticked. The test step
+  prints that line with `--preflight` instead of `medium test-connection`, which checks what's already saved
+  rather than the values on screen. The add wizard's confirm step names `retnd medium backends` and `retnd
+  medium configure`.
+
+- **A password with a `/`, `?` or `#` in it no longer leaks from an endpoint onto a printed command line**
+  (#1252). The userinfo cut in the terminal echo and in the browser's command lines stopped the address at
+  the first `/`, `?` or `#`, so `https://key:pa/ss@host` found no `@` to cut at and went onto the line
+  whole. Now an address that still has an `@` in it after the cut is left out, with a placeholder in its
+  place, and the line is marked as not runnable as printed. That also leaves out an address with a real `@`
+  after the host, which is the safe way to be wrong. The S3 destination wizard (the Edit button on a
+  destination) had its own copy of these lines that printed the endpoint as typed and a credentials command
+  word for word; it now cuts the first and shows a placeholder for the second, the same as the terminal.
+
+- **Custom validators work on a default install** (#1246). The Docker host installer makes
+  `<prefix>/workflows` and mounts it at `/workflows`, and never told the engine: `config.yaml` had no
+  `workflows` block, so the Custom validators card refused with "no workflow root is configured". The engine
+  now uses `/workflows` when `config.yaml` names no root and that directory is there, on every adapter, and
+  the Settings card, `retnd settings workflow`, `retnd assurance validators list` and `retnd check` call it
+  the default rather than "not configured". An explicit root still wins, `--disable` turns workflows off
+  (default included) and `--enable` turns them back on; the API's `PATCH /settings/workflow` takes the same
+  `disabled`. The hook tree stays mounted read-only: the compose file and the CasaOS, Portainer, Proxmox and
+  OpenMediaVault stacks now mount `recovery-test-validators` and `recovery-test-validators.superseded`
+  writable over it, from the same host tree, and the installer creates both (refusing a symlink or a file
+  there). `config.yaml` can't name either directory as a hook stage. A move aside between the two mounts
+  copies and then removes, and it only moves regular files within the script size limit, never following a
+  link or blocking on a FIFO; anything else in the directory is left where it is and logged, and a
+  temporary file a crashed upload left behind is removed. The validator list now carries `scripts_dir`, the
+  absolute directory an upload lands in. When there really is nowhere to write, the card and the error say
+  which directory was tried and what fixes it.
+
+- **Every Backups filter has a "Same list from the terminal" line** (#1251). With a set filter and a
+  received-date range, the line printed `retnd artifacts --backup-set S` alone, which lists more than the
+  screen shows, and a bucket filter or a range with no set filter had no line at all. The line now carries
+  `--since`, `--until` and `--assurance`, and shows on its own when there's no set filter. An inverted range
+  (which the CLI refuses) prints no line.
+
+## [0.7.1] - 2026-10-17
+
+0.7.1 is a patch release, and the one thing in it that is new rather than fixed is custom recovery-test
+validators: a script and a pattern over the backup's file name, in the engine, the API, `retnd assurance
+validators` and the Settings screen. Nothing in 0.7.0 changes meaning on upgrade, but four things are worth
+a read first. A validator starts with a small environment (the `RECOVERY_TEST_*` and `RETND_*` variables and
+`PATH`) and sees the workflow environment, secrets included, only if you opt in with `env: workflow` on the
+validator or `validator_env: workflow` on the set. `config.yaml` pins each validator script by hash, so a
+script edited on disk is refused until you save it again. A retnd older than this refuses a `config.yaml`
+that has `assurance.validators` or `script_sha256` in it, so remove them before you downgrade. And the
+`--text-3` ink (the quiet grey text) is darker in both themes so it meets AA contrast, which you will see
+as slightly stronger secondary text and unchanged borders... the rest is fixes: a hook whose runner goes
+quiet no longer hangs a run, the dark theme shows from the first frame, the Operation page reads finished
+runs back, and the Backups page gets a per-row actions menu.
+
+### Added
+
+- **Custom recovery-test validators, by backup name** (#1203, #1204). A validator is a `NAME.local.sh` and a
+  Go RE2 pattern over the backup's file name, for one backup set or every set, so a set that holds a manifest
+  and a database dump can check each its own way. For the copy a recovery test is about to check, the first of
+  these applies: the set's own pattern, a global pattern, the set's `validator_id`, the one script in its
+  recovery-test directory, the built-in structure check. Two patterns at one scope that match one backup end
+  the test `could not complete` instead of picking one, and `list` warns about every backup in the journal
+  that both match. New: `GET/POST /api/v1/assurance/validators`, `PUT/DELETE
+  /api/v1/assurance/validators/{name}`, `GET .../{name}/script`, `POST /assurance/validator-preview`,
+  `GET /assurance/validator-patterns` and `GET /assurance/default-validator-script`, and `retnd assurance
+  validators list|add|update|remove|script|patterns|default-script`. The reads ask the serving engine when
+  `RETND_API_URL` names one. Uploading and editing are behind the destructive gate and ask for the password
+  again (503 `STEP_UP_UNAVAILABLE` where nothing can check it), because they put code where the engine runs it
+  on the host; removing does not need the gate. Things to know:
+  - `PUT` is a whole replace: it carries the pattern, the scope and either the new `script` or `script_sha256`
+    to keep the stored one (409 `VALIDATOR_SCRIPT_CHANGED` if it moved on). `retnd assurance validators update`
+    needs `--backup-set` or `--global`, so an edit can no longer widen a set-scoped validator by leaving the
+    scope out.
+  - A pattern may not repeat more than 255 times or compile to more than 1000 instructions, and names that differ
+    only by case are one name. The preview and list scans stop when the request does, and a write scans the
+    journal before it takes the configuration lock.
+  - Removing a validator, or a backup set that had some, moves the script to
+    `recovery-test-validators.superseded`; nothing is deleted. Files in the directory that `config.yaml` does not
+    name are moved there on the next upload.
+  - A recovery test that names its script (`validator_id` and every custom validator) now looks that file up
+    directly, so a stray file beside it or a 65th file no longer refuses it (#1204).
+  - Uploads, edits and removals leave `validator_uploaded`, `validator_updated` and `validator_removed` events
+    (hash and size, never the script), and a matched validator that the test did not run leaves a
+    `recovery_test_validator_fallback` warning.
+  - A retnd from before this release refuses a `config.yaml` that has `assurance.validators` in it. Remove them
+    before you downgrade.
+  - The upload check is a lint, not a sandbox. A validator starts with a small environment unless it is opted in
+    to the workflow one (see *Changed*, #1221).
+  - A validator's `name` is also its id in the activity feed and in the journal (#1220): a test decided by a
+    custom validator is now recorded under `NAME`, not `NAME.local.sh`, and the list reads both spellings. Runs
+    decided by a set's `validator_id` or by the built-in check are recorded exactly as before. A name is at
+    most 64 bytes, because the feed withholds a longer id; `config.yaml` with a longer one is refused.
+  - `config.yaml` pins each script by hash (#1222): uploads and edits write `script_sha256` into the entry, a
+    recovery test refuses a script that no longer hashes to it (`could not complete`, "edited on disk", plus a
+    `recovery_test_validator_edited` warning), and `list` and the API's `CustomValidator` carry `pinned_sha256`
+    and `script_state` (`pinned`, `unpinned`, `edited_on_disk`, `missing`). An entry written before this has no
+    hash, keeps working and shows as `unpinned` until its next save pins it; nothing rewrites your file. Keeping
+    a script by `script_sha256` is refused for one edited on disk, so the way to approve an edit is to send the
+    script. A retnd from before this release also refuses the `script_sha256` key.
+  - The web UI shows and sets a validator's environment (#1233). The Recovery-test validators card has an
+    Environment column ("Minimal environment" or "Workflow environment, secrets included"), the add and edit
+    dialog has a labelled choice that starts on minimal, and a backup's Declare validator line says which
+    environment the validator that would run starts with. Choosing workflow takes the same gate and password as
+    any upload, and the command offered for a shut gate carries `--env workflow`.
+- **`GET /api/v1/assurance/operations/{op}` and `retnd assurance show <operation-id> [--json]`** (#1200). One
+  scrub or recovery test read back by the operation id its start returned, running or finished a month ago:
+  how it ended (`state` is an enum: `running`, `passed`, `failed`, `did_not_complete`, `cancelled`, or
+  `unfinished` for a run with no end that this engine isn't running, which can mean it is going in another
+  process as well as that its process stopped), `kind` (`scrub`, `recovery_test`, `recovery`, also an enum),
+  the last stage it reached, the end line's reason, and its lines oldest first in the live feed's own
+  shape. It reads the durable activity record (a run's start, its last stage and its end, kept for the
+  record's retention) plus whatever the live feed still holds. A run this engine is running answers
+  `running` at once, even before it has written a line, and an id with nothing on record is a 404
+  `OPERATION_NOT_FOUND` whose message states the retention. The verb prints the lines in the `activity
+  --follow` format under a heading in the Operation page's words, plus the `recovery-test --show-output`
+  command for the validator output the page shows (the record doesn't carry it); it reads this host's
+  journal with nothing serving and asks the engine when one is attached. `operation show` is the engine's own
+  record of an operation, and the two now point at each other.
+- **A scrub started with Scrub now writes a `scrub_start` line**, and its `scrub_start`, `scrub_failure` and
+  `scrub_pass` lines carry its operation id as `op_id`, so it is on the record from its first moment. Its
+  pass line is written even when the scrub selected nothing (a scheduled quiet pass still writes nothing).
+  A recovery test's `recovery_test_end` and a scrub's `scrub_pass` say `cancelled=true` when, and only when,
+  the run was stopped by a cancel request; a run cut short by the service shutting down is not cancelled.
+
+- **The Backups page has a per-row actions menu, and a set links to its backups** (#1202, #1214). Every row
+  on Backups gets one Actions menu in place of the strip of buttons, and the set page has a "Backups in this
+  set" link through to that set's backups. The backup and set detail pages use the same menu.
+
+### Changed
+
+- **A recovery-test validator starts with a small environment** (#1221). It used to run with the backup
+  set's whole merged workflow environment, so a secret you had put there for a backup hook (a database
+  password, an API token) reached a script that is run against a recovered copy. It now gets the
+  `RECOVERY_TEST_*` variables, the product's `RETND_*` facts and the baseline `PATH`, and nothing else; the
+  secret's file or command is not even read for it. If an existing validator relied on a workflow variable,
+  set `assurance.recovery_test.validator_env: workflow` on the deployment or on that set and it sees
+  them again. Anything other than `minimal` or `workflow` is refused when the configuration loads. The
+  assurance notification scripts are hooks and keep the workflow environment. The set's key is set in the
+  configuration file for now; the settings screens and the CLI leave it alone when they save.
+- **A custom validator can opt in on its own** (#1221). Its entry takes `env: minimal|workflow`, and the
+  validator's own word wins over the set's `validator_env` and the deployment's, in both directions (a
+  validator can opt in under a minimal set, or stay minimal under a set that opted in). `POST` and `PUT
+  /api/v1/assurance/validators` take `env`, the list returns it (the environment the validator really gets),
+  `retnd assurance validators add|update` take `--env minimal|workflow`, and the `validator_uploaded`,
+  `validator_updated` and `validator_removed` events carry it. A `PUT` is a whole replacement, so an edit that
+  leaves `env` out is `minimal`, never what the validator had. Any other spelling is refused (400, and when
+  the configuration loads), and a refused value never counts as the opt-in. A validator written through the
+  API or the CLI always states its `env`, so it does not follow a later opt-in on the set; a hand-written
+  entry with no `env` does. The Settings screen has no control for it yet (a follow-up on the validators UI).
+
+- **`--text-3` text is darker in both themes so it meets AA contrast** (#1235). The quiet grey used for
+  captions, timestamps and table meta measured between 2.9:1 and 4.2:1 on the page and card backgrounds in
+  places, under the 4.5:1 that WCAG AA asks for. In the light theme it moves from `#8b8d8a` to `#696b68` and
+  in the dark theme from `#767976` to `#959892` (5.38:1 and 5.80:1 on a card). The 3:1 job it also did, for
+  control edges and one bar fill, has its own `--edge-3` token with the old values, so borders look exactly
+  as before. The docked terminal, a dark surface in both themes, now uses its own inks for its time stamps,
+  its `[you]` label and the unfinished-actions notice, and the warn banner's eyebrow text is a little
+  stronger. If you theme the web interface with your own CSS, check anything you set from `--text-3`.
+
+### Fixed
+
+- **A hook whose Host Workflow Runner stops answering is now bounded by its script timeout** (#931). The
+  client only bounded the connect, so a runner that was stopped rather than dead accepted the connection and
+  then never replied to the hello, and the step's `script_timeout` could not end the wait. The run stayed in
+  progress, the set was never scheduled again, and no hold existed to explain why. The handshake now ends
+  with the step's context (and with its own 10 second bound for a caller with no deadline), the connection is
+  closed so a live runner reads the lease as expired, and a step whose timeout ran out while the runner was
+  silent is recorded as `timed_out` with termination unconfirmed (it used to read `transport_lost`), keeping
+  any output it had printed. The run finalises as failed instead of hanging.
+
+- **The web interface resolves its theme before the first paint** (#1236). A stored dark preference used to
+  show the light tokens for the first frames and then switch, because the theme was written by an effect
+  after the app had booted. A small inline script in the page now sets `data-theme` from the stored
+  preference before anything paints, and the app starts from that instead of overwriting it. Light is still
+  the default when nothing is stored.
+
+- **The backup detail page no longer shows an Exclude row that could never be filled** (#930). Nothing on the
+  wire carries a set's exclude patterns, so on a real deployment the row was a permanent dash. It is gone;
+  `exclude_paths` is still read from `config.yaml` as before and the API is unchanged.
+
+- **The production web bundle no longer carries the mock API's fixtures** (#1216). The mock was imported
+  statically, so its sample sets, events and hosts rode along in every build. It is now loaded only in the
+  dev build.
+
+- **The Operation page shows what a run did once it has left the live feed** (#1200). It used to draw only
+  what the live activity tail held, so a recovery test that had dropped off it read "no longer on the live
+  feed" with a stale "Stage 1 of 5", a 0% bar and an empty black terminal strip, and a reload or a link to
+  a finished run couldn't find it at all. The page now reads the run back from the durable record: its
+  start, the stage it reached and its end in the terminal, the outcome (finished, failed, cancelled) with
+  the stage count and bar where the run really got to, and, for a recovery test, the validator's output
+  when that output is this run's. A run whose lines were pruned is said in words (after a short grace
+  period, because the writer behind the record batches and a run read right after its start can be a
+  moment from it), a run with no end says it may still be running elsewhere rather than that its process
+  died, no empty terminal strip is ever drawn, Following only shows while something is live, and a finished scrub's bar is full rather
+  than empty. The page prints the terminal commands that match it, `retnd assurance show <operation-id>` and, for a
+  recovery test, `recovery-test --show-output`. The footer line
+  ("retnd running on ...") also moved to the secondary text colour, since it measured 4.23:1, under AA.
+
+## [0.7.0] - 2026-10-15
+
+0.7.0 is a minor rather than 0.6.5 because three things in it change what an existing setup does, and
+they're the first three entries under Changed below. `retnd recover` with no `--to` now sends a backup back
+to the set's own SFTP source host, and it refuses to do that without `--acknowledge-source-write`. An API
+client releasing a snapshot hold has to send `snapshot_hold_release.acknowledged: true`. And the
+destructive gate opens for the six local-account profiles, behind a step-up password, an acknowledgement
+and a prompt over plain HTTP, while `ugos` stays shut. Read those three before you upgrade a host that
+scripts against retnd... everything else here is fixes and additions: the download dialog and the host
+folder browser, one shared staging and destination picker, recovery test progress and one terminal state,
+Run assurance from the Dashboard and the Validation pane, Custom configuration, Backups paging, Settings
+anchors, a Backups badge that counts backups, and workflow hooks in a set's edit mode.
+
+### Added
+
+- **The Backups page pages its list** (#1180). A "Rows per page" control offers 20, 50 and 100, and "All"
+  while the deployment holds fewer than 1000 backups, with Previous and Next beside it. A chosen 20, 50 or
+  100 is remembered in the browser between sessions (and the page works without storage); "All" is not.
+  The list endpoint still answers with every backup, so paging happens in the browser, and `retnd artifacts`
+  keeps printing the whole list (paging there waits for the endpoint to page for real). The rows come in
+  configuration order, so a page holds the same backups every time. Select-all after a filter (#1107) still
+  takes every matching backup on every page. Changing a filter returns to page one.
+
+- **`retained_count` on `GET /system/health`, and `retnd artifacts --count`** (#1186). The health report
+  carries how many backups the deployment holds outside quarantine, the backups of removed sets included,
+  and `retnd status --json` prints it too. `retnd artifacts --count` prints the same number, always the
+  exact figure (the sidebar's `>100` is the sidebar's), narrowed by `--source` and `--backup-set`;
+  with `--state` it counts that state instead, quarantine included, and `--json` prints `{"count": N}`.
+
+- **The Dashboard's Assurance tile lists the backups behind its counts, and each row has Run assurance** (#1174). Under Due, Overdue and Degraded the tile now lists those backups, one row each with its set, why it is there and how old the last check is. Run assurance starts the recovery test of that row's backup (`POST /backup-sets/{source}/{set}/recovery-test` with `artifact_id`, `retnd recovery-test <source/set> --artifact ID`), shows the run on the row, and the counts refresh when it ends, with the row saying what its recovery claim reads now. The engine runs one test per set at a time, so the other rows of a set wait with that reason while one runs. A set that could only refuse a test gets a disabled button with the reason beside it, and each bucket shows at most 20 rows with a link to the rest on Backups. The terminal has the same list: `retnd assurance list [--backup-set S] [--bucket due|overdue|degraded|untested] [--json]` (new, with a JSON shape of its own; `--bucket` takes a comma list) names the same backups in the same words, held to the tile by shared test vectors. A set whose recovery-test policy can't be read is now unknown rather than "tests on" in both places, so its backups aren't counted due on no evidence.
+- **The backup set's Validation pane has a Run validation button** (#1178). It starts the set's recovery test through the same endpoint, shows it in flight with the stage and progress, points at the set terminal for the run's output rather than drawing it a second time, disables itself with the reason while one is running, and the pane re-reads when the run ends. No API change: both buttons use the route and command that already existed.
+
+- **`GET /api/v1/system/staging-directories` and `retnd system staging [PATH]`** (#1179). The folders below
+  the recovery staging root on the machine the engine runs on, as the names `recover --to` takes. Read-only
+  and confined to that one root: symbolic links are neither followed nor listed, `..` and absolute names
+  are refused, a folder that is not there is a 404 `DIRECTORY_NOT_FOUND` and one the host may not read a
+  409 `DIRECTORY_NOT_READABLE`. One listing reads at most 100,000 entries, returns at most 1,000 folders
+  and gives up after ten seconds. The CLI prints only folder names on stdout.
+- **`max_download_streams` on `GET /api/v1/settings/assurance`** (#1179): the ceiling on browser downloads
+  the engine streams at once, read only.
+
+### Changed
+
+- **Breaking for scripts in 0.7.0: `retnd recover` with no `--to` now means the source host, spelled `source:`** (#1191, #1193). If you always pass `--to`, nothing you run changes meaning. `retnd recover ID` (or `--set S`) with no `--to` used to be a usage error and now means "send it back to the set's own SFTP source host". It is refused before any network call unless you add `--acknowledge-source-write` (exit 40), it is a usage error naming why for a set with no SFTP source or one declared `read_only`, and a whole set onto the source host also needs `--newest-only`, `--since` or the new `--all`. The source host is spelled `--to source:` or `--to source:FOLDER`, with the colon, so `--to source` with no colon is still a staging folder called "source", exactly as before. `--acknowledge-source-write` next to any other `--to` is a usage error. The one name that does change meaning is a staging name starting with `source:`, which now means the source host; write it `./source:...` to keep it a staging folder. The web interface's "Same thing from the terminal" writes `./NAME` for any staging name starting with `source:`, `medium:` or `-`. For API clients: responses can now carry `target.kind: "source"`, with `destination_id`, `url` and `verified` beside it, and a recovery result's manifest on the source host is `manifest-<operation id>.json`. One thing about older builds: a retnd older than #1191 does not know the `retnd-recovered-*` rule, so if you downgrade, its next backup run takes those folders' files for new backups (and, on a set that deletes from its source, deletes them).
+
+- **Breaking for API clients in 0.7.0: releasing a snapshot hold now needs an acknowledgement** (#1164). If you only use the web interface or the `retnd` terminal, nothing changes for you: the screen asks you to tick a box before it releases a hold, and `retnd snapshot unhold` works as before. If you have a script or another client that calls `POST /api/v1/operations` with `release_snapshot_hold`, it will start getting `409 SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED` on every profile after you upgrade, and the hold stays where it was. To fix it, add `"acknowledged": true` inside `snapshot_hold_release`, which is your script saying it knows the snapshot becomes prunable by the next retention run. Restores on a local-account profile have new refusals too, but those calls were refused outright before this release, so nothing that worked stops working there.
+
+- **The destructive gate now opens for local-account profiles, and verify, hold and release-hold are off it** (#1163, #1164). This changes a default, so I'm putting what happens on upgrade in plain words first. If you run the `generic`, `truenas`, `unraid`, `openmediavault`, `proxmox` or `synology` profile, the web interface can now start a run, apply a retention plan and restore, where before it refused all of them with `DESTRUCTIVE_OPERATIONS_DISABLED`. Nothing runs by itself: you still press the control, and a few things are asked for first. A restore needs your password again and a tick in the "I understand" box. And if you reach the web interface over plain HTTP from another machine (anything but `localhost`, with no HTTPS in front), a gated act first shows "This connection is not encrypted" and only goes ahead if you say so; put HTTPS in front and it never asks. If you run the `ugos` profile nothing opens: its identity is a header the platform sets, nobody has verified that check on real hardware, and the gate stays shut until #92 ships one. Verify, hold and release-hold now work on every profile, `ugos` included, because they destroy nothing; releasing a hold asks for an explicit acknowledgement and the activity feed records who released which hold and when, and restoring a snapshot stays gated. The gate is chosen from the profile in code (there is still no flag or environment variable for it), `GET /system/capabilities` reports the real state per profile plus `step_up_required` and `insecure_transport_ack_required`, and a pinned test makes a new profile start shut. For API clients: `release_snapshot_hold` now needs `snapshot_hold_release.acknowledged: true` on every profile (the breaking entry above), and a restore on a local-account profile needs `acknowledged: true` (409 `RESTORE_TARGET_NOT_ACKNOWLEDGED` for a snapshot restore, 409 `RECOVERY_COST_NOT_ACKNOWLEDGED` for a provider restore, whose one `acknowledged` field already meant the cost), the `X-Retnd-Step-Up-Password` header (403 `STEP_UP_REQUIRED` or `STEP_UP_FAILED`, 429 `RATE_LIMITED` with `Retry-After` when too many passwords were checked in the last minute, 503 `STEP_UP_UNAVAILABLE` where nothing can check one) and, over insecure transport, `X-Retnd-Insecure-Transport-Ack: acknowledged`. Whether the connection counts as insecure is decided by `serve-ui`, the hop your browser actually talks to, so the Synology package (where the engine only ever sees `serve-ui` over loopback) asks a LAN browser on plain HTTP, and Unraid (where it only ever sees a container address) stops asking a browser on HTTPS or on the NAS itself. The web interface asks before it sends your password over an unencrypted connection, never after. `retnd snapshot unhold` and the rest of the terminal are untouched. `x-destructive-gate` stays on `POST /operations` because most of its actions are gated, and the new `x-destructive-gate-exempt-actions` lists the three that are not.
+
+- **Recovering a backup now starts on the place it came from: its own SFTP source host** (#1191, #1193). Every recovery dialog (Recover artifact on the Backups list and on a backup's page, the Backups selection bar, and Recover this backup set) has a new first choice, "Source host (SFTP)". It is the one already picked when it can work: the set pulls over SFTP, the destructive gate is open, the set is not declared `read_only`, and no write check has found the account read-only. Otherwise it stays first with the reason under it, and the dialog starts where it did before. `retnd recover` with no `--to` means the same place, and `--to source:` or `--to source:FOLDER` say it outright. The destination is built from the set's own settings (host, user, key, remote path), never from the request. It writes onto a production machine, so nothing about it is implied. Opening a dialog only reads the configuration; the write check (one probe file written and removed on the host) runs when you tick "I understand this writes N bytes onto HOST" or press "Check write access", and it says a read-only account (the usual NAS set-up) before Recover is enabled. The tick acknowledges that exact host, account, path and folder, and if the configuration changes before or during the run, nothing more is written. On a local-account profile the web interface asks for your password again, exactly like a restore, and on `ugos` the gate keeps it shut. The files go into a new `retnd-recovered-<date>-<time>-<4 hex>` folder under the set's remote path, each one written under a temporary name and renamed into place, so nothing already there is ever replaced and a dropped connection never leaves a short file under a real name. Where the host can hash, its own SHA-256 is checked; otherwise the result says only the size matched. A whole set onto the source host starts on "newest only" and is refused before a byte is read when it does not fit the host's free space. The next backup run skips a `retnd-recovered-*` folder directly under the remote path (and only there), and says how many files it skipped. retnd never deletes these folders: `docs/recovery.md` says how to adopt or remove one. For API clients: `target.kind` gains `source` with `target.acknowledged_destination`, `GET /backup-sets/{source}/{set}/source-host` describes the destination from configuration and `POST .../source-host/write-check` runs the probe (403 on a shut gate, 429 `RATE_LIMITED` with `Retry-After`), the mint, `POST /recoveries` and the redeem are gated for that kind (`x-destructive-gate-target-kinds`), source grants live 60 seconds, and there are six new codes: `RECOVERY_SOURCE_HOST_UNAVAILABLE`, `RECOVERY_SOURCE_HOST_READ_ONLY`, `RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED` and `RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE` (409), `RECOVERY_SOURCE_HOST_NO_SPACE` (507) and `RECOVERY_SOURCE_HOST_UNREACHABLE` (503, worth retrying), exits 38 to 43 in the terminal. The script-visible changes are in their own breaking entry above.
+
+### Fixed
+
+- **The Lifecycle list agrees with the verified chip, and Recovery says Custom configuration** (#1175). A
+  backup with no ingest-time verdict that a scrub had read back and hash-matched showed "Content verified"
+  in its chip and a dash on the Lifecycle's VERIFIED step. That step is now reached at the scrub's time and
+  says the scrub found the content intact since receipt. A backup whose ingest check failed stays unreached
+  there whatever a scrub found, because a scrub only shows a bad file is still the same bad file. A set with a policy of its own now reads "Custom configuration" on its Recovery
+  chip (it said "This set's own policy"), linked to that set's policy, and a set on the deployment's
+  default still reads "Default configuration" linked to Settings. The policy form's note for a set whose
+  recovery test is off no longer says the claim reads "Not configured". "Not configured" now survives only
+  for a set whose policy resolves to nothing, which the web API never reports today.
+
+- **Links into Settings land on their section** (#1188). Clicking "Default configuration" opened Settings
+  at an unrelated spot, because the cards above the target load after the browser has already jumped and push
+  it down. Every Settings section now has a stable anchor id (`#assurance`, `#storage-destinations`,
+  `#retention` and the rest), kept in one table that the page and the links both read. The page scrolls to
+  the hash after the route renders and keeps correcting while the cards load, until you scroll yourself.
+  Targets keep clear of the top edge, scrolling is smooth only when reduced motion is not requested, and the
+  section a link points at gets an accent outline (4.89:1 in light, 6.98:1 in dark). The Assurance card's
+  anchor is `#assurance` now, and the old `#assurance-defaults` still lands on it. A malformed hash (a lone
+  `%E0`) is ignored instead of taking the page down.
+
+- **Edit mode on a backup set can set its before and after workflows** (#1189). The Workflow card told you hook directories are set "per set here" and gave you nothing to set them with, even though the API and `retnd backup-set workflow patch --before-dir/--after-dir` always took them. Edit mode now has a before and an after directory field, each with its own Save, written through that same PATCH so the shell-rule save gate and the workflow-root check are the service's. They belong to the page's edit session: SAVE ALL & EXIT EDIT saves whatever is still typed in them as well (and stays in edit mode with the reason on screen if the gate refuses it), and CANCEL's list of discarded and already-saved changes names them. Spaces around a directory aren't a change, and an emptied box is never sent, because an empty directory turns that stage of hooks off: a separate Clear button does that. If SAVE ALL writes the directories and then the rest of the set's changes fail, the page says the directories went live and the rest didn't. The card lists the hooks that will actually run (the deployment's stages wrap the set's, they are not replaced by them), and its empty-state sentence only points at edit mode when edit mode has the control. No API or CLI change was needed: `retnd backup-set workflow <id> [--json]` already reads the same thing.
+- **Placeholder text everywhere takes the secondary ink** (#1189). The browser's default placeholder grey is 4.4:1 on a light text box and 3.7:1 on a dark one, under WCAG AA's 4.5:1, so every placeholder in the web UI now uses `--text-2` (6.4:1 light, 6.9:1 dark). Text boxes and bordered lists that have to be found by their edge share one `--control-edge` token (3.35:1 light, 3.85:1 dark on the card surface).
+
+- **The sidebar's Backups badge counts backups now, not backup sets** (#1186). It was summed from the
+  health report's per-set verdicts, so a deployment holding 119 backups in a handful of sets showed a
+  single-digit number. The badge now counts the backups the deployment holds outside quarantine: every
+  backup the Backups page lists except the quarantined ones, which the Quarantine badge already counts. It
+  shows the exact number up to 100 and `>100` above that, with an accessible label that says what it counts
+  ("40 backups outside quarantine"). The figure comes off the health report the console already polls, so
+  no screen downloads the backups list to read its length. While measuring it I found the non-alert nav
+  badges were `--text-3` on the nav surface, 3.35:1 in the light theme and 3.85:1 in the dark one, under the
+  4.5:1 small text needs, so they use `--text-2` now (6.64:1 and 6.89:1 on the nav surface, 5.73:1 and
+  5.52:1 on the active row). The Backups row's tooltip said the list was newest first; it's in
+  configuration order, and the tooltip says so now.
+
+- **A running recovery test shows how far along it is, and the dialog no longer draws a terminal of its own** (#1176). The bar used to stay a sliding indeterminate stripe for the whole test, because the engine names the stage on the feed and sends no running byte total. It now moves through the engine's own stage list (resolving, reading, verifying, validating, cleaning up, complete) and says "Stage 3 of 5" beside it. Reaching the end is the outcome rather than a sixth stage, so the count goes away once the test has finished. The empty log inside the Assurance card is gone for both runs and scrubs, replaced by an "Output is in the set terminal" link that moves focus to the set's terminal. A quiet poll also stopped sending the followed run back to its first stage, which is what made a stage-driven bar jump to zero between lines.
+- **Every terminal reads one shared state, so they update together and a late one is not empty** (#1177). The dashboard strips, a set's own terminal and the docked terminal each polled the live feed on their own clock and kept their own copy of the lines. They now read one causl node written by one reader, so three terminals cost one reading per poll, change in the same commit, and a terminal opened late shows what the others already hold in its first render. The buffers are bounded (300 lines per set, 1000 in the docked terminal, the last 5 dead processes), the cursor lives in the same node so a dropped connection resumes where it stopped, and a restart still freezes the dead process's lines above a rule in the docked terminal while the strips drop theirs. The set page asks the live feed about the whole deployment now instead of narrowing it to one set. That is a trade I made on purpose: a set page on a deployment with twenty sets now downloads every set's new lines, not just its own, in exchange for one reader instead of one per surface. Each poll is still bounded to 200 lines per bucket, and an idle poll (most of them) hands back nothing and re-renders nothing. A failing poll backs off up to a minute, and a lost session stops the polling until a terminal mounts again.
+
+- **The download dialog works the way its three options say** (#1179). "Download in this browser" on the
+  Backups selection bar was a radio that was always switched off. It had nothing to do with the destructive
+  gate or any capability: the bar had it hard-coded off because I had reasoned that many files would need an
+  archive. It is selectable now for up to as many backups as the engine streams downloads at once, and makes
+  one link per backup that you open yourself, each from its own single-use grant and each checked against
+  its recorded digest by the host, with archived copies left out and named. "Folder under the staging root
+  on the host" gets a folder browser over the staging root on the machine retnd runs on, and "Configured
+  destination" is a drop-down of everything under Settings, Storage destinations ("None configured" when
+  there is nothing), on the artifact dialog, the selection bar and the set dialog.
+- **The staging folder and the configured destination read the same on every screen** (#1190). Recover
+  artifact, the Backups selection bar and Recover this backup set each wrapped the folder browser and the
+  destination drop-down in their own words, so one said "Staging path on the host" and another "Folder under
+  the staging root on the host", and the text field and drop-down had a different name on each. They now
+  come from one place (`assurance/RecoveryTargetFields.tsx`), with one set of labels, one field that names
+  the staging root itself, and a test that fails if a screen builds either choice on its own.
+
+## [0.6.4] - 2026-10-14
+
+0.6.4 brings the terminal up to the web API. EPIC S went through every route the API serves and gave
+each one a `retnd` command or a written reason it has none, so `status`, `artifacts`, `quarantine`,
+`storage`, `medium configure` and the rest of the reads now answer from a terminal and print `--json`
+that matches the API field for field. It also changes what a shut destructive gate says: the refusal,
+the spec and the screens now call those operations terminal-only and show the command to run, and the
+capabilities document carries a `destructive_operations` field so a client can ask before it tries.
+Retention writes handed `--json` are refused rather than accepted and ignored, so a script that passed
+the flag there needs to drop it. Nothing here changes a default and there is nothing to migrate.
+
+### Fixed
+
+- **The image has a `latest` tag now, and it only moves forward** (#1168). `ghcr.io/retnd/retnd:latest` did not exist, although the GitHub Release page already marked the newest release "Latest". After a release is built, signed and attested, a `tag-latest` job moves `latest` to that version's index digest with `docker buildx imagetools create` (the same digest, so the cosign signature and SBOM attestation verify for both names) and fails the run if `latest` does not then resolve to it. It does that only when the version is the highest published non-prerelease release, so a 0.5.x backport or a prerelease never takes it, and the GitHub Release is created with `--latest` or `--latest=false` under the same rule. The Release workflow also takes a `tag_latest_for` input that re-points `latest` for an already published version without building anything, and refuses a version with no published image, one whose digest differs from `container/release-manifest.json`, or one that is not the highest release. `latest` is for pulling by hand: compose files, the installer and the docs keep pinning the version's digest. The pinned hash of release.yml's `on:` block moved once for the new input; the push trigger and the signing identity did not change.
+
+- **Usage and the command echo no longer say things the code stopped doing** (#1150). `retnd`'s usage text
+  called `settings assurance patch` and `backup-set assurance` "refused beside" a serving engine, but
+  both are routed to it, and it left `--recovery-test-builtin-check` out of both synopses and `--port`,
+  `--acknowledge-repoint` and `--state-database` out of the `backup-set create` one. The activity panel's
+  deployment scope now echoes `retnd activity --follow --scope deployment` instead of a gap, and the Backups
+  list's set filter echoes from the `setId` the route actually reads. The twelve `/auth` routes and the two
+  health probes now each have an answer, a command or a written reason it has none.
+
+- **Eight config writes now work beside a serving engine** (#1148). `settings workflow patch`,
+  `settings workflow env set|unset`, `backup-set workflow patch`, `backup-set workflow env set|unset`
+  and `backup-set retention` (setting a policy, and `--inherit`) used to be refused with exit 3
+  whenever an engine was serving, although the API had a route for every one of them. They now
+  come through the same door as `settings patch`: with `RETND_API_URL` naming the engine the
+  change lands through the API and the engine's config revision moves, and with no route named
+  the refusal is unchanged. `--json` on all eight prints the object the API returns for the same
+  call, and `backup-set retention` gains `--json`.
+- **`medium configure` and `medium backends` exist, so a `local_volume` can finally be configured from a terminal, and `storage` prints the capacity reading** (#1154). `retnd medium configure <id> --backend B --field ID=VALUE ...` declares or replaces a destination in its backend's own field ids (`--field path=/mnt/usb`), with the same four credential references `medium add` takes, through the same route to a serving engine. `--preflight` proves the configuration and writes nothing, and exits 1 when the destination does not work. `medium backends [--json]` lists the backends and their field ids from the registry built into the binary, and `retnd storage [--json]` prints the manager block (cap, denominator, headroom, binding constraint, catalog bytes, level) and each backup set's level, the same body `GET /api/v1/system/storage` serves. Two things changed underneath so this is true: the manifest-shaped write now stores a `local_volume`'s `path` (it used to refuse the field by name, on the API as well), and the candidate proof of a `local_volume` is the directory check, with its space and distinct-volume steps, instead of the object-store check run against a path.
+- **`artifacts` shows what a scrub and a recovery test found, `artifacts --json` exists, and `quarantine list` lists what is held** (#1147). `retnd artifacts <id>` prints, for each copy that has a record, `assurance_state`, `last_checked_at`, `last_failure_at`, `last_failure_reason`, `consecutive_failures`, `recovery_state` (a built-in structure pass reads `readable`, as it does on the API), `recovery_tested_at`, `recovery_failure_reason` and `recovery_check`. A copy nobody has checked prints exactly what it printed before. `--json` prints the API's `Artifact` object for one backup and `ListArtifactsResponse` for the list, `artifacts --state S` narrows the list to one lifecycle state, and `quarantine list [--backup-set S] [--json]` prints id, reason, irrecoverable and updated_at for every backup held in quarantine.
+- **`retnd status` says why a set is halted, and has `--json`** (#1146). A set refused with
+  `HOST_KEY_CHANGED`, `AUTHENTICATION_FAILED` or `KEY_PERMISSIONS` now prints a `halted:` line
+  under it with when it was last refused and the command that fixes it, where before it read like a
+  slow set until it went STALE. `status --json` prints the object `GET /api/v1/system/health`
+  returns, plus a `process` key, and keeps the exit status.
+- **`--json` on the remaining reads** (#1152). `snapshot list|show|holds|retention`,
+  `repository health|maintenance`, `settings`, `backup-set retention`, `backup-set test-connection`,
+  `medium test-connection` (and `preflight`, `--candidate` included), `catalog rebuild` and
+  `retention <source/backup-set>` print the object the API returns for the same call, field for
+  field: a counter nobody measured is `null` and never `0`, an empty list is an array, and
+  `retention --json` carries the `plan_id`. The exit code stays the verdict (1 for a failing
+  repository, a failed connection, an unusable manifest), the structured log goes to stderr so the
+  document is all of stdout, and a write handed `--json` is refused instead of accepting and
+  ignoring it. A test in the web host drives the real handlers and compares the two mappings.
+- **`activity --before CURSOR`, and `next_cursor`** (#1152). `--json` prints the cursor when a page
+  was full and a text page names it on stderr, so a script can walk the whole log. A cursor that
+  is not a row id is refused, and a filtered page that `--limit` cut has no cursor and says why.
+- **`version --engine [--json]`, `validators [--json]`, `system capabilities` and `system
+  first-run`** (#1152). The first asks the serving engine for its version, configuration revision,
+  deployment id, readiness and adopted paths. `validators` lists the catalog compiled into the
+  binary. The `system` verbs are facts about the serving process (the platform's declaration, the
+  guided setup's steps), so they ask the engine and refuse without a route. `status` prints the
+  first-run steps on a fresh install when a route is set, and is unchanged otherwise.
+
+### Added
+
+- **The administrator can fix their own login from a terminal** (#1155). `retnd-web auth set-password
+  --username U --password-stdin` replaces the password offline, under the same store lock a running server
+  holds, so it refuses while one is up (which is also what ends every session, since they live in the
+  server's memory). `retnd auth password --password-stdin` changes it beside a serving engine, and
+  `retnd auth recovery show|set|test` and `retnd auth verify-email --token-stdin|--resend` cover the
+  recovery address and the SMTP endpoint behind it. Every secret is stdin only, never a flag, and nothing
+  prints one. I ran `auth create-admin` against a store that already had an administrator rather than
+  trusting the docs: it refuses, changes nothing, and now points at `set-password`.
+- **The SSH key store and the host-key probe from a terminal** (#1153). `retnd ssh-key list`, `import` and
+  `discover` manage the key store, and `retnd ssh host-key-probe HOST [--port N]` prints the host key that
+  answers and trusts nothing. `--ssh-key-id` has taken an id since #572 that nothing on a terminal would
+  print, and now `ssh-key list` does. Beside a serving engine they are that engine's store and scan, and
+  `--json` prints the object the API returns (one conversion in `core/service`, which the engine's handlers
+  are tested against). Key bytes and passphrases are never a flag and never printed: a key is a file, a
+  passphrase is the first line of stdin. I checked what `--ssh-key-file` does with a passphrase-protected key
+  and the answer was that it could not take one, because it passed an empty passphrase and the service
+  refused. `backup-set create` and `patch` now take `--ssh-key-passphrase-stdin`.
+- **A guard that every registered route has a command or a reason** (#1150). It walks the engine router, the
+  first-run router and the `/auth` router, fails when a route has neither a `core/cliecho` entry nor a
+  recorded reason, flags a route the spec leaves out, and carries mutation tests that prove it goes red.
+
+- **`destructive_operations` on `GET /api/v1/system/capabilities`, and `retnd system capabilities [--json]`** (#1165). The capabilities read now carries `destructive_operations: {state: "open" | "shut", reason}`, read from the gate the engine was built with at the moment of the request, so a client no longer has to be refused by the gate to learn it is shut. Every shipped build reports `shut` with the reason `gate shut until #92`. The shared UI reads it: the snapshot, snapshot detail, snapshot restore, snapshot retention and retention preview screens say the gate is shut before anything is pressed, with the engine's reason and the `retnd` command to run on the host, and say nothing at all when the field says open or could not be read. The refusal after a press repeats the reason the field gave. `openapi.json` and both bindings are regenerated, and the compat corpus cell for the API contract grows by the new field and nothing else. The terminal verb is routed to the engine, like `operation list`, because the gate belongs to the process serving the deployment, and it is refused without a route.
+- **Every refusal by the destructive gate is one audit entry** (#1165). It reaches the activity feed and the log as the line the web host already wrote for the call, now carrying the gate's state and reason, the act that was refused (`run_cycle`, `verify_snapshot`, `retention_apply`, `run_immediately` and the rest), the backup set (for a snapshot act that comes from the body, not the route), and the run, snapshot or hold it named, beside the actor and the time every line has. A create whose run the gate refused answers 201 and used to read as a plain success; it is a warning now. A call the gate allowed, and an exempt create, carry none of these fields, and no header, cookie or token is ever in one.
+
+- **`retnd operation list` and `retnd operation show <id> [--follow]`** (#1149). A terminal can now find the id of a scrub, recovery test or run the engine is holding, hand it to `assurance cancel`, and watch it finish. Both verbs need `RETND_API_URL` and the credential variables, since operations live in the serving process's memory, and `--json` prints the same body the API serves.
+- **A whole backup set from the terminal** (#1151). `backup-set show <source/backup-set>` prints every
+  field of one set (the key, the trusted host keys, whether its connection was ever proven, both poll
+  intervals, the engine and its lineage key, the repository domain, the verification budget and the mount
+  prefix), and `--json` prints the `BackupSet` object `GET /api/v1/backup-sets/{source}/{set}` returns.
+  `sources --json` prints `ListBackupSetsResponse`, where the text form prints six columns.
+- **Poll interval from the terminal** (#1151). `backup-set patch --poll-interval D` gives a set its own
+  interval (`0` returns it to the deployment's) and `settings patch --poll-interval D` sets the
+  deployment-wide one. `settings` now prints it in a `service:` section, and `backup-set show` prints the
+  set's own and the one in force.
+- **`backup-set create --uuid` and `--source-mount-prefix`** (#1151). Re-declaring an incremental set
+  after its configuration was lost used to mint a new lineage key, so the next run re-read the whole
+  source and the snapshots already on record were left beside a second history. `--uuid` declares the set
+  under its old key, and `--source-mount-prefix` names the part of `--remote-path` that is how this
+  deployment reaches the source. A create that minted a key now prints it, and the equivalent-command line
+  the web interface shows carries both flags.
+
+### Changed
+
+- **A shut destructive gate now says what it means** (#1157). Starting a run, restoring or verifying a snapshot, placing or releasing a hold, and applying a retention plan are refused over HTTP in every build of this release, and I ran a built `retnd-web` to confirm it. The refusal keeps its status (403) and its code (`DESTRUCTIVE_OPERATIONS_DISABLED`), and the sentence now says it is refused over HTTP in this release until #92 ships a verified gate and to run the equivalent `retnd` command on the host. The same sentence travels in `run_error` on a create with `run_immediately`, which still saves the set and answers 201. `openapi.json` says it on `POST /operations`, `retention/apply` and `run_immediately`, the snapshot, snapshot detail, snapshot restore and retention preview screens say that retrying will not help and show the command, and the reference lists what is terminal-only. `retnd run` and `retnd fetch` refuse while the web service is serving the deployment, so you stop it first. Nothing here changes a default.
+
+## [0.6.3] - 2026-10-13
+
+0.6.3 is a wording fix, and it follows straight on from 0.6.2. After the verification model
+went in, a set on the default configuration could still read "Not configured" in a few places,
+which looks like a fault when nothing is wrong. There is nothing to migrate and no API change
+you have to act on.
+
+### Fixed
+
+- **Recovery says "Default configuration" and that nothing has been tested** (#1141, #1142). A set with
+  no policy of its own runs on the built-in default, and where no recovery test has run the
+  Backups list, the backup page, the set page, the Backup Sets cards and the Dashboard now say
+  "Default configuration" (linking to the Settings assurance card) with "No recovery test has run
+  yet" under it, and the Dashboard names how many of the untested backups sit on the default. A
+  claim drawn before the set's policy has arrived reads "Loading configuration", and a policy that
+  could not be read reads "Configuration unavailable". "Not configured" is left for a set whose
+  policy really resolves to nothing. The Dashboard zeros are unchanged, and the "No recovery
+  test" count still sits beside them.
+
+## [0.6.2] - 2026-10-13
+
+0.6.2 is one fix, and it is about trust. The same backup could read "Content verified" on one
+screen and "nothing has validated this backup" on the next, because the Backups list, the backup
+page, the set page, the Backup Sets cards and the Dashboard each worked out the answer on their
+own. I moved it into one derived model, so they all read the same facts now (#1134, #1135).
+There is nothing to migrate and no API change you have to act on.
+
+### Fixed
+
+- **Backup verification reads the same everywhere** (#1134, #1135). Recovery on a set that
+  follows the default now says **Default configuration**, a link to the Assurance card in
+  Settings, with the effective state beside it ("Recovery tests are off, a manual run uses the
+  built-in check"); a set with its own policy says so and links to that set's card, and
+  **Not configured** only appears when the policy could not be read. A backup's lifecycle now
+  shows verification steps from what was recorded (content verified, structure readable, or
+  recovery test passed for a validator), and a backup with no recovery record of its own shows
+  the set's newest test beside it without turning that into the backup's own claim. The Backup
+  Sets cards take Last validation, Last run, Retained and Expected every from the same model,
+  and say "Not recorded" or "size not reported" instead of "never" or a bare zero. On the
+  Dashboard, Due, Overdue and Degraded count through the same buckets the Backups list
+  filters by, each count links to the matching filtered list, and a new **No recovery test**
+  count joins them.
+
+## [0.6.1] - 2026-10-13
+
+0.6.1 is mostly the work of getting a whole backup set back in one go. You can now
+recover a set from the CLI or its page (#1106) and recover a hand-picked selection of
+backups to one destination (#1107), the activity dock's Errors and Warnings counts
+filter the log (#1115), a set with no validator gets a built-in structure check (#1111),
+and a recovery test on such a set no longer says it completed (#1108).
+The big one to read before you upgrade is #1109... I removed the former project name
+from the tree, and that is breaking for hook environment variables, the legacy debug
+and engine switches, and the Synology package id. Every entry below is new since 0.6.0.
+
+### Added
+
+- **A built-in structure check for recovery tests of sets with no validator** (#1111).
+  Until now `retnd recovery-test` and the **Run recovery test** button could only refuse a
+  set that declared no `NAME.local.sh`, which is every set out of the box. Now, with no
+  validator declared, I recover the newest known good copy, match its digest as before, and
+  read it end to end inside the engine as gzip, zstd or tar (or tar in either), checking
+  every CRC and content checksum, extracting nothing and printing no member name. Nothing
+  runs outside the process: no subprocess, shell, container, port or capability. A declared
+  validator always runs instead, a missing one is still `could_not_complete`, and a file type
+  with no reader is refused before anything is staged, with the type named. Three things to
+  know. First, the result is reported as a new `recovery_state` value, `readable`, under the
+  reserved check identity `retnd-builtin-structure`, and the chip says **Recovered, readable**.
+  The journal still stores it as `passed` under that identity, so there is no schema change
+  and no migration, and on the wire `passed` only means a validator accepted it. A `readable`
+  result never satisfies `mode: required`. Second, `assurance.recovery_test.mode` gains
+  `builtin` (global and per set), which runs the check on the cadence and skips a set whose
+  newest copy has a name the check cannot read; `off` and `inherit` never run it on a
+  schedule, and `mode: builtin` with `builtin_check: off` is refused at config load. The new
+  `builtin_check` key (`structure` or `off`, flag `--recovery-test-builtin-check`) says whether
+  the check may run at all when no validator is declared. It stops at a 2 hour budget, 4 TiB
+  decoded or a 128 MiB zstd window, and any of those is `could_not_complete`, not `failed`. Third, validator ids beginning `retnd-` are now reserved and refused at
+  config load. That is a one-way door: a validator you already named `retnd-something` has to
+  be renamed before you upgrade, and the prefix will not be handed back. The API gains
+  `recovery_check`, `builtin_check` and `effective_check`, and `retnd recovery-test --json`
+  gains `"check": "builtin"`.
+- **Select backups on the Backups list and recover them to one destination** (#1107). Every
+  row has a checkbox, the header box selects everything the current filter matches, and a bar
+  shows the count, the total size, the destination and the equivalent `retnd recover` command.
+  A filter change clears the selection. The list gains "received after" and "received before"
+  filters. The run uses the multi-file recovery from #1106, so each file is checked against the
+  digest recorded at ingest and one bad copy does not stop the rest.
+- **The activity dock's Errors and Warnings counts are filters** (#1115). Press one to show
+  only those lines, press it again to clear it; the count line reads "3 of 41 lines" while it
+  is on. A count of zero is shown and cannot be pressed.
+- **Recover an entire backup set from the set itself** (#1106). `retnd recover --set
+  <source/backup-set> --to <folder>` and the **Recover this backup set** button on the set's
+  page bring back every retained restore point (or `--newest-only`, or those `--since` a
+  date) into one destination under a per-set folder, with a pre-flight (size, cost, what is
+  quarantined, lost or needs a thaw, and whether it fits), one cancel, one summary and a
+  manifest of every file with its digest. Each file goes through the same checks as a single
+  recovery, a copy that fails its digest is reported and not written, and `retnd recover <id>
+  <id> ...` uses the same call for a list of backups. The route is `POST /api/v1/recoveries`.
+
+### Removed
+
+- **The previous name is gone from the tree, and with it every compatibility shim
+  that still answered to it** (#1109). This one is breaking, so read it before you
+  upgrade... I took out the previous-name hook variables (hooks only get the
+  `RETND_*` names now, and a script that still reads an old one will see an empty
+  string, not an error), the legacy debug and engine switches (the older debug
+  variables and the old incremental-engine variable are no longer read, so set
+  `RETND_DEBUG` and `RETND_INCREMENTAL_ENGINE`), and the old Synology package id.
+  The same sweep cleaned the name out of the docs, the design notes, the scripts and
+  this changelog's own history, and a new guard
+  (`scripts/rename/check-no-former-name.sh`, wired into CI and the local gate) fails
+  on any tracked file that brings it back.
+  **Upgrading on Synology:** the package id changed, so DSM will not upgrade in
+  place. Uninstall the old package but keep its data share (say no when DSM offers
+  to delete it), then install the new `retnd` package and point it at the same
+  share.
+
+### Fixed
+
+- **A recovery test on a set with no validator no longer says it completed** (#1108).
+  The engine now prints the `Complete` stage only for a run that recorded a pass, and the
+  closing line reads `recovery test passed`, `failed`, `not run` or `did not complete` by
+  state (the `state=` field is unchanged). `GET /backup-sets/{source}/{set}/assurance` gains
+  `recovery_test.validator_declared`, and **Run recovery test** is disabled, with the reason
+  beside it, on a set that declares none. The refusal itself is unchanged.
+
+## [0.6.0] - 2026-10-12
+
+0.6.0 is the first release that also ships the `retnd` command line as plain
+tarballs. Each GitHub Release carries Linux and macOS builds (amd64 and arm64) and a
+`SHA256SUMS` file. The tarballs are checksummed and not signed: the signed artefact
+is still the container image (#1078).
+
+### Added
+
+- **A GitHub Release with CLI tarballs** (#1078). After the image is published, the
+  release workflow builds `retnd` for linux/amd64, linux/arm64, darwin/amd64 and
+  darwin/arm64, smoke-tests the macOS build on a hosted macOS runner, and attaches
+  the tarballs plus `SHA256SUMS` to a `v0.6.0` release.
+
+### Changed
+
+- **Every publish keeps a versioned GitHub Release** (#1102). The release notes now link
+  the package page, https://github.com/retnd/retnd/pkgs/container/retnd, and a publish of a
+  version that already has a release refreshes its tarballs and notes instead of failing on
+  the existing tag.
+- **retnd is MIT licensed from 0.6.0** (#1086). The licence moves from Apache-2.0 to
+  MIT, matching libviprs, so the two projects are used and combined under one set of
+  terms. `LICENSE`, the image's `org.opencontainers.image.licenses` label,
+  `compliance.json`, the generated `NOTICE` and provenance bundle, the README and the
+  site all say MIT, and the tests that pinned Apache-2.0 pin MIT. The check on the
+  linked graph is unchanged. Releases up to 0.5.1 were distributed under Apache-2.0
+  and stay under it.
+- **A fresh install configures itself and leads you through setup** (#1049). On its
+  first start, with no `config.yaml` in the configuration directory, the engine now
+  writes a small default one (the documented one hour polling interval, the journal
+  path it was started with, no sources), created exclusively with mode 0600 and never
+  over an existing file, and says so once at INFO. An empty `sources` list is valid, an
+  absent configuration is no longer an ERROR line, and `retnd status` and `retnd check`
+  on a fresh install print a first-run notice with the next step and exit 0 (`check`
+  still fails, naming the directory, when the configuration directory is not writable).
+  A missing configuration is only a fresh install while the journal agrees: if the
+  journal already holds backups, no default is written, `status` and `check` exit 1
+  naming the journal, the engine stops instead of serving the setup flow, an empty
+  cycle stays an ERROR, and the Settings read is not a first run.
+  The Settings page shows the engine's defaults, a first-run guide replaces the old
+  one-paragraph banner (administrator, email, first backup set, each skippable), and
+  enrolment no longer needs a mail server. "Copy details" now works on a plain-http
+  origin by falling back to the browser's older copy command and then to selecting the
+  text, and only says Copied when it did.
+
+  **Rolling back a never-configured install:** an older release refuses a configuration
+  with no backup set, so delete the default `config.yaml` (or add a backup set first)
+  before starting the older binary. An install that already has a configuration is not
+  touched by any of this.
+
+- **The "no download" promise is reversed, and the boundary sentence replaces it** (#987,
+  EPIC Q #953). This product recovers and exports the retained artifact; restoring it into
+  an application remains the operator's responsibility. The old claim was made
+  independently in several places (`docs/recovery.md`, two paragraphs and a note on
+  `docs/site/reference.html`, `docs/site/index.html#honest`, the store listing copy) and
+  all of them now say the new thing rather than a softer version of the old one. What the
+  deleted claim was split into, and where each piece landed, is recorded item by item in
+  [ADR 0029](docs/adr/0029-the-recovery-boundary.md). The documents that carry the new
+  material are `docs/recovery.md` (the three restore-shaped verbs side by side, recovering
+  an artifact, the three claims, scrubbing and recovery tests, what to do when the catalog
+  itself is gone, and troubleshooting), `docs/recovery-without-a-terminal.md` (recovery
+  as its own numbered failure-and-fix section), `docs/storage-mediums.md`,
+  `docs/runtime-contract.md`, `docs/incremental-runbooks.md` and
+  `docs/compliance/privacy-policy.md`.
+
+- **One thing to know before you need it: the `assurance:` block is a one-way door.** The
+  configuration loader rejects unknown keys, so a `config.yaml` that carries the new
+  `assurance:` block (globally or on a backup set) is refused outright by a build that
+  predates it, with a message naming the key. An existing deployment that adds nothing sees
+  no change: the global default is good enough to leave alone, and a configuration that
+  mentions nothing new loads and scrubs on that default. Add the block while things are
+  calm, because the moment you reach for this feature is usually an incident, and a
+  downgrade after adding it fails closed...
+
+- **The green "Verified" Validation column is gone** (#1070). The Backups table drew the
+  ingest-time check (FR-13) as a green tick and the word "Verified" in a column of its own
+  beside the Assurance chips, so an operator saw two different things both called verified,
+  and the green one said nothing about whether the bytes are still good. The column and the
+  green badge in the artifact page's title are retired; Stored, Content verified and
+  Recovery tested are the only place those pages say it. A validation that failed is still
+  said, as "Failed validation" in the danger colour, never as a pass. The `validation`
+  field stays on the wire. Measured contrast for the failure badge: label 15.00:1 light
+  and 11.99:1 dark, icon and border 5.11:1 and 4.56:1.
+
+- **The Recover dialog says what the download now does** (#1072). The host prepares the
+  first download of a backup with one read against the recorded digest, then sends the copy
+  from where it lives, 4 MiB at a time, checking each piece, and cuts the transfer off
+  if one fails. It no longer says nothing is sent until the whole copy is staged, or that an
+  interrupted download cannot be resumed.
+
+- **The docked terminal does not show a line twice across a restart** (#1071). The engine
+  keeps its events now, so the first reading from a restarted process carries lines the
+  panel already froze above the restart rule; a line is the same line only if its number,
+  its time and its event all match, so an engine that restarts its numbering still keeps
+  both. `GET /api/v1/activity/live` takes `before=` to page back past the ring.
+
+- **A recovery download is streamed, not staged, and can be resumed** (#976). The
+  browser and `retnd recover --to -` used to copy the whole artifact to the staging
+  disk, hash it there and only then send it. Now the copy is read from where it
+  lives, one verified 4 MiB chunk at a time, so a download uses a chunk of memory
+  and no staging disk, and a client that walks away leaves nothing to clean up.
+  Before the first byte I run a pre-flight (the copy is there, it is the recorded
+  size, its medium can be read, and one verifying read matched the recorded SHA-256
+  and stored a digest per chunk), and a failure there is an error response with its
+  own code, not a `200`. Every chunk is checked against its digest before any of it
+  is sent, so a copy that rots mid-download stops at the bad chunk and the
+  connection is aborted short of the `Content-Length`, never ended cleanly. `ETag`
+  (from the artifact id and the recorded digest, the same for every grant) with
+  `Range` and `If-Range` resumes a download under a new grant, and `Repr-Digest`
+  carries the recorded digest for the client to compare. The end of a download is
+  recorded as `recovery verified` in the action log. The first download of an
+  artifact reads the copy twice (once to prepare, once to send); later downloads and
+  resumes reuse the stored digests. Staging and storage targets are unchanged.
+
+- **The web UI shows what a backup's copies actually claim, and recovers them** (#985,
+  EPIC Q Q2.2). Every backup carries three separate claims on the Backups list, the
+  backup page and the dashboard: Stored (how many copies), Content verified (built
+  from each copy's achieved verification class and time, so an existence check never
+  reads as content verification) and Recovery tested. There is no roll-up. The
+  Recover artifact dialog mints a grant, then has the host prepare the download with
+  one read against the recorded digest and then send it from where it lives, checking
+  each piece; a browser download is handed to the browser and the page does not claim
+  the file arrived, while a staging or
+  destination recovery reports the digest the host placed. An archived copy is a
+  restore request first (cost acknowledged, no price or time shown, because none is
+  known) and a recovery once the provider has made it readable. Settings carries the
+  deployment's assurance block, and each backup set can follow it or pin its own
+  policy.
+  - **Not offered, and not faked.** The API has a route to start a recovery test
+    (`POST /backup-sets/{source}/{set}/recovery-test`) and none to start a scrub,
+    cancel anything or read a validator's output. The set page's Run recovery test
+    control calls that route and follows the test on the live feed (its lines carry
+    the operation id); a test whose lines have fallen off the feed is shown as no
+    longer tracked, never as a pass. There is no Scrub now button: the page shows
+    the `retnd scrub` command and says what runs by itself, which is a scrub pass
+    over the copies that are due at every poll of the running service, and a
+    recovery test only for a set whose mode is required or custom.
+  - **A copy that failed is shown as failed.** A failed scrub clears the copy's
+    verification class and time, so the Backups page used to draw it as Never run.
+    The placement now carries the copy's own record (`assurance_state`,
+    `last_checked_at`, `last_failure_at`, `last_failure_reason`,
+    `consecutive_failures`, `recovery_state`, `recovery_tested_at`,
+    `recovery_failure_reason`), all additive and omitted for a copy nobody has
+    checked, and the chips and a line under them say which copy failed, how many
+    times in a row and why. The Recovery claim is read from the same record.
+  - **A chip being re-checked keeps its contrast.** It was dimmed with
+    `opacity: 0.6`, which put the age text at 2.50:1 (light) and 3.05:1 (dark) and
+    the label at 4.25:1 (light). It is now drawn with a dashed outline, italic type
+    and the word "re-checking", and a unit test reads the real tokens and fails on
+    any dimming.
+
+- **A recovery download is streamed, not staged, and can be resumed** (#976). The
+  browser and `retnd recover --to -` used to copy the whole artifact to the staging
+  disk, hash it there and only then send it. Now the copy is read from where it
+  lives, one verified 4 MiB chunk at a time, so a download uses a chunk of memory
+  and no staging disk, and a client that walks away leaves nothing to clean up.
+  Before the first byte I run a pre-flight (the copy is there, it is the recorded
+  size, its medium can be read, and one verifying read matched the recorded SHA-256
+  and stored a digest per chunk), and a failure there is an error response with its
+  own code, not a `200`. Every chunk is checked against its digest before any of it
+  is sent, so a copy that rots mid-download stops at the bad chunk and the
+  connection is aborted short of the `Content-Length`, never ended cleanly. `ETag`
+  (from the artifact id and the recorded digest, the same for every grant) with
+  `Range` and `If-Range` resumes a download under a new grant, and `Repr-Digest`
+  carries the recorded digest for the client to compare. The end of a download is
+  recorded as `recovery verified` in the action log. The first download of an
+  artifact reads the copy twice (once to prepare, once to send); later downloads and
+  resumes reuse the stored digests. Staging and storage targets are unchanged.
+  A conditional request answered `304` no longer spends the download grant or
+  records a verification that did not happen. A download that does not finish now
+  ends in a `recovery interrupted` or a `recovery failed verification` row in the
+  action log (the latter with the copy's error code), each with `bytes` sent,
+  `total_bytes` and the `reached` offset, so a client can tell a cut link from a
+  copy that stopped matching; `recovery verified` carries `total_bytes` too.
+
+- **A fresh install configures itself and leads you through setup** (#1049). On its
+  first start, with no `config.yaml` in the configuration directory, the engine now
+  writes a small default one (the documented one hour polling interval, the journal
+  path it was started with, no sources), created exclusively with mode 0600 and never
+  over an existing file, and says so once at INFO. An empty `sources` list is valid, an
+  absent configuration is no longer an ERROR line, and `retnd status` and `retnd check`
+  on a fresh install print a first-run notice with the next step and exit 0 (`check`
+  still fails, naming the directory, when the configuration directory is not writable).
+  A missing configuration is only a fresh install while the journal agrees: if the
+  journal already holds backups, no default is written, `status` and `check` exit 1
+  naming the journal, the engine stops instead of serving the setup flow, an empty
+  cycle stays an ERROR, and the Settings read is not a first run.
+  The Settings page shows the engine's defaults, a first-run guide replaces the old
+  one-paragraph banner (administrator, email, first backup set, each skippable), and
+  enrolment no longer needs a mail server. "Copy details" now works on a plain-http
+  origin by falling back to the browser's older copy command and then to selecting the
+  text, and only says Copied when it did.
+
+  I also finished the failure side of that first install (#1049): the "could not reach
+  the retnd service" banner now checks `/health/live` every few seconds and clears
+  itself when the service answers, so nobody has to reload; the two states carry
+  different `data-testid`s (`first-run-not-configured` for a fresh install,
+  `service-unreachable` for a service that is really down); and when the engine cannot
+  write its default configuration because the directory is read-only, the first-run
+  guide shows an alert naming the directory and the fix, in the same sentence
+  `retnd check` prints. `scripts/e2e/three-machine-web-ui.sh --fresh` stands up a
+  deployment with no backup set so the first-run specs run instead of skipping.
+
+  **Rolling back a never-configured install:** an older release refuses a configuration
+  with no backup set, so delete the default `config.yaml` (or add a backup set first)
+  before starting the older binary. An install that already has a configuration is not
+  touched by any of this.
+
+- **The Backups footer says the recovery boundary, the Content chip says how many copies it covers, and the artifact page says how a download ended** (#985, #1070). The footer reads "This product recovers and exports the retained artifact; restoring it into an application remains the operator's responsibility." in the secondary ink (6.36:1 light, 6.51:1 dark; the old line was 3.35:1 and called every copy verified). The Content chip keeps the strongest class across copies but adds the copy count and the weakest state ("Content verified · 1 of 3 copies, 2 never checked", dashed edge), and a bare "Content verified" only appears when every copy is content verified. The Not configured chip edge was 2.93:1 against its fill in the light theme; the plain chip edge now takes `--text-2` (5.82:1 against the fill, 5.93:1 against the page, light). The artifact page reads the end-of-download rows off the live feed and draws "Completed", "Interrupted at N of M bytes" and "Failed verification" as three shapes, none of them in the success colours.
+
+- **The web UI shows what a backup's copies actually claim, and recovers them** (#985,
+  EPIC Q Q2.2). Every backup carries three separate claims on the Backups list, the
+  backup page and the dashboard: Stored (how many copies), Content verified (built
+  from each copy's achieved verification class and time, so an existence check never
+  reads as content verification) and Recovery tested. There is no roll-up. The
+  Recover artifact dialog mints a grant, then has the host prepare the download with
+  one read against the recorded digest and then send it from where it lives, checking
+  each piece; a browser download is handed to the browser and the page does not claim
+  the file arrived, while a staging or
+  destination recovery reports the digest the host placed. An archived copy is a
+  restore request first (cost acknowledged, no price or time shown, because none is
+  known) and a recovery once the provider has made it readable. Settings carries the
+  deployment's assurance block, and each backup set can follow it or pin its own
+  policy.
+  - **Scrub now, Cancel and Show validator output work.** The set page's three
+    operator controls call the routes that exist: `POST
+    /backup-sets/{source}/{set}/scrub`, `POST /assurance/operations/{op}/cancel` and
+    `GET /backup-sets/{source}/{set}/recovery-test/output`, each with its terminal twin
+    printed beside it (`retnd scrub`, `retnd assurance cancel`, `retnd recovery-test
+    --show-output`). A scrub's operation id is on no feed line, so the page follows a
+    scrub by what it leaves behind: this set's manual `scrub_pass` ends it, a
+    `scrub_failure` naming one of the set's copies is a line of it, and a feed that goes
+    quiet or restarts is shown as no longer tracked, never as a pass. A cancel is shown
+    as Cancelling until the run's own end line arrives, and a recovery test that ends
+    with a warning after an accepted cancel is Cancelled. A recovery test started while
+    one is running joins it and says so. The validator's output is drawn as plain text
+    from the server's records: only a record of kind `truncation` is the runner's
+    marker, so a script that prints the marker's words has printed a line of output.
+  - **Every activity surface has its own line for scrub and recovery events.** The
+    dashboard strips, the set page's terminal, the docked terminal and the saved log say
+    `scrub pass found problems (manual, set a/b): 2 checked, 1 passed, 1 failed`,
+    `scrub did not pass: a.dump on offsite (content check): <reason>`,
+    `recovery test stage: Reading`, `recovery test did not complete: a.dump: cancelled
+    before it finished` and the like, instead of a row of `key=value` pairs, and an
+    unfinished recovery is named in words.
+  - **A copy that failed is shown as failed.** A failed scrub clears the copy's
+    verification class and time, so the Backups page used to draw it as Never run.
+    The placement now carries the copy's own record (`assurance_state`,
+    `last_checked_at`, `last_failure_at`, `last_failure_reason`,
+    `consecutive_failures`, `recovery_state`, `recovery_tested_at`,
+    `recovery_failure_reason`), all additive and omitted for a copy nobody has
+    checked, and the chips and a line under them say which copy failed, how many
+    times in a row and why. The Recovery claim is read from the same record.
+  - **A chip being re-checked keeps its contrast.** It was dimmed with
+    `opacity: 0.6`, which put the age text at 2.50:1 (light) and 3.05:1 (dark) and
+    the label at 4.25:1 (light). It is now drawn with a dashed outline, italic type
+    and the word "re-checking", and a unit test reads the real tokens and fails on
+    any dimming.
+
+### Fixed
+
+- **A serving process now runs its scheduled scrub and its due recovery tests** (#1068).
+  The scrub timer and the cycle loop both start with `retnd serve` and repeat every poll
+  interval, so a cycle took the single-flight lock at the top of its interval and the
+  scrub tick, arriving a fraction of a millisecond later, skipped and tried again an
+  interval later, into the next cycle's lock. On a default install nothing was ever
+  scrubbed and no due recovery test ever ran. A tick that finds an operation running now
+  waits for that operation to release the lock and runs then, so it cannot miss the short
+  gap between two back-to-back cycles the way a timed retry could. It still never holds
+  the lock while it scrubs, and it stops with the process. `retnd daemon` was not
+  affected.
+
+- **A provider checksum mismatch is now written on the copy** (#983). A destination that attested a SHA-256 different from the recorded one refused the recovery and was then forgotten, so the next scrub could call the same copy fine. The refusal now also records a failed attested check on the copy (clearing its verification claims and owing it a re-check), and `internal/reconcile` reports a medium copy recorded as failing as needing investigation instead of "left on a medium, no action". It moves no lifecycle state.
+
+- **Exit codes 34, 35 and 37 are unallocated** (#983). They were reserved for the per-pass bound, the validator-output bound and scheduled egress, which FR-74 as amended says defer, truncate and refuse elsewhere. Nothing emits them, the budget package says so (`budget.Unused`), and two tests keep every budget and recovery refusal off them.
+
+### Added
+
+- **EPIC Q's closing gate** (#988, EPIC Q #953). `docs/conformance/epic-q-matrix.md` answers all eighty rows
+  of #954's matrix (the exit-gate lines, the nineteen adversarial-review findings and the
+  planted-violation ledger) with the evidence that was run: 64 `PASS` (a named planted violation was
+  caught), 9 `BY HAND` (who, what and when are in the row) and 7 `PARTIAL` (the row says what is
+  missing), and no `BLOCKED` row. `core/tests/assurancegate` holds the file to the tree: every proof
+  resolves, every `PASS` cites a planted violation its self-test really contains and the date it was
+  run, and a blocked row fails the build. `scripts/assurance/selftest.sh` plants twenty-four
+  violations in real product files (an existence check relabelled as content, a recovery test passed
+  without the digest matching, a copy nobody scheduled read as fresh, the no-download promise made
+  again, a renamed site anchor, and so on), and `scripts/assurance/ui-selftest.sh` plants eight in the
+  web UI; the narrowed suites have to go red naming the test. A site-wide dead-fragment and docs link
+  check, a test that runs EPIC L's hostile-output corpus through the validator output sanitiser and a
+  glyph guard that counts the pass too land with it. `docs/site/tools/capture-recovery-assurance.mjs`
+  shoots eleven recovery and assurance surfaces in light, dark and a 940px window from the mock API
+  with the clock pinned, and its `--check` mode fails unless two passes are byte-identical;
+  `measure-recovery-contrast.mjs` prints the contrast ratios. Both new CI jobs are in the release
+  gate's `needs` list. Two of the four store screenshots are back to outstanding in
+  `docs/submission/screenshots.md`, because the Dashboard and the Backup set detail changed.
+
+- **The activity feed's events survive a restart** (#1071, migration 0017). The feed
+
+- **`retnd recover --follow` and `retnd recovery-test --follow`** (#1059). Both verbs run the operation in the terminal's own process, so they now print that operation's stage lines (matched on its op_id) on standard error as it passes through them, in the order the engine emits them, and still exit with the operation's own status. Standard output stays the verb's answer, so `recover --to -` keeps piping clean bytes.
+
+- **Scrub now, cancel, and the validator output of a recovery test** (#980, #1071). Three new
+  routes. `POST /api/v1/backup-sets/{source}/{set}/scrub` starts a scrub of one set's copies
+  in the background and answers 202 with an operation id, one at a time per set.
+  `POST /api/v1/assurance/operations/{op}/cancel` stops a running scrub or recovery test: the
+  validator's whole process group is killed, the staged copy is removed, and a cancel records
+  no verdict on the copy. It is deliberately not under `/operations`, which the destructive
+  gate owns, so it answers on a deployment whose gate is shut. `GET
+  /api/v1/backup-sets/{source}/{set}/recovery-test/output` returns what the newest recovery
+  test of the set printed. The output is kept per set (two new tables in migration 0016, which
+  has not shipped, so its recorded checksum moved), sanitised, and bounded to 200 records, 1 KiB
+  a record and 32 KiB in all; the truncation marker is a record of its own kind that only the
+  runner writes, so a validator that prints the marker's words is still an output line. The
+  CLI gains `retnd assurance cancel <operation-id>` (needs `RETND_API_URL`, since the operation
+  lives in the serving process) and `retnd recovery-test <set> --show-output`.
+
+- **Two operators asking for the same recovery test share one execution.** A second identical
+  `POST .../recovery-test` while one is running no longer gets a 409: it answers 202 with the
+  running test's operation id and `coalesced: true`, and writes a receipt row of its own
+  (who asked, when, what for). A request for something different from what is running (another
+  artifact, or a different cost acknowledgement) is still a 409.
+
+- **The activity feed's events survive a restart** (#1071, migration 0018). The feed
+  behind the operation panel and the dashboard strips was an in-memory ring, so a
+  restart emptied it: a scrub that failed an hour before a deploy, or a recovery that was
+  running when the process died, left nothing on the screen built to show it. The events
+  are now also written to a new `activity_events` table (additive; nothing that exists
+  changes) by one goroutine that batches them off the cycle's path, and the rings are
+  refilled from it at start with the numbering continuing. Scrub passes and failures,
+  recovery and recovery-test events and their `op_id` are kept. Periodic samples
+  (`transfer_stats`, `snapshot_stats`) and a download's per-range lines are not, and
+  `recovery_stage` lines are coalesced to the last stage each operation reached, so a
+  recovery costs a start row, one stage row and an end row however many stages it passes
+  through. Rows are kept 30 days and the table 50,000 rows, oldest first, pruned at start,
+  hourly and after every 5,000 inserts. A writer that falls behind drops from the durable
+  record and counts it; it never slows a cycle. `GET /api/v1/activity/live` takes
+  `before=<sequence>` to page backwards past the ring.
+
+- **A scrub lists each storage medium and reports objects the journal does not know**
+  (#978). The scrub still only checks the keys the journal records, so an object at
+  some other key can never stand in for a copy that went missing (that copy is a
+  failed copy, counted, with its own `scrub_failure` line). New is the other
+  direction: for each medium that holds or held a copy for a set, the pass lists the
+  set's namespace and reports every object no placement names, as a
+  `scrub_unknown_object` line and an `unknown_objects` entry per set in
+  `retnd scrub --json` and the scrub result. A medium that could not be listed shows
+  up as `unlisted` with the reason (and a `scrub_unlisted` line), never as a clean
+  result. Both are findings only: nothing is read, moved or deleted, no copy fails
+  because of them, and no `scrub_failure` line is written for them. A scheduled pass
+  lists only when it checked something; `retnd scrub` always lists. Additive to the
+  API contract: `ScrubSetResult` gains optional `unknown_objects` and `unlisted`.
+
+- **The scheduled scrub follows `assurance.scrub.*`** (#978). A default install now
+  scrubs: the cadence is `assurance.scrub.cadence` (7 days unless you say otherwise)
+  and the strategy decides whether a local copy is re-hashed (`auto` and `content`
+  do, `existence` does not), with no `revalidation:` block needed. A set whose
+  `revalidation:` block turns hashing or a hook on keeps using that block exactly as
+  written. `GET /api/v1/assurance/due` now reads each copy's own `next_due_at`, the
+  schedule the scrub keeps, so what you are shown is what runs. A rotted local copy
+  beside a verified offsite copy no longer quarantines the artifact (the set goes
+  DEGRADED after three failed checks, not FAILING), and a scrub or recovery claim is
+  dropped when the copy is rewritten to different bytes.
+
+- **`retnd scrub --json`, and a scrub beside a serving engine respects its edit hold**
+  (#978). `--json` prints the one result object the API contract defines
+  (`ScrubResult`: the pass counts plus, per set, every copy's verdict and the class
+  that ran, the artifacts that could not be checked, and the skips), with the log
+  lines on standard error so standard output is only the result. When `RETND_API_URL`
+  and its two credential variables reach the engine serving the deployment, the scrub
+  asks that engine whether a set is held for editing and skips a held set the way the
+  engine's own scrub does: the same "skipped, the backup set is held for editing"
+  line, counted as a skip, exit status 1. A hold the command cannot read counts as a
+  hold. An artifact with one copy that was provably gone and another that did not
+  answer now writes a `scrub_failure` line for each copy, instead of one line for the
+  pair, so the lines of a pass match the failures it counted.
+
+- **Assurance has a deployment-wide default and a per-set override** (#982, EPIC Q
+  Q1.4). A new top-level `assurance:` block sets how often a copy is re-read (scrub
+  cadence, default 7 days, floor 1 hour), what a scrub reads (`auto`, `existence` or
+  `content`) and whether a recovery test is required, and a backup set can carry its
+  own `assurance:` block in the same shape `retention:` uses: nil inherits, `Validate`
+  fills a resolved field, and everything reads the resolved field. A config that
+  mentions none of it scrubs on the defaults and comes back from a settings save
+  byte-identical. Per set, the recovery-test mode is `inherit`, `off`, `required` or
+  `custom`; `required` and `custom` need a validator, so a recovery test with nothing
+  to run is refused rather than quietly downgraded. The validator is a script: `validator_id` is the file name
+  of a `NAME.local.sh` in `recovery-test/<source>/<set>`, written without the suffix,
+  and a name that could not be a script's file name is refused when it is saved. The staging root, the staging TTL,
+  and the two concurrency ceilings are global only,
+  and each one carries the written reason a set cannot override it, in the API
+  response, in `settings assurance` and in the field help.
+  - **A one-way door.** `Load` uses `KnownFields(true)`, so a config that carries an
+    `assurance:` key cannot be parsed by an older build at all. Anyone who edits this
+    block during an incident and then rolls back needs to take the block out first. A
+    deployment that never adds it sees no change.
+  - **What an existing deployment sees.** Nothing is written for it. `GET
+    /api/v1/settings/assurance` and `retnd settings assurance` report the defaults with
+    `configured: false`.
+  - **Surfaces.** `GET`/`PATCH /api/v1/settings/assurance`, `GET`/`PATCH`/`DELETE
+    /api/v1/backup-sets/{source}/{set}/assurance` and `GET /api/v1/assurance/due`, with
+    `retnd settings assurance [patch|due]` and `retnd backup-set assurance`, all with
+    `--json` printing the API's own body. A `PATCH` is validated, written and
+    hot-reloaded in one step, so every set that inherits the changed value decides
+    under it on its next read with no restart. The CLI writes beside a serving engine
+    are refused with the file untouched, like `settings workflow`.
+  - **Feed and alerts.** New catalog events for recovery and recovery-test runs
+    (additions only, each completion states a `Result`) with one stage list shared by
+    the CLI and the browser, and four new alert kinds: scrub overdue and failing, and
+    recovery test overdue and failing. They are raised through the alert dispatcher a
+    configured notifier already has, with its de-duplication, so a failing scrub or
+    recovery test reaches you without anybody writing an `assurance-after` script; the
+    scripts stay as the extension point beside it. (A scrub pass is the existing
+    `scrub_pass` and `scrub_failure` events.)
+
+- **Recovery tests follow the assurance policy, run under `retnd serve`, and can be
+  started** (#980). The scheduled test now runs in the process the product actually
+  runs (`serve`, not only `daemon`), for a set whose resolved `recovery_test.mode` is
+  `required` or `custom`, on that policy's cadence (30 days by default) instead of a
+  fixed seven. `validator_id` names the script: `pg-check` runs
+  `recovery-test/<source>/<set>/pg-check.local.sh` and nothing else, and a name that
+  is not there is `could_not_complete`, never another script in its place. A set
+  that requires a test is DEGRADED until one passes. A copy on a storage medium can
+  now be tested: it is staged by the same engine `retnd recover` uses, so it is
+  verified against the recorded digest first, honours the read ceilings, and costs
+  nothing unattended (a free `local_volume` runs, a billed download is refused for
+  cost and an archived object is never thawed). `retnd recovery-test
+  <source/backup-set>` and `POST /api/v1/backup-sets/{source}/{set}/recovery-test`
+  start one now. A real recovery, and every recovery test, writes `recovery_start`, a
+  `recovery_stage` line per stage and `recovery_end` under one operation id.
+  `assurance.staging_root`, `staging_ttl`, `max_concurrent_full_reads` and
+  `max_per_destination` are now read: recovered copies and recovery tests stage in
+  one directory, `<state dir>/recovery-staging` unless you say otherwise (the
+  `<state dir>/recovery` of the draft is gone), and the scrub reads under the same
+  ceilings (2 and 1 by default; the draft scrub's 4 and 2 are gone).
+
+- **The #983 budgets and faults are proved on the real drivers** (#983). A backlog of 1050 due copies runs on `revalidate.Run`, the scrub driver the serve scheduler calls: the pass stays at `DefaultScrubMaxPerCycle`, defers the rest to later passes and never has more than 2 reads in flight (1 per destination), with the numbers and host in `docs/perf/epic-q-recovery.md`. Two concurrent first downloads of an artifact make one whole-copy pre-flight read; a default install refuses the fifth download stream and a recovery that would leave less than the 1 GiB staging reserve; a recovery test cancelled through the operation registry at the provider probe, the read and the write leaves nothing behind; and three operators joining a running recovery test get one execution and a receipt each. `scripts/bdtools/recovery/selftest.py` plants a fault for each, and four stale anchors in it are re-anchored.
+
+- **The activity feed's events survive a restart** (#1071, migration 0017). The feed
+  behind the operation panel and the dashboard strips was an in-memory ring, so a
+  restart emptied it: a scrub that failed an hour before a deploy, or a recovery that was
+  running when the process died, left nothing on the screen built to show it. The events
+  are now also written to a new `activity_events` table (additive; nothing that exists
+  changes) by one goroutine that batches them off the cycle's path, and the rings are
+  refilled from it at start with the numbering continuing. Scrub passes and failures,
+  recovery and recovery-test events and their `op_id` are kept. Periodic samples
+  (`transfer_stats`, `snapshot_stats`) and a download's per-range lines are not, and
+  `recovery_stage` lines are coalesced to the last stage each operation reached, so a
+  recovery costs a start row, one stage row and an end row however many stages it passes
+  through. Rows are kept 30 days and the table 50,000 rows, oldest first, pruned at start,
+  hourly and after every 5,000 inserts. A writer that falls behind drops from the durable
+  record and counts it; it never slows a cycle. `GET /api/v1/activity/live` takes
+  `before=<sequence>` to page backwards past the ring.
+
+- **Assurance has a deployment-wide default and a per-set override** (#982, EPIC Q
+  Q1.4). A new top-level `assurance:` block sets how often a copy is re-read (scrub
+  cadence, default 7 days, floor 1 hour), what a scrub reads (`auto`, `existence` or
+  `content`) and whether a recovery test is required, and a backup set can carry its
+  own `assurance:` block in the same shape `retention:` uses: nil inherits, `Validate`
+  fills a resolved field, and everything reads the resolved field. A config that
+  mentions none of it scrubs on the defaults and comes back from a settings save
+  byte-identical. Per set, the recovery-test mode is `inherit`, `off`, `required` or
+  `custom`; `required` and `custom` need a validator, so a recovery test with nothing
+  to run is refused rather than quietly downgraded. The validator is a script: `validator_id` is the file name
+  of a `NAME.local.sh` in `recovery-test/<source>/<set>`, written without the suffix,
+  and a name that could not be a script's file name is refused when it is saved. The staging root, the staging TTL,
+  and the two concurrency ceilings are global only,
+  and each one carries the written reason a set cannot override it, in the API
+  response, in `settings assurance` and in the field help.
+  - **A one-way door.** `Load` uses `KnownFields(true)`, so a config that carries an
+    `assurance:` key cannot be parsed by an older build at all. Anyone who edits this
+    block during an incident and then rolls back needs to take the block out first. A
+    deployment that never adds it sees no change.
+  - **What an existing deployment sees.** Nothing is written for it. `GET
+    /api/v1/settings/assurance` and `retnd settings assurance` report the defaults with
+    `configured: false`.
+  - **Surfaces.** `GET`/`PATCH /api/v1/settings/assurance`, `GET`/`PATCH`/`DELETE
+    /api/v1/backup-sets/{source}/{set}/assurance` and `GET /api/v1/assurance/due`, with
+    `retnd settings assurance [patch|due]` and `retnd backup-set assurance`, all with
+    `--json` printing the API's own body. A `PATCH` is validated, written and
+    hot-reloaded in one step, so every set that inherits the changed value decides
+    under it on its next read with no restart. Beside a serving engine, `retnd
+    settings assurance patch` and `retnd backup-set assurance` hand the write to that
+    engine's `PATCH` route when `RETND_API_URL` names it (the engine owns the write and
+    its next-due moves), and a refusal for the request reads the same on both routes;
+    with an engine serving and no address they are still refused with the file untouched,
+    like `settings workflow`.
+  - **Feed and alerts.** New catalog events for scrub, recovery and recovery-test runs
+    (additions only, each completion states a `Result`) with one stage list shared by
+    the CLI and the browser, a scrub pass that costs two feed rows however many copies
+    it reads, and six new alert kinds: scrub overdue and failing, recovery test overdue
+    and failing, no readable copy, and archive-only recoverability.
+
+## [0.5.1] - 2026-10-04
+
+0.5.1 is 0.5.0 plus the one logo. 0.5.0 was published without it: the logo
+rework (#1019) landed on `main` after the 0.5.0 image inputs were recorded, and
+it changed an image input (`ui/shared`), so shipping it means a new image and
+re-recorded hashes rather than an edit to a published tag (#1042).
+
+### Changed
+
+- **There is one retnd logo, and it adapts** (#1019). The logo used to be seven
+  SVGs: a light and a dark lockup, and five separate drawings of the mark (two of
+  them in different blues). It is now `docs/site/assets/logo.svg`, built the way the
+  reses logo was: every shape paints with `currentColor`, two theme groups set the
+  colour from `prefers-color-scheme`, every stroke is in the mark's own grid so it
+  scales without a hairline or a font, and `#mark` and `#wordmark` are separate
+  groups in `<defs>` so a consumer can take either one. The muted `d` is the
+  wordmark's own ink at half strength instead of a second fixed colour, so it stays
+  muted when the wordmark is recoloured. The README, all six docs-site pages (whose
+  topbar cuts the mark out of the same file with an SVG view fragment), the app's
+  favicon links and the Unraid manifest point at it, and
+  `scripts/brand/export-rasters.sh` now derives every favicon, touch icon and social
+  PNG from it, pixel-for-pixel what was shipped. That script was also not byte-stable
+  between runs (ImageMagick stamped a time into each PNG), which it now is. The file
+  sits inside `docs/site/` because that is all the Pages workflow publishes. Kept
+  apart on purpose: the store-listing icon, which needs a square tile and a
+  `<title>`, and the three provider tiles.
+
+### Fixed
+
+- **The layer manifest no longer lists a directory the logo change deleted**
+  (#1046). `scripts/architecture/layers.conf` still classified the root
+  `assets/` directory after #1020 removed it, so `check-layer-manifest.sh`
+  failed (`manifest entry assets does not exist`) on the first pull request
+  that ran the gate against `main`. CI runs only on pull requests into
+  `release`, so nothing had asked the question between the merge and the
+  release candidate.
+
+## [0.5.0] - 2026-10-03
+
+### Added
+
+- **Publishing is now one reviewed merge into `release`.** The Release workflow
+  builds and pushes both architectures, signs every declared package path,
+  attaches the SPDX SBOM attestation, reads the immutable index and platform
+  digests back from GHCR, updates the canonical published state and installer
+  pin, regenerates and verifies provenance, and commits the complete release
+  record to `main`. No post-publish metadata pull request or hand-edited digest
+  remains in the normal path.
+
+- **Scripted backup workflows are documented, with clips taken by a committed
+  script rather than by hand** (EPIC L, #817, over everything #808 through #816
+  shipped). The feature had a conformance matrix, a performance record, four
+  ADRs and reference-page rows, and no page that told an operator what the five
+  stages are, which machine each hook runs on, or what to do about a backup set
+  that has stopped running because a workflow needs recovering. There is one
+  now: `docs/site/workflows.html`, in the topbar and on the home page.
+
+  **The pictures are reproducible or they are not evidence.**
+  `docs/site/tools/capture-workflows.mjs` records ten clips of the workflow
+  surfaces the same way the rest of the site's clips are recorded: against
+  `ui/shared`'s own dev server and its in-memory fixture API, never a real
+  deployment, with the clock, the timezone, the locale and the port pinned, and
+  one line of output per clip so a diff of a re-record says which picture moved
+  and what it cost. Re-running it reproduces them; on the machine they were
+  taken on, three consecutive runs produced byte-identical files. Recording the
+  first one required fixing the shared harness, which is its own entry under
+  **Fixed** below.
+
+  **The recovery hold has an operator procedure on both surfaces.**
+  `docs/recovery.md` gains the terminal path for a set blocked at
+  `recovery_required` — what reconcile did, why an interrupted step is not a
+  failed one, the journal queries, and the two exits — and
+  `docs/recovery-without-a-terminal.md` gains the browser-only counterpart,
+  because the hold is raised in a UI that offers exactly `Resume cleanup` and
+  `Acknowledge` and deliberately no dismiss. `install.md`,
+  `runtime-contract.md` and `ssh-setup.md` already carried the runner, the
+  container contract and the exec credential, and are cross-referenced rather
+  than restated.
+
+  **The epic has a spec, late, and it says so.**
+  `docs/EPIC-L-scripted-backup-workflows.md` carries the Status block,
+  FR-36 through FR-48, the five-expert adversarial review and its consensus,
+  entry and exit gates per phase, and a Definition-of-Done section that names
+  the proof for each line and whether that proof is gated or ungated. It was
+  written at the end of the epic instead of the start, which is a process
+  defect recorded in the file rather than smoothed over, and its closing
+  section states what has NOT been proven: that no deployment this repository
+  builds lets a browser start a backup run (#92), so every run the end-to-end
+  suite observed is the scheduler's and the hook bypass is unreachable over
+  HTTP; that remote hooks had never actually executed until #919 was found by
+  the e2e rig and fixed in #920; that the web-UI suite carries pre-existing
+  product-to-suite drift tracked in #913 which is not a workflow failure; and
+  that the one red EPIC L owns is the browser half of the recovery path,
+  because a hook whose Host Workflow Runner vanishes mid-step is not bounded
+  by `script_timeout` (#931) — so the run sits in progress, the set stops
+  being scheduled, and there is no hold to explain why until a later restart
+  reconciles it. Nobody has yet pressed Resume cleanup or Acknowledge in a
+  browser against a real deployment and watched the hold settle, and the
+  document says so rather than counting the surrounding greens.
+
+  **The first-run walkthrough describes the wizard that shipped.** #788 took the
+  add-backup-set wizard from six steps to eight, collapsed `Authentication` and
+  `Verify server` into one `Connection test` step and moved it to position two,
+  deleted `Backup discovery` outright — its directory and pattern fields moved
+  onto `Source` and its completion-method radios became the artifact engine's
+  branch of step six — and split `Storage & validation`. `docs/site/first-run.html`
+  still walked the six-step flow, and `capture-first-run.mjs` and
+  `capture-ssh.mjs` still clicked their way through steps that no longer exist.
+  The page now describes the eight that do, with twenty re-recorded stills and
+  both SSH clips; eleven pictures of deleted steps are retired as
+  `.superseded` rather than deleted. The page also says why it names a step one
+  way and describes it another: the rail labels four of the eight steps more
+  briefly than the step itself does, and one of those titles depends on the
+  engine, so a new set on the default artifact engine meets a step titled
+  "Completion and validation" where the rail says "Verification".
+
+  Nothing in this entry changes behaviour. An existing deployment sees new
+  documentation, three corrected wizard step names in the TrueNAS,
+  OpenMediaVault and Unraid acceptance procedures (#788 renamed those steps and
+  the procedures kept naming a step that no longer exists), and a reference page
+  whose command count finally matches the twenty-four commands the binary
+  registers.
+
+- **The workflow feature is now proved in a browser against a real
+  deployment** (EPIC L, #816). `scripts/e2e/three-machine-web-ui.sh` stands
+  up what EPIC L actually needs and what no mock can stand in for: a **Host
+  Workflow Runner** in a container of its own
+  (`scripts/e2e/runner-machine.Dockerfile`, the product's own binary from the
+  run's own image plus a Docker client), holding the host's Docker socket,
+  running non-root with `--group-add` for that socket's group, with its
+  authenticated Unix socket and its installation credential in volumes the
+  engine mounts exactly as `container/compose.yaml` does — so the engine
+  reads the credential at the path IT sees, which is the fix #877 landed and
+  the thing nothing else in this repository executes. The engine container's
+  posture is unchanged: no capability, no privilege, no socket, no host root.
+
+  **Two SSH postures, one client key**, because #810's claim is that an SFTP
+  transfer credential must not be assumed to grant shell exec, and a claim
+  about two capabilities cannot be proved against one account. A
+  `NAME.remote.sh` runs over `scripts/e2e/exec-host.Dockerfile`'s shell
+  account; the VPS's chrooted, internal-sftp-forced account is refused one by
+  the SERVER — `the server answered the exec request with "This service
+  allows sftp connections only."` — while backup over that same credential
+  goes on working and its artifacts stay in the catalogue.
+
+  **Twelve scenario backup sets and a committed script library**
+  (`scripts/e2e/workflows/`), one stage directory per scenario, every printed
+  line a contract a suite across the repository boundary asserts: a happy
+  local pair, a real remote pair, a before hook that fails so the backup is
+  **skipped**, an after hook that fails so the run is `backup=success
+  workflow=failed cleanup=failed`, hostile terminal output (OSC 8, a window
+  title, a window-manipulation sequence), a secret-backed variable a hook
+  resolves without disclosing, a bounded burst, a long hook to crash an
+  engine into, a six-step run, lint findings below the save gate, and a
+  `BSH003` directory the save gate refuses. Plus a control directory the
+  client drives the rig from — `crash` (SIGKILL the engine and start it
+  again, so a run in flight is one nobody observed the end of),
+  `runner-down`/`runner-up` — on the same one-ack-per-request protocol
+  `--break-engine` uses.
+
+- **A hook script that does not pass verification cannot be saved** (EPIC L,
+  #906, over #813's validation surface and #814's Workflow tab). Hook scripts
+  are now parsed and statically checked, and a passing verdict is a
+  PRECONDITION OF SAVING a workflow configuration rather than something an
+  operator finds out at 2am from a backup that quiesced a database and then
+  refused to continue.
+
+  **The syntax verdict no longer needs a shell.** It comes from a shell parser
+  linked into this product (`mvdan.cc/sh`), so it arrives with a LINE AND
+  COLUMN and it arrives on a deployment whose Host Workflow Runner socket is
+  gone and whose source host is unreachable — neither of which a `bash -n` on
+  the far side of a connection can manage, and both of which are the state
+  somebody is in when they are fixing a hook. The runner's and the far side's
+  `bash -n` are still asked, and still report under the same two checks,
+  because they answer the other half: whether the executor that will run the
+  script exists, answers, and accepts it.
+
+  **Six rules, this product's own, deliberately few.** `BSH001` an unquoted
+  expansion in a command argument; `BSH002` a `cd` whose failure nothing
+  checks, so the next line operates on the wrong tree; `BSH003` an `rm -rf`
+  that becomes a recursive delete of a root-level path the day a variable is
+  unset; `BSH004` `set -e` with a pipeline and no `pipefail`, which is a
+  truncated dump that reports success; `BSH005` an unquoted operand in
+  `[ ... ]`, which is a syntax error on exactly the empty value the condition
+  was written to handle; `BSH006` a missing `#!` line. Each one is narrowed
+  until it fires on shapes that are wrong rather than shapes that are unusual,
+  and each carries a message saying what to write instead. These are retnd's
+  rules and not ShellCheck's: ShellCheck is GPL-3.0, this product is
+  Apache-2.0, and a tool that cannot be shipped is not a tool a save gate can
+  depend on. It is not a general shell linter and does not claim to be.
+
+  **The threshold is documented and narrow.** A parse error or an
+  `error`-severity finding refuses the save, on `PATCH /settings/workflow`,
+  on `PATCH /backup-sets/{source}/{set}/workflow` and on `settings workflow
+  patch` and `backup-set workflow patch` alike, naming the script, its stage
+  directory and each blocking finding with its position. `warning`, `info` and
+  `style` are reported and never block — a gate that refused a warning would
+  be a gate operators work around by not using these surfaces. The refusal is
+  a 409 `WORKFLOW_SCRIPT_REJECTED` whose body carries the blocking scripts as
+  structured fields, so a client draws the position rather than parsing it out
+  of prose.
+
+  **A hostile hook cannot take the process with it.** The shell parser is
+  recursive descent with no depth limit of its own, and a stack overflow in
+  Go is fatal rather than recoverable, so the nesting depth is MEASURED by a
+  linear pre-scan before the parser is handed anything: a megabyte of `$(`
+  -- a legal script at the default size limit, and reachable from both a
+  configuration write and an authenticated read -- is reported as not
+  examined instead of killing the daemon.
+
+  **Every finding carries the script's own line.** The reported line with one
+  either side, with control characters removed and its length bounded at the
+  point it is produced, taken from the bytes the validation read and hashed
+  so the text cannot disagree with the position beside it. A position without
+  the line it points at is an errand on a machine the operator may not be
+  on.
+
+  **A root change is verified against every set.** A stage directory is a
+  name inside `workflows.root`, so moving the root re-points every backup
+  set's hooks at scripts nobody has verified without touching a line of any
+  set's own block; that one field therefore verifies the global stages AND
+  every set-owned one, and the refusal says whose set it is about.
+
+  **One verdict per script per check.** The in-process parser and the
+  executor's `bash -n` both answer the same two check ids, and the report
+  collapses them into a single row at the worst severity rather than
+  printing a pass beside a refusal about the same bytes.
+
+  **What it refuses on is what it ESTABLISHED.** A stage directory nobody has
+  created, a script larger than the verification reads, a hook tree the run
+  layer would refuse: none of those refuse a save, because a save is how an
+  operator corrects a broken deployment and a gate that fired when it could
+  not look would make the deployment unconfigurable exactly when it needs
+  configuring. Every one of them is reported, loudly, by `validate workflow`
+  and by the Workflow tab, and "not examined" is never drawn as a pass.
+
+  **Nothing executes a script body**, which is the rule the whole validation
+  surface is built on: the bytes are parsed and walked in this process, and
+  the report carries the script's own positions and text and never a resolved
+  secret.
+
+- **Workflow hooks have a web UI: what ran, what it printed, and the hold
+  that stops a set running** (EPIC L, #814, over #813's API). Five surfaces,
+  all of them inside the existing shell and its design system: a workflow-run
+  screen at `/workflow-runs/{run}`, that screen while a run is live, a
+  Workflow panel on each backup set, a workflow environment editor with a
+  merged inheritance preview, and a Workflow card in Settings.
+
+  **The three statuses stay three, on screen as well as on the wire.** Backup,
+  Workflow and Cleanup are drawn side by side and none is derived from the
+  others, because "the backup succeeded and the cleanup did not" means a
+  machine may be sitting quiesced with a good backup beside it, and a page
+  with one verdict would make that unsayable. A failed workflow names the
+  script that ended it; a run whose hooks were bypassed reports its workflow
+  status as skipped and says the hooks were bypassed, rather than showing a
+  green verdict for scripts nothing executed.
+
+  **All five stages, always, including the ones with no directory.** An
+  ineligible stage is drawn greyed and said out loud instead of omitted:
+  "the global after stage did not run" and "this deployment has no global
+  after directory" are opposite facts when a source has been left quiesced.
+  The stage that is executing is ranked above its own rows by an inset rule
+  and a tint as well as a badge, so which of the five is running is legible
+  without reading.
+
+  **A step killed on its timeout whose exit was never confirmed gets a
+  page-level warning**, naming the script, because the consequence is a
+  process that may still be running on a machine this product cannot reach.
+
+  **`recovery_required` blocks the per-set Run control** and offers exactly
+  two ways out, both of them the API's: resume the cleanup, which runs the
+  hooks that run still owes from its own retained spool, or acknowledge it in
+  words that are recorded. There is no dismiss. An unreadable hold list is
+  reported and also blocks the control, since treating it as "no holds" would
+  offer a run the engine is about to refuse.
+
+  **A `.local.sh` hook is "Local Host", executed by the Host Workflow
+  Runner**, on every surface that names one. Nothing implies the engine's own
+  container grew a shell.
+
+  **No surface can show a secret, and none has a reveal control.** The
+  environment editor shows a variable's name and the LOCATION its value comes
+  from — a file, an environment variable, an argv — because that is all the
+  contract carries; the merged preview shows precedence (deployment < backup
+  set < reserved `RETND_*` built-ins, which are read-only) and says where a
+  secret will be read from rather than what it is. An empty literal stays
+  distinct from no literal at all in both directions.
+
+  **A backup set that configures no hooks shows one sentence and nothing
+  else** — no empty table, no findings, no run history. The hook check is a
+  button and never a poll, because it hashes every script and opens both a
+  runner socket and an SSH connection to the source; a check that could not
+  run reports "not examined" rather than a green tick, and the two verdicts
+  (`valid_for_backup`, `workflow_valid`) stay apart. Settings reports the
+  runner's socket and credential path as read-only deployment facts and says
+  whether that address is CONFIGURED — never that the runner is answering,
+  because nothing on that read contacts it; liveness, its build and the
+  account it executes a hook as come from a set's own hook check, which opens
+  the socket. There is no elevation control of any kind.
 - **The scripted-workflow security, adversarial and performance gate is
   executable** (#812). EPIC L's eleven adversarial-review findings (#807) now
   each map to at least one test that runs, and the mapping itself is checked:
@@ -53,7 +1834,7 @@
   (#862). `POST /repositories` persists a new `repository_domains:` entry —
   id, isolation, passphrase REFERENCE, description — into `config.yaml`
   atomically and hot-reloads, through the same door `POST /backup-sets`
-  writes through, and `backupd repository create <domain> --isolation
+  writes through, and `retnd repository create <domain> --isolation
   shared|isolated --passphrase-file F` does the same from a shell. The
   Repositories → "Define a repository domain" screen is a working wizard
   rather than a read-only explanation of one.
@@ -92,7 +1873,7 @@
   content, not a second 100 GB copy.
 
   It is **gated and off by default**: `incremental_engine.enabled: true` in
-  `config.yaml`, or `BACKUPD_INCREMENTAL_ENGINE=1` in the environment, which
+  `config.yaml`, or `RETND_INCREMENTAL_ENGINE=1` in the environment, which
   overrides the file in both directions. With the gate off, a configuration
   that declares incremental sets still loads and still backs up every artifact
   set on schedule — the incremental ones refuse with one sentence naming both
@@ -126,8 +1907,8 @@
   Content reuse never becomes permanent trust: every path in every source is
   re-read on a bounded cadence the policy names.
 
-  The operator surface is `backupd snapshot` (`list`, `show`, `holds`,
-  `retention`, `verify`, `restore`, `hold`, `unhold`), `backupd repository`
+  The operator surface is `retnd snapshot` (`list`, `show`, `holds`,
+  `retention`, `verify`, `restore`, `hold`, `unhold`), `retnd repository`
   (`health`, `maintenance`), four
   repository-domain screens and four per-set snapshot screens in the web
   interface, and six new `GET` routes plus four actions on `POST /operations`
@@ -145,7 +1926,7 @@
   an SFTP source is refused at run time, because pulling a remote producer's
   finished files over SSH is the `artifact` engine's job. Every repository
   domain's storage is local, under the backup root, inside the reserved
-  `.backupd` namespace that artifact discovery, retention and prune may not
+  `.retnd` namespace that artifact discovery, retention and prune may not
   enter. And no verb or schedule runs repository maintenance yet: the
   surfaces report its decision, its owner and what it has reclaimed.
 
@@ -238,7 +2019,7 @@
   address or an SMTP server that would not accept the message all leave the same
   `/enroll?token=…` link usable — correct the field and submit again, where a
   too-short password used to burn the link and leave the operator restarting the
-  engine for a fresh one. And `backupd-web auth create-admin` takes the same
+  engine for a fresh one. And `retnd-web auth create-admin` takes the same
   details as optional flags (`--recovery-email`, `--smtp-host`, `--smtp-port`,
   `--smtp-security`, `--smtp-username`, `--smtp-password-stdin`, `--smtp-from`),
   because a provisioning run in a pipeline often has no mail credential to give
@@ -368,7 +2149,7 @@
   `LOG_LEVEL` to BOTH services — with `container/.env.example`, the provider
   adapters and the Portainer template carrying it too — because the two halves
   of one request are recorded in two containers and one of them at `debug`
-  gives half of every story. `BACKUPD_DEBUG=1` stays as the shortcut, and
+  gives half of every story. `RETND_DEBUG=1` stays as the shortcut, and
   `docs/deployment.md`'s new "Turning on diagnostics" covers all three
   switches, the browser's `?debug=1`/`?debug=0` included.
 
@@ -396,14 +2177,390 @@
   screenshot of a failed `fetch` can still be matched to the server's record of
   the same request.
 
+- **Every workflow script step has its own read-only terminal, and it refuses
+  to be a terminal** (#815). Selecting a step in a run shows that step's own
+  live or historical output, with the script, the phase, where it ran, the
+  state, the exit code, the duration and the script's short SHA-256 above it,
+  and live follow, pause, scrollback, copy, wrap, timestamps and a download in
+  the toolbar.
+
+  **The bytes are a hook script's stdout on a source host, so the view is
+  hardened rather than configured.** There is no terminal emulator: the
+  renderer is first party and in this repository, which is how "a pinned
+  production release and no runtime-loaded third-party terminal code" is met in
+  its strongest form — nothing is version-resolved, fetched or dynamically
+  imported, and the suite asserts the whole dependency closure. There is no
+  input path, no link activation, no title or window-control integration and no
+  device reporting, and captured bytes reach the DOM as text nodes only.
+  Sequence classes an emulator cannot be trusted with are swallowed BEFORE
+  drawing — OSC 8 hyperlinks, window and icon titles, clipboard writes, window
+  manipulation, device reports, DCS/SOS/PM/APC payloads, cursor movement and
+  erase, and the two classes that are the cheapest spoofs on a web surface:
+  the bidi overrides, and the zero-width and tag characters that draw nothing
+  while changing what a line appears to say (a broken path that reads as the
+  real one, or an invisible second message smuggled inside a visible line) —
+  and what was removed is reported in a line under the log rather than quietly
+  shown as less than the hook wrote. A carriage return is a line break, not a
+  repaint: forty repaints are the forty lines the script actually wrote.
+
+  **A slow, paused or reconnecting browser cannot lose a line or ask for one
+  twice.** The follower holds two numbers — the sequence that reached the
+  screen, and the read position — and one rule: when the bounded queue is
+  full, live delivery is dropped and the next read replays the durable log from
+  the last line drawn. A throttled consumer, a paused follow and a reconnect
+  are therefore the same case, and none of them can extend a script's
+  wall-clock duration, because every buffer is in the browser and bounded. A
+  100-step run keeps exactly one mounted viewer: per-step cursors and
+  scrollbacks are swapped inside it, so switching back to a step is instant and
+  resumes from its cursor. Browser scrollback is bounded and says what it
+  dropped and what still holds it; the truncation marker is drawn in this
+  product's words at the position it happened. A download or a copy is the
+  sanitised content with the header facts, the capture-order caveat and the
+  removal tally — because a saved log is opened in a terminal, which is the one
+  place those sequences still work.
+
 ### Changed
 
-- **The debug shortcut is `BACKUPD_DEBUG`, and `RM_DEBUG` is deprecated**
+- **The repository coordinates moved, and EPIC R is finished** (EPIC R #885,
+  R2.5 #895, FR-41, ADR 0023). The organisation `retndproject` became
+  `retnd` on 2026-09-15: `retndproject/retnd` is `retnd/retnd` and
+  `retndproject/retnd-tests` is `retnd/retnd-tests`. This is the last act
+  of the rename and it happened after every in-tree gate was green, which is
+  the ordering ADR 0023's first decision exists for.
+
+  **What an operator has to change.** Three references are not covered by
+  GitHub's redirects and they are the whole of the user-visible cost. The
+  documentation site is `https://retnd.github.io/retnd/`; the old origin
+  answers `404` and is gone rather than redirected. The installer URL in
+  `README.md` is
+  `https://raw.githubusercontent.com/retnd/retnd/main/scripts/install/install_docker_host.py`
+  — the old raw path still answers today, but it is not a guarantee anybody
+  owes you, so a runbook pinning it should be updated. And the published image
+  is `ghcr.io/retnd/retnd`, with `ghcr.io/retndproject/retnd` pushed
+  alongside it for exactly one release (FR-39) so an unedited compose file
+  keeps pulling; that mirror is retired by #947, together with every other
+  one-release window this epic opened.
+
+  **`cosign verify` is two commands now, keyed by version.** A Sigstore
+  certificate binds a signature to the repository the release workflow ran in,
+  and a signature that has been issued cannot be reissued. So `0.3.3` and
+  everything before it verifies against the `retndproject/retnd` identity
+  for as long as it exists, and everything published after the transfer
+  verifies against the `retnd/retnd` one.
+  [`docs/compliance/release-provenance.md`](docs/compliance/release-provenance.md)
+  prints both, with the boundary release named, and a test refuses that file if
+  it drops either one or pins anything else. Any downstream policy pinning the
+  old identity keeps working for old releases and must add the new one for new
+  ones.
+
+  **What did not need doing, recorded rather than ticked.** Two items on the
+  org-carry-over checklist turned out to be moot, and saying which is the point
+  of having a checklist. There is no GHCR package to move:
+  `gh api orgs/retndproject/packages?package_type=container` answers an empty
+  list, so nothing was ever published under the old package path. And there is
+  no branch protection to restore:
+  `gh api repos/retnd/retnd/branches/main/protection` answers
+  `404 Branch not protected`, and the same call answered the same against the
+  old coordinates *before* the transfer, so "restored" was the wrong word in
+  the spec and in the conformance matrix both.
+
+  **Everything a redirect does cover was checked rather than assumed**, with
+  three probes recorded in the closing PR: a clone of the old URL still
+  resolves, issue #895 resolves at both coordinates, and the module path now
+  equals `git remote get-url origin`. The `go install`/`go get` scan that held
+  that last mismatch shut is deleted, because the instruction it forbade is now
+  simply correct. `docs/conformance/epic-r-matrix.md` has no `BLOCKED` row
+  left: 21 `PASS`, 13 `PARTIAL`, and the four rows that are `PARTIAL` because
+  their evidence cannot be produced from here say so in as many words.
+
+- **The brand art is redrawn rather than re-lettered, and there is now an
+  inventory that fails both ways** (EPIC R #885, R2.3 #893, FR-44). The
+  wordmark was an SVG `<text>` element in a monospace face with the trailing
+  `d` in a muted tone. It is `<path>` geometry now, re-fitted rather than
+  re-lettered: six glyphs became four, so the spacing was rebuilt on optical
+  ink gaps instead of the typeface's monospace pitch, the lockup `viewBox`
+  went from `0 0 168 48` to `0 0 122.2 48`, and `README.md`'s embed width went
+  from 240 to 175 so the mark still renders at the size it always did. The
+  daemon accent **stays on the `d`**, in the same two tones as before: the
+  previous name ended in `d` and so does this one, so the split needed no
+  letter reassignment. The mark itself — Option 1a "Cycle" — is unchanged,
+  because it depicts no name.
+
+  **Every raster now derives from one source.** `scripts/brand/export-rasters.sh`
+  re-exports all eight PNGs and both three-member `.ico` files from the four
+  SVG sources, at framings measured off the committed files so the re-export
+  reproduced them rather than quietly re-cropping them. It is idempotent.
+
+  **Three checks ship with it.** `docs/design/brand-assets.md` is the manifest
+  of every brand asset, its declared sizes and its embed sites, held to the
+  filesystem in **both** directions by `scripts/brand/check-brand-assets.sh`: a
+  row with no file fails, and a file with no row fails, which is the direction
+  that catches the asset nobody wrote down. `scripts/brand/check-svg-text.sh`
+  refuses `<text>`, `<tspan>`, `<title>` and `<desc>` in any source SVG, which
+  are the four places a name can hide inside a picture; it strips XML comments
+  first, so a file can name the elements it is forbidden to contain. One path
+  is pinned rather than banned: `distribution/packaging`'s `CheckStoreIcon`
+  requires a store-listing icon to carry a `<title>`, because catalogue front
+  ends read it as alt text and none reads `aria-label`, so for that path the
+  element is allowed and **its text is checked** against the product name —
+  which is the stricter of the two rules, since the ban was satisfiable by
+  deleting the element. Both run
+  in the brand-drift guard's own gate step, and `scripts/brand/selftest.sh`
+  plants the violations FR-44 names and requires each to go red.
+
+  **The third check is a human and it has not happened.** No text guard can
+  read a letter that is now `<path>` data, and `check-brand-drift.sh` passes
+  `-I` so it never opens a raster at all. FR-44's acceptance step — a person
+  looking at the assets with the manifest in front of them — is recorded as
+  outstanding in the manifest, and row R2.14 of
+  `docs/conformance/epic-r-matrix.md` is `PARTIAL`, not `PASS`, permanently.
+  The letterforms are a geometric construction with no design review, and
+  nothing was seen on real hardware; the manifest says both.
+  `docs/design/893-16px-wordmark-or-monogram.html` records the one decision
+  FR-44 names: at 16 pixels the favicon is the mark, not the wordmark and not
+  a `d` monogram, with the three candidates rendered at 16 pixels beside the
+  reasoning.
+
+- **The product is `retnd` everywhere a person reads it, and this is the entry
+  that says what an upgrade does** (EPIC R #885, R2.2 #892). The rename reached
+  the prose: `README.md`, the 56 documents under `docs/`, `docs/api/contract.md`,
+  `CONTRIBUTING.md`, the CLA, the thirteen ADRs that named the old product, the
+  eleven store listings, and `NOTICE` — which is generated, so the binary
+  identity it renders from moved and the licence inventory, the SBOM, the
+  checksum manifest and the provenance bundle were regenerated forward rather
+  than hand-edited. `docs/adr/0023-moving-the-repository-coordinates-once-and-last.md`
+  is new and records FR-41: the sequence, what GitHub's transfer redirect covers
+  and what it does not, and which half of the cutover has actually happened.
+  Comments and citations the rename had falsified are fixed, including a design
+  canvas reference that an earlier sweep had pointed at a file that does not
+  exist and a `docs/deployment.md` section that still described the previous
+  rename's clean cut as the current behaviour.
+
+  **What an existing deployment sees, in one place.** An unedited compose file
+  you pinned yourself starts and works: the old image reference resolves through
+  the one-release mirror, the image carries `/retnd-web` as a hardlink beside
+  `/retnd-web`, and the mounts still land on `/etc/retnd` and
+  `/var/lib/retnd`, which the engine **adopts** — it serves from the
+  pre-rename path and warns on every start, naming the compose line to change
+  and the `install_docker_host.py migrate-identity` command that changes mounts,
+  persisted paths and systemd units in one transaction. Nothing first-runs over
+  an existing journal. `config.yaml` is **byte-identical**, because the
+  pre-rename paths are compiled-in constants and not a new configuration key, so
+  a **rollback to the previous build is supported for one release**. The
+  procedure, and the two refusals an upgrade can meet, are written out in
+  [`docs/install.md`](docs/install.md#upgrading-a-deployment-installed-before-the-rename):
+  a deployment with two *different* populated state directories, one at each
+  container path, **refuses to start** and names both rather than choosing a
+  journal silently (one host directory mounted at both paths is not that case
+  and starts normally); and a host with both spellings of a renamed systemd unit
+  enabled is refused with the `systemctl disable` line it needs.
+
+  **The one-release windows, all of which close in #895.** the previous-name hook
+  exports and input reads alongside `RETND_*` with identical values;
+  `retnd_session` / `retnd_csrf` accepted on a read and re-issued under the
+  current names; the fourteen `retnd_*` metric **gauges** emitted a second
+  time with `DEPRECATED, renamed to retnd_…` in their `# HELP`; the
+  `/retnd-web` entrypoint hardlink; the `ghcr.io/retndproject/retnd`
+  mirror; and FR-38's legacy-path adoption. **A query that reads both metric
+  prefixes double-counts** — the duplicated samples are one reading under two
+  names, not two measurements — which is why no counter is duplicated and why
+  the window is one release; point every rule and dashboard at `retnd_*` and
+  read the caveat where the metrics are, in
+  [`docs/deployment.md`](docs/deployment.md#metrics-and-the-one-release-duplicate-series).
+
+  **Two changes with no compatibility window at all.** The CLI's default
+  `User-Agent` is `retnd-cli (api 1)` where it was `retnd-cli (api 1)`:
+  nothing in this product reads it, but a log filter, an audit query or a
+  reverse-proxy rule of yours might, and a fallback would have made both of them
+  wrong. And every provider's deployment artefact is renamed — the nine
+  `apps/*/compose/retnd.{yml,yaml,env}` files, `apps/unraid/template/retnd{,-ui}.xml`
+  and the TrueNAS catalog template now name the `retnd` service, the `retnd`
+  compose project and the `retnd-retnd-1` / `retnd-web-ui-1` containers, matching
+  `container/compose.yaml` — so a script of yours naming `retnd-retnd-1` or
+  `retnd-web-ui-1` in a `docker inspect` or `docker logs` line needs updating
+  (#891).
+
+  **What deliberately still says the old name.** The image reference and every
+  `retndproject` URL, because FR-39 moves the image exactly once and #895 moves
+  the coordinates with it; `container/release-manifest.json`'s already-published
+  digest keys, which record artifacts that really were published under those
+  names; the reserved on-disk directories `.retnd` and `.retnd-preflight`
+  inside an operator's own backup root and media; the `retnd.workflow-hook`
+  container label and the `retnd-hook-` container-name prefix; this
+  changelog's earlier entries; and `docs/design/`'s dated notes. Everything
+  else, in any casing, is gone.
+
+- **The deployment identity is `retnd`, and a deployment mounted at the old
+  paths is adopted rather than handed a first-run wizard** (EPIC R #885,
+  R1.5 #890). The compose service, the container-internal configuration
+  directory, the entrypoint names and the systemd units have all moved, and
+  the reason this entry is long is the one failure mode that move creates.
+
+  **FR-38, the state-adoption preflight, is why this issue existed.** An
+  operator deploying with the compose file this project published bind-mounts
+  their host configuration directory onto `/etc/retnd/config`. A binary
+  defaulting to `/etc/retnd/config` finds nothing there -- and every other
+  branch of that condition is correct, because a fresh install really does
+  have no configuration. Taking it on a live deployment runs the first-run
+  flow, which claims the administrator account and burns the enrollment
+  token, and the operator's first instinct, completing the wizard, is the
+  action that makes it worse.
+
+  So before any first-run decision, the process resolves both locations and
+  decides from facts it can observe (`core/legacypath`): the renamed path if
+  it holds the data; the pre-rename path **adopted**, served and warned about
+  on every start if only that one does; a genuine first run if neither does;
+  and a **refusal naming both paths** if two different directories are
+  populated. The forbidden cell -- renamed path empty, pre-rename path
+  holding the data, process proceeding to first run -- is unrepresentable:
+  the decision reads no flag, no environment variable and no configuration
+  key, and it is applied inside `core/service.OpenConfigAndJournal`, the one
+  door every caller opens a deployment through, so a provider app that never
+  thinks to ask is covered too. Adoption rather than refusal is deliberate:
+  refusing is a self-inflicted outage on a backup product, the operator has
+  done nothing wrong, and an operator staring at a stopped stack reaches for
+  the wizard as readily as one staring at a fresh install. Refusal is
+  reserved for genuine ambiguity, and a same-device-and-inode test is what
+  keeps it from firing on the installer's own rollback-window compose
+  override, which mounts one host directory at both container paths on
+  purpose. The configuration half and the state half are decided and
+  asserted separately, because different code resolves them and the
+  configuration directory also holds the SSH key store and `known_hosts.d/`.
+  The adopted path is reported by `retnd check`, by
+  `GET /api/v1/system/version`'s new `adopted_paths` array and by the startup
+  log, so "which directory is my journal in" is answerable months later
+  rather than only in a warning somebody scrolled past. Three new compat
+  cells pin the wording: `20-legacy-state-adoption`,
+  `21-fresh-install-first-run` and `22-two-journals-refusal`.
+
+  **What an upgraded deployment sees.** An unedited pinned compose file still
+  starts: the image carries `/retnd-web` as a real hardlink beside
+  `/retnd-web` for one release, the image reference deliberately does NOT move
+  yet (it stays `ghcr.io/retndproject/retnd` until #895's cutover, so one
+  rename costs one compose edit rather than two), and the configuration mount
+  still landing on `/etc/retnd/config` is adopted. The only change is a
+  warning on every start naming the compose line to change and the installer
+  command that changes it. `/retnd` is NOT aliased -- nothing in any compose
+  file's `command:` or `healthcheck:` named it -- so a hand-written
+  `docker exec ... /retnd` has to move to `/retnd`.
+
+  **What moved.** `container/compose.yaml`'s engine service is `retnd`, the UI
+  service stays `web-ui`, the project name is declared so the default container
+  names really are `retnd-retnd-1` and `retnd-web-ui-1`, and the four command
+  arrays and two healthchecks name `/retnd-web`. Container-internal paths are
+  `/etc/retnd/{config,id_ed25519,known_hosts,workflow-runner.token}`;
+  `/data/state` and `/data/backups` carry no brand and are untouched. The
+  systemd units are `retnd-bridge.service`, `retnd-bridge.timer` and
+  `retnd-workflow-runner.service`, and a half-migrated host with both an old
+  and a new unit enabled is refused rather than tolerated.
+  `install_docker_host.py migrate-identity` performs the mount move, the
+  persisted `config.yaml` absolute-path rewrite and the unit rename as one
+  transaction, through the temp-file-in-the-configuration-directory discipline
+  #196 established. **No new configuration key**: the pre-rename paths are
+  compiled-in constants, because `KnownFields(true)` makes a new key a one-way
+  door out of a rollback. `container/release-manifest.json`'s already-published
+  entries keep their `retnd` / `retnd-web` keys -- they record artifacts
+  that really were published under those names -- and every consumer accepts
+  both spellings for the release that spans the rename.
+
+- **The command is `retnd`, and the web host is `retnd-web`** (EPIC R #885,
+  R1.3 #888). The two binaries this project ships have renamed themselves.
+  Every line either of them prints about itself follows: the `usage:` block,
+  the diagnostic prefix on every refusal, the sentences that tell an operator
+  which command to run next, and the commands `core/cliecho` echoes into the
+  Web UI's terminal panel. One constant spells it, `cliecho.Binary`, exactly
+  as `core/cliecho/cliname.go` was written to make possible.
+
+  **Nothing about this half is aliased.** At the time #888 landed, the two
+  files inside the image were still `/retnd` and `/retnd-web`, the compose
+  services were still `retnd`, the configuration directory was still
+  `/etc/retnd` and the environment, metrics and cookies were still
+  the previous-name variables and `retnd_*`: those are renames an upgraded deployment has to
+  survive rather than renames of a printed word, so they landed with their own
+  back-compat windows in #889 and #890, both of which are in this same
+  release. What #888 itself changed is only what the program calls itself when
+  it speaks. See the deployment-identity entry below for what an upgraded
+  deployment sees, and for the one entrypoint that IS aliased.
+
+  **The Go module path is `github.com/retnd/retnd`** (2,273 occurrences over
+  840 files), and the two command directories are `core/cmd/retnd` and
+  `apps/generic/cmd/retnd-web`. Until the repository moves to its new
+  coordinates (#895) that path deliberately does not match the location this
+  module is fetched from. It costs nothing, because every build here is local
+  -- a workspace build, or `GOWORK=off` over the `replace` directives in the
+  five `go.mod` files -- and nothing in the tree, the docs, the scripts or
+  the workflows tells anybody to `go install` or `go get` it.
+  `scripts/rename/check-no-module-fetch-instruction.sh` is what keeps that
+  true, and #895 deletes it because after the move the instruction is simply
+  correct.
+
+- **The runtime identifiers are `retnd`'s, and every one whose breakage would
+  have been silent is readable under its old name for one release** (EPIC R
+  #885, R1.4 #889). The environment a hook runs with, the two environment
+  variables an operator sets, the metric series a scrape reads, the session
+  and CSRF cookies, the proxy-error header and the API document's own title
+  all say `retnd` now. Each one was classified by what an upgraded deployment
+  would experience from a straight cut, and the ones that would have failed
+  SILENTLY got a window (FR-37):
+
+  - **Hook environment: both names, identical values.** Every one of the
+    nineteen built-ins a hook receives is exported twice, `RETND_RUN_ID`
+    beside its previous-name twin and the bare `RETND` beside the previous
+    bare name, from the
+    same values in the same loop. A hook is an operator's own Bash script:
+    the previous-name twin of `$RETND_BACKUP_STATUS` against a build that stopped exporting it is the
+    empty string rather than an error, so a hook that notifies on failure
+    would simply have stopped notifying. Both prefixes stay reserved in
+    configuration for as long as both are exported.
+  - **Input environment: both read, current name wins, one notice per
+    process.** `RETND_DEBUG` and `RETND_INCREMENTAL_ENGINE` are the names;
+    their previous-name twins and (still) `RM_DEBUG` are
+    read, and each prints one deprecation notice per process start on stderr
+    -- not one per read, which is a log an operator silences. The debug
+    shortcut's three spellings are OR'd rather than ranked, exactly as
+    before, because none of them has ever had an "off" value.
+  - **Metrics: `retnd_*` primary, `retnd_*` duplicated, gauges only.** An
+    alert rule whose series stopped existing does not fire and a dashboard
+    whose query matches nothing is blank; both look like a healthy
+    deployment. Every gauge family is emitted a second time under the old
+    prefix, derived from the bytes of the first rendering so the two cannot
+    disagree, with `DEPRECATED, renamed to retnd_…` in its `# HELP` line. No
+    counter is duplicated: summing a monotonic series across two names
+    doubles the rate, so the duplication is driven by each family's own
+    `# TYPE` line rather than by a list.
+  - **Cookies: `retnd_session` / `retnd_csrf` issued, the old names read and
+    RE-ISSUED.** A hard cut would have signed every browser out mid-task.
+    Both of this project's earlier names are accepted on a read
+    (`retnd_session`/`retnd_csrf` and #794's `bm_session`/`bm_csrf`,
+    whose window is not nested inside a third one and now closes with them),
+    and a request arriving under a deprecated name has that same session or
+    token re-issued under the current one on that read, so the old name
+    leaves the wire on the caller's next request rather than whenever a jar
+    turns over.
+
+  **Three things are hard cuts, and one of them may be visible to you.** The
+  `x-retnd-proxy-error` response header is now `x-retnd-proxy-error` with
+  no alias, because `serve-ui` writes it and the bundle it serves reads it,
+  and the two ship in one image. The API document is `retnd /api/v1` and both
+  generated bindings were regenerated from it. And **the CLI's default
+  `User-Agent` is now `retnd-cli (api 1)`, where it was `retnd-cli (api
+  1)`** -- nothing in this product reads it, but a log filter, an audit query
+  or a reverse-proxy rule of yours might, and there is deliberately no
+  fallback that would make both of them wrong.
+
+  Every window above is on `scripts/rename/check-brand-drift.sh`'s alias
+  list with the issue that deletes it (#895) and its removal release, "the
+  release after the one that ships this EPIC" (FR-43); that list now refuses
+  an entry carrying neither. The guard also grew the pattern for the bare
+  the bare previous name, which no prefix rule could ever match and which had been green
+  through two renames.
+
+- **The debug shortcut is `RETND_DEBUG`, and `RM_DEBUG` is deprecated**
   (#794). The one-variable diagnostics switch still carried the project's
-  old `RM_` prefix, from before the rename to backupd, which is the wrong
+  old `RM_` prefix, from before the rename to retnd, which is the wrong
   name to read out over the phone call this knob exists for. The engine
   (`obs.LevelFromEnv`) and the web host (`webhost.envLogLevel`) now both
-  accept `BACKUPD_DEBUG=1`, and `container/compose.yaml`,
+  accept `RETND_DEBUG=1`, and `container/compose.yaml`,
   `container/.env.example`, every provider adapter's compose file and
   `docs/deployment.md` name that spelling.
 
@@ -412,11 +2569,11 @@
   value — only the documented `1` means anything — so a deployment that
   upgrades one container before the other, or that still has the old name
   in a compose file nobody re-derived, does not go quiet in the middle of
-  a diagnosis. Set `BACKUPD_DEBUG` on new deployments; `RM_DEBUG` will be
+  a diagnosis. Set `RETND_DEBUG` on new deployments; `RM_DEBUG` will be
   removed a release after this one.
 
-- **The session and CSRF cookies are named `backupd_session` and
-  `backupd_csrf`** (#794). They were `bm_session` and `bm_csrf`, named for
+- **The session and CSRF cookies are named `retnd_session` and
+  `retnd_csrf`** (#794). They were `bm_session` and `bm_csrf`, named for
   a brand two renames ago. Both new names are the only ones the runtime
   WRITES; both old names are still READ for one release, so upgrading in
   place does not sign every open console out and does not break a client
@@ -433,6 +2590,174 @@
   issued the current one.
 
 ### Fixed
+
+- **The 0.5.0 release gate now exercises the intended test tiers** (#1017).
+  Security-sensitive workflow fixtures are created under a secure checkout
+  path, repository-wide source scans recognize the deliberately incomplete
+  core-only worktree, and the SFTP container proof lives in the machine tier
+  rather than an internal unit package. The same release audit completed the
+  retired first-product-name text sweep and names the documented licence-copy
+  container `retnd-licenses`; shipped compose projects and image references
+  remain under `retnd`.
+
+  The first hosted run of that gate then found five more things that were wrong
+  with the tests and not with the product, and all five are repaired. The
+  `core/cmd/retnd` workflow fixtures were still built under mode-1777 `/tmp`,
+  which the workflow code rightly refuses as an ancestor of an executable script,
+  so they now live under the package's own checkout. The core `-race` step ran
+  under `go test`'s ten-minute per-package default, which the `kopia` package
+  (a 2 GiB bounded-memory stream and a 200,000-entry namespace) outlasts on a
+  hosted runner while every test in it passes, so the hosted workflow, the rclone
+  upgrade gate and `scripts/ci-local.sh` all pass `-timeout 45m`.
+  `TestCancellingMidEnumerationStopsPromptlyAndLeaksNothing` asserted a goroutine
+  delta of exactly zero and failed on -2 when other goroutines wound down during
+  it; only a positive delta that persists is a leak, so that test and
+  `TestEnumerationMemoryDoesNotScaleWithEntryCount` (which read +1 with nothing
+  leaked) now settle the count over a short window instead of reading it once.
+  The verification heap-bound test read
+  either about 0 or about 26 MB of "growth" from the tree walker's fixed
+  already-seen set depending on where a 20 ms sampler tick fell, and sampling more
+  finely only moved the problem to a faster runner, which finished the small
+  verification between ticks every time. It now measures bytes allocated, which is
+  cumulative and cannot fall between ticks, and was watched to fail by about 69 MB,
+  the same each run, when `blob.ReadBlobMap` is held live during a verification.
+  Finally, the `ui/shared` page tests waited on Testing Library's one-second
+  `findBy` default and Vitest's five-second test limit for pages that enter edit
+  mode through two 180 ms mock calls under real stylesheets, so thirteen of them
+  failed under load with "Unable to find role button SAVE ALL & EXIT EDIT";
+  those ceilings are now five and twenty seconds.
+
+  The second hosted run found two more races. The host runner forgot a finished
+  step only after writing its result, so a cancel sent the moment a client saw
+  that result was answered as a success for a step that had already reported,
+  where every other step it is not running is `not_found`; it now forgets the step
+  before the write, and a test holds the server inside the write to prove it (it
+  fails against the old order every time, where a loop could not reproduce it on
+  demand). And the unverified-recovery banner test asserted on an element
+  `findByText` had returned before the banner re-rendered, which it now retries
+  until the banner settles.
+
+  The third run reached a test in the `kopia` package that had never
+  finished on a hosted runner, and it too judged by the clock: a cancelled
+  verification of a 200,000-entry directory had to return within the cancel point
+  plus half the full walk. The directory's manifest is decoded whole by one vendor
+  call before the first object, no context reaches into it, and it is 46% of the
+  walk on a workstation and up to 77% on a hosted runner, so the test failed a run
+  that had resolved one object of 200,001. It now asserts what a late-noticing
+  walk cannot hide, that no more than a tenth of the objects were resolved after
+  a cancel a tenth of the way in, and was watched to fail (200,001 of 200,001)
+  with the per-entry cancellation check disabled. The `-race` step's package
+  timeout is 45 minutes rather than 30, because that package alone took 22 of them
+  on the hosted runner.
+
+- **The image is published under `ghcr.io/retnd/retnd` only** (#947). The release
+  workflow pushed `ghcr.io/retndproject/retnd` as well, a one-release mirror
+  that the repository transfer was meant to need. That organisation no longer
+  exists, so the second push failed with `denied: not_found: owner not found`
+  after the first had already landed, and the first 0.5.0 publish stopped
+  between the two with `ghcr.io/retnd/retnd:0.5.0` in the registry unsigned.
+  The cutover had measured that nothing was ever published under the old path,
+  so there was no existing `docker pull` for the mirror to keep alive. The mirror
+  declaration (`image.mirror` in `canonical.json`), its guard in
+  `scripts/bdtools/release/publish_image.py` and that guard's test arms are gone
+  together, as the declaration said they would be, and a release now pushes
+  `image.reference` and nothing else, with a test that holds it. The unsigned
+  0.5.0 tag was in a private package and was never recorded, and the corrected
+  release publishes it again, signed.
+
+- **An exec refusal is always reported as a refusal** (#1029). When a remote
+  workflow hook is configured over an account whose server answers an exec
+  request with "This service allows sftp connections only." and exits 1 (an
+  internal-sftp account), or runs its own program and exits 0 (a forced-command
+  account), the server never reads the probe it was sent, so the client's write
+  of that probe could fail on the refusal's own ending, and the refusal was
+  reported as a lost connection (`writing the execution envelope to the exec
+  channel: EOF`) instead of naming the missing capability. About half of the
+  refusals took that path against a fast server, and a hosted run saw it once for
+  each kind of account. The probe now reads the exit status the server already
+  gave, 0 included, and reports the refusal as the capability error it is; a
+  write that fails with no such answer, or with the probe's marker already
+  printed, still fails the session, because a probe that ran over a prefix of its
+  payload proves nothing.
+
+- **The docs-site capture tooling works again, in four separate places** (#817).
+  Nothing in this repository checks that the scripts which take the
+  documentation site's screenshots and clips still run, and by the time EPIC L
+  went to take some, four unrelated things had broken.
+
+  **`Clip.write` could not encode anything.** It named a binding, `FFMPEG`,
+  that does not exist anywhere in `docs/site/tools/harness.mjs` — twice, once
+  to spawn the encoder and once in the error message about failing to spawn it.
+  In an ES module that is a `ReferenceError` on the first encode, so **none of
+  the four capture scripts could have re-recorded a GIF**: `capture-web-ui.mjs`,
+  `capture-ssh.mjs`, `capture-first-run.mjs` and `capture-reference.mjs` were
+  all reaching the same dead line. The resolver it was meant to use, `ffmpeg()`,
+  sat three hundred lines above it with its candidate-path search, its `FFMPEG`
+  environment override and a `console.log` naming the binary it took, and
+  nothing called it.
+
+  **Three more were caused by product changes nobody connected to a capture
+  script.** `EXAMPLE.port` was the placeholder `"<your-ssh-port>"`, which #864
+  turned from a value the wizard coerced into one the wizard refuses, so the
+  first-run capture could not leave the Source step and every picture after it
+  was unreachable; it is now `"22"`, which is the product's own shipped example
+  for that field, so the picture agrees with the tooltip beside it.
+  `getByLabel("Username")` became ambiguous when #830 added an SMTP username to
+  the enrolment form. And the enrolment card's selector, `#root > div > div`,
+  stopped matching a card when #874's delegated-tooltip layer inserted a
+  `display: contents` wrapper into that chain.
+
+  That last one is the one worth remembering, because it did not throw. It
+  silently photographed the whole 1280-pixel window instead of the 484-pixel
+  card, so the only thing standing between it and a shipped set of wrong
+  pictures was somebody looking at the output. A tooling break that produces a
+  plausible wrong answer is not caught by running the tool.
+
+  `docs/epic-checklist.md` section 10 now names all four and the follow-up that
+  would gate this surface (#926), because the argument is no longer
+  hypothetical: this tooling reads the shipped UI's own rules — `isPort`, the
+  rail labels, the accessible names, the field help, the DOM shape — so the
+  product invalidates it without knowing it exists.
+
+  An existing deployment sees nothing; this is repository tooling. Anybody
+  re-recording site media sees it work, and sees `encoding with <path>` naming
+  the encoder that was chosen.
+
+- **The step log terminal fits the window it is read in** (EPIC L, #916). In a
+  940px window it measured 1178px and the page scrolled sideways — with
+  wrapping ON, which is the one setting that promises it will not. Two causes,
+  and the second is the one that mattered: the terminal was not capped at its
+  own column, and a step row on the run page is a
+  `repeat(auto-fit, minmax(130px, 1fr))` grid whose min-content width is 130px
+  times the facts a step carries, about 1170px, which the shell's
+  `overflow: auto` main took rather than clipped. Both are now bounded at
+  100%, and the desktop layout is unchanged because 100% was always the larger
+  there. Found in a browser by #816's rig; the small-window case that measured
+  it is now the regression guard.
+
+- **Coming back to a step log no longer re-reads it** (EPIC L, #917). The
+  viewer keeps the scrollbacks of eight steps so switching between them is
+  instant, and then asked the engine for the log again anyway — so the cache
+  saved memory and nothing else, and an operator comparing a failure with the
+  step before it paid a durable read per click. A step held in full (read at
+  least once, its page reported complete, no error waiting to be retried) is
+  now drawn from the kept scrollback and starts no follower and no read. A
+  step still running, or one whose page ended mid-log, resumes its follower
+  exactly as before, and the ninth distinct step still evicts the oldest and
+  still costs its one read.
+
+
+- **A validation report no longer calls a sound deployment's hooks broken**
+  (EPIC L, #816). `ValidateWorkflow` captured each hook into a throwaway
+  spool and deleted it as the on-disk checks finished, while the check that
+  runs next asks the Host Workflow Runner to `bash -n` those same captured
+  bytes. Every backup set with a `NAME.local.sh` hook therefore reported an
+  error-severity `local_bash_syntax` finding — `this workflow run plan cannot
+  be built: .../validate-NNN cannot be opened: no such file or directory` —
+  and `workflow valid: false`, on the CLI and in the Workflow tab's own
+  report, for hooks that were perfectly fine. It needed a reachable runner to
+  appear at all, which is why the repository's own tests could not see it and
+  why #816's rig found it on its first green stack.
 
 - **`scripts/api/check-client-paths.sh` runs again** (#730). The diagnostics
   commit on this branch changed `ui/shared/src/api/client.ts` to fetch through
@@ -476,7 +2801,7 @@
 
 - **A deployment whose engine is unreachable says so, on every surface that
   meets it** (#795). The web-ui container on a reported NAS could not resolve
-  the engine (`dial tcp: lookup rclone-manager: no such host`), and the
+  the engine (`dial tcp: lookup retnd: no such host`), and the
   Activity page showed nothing. One fault, and three places turned it into
   something other than what it was.
 
@@ -488,9 +2813,9 @@
   the container an operator has to go and look at. A refusal now carries the
   response status, and — because a status cannot say which hop wrote it —
   `serve-ui` now marks the responses its own proxy writes
-  (`X-Backupd-Proxy-Error`, deleted from any upstream response so it can only
+  (`X-Retnd-Proxy-Error`, deleted from any upstream response so it can only
   ever mean this hop). A refusal identified that way is described as what it
-  is: Backupd's web interface could not reach the Backupd service, with the
+  is: retnd's web interface could not reach the retnd service, with the
   correlation id that 502 really carried (it is inherited from the request
   scope, so it matches the `proxy_error` line in the same container's log). A
   5xx that carries its own **typed** reason is untouched, whether or not this
@@ -506,8 +2831,8 @@
   means signed out, and everything else is a failure to ask. A **403** is a
   policy denial that no sign-in can lift, so it goes down the typed path with
   every other refusal. The app records the failure and replaces the login form
-  with a page that says only what is known: "Backupd is not answering" when
-  nothing came back, and "Backupd could not check your session" — over the
+  with a page that says only what is known: "retnd is not answering" when
+  nothing came back, and "retnd could not check your session" — over the
   service's own words — when something did. Both offer Try again.
 
   And there was no reproduction. `scripts/e2e/three-machine-web-ui.sh
@@ -562,6 +2887,131 @@
   Every Save refusal these flows already had (#146, #624, #852) is still
   underneath: a handler reachable by any other route must not save a set
   whose connection nothing proved.
+
+- **A remote hook that ran is reported by its exit status, not as a
+  connection that failed** (EPIC L, #915). A remote workflow step died
+  `transport_lost` in ~72ms on a connection that had just proven itself
+  exec-capable, and the sshd on the far side showed the hook's session
+  opening and closing cleanly — because the hook had in fact run, exited,
+  and reported a status this product then threw away.
+
+  The script reaches the far side on the exec channel's stdin, written
+  BESIDE the wait rather than before it, so that a peer which reads nothing
+  is reached by the step's own timeout instead of blocking for ever. A hook
+  stops reading that payload the moment it exits — an early `exit 0`, a
+  script shorter than the stdin behind it — so the remote closes its end
+  under a write that is still going and the write fails on the hook's own
+  ending. That failure was returned in place of the exit status, which made
+  a hook that succeeded indistinguishable from a connection that dropped:
+  `transport_lost` means the side effects may be half applied and the exit
+  code is nil, and an operator reading it about a hook that quiesced a
+  database has been told the opposite of what happened.
+
+  A reported exit status is now authoritative, and the payload write is
+  drained rather than allowed to overrule it. Nothing is weakened by that:
+  a transport that really did drop the script leaves NO status behind, and
+  a channel that closes without one is still transport loss with a nil exit
+  code, as #810 requires. The capability probe and the other internal
+  sessions are unchanged — a proof taken over a PREFIX of a script is not a
+  proof about the script, so there an incomplete write still fails the
+  session.
+
+- **A remote workflow hook runs at all** (EPIC L, #919). Every
+  `NAME.remote.sh` step in the product was refused before anything of it
+  happened. The engine handed the remote executor the step's own id as its
+  step token, and the token rule refuses the `~` that a step id is built out
+  of (`0002~set~before~10-quiesce.remote.sh`) — correctly, because the token
+  is interpolated UNQUOTED into the fixed remote command a shell on the far
+  side parses, where a tilde is a word that shell rewrites and a leading one
+  is a home directory. The refusal landed in about fifteen microseconds,
+  before a connection was opened, a capability proven or a session asked
+  for, and was then reported as `transport_lost` — which told an operator
+  the link to a host had dropped mid-step, about a hook whose bytes had
+  never left this machine. The two rules had been mutually unsatisfiable
+  since the day both existed, so no remote hook had ever run.
+
+  **The token is derived now, not borrowed** (`remoteexec.StepToken`). It is
+  built to satisfy that rule rather than offered to it: every byte outside
+  letters, digits, dot, dash and underscore becomes a dash, a leading dash
+  is prefixed away because the token is a WORD the receiving bash would
+  otherwise read as options of its own, and a pair too long for the
+  120-character ceiling is cut short and carries its own digest — so two
+  steps whose script names agree for a hundred characters cannot be reduced
+  to one token. The token names the RUN as well as the step, which closes a
+  collision nobody had reached yet: the reaper finds a step's process group
+  by matching the token as a whole operand in the remote process list, so a
+  token naming only the step would let one run's termination find, and kill,
+  another run's healthy hook. The rule itself is unchanged and deliberately
+  not widened, and `workflow.StepID` keeps its separator: it is also the
+  name of the step's spool file.
+
+  **This is not #915.** There a channel opened, the hook ran and exited, and
+  the status it reported was thrown away. Here no channel was ever opened,
+  which is why the fix is proven by asserting that a session carrying the
+  step's token WAS opened on a fixture sshd rather than by an absent error.
+  A step refused before it starts also reports `not_attempted` now instead
+  of `transport_lost`: nothing of it ran, so there are no half-applied side
+  effects for anyone to go looking for.
+
+- **The add-backup-set wizard stops sending an operator to a step it does not
+  have** (#923). Picking "Generate dedicated SSH key" on the Connection test
+  step answered with "import a key on the **Authentication** step instead" —
+  a step #788 deleted when it folded the credentials, the host key and the
+  connection test into one. The control that sentence is about is directly
+  below the banner, so the one remediation line on the screen pointed an
+  operator away from it and at a rail entry that is not there. It now says
+  what `saveHint` has said for the same refusal since #788: pick a key this
+  deployment already holds, or import one, on this Connection test step.
+
+  #788 fixed the hint and missed the banner, and the guard written to catch
+  exactly this ("sends the operator to a step that is actually on the rail")
+  could not see it: it never selects that radio, so the banner never renders
+  and its text never enters the document the assertion scans. The same sweep
+  had also left three stale steps in the wizard's field help — hostname and
+  port both revoked host trust "on the Verify server step", and the username
+  entry wanted read access to a folder "you set on the Discovery step", a
+  field that is two rows above it on Source now.
+
+  **The rule is asserted instead of the wording.** Two cases pull the step
+  name out of the sentence an operator reads and look it up in the rail the
+  wizard is actually drawing — for the banner, and for every `wizard*` entry
+  in the field-help copy. A reintroduced `Authentication`, or a relabelled
+  rail that leaves some sentence behind, fails them; the current copy is not
+  pinned anywhere, so rewording it stays free.
+
+- **The add-backup-set wizard's glob field is named for what it does** (#927).
+  The Source step's second box was labelled "Ignore paths matching" and is an
+  INCLUDE list: the state is `includePatterns`, the wire field is `include`,
+  the field's own help says which filenames "count as this backup set's
+  artifacts", and the same data reads as "Include patterns" on the set's edit
+  form and "Include" on its detail page. The label was the only thing in the
+  product saying otherwise, and it said the opposite.
+
+  An operator who believed it and typed `*.tmp` there got a backup set that
+  backs up **only** `*.tmp`. Nothing refuses that save and no run fails:
+  discovery drops a basename the include list does not match with a bare
+  `continue`, silently and on purpose, so the set has nothing to report. The
+  symptom is empty backups noticed days later, with a configuration screen
+  that still reads as though the pattern were being excluded. The box is now
+  "Filename patterns to back up", which is the wording the edit form's own
+  help already used and which stays parallel to "Directory to back up"
+  directly above it.
+
+  **No exclude capability was invented, because there is none to bind to.**
+  The engine's exclude (`exclude_paths`, #737) names DIRECTORIES discovery
+  must not walk into — its validation refuses a basename glob, exactly as
+  `include` refuses a path — and the HTTP API exposes no exclude field at
+  all, so the wizard never had an ignore list to send anywhere. This was a
+  wrong label, and correcting the label is the whole fix.
+
+  **The rule is asserted instead of the wording.** The new case never names
+  the field: it finds the one Source-step box whose contents come back out in
+  `createBackupSet`'s `include` — proven causally, by typing a sentinel into
+  it and watching that sentinel arrive on the wire — and only then reads the
+  name an operator sees, across every surface that can give a control its
+  accessible name (label text, `aria-label`, `aria-labelledby`, placeholder,
+  title). Rewording the field stays free; naming an include control "ignore",
+  "exclude", "omit" or "skip" again does not.
 
 ## [0.4.0] - 2026-09-09
 
@@ -674,7 +3124,7 @@
 - **A licence that names this product and its copyright holder, and a
   contributor agreement** (#685). `LICENSE`'s appendix, `NOTICE` and
   `compliance.json` all said *Backup Manager*, in the one file a redistributor
-  reads to find out what they have; the product is rclone-manager and the
+  reads to find out what they have; the product is retnd and the
   holder is Roman Goldmann. Both artifacts are regenerated from
   `compliance.json` rather than hand-edited, and the Apache-2.0 body itself is
   untouched — only the appendix's copyright line was ever ours to write.
@@ -935,8 +3385,8 @@
 - **The web host introduces itself by the name everything else calls it**
   (#652). The image ships `/rbm-web`, every compose file runs it, the packaging
   manifest names it and the CLI's own exit-code table sends an operator to
-  `rbm-web serve`, while the binary went on saying `backup-manager-web` in 37
-  places, including `usage: backup-manager-web <command> [flags]`. So a fresh
+  `rbm-web serve`, while the binary went on saying `retnd-web` in 37
+  places, including `usage: retnd-web <command> [flags]`. So a fresh
   install answered `docker compose logs` with a name no compose file, no
   document and no other binary in the image still uses. The first-run
   enrolment notice — usually the first line a new deployment prints — had

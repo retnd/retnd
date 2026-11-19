@@ -1,24 +1,33 @@
 #!/usr/bin/env python3
-"""Move scripts/e2e/tests-repo.pin to a newer backupd-tests commit.
+"""Move scripts/e2e/tests-repo.pin to a newer retnd-tests commit.
 
   python3 scripts/bdtools/e2e/bump_tests_pin.py              # the pinned branch's tip
   python3 scripts/bdtools/e2e/bump_tests_pin.py main         # a named ref
   python3 scripts/bdtools/e2e/bump_tests_pin.py <full sha>   # an exact commit
 
-The bump is one line in one file, and it does not carry its own proof:
-the commit that lands it runs through .husky/pre-commit like any other,
-which runs the gate, which runs the newly pinned suites. So a pin that
-points at a red or unreachable tests commit cannot be committed without
---no-verify. That is the whole safety story, and it is why this script
-deliberately does not "verify" anything itself: a check that runs here and
-again in the gate would just be a check that can disagree with the gate.
+The bump is one line in one file, and the commit that lands it runs
+through .husky/pre-commit like any other, which runs the gate, which runs
+the newly pinned suites. So a pin that points at a red or unreachable
+tests commit cannot be committed without --no-verify.
 
-Ported from scripts/e2e/bump-tests-pin.sh under #672 (EPIC I / #662),
-which is why the paragraph above is still exactly one paragraph: the
-temptation a port invites is to add the verification the original refuses
-to carry, and the refusal is the design.
+That is NOT enough for one failure, and it is the one check this script
+does carry (#1074): that the target is on retnd-tests main. The gate runs
+whatever commit it is handed, a branch head included, so a pin at the head
+of an open retnd-tests PR goes green and lands, and it is how c75e4dd (the
+head of retnd-tests#87, squashed to 9584fa3 with the same tree) got in. The
+gate cannot be the one to notice, because from where it stands a branch
+head is a perfectly good commit. The question "was this merged?" has to be
+asked when the pin is chosen, so the target must be an ancestor of main,
+by tests_pin.require_on_main, which the gate also calls so a hand edit of
+the pin file meets the same rule.
 
-One check IS added, and it is about this script rather than about the
+Ported from scripts/e2e/bump-tests-pin.sh under #672 (EPIC I / #662).
+The original refused to verify anything, on the argument that a check here
+and again in the gate could only disagree. That held for red and
+unreachable commits and did not hold for "not on main", which the gate
+cannot see, and #1074 is the proof.
+
+Another check IS added, and it is about this script rather than about the
 pin: the rewrite asserts that it replaced exactly one line. The `sed`
 this replaces would have exited 0 having matched nothing, printed the old
 and new shas, and left the file untouched.
@@ -90,6 +99,25 @@ def rewrite(pin_file: Path, sha: str) -> None:
     os.replace(str(tmp), str(pin_file))
 
 
+KNOWN_RED_RELATIVE = "scripts/e2e/known-red.txt"
+
+
+def rewrite_known_red_pin(list_file: Path, sha: str) -> None:
+    """Move the `pin=` header of scripts/e2e/known-red.txt with the pin
+    (#1260). The web-ui ratchet refuses a list judged at another pin, so a
+    bump that left the header behind failed its own first gate run until a
+    hand edit; the two move together now, and the gate run that gates the
+    bump judges the suite at the new pin, which is when a listed spec that
+    now passes comes off."""
+    if not list_file.is_file():
+        return
+    text = list_file.read_text(encoding="utf-8")
+    new_text, count = re.subn(r"^pin=[0-9a-f]+\s*$", f"pin={sha}", text, flags=re.MULTILINE)
+    if count != 1:
+        harness.die(f"{KNOWN_RED_RELATIVE} has {count} `pin=` header line(s); exactly one is expected.")
+    list_file.write_text(new_text, encoding="utf-8")
+
+
 def body(root: Path, target: str) -> int:
     pin_file = root / tests_pin.PIN_RELATIVE
     pin = tests_pin.read_pin(pin_file)
@@ -99,12 +127,15 @@ def body(root: Path, target: str) -> int:
         harness.die(f"{tests_pin.PIN_RELATIVE} does not carry TESTS_REPO_URL.")
 
     sha = resolve(url, target)
+    tests_pin.require_on_main(url, sha)
 
     if sha == current:
         print(f"==> already pinned to {sha}, nothing to do", flush=True)
         return harness.EXIT_OK
 
     rewrite(pin_file, sha)
+    rewrite_known_red_pin(root / KNOWN_RED_RELATIVE, sha)
+    harness.note(KNOWN_RED_RELATIVE + " pin= moved with it")
 
     print(f"==> {current}", flush=True)
     print(f"==> {sha}", flush=True)

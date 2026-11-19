@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/lifecycle"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/state"
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // This file is the FR-17 table turned into a dispatch: one function per row
@@ -145,7 +145,7 @@ func noAction(artifact model.ArtifactID, st lifecycle.State, reason string) Find
 // Every one of that verdict's callers below builds a noAction finding
 // (From == To): the row converged, nothing to advance through
 // lifecycle.Advance, so no journal transition marks it and
-// cmd/backupd/reconcile.go's own gate, `f.Changed() ||
+// cmd/retnd/reconcile.go's own gate, `f.Changed() ||
 // f.NeedsInvestigation`, would otherwise never print it. A row the
 // product resolved but whose own bookkeeping still disagrees with itself
 // is something a human must look at: the resolution read the file, it did
@@ -189,8 +189,32 @@ func flagRecordFault(f Finding, local localValidity) Finding {
 // runs against every artifact on every cycle, and a HEAD per artifact per
 // cycle is a bill internal/revalidate already pays on a schedule the
 // operator chose.
+//
+// One thing is read from the journal about those copies, and it is not a read
+// of the medium: a copy whose last check FAILED (a scrub that found the bytes
+// wrong, a destination that attested a checksum other than the one recorded
+// when a recovery asked, #983) is a positive finding that an operator has to
+// see. Reporting it as "left on a medium, no action" would hide the one copy
+// in the set that is known to be bad behind the sentence that says everything
+// is in order. So the Finding is flagged NeedsInvestigation and its reason
+// names the copy and what was recorded. It is still a no-action finding: the
+// state is unchanged, because whether an artifact is quarantined depends on
+// whether another verified copy survives, and that decision belongs to the
+// scrub (FR-31), not to a pass that cannot read a medium.
 func leftOnMedium(rec state.Record, st lifecycle.State, local localValidity) Finding {
-	return noAction(rec.Artifact, st, local.Reason)
+	f := noAction(rec.Artifact, st, local.Reason)
+	for _, p := range rec.ActiveMediumPlacements() {
+		if p.AssuranceState != state.AssuranceFailed {
+			continue
+		}
+		f.NeedsInvestigation = true
+		reason := p.LastFailureReason
+		if reason == "" {
+			reason = "its last check failed"
+		}
+		f.Reason += fmt.Sprintf("; the copy on %s is recorded as failing: %s", p.Medium, reason)
+	}
+	return f
 }
 
 // reconcileRemoteRetained handles the REMOTE_RETAINED row (issue #315):

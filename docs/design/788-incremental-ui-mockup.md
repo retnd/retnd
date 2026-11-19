@@ -146,7 +146,7 @@ parity honest: the CLI submits the same operations.
 
 New requirement, folded into this gate because it changes two screens.
 
-The connection test reports a **write permission** line: Backupd creates
+The connection test reports a **write permission** line: retnd creates
 a scratch file under the source path and deletes it again. That result,
 and nothing softer, arms *Delete from source after a verified backup*
 (`read_only = false`):
@@ -203,7 +203,7 @@ the contract rather than a thing to remember.
 
 **Those annotations ship.** They began as a review aid, and the verdict
 on them is that they earn a place in the product for a second reason:
-these are the screens an operator compares with `backupd snapshot list`
+these are the screens an operator compares with `retnd snapshot list`
 output and quotes at a support engineer, and `source_bytes_read` is the
 word both of those conversations use. `WireField`
 (`ui/shared/src/components/Definitions.tsx`) is the one component that

@@ -1,20 +1,29 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
-    <img src="docs/assets/logo-light.svg" alt="backupd mark: a broken ring standing for a transfer cycle in progress, next to the backupd wordmark" width="240">
-  </picture>
+  <img src="docs/site/assets/logo.svg" alt="retnd mark: a broken ring standing for a transfer cycle in progress, next to the retnd wordmark" width="175">
 </p>
 
+<p align="center">
+  <a href="https://github.com/retnd/retnd/actions/workflows/release.yml"><img src="https://github.com/retnd/retnd/actions/workflows/release.yml/badge.svg" alt="Release workflow status"></a>
+  <a href="https://github.com/retnd/retnd/actions/workflows/nightly-e2e.yml"><img src="https://github.com/retnd/retnd/actions/workflows/nightly-e2e.yml/badge.svg" alt="Nightly end-to-end status"></a>
+  <a href="https://github.com/retnd/retnd-org/actions/workflows/site.yml"><img src="https://github.com/retnd/retnd-org/actions/workflows/site.yml/badge.svg" alt="Site deployment status"></a>
+  <a href="https://github.com/retnd/retnd/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+  <a href="https://github.com/retnd/retnd/releases/latest"><img src="https://img.shields.io/github/v/release/retnd/retnd?display_name=tag" alt="Latest GitHub release"></a>
+  <a href="https://go.dev/"><img src="https://img.shields.io/github/go-mod/go-version/retnd/retnd?filename=core/go.mod" alt="Go version"></a>
+</p>
+
+<p align="center">
+  <img src="docs/assets/readme-tour.gif" alt="A 30 second tour of the retnd web UI: the dashboard with its docked terminal, backup sets, one set's detail, retained backups and a single backup's lifecycle, the activity timeline, quarantine, catalog recovery and settings, then the dashboard and a set again in the dark theme" width="800">
+</p>
 
 A backup producer somewhere writes a dump, an archive or a snapshot to disk. That machine
 has finite space, so something has to move the artifact off it and something has to delete
-the original. backupd is the half of that job that runs on the NAS: it discovers
+the original. retnd is the half of that job that runs on the NAS: it discovers
 finished artifacts on the remote server over SFTP, pulls them, verifies them, commits them
 durably, records that it did, and only then removes the remote copy.
 
 It is a standalone Go binary that **embeds pinned rclone Go packages**. It does not fork
 rclone, and it does not shell out to the `rclone` CLI for normal data movement. There are
-two surfaces over the same engine: `backupd` at a terminal, and a web UI on the LAN. Everything
+two surfaces over the same engine: `retnd` at a terminal, and a web UI on the LAN. Everything
 an operator can DO in the browser has an equivalent command, and that is a gate rather than
 an intention: a route with neither a command behind it nor a written reason there is none
 fails the build.
@@ -26,12 +35,20 @@ machine with Docker.
 [`docs/recovery.md`](docs/recovery.md) — or, for a backup set on the
 incremental engine, [`docs/incremental-runbooks.md`](docs/incremental-runbooks.md).
 
+**If you need a backup out, not just to know it is there:** this product recovers and
+exports the retained artifact; restoring it into an application remains the operator's
+responsibility. `retnd recover` hands you one retained copy, checked against the digest
+recorded when it was committed. It is not `retnd restore` (which asks a storage provider to
+thaw an archived object) and not `retnd snapshot restore` (which extracts a snapshot on the
+incremental engine), and [`docs/recovery.md`](docs/recovery.md) puts the three side by side
+so you can pick the right one at 3am.
+
 **The same material as pages, with pictures**, is the published site: [the first-run
-tutorial](https://backupdproject.github.io/backupd/first-run.html), [the web interface in
-motion](https://backupdproject.github.io/backupd/web-ui.html), [SSH and
-connections](https://backupdproject.github.io/backupd/ssh.html), and [the
-reference](https://backupdproject.github.io/backupd/reference.html), which carries every
-screen of the browser interface and every `backupd` command with its flags. It is generated
+tutorial](https://retnd.github.io/retnd/first-run.html), [the web interface in
+motion](https://retnd.github.io/retnd/web-ui.html), [SSH and
+connections](https://retnd.github.io/retnd/ssh.html), and [the
+reference](https://retnd.github.io/retnd/reference.html), which carries every
+screen of the browser interface and every `retnd` command with its flags. It is generated
 from [`docs/site/`](docs/site/) in this repository. The site is the source of truth for how
 to install the product and how to drive it; this document is the engineering account behind
 it, and where the two ever disagree about install or operator surfaces, the site is right.
@@ -41,7 +58,7 @@ it, and where the two ever disagree about install or operator surfaces, the site
 Two commands, no arguments, on any machine with Docker:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/backupdproject/backupd/main/scripts/install/install_docker_host.py
+curl -fsSLO https://raw.githubusercontent.com/retnd/retnd/main/scripts/install/install_docker_host.py
 python3 install_docker_host.py install
 ```
 
@@ -55,15 +72,15 @@ to that file byte for byte by a test.
 ```text
 ==> Installed.
     Web UI:  http://10.0.0.10:8080
-    Compose: docker compose -p backupd --env-file /home/you/backupd/.env -f /home/you/backupd/compose.yaml -f /home/you/backupd/compose.image.yaml
+    Compose: docker compose -p retnd --env-file /home/you/retnd/.env -f /home/you/retnd/compose.yaml -f /home/you/retnd/compose.image.yaml
 
     No config.yaml was written, on purpose. Issue #176 shipped a first-run setup flow
     precisely so that a fresh install does not need one hand-written before it starts.
     Open the Web UI and follow it. The enrollment link is in the engine's log:
-      docker compose -p backupd --env-file /home/you/backupd/.env -f /home/you/backupd/compose.yaml -f /home/you/backupd/compose.image.yaml logs backupd | grep enroll
+      docker compose -p retnd --env-file /home/you/retnd/.env -f /home/you/retnd/compose.yaml -f /home/you/retnd/compose.image.yaml logs retnd | grep enroll
 ```
 
-It picks every path for you — `~/backupd`, with `backups`, `state`, `config` and
+It picks every path for you — `~/retnd`, with `backups`, `state`, `config` and
 `secrets` under it — generates the SSH keypair the engine will use, pins the exact image it
 was built against, and refuses before it changes anything if the machine cannot run it.
 Nothing needs deciding up front, and everything it chose can be changed afterwards. A
@@ -84,7 +101,7 @@ matters. The engine mints the enrolment token during startup and writes the noti
 own log, so the installer prints the line that reads it back out:
 
 ```text
-backupd-web: no administrator account exists yet. Open
+retnd-web: no administrator account exists yet. Open
 http://10.0.0.10:8080/enroll?token=4zj7VCpcYLIeVNN1oZJZPaCErYXOc6s6
 to create one (valid 30 minutes, single use).
 ```
@@ -94,7 +111,7 @@ port is deliberately not enough. The token proves you can read the container's o
 which is what somebody else on the network cannot do. It is single use, it expires in
 thirty minutes, and the address in it is this machine's own rather than `localhost`,
 because the link is opened from whichever computer you are sitting at — printing
-`localhost` was, and over SSH on a laptop `localhost` is the laptop.
+`localhost` was the bug, and over SSH on a laptop `localhost` is the laptop.
 
 Nothing reissues that link while the engine keeps running, so a lapsed one has its own
 command:
@@ -110,7 +127,7 @@ dead, including any still in your scrollback. On a deployment that already has a
 administrator it refuses with its own exit code instead, because enrolment is a one-time
 door and it closed when that account was created.
 
-[The first-run tutorial](https://backupdproject.github.io/backupd/first-run.html) picks up
+[The first-run tutorial](https://retnd.github.io/retnd/first-run.html) picks up
 at that screen and walks every step of the wizard, with an example for every field.
 
 ### Command line only, no web interface
@@ -121,11 +138,11 @@ Same two commands, one flag on the second one:
 python3 install_docker_host.py install --cli-only
 ```
 
-The engine container runs `backupd daemon` instead of `backupd-web serve`, the `web-ui` container is
+The engine container runs `retnd daemon` instead of `retnd-web serve`, the `web-ui` container is
 never started, and no port is published on this host at all, so nothing in the deployment
-serves HTTP and the `backupd-web` binary is never executed. What drives it is the `backupd` wrapper
-the installer writes to `<prefix>/bin/backupd`, which takes every command in
-[the reference page's command table](https://backupdproject.github.io/backupd/reference.html#cli-commands)
+serves HTTP and the `retnd-web` binary is never executed. What drives it is the `retnd` wrapper
+the installer writes to `<prefix>/bin/retnd`, which takes every command in
+[the reference page's command table](https://retnd.github.io/retnd/reference.html#cli-commands)
 — this document stopped carrying a generated copy of it, because the site is where
 the operator surface is documented.
 
@@ -135,7 +152,7 @@ nothing, and prints the one command that writes the first configuration: creatin
 backup set writes the first `config.yaml` along with it. Re-running the installer later with
 no flags keeps the deployment this shape; `--no-cli-only` converts it to the full stack.
 
-### The seven subcommands
+### The eight subcommands
 
 `preflight` checks and creates nothing. `install` checks and then installs. `status` reports
 what is here and whether bridge networking still works, and only ever reads. `enroll-link`
@@ -143,7 +160,11 @@ mints a fresh enrolment link. `uninstall` takes the stack down and removes `comp
 `compose.image.yaml` and `.env` — never the backups, never the state, never the
 configuration, and never the firewall rules a repair added. `network-doctor` diagnoses
 Docker bridge networking and repairs it when `--fix-network` says to, and `network-undo`
-removes exactly what a repair added and nothing else.
+removes exactly what a repair added and nothing else. `migrate-identity` moves a
+deployment installed before the rename onto the current mounts, the rewritten
+`config.yaml` paths and the current unit names, as one transaction — see
+[`docs/install.md`](docs/install.md#upgrading-a-deployment-installed-before-the-rename),
+which is also where the two refusals an upgrade can meet are written down.
 
 Installing over an install that is already there is a decision rather than a default.
 `--mode upgrade` keeps every user, backup set and catalogued artifact, archiving them first,
@@ -155,13 +176,13 @@ guessing between keeping the data and wiping it is not an installer's decision. 
 `fresh`, refuses to run over an existing install at all.
 
 Every flag with its default, and every exit code, is on [the reference
-page](https://backupdproject.github.io/backupd/reference.html#installer) and in
+page](https://retnd.github.io/retnd/reference.html#installer) and in
 [`docs/install.md`](docs/install.md). This is the path used on the UGREEN NAS.
 
 ### What the browser looks like while it works
 
 Three clips from [the web interface in
-motion](https://backupdproject.github.io/backupd/web-ui.html), which has seven more.
+motion](https://retnd.github.io/retnd/web-ui.html), which has seven more.
 **Every picture this project publishes is recorded against the development server's
 in-memory fixture API rather than against a running engine**: the layout, the copy, the flow
 and the interaction are the real ones, and the data is not.
@@ -185,6 +206,76 @@ what the application used to leave at the browser's default and paint black on b
 
 ![The settings page switching to dark mode, scrolling through a form of native selects and number inputs, then switching back](docs/site/screens/ui-dark-mode.gif)
 
+None of these clips shows recovery, the three assurance claims (Stored, Content
+verified, Recovery tested) or the encryption cards (Settings, a set's page, a backup's
+copies), because those screens were not recorded when the clips were. The pages describe them
+in words, and they will get clips of their own...
+
+
+## Encrypting the copies you send away
+
+A backup set can **require encryption** of the retained copies it writes to a storage
+destination. It is off until you turn it on, and off is byte-for-byte what it was before. Turned
+on, the copy at the destination is an [age](https://c2sp.org/age) v1 file; your local copy and the
+producer's artifact are untouched. You choose a mode (`off`, or `required` with an `inherit`
+default per set) and who holds the key (the product's managed key, or a `file`, `env` or
+`command` reference you declare). There is no cipher, chunk size or algorithm setting.
+
+```
+retnd encryption key create
+retnd encryption key export <key-id> --out /not/the/backup/volume/bundle.json
+retnd encryption key confirm <key-id>
+retnd encryption policy patch --mode required --managed
+```
+
+Three things to know before you do:
+
+- **It hides contents, not names.** The source, the backup set, the file name, the size and the
+  time stay readable to whoever holds the bucket.
+- **Losing the key loses the encrypted copies.** There is no reset and no support path that
+  recreates a key. You export a recovery bundle and keep it somewhere that is neither the backup
+  volume nor the bucket, and the health report says so until you confirm you did.
+- **It is a one-way door.** A `config.yaml` that carries `retained_copy_encryption:` needs 0.8.0 or
+  newer; 0.7.2 and older refuse it. See the [changelog](CHANGELOG.md).
+
+The web interface shows each copy as Plaintext, or Encrypted beside a second chip that says
+whether it has been proved to open, and the Backups list gains an Encryption column only when a
+copy on it is encrypted. Copies already stored in plaintext are encrypted only when you run
+`retnd encryption encrypt-existing`, and older copies move to a new suite only when you run
+`retnd encryption reencrypt`. An external key provider writes copies, but its key is not in the bundle. `retnd encryption decrypt` opens a copy into a file from the bundle and
+the sidecar (the stock `age` tool still works as the independent fallback), and
+`retnd encryption key import` registers a key from a bundle on a rebuilt host. The whole picture is in
+[`docs/encrypted-copies.md`](docs/encrypted-copies.md), the recovery steps are in
+[`docs/recovery-without-a-terminal.md`](docs/recovery-without-a-terminal.md#6-an-encrypted-copy-has-to-be-opened-on-a-machine-with-no-state),
+and [the site](https://retnd.github.io/retnd/index.html#encrypted-copies) has the short version.
+
+## Letting an agent look
+
+retnd can be an MCP server, so a client that speaks the Model Context Protocol can read what the
+deployment knows. It has no access until you mint it a token, and a token is `read` unless you say
+otherwise. `read` starts nothing and changes nothing. A token with `operate` or `configure` can only
+ask: the request becomes a pending confirmation with the exact command on it, and nothing runs until
+you approve it with your password.
+
+```
+retnd agent token create triage --expires-in 30d     # shown once, then only a hash is kept
+retnd agent serve --stdio --token-file ~/.config/retnd/triage.token
+retnd agent tools                                    # every tool, its scope, and what is refused
+retnd agent confirmations list|show|approve|deny
+retnd agent audit --since 24h                        # every call, reads included
+```
+
+The verbs are `agent token create|list|revoke`, `agent serve`, `agent tools`, `agent audit` and
+`agent confirmations list|show|approve|deny`; `serve` needs `RETND_API_URL` like the other verbs that sit
+beside a serving engine. No flag takes a token, the HTTP transport is off until
+`agents.http_transport: on`, and no scope reaches key material, credentials, authentication or token
+minting. What this does not prove: a model can still be persuaded by what it reads (it cannot act on
+that without you reading the command), the HTTP transport is not confidential on plain HTTP, and the
+equivalence between surfaces was checked against the clients the test suite drives, not every MCP
+client. A `config.yaml` that carries `agents:` is refused by any build that predates it. The
+connection steps, the scopes in plain words and the threat model are in
+[`docs/agents.md`](docs/agents.md).
+
 
 ## Two engines: artifacts, and incremental snapshots
 
@@ -204,7 +295,7 @@ incremental_engine:
   enabled: true
 ```
 
-`BACKUPD_INCREMENTAL_ENGINE=1` does the same from the environment and
+`RETND_INCREMENTAL_ENGINE=1` does the same from the environment and
 overrides the file in both directions. With the gate off, a configuration that
 declares incremental sets still loads and still backs up every artifact set on
 schedule; the incremental ones refuse with one sentence naming both ways to
@@ -279,8 +370,8 @@ names.
 - [`docs/incremental-runbooks.md`](docs/incremental-runbooks.md) — putting a
   source on it, a repository that will not open, credential recovery, and the
   gate refusing.
-- [the reference page](https://backupdproject.github.io/backupd/reference.html#cli-commands)
-  — `backupd snapshot` and `backupd repository`, and the screens behind them.
+- [the reference page](https://retnd.github.io/retnd/reference.html#cli-commands)
+  — `retnd snapshot` and `retnd repository`, and the screens behind them.
 - [ADR 0018](docs/adr/0018-shipping-the-incremental-engine-behind-a-gate.md) —
   why it ships behind a gate, and what the twelve decisions before it settled.
 
@@ -306,14 +397,14 @@ container log can be matched up even when the browser never got a response at al
 
 ## Licence
 
-Apache License 2.0. The full text is in [`LICENSE`](LICENSE).
+MIT License. The full text is in [`LICENSE`](LICENSE).
 
 Every third-party component that reaches a shipped artifact is permissive
 (MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0, CC0-1.0) except two:
 `go-cleanhttp` and `go-retryablehttp` are MPL-2.0 and arrive under
 rclone's `s3` backend, which cannot be registered without them. MPL-2.0 is
 file-level weak copyleft and §3.3 permits this Larger Work to ship under
-Apache-2.0, so the choice stands, and the §3.2 obligation it carries is
+MIT, so the choice stands, and the §3.2 obligation it carries is
 recorded in `compliance.json` and discharged in `NOTICE` and
 [`docs/compliance/source-offer.md`](docs/compliance/source-offer.md), which
 name both modules at their exact versions and give the immutable address their

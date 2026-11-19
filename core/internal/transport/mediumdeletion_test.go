@@ -1,6 +1,8 @@
 package transport_test
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,7 +96,7 @@ func TestOnlyTheMoveEngineDeletesFromAMedium(t *testing.T) {
 		// a backup gets decided", because it never touches a backup: the
 		// only key it can ever pass to DeleteObject is one it generated
 		// itself, from crypto/rand, under a reserved
-		// .backupd-preflight/ segment that transport.MediumKey
+		// .retnd-preflight/ segment that transport.MediumKey
 		// cannot produce for any configured artifact (a source, a backup
 		// set and an artifact name each refuse a separator, so none of
 		// them can spell that segment).
@@ -115,14 +117,19 @@ func TestOnlyTheMoveEngineDeletesFromAMedium(t *testing.T) {
 		// decorates the adapter's DeleteObject to assert the standing
 		// invariant before the call.
 		filepath.Join("tests", "movecrash", "harness", "main.go"): true,
+		// The real-AWS test harness (EPIC Q, #978). Test support without a
+		// _test.go suffix because other packages' tests import it. It calls
+		// DeleteObject and DeleteObjects only on buckets it created itself,
+		// named retnd-test-<runid>-<n> and tagged retnd-test=true, and its
+		// sweep refuses any bucket missing either. It is not a path a
+		// backup copy can reach: nothing in production imports it, and it
+		// does nothing unless RETND_TEST_S3_REAL=1 with credentials.
+		filepath.Join("tests", "reals3", "reals3.go"): true,
 	}
 
 	var offenders []string
 	scanned := 0
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
+	err := walkSourceFiles(root, func(path string, d os.DirEntry) error {
 		if d.IsDir() {
 			if d.Name() == "testdata" || d.Name() == "node_modules" {
 				return filepath.SkipDir
@@ -137,6 +144,9 @@ func TestOnlyTheMoveEngineDeletesFromAMedium(t *testing.T) {
 			return relErr
 		}
 		content, readErr := os.ReadFile(path)
+		if errors.Is(readErr, fs.ErrNotExist) {
+			return nil
+		}
 		if readErr != nil {
 			return readErr
 		}
@@ -181,14 +191,14 @@ func TestOnlyTheMoveEngineDeletesFromAMedium(t *testing.T) {
 func TestTheDeletionScanCanActuallyFail(t *testing.T) {
 	root := coreModuleRoot(t)
 	found := false
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
+	err := walkSourceFiles(root, func(path string, d os.DirEntry) error {
 		if d.IsDir() || !strings.HasSuffix(path, ".go") {
 			return nil
 		}
 		content, readErr := os.ReadFile(path)
+		if errors.Is(readErr, fs.ErrNotExist) {
+			return nil
+		}
 		if readErr != nil {
 			return readErr
 		}
@@ -224,4 +234,26 @@ func coreModuleRoot(t *testing.T) string {
 		}
 		dir = parent
 	}
+}
+
+// walkSourceFiles is filepath.WalkDir over the source tree for the two scans
+// above, except that a path which vanished between being listed and being
+// read is skipped rather than failing the walk. Other packages' tests run
+// beside these and make and remove scratch directories inside the tree
+// (internal/workflow's .wf-custody-*), so "it was here a moment ago" is
+// ordinary and says nothing about who calls DeleteObject. Every other error
+// still ends the walk.
+func walkSourceFiles(root string, fn func(path string, d os.DirEntry) error) error {
+	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				if d != nil && d.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			return err
+		}
+		return fn(path, d)
+	})
 }

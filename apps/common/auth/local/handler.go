@@ -11,7 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/backupdproject/backupd/apps/common/email"
+	"github.com/retnd/retnd/apps/common/email"
 )
 
 // The five HTTP routes this package serves, and the two conventions that
@@ -40,7 +40,7 @@ import (
 // URL the printed bootstrap notice gives the operator
 // (?token=... on /enroll) and attaches it here, rather than adding a
 // visible form field EnrollmentPage.tsx does not have: the design canvas
-// (docs/design/Backupd.dc.html) does not show one either, and a
+// (the product's design mock) does not show one either, and a
 // URL-carried, one-time secret is the same shape 1Password/Grafana/etc.
 // use for exactly this kind of first-run claim link.
 const BootstrapTokenHeader = "X-Bootstrap-Token"
@@ -202,6 +202,12 @@ func correlationID() string {
 // included) are the reference example to copy, not routes-only wrapping.
 func (s *Service) Handler() http.Handler {
 	r := chi.NewRouter()
+	// Over every route this Service serves, including the two GETs: the
+	// browser's first request after an upgrade is `GET /session`, which
+	// is precisely the one that should retire the deprecated cookie
+	// name. See reissueRenamedSessionCookie (session.go) for why this is
+	// a write on a read path and why it does not extend a session.
+	r.Use(reissueRenamedSessionCookie(s.sessions, s.trustForwardedHeaders))
 	r.With(requireCSRF).Post("/login", s.handleLogin)
 	r.With(requireCSRF).Post("/enroll", s.handleEnroll)
 	r.With(requireCSRF).Post("/password", s.handleRotatePassword)
@@ -381,13 +387,23 @@ func (s *Service) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, http.StatusBadRequest, "INVALID_REQUEST", "password must be at least 12 characters")
 		return
 	}
-	if err := email.ValidateAddress(req.RecoveryEmail); err != nil {
-		writeAuthError(w, http.StatusBadRequest, "INVALID_EMAIL", "recovery email must be a valid email address")
-		return
-	}
-	if err := req.SMTP.validate(); err != nil {
-		writeAuthError(w, http.StatusBadRequest, "INVALID_REQUEST", "the SMTP configuration is incomplete: "+err.Error())
-		return
+	// The recovery section is optional (retnd#1049). A body with the
+	// credentials and nothing else creates the administrator without a
+	// mail server, exactly as `auth create-admin` already does, and
+	// GET /recovery reports the unfinished state honestly so the
+	// Settings page can finish it later. A body that supplies SOME of the
+	// section is still held to all of it: half a recovery setup is the
+	// silent lockout the full check exists to prevent.
+	withRecovery := req.RecoveryEmail != "" || req.SMTP != (smtpSettingsRequest{})
+	if withRecovery {
+		if err := email.ValidateAddress(req.RecoveryEmail); err != nil {
+			writeAuthError(w, http.StatusBadRequest, "INVALID_EMAIL", "recovery email must be a valid email address")
+			return
+		}
+		if err := req.SMTP.validate(); err != nil {
+			writeAuthError(w, http.StatusBadRequest, "INVALID_REQUEST", "the SMTP configuration is incomplete: "+err.Error())
+			return
+		}
 	}
 
 	if !s.bootstrap.valid(r.Header.Get(BootstrapTokenHeader)) {
@@ -403,6 +419,11 @@ func (s *Service) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		// what authorises this process to connect to the host the body
 		// names, so nothing below is reachable without one.
 		writeAuthError(w, http.StatusUnauthorized, "BOOTSTRAP_TOKEN_INVALID", "missing, expired or already-used bootstrap token")
+		return
+	}
+
+	if !withRecovery {
+		s.finishEnrollWithoutRecovery(w, r, req)
 		return
 	}
 
@@ -493,6 +514,45 @@ func (s *Service) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	token, expiresAt, err := s.sessions.create(req.Username)
+	if err != nil {
+		writeAuthError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "an internal error occurred")
+		return
+	}
+	setSessionCookie(w, r, token, expiresAt, s.trustForwardedHeaders)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// finishEnrollWithoutRecovery completes an enrollment whose body carried
+// only the credentials (retnd#1049). Nothing is mailed and so there is
+// no verification link, no deadline and nothing for the reaper to lapse:
+// the record is the same shape `auth create-admin` writes without SMTP,
+// and the recovery section stays unconfigured until it is finished from
+// Settings. The bootstrap token has already been checked by the caller
+// and is spent here, atomically, exactly as the full path spends it.
+func (s *Service) finishEnrollWithoutRecovery(w http.ResponseWriter, r *http.Request, req enrollRequest) {
+	hash, err := hashPassword(req.Password)
+	if err != nil {
+		writeAuthError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "an internal error occurred")
+		return
+	}
+	if !s.bootstrap.consume(r.Header.Get(BootstrapTokenHeader)) {
+		writeAuthError(w, http.StatusUnauthorized, "BOOTSTRAP_TOKEN_INVALID", "missing, expired or already-used bootstrap token")
+		return
+	}
+	err = s.store.Enroll(AdminRecord{
+		Username:     req.Username,
+		PasswordHash: hash,
+		CreatedAt:    s.now().UTC(),
+	}, nil)
+	if errors.Is(err, ErrAlreadyEnrolled) {
+		writeAuthError(w, http.StatusForbidden, "ENROLLMENT_CLOSED", "an administrator account already exists")
+		return
+	}
+	if err != nil {
+		writeAuthError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "an internal error occurred")
+		return
+	}
 	token, expiresAt, err := s.sessions.create(req.Username)
 	if err != nil {
 		writeAuthError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "an internal error occurred")

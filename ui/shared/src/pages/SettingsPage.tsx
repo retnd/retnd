@@ -16,8 +16,12 @@
  * node rather than fetching again, so this page and the compatibility
  * banner above it cannot name two different versions.
  */
-import { useId, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useId, useRef, useState } from "react";
+import type { RefObject } from "react";
+import type { ReactNode } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { sectionForHash, settingsAnchor } from "./settingsSections";
+import type { SettingsSection } from "@shared/utilities/routes";
 import { useApi } from "@shared/api/ApiContext";
 import { usePlatform } from "@shared/platform/PlatformContext";
 import type { RecoverySettings } from "@shared/api/contracts";
@@ -35,6 +39,11 @@ import { RetentionPolicyCard } from "@shared/pages/RetentionPolicyCard";
 import { CapacityCard } from "@shared/pages/CapacityCard";
 import { ServiceBehaviourCard } from "@shared/pages/ServiceBehaviourCard";
 import { StorageDestinationsCard } from "@shared/pages/StorageDestinationsCard";
+import { AssuranceSettingsCard } from "@shared/assurance/AssuranceSettingsCard";
+import { CustomValidatorsCard } from "@shared/assurance/CustomValidatorsCard";
+import { WorkflowSettingsCard } from "@shared/pages/WorkflowSettingsCard";
+import { EncryptionCard } from "@shared/encryption/EncryptionCard";
+import { AgentsCard } from "@shared/agents/AgentsCard";
 import { HelpField } from "@shared/components/FieldHelp";
 import { PasswordInput } from "@shared/components/PasswordInput";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
@@ -80,16 +89,18 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
   // else on this page wants. What actually has to travel between them is
   // one bit, "what you read is now out of date", and this is that bit.
   const [destinationsRevision, setDestinationsRevision] = useState(0);
+  const grid = useRef<HTMLDivElement>(null);
+  useScrollToHash(grid);
 
   return (
-    <>
+    <div data-settings-page="">
       <PageHeader
         title="Settings"
         tip="nav.settings"
         subtitle="Service behaviour, platform integration and build information"
       />
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.3fr) minmax(0, 1fr)", gap: 14, alignItems: "start" }}>
+      <div ref={grid} className="settings-grid">
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {/* Issue #845. A "Service" card stood here once (#299) holding
               two decorative controls — a "Polling interval" picklist in
@@ -102,7 +113,7 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
               from the running configuration on every wake. There is
               still no log-level concept in config.Config, so the second
               control has not come back. */}
-          <ServiceBehaviourCard readOnly={readOnly} />
+          <Anchored section="serviceBehaviour"><ServiceBehaviourCard readOnly={readOnly} /></Anchored>
 
           {/* EPIC K (issue #788). A card that LINKS rather than a second
               copy of the controls: the retention chain and the polling
@@ -111,7 +122,7 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
               the maintenance ownership table. Two editors for one value
               is how two screens end up disagreeing about what is
               configured. */}
-          <section className="card">
+          <section className="card" {...settingsAnchor("backupDefaults")}>
             <div className="card__header">
               <InfoTooltip id="settings.backup-defaults">
                 <h2 className="eyebrow">Backup defaults</h2>
@@ -137,7 +148,7 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
               at all). They are now the real thing, reading from and
               writing to internal/config's capacity block, same as
               RetentionPolicyCard below did for retention under #140. */}
-          <CapacityCard readOnly={readOnly} />
+          <Anchored section="capacity"><CapacityCard readOnly={readOnly} /></Anchored>
 
           {/* B3.7 (#140). This used to be a static row of badges reading
               "7 daily / 13 weekly / 12 monthly / protect known-good": a
@@ -146,7 +157,7 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
               default, and the chain is not three fixed tiers). It is now
               the real thing, read from and written to the running
               config. */}
-          <RetentionPolicyCard readOnly={readOnly} destinationsRevision={destinationsRevision} />
+          <Anchored section="retention"><RetentionPolicyCard readOnly={readOnly} destinationsRevision={destinationsRevision} /></Anchored>
 
           {/* G2.2 (#594). Beside the retention plan deliberately: a
               retention tier's Medium field is a picker over exactly this
@@ -155,12 +166,46 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
               screen. Before this card there was no such place at all, and
               declaring a destination meant editing config.yaml by hand,
               which is the one thing EPIC G is about not having to do. */}
-          <StorageDestinationsCard
-            readOnly={readOnly}
-            onChanged={() => setDestinationsRevision((n) => n + 1)}
-          />
+          <Anchored section="storageDestinations">
+            <StorageDestinationsCard
+              readOnly={readOnly}
+              onChanged={() => setDestinationsRevision((n) => n + 1)}
+            />
+          </Anchored>
 
-          <section className="card">
+          {/* EPIC N (issue #995). Directly after the destinations and before
+              Workflow, the order the Workflow and Assurance cards already
+              follow: a destination is declared, then what happens to a copy
+              on its way there. */}
+          <Anchored section="encryption"><EncryptionCard readOnly={readOnly} /></Anchored>
+
+          {/* EPIC U (issue #1351). After the things an agent would be asking
+              about (copies, encryption) and before the housekeeping at the
+              bottom: encryption is "what a copy is", workflow is "what runs
+              around a copy", and agents are "who else can ask". Design:
+              docs/design/1350-agents.html section 1. */}
+          <Anchored section="agents"><AgentsCard readOnly={readOnly} /></Anchored>
+
+          {/* EPIC L (issue #814). Beside the destinations card rather
+              than on a page of its own: a hook directory is deployment
+              policy in the same sense a retention chain is, and an
+              operator who has just declared where backups go is in the
+              right place to say what runs either side of one. The
+              per-set half lives on each backup set's own page, because
+              what a set pins is a fact about that set. */}
+          <Anchored section="workflow"><WorkflowSettingsCard readOnly={readOnly} /></Anchored>
+
+          {/* EPIC Q (issue #985): the global assurance block, with the four
+              host-scoped knobs shown as readouts. Additive: nothing above
+              or below it moved. */}
+          <Anchored section="assurance"><AssuranceSettingsCard readOnly={readOnly} /></Anchored>
+
+          {/* Issue #1203: the validators beside the assurance block they refine.
+              A validator is attached to a kind of artifact; the block above
+              names the set-wide catch-all they sit in front of. */}
+          <Anchored section="validators"><CustomValidatorsCard readOnly={readOnly} /></Anchored>
+
+          <section className="card" {...settingsAnchor("notifications")}>
             <div className="card__header">
               <InfoTooltip id="settings.notifications">
                 <h2 className="eyebrow">Notifications</h2>
@@ -194,7 +239,7 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
               exactly this control — a version mismatch leaving it
               unusable would mean an operator who turned tooltips off
               having no way to turn them back on. */}
-          <section className="card">
+          <section className="card" {...settingsAnchor("interface")}>
             <div className="card__header">
               <InfoTooltip id="settings.interface">
                 <h2 className="eyebrow">Interface</h2>
@@ -230,19 +275,19 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
             </div>
           </section>
 
-          <ChangePasswordCard readOnly={readOnly} />
+          <Anchored section="password"><ChangePasswordCard readOnly={readOnly} /></Anchored>
 
           {/* Issue #830. Beside the password card deliberately: the two
               are one subject from an operator's side, since the recovery
               endpoint below is what stands in for the password above when
               it is lost. */}
-          <AccountRecoveryCard readOnly={readOnly} />
+          <Anchored section="accountRecovery"><AccountRecoveryCard readOnly={readOnly} /></Anchored>
 
           {/* #275: on an instance with no configuration there is no
               storage location, so there is nothing this card could
               truthfully claim was found in one. */}
           {configured === false ? null : (
-            <section className="card" style={{ borderColor: "var(--warn)" }}>
+            <section className="card" style={{ borderColor: "var(--warn)" }} {...settingsAnchor("catalogRecovery")}>
               <div className="card__header">
                 <InfoTooltip id="settings.catalog-recovery">
                   <h2 className="eyebrow">Catalog recovery</h2>
@@ -252,7 +297,7 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
                 <div style={{ fontSize: 13.5, fontWeight: 600 }}>Existing backup data detected</div>
                 <p style={{ margin: 0, fontSize: 13, color: "var(--text-2)", maxWidth: "74ch" }}>
                   Backup files were found in the configured storage location, but they are
-                  not currently present in the Backupd catalog. Scanning is
+                  not currently present in the retnd catalog. Scanning is
                   read-only — no files will be deleted.
                 </p>
                 <div>
@@ -268,7 +313,7 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <section className="card">
+          <section className="card" {...settingsAnchor("platform")}>
             <div className="card__header">
               <InfoTooltip id="settings.platform">
                 <h2 className="eyebrow">Platform</h2>
@@ -300,7 +345,7 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
             </div>
           </section>
 
-          <section className="card">
+          <section className="card" {...settingsAnchor("systemInformation")}>
             <div className="card__header">
               <InfoTooltip id="settings.system-information">
                 <h2 className="eyebrow">System information</h2>
@@ -347,7 +392,7 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
           </section>
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -603,7 +648,7 @@ function describeRecoveryFailure(
     return {
       message: "That address was not accepted as an email address.",
       remediation:
-        "Backupd checks the recovery address and the From address against the mail standard rather than against a rough pattern. Check both for a missing domain, a stray space or a trailing comma.",
+        "retnd checks the recovery address and the From address against the mail standard rather than against a rough pattern. Check both for a missing domain, a stray space or a trailing comma.",
       correlationId: api.correlationId
     };
   }
@@ -847,4 +892,60 @@ function smtpFieldsOf(view: RecoverySettings["smtp"]): SmtpFieldValues {
     password: "",
     from: view.from
   };
+}
+
+/** A card from its own file, given the id a link into Settings names. */
+function Anchored({ section, children }: { section: SettingsSection; children: ReactNode }) {
+  return <div {...settingsAnchor(section)}>{children}</div>;
+}
+
+/**
+ * Scrolls to the section the URL's hash names, and keeps it there while the
+ * page settles (issue #1188).
+ *
+ * The browser's own jump happens once, when the route renders, and most of
+ * Settings arrives after that: each card fetches its own data, so everything
+ * above the target grows and pushes it down. This scrolls on arrival and again
+ * every time the content changes size, for a couple of seconds, and stops the
+ * moment the reader scrolls, presses a key or touches the page, because a page
+ * that fights you for the scroll position is worse than one that lands wrong.
+ */
+function useScrollToHash(grid: RefObject<HTMLElement>) {
+  const { hash } = useLocation();
+  useEffect(() => {
+    // An old id resolves to its new one, and a hash that does not decode
+    // names nothing (see sectionForHash) rather than throwing out of here.
+    const id = sectionForHash(hash);
+    if (!id) return;
+    const target = document.getElementById(id);
+    // :target does not follow an element that React draws after the hash was
+    // set, which is every card here, so the highlight is also a data attribute.
+    target?.setAttribute("data-current", "");
+    let first = true;
+    const go = () => {
+      // The first scroll takes the stylesheet's behaviour (smooth, unless the
+      // reader asked for less motion); the corrections that follow as the page
+      // grows snap, so they do not restart an animation again and again.
+      document.getElementById(id)?.scrollIntoView({ block: "start", behavior: first ? "auto" : "instant" });
+      first = false;
+    };
+    go();
+    // The grid the cards load into is what grows and pushes the target down.
+    const content = grid.current;
+    let live = true;
+    const observer = content && typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(() => { if (live) go(); })
+      : null;
+    const stop = () => { live = false; observer?.disconnect(); };
+    if (content) observer?.observe(content);
+    const timer = window.setTimeout(stop, 2500);
+    const events = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+    for (const e of events) window.addEventListener(e, stop, { once: true, passive: true });
+    return () => {
+      target?.removeAttribute("data-current");
+      window.clearTimeout(timer);
+      stop();
+      for (const e of events) window.removeEventListener(e, stop);
+    };
+  }, [hash, grid]);
 }

@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "9e6886ce7138cc17275fd2d92a9ada0cc5c793b5faa3241f3dc05da018b13770";
+export const CONTRACT_SHA256 = "f8c243cae5e027691b689088dae7dd5e8ed1a56374de321aef92e5e968646d72";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -44,6 +44,12 @@ export const WIRE_ERROR_CODES = [
   "SSH_KEY_NOT_FOUND",
   "HOST_KEY_PROBE_FAILED",
   "DESTRUCTIVE_OPERATIONS_DISABLED",
+  "STEP_UP_REQUIRED",
+  "STEP_UP_FAILED",
+  "STEP_UP_UNAVAILABLE",
+  "INSECURE_TRANSPORT_ACK_REQUIRED",
+  "RESTORE_TARGET_NOT_ACKNOWLEDGED",
+  "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED",
   "INTERNAL",
   "ALREADY_CONFIGURED",
   "NOT_CONFIGURED",
@@ -77,11 +83,69 @@ export const WIRE_ERROR_CODES = [
   "REPOSITORY_DOMAIN_EXISTS",
   "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE",
   "WORKFLOWS_NOT_CONFIGURED",
+  "WORKFLOW_SCRIPT_REJECTED",
   "WORKFLOW_ENV_NOT_FOUND",
   "WORKFLOW_RUN_NOT_FOUND",
   "WORKFLOW_STEP_NOT_FOUND",
   "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED",
   "WORKFLOW_ENGINE_UNAVAILABLE",
+  "RECOVERY_COST_NOT_ACKNOWLEDGED",
+  "RECOVERY_NO_COPY",
+  "RECOVERY_COPY_NOT_FOUND",
+  "RECOVERY_NOT_READABLE",
+  "RECOVERY_LOCAL_COPY_CORRUPT",
+  "RECOVERY_REMOTE_COPY_CORRUPT",
+  "RECOVERY_NO_DIGEST",
+  "RECOVERY_NO_SPACE",
+  "RECOVERY_BELOW_RESERVE",
+  "RECOVERY_GRANT_UNKNOWN",
+  "RECOVERY_GRANT_USED",
+  "RECOVERY_GRANT_EXPIRED",
+  "RECOVERY_GRANT_SESSION_ENDED",
+  "RECOVERY_TOO_MANY_GRANTS",
+  "RECOVERY_TARGET_INVALID",
+  "RECOVERY_TARGET_EXISTS",
+  "RECOVERY_USE_SNAPSHOT_RESTORE",
+  "RECOVERY_UNAVAILABLE",
+  "RECOVERY_BUSY",
+  "RECOVERY_INTERRUPTED",
+  "RECOVERY_FAILED",
+  "RECOVERY_READS_BUSY",
+  "RECOVERY_DESTINATION_BUSY",
+  "RECOVERY_DOWNLOADS_BUSY",
+  "DIRECTORY_NOT_FOUND",
+  "DIRECTORY_NOT_READABLE",
+  "RECOVERY_SOURCE_HOST_UNAVAILABLE",
+  "RECOVERY_SOURCE_HOST_READ_ONLY",
+  "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED",
+  "RECOVERY_SOURCE_HOST_UNREACHABLE",
+  "RECOVERY_SOURCE_HOST_NO_SPACE",
+  "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE",
+  "VALIDATOR_NOT_FOUND",
+  "VALIDATOR_EXISTS",
+  "VALIDATOR_PATTERN_CONFLICT",
+  "VALIDATOR_LIMIT_REACHED",
+  "VALIDATORS_UNAVAILABLE",
+  "VALIDATOR_SCRIPT_CHANGED",
+  "ENCRYPTION_KEY_NOT_FOUND",
+  "ENCRYPTION_KEY_IN_USE",
+  "ENCRYPTION_KEY_STATE",
+  "ENCRYPTION_KEY_UNRESOLVABLE",
+  "ENCRYPTION_UNAVAILABLE",
+  "AGENT_TOKEN_INVALID",
+  "AGENT_SCOPE_INSUFFICIENT",
+  "AGENT_ROUTE_DENIED",
+  "AGENT_CONFIRMATION_REQUIRED",
+  "AGENT_TOKEN_NOT_FOUND",
+  "AGENT_CONFIRMATION_EXPIRED",
+  "AGENT_CONFIRMATION_DECIDED",
+  "AGENT_CONFIRMATION_TOKEN_ENDED",
+  "AGENT_CONFIRMATION_LIMIT",
+  "AGENT_CONFIRMATION_BODY_SUBSTITUTED",
+  "AGENT_CONFIRMATION_NOT_FOUND",
+  "AGENT_HTTP_TRANSPORT_OFF",
+  "AGENT_RATE_LIMITED",
+  "AGENT_AUDIT_UNAVAILABLE",
 ] as const;
 
 /** This UI's own presentation vocabulary. No endpoint emits these;
@@ -138,6 +202,12 @@ export const API_ERROR_CODES = [
   "SSH_KEY_NOT_FOUND",
   "HOST_KEY_PROBE_FAILED",
   "DESTRUCTIVE_OPERATIONS_DISABLED",
+  "STEP_UP_REQUIRED",
+  "STEP_UP_FAILED",
+  "STEP_UP_UNAVAILABLE",
+  "INSECURE_TRANSPORT_ACK_REQUIRED",
+  "RESTORE_TARGET_NOT_ACKNOWLEDGED",
+  "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED",
   "INTERNAL",
   "ALREADY_CONFIGURED",
   "NOT_CONFIGURED",
@@ -171,11 +241,69 @@ export const API_ERROR_CODES = [
   "REPOSITORY_DOMAIN_EXISTS",
   "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE",
   "WORKFLOWS_NOT_CONFIGURED",
+  "WORKFLOW_SCRIPT_REJECTED",
   "WORKFLOW_ENV_NOT_FOUND",
   "WORKFLOW_RUN_NOT_FOUND",
   "WORKFLOW_STEP_NOT_FOUND",
   "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED",
   "WORKFLOW_ENGINE_UNAVAILABLE",
+  "RECOVERY_COST_NOT_ACKNOWLEDGED",
+  "RECOVERY_NO_COPY",
+  "RECOVERY_COPY_NOT_FOUND",
+  "RECOVERY_NOT_READABLE",
+  "RECOVERY_LOCAL_COPY_CORRUPT",
+  "RECOVERY_REMOTE_COPY_CORRUPT",
+  "RECOVERY_NO_DIGEST",
+  "RECOVERY_NO_SPACE",
+  "RECOVERY_BELOW_RESERVE",
+  "RECOVERY_GRANT_UNKNOWN",
+  "RECOVERY_GRANT_USED",
+  "RECOVERY_GRANT_EXPIRED",
+  "RECOVERY_GRANT_SESSION_ENDED",
+  "RECOVERY_TOO_MANY_GRANTS",
+  "RECOVERY_TARGET_INVALID",
+  "RECOVERY_TARGET_EXISTS",
+  "RECOVERY_USE_SNAPSHOT_RESTORE",
+  "RECOVERY_UNAVAILABLE",
+  "RECOVERY_BUSY",
+  "RECOVERY_INTERRUPTED",
+  "RECOVERY_FAILED",
+  "RECOVERY_READS_BUSY",
+  "RECOVERY_DESTINATION_BUSY",
+  "RECOVERY_DOWNLOADS_BUSY",
+  "DIRECTORY_NOT_FOUND",
+  "DIRECTORY_NOT_READABLE",
+  "RECOVERY_SOURCE_HOST_UNAVAILABLE",
+  "RECOVERY_SOURCE_HOST_READ_ONLY",
+  "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED",
+  "RECOVERY_SOURCE_HOST_UNREACHABLE",
+  "RECOVERY_SOURCE_HOST_NO_SPACE",
+  "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE",
+  "VALIDATOR_NOT_FOUND",
+  "VALIDATOR_EXISTS",
+  "VALIDATOR_PATTERN_CONFLICT",
+  "VALIDATOR_LIMIT_REACHED",
+  "VALIDATORS_UNAVAILABLE",
+  "VALIDATOR_SCRIPT_CHANGED",
+  "ENCRYPTION_KEY_NOT_FOUND",
+  "ENCRYPTION_KEY_IN_USE",
+  "ENCRYPTION_KEY_STATE",
+  "ENCRYPTION_KEY_UNRESOLVABLE",
+  "ENCRYPTION_UNAVAILABLE",
+  "AGENT_TOKEN_INVALID",
+  "AGENT_SCOPE_INSUFFICIENT",
+  "AGENT_ROUTE_DENIED",
+  "AGENT_CONFIRMATION_REQUIRED",
+  "AGENT_TOKEN_NOT_FOUND",
+  "AGENT_CONFIRMATION_EXPIRED",
+  "AGENT_CONFIRMATION_DECIDED",
+  "AGENT_CONFIRMATION_TOKEN_ENDED",
+  "AGENT_CONFIRMATION_LIMIT",
+  "AGENT_CONFIRMATION_BODY_SUBSTITUTED",
+  "AGENT_CONFIRMATION_NOT_FOUND",
+  "AGENT_HTTP_TRANSPORT_OFF",
+  "AGENT_RATE_LIMITED",
+  "AGENT_AUDIT_UNAVAILABLE",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -183,14 +311,14 @@ export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 /** Codes grouped by the refusal they represent, so a caller can assert
  *  the RIGHT refusal rather than any refusal. */
 export const API_ERROR_CLASSES = {
-  "authentication": ["UNAUTHENTICATED", "BOOTSTRAP_TOKEN_INVALID", "RESET_TOKEN_INVALID", "VERIFY_TOKEN_INVALID"],
-  "authorization": ["ENROLLMENT_CLOSED", "DESTRUCTIVE_OPERATIONS_DISABLED", "CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
-  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED"],
-  "internal": ["INTERNAL", "INTERNAL_ERROR"],
-  "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND"],
-  "throttling": ["RATE_LIMITED"],
-  "unavailable": ["NOT_CONFIGURED", "SMTP_SEND_FAILED", "WORKFLOW_ENGINE_UNAVAILABLE"],
-  "validation": ["INVALID_REQUEST", "INVALID_EMAIL", "SSH_KEY_NOT_FOUND", "HOST_KEY_PROBE_FAILED", "MEDIUM_DISCLOSURE_REQUIRED", "BACKUP_SET_NOT_INCREMENTAL", "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED"],
+  "authentication": ["UNAUTHENTICATED", "BOOTSTRAP_TOKEN_INVALID", "RESET_TOKEN_INVALID", "VERIFY_TOKEN_INVALID", "AGENT_TOKEN_INVALID"],
+  "authorization": ["ENROLLMENT_CLOSED", "DESTRUCTIVE_OPERATIONS_DISABLED", "CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "RECOVERY_GRANT_SESSION_ENDED", "STEP_UP_REQUIRED", "STEP_UP_FAILED", "INSECURE_TRANSPORT_ACK_REQUIRED", "AGENT_SCOPE_INSUFFICIENT", "AGENT_ROUTE_DENIED", "AGENT_HTTP_TRANSPORT_OFF"],
+  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED", "RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED", "RECOVERY_TARGET_EXISTS", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_BUSY", "DIRECTORY_NOT_READABLE", "RESTORE_TARGET_NOT_ACKNOWLEDGED", "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_UNAVAILABLE", "RECOVERY_SOURCE_HOST_READ_ONLY", "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE", "VALIDATOR_EXISTS", "VALIDATOR_PATTERN_CONFLICT", "VALIDATOR_LIMIT_REACHED", "VALIDATOR_SCRIPT_CHANGED", "ENCRYPTION_KEY_IN_USE", "ENCRYPTION_KEY_STATE", "ENCRYPTION_KEY_UNRESOLVABLE", "AGENT_CONFIRMATION_REQUIRED", "AGENT_CONFIRMATION_EXPIRED", "AGENT_CONFIRMATION_DECIDED", "AGENT_CONFIRMATION_TOKEN_ENDED"],
+  "internal": ["INTERNAL", "INTERNAL_ERROR", "AGENT_AUDIT_UNAVAILABLE", "RECOVERY_LOCAL_COPY_CORRUPT", "RECOVERY_REMOTE_COPY_CORRUPT", "RECOVERY_NO_SPACE", "RECOVERY_BELOW_RESERVE", "RECOVERY_FAILED", "RECOVERY_SOURCE_HOST_NO_SPACE"],
+  "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN", "DIRECTORY_NOT_FOUND", "VALIDATOR_NOT_FOUND", "ENCRYPTION_KEY_NOT_FOUND", "AGENT_TOKEN_NOT_FOUND", "AGENT_CONFIRMATION_NOT_FOUND"],
+  "throttling": ["RATE_LIMITED", "RECOVERY_TOO_MANY_GRANTS", "RECOVERY_READS_BUSY", "RECOVERY_DESTINATION_BUSY", "RECOVERY_DOWNLOADS_BUSY", "AGENT_CONFIRMATION_LIMIT", "AGENT_RATE_LIMITED"],
+  "unavailable": ["NOT_CONFIGURED", "SMTP_SEND_FAILED", "WORKFLOW_ENGINE_UNAVAILABLE", "RECOVERY_UNAVAILABLE", "RECOVERY_INTERRUPTED", "STEP_UP_UNAVAILABLE", "RECOVERY_SOURCE_HOST_UNREACHABLE", "VALIDATORS_UNAVAILABLE", "ENCRYPTION_UNAVAILABLE"],
+  "validation": ["INVALID_REQUEST", "INVALID_EMAIL", "SSH_KEY_NOT_FOUND", "HOST_KEY_PROBE_FAILED", "MEDIUM_DISCLOSURE_REQUIRED", "BACKUP_SET_NOT_INCREMENTAL", "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED", "RECOVERY_TARGET_INVALID", "AGENT_CONFIRMATION_BODY_SUBSTITUTED"],
 } as const satisfies Record<string, readonly ApiErrorCode[]>;
 
 /** The platform-capability set GET /system/capabilities reports, as wire
@@ -217,6 +345,7 @@ export interface ContractOperation {
   readonly csrfRequired: boolean;
   readonly idempotencyKey: string;
   readonly destructiveGate: boolean;
+  readonly insecureTransportAck: boolean;
   readonly concurrency: string;
   readonly requestSchema: string;
   readonly responseSchema: string;
@@ -233,6 +362,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ListActivityResponse",
@@ -250,6 +380,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "LiveActivityResponse",
@@ -262,6 +393,481 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "listAgentAudit",
+    method: "GET",
+    path: "/agent/audit",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListAgentAuditResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["AGENT_ROUTE_DENIED"],
+      500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "listAgentConfirmations",
+    method: "GET",
+    path: "/agent/confirmations",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListAgentConfirmationsResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["AGENT_ROUTE_DENIED"],
+      500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "getAgentConfirmation",
+    method: "GET",
+    path: "/agent/confirmations/{id}",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AgentConfirmation",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["AGENT_CONFIRMATION_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "approveAgentConfirmation",
+    method: "POST",
+    path: "/agent/confirmations/{id}/approve",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AgentConfirmation",
+    successStatus: 200,
+    errorCodes: {
+      400: ["AGENT_CONFIRMATION_BODY_SUBSTITUTED"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "AGENT_ROUTE_DENIED", "STEP_UP_REQUIRED", "STEP_UP_FAILED"],
+      404: ["AGENT_CONFIRMATION_NOT_FOUND"],
+      409: ["AGENT_CONFIRMATION_EXPIRED", "AGENT_CONFIRMATION_DECIDED", "AGENT_CONFIRMATION_BODY_SUBSTITUTED", "AGENT_CONFIRMATION_TOKEN_ENDED"],
+      429: ["RATE_LIMITED"],
+      500: ["INTERNAL"],
+      503: ["STEP_UP_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "denyAgentConfirmation",
+    method: "POST",
+    path: "/agent/confirmations/{id}/deny",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AgentConfirmation",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "AGENT_ROUTE_DENIED"],
+      404: ["AGENT_CONFIRMATION_NOT_FOUND"],
+      409: ["AGENT_CONFIRMATION_EXPIRED", "AGENT_CONFIRMATION_DECIDED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "deleteAgentMcp",
+    method: "DELETE",
+    path: "/agent/mcp",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "",
+    successStatus: 204,
+    errorCodes: {
+      401: ["UNAUTHENTICATED", "AGENT_TOKEN_INVALID"],
+      403: ["AGENT_HTTP_TRANSPORT_OFF", "AGENT_ROUTE_DENIED"],
+      429: ["AGENT_RATE_LIMITED"],
+      500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "getAgentMcp",
+    method: "GET",
+    path: "/agent/mcp",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED", "AGENT_TOKEN_INVALID"],
+      403: ["AGENT_HTTP_TRANSPORT_OFF", "AGENT_ROUTE_DENIED"],
+      429: ["AGENT_RATE_LIMITED"],
+      500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "postAgentMcp",
+    method: "POST",
+    path: "/agent/mcp",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "AgentMcpFrame",
+    responseSchema: "AgentMcpFrame",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED", "AGENT_TOKEN_INVALID"],
+      403: ["AGENT_HTTP_TRANSPORT_OFF", "AGENT_ROUTE_DENIED"],
+      429: ["AGENT_RATE_LIMITED"],
+      500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "listAgentTokens",
+    method: "GET",
+    path: "/agent/tokens",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListAgentTokensResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["AGENT_ROUTE_DENIED"],
+      500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "mintAgentToken",
+    method: "POST",
+    path: "/agent/tokens",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: true,
+    concurrency: "",
+    requestSchema: "MintAgentTokenRequest",
+    responseSchema: "MintedAgentToken",
+    successStatus: 201,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "INSECURE_TRANSPORT_ACK_REQUIRED", "AGENT_ROUTE_DENIED"],
+      500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "revokeAgentToken",
+    method: "POST",
+    path: "/agent/tokens/{id}/revoke",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AgentToken",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "AGENT_ROUTE_DENIED"],
+      404: ["AGENT_TOKEN_NOT_FOUND"],
+      500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "listAgentTools",
+    method: "GET",
+    path: "/agent/tools",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AgentToolsResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "getDefaultValidatorScript",
+    method: "GET",
+    path: "/assurance/default-validator-script",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ValidatorScriptResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "listAssuranceDue",
+    method: "GET",
+    path: "/assurance/due",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AssuranceDueResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "getAssuranceOperation",
+    method: "GET",
+    path: "/assurance/operations/{op}",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AssuranceOperationRecord",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["OPERATION_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "cancelAssuranceOperation",
+    method: "POST",
+    path: "/assurance/operations/{op}/cancel",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AssuranceOperationCancelled",
+    successStatus: 202,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["OPERATION_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "listCustomValidatorPatterns",
+    method: "GET",
+    path: "/assurance/validator-patterns",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "CustomValidatorPatternsResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "previewCustomValidator",
+    method: "POST",
+    path: "/assurance/validator-preview",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "PreviewCustomValidatorRequest",
+    responseSchema: "CustomValidatorPreview",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "listCustomValidators",
+    method: "GET",
+    path: "/assurance/validators",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListCustomValidatorsResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "createCustomValidator",
+    method: "POST",
+    path: "/assurance/validators",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: true,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "CreateCustomValidatorRequest",
+    responseSchema: "CustomValidator",
+    successStatus: 201,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED", "STEP_UP_REQUIRED", "STEP_UP_FAILED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      409: ["VALIDATOR_EXISTS", "VALIDATOR_PATTERN_CONFLICT", "VALIDATOR_LIMIT_REACHED"],
+      429: ["RATE_LIMITED"],
+      500: ["INTERNAL"],
+      503: ["VALIDATORS_UNAVAILABLE", "STEP_UP_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "removeCustomValidator",
+    method: "DELETE",
+    path: "/assurance/validators/{name}",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "CustomValidator",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["VALIDATOR_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "updateCustomValidator",
+    method: "PUT",
+    path: "/assurance/validators/{name}",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: true,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "UpdateCustomValidatorRequest",
+    responseSchema: "CustomValidator",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED", "STEP_UP_REQUIRED", "STEP_UP_FAILED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
+      404: ["BACKUP_SET_NOT_FOUND", "VALIDATOR_NOT_FOUND"],
+      409: ["VALIDATOR_PATTERN_CONFLICT", "VALIDATOR_SCRIPT_CHANGED"],
+      429: ["RATE_LIMITED"],
+      500: ["INTERNAL"],
+      503: ["VALIDATORS_UNAVAILABLE", "STEP_UP_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "getCustomValidatorScript",
+    method: "GET",
+    path: "/assurance/validators/{name}/script",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ValidatorScriptResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["VALIDATOR_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["VALIDATORS_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
     id: "enrollAdministrator",
     method: "POST",
     path: "/auth/enroll",
@@ -269,6 +875,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "EnrollRequest",
     responseSchema: "",
@@ -290,6 +897,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "ForgotPasswordRequest",
     responseSchema: "",
@@ -307,6 +915,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "CredentialsRequest",
     responseSchema: "",
@@ -327,6 +936,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "",
@@ -343,6 +953,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "RotatePasswordRequest",
     responseSchema: "",
@@ -363,6 +974,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "RecoverySettingsResponse",
@@ -380,6 +992,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "RecoverySettingsUpdate",
     responseSchema: "RecoverySettingsResponse",
@@ -400,6 +1013,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "",
@@ -420,6 +1034,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "ResetPasswordRequest",
     responseSchema: "",
@@ -440,6 +1055,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "SessionResponse",
@@ -456,6 +1072,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "VerifyEmailRequest",
     responseSchema: "",
@@ -476,6 +1093,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "",
@@ -497,6 +1115,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ListBackendsResponse",
@@ -514,6 +1133,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ListBackupSetsResponse",
@@ -532,6 +1152,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "CreateBackupSetRequest",
     responseSchema: "CreateBackupSetResponse",
@@ -553,6 +1174,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "TestConnectionRequest",
     responseSchema: "TestConnectionResponse",
@@ -572,6 +1194,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "",
@@ -592,6 +1215,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "BackupSet",
@@ -611,6 +1235,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "UpdateBackupSetRequest",
     responseSchema: "BackupSet",
@@ -625,6 +1250,69 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "resetBackupSetAssurance",
+    method: "DELETE",
+    path: "/backup-sets/{source}/{set}/assurance",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "BackupSetAssurance",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "getBackupSetAssurance",
+    method: "GET",
+    path: "/backup-sets/{source}/{set}/assurance",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "BackupSetAssurance",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "updateBackupSetAssurance",
+    method: "PATCH",
+    path: "/backup-sets/{source}/{set}/assurance",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "UpdateBackupSetAssuranceRequest",
+    responseSchema: "BackupSetAssurance",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
     id: "getBackupSetEditHold",
     method: "GET",
     path: "/backup-sets/{source}/{set}/edit-hold",
@@ -632,6 +1320,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "BackupSetEditHoldState",
@@ -650,6 +1339,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "BackupSetEditHold",
@@ -669,6 +1359,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "",
@@ -688,6 +1379,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "SetEnabledRequest",
     responseSchema: "BackupSet",
@@ -701,6 +1393,49 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "clearBackupSetEncryption",
+    method: "DELETE",
+    path: "/backup-sets/{source}/{set}/encryption",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "EncryptionSetPolicy",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "setBackupSetEncryption",
+    method: "PUT",
+    path: "/backup-sets/{source}/{set}/encryption",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "EncryptionOverride",
+    responseSchema: "EncryptionSetPolicy",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
     id: "listBackupSetSnapshotHolds",
     method: "GET",
     path: "/backup-sets/{source}/{set}/holds",
@@ -708,6 +1443,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ListSnapshotHoldsResponse",
@@ -729,6 +1465,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "SetReadOnlyRequest",
     responseSchema: "BackupSet",
@@ -743,6 +1480,49 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "startRecoveryTest",
+    method: "POST",
+    path: "/backup-sets/{source}/{set}/recovery-test",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "StartRecoveryTestRequest",
+    responseSchema: "RecoveryTestStarted",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND"],
+      409: ["OPERATION_ALREADY_RUNNING"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "getRecoveryTestOutput",
+    method: "GET",
+    path: "/backup-sets/{source}/{set}/recovery-test/output",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "RecoveryTestOutput",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
     id: "clearBackupSetRetention",
     method: "DELETE",
     path: "/backup-sets/{source}/{set}/retention",
@@ -750,6 +1530,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "BackupSetRetention",
@@ -771,6 +1552,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "BackupSetRetention",
@@ -790,6 +1572,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "RetentionOverride",
     responseSchema: "BackupSetRetention",
@@ -811,6 +1594,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: true,
+    insecureTransportAck: false,
     concurrency: "inventory_revision+config_revision",
     requestSchema: "ApplyRetentionRequest",
     responseSchema: "RetentionPlan",
@@ -818,7 +1602,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     errorCodes: {
       400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
-      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
       404: ["BACKUP_SET_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND"],
       409: ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY"],
       500: ["INTERNAL"],
@@ -833,6 +1617,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "inventory_revision+config_revision",
     requestSchema: "",
     responseSchema: "RetentionPlan",
@@ -846,6 +1631,29 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "startScrub",
+    method: "POST",
+    path: "/backup-sets/{source}/{set}/scrub",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ScrubStarted",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      409: ["OPERATION_ALREADY_RUNNING"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
     id: "getBackupSetSnapshotRetention",
     method: "GET",
     path: "/backup-sets/{source}/{set}/snapshot-retention",
@@ -853,6 +1661,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "SnapshotRetentionResponse",
@@ -874,6 +1683,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ListSnapshotsResponse",
@@ -895,6 +1705,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "SnapshotResponse",
@@ -909,6 +1720,51 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "describeSourceHost",
+    method: "GET",
+    path: "/backup-sets/{source}/{set}/source-host",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "SourceHostDescription",
+    successStatus: 200,
+    errorCodes: {
+      400: ["RECOVERY_TARGET_INVALID"],
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      501: ["RECOVERY_UNAVAILABLE"],
+    }
+  },
+  {
+    id: "checkSourceHostWrite",
+    method: "POST",
+    path: "/backup-sets/{source}/{set}/source-host/write-check",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: true,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "SourceHostDescription",
+    successStatus: 200,
+    errorCodes: {
+      400: ["RECOVERY_TARGET_INVALID"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      409: ["RECOVERY_SOURCE_HOST_UNAVAILABLE"],
+      429: ["RATE_LIMITED"],
+      500: ["INTERNAL"],
+      501: ["RECOVERY_UNAVAILABLE"],
+    }
+  },
+  {
     id: "getBackupSetWorkflow",
     method: "GET",
     path: "/backup-sets/{source}/{set}/workflow",
@@ -916,6 +1772,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "BackupSetWorkflowResponse",
@@ -935,6 +1792,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "UpdateBackupSetWorkflowRequest",
     responseSchema: "BackupSetWorkflowResponse",
@@ -944,7 +1802,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       401: ["UNAUTHENTICATED"],
       403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
       404: ["BACKUP_SET_NOT_FOUND"],
-      409: ["WORKFLOWS_NOT_CONFIGURED"],
+      409: ["WORKFLOW_SCRIPT_REJECTED", "WORKFLOWS_NOT_CONFIGURED"],
       500: ["INTERNAL"],
       503: ["NOT_CONFIGURED"],
     }
@@ -957,6 +1815,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ListWorkflowEnvironmentResponse",
@@ -976,6 +1835,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ListWorkflowEnvironmentResponse",
@@ -996,6 +1856,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "WorkflowEnvironmentVariableRequest",
     responseSchema: "ListWorkflowEnvironmentResponse",
@@ -1017,6 +1878,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "WorkflowValidationResponse",
@@ -1036,6 +1898,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ListArtifactsResponse",
@@ -1054,6 +1917,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "Artifact",
@@ -1065,6 +1929,32 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "mintRecovery",
+    method: "POST",
+    path: "/backups/{source}/{set}/{name}/recovery",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "RecoveryMintRequest",
+    responseSchema: "RecoveryMintResponse",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST", "RECOVERY_TARGET_INVALID"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED", "INSECURE_TRANSPORT_ACK_REQUIRED", "STEP_UP_REQUIRED", "STEP_UP_FAILED"],
+      404: ["ARTIFACT_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND"],
+      409: ["RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_SOURCE_HOST_UNAVAILABLE", "RECOVERY_SOURCE_HOST_READ_ONLY", "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE"],
+      429: ["RECOVERY_TOO_MANY_GRANTS", "RATE_LIMITED"],
+      500: ["INTERNAL", "RECOVERY_FAILED"],
+      501: ["RECOVERY_UNAVAILABLE"],
+      503: ["RECOVERY_UNAVAILABLE", "STEP_UP_UNAVAILABLE", "RECOVERY_SOURCE_HOST_UNREACHABLE"],
+      507: ["RECOVERY_SOURCE_HOST_NO_SPACE"],
+    }
+  },
+  {
     id: "retryFailedIngestion",
     method: "POST",
     path: "/backups/{source}/{set}/{name}/retry",
@@ -1072,6 +1962,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "RetryFailedRequest",
     responseSchema: "",
@@ -1092,6 +1983,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "CatalogReportResponse",
@@ -1110,6 +2002,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "CatalogReportResponse",
@@ -1121,6 +2014,364 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "listEncryptionCopies",
+    method: "GET",
+    path: "/encryption/copies",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListEncryptionCopiesResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["ARTIFACT_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "planEncryptExisting",
+    method: "GET",
+    path: "/encryption/encrypt-existing",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: true,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "EncryptExistingPlan",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["DESTRUCTIVE_OPERATIONS_DISABLED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
+      404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "startEncryptExisting",
+    method: "POST",
+    path: "/encryption/encrypt-existing",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: true,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "StartEncryptExistingRequest",
+    responseSchema: "ScrubStarted",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
+      404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND"],
+      409: ["OPERATION_ALREADY_RUNNING", "ENCRYPTION_KEY_UNRESOLVABLE"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "listEncryptionKeys",
+    method: "GET",
+    path: "/encryption/keys",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListEncryptionKeysResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "createEncryptionKey",
+    method: "POST",
+    path: "/encryption/keys",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "EncryptionKeyStatus",
+    successStatus: 201,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      409: ["ENCRYPTION_KEY_STATE"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "rotateEncryptionKey",
+    method: "POST",
+    path: "/encryption/keys/rotate",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "EncryptionKeyStatus",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      409: ["ENCRYPTION_KEY_STATE"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "confirmRecoveryBundle",
+    method: "POST",
+    path: "/encryption/keys/{id}/confirm",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "ConfirmRecoveryBundleRequest",
+    responseSchema: "EncryptionKeyStatus",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["ENCRYPTION_KEY_NOT_FOUND"],
+      409: ["ENCRYPTION_KEY_STATE"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "exportRecoveryBundle",
+    method: "POST",
+    path: "/encryption/keys/{id}/export",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: true,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "RecoveryBundle",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED", "STEP_UP_REQUIRED", "STEP_UP_FAILED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
+      404: ["ENCRYPTION_KEY_NOT_FOUND"],
+      429: ["RATE_LIMITED"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "STEP_UP_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "retireEncryptionKey",
+    method: "POST",
+    path: "/encryption/keys/{id}/retire",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "EncryptionKeyStatus",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["ENCRYPTION_KEY_NOT_FOUND"],
+      409: ["ENCRYPTION_KEY_IN_USE"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "getEncryptionPolicy",
+    method: "GET",
+    path: "/encryption/policy",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "EncryptionPolicy",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "patchEncryptionPolicy",
+    method: "PATCH",
+    path: "/encryption/policy",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "EncryptionPolicyPatch",
+    responseSchema: "EncryptionPolicy",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "resetEncryptionPolicy",
+    method: "POST",
+    path: "/encryption/policy/reset",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "EncryptionPolicy",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "testEncryptionProvider",
+    method: "POST",
+    path: "/encryption/providers/test",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "EncryptionProviderTestRequest",
+    responseSchema: "EncryptionProviderProbe",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "planReencrypt",
+    method: "GET",
+    path: "/encryption/reencrypt",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: true,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ReencryptPlan",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["DESTRUCTIVE_OPERATIONS_DISABLED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "startReencrypt",
+    method: "POST",
+    path: "/encryption/reencrypt",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: true,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "StartReencryptRequest",
+    responseSchema: "ScrubStarted",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
+      409: ["OPERATION_ALREADY_RUNNING"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "listEncryptionSuites",
+    method: "GET",
+    path: "/encryption/suites",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListEncryptionSuitesResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "startDecryptVerify",
+    method: "POST",
+    path: "/encryption/verify",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "StartDecryptVerifyRequest",
+    responseSchema: "ScrubStarted",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["ARTIFACT_NOT_FOUND", "BACKUP_SET_NOT_FOUND"],
+      409: ["OPERATION_ALREADY_RUNNING", "ENCRYPTION_KEY_UNRESOLVABLE"],
+      500: ["INTERNAL"],
+      503: ["ENCRYPTION_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
     id: "listOperations",
     method: "GET",
     path: "/operations",
@@ -1128,6 +2379,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ListOperationsResponse",
@@ -1145,6 +2397,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "required",
     destructiveGate: true,
+    insecureTransportAck: false,
     concurrency: "config_revision",
     requestSchema: "SubmitOperationRequest",
     responseSchema: "Operation",
@@ -1152,11 +2405,12 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     errorCodes: {
       400: ["INVALID_REQUEST", "BACKUP_SET_NOT_INCREMENTAL"],
       401: ["UNAUTHENTICATED"],
-      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED", "STEP_UP_REQUIRED", "STEP_UP_FAILED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
       404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND", "COPY_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND"],
-      409: ["CONFIG_REVISION_STALE", "IDEMPOTENCY_KEY_CONFLICT", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "RESTORE_REFUSED", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED"],
+      409: ["CONFIG_REVISION_STALE", "IDEMPOTENCY_KEY_CONFLICT", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "RESTORE_REFUSED", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "RESTORE_TARGET_NOT_ACKNOWLEDGED", "RECOVERY_COST_NOT_ACKNOWLEDGED", "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED"],
+      429: ["RATE_LIMITED"],
       500: ["INTERNAL"],
-      503: ["RESTORE_UNAVAILABLE"],
+      503: ["RESTORE_UNAVAILABLE", "STEP_UP_UNAVAILABLE"],
     }
   },
   {
@@ -1167,6 +2421,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "Operation",
@@ -1186,6 +2441,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ListArtifactsResponse",
@@ -1203,6 +2459,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ArtifactReinstateResponse",
@@ -1223,6 +2480,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "",
@@ -1243,6 +2501,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ArtifactCheckResponse",
@@ -1256,6 +2515,60 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "recoverMany",
+    method: "POST",
+    path: "/recoveries",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "RecoveryManyRequest",
+    responseSchema: "RecoveryManyPlan",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST", "RECOVERY_TARGET_INVALID"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED", "INSECURE_TRANSPORT_ACK_REQUIRED", "STEP_UP_REQUIRED", "STEP_UP_FAILED"],
+      404: ["ARTIFACT_NOT_FOUND", "BACKUP_SET_NOT_FOUND"],
+      409: ["RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_SOURCE_HOST_UNAVAILABLE", "RECOVERY_SOURCE_HOST_READ_ONLY", "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE"],
+      429: ["RECOVERY_READS_BUSY", "RECOVERY_DESTINATION_BUSY", "RATE_LIMITED"],
+      500: ["INTERNAL", "RECOVERY_FAILED"],
+      501: ["RECOVERY_UNAVAILABLE"],
+      503: ["RECOVERY_UNAVAILABLE", "STEP_UP_UNAVAILABLE", "RECOVERY_SOURCE_HOST_UNREACHABLE"],
+      507: ["RECOVERY_NO_SPACE", "RECOVERY_BELOW_RESERVE", "RECOVERY_SOURCE_HOST_NO_SPACE"],
+    }
+  },
+  {
+    id: "redeemRecovery",
+    method: "GET",
+    path: "/recoveries/{grant}",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "RecoveryResult",
+    successStatus: 206,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["RECOVERY_GRANT_SESSION_ENDED", "DESTRUCTIVE_OPERATIONS_DISABLED"],
+      404: ["ARTIFACT_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN"],
+      409: ["RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_BUSY", "RECOVERY_TARGET_EXISTS", "RECOVERY_SOURCE_HOST_UNAVAILABLE", "RECOVERY_SOURCE_HOST_READ_ONLY", "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED"],
+      410: ["RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED"],
+      416: ["INVALID_REQUEST"],
+      429: ["RECOVERY_READS_BUSY", "RECOVERY_DESTINATION_BUSY", "RECOVERY_DOWNLOADS_BUSY"],
+      500: ["INTERNAL", "RECOVERY_LOCAL_COPY_CORRUPT", "RECOVERY_FAILED"],
+      501: ["RECOVERY_UNAVAILABLE"],
+      502: ["RECOVERY_REMOTE_COPY_CORRUPT"],
+      503: ["RECOVERY_UNAVAILABLE", "RECOVERY_INTERRUPTED", "RECOVERY_SOURCE_HOST_UNREACHABLE"],
+      507: ["RECOVERY_NO_SPACE", "RECOVERY_BELOW_RESERVE"],
+    }
+  },
+  {
     id: "listRepositories",
     method: "GET",
     path: "/repositories",
@@ -1263,6 +2576,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ListRepositoriesResponse",
@@ -1282,6 +2596,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "CreateRepositoryDomainRequest",
     responseSchema: "RepositoryHealth",
@@ -1303,6 +2618,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "RepositoryMaintenance",
@@ -1322,6 +2638,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "SettingsResponse",
@@ -1340,12 +2657,53 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "UpdateSettingsRequest",
     responseSchema: "SettingsResponse",
     successStatus: 200,
     errorCodes: {
       400: ["INVALID_REQUEST", "MEDIUM_DISCLOSURE_REQUIRED"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "getAssuranceSettings",
+    method: "GET",
+    path: "/settings/assurance",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AssuranceSettingsResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "updateAssuranceSettings",
+    method: "PATCH",
+    path: "/settings/assurance",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "UpdateAssuranceSettingsRequest",
+    responseSchema: "AssuranceSettingsResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
       403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
       500: ["INTERNAL"],
@@ -1360,6 +2718,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "WorkflowSettingsResponse",
@@ -1378,6 +2737,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "UpdateWorkflowSettingsRequest",
     responseSchema: "WorkflowSettingsResponse",
@@ -1386,6 +2746,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
       403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      409: ["WORKFLOW_SCRIPT_REJECTED"],
       500: ["INTERNAL"],
       503: ["NOT_CONFIGURED"],
     }
@@ -1398,6 +2759,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ListWorkflowEnvironmentResponse",
@@ -1416,6 +2778,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ListWorkflowEnvironmentResponse",
@@ -1436,6 +2799,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "WorkflowEnvironmentVariableRequest",
     responseSchema: "ListWorkflowEnvironmentResponse",
@@ -1456,6 +2820,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ListSSHKeysResponse",
@@ -1473,6 +2838,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "ImportSSHKeyRequest",
     responseSchema: "ImportSSHKeyResponse",
@@ -1492,6 +2858,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "ImportSSHKeyFromCandidateRequest",
     responseSchema: "ImportSSHKeyResponse",
@@ -1511,6 +2878,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "HostKeyProbeRequest",
     responseSchema: "HostKeyProbeResponse",
@@ -1530,6 +2898,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ListSSHKeyCandidatesResponse",
@@ -1547,6 +2916,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "ImportStorageCredentialsRequest",
     responseSchema: "ImportStorageCredentialsResponse",
@@ -1566,6 +2936,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ListStorageMediumsResponse",
@@ -1583,6 +2954,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "StorageMediumRequest",
     responseSchema: "StorageMediumSummary",
@@ -1604,6 +2976,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "StorageMediumRequest",
     responseSchema: "MediumPreflightResponse",
@@ -1624,6 +2997,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "",
@@ -1645,6 +3019,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "StorageMediumSummary",
@@ -1663,6 +3038,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "StorageMediumRequest",
     responseSchema: "StorageMediumSummary",
@@ -1684,6 +3060,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "MediumConfigurationResponse",
@@ -1701,6 +3078,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "MediumConfigurationRequest",
     responseSchema: "StorageMediumSummary",
@@ -1721,6 +3099,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "MediumConfigurationRequest",
     responseSchema: "MediumPreflightResponse",
@@ -1740,6 +3119,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "StorageMediumSummary",
@@ -1760,6 +3140,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "MediumPreflightResponse",
@@ -1779,6 +3160,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "StorageMediumUsageResponse",
@@ -1796,6 +3178,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "CapabilitiesResponse",
@@ -1812,6 +3195,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "FirstRunStatusResponse",
@@ -1828,6 +3212,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "BackupSetSpec",
     responseSchema: "CompleteFirstRunResponse",
@@ -1841,6 +3226,26 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "skipFirstRunStep",
+    method: "POST",
+    path: "/system/first-run/skip",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "SkipFirstRunStepRequest",
+    responseSchema: "FirstRunStatusResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      500: ["INTERNAL"],
+    }
+  },
+  {
     id: "getSystemHealth",
     method: "GET",
     path: "/system/health",
@@ -1848,6 +3253,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "HealthResponse",
@@ -1858,6 +3264,29 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "listStagingDirectories",
+    method: "GET",
+    path: "/system/staging-directories",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "StagingDirectoryResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      404: ["DIRECTORY_NOT_FOUND"],
+      409: ["DIRECTORY_NOT_READABLE"],
+      500: ["INTERNAL"],
+      501: ["RECOVERY_UNAVAILABLE"],
+      503: ["RECOVERY_UNAVAILABLE"],
+    }
+  },
+  {
     id: "listStorageStatus",
     method: "GET",
     path: "/system/storage",
@@ -1865,6 +3294,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ListStorageStatusResponse",
@@ -1883,6 +3313,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "VersionResponse",
@@ -1899,6 +3330,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ListValidatorsResponse",
@@ -1916,6 +3348,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "WorkflowRecoveryResponse",
@@ -1934,6 +3367,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "WorkflowAcknowledgementRequest",
     responseSchema: "",
@@ -1955,6 +3389,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: true,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "WorkflowRun",
@@ -1976,6 +3411,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ListWorkflowRunsResponse",
@@ -1994,6 +3430,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "WorkflowRun",
@@ -2013,6 +3450,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "ListWorkflowStepsResponse",
@@ -2032,6 +3470,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
+    insecureTransportAck: false,
     concurrency: "",
     requestSchema: "",
     responseSchema: "WorkflowStepLogPage",
@@ -2059,6 +3498,152 @@ export interface WireActivityEvent {
   set_name: string;
   source_name: string;
   to: string;
+}
+
+/** One of this deployment's locations that is being served from a
+ *  pre-rename path, and the renamed path it would otherwise have
+ *  used. A location is adopted only when the renamed path holds
+ *  nothing and the pre-rename path holds the data; two populated
+ *  locations that are different directories make the runtime refuse
+ *  to start instead, and are therefore never reported here. */
+export interface WireAdoptedPath {
+  renamed: string;
+  serving: string;
+  what: string;
+}
+
+/** One row of the agent audit trail. arguments is what the call asked
+ *  with, stored after the projection that strips key material and
+ *  secrets, as JSON text and cut at 4096 bytes. token_id is empty for
+ *  a refusal of a token that matched no row, which is itself a fact
+ *  worth keeping. tool is empty for a refusal made before any tool
+ *  was named. transport is stdio, http or api. */
+export interface WireAgentAuditEntry {
+  arguments: string;
+  at: string;
+  code: string;
+  confirmation_id: string;
+  correlation_id: string;
+  seq: number;
+  status: number;
+  token_id: string;
+  token_name: string | null;
+  tool: string;
+  transport: "stdio" | "http" | "api";
+}
+
+/** A change an agent asked for, waiting for a person. The request
+ *  body it will replay is kept byte for byte and is never shown here,
+ *  except for config_revision; command is the retnd command an
+ *  operator would have typed for the same change. A pending
+ *  confirmation has run nothing. state is pending, approved, denied
+ *  or expired; an approved one carries execution once its replay has
+ *  finished. */
+export interface WireAgentConfirmation {
+  backup_set: string;
+  command: string;
+  config_revision?: string;
+  created_at: string;
+  decided_at: string | null;
+  decided_by: string | null;
+  execution?: WireAgentExecution;
+  expires_at: string;
+  id: string;
+  method: string;
+  route: string;
+  state: "pending" | "approved" | "denied" | "expired";
+  token_id: string;
+  token_name: string;
+  tool: string;
+}
+
+/** How the replay of an approved confirmation ended: the status and
+ *  error code the API answered with (code is empty for a success),
+ *  its message, the correlation id of the request and the exit code
+ *  retnd would have used for the same answer. A replay the shut
+ *  destructive gate refused reads DESTRUCTIVE_OPERATIONS_DISABLED
+ *  with exit code 50, exactly as retnd run does. */
+export interface WireAgentExecution {
+  code: string;
+  correlation_id: string;
+  exit_code: number;
+  message: string;
+  outcome: "completed" | "interrupted";
+  status: number;
+}
+
+/** One JSON-RPC 2.0 message of the Model Context Protocol. The
+ *  engine's streamable HTTP transport speaks the protocol revision
+ *  `retnd agent tools` prints; this contract does not restate it. */
+export type WireAgentMcpFrame = Record<string, unknown>;
+
+/** One prompt: a static description, the arguments it takes and the
+ *  read tools it draws on. */
+export interface WireAgentPrompt {
+  arguments: string[];
+  description: string;
+  name: string;
+  tools: string[];
+}
+
+/** One resource, backed by a read tool. */
+export interface WireAgentResource {
+  description: string;
+  tool: string;
+  uri: string;
+}
+
+/** One agent token as every surface after the mint shows it: its
+ *  name, the first eight characters of the token, scope, owner and
+ *  times, never the hash and never more of the token than the prefix.
+ *  status is active, expired or revoked, read from the token row on
+ *  this request. The principal it authenticates as is agent:<name>. */
+export interface WireAgentToken {
+  created_at: string;
+  expires_at: string;
+  id: string;
+  last_used_at: string | null;
+  name: string;
+  owner: string;
+  prefix: string;
+  revoked_at: string | null;
+  scope: "read" | "operate" | "configure";
+  status: "active" | "expired" | "revoked";
+}
+
+/** One tool an agent may call. untrusted names the result fields
+ *  whose values originate outside the deployment (file names,
+ *  validator output, workflow logs, activity messages, remote
+ *  hostnames); a transport puts them under an untrusted object and
+ *  never in text. */
+export interface WireAgentTool {
+  action?: string;
+  description: string;
+  method: string;
+  name: string;
+  route: string;
+  scope: "read" | "operate" | "configure";
+  twin: string;
+  untrusted: string[];
+}
+
+/** A route with no tool, and why. */
+export interface WireAgentToolRefusal {
+  action?: string;
+  denied: boolean;
+  method: string;
+  route: string;
+  why: string;
+}
+
+/** GET /agent/tools. The whole catalogue. denied_fields are the keys
+ *  the one projection at the tool boundary drops at every depth. */
+export interface WireAgentToolsResponse {
+  denied_fields: string[];
+  prompts: WireAgentPrompt[];
+  refusals: WireAgentToolRefusal[];
+  resources: WireAgentResource[];
+  tools: WireAgentTool[];
 }
 
 /** POST /backup-sets/{source}/{set}/retention/apply. */
@@ -2117,6 +3702,93 @@ export interface WireArtifactReinstateResponse {
   reason?: string;
   reinstated: boolean;
   state?: string;
+}
+
+/** One copy's place in the scrub schedule. */
+export interface WireAssuranceDueItem {
+  artifact_id?: string;
+  artifact_name?: string;
+  backup_set_id?: string;
+  basis?: string;
+  cadence_seconds?: number;
+  due?: boolean;
+  last_assured_at?: string;
+  next_due_at?: string;
+  overdue?: boolean;
+}
+
+/** The scrub schedule, most overdue first, computed from each set's
+ *  resolved policy. */
+export interface WireAssuranceDueResponse {
+  generated_at?: string;
+  items?: WireAssuranceDueItem[];
+}
+
+/** A setting that is global only, with the reason a backup set cannot
+ *  override it. The per-set answer is written down for every
+ *  host-scoped knob so nobody looks for a per-set switch that could
+ *  not work. */
+export interface WireAssuranceHostKnob {
+  name?: string;
+  per_set?: boolean;
+  reason?: string;
+  value?: string;
+}
+
+/** A running scrub or recovery test has been told to stop. */
+export interface WireAssuranceOperationCancelled {
+  backup_set_id: string;
+  kind: "scrub" | "recovery_test";
+  operation_id: string;
+  status: "cancelling";
+}
+
+/** One scrub, recovery test or recovery as the durable activity
+ *  record holds it (#1200). */
+export interface WireAssuranceOperationRecord {
+  backup_set_id: string;
+  bytes_read?: number;
+  ended_at: string;
+  events: WireLiveActivityEvent[];
+  kind: "scrub" | "recovery_test" | "recovery";
+  operation_id: string;
+  reason: string;
+  stage: string;
+  started_at: string;
+  state: "running" | "passed" | "failed" | "did_not_complete" | "cancelled" | "unfinished";
+}
+
+/** A resolved recovery-test policy. */
+export interface WireAssuranceRecoveryTestPolicy {
+  builtin_check?: "structure" | "off";
+  cadence_seconds?: number;
+  effective_check?: "validator" | "builtin" | "none";
+  effective_check_reason?: string;
+  mode?: string;
+  validator_declared?: boolean;
+  validator_id?: string;
+}
+
+/** A resolved scrub policy: how often a copy is re-read and how much
+ *  of it is read. */
+export interface WireAssuranceScrubPolicy {
+  cadence_seconds?: number;
+  strategy?: string;
+}
+
+/** The deployment-wide assurance policy, RESOLVED. A config that
+ *  never mentions assurance reports the defaults here, which is the
+ *  point: the default is good enough that nobody has to set it. */
+export interface WireAssuranceSettingsResponse {
+  configured?: boolean;
+  host_knobs?: WireAssuranceHostKnob[];
+  max_concurrent_full_reads?: number;
+  max_download_streams?: number;
+  max_per_destination?: number;
+  recovery_test?: WireAssuranceRecoveryTestPolicy;
+  scrub?: WireAssuranceScrubPolicy;
+  staging_root?: string;
+  staging_ttl_seconds?: number;
 }
 
 /** The FLAT error body the /auth operations return, with the
@@ -2224,6 +3896,16 @@ export interface WireBackupSet {
   verification_level?: string;
   verification_restore_drill_every_seconds?: number;
   verification_sample_percent?: number;
+}
+
+/** One backup set's resolved assurance policy and whether it is the
+ *  set's own. Served together because 'what is deciding' and 'is that
+ *  this set's own or the deployment's' are one question. */
+export interface WireBackupSetAssurance {
+  backup_set_id: string;
+  is_override: boolean;
+  recovery_test: WireAssuranceRecoveryTestPolicy;
+  scrub: WireAssuranceScrubPolicy;
 }
 
 /** POST /backup-sets/{source}/{set}/edit-hold. The lease just taken
@@ -2362,9 +4044,15 @@ export interface WireBackupSetWorkflowResponse {
 /** GET /system/capabilities. The API expression of the
  *  PlatformCapabilities contract (apps/common/platform/capabilities).
  *  A capability says what a platform CAN do; it never says who MAY do
- *  it, and server-side authorization never consults it. */
+ *  it, and server-side authorization never consults it.
+ *  destructive_operations is the one field here that is not a
+ *  platform capability: it is this deployment's own destructive gate,
+ *  reported so a client can show the right control or message before
+ *  anyone presses a gated one. */
 export interface WireCapabilitiesResponse {
+  agents_http_transport: "on" | "off";
   app_store_packaging: boolean;
+  destructive_operations: WireDestructiveOperationsStatus;
   embedded_window: boolean;
   native_auth: boolean;
   native_notifications: boolean;
@@ -2427,6 +4115,14 @@ export interface WireConfigRevisionStaleResponse {
   error: WireErrorBody;
 }
 
+/** POST /encryption/keys/{id}/confirm. A statement that the exported
+ *  bundle is stored safely, never an upload. With no digest it
+ *  confirms the newest export of the key; with one it must match an
+ *  export. */
+export interface WireConfirmRecoveryBundleRequest {
+  digest?: string;
+}
+
 /** One step of a connection test. `outcome` is passed, failed or
  *  skipped, and skipped is a first-class answer rather than a quiet
  *  pass: a surface that renders a skipped authentication as anything
@@ -2462,6 +4158,15 @@ export interface WireCreateBackupSetResponse extends WireBackupSet {
   run_error?: string;
 }
 
+/** A custom validator to upload. */
+export interface WireCreateCustomValidatorRequest {
+  backup_set_id?: string;
+  env?: "minimal" | "workflow";
+  name: string;
+  pattern: string;
+  script: string;
+}
+
 /** POST /repositories: declare a repository domain. What this
  *  persists is a DECLARATION -- an id, a co-tenancy posture and the
  *  reference the passphrase is resolved from -- and it creates no
@@ -2494,6 +4199,96 @@ export interface WireCredentialsRequest {
   username: string;
 }
 
+/** A custom recovery-test validator (#1203): an operator's
+ *  NAME.local.sh attached to an artifact-name pattern. For the copy a
+ *  recovery test is about to check, the first of these that applies
+ *  runs: a validator scoped to the copy's backup set whose pattern
+ *  matches its name, a global validator whose pattern matches, the
+ *  set's validator_id, the one script in
+ *  recovery-test/<source>/<set>, the built-in structure check. Two
+ *  patterns at one scope that both match a name end the test
+ *  could_not_complete rather than picking one. */
+export interface WireCustomValidator {
+  anchored: boolean;
+  backup_set_id: string;
+  env: "minimal" | "workflow";
+  example_name: string;
+  last_result?: WireCustomValidatorResult;
+  match_count: number;
+  match_sets: string[];
+  name: string;
+  pattern: string;
+  pinned_sha256: string;
+  scope: "backup_set" | "global";
+  script_file: string;
+  script_present: boolean;
+  script_sha256: string;
+  script_size_bytes: number;
+  script_state: "pinned" | "unpinned" | "edited_on_disk" | "missing";
+  uploaded_at: string;
+}
+
+/** A collision between custom validators found in the journal: one
+ *  backup, two or more patterns at one scope. */
+export interface WireCustomValidatorAmbiguity {
+  backup_set_id: string;
+  example: string;
+  validators: string[];
+}
+
+/** Another validator at the same scope that already matches a backup
+ *  this pattern matches. */
+export interface WireCustomValidatorConflict {
+  example: string;
+  validator: string;
+}
+
+/** A pattern suggested from existing backups: every run of digits
+ *  generalised (\d{8}, \d{4}-\d{2}-\d{2}, \d{8}T\d{6}Z), everything
+ *  else matched literally, anchored at both ends. */
+export interface WireCustomValidatorPattern {
+  example: string;
+  match_count: number;
+  match_sets: string[];
+  pattern: string;
+  validator: string;
+}
+
+/** Suggested patterns, most common first, at most 200. */
+export interface WireCustomValidatorPatternsResponse {
+  backup_set_id: string;
+  patterns: WireCustomValidatorPattern[];
+}
+
+/** What a pattern would match, judged by Go's RE2 (the engine that
+ *  will match it), so a browser's own regular expressions never
+ *  decide. */
+export interface WireCustomValidatorPreview {
+  anchored: boolean;
+  conflicts: WireCustomValidatorConflict[];
+  error: string;
+  match_count: number;
+  match_sets: string[];
+  sample: string[];
+  valid: boolean;
+}
+
+/** Which validator a recovery test of one backup would run. */
+export interface WireCustomValidatorResolution {
+  ambiguous: string[];
+  artifact_id: string;
+  fallback: "" | "validator_id" | "set_directory" | "builtin" | "none";
+  validator: string;
+}
+
+/** The newest recovery test recorded under a custom validator's
+ *  script. */
+export interface WireCustomValidatorResult {
+  artifact_id: string;
+  at: string;
+  state: string;
+}
+
 /** What a finished cycle's move pass got done: how many artifacts
  *  were due to move to the medium their retention tier names, and how
  *  many arrived. Without these, a cycle in which every move was
@@ -2523,22 +4318,193 @@ export interface WireCycleOutcome {
   moves?: WireCycleMoveOutcome;
 }
 
-/** POST /auth/enroll. The credentials, plus the two things issue #830
- *  makes part of creating the administrator: the address account
- *  recovery mails to, and the SMTP endpoint it goes out over. Both
- *  are required, because an administrator with no proven way to reach
- *  its owner is an account that is permanently lost the first time a
- *  password is forgotten, and enrollment is the last moment at which
- *  somebody who can still sign in is present to fix the mail
- *  configuration. The runtime SENDS a confirmation message to
- *  `recoveryEmail` over `smtp` before it writes anything, and refuses
- *  the whole enrollment with SMTP_SEND_FAILED if that send does not
- *  succeed - leaving the single-use enrollment token unspent, so the
- *  same link can be used again once the configuration is fixed. */
+/** Whether this deployment's destructive gate is open, and why it is
+ *  not when it is not (issue #1165). The gate is the one the routes
+ *  marked x-destructive-gate ask before they act, and the one the
+ *  recovery routes marked x-destructive-gate-target-kinds ask for a
+ *  recovery onto the source host (issue #1191), and the state here is
+ *  read from that same gate at the moment of the request, so it can
+ *  change while the process runs. It is open on a local-account
+ *  profile and shut on a gateway profile until #92 ships a verified
+ *  gate (issue #1163). step_up_required and
+ *  insecure_transport_ack_required say what an open gate still asks
+ *  for, read from what the router will enforce rather than assumed.
+ *  The CLI is not behind the gate: the terminal verbs the gated
+ *  routes have equivalents for run with no gate. */
+export interface WireDestructiveOperationsStatus {
+  insecure_transport_ack_required: boolean;
+  reason: string;
+  state: "open" | "shut";
+  step_up_required: boolean;
+}
+
+/** One plaintext copy and what a run would do with it. verdict is
+ *  would_encrypt or refused; refusal is the stable reason code of a
+ *  refusal (not_required, already_encrypted, no_plaintext_copy,
+ *  key_unavailable, destination_unverifiable, no_room,
+ *  source_unreadable or not_eligible) and reason is the sentence the
+ *  run would refuse with. */
+export interface WireEncryptExistingCandidate {
+  artifact_id: string;
+  reason?: string;
+  refusal?: string;
+  source_medium: string;
+  verdict: string;
+}
+
+/** GET /encryption/encrypt-existing. The dry run: every backup of the
+ *  set with a copy on a medium, whether a run would encrypt it onto
+ *  the destination, and why not when it would not. It changes and
+ *  reads nothing. */
+export interface WireEncryptExistingPlan {
+  candidates: WireEncryptExistingCandidate[];
+  refused: number;
+  would_encrypt: number;
+}
+
+/** One copy's encryption state. A plaintext copy says encrypted false
+ *  and nothing else. */
+export interface WireEncryptionCopy {
+  encrypted: boolean;
+  format?: string;
+  format_version?: number;
+  key_id?: string;
+  key_resolvable?: boolean;
+  medium: string;
+  plaintext_digest?: string;
+  stored_digest?: string;
+  stored_digest_algorithm?: string;
+  stored_size?: number;
+}
+
+/** Who holds the key: this product's managed key, or an external
+ *  reference. Exactly one. */
+export interface WireEncryptionKeyProvider {
+  external?: WireEncryptionKeyReference;
+  managed?: boolean;
+}
+
+/** A key provider as it reads back. kind is managed, external or
+ *  none. source is the reference's description (a path, a variable
+ *  name, or an executable without arguments) and is absent for
+ *  managed and none. It cannot be parsed back into a reference. */
+export interface WireEncryptionKeyProviderState {
+  kind: string;
+  source?: string;
+}
+
+/** Where an external key is read from: exactly one of file, env or
+ *  command. Write-only: a response never carries this shape, only the
+ *  description in EncryptionKeyProviderState. */
+export interface WireEncryptionKeyReference {
+  command?: string[];
+  env?: string;
+  file?: string;
+}
+
+/** One managed key's identity and condition. Ids, timestamps, status
+ *  and whether it resolves right now. Never key material, a recipient
+ *  or a fingerprint. */
+export interface WireEncryptionKeyStatus {
+  bundle_confirmed: boolean;
+  bundle_confirmed_at?: string;
+  bundle_exported_at?: string;
+  copies_recording: number;
+  created_at: string;
+  id: string;
+  reason?: string;
+  resolvability: string;
+  resolvable: boolean;
+  retired_at?: string;
+  status: string;
+  suite?: string;
+}
+
+/** PUT /backup-sets/{source}/{set}/encryption. A backup set's own
+ *  mode (inherit, off or required) and, for required, its own key
+ *  provider. A whole replace. */
+export interface WireEncryptionOverride {
+  key_provider?: WireEncryptionKeyProvider;
+  mode: string;
+}
+
+/** GET /encryption/policy. The deployment's retained-copy encryption
+ *  mode and key provider, and every backup set's resolution. */
+export interface WireEncryptionPolicy {
+  key_provider: WireEncryptionKeyProviderState;
+  mode: string;
+  rotate_command?: string;
+  rotation_needed?: boolean;
+  sets: WireEncryptionSetPolicy[];
+  suite?: string;
+  suite_configured?: string;
+}
+
+/** PATCH /encryption/policy. Fields that are present change and the
+ *  rest stay. At least one is required. */
+export interface WireEncryptionPolicyPatch {
+  key_provider?: WireEncryptionKeyProvider;
+  mode?: string;
+  suite?: string;
+}
+
+/** Whether a key provider resolves right now. source is a
+ *  description, never the reference itself. */
+export interface WireEncryptionProviderProbe {
+  reason?: string;
+  source: string;
+  state: string;
+}
+
+/** POST /encryption/providers/test. Name a managed key id or an
+ *  external reference to test. */
+export interface WireEncryptionProviderTestRequest {
+  external?: WireEncryptionKeyReference;
+  managed_key_id?: string;
+}
+
+/** What one backup set's retained-copy encryption is set to, and what
+ *  that resolves to. mode is what the set says (inherit, off or
+ *  required); effective_mode is what applies. */
+export interface WireEncryptionSetPolicy {
+  backup_set_id: string;
+  effective_key_provider: WireEncryptionKeyProviderState;
+  effective_mode: string;
+  is_override: boolean;
+  key_provider: WireEncryptionKeyProviderState;
+  mode: string;
+  satisfied_by?: string;
+}
+
+/** One encryption suite this build has. describe is the only sentence
+ *  a surface may print about it. */
+export interface WireEncryptionSuite {
+  active_copies: number;
+  default: boolean;
+  describe: string;
+  id: string;
+  keys: number;
+  retirement_version?: string;
+  status: string;
+  version: number;
+}
+
+/** POST /auth/enroll. The credentials, and optionally the two things
+ *  issue #830 makes part of recovering the administrator: the address
+ *  account recovery mails to, and the SMTP endpoint it goes out over.
+ *  Both are optional together (retnd#1049): a body with only the
+ *  credentials creates the administrator with recovery left
+ *  unconfigured, to be finished from Settings. A body that supplies
+ *  either is held to both: the runtime SENDS a verification message
+ *  to `recoveryEmail` over `smtp` before it writes anything, and
+ *  refuses the whole enrollment with SMTP_SEND_FAILED if that send
+ *  does not succeed - leaving the single-use enrollment token
+ *  unspent, so the same link can be used again once the configuration
+ *  is fixed. */
 export interface WireEnrollRequest {
   password: string;
-  recoveryEmail: string;
-  smtp: WireSmtpSettings;
+  recoveryEmail?: string;
+  smtp?: WireSmtpSettings;
   username: string;
 }
 
@@ -2556,12 +4522,27 @@ export interface WireErrorResponse {
   error: WireErrorBody;
 }
 
-/** GET /system/first-run. The one question a client asks before it
- *  decides whether to render the setup flow or the application.
- *  Deliberately one field: a client that has just been handed a 503
- *  NOT_CONFIGURED needs to know which screen to show, not why. */
+/** GET /system/first-run. Whether this deployment has a
+ *  configuration, and which guided setup step comes next. A fresh
+ *  install is configured from its first start (the engine writes a
+ *  default configuration), so `configured` is true there and the
+ *  guide is what tells an operator what is left to do. The steps are
+ *  derived from the thing each one sets up, except a skip, which is
+ *  stored. */
 export interface WireFirstRunStatusResponse {
+  config_dir?: string;
+  config_dir_problem?: string;
   configured: boolean;
+  next_step: "administrator" | "backup_set" | "none";
+  steps: WireFirstRunSteps;
+}
+
+/** Each guided setup step mapped to its state: done, pending or
+ *  skipped. */
+export interface WireFirstRunSteps {
+  administrator: "done" | "pending" | "skipped";
+  backup_set: "done" | "pending" | "skipped";
+  email: "done" | "pending" | "skipped";
 }
 
 /** POST /auth/forgot-password. One field, and the answer never varies
@@ -2580,6 +4561,7 @@ export interface WireForgotPasswordRequest {
 export interface WireHealthResponse {
   backup_sets: WireBackupSetHealth[];
   generated_at: string;
+  retained_count: number;
 }
 
 /** POST /ssh/host-key-probe. Opens a real outbound connection, trusts
@@ -2651,6 +4633,24 @@ export interface WireListActivityResponse {
   next_cursor?: string;
 }
 
+/** GET /agent/audit, newest first. */
+export interface WireListAgentAuditResponse {
+  entries: WireAgentAuditEntry[];
+  next_cursor?: string;
+}
+
+/** GET /agent/confirmations. The newest confirmations first, pending
+ *  ones whose time has passed already read expired. */
+export interface WireListAgentConfirmationsResponse {
+  confirmations: WireAgentConfirmation[];
+}
+
+/** GET /agent/tokens. Every token, revoked and expired ones included,
+ *  with their status. */
+export interface WireListAgentTokensResponse {
+  tokens: WireAgentToken[];
+}
+
 /** GET /backups and GET /quarantine. An object with one array field,
  *  never a bare top-level array. */
 export interface WireListArtifactsResponse {
@@ -2675,6 +4675,42 @@ export interface WireListBackendsResponse {
  *  top-level array. */
 export interface WireListBackupSetsResponse {
   backup_sets: WireBackupSet[];
+}
+
+/** The custom validators, and what this deployment allows. */
+export interface WireListCustomValidatorsResponse {
+  ambiguities: WireCustomValidatorAmbiguity[];
+  available: boolean;
+  directory: string;
+  directory_refused: string;
+  max_pattern_bytes: number;
+  max_script_bytes: number;
+  max_validators: number;
+  resolution?: WireCustomValidatorResolution;
+  runner_configured: boolean;
+  scripts_dir: string;
+  unavailable_reason: string;
+  validators: WireCustomValidator[];
+  workflow_root: string;
+  workflow_root_default: boolean;
+}
+
+/** GET /encryption/copies. The encryption state of each copy of one
+ *  backup. */
+export interface WireListEncryptionCopiesResponse {
+  artifact_id: string;
+  copies: WireEncryptionCopy[];
+}
+
+/** GET /encryption/keys. Every managed key, oldest first. */
+export interface WireListEncryptionKeysResponse {
+  keys: WireEncryptionKeyStatus[];
+}
+
+/** GET /encryption/suites. Every suite this build has, in table
+ *  order. */
+export interface WireListEncryptionSuitesResponse {
+  suites: WireEncryptionSuite[];
 }
 
 /** GET /operations, newest first. The list counterpart of GET
@@ -2874,7 +4910,7 @@ export interface WireLiveActivitySet {
   oldest_sequence: number;
   outcome?: "ok" | "failed" | "stopped";
   progress_basis: "artifacts" | "unknown";
-  stage?: "discovering" | "transferring" | "verifying" | "committing" | "cleaning-remote";
+  stage?: "discovering" | "transferring" | "verifying" | "committing" | "cleaning-remote" | "encrypting" | "decrypt-verifying";
   started_at?: string;
   truncated: boolean;
   unfinished_actions: WireLiveActivityAction[];
@@ -2995,6 +5031,25 @@ export interface WireMediumPreflightResponse {
   ok: boolean;
 }
 
+/** POST /agent/tokens. name becomes the agent:<name> principal. scope
+ *  defaults to read, the only default. expires_in is a number of days
+ *  such as 90d or a Go duration such as 720h; it defaults to 90d, may
+ *  not exceed 365d, and there is no non-expiring token. */
+export interface WireMintAgentTokenRequest {
+  expires_in?: string;
+  name: string;
+  scope?: "read" | "operate" | "configure";
+}
+
+/** The one answer that carries the token itself. token is shown
+ *  exactly once, here: the deployment stores its SHA-256 and the
+ *  eight-character prefix, so a lost token is revoked and minted
+ *  again, never recovered. */
+export interface WireMintedAgentToken {
+  agent_token: WireAgentToken;
+  token: string;
+}
+
 /** One durable operation record. Timestamp fields are omitted, not
  *  zero-valued, until the event they name has happened. progress is
  *  the separate, ephemeral thing: see OperationProgress for why it is
@@ -3047,7 +5102,7 @@ export interface WireOperationProgress {
   bytes_transferred?: number;
   observed_at: string;
   sequence: number;
-  stage: "discovering" | "transferring" | "verifying" | "committing" | "cleaning-remote";
+  stage: "discovering" | "transferring" | "verifying" | "committing" | "cleaning-remote" | "encrypting" | "decrypt-verifying";
 }
 
 /** A restore operation's own facts: what was asked for, which never
@@ -3080,14 +5135,229 @@ export interface WireOperationRestore {
  *  or an estimate of how long a restore will take; see access. */
 export interface WirePlacement {
   access: "immediate" | "requires_restore" | "restoring" | "unreachable";
+  assurance_state?: "passed" | "failed" | "requires_restore" | "could_not_complete";
+  consecutive_failures?: number;
+  encrypted?: boolean;
+  encryption_key_id?: string;
+  encryption_key_resolvable?: boolean;
+  encryption_suite?: string;
+  last_checked_at?: string;
+  last_failure_at?: string;
+  last_failure_reason?: string;
   location: string;
   medium: string;
   medium_type: "local" | "s3";
+  recovery_check?: "validator" | "builtin";
+  recovery_failure_reason?: string;
+  recovery_state?: "not_configured" | "never_run" | "passed" | "readable" | "overdue" | "failed" | "refused_for_cost" | "could_not_complete";
+  recovery_tested_at?: string;
   size_bytes?: number;
   status: "ACTIVE" | "DELETE_PENDING";
   storage_class?: string;
   verification_class?: "content" | "attested" | "existence";
   verified_at?: string;
+}
+
+/** A pattern to judge, without saving anything. */
+export interface WirePreviewCustomValidatorRequest {
+  backup_set_id?: string;
+  pattern: string;
+  replacing?: string;
+}
+
+/** POST /encryption/keys/{id}/export. The disaster-recovery bundle:
+ *  the ONE shape in this API that carries key material, answered once
+ *  as a file to save and never rendered. Whether the API should
+ *  return it at all is an open decision (see docs/api/contract.md). */
+export interface WireRecoveryBundle {
+  created: string;
+  digest: string;
+  exported: string;
+  format: string;
+  instructions: string[];
+  key_id: string;
+  material: string;
+  recipient: string;
+  version: string;
+}
+
+/** What exporting a bundle left on record: the key, the digest the
+ *  bundle carries and when. No material. */
+export interface WireRecoveryBundleReceipt {
+  digest: string;
+  exported_at: string;
+  key_id: string;
+}
+
+export interface WireRecoveryManyError {
+  code: string;
+  message: string;
+}
+
+/** One line of the application/x-ndjson stream a non-pre-flight POST
+ *  /recoveries answers with. `plan` comes once, after the pre-flight
+ *  passed and before any byte is read; `start` and `item` come per
+ *  file (item carries its outcome and the running total); `result` is
+ *  last. A refusal from the pre-flight is an ordinary error response
+ *  before the first line. */
+export interface WireRecoveryManyEvent {
+  done_bytes?: number;
+  error?: WireRecoveryManyError;
+  event: "plan" | "start" | "item" | "result";
+  index?: number;
+  item?: WireRecoveryManyItem;
+  plan?: WireRecoveryManyPlan;
+  result?: WireRecoveryManyResult;
+  total?: number;
+  total_bytes?: number;
+}
+
+/** One backup in a plan or a result. Status is ready (plan only),
+ *  recovered, failed, skipped (not a restore point, or the run was
+ *  cancelled before it started), needs_thaw (a provider restore was
+ *  started or is needed), quarantined or unrecoverable (listed, never
+ *  included). */
+export interface WireRecoveryManyItem {
+  artifact_id: string;
+  bytes?: number;
+  chargeable?: boolean;
+  code?: string;
+  copy?: string;
+  file?: string;
+  key?: string;
+  message?: string;
+  name: string;
+  path?: string;
+  restore?: WireRecoveryRestoreOperation;
+  sha256?: string;
+  size_bytes?: number;
+  status: "ready" | "recovered" | "failed" | "skipped" | "needs_thaw" | "quarantined" | "unrecoverable";
+  verified?: "sha256" | "size";
+}
+
+/** The pre-flight: what a recovery of several backups would do,
+ *  before a byte is read. */
+export interface WireRecoveryManyPlan {
+  chargeable_bytes: number;
+  chargeable_count: number;
+  destination_id?: string;
+  folder: string;
+  free_bytes?: number;
+  items: WireRecoveryManyItem[];
+  refusal?: WireRecoveryManyError;
+  reserve_bytes: number;
+  set?: string;
+  source_free_bytes?: number;
+  source_reserve_bytes?: number;
+  target: WireRecoveryTarget;
+  totals: WireRecoveryManyTotals;
+  unknown_sizes: number;
+  url?: string;
+}
+
+/** POST /recoveries. Recovers several backups, or every restore point
+ *  of one backup set, to ONE destination, as if each had been
+ *  recovered alone: the same checks against the digest recorded at
+ *  ingestion, the same refusals and budgets, nothing half-written.
+ *  Name exactly one of `set` and `artifacts`. The target is `staging`
+ *  or `storage`; `download` is refused, because many files do not fit
+ *  one browser download. */
+export interface WireRecoveryManyRequest {
+  acknowledged?: boolean;
+  all?: boolean;
+  artifacts?: string[];
+  copy?: string;
+  newest_only?: boolean;
+  preflight?: boolean;
+  set?: string;
+  since?: string;
+  target: WireRecoveryTarget;
+  until?: string;
+}
+
+/** What a run did. The summary and the manifest file written beside
+ *  the recovered files are built from the same rows, so they agree
+ *  with each other and with the disk. */
+export interface WireRecoveryManyResult {
+  cancelled: boolean;
+  destination_id?: string;
+  folder: string;
+  items: WireRecoveryManyItem[];
+  manifest_key?: string;
+  manifest_path?: string;
+  manifest_sha256?: string;
+  operation_id: string;
+  set?: string;
+  target: WireRecoveryTarget;
+  totals: WireRecoveryManyTotals;
+  url?: string;
+}
+
+/** Counts of the rows of a plan or a result, and the bytes they come
+ *  to. */
+export interface WireRecoveryManyTotals {
+  bytes: number;
+  count: number;
+  failed: number;
+  needs_thaw: number;
+  quarantined: number;
+  ready: number;
+  recovered: number;
+  skipped: number;
+  unrecoverable: number;
+}
+
+/** POST /backups/{source}/{set}/{name}/recovery. Asks for one
+ *  retained copy of one backup to be read once, to one target. It
+ *  authorises nothing by itself beyond minting a short-lived,
+ *  single-use grant bound to the session that asked. */
+export interface WireRecoveryMintRequest {
+  acknowledged?: boolean;
+  copy?: string;
+  target: WireRecoveryTarget;
+}
+
+/** The answer to a mint, in one of two shapes. A grant (201): the
+ *  token is shown once, is bound to the minting session, dies when
+ *  that session ends, expires within minutes, and is spent when the
+ *  download completes, fails or is abandoned. Or (202), when the only
+ *  copy is on an archive class and an acknowledged request started
+ *  exactly one provider restore: no grant yet, ask again once the
+ *  copy is readable. Carries no percentage, finishing time or amount,
+ *  because this product knows none of them. */
+export interface WireRecoveryMintResponse {
+  artifact_id: string;
+  copy: string;
+  destination_id?: string;
+  download_url?: string;
+  expires_at?: string;
+  grant?: string;
+  restore?: WireRecoveryRestoreOperation;
+  size_bytes?: number;
+  target?: WireRecoveryTarget;
+  url?: string;
+}
+
+export interface WireRecoveryRestoreOperation {
+  billing?: string;
+  operation_id: string;
+  wait?: string;
+}
+
+/** What a redeemed grant answers when its target is server-side
+ *  (staging or storage): the bytes were verified and placed, and
+ *  nothing was streamed. */
+export interface WireRecoveryResult {
+  artifact_id: string;
+  bytes: number;
+  copy: string;
+  destination_id?: string;
+  key?: string;
+  path?: string;
+  sha256: string;
+  target: WireRecoveryTarget;
+  url?: string;
+  verified?: "sha256" | "size";
 }
 
 /** GET /auth/recovery and PATCH /auth/recovery: the recovery address,
@@ -3120,6 +5390,100 @@ export interface WireRecoverySettingsUpdate {
   currentPassword: string;
   recoveryEmail?: string;
   smtp?: WireSmtpSettings;
+}
+
+/** Where one recovery writes its bytes. The set is closed: download
+ *  streams to the caller that redeems the grant, staging places one
+ *  file under the configured recovery staging root, storage uploads
+ *  to another configured storage destination. A staging or storage
+ *  target is written only after the whole copy has been read and has
+ *  matched the SHA-256 the journal recorded. A download is not
+ *  staged: it is refused before its first byte unless a read of the
+ *  whole copy has matched that digest, and each chunk is checked
+ *  again as it is sent. source (issue #1191) uploads back onto the
+ *  backup set's own SFTP source host, built from the set's
+ *  configuration and never from the request, into a new folder under
+ *  its remote path, under a temporary name renamed into place so
+ *  nothing there is ever replaced. It writes onto a production
+ *  machine, so it needs acknowledged_destination, and over HTTP it
+ *  goes through the destructive gate, the insecure-transport
+ *  acknowledgement and the step-up re-authentication
+ *  (x-destructive-gate-target-kinds). */
+export interface WireRecoveryTarget {
+  acknowledged_destination?: string;
+  key?: string;
+  kind: "download" | "staging" | "storage" | "source";
+  medium?: string;
+  path?: string;
+}
+
+/** What the newest recovery test of a backup set printed. Only the
+ *  newest test is kept per set. */
+export interface WireRecoveryTestOutput {
+  artifact_id: string;
+  backup_set_id: string;
+  medium: string;
+  operation_id: string;
+  recorded: boolean;
+  recorded_at: string;
+  records: WireRecoveryTestOutputRecord[];
+  state: string;
+  truncated: boolean;
+}
+
+/** One line of a validator's output, or the runner's own truncation
+ *  marker. Branch on kind and never on text: only the runner produces
+ *  a truncation record, so a validator that prints the marker's words
+ *  is still an output record. */
+export interface WireRecoveryTestOutputRecord {
+  kind: "output" | "truncation";
+  text: string;
+}
+
+/** A recovery test is under way. operation_id is carried by its
+ *  recovery_test_start, recovery_stage and recovery_test_end lines on
+ *  the activity feed, which is how a client follows it; the verdict
+ *  is the copy's recovery claim once it ends. */
+export interface WireRecoveryTestStarted {
+  backup_set_id: string;
+  coalesced: boolean;
+  operation_id: string;
+}
+
+/** One encrypted copy and what a run would do with it.
+ *  destination_medium is the medium a run would write the new copy to
+ *  (the one asked for, or, when none was, the first other configured
+ *  medium); verdict is would_reencrypt or refused; refusal is the
+ *  stable reason code of a refusal (already_current,
+ *  source_key_unavailable, same_medium, no_destination, not_required,
+ *  key_unavailable, destination_unverifiable, no_room,
+ *  source_unreadable or not_eligible) and reason is the sentence the
+ *  run would refuse with. */
+export interface WireReencryptCandidate {
+  artifact_id: string;
+  destination_medium?: string;
+  reason?: string;
+  refusal?: string;
+  source_medium: string;
+  verdict: string;
+}
+
+/** The copies under one suite and one key, as their per-copy records
+ *  name them. */
+export interface WireReencryptGroup {
+  candidates: WireReencryptCandidate[];
+  key_id: string;
+  suite_id: string;
+}
+
+/** GET /encryption/reencrypt. The dry run: every encrypted copy the
+ *  selector matches, grouped by suite and then by key, whether a run
+ *  would rewrite it under the active suite and key, and why not when
+ *  it would not. It changes and reads nothing. */
+export interface WireReencryptPlan {
+  groups: WireReencryptGroup[];
+  refused: number;
+  would_reencrypt: number;
 }
 
 /** One repository domain's own health, which is a different question
@@ -3410,6 +5774,92 @@ export interface WireSSHKeyDiscoveryLocation {
   problem?: string;
 }
 
+/** An artifact the pass could not give a verdict at all, with the
+ *  infrastructure problem that stopped it. The copies it did get a
+ *  verdict for are in the set's copies, each once. */
+export interface WireScrubArtifactError {
+  artifact_id: string;
+  error: string;
+}
+
+/** What a scrub learned about one copy of one artifact. The class is
+ *  the class that RAN, never the class asked for: a HEAD is reported
+ *  as a HEAD. */
+export interface WireScrubCopyOutcome {
+  artifact_id: string;
+  class?: string;
+  medium: string;
+  reason?: string;
+  refused: boolean;
+  verdict: string;
+}
+
+/** What one scrub did: the counts the pass recorded plus the per-set
+ *  detail. It is the body `retnd scrub --json` prints, and the one
+ *  result shape every route that reports a scrub reuses. */
+export interface WireScrubResult {
+  bytes_read: number;
+  checked: number;
+  could_not_complete: number;
+  failed: number;
+  pass_id?: number;
+  passed: number;
+  refused: number;
+  requires_restore: number;
+  scope: string;
+  selected: number;
+  sets: WireScrubSetResult[];
+  skipped_held: number;
+  skipped_leased: number;
+  trigger: string;
+  unknown_objects?: number;
+  unlisted?: number;
+}
+
+/** One backup set's part of a scrub. */
+export interface WireScrubSetResult {
+  backup_set_id: string;
+  copies: WireScrubCopyOutcome[];
+  error?: string;
+  errors: WireScrubArtifactError[];
+  skipped: WireScrubSkip[];
+  unknown_objects?: WireScrubUnknownObject[];
+  unlisted?: WireScrubUnlistedMedium[];
+}
+
+/** Work a scrub was asked to do and did not. A skip is always
+ *  reported: a copy that was due and silently not looked at is the
+ *  same failure as one never scheduled. */
+export interface WireScrubSkip {
+  artifact_id?: string;
+  medium?: string;
+  reason: string;
+}
+
+/** A scrub is under way. operation_id is what POST
+ *  /assurance/operations/{op}/cancel takes. */
+export interface WireScrubStarted {
+  backup_set_id: string;
+  operation_id: string;
+}
+
+/** An object a storage medium holds under a backup set's namespace at
+ *  a key the journal has no placement for (QC-04). It is a finding
+ *  for an operator to look at: never a verified copy of anything, and
+ *  a scrub never reads, moves or deletes it. */
+export interface WireScrubUnknownObject {
+  key: string;
+  medium: string;
+  size: number;
+}
+
+/** A storage medium the pass could not enumerate, so that no unknown
+ *  objects reported for it does not read as nothing being there. */
+export interface WireScrubUnlistedMedium {
+  medium: string;
+  reason: string;
+}
+
 /** The rules the service-behaviour settings are validated against,
  *  served so a form does not keep its own copy of a bound the engine
  *  enforces. */
@@ -3448,7 +5898,9 @@ export interface WireSetReadOnlyRequest {
  *  effect plus the rules they were validated against. */
 export interface WireSettingsResponse {
   capacity: WireCapacitySettings;
+  first_run?: boolean;
   mediums: WireStorageMediumSummary[];
+  persisted?: boolean;
   retention: WireRetentionSettings;
   schema: WireSettingsSchema;
   service: WireServiceSettings;
@@ -3459,6 +5911,12 @@ export interface WireSettingsSchema {
   retention: WireRetentionSchema;
   service: WireServiceSchema;
   storage: WireStorageSchema;
+}
+
+/** POST /system/first-run/skip. The guided setup step to leave for
+ *  later. */
+export interface WireSkipFirstRunStepRequest {
+  step: "email" | "backup_set";
 }
 
 /** One SMTP submission endpoint an operator typed in: where to
@@ -3554,8 +6012,11 @@ export interface WireSnapshotHold {
 /** POST /operations' parameters when the action is
  *  release_snapshot_hold: end one hold, by its id. Releasing does not
  *  delete anything; it returns the snapshot to whatever the retention
- *  policy already said about it. */
+ *  policy already said about it. Releasing makes the snapshot
+ *  prunable by the next retention run, so it needs the operator's
+ *  explicit acknowledgement (issue #1164). */
 export interface WireSnapshotHoldReleaseRequest {
+  acknowledged: boolean;
   backup_set_id: string;
   hold_id: string;
 }
@@ -3585,6 +6046,7 @@ export interface WireSnapshotResponse {
  *  provider to make an archived object readable again, over hours, at
  *  a cost, and writes nothing anywhere. */
 export interface WireSnapshotRestoreRequest {
+  acknowledged?: boolean;
   backup_set_id: string;
   conflict?: "refuse" | "skip" | "overwrite";
   snapshot_id?: string;
@@ -3651,6 +6113,97 @@ export interface WireSnapshotVerifyRequest {
   level?: string;
   run_id?: string;
   sample_percent?: number;
+}
+
+/** Where a recovery of one backup set onto its own source host (issue
+ *  #1191) would write, built from the set's configuration alone, and
+ *  what the last write check found. Reading it never touches the
+ *  network; the write check is a separate POST that runs only when
+ *  the operator asks for it. */
+export interface WireSourceHostDescription {
+  available: boolean;
+  checked_at?: string;
+  code?: string;
+  destination_id?: string;
+  detail?: string;
+  folder?: string;
+  free_bytes?: number;
+  host?: string;
+  left_file?: string;
+  port?: number;
+  read_only?: boolean;
+  reason?: string;
+  remote_path?: string;
+  set_id: string;
+  url?: string;
+  user?: string;
+  write_access: "not_checked" | "writable" | "read_only" | "unreachable" | "probe_left_file";
+}
+
+/** One sub-folder of a listed folder. */
+export interface WireStagingDirectoryEntry {
+  name: string;
+  path: string;
+}
+
+/** GET /system/staging-directories. One folder under the staging
+ *  root: its sub-folders by name, relative to the root. */
+export interface WireStagingDirectoryResponse {
+  entries: WireStagingDirectoryEntry[];
+  parent: string | null;
+  path: string;
+  root: string;
+  truncated: boolean;
+}
+
+/** POST /encryption/verify. Decrypt-verify one backup's encrypted
+ *  copy: a content check through the key the copy records.
+ *  acknowledge_egress accepts the cost of reading a medium that bills
+ *  for it. */
+export interface WireStartDecryptVerifyRequest {
+  acknowledge_egress?: boolean;
+  artifact_id: string;
+  medium?: string;
+}
+
+/** POST /encryption/encrypt-existing. Encrypt the plaintext retained
+ *  copies that already sit on a medium, under a backup set whose
+ *  retained-copy encryption is required, onto destination_medium.
+ *  backup_set_id is source/set; artifact_id narrows the run to one
+ *  backup of that set. Nothing runs unless this request is made: a
+ *  policy change never encrypts an existing copy, and each plaintext
+ *  copy is retired only after its encrypted replacement has been
+ *  decrypt-verified. */
+export interface WireStartEncryptExistingRequest {
+  artifact_id?: string;
+  backup_set_id: string;
+  destination_medium: string;
+}
+
+/** POST /backup-sets/{source}/{set}/recovery-test. Starts a recovery
+ *  test now. An empty body tests the newest known good copy and
+ *  acknowledges no cost: a copy that costs money to read (a download
+ *  from a billed object store, or an archived object) is refused,
+ *  recorded as refused_for_cost, and nothing is read. */
+export interface WireStartRecoveryTestRequest {
+  acknowledged?: boolean;
+  artifact_id?: string;
+}
+
+/** POST /encryption/reencrypt. Rewrite encrypted retained copies
+ *  under the active suite and key, each onto destination_medium. Name
+ *  exactly one selector: suite_id (every copy under that suite),
+ *  key_id (every copy under that key) or deprecated (every copy under
+ *  a deprecated or retired suite). Nothing runs unless this request
+ *  is made: a key rotation or a suite deprecation never rewrites a
+ *  copy, and each source copy is retired only after its replacement
+ *  has been decrypt-verified against the recorded plaintext digest.
+ *  The plaintext is never written to local disk. */
+export interface WireStartReencryptRequest {
+  deprecated?: boolean;
+  destination_medium: string;
+  key_id?: string;
+  suite_id?: string;
 }
 
 /** Where one storage medium's credentials come from. Exactly one of
@@ -3838,6 +6391,36 @@ export interface WireUnregisteredBackend {
   transport: string;
 }
 
+/** PATCH the deployment-wide assurance block. Every field is nullable
+ *  because this is a PATCH: omitted leaves the setting alone, and a
+ *  zero or empty value clears it back to its default. A body that
+ *  names nothing is refused. */
+export interface WireUpdateAssuranceSettingsRequest {
+  max_concurrent_full_reads?: number;
+  max_per_destination?: number;
+  recovery_test_builtin_check?: string;
+  recovery_test_cadence_seconds?: number;
+  recovery_test_mode?: string;
+  recovery_test_validator_id?: string;
+  scrub_cadence_seconds?: number;
+  scrub_strategy?: string;
+  staging_root?: string;
+  staging_ttl_seconds?: number;
+}
+
+/** PATCH one backup set's own assurance block. Omitted leaves a field
+ *  alone and a zero or empty value clears it, so the set inherits it
+ *  again. Clearing every field is the same as a reset. A body that
+ *  names nothing is refused. */
+export interface WireUpdateBackupSetAssuranceRequest {
+  recovery_test_builtin_check?: string;
+  recovery_test_cadence_seconds?: number;
+  recovery_test_mode?: string;
+  recovery_test_validator_id?: string;
+  scrub_cadence_seconds?: number;
+  scrub_strategy?: string;
+}
+
 /** PATCH /backup-sets/{source}/{set}. A SPARSE edit of one
  *  already-persisted backup set (issue #350): every property is
  *  optional, and a property this body omits is left exactly as it is
@@ -3903,6 +6486,21 @@ export interface WireUpdateCapacitySettings {
   warning_free_bytes?: number;
 }
 
+/** A custom validator, whole. A replacement and not a merge: every
+ *  field the validator has is in the request or it is not kept, so an
+ *  edit cannot narrow or widen a scope by leaving a field out. The
+ *  pattern and the scope (backup_set_id, empty for global) are always
+ *  the new ones; the script is either sent (script) or explicitly
+ *  kept (script_sha256), and exactly one of the two is required. The
+ *  name is the path's. */
+export interface WireUpdateCustomValidatorRequest {
+  backup_set_id?: string;
+  env?: "minimal" | "workflow";
+  pattern: string;
+  script?: string;
+  script_sha256?: string;
+}
+
 /** A PARTIAL retention update. An omitted field is left exactly as
  *  the running configuration has it; omitting tiers leaves the chain,
  *  and a legacy file's own spelling of it, untouched. */
@@ -3938,6 +6536,7 @@ export interface WireUpdateSettingsRequest {
 export interface WireUpdateWorkflowSettingsRequest {
   after_dir?: string;
   before_dir?: string;
+  disabled?: boolean;
   max_script_size_bytes?: number;
   root?: string;
   script_timeout_seconds?: number;
@@ -3949,6 +6548,14 @@ export interface WireUpdateWorkflowSettingsRequest {
 export interface WireValidator {
   id: string;
   summary: string;
+}
+
+/** A validator script's bytes, as text, with its identity. */
+export interface WireValidatorScriptResponse {
+  content: string;
+  file_name: string;
+  sha256: string;
+  size_bytes: number;
 }
 
 /** One rung of the verification ladder (FR-31), with what it proves
@@ -3976,6 +6583,7 @@ export interface WireVerifyEmailRequest {
 /** GET /system/version. Nothing here names an implementation: no
  *  rclone, no SQLite, no filesystem path. */
 export interface WireVersionResponse {
+  adopted_paths: WireAdoptedPath[];
   api_version: string;
   commit: string;
   config_revision: string;
@@ -4034,6 +6642,22 @@ export interface WireWorkflowFinding {
   target?: string;
 }
 
+/** One thing retnd's own shell rules reported about one hook script.
+ *  These are this product's own checks, carrying its own BSH codes,
+ *  and they are NOT ShellCheck: ShellCheck is GPL-3.0 and this
+ *  product is Apache-2.0, so the analysis is implemented here against
+ *  a Go shell parser's syntax tree rather than shipped as somebody
+ *  else's tool. The set is deliberately small and conservative; an
+ *  operator who wants a general shell linter should run one. */
+export interface WireWorkflowLintFinding {
+  code?: string;
+  col?: number;
+  excerpt?: WireWorkflowSourceExcerpt;
+  line?: number;
+  message?: string;
+  severity?: "error" | "warning" | "info" | "style";
+}
+
 /** One reason a backup set is refusing to run: a workflow run whose
  *  cleanup this product could not finish, and whose "after" hooks may
  *  therefore never have run. */
@@ -4050,6 +6674,23 @@ export interface WireWorkflowRecoveryHold {
  *  which is the ordinary state. */
 export interface WireWorkflowRecoveryResponse {
   holds?: WireWorkflowRecoveryHold[];
+}
+
+/** One hook script that refused a workflow configuration write, and
+ *  why. Only the BLOCKING half is here -- a parse error, or the
+ *  error-severity findings -- because a refusal that also listed the
+ *  warnings would read as though they had refused it. */
+export interface WireWorkflowRefusedScript {
+  backup_set_id?: string;
+  dir?: string;
+  findings?: WireWorkflowLintFinding[];
+  parse_error?: string;
+  parse_error_col?: number;
+  parse_error_excerpt?: WireWorkflowSourceExcerpt;
+  parse_error_line?: number;
+  phase?: "before" | "after";
+  scope?: "global" | "set";
+  script_name?: string;
 }
 
 /** One workflow run: one backup set's pass, wrapped in the five-stage
@@ -4079,16 +6720,46 @@ export interface WireWorkflowRun {
 }
 
 /** How THIS PROCESS reaches the Host Workflow Runner, the component
- *  that executes a `.local.sh` hook on the machine backupd is
- *  installed on. Reported and not writable here: the two paths differ
- *  between a container and a bare-metal install of the same
- *  deployment, so they are a deployment-shape fact the installer
- *  writes rather than a policy an operator tunes, exactly like the
- *  SSH key, the known_hosts file and the state database. */
+ *  that executes a `.local.sh` hook on the machine retnd is installed
+ *  on. Reported and not writable here: the two paths differ between a
+ *  container and a bare-metal install of the same deployment, so they
+ *  are a deployment-shape fact the installer writes rather than a
+ *  policy an operator tunes, exactly like the SSH key, the
+ *  known_hosts file and the state database. */
 export interface WireWorkflowRunnerSettings {
   configured?: boolean;
   socket?: string;
   token_file?: string;
+}
+
+/** What retnd's own shell verification established about one hook
+ *  script's exact bytes, without running any of them. Three states,
+ *  kept distinguishable on purpose: examined and parsed, examined and
+ *  refused (a parse error with its position), and NOT EXAMINED, which
+ *  is a script larger than the verification reads. A client that
+ *  folded the third into either of the others would report either a
+ *  pass nobody proved or a fault nobody found. */
+export interface WireWorkflowScriptLint {
+  examined?: boolean;
+  findings?: WireWorkflowLintFinding[];
+  not_examined_reason?: string;
+  parse_error?: string;
+  parse_error_col?: number;
+  parse_error_excerpt?: WireWorkflowSourceExcerpt;
+  parse_error_line?: number;
+  parsed?: boolean;
+}
+
+/** The WORKFLOW_SCRIPT_REJECTED 409 body. It carries the blocking
+ *  scripts and their findings as structured fields, for the reason
+ *  CONFIG_REVISION_STALE carries the current revision as one: a
+ *  client that had to parse a position out of the message would be
+ *  parsing prose this contract explicitly does not promise to keep
+ *  stable. The message says the same thing in one string, for a
+ *  terminal. */
+export interface WireWorkflowScriptRejectedResponse {
+  blocking_scripts: WireWorkflowRefusedScript[];
+  error: WireErrorBody;
 }
 
 /** Where a workflow environment variable's value comes from, when it
@@ -4122,13 +6793,39 @@ export interface WireWorkflowSettingsResponse {
   after_dir?: string;
   before_dir?: string;
   configured?: boolean;
+  disabled?: boolean;
   environment?: WireWorkflowEnvironmentVariable[];
   exec_connections?: string[];
   max_script_size_bytes?: number;
   root?: string;
+  root_default?: boolean;
   runner?: WireWorkflowRunnerSettings;
   script_timeout_configured?: boolean;
   script_timeout_seconds?: number;
+}
+
+/** A few of a hook script's own lines, carried beside a position that
+ *  names one of them: the reported line with one line either side. It
+ *  exists because a position on its own is a lookup somebody has to
+ *  perform on a machine they may not be on -- "BSH003 at 24:10" sends
+ *  an operator to a NAS over SSH to read one line. The lines come
+ *  from the bytes this validation READ AND HASHED rather than from a
+ *  later re-read, so they cannot disagree with the position beside
+ *  them. They are the script's own text and never a resolved secret:
+ *  nothing on the path that produces them resolves one. */
+export interface WireWorkflowSourceExcerpt {
+  lines?: WireWorkflowSourceLine[];
+}
+
+/** One line of a hook script, as an editor would number it. The text
+ *  arrives with control characters removed and its length bounded, at
+ *  the point it is produced rather than at each surface that draws
+ *  it: a hook is arbitrary text and this text reaches a browser and a
+ *  terminal. */
+export interface WireWorkflowSourceLine {
+  number?: number;
+  text?: string;
+  truncated?: boolean;
 }
 
 /** One scope-and-phase pair that has a directory. A run executes five
@@ -4190,11 +6887,15 @@ export interface WireWorkflowStepLogRecord {
 }
 
 /** One hook this backup set would run, as validation found it on
- *  disk. Nothing here was executed: the only things validation ever
- *  hands an interpreter are `bash -n`, which parses and never runs,
- *  and this product's own fixed remote capability probe. */
+ *  disk, with what retnd's own shell verification established about
+ *  its bytes. Nothing here was executed: the syntax verdict and the
+ *  findings come from parsing and walking the bytes in this process,
+ *  and the only things validation ever hands an interpreter are `bash
+ *  -n`, which parses and never runs, and this product's own fixed
+ *  remote capability probe. */
 export interface WireWorkflowValidatedScript {
   execution_connection_ref?: string;
+  lint?: WireWorkflowScriptLint;
   order?: number;
   phase?: "before" | "after";
   scope?: "global" | "set";

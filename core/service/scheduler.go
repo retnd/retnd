@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/app"
-	"github.com/backupdproject/backupd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/obs"
 )
 
 // This file is the unattended driver: the loop that keeps running cycles
 // when nobody is asking it to, for a process that cannot reach the one
 // internal/app already has.
 //
-// cmd/backupd's `daemon` gets that loop from
+// cmd/retnd's `daemon` gets that loop from
 // internal/app.Service.Daemon directly. The generic Web host cannot, §7.2
 // sees to that, and reimplementing it above this boundary would put the
 // cadence, the single-flight decision and the panic policy in a package
@@ -100,7 +100,7 @@ var scheduleTimer = func(d time.Duration) (<-chan time.Time, func() bool) {
 // RunOnSchedule repeats one internal/app.Service.RunCycle pass until ctx
 // is done, at the cadence the running configuration asks for — the same
 // repeated-cycle shape
-// internal/app.Service.Daemon already gives cmd/backupd's own
+// internal/app.Service.Daemon already gives cmd/retnd's own
 // `daemon` command — but reachable from apps/ (core/internal is not,
 // docs/EPIC-B-multi-nas.md §7.2), which is what a process composing this
 // BackupService with an HTTP API (the generic Web host's `serve` command,
@@ -180,6 +180,26 @@ func (b *BackupService) RunOnSchedule(ctx context.Context) error {
 		b.runAlertTicks(ctx, b.PollInterval())
 	}()
 	defer func() { <-alertsStopped }()
+
+	// EPIC Q's scrub runs on its own timer too (#978), beside the alerting
+	// one and for the same reason: a long content scrub must not hold up a
+	// backup, and a wedged cycle must not stop copies being checked.
+	scrubsStopped := make(chan struct{})
+	go func() {
+		defer close(scrubsStopped)
+		b.runScrubTicks(ctx, b.PollInterval())
+	}()
+	defer func() { <-scrubsStopped }()
+
+	// Abandoned downloads and staging leftovers are swept on their own
+	// timer too, so a staged copy does not wait for the next recovery
+	// request to go away.
+	reaperStopped := make(chan struct{})
+	go func() {
+		defer close(reaperStopped)
+		b.runRecoveryReaper(ctx)
+	}()
+	defer func() { <-reaperStopped }()
 
 	for {
 		b.runScheduledCycle(ctx)
@@ -362,4 +382,135 @@ func (b *BackupService) tickAlerts(ctx context.Context) {
 	}()
 
 	b.state.Load().inner.AlertTick(ctx)
+}
+
+// runScrubTicks repeats one scheduled scrub pass at interval until ctx is
+// done, against whatever Service the latest configuration hot-reload left in
+// place.
+func (b *BackupService) runScrubTicks(ctx context.Context, interval time.Duration) {
+	for {
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		b.tickScrubWhenFree(ctx)
+	}
+}
+
+// tickScrubWhenFree runs one scheduled pass, and when an operation holds the
+// single-flight lock it waits for that operation to finish instead of giving up
+// until the next interval.
+//
+// That wait is the point of this function (#1068). The scrub timer and the
+// cycle loop both start with the process and both repeat every poll
+// interval, so a cycle takes the lock at the top of its interval and the scrub
+// tick arrives a fraction of a millisecond later, every time. A tick that
+// skipped and waited a whole interval therefore met the next cycle's lock
+// again, and a serving process never scrubbed and never ran a due recovery
+// test.
+//
+// The first version of the fix looked again after a tenth of the interval. A
+// poll only catches the lock if it is free at the instant it looks, and the
+// cycle loop frees it for as little as five seconds between back-to-back
+// cycles, so a poll could miss every gap for as long as cycles overran their
+// interval. The wait below is queued on the lock itself (waitForCycleLock), so
+// it is woken by the release and cannot miss it.
+//
+// The wait is sequential with the timer in runScrubTicks, so ticks cannot pile
+// up behind a long operation. It ends when the pass has run or ctx is done.
+func (b *BackupService) tickScrubWhenFree(ctx context.Context) {
+	announce := true
+	for {
+		if b.tickScrub(ctx, announce) {
+			return
+		}
+		announce = false
+		if !b.waitForCycleLock(ctx) {
+			return
+		}
+		// The lock was free at the instant the wait ended. Another operation
+		// can take it before tickScrub looks, in which case the loop waits
+		// again rather than starting a pass under it.
+	}
+}
+
+// waitForCycleLock blocks until the single-flight lock has been released by
+// whoever held it, or ctx is done, and reports whether it was released. It
+// takes the lock and gives it straight back: the scrub never runs holding it,
+// for the reasons tickScrub gives.
+//
+// It queues on the mutex rather than polling TryLock, so it is handed the lock
+// at a release even when the next cycle is already waiting to start (sync.Mutex
+// moves a waiter that has waited over a millisecond to the front, so a cycle
+// that re-locks immediately cannot starve it). It holds nothing while it
+// waits, so it cannot deadlock with the cycle or with an API operation; an
+// operation that starts during the pass itself is by design (tickScrub).
+//
+// sync.Mutex cannot be waited on with a context, so the Lock runs in its own
+// goroutine. If ctx ends first, that goroutine stays behind until the holder
+// releases (a cycle also stops with ctx), and then unlocks at once; at most one
+// is left per cancelled tick.
+func (b *BackupService) waitForCycleLock(ctx context.Context) bool {
+	got := make(chan struct{})
+	go func() {
+		b.runOnce.Lock()
+		close(got)
+	}()
+	select {
+	case <-got:
+		b.runOnce.Unlock()
+		return true
+	case <-ctx.Done():
+		go func() {
+			<-got
+			b.runOnce.Unlock()
+		}()
+		return false
+	}
+}
+
+// tickScrub runs one pass, with the panic recovery the other two timers
+// document: this goroutine shares a process with a persistent API server.
+//
+// # How it relates to the single-flight lock
+//
+// It does NOT hold runOnce while it scrubs. A content scrub of a large copy
+// is long, and holding the lock that API-submitted operations and the
+// scheduled cycle both wait on would let a scrub block a backup, which is
+// the wrong way round. It does look at the lock once, at the start, and
+// skips the tick when an operation is running: an operator who just asked
+// for a run should not have the same disk read out from under it. What makes
+// an overlap that starts later safe is below this layer, in the copy lease
+// and in revalidate's re-read before any failure is acted on.
+//
+// A set that is held for editing is skipped copy by copy inside the pass, and
+// reported, because the hold is handed to the pass through its context.
+//
+// It reports whether the pass ran. False means an operation held the lock, and
+// tickScrubWhenFree waits for the lock (#1068): skipping until the next interval
+// is how the cycle that starts at the same instant used to win every time.
+// announce says whether to write the one "deferred" line for this tick, so a
+// long operation is one line and not one per retry.
+func (b *BackupService) tickScrub(ctx context.Context, announce ...bool) (ran bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			ran = true // a panic is not "busy"; the next interval tries again
+			b.logger.Error(context.Background(), "scrub-tick-panic", fmt.Errorf("recovered panic: %v", r))
+		}
+	}()
+
+	if !b.runOnce.TryLock() {
+		if len(announce) == 0 || announce[0] {
+			b.logger.Event(ctx, obs.LevelInfo, "scrub_tick_deferred",
+				"deferred scheduled scrub: an operation is already in progress, waiting for it to finish")
+		}
+		return false
+	}
+	b.runOnce.Unlock()
+
+	b.state.Load().inner.AssuranceTick(app.WithBackupSetHolds(ctx, b.holds))
+	return true
 }

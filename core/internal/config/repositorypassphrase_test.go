@@ -44,7 +44,7 @@ func TestValidate_ADomainDeclaringTwoPassphraseSourcesIsRefused(t *testing.T) {
 	c := incrementalConfig()
 	c.RepositoryDomains[0].Passphrase = Passphrase{
 		File: "/run/secrets/repo",
-		Env:  "BACKUPD_REPO_PASSPHRASE",
+		Env:  "RETND_REPO_PASSPHRASE",
 	}
 
 	err := c.Validate()
@@ -59,14 +59,14 @@ func TestValidate_ADomainDeclaringTwoPassphraseSourcesIsRefused(t *testing.T) {
 
 func TestValidate_ResolvesThePassphraseIntoTheReferenceTheEngineTakes(t *testing.T) {
 	c := incrementalConfig()
-	c.RepositoryDomains[0].Passphrase = Passphrase{File: "/run/secrets/backupd_repo_production"}
+	c.RepositoryDomains[0].Passphrase = Passphrase{File: "/run/secrets/retnd_repo_production"}
 
 	if err := c.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
 
 	ref := c.RepositoryDomains[0].PassphraseRef
-	if ref.File != "/run/secrets/backupd_repo_production" {
+	if ref.File != "/run/secrets/retnd_repo_production" {
 		t.Errorf("PassphraseRef.File = %q, want the declared file", ref.File)
 	}
 
@@ -78,13 +78,13 @@ func TestValidate_ResolvesThePassphraseIntoTheReferenceTheEngineTakes(t *testing
 	// makes a repository location safe to log. The command form is the
 	// one that could leak an argv, so it is the one checked here.
 	c2 := incrementalConfig()
-	c2.RepositoryDomains[0].Passphrase = Passphrase{Command: []string{"/usr/bin/vault", "read", "secret/backupd"}}
+	c2.RepositoryDomains[0].Passphrase = Passphrase{Command: []string{"/usr/bin/vault", "read", "secret/retnd"}}
 
 	if err := c2.Validate(); err != nil {
 		t.Fatalf("Validate with a command source: %v", err)
 	}
 
-	if rendered := c2.RepositoryDomains[0].PassphraseRef.String(); strings.Contains(rendered, "secret/backupd") {
+	if rendered := c2.RepositoryDomains[0].PassphraseRef.String(); strings.Contains(rendered, "secret/retnd") {
 		t.Errorf("the rendered reference carries the command's arguments: %q", rendered)
 	}
 }

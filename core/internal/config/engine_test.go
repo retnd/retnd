@@ -26,7 +26,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/backupdproject/backupd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/model"
 )
 
 // incrementalConfig returns a Config that Validate accepts, carrying one
@@ -51,7 +51,7 @@ func incrementalConfig() Config {
 		// repository (#783): env rather than a file so the fixture does
 		// not have to own a path, and secretref's custody rules are its
 		// own package's subject.
-		Passphrase: Passphrase{Env: "BACKUPD_TEST_REPO_PASSPHRASE"},
+		Passphrase: Passphrase{Env: "RETND_TEST_REPO_PASSPHRASE"},
 	}}
 
 	incremental := c.Sources[0].BackupSets[0]
@@ -571,7 +571,7 @@ func TestValidate_AVerificationBudgetSurvivesValidation(t *testing.T) {
 // hash would be computed over a local copy nothing makes.
 //
 // Accepting them would be the same one-way door this package already
-// refuses in the other direction: `backupd check` says the file is fine,
+// refuses in the other direction: `retnd check` says the file is fine,
 // the operator believes their snapshots are hash-validated and stable-for
 // gated, and nothing ever reads either key.
 func TestValidate_RefusesArtifactOnlyKeysOnAnIncrementalSet(t *testing.T) {

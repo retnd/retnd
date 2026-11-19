@@ -1,0 +1,55 @@
+# EPIC N follow-up (#1296), pinned valid: one deployment-wide
+# retained_copy_encryption block (mode required, the product's managed key)
+# over a kopia-engine set and an artifact set. ADR 0028 decision 4 says
+# required on the kopia set is accepted and satisfied by the repository's own
+# encryption, so this config must keep loading, and both sets must keep
+# resolving to required (what the set does about it is the engine's business,
+# pinned in core/internal/config and core/internal/app).
+poll_interval: 15m
+
+state:
+  database: /var/lib/retnd/state.db
+
+retained_copy_encryption:
+  mode: required
+  key_provider:
+    managed: true
+
+repository_domains:
+  - id: production
+    description: Production snapshots for this deployment
+    isolation: shared
+    passphrase:
+      file: /run/secrets/retnd_repo_production
+
+sources:
+  - id: production
+    backup_sets:
+      - id: postgres-primary
+        remote:
+          type: sftp
+          host: production.example.internal
+          user: backup
+          key_file: /run/secrets/backup_ssh_key
+          known_hosts: /etc/retnd/known_hosts
+        remote_path: /backups/postgres
+        local_path: /backups/production/postgres
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h
+      - id: uploads-tree
+        engine: kopia
+        uuid: 6f1d2b7a-1c4e-4f8b-9a2d-3e5c7b9d1f00
+        repository_domain: production
+        source_consistency: external_snapshot
+        verification_level: content_sample
+        remote:
+          type: sftp
+          host: production.example.internal
+          user: backup
+          key_file: /run/secrets/backup_ssh_key
+          known_hosts: /etc/retnd/known_hosts
+        remote_path: /snapshots/nightly/srv/uploads
+        source_mount_prefix: /snapshots/nightly
+        stale_after: 30h

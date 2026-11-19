@@ -1,0 +1,408 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Recovery and assurance: three claims, five not-a-pass states, one recovery path (issue #984)</title>
+<style>
+/* Tokens copied from ui/shared/src/design-system/tokens.css. Nothing below declares a colour literal.
+   The edge of a chip, button, segmented control, bar or readout is drawn with --text-3, as the shipped assurance CSS does
+   (ui/shared/src/assurance/assurance.css): --border-strong is 1.69:1 on the light surface and 1.81:1 on the dark one,
+   under the 3:1 a component edge needs, so it is kept for the decorative frames and card rules only. See the contrast table. */
+:root,.th-light{
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;--space-8:32px;
+  --radius-sm:4px;--radius-md:6px;--radius-lg:8px;--radius-xl:10px;--radius-pill:999px;
+  --bg:#f2f2f0;--surface:#fff;--surface-2:#fafaf9;--surface-3:#f0f0ed;
+  --border:#e0dfdc;--border-strong:#c8c7c3;
+  --text:#191a19;--text-2:#5b5d5b;--text-3:#8b8d8a;
+  --accent:oklch(0.52 0.09 255);--accent-quiet:oklch(0.95 0.02 255);
+  --ok:oklch(0.52 0.10 155);--ok-quiet:oklch(0.955 0.025 155);
+  --warn:oklch(0.56 0.11 70);--warn-quiet:oklch(0.96 0.035 75);
+  --danger:oklch(0.52 0.15 25);--danger-quiet:oklch(0.955 0.03 25);
+  --shadow:0 1px 2px rgba(20,20,18,.05),0 1px 1px rgba(20,20,18,.04);
+  --term-bg:#14150f;--term-text:#d7d9d2;--term-time:#6f736a;--term-info:#9aa39b;
+  --term-ok:oklch(0.72 0.11 155);--term-warn:oklch(0.78 0.12 75);--term-danger:oklch(0.72 0.16 25);
+  --font-mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.th-dark{
+  --bg:#121312;--surface:#1b1d1b;--surface-2:#202220;--surface-3:#262826;
+  --border:#313331;--border-strong:#454745;
+  --text:#eceeeb;--text-2:#a3a6a2;--text-3:#767976;
+  --accent:oklch(0.70 0.09 255);--accent-quiet:oklch(0.30 0.045 255);
+  --ok:oklch(0.72 0.11 155);--ok-quiet:oklch(0.28 0.05 155);
+  --warn:oklch(0.78 0.12 75);--warn-quiet:oklch(0.30 0.055 70);
+  --danger:oklch(0.68 0.15 25);--danger-quiet:oklch(0.30 0.07 25);
+  --shadow:0 1px 2px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:var(--space-6)}
+.wrap{max-width:1240px;margin:0 auto;display:flex;flex-direction:column;gap:var(--space-6)}
+h1{font-size:18px;font-weight:640;margin:0 0 var(--space-1);letter-spacing:-.01em}
+h2{font-size:15px;margin:0 0 var(--space-1)}
+.sub{color:var(--text-2);margin:0;max-width:96ch}
+code{font-family:var(--font-mono);font-size:12px}
+.sec{border-top:1px solid var(--border);padding-top:var(--space-5)}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-4);margin-top:var(--space-3)}
+.grid .narrowrow{display:contents}
+.frame{background:var(--bg);color:var(--text);border:1px solid var(--border-strong);border-radius:var(--radius-xl);padding:var(--space-3);container-type:inline-size;min-width:0}
+.frame>.tag{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);margin-bottom:var(--space-2)}
+.frame.narrow{max-width:360px}
+.reason{display:grid;grid-template-columns:1fr;gap:var(--space-2);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:var(--space-4);margin-top:var(--space-3);color:var(--text)}
+.reason p{margin:0;color:var(--text-2);max-width:110ch}
+.reason strong{color:var(--text)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);box-shadow:var(--shadow);overflow:hidden;margin-bottom:var(--space-3)}
+.card h3{margin:0;padding:var(--space-2) var(--space-3);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);border-bottom:1px solid var(--border);background:var(--surface-2)}
+.card .body{padding:var(--space-3);display:flex;flex-direction:column;gap:var(--space-2)}
+.row{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center}
+.grow{flex:1}
+.muted{color:var(--text-2);font-size:12.5px}
+.mono{font-family:var(--font-mono);font-size:12px}
+/* the claim chip: ink is always --text, the state is carried by glyph shape, border style and words */
+.claim{display:inline-flex;align-items:center;gap:6px;min-height:24px;padding:2px 9px;border-radius:var(--radius-md);font-size:12px;font-weight:600;color:var(--text);background:var(--surface);border:1.5px solid var(--text-3);white-space:nowrap}
+.claim .g{font-weight:800;font-size:13px;width:14px;text-align:center}
+.claim .age{font-weight:500;color:var(--text-2)}
+.s-pass{border-style:solid;border-color:var(--ok);background:var(--ok-quiet)}.s-pass .g{color:var(--ok)}
+.s-fail{border-style:solid;border-color:var(--danger);background:var(--danger-quiet)}.s-fail .g{color:var(--danger)}
+.s-overdue{border-style:solid;border-color:var(--warn);background:var(--warn-quiet)}.s-overdue .g{color:var(--text)}
+.s-cost{border-style:dotted;border-color:var(--warn);background:var(--warn-quiet)}.s-cost .g{color:var(--text)}
+.s-incomplete{border-style:double;border-width:4px;border-color:var(--danger);background:var(--surface)}.s-incomplete .g{color:var(--danger)}
+.s-never-cfg{border-style:dashed;border-color:var(--text-3);background:var(--surface-3)}
+.s-never-run{border-style:solid;border-color:var(--text-3);background:var(--surface)}
+.s-unknown{border-style:dashed;border-color:var(--accent);background:var(--accent-quiet)}.s-unknown .g{color:var(--accent)}
+.s-requires{border-style:solid;border-width:1.5px;border-left-width:6px;border-color:var(--accent);background:var(--accent-quiet)}.s-requires .g{color:var(--accent)}
+.s-nocopy{border-style:solid;border-width:2px;border-color:var(--danger);background:var(--danger-quiet);text-decoration:underline wavy var(--danger)}
+.s-stored{border-style:solid;border-color:var(--text-3);background:var(--surface-2)}
+.claims{display:flex;flex-wrap:wrap;gap:var(--space-2)}
+.claimcol{display:flex;flex-direction:column;gap:2px}
+.claimcol .lab{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2)}
+table.t{width:100%;border-collapse:collapse;font-size:12.5px}
+table.t th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-2);text-align:left;padding:6px 8px;border-bottom:1px solid var(--border)}
+table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
+.btn{min-height:30px;padding:3px 12px;border:1px solid var(--text-3);border-radius:var(--radius-md);background:var(--surface);color:var(--text);font:inherit;font-size:12.5px;cursor:pointer}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+.btn.danger{border-color:var(--danger);color:var(--danger)}
+.seg{display:inline-flex;border:1px solid var(--text-3);border-radius:var(--radius-md);overflow:hidden}
+.seg span{padding:4px 12px;font-size:12.5px;border-right:1px solid var(--text-3);background:var(--surface);color:var(--text)}
+.seg span:last-child{border-right:0}
+.seg .on{background:var(--accent);color:var(--surface);font-weight:600}
+.knob{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:baseline;padding:6px 8px;background:var(--surface-3);border-radius:var(--radius-md);border:1px dashed var(--text-3)}
+.knob b{font-family:var(--font-mono);font-size:12px}
+.lock{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text)}
+.notice{border:1px solid var(--warn);background:var(--warn-quiet);border-radius:var(--radius-md);padding:var(--space-3);color:var(--text)}
+.notice.blocking{border-width:2px}
+.bar{height:10px;border-radius:var(--radius-pill);background:var(--surface-3);border:1px solid var(--text-3);overflow:hidden}
+.bar>i{display:block;height:100%;background:var(--accent)}
+.stages{display:flex;flex-direction:column;gap:4px;margin:0;padding:0;list-style:none;font-size:12.5px}
+.stages li{display:flex;gap:8px;align-items:baseline}
+.stages .g{width:16px;text-align:center;font-weight:800}
+.term{background:var(--term-bg);color:var(--term-text);font-family:var(--font-mono);font-size:11.5px;line-height:1.7;padding:var(--space-3);border-radius:var(--radius-md);overflow:hidden}
+.term .t{color:var(--term-info)}.term .w{color:var(--term-warn)}.term .e{color:var(--term-danger)}.term .o{color:var(--term-ok)}
+.trunc{display:block;margin:4px 0;padding:2px 8px;border:1px dashed var(--term-warn);color:var(--term-warn);font-style:italic}
+.dash{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-2)}
+@container (max-width:420px){.dash{grid-template-columns:1fr}.hide-narrow{display:none}.claims{flex-direction:column;align-items:flex-start}}
+.pf{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;font-size:12.5px}
+.pf li{display:flex;gap:8px;align-items:baseline}
+.pf .g{width:16px;text-align:center;font-weight:800;flex:none}
+.pf .ok .g{color:var(--ok)}.pf .no .g{color:var(--danger)}.pf .skip .g,.pf .skip{color:var(--text-2)}
+.notice.refused{border:2px solid var(--danger);background:var(--danger-quiet)}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:2px var(--space-3);font-size:12.5px;margin:0}
+.kv dt{color:var(--text-2)}.kv dd{margin:0;color:var(--text)}
+.tipid{font-family:var(--font-mono);font-size:11px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);padding:0 4px;color:var(--text);background:var(--surface-3)}
+.nopop{font-size:11px;border:1px dashed var(--border-strong);border-radius:var(--radius-sm);padding:0 4px;color:var(--text)}
+@media (max-width:900px){.grid{grid-template-columns:1fr}}
+</style>
+
+<div class="wrap">
+<header>
+  <h1>Recovery and assurance: three claims, five not-a-pass states, one recovery path</h1>
+  <p class="sub">Issue #984 (Q2.1), dated 2026-10-10. Parent epic #953, FR-72. Drawn against the screens that ship today (<code>docs/design/Backup Manager.dc.html</code> is the authority where this note and the build disagree) and in the token set from <code>ui/shared/src/design-system/tokens.css</code>. Every surface below is drawn four times: light, dark, and the narrow layout in each. This note writes no TypeScript. It records the decisions Q2.2 (#985) implements rather than reinterprets.</p>
+  <p class="sub"><strong>Vocabulary.</strong> The labels are <em>Recover artifact</em>, <em>Export</em>, <em>Scrub</em> and <em>Recovery test</em>. The other word for getting data back already means two other things in this product (the archival thaw, and the repository extract), so it is not used as a label for anything here.</p>
+  <div class="notice" role="note" id="status">
+    <b>Status: a mock-up, superseded where the product differs.</b>
+    <p class="sub" style="color:var(--text)">This is a picture drawn on 2026-10-10 to settle decisions for Q2.2 (#985). It is not the product and it is not kept in step with it, so where the two disagree the product wins, and the build's own CSS and strings win over anything drawn here. Four owner decisions of 2026-10-11 (docs/EPIC-Q-recovery-and-assurance.md, section 9, "Owner decisions of 2026-10-11") change what this note shows or implies:</p>
+    <ol class="sub" style="color:var(--text)">
+      <li>The green "Verified" Validation column is retired (Q2.17, #1070). I never drew it here, but any older screenshot of the Backups list or the artifact page that shows it is superseded: the three claims are the only place those pages say "verified".</li>
+      <li>Activity events are durable (Q1.28, #1071). Section 5 says per-copy progress is live-only, which still holds, but the feed is no longer an in-memory ring that forgets on restart.</li>
+      <li>A download is streamed and never staged (Q1.24, Q1.25, Q1.27, #1072). The "Download memory budget" readout in section 4 and the staging wording on the browser path are superseded: memory is one 4 MiB chunk, and <code>web_download_memory_bytes</code> is not coming back. The "Staging path on the host" target, the staging root and the staging TTL describe the host-side target only. Resume is by a new grant with <code>Range</code> and <code>If-Range</code> on a stable <code>ETag</code>.</li>
+      <li>A download that cannot complete is refused before it starts (Q1.26, Q1.27, #1072). Section 3.1 now draws that refusal, with the CLI line that matches it, and the three outcomes the server records for a stream that did start. The dialogs in section 3 are the happy path only.</li>
+    </ol>
+  </div>
+</header>
+
+<section class="sec" id="claims">
+  <h2>1. Backups list and Backup detail: three claims, never one tick</h2>
+  <div class="grid" data-surface="claims"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> A backup row carries three separate facts in a fixed order: <em>Stored</em>, <em>Content verified</em> with its own age, <em>Recovery tested</em> with its own age. They are three chips with three labels. There is no roll-up, no combined badge and no summary tick anywhere on the row or in the detail header, because a roll-up is exactly where a checksum pass and a validator failure get averaged into green. A checksum pass with a validator failure reads, literally, <code>Content verified 2d ago</code> next to <code>Recovery test failed 2d ago</code>.</p>
+    <p><strong>Why the chip is not coloured text.</strong> The chip ink is always the body text colour. The state lives in the glyph shape, the border style (solid, dashed, dotted, double) and the words, with colour as a fourth, redundant cue. That keeps every chip at body-text contrast in both themes and keeps it legible to someone who cannot tell the hues apart. <code>--text-3</code> is never used for text in this note: it is below 4.5:1 on the surface colours in light and in dark.</p>
+    <p><strong>Computable only.</strong> The ages come from <code>placements.verified_at</code> and the per-copy fields Q1.1 adds (<code>next_due</code>, <code>last_failure_at</code>, <code>consecutive_failures</code>, <code>bytes_read</code>, <code>duration_ms</code>, <code>requires_restore</code>). The class that was achieved is shown, never the class that was asked for: a copy that only reached <code>existence</code> shows <code>Stored</code> and <code>Existence checked</code>, and never <code>Content verified</code>.</p>
+  </div>
+</section>
+
+<section class="sec" id="states">
+  <h2>2. The not-a-pass states, each as itself</h2>
+  <div class="grid" data-surface="states"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> Five reasons produce a not-a-pass, and a two-state chip would render four of them as a pass. They are five values with five renderings: <em>never configured</em> (dashed grey box, a dash glyph, says assurance is off for this set), <em>never run</em> (plain hollow circle, says it is configured and has not run yet), <em>overdue</em> (solid amber, a clock, shows the age it last passed and how late it is), <em>refused for cost</em> (dotted amber, a coin glyph, says the scheduler declined because the read would cost egress and nobody acknowledged it), <em>could not complete</em> (double red border, a warning triangle, says the check started and did not finish, which is not the same as failing). <em>Failed</em> is a sixth, red and solid with a cross: the check finished and the bytes were wrong.</p>
+    <p><strong>Unknown is its own state, and it is due.</strong> <code>unknown</code> (dashed blue, a question mark) is what a rebuilt catalog or an un-migrated copy shows. No rendering path leads from it to the pass chip: the pass chip is only drawn from a record that carries an achieved class <em>and</em> a timestamp, so there is nothing for rendering alone to promote. A prop-driven test cannot prove that, so Q2.2 drives it through a real catalog rebuild.</p>
+    <p><strong><code>requires_restore</code> and "no readable copy".</strong> An archived object is <em>Archived: thaw needed</em> (solid blue with a heavy left edge, a box glyph) and offers the cost decision in section 3. A set with no copy that can be read at all is <em>No readable copy</em> (solid red, wavy underline, a slashed circle) and offers nothing, because there is nothing to recover from. Neither can be mistaken for <em>Content verified</em>, and a copy in either state never counts towards a satisfied policy.</p>
+  </div>
+</section>
+
+<section class="sec" id="recover">
+  <h2>3. Recover artifact: target chooser and the archival cost decision</h2>
+  <div class="grid" data-surface="recover"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> <em>Recover artifact</em> opens a dialog with three targets: <em>Download in this browser</em>, <em>Staging path on the host</em>, <em>Configured destination</em>. The staging root is not editable here (it is a host setting, section 4); the operator picks a sub-name only. The command that does the same thing is echoed under the form by <code>CommandEcho</code> and updates as the target changes.</p>
+    <p><strong>The thaw cost is a blocking step.</strong> When the chosen copy is archived, the dialog replaces its footer with a decision panel: the provider, the retrieval tier, the estimated egress and the time the thaw takes, stated as the provider states them, and two buttons of equal weight, <em>Pay for the thaw and recover</em> and <em>Do not recover</em>. The primary action is not reachable by Enter from the target chooser, it is disabled until the operator ticks <em>I accept this cost</em>, and Escape means <em>Do not recover</em>. It is a dialog the operator has to answer, not a toast they dismiss. A scheduled scrub never reaches this panel: no scheduled pass thaws.</p>
+    <p><strong>Plain http.</strong> The browser path streams to a download; it does not depend on the Clipboard API. Where the command echo offers a copy button, the fallback is a selected, read-only text field.</p>
+  </div>
+</section>
+
+<section class="sec" id="stream">
+  <h2>3.1 Streamed download: the pre-flight refusal and the recorded outcomes</h2>
+  <div class="grid" data-surface="refusal"></div>
+  <div class="grid" data-surface="outcome"></div>
+  <div class="reason">
+    <p><strong>Decision (Q1.26, Q1.27, #1072).</strong> A pre-flight runs before the first byte leaves the server, and it runs the same checks for the browser and for the CLI. In order: a digest was recorded for this copy; the copy is a regular file or object of the recorded size; its medium is readable; it is not archive-class and unrestored; a checksum the provider reports does not contradict ours; one verifying read matches the recorded SHA-256; and the first chunk is checked. The first check that fails stops the run, the rest are drawn as <em>Not run</em>, and the operator sees which one and why. No grant is spent and nothing is sent, so there is no partial file to explain.</p>
+    <p><strong>The CLI line is the same refusal.</strong> The terminal block under each refusal is what <code>retnd recover</code> prints for the same copy: the same check name, the same sentence, and a non-zero exit status that is distinct per reason, the way the other refusals at the moment of spend are. The browser dialog and the CLI do not word it differently, and neither suggests trying again until the cause is dealt with. The archive-class refusal points at the thaw decision in section 3 and spends nothing against the provider.</p>
+    <p><strong>After the first byte, a failure aborts.</strong> A stream that dies part way is aborted, so the browser shows an incomplete download and never a clean short file. The server records the outcome of every stream that started, and the page reads that record rather than guessing from the connection. The browser's own download UI is the progress and cancel surface, so nothing here draws a second progress bar. The three outcomes are <em>Completed</em>, <em>Interrupted at N of M bytes</em> and <em>Failed verification</em>. Interrupted keeps the double border of <em>Could not complete</em> because it means the same thing (it started and did not finish), and Failed verification keeps the solid red cross of <em>Failed</em> because the bytes were wrong. Each says in words what the browser holds. The <em>Failed: nothing saved</em> chip in section 5 is superseded by these two: a streamed download that fails leaves an incomplete file in the browser, and the page says so.</p>
+    <p><strong>Resume.</strong> The only action on an interrupted or failed stream is a new download, which takes a new grant and sends <code>Range</code> with <code>If-Range</code> on the stable <code>ETag</code>. A failed verification resumes from zero, because the bytes already sent cannot be trusted.</p>
+  </div>
+</section>
+
+<section class="sec" id="settings">
+  <h2>4. Settings: the global Assurance card, the per-set section, and the four deployment-wide knobs</h2>
+  <div class="grid" data-surface="settings"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> The global card states the smart default in a sentence an operator can read without opening a manual: what runs by default, how often, and what it will never do on its own (thaw, or read bytes that cost egress). The per-set section sits beside the retention card in the same shape and offers <em>Inherit</em>, <em>Off</em>, <em>Required</em>, <em>Custom</em>. <em>Inherit</em> shows the value it currently resolves to, as the retention card does, so a global edit is visibly the thing that moved the set.</p>
+    <p><strong>The written "no".</strong> Recovery staging root, staging TTL, concurrency ceilings and the web download memory budget are properties of the host and the process, so they are drawn on the global card only, as <em>deployment-wide</em> readouts with a lock, and there is no per-set control for them. A per-set override could not be honoured by one staging filesystem and one HTTP server. The readouts are drawn on purpose so the absence is visible and nobody later "fixes" it. They are facts, not inputs: no pop-up, see section 8.</p>
+  </div>
+</section>
+
+<section class="sec" id="ops">
+  <h2>5. Scrub now, Run recovery test, live progress, operation detail and the download</h2>
+  <div class="grid" data-surface="ops"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> <em>Scrub now</em> and <em>Run recovery test</em> sit in the set's Assurance section. Starting one adds an entry to the active-operations strip and a line to the docked terminal for every named stage; the strip shows the current stage and, for a download, bytes so far. A reload re-reads the durable feed and shows the same stage and the same byte count, and does not start a second run. The operation detail view follows the live stage by default, has an explicit <em>Following</em> toggle, and has <em>Cancel</em> that says what it will leave behind.</p>
+    <p><strong>Three ways this screen could lie, and what it draws instead.</strong> A scrub that fails while <em>Content verified</em> is on screen replaces that chip with <em>Content check failed</em>. A cancelled download ends as <em>Cancelled: nothing saved</em>, a failed one as <em>Failed: nothing saved</em>, and neither is ever drawn with the pass chip or a download-complete link. The pass chip cannot be reached from <em>unknown</em>.</p>
+    <p><strong>Feed volume.</strong> One durable event per scrub <em>pass</em> (with counts) and one per failure. Per-copy progress is live-only and not persisted, so a thousand due copies write two kinds of line, not a thousand.</p>
+  </div>
+</section>
+
+<section class="sec" id="log">
+  <h2>6. Validator result and log access, bounded</h2>
+  <div class="grid" data-surface="log"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> The recovery-test result carries the validator's exit status, its duration and a bounded tail of captured output in the read-only terminal pattern from #815. Control and window sequences are displayed inert as visible escapes, never interpreted. When the bound cut the output, a marker line is drawn in its own dashed box with italic text, a shape the validator's own output cannot forge because the viewer draws it outside the content stream.</p>
+  </div>
+</section>
+
+<section class="sec" id="dashboard">
+  <h2>7. Dashboard: due, overdue and degraded</h2>
+  <div class="grid" data-surface="dashboard"></div>
+  <div class="reason">
+    <p><strong>Decision.</strong> Three counters in the same chip vocabulary: <em>Due</em> (includes unknown, since unknown is due), <em>Overdue</em> and <em>Degraded</em> (failed, could not complete, or no readable copy). A zero is drawn as a zero with the age of the last pass, never as a green tile, because "nothing is due" and "nothing has ever run" are different statements. Each counter links to the Backups list filtered to it. There is no assurance report and no alert-history screen: both are non-goals of the epic.</p>
+    <p><strong>Screens that do not change.</strong> Activity gains the stage lines described in section 5 through the existing feed. Quarantine and the Backup Set list gain nothing in this note. Settings and the Backup Set detail are sections 4 and 5.</p>
+  </div>
+</section>
+
+<section class="sec" id="tips">
+  <h2>8. Tooltips: each new control names an id, or is refused one</h2>
+  <div class="reason">
+    <table class="t">
+      <tr><th>Control</th><th>TooltipId</th></tr>
+      <tr><td>Recover artifact (button)</td><td><span class="tipid">assurance.recover.artifact</span></td></tr>
+      <tr><td>Target: Download in this browser / Staging path / Configured destination</td><td><span class="tipid">assurance.recover.target</span></td></tr>
+      <tr><td>Start a new download (after an interrupted or failed stream)</td><td><span class="tipid">assurance.recover.resume</span></td></tr>
+      <tr><td>Accept thaw cost (checkbox)</td><td><span class="tipid">assurance.recover.thawCost</span></td></tr>
+      <tr><td>Scrub now</td><td><span class="tipid">assurance.scrub.now</span></td></tr>
+      <tr><td>Run recovery test</td><td><span class="tipid">assurance.recoveryTest.run</span></td></tr>
+      <tr><td>Global: scrub cadence input</td><td><span class="tipid">assurance.settings.cadence</span> with a three-part field-help entry</td></tr>
+      <tr><td>Per-set: Inherit / Off / Required / Custom</td><td><span class="tipid">assurance.set.mode</span></td></tr>
+      <tr><td>Per-set Custom: validator reference input</td><td><span class="tipid">assurance.set.validator</span> with a three-part field-help entry</td></tr>
+      <tr><td>Operation detail: Following toggle, Cancel</td><td><span class="tipid">assurance.operation.follow</span>, <span class="tipid">assurance.operation.cancel</span></td></tr>
+      <tr><td>The three claim chips (heading of each)</td><td><span class="tipid">assurance.claim.stored</span>, <span class="tipid">assurance.claim.contentVerified</span>, <span class="tipid">assurance.claim.recoveryTested</span></td></tr>
+      <tr><td>The four deployment-wide readouts (staging root, staging TTL, concurrency ceilings, download memory budget)</td><td><span class="nopop">no pop-up</span> They are non-interactive statements of fact, with the label "deployment-wide" visible as text. Nothing to explain about a control that is not one.</td></tr>
+      <tr><td>Per-set Custom: scrub strategy select</td><td><span class="nopop">no pop-up (deliberate)</span> The list of strategies is Q1.2's to fix. Until the code states what each one causes, any sentence here would be invented. If Q2.2 cannot read the effect off the code, the control is omitted rather than explained, and the refusal is recorded in the PR.</td></tr>
+    </table>
+  </div>
+</section>
+
+<section class="sec" id="absent">
+  <h2>9. Drawn as absent</h2>
+  <div class="reason">
+    <p>Figures in the pictures (ages, sizes, the 12 hour thaw, the ceilings) are examples of what the named fields hold; the real defaults are Q1.4's to set and the thaw figures come from the provider response. No assurance report, no alert history, no per-set staging or concurrency control, no per-copy progress stored in the feed, no action for rebuilding the application itself, no combined health score, and no estimate of recovery time for a non-archived copy (nothing computes one). Where a number is not computable, the row is missing rather than showing a placeholder.</p>
+  </div>
+</section>
+
+<section class="sec" id="contrast">
+  <h2>10. Measured contrast</h2>
+  <div class="reason">
+    <p>I computed these from the token values in the style block above (the same values as <code>ui/shared/src/design-system/tokens.css</code>), converting the <code>oklch()</code> tokens to sRGB and applying the WCAG 2.x relative-luminance formula. Text needs 4.5:1, a component edge or graphic needs 3:1. Every pair below is one the picture actually draws.</p>
+    <table class="t">
+      <tr><th>Pair</th><th>Light</th><th>Dark</th><th>Needs</th></tr>
+      <tr><td>--text on --surface (chip ink, body)</td><td>17.45</td><td>14.53</td><td>4.5</td></tr>
+      <tr><td>--text on --surface-3 (the Not configured fill)</td><td>15.29</td><td>12.73</td><td>4.5</td></tr>
+      <tr><td>--text on ok, warn, danger and accent quiet fills (worst)</td><td>15.00</td><td>11.68</td><td>4.5</td></tr>
+      <tr><td>--text-2 on --surface (labels, ages)</td><td>6.64</td><td>6.89</td><td>4.5</td></tr>
+      <tr><td>--text-2 on the quiet fills (worst)</td><td>5.71</td><td>5.54</td><td>4.5</td></tr>
+      <tr><td>--text-2 on --surface-3 (readouts)</td><td>5.82</td><td>6.04</td><td>4.5</td></tr>
+      <tr><td>--surface on --accent (primary button, selected segment)</td><td>5.51</td><td>6.36</td><td>4.5</td></tr>
+      <tr><td>--danger on --surface (danger button text)</td><td>5.95</td><td>5.50</td><td>4.5</td></tr>
+      <tr><td>terminal text, info, ok, warn, danger on --term-bg (worst)</td><td>6.90</td><td>6.90</td><td>4.5</td></tr>
+      <tr><td>chip edge --text-3 on --surface (never run, stored, Not configured outer edge)</td><td>3.35</td><td>3.85</td><td>3</td></tr>
+      <tr><td>chip edge --ok, --warn, --danger, --accent on --surface (worst)</td><td>4.76</td><td>5.50</td><td>3</td></tr>
+      <tr><td>glyph --ok, --danger, --accent on its own quiet fill (worst)</td><td>4.64</td><td>4.55</td><td>3</td></tr>
+      <tr><td>chip edge --text-3 on --surface-3, the Not configured fill</td><td>2.93</td><td>3.37</td><td>3</td></tr>
+    </table>
+    <p><strong>What I changed.</strong> The first version drew the edge of the neutral chips, the buttons, the segmented control, the bar and the readouts with <code>--border-strong</code>, which is 1.69:1 on the light surface and 1.81:1 on the dark one, so those edges failed the 3:1 a component boundary needs. The shipped assurance CSS already uses <code>--text-3</code> for them, with a comment saying why, so the picture now matches it. <code>--border-strong</code> stays on the outer theme frames, the card rules and the two documentation labels in section 8, which are not controls. <code>--text-3</code> is still never used for text: it is 3.35:1 and 3.85:1 on the surface.</p>
+    <p><strong>What still fails, said plainly.</strong> The Not configured chip draws a <code>--text-3</code> dashed edge on a <code>--surface-3</code> fill, and that pair is 2.93:1 in the light theme. Against the surface the chip sits on, the edge is 3.35:1, so it passes if you measure a component against its surroundings and fails if you measure it against its own fill. I kept it because the shipped CSS draws it the same way and this note should not invent a different build; the state is also carried by the dashed edge, the dash glyph and the words "Not configured", so nothing depends on that edge alone. In the dark theme the same pair is 3.37:1. The terminal timestamp colour <code>--term-time</code> is 3.79:1 on <code>--term-bg</code>, and no element in this picture uses it.</p>
+    <p>I checked the table twice. The table itself comes from a script run in a Node container against the token values (that run is what showed the 1.69:1 and 1.81:1 edges before the change). Then I rendered this file in Chromium (Playwright 1.60.0, 1280 px wide) and read the computed colour of every text node against its effective background, and of every chip, button, segmented control, bar, readout and input edge against the surface around it and against its own fill. Result: 436 text nodes in each theme frame, lowest 4.61:1 in light (a check glyph on its quiet fill) and 4.53:1 in dark (a cross glyph), none under 4.5:1; 229 text nodes outside the frames (the page headings, the status note and the reasoning text), lowest 5.93:1; every component edge is at least 3.35:1 in light and 3.85:1 in dark against the surface it sits on. The only edges under 3:1 are the ones named above, measured against their own fill. I did not run an automated accessibility scanner, and I did not check forced-colours mode.</p>
+    <p><strong>Section 3.1, measured on its own.</strong> I read the computed colour of all 380 text nodes in the section 3.1 frames (light, dark and narrow, Chromium via Playwright 1.62.1, 1280 px) against their composited backgrounds. None is under 4.5:1. Lowest text pairs: the muted labels and the not-run steps are 6.64 light and 6.89 dark, the primary button is 5.48 and 6.35, the refusal glyph on its quiet fill is 4.61 (check, light) and 4.53 (cross, dark). The refusal notice edge (<code>--danger</code>) is 5.95 light and 5.49 dark against the surface, the Interrupted double edge is 5.95 and 5.49, the Failed edge 5.95 and 5.49, the Completed edge 5.22 and 7.17, and the neutral button edge is 3.35 and 3.85. No frame overflows horizontally at 360 px. The card rule (<code>--border</code>) is decorative and is not counted as a component edge.</p>
+  </div>
+</section>
+</div>
+
+<script>
+const G={pass:"✓",fail:"✕",unk:"?",dash:"−",hollow:"○",clock:"◷",coin:"$",warn:"!",box:"▣",slash:"⊘"};
+const chip=(cls,g,label,age)=>`<span class="claim ${cls}"><span class="g" aria-hidden="true">${g}</span>${label}${age?` <span class="age">${age}</span>`:""}</span>`;
+const col=(lab,inner)=>`<div class="claimcol"><span class="lab">${lab}</span>${inner}</div>`;
+const stored=n=>chip("s-stored",G.pass,`Stored`,`${n} copies`);
+const cv=(cls,g,l,a)=>col("Content",chip(cls,g,l,a));
+const rt=(cls,g,l,a)=>col("Recovery",chip(cls,g,l,a));
+const S={
+ claims(){return `
+  <div class="card"><h3>Backups</h3><div class="body">
+   <div class="row"><b class="mono">nightly-photos</b><span class="grow"></span><span class="muted">2026-10-09 02:00</span></div>
+   <div class="claims">${col("Stored",stored(2))}${cv("s-pass",G.pass,"Content verified","3d ago")}${rt("s-pass",G.pass,"Recovery test passed","12d ago")}</div>
+   <div class="row"><b class="mono">nightly-photos</b><span class="grow"></span><span class="muted">2026-10-08 02:00</span></div>
+   <div class="claims">${col("Stored",stored(1))}${cv("s-pass",G.pass,"Content verified","3d ago")}${rt("s-fail",G.fail,"Recovery test failed","3d ago")}</div>
+   <div class="row"><b class="mono">docs-archive</b></div>
+   <div class="claims">${col("Stored",stored(1))}${cv("s-requires",G.box,"Archived: thaw needed")}${rt("s-never-run",G.hollow,"Never run")}</div>
+  </div></div>
+  <div class="card"><h3>Backup detail</h3><div class="body">
+   <div class="row"><b class="mono">nightly-photos / 2026-10-08</b><span class="grow"></span><button class="btn primary">Recover artifact</button></div>
+   <div class="claims">${col("Stored",stored(1))}${cv("s-pass",G.pass,"Content verified","3d ago")}${rt("s-fail",G.fail,"Recovery test failed","3d ago")}</div>
+   <div class="muted">Checksum passed and the validator exited non-zero: two facts, shown as two.</div>
+   <table class="t hide-narrow"><tr><th>Copy</th><th>Class achieved</th><th>Checked</th></tr>
+    <tr><td class="mono">nas-b/photos</td><td>content</td><td>3d ago</td></tr>
+    <tr><td class="mono">s3-cold/photos</td><td>existence only (not content)</td><td>3d ago</td></tr></table>
+  </div></div>`},
+ states(){const rows=[
+  ["Never configured","s-never-cfg",G.dash,"Not configured","Assurance is off for this set."],
+  ["Never run","s-never-run",G.hollow,"Never run","Configured, no pass recorded yet."],
+  ["Overdue","s-overdue",G.clock,"Overdue","last passed 41d ago"],
+  ["Refused for cost","s-cost",G.coin,"Skipped: read would cost egress",""],
+  ["Could not complete","s-incomplete",G.warn,"Could not complete","started 2h ago, no verdict"],
+  ["Failed","s-fail",G.fail,"Content check failed","2d ago"],
+  ["Unknown (due)","s-unknown",G.unk,"Unknown","rebuilt catalog; due now"],
+  ["Archived: thaw needed","s-requires",G.box,"Archived: thaw needed",""],
+  ["No readable copy","s-nocopy",G.slash,"No readable copy",""],
+  ["Pass (needs class + time)","s-pass",G.pass,"Content verified","3d ago"]];
+  return `<div class="card" style="grid-column:1/-1"><h3>Content verified and Recovery tested use the same set of renderings</h3><div class="body">`+
+  rows.map(r=>`<div class="row"><span class="muted" style="min-width:170px">${r[0]}</span>${chip(r[1],r[2],r[3],r[4])}</div>`).join("")+`</div></div>`},
+ recover(){return `
+  <div class="card"><h3>Recover artifact</h3><div class="body">
+   <div class="mono">nightly-photos / 2026-10-08</div>
+   <div class="muted">Where should the artifact go?</div>
+   <div class="seg" role="group"><span class="on">Download in this browser</span><span>Staging path</span><span>Configured destination</span></div>
+   <div class="muted">Streams to your downloads folder. Works over plain http. The grant is single-use and ends with this session.</div>
+   <div class="mono muted">$ retnd recover &hellip; (CommandEcho prints the real command and flags Q1.3 ships)</div>
+   <div class="row"><span class="grow"></span><button class="btn">Cancel</button><button class="btn primary">Recover artifact</button></div>
+  </div></div>
+  <div class="card"><h3>This copy is archived</h3><div class="body">
+   <div class="notice blocking"><b>Recovering this copy costs money and takes time.</b>
+    <div class="muted" style="color:var(--text)">Provider s3-cold, retrieval tier Bulk. Thaw takes about 12 hours. Egress for 48 GB is charged by the provider. Nothing happens until you answer.</div></div>
+   <label class="row"><input type="checkbox"> I accept this cost</label>
+   <div class="row"><span class="grow"></span><button class="btn">Do not recover</button><button class="btn danger" disabled>Pay for the thaw and recover</button></div>
+  </div></div>`},
+ refusal(){
+  const steps=["A SHA-256 is recorded for this copy","The copy is a regular file of the recorded size","The medium is readable","Not archive-class and unrestored","The provider checksum does not contradict ours","One verifying read matches the SHA-256","The first chunk checks out"];
+  const card=(title,stop,why,fix,cli,exit)=>`
+  <div class="card"><h3>${title}</h3><div class="body">
+   <div class="mono">nightly-photos / 2026-10-08</div>
+   <div class="notice refused" role="alert"><b>${G.fail} Not started. Nothing was sent.</b>
+    <div class="muted" style="color:var(--text)">${why}</div></div>
+   <ol class="pf">${steps.map((t,i)=>i<stop?`<li class="ok"><span class="g" aria-hidden="true">${G.pass}</span>${t}</li>`:i===stop?`<li class="no"><span class="g" aria-hidden="true">${G.fail}</span><b>${t}</b></li>`:`<li class="skip"><span class="g" aria-hidden="true">${G.hollow}</span>${t} (not run)</li>`).join("")}</ol>
+   <div class="muted">${fix}</div>
+   <div class="row"><span class="grow"></span><button class="btn">Close</button></div>
+   <div class="muted">The same refusal from the CLI:</div>
+   <div class="term"><div><span class="t">$</span> retnd recover &hellip;</div>${cli}<div><span class="t">exit status</span> ${exit}</div></div>
+  </div></div>`;
+  return card("Recover artifact: refused before it started",3,"Recovering this copy would start a paid thaw, and a download does not do that on its own. The grant was not spent.","Open the cost decision in Recover artifact (section 3) to thaw it first, or pick another copy.",`<div><span class="e">refused</span> s3-cold/photos is archive-class and not restored</div><div><span class="e">refused</span> no byte was requested from the provider</div>`,"non-zero, the archive-class code")+
+  card("Recover artifact: refused after a verifying read",5,"One read of the whole copy gave a SHA-256 that is not the recorded one. The copy is damaged or was changed, so none of it is sent.","This copy failed verification. Run Scrub now on the set, or recover from another copy.",`<div><span class="e">refused</span> nas-b/photos read 48 GB, SHA-256 differs from the recorded digest</div><div><span class="e">refused</span> nothing was written to stdout</div>`,"non-zero, the verification code")},
+ outcome(){return `
+  <div class="card"><h3>Download: recorded outcome</h3><div class="body">
+   <div class="row"><b class="mono">nightly-photos-2026-10-08</b><span class="grow"></span><span class="muted">recorded by the server</span></div>
+   <div class="row">${chip("s-pass",G.pass,"Completed","48 of 48 GB")}</div>
+   <dl class="kv"><dt>Sent</dt><dd>48 of 48 GB</dd><dt>Digest</dt><dd>matches the recorded SHA-256</dd><dt>Finished</dt><dd>2026-10-11 09:14</dd></dl>
+   <div class="muted">The file in your downloads folder is complete.</div>
+  </div></div>
+  <div class="card"><h3>Download: recorded outcome</h3><div class="body">
+   <div class="row"><b class="mono">nightly-photos-2026-10-08</b><span class="grow"></span><span class="muted">recorded by the server</span></div>
+   <div class="row">${chip("s-incomplete",G.warn,"Interrupted at 31.2 of 48 GB")}</div>
+   <dl class="kv"><dt>Sent</dt><dd>31.2 of 48 GB</dd><dt>Stopped</dt><dd>2026-10-11 09:07, the connection dropped</dd></dl>
+   <div class="muted">The stream was aborted, so your browser shows an incomplete download. The partial file is not the artifact.</div>
+   <div class="row"><span class="grow"></span><button class="btn primary">Start a new download</button></div>
+  </div></div>
+  <div class="card"><h3>Download: recorded outcome</h3><div class="body">
+   <div class="row"><b class="mono">nightly-photos-2026-10-08</b><span class="grow"></span><span class="muted">recorded by the server</span></div>
+   <div class="row">${chip("s-fail",G.fail,"Failed verification at 9.6 of 48 GB")}</div>
+   <dl class="kv"><dt>Sent</dt><dd>9.6 of 48 GB</dd><dt>Stopped</dt><dd>2026-10-11 09:03, a chunk did not match the recorded digest</dd></dl>
+   <div class="muted">The stream was aborted, so your browser shows an incomplete download. Do not use the partial file. A new download starts from zero.</div>
+   <div class="row"><span class="grow"></span><button class="btn primary">Start a new download</button></div>
+  </div></div>`},
+ settings(){return `
+  <div class="card"><h3>Assurance (all backup sets)</h3><div class="body">
+   <div>By default every set is scrubbed on a schedule, using only reads that cost nothing, and gets a recovery test with its validator when one is configured. A scheduled pass never thaws an archive and never reads across a paid link.</div>
+   <div class="row"><span>Scrub every</span><input class="mono" value="7d" style="width:70px;background:var(--surface);color:var(--text);border:1px solid var(--text-3);border-radius:4px;padding:3px 6px"><span class="muted">default</span></div>
+   <div class="knob"><span class="lock">Deployment-wide</span><span>Recovery staging root</span><b>/data/recover-staging</b></div>
+   <div class="knob"><span class="lock">Deployment-wide</span><span>Staging TTL</span><b>24h</b></div>
+   <div class="knob"><span class="lock">Deployment-wide</span><span>Concurrency ceilings</span><b>1 full read, 1 per destination</b></div>
+   <div class="knob"><span class="lock">Deployment-wide</span><span>Download memory budget</span><b>64 MiB</b><span class="muted">Superseded: a download is streamed in 4 MiB chunks, so this readout is gone.</span></div>
+   <div class="muted">These four belong to the host. They have no per-set control.</div>
+   <div class="row"><span class="grow"></span><button class="btn primary">Save</button></div>
+  </div></div>
+  <div class="card"><h3>Assurance (this set)</h3><div class="body">
+   <div class="seg" role="radiogroup"><span class="on">Inherit</span><span>Off</span><span>Required</span><span>Custom</span></div>
+   <div class="muted">Inheriting: scrub every 7d (from the deployment setting).</div>
+   <div class="claims">${col("Stored",stored(2))}${cv("s-overdue",G.clock,"Overdue","last passed 41d ago")}${rt("s-never-cfg",G.dash,"Not configured")}</div>
+   <div class="row"><button class="btn">Scrub now</button><button class="btn">Run recovery test</button></div>
+  </div></div>`},
+ ops(){return `
+  <div class="card"><h3>Active operations</h3><div class="body">
+   <div class="row"><b>Recovery test</b><span class="mono">nightly-photos</span><span class="grow"></span><span class="muted">stage 3 of 4</span></div>
+   <ol class="stages"><li><span class="g">${G.pass}</span>Recovered to staging</li><li><span class="g">${G.pass}</span>Bytes re-read</li><li><span class="g">▶</span><b>Digest check</b> <span class="muted">12.4 GB of 48 GB</span></li><li><span class="g">${G.hollow}</span>Validator</li></ol>
+   <div class="bar" role="progressbar" aria-valuenow="26" aria-valuemin="0" aria-valuemax="100"><i style="width:26%"></i></div>
+   <div class="row"><label class="row"><input type="checkbox" checked> Following</label><span class="grow"></span><button class="btn danger">Cancel</button></div>
+  </div></div>
+  <div class="card"><h3>Download</h3><div class="body">
+   <div class="row"><b class="mono">nightly-photos-2026-10-08</b><span class="grow"></span><span class="muted">31.2 of 48 GB</span></div>
+   <div class="bar"><i style="width:65%"></i></div>
+   <div class="row"><button class="btn danger">Cancel download</button></div>
+   <div class="row">${chip("s-fail",G.fail,"Cancelled: nothing saved")}${chip("s-fail",G.fail,"Failed: nothing saved")}</div>
+   <div class="muted">A cancelled or failed download never shows a saved file or a pass chip.</div>
+  </div></div>`},
+ log(){return `
+  <div class="card" style="grid-column:1/-1"><h3>Recovery test result</h3><div class="body">
+   <div class="claims">${col("Content",chip("s-pass",G.pass,"Content verified","2d ago"))}${col("Recovery",chip("s-fail",G.fail,"Recovery test failed","2d ago"))}</div>
+   <div class="muted">Validator exit status 3, 4.2 s. Showing the last 2 KiB of output.</div>
+   <div class="term"><span class="trunc">output truncated: 41,873 bytes before this point are not shown</span>
+    <div><span class="t">validate</span> checking page 14 of 220</div>
+    <div><span class="w">validate</span> bad header \\x1b]0;title\\x07 shown as text</div>
+    <div><span class="e">validate</span> error: index mismatch</div></div>
+   <div class="row"><button class="btn">Download log</button></div>
+  </div></div>`},
+ dashboard(){return `
+  <div class="card" style="grid-column:1/-1"><h3>Assurance</h3><div class="body"><div class="dash">
+   <div class="card" style="margin:0"><div class="body"><span class="lab muted">Due</span><b style="font-size:22px">3</b>${chip("s-unknown",G.unk,"2 unknown")}</div></div>
+   <div class="card" style="margin:0"><div class="body"><span class="lab muted">Overdue</span><b style="font-size:22px">1</b>${chip("s-overdue",G.clock,"Overdue","oldest 41d")}</div></div>
+   <div class="card" style="margin:0"><div class="body"><span class="lab muted">Degraded</span><b style="font-size:22px">0</b><span class="muted">Last content pass 3d ago</span></div></div>
+  </div></div></div>`}
+};
+document.querySelectorAll("[data-surface]").forEach(g=>{
+  const fn=S[g.dataset.surface];
+  const mk=(theme,narrow)=>`<div class="frame th-${theme}${narrow?" narrow":""}"><div class="tag">${theme}${narrow?", narrow":""}</div>${fn()}</div>`;
+  const full=g.dataset.surface==="states"||g.dataset.surface==="log"||g.dataset.surface==="dashboard";
+  g.innerHTML=mk("light",false)+mk("dark",false)+mk("light",true)+mk("dark",true);
+});
+</script>

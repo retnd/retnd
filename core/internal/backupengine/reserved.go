@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/backupdproject/backupd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/model"
 )
 
 // This file is the one rule that keeps a local repository and the
@@ -43,8 +43,8 @@ import (
 //
 // It is a single name rather than a pattern because an operator has to be
 // able to exclude one path from a share, a scanner or a backup of the
-// backup, and "exclude .backupd" is instruction they can follow.
-const reservedDirName = ".backupd"
+// backup, and "exclude .retnd" is instruction they can follow.
+const reservedDirName = ".retnd"
 
 // engineDirName separates repository storage from anything else this
 // manager might later keep under the reserved directory. A path with the
@@ -73,7 +73,7 @@ const stateDirName = "state"
 // a pack file is.
 //
 // A backup root is not the right place for this in production -- it
-// belongs under /var/lib/backupd, which is why RepositoryLocation.StateDir
+// belongs under /var/lib/retnd, which is why RepositoryLocation.StateDir
 // exists and is honoured when set. This is the fallback for the case
 // where a caller has a backup root and nothing else, and it is reserved so
 // that the fallback is safe rather than merely convenient.
@@ -90,7 +90,7 @@ func ReservedLocalStateDir(root string) (string, error) {
 }
 
 // ReservedLocalDir returns the one directory a local repository's bytes
-// live in: <root>/.backupd/repositories/<domain>.
+// live in: <root>/.retnd/repositories/<domain>.
 //
 // It is the only function that composes this path. Every caller that needs
 // it -- create, open, health, and the test that proves artifact management
@@ -133,8 +133,8 @@ func ReservedLocalDir(root string, domain model.RepositoryDomainID) (string, err
 // else this manager later keeps beside them.
 //
 // Both paths are cleaned and compared as paths, never as strings, so
-// "<root>/.backupdata" is not inside "<root>/.backupd" and
-// "<root>/./.backupd/x" is.
+// "<root>/.retndata" is not inside "<root>/.retnd" and
+// "<root>/./.retnd/x" is.
 func LocalPathIsReserved(root, path string) bool {
 	if root == "" || path == "" {
 		return false

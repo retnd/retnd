@@ -14,7 +14,7 @@
 //
 // # Why a projection instead of a second classifier
 //
-// "Existing backupd retention semantics map to snapshots" is issue #785's
+// "Existing retnd retention semantics map to snapshots" is issue #785's
 // first acceptance criterion, and there are two ways to satisfy it. One is
 // to write a GFS implementation for snapshots and a test asserting it
 // agrees with the artifact one. The other is to have exactly one

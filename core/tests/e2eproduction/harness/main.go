@@ -50,16 +50,16 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
-	"github.com/backupdproject/backupd/core/internal/backupengine/kopia"
-	"github.com/backupdproject/backupd/core/internal/backupengine/source"
-	"github.com/backupdproject/backupd/core/internal/config"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/secretref"
-	"github.com/backupdproject/backupd/core/internal/snapshotlifecycle"
-	"github.com/backupdproject/backupd/core/internal/state"
-	"github.com/backupdproject/backupd/core/internal/transport"
-	"github.com/backupdproject/backupd/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/backupengine/kopia"
+	"github.com/retnd/retnd/core/internal/backupengine/source"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/secretref"
+	"github.com/retnd/retnd/core/internal/snapshotlifecycle"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport/rclone"
 )
 
 func main() {
@@ -148,7 +148,7 @@ func crashMidSnapshot(root, runID string, killAfter int) error {
 		return errors.New("this repository cannot store a source tree as one snapshot")
 	}
 
-	journal, err := state.Open(ctx, filepath.Join(root, "state", "backupd.db"))
+	journal, err := state.Open(ctx, filepath.Join(root, "state", "retnd.db"))
 	if err != nil {
 		return fmt.Errorf("opening the journal: %w", err)
 	}
@@ -180,11 +180,11 @@ func crashMidSnapshot(root, runID string, killAfter int) error {
 		Consistency:       set.Consistency,
 		VerificationLevel: set.VerificationLevel,
 		Source: backupengine.Source{
-			Host: "backupd",
+			Host: "retnd",
 			User: set.Repository.Domain.String(),
 			Path: "/" + string(set.SourceIdentity),
 		},
-		Description: "backupd " + set.ID.String(),
+		Description: "retnd " + set.ID.String(),
 		Repository:  repo,
 		OpenTree: func(ctx context.Context) (snapshotlifecycle.SourceTree, error) {
 			tree, err := reader.OpenTree(ctx, src)

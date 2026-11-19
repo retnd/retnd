@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "9e6886ce7138cc17275fd2d92a9ada0cc5c793b5faa3241f3dc05da018b13770"
+const ContractSHA256 = "f8c243cae5e027691b689088dae7dd5e8ed1a56374de321aef92e5e968646d72"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -81,6 +81,12 @@ const (
 	ErrorCodeSSHKeyNotFound                         ErrorCode = "SSH_KEY_NOT_FOUND"
 	ErrorCodeHostKeyProbeFailed                     ErrorCode = "HOST_KEY_PROBE_FAILED"
 	ErrorCodeDestructiveOperationsDisabled          ErrorCode = "DESTRUCTIVE_OPERATIONS_DISABLED"
+	ErrorCodeStepUpRequired                         ErrorCode = "STEP_UP_REQUIRED"
+	ErrorCodeStepUpFailed                           ErrorCode = "STEP_UP_FAILED"
+	ErrorCodeStepUpUnavailable                      ErrorCode = "STEP_UP_UNAVAILABLE"
+	ErrorCodeInsecureTransportAckRequired           ErrorCode = "INSECURE_TRANSPORT_ACK_REQUIRED"
+	ErrorCodeRestoreTargetNotAcknowledged           ErrorCode = "RESTORE_TARGET_NOT_ACKNOWLEDGED"
+	ErrorCodeSnapshotHoldReleaseNotAcknowledged     ErrorCode = "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED"
 	ErrorCodeInternal                               ErrorCode = "INTERNAL"
 	ErrorCodeAlreadyConfigured                      ErrorCode = "ALREADY_CONFIGURED"
 	ErrorCodeNotConfigured                          ErrorCode = "NOT_CONFIGURED"
@@ -114,11 +120,69 @@ const (
 	ErrorCodeRepositoryDomainExists                 ErrorCode = "REPOSITORY_DOMAIN_EXISTS"
 	ErrorCodeRepositoryDomainMaintainedElsewhere    ErrorCode = "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE"
 	ErrorCodeWorkflowsNotConfigured                 ErrorCode = "WORKFLOWS_NOT_CONFIGURED"
+	ErrorCodeWorkflowScriptRejected                 ErrorCode = "WORKFLOW_SCRIPT_REJECTED"
 	ErrorCodeWorkflowEnvNotFound                    ErrorCode = "WORKFLOW_ENV_NOT_FOUND"
 	ErrorCodeWorkflowRunNotFound                    ErrorCode = "WORKFLOW_RUN_NOT_FOUND"
 	ErrorCodeWorkflowStepNotFound                   ErrorCode = "WORKFLOW_STEP_NOT_FOUND"
 	ErrorCodeWorkflowAcknowledgementReasonRequired  ErrorCode = "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED"
 	ErrorCodeWorkflowEngineUnavailable              ErrorCode = "WORKFLOW_ENGINE_UNAVAILABLE"
+	ErrorCodeRecoveryCostNotAcknowledged            ErrorCode = "RECOVERY_COST_NOT_ACKNOWLEDGED"
+	ErrorCodeRecoveryNoCopy                         ErrorCode = "RECOVERY_NO_COPY"
+	ErrorCodeRecoveryCopyNotFound                   ErrorCode = "RECOVERY_COPY_NOT_FOUND"
+	ErrorCodeRecoveryNotReadable                    ErrorCode = "RECOVERY_NOT_READABLE"
+	ErrorCodeRecoveryLocalCopyCorrupt               ErrorCode = "RECOVERY_LOCAL_COPY_CORRUPT"
+	ErrorCodeRecoveryRemoteCopyCorrupt              ErrorCode = "RECOVERY_REMOTE_COPY_CORRUPT"
+	ErrorCodeRecoveryNoDigest                       ErrorCode = "RECOVERY_NO_DIGEST"
+	ErrorCodeRecoveryNoSpace                        ErrorCode = "RECOVERY_NO_SPACE"
+	ErrorCodeRecoveryBelowReserve                   ErrorCode = "RECOVERY_BELOW_RESERVE"
+	ErrorCodeRecoveryGrantUnknown                   ErrorCode = "RECOVERY_GRANT_UNKNOWN"
+	ErrorCodeRecoveryGrantUsed                      ErrorCode = "RECOVERY_GRANT_USED"
+	ErrorCodeRecoveryGrantExpired                   ErrorCode = "RECOVERY_GRANT_EXPIRED"
+	ErrorCodeRecoveryGrantSessionEnded              ErrorCode = "RECOVERY_GRANT_SESSION_ENDED"
+	ErrorCodeRecoveryTooManyGrants                  ErrorCode = "RECOVERY_TOO_MANY_GRANTS"
+	ErrorCodeRecoveryTargetInvalid                  ErrorCode = "RECOVERY_TARGET_INVALID"
+	ErrorCodeRecoveryTargetExists                   ErrorCode = "RECOVERY_TARGET_EXISTS"
+	ErrorCodeRecoveryUseSnapshotRestore             ErrorCode = "RECOVERY_USE_SNAPSHOT_RESTORE"
+	ErrorCodeRecoveryUnavailable                    ErrorCode = "RECOVERY_UNAVAILABLE"
+	ErrorCodeRecoveryBusy                           ErrorCode = "RECOVERY_BUSY"
+	ErrorCodeRecoveryInterrupted                    ErrorCode = "RECOVERY_INTERRUPTED"
+	ErrorCodeRecoveryFailed                         ErrorCode = "RECOVERY_FAILED"
+	ErrorCodeRecoveryReadsBusy                      ErrorCode = "RECOVERY_READS_BUSY"
+	ErrorCodeRecoveryDestinationBusy                ErrorCode = "RECOVERY_DESTINATION_BUSY"
+	ErrorCodeRecoveryDownloadsBusy                  ErrorCode = "RECOVERY_DOWNLOADS_BUSY"
+	ErrorCodeDirectoryNotFound                      ErrorCode = "DIRECTORY_NOT_FOUND"
+	ErrorCodeDirectoryNotReadable                   ErrorCode = "DIRECTORY_NOT_READABLE"
+	ErrorCodeRecoverySourceHostUnavailable          ErrorCode = "RECOVERY_SOURCE_HOST_UNAVAILABLE"
+	ErrorCodeRecoverySourceHostReadOnly             ErrorCode = "RECOVERY_SOURCE_HOST_READ_ONLY"
+	ErrorCodeRecoverySourceHostNotAcknowledged      ErrorCode = "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED"
+	ErrorCodeRecoverySourceHostUnreachable          ErrorCode = "RECOVERY_SOURCE_HOST_UNREACHABLE"
+	ErrorCodeRecoverySourceHostNoSpace              ErrorCode = "RECOVERY_SOURCE_HOST_NO_SPACE"
+	ErrorCodeRecoverySourceHostProbeLeftFile        ErrorCode = "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE"
+	ErrorCodeValidatorNotFound                      ErrorCode = "VALIDATOR_NOT_FOUND"
+	ErrorCodeValidatorExists                        ErrorCode = "VALIDATOR_EXISTS"
+	ErrorCodeValidatorPatternConflict               ErrorCode = "VALIDATOR_PATTERN_CONFLICT"
+	ErrorCodeValidatorLimitReached                  ErrorCode = "VALIDATOR_LIMIT_REACHED"
+	ErrorCodeValidatorsUnavailable                  ErrorCode = "VALIDATORS_UNAVAILABLE"
+	ErrorCodeValidatorScriptChanged                 ErrorCode = "VALIDATOR_SCRIPT_CHANGED"
+	ErrorCodeEncryptionKeyNotFound                  ErrorCode = "ENCRYPTION_KEY_NOT_FOUND"
+	ErrorCodeEncryptionKeyInUse                     ErrorCode = "ENCRYPTION_KEY_IN_USE"
+	ErrorCodeEncryptionKeyState                     ErrorCode = "ENCRYPTION_KEY_STATE"
+	ErrorCodeEncryptionKeyUnresolvable              ErrorCode = "ENCRYPTION_KEY_UNRESOLVABLE"
+	ErrorCodeEncryptionUnavailable                  ErrorCode = "ENCRYPTION_UNAVAILABLE"
+	ErrorCodeAgentTokenInvalid                      ErrorCode = "AGENT_TOKEN_INVALID"
+	ErrorCodeAgentScopeInsufficient                 ErrorCode = "AGENT_SCOPE_INSUFFICIENT"
+	ErrorCodeAgentRouteDenied                       ErrorCode = "AGENT_ROUTE_DENIED"
+	ErrorCodeAgentConfirmationRequired              ErrorCode = "AGENT_CONFIRMATION_REQUIRED"
+	ErrorCodeAgentTokenNotFound                     ErrorCode = "AGENT_TOKEN_NOT_FOUND"
+	ErrorCodeAgentConfirmationExpired               ErrorCode = "AGENT_CONFIRMATION_EXPIRED"
+	ErrorCodeAgentConfirmationDecided               ErrorCode = "AGENT_CONFIRMATION_DECIDED"
+	ErrorCodeAgentConfirmationTokenEnded            ErrorCode = "AGENT_CONFIRMATION_TOKEN_ENDED"
+	ErrorCodeAgentConfirmationLimit                 ErrorCode = "AGENT_CONFIRMATION_LIMIT"
+	ErrorCodeAgentConfirmationBodySubstituted       ErrorCode = "AGENT_CONFIRMATION_BODY_SUBSTITUTED"
+	ErrorCodeAgentConfirmationNotFound              ErrorCode = "AGENT_CONFIRMATION_NOT_FOUND"
+	ErrorCodeAgentHttpTransportOff                  ErrorCode = "AGENT_HTTP_TRANSPORT_OFF"
+	ErrorCodeAgentRateLimited                       ErrorCode = "AGENT_RATE_LIMITED"
+	ErrorCodeAgentAuditUnavailable                  ErrorCode = "AGENT_AUDIT_UNAVAILABLE"
 )
 
 // WireErrorCodes is codes a server may put on the wire. Every one of these is emitted by real handler code, and apps/common/webhost's TestContract_EveryWireErrorCodeIsRegistered holds that both ways.
@@ -147,6 +211,12 @@ var WireErrorCodes = []ErrorCode{
 	ErrorCodeSSHKeyNotFound,
 	ErrorCodeHostKeyProbeFailed,
 	ErrorCodeDestructiveOperationsDisabled,
+	ErrorCodeStepUpRequired,
+	ErrorCodeStepUpFailed,
+	ErrorCodeStepUpUnavailable,
+	ErrorCodeInsecureTransportAckRequired,
+	ErrorCodeRestoreTargetNotAcknowledged,
+	ErrorCodeSnapshotHoldReleaseNotAcknowledged,
 	ErrorCodeInternal,
 	ErrorCodeAlreadyConfigured,
 	ErrorCodeNotConfigured,
@@ -180,11 +250,69 @@ var WireErrorCodes = []ErrorCode{
 	ErrorCodeRepositoryDomainExists,
 	ErrorCodeRepositoryDomainMaintainedElsewhere,
 	ErrorCodeWorkflowsNotConfigured,
+	ErrorCodeWorkflowScriptRejected,
 	ErrorCodeWorkflowEnvNotFound,
 	ErrorCodeWorkflowRunNotFound,
 	ErrorCodeWorkflowStepNotFound,
 	ErrorCodeWorkflowAcknowledgementReasonRequired,
 	ErrorCodeWorkflowEngineUnavailable,
+	ErrorCodeRecoveryCostNotAcknowledged,
+	ErrorCodeRecoveryNoCopy,
+	ErrorCodeRecoveryCopyNotFound,
+	ErrorCodeRecoveryNotReadable,
+	ErrorCodeRecoveryLocalCopyCorrupt,
+	ErrorCodeRecoveryRemoteCopyCorrupt,
+	ErrorCodeRecoveryNoDigest,
+	ErrorCodeRecoveryNoSpace,
+	ErrorCodeRecoveryBelowReserve,
+	ErrorCodeRecoveryGrantUnknown,
+	ErrorCodeRecoveryGrantUsed,
+	ErrorCodeRecoveryGrantExpired,
+	ErrorCodeRecoveryGrantSessionEnded,
+	ErrorCodeRecoveryTooManyGrants,
+	ErrorCodeRecoveryTargetInvalid,
+	ErrorCodeRecoveryTargetExists,
+	ErrorCodeRecoveryUseSnapshotRestore,
+	ErrorCodeRecoveryUnavailable,
+	ErrorCodeRecoveryBusy,
+	ErrorCodeRecoveryInterrupted,
+	ErrorCodeRecoveryFailed,
+	ErrorCodeRecoveryReadsBusy,
+	ErrorCodeRecoveryDestinationBusy,
+	ErrorCodeRecoveryDownloadsBusy,
+	ErrorCodeDirectoryNotFound,
+	ErrorCodeDirectoryNotReadable,
+	ErrorCodeRecoverySourceHostUnavailable,
+	ErrorCodeRecoverySourceHostReadOnly,
+	ErrorCodeRecoverySourceHostNotAcknowledged,
+	ErrorCodeRecoverySourceHostUnreachable,
+	ErrorCodeRecoverySourceHostNoSpace,
+	ErrorCodeRecoverySourceHostProbeLeftFile,
+	ErrorCodeValidatorNotFound,
+	ErrorCodeValidatorExists,
+	ErrorCodeValidatorPatternConflict,
+	ErrorCodeValidatorLimitReached,
+	ErrorCodeValidatorsUnavailable,
+	ErrorCodeValidatorScriptChanged,
+	ErrorCodeEncryptionKeyNotFound,
+	ErrorCodeEncryptionKeyInUse,
+	ErrorCodeEncryptionKeyState,
+	ErrorCodeEncryptionKeyUnresolvable,
+	ErrorCodeEncryptionUnavailable,
+	ErrorCodeAgentTokenInvalid,
+	ErrorCodeAgentScopeInsufficient,
+	ErrorCodeAgentRouteDenied,
+	ErrorCodeAgentConfirmationRequired,
+	ErrorCodeAgentTokenNotFound,
+	ErrorCodeAgentConfirmationExpired,
+	ErrorCodeAgentConfirmationDecided,
+	ErrorCodeAgentConfirmationTokenEnded,
+	ErrorCodeAgentConfirmationLimit,
+	ErrorCodeAgentConfirmationBodySubstituted,
+	ErrorCodeAgentConfirmationNotFound,
+	ErrorCodeAgentHttpTransportOff,
+	ErrorCodeAgentRateLimited,
+	ErrorCodeAgentAuditUnavailable,
 }
 
 // UIErrorCodes is the shared UI's own presentation vocabulary. No endpoint emits these; they are registered here so there is one registry rather than a second hand-maintained list in ui/shared.
@@ -237,6 +365,12 @@ var ErrorCodes = []ErrorCode{
 	ErrorCodeSSHKeyNotFound,
 	ErrorCodeHostKeyProbeFailed,
 	ErrorCodeDestructiveOperationsDisabled,
+	ErrorCodeStepUpRequired,
+	ErrorCodeStepUpFailed,
+	ErrorCodeStepUpUnavailable,
+	ErrorCodeInsecureTransportAckRequired,
+	ErrorCodeRestoreTargetNotAcknowledged,
+	ErrorCodeSnapshotHoldReleaseNotAcknowledged,
 	ErrorCodeInternal,
 	ErrorCodeAlreadyConfigured,
 	ErrorCodeNotConfigured,
@@ -270,24 +404,82 @@ var ErrorCodes = []ErrorCode{
 	ErrorCodeRepositoryDomainExists,
 	ErrorCodeRepositoryDomainMaintainedElsewhere,
 	ErrorCodeWorkflowsNotConfigured,
+	ErrorCodeWorkflowScriptRejected,
 	ErrorCodeWorkflowEnvNotFound,
 	ErrorCodeWorkflowRunNotFound,
 	ErrorCodeWorkflowStepNotFound,
 	ErrorCodeWorkflowAcknowledgementReasonRequired,
 	ErrorCodeWorkflowEngineUnavailable,
+	ErrorCodeRecoveryCostNotAcknowledged,
+	ErrorCodeRecoveryNoCopy,
+	ErrorCodeRecoveryCopyNotFound,
+	ErrorCodeRecoveryNotReadable,
+	ErrorCodeRecoveryLocalCopyCorrupt,
+	ErrorCodeRecoveryRemoteCopyCorrupt,
+	ErrorCodeRecoveryNoDigest,
+	ErrorCodeRecoveryNoSpace,
+	ErrorCodeRecoveryBelowReserve,
+	ErrorCodeRecoveryGrantUnknown,
+	ErrorCodeRecoveryGrantUsed,
+	ErrorCodeRecoveryGrantExpired,
+	ErrorCodeRecoveryGrantSessionEnded,
+	ErrorCodeRecoveryTooManyGrants,
+	ErrorCodeRecoveryTargetInvalid,
+	ErrorCodeRecoveryTargetExists,
+	ErrorCodeRecoveryUseSnapshotRestore,
+	ErrorCodeRecoveryUnavailable,
+	ErrorCodeRecoveryBusy,
+	ErrorCodeRecoveryInterrupted,
+	ErrorCodeRecoveryFailed,
+	ErrorCodeRecoveryReadsBusy,
+	ErrorCodeRecoveryDestinationBusy,
+	ErrorCodeRecoveryDownloadsBusy,
+	ErrorCodeDirectoryNotFound,
+	ErrorCodeDirectoryNotReadable,
+	ErrorCodeRecoverySourceHostUnavailable,
+	ErrorCodeRecoverySourceHostReadOnly,
+	ErrorCodeRecoverySourceHostNotAcknowledged,
+	ErrorCodeRecoverySourceHostUnreachable,
+	ErrorCodeRecoverySourceHostNoSpace,
+	ErrorCodeRecoverySourceHostProbeLeftFile,
+	ErrorCodeValidatorNotFound,
+	ErrorCodeValidatorExists,
+	ErrorCodeValidatorPatternConflict,
+	ErrorCodeValidatorLimitReached,
+	ErrorCodeValidatorsUnavailable,
+	ErrorCodeValidatorScriptChanged,
+	ErrorCodeEncryptionKeyNotFound,
+	ErrorCodeEncryptionKeyInUse,
+	ErrorCodeEncryptionKeyState,
+	ErrorCodeEncryptionKeyUnresolvable,
+	ErrorCodeEncryptionUnavailable,
+	ErrorCodeAgentTokenInvalid,
+	ErrorCodeAgentScopeInsufficient,
+	ErrorCodeAgentRouteDenied,
+	ErrorCodeAgentConfirmationRequired,
+	ErrorCodeAgentTokenNotFound,
+	ErrorCodeAgentConfirmationExpired,
+	ErrorCodeAgentConfirmationDecided,
+	ErrorCodeAgentConfirmationTokenEnded,
+	ErrorCodeAgentConfirmationLimit,
+	ErrorCodeAgentConfirmationBodySubstituted,
+	ErrorCodeAgentConfirmationNotFound,
+	ErrorCodeAgentHttpTransportOff,
+	ErrorCodeAgentRateLimited,
+	ErrorCodeAgentAuditUnavailable,
 }
 
 // ErrorClasses groups codes by the refusal they represent, so a caller (or
 // a red team) can assert the RIGHT refusal rather than any refusal.
 var ErrorClasses = map[string][]ErrorCode{
-	"authentication": {ErrorCodeUnauthenticated, ErrorCodeBootstrapTokenInvalid, ErrorCodeResetTokenInvalid, ErrorCodeVerifyTokenInvalid},
-	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
-	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured},
-	"internal":       {ErrorCodeInternal, ErrorCodeInternalError},
-	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound},
-	"throttling":     {ErrorCodeRateLimited},
-	"unavailable":    {ErrorCodeNotConfigured, ErrorCodeSmtpSendFailed, ErrorCodeWorkflowEngineUnavailable},
-	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired},
+	"authentication": {ErrorCodeUnauthenticated, ErrorCodeBootstrapTokenInvalid, ErrorCodeResetTokenInvalid, ErrorCodeVerifyTokenInvalid, ErrorCodeAgentTokenInvalid},
+	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeRecoveryGrantSessionEnded, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired, ErrorCodeAgentScopeInsufficient, ErrorCodeAgentRouteDenied, ErrorCodeAgentHttpTransportOff},
+	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy, ErrorCodeDirectoryNotReadable, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged, ErrorCodeRecoverySourceHostUnavailable, ErrorCodeRecoverySourceHostReadOnly, ErrorCodeRecoverySourceHostNotAcknowledged, ErrorCodeRecoverySourceHostProbeLeftFile, ErrorCodeValidatorExists, ErrorCodeValidatorPatternConflict, ErrorCodeValidatorLimitReached, ErrorCodeValidatorScriptChanged, ErrorCodeEncryptionKeyInUse, ErrorCodeEncryptionKeyState, ErrorCodeEncryptionKeyUnresolvable, ErrorCodeAgentConfirmationRequired, ErrorCodeAgentConfirmationExpired, ErrorCodeAgentConfirmationDecided, ErrorCodeAgentConfirmationTokenEnded},
+	"internal":       {ErrorCodeInternal, ErrorCodeInternalError, ErrorCodeAgentAuditUnavailable, ErrorCodeRecoveryLocalCopyCorrupt, ErrorCodeRecoveryRemoteCopyCorrupt, ErrorCodeRecoveryNoSpace, ErrorCodeRecoveryBelowReserve, ErrorCodeRecoveryFailed, ErrorCodeRecoverySourceHostNoSpace},
+	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown, ErrorCodeDirectoryNotFound, ErrorCodeValidatorNotFound, ErrorCodeEncryptionKeyNotFound, ErrorCodeAgentTokenNotFound, ErrorCodeAgentConfirmationNotFound},
+	"throttling":     {ErrorCodeRateLimited, ErrorCodeRecoveryTooManyGrants, ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy, ErrorCodeAgentConfirmationLimit, ErrorCodeAgentRateLimited},
+	"unavailable":    {ErrorCodeNotConfigured, ErrorCodeSmtpSendFailed, ErrorCodeWorkflowEngineUnavailable, ErrorCodeRecoveryUnavailable, ErrorCodeRecoveryInterrupted, ErrorCodeStepUpUnavailable, ErrorCodeRecoverySourceHostUnreachable, ErrorCodeValidatorsUnavailable, ErrorCodeEncryptionUnavailable},
+	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired, ErrorCodeRecoveryTargetInvalid, ErrorCodeAgentConfirmationBodySubstituted},
 }
 
 // Endpoint is one operation of the contract, with the requirements a
@@ -303,11 +495,15 @@ type Endpoint struct {
 	CSRFRequired    bool
 	IdempotencyKey  string
 	DestructiveGate bool
-	Concurrency     string
-	RequestSchema   string
-	ResponseSchema  string
-	SuccessStatus   int
-	ErrorCodes      map[int][]ErrorCode
+	// InsecureTransportAck is true for an operation outside the destructive
+	// gate that still needs X-Retnd-Insecure-Transport-Ack over plain http
+	// from another machine.
+	InsecureTransportAck bool
+	Concurrency          string
+	RequestSchema        string
+	ResponseSchema       string
+	SuccessStatus        int
+	ErrorCodes           map[int][]ErrorCode
 }
 
 // Endpoints is every operation the contract declares, ordered by path then
@@ -315,7 +511,7 @@ type Endpoint struct {
 var Endpoints = []Endpoint{
 	{
 		ID: "listActivity", Method: "GET", Path: "/activity",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListActivityResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -324,7 +520,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getLiveActivity", Method: "GET", Path: "/activity/live",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "LiveActivityResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -334,8 +530,276 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "listAgentAudit", Method: "GET", Path: "/agent/audit",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListAgentAuditResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeAgentRouteDenied},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "listAgentConfirmations", Method: "GET", Path: "/agent/confirmations",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListAgentConfirmationsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeAgentRouteDenied},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "getAgentConfirmation", Method: "GET", Path: "/agent/confirmations/{id}",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AgentConfirmation", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeAgentConfirmationNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "approveAgentConfirmation", Method: "POST", Path: "/agent/confirmations/{id}/approve",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AgentConfirmation", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeAgentConfirmationBodySubstituted},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeAgentRouteDenied, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed},
+			404: {ErrorCodeAgentConfirmationNotFound},
+			409: {ErrorCodeAgentConfirmationExpired, ErrorCodeAgentConfirmationDecided, ErrorCodeAgentConfirmationBodySubstituted, ErrorCodeAgentConfirmationTokenEnded},
+			429: {ErrorCodeRateLimited},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeStepUpUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "denyAgentConfirmation", Method: "POST", Path: "/agent/confirmations/{id}/deny",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AgentConfirmation", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeAgentRouteDenied},
+			404: {ErrorCodeAgentConfirmationNotFound},
+			409: {ErrorCodeAgentConfirmationExpired, ErrorCodeAgentConfirmationDecided},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "deleteAgentMcp", Method: "DELETE", Path: "/agent/mcp",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "", SuccessStatus: 204,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated, ErrorCodeAgentTokenInvalid},
+			403: {ErrorCodeAgentHttpTransportOff, ErrorCodeAgentRouteDenied},
+			429: {ErrorCodeAgentRateLimited},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "getAgentMcp", Method: "GET", Path: "/agent/mcp",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated, ErrorCodeAgentTokenInvalid},
+			403: {ErrorCodeAgentHttpTransportOff, ErrorCodeAgentRouteDenied},
+			429: {ErrorCodeAgentRateLimited},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "postAgentMcp", Method: "POST", Path: "/agent/mcp",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "AgentMcpFrame", ResponseSchema: "AgentMcpFrame", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated, ErrorCodeAgentTokenInvalid},
+			403: {ErrorCodeAgentHttpTransportOff, ErrorCodeAgentRouteDenied},
+			429: {ErrorCodeAgentRateLimited},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "listAgentTokens", Method: "GET", Path: "/agent/tokens",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListAgentTokensResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeAgentRouteDenied},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "mintAgentToken", Method: "POST", Path: "/agent/tokens",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: true, Concurrency: "",
+		RequestSchema: "MintAgentTokenRequest", ResponseSchema: "MintedAgentToken", SuccessStatus: 201,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeInsecureTransportAckRequired, ErrorCodeAgentRouteDenied},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "revokeAgentToken", Method: "POST", Path: "/agent/tokens/{id}/revoke",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AgentToken", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeAgentRouteDenied},
+			404: {ErrorCodeAgentTokenNotFound},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "listAgentTools", Method: "GET", Path: "/agent/tools",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AgentToolsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "getDefaultValidatorScript", Method: "GET", Path: "/assurance/default-validator-script",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ValidatorScriptResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "listAssuranceDue", Method: "GET", Path: "/assurance/due",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AssuranceDueResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getAssuranceOperation", Method: "GET", Path: "/assurance/operations/{op}",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AssuranceOperationRecord", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeOperationNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "cancelAssuranceOperation", Method: "POST", Path: "/assurance/operations/{op}/cancel",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AssuranceOperationCancelled", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeOperationNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "listCustomValidatorPatterns", Method: "GET", Path: "/assurance/validator-patterns",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "CustomValidatorPatternsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "previewCustomValidator", Method: "POST", Path: "/assurance/validator-preview",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "PreviewCustomValidatorRequest", ResponseSchema: "CustomValidatorPreview", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "listCustomValidators", Method: "GET", Path: "/assurance/validators",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListCustomValidatorsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "createCustomValidator", Method: "POST", Path: "/assurance/validators",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "CreateCustomValidatorRequest", ResponseSchema: "CustomValidator", SuccessStatus: 201,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired},
+			404: {ErrorCodeBackupSetNotFound},
+			409: {ErrorCodeValidatorExists, ErrorCodeValidatorPatternConflict, ErrorCodeValidatorLimitReached},
+			429: {ErrorCodeRateLimited},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeValidatorsUnavailable, ErrorCodeStepUpUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "removeCustomValidator", Method: "DELETE", Path: "/assurance/validators/{name}",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "CustomValidator", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeValidatorNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "updateCustomValidator", Method: "PUT", Path: "/assurance/validators/{name}",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "UpdateCustomValidatorRequest", ResponseSchema: "CustomValidator", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired},
+			404: {ErrorCodeBackupSetNotFound, ErrorCodeValidatorNotFound},
+			409: {ErrorCodeValidatorPatternConflict, ErrorCodeValidatorScriptChanged},
+			429: {ErrorCodeRateLimited},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeValidatorsUnavailable, ErrorCodeStepUpUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getCustomValidatorScript", Method: "GET", Path: "/assurance/validators/{name}/script",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ValidatorScriptResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeValidatorNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeValidatorsUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "enrollAdministrator", Method: "POST", Path: "/auth/enroll",
-		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "EnrollRequest", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail},
@@ -348,7 +812,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "requestPasswordReset", Method: "POST", Path: "/auth/forgot-password",
-		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "ForgotPasswordRequest", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
@@ -357,7 +821,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "login", Method: "POST", Path: "/auth/login",
-		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "CredentialsRequest", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -369,7 +833,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "logout", Method: "POST", Path: "/auth/logout",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
@@ -377,7 +841,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "rotatePassword", Method: "POST", Path: "/auth/password",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "RotatePasswordRequest", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -389,7 +853,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getRecoverySettings", Method: "GET", Path: "/auth/recovery",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "RecoverySettingsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -398,7 +862,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "updateRecoverySettings", Method: "PATCH", Path: "/auth/recovery",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "RecoverySettingsUpdate", ResponseSchema: "RecoverySettingsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail},
@@ -410,7 +874,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "sendRecoveryTestEmail", Method: "POST", Path: "/auth/recovery/test",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail},
@@ -422,7 +886,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "resetPassword", Method: "POST", Path: "/auth/reset-password",
-		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "ResetPasswordRequest", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -434,7 +898,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getSession", Method: "GET", Path: "/auth/session",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "SessionResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -442,7 +906,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "verifyRecoveryEmail", Method: "POST", Path: "/auth/verify-email",
-		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "VerifyEmailRequest", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -454,7 +918,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "resendRecoveryEmailVerification", Method: "POST", Path: "/auth/verify-email/resend",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail},
@@ -467,7 +931,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listBackends", Method: "GET", Path: "/backends",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListBackendsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -476,7 +940,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listBackupSets", Method: "GET", Path: "/backup-sets",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListBackupSetsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -486,7 +950,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "createBackupSet", Method: "POST", Path: "/backup-sets",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "CreateBackupSetRequest", ResponseSchema: "CreateBackupSetResponse", SuccessStatus: 201,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeSSHKeyNotFound},
@@ -499,7 +963,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "testCandidateConnection", Method: "POST", Path: "/backup-sets/test-connection",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "TestConnectionRequest", ResponseSchema: "TestConnectionResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeSSHKeyNotFound},
@@ -510,7 +974,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "removeBackupSet", Method: "DELETE", Path: "/backup-sets/{source}/{set}",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -522,7 +986,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getBackupSet", Method: "GET", Path: "/backup-sets/{source}/{set}",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "BackupSet", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -533,7 +997,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "updateBackupSet", Method: "PATCH", Path: "/backup-sets/{source}/{set}",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "UpdateBackupSetRequest", ResponseSchema: "BackupSet", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeSSHKeyNotFound},
@@ -545,8 +1009,44 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "resetBackupSetAssurance", Method: "DELETE", Path: "/backup-sets/{source}/{set}/assurance",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "BackupSetAssurance", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getBackupSetAssurance", Method: "GET", Path: "/backup-sets/{source}/{set}/assurance",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "BackupSetAssurance", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "updateBackupSetAssurance", Method: "PATCH", Path: "/backup-sets/{source}/{set}/assurance",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "UpdateBackupSetAssuranceRequest", ResponseSchema: "BackupSetAssurance", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "getBackupSetEditHold", Method: "GET", Path: "/backup-sets/{source}/{set}/edit-hold",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "BackupSetEditHoldState", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -556,7 +1056,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "takeBackupSetEditHold", Method: "POST", Path: "/backup-sets/{source}/{set}/edit-hold",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "BackupSetEditHold", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -567,7 +1067,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "releaseBackupSetEditHold", Method: "POST", Path: "/backup-sets/{source}/{set}/edit-hold/release",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -578,7 +1078,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "setBackupSetEnabled", Method: "POST", Path: "/backup-sets/{source}/{set}/enabled",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "SetEnabledRequest", ResponseSchema: "BackupSet", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -589,8 +1089,33 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "clearBackupSetEncryption", Method: "DELETE", Path: "/backup-sets/{source}/{set}/encryption",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "EncryptionSetPolicy", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "setBackupSetEncryption", Method: "PUT", Path: "/backup-sets/{source}/{set}/encryption",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "EncryptionOverride", ResponseSchema: "EncryptionSetPolicy", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "listBackupSetSnapshotHolds", Method: "GET", Path: "/backup-sets/{source}/{set}/holds",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListSnapshotHoldsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeBackupSetNotIncremental},
@@ -603,7 +1128,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "setBackupSetReadOnly", Method: "POST", Path: "/backup-sets/{source}/{set}/read-only",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "SetReadOnlyRequest", ResponseSchema: "BackupSet", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -615,8 +1140,33 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "startRecoveryTest", Method: "POST", Path: "/backup-sets/{source}/{set}/recovery-test",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "StartRecoveryTestRequest", ResponseSchema: "RecoveryTestStarted", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound},
+			409: {ErrorCodeOperationAlreadyRunning},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getRecoveryTestOutput", Method: "GET", Path: "/backup-sets/{source}/{set}/recovery-test/output",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "RecoveryTestOutput", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "clearBackupSetRetention", Method: "DELETE", Path: "/backup-sets/{source}/{set}/retention",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "BackupSetRetention", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -629,7 +1179,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getBackupSetRetention", Method: "GET", Path: "/backup-sets/{source}/{set}/retention",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "BackupSetRetention", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -640,7 +1190,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "setBackupSetRetention", Method: "PUT", Path: "/backup-sets/{source}/{set}/retention",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "RetentionOverride", ResponseSchema: "BackupSetRetention", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeMediumDisclosureRequired},
@@ -653,12 +1203,12 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "applyRetention", Method: "POST", Path: "/backup-sets/{source}/{set}/retention/apply",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, Concurrency: "inventory_revision+config_revision",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, InsecureTransportAck: false, Concurrency: "inventory_revision+config_revision",
 		RequestSchema: "ApplyRetentionRequest", ResponseSchema: "RetentionPlan", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeInsecureTransportAckRequired},
 			404: {ErrorCodeBackupSetNotFound, ErrorCodeRetentionPlanNotFound},
 			409: {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy},
 			500: {ErrorCodeInternal},
@@ -667,7 +1217,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "previewRetention", Method: "GET", Path: "/backup-sets/{source}/{set}/retention/preview",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "inventory_revision+config_revision",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "inventory_revision+config_revision",
 		RequestSchema: "", ResponseSchema: "RetentionPlan", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -678,8 +1228,22 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "startScrub", Method: "POST", Path: "/backup-sets/{source}/{set}/scrub",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound},
+			409: {ErrorCodeOperationAlreadyRunning},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "getBackupSetSnapshotRetention", Method: "GET", Path: "/backup-sets/{source}/{set}/snapshot-retention",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "SnapshotRetentionResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeBackupSetNotIncremental},
@@ -692,7 +1256,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listBackupSetSnapshots", Method: "GET", Path: "/backup-sets/{source}/{set}/snapshots",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListSnapshotsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeBackupSetNotIncremental},
@@ -705,7 +1269,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getBackupSetSnapshot", Method: "GET", Path: "/backup-sets/{source}/{set}/snapshots/{run}",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "SnapshotResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeBackupSetNotIncremental},
@@ -717,8 +1281,35 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "describeSourceHost", Method: "GET", Path: "/backup-sets/{source}/{set}/source-host",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "SourceHostDescription", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeRecoveryTargetInvalid},
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			501: {ErrorCodeRecoveryUnavailable},
+		},
+	},
+	{
+		ID: "checkSourceHostWrite", Method: "POST", Path: "/backup-sets/{source}/{set}/source-host/write-check",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "SourceHostDescription", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeRecoveryTargetInvalid},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled},
+			404: {ErrorCodeBackupSetNotFound},
+			409: {ErrorCodeRecoverySourceHostUnavailable},
+			429: {ErrorCodeRateLimited},
+			500: {ErrorCodeInternal},
+			501: {ErrorCodeRecoveryUnavailable},
+		},
+	},
+	{
 		ID: "getBackupSetWorkflow", Method: "GET", Path: "/backup-sets/{source}/{set}/workflow",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "BackupSetWorkflowResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -729,21 +1320,21 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "updateBackupSetWorkflow", Method: "PATCH", Path: "/backup-sets/{source}/{set}/workflow",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "UpdateBackupSetWorkflowRequest", ResponseSchema: "BackupSetWorkflowResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
 			404: {ErrorCodeBackupSetNotFound},
-			409: {ErrorCodeWorkflowsNotConfigured},
+			409: {ErrorCodeWorkflowScriptRejected, ErrorCodeWorkflowsNotConfigured},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeNotConfigured},
 		},
 	},
 	{
 		ID: "listBackupSetWorkflowEnvironment", Method: "GET", Path: "/backup-sets/{source}/{set}/workflow/environment",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListWorkflowEnvironmentResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -754,7 +1345,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "unsetBackupSetWorkflowEnvironment", Method: "DELETE", Path: "/backup-sets/{source}/{set}/workflow/environment/{name}",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListWorkflowEnvironmentResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -766,7 +1357,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "setBackupSetWorkflowEnvironment", Method: "PUT", Path: "/backup-sets/{source}/{set}/workflow/environment/{name}",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "WorkflowEnvironmentVariableRequest", ResponseSchema: "ListWorkflowEnvironmentResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -779,7 +1370,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getBackupSetWorkflowValidation", Method: "GET", Path: "/backup-sets/{source}/{set}/workflow/validation",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "WorkflowValidationResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -790,7 +1381,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listArtifacts", Method: "GET", Path: "/backups",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListArtifactsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -800,7 +1391,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getArtifact", Method: "GET", Path: "/backups/{source}/{set}/{name}",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "Artifact", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -809,8 +1400,25 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "mintRecovery", Method: "POST", Path: "/backups/{source}/{set}/{name}/recovery",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "RecoveryMintRequest", ResponseSchema: "RecoveryMintResponse", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest, ErrorCodeRecoveryTargetInvalid},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeInsecureTransportAckRequired, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed},
+			404: {ErrorCodeArtifactNotFound, ErrorCodeRecoveryCopyNotFound},
+			409: {ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoverySourceHostUnavailable, ErrorCodeRecoverySourceHostReadOnly, ErrorCodeRecoverySourceHostNotAcknowledged, ErrorCodeRecoverySourceHostProbeLeftFile},
+			429: {ErrorCodeRecoveryTooManyGrants, ErrorCodeRateLimited},
+			500: {ErrorCodeInternal, ErrorCodeRecoveryFailed},
+			501: {ErrorCodeRecoveryUnavailable},
+			503: {ErrorCodeRecoveryUnavailable, ErrorCodeStepUpUnavailable, ErrorCodeRecoverySourceHostUnreachable},
+			507: {ErrorCodeRecoverySourceHostNoSpace},
+		},
+	},
+	{
 		ID: "retryFailedIngestion", Method: "POST", Path: "/backups/{source}/{set}/{name}/retry",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "RetryFailedRequest", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -822,7 +1430,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "rebuildCatalog", Method: "POST", Path: "/catalog/rebuild",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "CatalogReportResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -832,7 +1440,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "scanCatalog", Method: "POST", Path: "/catalog/scan",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "CatalogReportResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -841,8 +1449,213 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "listEncryptionCopies", Method: "GET", Path: "/encryption/copies",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListEncryptionCopiesResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeArtifactNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "planEncryptExisting", Method: "GET", Path: "/encryption/encrypt-existing",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: true, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "EncryptExistingPlan", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeDestructiveOperationsDisabled, ErrorCodeInsecureTransportAckRequired},
+			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "startEncryptExisting", Method: "POST", Path: "/encryption/encrypt-existing",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "StartEncryptExistingRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeInsecureTransportAckRequired},
+			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound},
+			409: {ErrorCodeOperationAlreadyRunning, ErrorCodeEncryptionKeyUnresolvable},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "listEncryptionKeys", Method: "GET", Path: "/encryption/keys",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListEncryptionKeysResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "createEncryptionKey", Method: "POST", Path: "/encryption/keys",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "EncryptionKeyStatus", SuccessStatus: 201,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			409: {ErrorCodeEncryptionKeyState},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "rotateEncryptionKey", Method: "POST", Path: "/encryption/keys/rotate",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "EncryptionKeyStatus", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			409: {ErrorCodeEncryptionKeyState},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "confirmRecoveryBundle", Method: "POST", Path: "/encryption/keys/{id}/confirm",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "ConfirmRecoveryBundleRequest", ResponseSchema: "EncryptionKeyStatus", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeEncryptionKeyNotFound},
+			409: {ErrorCodeEncryptionKeyState},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "exportRecoveryBundle", Method: "POST", Path: "/encryption/keys/{id}/export",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "RecoveryBundle", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired},
+			404: {ErrorCodeEncryptionKeyNotFound},
+			429: {ErrorCodeRateLimited},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeStepUpUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "retireEncryptionKey", Method: "POST", Path: "/encryption/keys/{id}/retire",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "EncryptionKeyStatus", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeEncryptionKeyNotFound},
+			409: {ErrorCodeEncryptionKeyInUse},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getEncryptionPolicy", Method: "GET", Path: "/encryption/policy",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "EncryptionPolicy", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "patchEncryptionPolicy", Method: "PATCH", Path: "/encryption/policy",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "EncryptionPolicyPatch", ResponseSchema: "EncryptionPolicy", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "resetEncryptionPolicy", Method: "POST", Path: "/encryption/policy/reset",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "EncryptionPolicy", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "testEncryptionProvider", Method: "POST", Path: "/encryption/providers/test",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "EncryptionProviderTestRequest", ResponseSchema: "EncryptionProviderProbe", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "planReencrypt", Method: "GET", Path: "/encryption/reencrypt",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: true, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ReencryptPlan", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeDestructiveOperationsDisabled, ErrorCodeInsecureTransportAckRequired},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "startReencrypt", Method: "POST", Path: "/encryption/reencrypt",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "StartReencryptRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeInsecureTransportAckRequired},
+			409: {ErrorCodeOperationAlreadyRunning},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "listEncryptionSuites", Method: "GET", Path: "/encryption/suites",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListEncryptionSuitesResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "startDecryptVerify", Method: "POST", Path: "/encryption/verify",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "StartDecryptVerifyRequest", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeArtifactNotFound, ErrorCodeBackupSetNotFound},
+			409: {ErrorCodeOperationAlreadyRunning, ErrorCodeEncryptionKeyUnresolvable},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeEncryptionUnavailable, ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "listOperations", Method: "GET", Path: "/operations",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListOperationsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -851,21 +1664,22 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "submitOperation", Method: "POST", Path: "/operations",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "required", DestructiveGate: true, Concurrency: "config_revision",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "required", DestructiveGate: true, InsecureTransportAck: false, Concurrency: "config_revision",
 		RequestSchema: "SubmitOperationRequest", ResponseSchema: "Operation", SuccessStatus: 202,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeBackupSetNotIncremental},
 			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired},
 			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound, ErrorCodeCopyNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound},
-			409: {ErrorCodeConfigRevisionStale, ErrorCodeIdempotencyKeyConflict, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeRestoreRefused, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled},
+			409: {ErrorCodeConfigRevisionStale, ErrorCodeIdempotencyKeyConflict, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeRestoreRefused, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged},
+			429: {ErrorCodeRateLimited},
 			500: {ErrorCodeInternal},
-			503: {ErrorCodeRestoreUnavailable},
+			503: {ErrorCodeRestoreUnavailable, ErrorCodeStepUpUnavailable},
 		},
 	},
 	{
 		ID: "getOperation", Method: "GET", Path: "/operations/{id}",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "Operation", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -876,7 +1690,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listQuarantine", Method: "GET", Path: "/quarantine",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListArtifactsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -885,7 +1699,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "reinstateArtifact", Method: "POST", Path: "/quarantine/{source}/{set}/{name}/reinstate",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ArtifactReinstateResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -897,7 +1711,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "retryArtifactIngestion", Method: "POST", Path: "/quarantine/{source}/{set}/{name}/retry",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -909,7 +1723,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "revalidateArtifact", Method: "POST", Path: "/quarantine/{source}/{set}/{name}/revalidate",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ArtifactCheckResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -920,8 +1734,44 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "recoverMany", Method: "POST", Path: "/recoveries",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "RecoveryManyRequest", ResponseSchema: "RecoveryManyPlan", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest, ErrorCodeRecoveryTargetInvalid},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeInsecureTransportAckRequired, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed},
+			404: {ErrorCodeArtifactNotFound, ErrorCodeBackupSetNotFound},
+			409: {ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoverySourceHostUnavailable, ErrorCodeRecoverySourceHostReadOnly, ErrorCodeRecoverySourceHostNotAcknowledged, ErrorCodeRecoverySourceHostProbeLeftFile},
+			429: {ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRateLimited},
+			500: {ErrorCodeInternal, ErrorCodeRecoveryFailed},
+			501: {ErrorCodeRecoveryUnavailable},
+			503: {ErrorCodeRecoveryUnavailable, ErrorCodeStepUpUnavailable, ErrorCodeRecoverySourceHostUnreachable},
+			507: {ErrorCodeRecoveryNoSpace, ErrorCodeRecoveryBelowReserve, ErrorCodeRecoverySourceHostNoSpace},
+		},
+	},
+	{
+		ID: "redeemRecovery", Method: "GET", Path: "/recoveries/{grant}",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "RecoveryResult", SuccessStatus: 206,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeRecoveryGrantSessionEnded, ErrorCodeDestructiveOperationsDisabled},
+			404: {ErrorCodeArtifactNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown},
+			409: {ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryBusy, ErrorCodeRecoveryTargetExists, ErrorCodeRecoverySourceHostUnavailable, ErrorCodeRecoverySourceHostReadOnly, ErrorCodeRecoverySourceHostNotAcknowledged},
+			410: {ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired},
+			416: {ErrorCodeInvalidRequest},
+			429: {ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy},
+			500: {ErrorCodeInternal, ErrorCodeRecoveryLocalCopyCorrupt, ErrorCodeRecoveryFailed},
+			501: {ErrorCodeRecoveryUnavailable},
+			502: {ErrorCodeRecoveryRemoteCopyCorrupt},
+			503: {ErrorCodeRecoveryUnavailable, ErrorCodeRecoveryInterrupted, ErrorCodeRecoverySourceHostUnreachable},
+			507: {ErrorCodeRecoveryNoSpace, ErrorCodeRecoveryBelowReserve},
+		},
+	},
+	{
 		ID: "listRepositories", Method: "GET", Path: "/repositories",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListRepositoriesResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -932,7 +1782,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "createRepositoryDomain", Method: "POST", Path: "/repositories",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "CreateRepositoryDomainRequest", ResponseSchema: "RepositoryHealth", SuccessStatus: 201,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -945,7 +1795,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getRepositoryMaintenance", Method: "GET", Path: "/repositories/{domain}/maintenance",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "RepositoryMaintenance", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -956,7 +1806,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getSettings", Method: "GET", Path: "/settings",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "SettingsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -966,7 +1816,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "updateSettings", Method: "PATCH", Path: "/settings",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "UpdateSettingsRequest", ResponseSchema: "SettingsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeMediumDisclosureRequired},
@@ -977,9 +1827,9 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
-		ID: "getWorkflowSettings", Method: "GET", Path: "/settings/workflow",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "WorkflowSettingsResponse", SuccessStatus: 200,
+		ID: "getAssuranceSettings", Method: "GET", Path: "/settings/assurance",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AssuranceSettingsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
 			500: {ErrorCodeInternal},
@@ -987,9 +1837,9 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
-		ID: "updateWorkflowSettings", Method: "PATCH", Path: "/settings/workflow",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "UpdateWorkflowSettingsRequest", ResponseSchema: "WorkflowSettingsResponse", SuccessStatus: 200,
+		ID: "updateAssuranceSettings", Method: "PATCH", Path: "/settings/assurance",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "UpdateAssuranceSettingsRequest", ResponseSchema: "AssuranceSettingsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
@@ -999,8 +1849,31 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "getWorkflowSettings", Method: "GET", Path: "/settings/workflow",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "WorkflowSettingsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "updateWorkflowSettings", Method: "PATCH", Path: "/settings/workflow",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "UpdateWorkflowSettingsRequest", ResponseSchema: "WorkflowSettingsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			409: {ErrorCodeWorkflowScriptRejected},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "listWorkflowEnvironment", Method: "GET", Path: "/settings/workflow/environment",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListWorkflowEnvironmentResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1010,7 +1883,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "unsetWorkflowEnvironment", Method: "DELETE", Path: "/settings/workflow/environment/{name}",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListWorkflowEnvironmentResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1022,7 +1895,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "setWorkflowEnvironment", Method: "PUT", Path: "/settings/workflow/environment/{name}",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "WorkflowEnvironmentVariableRequest", ResponseSchema: "ListWorkflowEnvironmentResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1034,7 +1907,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listSSHKeys", Method: "GET", Path: "/ssh-keys",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListSSHKeysResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1043,7 +1916,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "importSSHKey", Method: "POST", Path: "/ssh-keys",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "ImportSSHKeyRequest", ResponseSchema: "ImportSSHKeyResponse", SuccessStatus: 201,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1054,7 +1927,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "importSSHKeyFromCandidate", Method: "POST", Path: "/ssh-keys/from-candidate",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "ImportSSHKeyFromCandidateRequest", ResponseSchema: "ImportSSHKeyResponse", SuccessStatus: 201,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeSSHKeyCandidateNotFound},
@@ -1065,7 +1938,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "probeHostKey", Method: "POST", Path: "/ssh/host-key-probe",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "HostKeyProbeRequest", ResponseSchema: "HostKeyProbeResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeHostKeyProbeFailed},
@@ -1076,7 +1949,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listSSHKeyCandidates", Method: "GET", Path: "/ssh/key-candidates",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListSSHKeyCandidatesResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1085,7 +1958,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "importStorageCredentials", Method: "POST", Path: "/storage-credentials",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "ImportStorageCredentialsRequest", ResponseSchema: "ImportStorageCredentialsResponse", SuccessStatus: 201,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1096,7 +1969,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listStorageMediums", Method: "GET", Path: "/storage-mediums",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListStorageMediumsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1105,7 +1978,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "createStorageMedium", Method: "POST", Path: "/storage-mediums",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "StorageMediumRequest", ResponseSchema: "StorageMediumSummary", SuccessStatus: 201,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1118,7 +1991,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "preflightStorageMediumCandidate", Method: "POST", Path: "/storage-mediums/preflight",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "StorageMediumRequest", ResponseSchema: "MediumPreflightResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1130,7 +2003,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "removeStorageMedium", Method: "DELETE", Path: "/storage-mediums/{id}",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1143,7 +2016,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getStorageMedium", Method: "GET", Path: "/storage-mediums/{id}",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "StorageMediumSummary", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1153,7 +2026,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "updateStorageMedium", Method: "PUT", Path: "/storage-mediums/{id}",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "StorageMediumRequest", ResponseSchema: "StorageMediumSummary", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1166,7 +2039,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getStorageMediumConfiguration", Method: "GET", Path: "/storage-mediums/{id}/configuration",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "MediumConfigurationResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1175,7 +2048,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "configureStorageMedium", Method: "PUT", Path: "/storage-mediums/{id}/configuration",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "MediumConfigurationRequest", ResponseSchema: "StorageMediumSummary", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1187,7 +2060,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "preflightStorageMediumConfiguration", Method: "POST", Path: "/storage-mediums/{id}/configuration/preflight",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "MediumConfigurationRequest", ResponseSchema: "MediumPreflightResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1198,7 +2071,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "setDefaultStorageMedium", Method: "PUT", Path: "/storage-mediums/{id}/default",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "StorageMediumSummary", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1210,7 +2083,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "preflightStorageMedium", Method: "POST", Path: "/storage-mediums/{id}/preflight",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "MediumPreflightResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1221,7 +2094,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getStorageMediumUsage", Method: "GET", Path: "/storage-mediums/{id}/usage",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "StorageMediumUsageResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1230,7 +2103,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getSystemCapabilities", Method: "GET", Path: "/system/capabilities",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "CapabilitiesResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1238,7 +2111,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getFirstRunStatus", Method: "GET", Path: "/system/first-run",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "FirstRunStatusResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1246,7 +2119,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "completeFirstRun", Method: "POST", Path: "/system/first-run",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "BackupSetSpec", ResponseSchema: "CompleteFirstRunResponse", SuccessStatus: 201,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeSSHKeyNotFound},
@@ -1257,8 +2130,19 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "skipFirstRunStep", Method: "POST", Path: "/system/first-run/skip",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "SkipFirstRunStepRequest", ResponseSchema: "FirstRunStatusResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
 		ID: "getSystemHealth", Method: "GET", Path: "/system/health",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "HealthResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1266,8 +2150,22 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "listStagingDirectories", Method: "GET", Path: "/system/staging-directories",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "StagingDirectoryResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeDirectoryNotFound},
+			409: {ErrorCodeDirectoryNotReadable},
+			500: {ErrorCodeInternal},
+			501: {ErrorCodeRecoveryUnavailable},
+			503: {ErrorCodeRecoveryUnavailable},
+		},
+	},
+	{
 		ID: "listStorageStatus", Method: "GET", Path: "/system/storage",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListStorageStatusResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1277,7 +2175,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getSystemVersion", Method: "GET", Path: "/system/version",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "VersionResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1285,7 +2183,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listValidators", Method: "GET", Path: "/validators",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListValidatorsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1294,7 +2192,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listWorkflowRecovery", Method: "GET", Path: "/workflow-recovery",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "WorkflowRecoveryResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1304,7 +2202,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "acknowledgeWorkflowRecovery", Method: "POST", Path: "/workflow-recovery/{run}/acknowledge",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "WorkflowAcknowledgementRequest", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeWorkflowAcknowledgementReasonRequired},
@@ -1317,7 +2215,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "resumeWorkflowCleanup", Method: "POST", Path: "/workflow-recovery/{run}/resume-cleanup",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "WorkflowRun", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1330,7 +2228,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listWorkflowRuns", Method: "GET", Path: "/workflow-runs",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListWorkflowRunsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1340,7 +2238,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getWorkflowRun", Method: "GET", Path: "/workflow-runs/{run}",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "WorkflowRun", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1351,7 +2249,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "listWorkflowRunSteps", Method: "GET", Path: "/workflow-runs/{run}/steps",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListWorkflowStepsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
@@ -1362,7 +2260,7 @@ var Endpoints = []Endpoint{
 	},
 	{
 		ID: "getWorkflowStepLogs", Method: "GET", Path: "/workflow-runs/{run}/steps/{step}/logs",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "WorkflowStepLogPage", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
@@ -1398,6 +2296,153 @@ type ActivityEvent struct {
 	SetName      string `json:"set_name"`
 	SourceName   string `json:"source_name"`
 	To           string `json:"to"`
+}
+
+// AdoptedPath is one of this deployment's locations that is being served from a
+// pre-rename path, and the renamed path it would otherwise have
+// used. A location is adopted only when the renamed path holds
+// nothing and the pre-rename path holds the data; two populated
+// locations that are different directories make the runtime refuse
+// to start instead, and are therefore never reported here.
+type AdoptedPath struct {
+	Renamed string `json:"renamed"`
+	Serving string `json:"serving"`
+	What    string `json:"what"`
+}
+
+// AgentAuditEntry is one row of the agent audit trail. arguments is what the call asked
+// with, stored after the projection that strips key material and
+// secrets, as JSON text and cut at 4096 bytes. token_id is empty for
+// a refusal of a token that matched no row, which is itself a fact
+// worth keeping. tool is empty for a refusal made before any tool
+// was named. transport is stdio, http or api.
+type AgentAuditEntry struct {
+	Arguments      string  `json:"arguments"`
+	At             string  `json:"at"`
+	Code           string  `json:"code"`
+	ConfirmationID string  `json:"confirmation_id"`
+	CorrelationID  string  `json:"correlation_id"`
+	Seq            int64   `json:"seq"`
+	Status         int     `json:"status"`
+	TokenID        string  `json:"token_id"`
+	TokenName      *string `json:"token_name"`
+	Tool           string  `json:"tool"`
+	Transport      string  `json:"transport"`
+}
+
+// AgentConfirmation is A change an agent asked for, waiting for a person. The request
+// body it will replay is kept byte for byte and is never shown here,
+// except for config_revision; command is the retnd command an
+// operator would have typed for the same change. A pending
+// confirmation has run nothing. state is pending, approved, denied
+// or expired; an approved one carries execution once its replay has
+// finished.
+type AgentConfirmation struct {
+	BackupSet      string          `json:"backup_set"`
+	Command        string          `json:"command"`
+	ConfigRevision string          `json:"config_revision,omitempty"`
+	CreatedAt      string          `json:"created_at"`
+	DecidedAt      *string         `json:"decided_at"`
+	DecidedBy      *string         `json:"decided_by"`
+	Execution      *AgentExecution `json:"execution,omitempty"`
+	ExpiresAt      string          `json:"expires_at"`
+	ID             string          `json:"id"`
+	Method         string          `json:"method"`
+	Route          string          `json:"route"`
+	State          string          `json:"state"`
+	TokenID        string          `json:"token_id"`
+	TokenName      string          `json:"token_name"`
+	Tool           string          `json:"tool"`
+}
+
+// AgentExecution is how the replay of an approved confirmation ended: the status and
+// error code the API answered with (code is empty for a success),
+// its message, the correlation id of the request and the exit code
+// retnd would have used for the same answer. A replay the shut
+// destructive gate refused reads DESTRUCTIVE_OPERATIONS_DISABLED
+// with exit code 50, exactly as retnd run does.
+type AgentExecution struct {
+	Code          string `json:"code"`
+	CorrelationID string `json:"correlation_id"`
+	ExitCode      int    `json:"exit_code"`
+	Message       string `json:"message"`
+	Outcome       string `json:"outcome"`
+	Status        int    `json:"status"`
+}
+
+// AgentMcpFrame is one JSON-RPC 2.0 message of the Model Context Protocol. The
+// engine's streamable HTTP transport speaks the protocol revision
+// `retnd agent tools` prints; this contract does not restate it.
+type AgentMcpFrame struct {
+}
+
+// AgentPrompt is one prompt: a static description, the arguments it takes and the
+// read tools it draws on.
+type AgentPrompt struct {
+	Arguments   []string `json:"arguments"`
+	Description string   `json:"description"`
+	Name        string   `json:"name"`
+	Tools       []string `json:"tools"`
+}
+
+// AgentResource is one resource, backed by a read tool.
+type AgentResource struct {
+	Description string `json:"description"`
+	Tool        string `json:"tool"`
+	Uri         string `json:"uri"`
+}
+
+// AgentToken is one agent token as every surface after the mint shows it: its
+// name, the first eight characters of the token, scope, owner and
+// times, never the hash and never more of the token than the prefix.
+// status is active, expired or revoked, read from the token row on
+// this request. The principal it authenticates as is agent:<name>.
+type AgentToken struct {
+	CreatedAt  string  `json:"created_at"`
+	ExpiresAt  string  `json:"expires_at"`
+	ID         string  `json:"id"`
+	LastUsedAt *string `json:"last_used_at"`
+	Name       string  `json:"name"`
+	Owner      string  `json:"owner"`
+	Prefix     string  `json:"prefix"`
+	RevokedAt  *string `json:"revoked_at"`
+	Scope      string  `json:"scope"`
+	Status     string  `json:"status"`
+}
+
+// AgentTool is one tool an agent may call. untrusted names the result fields
+// whose values originate outside the deployment (file names,
+// validator output, workflow logs, activity messages, remote
+// hostnames); a transport puts them under an untrusted object and
+// never in text.
+type AgentTool struct {
+	Action      string   `json:"action,omitempty"`
+	Description string   `json:"description"`
+	Method      string   `json:"method"`
+	Name        string   `json:"name"`
+	Route       string   `json:"route"`
+	Scope       string   `json:"scope"`
+	Twin        string   `json:"twin"`
+	Untrusted   []string `json:"untrusted"`
+}
+
+// AgentToolRefusal is A route with no tool, and why.
+type AgentToolRefusal struct {
+	Action string `json:"action,omitempty"`
+	Denied bool   `json:"denied"`
+	Method string `json:"method"`
+	Route  string `json:"route"`
+	Why    string `json:"why"`
+}
+
+// AgentToolsResponse is GET /agent/tools. The whole catalogue. denied_fields are the keys
+// the one projection at the tool boundary drops at every depth.
+type AgentToolsResponse struct {
+	DeniedFields []string           `json:"denied_fields"`
+	Prompts      []AgentPrompt      `json:"prompts"`
+	Refusals     []AgentToolRefusal `json:"refusals"`
+	Resources    []AgentResource    `json:"resources"`
+	Tools        []AgentTool        `json:"tools"`
 }
 
 // ApplyRetentionRequest is POST /backup-sets/{source}/{set}/retention/apply.
@@ -1456,6 +2501,93 @@ type ArtifactReinstateResponse struct {
 	Reason     string `json:"reason,omitempty"`
 	Reinstated bool   `json:"reinstated"`
 	State      string `json:"state,omitempty"`
+}
+
+// AssuranceDueItem is one copy's place in the scrub schedule.
+type AssuranceDueItem struct {
+	ArtifactID     string `json:"artifact_id"`
+	ArtifactName   string `json:"artifact_name"`
+	BackupSetID    string `json:"backup_set_id"`
+	Basis          string `json:"basis"`
+	CadenceSeconds int64  `json:"cadence_seconds"`
+	Due            bool   `json:"due"`
+	LastAssuredAt  string `json:"last_assured_at,omitempty"`
+	NextDueAt      string `json:"next_due_at"`
+	Overdue        bool   `json:"overdue"`
+}
+
+// AssuranceDueResponse is the scrub schedule, most overdue first, computed from each set's
+// resolved policy.
+type AssuranceDueResponse struct {
+	GeneratedAt string             `json:"generated_at"`
+	Items       []AssuranceDueItem `json:"items"`
+}
+
+// AssuranceHostKnob is A setting that is global only, with the reason a backup set cannot
+// override it. The per-set answer is written down for every
+// host-scoped knob so nobody looks for a per-set switch that could
+// not work.
+type AssuranceHostKnob struct {
+	Name   string `json:"name"`
+	PerSet bool   `json:"per_set"`
+	Reason string `json:"reason"`
+	Value  string `json:"value"`
+}
+
+// AssuranceOperationCancelled is A running scrub or recovery test has been told to stop.
+type AssuranceOperationCancelled struct {
+	BackupSetID string `json:"backup_set_id"`
+	Kind        string `json:"kind"`
+	OperationID string `json:"operation_id"`
+	Status      string `json:"status"`
+}
+
+// AssuranceOperationRecord is one scrub, recovery test or recovery as the durable activity
+// record holds it (#1200).
+type AssuranceOperationRecord struct {
+	BackupSetID string              `json:"backup_set_id"`
+	BytesRead   int64               `json:"bytes_read,omitempty"`
+	EndedAt     string              `json:"ended_at"`
+	Events      []LiveActivityEvent `json:"events"`
+	Kind        string              `json:"kind"`
+	OperationID string              `json:"operation_id"`
+	Reason      string              `json:"reason"`
+	Stage       string              `json:"stage"`
+	StartedAt   string              `json:"started_at"`
+	State       string              `json:"state"`
+}
+
+// AssuranceRecoveryTestPolicy is A resolved recovery-test policy.
+type AssuranceRecoveryTestPolicy struct {
+	BuiltinCheck         string `json:"builtin_check"`
+	CadenceSeconds       int64  `json:"cadence_seconds"`
+	EffectiveCheck       string `json:"effective_check,omitempty"`
+	EffectiveCheckReason string `json:"effective_check_reason,omitempty"`
+	Mode                 string `json:"mode"`
+	ValidatorDeclared    *bool  `json:"validator_declared,omitempty"`
+	ValidatorID          string `json:"validator_id"`
+}
+
+// AssuranceScrubPolicy is A resolved scrub policy: how often a copy is re-read and how much
+// of it is read.
+type AssuranceScrubPolicy struct {
+	CadenceSeconds int64  `json:"cadence_seconds"`
+	Strategy       string `json:"strategy"`
+}
+
+// AssuranceSettingsResponse is the deployment-wide assurance policy, RESOLVED. A config that
+// never mentions assurance reports the defaults here, which is the
+// point: the default is good enough that nobody has to set it.
+type AssuranceSettingsResponse struct {
+	Configured             bool                        `json:"configured"`
+	HostKnobs              []AssuranceHostKnob         `json:"host_knobs"`
+	MaxConcurrentFullReads int64                       `json:"max_concurrent_full_reads"`
+	MaxDownloadStreams     int64                       `json:"max_download_streams"`
+	MaxPerDestination      int64                       `json:"max_per_destination"`
+	RecoveryTest           AssuranceRecoveryTestPolicy `json:"recovery_test"`
+	Scrub                  AssuranceScrubPolicy        `json:"scrub"`
+	StagingRoot            string                      `json:"staging_root"`
+	StagingTtlSeconds      int64                       `json:"staging_ttl_seconds"`
 }
 
 // AuthErrorResponse is the FLAT error body the /auth operations return, with the
@@ -1563,6 +2695,16 @@ type BackupSet struct {
 	VerificationLevel                    string           `json:"verification_level,omitempty"`
 	VerificationRestoreDrillEverySeconds int64            `json:"verification_restore_drill_every_seconds,omitempty"`
 	VerificationSamplePercent            int              `json:"verification_sample_percent,omitempty"`
+}
+
+// BackupSetAssurance is one backup set's resolved assurance policy and whether it is the
+// set's own. Served together because 'what is deciding' and 'is that
+// this set's own or the deployment's' are one question.
+type BackupSetAssurance struct {
+	BackupSetID  string                      `json:"backup_set_id"`
+	IsOverride   bool                        `json:"is_override"`
+	RecoveryTest AssuranceRecoveryTestPolicy `json:"recovery_test"`
+	Scrub        AssuranceScrubPolicy        `json:"scrub"`
 }
 
 // BackupSetEditHold is POST /backup-sets/{source}/{set}/edit-hold. The lease just taken
@@ -1702,13 +2844,19 @@ type BackupSetWorkflowResponse struct {
 // PlatformCapabilities contract (apps/common/platform/capabilities).
 // A capability says what a platform CAN do; it never says who MAY do
 // it, and server-side authorization never consults it.
+// destructive_operations is the one field here that is not a
+// platform capability: it is this deployment's own destructive gate,
+// reported so a client can show the right control or message before
+// anyone presses a gated one.
 type CapabilitiesResponse struct {
-	AppStorePackaging   bool   `json:"app_store_packaging"`
-	EmbeddedWindow      bool   `json:"embedded_window"`
-	NativeAuth          bool   `json:"native_auth"`
-	NativeNotifications bool   `json:"native_notifications"`
-	Platform            string `json:"platform"`
-	StoragePicker       bool   `json:"storage_picker"`
+	AgentsHttpTransport   string                      `json:"agents_http_transport"`
+	AppStorePackaging     bool                        `json:"app_store_packaging"`
+	DestructiveOperations DestructiveOperationsStatus `json:"destructive_operations"`
+	EmbeddedWindow        bool                        `json:"embedded_window"`
+	NativeAuth            bool                        `json:"native_auth"`
+	NativeNotifications   bool                        `json:"native_notifications"`
+	Platform              string                      `json:"platform"`
+	StoragePicker         bool                        `json:"storage_picker"`
 }
 
 // CapacitySettings is FR-21's capacity configuration as it is actually deciding. Every
@@ -1766,6 +2914,14 @@ type ConfigRevisionStaleResponse struct {
 	Error          ErrorBody `json:"error"`
 }
 
+// ConfirmRecoveryBundleRequest is POST /encryption/keys/{id}/confirm. A statement that the exported
+// bundle is stored safely, never an upload. With no digest it
+// confirms the newest export of the key; with one it must match an
+// export.
+type ConfirmRecoveryBundleRequest struct {
+	Digest string `json:"digest,omitempty"`
+}
+
 // ConnectionCheck is one step of a connection test. `outcome` is passed, failed or
 // skipped, and skipped is a first-class answer rather than a quiet
 // pass: a surface that renders a skipped authentication as anything
@@ -1803,6 +2959,15 @@ type CreateBackupSetResponse struct {
 	RunError  string     `json:"run_error,omitempty"`
 }
 
+// CreateCustomValidatorRequest is A custom validator to upload.
+type CreateCustomValidatorRequest struct {
+	BackupSetID string `json:"backup_set_id"`
+	Env         string `json:"env"`
+	Name        string `json:"name"`
+	Pattern     string `json:"pattern"`
+	Script      string `json:"script"`
+}
+
 // CreateRepositoryDomainRequest is POST /repositories: declare a repository domain. What this
 // persists is a DECLARATION -- an id, a co-tenancy posture and the
 // reference the passphrase is resolved from -- and it creates no
@@ -1835,6 +3000,96 @@ type CredentialsRequest struct {
 	Username string `json:"username"`
 }
 
+// CustomValidator is A custom recovery-test validator (#1203): an operator's
+// NAME.local.sh attached to an artifact-name pattern. For the copy a
+// recovery test is about to check, the first of these that applies
+// runs: a validator scoped to the copy's backup set whose pattern
+// matches its name, a global validator whose pattern matches, the
+// set's validator_id, the one script in
+// recovery-test/<source>/<set>, the built-in structure check. Two
+// patterns at one scope that both match a name end the test
+// could_not_complete rather than picking one.
+type CustomValidator struct {
+	Anchored        bool                   `json:"anchored"`
+	BackupSetID     string                 `json:"backup_set_id"`
+	Env             string                 `json:"env"`
+	ExampleName     string                 `json:"example_name"`
+	LastResult      *CustomValidatorResult `json:"last_result,omitempty"`
+	MatchCount      int64                  `json:"match_count"`
+	MatchSets       []string               `json:"match_sets"`
+	Name            string                 `json:"name"`
+	Pattern         string                 `json:"pattern"`
+	PinnedSha256    string                 `json:"pinned_sha256"`
+	Scope           string                 `json:"scope"`
+	ScriptFile      string                 `json:"script_file"`
+	ScriptPresent   bool                   `json:"script_present"`
+	ScriptSha256    string                 `json:"script_sha256"`
+	ScriptSizeBytes int64                  `json:"script_size_bytes"`
+	ScriptState     string                 `json:"script_state"`
+	UploadedAt      string                 `json:"uploaded_at"`
+}
+
+// CustomValidatorAmbiguity is A collision between custom validators found in the journal: one
+// backup, two or more patterns at one scope.
+type CustomValidatorAmbiguity struct {
+	BackupSetID string   `json:"backup_set_id"`
+	Example     string   `json:"example"`
+	Validators  []string `json:"validators"`
+}
+
+// CustomValidatorConflict is another validator at the same scope that already matches a backup
+// this pattern matches.
+type CustomValidatorConflict struct {
+	Example   string `json:"example"`
+	Validator string `json:"validator"`
+}
+
+// CustomValidatorPattern is A pattern suggested from existing backups: every run of digits
+// generalised (\d{8}, \d{4}-\d{2}-\d{2}, \d{8}T\d{6}Z), everything
+// else matched literally, anchored at both ends.
+type CustomValidatorPattern struct {
+	Example    string   `json:"example"`
+	MatchCount int64    `json:"match_count"`
+	MatchSets  []string `json:"match_sets"`
+	Pattern    string   `json:"pattern"`
+	Validator  string   `json:"validator"`
+}
+
+// CustomValidatorPatternsResponse is suggested patterns, most common first, at most 200.
+type CustomValidatorPatternsResponse struct {
+	BackupSetID string                   `json:"backup_set_id"`
+	Patterns    []CustomValidatorPattern `json:"patterns"`
+}
+
+// CustomValidatorPreview is what a pattern would match, judged by Go's RE2 (the engine that
+// will match it), so a browser's own regular expressions never
+// decide.
+type CustomValidatorPreview struct {
+	Anchored   bool                      `json:"anchored"`
+	Conflicts  []CustomValidatorConflict `json:"conflicts"`
+	Error      string                    `json:"error"`
+	MatchCount int64                     `json:"match_count"`
+	MatchSets  []string                  `json:"match_sets"`
+	Sample     []string                  `json:"sample"`
+	Valid      bool                      `json:"valid"`
+}
+
+// CustomValidatorResolution is which validator a recovery test of one backup would run.
+type CustomValidatorResolution struct {
+	Ambiguous  []string `json:"ambiguous"`
+	ArtifactID string   `json:"artifact_id"`
+	Fallback   string   `json:"fallback"`
+	Validator  string   `json:"validator"`
+}
+
+// CustomValidatorResult is the newest recovery test recorded under a custom validator's
+// script.
+type CustomValidatorResult struct {
+	ArtifactID string `json:"artifact_id"`
+	At         string `json:"at"`
+	State      string `json:"state"`
+}
+
 // CycleMoveOutcome is what a finished cycle's move pass got done: how many artifacts
 // were due to move to the medium their retention tier names, and how
 // many arrived. Without these, a cycle in which every move was
@@ -1864,18 +3119,189 @@ type CycleOutcome struct {
 	Moves               *CycleMoveOutcome `json:"moves,omitempty"`
 }
 
-// EnrollRequest is POST /auth/enroll. The credentials, plus the two things issue #830
-// makes part of creating the administrator: the address account
-// recovery mails to, and the SMTP endpoint it goes out over. Both
-// are required, because an administrator with no proven way to reach
-// its owner is an account that is permanently lost the first time a
-// password is forgotten, and enrollment is the last moment at which
-// somebody who can still sign in is present to fix the mail
-// configuration. The runtime SENDS a confirmation message to
-// `recoveryEmail` over `smtp` before it writes anything, and refuses
-// the whole enrollment with SMTP_SEND_FAILED if that send does not
-// succeed - leaving the single-use enrollment token unspent, so the
-// same link can be used again once the configuration is fixed.
+// DestructiveOperationsStatus is whether this deployment's destructive gate is open, and why it is
+// not when it is not (issue #1165). The gate is the one the routes
+// marked x-destructive-gate ask before they act, and the one the
+// recovery routes marked x-destructive-gate-target-kinds ask for a
+// recovery onto the source host (issue #1191), and the state here is
+// read from that same gate at the moment of the request, so it can
+// change while the process runs. It is open on a local-account
+// profile and shut on a gateway profile until #92 ships a verified
+// gate (issue #1163). step_up_required and
+// insecure_transport_ack_required say what an open gate still asks
+// for, read from what the router will enforce rather than assumed.
+// The CLI is not behind the gate: the terminal verbs the gated
+// routes have equivalents for run with no gate.
+type DestructiveOperationsStatus struct {
+	InsecureTransportAckRequired bool   `json:"insecure_transport_ack_required"`
+	Reason                       string `json:"reason"`
+	State                        string `json:"state"`
+	StepUpRequired               bool   `json:"step_up_required"`
+}
+
+// EncryptExistingCandidate is one plaintext copy and what a run would do with it. verdict is
+// would_encrypt or refused; refusal is the stable reason code of a
+// refusal (not_required, already_encrypted, no_plaintext_copy,
+// key_unavailable, destination_unverifiable, no_room,
+// source_unreadable or not_eligible) and reason is the sentence the
+// run would refuse with.
+type EncryptExistingCandidate struct {
+	ArtifactID   string `json:"artifact_id"`
+	Reason       string `json:"reason,omitempty"`
+	Refusal      string `json:"refusal,omitempty"`
+	SourceMedium string `json:"source_medium"`
+	Verdict      string `json:"verdict"`
+}
+
+// EncryptExistingPlan is GET /encryption/encrypt-existing. The dry run: every backup of the
+// set with a copy on a medium, whether a run would encrypt it onto
+// the destination, and why not when it would not. It changes and
+// reads nothing.
+type EncryptExistingPlan struct {
+	Candidates   []EncryptExistingCandidate `json:"candidates"`
+	Refused      int64                      `json:"refused"`
+	WouldEncrypt int64                      `json:"would_encrypt"`
+}
+
+// EncryptionCopy is one copy's encryption state. A plaintext copy says encrypted false
+// and nothing else.
+type EncryptionCopy struct {
+	Encrypted             bool   `json:"encrypted"`
+	Format                string `json:"format,omitempty"`
+	FormatVersion         int    `json:"format_version,omitempty"`
+	KeyID                 string `json:"key_id,omitempty"`
+	KeyResolvable         *bool  `json:"key_resolvable,omitempty"`
+	Medium                string `json:"medium"`
+	PlaintextDigest       string `json:"plaintext_digest,omitempty"`
+	StoredDigest          string `json:"stored_digest,omitempty"`
+	StoredDigestAlgorithm string `json:"stored_digest_algorithm,omitempty"`
+	StoredSize            int64  `json:"stored_size,omitempty"`
+}
+
+// EncryptionKeyProvider is who holds the key: this product's managed key, or an external
+// reference. Exactly one.
+type EncryptionKeyProvider struct {
+	External *EncryptionKeyReference `json:"external,omitempty"`
+	Managed  bool                    `json:"managed,omitempty"`
+}
+
+// EncryptionKeyProviderState is A key provider as it reads back. kind is managed, external or
+// none. source is the reference's description (a path, a variable
+// name, or an executable without arguments) and is absent for
+// managed and none. It cannot be parsed back into a reference.
+type EncryptionKeyProviderState struct {
+	Kind   string `json:"kind"`
+	Source string `json:"source,omitempty"`
+}
+
+// EncryptionKeyReference is where an external key is read from: exactly one of file, env or
+// command. Write-only: a response never carries this shape, only the
+// description in EncryptionKeyProviderState.
+type EncryptionKeyReference struct {
+	Command []string `json:"command,omitempty"`
+	Env     string   `json:"env,omitempty"`
+	File    string   `json:"file,omitempty"`
+}
+
+// EncryptionKeyStatus is one managed key's identity and condition. Ids, timestamps, status
+// and whether it resolves right now. Never key material, a recipient
+// or a fingerprint.
+type EncryptionKeyStatus struct {
+	BundleConfirmed   bool   `json:"bundle_confirmed"`
+	BundleConfirmedAt string `json:"bundle_confirmed_at,omitempty"`
+	BundleExportedAt  string `json:"bundle_exported_at,omitempty"`
+	CopiesRecording   int    `json:"copies_recording"`
+	CreatedAt         string `json:"created_at"`
+	ID                string `json:"id"`
+	Reason            string `json:"reason,omitempty"`
+	Resolvability     string `json:"resolvability"`
+	Resolvable        bool   `json:"resolvable"`
+	RetiredAt         string `json:"retired_at,omitempty"`
+	Status            string `json:"status"`
+	Suite             string `json:"suite"`
+}
+
+// EncryptionOverride is PUT /backup-sets/{source}/{set}/encryption. A backup set's own
+// mode (inherit, off or required) and, for required, its own key
+// provider. A whole replace.
+type EncryptionOverride struct {
+	KeyProvider *EncryptionKeyProvider `json:"key_provider,omitempty"`
+	Mode        string                 `json:"mode"`
+}
+
+// EncryptionPolicy is GET /encryption/policy. The deployment's retained-copy encryption
+// mode and key provider, and every backup set's resolution.
+type EncryptionPolicy struct {
+	KeyProvider     EncryptionKeyProviderState `json:"key_provider"`
+	Mode            string                     `json:"mode"`
+	RotateCommand   string                     `json:"rotate_command,omitempty"`
+	RotationNeeded  bool                       `json:"rotation_needed,omitempty"`
+	Sets            []EncryptionSetPolicy      `json:"sets"`
+	Suite           string                     `json:"suite"`
+	SuiteConfigured string                     `json:"suite_configured"`
+}
+
+// EncryptionPolicyPatch is PATCH /encryption/policy. Fields that are present change and the
+// rest stay. At least one is required.
+type EncryptionPolicyPatch struct {
+	KeyProvider *EncryptionKeyProvider `json:"key_provider,omitempty"`
+	Mode        string                 `json:"mode,omitempty"`
+	Suite       string                 `json:"suite,omitempty"`
+}
+
+// EncryptionProviderProbe is whether a key provider resolves right now. source is a
+// description, never the reference itself.
+type EncryptionProviderProbe struct {
+	Reason string `json:"reason,omitempty"`
+	Source string `json:"source"`
+	State  string `json:"state"`
+}
+
+// EncryptionProviderTestRequest is POST /encryption/providers/test. Name a managed key id or an
+// external reference to test.
+type EncryptionProviderTestRequest struct {
+	External     *EncryptionKeyReference `json:"external,omitempty"`
+	ManagedKeyID string                  `json:"managed_key_id,omitempty"`
+}
+
+// EncryptionSetPolicy is what one backup set's retained-copy encryption is set to, and what
+// that resolves to. mode is what the set says (inherit, off or
+// required); effective_mode is what applies.
+type EncryptionSetPolicy struct {
+	BackupSetID          string                     `json:"backup_set_id"`
+	EffectiveKeyProvider EncryptionKeyProviderState `json:"effective_key_provider"`
+	EffectiveMode        string                     `json:"effective_mode"`
+	IsOverride           bool                       `json:"is_override"`
+	KeyProvider          EncryptionKeyProviderState `json:"key_provider"`
+	Mode                 string                     `json:"mode"`
+	SatisfiedBy          string                     `json:"satisfied_by,omitempty"`
+}
+
+// EncryptionSuite is one encryption suite this build has. describe is the only sentence
+// a surface may print about it.
+type EncryptionSuite struct {
+	ActiveCopies      int    `json:"active_copies"`
+	Default           bool   `json:"default"`
+	Describe          string `json:"describe"`
+	ID                string `json:"id"`
+	Keys              int    `json:"keys"`
+	RetirementVersion string `json:"retirement_version,omitempty"`
+	Status            string `json:"status"`
+	Version           int    `json:"version"`
+}
+
+// EnrollRequest is POST /auth/enroll. The credentials, and optionally the two things
+// issue #830 makes part of recovering the administrator: the address
+// account recovery mails to, and the SMTP endpoint it goes out over.
+// Both are optional together (retnd#1049): a body with only the
+// credentials creates the administrator with recovery left
+// unconfigured, to be finished from Settings. A body that supplies
+// either is held to both: the runtime SENDS a verification message
+// to `recoveryEmail` over `smtp` before it writes anything, and
+// refuses the whole enrollment with SMTP_SEND_FAILED if that send
+// does not succeed - leaving the single-use enrollment token
+// unspent, so the same link can be used again once the configuration
+// is fixed.
 type EnrollRequest struct {
 	Password      string       `json:"password"`
 	RecoveryEmail string       `json:"recoveryEmail"`
@@ -1897,12 +3323,27 @@ type ErrorResponse struct {
 	Error ErrorBody `json:"error"`
 }
 
-// FirstRunStatusResponse is GET /system/first-run. The one question a client asks before it
-// decides whether to render the setup flow or the application.
-// Deliberately one field: a client that has just been handed a 503
-// NOT_CONFIGURED needs to know which screen to show, not why.
+// FirstRunStatusResponse is GET /system/first-run. Whether this deployment has a
+// configuration, and which guided setup step comes next. A fresh
+// install is configured from its first start (the engine writes a
+// default configuration), so `configured` is true there and the
+// guide is what tells an operator what is left to do. The steps are
+// derived from the thing each one sets up, except a skip, which is
+// stored.
 type FirstRunStatusResponse struct {
-	Configured bool `json:"configured"`
+	ConfigDir        string        `json:"config_dir,omitempty"`
+	ConfigDirProblem string        `json:"config_dir_problem,omitempty"`
+	Configured       bool          `json:"configured"`
+	NextStep         string        `json:"next_step"`
+	Steps            FirstRunSteps `json:"steps"`
+}
+
+// FirstRunSteps is each guided setup step mapped to its state: done, pending or
+// skipped.
+type FirstRunSteps struct {
+	Administrator string `json:"administrator"`
+	BackupSet     string `json:"backup_set"`
+	Email         string `json:"email"`
 }
 
 // ForgotPasswordRequest is POST /auth/forgot-password. One field, and the answer never varies
@@ -1919,8 +3360,9 @@ type ForgotPasswordRequest struct {
 // verdict, computed fresh on every call. Build and process facts are
 // GET /system/version's, deliberately not restated here.
 type HealthResponse struct {
-	BackupSets  []BackupSetHealth `json:"backup_sets"`
-	GeneratedAt string            `json:"generated_at"`
+	BackupSets    []BackupSetHealth `json:"backup_sets"`
+	GeneratedAt   string            `json:"generated_at"`
+	RetainedCount int               `json:"retained_count"`
 }
 
 // HostKeyProbeRequest is POST /ssh/host-key-probe. Opens a real outbound connection, trusts
@@ -1992,6 +3434,24 @@ type ListActivityResponse struct {
 	NextCursor string          `json:"next_cursor,omitempty"`
 }
 
+// ListAgentAuditResponse is GET /agent/audit, newest first.
+type ListAgentAuditResponse struct {
+	Entries    []AgentAuditEntry `json:"entries"`
+	NextCursor string            `json:"next_cursor,omitempty"`
+}
+
+// ListAgentConfirmationsResponse is GET /agent/confirmations. The newest confirmations first, pending
+// ones whose time has passed already read expired.
+type ListAgentConfirmationsResponse struct {
+	Confirmations []AgentConfirmation `json:"confirmations"`
+}
+
+// ListAgentTokensResponse is GET /agent/tokens. Every token, revoked and expired ones included,
+// with their status.
+type ListAgentTokensResponse struct {
+	Tokens []AgentToken `json:"tokens"`
+}
+
 // ListArtifactsResponse is GET /backups and GET /quarantine. An object with one array field,
 // never a bare top-level array.
 type ListArtifactsResponse struct {
@@ -2016,6 +3476,42 @@ type ListBackendsResponse struct {
 // top-level array.
 type ListBackupSetsResponse struct {
 	BackupSets []BackupSet `json:"backup_sets"`
+}
+
+// ListCustomValidatorsResponse is the custom validators, and what this deployment allows.
+type ListCustomValidatorsResponse struct {
+	Ambiguities         []CustomValidatorAmbiguity `json:"ambiguities"`
+	Available           bool                       `json:"available"`
+	Directory           string                     `json:"directory"`
+	DirectoryRefused    string                     `json:"directory_refused"`
+	MaxPatternBytes     int64                      `json:"max_pattern_bytes"`
+	MaxScriptBytes      int64                      `json:"max_script_bytes"`
+	MaxValidators       int64                      `json:"max_validators"`
+	Resolution          *CustomValidatorResolution `json:"resolution,omitempty"`
+	RunnerConfigured    bool                       `json:"runner_configured"`
+	ScriptsDir          string                     `json:"scripts_dir"`
+	UnavailableReason   string                     `json:"unavailable_reason"`
+	Validators          []CustomValidator          `json:"validators"`
+	WorkflowRoot        string                     `json:"workflow_root"`
+	WorkflowRootDefault bool                       `json:"workflow_root_default"`
+}
+
+// ListEncryptionCopiesResponse is GET /encryption/copies. The encryption state of each copy of one
+// backup.
+type ListEncryptionCopiesResponse struct {
+	ArtifactID string           `json:"artifact_id"`
+	Copies     []EncryptionCopy `json:"copies"`
+}
+
+// ListEncryptionKeysResponse is GET /encryption/keys. Every managed key, oldest first.
+type ListEncryptionKeysResponse struct {
+	Keys []EncryptionKeyStatus `json:"keys"`
+}
+
+// ListEncryptionSuitesResponse is GET /encryption/suites. Every suite this build has, in table
+// order.
+type ListEncryptionSuitesResponse struct {
+	Suites []EncryptionSuite `json:"suites"`
 }
 
 // ListOperationsResponse is GET /operations, newest first. The list counterpart of GET
@@ -2336,6 +3832,25 @@ type MediumPreflightResponse struct {
 	OK     bool                   `json:"ok"`
 }
 
+// MintAgentTokenRequest is POST /agent/tokens. name becomes the agent:<name> principal. scope
+// defaults to read, the only default. expires_in is a number of days
+// such as 90d or a Go duration such as 720h; it defaults to 90d, may
+// not exceed 365d, and there is no non-expiring token.
+type MintAgentTokenRequest struct {
+	ExpiresIn string `json:"expires_in,omitempty"`
+	Name      string `json:"name"`
+	Scope     string `json:"scope,omitempty"`
+}
+
+// MintedAgentToken is the one answer that carries the token itself. token is shown
+// exactly once, here: the deployment stores its SHA-256 and the
+// eight-character prefix, so a lost token is revoked and minted
+// again, never recovered.
+type MintedAgentToken struct {
+	AgentToken AgentToken `json:"agent_token"`
+	Token      string     `json:"token"`
+}
+
 // Operation is one durable operation record. Timestamp fields are omitted, not
 // zero-valued, until the event they name has happened. progress is
 // the separate, ephemeral thing: see OperationProgress for why it is
@@ -2420,15 +3935,230 @@ type OperationRestore struct {
 // verification_class fields are for. Nothing here is a price, a bill
 // or an estimate of how long a restore will take; see access.
 type Placement struct {
-	Access            string `json:"access"`
-	Location          string `json:"location"`
-	Medium            string `json:"medium"`
-	MediumType        string `json:"medium_type"`
-	SizeBytes         *int64 `json:"size_bytes,omitempty"`
-	Status            string `json:"status"`
-	StorageClass      string `json:"storage_class,omitempty"`
-	VerificationClass string `json:"verification_class,omitempty"`
-	VerifiedAt        string `json:"verified_at,omitempty"`
+	Access                  string `json:"access"`
+	AssuranceState          string `json:"assurance_state,omitempty"`
+	ConsecutiveFailures     int    `json:"consecutive_failures,omitempty"`
+	Encrypted               bool   `json:"encrypted,omitempty"`
+	EncryptionKeyID         string `json:"encryption_key_id,omitempty"`
+	EncryptionKeyResolvable *bool  `json:"encryption_key_resolvable,omitempty"`
+	EncryptionSuite         string `json:"encryption_suite,omitempty"`
+	LastCheckedAt           string `json:"last_checked_at,omitempty"`
+	LastFailureAt           string `json:"last_failure_at,omitempty"`
+	LastFailureReason       string `json:"last_failure_reason,omitempty"`
+	Location                string `json:"location"`
+	Medium                  string `json:"medium"`
+	MediumType              string `json:"medium_type"`
+	RecoveryCheck           string `json:"recovery_check,omitempty"`
+	RecoveryFailureReason   string `json:"recovery_failure_reason,omitempty"`
+	RecoveryState           string `json:"recovery_state,omitempty"`
+	RecoveryTestedAt        string `json:"recovery_tested_at,omitempty"`
+	SizeBytes               *int64 `json:"size_bytes,omitempty"`
+	Status                  string `json:"status"`
+	StorageClass            string `json:"storage_class,omitempty"`
+	VerificationClass       string `json:"verification_class,omitempty"`
+	VerifiedAt              string `json:"verified_at,omitempty"`
+}
+
+// PreviewCustomValidatorRequest is A pattern to judge, without saving anything.
+type PreviewCustomValidatorRequest struct {
+	BackupSetID string `json:"backup_set_id"`
+	Pattern     string `json:"pattern"`
+	Replacing   string `json:"replacing"`
+}
+
+// RecoveryBundle is POST /encryption/keys/{id}/export. The disaster-recovery bundle:
+// the ONE shape in this API that carries key material, answered once
+// as a file to save and never rendered. Whether the API should
+// return it at all is an open decision (see docs/api/contract.md).
+type RecoveryBundle struct {
+	Created      string   `json:"created"`
+	Digest       string   `json:"digest"`
+	Exported     string   `json:"exported"`
+	Format       string   `json:"format"`
+	Instructions []string `json:"instructions"`
+	KeyID        string   `json:"key_id"`
+	Material     string   `json:"material"`
+	Recipient    string   `json:"recipient"`
+	Version      string   `json:"version"`
+}
+
+// RecoveryBundleReceipt is what exporting a bundle left on record: the key, the digest the
+// bundle carries and when. No material.
+type RecoveryBundleReceipt struct {
+	Digest     string `json:"digest"`
+	ExportedAt string `json:"exported_at"`
+	KeyID      string `json:"key_id"`
+}
+
+type RecoveryManyError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// RecoveryManyEvent is one line of the application/x-ndjson stream a non-pre-flight POST
+// /recoveries answers with. `plan` comes once, after the pre-flight
+// passed and before any byte is read; `start` and `item` come per
+// file (item carries its outcome and the running total); `result` is
+// last. A refusal from the pre-flight is an ordinary error response
+// before the first line.
+type RecoveryManyEvent struct {
+	DoneBytes  *int64              `json:"done_bytes,omitempty"`
+	Error      *RecoveryManyError  `json:"error,omitempty"`
+	Event      string              `json:"event"`
+	Index      int                 `json:"index,omitempty"`
+	Item       *RecoveryManyItem   `json:"item,omitempty"`
+	Plan       *RecoveryManyPlan   `json:"plan,omitempty"`
+	Result     *RecoveryManyResult `json:"result,omitempty"`
+	Total      int                 `json:"total,omitempty"`
+	TotalBytes *int64              `json:"total_bytes,omitempty"`
+}
+
+// RecoveryManyItem is one backup in a plan or a result. Status is ready (plan only),
+// recovered, failed, skipped (not a restore point, or the run was
+// cancelled before it started), needs_thaw (a provider restore was
+// started or is needed), quarantined or unrecoverable (listed, never
+// included).
+type RecoveryManyItem struct {
+	ArtifactID string                    `json:"artifact_id"`
+	Bytes      int64                     `json:"bytes,omitempty"`
+	Chargeable bool                      `json:"chargeable,omitempty"`
+	Code       string                    `json:"code,omitempty"`
+	Copy       string                    `json:"copy,omitempty"`
+	File       string                    `json:"file,omitempty"`
+	Key        string                    `json:"key,omitempty"`
+	Message    string                    `json:"message,omitempty"`
+	Name       string                    `json:"name"`
+	Path       string                    `json:"path,omitempty"`
+	Restore    *RecoveryRestoreOperation `json:"restore,omitempty"`
+	Sha256     string                    `json:"sha256,omitempty"`
+	SizeBytes  *int64                    `json:"size_bytes,omitempty"`
+	Status     string                    `json:"status"`
+	Verified   string                    `json:"verified,omitempty"`
+}
+
+// RecoveryManyPlan is the pre-flight: what a recovery of several backups would do,
+// before a byte is read.
+type RecoveryManyPlan struct {
+	ChargeableBytes    int64              `json:"chargeable_bytes"`
+	ChargeableCount    int                `json:"chargeable_count"`
+	DestinationID      string             `json:"destination_id,omitempty"`
+	Folder             string             `json:"folder"`
+	FreeBytes          *int64             `json:"free_bytes,omitempty"`
+	Items              []RecoveryManyItem `json:"items"`
+	Refusal            *RecoveryManyError `json:"refusal,omitempty"`
+	ReserveBytes       int64              `json:"reserve_bytes"`
+	Set                string             `json:"set,omitempty"`
+	SourceFreeBytes    *int64             `json:"source_free_bytes,omitempty"`
+	SourceReserveBytes int64              `json:"source_reserve_bytes,omitempty"`
+	Target             RecoveryTarget     `json:"target"`
+	Totals             RecoveryManyTotals `json:"totals"`
+	UnknownSizes       int                `json:"unknown_sizes"`
+	URL                string             `json:"url,omitempty"`
+}
+
+// RecoveryManyRequest is POST /recoveries. Recovers several backups, or every restore point
+// of one backup set, to ONE destination, as if each had been
+// recovered alone: the same checks against the digest recorded at
+// ingestion, the same refusals and budgets, nothing half-written.
+// Name exactly one of `set` and `artifacts`. The target is `staging`
+// or `storage`; `download` is refused, because many files do not fit
+// one browser download.
+type RecoveryManyRequest struct {
+	Acknowledged bool           `json:"acknowledged,omitempty"`
+	All          bool           `json:"all,omitempty"`
+	Artifacts    []string       `json:"artifacts,omitempty"`
+	Copy         string         `json:"copy,omitempty"`
+	NewestOnly   bool           `json:"newest_only,omitempty"`
+	Preflight    bool           `json:"preflight,omitempty"`
+	Set          string         `json:"set,omitempty"`
+	Since        string         `json:"since,omitempty"`
+	Target       RecoveryTarget `json:"target"`
+	Until        string         `json:"until,omitempty"`
+}
+
+// RecoveryManyResult is what a run did. The summary and the manifest file written beside
+// the recovered files are built from the same rows, so they agree
+// with each other and with the disk.
+type RecoveryManyResult struct {
+	Cancelled      bool               `json:"cancelled"`
+	DestinationID  string             `json:"destination_id,omitempty"`
+	Folder         string             `json:"folder"`
+	Items          []RecoveryManyItem `json:"items"`
+	ManifestKey    string             `json:"manifest_key,omitempty"`
+	ManifestPath   string             `json:"manifest_path,omitempty"`
+	ManifestSha256 string             `json:"manifest_sha256,omitempty"`
+	OperationID    string             `json:"operation_id"`
+	Set            string             `json:"set,omitempty"`
+	Target         RecoveryTarget     `json:"target"`
+	Totals         RecoveryManyTotals `json:"totals"`
+	URL            string             `json:"url,omitempty"`
+}
+
+// RecoveryManyTotals is counts of the rows of a plan or a result, and the bytes they come
+// to.
+type RecoveryManyTotals struct {
+	Bytes         int64 `json:"bytes"`
+	Count         int   `json:"count"`
+	Failed        int   `json:"failed"`
+	NeedsThaw     int   `json:"needs_thaw"`
+	Quarantined   int   `json:"quarantined"`
+	Ready         int   `json:"ready"`
+	Recovered     int   `json:"recovered"`
+	Skipped       int   `json:"skipped"`
+	Unrecoverable int   `json:"unrecoverable"`
+}
+
+// RecoveryMintRequest is POST /backups/{source}/{set}/{name}/recovery. Asks for one
+// retained copy of one backup to be read once, to one target. It
+// authorises nothing by itself beyond minting a short-lived,
+// single-use grant bound to the session that asked.
+type RecoveryMintRequest struct {
+	Acknowledged bool           `json:"acknowledged,omitempty"`
+	Copy         string         `json:"copy,omitempty"`
+	Target       RecoveryTarget `json:"target"`
+}
+
+// RecoveryMintResponse is the answer to a mint, in one of two shapes. A grant (201): the
+// token is shown once, is bound to the minting session, dies when
+// that session ends, expires within minutes, and is spent when the
+// download completes, fails or is abandoned. Or (202), when the only
+// copy is on an archive class and an acknowledged request started
+// exactly one provider restore: no grant yet, ask again once the
+// copy is readable. Carries no percentage, finishing time or amount,
+// because this product knows none of them.
+type RecoveryMintResponse struct {
+	ArtifactID    string                    `json:"artifact_id"`
+	Copy          string                    `json:"copy"`
+	DestinationID string                    `json:"destination_id,omitempty"`
+	DownloadURL   string                    `json:"download_url,omitempty"`
+	ExpiresAt     string                    `json:"expires_at,omitempty"`
+	Grant         string                    `json:"grant,omitempty"`
+	Restore       *RecoveryRestoreOperation `json:"restore,omitempty"`
+	SizeBytes     *int64                    `json:"size_bytes,omitempty"`
+	Target        *RecoveryTarget           `json:"target,omitempty"`
+	URL           string                    `json:"url,omitempty"`
+}
+
+type RecoveryRestoreOperation struct {
+	Billing     string `json:"billing,omitempty"`
+	OperationID string `json:"operation_id"`
+	Wait        string `json:"wait,omitempty"`
+}
+
+// RecoveryResult is what a redeemed grant answers when its target is server-side
+// (staging or storage): the bytes were verified and placed, and
+// nothing was streamed.
+type RecoveryResult struct {
+	ArtifactID    string         `json:"artifact_id"`
+	Bytes         int64          `json:"bytes"`
+	Copy          string         `json:"copy"`
+	DestinationID string         `json:"destination_id,omitempty"`
+	Key           string         `json:"key,omitempty"`
+	Path          string         `json:"path,omitempty"`
+	Sha256        string         `json:"sha256"`
+	Target        RecoveryTarget `json:"target"`
+	URL           string         `json:"url,omitempty"`
+	Verified      string         `json:"verified,omitempty"`
 }
 
 // RecoverySettingsResponse is GET /auth/recovery and PATCH /auth/recovery: the recovery address,
@@ -2461,6 +4191,100 @@ type RecoverySettingsUpdate struct {
 	CurrentPassword string        `json:"currentPassword"`
 	RecoveryEmail   *string       `json:"recoveryEmail"`
 	Smtp            *SmtpSettings `json:"smtp"`
+}
+
+// RecoveryTarget is where one recovery writes its bytes. The set is closed: download
+// streams to the caller that redeems the grant, staging places one
+// file under the configured recovery staging root, storage uploads
+// to another configured storage destination. A staging or storage
+// target is written only after the whole copy has been read and has
+// matched the SHA-256 the journal recorded. A download is not
+// staged: it is refused before its first byte unless a read of the
+// whole copy has matched that digest, and each chunk is checked
+// again as it is sent. source (issue #1191) uploads back onto the
+// backup set's own SFTP source host, built from the set's
+// configuration and never from the request, into a new folder under
+// its remote path, under a temporary name renamed into place so
+// nothing there is ever replaced. It writes onto a production
+// machine, so it needs acknowledged_destination, and over HTTP it
+// goes through the destructive gate, the insecure-transport
+// acknowledgement and the step-up re-authentication
+// (x-destructive-gate-target-kinds).
+type RecoveryTarget struct {
+	AcknowledgedDestination string `json:"acknowledged_destination,omitempty"`
+	Key                     string `json:"key,omitempty"`
+	Kind                    string `json:"kind"`
+	Medium                  string `json:"medium,omitempty"`
+	Path                    string `json:"path,omitempty"`
+}
+
+// RecoveryTestOutput is what the newest recovery test of a backup set printed. Only the
+// newest test is kept per set.
+type RecoveryTestOutput struct {
+	ArtifactID  string                     `json:"artifact_id"`
+	BackupSetID string                     `json:"backup_set_id"`
+	Medium      string                     `json:"medium"`
+	OperationID string                     `json:"operation_id"`
+	Recorded    bool                       `json:"recorded"`
+	RecordedAt  string                     `json:"recorded_at"`
+	Records     []RecoveryTestOutputRecord `json:"records"`
+	State       string                     `json:"state"`
+	Truncated   bool                       `json:"truncated"`
+}
+
+// RecoveryTestOutputRecord is one line of a validator's output, or the runner's own truncation
+// marker. Branch on kind and never on text: only the runner produces
+// a truncation record, so a validator that prints the marker's words
+// is still an output record.
+type RecoveryTestOutputRecord struct {
+	Kind string `json:"kind"`
+	Text string `json:"text"`
+}
+
+// RecoveryTestStarted is A recovery test is under way. operation_id is carried by its
+// recovery_test_start, recovery_stage and recovery_test_end lines on
+// the activity feed, which is how a client follows it; the verdict
+// is the copy's recovery claim once it ends.
+type RecoveryTestStarted struct {
+	BackupSetID string `json:"backup_set_id"`
+	Coalesced   bool   `json:"coalesced"`
+	OperationID string `json:"operation_id"`
+}
+
+// ReencryptCandidate is one encrypted copy and what a run would do with it.
+// destination_medium is the medium a run would write the new copy to
+// (the one asked for, or, when none was, the first other configured
+// medium); verdict is would_reencrypt or refused; refusal is the
+// stable reason code of a refusal (already_current,
+// source_key_unavailable, same_medium, no_destination, not_required,
+// key_unavailable, destination_unverifiable, no_room,
+// source_unreadable or not_eligible) and reason is the sentence the
+// run would refuse with.
+type ReencryptCandidate struct {
+	ArtifactID        string `json:"artifact_id"`
+	DestinationMedium string `json:"destination_medium,omitempty"`
+	Reason            string `json:"reason,omitempty"`
+	Refusal           string `json:"refusal,omitempty"`
+	SourceMedium      string `json:"source_medium"`
+	Verdict           string `json:"verdict"`
+}
+
+// ReencryptGroup is the copies under one suite and one key, as their per-copy records
+// name them.
+type ReencryptGroup struct {
+	Candidates []ReencryptCandidate `json:"candidates"`
+	KeyID      string               `json:"key_id"`
+	SuiteID    string               `json:"suite_id"`
+}
+
+// ReencryptPlan is GET /encryption/reencrypt. The dry run: every encrypted copy the
+// selector matches, grouped by suite and then by key, whether a run
+// would rewrite it under the active suite and key, and why not when
+// it would not. It changes and reads nothing.
+type ReencryptPlan struct {
+	Groups         []ReencryptGroup `json:"groups"`
+	Refused        int64            `json:"refused"`
+	WouldReencrypt int64            `json:"would_reencrypt"`
 }
 
 // RepositoryHealth is one repository domain's own health, which is a different question
@@ -2751,6 +4575,92 @@ type SSHKeyDiscoveryLocation struct {
 	Problem string `json:"problem,omitempty"`
 }
 
+// ScrubArtifactError is an artifact the pass could not give a verdict at all, with the
+// infrastructure problem that stopped it. The copies it did get a
+// verdict for are in the set's copies, each once.
+type ScrubArtifactError struct {
+	ArtifactID string `json:"artifact_id"`
+	Error      string `json:"error"`
+}
+
+// ScrubCopyOutcome is what a scrub learned about one copy of one artifact. The class is
+// the class that RAN, never the class asked for: a HEAD is reported
+// as a HEAD.
+type ScrubCopyOutcome struct {
+	ArtifactID string `json:"artifact_id"`
+	Class      string `json:"class,omitempty"`
+	Medium     string `json:"medium"`
+	Reason     string `json:"reason,omitempty"`
+	Refused    bool   `json:"refused"`
+	Verdict    string `json:"verdict"`
+}
+
+// ScrubResult is what one scrub did: the counts the pass recorded plus the per-set
+// detail. It is the body `retnd scrub --json` prints, and the one
+// result shape every route that reports a scrub reuses.
+type ScrubResult struct {
+	BytesRead        int64            `json:"bytes_read"`
+	Checked          int64            `json:"checked"`
+	CouldNotComplete int64            `json:"could_not_complete"`
+	Failed           int64            `json:"failed"`
+	PassID           int64            `json:"pass_id,omitempty"`
+	Passed           int64            `json:"passed"`
+	Refused          int64            `json:"refused"`
+	RequiresRestore  int64            `json:"requires_restore"`
+	Scope            string           `json:"scope"`
+	Selected         int64            `json:"selected"`
+	Sets             []ScrubSetResult `json:"sets"`
+	SkippedHeld      int64            `json:"skipped_held"`
+	SkippedLeased    int64            `json:"skipped_leased"`
+	Trigger          string           `json:"trigger"`
+	UnknownObjects   int64            `json:"unknown_objects,omitempty"`
+	Unlisted         int64            `json:"unlisted,omitempty"`
+}
+
+// ScrubSetResult is one backup set's part of a scrub.
+type ScrubSetResult struct {
+	BackupSetID    string                `json:"backup_set_id"`
+	Copies         []ScrubCopyOutcome    `json:"copies"`
+	Error          string                `json:"error,omitempty"`
+	Errors         []ScrubArtifactError  `json:"errors"`
+	Skipped        []ScrubSkip           `json:"skipped"`
+	UnknownObjects []ScrubUnknownObject  `json:"unknown_objects,omitempty"`
+	Unlisted       []ScrubUnlistedMedium `json:"unlisted,omitempty"`
+}
+
+// ScrubSkip is work a scrub was asked to do and did not. A skip is always
+// reported: a copy that was due and silently not looked at is the
+// same failure as one never scheduled.
+type ScrubSkip struct {
+	ArtifactID string `json:"artifact_id,omitempty"`
+	Medium     string `json:"medium,omitempty"`
+	Reason     string `json:"reason"`
+}
+
+// ScrubStarted is A scrub is under way. operation_id is what POST
+// /assurance/operations/{op}/cancel takes.
+type ScrubStarted struct {
+	BackupSetID string `json:"backup_set_id"`
+	OperationID string `json:"operation_id"`
+}
+
+// ScrubUnknownObject is an object a storage medium holds under a backup set's namespace at
+// a key the journal has no placement for (QC-04). It is a finding
+// for an operator to look at: never a verified copy of anything, and
+// a scrub never reads, moves or deletes it.
+type ScrubUnknownObject struct {
+	Key    string `json:"key"`
+	Medium string `json:"medium"`
+	Size   int64  `json:"size"`
+}
+
+// ScrubUnlistedMedium is A storage medium the pass could not enumerate, so that no unknown
+// objects reported for it does not read as nothing being there.
+type ScrubUnlistedMedium struct {
+	Medium string `json:"medium"`
+	Reason string `json:"reason"`
+}
+
 // ServiceSchema is the rules the service-behaviour settings are validated against,
 // served so a form does not keep its own copy of a bound the engine
 // enforces.
@@ -2789,7 +4699,9 @@ type SetReadOnlyRequest struct {
 // effect plus the rules they were validated against.
 type SettingsResponse struct {
 	Capacity  CapacitySettings       `json:"capacity"`
+	FirstRun  bool                   `json:"first_run"`
 	Mediums   []StorageMediumSummary `json:"mediums"`
+	Persisted bool                   `json:"persisted"`
 	Retention RetentionSettings      `json:"retention"`
 	Schema    SettingsSchema         `json:"schema"`
 	Service   ServiceSettings        `json:"service"`
@@ -2800,6 +4712,12 @@ type SettingsSchema struct {
 	Retention RetentionSchema `json:"retention"`
 	Service   ServiceSchema   `json:"service"`
 	Storage   StorageSchema   `json:"storage"`
+}
+
+// SkipFirstRunStepRequest is POST /system/first-run/skip. The guided setup step to leave for
+// later.
+type SkipFirstRunStepRequest struct {
+	Step string `json:"step"`
 }
 
 // SmtpSettings is one SMTP submission endpoint an operator typed in: where to
@@ -2895,10 +4813,13 @@ type SnapshotHold struct {
 // SnapshotHoldReleaseRequest is POST /operations' parameters when the action is
 // release_snapshot_hold: end one hold, by its id. Releasing does not
 // delete anything; it returns the snapshot to whatever the retention
-// policy already said about it.
+// policy already said about it. Releasing makes the snapshot
+// prunable by the next retention run, so it needs the operator's
+// explicit acknowledgement (issue #1164).
 type SnapshotHoldReleaseRequest struct {
-	BackupSetID string `json:"backup_set_id"`
-	HoldID      string `json:"hold_id"`
+	Acknowledged bool   `json:"acknowledged"`
+	BackupSetID  string `json:"backup_set_id"`
+	HoldID       string `json:"hold_id"`
 }
 
 // SnapshotHoldRequest is POST /operations' parameters when the action is hold_snapshot:
@@ -2926,11 +4847,12 @@ type SnapshotResponse struct {
 // provider to make an archived object readable again, over hours, at
 // a cost, and writes nothing anywhere.
 type SnapshotRestoreRequest struct {
-	BackupSetID string `json:"backup_set_id"`
-	Conflict    string `json:"conflict,omitempty"`
-	SnapshotID  string `json:"snapshot_id,omitempty"`
-	SourcePath  string `json:"source_path,omitempty"`
-	TargetPath  string `json:"target_path"`
+	Acknowledged bool   `json:"acknowledged,omitempty"`
+	BackupSetID  string `json:"backup_set_id"`
+	Conflict     string `json:"conflict,omitempty"`
+	SnapshotID   string `json:"snapshot_id,omitempty"`
+	SourcePath   string `json:"source_path,omitempty"`
+	TargetPath   string `json:"target_path"`
 }
 
 // SnapshotRetentionResponse is GET /backup-sets/{source}/{set}/snapshot-retention: what this
@@ -2992,6 +4914,97 @@ type SnapshotVerifyRequest struct {
 	Level         string `json:"level,omitempty"`
 	RunID         string `json:"run_id,omitempty"`
 	SamplePercent int    `json:"sample_percent,omitempty"`
+}
+
+// SourceHostDescription is where a recovery of one backup set onto its own source host (issue
+// #1191) would write, built from the set's configuration alone, and
+// what the last write check found. Reading it never touches the
+// network; the write check is a separate POST that runs only when
+// the operator asks for it.
+type SourceHostDescription struct {
+	Available     bool   `json:"available"`
+	CheckedAt     string `json:"checked_at,omitempty"`
+	Code          string `json:"code,omitempty"`
+	DestinationID string `json:"destination_id,omitempty"`
+	Detail        string `json:"detail,omitempty"`
+	Folder        string `json:"folder,omitempty"`
+	FreeBytes     *int64 `json:"free_bytes,omitempty"`
+	Host          string `json:"host,omitempty"`
+	LeftFile      string `json:"left_file,omitempty"`
+	Port          int    `json:"port,omitempty"`
+	ReadOnly      bool   `json:"read_only,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+	RemotePath    string `json:"remote_path,omitempty"`
+	SetID         string `json:"set_id"`
+	URL           string `json:"url,omitempty"`
+	User          string `json:"user,omitempty"`
+	WriteAccess   string `json:"write_access"`
+}
+
+// StagingDirectoryEntry is one sub-folder of a listed folder.
+type StagingDirectoryEntry struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+// StagingDirectoryResponse is GET /system/staging-directories. One folder under the staging
+// root: its sub-folders by name, relative to the root.
+type StagingDirectoryResponse struct {
+	Entries   []StagingDirectoryEntry `json:"entries"`
+	Parent    *string                 `json:"parent"`
+	Path      string                  `json:"path"`
+	Root      string                  `json:"root"`
+	Truncated bool                    `json:"truncated"`
+}
+
+// StartDecryptVerifyRequest is POST /encryption/verify. Decrypt-verify one backup's encrypted
+// copy: a content check through the key the copy records.
+// acknowledge_egress accepts the cost of reading a medium that bills
+// for it.
+type StartDecryptVerifyRequest struct {
+	AcknowledgeEgress bool   `json:"acknowledge_egress,omitempty"`
+	ArtifactID        string `json:"artifact_id"`
+	Medium            string `json:"medium,omitempty"`
+}
+
+// StartEncryptExistingRequest is POST /encryption/encrypt-existing. Encrypt the plaintext retained
+// copies that already sit on a medium, under a backup set whose
+// retained-copy encryption is required, onto destination_medium.
+// backup_set_id is source/set; artifact_id narrows the run to one
+// backup of that set. Nothing runs unless this request is made: a
+// policy change never encrypts an existing copy, and each plaintext
+// copy is retired only after its encrypted replacement has been
+// decrypt-verified.
+type StartEncryptExistingRequest struct {
+	ArtifactID        string `json:"artifact_id,omitempty"`
+	BackupSetID       string `json:"backup_set_id"`
+	DestinationMedium string `json:"destination_medium"`
+}
+
+// StartRecoveryTestRequest is POST /backup-sets/{source}/{set}/recovery-test. Starts a recovery
+// test now. An empty body tests the newest known good copy and
+// acknowledges no cost: a copy that costs money to read (a download
+// from a billed object store, or an archived object) is refused,
+// recorded as refused_for_cost, and nothing is read.
+type StartRecoveryTestRequest struct {
+	Acknowledged bool   `json:"acknowledged,omitempty"`
+	ArtifactID   string `json:"artifact_id,omitempty"`
+}
+
+// StartReencryptRequest is POST /encryption/reencrypt. Rewrite encrypted retained copies
+// under the active suite and key, each onto destination_medium. Name
+// exactly one selector: suite_id (every copy under that suite),
+// key_id (every copy under that key) or deprecated (every copy under
+// a deprecated or retired suite). Nothing runs unless this request
+// is made: a key rotation or a suite deprecation never rewrites a
+// copy, and each source copy is retired only after its replacement
+// has been decrypt-verified against the recorded plaintext digest.
+// The plaintext is never written to local disk.
+type StartReencryptRequest struct {
+	Deprecated        bool   `json:"deprecated,omitempty"`
+	DestinationMedium string `json:"destination_medium"`
+	KeyID             string `json:"key_id,omitempty"`
+	SuiteID           string `json:"suite_id,omitempty"`
 }
 
 // StorageMediumCredentialsReference is where one storage medium's credentials come from. Exactly one of
@@ -3179,6 +5192,36 @@ type UnregisteredBackend struct {
 	Transport string `json:"transport"`
 }
 
+// UpdateAssuranceSettingsRequest is PATCH the deployment-wide assurance block. Every field is nullable
+// because this is a PATCH: omitted leaves the setting alone, and a
+// zero or empty value clears it back to its default. A body that
+// names nothing is refused.
+type UpdateAssuranceSettingsRequest struct {
+	MaxConcurrentFullReads     *int64  `json:"max_concurrent_full_reads"`
+	MaxPerDestination          *int64  `json:"max_per_destination"`
+	RecoveryTestBuiltinCheck   *string `json:"recovery_test_builtin_check"`
+	RecoveryTestCadenceSeconds *int64  `json:"recovery_test_cadence_seconds"`
+	RecoveryTestMode           *string `json:"recovery_test_mode"`
+	RecoveryTestValidatorID    *string `json:"recovery_test_validator_id"`
+	ScrubCadenceSeconds        *int64  `json:"scrub_cadence_seconds"`
+	ScrubStrategy              *string `json:"scrub_strategy"`
+	StagingRoot                *string `json:"staging_root"`
+	StagingTtlSeconds          *int64  `json:"staging_ttl_seconds"`
+}
+
+// UpdateBackupSetAssuranceRequest is PATCH one backup set's own assurance block. Omitted leaves a field
+// alone and a zero or empty value clears it, so the set inherits it
+// again. Clearing every field is the same as a reset. A body that
+// names nothing is refused.
+type UpdateBackupSetAssuranceRequest struct {
+	RecoveryTestBuiltinCheck   *string `json:"recovery_test_builtin_check"`
+	RecoveryTestCadenceSeconds *int64  `json:"recovery_test_cadence_seconds"`
+	RecoveryTestMode           *string `json:"recovery_test_mode"`
+	RecoveryTestValidatorID    *string `json:"recovery_test_validator_id"`
+	ScrubCadenceSeconds        *int64  `json:"scrub_cadence_seconds"`
+	ScrubStrategy              *string `json:"scrub_strategy"`
+}
+
 // UpdateBackupSetRequest is PATCH /backup-sets/{source}/{set}. A SPARSE edit of one
 // already-persisted backup set (issue #350): every property is
 // optional, and a property this body omits is left exactly as it is
@@ -3244,6 +5287,21 @@ type UpdateCapacitySettings struct {
 	WarningFreeBytes  *int64 `json:"warning_free_bytes"`
 }
 
+// UpdateCustomValidatorRequest is A custom validator, whole. A replacement and not a merge: every
+// field the validator has is in the request or it is not kept, so an
+// edit cannot narrow or widen a scope by leaving a field out. The
+// pattern and the scope (backup_set_id, empty for global) are always
+// the new ones; the script is either sent (script) or explicitly
+// kept (script_sha256), and exactly one of the two is required. The
+// name is the path's.
+type UpdateCustomValidatorRequest struct {
+	BackupSetID  string `json:"backup_set_id"`
+	Env          string `json:"env"`
+	Pattern      string `json:"pattern"`
+	Script       string `json:"script"`
+	ScriptSha256 string `json:"script_sha256"`
+}
+
 // UpdateRetentionSettings is A PARTIAL retention update. An omitted field is left exactly as
 // the running configuration has it; omitting tiers leaves the chain,
 // and a legacy file's own spelling of it, untouched.
@@ -3279,6 +5337,7 @@ type UpdateSettingsRequest struct {
 type UpdateWorkflowSettingsRequest struct {
 	AfterDir             *string `json:"after_dir"`
 	BeforeDir            *string `json:"before_dir"`
+	Disabled             *bool   `json:"disabled"`
 	MaxScriptSizeBytes   *int64  `json:"max_script_size_bytes"`
 	Root                 *string `json:"root"`
 	ScriptTimeoutSeconds *int64  `json:"script_timeout_seconds"`
@@ -3290,6 +5349,14 @@ type UpdateWorkflowSettingsRequest struct {
 type Validator struct {
 	ID      string `json:"id"`
 	Summary string `json:"summary"`
+}
+
+// ValidatorScriptResponse is A validator script's bytes, as text, with its identity.
+type ValidatorScriptResponse struct {
+	Content   string `json:"content"`
+	FileName  string `json:"file_name"`
+	Sha256    string `json:"sha256"`
+	SizeBytes int64  `json:"size_bytes"`
 }
 
 // VerificationClassInfo is one rung of the verification ladder (FR-31), with what it proves
@@ -3317,15 +5384,16 @@ type VerifyEmailRequest struct {
 // VersionResponse is GET /system/version. Nothing here names an implementation: no
 // rclone, no SQLite, no filesystem path.
 type VersionResponse struct {
-	APIVersion     string `json:"api_version"`
-	Commit         string `json:"commit"`
-	ConfigRevision string `json:"config_revision"`
-	Configured     bool   `json:"configured"`
-	CoreVersion    string `json:"core_version"`
-	DeploymentID   string `json:"deployment_id"`
-	EngineVersion  string `json:"engine_version"`
-	GoVersion      string `json:"go_version"`
-	Ready          bool   `json:"ready"`
+	AdoptedPaths   []AdoptedPath `json:"adopted_paths"`
+	APIVersion     string        `json:"api_version"`
+	Commit         string        `json:"commit"`
+	ConfigRevision string        `json:"config_revision"`
+	Configured     bool          `json:"configured"`
+	CoreVersion    string        `json:"core_version"`
+	DeploymentID   string        `json:"deployment_id"`
+	EngineVersion  string        `json:"engine_version"`
+	GoVersion      string        `json:"go_version"`
+	Ready          bool          `json:"ready"`
 }
 
 // WorkflowAcknowledgementRequest is take responsibility, by hand, for a workflow run this product
@@ -3375,6 +5443,22 @@ type WorkflowFinding struct {
 	Target   string `json:"target"`
 }
 
+// WorkflowLintFinding is one thing retnd's own shell rules reported about one hook script.
+// These are this product's own checks, carrying its own BSH codes,
+// and they are NOT ShellCheck: ShellCheck is GPL-3.0 and this
+// product is Apache-2.0, so the analysis is implemented here against
+// a Go shell parser's syntax tree rather than shipped as somebody
+// else's tool. The set is deliberately small and conservative; an
+// operator who wants a general shell linter should run one.
+type WorkflowLintFinding struct {
+	Code     string                `json:"code"`
+	Col      int                   `json:"col"`
+	Excerpt  WorkflowSourceExcerpt `json:"excerpt"`
+	Line     int                   `json:"line"`
+	Message  string                `json:"message"`
+	Severity string                `json:"severity"`
+}
+
 // WorkflowRecoveryHold is one reason a backup set is refusing to run: a workflow run whose
 // cleanup this product could not finish, and whose "after" hooks may
 // therefore never have run.
@@ -3391,6 +5475,23 @@ type WorkflowRecoveryHold struct {
 // which is the ordinary state.
 type WorkflowRecoveryResponse struct {
 	Holds []WorkflowRecoveryHold `json:"holds"`
+}
+
+// WorkflowRefusedScript is one hook script that refused a workflow configuration write, and
+// why. Only the BLOCKING half is here -- a parse error, or the
+// error-severity findings -- because a refusal that also listed the
+// warnings would read as though they had refused it.
+type WorkflowRefusedScript struct {
+	BackupSetID       string                `json:"backup_set_id"`
+	Dir               string                `json:"dir"`
+	Findings          []WorkflowLintFinding `json:"findings"`
+	ParseError        string                `json:"parse_error"`
+	ParseErrorCol     int                   `json:"parse_error_col"`
+	ParseErrorExcerpt WorkflowSourceExcerpt `json:"parse_error_excerpt"`
+	ParseErrorLine    int                   `json:"parse_error_line"`
+	Phase             string                `json:"phase"`
+	Scope             string                `json:"scope"`
+	ScriptName        string                `json:"script_name"`
 }
 
 // WorkflowRun is one workflow run: one backup set's pass, wrapped in the five-stage
@@ -3420,16 +5521,46 @@ type WorkflowRun struct {
 }
 
 // WorkflowRunnerSettings is how THIS PROCESS reaches the Host Workflow Runner, the component
-// that executes a `.local.sh` hook on the machine backupd is
-// installed on. Reported and not writable here: the two paths differ
-// between a container and a bare-metal install of the same
-// deployment, so they are a deployment-shape fact the installer
-// writes rather than a policy an operator tunes, exactly like the
-// SSH key, the known_hosts file and the state database.
+// that executes a `.local.sh` hook on the machine retnd is installed
+// on. Reported and not writable here: the two paths differ between a
+// container and a bare-metal install of the same deployment, so they
+// are a deployment-shape fact the installer writes rather than a
+// policy an operator tunes, exactly like the SSH key, the
+// known_hosts file and the state database.
 type WorkflowRunnerSettings struct {
 	Configured bool   `json:"configured"`
 	Socket     string `json:"socket"`
 	TokenFile  string `json:"token_file"`
+}
+
+// WorkflowScriptLint is what retnd's own shell verification established about one hook
+// script's exact bytes, without running any of them. Three states,
+// kept distinguishable on purpose: examined and parsed, examined and
+// refused (a parse error with its position), and NOT EXAMINED, which
+// is a script larger than the verification reads. A client that
+// folded the third into either of the others would report either a
+// pass nobody proved or a fault nobody found.
+type WorkflowScriptLint struct {
+	Examined          bool                  `json:"examined"`
+	Findings          []WorkflowLintFinding `json:"findings"`
+	NotExaminedReason string                `json:"not_examined_reason"`
+	ParseError        string                `json:"parse_error"`
+	ParseErrorCol     int                   `json:"parse_error_col"`
+	ParseErrorExcerpt WorkflowSourceExcerpt `json:"parse_error_excerpt"`
+	ParseErrorLine    int                   `json:"parse_error_line"`
+	Parsed            bool                  `json:"parsed"`
+}
+
+// WorkflowScriptRejectedResponse is the WORKFLOW_SCRIPT_REJECTED 409 body. It carries the blocking
+// scripts and their findings as structured fields, for the reason
+// CONFIG_REVISION_STALE carries the current revision as one: a
+// client that had to parse a position out of the message would be
+// parsing prose this contract explicitly does not promise to keep
+// stable. The message says the same thing in one string, for a
+// terminal.
+type WorkflowScriptRejectedResponse struct {
+	BlockingScripts []WorkflowRefusedScript `json:"blocking_scripts"`
+	Error           ErrorBody               `json:"error"`
 }
 
 // WorkflowSecretReference is where a workflow environment variable's value comes from, when it
@@ -3463,13 +5594,39 @@ type WorkflowSettingsResponse struct {
 	AfterDir                string                        `json:"after_dir"`
 	BeforeDir               string                        `json:"before_dir"`
 	Configured              bool                          `json:"configured"`
+	Disabled                bool                          `json:"disabled"`
 	Environment             []WorkflowEnvironmentVariable `json:"environment"`
 	ExecConnections         []string                      `json:"exec_connections"`
 	MaxScriptSizeBytes      int64                         `json:"max_script_size_bytes"`
 	Root                    string                        `json:"root"`
+	RootDefault             bool                          `json:"root_default"`
 	Runner                  WorkflowRunnerSettings        `json:"runner"`
 	ScriptTimeoutConfigured bool                          `json:"script_timeout_configured"`
 	ScriptTimeoutSeconds    int64                         `json:"script_timeout_seconds"`
+}
+
+// WorkflowSourceExcerpt is A few of a hook script's own lines, carried beside a position that
+// names one of them: the reported line with one line either side. It
+// exists because a position on its own is a lookup somebody has to
+// perform on a machine they may not be on -- "BSH003 at 24:10" sends
+// an operator to a NAS over SSH to read one line. The lines come
+// from the bytes this validation READ AND HASHED rather than from a
+// later re-read, so they cannot disagree with the position beside
+// them. They are the script's own text and never a resolved secret:
+// nothing on the path that produces them resolves one.
+type WorkflowSourceExcerpt struct {
+	Lines []WorkflowSourceLine `json:"lines"`
+}
+
+// WorkflowSourceLine is one line of a hook script, as an editor would number it. The text
+// arrives with control characters removed and its length bounded, at
+// the point it is produced rather than at each surface that draws
+// it: a hook is arbitrary text and this text reaches a browser and a
+// terminal.
+type WorkflowSourceLine struct {
+	Number    int    `json:"number"`
+	Text      string `json:"text"`
+	Truncated bool   `json:"truncated"`
 }
 
 // WorkflowStage is one scope-and-phase pair that has a directory. A run executes five
@@ -3531,20 +5688,24 @@ type WorkflowStepLogRecord struct {
 }
 
 // WorkflowValidatedScript is one hook this backup set would run, as validation found it on
-// disk. Nothing here was executed: the only things validation ever
-// hands an interpreter are `bash -n`, which parses and never runs,
-// and this product's own fixed remote capability probe.
+// disk, with what retnd's own shell verification established about
+// its bytes. Nothing here was executed: the syntax verdict and the
+// findings come from parsing and walking the bytes in this process,
+// and the only things validation ever hands an interpreter are `bash
+// -n`, which parses and never runs, and this product's own fixed
+// remote capability probe.
 type WorkflowValidatedScript struct {
-	ExecutionConnectionRef string `json:"execution_connection_ref"`
-	Order                  int    `json:"order"`
-	Phase                  string `json:"phase"`
-	Scope                  string `json:"scope"`
-	ScriptName             string `json:"script_name"`
-	Sha256                 string `json:"sha256"`
-	SizeBytes              int64  `json:"size_bytes"`
-	StepID                 string `json:"step_id"`
-	Target                 string `json:"target"`
-	TimeoutMs              int64  `json:"timeout_ms"`
+	ExecutionConnectionRef string             `json:"execution_connection_ref"`
+	Lint                   WorkflowScriptLint `json:"lint"`
+	Order                  int                `json:"order"`
+	Phase                  string             `json:"phase"`
+	Scope                  string             `json:"scope"`
+	ScriptName             string             `json:"script_name"`
+	Sha256                 string             `json:"sha256"`
+	SizeBytes              int64              `json:"size_bytes"`
+	StepID                 string             `json:"step_id"`
+	Target                 string             `json:"target"`
+	TimeoutMs              int64              `json:"timeout_ms"`
 }
 
 // WorkflowValidationResponse is everything this product can establish about one backup set's hooks
@@ -3572,10 +5733,29 @@ type WorkflowValidationResponse struct {
 // added to the contract cannot quietly go unchecked.
 var SchemaTypes = map[string]any{
 	"ActivityEvent":                      ActivityEvent{},
+	"AdoptedPath":                        AdoptedPath{},
+	"AgentAuditEntry":                    AgentAuditEntry{},
+	"AgentConfirmation":                  AgentConfirmation{},
+	"AgentExecution":                     AgentExecution{},
+	"AgentMcpFrame":                      AgentMcpFrame{},
+	"AgentPrompt":                        AgentPrompt{},
+	"AgentResource":                      AgentResource{},
+	"AgentToken":                         AgentToken{},
+	"AgentTool":                          AgentTool{},
+	"AgentToolRefusal":                   AgentToolRefusal{},
+	"AgentToolsResponse":                 AgentToolsResponse{},
 	"ApplyRetentionRequest":              ApplyRetentionRequest{},
 	"Artifact":                           Artifact{},
 	"ArtifactCheckResponse":              ArtifactCheckResponse{},
 	"ArtifactReinstateResponse":          ArtifactReinstateResponse{},
+	"AssuranceDueItem":                   AssuranceDueItem{},
+	"AssuranceDueResponse":               AssuranceDueResponse{},
+	"AssuranceHostKnob":                  AssuranceHostKnob{},
+	"AssuranceOperationCancelled":        AssuranceOperationCancelled{},
+	"AssuranceOperationRecord":           AssuranceOperationRecord{},
+	"AssuranceRecoveryTestPolicy":        AssuranceRecoveryTestPolicy{},
+	"AssuranceScrubPolicy":               AssuranceScrubPolicy{},
+	"AssuranceSettingsResponse":          AssuranceSettingsResponse{},
 	"AuthErrorResponse":                  AuthErrorResponse{},
 	"BackendEnumValue":                   BackendEnumValue{},
 	"BackendManifest":                    BackendManifest{},
@@ -3583,6 +5763,7 @@ var SchemaTypes = map[string]any{
 	"BackendProbe":                       BackendProbe{},
 	"BackendProbeStep":                   BackendProbeStep{},
 	"BackupSet":                          BackupSet{},
+	"BackupSetAssurance":                 BackupSetAssurance{},
 	"BackupSetEditHold":                  BackupSetEditHold{},
 	"BackupSetEditHoldState":             BackupSetEditHoldState{},
 	"BackupSetHealth":                    BackupSetHealth{},
@@ -3595,17 +5776,43 @@ var SchemaTypes = map[string]any{
 	"CatalogReportResponse":              CatalogReportResponse{},
 	"CompleteFirstRunResponse":           CompleteFirstRunResponse{},
 	"ConfigRevisionStaleResponse":        ConfigRevisionStaleResponse{},
+	"ConfirmRecoveryBundleRequest":       ConfirmRecoveryBundleRequest{},
 	"ConnectionCheck":                    ConnectionCheck{},
 	"CreateBackupSetRequest":             CreateBackupSetRequest{},
 	"CreateBackupSetResponse":            CreateBackupSetResponse{},
+	"CreateCustomValidatorRequest":       CreateCustomValidatorRequest{},
 	"CreateRepositoryDomainRequest":      CreateRepositoryDomainRequest{},
 	"CredentialsRequest":                 CredentialsRequest{},
+	"CustomValidator":                    CustomValidator{},
+	"CustomValidatorAmbiguity":           CustomValidatorAmbiguity{},
+	"CustomValidatorConflict":            CustomValidatorConflict{},
+	"CustomValidatorPattern":             CustomValidatorPattern{},
+	"CustomValidatorPatternsResponse":    CustomValidatorPatternsResponse{},
+	"CustomValidatorPreview":             CustomValidatorPreview{},
+	"CustomValidatorResolution":          CustomValidatorResolution{},
+	"CustomValidatorResult":              CustomValidatorResult{},
 	"CycleMoveOutcome":                   CycleMoveOutcome{},
 	"CycleOutcome":                       CycleOutcome{},
+	"DestructiveOperationsStatus":        DestructiveOperationsStatus{},
+	"EncryptExistingCandidate":           EncryptExistingCandidate{},
+	"EncryptExistingPlan":                EncryptExistingPlan{},
+	"EncryptionCopy":                     EncryptionCopy{},
+	"EncryptionKeyProvider":              EncryptionKeyProvider{},
+	"EncryptionKeyProviderState":         EncryptionKeyProviderState{},
+	"EncryptionKeyReference":             EncryptionKeyReference{},
+	"EncryptionKeyStatus":                EncryptionKeyStatus{},
+	"EncryptionOverride":                 EncryptionOverride{},
+	"EncryptionPolicy":                   EncryptionPolicy{},
+	"EncryptionPolicyPatch":              EncryptionPolicyPatch{},
+	"EncryptionProviderProbe":            EncryptionProviderProbe{},
+	"EncryptionProviderTestRequest":      EncryptionProviderTestRequest{},
+	"EncryptionSetPolicy":                EncryptionSetPolicy{},
+	"EncryptionSuite":                    EncryptionSuite{},
 	"EnrollRequest":                      EnrollRequest{},
 	"ErrorBody":                          ErrorBody{},
 	"ErrorResponse":                      ErrorResponse{},
 	"FirstRunStatusResponse":             FirstRunStatusResponse{},
+	"FirstRunSteps":                      FirstRunSteps{},
 	"ForgotPasswordRequest":              ForgotPasswordRequest{},
 	"HealthResponse":                     HealthResponse{},
 	"HostKeyProbeRequest":                HostKeyProbeRequest{},
@@ -3616,9 +5823,16 @@ var SchemaTypes = map[string]any{
 	"ImportStorageCredentialsRequest":    ImportStorageCredentialsRequest{},
 	"ImportStorageCredentialsResponse":   ImportStorageCredentialsResponse{},
 	"ListActivityResponse":               ListActivityResponse{},
+	"ListAgentAuditResponse":             ListAgentAuditResponse{},
+	"ListAgentConfirmationsResponse":     ListAgentConfirmationsResponse{},
+	"ListAgentTokensResponse":            ListAgentTokensResponse{},
 	"ListArtifactsResponse":              ListArtifactsResponse{},
 	"ListBackendsResponse":               ListBackendsResponse{},
 	"ListBackupSetsResponse":             ListBackupSetsResponse{},
+	"ListCustomValidatorsResponse":       ListCustomValidatorsResponse{},
+	"ListEncryptionCopiesResponse":       ListEncryptionCopiesResponse{},
+	"ListEncryptionKeysResponse":         ListEncryptionKeysResponse{},
+	"ListEncryptionSuitesResponse":       ListEncryptionSuitesResponse{},
 	"ListOperationsResponse":             ListOperationsResponse{},
 	"ListRepositoriesResponse":           ListRepositoriesResponse{},
 	"ListSSHKeyCandidatesResponse":       ListSSHKeyCandidatesResponse{},
@@ -3643,12 +5857,35 @@ var SchemaTypes = map[string]any{
 	"MediumFieldValue":                   MediumFieldValue{},
 	"MediumPreflightCheck":               MediumPreflightCheck{},
 	"MediumPreflightResponse":            MediumPreflightResponse{},
+	"MintAgentTokenRequest":              MintAgentTokenRequest{},
+	"MintedAgentToken":                   MintedAgentToken{},
 	"Operation":                          Operation{},
 	"OperationProgress":                  OperationProgress{},
 	"OperationRestore":                   OperationRestore{},
 	"Placement":                          Placement{},
+	"PreviewCustomValidatorRequest":      PreviewCustomValidatorRequest{},
+	"RecoveryBundle":                     RecoveryBundle{},
+	"RecoveryBundleReceipt":              RecoveryBundleReceipt{},
+	"RecoveryManyError":                  RecoveryManyError{},
+	"RecoveryManyEvent":                  RecoveryManyEvent{},
+	"RecoveryManyItem":                   RecoveryManyItem{},
+	"RecoveryManyPlan":                   RecoveryManyPlan{},
+	"RecoveryManyRequest":                RecoveryManyRequest{},
+	"RecoveryManyResult":                 RecoveryManyResult{},
+	"RecoveryManyTotals":                 RecoveryManyTotals{},
+	"RecoveryMintRequest":                RecoveryMintRequest{},
+	"RecoveryMintResponse":               RecoveryMintResponse{},
+	"RecoveryRestoreOperation":           RecoveryRestoreOperation{},
+	"RecoveryResult":                     RecoveryResult{},
 	"RecoverySettingsResponse":           RecoverySettingsResponse{},
 	"RecoverySettingsUpdate":             RecoverySettingsUpdate{},
+	"RecoveryTarget":                     RecoveryTarget{},
+	"RecoveryTestOutput":                 RecoveryTestOutput{},
+	"RecoveryTestOutputRecord":           RecoveryTestOutputRecord{},
+	"RecoveryTestStarted":                RecoveryTestStarted{},
+	"ReencryptCandidate":                 ReencryptCandidate{},
+	"ReencryptGroup":                     ReencryptGroup{},
+	"ReencryptPlan":                      ReencryptPlan{},
 	"RepositoryHealth":                   RepositoryHealth{},
 	"RepositoryMaintenance":              RepositoryMaintenance{},
 	"RepositoryPassphraseReference":      RepositoryPassphraseReference{},
@@ -3668,6 +5905,14 @@ var SchemaTypes = map[string]any{
 	"SSHKey":                             SSHKey{},
 	"SSHKeyCandidate":                    SSHKeyCandidate{},
 	"SSHKeyDiscoveryLocation":            SSHKeyDiscoveryLocation{},
+	"ScrubArtifactError":                 ScrubArtifactError{},
+	"ScrubCopyOutcome":                   ScrubCopyOutcome{},
+	"ScrubResult":                        ScrubResult{},
+	"ScrubSetResult":                     ScrubSetResult{},
+	"ScrubSkip":                          ScrubSkip{},
+	"ScrubStarted":                       ScrubStarted{},
+	"ScrubUnknownObject":                 ScrubUnknownObject{},
+	"ScrubUnlistedMedium":                ScrubUnlistedMedium{},
 	"ServiceSchema":                      ServiceSchema{},
 	"ServiceSettings":                    ServiceSettings{},
 	"SessionResponse":                    SessionResponse{},
@@ -3675,6 +5920,7 @@ var SchemaTypes = map[string]any{
 	"SetReadOnlyRequest":                 SetReadOnlyRequest{},
 	"SettingsResponse":                   SettingsResponse{},
 	"SettingsSchema":                     SettingsSchema{},
+	"SkipFirstRunStepRequest":            SkipFirstRunStepRequest{},
 	"SmtpSettings":                       SmtpSettings{},
 	"SmtpSettingsView":                   SmtpSettingsView{},
 	"Snapshot":                           Snapshot{},
@@ -3688,6 +5934,13 @@ var SchemaTypes = map[string]any{
 	"SnapshotRetentionVerdict":           SnapshotRetentionVerdict{},
 	"SnapshotTransition":                 SnapshotTransition{},
 	"SnapshotVerifyRequest":              SnapshotVerifyRequest{},
+	"SourceHostDescription":              SourceHostDescription{},
+	"StagingDirectoryEntry":              StagingDirectoryEntry{},
+	"StagingDirectoryResponse":           StagingDirectoryResponse{},
+	"StartDecryptVerifyRequest":          StartDecryptVerifyRequest{},
+	"StartEncryptExistingRequest":        StartEncryptExistingRequest{},
+	"StartRecoveryTestRequest":           StartRecoveryTestRequest{},
+	"StartReencryptRequest":              StartReencryptRequest{},
 	"StorageMediumCredentialsReference":  StorageMediumCredentialsReference{},
 	"StorageMediumRequest":               StorageMediumRequest{},
 	"StorageMediumSummary":               StorageMediumSummary{},
@@ -3700,14 +5953,18 @@ var SchemaTypes = map[string]any{
 	"TestConnectionResponse":             TestConnectionResponse{},
 	"TrustedHostKey":                     TrustedHostKey{},
 	"UnregisteredBackend":                UnregisteredBackend{},
+	"UpdateAssuranceSettingsRequest":     UpdateAssuranceSettingsRequest{},
+	"UpdateBackupSetAssuranceRequest":    UpdateBackupSetAssuranceRequest{},
 	"UpdateBackupSetRequest":             UpdateBackupSetRequest{},
 	"UpdateBackupSetWorkflowRequest":     UpdateBackupSetWorkflowRequest{},
 	"UpdateCapacitySettings":             UpdateCapacitySettings{},
+	"UpdateCustomValidatorRequest":       UpdateCustomValidatorRequest{},
 	"UpdateRetentionSettings":            UpdateRetentionSettings{},
 	"UpdateServiceSettings":              UpdateServiceSettings{},
 	"UpdateSettingsRequest":              UpdateSettingsRequest{},
 	"UpdateWorkflowSettingsRequest":      UpdateWorkflowSettingsRequest{},
 	"Validator":                          Validator{},
+	"ValidatorScriptResponse":            ValidatorScriptResponse{},
 	"VerificationClassInfo":              VerificationClassInfo{},
 	"VerifyEmailRequest":                 VerifyEmailRequest{},
 	"VersionResponse":                    VersionResponse{},
@@ -3715,12 +5972,18 @@ var SchemaTypes = map[string]any{
 	"WorkflowEnvironmentVariable":        WorkflowEnvironmentVariable{},
 	"WorkflowEnvironmentVariableRequest": WorkflowEnvironmentVariableRequest{},
 	"WorkflowFinding":                    WorkflowFinding{},
+	"WorkflowLintFinding":                WorkflowLintFinding{},
 	"WorkflowRecoveryHold":               WorkflowRecoveryHold{},
 	"WorkflowRecoveryResponse":           WorkflowRecoveryResponse{},
+	"WorkflowRefusedScript":              WorkflowRefusedScript{},
 	"WorkflowRun":                        WorkflowRun{},
 	"WorkflowRunnerSettings":             WorkflowRunnerSettings{},
+	"WorkflowScriptLint":                 WorkflowScriptLint{},
+	"WorkflowScriptRejectedResponse":     WorkflowScriptRejectedResponse{},
 	"WorkflowSecretReference":            WorkflowSecretReference{},
 	"WorkflowSettingsResponse":           WorkflowSettingsResponse{},
+	"WorkflowSourceExcerpt":              WorkflowSourceExcerpt{},
+	"WorkflowSourceLine":                 WorkflowSourceLine{},
 	"WorkflowStage":                      WorkflowStage{},
 	"WorkflowStep":                       WorkflowStep{},
 	"WorkflowStepLogPage":                WorkflowStepLogPage{},

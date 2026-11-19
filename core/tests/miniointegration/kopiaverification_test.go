@@ -10,12 +10,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
-	"github.com/backupdproject/backupd/core/internal/backupengine/kopia"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/transport"
-	"github.com/backupdproject/backupd/core/internal/transport/rclone"
-	"github.com/backupdproject/backupd/core/tests/machines"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/backupengine/kopia"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/tests/machines"
 )
 
 // This file is EPIC K's verification ladder run against a real S3 API, and
@@ -549,7 +549,7 @@ func s3VerifySnapshot(t *testing.T, rep backupengine.Repository, srcDir, descrip
 	t.Helper()
 
 	snap, err := rep.Snapshot(context.Background(), backupengine.SnapshotRequest{
-		Source:      backupengine.Source{Host: "nas-01", User: "backupd", Path: srcDir},
+		Source:      backupengine.Source{Host: "nas-01", User: "retnd", Path: srcDir},
 		Description: description,
 		Tags: map[string]string{
 			backupengine.TagKeyBackupSet: "nas-01/verification",

@@ -6,7 +6,7 @@
 # (EPIC I, I1.6 / #672 / #697). This file stays because the path is load
 # bearing:
 #
-#   * scripts/ci-local.sh and .github/workflows/ci.yml run
+#   * scripts/ci-local.sh (the only gate since #1260) runs
 #     `bash scripts/architecture/check-unowned-go.sh`;
 #   * scripts/tests/ci-local-gate.test.sh FABRICATES a file at this literal
 #     path to drive the gate step it stubs, and its Group L watches this
@@ -21,7 +21,7 @@
 # nothing in it has ever reached either file, which is how one of the pair
 # came to be the only unformatted Go file in the tree. The check DISCOVERS
 # that set rather than naming it, so a third unowned file added tomorrow is
-# covered the day it lands. `.github/workflows/ci.yml` installs
+# covered the day it lands. scripts/ci/pins.env names the golangci-lint the gate runs, and the Docker gate image installs
 # golangci-lint specifically so this reports "the linter says no" rather
 # than "the binary is missing" (#575).
 #

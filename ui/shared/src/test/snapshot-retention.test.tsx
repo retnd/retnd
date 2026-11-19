@@ -17,8 +17,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { ApiProvider } from "@shared/api/ApiContext";
-import { BackupdError } from "@shared/api/contracts";
-import type { BackupdApi } from "@shared/api/contracts";
+import { RetndError } from "@shared/api/contracts";
+import type { RetndApi } from "@shared/api/contracts";
 import { createMockApi, resetMockFixtures } from "@shared/api/mock";
 import { SnapshotRetentionPage } from "@shared/pages/SnapshotRetentionPage";
 import { graph, resetGraphForTests } from "@shared/state/graph";
@@ -31,7 +31,7 @@ const VERSION: VersionInfo = {
   engine: "1.68.2", configRevision: "cfg_9f4c1ab", ready: true, compatible: true
 };
 
-async function seed(api: BackupdApi) {
+async function seed(api: RetndApi) {
   const sets = await api.listSets();
   act(() => {
     graph.commit("test/seed", (tx) => {
@@ -41,7 +41,7 @@ async function seed(api: BackupdApi) {
   });
 }
 
-function renderRetention(api: BackupdApi, readOnly = false) {
+function renderRetention(api: RetndApi, readOnly = false) {
   return render(
     <MemoryRouter initialEntries={[snapshotRetentionPath("production", "postgres-primary")]}>
       <ApiProvider api={api}>
@@ -130,11 +130,18 @@ describe("snapshot retention", () => {
     act(() => {
       screen.getByRole("button", { name: "Release hold hold_01J9Z5" }).click();
     });
+    // Releasing lifts a protection, so the dialog waits for an explicit tick
+    // (issue #1164) and sends it.
+    expect(screen.getByRole("button", { name: "Release hold" }).hasAttribute("disabled")).toBe(true);
+    act(() => {
+      screen.getByRole("checkbox", { name: /I understand/ }).click();
+    });
     act(() => {
       screen.getByRole("button", { name: "Release hold" }).click();
     });
 
     await waitFor(() => expect(release).toHaveBeenCalledTimes(1));
+    expect(release.mock.calls[0][0].acknowledged).toBe(true);
     const sent = release.mock.calls[0][0];
     expect(sent.holdId).toBe("hold_01J9Z5");
     expect(sent.backupSetId).toBe("production/postgres-primary");
@@ -179,7 +186,7 @@ describe("snapshot retention", () => {
   it("mints a new idempotency key for a different row after one row's hold failed", async () => {
     const api = createMockApi();
     const refusal = () =>
-      new BackupdError({ code: "unknown", message: "the hold could not be recorded" });
+      new RetndError({ code: "unknown", message: "the hold could not be recorded" });
     // Both attempts on the first row fail, so the retry stays a retry and
     // the page is still showing that failure when the operator turns to
     // another row — which is the state the defect needed.

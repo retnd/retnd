@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/health"
-	"github.com/backupdproject/backupd/core/internal/metrics"
-	"github.com/backupdproject/backupd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/health"
+	"github.com/retnd/retnd/core/internal/metrics"
+	"github.com/retnd/retnd/core/internal/model"
 )
 
 // EPIC K's "metrics never leak secrets" requirement (#788), checked as
@@ -61,7 +61,7 @@ var secretsAndPaths = []string{
 // one layer below this package and reaches it through a Detail sentence
 // or a recovery hold.
 var workflowSecretsAndPaths = []string{
-	"/var/run/backupd/host-workflow-runner.sock",
+	"/var/run/retnd/host-workflow-runner.sock",
 	"dump-pgsql.remote.sh",
 	"0007~set~before~dump-pgsql.remote.sh",
 	"run-2026-09-13T02:00:03Z-7f21",

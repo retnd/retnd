@@ -3,8 +3,9 @@ package local
 import (
 	"context"
 	"net/http"
+	"time"
 
-	"github.com/backupdproject/backupd/apps/common/platform/capabilities"
+	"github.com/retnd/retnd/apps/common/platform/capabilities"
 )
 
 // The read half of a session: given a request, is somebody signed in, and
@@ -36,14 +37,19 @@ type sessionAuthenticator struct {
 // Authenticate implements capabilities.Authenticator.
 func (a sessionAuthenticator) Authenticate(_ context.Context, r capabilities.AuthRequest) (capabilities.AuthContext, error) {
 	token := sessionTokenFromCookieHeader(r.Headers.Get("Cookie"))
-	username, ok := a.sessions.lookup(token)
+	rec, ok := a.sessions.live(token)
 	if !ok {
 		return capabilities.AuthContext{}, nil
 	}
 	return capabilities.AuthContext{
 		Authenticated: true,
-		Username:      username,
+		Username:      rec.username,
 		Mode:          capabilities.AuthModeLocalAccount,
+		// The sessions here have a fixed lifetime, so this is the same
+		// value on every request of one session. Anything bound to the
+		// session (a recovery grant) compares it exactly, hence the
+		// nanoseconds.
+		SessionExpiresAt: rec.expiresAt.UTC().Format(time.RFC3339Nano),
 	}, nil
 }
 

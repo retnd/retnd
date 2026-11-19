@@ -34,7 +34,7 @@ narrow, and so nobody executes it expecting it to prove more than it does.
 ## What this procedure decides
 
 One question: does a UGOS `Notifier` implementation actually put a
-backupd alert in front of an administrator who is not looking at
+retnd alert in front of an administrator who is not looking at
 the app, and does it survive the conditions that matter (app in the
 background, browser closed, container restarted)?
 
@@ -51,7 +51,7 @@ notification mechanism itself:
 
 - **Every condition, on the generic image.** `apps/generic`'s adapter
   declares no capability at all, so `notify.NewPlatformSink` refuses it
-  and `backupd-web serve` prints "proactive alerting is off" on
+  and `retnd-web serve` prints "proactive alerting is off" on
   every start. The §37 headless Docker distribution therefore has no
   proactive alerting for any of the four conditions, and §71's second
   option (one explicit opt-in generic mechanism) has not been built. This
@@ -64,7 +64,7 @@ notification mechanism itself:
   `capacity.AssessCurrent` reaches `Critical` only when the filesystem
   reports no available bytes at all, which is after the point where a
   warning would have helped. Step 4 below is blocked on FR-21's threshold
-  configuration (see) and must not be executed, or marked failed,
+  configuration (see #157) and must not be executed, or marked failed,
   before it lands. `core/internal/app/alerts_test.go` pins that shipped
   default so it is a recorded fact rather than a surprise on the day.
 
@@ -72,8 +72,8 @@ notification mechanism itself:
 
 1. An authorized UGOS Pro NAS. Never someone else's production NAS, and
    never one holding backups whose loss would matter.
-2. A UGOS `PlatformAdapter` (apps/ugos) whose `Capabilities` returns
-   `NativeNotifications: true` and whose `Notifier` calls the real UGOS
+2. A UGOS `PlatformAdapter` (apps/ugos) whose `Capabilities()` returns
+   `NativeNotifications: true` and whose `Notifier()` calls the real UGOS
    notification API.
 3. The engine container running from a build that includes this work
    package, with `alerts.enabled: true` in its config file.
@@ -133,7 +133,7 @@ notification actually appeared, where, and for whom.
 > value is zero and this condition fires only at literally zero available
 > bytes. Executing the steps below as written produces a false reject of
 > the whole notification mechanism. Run this section once the threshold
-> configuration lands, with step 1 reading the configured value.
+> configuration lands (#157), with step 1 reading the configured value.
 
 1. Fill the destination filesystem (a large sparse file outside the
    managed backup root) until free space is at or below the configured
@@ -151,7 +151,7 @@ notification actually appeared, where, and for whom.
 
 Repeat step 1 under each of these, one at a time:
 
-1. The backupd UI closed, no browser open to the NAS at all.
+1. The retnd UI closed, no browser open to the NAS at all.
 2. The administrator logged out of UGOS.
 3. Immediately after an engine container restart.
 4. On a second administrator account that never opened the app.
@@ -170,7 +170,7 @@ is not a pass: §71's whole point is the administrator who is not watching.
 A workflow step whose target is `local` does not run in the engine container, and since
 issue #865 it does not run on a host shell either: it runs in an **ephemeral Docker
 container** launched by the **Host Workflow Runner**, a small version-pinned process
-systemd supervises as `backupd-workflow-runner.service`
+systemd supervises as `retnd-workflow-runner.service`
 (`docs/adr/0020-host-workflow-runner.md`, `docs/runtime-contract.md`).
 
 UGOS Pro is a closed appliance: it offers no supported way to install a host unit or to
@@ -190,7 +190,7 @@ mechanism, because two plausible ones are not it:
   and a NAME.local.sh has nowhere to run"*
   (`core/internal/workflowrun/engine.go`). A hook is refused, never skipped, so a
   run cannot report success with the hook quietly missing;
-- and **this procedure installs no `backupd-workflow-runner.service`**, grants no
+- and **this procedure installs no `retnd-workflow-runner.service`**, grants no
   group and fetches no hook image.
 
 What does **not** happen, so that nobody goes looking for it:
@@ -206,7 +206,7 @@ administer, and needs no Docker and no host unit on this NAS. The engine's own s
 of this is unchanged either way: the shipped package asks for no Docker socket, no
 `group_add` and no `DOCKER_HOST`.
 
-- [ ] No `backupd-workflow-runner.service` exists on this host, and nothing in this
+- [ ] No `retnd-workflow-runner.service` exists on this host, and nothing in this
       procedure created one
 - [ ] No account was added to a Docker socket group for this product, and the shipped
       containers mount no socket and declare no `group_add`

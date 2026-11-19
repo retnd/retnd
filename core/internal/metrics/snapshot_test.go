@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/health"
-	"github.com/backupdproject/backupd/core/internal/metrics"
-	"github.com/backupdproject/backupd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/health"
+	"github.com/retnd/retnd/core/internal/metrics"
+	"github.com/retnd/retnd/core/internal/model"
 )
 
 // EPIC K's metrics requirement, checked as the thing it actually is: four
@@ -33,7 +33,7 @@ func snapshotReport(t *testing.T, snap *health.SnapshotHealth) health.Report {
 func sampleValue(t *testing.T, rendered, metric string) (string, bool) {
 	t.Helper()
 
-	prefix := "backupd_backup_set_" + metric + "{"
+	prefix := "retnd_backup_set_" + metric + "{"
 
 	for line := range strings.Lines(rendered) {
 		line = strings.TrimRight(line, "\n")

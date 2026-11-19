@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/lifecycle"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/state"
-	"github.com/backupdproject/backupd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // Issue #662, defect 3: the dead end. This is why #662 is a bug report and
@@ -480,7 +480,7 @@ func sortedVerbs662Set(in []string) []string {
 }
 
 // stateOf662 reads the artifact's state out of the journal, which is the
-// only thing `backupd artifacts` shows an operator.
+// only thing `retnd artifacts` shows an operator.
 func stateOf662(t *testing.T, j Journal, artifact model.ArtifactID) string {
 	t.Helper()
 	rec, err := j.Get(context.Background(), artifact)

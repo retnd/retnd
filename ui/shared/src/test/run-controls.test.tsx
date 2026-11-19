@@ -27,8 +27,8 @@ import { DashboardPage } from "@shared/pages/DashboardPage";
 import { BackupSetDetailPage } from "@shared/pages/BackupSetDetailPage";
 import { ApiProvider } from "@shared/api/ApiContext";
 import { createMockApi } from "@shared/api/mock";
-import { BackupdError } from "@shared/api/contracts";
-import type { BackupdApi } from "@shared/api/contracts";
+import { RetndError } from "@shared/api/contracts";
+import type { RetndApi } from "@shared/api/contracts";
 import { graph, resetGraphForTests } from "@shared/state/graph";
 import { setsNode, versionNode } from "@shared/state/appNodes";
 import type { AsyncState } from "@shared/hooks/useAsync";
@@ -64,7 +64,7 @@ const HEALTH: SystemHealth = {
   setsStale: 0,
   setsFailing: 0,
   quarantinedCount: 0,
-  readOnlyRetainedCount: 0,
+  readOnlyRetainedCount: 0, retainedCount: null,
   storageState: "nominal",
   storageReadingsUnavailable: 0
 };
@@ -120,8 +120,8 @@ describe("the dashboard's run control", () => {
     // eslint's no-unused-vars is on for the whole workspace with no
     // argsIgnorePattern, so an unused `_key` is an error however it is
     // spelled. Taking the type from the contract is better than either,
-    // since the mock now moves when BackupdApi does.
-    const runCycle = vi.fn<BackupdApi["runCycle"]>(() => Promise.resolve());
+    // since the mock now moves when RetndApi does.
+    const runCycle = vi.fn<RetndApi["runCycle"]>(() => Promise.resolve());
     const api = { ...createMockApi(), runCycle };
     const sets = await createMockApi().listSets();
     seedVersion(VERSION);
@@ -145,7 +145,7 @@ describe("the dashboard's run control", () => {
   it("renders the gate's refusal by its typed code rather than swallowing it", async () => {
     const runCycle = vi.fn(() =>
       Promise.reject(
-        new BackupdError({
+        new RetndError({
           code: "DESTRUCTIVE_OPERATIONS_DISABLED",
           message: "destructive operations are disabled until the trusted-proxy authentication gate has been verified",
           correlationId: "cid_gate_1"
@@ -167,7 +167,7 @@ describe("the dashboard's run control", () => {
     // because the remediation sentence names the command too and a match
     // on that would pass with nothing to copy.
     const command = document.querySelector("pre");
-    expect(command?.textContent).toContain("backupd run");
+    expect(command?.textContent).toContain("retnd run");
     // The id somebody copies into a support message, behind the sentence
     // rather than inside it.
     expect(screen.getByText("cid_gate_1")).toBeTruthy();
@@ -178,7 +178,7 @@ describe("the dashboard's run control", () => {
   it("tells a run already in progress apart from the gate", async () => {
     const runCycle = vi.fn(() =>
       Promise.reject(
-        new BackupdError({
+        new RetndError({
           code: "OPERATION_ALREADY_RUNNING",
           message: "rejected: another run is already in progress",
           correlationId: "cid_busy_1"
@@ -224,7 +224,7 @@ describe("the dashboard's run control", () => {
       keys.push(key);
       return refuse
         ? Promise.reject(
-            new BackupdError({ code: "INTERNAL", message: "boom", correlationId: "cid_1" })
+            new RetndError({ code: "INTERNAL", message: "boom", correlationId: "cid_1" })
           )
         : Promise.resolve();
     });
@@ -264,6 +264,13 @@ describe("the per-set run control", () => {
   });
 
   async function renderDetail(api: ReturnType<typeof createMockApi>, set: BackupSet) {
+    // EPIC L (#814) gates the per-set Run control on this set's workflow
+    // recovery holds, and the dev fixtures deliberately hold one set so
+    // that screen renders in dev. This suite is about what a PRESS does,
+    // so it drives a deployment with nothing held rather than asserting
+    // around the gate — the gate has its own cases in
+    // test/workflow-set-config.test.tsx, in both directions.
+    vi.spyOn(api, "workflowRecovery").mockResolvedValue([]);
     const rendered = render(
       <MemoryRouter initialEntries={[backupSetPath(set.source, set.set)]}>
         <ApiProvider api={api}>
@@ -278,10 +285,10 @@ describe("the per-set run control", () => {
   }
 
   // The control this page has never had. The engine half has existed
-  // since FR-1 behind `backupd fetch --backup-set`; what was
+  // since FR-1 behind `retnd fetch --backup-set`; what was
   // missing was a way to reach it from a browser.
   it("runs exactly the set on screen, by its full source/backup-set id", async () => {
-    const runBackupSet = vi.fn<BackupdApi["runBackupSet"]>(() => Promise.resolve());
+    const runBackupSet = vi.fn<RetndApi["runBackupSet"]>(() => Promise.resolve());
     const sets = await createMockApi().listSets();
     const target = sets.find((s) => s.enabled) ?? sets[0];
     const api = { ...createMockApi(), runBackupSet };
@@ -303,7 +310,7 @@ describe("the per-set run control", () => {
   it("says a set held for editing is being edited, not that a run is in progress", async () => {
     const runBackupSet = vi.fn(() =>
       Promise.reject(
-        new BackupdError({
+        new RetndError({
           code: "BACKUP_SET_HELD_FOR_EDITING",
           message: "service: this backup set is held for editing",
           correlationId: "cid_held_1"
@@ -320,11 +327,14 @@ describe("the per-set run control", () => {
 
     await screen.findByText("This backup set is being edited.");
     expect(screen.queryByText("A backup run is already in progress.")).toBeNull();
-    // The command an operator can still run, naming the set by the full
+    // The command that is this press's twin, naming the set by the full
     // id `--backup-set` has taken since #569, so it pastes into a shell
-    // without being split by hand.
+    // without being split by hand. It is `operation run` and not `fetch`
+    // (#1253's review): that is the verb core/cliecho echoes for a served
+    // run, and a held set is no reason to leave it. Only the destructive
+    // gate's refusal, above, falls back to the local verbs.
     const command = document.querySelector("pre");
-    expect(command?.textContent).toContain("backupd fetch --backup-set " + target.id);
+    expect(command?.textContent).toContain("retnd operation run --backup-set " + target.id);
   });
 
   // The owner's rule, explicitly: when a deployment-wide run is refused,
@@ -335,7 +345,7 @@ describe("the per-set run control", () => {
   it("shows a deployment-wide refusal on the set's own page", async () => {
     const runCycle = vi.fn(() =>
       Promise.reject(
-        new BackupdError({
+        new RetndError({
           code: "DESTRUCTIVE_OPERATIONS_DISABLED",
           message: "destructive operations are disabled",
           correlationId: "cid_gate_2"

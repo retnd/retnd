@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addCommand,
+  editCommand,
   importCredentialsCommand,
   setDefaultCommand,
   testConnectionCandidateCommand,
@@ -12,7 +13,7 @@ import type { StorageMediumSpec } from "@shared/api/contracts";
 
 /**
  * EPIC G's standing rule is that every action taken in the browser prints
- * the `backupd` command that would do the same thing. A wizard is
+ * the `retnd` command that would do the same thing. A wizard is
  * the hardest case for that rule and the case where it pays best: an
  * operator who configured one destination by clicking has, by the end,
  * read the exact command that configures the next fifty.
@@ -42,7 +43,7 @@ const SPEC: StorageMediumSpec = {
   credentials: { credentialsId: "9b41c7e2" }
 };
 
-describe("the echoed backupd command", () => {
+describe("the echoed retnd command", () => {
   it("names the credential by reference and never carries material", () => {
     const printed = [
       importCredentialsCommand(),
@@ -56,7 +57,7 @@ describe("the echoed backupd command", () => {
 
     // The positive control. Without it a renderer that returned empty
     // strings would pass every assertion below for the wrong reason.
-    expect(printed).toContain("backupd medium add offsite_s3");
+    expect(printed).toContain("retnd medium add offsite_s3");
 
     for (const forbidden of [CANARY_SECRET, CANARY_KEY_ID, "--access-key-id", "--secret-access-key", "--secret"]) {
       expect(printed).not.toContain(forbidden);
@@ -64,12 +65,12 @@ describe("the echoed backupd command", () => {
   });
 
   it("takes the material on stdin, so it is not in the process table", () => {
-    expect(importCredentialsCommand()).toBe("backupd medium import-credentials --stdin");
+    expect(importCredentialsCommand()).toBe("retnd medium import-credentials --stdin");
   });
 
   it("renders the whole add, so what is printed is what actually works", () => {
     expect(addCommand(SPEC)).toBe(
-      "backupd medium add offsite_s3 --type s3 --region us-east-1 " +
+      "retnd medium add offsite_s3 --type s3 --region us-east-1 " +
         "--bucket nas-backups --prefix monthly --storage-class STANDARD_IA " +
         "--upload-verification readback --credentials-id 9b41c7e2"
     );
@@ -77,39 +78,60 @@ describe("the echoed backupd command", () => {
 
   it("omits the flags that were not filled in rather than printing empty ones", () => {
     expect(addCommand({ id: "minimal", type: "s3", bucket: "b", credentials: { credentialsId: "c" } })).toBe(
-      "backupd medium add minimal --type s3 --bucket b --credentials-id c"
+      "retnd medium add minimal --type s3 --bucket b --credentials-id c"
     );
   });
 
   it("spells the candidate test connection as the same flags the add takes", () => {
     expect(testConnectionCandidateCommand(SPEC)).toBe(
-      "backupd medium test-connection --candidate offsite_s3 --type s3 --region us-east-1 " +
+      "retnd medium test-connection --candidate offsite_s3 --type s3 --region us-east-1 " +
         "--bucket nas-backups --prefix monthly --storage-class STANDARD_IA " +
         "--upload-verification readback --credentials-id 9b41c7e2"
     );
   });
 
-  it("quotes a credential command so the printed line is copy-pasteable as typed", () => {
+  it("names a credentials command and never prints it (#1252)", () => {
+    // `printf %s AKIA...:secret` is a valid credentials command and a
+    // credential on a command line, and nothing can tell it from an
+    // innocent one. core/cliecho prints a placeholder for the same reason
+    // (mediumCredentialFlags), so the browser does too.
     const line = addCommand({
       id: "vaulted",
       type: "s3",
       bucket: "b",
-      credentials: { command: ["op", "read", "op://vault/s3/creds"] }
+      credentials: { command: ["printf", "%s", CANARY_KEY_ID + ":" + CANARY_SECRET] }
     });
-    expect(line).toContain("--credentials-command 'op read op://vault/s3/creds'");
+    expect(line).toBe(
+      "retnd medium add vaulted --type s3 --bucket b --credentials-command <the command that prints these credentials>"
+    );
+  });
+
+  it("cuts userinfo out of the endpoint, and holds back one it can't read (#1252)", () => {
+    expect(addCommand({ id: "a", type: "s3", bucket: "b", endpoint: `https://${CANARY_KEY_ID}:${CANARY_SECRET}@minio.internal:9000` }))
+      .toBe("retnd medium add a --type s3 --endpoint https://minio.internal:9000 --bucket b");
+    const held = editCommand({ id: "a", type: "s3", bucket: "b", endpoint: `https://k:pa/${CANARY_SECRET}@minio.internal` });
+    expect(held).toBe(
+      "retnd medium edit a --type s3 --endpoint <the value, left out because it looks like it carries credentials> --bucket b"
+    );
+  });
+
+  it("quotes a value the shell would split, as core/cliecho does (#1252)", () => {
+    expect(addCommand({ id: "a", type: "s3", bucket: "acme backups", prefix: "it's" })).toBe(
+      "retnd medium add a --type s3 --bucket 'acme backups' --prefix 'it'\\''s'"
+    );
   });
 
   it("names the reference sources without inventing a value for them", () => {
-    expect(addCommand({ id: "a", type: "s3", bucket: "b", credentials: { file: "/etc/backupd/s3.creds" } }))
-      .toContain("--credentials-file /etc/backupd/s3.creds");
+    expect(addCommand({ id: "a", type: "s3", bucket: "b", credentials: { file: "/etc/retnd/s3.creds" } }))
+      .toContain("--credentials-file /etc/retnd/s3.creds");
     expect(addCommand({ id: "a", type: "s3", bucket: "b", credentials: { env: "BACKUP_S3_OFFSITE" } }))
       .toContain("--credentials-env BACKUP_S3_OFFSITE");
   });
 
   it("prints the settings-list buttons as the commands they are", () => {
-    expect(testConnectionCommand("offsite_s3")).toBe("backupd medium test-connection offsite_s3");
-    expect(setDefaultCommand("offsite_s3")).toBe("backupd medium default offsite_s3");
-    expect(removeCommand("offsite_s3")).toBe("backupd medium remove offsite_s3");
+    expect(testConnectionCommand("offsite_s3")).toBe("retnd medium test-connection offsite_s3");
+    expect(setDefaultCommand("offsite_s3")).toBe("retnd medium default offsite_s3");
+    expect(removeCommand("offsite_s3")).toBe("retnd medium remove offsite_s3");
   });
 
   // The picker under a tier (#622). The acknowledgment rides along only
@@ -119,10 +141,10 @@ describe("the echoed backupd command", () => {
   // moving back is not.
   it("appends the disclosure acknowledgment only when the tier is leaving local disk", () => {
     expect(tierMediumCommand("monthly", "offsite_s3")).toBe(
-      "backupd settings patch --tier-medium monthly=offsite_s3 --acknowledge-medium-disclosure"
+      "retnd settings patch --tier-medium monthly=offsite_s3 --acknowledge-medium-disclosure"
     );
     expect(tierMediumCommand("monthly", "local")).toBe(
-      "backupd settings patch --tier-medium monthly=local"
+      "retnd settings patch --tier-medium monthly=local"
     );
   });
 });

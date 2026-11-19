@@ -1,13 +1,13 @@
 # The browser e2e signal
 
 The Playwright suite used to live in `ui/shared/e2e/`. It does not any
-more: moved it to
-[`backupdproject/backupd-tests`](https://github.com/backupdproject/backupd-tests)
+more: issue #158 moved it to
+[`retnd/retnd-tests`](https://github.com/retnd/retnd-tests)
 as Suite B, so it tests this product the way an operator meets it, from
 outside, with nothing but a browser and a built artefact.
 
 This directory is what replaced it, and the replacement had to land in the
-same change as the removal. is why: before it, the suite had no
+same change as the removal. Issue #197 is why: before it, the suite had no
 automated execution anywhere. `nightly-e2e.yml`'s schedule was commented
 out, no workflow here triggered on anything at all, and
 `scripts/ci-local.sh` never invoked Playwright. So it ran when somebody
@@ -19,15 +19,15 @@ through four merges and was dismissed twice as an ordering flake.
 `scripts/ci-local.sh` runs `run-tests-repo-gate.sh` on every non-FAST run,
 which is every commit through `.husky/pre-commit`. That file is a four-line
 bash shim that execs `scripts/bdtools/e2e/run_tests_repo_gate.py`, which is
-the gate; it stays a file at that path because
+the gate (#672); it stays a file at that path because
 `scripts/tests/ci-local-gate.test.sh` fabricates a stand-in gate there inside a
 sandbox tree, and `ci-local.sh` keeps calling the shim so that stand-in is the
 thing that runs. The step:
 
-1. clones `backupd-tests` at the sha in `tests-repo.pin` into
-   `${XDG_CACHE_HOME:-$HOME/.cache}/backupd-tests-gate/<sha>`, once
+1. clones `retnd-tests` at the sha in `tests-repo.pin` into
+   `${XDG_CACHE_HOME:-$HOME/.cache}/retnd-tests-gate/<sha>`, once
    per pin;
-2. builds `backupd` from **this working tree** and runs that
+2. builds `retnd` from **this working tree** and runs that
    repository's CLI smoke slice against it, 55 black-box cases in about
    eleven seconds. That is a signal this repository has never had: nothing
    here exercised the CLI black-box on a per-commit basis at all;
@@ -84,9 +84,16 @@ change there and the pin bump in the same PR.
   the same pin and runs the full Suite B including the seven-provider
   matrix, still `workflow_dispatch`-only. It exists for a run on a clean
   machine with a downloadable trace, not as a gate: nothing triggers it.
-  `ci.yml` is the one workflow here that does trigger on its own, on a
-  pull request into `release`, and Suite B is not in it.
-- **`backupd-tests` pins a build of this repository**, in its own
+  No workflow here triggers on its own any more: #1260 deleted `ci.yml`,
+  and the pre-commit gate is the only gate. Suite B runs in it as a lane
+  judged by its Playwright JSON report against `known-red.txt` in this
+  directory (`scripts/bdtools/e2e/web_ui_ratchet.py`): a failure in
+  `safety-invariants` or `workflow-recovery` blocks whatever the list says,
+  any other failure has to be listed with an issue, an owner and an expiry
+  at the current pin, a listed spec that passes has to come off, the list's
+  cap only goes down, and a lane that left no report ends the gate
+  INCOMPLETE rather than ok.
+- **`retnd-tests` pins a build of this repository**, in its own
   `build-under-test.json`. The two pins point opposite ways on purpose. A
   new test cannot break in-flight work here until someone bumps this one,
   and a release here cannot silently change what those suites certify.
@@ -97,7 +104,7 @@ specified and why, is in that repository's `docs/ci-signal.md`.
 
 ## The other thing in here: two throwaway machines and one real backup
 
-`two-machine-backup.sh` is, and it answers a different question
+`two-machine-backup.sh` is issue #356, and it answers a different question
 from everything above. Suite B asks whether the pages work. The CLI smoke
 slice asks whether the binary's contract holds. Neither can say that a
 fresh install, on a machine nobody has touched, pointed at another
@@ -120,7 +127,7 @@ this test exists not to do.
 The image under test is built from the working tree and moved across with
 `docker save | docker load`, so no registry is involved and the run proves
 this code. Every case asserts the engine reports the version and commit
-that were installed, which is 's shape: a stale default installed
+that were installed, which is #342's shape: a stale default installed
 0.1.0 once and the installer said "Installed."
 
 Four cases, and three of them exist because an issue was closed on
@@ -129,9 +136,9 @@ evidence that stopped short of a completed install:
 | case | what it settles |
 |---|---|
 | `plain` | the ordinary route: an explicit `--image`, and the canonical compose copied in from a checkout |
-| `no-arguments` | and `install` with no arguments at all, from one copied `install_docker_host.py` on a machine with no checkout: no `--compose-file`, no `--ssh-key`, no `--prefix`, no `--image`, running all the way to a serving stack and then a real backup |
-| `connection-cap` | The source refuses a third simultaneous SSH connection from one address, with an `iptables` `connlimit` rule, which is the production rule restated. The case proves the cap bites before it trusts it |
-| `lifecycle` | 's two counting criteria: an upgrade that preserves every user, backup set and catalogued artifact, counted before and after, and a factory reset proven by the resulting install issuing an enrollment link |
+| `no-arguments` | #347 and #346. `install` with no arguments at all, from one copied `install_docker_host.py` on a machine with no checkout: no `--compose-file`, no `--ssh-key`, no `--prefix`, no `--image`, running all the way to a serving stack and then a real backup |
+| `connection-cap` | #264. The source refuses a third simultaneous SSH connection from one address, with an `iptables` `connlimit` rule, which is the production rule restated. The case proves the cap bites before it trusts it |
+| `lifecycle` | #343's two counting criteria: an upgrade that preserves every user, backup set and catalogued artifact, counted before and after, and a factory reset proven by the resulting install issuing an enrollment link |
 
 Three outcomes rather than two, and the third is the point. A machine with
 no Docker, or one whose daemon refuses a privileged container, cannot
@@ -142,10 +149,13 @@ opt-out, and it ledgers too.
 
 ### Where it runs besides here
 
-All four cases run on every pull request into `release`, as the
-`two-machine-e2e` job in `.github/workflows/ci.yml`. Merging
-into that branch publishes a signed image to a public registry, and this
-is the only test in the tree that says the thing being published works.
+All four cases ran on every pull request into `release`, as the
+`two-machine-e2e` job in `.github/workflows/ci.yml` (issue #575), until #1260
+deleted that workflow. They run in every full local gate run now, and the
+release is refused unless such a run is recorded on the tree it publishes
+(`scripts/release/record-local-gate.sh`). Merging into that branch publishes a
+signed image to a public registry, and this is the only test in the tree that
+says the thing being published works.
 
 CI calls it through `two-machine-ci.sh` rather than directly, because the
 three outcomes above have to survive a workflow step, which has two. A
@@ -177,7 +187,7 @@ That used to be a range of line numbers, `sed -n '2,110p' "$0"`, so the help an
 operator reads was a set of coordinates rather than a piece of text: a comment
 inserted above the boundary rewrote it and deleting one truncated it, with
 nothing anywhere rendering either script's help. Both had already drifted by the
-time was written, one of them to a sentence cut off inside a word.
+time #514 was written, one of them to a sentence cut off inside a word.
 
 Edit the header freely; move a marker if you want the block to cover more or
 less. `scripts/tests/e2e-help.test.sh` renders both drivers and diffs them
@@ -186,9 +196,9 @@ against `scripts/tests/testdata/*.help.txt` on every gate run, the way
 somebody updates the golden on purpose. It also proves the property that used to
 be missing: a comment added above the block leaves the rendered help unchanged.
 
-## Reproducing (the Activity fetch that throws)
+## Reproducing #730 (the Activity fetch that throws)
 
-`` is the Activity page's `fetch(/api/v1/activity)`
+`retnd#730` is the Activity page's `fetch(/api/v1/activity)`
 throwing `TypeError: Failed to fetch` on a real 0.4.0 NAS, while `curl` to
 the same route answers cleanly. The client request is byte-for-byte the
 same relative, same-origin GET every other page makes (`ui/shared/src/api/
@@ -205,24 +215,24 @@ HTTP/1.1 and never exercises that transport.
 browser --TLS/HTTP2--> nginx (proxy-machine) --HTTP/1.1--> serve-ui --> serve
 ```
 
-Run it against the real published 0.4.0 image (the artefact was seen
+Run it against the real published 0.4.0 image (the artefact #730 was seen
 on), rather than a build from this tree:
 
 ```sh
-docker pull ghcr.io/backupdproject/backupd:0.4.0
+docker pull ghcr.io/retnd/retnd:0.4.0
 scripts/e2e/three-machine-web-ui.sh \
-  --image ghcr.io/backupdproject/backupd:0.4.0 \
+  --image ghcr.io/retnd/retnd:0.4.0 \
   --front-proxy-tls
 # optionally enlarge the authenticated /api/v1/activity payload:
-RM_SEED_CYCLES=8 scripts/e2e/three-machine-web-ui.sh \
-  --image ghcr.io/backupdproject/backupd:0.4.0 --front-proxy-tls
+RETND_SEED_CYCLES=8 scripts/e2e/three-machine-web-ui.sh \
+  --image ghcr.io/retnd/retnd:0.4.0 --front-proxy-tls
 ```
 
 The built-in `web-ui-smoke.mjs` client counts a failed request or an
 uncaught rejection on the Activity page as a failure, which is exactly
-'s shape; `--suite../backupd-tests/suites/web-ui` runs the full
+#730's shape; `--suite ../retnd-tests/suites/web-ui` runs the full
 Suite B, whose `real-path.spec.ts` asserts `getByRole("alert")` is absent
-on `/activity`. Either goes **red** if reproduces over this transport.
+on `/activity`. Either goes **red** if #730 reproduces over this transport.
 
 It is a genuine experiment, not a guaranteed repro. The proxy
 (`proxy-machine.Dockerfile`, `proxy.nginx.conf`) is a deliberately ordinary
@@ -233,12 +243,12 @@ if it stays green even here, the trigger is more specific to the operator's
 own front end (their proxy build, TLS stack, or browser), and the rig has
 narrowed it either way.
 
-## Reproducing (the Activity page that shows nothing)
+## Reproducing #795 (the Activity page that shows nothing)
 
-`` is the other half of the same page failing, and unlike it
+`retnd#795` is the other half of the same page failing, and unlike #730 it
 is not an experiment: the cause was known before the rig was asked to
 reproduce it. The web-ui container could not resolve the engine —
-`dial tcp: lookup rclone-manager: no such host` — so `serve-ui` answered
+`dial tcp: lookup retnd: no such host` — so `serve-ui` answered
 every `/api/v1` call itself, 502 with no body on it, and the Activity page
 put nothing useful on screen.
 
@@ -248,7 +258,7 @@ stands up:
 ```sh
 scripts/e2e/three-machine-web-ui.sh --break-engine
 scripts/e2e/three-machine-web-ui.sh --break-engine \
-  --suite ../backupd-tests/suites/web-ui
+  --suite ../retnd-tests/suites/web-ui
 ```
 
 **The engine is left running when the stack is handed over**, and that is the
@@ -263,7 +273,7 @@ for it.
 The client container has no Docker socket, deliberately: a browser that can
 stop containers is not the browser under test. So the capability is held by a
 watcher on the host and exposed as files in the directory named by
-`RM_ENGINE_CONTROL` (inside the already-mounted `/artifacts`):
+`RETND_ENGINE_CONTROL` (inside the already-mounted `/artifacts`):
 
 | file | written by | meaning |
 | --- | --- | --- |
@@ -287,7 +297,7 @@ timeout.
 
 A request file is removed as it is picked up, so one request is never
 acknowledged by the leavings of the last, and `start` against an engine that
-is already running is a no-op that still acknowledges. `RM_ENGINE_UNREACHABLE=1`
+is already running is a no-op that still acknowledges. `RETND_ENGINE_UNREACHABLE=1`
 is set alongside it, and a suite branches on that: assert the failure surface
 when it is set, assert the healthy feed when it is not, so a banner that never
 goes away fails the default run.
@@ -306,7 +316,7 @@ exists to produce fails there, rather than handing a suite a healthy stack to
 pass against.
 
 The built-in `web-ui-smoke.mjs` drives the whole window when
-`RM_ENGINE_UNREACHABLE=1`: the Activity page has to surface an alert rather
+`RETND_ENGINE_UNREACHABLE=1`: the Activity page has to surface an alert rather
 than a blank page or an empty feed, in the wording for a service that did not
 answer rather than one whose answer could not be read, with no literal
 `correlation id unavailable` anywhere on it, a Try again that really
@@ -317,3 +327,82 @@ sessions in its own process, so the app may land on the sign-in form, and the
 check signs in again and then requires a real feed (or the healthy empty
 state) with no error alert. An uncaught exception is never excused by the
 outage window, unlike the 502s and failed requests the window asked for.
+
+## EPIC Q's suites, and what this gate runs of them
+
+EPIC Q (#953, recovery and assurance) has black-box cases in all three suites in
+`retnd/retnd-tests`, and this gate runs two of the three, one of them in part. I wrote it down because
+the matrix at `docs/conformance/epic-q-matrix.md` says "Suites A, B and C green at the new pin", and
+that sentence is only as strong as what the gate actually executes.
+
+| Suite | What EPIC Q adds there | What this gate runs |
+|---|---|---|
+| A, the CLI contract | twenty-four cases under `assurance/`, `scrub/` and `recover/`: the default resolver, per-set inherit and override, the cadence floor, a clean and a corrupted local copy, the recover refusals and their exit codes | the `smoke` slice only. Two of the new cases carry the tag; the other twenty-two run under `make suite-a`, which this gate does not call |
+| B, the web UI | `recovery-and-assurance.986.spec.ts`: a browser download completing while `POST /api/v1/operations` is still refused, the assurance cards at their default, the three claims on a backup | all of it, through `three-machine-web-ui.sh`, which is the point of that rig |
+| C, UI to CLI equivalence | `assurance-recovery.986.spec.ts`: the global and per-set policy, a browser download against `--to -`, a staged recovery against `--to NAME`, and a corrupted copy refused on both routes with the same sentence and exit status 14 | not run by this gate at all (`make suite-c` over there) |
+
+So a green gate here is not evidence about Suite C or about the non-smoke part of Suite A, and the
+pull request that moves `tests-repo.pin` for EPIC Q has to say what it ran by hand. What is a gap in
+the gate itself (Suite C absent, Suite A only in part) is recorded here rather than fixed in this
+change, because widening what the per-commit gate runs is a decision about its cost.
+
+The pin moves only to a commit that is on `main` in `retnd-tests`, never to a branch head: a squash
+rewrites the head, and a pin that names a commit in no history cannot be cloned once the branch is
+gone. The pin used to name `c75e4dd`, which was #87's own head and not an ancestor of that
+repository's `main`. #1073 moved it to `9584fa3`, the squash of #87 with the identical tree, and
+every move after that reads off `main` the same way, so `tests-repo.pin` itself is where to look
+for the commit it names today.
+
+## EPIC T's suites, and what this gate runs of them
+
+EPIC T (#1310, encryption suites) adds black-box cases in two of the three suites in
+`retnd/retnd-tests` (retnd-tests#97, for #1319). Same caution as EPIC Q above: the matrix row
+`T2.4` in `docs/conformance/epic-t-matrix.md` is only as strong as what this gate executes.
+
+| Suite | What EPIC T adds there | What this gate runs |
+|---|---|---|
+| A, the CLI contract | twelve cases under `encryption/`: both suites listed with the default, a first key under age-pq/v1, a pinned age/v1, an unset suite following the active key, the mismatch answering with the rotate command and minting nothing, rotation across suites, the re-encrypt dry run and its refusal to pick a medium, and an unknown id refused at load, on a patch and on a key create | none of them: no case carries the `smoke` tag, so they run under `make suite-a` only |
+| B, the web UI | nothing new over there; the suite screens are #1318's specs in `ui/shared/e2e/` and #1319's `1319-suite-equivalence.spec.ts` | not this gate |
+| C, UI to CLI equivalence | `encryption-suites.1319.spec.ts`: the rotate-across-suites flow in the browser and on the CLI twin, each step's printed command against the CLI argv, then the registry and the policy both sides end with | not run by this gate (`make suite-c` over there) |
+
+Every row that needs an encrypted copy on a medium (the crypto negatives per suite, the cross-suite
+key, the mismatch across a real cycle, a retired suite, re-encryption under a kill, catalog rebuild
+over an unknown suite, clean-machine recovery per suite) is in this repository's own Go tests, not
+over there: a configurable medium is S3 only and that repository has no endpoint. The `gate_step`
+that runs them is #1320's.
+
+## A deployment nobody has configured (`--fresh`)
+
+`retnd#1049` is the first install: the browser opens a deployment that has an
+administrator and nothing else. The default rig cannot show that, because it
+seeds a backup set and runs a cycle before the browser arrives, so every case
+that is about a first install writes `needs(isFresh(facts))` and skips itself
+here. A skip is the same colour as a pass, which is how those cases went
+unrun.
+
+```sh
+scripts/e2e/three-machine-web-ui.sh --fresh --break-engine \
+  --suite ../retnd-tests/suites/web-ui -- .1049.spec.ts
+```
+
+`--fresh` does one thing: it leaves out the seeding. The administrator is
+enrolled (a browser has to sign in), but no backup set is created, no cycle is
+run, and the engine starts against an empty configuration directory, so it
+writes its own default configuration on first start, exactly as it does on a
+real first install. `RETND_BACKUP_SET` is not set, and `--no-workflows` is
+implied, because every workflow scenario is a backup set. `--break-engine` is
+the one flag worth adding: the Copy details and unreachable-banner cases need
+the engine control channel as well as a fresh deployment, and without it they
+skip for that reason instead.
+
+Everything after a bare `--` goes to the `npx playwright test` the client
+container runs, so a run can be narrowed to the specs whose path matches
+(`.1049.spec.ts` above) and can ask for the JSON reporter. The client container
+has `PLAYWRIGHT_JSON_OUTPUT_NAME` set to `/artifacts/playwright-report.json`,
+which is `playwright-report.json` in `--artifacts`.
+
+`scripts/bdtools/e2e/run_tests_repo_gate.py` runs exactly that against the
+pinned tests checkout (the `fresh_first_run_half` step) and **fails the commit if
+any `*.1049.spec.ts` case skipped**, or if none ran, or if the report is
+missing. The report is the check, not the exit status: Playwright exits 0 for a
+run in which every case skipped.

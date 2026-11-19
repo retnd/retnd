@@ -38,7 +38,7 @@ real flat directory:
 
 (`TestStreamingCostsFarLessThanListAtScale` in
 `core/internal/transport/rclone`; the million-entry row is the same test
-with `BACKUPD_HUGE_DIR_ENTRIES=1000000`, which also costs 3m34s of
+with `RETND_HUGE_DIR_ENTRIES=1000000`, which also costs 3m34s of
 fixture creation and is why CI does not run it. Peak goroutines includes
 the measuring goroutine itself, so the two columns are comparable to each
 other rather than absolute; the enumerator starts none of its own. Wall
@@ -152,7 +152,7 @@ all of the cost, plus the claim that it had been solved.
 **Two mechanisms, and the honest thing about them is that the second one
 is a refusal.**
 
-### 1. A backend capability matrix, owned by backupd, where silence means unqualified
+### 1. A backend capability matrix, owned by retnd, where silence means unqualified
 
 `core/internal/backend/capability.go` declares twelve keys, closed in Go
 (`CapabilityKeys()`, which returns a copy - a vocabulary an importer
@@ -264,7 +264,7 @@ in production on the first directory that got big. A block that IS
 present must answer all twelve keys, because a missing key and a declared
 false are different statements that nothing downstream could tell apart.
 
-### 2. A backupd-owned bounded enumerator, plus an explicit refusal where one is impossible
+### 2. A retnd-owned bounded enumerator, plus an explicit refusal where one is impossible
 
 `core/internal/transport.LocalEnumerator` streams entries to a callback:
 `(*os.File).ReadDir(n)` in chunks of `ChunkEntries` (default 4096),
@@ -341,7 +341,7 @@ description of what upstream would have to change, and the day rclone
 grows the interface, flipping that value and adding a reader is a small,
 reviewed diff with tests already written against the behaviour.
 
-### Option B alone: a backupd streaming enumerator for everything
+### Option B alone: a retnd streaming enumerator for everything
 
 Chosen for local, and it is only half an answer, which is why it is not
 the whole decision. Writing a "streaming" enumerator for sftp means
@@ -515,6 +515,6 @@ first version of this walk failed),
 not product code. They are what makes a future rclone bump, or a future
 change to the chunking, fail loudly instead of quietly costing 490 MiB
 again. The million-entry real-filesystem variant is opt-in
-(`BACKUPD_HUGE_DIR_ENTRIES`) because creating the fixture takes three and
+(`RETND_HUGE_DIR_ENTRIES`) because creating the fixture takes three and
 a half minutes and removing it takes as long; the synthetic million-entry
 run is in the default suite and takes half a second.

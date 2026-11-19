@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/backupdproject/backupd/apps/common/platform/capabilities"
+	"github.com/retnd/retnd/apps/common/platform/capabilities"
 )
 
 // The two middlewares every mutating route in this package passes through,
@@ -34,6 +34,22 @@ import (
 // can never collide with, or be set by, any other package's key.
 type actorContextKey struct{}
 
+type authContextKey struct{}
+
+// authContextForAgent is the AuthContext an authenticated agent carries. It
+// holds no session expiry and no mode: a token has neither.
+func authContextForAgent(actor string) capabilities.AuthContext {
+	return capabilities.AuthContext{Authenticated: true, Username: actor}
+}
+
+// authContextFrom is the full AuthContext the request authenticated with.
+// Recovery binds a grant to it: the context carries who and when that
+// authentication lapses, and nothing else is a session id here.
+func authContextFrom(ctx context.Context) capabilities.AuthContext {
+	a, _ := ctx.Value(authContextKey{}).(capabilities.AuthContext)
+	return a
+}
+
 // actorFromContext returns the authenticated caller's identity, as
 // resolved by authMiddleware below. Empty if called from anywhere that
 // did not go through that middleware — every handler in this package
@@ -60,9 +76,53 @@ func actorFromContext(ctx context.Context) string {
 // This is what makes the whole /api/v1 surface fail closed the moment a
 // provider has not wired a real Authenticator in yet, which today is
 // every provider (see router_test.go's noAuthWiredAdapter).
-func authMiddleware(platform capabilities.PlatformAdapter) func(http.Handler) http.Handler {
+func authMiddleware(platform capabilities.PlatformAdapter, agents AgentAccess, guard *agentGuard, proposer *agentProposer) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// A confirmation being replayed (agentconfirmations.go) carries the
+			// principal that asked on a context key only this package can set,
+			// so no request that arrived over the wire reaches this branch.
+			if p, ok := agentReplayFrom(r.Context()); ok {
+				replayed, ok := replayAgent(w, r, p)
+				if !ok {
+					return
+				}
+				next.ServeHTTP(w, replayed)
+				return
+			}
+			// A request that presents an agent token (a rat_ bearer) is an agent's, and is
+			// decided here alone. It never falls through to the session: a
+			// token that is unknown, expired or revoked is refused, not
+			// quietly authenticated by a cookie it also happens to carry.
+			// See agentaccess.go.
+			if presented, ok := bearerToken(r); ok {
+				if agents == nil {
+					// No token store, so nothing to check the token against,
+					// but the session-only routes still refuse a header that
+					// claims to be an agent's. Anywhere else it is ignored.
+					if agentRouteDenied(r) {
+						writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route")
+						return
+					}
+				} else {
+					authenticated, ok := authenticateBearer(w, r, agents, guard, proposer, presented)
+					if !ok {
+						return
+					}
+					next.ServeHTTP(w, authenticated)
+					return
+				}
+			}
+			// With no token store (the first-run router, a backend that keeps
+			// no tokens) a bearer header is still ignored everywhere except
+			// the denied prefixes, which refuse it whatever it is. That is
+			// what keeps /system/first-run shut to a token before the
+			// deployment has a journal to check one against.
+			if _, ok := bearerToken(r); ok && agentRouteDenied(r) {
+				writeError(w, http.StatusForbidden, "AGENT_ROUTE_DENIED", "an agent token cannot reach this route")
+				return
+			}
+
 			if platform == nil {
 				writeError(w, http.StatusUnauthorized, "UNAUTHENTICATED", "no platform adapter is configured")
 				return
@@ -83,6 +143,7 @@ func authMiddleware(platform capabilities.PlatformAdapter) func(http.Handler) ht
 			}
 
 			ctx := context.WithValue(r.Context(), actorContextKey{}, authCtx.Username)
+			ctx = context.WithValue(ctx, authContextKey{}, authCtx)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -97,6 +158,10 @@ func requireDestructiveGate(gate DestructiveGate) func(http.Handler) http.Handle
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !destructiveGatePassed(gate) {
+				// Leaves the note recordActions turns into the audit
+				// entry (issue #1165), before the refusal is written so
+				// the state it records is the one that refused.
+				noteGateRefusal(r.Context(), gate, "")
 				writeDestructiveGateDenied(w)
 				return
 			}
@@ -111,7 +176,7 @@ func requireDestructiveGate(gate DestructiveGate) func(http.Handler) http.Handle
 // absence of a gate means "allow" (see DestructiveGate's own doc).
 // Shared by requireDestructiveGate above and createBackupSet
 // (handlers_backupsets.go), which consults the identical gate directly
-// rather than through that middleware — see handlers.gate's own doc for
+// rather than through that middleware; see handlers.enforce's own doc for
 // why.
 func destructiveGatePassed(gate DestructiveGate) bool {
 	return gate != nil && gate.Passed()
@@ -133,4 +198,13 @@ func writeDestructiveGateDenied(w http.ResponseWriter) {
 // One string rather than two, because the two surfaces describe the same
 // refusal and an operator who saw both worded differently would
 // reasonably think they were different problems.
-const destructiveGateRefusal = "destructive operations are disabled until the trusted-proxy authentication gate (issue #92) has been verified for this deployment"
+//
+// Issue #1157 reworded it. It used to say "disabled until the gate has been
+// verified for this deployment", which sounds like a step an operator can
+// take. Nothing in this release lets them: every shipped build refuses these
+// over HTTP, and what lifts that is #92 shipping a verified gate, not
+// anything configured here. So the sentence says that, and says where the
+// work can be done today. The status (403) and the code
+// (DESTRUCTIVE_OPERATIONS_DISABLED) are unchanged, so a client keyed on
+// either keeps working; there is deliberately no new envelope field.
+const destructiveGateRefusal = "destructive operations are refused over HTTP in this release, until the trusted-proxy authentication gate (issue #92) has been verified; run the equivalent `retnd` command on the host"

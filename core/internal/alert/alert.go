@@ -101,7 +101,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/obs"
 )
 
 // Kind is one alertable condition. Four of them are the ones §71's Work
@@ -294,11 +294,70 @@ const (
 	// scope, and an operator acts per backup set, so
 	// WorkflowRecoveryConditions folds a set's holds into one.
 	WorkflowRecoveryRequired Kind = "WORKFLOW_RECOVERY_REQUIRED"
+
+	// The four assurance kinds below are EPIC Q's (Q1.4, #982). (A fifth and a
+	// sixth, NO_READABLE_COPY and ARCHIVE_ONLY_RECOVERABILITY, were deleted: nothing
+	// measured either fact, so nothing could ever raise them.) They are
+	// about whether a backup set can be GOT BACK, and they pass the same
+	// three tests every kind has to: each needs a human, each resolves
+	// when the underlying fact changes, and each names a backup set.
+	//
+	// Overdue and failing are separate kinds for scrub and for recovery
+	// test because the remedies differ: overdue means the scheduler or
+	// its budget is not getting to the copy, failing means it got there
+	// and the bytes (or the operator's validator) said no. Folding them
+	// together hides whichever one is not the headline.
+
+	// ScrubOverdue: at least one copy in the set is past its scrub
+	// cadence. A copy nobody has ever looked at counts as overdue, never
+	// as fine.
+	ScrubOverdue Kind = "SCRUB_OVERDUE"
+
+	// ScrubFailing: a scrub read a copy and it did not pass, repeatedly.
+	ScrubFailing Kind = "SCRUB_FAILING"
+
+	// RecoveryTestOverdue: the set's policy requires a recovery test and a
+	// pass has lapsed past its cadence, or the last attempt was refused for
+	// cost or could not complete. A copy no test has run on yet is not
+	// overdue, it is untested, and the dashboard says so.
+	RecoveryTestOverdue Kind = "RECOVERY_TEST_OVERDUE"
+
+	// RecoveryTestFailing: a recovery test recovered the bytes and the
+	// operator's validator refused them, or the digest did not match.
+	RecoveryTestFailing Kind = "RECOVERY_TEST_FAILING"
+
+	// EncryptionKeyUnresolvable is EPIC N's one kind (#990, FR-66): a
+	// backup set whose retained-copy encryption policy is `required` and
+	// whose key, managed or external, cannot be resolved right now. While
+	// it holds, new copies for that set are refused before any source or
+	// medium deletion step, and nothing already stored is touched.
+	//
+	// # Why this is the one key-custody fact that is a condition
+	//
+	// EPIC N has two operator-facing degradations and they have different
+	// shapes. "Encryption is on and nobody has confirmed holding a recovery
+	// bundle" can only be cleared by a person, so as a condition it would
+	// ride the retry ladder forever, which none of the kinds above does;
+	// it is health.Report.KeyCustody instead. An unresolvable key resolves
+	// BY ITSELF: the file comes back from the mount that dropped, the mode
+	// is corrected, the secrets manager answers again, and the fact is
+	// gone without this product doing anything. That is exactly the shape
+	// Dispatcher's model is built for: true for a while, resolves on its
+	// own, may genuinely recur. It passes the three tests every kind has
+	// to: it needs a human (nothing here can fix a path or a mode), it
+	// resolves when the underlying fact changes, and it names a backup
+	// set.
+	//
+	// What it must never suggest is that a copy was lost or written in
+	// the clear. internal/keycustody.AlertConditions composes the
+	// sentence, and it says refused, not failed.
+	EncryptionKeyUnresolvable Kind = "ENCRYPTION_KEY_UNRESOLVABLE"
 )
 
 // Kinds is every Kind this package can produce: §71's four in the order
-// it lists them, then EPIC K's two, then EPIC L's three. It exists so a
-// test (and a reader) can see the whole vocabulary in one place.
+// it lists them, then EPIC K's two, then EPIC L's three, then EPIC Q's
+// four, then EPIC N's one. It exists so a test (and a reader) can see the
+// whole vocabulary in one place.
 var Kinds = []Kind{
 	StaleBackup,
 	RepeatedFailure,
@@ -309,9 +368,17 @@ var Kinds = []Kind{
 	WorkflowFailed,
 	WorkflowCleanupFailed,
 	WorkflowRecoveryRequired,
+	ScrubOverdue,
+	ScrubFailing,
+	RecoveryTestOverdue,
+	RecoveryTestFailing,
+	EncryptionKeyUnresolvable,
 }
 
 func (k Kind) String() string { return string(k) }
+
+// Title is the short operator-facing headline for this Kind.
+func (k Kind) Title() string { return k.title() }
 
 // title is the short operator-facing headline for this Kind, the first
 // half of what a platform notifier renders.
@@ -335,8 +402,18 @@ func (k Kind) title() string {
 		return "Workflow cleanup failed"
 	case WorkflowRecoveryRequired:
 		return "Backup set is blocked pending recovery"
+	case ScrubOverdue:
+		return "Backups have not been re-read on schedule"
+	case ScrubFailing:
+		return "A backup failed its re-read"
+	case RecoveryTestOverdue:
+		return "No recent recovery test"
+	case RecoveryTestFailing:
+		return "A recovery test failed"
+	case EncryptionKeyUnresolvable:
+		return "Encryption key cannot be resolved"
 	default:
-		return "Backup manager alert"
+		return "retnd alert"
 	}
 }
 

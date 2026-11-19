@@ -13,7 +13,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/backupdproject/backupd/core/internal/workflowexec"
+	"github.com/retnd/retnd/core/internal/workflowexec"
 )
 
 const (
@@ -71,6 +71,12 @@ type Request struct {
 	// A token is safe to publish there -- it identifies a run, not a
 	// credential -- which is exactly why an environment value or a secret
 	// never may be.
+	//
+	// It is BUILT with StepToken and not taken from an identifier a
+	// caller already has: it has to satisfy tokenRule, and every
+	// identifier this product mints -- a step id above all -- contains
+	// characters that rule refuses. Handing one over unchanged was #919,
+	// and the refusal arrives before a session is ever opened.
 	Token string
 
 	// Environ is the step's fully resolved environment as NAME=VALUE
@@ -243,6 +249,9 @@ func (c *Client) Run(ctx context.Context, req Request) (Result, error) {
 	// payload as it parses, so a remote side that has stopped reading
 	// blocks this write on the channel window with no deadline of its own;
 	// with the wait already running, the step's own bound reaches it.
+	//
+	// Whether that write succeeded does not decide the step. The hook's
+	// own account of how it ended does; see the wait branch below.
 	writeDone := make(chan error, 1)
 	go func() { writeDone <- writePayload(stdin, payload) }()
 
@@ -260,9 +269,22 @@ func (c *Client) Run(ctx context.Context, req Request) (Result, error) {
 		result.FinishedAt = time.Now()
 		result.Chunks = capture.Sequence()
 		result.Certainty = workflowexec.TerminationNotRequested
-		if writeErr := settleWrite(session, writeDone); writeErr != nil {
-			return result, writeErr
-		}
+		// The write is drained -- to unblock one still parked on the
+		// channel window, and so it cannot outlive the step -- and
+		// its verdict is DISCARDED. A hook stops reading its payload
+		// the moment it exits: an early "exit 0", a script that ends
+		// before its stdin does, a hook killed on the far side. The
+		// remote closes the channel's stdin under a write that is
+		// still going, and the write fails on the hook's own ending.
+		// Reporting that as transport loss threw away the exit status
+		// sitting right here and reported a hook that ran, and said
+		// how it ended, as an outcome nobody observed (#915).
+		//
+		// Nothing is lost by discarding it: a transport that really
+		// did drop the script leaves NO exit status, and finish()
+		// classifies the *ssh.ExitMissingError -- or the connection
+		// error -- that comes back instead as exactly that loss.
+		_ = drainWrite(session, writeDone)
 
 		return c.finish(result, waitErr)
 
@@ -282,8 +304,7 @@ func (c *Client) Run(ctx context.Context, req Request) (Result, error) {
 	}
 }
 
-// settleWrite collects the payload write's verdict once the session has
-// ended.
+// drainWrite unblocks the payload write and collects what it reported.
 //
 // The channel is closed first, deliberately: a write still blocked on a
 // remote side that stopped reading fails the moment the channel goes, so
@@ -291,8 +312,15 @@ func (c *Client) Run(ctx context.Context, req Request) (Result, error) {
 // that will never open. The timer is the bound on a transport that will
 // not even do that, and it reports transport loss rather than success,
 // because a payload whose delivery nobody can account for is a script
-// nobody can say ran whole.
-func settleWrite(session *ssh.Session, writeDone <-chan error) error {
+// nobody can say arrived whole.
+//
+// What that verdict MEANS is the caller's, and the two callers answer
+// differently. runOnce is worth nothing without the whole payload -- a
+// capability proved over a PREFIX of the script is not a proof about the
+// script -- so there a failed write fails the session. Run has the hook's
+// own exit status, which is authoritative over a write that the hook's
+// ending is what broke.
+func drainWrite(session *ssh.Session, writeDone <-chan error) error {
 	_ = session.Close()
 
 	timer := time.NewTimer(writeSettle)
@@ -446,7 +474,10 @@ func waitFor(done <-chan error, d time.Duration) bool {
 	defer timer.Stop()
 
 	select {
-	case <-done:
+	case waitErr := <-done:
+		// Returning is what is being waited for; the error travelled to
+		// its reader on the other side of this channel already.
+		_ = waitErr
 		return true
 	case <-timer.C:
 		return false
@@ -645,7 +676,27 @@ func (c *Client) runOnce(ctx context.Context, timeout time.Duration, command str
 
 	select {
 	case waitErr := <-done:
-		if writeErr := settleWrite(session, writeDone); writeErr != nil {
+		// Unlike a hook (see Run), an internal session's answer is
+		// only worth having if the whole payload reached the far
+		// side, so here the write's verdict still fails the session.
+		if writeErr := drainWrite(session, writeDone); writeErr != nil {
+			// A session that nevertheless ENDED WITH A STATUS (including 0:
+			// a forced command that ran its own program) gave an answer, and
+			// the write failed on that answer's own ending. The status
+			// travels with the error so the probe, for whom a refusal is an
+			// answer, can still read it. Every other caller looks at the
+			// error first and gets the same ErrTransportLoss text as before,
+			// because for them a payload that did not arrive whole is still
+			// a failed session.
+			var exitErr *ssh.ExitError
+
+			switch {
+			case waitErr == nil:
+				return 0, &answeredWriteError{err: writeErr, status: 0}
+			case errors.As(waitErr, &exitErr) && exitErr.Signal() == "":
+				return 0, &answeredWriteError{err: writeErr, status: exitErr.ExitStatus()}
+			}
+
 			return 0, writeErr
 		}
 		if waitErr == nil {
@@ -664,6 +715,21 @@ func (c *Client) runOnce(ctx context.Context, timeout time.Duration, command str
 		return 0, fmt.Errorf("%w: an internal exec channel on %s did not answer within %s", ErrTransportLoss, c.describeEndpoint(), timeout)
 	}
 }
+
+// answeredWriteError is a failed payload write on a session that nonetheless
+// ended with an exit status. It is an ErrTransportLoss to everything that
+// asks (errors.Is sees through it, and its text is the write error's), and
+// it carries the status for the one caller that can use it: the capability
+// probe, which has to tell "the far side answered and went" from "the far
+// side went". A status of 0 is a real answer here, which is why this is a
+// type and not an exit code returned beside the error.
+type answeredWriteError struct {
+	err    error
+	status int
+}
+
+func (e *answeredWriteError) Error() string { return e.err.Error() }
+func (e *answeredWriteError) Unwrap() error { return e.err }
 
 // reaperScript finds every process in this step's process GROUP, sends the
 // group a TERM and then a KILL, and reports what is left.

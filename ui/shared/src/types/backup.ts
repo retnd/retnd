@@ -93,7 +93,6 @@ export interface BackupSet {
   username: string;
   remoteFolder: string;
   includePatterns: string[];
-  excludePatterns: string[];
   completionMethod: CompletionMethod;
   /**
    * The window `stable-size` waits for before it treats a file as
@@ -228,6 +227,14 @@ export interface BackupSet {
    */
   expectedIntervalHours: number | null;
   /**
+   * How long the health report lets a set go without a known-good backup
+   * before it calls the set stale (GET /system/health's stale_after_seconds),
+   * in seconds, or absent when the report was not read. This is a threshold,
+   * not a cadence, and it is carried on its own so a card that says "within
+   * the stale threshold" can say what the threshold is.
+   */
+  staleAfterSeconds?: number | null;
+  /**
    * How many backups this set is currently retaining, and how many bytes
    * they occupy, or null when the service did not report them.
    *
@@ -325,7 +332,7 @@ export interface BackupSet {
 export interface IncrementalSettings {
   /** The encrypted store this set's snapshots live in. Create-only. */
   repositoryDomain: string | null;
-  /** What the operator told Backupd they arranged on the source for the
+  /** What the operator told retnd they arranged on the source for the
    *  duration of a run. Recorded, never detected — a run that
    *  contradicts it is reported rather than silently accepted. */
   sourceConsistency: SourceConsistency | null;
@@ -418,6 +425,41 @@ export interface BackupPlacement {
    *  and may not have happened yet. A copy the backend knows is gone is
    *  not served at all, so there is no third value to render. */
   status: WirePlacement["status"];
+
+  /**
+   * This copy's own scrub and recovery-test record (EPIC Q, issue #985). All
+   * of it is OPTIONAL and null/empty means "nothing has evaluated this copy",
+   * never "fine". It exists because a failed scrub clears `verificationClass`
+   * and `verifiedAt`, so without it a copy that FAILED reads exactly like one
+   * nobody has looked at ("Never run").
+   */
+  assuranceState?: WirePlacement["assurance_state"] | null;
+  /** When a scrub of this copy last ran to a verdict. */
+  lastCheckedAt?: string | null;
+  /** When it last failed or could not complete, and why (the journal's
+   *  bounded plain words), and how many such verdicts in a row. */
+  lastFailureAt?: string | null;
+  lastFailureReason?: string;
+  consecutiveFailures?: number;
+  recoveryState?: WirePlacement["recovery_state"] | null;
+  /** Which check produced the verdict: the operator's validator or the
+   *  built-in structure check (#1111). Absent when there is no verdict. */
+  recoveryCheck?: WirePlacement["recovery_check"] | null;
+  recoveryTestedAt?: string | null;
+  recoveryFailureReason?: string;
+
+  /**
+   * This copy's own encryption record (EPIC N, #995), straight off the
+   * placement row and never inferred from the policy. All three are absent on
+   * a plaintext copy. `encryptionKeyResolvable` absent on an encrypted copy
+   * means the server did not say, which is not "resolves".
+   */
+  encrypted?: boolean;
+  encryptionKeyId?: string | null;
+  encryptionKeyResolvable?: boolean | null;
+  /** The suite the copy's record names (EPIC T, #1318): its format id, never
+   *  the policy's current suite. Absent from an older server. */
+  encryptionSuite?: string | null;
 }
 
 /**

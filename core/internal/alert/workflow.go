@@ -138,7 +138,7 @@ type WorkflowRun struct {
 	BackupSet string
 
 	// RunID is the workflow run's own id, which is what an operator
-	// types into `backupd workflow show` to see the rest. Naming it is
+	// types into `retnd workflow show` to see the rest. Naming it is
 	// what keeps a notification's Detail short: the notification says
 	// what happened and where to look, not everything that is known.
 	RunID string
@@ -146,8 +146,8 @@ type WorkflowRun struct {
 	// BackupStatus, CleanupStatus and WorkflowStatus are
 	// internal/workflow's Status words (unknown, running, success,
 	// failed, skipped) -- the same three values a hook itself reads
-	// from BACKUPD_BACKUP_STATUS, BACKUPD_CLEANUP_STATUS and
-	// BACKUPD_WORKFLOW_STATUS. A word outside that vocabulary is
+	// from RETND_BACKUP_STATUS, RETND_CLEANUP_STATUS and
+	// RETND_WORKFLOW_STATUS. A word outside that vocabulary is
 	// rendered as unknown rather than passed through.
 	BackupStatus   string
 	CleanupStatus  string

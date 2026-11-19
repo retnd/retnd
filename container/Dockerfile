@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
-# backupd container image (A3.9, extended by issue #82/B4.1).
+# retnd container image (A3.9, extended by issue #82/B4.1).
 #
-# Five stages:
+# Four stages:
 #   1. `build`          - the provider-neutral core binary (manager logic
 #                          plus the embedded rclone packages, see
 #                          core/internal/transport/rclone). Unchanged by
@@ -18,40 +18,39 @@
 #
 # There is no `rclone` executable anywhere in this image: rclone is
 # consumed as a Go module (core/go.mod pins github.com/rclone/rclone),
-# imported as packages, and compiled straight into /backupd. See
+# imported as packages, and compiled straight into /retnd. See
 # docs/deployment.md for how that claim is verified against the built
 # image, rather than just asserted here.
 #
-# `/backupd` (stage 1) implements every execution mode FR-1/FR-24
+# `/retnd` (stage 1) implements every execution mode FR-1/FR-24
 # call for: `run`, `daemon`, `check`, `status`, `sources`, `artifacts`,
 # `fetch`, `retention`, `reconcile`, `validate` and `version`.
-# `/backupd-web` (stage 3) adds exactly one more: `serve`, the
+# `/retnd-web` (stage 3) adds exactly one more: `serve`, the
 # generic Web host (docs/EPIC-B-multi-nas.md §9.2) - the shared UI, the
 # versioned API, local authentication and the backup scheduler in one
 # process. Two binaries, not one with two names, because apps/generic
 # needs to import apps/common/webhost and apps/common/auth/local, and
 # core/'s own module cannot depend on apps/ in either direction (§7.1) -
-# see apps/generic/cmd/backupd-web/main.go's own doc for the module
+# see apps/generic/cmd/retnd-web/main.go's own doc for the module
 # boundary reasoning (that half is unaffected by the rename; the name it
 # gives itself is a separate matter tracked on #651).
 #
-# THE BINARY NAMES (the 0.3.3 CLI rename)
+# THE BINARY NAMES (EPIC R: #888's CLI rename, #890's deployment identity)
 #
-# The command an operator types is `backupd`, and the web host is `backupd-web`.
-# Those are the two files in the runtime stage and the only names anything
-# in this repository uses.
+# The command an operator types is `retnd`, and the web host is `retnd-web`
+# (#888). Those are the names the two `go build` invocations below write,
+# and the names core/cliecho's Binary/WebBinary print.
 #
-# 0.3.3 is a clean cut. Images published before it carry the old names and
-# these carry the new ones, with nothing bridging the two, so an operator
-# upgrading has to move any `docker exec`, cron entry or hand-written
-# compose onto `backupd`. container/compose.yaml says the same from the other
-# side, and scripts/install/install_docker_host.py refuses `--release`
-# below 0.3.3 rather than write a deployment an older image cannot start.
+# #890 finished the move on the deployment side, and this file is where it
+# lands: the runtime image contains `/retnd` and `/retnd-web`, the image's
+# own HEALTHCHECK names `/retnd`, and the compose service and container
+# config directory use the same identity (container/compose.yaml).
 #
-# What did NOT change is everything that is not the CLI: the image
-# reference (ghcr.io/backupdproject/backupd), the compose service names,
-# the config directory at /etc/backupd, the Go package paths under
-# cmd/, and the product's own name.
+# What #890 did NOT move is the image reference, and #895's cutover did:
+# it is `ghcr.io/retnd/retnd` now, and that is the only package this
+# repository publishes. A one-release mirror under the old organisation was
+# declared for a while; that organisation no longer exists and nothing was
+# ever published there, so the mirror is gone.
 
 # ---- core builder ---------------------------------------------------------
 # Pinned by digest, not just tag, so this stage resolves to the exact same
@@ -123,7 +122,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # apicontract is on this list because the CLI now speaks to a running
 # engine (#543): core/internal/apiclient resolves every path, status and
 # error code out of core/apicontract, so leaving it out builds a tree in
-# which `go build ./cmd/backupd` fails with "cannot find module
+# which `go build ./cmd/retnd` fails with "cannot find module
 # providing package .../core/apicontract" and nothing in the Go suite says
 # so, because a `go test` from a checkout has the whole module. It is
 # listed in the build-web stage too, for the same reason one step ahead:
@@ -135,6 +134,30 @@ COPY core/apicontract/ ./apicontract/
 # so a tree without it fails the build below with exactly the message the
 # comment above describes, and only the image build says so.
 COPY core/cliecho/ ./cliecho/
+# core/legacypath is the third one along (issue #890): it holds FR-38's
+# state-adoption preflight - the rule that turns a resolved /etc/retnd/...
+# path into the /etc/retnd/... one an upgrade may still have data at -
+# and core/internal/app, core/service and apps/generic all import it, so a
+# tree without it fails both build stages with exactly the "cannot find
+# module providing package" message the comment above describes.
+COPY core/legacypath/ ./legacypath/
+
+# core/envcompat is the FOURTH, and it arrived from #889 (R1.4) without a
+# line here. distribution/packaging's own check was already red on it, and
+# this issue's image build is what met the consequence:
+# `internal/config/incrementalengine.go:8:2: cannot find module providing
+# package github.com/retnd/retnd/core/envcompat`. It holds the deprecated-
+# input-variable read compat EPIC R's back-compat window needs, and
+# core/internal/config imports it, which is why only the image build ever
+# finds out -- exactly the hazard the paragraph above describes.
+COPY core/envcompat/ ./envcompat/
+# core/agenttools is EPIC U's catalogue (#1346): retnd prints it (agent
+# tools) and apps/common/webhost reads its deny list and floor on the wire,
+# so both stages need it for the reason above.
+COPY core/agenttools/ ./agenttools/
+# core/agentmcp is the MCP server (#1347): retnd serves it over stdio and
+# retnd-web at /api/v1/agent/mcp.
+COPY core/agentmcp/ ./agentmcp/
 COPY core/cmd/ ./cmd/
 COPY core/internal/ ./internal/
 COPY core/service/ ./service/
@@ -171,12 +194,12 @@ RUN --mount=type=cache,target=/go/pkg/mod \
         -trimpath \
         -buildvcs=false \
         -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
-        -o /out/backupd \
-        ./cmd/backupd
+        -o /out/retnd \
+        ./cmd/retnd
 
 # ---- frontend builder -------------------------------------------------
 # ui/shared's static bundle (docs/EPIC-B-multi-nas.md §9.2/§11): built
-# once here, embedded into /backupd-web below via go:embed
+# once here, embedded into /retnd-web below via go:embed
 # (apps/generic/webui). Node/npm are build-time dependencies only -
 # neither ships in the runtime stage.
 #
@@ -204,6 +227,11 @@ RUN --mount=type=cache,target=/root/.npm \
 
 COPY ui/shared/ ./ui/shared/
 COPY apps/ ./apps/
+# One recorded feed that a ui/shared test imports from the Go side
+# (src/test/assurance-operator-controls.test.tsx, #985). `tsc -b` type-checks
+# the test files too, so without this one file the image build stops at
+# "Cannot find module '../../../../core/cmd/retnd/testdata/recovery-follow-feed.json'".
+COPY core/cmd/retnd/testdata/recovery-follow-feed.json ./core/cmd/retnd/testdata/recovery-follow-feed.json
 
 # The per-provider bundles the runtime stage carries (issue #180, packaged
 # by #169). One directory per platform whose distribution adapter has no
@@ -280,6 +308,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY core/apicontract/ ./core/apicontract/
 COPY core/cliecho/ ./core/cliecho/
+COPY core/legacypath/ ./core/legacypath/
+COPY core/envcompat/ ./core/envcompat/
+COPY core/agenttools/ ./core/agenttools/
+COPY core/agentmcp/ ./core/agentmcp/
 COPY core/cmd/ ./core/cmd/
 COPY core/internal/ ./core/internal/
 COPY core/service/ ./core/service/
@@ -303,8 +335,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
         -trimpath \
         -buildvcs=false \
         -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
-        -o /out/backupd-web \
-        ./cmd/backupd-web
+        -o /out/retnd-web \
+        ./cmd/retnd-web
+
 
 # ---- runtime ------------------------------------------------------------
 # distroless static, nonroot variant: no shell, no package manager, no libc
@@ -318,20 +351,17 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # rather than a value baked in here).
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 
-COPY --from=build /out/backupd /backupd
-COPY --from=build-web /out/backupd-web /backupd-web
+COPY --from=build /out/retnd /retnd
+COPY --from=build-web /out/retnd-web /retnd-web
 
 # Those two lines are the whole of what this image carries as commands.
-# 0.3.3 retired `backupd` rather than aliasing it, so there is no
-# link under the old name beside either binary and nothing here creates
-# one: a compose file, cron entry or healthcheck written against the old
-# spelling has to be moved across to `/backupd`.
+# No retired binary names are retained as compatibility aliases.
 
 # The licence, the notices and the machine-readable inventory the other
 # two point at, at a fixed path a recipient can find without a shell
 # (distroless has none): `docker cp <ctr>:/licenses .` or `docker export
-# | tar -x licenses/`. Apache-2.0 §4(d) says a redistributed copy
-# carries NOTICE, and NOTICE is where the MPL-2.0 §3.2 source offer for
+# | tar -x licenses/`. A redistributed copy has to carry the licence
+# and NOTICE, and NOTICE is where the MPL-2.0 §3.2 source offer for
 # go-cleanhttp and go-retryablehttp lives, so an image without these
 # reached nobody with either.
 #
@@ -360,8 +390,8 @@ COPY provenance/third-party-licenses.json /licenses/third-party-licenses.json
 # does not. Both values are declared in
 # distribution/packaging/compliance.json under distribution.licenceDelivery
 # and checked against these lines.
-LABEL org.opencontainers.image.licenses="Apache-2.0" \
-      com.iasbuilt.backupd.licenses.path="/licenses"
+LABEL org.opencontainers.image.licenses="MIT" \
+      com.iasbuilt.retnd.licenses.path="/licenses"
 
 # The per-provider UI bundles (issue #180). Read-only content, served by
 # `serve-ui --ui-root /ui/bundles`, which resolves <root>/<profile>. Each
@@ -374,7 +404,7 @@ COPY --from=frontend-build /src/ui/shared/dist-bundles/ /ui/bundles/
 
 # Documentary only - EXPOSE does not itself publish anything (see
 # container/compose.yaml's own `ports:` for what actually does): this is
-# `/backupd-web serve`'s own default --listen port, self-documented
+# `/retnd-web serve`'s own default --listen port, self-documented
 # on the image for `docker inspect`/`docker port`/tooling. A headless-only
 # deployment that never runs `serve` simply never binds it.
 EXPOSE 8080
@@ -383,36 +413,36 @@ EXPOSE 8080
 # ENTRYPOINT is a fixed prefix Docker prepends to whatever `command:` (or
 # `docker run <image> ...`) supplies, so a single ENTRYPOINT could only
 # ever name one of the two - exactly the trap an earlier version of this
-# file fell into (`ENTRYPOINT ["/backupd"]` plus `command:
-# ["/backupd-web", "serve"]` resolves to running
-# "/backupd /backupd-web serve", not what anyone intended).
+# file fell into, under whatever the two binaries were called at the time:
+# `ENTRYPOINT ["/retnd"]` plus `command: ["/retnd-web", "serve"]` resolves
+# to running "/retnd /retnd-web serve", not what anyone intended.
 # Every `command:` in container/compose.yaml and every `docker run`
 # example in docs/deployment.md therefore names its binary explicitly by
-# full path (`/backupd-web serve`, `/backupd daemon`,
-# `/backupd version`, ...). This image's own default CMD stays
+# full path (`/retnd-web serve`, `/retnd daemon`,
+# `/retnd version`, ...). This image's own default CMD stays
 # unset for the same reason: there is no single default that would be
 # right for both binaries, so a bare `docker run <image>` with no command
 # fails immediately with "no command specified" - a loud, safe failure,
 # not a silent no-op or an ambiguous guess.
 
-# `backupd status` (issue #26, FR-24) exits 0 only when every
+# `retnd status` (issue #26, FR-24) exits 0 only when every
 # configured backup set reports HEALTHY, and non-zero on DEGRADED, STALE or
-# FAILING (see core/cmd/backupd/status.go's own doc for the exact
+# FAILING (see core/cmd/retnd/status.go's own doc for the exact
 # contract). This is the real backup-freshness signal FR-24's health states
 # are meant to be read through - not process liveness, which is what the
 # previous `version`-based HEALTHCHECK could only ever answer. Verified
 # directly (see docs/deployment.md and apps/generic/tests/dockercli): a container
 # whose one backup set is DEGRADED now reports Docker health "unhealthy",
-# not "healthy". This runs against the plain `/backupd` binary
+# not "healthy". This runs against the plain `/retnd` binary
 # regardless of which command the container's own main process
-# (`/backupd-web serve`, or a headless `/backupd daemon`) is
+# (`/retnd-web serve`, or a headless `/retnd daemon`) is
 # running: `status` is a fresh, read-only check against the same shared
 # state database file either way.
 #
-# It names `/backupd` by absolute path rather than relying on anything on a
+# It names `/retnd` by absolute path rather than relying on anything on a
 # PATH, and that is a choice rather than a detail. A HEALTHCHECK is baked
 # into the image and re-read by the daemon on every interval for the life
 # of every container anyone ever starts from it, and this base image has
 # no shell to resolve a name through in the first place.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD ["/backupd", "status"]
+    CMD ["/retnd", "status"]

@@ -33,17 +33,18 @@
  *
  * # What it does with a restart, and why it differs from the strips
  *
- * The polling loop under this panel is the strips' own (useActivityWindow,
- * #596), which is where the cursor, the epoch check, the timer and the
- * out-of-band refresh live. This panel is two options on it: `fold`, so
- * every bucket in a reading lands in ONE window rather than one per set,
- * and `onRestart`, because what the two surfaces do about a restart is
- * deliberately opposite. A strip drops everything it holds, because a
- * progress bar and a step sentence describing a process that no longer
- * exists are active lies about work in flight. A terminal is a log, and
- * throwing away the lines leading up to a crash throws away the only
- * evidence of why it crashed. So this keeps them, draws a rule, and
- * starts a fresh buffer under it.
+ * The polling loop under this panel is the shared terminal state's
+ * (state/terminalStore, #596 and #1177), which is where the cursor, the
+ * epoch check, the timer and the out-of-band refresh live, once for every
+ * terminal. The strips and this panel read the same node, so they change in
+ * the same commit. What is this panel's is how it draws a restart, because
+ * what the two surfaces do about one is deliberately opposite. A strip
+ * drops everything it holds, because a progress bar and a step sentence
+ * describing a process that no longer exists are active lies about work in
+ * flight. A terminal is a log, and throwing away the lines leading up to a
+ * crash throws away the only evidence of why it crashed. So this keeps
+ * them (the store freezes them per dead process), draws a rule, and starts
+ * a fresh buffer under it.
  *
  * It used to be a copy of that loop rather than a caller of it, and the
  * copy is where its cursor bug lived: rebuilt from the events that
@@ -83,33 +84,30 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePlatform } from "@shared/platform/PlatformContext";
-import { mergeActivity, useActivityWindow } from "@shared/pages/useActivityFeed";
+import { useTerminalFeed } from "@shared/pages/useActivityFeed";
+import { DOCK_BUFFER } from "@shared/state/terminalStore";
 import { activityLine, logText, UnfinishedActionsNotice } from "@shared/pages/ActivityStrip";
 import type { LineTone } from "@shared/pages/ActivityStrip";
 import { BROWSER_NOTICE_EVENT, noticeAsEvent } from "@shared/pages/SetActivityPanel";
 import { useCausl } from "@shared/state/graph";
 import { browserNoticesNode } from "@shared/state/browserNotices";
 import type { BrowserNotice } from "@shared/state/browserNotices";
-import type { LiveActivity, SetActivity, SetActivityEvent, UnfinishedAction } from "@shared/types/activity";
+import type { SetActivity, SetActivityEvent, UnfinishedAction } from "@shared/types/activity";
 import { clock } from "@shared/utilities/format";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
-
-/** How many lines the dock holds.
- *
- * More than a strip's 300, because this aggregates every bucket rather
- * than windowing one, and because it is the surface an operator scrolls
- * back through after something went wrong. Still bounded, for the reason
- * that constant already gives: an unbounded buffer in a tab left open for
- * a week is a leak with a nice name. What is gone is said in the
- * scrollback, and the durable record is the Activity page. */
-const DOCK_BUFFER = 1000;
+import { copyText } from "@shared/utilities/copyText";
+import { DOCK_FOCUS_EVENT } from "@shared/state/dockFocus";
 
 const STORAGE = {
-  open: "backupd.dock.open",
-  height: "backupd.dock.height",
-  filter: "backupd.dock.filter"
+  open: "retnd.dock.open",
+  height: "retnd.dock.height",
+  filter: "retnd.dock.filter"
 } as const;
+
+/** The chips when no reading has named any sets yet. One array, so the
+ *  memos keyed on it do not see a new one every render. */
+const NO_SETS: string[] = [];
 
 const MIN_HEIGHT = 120;
 const MAX_HEIGHT = 720;
@@ -145,6 +143,7 @@ export function dockReservedHeight(open: boolean, height: number): number {
  *  the list survives into the entry and the conversion happens at the
  *  moment of drawing (see entryEvent, which calls the panel's own
  *  noticeAsEvent so both terminals and every export say the same words). */
+
 export type DockEntry =
   | { kind: "event"; event: SetActivityEvent }
   | { kind: "restart"; at: string }
@@ -216,102 +215,89 @@ export function dockPrefix(e: SetActivityEvent, viewer: string | null): DockPref
     const label = actor === "" ? "request" : viewer !== null && actor === viewer ? "you" : actor;
     return { label, setId, action: true };
   }
+  if (e.event === "agent_action") {
+    // The actor is already agent:<name>. Never "you": the reader is a
+    // person, and what an agent did is what they most need to see as
+    // somebody else's doing.
+    return { label: e.fields.actor || "agent", setId, action: true };
+  }
   if (e.scope === "deployment") return { label: "engine", setId: "", action: false };
   return { label: setId || "set", setId, action: false };
 }
 
-/** Every line the dock is holding, oldest first, bounded. */
-export function dockEntries(history: DockEntry[], current: SetActivity | undefined): DockEntry[] {
-  const live: DockEntry[] = (current?.events ?? []).map((event) => ({ kind: "event", event }));
-  return [...history, ...live].slice(-DOCK_BUFFER);
+/** What makes an event the same event: its number, when it happened and what
+ *  it was. The number alone is not enough, which is the point of the other
+ *  two (see dockEntries). */
+function eventKey(e: SetActivityEvent): string {
+  return e.sequence + "|" + e.at + "|" + e.event;
 }
 
 /**
- * Folds one reading into the single window the dock holds.
+ * Every line the dock is holding, oldest first, bounded.
  *
- * Every bucket in the reading is flattened into one synthetic set, and
- * mergeActivity does the rest: dedup by sequence, order by sequence, trim
- * to the window, and carry `dropped` forward once lines have been lost.
- * That is the same function the strips use and it is used for the same
- * three properties, at the dock's own buffer size.
+ * The engine's events are durable (migration 0017): a restart refills the
+ * feed from the journal and the sequence continues, so the first reading
+ * from the new process carries lines this panel already froze above the
+ * restart rule. They are the same lines, not new ones, and showing them
+ * twice would tell an operator the crash happened twice. So a live line that
+ * is already in the frozen history is dropped here.
  *
- * Deduplicating by sequence is correct and cheap because the engine's
- * counter is one counter for the whole process, which is the property
- * the cursor already relies on. What this does NOT do is decide that
- * cursor: it is a window, and a window is what happened to arrive.
- * useActivityWindow takes the cursor from what the service says it holds
- * (see nextCursor), which is a different number on every idle poll and is
- * the whole of the defect this panel shipped with. The set a line belongs to rides along as
- * its own `backup_set` field, filled in from the bucket it arrived in for
- * the events that do not already carry one: an event the service put in
- * a set's bucket IS about that set, so writing it down is recording what
- * the service already decided rather than guessing.
+ * "Already in" means the same number, the same time and the same event, not
+ * the number alone. An engine that does not keep its events restarts its
+ * counter at 1, and its line 1 is a different line from the dead process's
+ * line 1: they differ in time, so both stay.
  */
-export function foldReading(previous: SetActivity | undefined, next: LiveActivity): SetActivity {
-  const events: SetActivityEvent[] = [];
-  for (const set of next.sets) {
-    for (const e of set.events) {
-      events.push(e.fields.backup_set ? e : { ...e, fields: { ...e.fields, backup_set: set.setId } });
-    }
-  }
-  for (const e of next.deployment?.events ?? []) events.push(e);
-  events.sort((a, b) => a.sequence - b.sequence);
-
-  // Every bucket's open actions, in the order they started (issue #625).
-  // The deployment's are the ones this dock exists for: a cycle belongs
-  // to no single backup set, so a cycle that announced itself and went
-  // quiet has no strip to be reported on and this is the only surface
-  // that can say so.
-  const unfinishedActions = [
-    ...next.sets.flatMap((s) => s.unfinishedActions ?? []),
-    ...(next.deployment?.unfinishedActions ?? [])
-  ].sort((a, b) => a.sequence - b.sequence);
-
-  const dropped = next.sets.some((s) => s.dropped) || (next.deployment?.dropped ?? false);
-  // The earliest sequence any bucket is still holding. Zero when nothing
-  // is held anywhere, which is the honest answer for a process that has
-  // said nothing yet: a bound taken over an empty set of buckets would
-  // otherwise come out as infinity and read as a window starting after
-  // everything that has ever happened.
-  const bounds = [...next.sets.map((s) => s.oldestSequence), next.deployment?.oldestSequence ?? 0].filter((n) => n > 0);
-  if (events.length > 0) bounds.push(events[0].sequence);
-  const oldest = bounds.length > 0 ? Math.min(...bounds) : 0;
-
-  const reading: SetActivity = {
-    setId: "",
-    active: next.sets.some((s) => s.active),
-    stage: null,
-    artifact: null,
-    artifactsCompleted: 0,
-    artifactsTotal: null,
-    progressBasis: "unknown",
-    bytesTransferred: null,
-    bytesTotal: null,
-    bytesPerSecond: null,
-    failures: 0,
-    outcome: null,
-    startedAt: null,
-    finishedAt: null,
-    events,
-    unfinishedActions,
-    truncated: next.sets.some((s) => s.truncated) || (next.deployment?.truncated ?? false),
-    dropped,
-    oldestSequence: oldest,
-    // The newest sequence any bucket says it HOLDS, which is not the
-    // newest that arrived: an idle reading hands over nothing while the
-    // service is still holding four thousand lines. Reporting the arrival
-    // here would be a window claiming to be a bound.
-    latestSequence: next.sets.reduce(
-      (high, s) => Math.max(high, s.latestSequence),
-      Math.max(next.deployment?.latestSequence ?? 0, events.length > 0 ? events[events.length - 1].sequence : 0)
-    )
-  };
-  return mergeActivity(previous, reading, DOCK_BUFFER);
+export function dockEntries(history: DockEntry[], current: SetActivity | undefined): DockEntry[] {
+  const frozen = new Set<string>();
+  for (const entry of history) if (entry.kind === "event") frozen.add(eventKey(entry.event));
+  const live: DockEntry[] = (current?.events ?? [])
+    .filter((event) => !frozen.has(eventKey(event)))
+    .map((event) => ({ kind: "event", event }));
+  return [...history, ...live].slice(-DOCK_BUFFER);
 }
 
 /** The dock's own filters. Never drops a line from the buffer, only from
  *  what is drawn, so clearing one brings everything back. */
 export type DockFilter = "all" | "engine" | "mine" | "commands" | string;
+
+/** The two levels the dock counts, and so the two it can filter to (#1115).
+ *  The engine's third level, "info", is not a problem and has no count, so
+ *  it has no button. One at a time: the source chips are one choice too,
+ *  and two levels at once is just "problems", which the pair of counts
+ *  already reads as. */
+export type DockLevel = "warn" | "error";
+
+/** How many held lines are warnings and how many are errors, over the
+ *  WHOLE buffer. Through entryEvent, so a refusal this browser wrote is
+ *  counted as the warning it is. It never looks at a filter in force: a
+ *  count that shrank when it was pressed could not be pressed again to
+ *  see the rest. */
+export function countLevels(all: DockEntry[]): { errors: number; warnings: number } {
+  let errors = 0;
+  let warnings = 0;
+  for (const [i, entry] of all.entries()) {
+    if (entry.kind === "restart") continue;
+    const level = entryEvent(entry, i).level;
+    if (level === "error") errors++;
+    else if (level === "warn") warnings++;
+  }
+  return { errors, warnings };
+}
+
+/** What a level keeps. A restart rule is not a line of either level, so it
+ *  goes while a level is on and comes back with the filter off. (The index
+ *  only feeds a notice's sequence in entryEvent; a notice's level does not
+ *  depend on it.) */
+export function filterByLevel(entries: DockEntry[], level: DockLevel | null): DockEntry[] {
+  if (level === null) return entries;
+  return entries.filter((entry, i) => entry.kind !== "restart" && entryEvent(entry, i).level === level);
+}
+
+/** The sentence read out when a level is switched on or off. */
+export function levelStatus(level: DockLevel | null, shown: number, of: number): string {
+  if (level === null) return "Showing all " + of + " lines";
+  return "Showing " + shown + " of " + of + " lines, " + (level === "warn" ? "warnings" : "errors") + " only";
+}
 
 function passesFilter(entry: DockEntry, filter: DockFilter, viewer: string | null): boolean {
   if (entry.kind === "restart") return true;
@@ -441,7 +427,7 @@ function shellWord(s: string): string {
 export function environmentPreamble(origin: string, viewer: string | null): string {
   const url = shellWord(origin === "" ? "http://127.0.0.1:8080" : origin);
   const user = viewer === null || viewer === "" ? "<the administrator you sign in as>" : shellWord(viewer);
-  return "export BACKUP_MANAGER_API_URL=" + url + " BACKUP_MANAGER_API_USERNAME=" + user + " BACKUP_MANAGER_API_PASSWORD=<your password>";
+  return "export RETND_API_URL=" + url + " RETND_API_USERNAME=" + user + " RETND_API_PASSWORD=<your password>";
 }
 
 /**
@@ -451,24 +437,24 @@ export function environmentPreamble(origin: string, viewer: string | null): stri
  * # The window an operator reported
  *
  *   [you] [browser] This deployment will not start a backup run.
- *     ... Run backupd fetch --backup-set cicd-pipeline/var-backups from a
+ *     ... Run retnd fetch --backup-set cicd-pipeline/var-backups from a
  *     shell on this host instead.
- *   $ backupd fetch --backup-set cicd-pipeline/var-backups
+ *   $ retnd fetch --backup-set cicd-pipeline/var-backups
  *   [you] post /operations refused: DESTRUCTIVE_OPERATIONS_DISABLED
- *   # no backupd equivalent yet · POST /api/v1/operations
+ *   # no retnd equivalent yet · POST /api/v1/operations
  *
  * Two statements about one command, four lines apart. The advice is
  * sound — the operator ran that command and it repaired the set — and the
  * gap line then tells them the operation they were just given a command
- * for has no `backupd` equivalent. A remedy a message offers has to be
+ * for has no `retnd` equivalent. A remedy a message offers has to be
  * runnable where it is offered, or the surface must not contradict it.
  *
  * # Why the short form is the half that goes
  *
  * Both halves come from the engine and only one of them is wrong here.
- * "no backupd equivalent yet" is a claim about the ROUTE, and on a screen
+ * "no retnd equivalent yet" is a claim about the ROUTE, and on a screen
  * that has just named a command it reads as a claim about the command.
- * The detail beside it is already the precise truth ("`backupd fetch` starts
+ * The detail beside it is already the precise truth ("`retnd fetch` starts
  * a cycle in your own shell, not in this engine"), so the detail is
  * promoted to the line and the short claim is dropped. Nothing is
  * invented here and nothing is hidden: the route is still named, and a
@@ -552,29 +538,53 @@ export function ActivityDock() {
   // reading of the live feed can ever carry one.
   const notices = useCausl(browserNoticesNode);
 
-  const [history, setHistory] = useState<DockEntry[]>([]);
-
   const [open, setOpen] = useState(() => readStored(STORAGE.open) !== "0");
   const [height, setHeight] = useState(() => Number(readStored(STORAGE.height)) || DEFAULT_HEIGHT);
   const [filter, setFilter] = useState<DockFilter>(() => readStored(STORAGE.filter) ?? "all");
   const [copied, setCopied] = useState(false);
+  // Not stored, unlike the source chip: a filter to the problems is a
+  // question about right now, and a terminal that comes back showing three
+  // lines of forty with no reason on screen reads as a broken one.
+  const [level, setLevel] = useState<DockLevel | null>(null);
+  const [announcement, setAnnouncement] = useState("");
 
-  // Freeze what the dead process left, with a rule under it, and let the
-  // loop start a fresh window. Both halves matter: the lines leading up
-  // to a crash are the evidence, and the new process's sequence numbers
-  // start again at 1 and would otherwise land on top of them.
-  const onRestart = useCallback(
-    (reading: LiveActivity, held: SetActivity | undefined) =>
-      setHistory((current) => [...dockEntries(current, held), { kind: "restart" as const, at: reading.observedAt }].slice(-DOCK_BUFFER)),
-    []
+  // The cursor, the epoch, the timer and the restart check are the shared
+  // terminal state's (state/terminalStore, #1177): one reader for every
+  // terminal, so this panel and a set's own terminal change in the same
+  // commit. What is this panel's is how it draws a restart: it keeps the lines
+  // the dead process left, with a rule under each, where a strip drops them.
+  const feed = useTerminalFeed();
+  const held = feed.state.combined;
+  const readingNow = feed.state.reading;
+  const feedError = feed.state.error;
+  const history = useMemo(
+    () =>
+      feed.state.generations.reduce<DockEntry[]>(
+        (acc, g) => [...dockEntries(acc, g.window), { kind: "restart" as const, at: g.at }].slice(-DOCK_BUFFER),
+        []
+      ),
+    [feed.state.generations]
   );
 
-  // The cursor, the epoch, the timer and the out-of-band refresh are the
-  // strips' own loop, unchanged (#596). What is this panel's is the two
-  // options: one window over every bucket rather than one per set, and a
-  // restart that keeps its lines instead of dropping them.
-  const feed = useActivityWindow<SetActivity>({ fold: foldReading, onRestart });
-  const held = feed.held;
+  const setsRef = useRef<string[]>([]);
+  // #1505: a set's "Show in Terminal" opens this panel on that set's chip,
+  // and drops a level filter, which would otherwise hide the very lines the
+  // operator came for.
+  useEffect(() => {
+    const onFocus = (e: Event) => {
+      const setId = (e as CustomEvent<{ setId: string }>).detail?.setId;
+      if (!setId) return;
+      // A set the latest reading does not name has no chip, and a filter
+      // with no chip is a terminal showing nothing and no way to see why.
+      const known = setsRef.current.includes(setId);
+      setOpen(true);
+      setFilter(known ? (setId as DockFilter) : "all");
+      setLevel(null);
+      setAnnouncement(known ? "Terminal opened, showing " + setId : "Terminal opened");
+    };
+    window.addEventListener(DOCK_FOCUS_EVENT, onFocus);
+    return () => window.removeEventListener(DOCK_FOCUS_EVENT, onFocus);
+  }, []);
 
   useEffect(() => writeStored(STORAGE.open, open ? "1" : "0"), [open]);
   useEffect(() => writeStored(STORAGE.height, String(height)), [height]);
@@ -601,36 +611,45 @@ export function ActivityDock() {
   // The chips are a function of the latest reading rather than state of
   // their own: a set is configured or it is not, and the reading says so
   // on every poll.
-  const sets = useMemo(() => (feed.reading?.sets ?? []).map((s) => s.setId), [feed.reading]);
+  const sets = readingNow?.setIds ?? NO_SETS;
+  useEffect(() => {
+    setsRef.current = sets;
+  }, [sets]);
   const all = useMemo(
     () => withoutContradictedGaps(foldBrowserNotices(dockEntries(history, held), notices)),
     [history, held, notices]
   );
-  const shown = useMemo(() => all.filter((e) => passesFilter(e, filter, viewer)), [all, filter, viewer]);
+  // The source chip first, then the level on what it kept.
+  const bySource = useMemo(() => all.filter((e) => passesFilter(e, filter, viewer)), [all, filter, viewer]);
   // The origin this page was loaded from is the address the reader would
   // type, which is the one fact the engine cannot know (see
   // environmentPreamble). Read once per viewer rather than per render.
   const preamble = useMemo(() => environmentPreamble(window.location.origin, viewer), [viewer]);
 
-  const problems = useMemo(() => {
-    let errors = 0;
-    let warnings = 0;
-    // Through entryEvent, so a refusal this browser wrote is counted as
-    // the warning it is. A press that was refused is exactly the thing an
-    // operator is looking for a count of, and it is the one kind of line
-    // the engine's own feed can never contribute.
-    for (const [i, entry] of all.entries()) {
-      if (entry.kind === "restart") continue;
-      const event = entryEvent(entry, i);
-      if (event.level === "error") errors++;
-      else if (event.level === "warn") warnings++;
-    }
-    return { errors, warnings };
-  }, [all]);
+  const problems = useMemo(() => countLevels(all), [all]);
+  // A level whose count has fallen to nothing (the buffer is bounded) has
+  // nothing left to filter to and its button is disabled, so it could not
+  // be un-pressed: treat it as off rather than leave an empty terminal
+  // under a button that cannot be pressed.
+  const activeLevel: DockLevel | null =
+    level === "warn" && problems.warnings > 0 ? "warn" : level === "error" && problems.errors > 0 ? "error" : null;
+  const shown = useMemo(() => filterByLevel(bySource, activeLevel), [bySource, activeLevel]);
+  const toggleLevel = useCallback(
+    (next: DockLevel) => {
+      const target = activeLevel === next ? null : next;
+      setLevel(target);
+      setAnnouncement(levelStatus(target, filterByLevel(bySource, target).length, bySource.length));
+    },
+    [activeLevel, bySource]
+  );
 
   const copy = useCallback(() => {
-    void navigator.clipboard?.writeText(dockText(shown, viewer, preamble));
-    setCopied(true);
+    // "copied" is shown only when the text really went to the clipboard
+    // (retnd#1049); on a plain-http origin the fallback chain in
+    // copyText gets there, and "Save .txt" stays the route when it cannot.
+    void copyText(dockText(shown, viewer, preamble)).then((outcome) => {
+      if (outcome === "copied") setCopied(true);
+    });
   }, [shown, viewer, preamble]);
 
   const save = useCallback(() => {
@@ -639,7 +658,7 @@ export function ActivityDock() {
     const anchor = document.createElement("a");
     anchor.href = url;
     // The deployment and the time, not a set id: this file is every set.
-    anchor.download = "backupd-terminal-" + new Date().toISOString().replace(/[:.]/g, "-") + ".txt";
+    anchor.download = "retnd-terminal-" + new Date().toISOString().replace(/[:.]/g, "-") + ".txt";
     anchor.click();
     URL.revokeObjectURL(url);
   }, [shown, viewer, preamble]);
@@ -770,15 +789,14 @@ export function ActivityDock() {
           </span>
         )}
 
-        {problems.errors > 0 || problems.warnings > 0 ? (
-          <InfoTooltip id="activity.dock.problems" style={{ flex: "none" }}>
-            <span className="mono" style={{ flex: "none", color: problems.errors > 0 ? "var(--danger)" : "var(--warn)" }}>
-              {problems.errors > 0 ? problems.errors + " error" + (problems.errors === 1 ? "" : "s") : ""}
-              {problems.errors > 0 && problems.warnings > 0 ? " · " : ""}
-              {problems.warnings > 0 ? problems.warnings + " warning" + (problems.warnings === 1 ? "" : "s") : ""}
-            </span>
-          </InfoTooltip>
-        ) : null}
+        {/* Always both, so the bar does not jump when the first warning
+            arrives; a count of zero is drawn and cannot be pressed. */}
+        <InfoTooltip id="activity.dock.problems" style={{ flex: "none" }}>
+          <span role="group" aria-label="Show only problems" className="mono" style={{ flex: "none", display: "flex", gap: 6 }}>
+            <LevelButton level="error" count={problems.errors} pressed={activeLevel === "error"} onPress={toggleLevel} />
+            <LevelButton level="warn" count={problems.warnings} pressed={activeLevel === "warn"} onPress={toggleLevel} />
+          </span>
+        </InfoTooltip>
 
         {/* Never a spinner over a word: while the poll is failing the dock
             says the reading is not refreshing rather than drawing
@@ -788,10 +806,20 @@ export function ActivityDock() {
             line count or a Save button squeezed to nothing would be the
             clip moved rather than fixed. */}
         <InfoTooltip id="activity.dock.status" style={{ flex: "none" }}>
-          <span className="mono" style={{ flex: "none", color: feed.error ? "var(--warn)" : "var(--text-3)" }}>
-            {feed.error ? "not refreshing" : shown.length + (shown.length === 1 ? " line" : " lines")}
+          <span className="mono" style={{ flex: "none", color: feedError ? "var(--warn)" : "var(--text-3)" }}>
+            {feedError
+              ? "not refreshing"
+              : activeLevel
+                ? shown.length + " of " + bySource.length + (bySource.length === 1 ? " line" : " lines")
+                : shown.length + (shown.length === 1 ? " line" : " lines")}
           </span>
         </InfoTooltip>
+        {/* Said once per press, from the handler, and not derived from the
+            count: a status that changed with every live line would read the
+            tail out a second time on top of the log's own announcements. */}
+        <span role="status" className="visually-hidden">
+          {announcement}
+        </span>
 
         {/* What a line in the scrollback is made of, said once beside the
             log rather than on each of the thousand lines it can hold. */}
@@ -830,6 +858,39 @@ export function ActivityDock() {
         />
       ) : null}
     </section>
+  );
+}
+
+/** One of the two problem counts, as a toggle (#1115).
+ *
+ *  The name states what pressing does ("Show 3 warnings"), not just the
+ *  number, and it is the same whether or not the button is pressed:
+ *  aria-pressed carries that. Pressed is drawn with weight, an underline
+ *  and a ring as well as the fill, so it survives a greyscale screen. */
+function LevelButton({
+  level,
+  count,
+  pressed,
+  onPress
+}: {
+  level: DockLevel;
+  count: number;
+  pressed: boolean;
+  onPress(level: DockLevel): void;
+}) {
+  const noun = level === "error" ? "error" : "warning";
+  const label = count + " " + noun + (count === 1 ? "" : "s");
+  return (
+    <button
+      type="button"
+      className={"activity-toolbar__button activity-dock__level activity-dock__level--" + level}
+      aria-pressed={pressed}
+      aria-label={"Show " + label}
+      disabled={count === 0}
+      onClick={() => onPress(level)}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -961,7 +1022,7 @@ function DockLog({
             runnable under it. Muted, because it is a header and not an
             event: nothing happened at it. */}
         <InfoTooltip id="activity.dock.preamble" block>
-          <div className="activity-log__time" style={{ color: "var(--text-3)" }}>
+          <div className="activity-log__time">
             {preamble}
           </div>
         </InfoTooltip>
@@ -970,7 +1031,7 @@ function DockLog({
             name. */}
         {dropped ? (
           <InfoTooltip id="activity.dock.dropped" block>
-            <div style={{ color: "var(--text-3)" }}>
+            <div style={{ color: "var(--term-time)" }}>
               {"──── earlier lines are not held here any more · the full record is on the Activity page ────"}
             </div>
           </InfoTooltip>
@@ -979,7 +1040,7 @@ function DockLog({
           if (entry.kind === "restart") {
             return (
               <InfoTooltip key={"restart-" + i} id="activity.dock.restart" block>
-                <div style={{ color: "var(--warn)" }}>
+                <div style={{ color: "var(--term-warn)" }}>
                   {restartRule(entry.at)}
                 </div>
               </InfoTooltip>
@@ -995,7 +1056,7 @@ function DockLog({
             dockReservedHeight) and be clipped by the section's own
             maxHeight, which for a notice about something that has gone
             quiet is the worst possible place to put it. */}
-        <UnfinishedActionsNotice actions={unfinished} />
+        <UnfinishedActionsNotice actions={unfinished} onTerminal />
       </div>
     </>
   );
@@ -1010,7 +1071,7 @@ function DockLine({ event, viewer }: { event: SetActivityEvent; viewer: string |
       <span className="activity-log__time">{line.time}</span>{" "}
       <span
         className="activity-log__time"
-        style={{ color: prefix.action ? "var(--accent)" : "var(--text-3)" }}
+        style={{ color: prefix.action ? "var(--term-accent)" : "var(--term-time)" }}
       >
         {"[" + prefix.label + "]"}
       </span>{" "}

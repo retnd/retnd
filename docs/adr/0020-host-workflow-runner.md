@@ -15,8 +15,8 @@ plan that is the only authority on what a run executes. It contains no
 
 This is the issue that runs something, and it runs it in the one place
 that is hardest: **the host**. A hook named `NAME.local.sh` means "run
-this on the machine backupd is installed on", and the machine backupd is
-installed on is not the machine backupd is running on.
+this on the machine retnd is installed on", and the machine retnd is
+installed on is not the machine retnd is running on.
 
 The runtime this product ships (`container/compose.yaml`,
 `container/Dockerfile`, pinned by `docs/runtime-contract.md`,
@@ -49,8 +49,8 @@ and three of them are the same mistake wearing different clothes:
    let the engine ask it over one Unix-domain socket with a narrow
    vocabulary.
 
-backupd does the fourth. `core/internal/hostrunner` is that process and
-`backupd workflow-runner serve` is how it is started.
+retnd does the fourth. `core/internal/hostrunner` is that process and
+`retnd workflow-runner serve` is how it is started.
 
 The container gains exactly two bind mounts — the hook scripts read-only
 at `/workflows`, and the runner's socket directory at `/data/run` — and
@@ -95,7 +95,7 @@ account. That is the kernel enforcing the boundary, which is the only
 enforcement that cannot be bypassed by a bug in this product's own code.
 
 It is not the only lock. Every connection must also present an
-**installation-scoped credential** written into backupd's secrets area at
+**installation-scoped credential** written into retnd's secrets area at
 install time, compared in constant time, held to mode `0600`, and at
 least 32 characters.
 
@@ -331,8 +331,8 @@ touch. #865 closes that: the runner still owns the execution, and what it
 starts is one **ephemeral container per hook**.
 
 ```text
-docker create --name backupd-hook-<run>-<step>-<16 hex>
-           --label backupd.workflow-hook=1 (plus run, step and instance labels)
+docker create --name retnd-hook-<run>-<step>-<16 hex>
+           --label retnd.workflow-hook=1 (plus run, step and instance labels)
            --network none  --security-opt no-new-privileges  --cap-drop ALL
            --read-only  --tmpfs /tmp:rw,nosuid,nodev,size=64m
            --pids-limit 512  --user <the runner's own uid:gid>
@@ -407,7 +407,7 @@ socket is in or under. `--hook-mount /run:rw` names no socket and hands
 the same file to the same script, so the refusal is about the resolved
 tree (both `/var/run/docker.sock` and `/run/docker.sock`, plus a
 `DOCKER_HOST` unix path) rather than about the string. Mounts are IDENTITY
-mounts, so `BACKUPD_WORK_DIR` means one thing on both sides and a path in
+mounts, so `RETND_WORK_DIR` means one thing on both sides and a path in
 a hook's log is a path an operator can find.
 
 **The network can be widened but not unhinged.** `--hook-network`

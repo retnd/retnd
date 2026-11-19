@@ -51,7 +51,7 @@ func realDockerignore(t *testing.T) string {
 // TestTheImageCarriesTheLicenceMaterials is #407's first acceptance
 // criterion, as far as it can be asked of the tree.
 //
-// NOTICE is where Apache-2.0 §4(d)'s attribution and MPL-2.0 §3.2's
+// NOTICE is where the third-party attribution and MPL-2.0 §3.2's
 // source offer both live, and TestNoticeAttributesEveryComponent proves
 // it says the right things. Nothing proved it went anywhere. This reads
 // the runtime stage, the way the bundle tests do, and refuses an image
@@ -113,17 +113,21 @@ func TestTheImageCarriesTheLicenceMaterials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RuntimeStageCopies: %v", err)
 	}
-	sawBinary := false
+	sawCore := false
+	sawWeb := false
 	for _, cp := range copies {
-		if cp.From == "build" && cp.Dest == "/backupd" {
-			sawBinary = true
+		if cp.From == "build" && cp.Dest == "/retnd" {
+			sawCore = true
+		}
+		if cp.From == "build-web" && cp.Dest == "/retnd-web" {
+			sawWeb = true
 		}
 		if cp.From == "" && strings.HasPrefix(cp.Sources[0], "core/") {
 			t.Errorf("line %d COPYs %v, which is a builder stage's copy; the reader is not confined to the runtime stage", cp.Line, cp.Sources)
 		}
 	}
-	if !sawBinary {
-		t.Error("the runtime stage read here does not copy /backupd from the build stage, so this is not the stage that becomes the image")
+	if !sawCore || !sawWeb {
+		t.Errorf("the runtime stage does not copy both release binaries from their builders (retnd=%t, retnd-web=%t)", sawCore, sawWeb)
 	}
 }
 
@@ -589,13 +593,13 @@ func TestTheLabelReaderCanRefuse(t *testing.T) {
 	}{
 		{
 			"the licence label is deleted",
-			strings.Replace(real, `LABEL org.opencontainers.image.licenses="Apache-2.0" \`+"\n", "LABEL \\\n", 1),
+			strings.Replace(real, `LABEL org.opencontainers.image.licenses="MIT" \`+"\n", "LABEL \\\n", 1),
 			"sets no such label",
 		},
 		{
 			"the licence label names a different licence",
-			strings.Replace(real, `image.licenses="Apache-2.0"`, `image.licenses="MIT"`, 1),
-			"compliance.json says the project is Apache-2.0",
+			strings.Replace(real, `image.licenses="MIT"`, `image.licenses="Apache-2.0"`, 1),
+			"compliance.json says the project is MIT",
 		},
 		{
 			"the path label points somewhere the files are not",

@@ -59,9 +59,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/backend"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/secretref"
+	"github.com/retnd/retnd/core/internal/backend"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/secretref"
 )
 
 // Validate checks a Config for every problem this package knows how to
@@ -99,9 +99,13 @@ func (c *Config) Validate() error {
 
 	v.validateState(c.State)
 
-	if len(c.Sources) == 0 {
-		v.addf("sources: at least one source is required")
-	}
+	// An empty sources list is valid (retnd#1049). It is what a fresh
+	// install runs on until its first backup set exists: the scheduler
+	// walks nothing and the UI shows its "No backup sets yet" state. The
+	// refusal that used to sit here protected a hand-edited file that had
+	// lost its sources, and the default configuration's header comment
+	// plus the dashboard's empty state say that honestly instead of
+	// keeping a first install from starting.
 
 	seenSourceNames := map[string]bool{}
 	seenSetIDs := map[string]string{} // BackupSetID.String() -> the field path that first claimed it
@@ -148,9 +152,7 @@ func (c *Config) Validate() error {
 		// the cycle completes silently. Whatever fixes that should fix
 		// both, at the cycle, where the emptiness is observable.
 		//
-		// The whole-file rule above (at least one source) is untouched,
-		// and stays reachable, because removal never empties Sources now
-		// that the source stays behind.
+		// Removal never empties Sources now that the source stays behind.
 
 		for j := range src.BackupSets {
 			bsPath := fmt.Sprintf("%s.backup_sets[%d]", path, j)
@@ -179,6 +181,9 @@ func (c *Config) Validate() error {
 	// during phase 1 would inherit the raw policy an operator typed rather
 	// than the defaulted one. It gets its own pass here.
 	c.resolveBackupSetRetentions(v)
+	c.resolveAssurance(v)
+	c.resolveRetainedCopyEncryption(v)
+	c.resolveAgents(v)
 
 	// Phase 2 as well, and for a related reason: resolving a tier's medium
 	// needs BOTH halves finished, the declared list and every chain that
@@ -599,8 +604,8 @@ func (v *validator) resolveBackupSetEngine(path string, bs *BackupSet) bool {
 
 	bs.Repository = model.RepositoryRef{}
 
-	switch {
-	case bs.RepositoryDomainConfig == "":
+	switch bs.RepositoryDomainConfig {
+	case "":
 		v.addf("%s: repository_domain is required for engine %q; a set whose repository nobody named would share an encryption key, a credential, a maintenance window, a deduplication span and a corruption fate with whatever else happened to be there",
 			path, engine)
 	default:
@@ -650,7 +655,7 @@ func (v *validator) resolveBackupSetEngine(path string, bs *BackupSet) bool {
 // This is the rule deadconfig_test states for storage mediums, applied to
 // the engine seam: a configuration this build validates and can never
 // execute is worse than one it refuses, because the operator who wrote the
-// key believes something about how their backup runs and `backupd check`
+// key believes something about how their backup runs and `retnd check`
 // told them it was fine.
 func (v *validator) refuseIncrementalKeys(path string, bs *BackupSet) {
 	for _, key := range []struct {
@@ -690,7 +695,7 @@ func (v *validator) refuseDeadEngineKey(path, key string, reader, running model.
 // their zero values.
 //
 // It exists for Validate's idempotency promise, which is not decoration
-// here: cmd/backupd's retention overrides re-validate a Config in
+// here: cmd/retnd's retention overrides re-validate a Config in
 // place, and a set switched from the incremental engine to the artifact
 // engine between two calls would otherwise keep a repository reference and
 // a source identity that the second call never resolved.
@@ -2437,7 +2442,7 @@ func expressibleBackendIDs(reg *backend.Registry) []string {
 // and cannot happen, and it is here rather than left to the move engine
 // because of WHERE the engine's refusal lands: at the verification step of
 // a move, after the object has already been uploaded, once per artifact
-// per cycle, in a log line, forever. `backupd check` says "config
+// per cycle, in a log line, forever. `retnd check` says "config
 // OK" on the way in and the artifacts never arrive. That is a
 // configuration this product can validate and can never execute, which is
 // the one thing validation exists to prevent.
@@ -2741,7 +2746,7 @@ func (v *validator) validateTierMediumReferences(path string, r *Retention, decl
 // value is spelled perfectly and describes something that can never
 // happen, and the place the product would otherwise say so is the middle
 // of a move, once per artifact per cycle, in a log line, for ever, while
-// `backupd check` said "config OK" on the way in.
+// `retnd check` said "config OK" on the way in.
 //
 // What cannot happen is #428's chain of four facts, and every link is
 // read from the code that defines it. A source copy is deleted only after

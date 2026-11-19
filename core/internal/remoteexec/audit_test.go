@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/backupdproject/backupd/core/internal/transport"
-	"github.com/backupdproject/backupd/core/internal/workflowexec"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/workflowexec"
 )
 
 type countingSink struct {
@@ -23,27 +23,6 @@ func (s *countingSink) Chunk(c workflowexec.Chunk) error {
 	s.chunks = append(s.chunks, workflowexec.Chunk{Stream: c.Stream, Seq: c.Seq, Data: append([]byte(nil), c.Data...)})
 
 	return nil
-}
-
-func (s *countingSink) text(stream workflowexec.StreamID) string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var b strings.Builder
-	for _, c := range s.chunks {
-		if c.Stream == stream {
-			b.Write(c.Data)
-		}
-	}
-
-	return b.String()
-}
-
-func (s *countingSink) all() []workflowexec.Chunk {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return append([]workflowexec.Chunk(nil), s.chunks...)
 }
 
 // TestAuditCarriesEveryFactAndNoCredential is #810's audit requirement read
@@ -61,13 +40,13 @@ func TestAuditCarriesEveryFactAndNoCredential(t *testing.T) {
 		Source: transport.Source{
 			Type:       "sftp",
 			Host:       "db.example.com",
-			User:       "backupd-hooks",
-			KeyFile:    "/etc/backupd/hooks.key",
-			KnownHosts: "/etc/backupd/known_hosts",
+			User:       "retnd-hooks",
+			KeyFile:    "/etc/retnd/hooks.key",
+			KnownHosts: "/etc/retnd/known_hosts",
 		},
 	}
 	req := Request{
-		Token:        "backupd-exec-run1-0002",
+		Token:        "retnd-exec-run1-0002",
 		BackupSet:    "production/db",
 		StepID:       "0002~set~before~10-quiesce.remote.sh",
 		ScriptName:   "10-quiesce.remote.sh",
@@ -77,7 +56,7 @@ func TestAuditCarriesEveryFactAndNoCredential(t *testing.T) {
 	exit := 0
 	res := Result{
 		ExitCode:           &exit,
-		User:               "backupd-hooks",
+		User:               "retnd-hooks",
 		HostKeyFingerprint: "SHA256:abc123",
 		StartedAt:          time.Date(2026, 9, 13, 10, 0, 0, 0, time.UTC),
 		FinishedAt:         time.Date(2026, 9, 13, 10, 0, 4, 0, time.UTC),
@@ -95,7 +74,7 @@ func TestAuditCarriesEveryFactAndNoCredential(t *testing.T) {
 		"connection_kind=declared",
 		"host=db.example.com",
 		"host_key=SHA256:abc123",
-		"ssh_user=backupd-hooks",
+		"ssh_user=retnd-hooks",
 		"started=2026-09-13T10:00:00Z",
 		"finished=2026-09-13T10:00:04Z",
 		"exit=0",
@@ -110,8 +89,8 @@ func TestAuditCarriesEveryFactAndNoCredential(t *testing.T) {
 	for _, forbidden := range []string{
 		"super-secret-value",
 		"PGPASSWORD",
-		"/etc/backupd/hooks.key",
-		"/etc/backupd/known_hosts",
+		"/etc/retnd/hooks.key",
+		"/etc/retnd/known_hosts",
 	} {
 		if strings.Contains(line, forbidden) {
 			t.Errorf("the audit line carries %q, which is credential material or its location:\n%s", forbidden, line)

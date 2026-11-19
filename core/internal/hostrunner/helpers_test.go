@@ -188,7 +188,7 @@ func rawConn(t *testing.T, socket string) net.Conn {
 	if err != nil {
 		t.Fatalf("dialling the runner: %v", err)
 	}
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 	return conn
 }
 

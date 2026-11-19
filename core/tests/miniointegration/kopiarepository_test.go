@@ -18,11 +18,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/backupdproject/backupd/core/internal/backupengine"
-	"github.com/backupdproject/backupd/core/internal/backupengine/kopia"
-	"github.com/backupdproject/backupd/core/internal/model"
-	"github.com/backupdproject/backupd/core/internal/secretref"
-	"github.com/backupdproject/backupd/core/tests/machines"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/backupengine/kopia"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/secretref"
+	"github.com/retnd/retnd/core/tests/machines"
 )
 
 // This file is EPIC K's §33 matrix for a repository in a bucket, run
@@ -189,7 +189,7 @@ func TestS3RepositoryMatrix(t *testing.T) {
 
 	want := hashTree(t, srcDir)
 
-	src := backupengine.Source{Host: "nas-01", User: "backupd", Path: srcDir}
+	src := backupengine.Source{Host: "nas-01", User: "retnd", Path: srcDir}
 
 	snap, err := rep.Snapshot(ctx, backupengine.SnapshotRequest{
 		Source:      src,
@@ -670,7 +670,7 @@ func TestS3SecretsNeverReachTheLifecycleReports(t *testing.T) {
 		}
 	}
 
-	src := backupengine.Source{Host: "nas-01", User: "backupd", Path: srcDir}
+	src := backupengine.Source{Host: "nas-01", User: "retnd", Path: srcDir}
 
 	snap, err := rep.Snapshot(ctx, backupengine.SnapshotRequest{
 		Source:      src,
@@ -728,7 +728,7 @@ func TestS3SecretsNeverReachTheLifecycleReports(t *testing.T) {
 	}
 
 	_, snapshotErr := rep.Snapshot(ctx, backupengine.SnapshotRequest{
-		Source:      backupengine.Source{Host: "nas-01", User: "backupd", Path: filepath.Join(srcDir, "not-there")},
+		Source:      backupengine.Source{Host: "nas-01", User: "retnd", Path: filepath.Join(srcDir, "not-there")},
 		Description: "a source that is not on this host",
 	})
 	if snapshotErr == nil {
@@ -816,7 +816,7 @@ func TestS3SecretsNeverReachACapturedLogAcrossAWholeLifecycle(t *testing.T) {
 
 	// The canary, written through all three taps before the work starts.
 	fmt.Fprintln(os.Stderr, canaryMarker, "stderr")
-	fmt.Fprintln(os.Stdout, canaryMarker, "stdout")
+	_, _ = fmt.Fprintln(os.Stdout, canaryMarker, "stdout")
 	log.Println(canaryMarker, "stdlib logger")
 	slog.Default().Info(canaryMarker + " slog default")
 
@@ -858,7 +858,7 @@ func TestS3SecretsNeverReachACapturedLogAcrossAWholeLifecycle(t *testing.T) {
 		t.Fatalf("writing the source file: %v", err)
 	}
 
-	src := backupengine.Source{Host: "nas-01", User: "backupd", Path: srcDir}
+	src := backupengine.Source{Host: "nas-01", User: "retnd", Path: srcDir}
 
 	snap, err := rep.Snapshot(ctx, backupengine.SnapshotRequest{
 		Source:      src,
@@ -1040,7 +1040,7 @@ func credentialsFile(t *testing.T, accessKeyID, secretAccessKey string) secretre
 
 // canaryMarker is the string the log-capture row writes through every tap
 // it installs, so an empty capture is a failure rather than a pass.
-const canaryMarker = "backupd-log-capture-canary"
+const canaryMarker = "retnd-log-capture-canary"
 
 // processOutput is a live capture of everywhere a line can leave this
 // process, and the restoration of all four taps when the window closes.

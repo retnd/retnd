@@ -21,10 +21,10 @@
 // Render takes a health.Report as a plain value and returns a string.
 // Nothing in this package calls internal/health itself, holds a journal,
 // or knows how a Report gets built. Nothing outside this package calls
-// Render yet either: cmd/backupd has no subcommand to serve it from
+// Render yet either: cmd/retnd has no subcommand to serve it from
 // (issues #25, #26), the same position internal/health, internal/obs and
 // internal/capacity are already in. Wiring this in later, a
-// "backupd status --prometheus" flag, an HTTP handler, or both, is
+// "retnd status --prometheus" flag, an HTTP handler, or both, is
 // meant to be a few lines calling Render, not a redesign.
 //
 // # Format
@@ -32,7 +32,7 @@
 // Output follows the Prometheus text exposition format, version 0.0.4
 // (see ContentType): a "# HELP" and "# TYPE" line per metric name,
 // followed by that metric's samples grouped together, one line each. Every
-// metric name is prefixed backupd_ so it cannot collide with
+// metric name is prefixed retnd_ so it cannot collide with
 // another exporter's metric on the same scrape target. A health.Report
 // field the caller never populated (any of BackupSetInputs' three
 // pointers) or one internal/health never had evidence for
@@ -48,8 +48,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/backupdproject/backupd/core/internal/health"
-	"github.com/backupdproject/backupd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/copycrypt"
+	"github.com/retnd/retnd/core/internal/health"
+	"github.com/retnd/retnd/core/internal/lifecycle"
 )
 
 // ContentType is the MIME type a caller should set on an HTTP response
@@ -58,9 +59,9 @@ import (
 const ContentType = "text/plain; version=0.0.4; charset=utf-8"
 
 // namePrefix roots every metric name this package emits. It is the binary
-// name, backupd, with the hyphen replaced by an underscore, since a
+// name, retnd, with the hyphen replaced by an underscore, since a
 // Prometheus metric name may not contain a hyphen.
-const namePrefix = "backupd_"
+const namePrefix = "retnd_"
 
 // newestGoodBackupAgeHelp names, in the HELP line a scraping operator
 // reads, exactly the states internal/health counts as known-good.
@@ -87,6 +88,10 @@ var healthStates = []health.State{health.Healthy, health.Degraded, health.Stale,
 // different slice order produce byte-identical output; nothing here
 // depends on the order report.BackupSets happened to be built in.
 func Render(report health.Report) string {
+	return render(report)
+}
+
+func render(report health.Report) string {
 	sets := append([]health.BackupSetHealth(nil), report.BackupSets...)
 	sort.Slice(sets, func(i, j int) bool {
 		return sets[i].Set.String() < sets[j].Set.String()
@@ -255,7 +260,7 @@ func Render(report health.Report) string {
 	// that is the difference the requirement is about: a scrape has to
 	// be able to graph what was READ against what was WRITTEN without
 	// summing them by accident, and a single
-	// backupd_snapshot_bytes{kind="..."} family is exactly the shape a
+	// retnd_snapshot_bytes{kind="..."} family is exactly the shape a
 	// dashboard sums. Presenting the logical size where a reader expects
 	// "uploaded" is the claim EPIC K forbids, and a metric that can be
 	// aggregated into that claim is the same mistake one query away.
@@ -366,12 +371,16 @@ func Render(report health.Report) string {
 	// render here and not there.
 	writeWorkflowHealth(&b, sets, report.Workflow)
 
+	// EPIC N's key-custody half (#993). Four unlabelled gauges, and none at
+	// all for a deployment that encrypts nothing and holds no key.
+	writeKeyCustody(&b, report.KeyCustody)
+
 	return b.String()
 }
 
 func writeProcessInfo(b *strings.Builder, report health.Report) {
 	name := namePrefix + "process_info"
-	writeHelp(b, name, "Build information for the running backupd process. Constant 1; the version data is in the labels.")
+	writeHelp(b, name, "Build information for the running retnd process. Constant 1; the version data is in the labels.")
 	writeType(b, name, "gauge")
 	fmt.Fprintf(b, "%s{binary_version=%s,rclone_version=%s} 1\n",
 		name, quoteLabel(report.Process.BinaryVersion), quoteLabel(report.Process.RcloneVersion))
@@ -613,4 +622,60 @@ func formatFloat(v float64) string {
 func quoteLabel(v string) string {
 	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`)
 	return `"` + r.Replace(v) + `"`
+}
+
+// writeKeyCustody renders health.Report.KeyCustody as four gauges with NO
+// labels. That is the rule and not an omission: a key id as a label is an
+// unbounded series per rotation and a key identifier on a public scrape
+// target, so the families say whether and how many, and which key is a
+// sentence on the status surface behind authentication.
+//
+// A deployment that encrypts nothing and has no managed key (the zero
+// section) emits none of the four, so a scrape of a deployment that never
+// enabled the feature is the scrape it always was.
+func writeKeyCustody(b *strings.Builder, h health.KeyCustodyHealth) {
+	if !h.Enabled && h.ActiveKeyID == "" && len(h.UnconfirmedKeyIDs) == 0 && len(h.ExternalKeysAtRisk) == 0 && len(h.Suites) == 0 {
+		return
+	}
+	one := func(suffix, help string, v float64) {
+		name := namePrefix + suffix
+		writeHelp(b, name, help)
+		writeType(b, name, "gauge")
+		writeSample(b, name, nil, v)
+	}
+	one("retained_copy_encryption_enabled", "1 when at least one backup set requires its retained copies to be encrypted, 0 when none does.", gaugeBool(h.Enabled))
+	// The HELP text is kept byte for byte so a scrape of an encrypting
+	// deployment does not change; the value also reads 1 when copies or the
+	// active key are under a deprecated or retired suite (#1316), which the
+	// status surface names.
+	one("retained_copy_encryption_degraded", "1 when encryption is required somewhere and either no key can encrypt yet or a key that guards copies has no confirmed recovery bundle, 0 otherwise. Which key is on the status surface, never a label here.", gaugeBool(h.Degraded()))
+	one("retained_copy_key_bundle_confirmed", "1 when a person confirmed holding a recovery bundle for the active managed key, 0 when not or when there is no active key.", gaugeBool(h.BundleConfirmed))
+	one("retained_copy_keys_unconfirmed", "How many managed keys that are not retired have no confirmed recovery bundle, the active one included.", float64(len(h.UnconfirmedKeyIDs)))
+	writeEncryptedCopiesBySuite(b, h.EncryptedCopiesBySuite)
+}
+
+// writeEncryptedCopiesBySuite renders retained_copy_encrypted_copies with one
+// label, suite (EPIC T, #1315). Its values are the build's own suite ids, one
+// series per registered suite (zero when no copy records it), and "unknown"
+// for every recorded id the build has no suite for, so the series count is
+// bounded by the registry and never by what a journal holds. A key id is
+// never a label (TestNoKeyIdIsALabel's rule).
+func writeEncryptedCopiesBySuite(b *strings.Builder, bySuite map[string]int) {
+	name := namePrefix + "retained_copy_encrypted_copies"
+	writeHelp(b, name, "How many ACTIVE encrypted retained copies record each encryption suite. The label is a suite id from this build's registry, or unknown for an id it has no suite for.")
+	writeType(b, name, "gauge")
+	known := map[string]bool{}
+	for _, s := range copycrypt.Suites() {
+		known[s.ID()] = true
+		writeSample(b, name, []label{{"suite", s.ID()}}, float64(bySuite[s.ID()]))
+	}
+	unknown := 0
+	for id, n := range bySuite {
+		if !known[id] {
+			unknown += n
+		}
+	}
+	if unknown > 0 {
+		writeSample(b, name, []label{{"suite", "unknown"}}, float64(unknown))
+	}
 }

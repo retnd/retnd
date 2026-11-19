@@ -7,6 +7,10 @@ import type { IconName } from "@shared/design-system/icons";
 import { Banner } from "@shared/components/Banner";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { bytes, stamp } from "@shared/utilities/format";
+import { clipText } from "@shared/encryption/ClippedText";
+import { CopyChips } from "@shared/encryption/EncryptionChips";
+import { anyEncrypted, copyEncryptionView, copyFor, mayVerify } from "@shared/encryption/encryptionState";
+import type { CopyEncryption } from "@shared/types/encryption";
 
 /**
  * Where a backup's bytes actually are (EPIC E, FR-34, issue #240).
@@ -86,9 +90,27 @@ function statusNote(p: BackupPlacement): string {
 
 export function PlacementList({
   placements,
-  storage
+  storage,
+  showRecovery = false,
+  encryption = null,
+  failedVerify,
+  onVerify
 }: {
   placements: BackupPlacement[];
+  /** Each copy's own encryption record (issue #995, GET /encryption/copies).
+   *  Null where it was not read or the server does not offer it. The column
+   *  is drawn only when some copy is encrypted, so a deployment with
+   *  encryption off sees no change. */
+  encryption?: CopyEncryption[] | null;
+  /** Media whose last decrypt-verify on this page failed closed, with the
+   *  engine's reason. The copies read carries no field for it. */
+  failedVerify?: Record<string, string>;
+  /** Opens Verify recoverable for one encrypted copy. */
+  onVerify?: (medium: string) => void;
+  /** Say what each copy's own recovery record is (issue #1134). Off where the
+   *  server offers no assurance, so a page that cannot know does not claim
+   *  that nothing has been tested. */
+  showRecovery?: boolean;
   /** The verification ladder and the retrieval disclosure, as the backend
    *  serves them (GET /settings). Optional: a page that has not loaded
    *  settings renders the copies without the explanatory sentences rather
@@ -97,6 +119,7 @@ export function PlacementList({
   storage?: StorageSchema;
 }) {
   const offLocal = placements.filter((p) => p.medium !== "local");
+  const showEncryption = anyEncrypted(encryption);
   const needsRestore = placements.some((p) => p.access === "requires_restore" || p.access === "restoring");
 
   return (
@@ -123,7 +146,7 @@ export function PlacementList({
             <div>
               <div style={{ fontWeight: 500 }}>No confirmed copy yet</div>
               <p style={{ margin: "4px 0 0", fontSize: "var(--text-sm)", color: "var(--text-2)", maxWidth: "68ch" }}>
-                A copy appears here once one finishes and the backupd records it. An empty
+                A copy appears here once one finishes and the retnd records it. An empty
                 list means there is nothing to fall back on yet, not that the copies could not be
                 read. A backup still arriving has a partial file on disk, and a partial file is not
                 a copy.
@@ -146,6 +169,9 @@ export function PlacementList({
                 <th scope="col" style={{ textAlign: "right" }}><InfoTooltip id="backups.copies.col.size"><span>Copy size</span></InfoTooltip></th>
                 <th scope="col"><InfoTooltip id="backups.copies.col.class"><span>Class</span></InfoTooltip></th>
                 <th scope="col"><InfoTooltip id="backups.copies.col.access"><span>Access</span></InfoTooltip></th>
+                {showEncryption ? (
+                  <th scope="col"><InfoTooltip id="encryption.copies.col"><span>Encryption</span></InfoTooltip></th>
+                ) : null}
                 <th scope="col"><InfoTooltip id="backups.copies.col.verification"><span>Verification</span></InfoTooltip></th>
               </tr>
             </thead>
@@ -164,7 +190,7 @@ export function PlacementList({
                               oversight.
 
                               This column says where a copy IS, and the
-                              black-box suite in backupdproject/backupd-tests
+                              black-box suite in retnd/retnd-tests
                               pins these words at the sha this repository
                               pins. #622 is about where a tier SENDS its
                               backups, so renaming this one costs two specs
@@ -210,8 +236,18 @@ export function PlacementList({
                         </div>
                       ) : null}
                     </td>
+                    {showEncryption ? (
+                      <td data-encryption-cell={p.medium}>
+                        <EncryptionCell
+                          copy={copyFor(encryption, p.medium)}
+                          placement={p}
+                          failure={failedVerify?.[p.medium]}
+                          onVerify={onVerify}
+                        />
+                      </td>
+                    ) : null}
                     <td>
-                      <PlacementVerification placement={p} storage={storage} />
+                      <PlacementVerification placement={p} storage={storage} showRecovery={showRecovery} />
                     </td>
                   </tr>
                 );
@@ -238,6 +274,42 @@ export function PlacementList({
 }
 
 /**
+ * One copy's encryption chips and what the backend recorded beside them
+ * (issue #995). A copy the encryption read did not name draws a dash, never a
+ * Plaintext chip: not knowing is not a claim that it is open.
+ */
+function EncryptionCell({
+  copy, placement, failure, onVerify
+}: {
+  copy: CopyEncryption | undefined;
+  placement: BackupPlacement;
+  failure?: string;
+  onVerify?: (medium: string) => void;
+}) {
+  if (!copy) return <span style={{ color: "var(--text-3)" }}>{"\u2014"}</span>;
+  const view = copyEncryptionView(copy, placement, failure !== undefined);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
+      <CopyChips view={view} failure={failure} />
+      {copy.encrypted ? (
+        <div className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-2)" }}>
+          {[
+            copy.format ? "format " + clipText(copy.format) + (copy.formatVersion !== null ? " v" + copy.formatVersion : "") : null,
+            copy.keyId ? "key " + clipText(copy.keyId) : null,
+            copy.storedSize !== null ? "stored " + bytes(copy.storedSize) : null
+          ].filter(Boolean).join(", ")}
+        </div>
+      ) : null}
+      {copy.encrypted && onVerify && mayVerify(view) ? (
+        <InfoTooltip id="encryption.verify.run">
+          <button type="button" className="btn btn--sm" onClick={() => onVerify(copy.medium)}>Verify recoverable</button>
+        </InfoTooltip>
+      ) : null}
+    </div>
+  );
+}
+
+/**
  * One copy's verification, in the backend's own words.
  *
  * A null class is rendered as "Not verified" and nothing else: no date, no
@@ -247,11 +319,14 @@ export function PlacementList({
  */
 function PlacementVerification({
   placement,
-  storage
+  storage,
+  showRecovery
 }: {
   placement: BackupPlacement;
   storage?: StorageSchema;
+  showRecovery: boolean;
 }) {
+  const recovery = showRecovery ? <CopyRecovery placement={placement} /> : null;
   if (placement.verificationClass === null) {
     return (
       <InfoTooltip id="backups.copies.unverified" block>
@@ -260,6 +335,7 @@ function PlacementVerification({
           <div style={{ fontSize: "var(--text-xs)", color: "var(--text-3)", marginTop: 3, maxWidth: "36ch" }}>
             Nothing has checked this copy.
           </div>
+          {recovery}
         </div>
       </InfoTooltip>
     );
@@ -280,8 +356,32 @@ function PlacementVerification({
             {"Proves " + rung.proves + "."}
           </div>
         ) : null}
+        {recovery}
       </div>
     </InfoTooltip>
+  );
+}
+
+/**
+ * What this copy's own recovery record says: the built-in structure check or
+ * a validator's pass with its time, a failure, or that no test has run on it.
+ * It is about THIS copy, so a set whose newest test ran on another backup does
+ * not make this one look tested.
+ */
+function CopyRecovery({ placement: p }: { placement: BackupPlacement }) {
+  const at = p.recoveryTestedAt ? " " + stamp(p.recoveryTestedAt) : "";
+  const text =
+    p.recoveryState === "readable" ? "Structure readable" + at + " (built-in check)"
+    : p.recoveryState === "passed" ? "Recovery test passed" + at + " (validator)"
+    : p.recoveryState === "failed" ? "Recovery test failed" + at
+    : p.recoveryState === "could_not_complete" ? "Recovery test could not complete" + at
+    : p.recoveryState === "refused_for_cost" ? "Recovery test skipped" + at + " (reading it would cost money)"
+    : p.recoveryState === "overdue" ? "Recovery test overdue, last" + at
+    : "No recovery test has run on this copy";
+  return (
+    <div data-testid="copy-structure" style={{ fontSize: "var(--text-xs)", color: "var(--text-2)", marginTop: 3, maxWidth: "36ch" }}>
+      {text}
+    </div>
   );
 }
 

@@ -1,7 +1,7 @@
 {
   "shell.service-status": {
     "label": "Service status",
-    "html": "Whether the <strong>backupd service</strong> is running on this machine, and which version answered. Nothing runs on a schedule while it is stopped."
+    "html": "Whether the <strong>retnd service</strong> is running on this machine, and which version answered. Nothing runs on a schedule while it is stopped."
   },
   "shell.theme-toggle": {
     "label": "Theme",
@@ -13,7 +13,7 @@
   },
   "shell.platform": {
     "label": "Running on",
-    "html": "The platform this interface is running on, how it is integrated, and which account signed in. Backupd is the same product on all of them."
+    "html": "The platform this interface is running on, how it is integrated, and which account signed in. retnd is the same product on all of them."
   },
   "nav.dashboard": {
     "label": "Dashboard",
@@ -25,7 +25,7 @@
   },
   "nav.backups": {
     "label": "Backups",
-    "html": "Every stored backup artifact, newest first, with where it is placed and what retains it. The number is how many this deployment is holding."
+    "html": "Every stored backup artifact, in configuration order (set by set, in the order each was recorded), with where it is placed and what retains it. The number is how many this deployment holds outside quarantine; the quarantined ones are counted on the Quarantine row instead. Past 100 it reads &gt;100, and <code>retnd artifacts --count</code> prints the exact figure."
   },
   "nav.activity": {
     "label": "Activity",
@@ -49,7 +49,7 @@
   },
   "platform.name": {
     "label": "Platform",
-    "html": "The host Backupd is running on, as that host names itself. Backupd is the same product on every one of them; the platform only decides how it is packaged and how you sign in."
+    "html": "The host retnd is running on, as that host names itself. retnd is the same product on every one of them; the platform only decides how it is packaged and how you sign in."
   },
   "platform.integration": {
     "label": "Integration",
@@ -57,7 +57,7 @@
   },
   "platform.auth": {
     "label": "Authentication",
-    "html": "Which account signed in. A <strong>platform session</strong> is the host's own login; a <strong>Backupd local account</strong> is one this service keeps itself."
+    "html": "Which account signed in. A <strong>platform session</strong> is the host's own login; a <strong>retnd local account</strong> is one this service keeps itself."
   },
   "platform.deployment": {
     "label": "Deployment",
@@ -209,7 +209,7 @@
   },
   "settings.capability": {
     "label": "Capability",
-    "html": "A tick means this platform provides it; a dash means it does not, and the note on the right says what Backupd does instead."
+    "html": "A tick means this platform provides it; a dash means it does not, and the note on the right says what retnd does instead."
   },
   "settings.system-information": {
     "label": "System information",
@@ -217,7 +217,7 @@
   },
   "settings.version.service": {
     "label": "Service version",
-    "html": "The version of the backupd service answering this interface. This page and the compatibility banner read one source, so they cannot disagree."
+    "html": "The version of the retnd service answering this interface. This page and the compatibility banner read one source, so they cannot disagree."
   },
   "settings.version.api": {
     "label": "API contract",
@@ -245,7 +245,7 @@
   },
   "settings.password": {
     "label": "Administrator password",
-    "html": "Changes the password of the account signed in here. It does not affect platform accounts or anyone else's Backupd account."
+    "html": "Changes the password of the account signed in here. It does not affect platform accounts or anyone else's retnd account."
   },
   "settings.change-password": {
     "label": "Change password",
@@ -274,10 +274,6 @@
   "backups.col.size": {
     "label": "Size",
     "html": "The size the artifact was received at. A copy held on a storage medium may measure differently, and the artifact's page reports each copy separately."
-  },
-  "backups.col.validation": {
-    "label": "Validation",
-    "html": "Whether a checksum has been matched against the producer's manifest. A cell that reports neither a pass nor a failure means nothing has checked this backup yet, which is a gap rather than a verdict."
   },
   "backups.col.retention": {
     "label": "Retention",
@@ -378,6 +374,14 @@
   "backups.lifecycle.safe-state": {
     "label": "Safe state persisted",
     "html": "The catalogue now records this artifact as known-good, which is what later steps read before acting. Deleting the remote original is gated on this."
+  },
+  "backups.lifecycle.content-verified": {
+    "label": "Content verified",
+    "html": "A scrub read this copy back and its hash matched the one recorded at ingest. The time is when that scrub finished, which is later than the transfer, and a dash means no scrub has verified this backup yet."
+  },
+  "backups.lifecycle.structure-readable": {
+    "label": "Structure readable",
+    "html": "A recovery test staged a copy and read it end to end. The built-in check proves the file decodes and matches its digest, <strong>not</strong> that an application can use it; an operator's validator is the step that says that. A dash means no recovery test has run on this backup, whatever the set's newest test says."
   },
   "backups.lifecycle.remote-deleted": {
     "label": "Remote source deleted",
@@ -829,7 +833,7 @@
   },
   "dashboard.operation.stages": {
     "label": "Transfer stages",
-    "html": "The stages each backup passes through in order, with the current one emphasised and completed ones ticked. Bytes move only during transfer; the later stages prove the copy and record it."
+    "html": "The stages each backup passes through in order, with the current one emphasised and completed ones ticked. Bytes move only during transfer; the later stages prove the copy and record it. A copy under an encrypting policy adds two more rows, Encrypting and Decrypt-verifying, each with its own byte count: the first reads the artifact, the second reads the stored encrypted object back and checks it."
   },
   "dashboard.operation.no-progress": {
     "label": "No progress reading",
@@ -1090,10 +1094,6 @@
   "sets.detail.include": {
     "label": "Include",
     "html": "The patterns a file must match to be collected. An empty list, shown as a dash, collects everything in the remote folder."
-  },
-  "sets.detail.exclude": {
-    "label": "Exclude",
-    "html": "The patterns that keep a file out of this set even when it matched an include. A dash means nothing is excluded."
   },
   "sets.detail.completion-method": {
     "label": "Completion method",
@@ -1441,7 +1441,7 @@
   },
   "common.error-copy-details": {
     "label": "Copy details",
-    "html": "Puts the message, the remedy and the advanced detail on the clipboard as text, so none of it has to be retyped off the screen. Where the browser offers no clipboard at all, as on a plain unencrypted origin, it says so rather than appearing to have worked."
+    "html": "Puts the message, the remedy and the advanced detail on the clipboard as text, so none of it has to be retyped off the screen. On a plain unencrypted origin, where the browser offers no clipboard, it falls back to the browser's older copy command, and if that is refused too it selects the details for you to copy with Ctrl+C. It only says Copied when it did."
   },
   "common.error-retry": {
     "label": "Try again",
@@ -1617,11 +1617,11 @@
   },
   "source.read-only-credentials": {
     "label": "Source is read-only",
-    "html": "The connection test wrote a temporary file under this source's remote path and the account was <strong>refused</strong>, so these SSH credentials can read this source but not write to it. Backupd therefore cannot delete anything there, and <strong>deleting the original after backup cannot be enabled</strong> for this set: every remote original is kept. Grant the account write permission on the source and test the connection again to enable source deletion."
+    "html": "The connection test wrote a temporary file under this source's remote path and the account was <strong>refused</strong>, so these SSH credentials can read this source but not write to it. retnd therefore cannot delete anything there, and <strong>deleting the original after backup cannot be enabled</strong> for this set: every remote original is kept. Grant the account write permission on the source and test the connection again to enable source deletion."
   },
   "wizard.set.remote-handling": {
     "label": "Remote source handling",
-    "html": "Whether Backupd deletes the original artifact on the source once its own copy has been transferred, verified, committed and recorded as safe. A source protected from deletion keeps every remote original for good."
+    "html": "Whether retnd deletes the original artifact on the source once its own copy has been transferred, verified, committed and recorded as safe. A source protected from deletion keeps every remote original for good."
   },
   "wizard.set.go-to-sets": {
     "label": "Go to backup sets",
@@ -1733,7 +1733,7 @@
   },
   "wizard.incremental.consistency": {
     "label": "Source consistency",
-    "html": "What you have arranged on the server, which Backupd records rather than detects. It decides whether a file changing mid-run is ordinary or is reported as a <strong>broken arrangement</strong>. Only <em>frozen image</em> may be called a point in time."
+    "html": "What you have arranged on the server, which retnd records rather than detects. It decides whether a file changing mid-run is ordinary or is reported as a <strong>broken arrangement</strong>. Only <em>frozen image</em> may be called a point in time."
   },
   "wizard.incremental.verification": {
     "label": "Verification level",
@@ -1741,19 +1741,19 @@
   },
   "wizard.incremental.write-probe": {
     "label": "Write permission",
-    "html": "Backupd wrote a scratch file under the source path and deleted it again. It is the only evidence that these credentials could remove a file there, and it is what arms or refuses <code>Delete from source after a verified backup</code>."
+    "html": "retnd wrote a scratch file under the source path and deleted it again. It is the only evidence that these credentials could remove a file there, and it is what arms or refuses <code>Delete from source after a verified backup</code>."
   },
   "sets.source-delete": {
     "label": "Delete from source",
-    "html": "After a backup is stored and verified, Backupd deletes the file on the server, freeing space there. It never runs on a backup that failed verification."
+    "html": "After a backup is stored and verified, retnd deletes the file on the server, freeing space there. It never runs on a backup that failed verification."
   },
   "sets.source-delete.read-only": {
     "label": "Delete from source unavailable",
-    "html": "The SSH credentials for this source are <strong>read-only</strong>: the write test could not create a file on the server, so Backupd cannot delete there either. Grant this account write permission on the source path and re-run the connection test to enable source deletion."
+    "html": "The SSH credentials for this source are <strong>read-only</strong>: the write test could not create a file on the server, so retnd cannot delete there either. Grant this account write permission on the source path and re-run the connection test to enable source deletion."
   },
   "snapshots.reused": {
     "label": "Reused",
-    "html": "Content this run offered the repository that it already held, so it was not stored again. When the engine cannot account for it the panel says <em>not measured</em> rather than <code>0</code> \u2014 a zero would read as a backup that deduplicated nothing."
+    "html": "Content this run offered the repository that it already held, so it was not stored again. When the engine cannot account for it the panel says <em>not measured</em> rather than <code>0</code> — a zero would read as a backup that deduplicated nothing."
   },
   "snapshots.achieved-level": {
     "label": "Verification achieved",
@@ -1766,5 +1766,541 @@
   "repositories.maintenance-owner": {
     "label": "Maintenance owner",
     "html": "Exactly one instance maintains a repository domain. Another instance reads and writes snapshots here but will not compact or reclaim, so a domain whose owner is switched off stops being maintained until ownership is <strong>transferred</strong>."
+  },
+  "sets.detail.workflow": {
+    "label": "Workflow",
+    "html": "The scripts this backup set runs <strong>before</strong> and <strong>after</strong> its backup, and the deployment-wide ones that wrap it either side. A script named <code>*.local.sh</code> runs on this machine through the Host Workflow Runner; anything else runs on the source host."
+  },
+  "settings.workflow": {
+    "label": "Workflow",
+    "html": "Hook directories, the default script timeout and the environment every hook receives. <strong>Global scripts wrap every backup-set run.</strong>"
+  },
+  "workflow.run.page": {
+    "label": "Workflow run",
+    "html": "One backup set's pass, wrapped in the five-stage hook lifecycle. A run is recorded independently of the configuration that produced it, so it stays readable after that configuration changes or is removed."
+  },
+  "workflow.run.state": {
+    "label": "Run state",
+    "html": "Where this run got to as a whole. It is <strong>not</strong> the verdict on the backup, nor on the hooks: those are the three statuses below, and none of the four is derived from another."
+  },
+  "workflow.run.bypassed": {
+    "label": "Scripts bypassed",
+    "html": "This run was asked to skip its hooks, so <strong>no hook was executed</strong>. Its workflow verdict says nothing about whether anybody's scripts work."
+  },
+  "workflow.run.reread": {
+    "label": "Re-read",
+    "html": "Re-reads this run and its steps now. A live run re-reads itself every two seconds anyway; a finished one never does."
+  },
+  "workflow.run.stages": {
+    "label": "Stages",
+    "html": "The five stages in the fixed order a run executes them: global before, this set's before, the backup, this set's after, global after. A stage with no directory configured is shown greyed rather than hidden — <em>did not run</em> and <em>not configured</em> are different facts."
+  },
+  "workflow.run.termination-unconfirmed": {
+    "label": "Termination unconfirmed",
+    "html": "A step was signalled on its timeout and the execution channel closed before the process reported its own exit. The script <strong>may still be running</strong> on the machine it was sent to, and nothing in this product can end it."
+  },
+  "workflow.run.no-selection": {
+    "label": "No step selected",
+    "html": "One log terminal is open at a time. It is created when a step is selected and closed when the selection moves, so a run with dozens of scripts does not hold dozens of readers open."
+  },
+  "workflow.status.backup": {
+    "label": "Backup status",
+    "html": "Whether the archive transferred and verified. Reported on its own, because <strong>the backup can succeed while the hooks fail</strong> — and that case is the whole reason these three are kept apart."
+  },
+  "workflow.status.workflow": {
+    "label": "Workflow status",
+    "html": "Whether every hook this run planned ran and succeeded. When one failed, the script that ended the run is named beside this verdict."
+  },
+  "workflow.status.cleanup": {
+    "label": "Cleanup status",
+    "html": "Whether the <em>after</em> hooks this run owed were completed. A failed cleanup means the source may still be quiesced, mounted or paused, which is why it holds the backup set until somebody settles it."
+  },
+  "workflow.step.output": {
+    "label": "Step output",
+    "html": "What this script printed, read by cursor so a dropped connection resumes where it left off. The view is read-only and renders nothing the script emitted as markup or as a control sequence."
+  },
+  "workflow.recovery.hold": {
+    "label": "Workflow recovery",
+    "html": "A workflow run whose cleanup could not be finished. Its <em>after</em> hooks may never have run, so the engine refuses the next run of this backup set until the cleanup is resumed or the run is acknowledged."
+  },
+  "workflow.recovery.resume": {
+    "label": "Resume cleanup",
+    "html": "Runs the <em>after</em> hooks that run still owes, from its own retained scripts — each one re-verified against the hash recorded when the run was planned, so nothing edited since decides what executes."
+  },
+  "workflow.recovery.acknowledge": {
+    "label": "Acknowledge",
+    "html": "Records that <strong>you</strong> have dealt with this run by hand, in words that are kept, and unblocks the backup set. It executes nothing and changes nothing on the source machine."
+  },
+  "workflow.recovery.acknowledge-confirm": {
+    "label": "Record acknowledgement",
+    "html": "Writes the reason against the run, with the account that wrote it. There is deliberately no way to dismiss a hold without saying what was done: a run in recovery may have left a machine quiesced."
+  },
+  "workflow.set.before-dir": {
+    "label": "Before directory",
+    "html": "Where this set's <em>before</em> hooks live. They run after the deployment's global before stage and ahead of this set's transfer. Empty means this set runs none of its own."
+  },
+  "workflow.set.after-dir": {
+    "label": "After directory",
+    "html": "Where this set's <em>after</em> hooks live. They run whatever the backup did, including when it failed — which is what makes them the right place to un-quiesce a source."
+  },
+  "workflow.set.timeout": {
+    "label": "Script timeout",
+    "html": "How long one hook may run before it is signalled. <strong>Pinned</strong> means this set carries its own bound; <strong>inherited</strong> means it follows the deployment default and will move when that moves."
+  },
+  "workflow.set.exec-connection": {
+    "label": "Remote exec connection",
+    "html": "Which connection a remote hook for this set executes over. A backup set's own source connection is used only when it can execute a command."
+  },
+  "workflow.set.exec-picker": {
+    "label": "Execute remote hooks over",
+    "html": "An <strong>SFTP-only</strong> source can move bytes and cannot run a hook. That is a supported setup, not a fault: name another connection here, and the hook check proves whether it actually works."
+  },
+  "workflow.set.discovered": {
+    "label": "Discovered scripts",
+    "html": "Every hook this set would run, in the order it would run them, as found on disk right now. Nothing here has been executed."
+  },
+  "workflow.set.validate": {
+    "label": "Check this set's hooks",
+    "html": "Reads every script, hashes it and verifies its shell <strong>in this process</strong> with a Go shell parser, which never runs it. Read on demand rather than on a timer, because it opens a connection to the source host and to the Host Workflow Runner, where the executor's own <code>bash -n</code> capability check happens."
+  },
+  "workflow.set.findings": {
+    "label": "Shell findings",
+    "html": "retnd's own shell rules, carrying its own <code>BSH</code> codes. They are <strong>not</strong> a general shell linter: the set is deliberately small and conservative, and nothing in a script was executed to produce them. A script that does not parse, or a finding at <strong>error</strong> severity, refuses a save of this workflow configuration; a warning, an info and a style finding are reported and save fine."
+  },
+  "workflow.set.finding-severity": {
+    "label": "This script's findings",
+    "html": "What the shell verification made of this one script. <strong>Not examined</strong> is never a pass — nothing read those bytes. <strong>Does not parse</strong> means the file is not a shell program, so nothing in it would run. Otherwise the worst severity present is shown, with a count of the findings it does not account for: <em>1 error, 4 more</em>. Select it to read every finding with its line, its column and the source it is about."
+  },
+  "workflow.source-excerpt": {
+    "label": "Source excerpt",
+    "html": "The script's own line, with one either side and a caret under the column the rule fired at. It is the text this verification <strong>read and hashed</strong>, not a later re-read, so it cannot disagree with the position beside it. Inert text on the surface the run terminal uses, never an editor: nothing in this product writes somebody's hook. A line longer than the excerpt carries is cut and says so."
+  },
+  "workflow.source-truncated": {
+    "label": "Line cut here",
+    "html": "This line is longer than the excerpt carries, so it was cut where the <code>…</code> is rather than shown as though that were the end of it. The rest of the line is in the file; nothing in this product changed it."
+  },
+  "workflow.set.save-refused": {
+    "label": "This set's configuration was not saved",
+    "html": "A write that points a stage directory at a hook which does not parse, or which carries an <strong>error</strong>-severity finding, is refused whole: nothing was saved. Warnings, infos and style findings never refuse a save."
+  },
+  "workflow.settings.save-refused": {
+    "label": "This deployment's configuration was not saved",
+    "html": "A global stage directory holding a hook that does not parse, or one with an <strong>error</strong>-severity finding, refuses the write whole: nothing was saved. Global hooks wrap <strong>every</strong> backup set, which is why the same gate is stricter here in consequence than on one set."
+  },
+  "workflow.set.valid-for-backup": {
+    "label": "Valid for backup",
+    "html": "Whether this backup set's own configuration is sound: its source, its destination, its retention. Kept separate from the hook verdict beside it."
+  },
+  "workflow.set.workflow-valid": {
+    "label": "Hooks valid",
+    "html": "Whether this set's hooks are sound. A set whose backups are fine and whose hook directory nobody has created yet is <strong>valid for backup and invalid for workflows</strong> — the ordinary state during setup."
+  },
+  "workflow.set.environment": {
+    "label": "Environment",
+    "html": "Variables this set's hooks receive, on top of the deployment-wide ones. A name set here <strong>shadows</strong> the deployment's value of the same name."
+  },
+  "workflow.set.runs": {
+    "label": "Recent workflow runs",
+    "html": "The last few passes recorded for this set, each with both verdicts: a green backup beside a failed workflow is the state this history exists to surface."
+  },
+  "workflow.env.configured": {
+    "label": "Configured variables",
+    "html": "What is configured at this scope, and editable here. A variable whose value comes from a secret reference shows <strong>where</strong> the value is read from and never the value."
+  },
+  "workflow.env.add": {
+    "label": "Set a variable",
+    "html": "Writes one variable at this scope. Every <code>RETND_*</code> name is reserved: those are set by this product from the run a hook belongs to."
+  },
+  "workflow.env.save": {
+    "label": "Save variable",
+    "html": "Saves this one entry. A literal is stored as written, including an empty one; a location is stored as a location, and the value behind it is read only when a hook is about to run."
+  },
+  "workflow.env.unset": {
+    "label": "Unset",
+    "html": "Removes this variable at this scope. A set-scope entry that was shadowing a deployment-wide one stops shadowing it, so the deployment's value takes effect again."
+  },
+  "workflow.env.preview": {
+    "label": "What a hook will see",
+    "html": "The merged environment, in precedence order: the sanitized baseline, then the deployment's variables, then this backup set's, then the <code>RETND_*</code> built-ins, which win outright and cannot be overridden."
+  },
+  "workflow.settings.before-dir": {
+    "label": "Global before directory",
+    "html": "Runs ahead of every backup set's own before stage. <strong>Clearing this disables the stage</strong>: no global before hooks run for any set."
+  },
+  "workflow.settings.after-dir": {
+    "label": "Global after directory",
+    "html": "Runs after every backup set's own after stage, whatever the backup did. <strong>Clearing this disables the stage</strong> for every set."
+  },
+  "workflow.settings.timeout": {
+    "label": "Default script timeout",
+    "html": "The bound a hook gets when its backup set pins none of its own. A set that pins one does not follow this value."
+  },
+  "workflow.settings.timeout-source": {
+    "label": "Timeout source",
+    "html": "Whether the bound above is a value somebody configured or this product's own default. A form that could not tell them apart would write today's default into the file and stop following a later change to it."
+  },
+  "workflow.settings.runner": {
+    "label": "Host Workflow Runner",
+    "html": "The component that executes a <code>*.local.sh</code> hook <strong>on the machine retnd is installed on</strong>. Reaching it needs both a socket path and a credential file; with either missing, a local hook has nothing to run on."
+  },
+  "workflow.settings.runner-status": {
+    "label": "Runner status",
+    "html": "Whether this deployment has been told <strong>how</strong> to reach the runner — a socket path and a credential file, both present. Nothing on this card contacts it, so this is not a statement that it is alive: a backup set's own <em>Check this set's hooks</em> is the read that opens the socket."
+  },
+  "workflow.settings.runner-token": {
+    "label": "Runner credential",
+    "html": "The file this process reads its runner credential from. Reported and not editable, like the socket beside it, and never its contents."
+  },
+  "workflow.settings.execution-user": {
+    "label": "Runner liveness, version and execution user",
+    "html": "Not carried by this read. A backup set's <em>Check this set's hooks</em> reports the runner's version, its bash and the account it executes a hook as, because that check actually opens the socket; <code>retnd workflow-runner status</code> reports the same from a shell on the machine the runner is installed on. There is <strong>no</strong> control anywhere in this product that raises a hook's privileges."
+  },
+  "workflow.settings.max-size": {
+    "label": "Maximum script size",
+    "html": "A hook larger than this is refused by validation rather than executed."
+  },
+  "workflow.settings.environment": {
+    "label": "Global environment",
+    "html": "Variables every hook in this deployment receives, before any backup set's own. A secret is recorded as a location and is read only when a hook is about to run."
+  },
+  "workflow.settings.runner-socket": {
+    "label": "Runner socket",
+    "html": "The unix socket this process reaches the Host Workflow Runner over. Reported and not editable: the path differs between a container and a bare-metal install of the same deployment, so the installer writes it."
+  },
+  "workflow.set.exec-own-source": {
+    "label": "This set's own source connection",
+    "html": "A backup set may execute its remote hooks over the connection it already backs up from, named as <code>source/set</code>. It is used <strong>only if that connection can execute a command</strong>: an SFTP-only account moves bytes and runs nothing, which the hook check reports as a capability failure rather than as a broken backup set."
+  },
+  "assurance.col.claims": {
+    "label": "Assurance",
+    "html": "Three separate claims per backup: <strong>Stored</strong>, <strong>Content</strong> and <strong>Recovery</strong>. They are never combined into one verdict, because a checksum that passed says nothing about whether the artifact can be recovered and used."
+  },
+  "assurance.claim.stored": {
+    "label": "Stored",
+    "html": "Whether a copy of this backup is recorded, and how many. It says nothing about whether any copy has been <em>read back</em>."
+  },
+  "assurance.claim.contentVerified": {
+    "label": "Content verified",
+    "html": "Whether the retained bytes were read and their digest matched the recorded one, and how long ago. A check that only confirmed an object exists reads <strong>Existence checked only</strong> and is not this."
+  },
+  "assurance.claim.recoveryTested": {
+    "label": "Recovery tested",
+    "html": "Whether the engine recovered the artifact to an isolated path, re-read it end to end, matched its recorded digest, and only then ran your validator script, and how long ago. The engine records this claim. A script cannot write it, and reachability alone never counts. With no validator declared, the built-in check reads the recovered file end to end as its archive or compression format and the chip says Recovered, readable instead; that proves the file decodes, not that an application can use it."
+  },
+  "assurance.recover.artifact": {
+    "label": "Recover artifact",
+    "html": "Hands you the retained artifact itself, after the host has read all of it and matched it to the digest it recorded. It does not rebuild the application that produced it; that stays yours to do."
+  },
+  "assurance.recover.target": {
+    "label": "Recovery target",
+    "html": "Where the artifact is put: downloaded by this browser, written under the host's staging root, or sent to a destination this deployment already declares. Nothing is written or sent until the whole copy has matched its recorded digest."
+  },
+  "assurance.recover.thawCost": {
+    "label": "Thaw cost",
+    "html": "The provider bills to make an archived copy readable and the restore takes hours it does not predict. retnd knows no price and no finishing time, so it shows neither. Nothing is restored until this is ticked and the button pressed."
+  },
+  "assurance.scrub.now": {
+    "label": "Scrub now",
+    "html": "Reads this set's recorded copies and compares their digests now, without waiting for the schedule, which keeps running. It never restores an archive. A set that is disabled, or stored by the snapshot engine, is refused. The scrub's result is in the Activity log and on the <strong>Content</strong> chip."
+  },
+  "assurance.recoveryTest.run": {
+    "label": "Run recovery test",
+    "html": "Recovers the newest known good copy to an isolated path, re-reads it, checks the digest and only then runs this set's validator script against it. With no validator declared, it runs the built-in structure check instead, unless that is off or the file type has no reader. The engine records the result."
+  },
+  "assurance.settings.builtinCheck": {
+    "label": "Built-in check",
+    "html": "What happens when a set declares no validator. <strong>structure</strong> lets Run recovery test fall back to the product's own check: recover, match the digest, then read the file as gzip, zstd or tar. It runs on a schedule only under the <code>builtin</code> mode, <strong>never satisfies</strong> required, and does not prove an application can use the file."
+  },
+  "assurance.set.builtinCheck": {
+    "label": "Built-in check in use",
+    "html": "This set declares no validator, so a test runs the built-in structure check. It proves the file decodes end to end, <strong>not</strong> that an application can use it, and it never satisfies a required recovery test."
+  },
+  "assurance.settings.card": {
+    "label": "Assurance settings",
+    "html": "The deployment-wide defaults for scrubbing and recovery tests. A set that follows the deployment uses them; the host-scoped values are shown here with the reason they cannot be set per set."
+  },
+  "assurance.set.section": {
+    "label": "Set assurance",
+    "html": "What this set claims now and the policy that governs it. Inherit follows the deployment setting; the host-scoped limits are never per set."
+  },
+  "assurance.set.mode": {
+    "label": "Assurance policy",
+    "html": "<strong>Follow the deployment</strong> shows what the deployment setting resolves to for this set. <strong>This set's own policy</strong> pins this set's scrub cadence and reads and its recovery test, and a later change to the deployment does not move it."
+  },
+  "assurance.validators.card": {
+    "label": "Recovery-test validators",
+    "html": "Scripts that decide whether a recovered copy is good, each attached to a pattern on artifact file names. A validator for one backup set wins over one for every set."
+  },
+  "assurance.validators.declare": {
+    "label": "Declare validator",
+    "html": "Attach a validation script to backups named like this one. The pattern starts from this backup's own name, with every run of digits generalised."
+  },
+  "assurance.artifact.card": {
+    "label": "Backup assurance",
+    "html": "The three claims for this backup, each with its own age, and the way to recover the artifact."
+  },
+  "assurance.operation.follow": {
+    "label": "Following",
+    "html": "Keeps the line list scrolled to the newest line. Turn it off to read earlier lines without being moved."
+  },
+  "assurance.operation.cancel": {
+    "label": "Cancel operation",
+    "html": "Asks the running scrub or recovery test to stop. It is a <strong>request</strong>: the run says <em>Cancelling</em> until it has really ended, and a run that stops early records no result, so the claims keep their previous answer. The same thing from a terminal is <code>retnd assurance cancel</code>."
+  },
+  "assurance.operation.detail": {
+    "label": "Operation detail",
+    "html": "Opens this run on its own page, with the same stage, lines and Cancel. A run you did not start can be opened here too, as long as its lines are still on the live feed. A scrub is never on that feed, so only the page that started it can follow it."
+  },
+  "assurance.validator.show": {
+    "label": "Show validator output",
+    "html": "Reads what the newest recovery test of this set printed, as the server stored it. It runs <strong>no</strong> test. The text is shown as plain text, bounded, with anything that could act on a terminal made visible. It is not the verdict: the engine records that itself."
+  },
+  "assurance.validator.log": {
+    "label": "Validator output",
+    "html": "The engine's recorded verdict for the newest test comes first, then what your script printed. A line of output that quotes the truncation notice is still output; only the notice the runner adds, below the log, says output was dropped."
+  },
+  "assurance.dashboard.card": {
+    "label": "Assurance summary",
+    "html": "<strong>Due</strong> counts backups whose content check is unknown, never run or overdue, and those whose recovery test is overdue. <strong>Overdue</strong> counts those where either check last passed too long ago. <strong>Degraded</strong> counts failed, incomplete or unreadable ones. A count is never shown as zero when it could not be read."
+  },
+  "encryption.card": {
+    "label": "Retained-copy encryption",
+    "html": "Whether the copies this product sends to a <strong>destination</strong> are written as ciphertext. The <strong>local</strong> copy is never encrypted. There is no cipher, chunk size or nonce to set: with encryption on, the one format choice is the <strong>suite</strong>, and the suite each copy was written under is recorded against it."
+  },
+  "encryption.enable": {
+    "label": "Encrypt copies sent to destinations",
+    "html": "Sets <code>retained_copy_encryption.mode</code> to <code>required</code> for the deployment, so every backup set that inherits refuses to write a destination copy in plaintext. The change goes through the same validation a hand-edited configuration gets and is applied without a restart. Turning it off writes <code>off</code>: new copies are plaintext again, and copies already written stay encrypted and readable through their recorded keys."
+  },
+  "encryption.keyProvider": {
+    "label": "Who holds the key",
+    "html": "<strong>Managed</strong> means this deployment creates the key and keeps it in a file only this service can read. <strong>External</strong> means you name where it comes from, as a file, an environment variable or a command, and it is read when a copy is written or verified. Nothing here accepts the key itself."
+  },
+  "encryption.bundle.export": {
+    "label": "Export recovery bundle",
+    "html": "Writes a file holding the key, integrity metadata and the steps to decrypt a copy on a clean machine. It is the one time the key leaves this deployment, it is saved as a download and nothing is shown on screen. Asks for your password again where the deployment checks it. It does not clear the warning: only confirming does."
+  },
+  "encryption.bundle.acknowledge": {
+    "label": "I understand this file can decrypt every copy",
+    "html": "Arms <strong>Download bundle</strong>. The tick is a statement that you know whoever holds the file can read every copy made under this key. The file is the only place the key goes."
+  },
+  "encryption.bundle.confirm": {
+    "label": "I have stored the bundle safely",
+    "html": "Records, durably, that a person holds the exported bundle somewhere this machine's loss would not take with it, and clears the missing-bundle warning here and on the Dashboard. It is a statement and not an upload: nothing is checked, and no key bytes are asked for. Refused if no bundle was exported for the key."
+  },
+  "encryption.key.rotate": {
+    "label": "Rotate key",
+    "html": "Creates a new active key. New copies use it from now on, every copy already made stays readable through the key id recorded against it, and nothing is re-encrypted. The new key has no confirmed bundle, so the missing-bundle warning returns until you export and confirm one."
+  },
+  "encryption.key.retire": {
+    "label": "Retire",
+    "html": "Takes a key out of service. Refused, naming the copies, while any active copy still records the key, because retiring it would make them unreadable. The active key cannot be retired: rotate first."
+  },
+  "encryption.set.mode": {
+    "label": "Encryption for this set",
+    "html": "<strong>Inherit</strong> follows the deployment and shows what it currently resolves to. <strong>Off</strong> writes this set's destination copies as plaintext whatever the deployment says. <strong>Required</strong> refuses a destination copy rather than write it in plaintext, before anything is deleted at the source or on the medium. A key reference can be given for the set only with Required."
+  },
+  "encryption.external.source": {
+    "label": "Where the key reference points",
+    "html": "A <strong>file</strong> path, the <strong>name</strong> of an environment variable, or a <strong>command</strong> whose output is the key. Exactly one. It is a reference: if what you type is key material rather than a reference, the server refuses it at load."
+  },
+  "encryption.external.test": {
+    "label": "Test reference",
+    "html": "Asks the service whether the reference resolves right now. <strong>Resolves</strong>, <strong>declared but unreachable</strong> (with the reason, naming the source and never its content) or <strong>not declared</strong>. It reports whether a key resolves and never what it is, how long it is or what it starts with."
+  },
+  "encryption.verify.run": {
+    "label": "Verify recoverable",
+    "html": "Reads one encrypted copy back from its destination, decrypts it with the key recorded against it and compares the plaintext digest to the one the catalog holds. A match is the only way to <strong>Verified recoverable</strong>. Nothing is written to disk. It is never run on a schedule and it costs the egress of reading the copy."
+  },
+  "encryption.verify.acceptCost": {
+    "label": "I accept this read",
+    "html": "Sent with the request as an acknowledgement that reading a billed medium costs money. Without it the engine refuses a copy that costs to read."
+  },
+  "encryption.state.plaintext": {
+    "label": "Plaintext",
+    "html": "This copy was written without encryption. It is drawn on purpose, so a plaintext local copy beside an encrypted off-site copy of the same backup reads as two different things."
+  },
+  "encryption.state.encrypted": {
+    "label": "Encrypted",
+    "html": "The copy was stored as ciphertext under a recorded key id and format. The id after the word is the suite the copy was written under, read from its own record. That is all it says: nothing about whether anybody can read it back. <strong>Verified recoverable</strong> is a separate chip."
+  },
+  "encryption.state.verifiedRecoverable": {
+    "label": "Verified recoverable",
+    "html": "A decrypt of the stored copy produced the plaintext digest the catalog holds, at the time shown (verification class <code>content</code>). Ciphertext existing, an existence check or a key resolving do not reach this."
+  },
+  "encryption.state.notVerified": {
+    "label": "Not decrypt-verified",
+    "html": "The copy is encrypted and nobody has asked to decrypt it yet. This is the default: a decrypt-verify costs egress and is never automatic."
+  },
+  "encryption.state.keyMissing": {
+    "label": "Key missing",
+    "html": "The key id recorded against this copy does not resolve right now. The copy keeps its Encrypted chip, no action here would make it recoverable, and it is never shown as a weaker check under a stronger name."
+  },
+  "encryption.state.decryptFailed": {
+    "label": "Decrypt failed",
+    "html": "A decrypt-verify ran and failed closed: the object is damaged, was changed, or is under a different key than recorded. No partial plaintext was written or shown. Recover from another copy."
+  },
+  "encryption.copies.col": {
+    "label": "Encryption",
+    "html": "One chip pair per copy, from that copy's own record and never inferred from the policy. A set that says required today can still hold a plaintext copy written yesterday."
+  },
+  "encryption.health.bundle": {
+    "label": "No confirmed recovery bundle",
+    "html": "Copies are encrypted under a key that exists only on this host. This stays, across reloads and restarts, until a person confirms an exported bundle. It blocks nothing."
+  },
+  "encryption.health.keyMissing": {
+    "label": "A required key cannot be resolved",
+    "html": "A set whose policy is required has a key that does not resolve, so its destination copies are refused rather than written in plaintext. Nothing is deleted when a copy is refused."
+  },
+  "encryption.digest.plaintext": {
+    "label": "Plaintext digest",
+    "html": "The digest of the backup's own bytes before any encryption, the value the catalog holds as <code>artifacts.local_hash</code>. A decrypt-verify compares against it. It is a different number from the stored-bytes digest on purpose."
+  },
+  "encryption.digest.stored": {
+    "label": "Stored-bytes digest",
+    "html": "The digest of the bytes this one copy holds at its destination, which for an encrypted copy are ciphertext. It describes this copy only, and it is supposed to differ from the plaintext digest."
+  },
+  "encryption.suite": {
+    "label": "Suite",
+    "html": "The construction new copies are encrypted with, from the list this build carries. A new copy is written only under the active key of the chosen suite, so choosing one with no active key leads through <strong>Rotate key</strong>, <strong>Download bundle</strong> and <strong>Confirm</strong>; until the rotation, copies under the policy are refused before anything is deleted. Every existing copy keeps the suite and key recorded against it and stays readable. Nothing is re-encrypted. The sentence under each suite is the build's own description of it."
+  },
+  "encryption.suite.status": {
+    "label": "Suite status",
+    "html": "A default suite is the one this build uses when the configuration says <code>default</code>. A supported suite writes and reads. A deprecated suite still writes and reads, health is degraded while copies or the active key use it, and the version it retires in is named. A retired suite's copies still read, decrypt-verify and recover, and nothing new is written under it, so it cannot be chosen."
+  },
+  "encryption.health.suite": {
+    "label": "Suite health",
+    "html": "Counts the active copies, and says whether the active key, are under a deprecated or retired suite. A deprecated suite keeps writing until its retirement version; a retired one reads and never writes. Re-encrypting moves each copy to another medium under the current suite and key. Nothing here blocks a backup, except a policy whose suite has no active key: those copies are refused, before anything is deleted, until a rotation."
+  },
+  "encryption.reencrypt": {
+    "label": "Re-encrypt under current suite",
+    "html": "Asks for a dry run first: each copy under the suite, the medium it would move to, and every copy the engine will not move with its reason (same medium only, key unavailable, already current). Running it moves each copy to another medium under the active suite and key, and retires the old copy only after the new one decrypt-verifies. No plaintext is written to local disk. It is never automatic."
+  },
+  "agents.card": {
+    "label": "Agents",
+    "html": "A client of this deployment with a token of its own. By default a token can <strong>look</strong> and nothing else. Anything an <code>operate</code> or <code>configure</code> token asks for waits in <strong>Pending confirmations</strong> until you approve it with your password. An agent is never handed key material, recipients, credentials or secrets, and every call it makes is recorded in the audit, reads included."
+  },
+  "agents.tokens": {
+    "label": "Tokens",
+    "html": "Every token this deployment has minted, revoked and expired ones included. A token is stored as a hash: the deployment keeps only the first eight characters so you can tell tokens apart."
+  },
+  "agents.confirmations": {
+    "label": "Pending confirmations",
+    "html": "Requests an <code>operate</code> or <code>configure</code> agent has made that have not run. Nothing here has executed. Approving replays the recorded request exactly as the agent made it; denying or letting it expire ends it."
+  },
+  "agents.audit": {
+    "label": "Audit",
+    "html": "One row per call an agent made, newest first, reads included. The trail is bounded: older rows are pruned by the deployment's retention."
+  },
+  "agents.scopes.list": {
+    "label": "What each scope can call",
+    "html": "The tools the deployment's catalogue lists for each scope, read from the engine. A tool that is not on this list cannot be called by an agent."
+  },
+  "agents.token.create": {
+    "label": "Create token",
+    "html": "Opens the dialog that mints a token. A token is created with a name, a scope and an expiry, and is shown once."
+  },
+  "agents.mint.name": {
+    "label": "Name",
+    "html": "The name the agent goes by. The token authenticates as <code>agent:name</code>, and that is the name on its rows here, in the audit and in the activity feed."
+  },
+  "agents.mint.scope": {
+    "label": "Scope",
+    "html": "What the token may ask for. <code>read</code> is the default and can look at this deployment and start or change nothing."
+  },
+  "agents.mint.scope.more": {
+    "label": "Allow more than reading",
+    "html": "Shows the two scopes that let an agent ask for changes. Opening it changes nothing but what you can see: a token created with it closed is a <code>read</code> token."
+  },
+  "agents.mint.scope.operate": {
+    "label": "operate",
+    "html": "Includes read, and can also ask for backups and checks to be started. Nothing runs until you approve each request here."
+  },
+  "agents.mint.scope.configure": {
+    "label": "configure",
+    "html": "Includes operate, and so read, and can also ask for a backup set to be enabled or disabled, or its retention or assurance settings changed. Nothing changes until you approve each request here."
+  },
+  "agents.mint.expiry": {
+    "label": "Expires in",
+    "html": "How long the token works before it is refused, as a number of days such as <code>90d</code> or a duration such as <code>720h</code>. The engine judges it: the longest it allows is one year, and there is no token that never expires."
+  },
+  "agents.mint.copy": {
+    "label": "Copy",
+    "html": "Writes the token to your clipboard. It does nothing else."
+  },
+  "agents.mint.stored": {
+    "label": "I have stored it",
+    "html": "Closes this dialog. The token cannot be shown again after this: the deployment keeps only a hash. If it is lost, revoke the token and make another."
+  },
+  "agents.token.prefix": {
+    "label": "Prefix",
+    "html": "The first eight characters of the token. They identify it and are not the token."
+  },
+  "agents.scope.read": {
+    "label": "read",
+    "html": "This token can look at the deployment and cannot start or change anything."
+  },
+  "agents.scope.operate": {
+    "label": "operate",
+    "html": "This token can ask for backups and checks to be started. Each request waits for your approval."
+  },
+  "agents.scope.configure": {
+    "label": "configure",
+    "html": "This token can ask for a backup set's settings to be changed. Each request waits for your approval."
+  },
+  "agents.status.active": {
+    "label": "Active",
+    "html": "The token's expiry is in the future and it has not been revoked."
+  },
+  "agents.status.expired": {
+    "label": "Expired",
+    "html": "The token's expiry has passed, so every request with it is refused. It stays listed."
+  },
+  "agents.status.revoked": {
+    "label": "Revoked",
+    "html": "A person ended this token. Its next request was refused, and it cannot be brought back, only replaced."
+  },
+  "agents.token.revoke": {
+    "label": "Revoke",
+    "html": "Ends the token. Its next request is refused, because the engine checks revocation on every request. It asks first."
+  },
+  "agents.confirm.expires": {
+    "label": "Expires",
+    "html": "A pending request that passes its expiry is refused if you approve it, and ends. The time shown is the deployment's; this page does not decide when a request has expired."
+  },
+  "agents.confirm.approve": {
+    "label": "Approve",
+    "html": "Opens the password field. Nothing is sent to the engine until you press <strong>Approve and run</strong>."
+  },
+  "agents.confirm.stepup": {
+    "label": "Your password",
+    "html": "Your own password, asked again before a request an agent made is run. It is sent once with the approval and not kept."
+  },
+  "agents.confirm.run": {
+    "label": "Approve and run",
+    "html": "Sends your password and runs the recorded request exactly as the agent asked, with no change. If the deployment refuses it, the refusal is shown here in its own words."
+  },
+  "agents.confirm.deny": {
+    "label": "Deny",
+    "html": "Ends the request without running it. It asks for no password, because denying changes nothing."
+  },
+  "agents.audit.token": {
+    "label": "Token",
+    "html": "Show the calls of one token, or of all of them. It hides nothing from the trail."
+  },
+  "agents.audit.since": {
+    "label": "Since",
+    "html": "Show only calls from the last stretch of time, as a duration such as <code>24h</code> or <code>7d</code>."
+  },
+  "agents.audit.older": {
+    "label": "Show older",
+    "html": "Asks the engine for the next page of older calls. The rows already shown do not move."
+  },
+  "agents.audit.details": {
+    "label": "Details",
+    "html": "Shows the transport the call came in on and its arguments after projection, as text. The arguments are what an agent supplied and are never run or followed."
+  },
+  "agents.audit.outcome": {
+    "label": "Outcome",
+    "html": "The status and code the engine answered with, the same code the command line prints."
   }
 }

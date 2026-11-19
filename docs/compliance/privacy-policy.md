@@ -1,6 +1,6 @@
 # Privacy policy
 
-Backupd, `com.iasbuilt.backupd`. This is the privacy disclosure
+retnd, `com.iasbuilt.retnd`. This is the privacy disclosure
 §73 Work Package 5.2 and §45.5 require, and it is the content the `privacy`
 link in `distribution/packaging/compliance.json` resolves to.
 
@@ -10,7 +10,7 @@ by a test or a grep, the check is named.
 
 ## What leaves the machine
 
-Nothing that Backupd itself originates.
+Nothing that retnd itself originates.
 
 The app sends no telemetry, no analytics, no crash reports, no usage counters
 and no licence or activation call. There is no cloud account, no vendor
@@ -21,18 +21,37 @@ for one.
 
 The one HTTP client the shipped binaries construct talks to `127.0.0.1`: it is
 the container health check asking the local process whether it is healthy
-(`apps/generic/cmd/backupd-web`). It never leaves the container.
+(`apps/generic/cmd/retnd-web`). It never leaves the container.
 
 The app does open outbound network connections, and it opens exactly the ones
-the operator configured. There are two kinds. SFTP sessions to the hosts named
+the operator configured. There are three kinds. SFTP sessions to the hosts named
 in the operator's own backup sets, made by the pinned rclone packages compiled
-into `/backupd`; and, if the operator configured account recovery,
+into `/retnd`; connections to a storage destination (an S3 bucket, or any endpoint
+speaking the S3 API) the operator configured to hold retained copies, which carry
+the copies themselves (encrypted, if the operator turned that on, as described below);
+and, if the operator configured account recovery,
 SMTP submissions to the mail server they nominated, carrying account mail
 — enrollment confirmation, a password-reset link, a test message — to the
 recovery address they nominated. Those connections carry the operator's own data
-to the operator's own destination. No third party is in that path, and the app
+to the operator's own destination, which for a storage destination may be a bucket the
+operator does not run. The project is not in that path, and the app
 adds no destination of its own: it has no mail relay, and it cannot send anything
 anywhere until the operator supplies a server to send it through.
+
+### Recovered artifacts leave the deployment only to a person who asked
+
+Recovering an artifact is the one feature that moves retained backup data out of the
+deployment, so it is stated here rather than left to be inferred. A recovery delivers one
+retained copy to exactly one target the signed-in operator named: a download in their own
+browser, a path under the host's recovery staging root, or another storage destination they
+configured. It sends nothing to us, to a vendor or to any destination nobody configured.
+The grant that authorises a download is short-lived, single-use and tied to the session
+that asked for it, and every grant and every range served writes an action-log row naming
+who asked, which artifact, which copy, where it went and how it ended. This product has one
+tier of signed-in identity and no roles, so any signed-in operator can recover any retained
+artifact; the audit trail is what stands in for a boundary that does not exist. No
+credential, key or recovery secret is written to that log, to a notification or to the
+terminal view.
 
 ## What the app stores, and where
 
@@ -43,7 +62,7 @@ through creating them.
 
 - **Backup set configuration**: source paths, destination hosts and paths,
   schedules and retention policy. Stored in the config file
-  (`/etc/backupd/config.yaml` inside the container).
+  (`/etc/retnd/config.yaml` inside the container).
 - **SSH private key and known-hosts file**: the credential material for the
   SFTP destinations. Mounted read-only, never copied elsewhere by the app, and
   never written to a log. The host-key policy is strict: an unknown or changed
@@ -63,10 +82,25 @@ through creating them.
   secret, so the value is resolved when a message is sent and is never written
   into the record, returned by the API or printed in a log. Both live beside the
   account in the state directory, and both are editable in Settings.
+- **Encrypted retained copies, only if the operator turns them on**: what is stored
+  changes shape for a backup set that requires it. The copy sent to a storage destination
+  is an `age` file instead of the artifact's own bytes, with a plain JSON sidecar beside it
+  that names the key (by id, never the key), the encryption suite, and the plaintext and stored
+  digests and sizes. Choosing a suite changes which age recipient the key is, and
+  nothing else here: no new data is collected, stored elsewhere or sent anywhere, and the
+  suite id is the only new value in the database, a metric label or the activity feed. The local copy is not encrypted, and object names on the destination are not
+  hidden. If the managed key is used, it is an owner-only file in a `retained_copy_keys`
+  directory beside the configuration, and the state database holds the key's id, public
+  recipient, status and times, and which recovery bundles were exported and confirmed. The
+  key itself is never in the database, a log, an API response, a metric or the activity
+  feed. The **recovery bundle** is the one deliberate moment the key leaves the machine:
+  the operator exports it to a file they choose and keeps it themselves. Nothing is sent to
+  us or to anyone else, and there is no copy of the key anywhere the operator did not put
+  it, which is also why a lost key cannot be recovered by anybody.
 
 ## Personal data
 
-Backupd collects no personal data about the person using it. It has no user
+retnd collects no personal data about the person using it. It has no user
 profile, no identifier that follows anyone between installations, and no
 analytics identity. It has exactly one contact field, added in #830: the
 recovery email address the operator types into the enrollment form for their own
@@ -96,8 +130,10 @@ claim that decays silently.
 ## Deleting everything
 
 Removing the app and deleting the state, config and secrets directories the
-platform's acceptance procedure created removes everything Backupd
-stored. There is nothing held anywhere else, so there is no deletion request to
+platform's acceptance procedure created removes everything retnd
+stored (a managed encryption key included, which is under the config directory;
+a recovery bundle the operator exported is theirs and is somewhere they chose). The one exception is a retained copy the operator configured to go to a storage destination: it stays
+there until the operator or the retention policy deletes it. There is nothing held anywhere else, so there is no deletion request to
 make of anybody and nobody to make it to.
 
 ## Changes

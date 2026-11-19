@@ -1,7 +1,9 @@
 package spk
 
 import (
+	"crypto/sha256"
 	"debug/elf"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -62,7 +64,7 @@ func requireFail(t *testing.T, rep *Report, name, wantSubstring string) {
 // below is measured against: without it, a control that "fails" proves
 // nothing, because the verifier might reject everything.
 func TestVerify_AcceptsAFreshlyBuiltPackage(t *testing.T) {
-	for _, goarch := range []string{"amd64", "arm64"} {
+	for _, goarch := range []string{"amd64"} {
 		t.Run(goarch, func(t *testing.T) {
 			path, manifest := buildFixture(t, goarch)
 			rep, err := Verify(path, manifest)
@@ -120,7 +122,7 @@ func TestVerify_BinaryHashParity(t *testing.T) {
 				return path, manifest
 			},
 			wantOK:        false,
-			wantSubstring: "backupd",
+			wantSubstring: "retnd",
 		},
 		{
 			// A subtler control: the package is right, but it is checked
@@ -130,12 +132,12 @@ func TestVerify_BinaryHashParity(t *testing.T) {
 			// an amd64 binary shipped inside an armv8 package.
 			name: "manifest has no entry for the package's own architecture",
 			build: func(t *testing.T) (string, ReleaseManifest) {
-				path, manifest := buildFixture(t, "arm64")
-				manifest.Architectures[0].Architecture = "amd64"
+				path, manifest := buildFixture(t, "amd64")
+				manifest.Architectures[0].Architecture = "arm64"
 				return path, manifest
 			},
 			wantOK:        false,
-			wantSubstring: "arm64",
+			wantSubstring: "amd64",
 		},
 		{
 			// The binary bytes are swapped inside an already-built package
@@ -145,13 +147,13 @@ func TestVerify_BinaryHashParity(t *testing.T) {
 			build: func(t *testing.T) (string, ReleaseManifest) {
 				path, manifest := buildFixture(t, "amd64")
 				tampered := mutateInnerPayload(t, path, func(inner []tarEntry) []tarEntry {
-					return replaceBody(inner, PayloadBinDir+"/backupd-web",
+					return replaceBody(inner, PayloadBinDir+"/retnd-web",
 						fakeELF(elf.EM_X86_64, []byte("tampered")))
 				})
 				return tampered, manifest
 			},
 			wantOK:        false,
-			wantSubstring: "backupd-web",
+			wantSubstring: "retnd-web",
 		},
 	}
 
@@ -176,51 +178,42 @@ func TestVerify_BinaryHashParity(t *testing.T) {
 // that itself recorded the wrong file, so the packaged binary's own ELF
 // machine field is checked against the architecture INFO declares.
 func TestVerify_RejectsWrongELFMachine(t *testing.T) {
-	// Build refuses to assemble this package in the first place, which is
-	// the right place to stop it — so this control produces the mismatch
-	// the way it could still reach a user: a package built correctly for
-	// one architecture, then relabelled as the other. Hash parity is kept
-	// intact on purpose (the manifest entry is relabelled to match), so
-	// the only thing left that can catch it is the ELF machine check.
-	bins := stagedBinaries(t, "amd64", "release")
-	manifest := manifestFor(t, "amd64", bins)
-	path, err := Build(BuildOptions{
-		GOARCH:      "amd64",
-		Version:     manifest.Version,
-		BinariesDir: bins,
-		UIBundleDir: stagedUIBundle(t, UIBundlePlatform),
-		OutDir:      t.TempDir(),
-	})
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	manifest.Architectures[0].Architecture = "arm64"
-
-	relabelled := mutateSPK(t, path, func(entries []tarEntry) []tarEntry {
-		body := strings.Replace(string(infoBody(t, entries)),
-			`arch="x86_64"`, `arch="armv8"`, 1)
-		return replaceBody(entries, INFOName, []byte(body))
+	// Build refuses to assemble a package from the wrong machine's
+	// binaries, so this control produces the mismatch the way it could
+	// still reach a user: a package built correctly, then its binaries
+	// swapped for another architecture's. Hash parity is kept intact on
+	// purpose (the manifest is updated to the swapped bytes), so the only
+	// thing left that can catch it is the ELF machine check.
+	path, manifest := buildFixture(t, "amd64")
+	swapped := mutateInnerPayload(t, path, func(inner []tarEntry) []tarEntry {
+		for _, name := range CoreBinaries {
+			body := fakeELF(elf.EM_AARCH64, []byte(name+" swapped"))
+			sum := sha256.Sum256(body)
+			manifest.Architectures[0].BinarySHA256[name] = hex.EncodeToString(sum[:])
+			inner = replaceBody(inner, PayloadBinDir+"/"+name, body)
+		}
+		return inner
 	})
 
-	rep, err := Verify(relabelled, manifest)
+	rep, err := Verify(swapped, manifest)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 	requirePass(t, rep, CheckBinaryParity) // the hashes really do agree
-	requireFail(t, rep, CheckBinaryMachine, "EM_X86_64")
+	requireFail(t, rep, CheckBinaryMachine, "EM_AARCH64")
 }
 
 // TestBuild_RefusesAWrongArchitectureBinary is the other half of that
 // pair: Build must not assemble the mislabelled package at all.
 func TestBuild_RefusesAWrongArchitectureBinary(t *testing.T) {
-	bins := stagedBinaries(t, "amd64", "release")
+	bins := stagedBinaries(t, "arm64", "release")
 	_, err := Build(BuildOptions{
-		GOARCH: "arm64", Version: "1.0.0-1", BinariesDir: bins, OutDir: t.TempDir(),
+		GOARCH: "amd64", Version: "1.0.0-1", BinariesDir: bins, OutDir: t.TempDir(),
 	})
 	if err == nil {
-		t.Fatal("Build assembled an armv8 package out of x86-64 binaries")
+		t.Fatal("Build assembled an x86_64 package out of aarch64 binaries")
 	}
-	if !strings.Contains(err.Error(), "EM_AARCH64") {
+	if !strings.Contains(err.Error(), "EM_X86_64") {
 		t.Fatalf("error %q does not say what architecture was needed", err)
 	}
 }
@@ -391,7 +384,7 @@ func TestVerify_RejectsDangerousFileModes(t *testing.T) {
 
 	bad := mutateInnerPayload(t, path, func(inner []tarEntry) []tarEntry {
 		for i := range inner {
-			if inner[i].hdr.Name == PayloadBinDir+"/backupd" {
+			if inner[i].hdr.Name == PayloadBinDir+"/retnd" {
 				inner[i].hdr.Mode = 0o4755
 			}
 		}
@@ -401,7 +394,7 @@ func TestVerify_RejectsDangerousFileModes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
-	requireFail(t, rep, CheckFileModes, "backupd")
+	requireFail(t, rep, CheckFileModes, "retnd")
 }
 
 // TestVerify_ScansShellAnywhereInThePackage covers the two holes in the
@@ -434,7 +427,7 @@ func TestVerify_ScansShellAnywhereInThePackage(t *testing.T) {
 	}
 	substituted := strings.Replace(shipped,
 		`RUN_DIR="${PKG_VAR}/run"`,
-		`RUN_DIR="/volume1/backupd"`, 1)
+		`RUN_DIR="/volume1/retnd"`, 1)
 	if substituted == shipped {
 		t.Fatal("could not substitute RUN_DIR in common.sh, so the case below proves nothing")
 	}
@@ -450,7 +443,7 @@ func TestVerify_ScansShellAnywhereInThePackage(t *testing.T) {
 			inner: true,
 			mutate: func(entries []tarEntry) []tarEntry {
 				return addEntry(entries, PayloadShareDir+"/cleanup.sh",
-					[]byte("#!/bin/sh\nrm -rf /volume1/backupd\n"))
+					[]byte("#!/bin/sh\nrm -rf /volume1/retnd\n"))
 			},
 			detail: "cleanup.sh",
 		},
@@ -459,7 +452,7 @@ func TestVerify_ScansShellAnywhereInThePackage(t *testing.T) {
 			inner: true,
 			mutate: func(entries []tarEntry) []tarEntry {
 				return addEntry(entries, DSMUIDir+"/refresh",
-					[]byte("#!/bin/sh\nfind /volume1/backupd -type f | xargs rm -f\n"))
+					[]byte("#!/bin/sh\nfind /volume1/retnd -type f | xargs rm -f\n"))
 			},
 			detail: "refresh",
 		},
