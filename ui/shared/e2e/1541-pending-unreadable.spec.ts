@@ -80,11 +80,15 @@ test.describe("#1541 complete but unreadable source files on the set card", () =
     test("#1541 the readout reads at AA in the " + theme + " theme", async ({ page }) => {
       await opened(page);
       await setTheme(page, theme);
-      for (const name of ["Production PostgreSQL", "Billing MySQL"]) {
-        const sel = 'article.card:has-text("' + name + '") [data-testid="pending-unreadable"]';
-        expect(await measureContrast(page, "1541 " + name + " " + theme, sel), name + " text " + theme).toEqual([]);
+      // Plain CSS, because the helpers hand the selector to querySelectorAll.
+      // The fixture has exactly one warned readout and one quiet one.
+      for (const [label, sel] of [
+        ["warning", '[data-testid="pending-unreadable"][data-warned="true"]'],
+        ["quiet count", '[data-testid="pending-unreadable"][data-warned="false"]']
+      ] as const) {
+        expect(await measureContrast(page, "1541 " + label + " " + theme, sel), label + " text " + theme).toEqual([]);
       }
-      const warned = 'article.card:has-text("Production PostgreSQL") [data-testid="pending-unreadable"]';
+      const warned = '[data-testid="pending-unreadable"][data-warned="true"]';
       expect(await measureBorders(page, "1541 warned edge " + theme, warned), "warned edge " + theme).toEqual([]);
       const icon = await page.locator(warned + " svg").evaluate((svg) => {
         const lum = (c: string) => {
