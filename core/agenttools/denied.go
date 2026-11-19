@@ -29,6 +29,7 @@ var denied = []struct{ method, pattern string }{
 	{"", "/recoveries/*"},
 	{"POST", "/backups/{source}/{set}/{name}/recovery"},
 	{"", "/agent/tokens/*"},
+	{"", "/settings/observability/scrape-token"},
 	{"", "/agent/audit/*"},
 	{"GET", "/agent/confirmations"},
 	{"POST", "/agent/confirmations/*"},

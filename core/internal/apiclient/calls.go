@@ -206,6 +206,24 @@ func (c *Client) UpdateAssuranceSettings(ctx context.Context, req apicontract.Up
 	return out, err
 }
 
+// UpdateObservabilitySettings is PATCH /settings/observability (EPIC O,
+// #898): the deployment-wide observability block, written by the engine that
+// is serving it, for UpdateSettings's reason: a change left in config.yaml
+// beside a serving engine is one that process never reads.
+func (c *Client) UpdateObservabilitySettings(ctx context.Context, req apicontract.UpdateObservabilitySettingsRequest) (apicontract.ObservabilitySettingsResponse, error) {
+	var out apicontract.ObservabilitySettingsResponse
+	err := c.call(ctx, "updateObservabilitySettings", nil, req, &out)
+	return out, err
+}
+
+// MintScrapeToken is POST /settings/observability/scrape-token. The answer
+// carries the credential itself, once; nothing afterwards returns it.
+func (c *Client) MintScrapeToken(ctx context.Context) (apicontract.MintedScrapeToken, error) {
+	var out apicontract.MintedScrapeToken
+	err := c.call(ctx, "mintScrapeToken", nil, nil, &out)
+	return out, err
+}
+
 // UpdateBackupSetAssurance is PATCH /backup-sets/{source}/{set}/assurance.
 func (c *Client) UpdateBackupSetAssurance(ctx context.Context, source, set string, req apicontract.UpdateBackupSetAssuranceRequest) (apicontract.BackupSetAssurance, error) {
 	var out apicontract.BackupSetAssurance

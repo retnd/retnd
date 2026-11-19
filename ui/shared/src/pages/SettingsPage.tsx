@@ -44,6 +44,7 @@ import { CustomValidatorsCard } from "@shared/assurance/CustomValidatorsCard";
 import { WorkflowSettingsCard } from "@shared/pages/WorkflowSettingsCard";
 import { EncryptionCard } from "@shared/encryption/EncryptionCard";
 import { AgentsCard } from "@shared/agents/AgentsCard";
+import { ObservabilityCard } from "@shared/observability/ObservabilityCard";
 import { HelpField } from "@shared/components/FieldHelp";
 import { PasswordInput } from "@shared/components/PasswordInput";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
@@ -185,6 +186,14 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
               around a copy", and agents are "who else can ask". Design:
               docs/design/1350-agents.html section 1. */}
           <Anchored section="agents"><AgentsCard readOnly={readOnly} /></Anchored>
+
+          {/* EPIC O (issue #899). The scrape endpoint, the log floor and the
+              alert channel: what leaves this deployment for somebody else's
+              tools. It sits after the agents card, which is the other thing
+              that reads this deployment from outside. The first commit of
+              the epic lands the shell; each of the three issues that fill
+              it in adds its own sub-section. */}
+          <Anchored section="observability"><ObservabilityCard readOnly={readOnly} /></Anchored>
 
           {/* EPIC L (issue #814). Beside the destinations card rather
               than on a page of its own: a hook directory is deployment

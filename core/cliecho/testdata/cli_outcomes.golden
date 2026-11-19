@@ -55,14 +55,15 @@ GET /activity/live
 GET /agent/audit
 	example: command
 	example ?before=120&limit=50&since=7d&token=agt_0123456789abcdef: command
-GET /agent/mcp
-	no command: an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `retnd agent serve --stdio` serves the same tools without this route
 
 GET /agent/confirmations
 	example: command
 
 GET /agent/confirmations/{id}
 	example: command
+
+GET /agent/mcp
+	no command: an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `retnd agent serve --stdio` serves the same tools without this route
 
 GET /agent/tokens
 	example: command
@@ -200,6 +201,9 @@ GET /settings
 GET /settings/assurance
 	example: command
 
+GET /settings/observability
+	example: command
+
 GET /settings/workflow
 	example: command
 
@@ -322,6 +326,15 @@ PATCH /settings/assurance
 	example {"recovery_test_builtin_check":"off"}: command
 	body that isn't JSON: malformed: there is no verb that patches the deployment's assurance policy from a request body
 
+PATCH /settings/observability
+	corpus: command
+	example {"metrics_enabled":true}: command
+	example {"metrics_enabled":false,"metrics_min_rebuild_interval_seconds":30}: command
+	example {"logs_level":"warn"}: command
+	example {"alerts_delivery":"webhook","webhook_dialect":"alertmanager","webhook_allow_insecure_http":true}: command
+	example {"webhook_refresh_interval_seconds":180,"webhook_resolve_ttl_seconds":540}: command
+	body that isn't JSON: malformed: there is no verb that patches the deployment's observability block from a request body
+
 PATCH /settings/workflow
 	corpus: command
 	example {"root":"/workflows"}: command
@@ -338,6 +351,7 @@ POST /agent/confirmations/{id}/approve
 POST /agent/confirmations/{id}/deny
 	example: command
 	body that isn't JSON: command
+
 POST /agent/mcp
 	no command: an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `retnd agent serve --stdio` serves the same tools without this route
 
@@ -608,6 +622,10 @@ POST /repositories
 	example {"id":"offsite-b2","isolation":"isolated","description":"Second copy, off site","passphrase":{"file":"/etc/retnd/offsite-b2.passphrase"}}: command
 	example {"id":"production","isolation":"shared","maintenance_owner":"another-instance","passphrase":{"env":"RETND_PRODUCTION_PASSPHRASE"}}: command
 	body that isn't JSON: malformed: there is no verb that declares a repository domain from a request body
+
+POST /settings/observability/scrape-token
+	example: command
+	body that isn't JSON: command
 
 POST /ssh-keys
 	corpus: command
