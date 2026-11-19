@@ -258,6 +258,18 @@ func TestMetrics_TheScrapeCredentialAndTheAgentTokenNeverCross(t *testing.T) {
 		t.Errorf("the scrape credential on the agent MCP endpoint = %d %s, want 401", rec.Code, rec.Body.String())
 	}
 
+	// Neither crossing wrote an agent_audit row: the agent token on /metrics
+	// never reached the audit, and the scrape credential on /api/v1 was never
+	// taken for an agent's. Read before the positive controls, because the
+	// agent's own catalogue read below is an audited call and writes one.
+	rows, _, err := rig.svc.ListAgentAudit(t.Context(), service.AgentAuditQuery{})
+	if err != nil {
+		t.Fatalf("reading the agent audit: %v", err)
+	}
+	for _, row := range rows {
+		t.Errorf("a crossed credential wrote an agent_audit row against token %q (status %d): neither crossing is an agent call", row.TokenID, row.Status)
+	}
+
 	// Positive controls: each credential on its own route.
 	if rec := rig.scrape("192.0.2.41:1000", "Bearer "+scrapeToken); rec.Code != http.StatusOK {
 		t.Errorf("the scrape credential on /metrics = %d, want 200", rec.Code)
@@ -270,27 +282,50 @@ func TestMetrics_TheScrapeCredentialAndTheAgentTokenNeverCross(t *testing.T) {
 	}
 }
 
-// failingAudit makes every agent call's audit row fail, which is what a full
-// disk does to the trail. A scrape must not depend on it.
+// failingAuditBackend is the trail a full disk leaves: no room is ever
+// reserved for an agent call's row (the check auditAgentCalls makes before it
+// dispatches, which is what answers 503 AGENT_AUDIT_UNAVAILABLE), and a row
+// that is written anyway is refused. A scrape must not depend on either.
 type failingAuditBackend struct{ *service.BackupService }
+
+func (failingAuditBackend) ReserveAgentAudit(_ context.Context) error {
+	return os.ErrClosed
+}
 
 func (failingAuditBackend) RecordAgentCall(_ context.Context, _ service.AgentCall) error {
 	return os.ErrClosed
 }
 
 // O-25, third red: a scrape still answers while the agent audit trail is
-// unavailable, because /metrics is not routed through auditAgentCalls.
+// unavailable, because /metrics is not routed through auditAgentCalls and the
+// scrape credential is never an agent principal. The control is the agent's
+// own catalogue read through the same router, which has to be refused 503: a
+// failing trail that refused nothing would let a scrape behind the audit pass.
 func TestMetrics_AScrapeStillAnswersWhileTheAgentAuditTrailIsUnavailable(t *testing.T) {
 	rig := newScrapeRig(t, scrapeBlockOn)
 	token := rig.mint()
+	agent, err := rig.svc.MintAgentToken(t.Context(), service.MintAgentTokenRequest{Name: "triage", Scope: service.AgentScopeRead, Owner: "alice"})
+	if err != nil {
+		t.Fatalf("minting an agent token: %v", err)
+	}
 	router := NewRouter(RouterConfig{
 		Platform: noAuthWiredAdapter{}, Backend: failingAuditBackend{rig.svc}, Gate: alwaysPassGate{}, BinaryVersion: "test", Commit: "test",
 	})
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
-	req.RemoteAddr = "192.0.2.50:1000"
-	req.Header.Set("Authorization", "Bearer "+token)
-	if rec := serve(router, req); rec.Code != http.StatusOK {
-		t.Errorf("a scrape with the audit trail unavailable = %d %s, want 200", rec.Code, rec.Body.String())
+
+	read := httptest.NewRequest(http.MethodGet, "/api/v1/system/health", nil)
+	read.RemoteAddr = "192.0.2.51:1000"
+	read.Header.Set("Authorization", "Bearer "+agent.Token)
+	if rec := serve(router, read); rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "AGENT_AUDIT_UNAVAILABLE") {
+		t.Fatalf("control: an agent's catalogue read with the audit trail unavailable = %d %s, want 503 AGENT_AUDIT_UNAVAILABLE, so this trail is not failing and the scrape below proves nothing", rec.Code, rec.Body.String())
+	}
+
+	for name, header := range map[string]string{"a bearer": "Bearer " + token, "basic_auth": basic("prometheus", token)} {
+		req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+		req.RemoteAddr = "192.0.2.50:1000"
+		req.Header.Set("Authorization", header)
+		if rec := serve(router, req); rec.Code != http.StatusOK {
+			t.Errorf("a scrape with %s while the agent audit trail is unavailable = %d %s, want 200: the scrape must not depend on the agent audit", name, rec.Code, rec.Body.String())
+		}
 	}
 }
 

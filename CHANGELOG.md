@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Added
+
+- **An authenticated Prometheus scrape endpoint** (#899, EPIC O). The engine now serves the 46
+  metric families it already rendered, plus a new `retnd_scrape_rejected_total{reason}`, on
+  `GET /metrics`. It is off until you turn it on (`retnd settings observability patch
+  --metrics-enabled`, or the Observability section in Settings), and off it answers `404`. On, it
+  wants the token `retnd settings observability rotate-scrape-token` prints once, as a bearer or
+  as the `basic_auth` password, and keeps only its SHA-256 digest in a 0600 file beside
+  `config.yaml`. It is reachable on the compose network at `retnd:8080`, not through the published
+  `web-ui` port. A scrape writes no action-log row, the health half is rebuilt at most once per
+  `min_rebuild_interval` (default 15s), and an agent token does not open it. `docs/deployment.md`
+  has the Prometheus config and ADR 0035 has the reasons.
+
+  **What an existing deployment sees: nothing.** With no `observability:` block, `/metrics` is
+  `404` and nothing else changes. **Writing `observability:` into `config.yaml` is a one-way
+  door**: older builds refuse the file as an unknown field, so keep the previous `config.yaml` if
+  you want a way back. Deleting the block is the rollback, and a minted token's file left behind is
+  inert. A plaintext `observability.metrics.token` in the file is refused at load. No migration:
+  `core/migrations/` stays at `0022`.
+
 ## [0.8.0] - 2026-11-14
 
 0.8.0 is a minor release, and nearly all of it is one feature: encrypted retained copies (EPIC N, #967), with
@@ -2366,7 +2386,7 @@ re-recorded hashes rather than an edit to a published tag (#1042).
   names, not two measurements — which is why no counter is duplicated and why
   the window is one release; point every rule and dashboard at `retnd_*` and
   read the caveat where the metrics are, in
-  [`docs/deployment.md`](docs/deployment.md#metrics-and-the-one-release-duplicate-series).
+  [`docs/deployment.md`](docs/deployment.md#metrics).
 
   **Two changes with no compatibility window at all.** The CLI's default
   `User-Agent` is `retnd-cli (api 1)` where it was `retnd-cli (api 1)`:
