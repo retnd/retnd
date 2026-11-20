@@ -1,0 +1,47 @@
+# Loki for the retnd example observability bundle (EPIC O, FR-102).
+#
+# This is an example, not a supported deployment. See ../README.md.
+#
+# The image's own single-node local-config.yaml, with two changes that make it
+# match what docs/observability.md promises:
+#
+#  - limits_config.discover_service_name is empty. Loki 3 otherwise invents a
+#    fifth stream label, service_name, from job (or app, container, ...) on
+#    every stream, and the documented label set is job, instance, level and
+#    schema, and nothing else. The bundle smoke caught this on a real Loki; the
+#    command-line flag -validation.discover-service-name= does NOT do the same
+#    thing (it was measured still adding the label), only this list does.
+#  - analytics.reporting_enabled is false: an example adds no egress the
+#    operator did not ask for.
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2020-10-24
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  discover_service_name: []
+
+analytics:
+  reporting_enabled: false

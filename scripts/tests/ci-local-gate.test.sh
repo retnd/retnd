@@ -401,6 +401,10 @@ make_full_tree() {
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$t.test.sh"
   done
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/closure-no-pipe-grep-q.test.sh"
+  # EPIC O's dashboards and rules name guard (#902): a go test over the real
+  # renderers and container/observability, neither of which a synthetic tree has.
+  mkdir -p "$tree/scripts/observability"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/observability/check-dashboard-metrics.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/every-guard-is-a-gate-step.test.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/selftest-lanes.test.sh"
   # The self-tests of the gate's own machinery (#1533): the shard runner, the
