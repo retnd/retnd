@@ -171,6 +171,17 @@ export function useSnapshotOperation(fallbackMessage: string): SnapshotAction {
   // the row it belongs to is a key the next row would inherit.
   const pending = useRef<{ target: string; key: string } | null>(null);
 
+  // A submit answers after an await, and the operator may have left the
+  // screen by then (#1593). An update to a screen that has unmounted does
+  // nothing useful, and once a test environment has been torn down it
+  // throws inside the promise, so the submit's answers check this first.
+  // Set in its own effect so strict mode's remount sets it back.
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
   const configRevision = version.data?.configRevision;
   const ready = typeof configRevision === "string" && configRevision !== "";
 
@@ -197,6 +208,10 @@ export function useSnapshotOperation(fallbackMessage: string): SnapshotAction {
         (result) => {
           // Done with this submission, so the next press is a new one.
           pending.current = null;
+          // The screen can be gone by now (#1593). The act still happened
+          // and the operation is durable; there is just nothing left to
+          // show it on, and onDone's setters belong to the same screen.
+          if (!mounted.current) return;
           setBusy(false);
           setOperation(result.operation);
           onDone?.(result);
@@ -204,6 +219,7 @@ export function useSnapshotOperation(fallbackMessage: string): SnapshotAction {
         (e: unknown) => {
           // The key is deliberately KEPT. Pressing the button again is
           // the same act retried, which is the whole point of the header.
+          if (!mounted.current) return;
           setBusy(false);
           if (terminal !== undefined && isGateRefusal(e)) {
             setGate(gateRefusalNotice({ ...terminal, correlationId: apiErrorOf(e)?.correlationId }));
@@ -221,9 +237,14 @@ export function useSnapshotOperation(fallbackMessage: string): SnapshotAction {
 
   useEffect(() => {
     if (watchedId === null || settled) return;
+    // Clearing the interval stops the next poll, not the one already out
+    // (#1593). Its answer is for a watch that has ended, whether the
+    // screen went away, the operator dismissed the operation, or a newer
+    // one is being watched, so it is dropped.
+    let live = true;
     const timer = window.setInterval(() => {
       api.getOperation(watchedId).then(
-        (latest) => setOperation(latest),
+        (latest) => { if (live) setOperation(latest); },
         // A poll that fails leaves the last good reading on screen. The
         // operation is durable and is still running; a page that blanked
         // itself because one re-read was refused would be reporting the
@@ -231,7 +252,10 @@ export function useSnapshotOperation(fallbackMessage: string): SnapshotAction {
         () => undefined
       );
     }, WATCH_INTERVAL_MS);
-    return () => window.clearInterval(timer);
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+    };
   }, [api, watchedId, settled]);
 
   return {

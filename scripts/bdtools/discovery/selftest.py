@@ -134,13 +134,17 @@ def body(root: Path, dry_run: bool) -> int:
     with tempfile.TemporaryDirectory(prefix="retnd-discovery-selftest.") as tmp_name:
         tmp = Path(tmp_name)
         tracker = selftest_swap.AnchorTracker(dry_run=dry_run, root=root, tmp=tmp)
+        # One copy on disk at a time (#1580): the next case's copy replaces this one.
+        mutant = selftest_swap.one_at_a_time(
+            lambda name: selftest_swap.mutant(root, tmp, name, dry_run=dry_run), root
+        )
 
         print("==> negative control: the #1541 discovery evidence is clean on the real tree")
         expect_gate_passes(tracker, tally, "the #1541 discovery evidence on an unmutated tree", root, PASS_PATTERN)
 
         print()
         print("==> a complete file the source will not open waits, and is never journaled")
-        d = selftest_swap.mutant(root, tmp, "denied-read-as-complete", dry_run=dry_run)
+        d = mutant("denied-read-as-complete")
         tracker.swap(d / DISCOVERY_GO, DENIED_READ_AS_COMPLETE_OLD, DENIED_READ_AS_COMPLETE_NEW)
         expect_gate_fails(
             tracker,
@@ -153,7 +157,7 @@ def body(root: Path, dry_run: bool) -> int:
 
         print()
         print("==> a new candidate is probed at all")
-        d = selftest_swap.mutant(root, tmp, "probe-skipped", dry_run=dry_run)
+        d = mutant("probe-skipped")
         tracker.swap(d / DISCOVERY_GO, PROBE_SKIPPED_OLD, PROBE_SKIPPED_NEW)
         expect_gate_fails(
             tracker,
