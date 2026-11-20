@@ -26,6 +26,13 @@ scripts/release/record-local-gate.sh      # a full run, then provenance/local-ga
 The gate takes a while (the recorder prints the wall time). Start it and go
 and do something else.
 
+A full `scripts/ci-local.sh` on a Mac ends INCOMPLETE unless it is asked to
+run the Chromium lane there (`RETND_UI_BROWSER_ALLOW_LOCAL=1`, through the
+Playwright lock): heavy steps stay off the Mac, so the `ui-browser` shard's two
+steps are ledgered with the command that runs them on MARS
+(`scripts/release/run-gate-shard.sh ui-browser --host mars`, which is also
+where the runner sends that shard when no host is given).
+
 ## Verdicts and exit statuses
 
 The last line of a run is one of three verdicts, and the exit status matches:
@@ -77,8 +84,8 @@ image with `docker build -q`.
 | variable | default | what it does |
 | --- | --- | --- |
 | `CI_LOCAL` | set to `1` by the gate | tells fixtures they run under the gate: a skip that would be tolerated on a developer's machine is a failure here. Load-bearing in `core/tests`; never rename it |
-| `CI` | set to `1` by the gate | the conventional "non-interactive" flag. vitest picks its non-interactive reporter from it, Playwright refuses a `.only` and stops retrying, and `core/tests/machines` keys a refusal on it |
-| `CI_LOCAL_FAST` | `0` | `1` skips the Docker suites, the cross-compiles, the production builds, the browser suite and the gate's own self-test. Always INCOMPLETE; for an iteration loop, never for evidence |
+| `CI` | set to `1` by the gate | the conventional "non-interactive" flag. vitest picks its non-interactive reporter from it, Playwright stops retrying (and refuses a `.only` only where the config sets `forbidOnly` from it, as `ui/shared/e2e/playwright.config.ts` does; the Chromium lane also passes `--forbid-only`), and `core/tests/machines` keys a refusal on it |
+| `CI_LOCAL_FAST` | `0` | `1` skips the Docker suites, the cross-compiles, the production builds, the browser suite, the Chromium lane and the gate's own self-test. Always INCOMPLETE; for an iteration loop, never for evidence |
 | `CI_LOCAL_FULL` | `0` | `1` makes `.husky/pre-commit` run the full gate (`scripts/ci-local.sh`) instead of the fast tier. A green full run is the only thing that leaves a commit with no `Local-Gate` trailer |
 | `CI_LOCAL_TIER` | `full` under `ci-local.sh`, `fast` under `ci-fast.sh`, unset by hand | which tier is running. `core/tests/compat` stands down its live GitHub check under `fast` (see Tiers). Do not set it yourself |
 | `CI_LOCAL_FAST_JS_INSTALL` | `0` | `1` makes the fast tier install an uninstalled JS workspace that a changed path is in, instead of refusing. `scripts/merge-gate.sh` sets it, since its worktree is always fresh |
@@ -86,6 +93,12 @@ image with `docker build -q`.
 | `CI_LOCAL_SKIP_JS` | `0` | `1` skips the JS workspaces (lint, typecheck, unit tests, builds). INCOMPLETE |
 | `CI_LOCAL_SKIP_E2E` | `0` | `1` skips the browser suite and the CLI smoke slice from retnd-tests. INCOMPLETE |
 | `CI_LOCAL_SKIP_TWO_MACHINE` | `0` | `1` skips the two-machine end-to-end backup proof (#356). INCOMPLETE |
+| `CI_LOCAL_SKIP_UI_BROWSER` | `0` | `1` skips the Chromium lane: the browser spec files in `ui/shared/e2e` and the assurance UI mutation self-test (#1532, #1537). INCOMPLETE |
+| `RETND_UI_BROWSER_CPUS`, `RETND_UI_BROWSER_MEMORY` | `4`, `4g` | the Chromium lane's container fence (`scripts/e2e/ui-browser.sh`) |
+| `RETND_UI_BROWSER_TIMEOUT`, `RETND_UI_BROWSER_STALL`, `RETND_UI_BROWSER_TEST_TIMEOUT` | `5400` for the specs and `2700` for the self-test, `600`, `60` | the lane's hard cap, the seconds without output after which a run counts as stalled and is killed, and the per-test timeout for the specs. Hitting any of them is a FAILED run |
+| `RETND_UI_BROWSER_PLATFORM` | the daemon's own (`docker info` Architecture) | the platform named on the lane's pull and run, so a shared host's tag is never swapped for the other architecture |
+| `RETND_UI_BROWSER_ALLOW_LOCAL` | `0` | `1` lets the Chromium lane run on a Mac, and then only through the Playwright lock. Unset, a Mac ledgers both steps and names `run-gate-shard.sh ui-browser --host mars`, which is also where `run-gate-shard.sh` sends the `ui-browser` shard when no host is given |
+| `RETND_UI_BROWSER_IMAGE` | the pinned `mcr.microsoft.com/playwright` digest | the image the lane runs in; its `vX.Y.Z` tag picks the `@playwright/test` it installs |
 | `CI_LOCAL_SENTINEL` | `1` | `0` does not start the sentinel container the Docker steps use to prove the daemon is really serving |
 | `CI_LOCAL_SENTINEL_IMAGE` | `alpine:3.20` | the image the sentinel runs |
 | `CI_LOCAL_SELFTEST` | unset | set to `1` by the gate when it runs its own self-test, so a nested gate does not recurse into another self-test |

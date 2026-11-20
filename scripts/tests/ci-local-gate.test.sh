@@ -124,6 +124,12 @@ E2E_STUB='E2E-GATE-STUB-RAN'
 # the gate chooses to run, so the stub prints a marker and succeeds.
 TWO_MACHINE_STUB='TWO-MACHINE-STUB-RAN'
 
+# And for the Chromium lane (#1532, #1537), which runs the ui/shared browser
+# specs and the assurance UI self-test. Group X asserts on it both ways; the
+# stub prints its arguments after the marker, so a case can tell the two
+# steps apart.
+UI_BROWSER_STUB='UI-BROWSER-LANE-STUB-RAN'
+
 # And for the repository-wide gofmt sweep (#417), which Group L watches in
 # both directions.
 GOFMT_STUB='GOFMT-SWEEP-STUB-RAN'
@@ -167,6 +173,13 @@ make_tree() { # -> path of a synthetic checkout carrying only the gate scripts
   # first on PATH. If a real docker ever shadowed this stub the docker cases
   # below go red rather than quietly measuring the host.
   set_docker "$tree" available
+  # The operating system is a property of the machine too, and the gate
+  # branches on it (the Playwright lock, and the Chromium lane that stays off
+  # a Mac unless asked, #1532, #1537). A stub answers `uname -s` with
+  # STUB_UNAME_S, Linux by default, so no case measures whoever runs it; every
+  # other question goes to the real uname.
+  printf '#!/bin/sh\nif [ "$*" = "-s" ]; then echo "${STUB_UNAME_S:-Linux}"; exit 0; fi\nexec /usr/bin/uname "$@"\n' >"$tree/bin/uname"
+  chmod +x "$tree/bin/uname"
   printf '%s\n' "$tree"
 }
 
@@ -578,7 +591,7 @@ make_full_tree() {
   # gate's own self-test step reported that. Same stubs, same reason as
   # every block above: this fixture measures which steps the gate runs,
   # not what they do.
-  for guard in first-run-report pin-on-main published-provenance-guards record-published-release web-ui-ratchet; do
+  for guard in first-run-report pin-on-main published-provenance-guards record-published-release web-ui-ratchet ui-browser-lane; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$guard.test.sh"
   done
   mkdir -p "$tree/scripts/release"
@@ -631,6 +644,13 @@ make_full_tree() {
   # stands up two containers on a temporary network.
   printf '#!/usr/bin/env bash\necho "%s"\nexit 0\n' "$TWO_MACHINE_STUB" \
     >"$tree/scripts/e2e/two-machine-backup.sh"
+
+  # The Chromium lane (#1532, #1537), for the same reason as the two above.
+  # The real one starts the pinned Playwright image, installs ui/shared in it
+  # and drives a browser through 127 spec files or the assurance UI
+  # self-test. Group X replaces it where it needs a red or a 3.
+  printf '#!/usr/bin/env bash\necho "%s $*"\nexit 0\n' "$UI_BROWSER_STUB" \
+    >"$tree/scripts/e2e/ui-browser.sh"
 
   # The Python lint step (EPIC I, I1.6 / #672), and this is the SEVENTH time
   # the lesson above has had to be written down here. The step runs
@@ -687,7 +707,7 @@ ROOMY=10737418240
 # lane happens to be in its crash matrix.
 scrub_env() {
   env -u CI_LOCAL_FAST -u CI_LOCAL_SKIP_JS -u CI_LOCAL_SKIP_DOCKER \
-    -u CI_LOCAL_SELFTEST -u CI_LOCAL_SKIP_E2E -u CI_LOCAL_SKIP_TWO_MACHINE \
+    -u CI_LOCAL_SELFTEST -u CI_LOCAL_SKIP_E2E -u CI_LOCAL_SKIP_TWO_MACHINE -u CI_LOCAL_SKIP_UI_BROWSER -u RETND_UI_BROWSER_ALLOW_LOCAL -u STUB_UNAME_S \
     -u CI_LOCAL_RED -u CI_LOCAL_FULL -u CI_LOCAL_TIER -u CI_LOCAL_MEMORY_LIMIT_BYTES -u RETND_SELFTEST_SKIP_LEDGER -u GATE_SHARD -u CI -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
     -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_PREFIX \
     -u RETND_GATE_STALL_MIN -u RETND_GATE_STEP_CAP_MIN -u RETND_GATE_STEP_CAP_FLOOR_MIN -u RETND_GATE_HOST_ID \
@@ -2979,6 +2999,7 @@ core-docker
 apps
 js
 e2e
+ui-browser
 two-machine
 selftest-gate
 selftest-compat
@@ -3118,6 +3139,108 @@ tree="$(make_full_tree)"
 printf '#!/usr/bin/env bash\n[ -n "${RETND_SELFTEST_SKIP_LEDGER:-}" ] || exit 9\nexit 0\n' >"$tree/scripts/agents/selftest.sh"
 run_gate "$tree" -- --shard selftest-agents
 assert_eq "X3 an agents self-test with nothing skipped ends ok" 0 "$status"
+
+# ------------- Group Z: the Chromium lane runs in the gate (#1532, #1537)
+
+echo "==> Z. the ui/shared browser specs and the assurance UI self-test"
+
+# Z1 is the control for everything below it: a complete run invokes both
+# steps, through the lane, with the paths the issues name. Without it, Z3's
+# absence assertion would also pass against a gate that had lost the steps.
+tree="$(make_full_tree)"
+run_gate "$tree" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh
+assert_contains "Z1 a complete run invokes the browser specs step" 'ui/shared browser specs (ui/shared/e2e)' "$out"
+assert_contains "Z1 through the lane, on the specs' own Playwright config" "$UI_BROWSER_STUB specs ui/shared/e2e/playwright.config.ts" "$out"
+assert_contains "Z1 a complete run invokes the assurance UI self-test step" 'the assurance UI guards can actually fail (browser mutation self-test, #1532)' "$out"
+assert_contains "Z1 through the lane" "$UI_BROWSER_STUB run bash scripts/assurance/ui-selftest.sh" "$out"
+assert_contains "Z1 a complete run still reports success" 'ci-local: ok' "$out"
+
+# Z2: the out-loud opt-out ledgers, like CI_LOCAL_SKIP_E2E.
+tree="$(make_full_tree)"
+run_gate "$tree" CI_LOCAL_SKIP_UI_BROWSER=1
+assert_not_contains "Z2 CI_LOCAL_SKIP_UI_BROWSER=1 runs neither step" "$UI_BROWSER_STUB" "$out"
+assert_contains "Z2 it ends INCOMPLETE" 'ci-local: INCOMPLETE' "$out"
+assert_contains "Z2 the summary names what it left out" 'the ui/shared browser specs and the assurance UI mutation self-test' "$out"
+assert_eq "Z2 it exits $INCOMPLETE" "$INCOMPLETE" "$status"
+
+# Z3: FAST leaves both out; D4 owns the INCOMPLETE half.
+tree="$(make_full_tree)"
+run_gate "$tree" CI_LOCAL_FAST=1
+assert_not_contains "Z3 CI_LOCAL_FAST=1 does not run the lane" "$UI_BROWSER_STUB" "$out"
+
+# Z4: a red spec refuses the run and the verdict names the step.
+tree="$(make_full_tree)"
+printf '#!/usr/bin/env bash\necho "a spec failed"\nexit 1\n' >"$tree/scripts/e2e/ui-browser.sh"
+run_gate "$tree" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh
+assert_nonzero "Z4 a red browser spec fails the run" "$status"
+assert_contains "Z4 the verdict line names the step that failed" 'ci-local: FAILED (ui/shared browser specs (ui/shared/e2e)' "$out"
+
+# Z5: a red self-test refuses the run too, once the specs passed.
+tree="$(make_full_tree)"
+printf '#!/usr/bin/env bash\ncase "$1" in run) echo "a control did not go red"; exit 1 ;; esac\nexit 0\n' >"$tree/scripts/e2e/ui-browser.sh"
+run_gate "$tree" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh
+assert_nonzero "Z5 a red assurance UI self-test fails the run" "$status"
+assert_contains "Z5 the verdict line names it" 'ci-local: FAILED (the assurance UI guards can actually fail' "$out"
+
+# Z6: a machine the lane cannot run on is ledgered, not passed and not failed.
+tree="$(make_full_tree)"
+printf '#!/usr/bin/env bash\necho "==> ui browser lane: CANNOT RUN" >&2\nexit 3\n' >"$tree/scripts/e2e/ui-browser.sh"
+run_gate "$tree" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh
+assert_contains "Z6 a lane that could not run ends INCOMPLETE" 'ci-local: INCOMPLETE' "$out"
+assert_contains "Z6 the summary names the Chromium lane" 'the Chromium lane could not run on this machine' "$out"
+assert_eq "Z6 it exits $INCOMPLETE" "$INCOMPLETE" "$status"
+
+# Z7: the shard has the two steps and nothing else, and it needs the daemon.
+tree="$(make_full_tree)"
+run_gate "$tree" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh -- --shard ui-browser
+assert_eq "Z7 the ui-browser shard ends ok" "==> ci-local: ok (shard ui-browser)" "$(printf '%s\n' "$out" | tail -n 1)"
+assert_contains "Z7 it runs the specs" "$UI_BROWSER_STUB specs" "$out"
+assert_contains "Z7 and the self-test" "$UI_BROWSER_STUB run" "$out"
+assert_not_contains "Z7 and not the retnd-tests suite" "$E2E_STUB" "$out"
+tree="$(make_full_tree)"
+set_docker "$tree" unavailable
+run_gate "$tree" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh -- --shard ui-browser
+if [ "$status" -ne 0 ]; then pass "Z7 the ui-browser shard is not green without a Docker daemon"; else fail "Z7 the ui-browser shard is not green without a Docker daemon" "$out"; fi
+
+# Z8: heavy retnd steps stay off the Mac. With no opt-in, a Mac ledgers both
+# steps with the command that runs them on MARS, and runs neither.
+tree="$(make_full_tree)"
+printf '#!/usr/bin/env bash\necho "PW-LOCK-HELD $*"\n"$@"\n' >"$tree/bin/pw-lock"
+chmod +x "$tree/bin/pw-lock"
+run_gate "$tree" STUB_UNAME_S=Darwin RETND_PW_LOCK="$tree/bin/pw-lock" -- --shard ui-browser
+assert_not_contains "Z8 a Mac with no opt-in runs neither step" "$UI_BROWSER_STUB" "$out"
+assert_not_contains "Z8 and takes no lock for them" 'PW-LOCK-HELD' "$out"
+assert_contains "Z8 it ends INCOMPLETE" '==> ci-local: INCOMPLETE (shard ui-browser)' "$out"
+assert_contains "Z8 the summary names the way to run it on MARS" 'run-gate-shard.sh ui-browser --host mars' "$out"
+assert_eq "Z8 it exits $INCOMPLETE" "$INCOMPLETE" "$status"
+
+# Z9: RETND_UI_BROWSER_ALLOW_LOCAL=1 runs them on the Mac, through the lock.
+tree="$(make_full_tree)"
+printf '#!/usr/bin/env bash\necho "PW-LOCK-HELD $*"\n"$@"\n' >"$tree/bin/pw-lock"
+chmod +x "$tree/bin/pw-lock"
+run_gate "$tree" STUB_UNAME_S=Darwin RETND_UI_BROWSER_ALLOW_LOCAL=1 RETND_PW_LOCK="$tree/bin/pw-lock" -- --shard ui-browser
+# Under the lock the command is wrapped so the stall watchdog's clocks start
+# once the lock is held (#1540): the lock runs `sh -c ... <resume> <command>`.
+z9_locked="$(printf '%s\n' "$out" | grep '^PW-LOCK-HELD sh -c ' || true)"
+assert_contains "Z9 with the opt-in the specs run under the lock" 'bash scripts/e2e/ui-browser.sh specs ui/shared/e2e/playwright.config.ts' "$z9_locked"
+assert_contains "Z9 the self-test runs under the lock" 'bash scripts/e2e/ui-browser.sh run bash scripts/assurance/ui-selftest.sh' "$z9_locked"
+assert_eq "Z9 and the shard ends ok" "==> ci-local: ok (shard ui-browser)" "$(printf '%s\n' "$out" | tail -n 1)"
+
+# Z10: the opt-in never means bare: with no lock to take, a Mac ledgers them.
+tree="$(make_full_tree)"
+run_gate "$tree" STUB_UNAME_S=Darwin RETND_UI_BROWSER_ALLOW_LOCAL=1 RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh -- --shard ui-browser
+assert_not_contains "Z10 a Mac with the opt-in and no lock runs neither step" "$UI_BROWSER_STUB" "$out"
+assert_contains "Z10 it ends INCOMPLETE" '==> ci-local: INCOMPLETE (shard ui-browser)' "$out"
+assert_contains "Z10 the summary says the lock is missing" 'only through the Playwright lock' "$out"
+
+# Z11: Z8's control. A Linux gate host runs the lane with no opt-in and no lock.
+tree="$(make_full_tree)"
+printf '#!/usr/bin/env bash\necho "PW-LOCK-HELD $*"\n"$@"\n' >"$tree/bin/pw-lock"
+chmod +x "$tree/bin/pw-lock"
+run_gate "$tree" STUB_UNAME_S=Linux RETND_PW_LOCK="$tree/bin/pw-lock" -- --shard ui-browser
+assert_contains "Z11 a Linux host runs the specs" "$UI_BROWSER_STUB specs" "$out"
+assert_not_contains "Z11 bare, with no lock to take" 'PW-LOCK-HELD' "$out"
+assert_eq "Z11 and the shard ends ok" "==> ci-local: ok (shard ui-browser)" "$(printf '%s\n' "$out" | tail -n 1)"
 
 # ------------------------------------------------------------------ result
 
