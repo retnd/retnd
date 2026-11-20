@@ -56,119 +56,6 @@ const sources = import.meta.glob<string>(["../**/*.{ts,tsx}", "!../test/**", "!.
 /** `file › Component.function › setter`, with the reason it stays as it is. */
 const ALLOWED: Record<string, string> = {};
 
-/**
- * The sites still waiting for their batch. #1599 is fixed in three stacked
- * PRs (the hook with agents/, assurance/ and hooks/; then pages/; then the
- * rest), and every commit has to pass, so this list holds what the later
- * batches haven't reached yet. Each batch takes its own sites off it, an
- * entry that no longer matches a site fails the run, and the last batch
- * deletes the list.
- */
-const PENDING = new Set<string>([
-  "App.tsx › App.onSkip › setFirstRun",
-  "auth/EnrollmentPage.tsx › EnrollmentPage.submit › setBusy",
-  "auth/EnrollmentPage.tsx › EnrollmentPage.submit › setFailure",
-  "auth/ForgotPasswordPage.tsx › ForgotPasswordPage.submit › setAsked",
-  "auth/ForgotPasswordPage.tsx › ForgotPasswordPage.submit › setBusy",
-  "auth/ForgotPasswordPage.tsx › ForgotPasswordPage.submit › setFailure",
-  "auth/LoginPage.tsx › SignInForm.submit › setBusy",
-  "auth/LoginPage.tsx › SignInForm.submit › setFailure",
-  "auth/ResetPasswordPage.tsx › ResetPasswordPage.submit › setBusy",
-  "auth/ResetPasswordPage.tsx › ResetPasswordPage.submit › setConfirm",
-  "auth/ResetPasswordPage.tsx › ResetPasswordPage.submit › setDone",
-  "auth/ResetPasswordPage.tsx › ResetPasswordPage.submit › setFailure",
-  "auth/ResetPasswordPage.tsx › ResetPasswordPage.submit › setPassword",
-  "components/ActivityDock.tsx › ActivityDock.copy › setCopied",
-  "components/EmptyState.tsx › ErrorState.onClick › setCopied",
-  "components/FirstRunGuide.tsx › FirstRunGuide.onClick › setBusy",
-  "components/RecoveryVerificationBanner.tsx › RecoveryVerificationBanner.resend › setFailure",
-  "components/RecoveryVerificationBanner.tsx › RecoveryVerificationBanner.resend › setResending",
-  "components/RecoveryVerificationBanner.tsx › RecoveryVerificationBanner.resend › setResent",
-  "components/RemoveBackupSetDialog.tsx › RemoveBackupSetDialog.onConfirm › setError",
-  "components/RemoveBackupSetDialog.tsx › RemoveBackupSetDialog.onConfirm › setRemoving",
-  "components/SSHAuthWizard.tsx › OpenWizard.apply › setBusy",
-  "components/SSHAuthWizard.tsx › OpenWizard.apply › setError",
-  "components/SSHAuthWizard.tsx › OpenWizard.apply › setStep",
-  "components/SSHAuthWizard.tsx › OpenWizard.importPasted › setBusy",
-  "components/SSHAuthWizard.tsx › OpenWizard.importPasted › setChosen",
-  "components/SSHAuthWizard.tsx › OpenWizard.importPasted › setError",
-  "components/SSHAuthWizard.tsx › OpenWizard.importPasted › setOutcome",
-  "components/SSHAuthWizard.tsx › OpenWizard.importPasted › setPastedKey",
-  "components/SSHAuthWizard.tsx › OpenWizard.importPasted › setPastedPassphrase",
-  "components/SSHAuthWizard.tsx › OpenWizard.importPasted › setReloadToken",
-  "components/SSHAuthWizard.tsx › OpenWizard.importPasted › setVerifiedAgainst",
-  "components/SSHAuthWizard.tsx › OpenWizard.probe › setAckedFingerprint",
-  "components/SSHAuthWizard.tsx › OpenWizard.probe › setBusy",
-  "components/SSHAuthWizard.tsx › OpenWizard.probe › setError",
-  "components/SSHAuthWizard.tsx › OpenWizard.probe › setOutcome",
-  "components/SSHAuthWizard.tsx › OpenWizard.probe › setProbed",
-  "components/SSHAuthWizard.tsx › OpenWizard.probe › setVerifiedAgainst",
-  "components/SSHAuthWizard.tsx › OpenWizard.selectCandidate › setBusy",
-  "components/SSHAuthWizard.tsx › OpenWizard.selectCandidate › setChosen",
-  "components/SSHAuthWizard.tsx › OpenWizard.selectCandidate › setError",
-  "components/SSHAuthWizard.tsx › OpenWizard.selectCandidate › setOutcome",
-  "components/SSHAuthWizard.tsx › OpenWizard.selectCandidate › setReloadToken",
-  "components/SSHAuthWizard.tsx › OpenWizard.selectCandidate › setVerifiedAgainst",
-  "components/SSHAuthWizard.tsx › OpenWizard.verify › setBusy",
-  "components/SSHAuthWizard.tsx › OpenWizard.verify › setError",
-  "components/SSHAuthWizard.tsx › OpenWizard.verify › setOutcome",
-  "components/SSHAuthWizard.tsx › OpenWizard.verify › setVerifiedAgainst",
-  "components/StepLogTerminal.tsx › StepLogTerminal.copy › setCopied",
-  "components/WorkflowEnvironmentEditor.tsx › WorkflowEnvironmentEditor.remove › setBusy",
-  "components/WorkflowEnvironmentEditor.tsx › WorkflowEnvironmentEditor.remove › setFailure",
-  "components/WorkflowEnvironmentEditor.tsx › WorkflowEnvironmentEditor.save › setBusy",
-  "components/WorkflowEnvironmentEditor.tsx › WorkflowEnvironmentEditor.save › setDraftName",
-  "components/WorkflowEnvironmentEditor.tsx › WorkflowEnvironmentEditor.save › setDraftValue",
-  "components/WorkflowEnvironmentEditor.tsx › WorkflowEnvironmentEditor.save › setFailure",
-  "components/WorkflowRecoveryBanner.tsx › WorkflowRecoveryBanner.acknowledge › setAcknowledging",
-  "components/WorkflowRecoveryBanner.tsx › WorkflowRecoveryBanner.acknowledge › setBusy",
-  "components/WorkflowRecoveryBanner.tsx › WorkflowRecoveryBanner.acknowledge › setFailure",
-  "components/WorkflowRecoveryBanner.tsx › WorkflowRecoveryBanner.acknowledge › setReason",
-  "components/WorkflowRecoveryBanner.tsx › WorkflowRecoveryBanner.resume › setBusy",
-  "components/WorkflowRecoveryBanner.tsx › WorkflowRecoveryBanner.resume › setFailure",
-  "encryption/BundleDialog.tsx › BundleDialog.download › forget",
-  "encryption/BundleDialog.tsx › BundleDialog.download › setBusy",
-  "encryption/BundleDialog.tsx › BundleDialog.download › setError",
-  "encryption/ClippedText.tsx › ClippedText.copy › setCopied",
-  "encryption/EncryptionCard.tsx › EncryptionCard.act › setBusy",
-  "encryption/EncryptionCard.tsx › EncryptionCard.act › setFailure",
-  "encryption/EncryptionCard.tsx › EncryptionCard.onConfirm › close",
-  "encryption/EncryptionCard.tsx › EncryptionCard.onEnable › close",
-  "encryption/EncryptionCard.tsx › EncryptionCard.onRetire › close",
-  "encryption/EncryptionCard.tsx › EncryptionCard.onSave › close",
-  "encryption/ExternalReferenceFields.tsx › ExternalReferenceFields.test › setProbe",
-  "encryption/ExternalReferenceFields.tsx › ExternalReferenceFields.test › setProbeFailure",
-  "encryption/ExternalReferenceFields.tsx › ExternalReferenceFields.test › setTesting",
-  "encryption/ReencryptDialog.tsx › ReencryptDialog.run › setBusy",
-  "encryption/ReencryptDialog.tsx › ReencryptDialog.run › setFailure",
-  "encryption/ReencryptDialog.tsx › ReencryptDialog.run › setStarted",
-  "encryption/SetEncryptionCard.tsx › SetEncryptionCard.change › setBusy",
-  "encryption/SetEncryptionCard.tsx › SetEncryptionCard.change › setFailure",
-  "encryption/SetEncryptionCard.tsx › SetEncryptionCard.onClick › setDraft",
-  "encryption/SetEncryptionCard.tsx › SetEncryptionCard.onClick › setOwnKey",
-  "encryption/SuiteControls.tsx › SuiteChangeFlow.onConfirm › setKeyId",
-  "encryption/SuiteControls.tsx › SuiteChangeFlow.onConfirm › setStep",
-  "encryption/SuiteControls.tsx › SuiteChangeFlow.run › setBusy",
-  "encryption/SuiteControls.tsx › SuiteChangeFlow.run › setFailure",
-  "encryption/VerifyRecoverableDialog.tsx › VerifyRecoverableDialog.start › setBusy",
-  "encryption/VerifyRecoverableDialog.tsx › VerifyRecoverableDialog.start › setOpId",
-  "encryption/VerifyRecoverableDialog.tsx › VerifyRecoverableDialog.start › setRefusal",
-  "observability/AlertDeliveryControls.tsx › AlertDeliveryControls.save › setBusy",
-  "observability/AlertDeliveryControls.tsx › AlertDeliveryControls.save › setError",
-  "observability/LogLevelControl.tsx › LogLevelControl.change › setProblem",
-  "observability/LogLevelControl.tsx › LogLevelControl.change › setSaving",
-  "observability/ObservabilityCard.tsx › ObservabilityCard.apply › setBusy",
-  "observability/ObservabilityCard.tsx › ObservabilityCard.apply › setError",
-  "observability/ObservabilityCard.tsx › ObservabilityCard.apply › setInterval",
-  "observability/ObservabilityCard.tsx › ObservabilityCard.apply › setSettings",
-  "observability/ObservabilityCard.tsx › ObservabilityCard.mint › setBusy",
-  "observability/ObservabilityCard.tsx › ObservabilityCard.mint › setCopied",
-  "observability/ObservabilityCard.tsx › ObservabilityCard.mint › setError",
-  "observability/ObservabilityCard.tsx › ObservabilityCard.mint › setMinted",
-  "observability/ObservabilityCard.tsx › ObservabilityCard.mint › setSettings",
-  "observability/ObservabilityCard.tsx › ObservabilityCard.onClick › setCopied",
-]);
-
 interface Site {
   file: string;
   line: number;
@@ -545,7 +432,7 @@ function allSites(): Site[] {
 describe("#1599 no state setter runs after an await without checking the component is still mounted", () => {
   it("every setter after an await is guarded, or allowed below with its reason", () => {
     const offenders = allSites()
-      .filter((s) => !(s.key in ALLOWED) && !PENDING.has(s.key))
+      .filter((s) => !(s.key in ALLOWED))
       .map((s) => s.file.replace(/^\.\.\//, "") + ":" + s.line + "  " + s.key);
     expect(offenders, "unguarded setters after an await:\n" + offenders.join("\n")).toEqual([]);
   });
@@ -553,11 +440,6 @@ describe("#1599 no state setter runs after an await without checking the compone
   it("every allowed site still exists, so the list can't outlive what it excused", () => {
     const keys = new Set(allSites().map((s) => s.key));
     expect(Object.keys(ALLOWED).filter((k) => !keys.has(k))).toEqual([]);
-  });
-
-  it("every pending site is still waiting, so a fixed one comes off the list", () => {
-    const keys = new Set(allSites().map((s) => s.key));
-    expect([...PENDING].filter((k) => !keys.has(k))).toEqual([]);
   });
 
   it("every allowed site says why", () => {

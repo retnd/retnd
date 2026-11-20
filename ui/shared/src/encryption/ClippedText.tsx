@@ -13,6 +13,7 @@
  * DOM only ever holds the clipped form.
  */
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 
 export const CLIP_AT = 80;
 
@@ -24,15 +25,16 @@ export function clipText(value: string): string {
 
 export function ClippedText({ value, mono = false }: { value: string; mono?: boolean }) {
   const [copied, setCopied] = useState(false);
+  const mountedRef = useMounted();
   if (value.length <= CLIP_AT) return <span className={mono ? "mono" : undefined}>{value}</span>;
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(value);
-      setCopied(true);
+      if (mountedRef.current) setCopied(true);
     } catch {
       // A browser that refuses the clipboard leaves the clipped text as it is;
       // the whole value is never drawn as a fallback.
-      setCopied(false);
+      if (mountedRef.current) setCopied(false);
     }
   };
   return (

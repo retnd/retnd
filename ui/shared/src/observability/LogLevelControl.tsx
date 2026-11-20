@@ -14,6 +14,7 @@
  * levels config.yaml accepts.
  */
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import type { ObservabilitySettings } from "@shared/api/contracts";
 import { describeFailure } from "@shared/api/failure";
@@ -31,13 +32,14 @@ export function LogLevelControl({ logs, readOnly, onSaved }: {
   const api = useApi();
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const mountedRef = useMounted();
 
   const change = (level: string) => {
     setSaving(true);
     setProblem(null);
     api.patchObservabilitySettings({ logsLevel: level }).then(
-      (s) => { setSaving(false); onSaved(s); },
-      (e: unknown) => { setSaving(false); setProblem(describeFailure(e, "could not save the log level").message); }
+      (s) => { if (mountedRef.current) setSaving(false); onSaved(s); },
+      (e: unknown) => { if (!mountedRef.current) return; setSaving(false); setProblem(describeFailure(e, "could not save the log level").message); }
     );
   };
 

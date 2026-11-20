@@ -42,6 +42,7 @@
  * digest is not asked for, and the card accepts no key bytes anywhere.
  */
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { Link } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { describeFailure, isNotConfigured } from "@shared/api/failure";
@@ -91,6 +92,7 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const mountedRef = useMounted();
   const heading = (
     <InfoTooltip id="encryption.card">
       <h2 className="eyebrow">Retained-copy encryption</h2>
@@ -107,13 +109,15 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
     setFailure(null);
     try {
       await work();
+      if (!mountedRef.current) return true;
       reload();
       return true;
     } catch (e) {
+      if (!mountedRef.current) return false;
       setFailure(describeFailure(e, fallback).message);
       return false;
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   };
 
@@ -383,7 +387,7 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
                 if (active === null) await api.createEncryptionKey();
                 await api.patchEncryptionPolicy({ mode: "required", keyProvider: { managed: true } });
               }
-            }, "encryption was not enabled").then((ok) => ok && close())
+            }, "encryption was not enabled").then((ok) => ok && mountedRef.current && close())
           }
         />
       ) : null}
@@ -394,7 +398,7 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
           failure={failure}
           onCancel={close}
           onSave={(external) =>
-            void act(() => api.patchEncryptionPolicy({ keyProvider: { external } }), "the reference was not saved").then((ok) => ok && close())
+            void act(() => api.patchEncryptionPolicy({ keyProvider: { external } }), "the reference was not saved").then((ok) => ok && mountedRef.current && close())
           }
         />
       ) : null}
@@ -406,7 +410,7 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
         confirmLabel="Turn off"
         disabled={busy}
         onCancel={close}
-        onConfirm={() => void act(() => api.patchEncryptionPolicy({ mode: "off" }), "encryption was not turned off").then((ok) => ok && close())}
+        onConfirm={() => void act(() => api.patchEncryptionPolicy({ mode: "off" }), "encryption was not turned off").then((ok) => ok && mountedRef.current && close())}
       >
         <p style={{ margin: 0 }}>
           New copies sent to a destination are written as plaintext again. Copies already written stay encrypted and stay readable through the key recorded against each of them, so keep the recovery bundle.
@@ -422,7 +426,7 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
         confirmLabel="Remove the block"
         disabled={busy}
         onCancel={close}
-        onConfirm={() => void act(() => api.resetEncryptionPolicy(), "the policy block was not removed").then((ok) => ok && close())}
+        onConfirm={() => void act(() => api.resetEncryptionPolicy(), "the policy block was not removed").then((ok) => ok && mountedRef.current && close())}
       >
         <p style={{ margin: 0 }}>
           The deployment resolves to off with no key provider. Copies already written stay encrypted and stay readable through their recorded keys.
@@ -438,7 +442,7 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
         confirmLabel="Rotate key"
         disabled={busy}
         onCancel={close}
-        onConfirm={() => void act(() => api.rotateEncryptionKey(), "the key was not rotated").then((ok) => ok && close())}
+        onConfirm={() => void act(() => api.rotateEncryptionKey(), "the key was not rotated").then((ok) => ok && mountedRef.current && close())}
       >
         <p style={{ margin: 0 }}>Rotating creates a new active key. From now on:</p>
         <ul style={{ margin: 0, paddingLeft: 18 }}>
@@ -460,7 +464,7 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
           busy={busy}
           refusal={failure}
           onCancel={close}
-          onRetire={() => void act(() => api.retireEncryptionKey(dialog.key.id), "the key was not retired").then((ok) => ok && close())}
+          onRetire={() => void act(() => api.retireEncryptionKey(dialog.key.id), "the key was not retired").then((ok) => ok && mountedRef.current && close())}
         />
       ) : null}
 

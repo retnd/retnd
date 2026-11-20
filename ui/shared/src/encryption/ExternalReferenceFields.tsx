@@ -17,6 +17,7 @@
  * declared) and none of them renders a byte of what was resolved.
  */
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import { describeFailure } from "@shared/api/failure";
 import { HelpField } from "@shared/components/FieldHelp";
@@ -75,6 +76,7 @@ export function ExternalReferenceFields({
   const [probe, setProbe] = useState<ProviderProbe | null>(null);
   const [probeFailure, setProbeFailure] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
+  const mountedRef = useMounted();
   const reference = referenceOf(draft);
 
   const test = () => {
@@ -83,8 +85,8 @@ export function ExternalReferenceFields({
     setProbe(null);
     setProbeFailure(null);
     api.testEncryptionProvider({ external: reference }).then(
-      (p) => { setProbe(p); setTesting(false); },
-      (e: unknown) => { setProbeFailure(describeFailure(e, "the reference could not be tested").message); setTesting(false); }
+      (p) => { if (!mountedRef.current) return; setProbe(p); setTesting(false); },
+      (e: unknown) => { if (!mountedRef.current) return; setProbeFailure(describeFailure(e, "the reference could not be tested").message); setTesting(false); }
     );
   };
 

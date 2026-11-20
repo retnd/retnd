@@ -21,6 +21,7 @@
  * their own so the registry diff does not touch the other two issues' ids.
  */
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import type { ObservabilitySettings, ObservabilitySettingsPatch } from "@shared/api/contracts";
 import { describeFailure } from "@shared/api/failure";
@@ -49,6 +50,7 @@ export function AlertDeliveryControls({
   const api = useApi();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const mountedRef = useMounted();
   const webhook = alerts.delivery === "webhook";
   const refreshing = webhook && alerts.webhook.dialect === "alertmanager";
 
@@ -58,9 +60,9 @@ export function AlertDeliveryControls({
     try {
       onSaved(await api.patchObservabilitySettings(patch));
     } catch (e) {
-      setError(describeFailure(e, "could not save the alert delivery settings").message);
+      if (mountedRef.current) setError(describeFailure(e, "could not save the alert delivery settings").message);
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   }
 
