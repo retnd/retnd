@@ -17,6 +17,9 @@ decides which controls a host can run, and these cases hold it:
      --check-anchors run and a --record run skip nothing.
   D  the skip ledger: a skipped control is one line in the file the gate
      reads into its skip ledger, so the shard ends INCOMPLETE, not ok.
+  F  the node controls (vitest, tsc) never download and never dangle: `npm exec
+     --no`, never a bare npx; the docker branch mounts the node_modules link's
+     target and not a fixed machine path; and the node lane needs node_modules.
   E  the controls: pin_problems reports a control added to and dropped from the
      pinned set, so B is able to fail.
 """
@@ -36,6 +39,9 @@ from bdtools import selftest_lanes as lanes  # noqa: E402
 from bdtools.tests import testkit  # noqa: E402
 
 LOCK = "/Users/rom/workspace/xdg-pw-lock.sh"
+NODE_FALLBACK = (
+    "if command -v node && [ -d node_modules ]; then env CI=1 npm exec --no -- vitest run a; else docker run img x; fi"
+)
 
 
 @dataclass
@@ -51,8 +57,8 @@ def main() -> int:
     vis = lanes.visible_needs
     s.assert_eq("A a Playwright spec needs the lock and docker", "docker,playwright-lock",
                 ",".join(sorted(vis([LOCK, "sh", "-c", "w=$(pwd); docker run img npx playwright test x"]))))
-    s.assert_eq("A a vitest run with the node fallback needs node only", "node",
-                ",".join(sorted(vis(["sh", "-c", "w=$(pwd); if docker info >/dev/null 2>&1; then docker run img npx vitest run a; else npx vitest run a; fi"]))))
+    s.assert_eq("A a vitest run that prefers the local node needs node only", "node",
+                ",".join(sorted(vis(["sh", "-c", NODE_FALLBACK]))))
     s.assert_eq("A a bare docker run needs docker", "docker",
                 ",".join(sorted(vis(["sh", "-c", "w=$(pwd); docker run --rm img true"]))))
     s.assert_eq("A a retnd-tests case needs the checkout", "retnd-tests",
@@ -82,13 +88,19 @@ def main() -> int:
     bare = {lane: False for lane in lanes.LANES}
     bare["node"] = True
     run, skipped = lanes.plan(controls, pinned, bare, dry_run=False, recording=False)
-    s.assert_eq("C a host with only node runs the Go and node controls", "go one,node one", ",".join(c.label for c in run))
+    s.assert_eq("C a host with only node runs the Go and node controls", "go one,node one",
+                ",".join(c.label for c in run))
     s.assert_eq("C and skips exactly the browser and retnd-tests ones, naming what is missing",
                 "browser one: docker, playwright-lock|tests one: retnd-tests",
                 "|".join(f"{c.label}: {', '.join(m)}" for c, m in skipped))
-    for mode, kw in (("--check-anchors", {"dry_run": True, "recording": False}), ("--record", {"dry_run": False, "recording": True})):
+    modes = (
+        ("--check-anchors", {"dry_run": True, "recording": False}),
+        ("--record", {"dry_run": False, "recording": True}),
+    )
+    for mode, kw in modes:
         run, skipped = lanes.plan(controls, pinned, bare, **kw)
-        s.check(len(run) == 4 and not skipped, f"C a {mode} run skips nothing", f"C a {mode} run skipped something", repr(skipped))
+        s.check(len(run) == 4 and not skipped, f"C a {mode} run skips nothing",
+                f"C a {mode} run skipped something", repr(skipped))
 
     # D
     with tempfile.TemporaryDirectory() as tmp:
@@ -102,12 +114,42 @@ def main() -> int:
         s.check(lanes.report(skipped, "encryption", "") == 3,
                 "D without a ledger file a run that skipped something is INCOMPLETE (3)",
                 "D a run that skipped controls with nobody to tell exited as if whole")
-        s.check(lanes.report([], "encryption", "") == 0, "D a run that skipped nothing is 0", "D an empty skip was not 0")
+        s.check(lanes.report([], "encryption", "") == 0, "D a run that skipped nothing is 0",
+                "D an empty skip was not 0")
 
     # E
     probs = lanes.pin_problems({"a": [LOCK], "b": []}, {"b": frozenset({"docker"})})
-    s.check(len(probs) == 2, "E a control that needs a lane and is not pinned, and a pinned one that needs none, are both reported",
+    s.check(len(probs) == 2, "E an unpinned control that needs a lane, and a pinned one that needs none, are reported",
             "E pin_problems missed a disagreement", "\n".join(probs))
+    # F
+    import bdtools.encryption.selftest as enc
+    node_cmds = [c for c in enc.CONTROLS if c.cmd and lanes.LANE_NODE in lanes.visible_needs(c.cmd)]
+    s.check(len(node_cmds) >= 7, f"F the encryption self-test has its node controls ({len(node_cmds)})",
+            "F no node control was found, so F proves nothing")
+    for c in node_cmds:
+        line = " ".join(c.cmd)
+        problems = []
+        if " npx " in line:
+            problems.append("a bare npx can download vitest or tsc")
+        if "npm exec --no" not in line:
+            problems.append("no npm exec --no")
+        if "readlink node_modules" not in line:
+            problems.append("the docker branch does not resolve the node_modules link")
+        if "/Users/" in line:
+            problems.append("a fixed machine path is mounted")
+        s.check(not problems, f"F {c.label}: offline and mounts what it links", f"F {c.label}: {'; '.join(problems)}")
+    root = Path(tempfile.mkdtemp())
+    s.check(not lanes.node_lane(root, has_node=True, has_docker=True),
+            "G the node lane is missing when ui/shared/node_modules is, node and docker or not",
+            "G the node lane was granted with no node_modules")
+    (root / "ui/shared/node_modules").mkdir(parents=True)
+    node_only = lanes.node_lane(root, has_node=True, has_docker=False)
+    docker_only = lanes.node_lane(root, has_node=False, has_docker=True)
+    s.check(node_only and docker_only,
+            "G with node_modules, node alone or docker alone is enough",
+            "G node_modules plus node or docker was refused")
+    s.check(not lanes.node_lane(root, has_node=False, has_docker=False),
+            "G with node_modules and neither node nor docker there is no node lane", "G a lane with no way to run it")
     return s.finish()
 
 
