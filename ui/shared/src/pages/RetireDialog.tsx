@@ -273,10 +273,10 @@ export function RetireDialog({
         aria-labelledby="retire-title"
         className="dialog"
         tabIndex={-1}
-        style={{ maxWidth: 820, width: "100%", outline: "none" }}
+        style={{ maxWidth: 820, width: "100%", outline: "none", display: "flex", flexDirection: "column", maxHeight: "calc(100vh - 48px)" }}
         onKeyDown={onKeyDown}
       >
-        <div style={{ padding: "20px 22px 6px", display: "grid", gap: 6 }}>
+        <div style={{ padding: "20px 22px 6px", display: "grid", gap: 6, flexShrink: 0 }}>
           <h2 id="retire-title" ref={resultRef} tabIndex={-1} style={{ margin: 0, fontSize: 18 }}>
             {title}
           </h2>
@@ -288,7 +288,7 @@ export function RetireDialog({
           )}
         </div>
 
-        <div style={{ padding: "8px 22px", display: "grid", gap: 16, fontSize: "var(--text-sm)" }}>
+        <div style={{ padding: "8px 22px", display: "grid", gap: 16, fontSize: "var(--text-sm)", overflowY: "auto", minHeight: 0, alignContent: "start" }}>
           {/* Mounted from the start and filled in when the answer arrives, so
               a screen reader announces the result rather than missing a
               region that appeared with its content already in it. */}
@@ -448,7 +448,7 @@ export function RetireDialog({
           )}
         </div>
 
-        <div style={{ padding: "14px 22px 18px", display: "flex", justifyContent: "flex-end", gap: 10, borderTop: "1px solid var(--border)", marginTop: 12 }}>
+        <div style={{ padding: "14px 22px 18px", display: "flex", justifyContent: "flex-end", gap: 10, borderTop: "1px solid var(--border)", marginTop: 12, flexShrink: 0 }}>
           {outcome ? (
             <button className="btn btn--strong-edge" style={TARGET} onClick={close}>Close</button>
           ) : (

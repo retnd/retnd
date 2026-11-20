@@ -238,6 +238,9 @@ var toolRows = []Row{
 		Untrusted: []string{
 			"artifact", "failure_reason", "proposed_successor.name", "successor_candidates[].name", "retirement.superseded_by", "retirement.note",
 			"retirement.failure_reason", "retirement.actor", "command",
+			// Issue #1594: an effect line may name the kept own copy's path, and
+			// that path ends in the file name the source chose.
+			"effects[]",
 		},
 	},
 	{
