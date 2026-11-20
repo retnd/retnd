@@ -577,6 +577,25 @@ if [ "$share_host" = 1 ]; then
   say "sharing the daemon host's network and /tmp with the container (CI_DOCKER_SHARE_HOST=0 turns it off)"
   as_user+=(--network host)
   mounts+=(-v /tmp:/tmp)
+  # TMPDIR on disk, in the scratch copy, when the shared /tmp is tmpfs (#1580).
+  # MARS's is: whatever a self-test writes there is memory charged to this
+  # container's fence, which cannot be swapped out, and the architecture
+  # self-test's tree copies took the gate past 7g that way. Same path inside
+  # and out, so a test that bind-mounts a temp directory into a sibling
+  # container still names a path the daemon can find. /tmp itself stays
+  # shared: the tests that need a short root for a unix socket ask for /tmp
+  # by name, not through TMPDIR. Only on a tmpfs /tmp, and only remotely: on
+  # a colima host (MERCURY) the probe asks the Mac, whose /tmp is on disk,
+  # and leaves TMPDIR alone, because there the scratch copy reaches the VM
+  # through the Mac's file share, where a test that makes a named pipe would
+  # skip rather than fail. The probe makes the
+  # directory as the remote account and says "tmpfs" only when it did; it
+  # goes with the rest of the scratch copy on exit.
+  if [ -n "$target" ] && [ "$("${rsh[@]}" "$target" "if [ \"\$(stat -f -c %T /tmp 2>/dev/null)\" = tmpfs ]; then umask 022 && mkdir -p '$remote_root/tmp' && echo tmpfs; fi" 2>/dev/null || true)" = tmpfs ]; then
+    say "the daemon host's /tmp is tmpfs, so TMPDIR is $remote_root/tmp, on disk"
+    mounts+=(-v "$remote_root/tmp:$remote_root/tmp")
+    xdg_env+=("TMPDIR=$remote_root/tmp")
+  fi
 fi
 
 # A named volume that shadows a path the IMAGE does not have is created

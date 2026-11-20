@@ -72,7 +72,7 @@ import type {
   SystemHealth,
   VersionInfo
 } from "@shared/types/operation";
-import { createMockRecoverMany } from "@shared/assurance/mockRecoverMany";
+import { createMockRecoverMany, recoveryRunProbeFromWindow } from "@shared/assurance/mockRecoverMany";
 import { retireCommand } from "@shared/assurance/assuranceCommands";
 import { createMockHostBrowse } from "@shared/assurance/mockHostBrowse";
 import { BUILTIN_ARTIFACT, DEFAULT_POLICY_NEWEST, DEFAULT_POLICY_TESTED, INGEST_FAILED_SCENARIO, followsDefault, untestedScenario, assuranceLiveEvents, assuranceStoredLines, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
@@ -4724,7 +4724,11 @@ export function createMockApi(
   const mockHostBrowse = createMockHostBrowse(scenario, assuranceSettings.stagingRoot);
   // #1106: every row the journal holds for a set, quarantined ones included,
   // which listArtifacts above deliberately leaves out.
-  const mockRecoverMany = createMockRecoverMany(scenario, (setId) => artifacts.filter((a) => a.setId === setId));
+  const mockRecoverMany = createMockRecoverMany(
+    scenario,
+    (setId) => artifacts.filter((a) => a.setId === setId),
+    typeof window === "undefined" ? undefined : recoveryRunProbeFromWindow()
+  );
   // Per-set overrides, keyed by source/set. Modelled the way the service
   // resolves them: a set follows the deployment for every field it does not
   // pin, so a global patch moves it.

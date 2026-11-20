@@ -22,7 +22,7 @@
  * references: a key id, and the known-hosts line that trust actually
  * anchors to.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { usePlatform } from "@shared/platform/PlatformContext";
 import { useApi } from "@shared/api/ApiContext";
@@ -648,6 +648,17 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
   // core's ProbeHostKey doc) — only "Trust host" (above) turns a probed
   // result into something a later connection is actually checked
   // against.
+  //
+  // The probe answers after an await, and the wizard can be gone by then
+  // (#1593): the operator left it, or a test unmounted it. The effect
+  // below that starts it has nothing to clean up, so every setter after
+  // the await checks `mounted` first. Set in its own effect so strict
+  // mode's remount sets it back.
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   async function probeHost() {
     const key = source.host + ":" + source.port;
     setProbing(true);
@@ -662,14 +673,18 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
     setProbedKnownHostsLine(null);
     try {
       const result = await api.probeHostKey(source.host, Number(source.port) || 22);
+      if (!mounted.current) return;
       setProbedFingerprint(result.fingerprint);
       setProbedAlgorithm(result.algorithm);
       setProbedKnownHostsLine(result.knownHostsLine);
     } catch (e) {
+      if (!mounted.current) return;
       setProbeError(errorMessage(e, "Could not reach this server to fetch its host key."));
     } finally {
-      setProbedFor(key);
-      setProbing(false);
+      if (mounted.current) {
+        setProbedFor(key);
+        setProbing(false);
+      }
     }
   }
 

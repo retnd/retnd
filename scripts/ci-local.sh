@@ -1393,6 +1393,12 @@ if [ "$FAST" != "1" ]; then
   gate_step "architecture rules can actually fail (mutation self-test)"
   bash scripts/architecture/selftest.sh
 
+  # Its scratch bound (#1580): at most two tree copies alive at once, each
+  # removed right after its case, also when the case raises or is stopped.
+  # Stand-ins for the copy and every check, so it takes a second.
+  gate_step "the architecture self-test holds at most two tree copies and removes each after its case (#1580)"
+  bash scripts/tests/architecture-selftest-scratch.test.sh
+
   # The three self-tests of the gate's own machinery that sat in the tree and
   # in no step (#1533). Each runs against stand-ins for docker, ssh and rsync
   # and a throwaway repository, so there is no daemon and no network: the

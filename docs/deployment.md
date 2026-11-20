@@ -866,7 +866,12 @@ while the condition lasts. `alertmanager` posts the v2 array with `labels.alertn
 and `labels.scope`, re-sends a condition that is still true every `refresh_interval`
 so Alertmanager does not expire it, and closes it with `endsAt` set to now when it
 clears. Without that refresh an alert would resolve itself while the backup was still
-stale. If you run Prometheus, its rules over the `retnd_*` series into Alertmanager
+stale. Alerts that fall due together are sent in parallel, up to 16 at a time, so the
+30 seconds between `refresh_interval` and `resolve_ttl` (one delivery attempt) covers
+each of them and not just the first. With more than 16 alerts standing at once and a
+receiver that takes close to 30 seconds to answer, add another 30 seconds to
+`resolve_ttl` for each further 16; the defaults leave six minutes, which is plenty.
+If you run Prometheus, its rules over the `retnd_*` series into Alertmanager
 are the better source of truth for staleness; this format is for deployments that
 scrape nothing, and running both means two sources of truth about the same fact.
 

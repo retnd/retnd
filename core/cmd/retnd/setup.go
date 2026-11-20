@@ -17,6 +17,7 @@ import (
 	"github.com/retnd/retnd/core/internal/obs"
 	"github.com/retnd/retnd/core/internal/transport"
 	"github.com/retnd/retnd/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/prerename"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -52,6 +53,22 @@ import (
 // because config.Load decodes with KnownFields(true) and a new key is a
 // one-way door out of a rollback.
 const defaultConfigPath = "/etc/retnd/config/config.yaml"
+
+// refusedAtPreRenamePath is #1546's refusal, for a deployment still mounted
+// at the path it had before the 0.5.0 rename: it prints the diagnostic, which
+// names both paths and the fix, and reports whether it refused. Every command
+// that reads the configuration or the journal itself (daemon, run, check,
+// status) asks before it reads either (#1558). Otherwise the command reads
+// this release's empty path and answers as if it were a fresh install, and
+// the operator gets "no backup set configured yet" with no word about where
+// the catalogue is. See core/prerename.
+func refusedAtPreRenamePath(cfgPath string) bool {
+	if err := prerename.Check(cfgPath, service.StateDatabaseDefault()); err != nil {
+		fmt.Fprintln(os.Stderr, cliecho.Binary+":", err)
+		return true
+	}
+	return false
+}
 
 // newFlagSet builds a flag.FlagSet every subcommand but `version` shares:
 // a name (for its own usage/error output) and the one flag they all take,
