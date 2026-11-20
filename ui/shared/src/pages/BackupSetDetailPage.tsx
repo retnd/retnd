@@ -25,6 +25,7 @@
  * this set at different data.
  */
 import { useEffect, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import type { ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
@@ -208,6 +209,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   // character and deleting it leaves Save inactive) and is why both are
   // strings.
   const [editing, setEditing] = useState(false);
+  const mountedRef = useMounted();
   const [baseline, setBaseline] = useState<Record<EditFieldKey, string> | null>(null);
   const [draft, setDraft] = useState<Record<EditFieldKey, string> | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<EditFieldKey, string>>>({});
@@ -407,6 +409,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     setTesting(true);
     try {
       const result = await api.testConnection(s.id);
+      if (!mountedRef.current) return;
       // The steps are not rendered here (see above); this one field is
       // KEPT, because it is not a step, it is what the set may be
       // configured to do next (issue #852).
@@ -423,7 +426,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
         backupSetIds: [s.id]
       });
     } finally {
-      setTesting(false);
+      if (mountedRef.current) setTesting(false);
     }
   };
 
@@ -441,10 +444,10 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   const toggleReadOnly = async () => {
     try {
       await api.setReadOnly(s.source, s.set, !s.readOnly);
-      set.reload();
+      if (mountedRef.current) set.reload();
     } catch (e) {
       const code = apiErrorOf(e)?.code ?? null;
-      if (code === "BACKUP_SET_SOURCE_NOT_WRITABLE") setSourceWritable(false);
+      if (code === "BACKUP_SET_SOURCE_NOT_WRITABLE" && mountedRef.current) setSourceWritable(false);
       const failure = describeFailure(e, "retnd could not change this backup set's read-only status.");
       emitBrowserNotice({
         outcome: code === null ? "unreachable" : "refused",
@@ -483,9 +486,10 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     setEnterError(null);
     try {
       const hold = await api.takeEditHold(source, setName);
+      if (!mountedRef.current) return;
       setStopped(hold.stopped);
     } catch (e) {
-      setEnterError(describeFailure(e, "retnd could not pause this backup set for editing.").message);
+      if (mountedRef.current) setEnterError(describeFailure(e, "retnd could not pause this backup set for editing.").message);
       return;
     }
     const loaded = readEditFields(s);
@@ -508,6 +512,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     try {
       running = (await api.getEditHold(source, setName)).running;
     } catch (e) {
+      if (!mountedRef.current) return;
       // Refused rather than entered anyway. Opening edit mode without
       // knowing whether a cycle is running is exactly the two-writers
       // race the hold exists to prevent, and doing it silently would be
@@ -517,6 +522,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       );
       return;
     }
+    if (!mountedRef.current) return;
     if (running) {
       setWarnAbout(running);
       return;
@@ -609,6 +615,8 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       graph.commit("app.currentSetDetail/edit-saved", (tx) =>
         tx.set(currentSetDetailNode, { data: updated, error: null, loading: false })
       );
+      // The graph keeps the saved set either way; the boxes are this page's.
+      if (!mountedRef.current) return SAVED;
       setSnapshot(captureSetEditSnapshot());
       // Both baseline and draft are re-read from the SERVER's answer for
       // the saved keys, not from the text that was sent: the box then
@@ -632,6 +640,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       // discard the operator's work and show them the old value as
       // though nothing had happened.
       const message = describeFailure(e, "retnd could not save this change.").message;
+      if (!mountedRef.current) return { ok: false, reason: message };
       const kind = REFUSALS_NEEDING_AN_ANSWER[apiErrorOf(e)?.code ?? ""];
       if (kind) {
         // Not a field error. The service is not saying the value is
@@ -644,7 +653,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       setFieldErrors((prev) => ({ ...prev, ...Object.fromEntries(keys.map((k) => [k, message])) }));
       return { ok: false, reason: message };
     } finally {
-      setSavingFields((prev) => prev.filter((key) => !keys.includes(key)));
+      if (mountedRef.current) setSavingFields((prev) => prev.filter((key) => !keys.includes(key)));
     }
   };
 
@@ -672,6 +681,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     const hookKeys = HOOK_DIR_KEYS.filter((key) => hookStateOf(key) === "changed");
     if (hookKeys.length > 0 && !(await saveHooks(hookKeys))) return;
     const outcome = await saveFields(dirtyKeys(), null, true);
+    if (!mountedRef.current) return;
     if (!outcome.ok) {
       // Two writes, and only the second failed. The directories are live
       // and will run on the next backup, so say which half that was.
@@ -700,6 +710,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     setHookErrors((prev) => omitKeys(prev, keys));
     try {
       const saved = await setWorkflow.write(patch);
+      if (!mountedRef.current) return true;
       const at = new Date().toISOString();
       setSavedThisSession((prev) => [
         ...prev.filter((entry) => !keys.includes(entry.key as HookDirKey)),
@@ -709,10 +720,10 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       return true;
     } catch (e) {
       const text = workflowSaveFailureText(e, "that directory was not saved");
-      if (text) setHookErrors((prev) => ({ ...prev, ...Object.fromEntries(keys.map((k) => [k, text])) }));
+      if (text && mountedRef.current) setHookErrors((prev) => ({ ...prev, ...Object.fromEntries(keys.map((k) => [k, text])) }));
       return false;
     } finally {
-      setSavingHooks((prev) => prev.filter((key) => !keys.includes(key)));
+      if (mountedRef.current) setSavingHooks((prev) => prev.filter((key) => !keys.includes(key)));
     }
   };
 
@@ -730,7 +741,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     const pending = refusal;
     if (!pending) return;
     if (!(await saveFields(pending.keys, pending.kind, pending.exitAfter, pending.patch)).ok) return;
-    if (pending.exitAfter) leaveEditMode();
+    if (pending.exitAfter && mountedRef.current) leaveEditMode();
   };
 
   const leaveEditMode = () => {

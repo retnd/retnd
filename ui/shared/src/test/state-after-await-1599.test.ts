@@ -167,160 +167,6 @@ const PENDING = new Set<string>([
   "observability/ObservabilityCard.tsx › ObservabilityCard.mint › setMinted",
   "observability/ObservabilityCard.tsx › ObservabilityCard.mint › setSettings",
   "observability/ObservabilityCard.tsx › ObservabilityCard.onClick › setCopied",
-  "pages/ActivityPage.tsx › ActivityPage.loadOlder › setLoadingOlder",
-  "pages/ActivityPage.tsx › ActivityPage.loadOlder › setOlder",
-  "pages/ActivityPage.tsx › ActivityPage.loadOlder › setOlderFailure",
-  "pages/ActivityStrip.tsx › ActivityToolbar.copy › setCopied",
-  "pages/BackupDetailPage.tsx › BackupDetailPage.retryIngestion › setRecovery",
-  "pages/BackupDetailPage.tsx › BackupDetailPage.retryIngestion › setRetrying",
-  "pages/BackupSetConfigurationCard.tsx › IncrementalConfiguration.save › setEditing",
-  "pages/BackupSetConfigurationCard.tsx › IncrementalConfiguration.save › setSaveError",
-  "pages/BackupSetConfigurationCard.tsx › IncrementalConfiguration.save › setSaving",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.confirmRefusal › leaveEditMode",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.enterEditMode › setBaseline",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.enterEditMode › setDraft",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.enterEditMode › setEditing",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.enterEditMode › setEnterError",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.enterEditMode › setFieldErrors",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.enterEditMode › setRefusal",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.enterEditMode › setSnapshot",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.enterEditMode › setStale",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.enterEditMode › setStopped",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.onEditPressed › setEnterError",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.onEditPressed › setWarnAbout",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.runConnectionTest › setSourceWritable",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.runConnectionTest › setTesting",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveAllAndExit › leaveEditMode",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveAllAndExit › setPartialSave",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveFields › setBaseline",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveFields › setDraft",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveFields › setFieldErrors",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveFields › setRefusal",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveFields › setSavedThisSession",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveFields › setSavingFields",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveFields › setSnapshot",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveHooks › setHookDraft",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveHooks › setHookErrors",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveHooks › setSavedThisSession",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveHooks › setSavingHooks",
-  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.toggleReadOnly › setSourceWritable",
-  "pages/BackupSetRetentionCard.tsx › RetentionPanel.apply › setBusy",
-  "pages/BackupSetRetentionCard.tsx › RetentionPanel.apply › setError",
-  "pages/BackupSetRetentionCard.tsx › RetentionPanel.apply › setR",
-  "pages/BackupSetsPage.tsx › BackupSetsPage.toggleEnabled › publishBusy",
-  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.handleSave › setRepointRefusal",
-  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.handleSave › setRunNotStarted",
-  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.handleSave › setSaveError",
-  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.handleSave › setSaving",
-  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.onClick › setImportedFingerprint",
-  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.onClick › setImportedKeyId",
-  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.onClick › setImportError",
-  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.onClick › setImporting",
-  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.onClick › setImportPasted",
-  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.runConnectionTest › setConnectionError",
-  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.runConnectionTest › setConnectionResult",
-  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.runConnectionTest › setConnectionTestedFor",
-  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.runConnectionTest › setTesting",
-  "pages/BackupSetWorkflowCard.tsx › ExecConnectionPicker.onChange › setFailure",
-  "pages/BackupSetWorkflowCard.tsx › ExecConnectionPicker.onChange › setSaving",
-  "pages/BackupSetWorkflowCard.tsx › SetWorkflowCard.validate › setValidatedAt",
-  "pages/BackupSetWorkflowCard.tsx › SetWorkflowCard.validate › setValidating",
-  "pages/BackupSetWorkflowCard.tsx › SetWorkflowCard.validate › setValidation",
-  "pages/BackupSetWorkflowCard.tsx › SetWorkflowCard.validate › setValidationError",
-  "pages/CapacityCard.tsx › CapacityEditor.onSave › setBaseline",
-  "pages/CapacityCard.tsx › CapacityEditor.onSave › setBusy",
-  "pages/CapacityCard.tsx › CapacityEditor.onSave › setCap",
-  "pages/CapacityCard.tsx › CapacityEditor.onSave › setCritical",
-  "pages/CapacityCard.tsx › CapacityEditor.onSave › setSaved",
-  "pages/CapacityCard.tsx › CapacityEditor.onSave › setSaveError",
-  "pages/CapacityCard.tsx › CapacityEditor.onSave › setWarning",
-  "pages/CatalogRecoveryPage.tsx › CatalogRecoveryPage.onConfirm › setConfirming",
-  "pages/CatalogRecoveryPage.tsx › CatalogRecoveryPage.onConfirm › setFailure",
-  "pages/CatalogRecoveryPage.tsx › CatalogRecoveryPage.scan › setFailure",
-  "pages/CatalogRecoveryPage.tsx › CatalogRecoveryPage.scan › setPreview",
-  "pages/CatalogRecoveryPage.tsx › CatalogRecoveryPage.scan › setScanning",
-  "pages/DestinationConfigureWizard.tsx › DestinationConfigureWizard.runProbe › setBusy",
-  "pages/DestinationConfigureWizard.tsx › DestinationConfigureWizard.runProbe › setCredential",
-  "pages/DestinationConfigureWizard.tsx › DestinationConfigureWizard.runProbe › setCredentialConfigured",
-  "pages/DestinationConfigureWizard.tsx › DestinationConfigureWizard.runProbe › setCredentialsId",
-  "pages/DestinationConfigureWizard.tsx › DestinationConfigureWizard.runProbe › setElapsedMs",
-  "pages/DestinationConfigureWizard.tsx › DestinationConfigureWizard.runProbe › setFailure",
-  "pages/DestinationConfigureWizard.tsx › DestinationConfigureWizard.runProbe › setProvenFor",
-  "pages/DestinationConfigureWizard.tsx › DestinationConfigureWizard.runProbe › setReport",
-  "pages/DestinationConfigureWizard.tsx › DestinationConfigureWizard.save › setBusy",
-  "pages/DestinationConfigureWizard.tsx › DestinationConfigureWizard.save › setFailure",
-  "pages/QuarantinePage.tsx › QuarantinePage.reinstate › setConfirming",
-  "pages/QuarantinePage.tsx › QuarantinePage.reinstate › setOutcome",
-  "pages/QuarantinePage.tsx › QuarantinePage.reinstate › setRunning",
-  "pages/QuarantinePage.tsx › QuarantinePage.retryIngestion › setOutcome",
-  "pages/QuarantinePage.tsx › QuarantinePage.revalidate › setOutcome",
-  "pages/RepositoryDomainNewPage.tsx › RepositoryDomainNewPage.create › setRefusal",
-  "pages/RepositoryDomainNewPage.tsx › RepositoryDomainNewPage.create › setSaving",
-  "pages/retentionChain.tsx › MediumPreflightRow.run › setBusy",
-  "pages/retentionChain.tsx › MediumPreflightRow.run › setError",
-  "pages/retentionChain.tsx › MediumPreflightRow.run › setReport",
-  "pages/retentionChain.tsx › TierDestinationActions.test › setBusy",
-  "pages/retentionChain.tsx › TierDestinationActions.test › setError",
-  "pages/retentionChain.tsx › TierDestinationActions.test › setReport",
-  "pages/RetentionPolicyCard.tsx › RetentionPolicyEditor.submit › setAcknowledged",
-  "pages/RetentionPolicyCard.tsx › RetentionPolicyEditor.submit › setBaseline",
-  "pages/RetentionPolicyCard.tsx › RetentionPolicyEditor.submit › setBusy",
-  "pages/RetentionPolicyCard.tsx › RetentionPolicyEditor.submit › setProtect",
-  "pages/RetentionPolicyCard.tsx › RetentionPolicyEditor.submit › setSaved",
-  "pages/RetentionPolicyCard.tsx › RetentionPolicyEditor.submit › setSaveError",
-  "pages/RetentionPolicyCard.tsx › RetentionPolicyEditor.submit › setTiers",
-  "pages/RetentionPolicyCard.tsx › RetentionPolicyEditor.submit › setTimezone",
-  "pages/RetentionPolicyCard.tsx › RetentionPolicyEditor.submit › setWeekStartsOn",
-  "pages/RetentionPreviewDialog.tsx › RetentionPreviewDialog.handleApply › setApplyError",
-  "pages/RetentionPreviewDialog.tsx › RetentionPreviewDialog.handleApply › setConfirming",
-  "pages/RetentionPreviewDialog.tsx › RetentionPreviewDialog.handleApply › setGateNotice",
-  "pages/S3DestinationWizard.tsx › S3DestinationWizard.save › setBusy",
-  "pages/S3DestinationWizard.tsx › S3DestinationWizard.save › setFailure",
-  "pages/S3DestinationWizard.tsx › S3DestinationWizard.toVerify › setAccessKeyId",
-  "pages/S3DestinationWizard.tsx › S3DestinationWizard.toVerify › setBusy",
-  "pages/S3DestinationWizard.tsx › S3DestinationWizard.toVerify › setCredentialsId",
-  "pages/S3DestinationWizard.tsx › S3DestinationWizard.toVerify › setFailure",
-  "pages/S3DestinationWizard.tsx › S3DestinationWizard.toVerify › setReport",
-  "pages/S3DestinationWizard.tsx › S3DestinationWizard.toVerify › setSecretAccessKey",
-  "pages/S3DestinationWizard.tsx › S3DestinationWizard.toVerify › setStep",
-  "pages/S3DestinationWizard.tsx › S3DestinationWizard.verifyAgain › setBusy",
-  "pages/S3DestinationWizard.tsx › S3DestinationWizard.verifyAgain › setFailure",
-  "pages/S3DestinationWizard.tsx › S3DestinationWizard.verifyAgain › setReport",
-  "pages/ServiceBehaviourCard.tsx › ServiceBehaviourEditor.onSave › setBaselineSeconds",
-  "pages/ServiceBehaviourCard.tsx › ServiceBehaviourEditor.onSave › setBusy",
-  "pages/ServiceBehaviourCard.tsx › ServiceBehaviourEditor.onSave › setMinutes",
-  "pages/ServiceBehaviourCard.tsx › ServiceBehaviourEditor.onSave › setSaved",
-  "pages/ServiceBehaviourCard.tsx › ServiceBehaviourEditor.onSave › setSaveError",
-  "pages/SettingsPage.tsx › ChangePasswordCard.submit › setBusy",
-  "pages/SettingsPage.tsx › ChangePasswordCard.submit › setConfirm",
-  "pages/SettingsPage.tsx › ChangePasswordCard.submit › setCurrent",
-  "pages/SettingsPage.tsx › ChangePasswordCard.submit › setFailure",
-  "pages/SettingsPage.tsx › ChangePasswordCard.submit › setNext",
-  "pages/SettingsPage.tsx › ChangePasswordCard.submit › setSuccess",
-  "pages/SettingsPage.tsx › RecoveryEditor.save › setCurrent",
-  "pages/SettingsPage.tsx › RecoveryEditor.save › setEmail",
-  "pages/SettingsPage.tsx › RecoveryEditor.save › setFailure",
-  "pages/SettingsPage.tsx › RecoveryEditor.save › setPassword",
-  "pages/SettingsPage.tsx › RecoveryEditor.save › setSaved",
-  "pages/SettingsPage.tsx › RecoveryEditor.save › setSaving",
-  "pages/SettingsPage.tsx › RecoveryEditor.save › setSmtp",
-  "pages/SettingsPage.tsx › RecoveryEditor.sendTest › setFailure",
-  "pages/SettingsPage.tsx › RecoveryEditor.sendTest › setTested",
-  "pages/SettingsPage.tsx › RecoveryEditor.sendTest › setTesting",
-  "pages/SnapshotRestorePage.tsx › SnapshotRestorePage.onFinish › setStepUpError",
-  "pages/StorageDestinationsCard.tsx › DestinationRow.makeDefault › setBusy",
-  "pages/StorageDestinationsCard.tsx › DestinationRow.makeDefault › setFailure",
-  "pages/StorageDestinationsCard.tsx › DestinationRow.remove › setBusy",
-  "pages/StorageDestinationsCard.tsx › DestinationRow.remove › setFailure",
-  "pages/StorageDestinationsCard.tsx › DestinationRow.remove › setUsage",
-  "pages/StorageDestinationsCard.tsx › DestinationRow.testConnection › setBusy",
-  "pages/StorageDestinationsCard.tsx › DestinationRow.testConnection › setFailure",
-  "pages/StorageDestinationsCard.tsx › DestinationRow.testConnection › setReport",
-  "pages/StorageDestinationsCard.tsx › DestinationRow.testConnection › setUsage",
-  "pages/useSetWorkflow.ts › useSetWorkflow.write › setRefusal",
-  "pages/WorkflowSettingsCard.tsx › WorkflowSettingsCard.save › setFailure",
-  "pages/WorkflowSettingsCard.tsx › WorkflowSettingsCard.save › setRefusal",
-  "pages/WorkflowSettingsCard.tsx › WorkflowSettingsCard.save › setSaving",
 ]);
 
 interface Site {
@@ -330,6 +176,16 @@ interface Site {
 }
 
 type Fn = ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction | ts.MethodDeclaration;
+
+/** Where control came back to the function a setter call is in: the function,
+ *  the position, the await when it was one, and the call (or the nested
+ *  function holding it) as seen from that function. */
+interface Origin {
+  fn: Fn;
+  from: number;
+  at?: ts.Node;
+  call: ts.Node;
+}
 
 interface Scope {
   setters: Set<string>;
@@ -514,12 +370,12 @@ function findSites(file: string, text: string): Site[] {
 
   /** Awaits that belong to `fn` itself, not to a function inside it, with
    *  the position each one hands control back at. */
-  const resumePoints = (root: ts.Node, fn: Fn): number[] => {
-    const out: number[] = [];
+  const resumePoints = (root: ts.Node, fn: Fn): { pos: number; at: ts.Node }[] => {
+    const out: { pos: number; at: ts.Node }[] = [];
     const walk = (m: ts.Node) => {
       if (isFn(m) && m !== fn) return;
-      if (ts.isAwaitExpression(m)) out.push(m.end);
-      if (ts.isForOfStatement(m) && m.awaitModifier) out.push(m.statement.getStart(sf));
+      if (ts.isAwaitExpression(m)) out.push({ pos: m.end, at: m });
+      if (ts.isForOfStatement(m) && m.awaitModifier) out.push({ pos: m.statement.getStart(sf), at: m.statement });
       ts.forEachChild(m, walk);
     };
     walk(root);
@@ -529,8 +385,9 @@ function findSites(file: string, text: string): Site[] {
     ts.isForStatement(n) || ts.isForInStatement(n) || ts.isForOfStatement(n) || ts.isWhileStatement(n) || ts.isDoStatement(n);
 
   /** Where the call stops being synchronous with whatever started it: the
-   *  function that awaited and the position control came back at. */
-  const origin = (node: ts.Node): { fn: Fn; from: number } | undefined => {
+   *  function that awaited, the position control came back at, and the
+   *  await itself when it was one. */
+  const origin = (node: ts.Node): Origin | undefined => {
     // The call's end, not its start: `setX(await read())` runs the setter
     // after the await in its own argument.
     let pos = node.end;
@@ -539,17 +396,46 @@ function findSites(file: string, text: string): Site[] {
       const fn = enclosingFn(cur);
       if (!fn || !fn.body) return undefined;
       let from = isPromiseCallback(fn) ? fn.body.getStart(sf) : -1;
+      let at: ts.Node | undefined;
       if (isAsync(fn)) {
-        for (const r of resumePoints(fn.body, fn)) if (r <= pos) from = Math.max(from, r);
+        for (const r of resumePoints(fn.body, fn)) if (r.pos <= pos && r.pos > from) { from = r.pos; at = r.at; }
         for (let p = cur.parent; p && p !== fn; p = p.parent) {
-          if (isLoop(p) && resumePoints(p, fn).length > 0) from = Math.max(from, p.statement.getStart(sf));
+          if (isLoop(p) && resumePoints(p, fn).length > 0 && p.statement.getStart(sf) > from) { from = p.statement.getStart(sf); at = undefined; }
         }
       }
-      if (from >= 0) return { fn, from };
+      if (from >= 0) return { fn, from, at, call: cur };
       if (isAsync(fn)) return undefined;
       pos = fn.getStart(sf);
       cur = fn;
     }
+  };
+
+  const contains = (outer: ts.Node, inner: ts.Node) => inner.pos >= outer.pos && inner.end <= outer.end;
+
+  const isExitGuard = (st: ts.Statement, s: Scope) =>
+    ts.isIfStatement(st) && !st.elseStatement && exits(st.thenStatement) && deadImpliesTruthy(st.expression, s);
+
+  /** The other way a call can be covered: the await sits in a nested block
+   *  (an `if`, a `try`) that checks before it finishes, so the only way out
+   *  of that block to the call has passed the check. A `try` whose catch can
+   *  fall through to the call doesn't count, since a rejected await goes
+   *  round the check. */
+  const checkedOnTheWayOut = (o: Origin, s: Scope): boolean => {
+    if (!o.at) return false;
+    let found = false;
+    let child: ts.Node = o.at;
+    let p: ts.Node | undefined = o.at.parent;
+    for (; p && p !== o.fn && !contains(p, o.call); child = p, p = p.parent) {
+      if (ts.isTryStatement(p) && child === p.tryBlock && found && p.catchClause && !exits(p.catchClause.block)) return false;
+      if (!found && (ts.isBlock(p) || ts.isCaseClause(p) || ts.isDefaultClause(p))) {
+        const i = p.statements.indexOf(child as ts.Statement);
+        found = p.statements.slice(i + 1).some((st) => isExitGuard(st, s));
+      }
+    }
+    // A call in the catch or the finally of the try the await is in is
+    // reached without going through the try block's check.
+    if (p && ts.isTryStatement(p) && child === p.tryBlock) return false;
+    return found;
   };
 
   const exits = (s: ts.Statement): boolean => {
@@ -558,7 +444,7 @@ function findSites(file: string, text: string): Site[] {
     return false;
   };
 
-  const guarded = (node: ts.Node, o: { fn: Fn; from: number }, s: Scope): boolean => {
+  const guarded = (node: ts.Node, o: Origin, s: Scope): boolean => {
     let child: ts.Node = node;
     for (let p = node.parent; p && p !== o.fn; child = p, p = p.parent) {
       if (ts.isIfStatement(p) && p.expression.getStart(sf) >= o.from) {
@@ -577,11 +463,11 @@ function findSites(file: string, text: string): Site[] {
       if (ts.isBlock(p) || ts.isCaseClause(p) || ts.isDefaultClause(p)) {
         for (const st of p.statements) {
           if (st === child) break;
-          if (st.getStart(sf) >= o.from && ts.isIfStatement(st) && !st.elseStatement && exits(st.thenStatement) && deadImpliesTruthy(st.expression, s)) return true;
+          if (st.getStart(sf) >= o.from && isExitGuard(st, s)) return true;
         }
       }
     }
-    return false;
+    return checkedOnTheWayOut(o, s);
   };
 
   // A helper that calls a setter (or another such helper) synchronously is a
@@ -593,7 +479,7 @@ function findSites(file: string, text: string): Site[] {
       if (found || (isFn(m) && m !== fn)) return;
       if (
         ts.isCallExpression(m) && ts.isIdentifier(m.expression) && m.expression.text !== self && s.setters.has(m.expression.text) &&
-        !guarded(m, { fn, from: fn.body ? fn.body.getStart(sf) : 0 }, s)
+        !guarded(m, { fn, from: fn.body ? fn.body.getStart(sf) : 0, call: m }, s)
       ) found = true;
       ts.forEachChild(m, walk);
     };
@@ -756,6 +642,17 @@ describe("#1599 the guard check itself", () => {
     const body =
       "  const go = async () => { try { await api.a(); if (!mountedRef.current) return; setX(1); } catch { setX(2); } finally { if (mountedRef.current) setX(3); } };";
     expect(findSites("x.tsx", component(body)).map((s) => s.line)).toEqual([6]);
+  });
+
+  it("takes a check that ends the block the await is in", () => {
+    const inIf = "  const go = async (f: boolean) => { if (f) { await api.a(); if (!mountedRef.current) return; setX(1); } setX(2); };";
+    expect(flagged(inIf)).toEqual([]);
+    const inTry = "  const go = async () => { try { await api.a(); if (!mountedRef.current) return; } catch { return; } setX(1); };";
+    expect(flagged(inTry)).toEqual([]);
+    const fallsThrough = "  const go = async () => { try { await api.a(); if (!mountedRef.current) return; } catch { setX(0); } setX(1); };";
+    expect(flagged(fallsThrough)).toEqual(["x.tsx › Card.go › setX", "x.tsx › Card.go › setX"]);
+    const checkFirst = "  const go = async (f: boolean) => { if (f) { if (!mountedRef.current) return; await api.a(); } setX(2); };";
+    expect(flagged(checkFirst)).toEqual(["x.tsx › Card.go › setX"]);
   });
 
   it("counts a setter at the top of a loop that awaits", () => {

@@ -608,6 +608,7 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
         knownHostsLine: trustedKnownHostsLine ?? "",
         remotePath: remoteFolder
       });
+      if (!mountedRef.current) return;
       setConnectionResult(outcome);
       // Recorded as the subject the check was RUN for, captured before
       // the request rather than read again after it: an operator who
@@ -615,9 +616,9 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
       // answer land against the new value.
       setConnectionTestedFor(subject);
     } catch (e) {
-      setConnectionError(errorMessage(e, "Could not test this connection."));
+      if (mountedRef.current) setConnectionError(errorMessage(e, "Could not test this connection."));
     } finally {
-      setTesting(false);
+      if (mountedRef.current) setTesting(false);
     }
   }
 
@@ -826,11 +827,13 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
         // here and say what did not happen, with the Save buttons off,
         // because the set already exists and pressing one again would
         // create a second.
-        setRunNotStarted(created.runError);
+        if (mountedRef.current) setRunNotStarted(created.runError);
         return;
       }
-      navigate("/sets");
+      // Only from the wizard: whoever left it isn't pulled back to the list.
+      if (mountedRef.current) navigate("/sets");
     } catch (e) {
+      if (!mountedRef.current) return;
       const message = errorMessage(
         e,
         firstRun ? "Could not save this configuration." : "Could not save this backup set."
@@ -848,7 +851,7 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
       }
       setSaveError(message);
     } finally {
-      setSaving(false);
+      if (mountedRef.current) setSaving(false);
     }
   }
 
@@ -1186,13 +1189,14 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
                               setImportError(null);
                               try {
                                 const result = await api.importSSHKey(importPasted);
+                                if (!mountedRef.current) return;
                                 setImportedFingerprint(result.algorithm + " · " + result.fingerprint);
                                 setImportedKeyId(result.id);
                                 setImportPasted("");
                               } catch (e) {
-                                setImportError(errorMessage(e, "Could not import this key."));
+                                if (mountedRef.current) setImportError(errorMessage(e, "Could not import this key."));
                               } finally {
-                                setImporting(false);
+                                if (mountedRef.current) setImporting(false);
                               }
                             }}
                           >
