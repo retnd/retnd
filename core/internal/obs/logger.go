@@ -254,7 +254,16 @@ func (l *Logger) emitMarked(ctx context.Context, level Level, m mark, event, msg
 		all = append(all, redactAttr(l.redact, a))
 	}
 	msg = l.redact.Filter(msg)
-	l.base.LogAttrs(ctx, level, msg, all...)
+	if m.pastFloor {
+		// Straight to the handler: slog's level check lives in Logger,
+		// not in the JSON handler, so this is the floor skipped for this
+		// one record and nothing else.
+		r := slog.NewRecord(time.Now(), level, msg, 0)
+		r.AddAttrs(all...)
+		_ = l.base.Handler().Handle(ctx, r)
+	} else {
+		l.base.LogAttrs(ctx, level, msg, all...)
+	}
 	// The event attr and whichever marks were actually added are sliced
 	// off: the tap names all four in fields of its own, and repeating
 	// them in the flat list would leave every reader to filter them back

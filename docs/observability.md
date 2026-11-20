@@ -1,6 +1,6 @@
 # Observability
 
-This page covers the log stream (FR-100, EPIC O). The scrape endpoint and the alert webhook get their own sections when #899 and #901 land, and the dashboards and the example bundle are #902's.
+This page covers the log stream (FR-100, EPIC O). The scrape endpoint (#899) and the alert webhook (#901) have landed and are set from the same Settings card and `retnd settings observability`; they don't have sections here yet, and the dashboards and the example bundle are #902's.
 
 ## The log stream is a schema
 
@@ -21,7 +21,7 @@ What I added is a promise about the field names. A Loki pipeline, a `jq` filter 
 
 Everything else on a line is a per-event attribute (`version` on `startup`, `duration` on an action's completion, and so on). Those can be added freely and are never reserved. `core/internal/obs/schema_test.go` holds the list against literals typed out again in the test, runs a golden line over the real output, and plants the three drift shapes (a ninth key, `action_id` renamed to `actionId`, `result` dropped from a marked line) to show each is refused and that the refusal names the key. A per-event attribute stays green on purpose.
 
-The version of the schema is `1`. It lives in two places and neither is a per-line field: the `log_schema` attribute on the `startup` event (every process emits it once), and the `schema` stream label the shipped pipelines set. A per-line version would cost bytes on every line of a high-volume stream to answer a question that changes once a year, and Loki already has a place for it.
+The version of the schema is `1`. It lives in two places and neither is a per-line field: the `log_schema` attribute on the `startup` event (every process emits it once, and it's written whatever the log level is, so a deployment set to `warn` still says which schema it writes), and the `schema` stream label the shipped pipelines set. A per-line version would cost bytes on every line of a high-volume stream to answer a question that changes once a year, and Loki already has a place for it.
 
 ## The log level
 
@@ -31,9 +31,13 @@ The version of the schema is `1`. It lives in two places and neither is a per-li
 2. A parseable `LOG_LEVEL` (`debug`, `info`, `warn`, `error`) is next.
 3. Otherwise the configured floor. An unset or unparseable `LOG_LEVEL` defers to it. With nothing configured the floor is `info`, so a deployment that never writes the block logs exactly what it always did.
 
-`GET /api/v1/settings/observability` and `retnd settings observability` report which of the three is in force (`RETND_DEBUG`, `LOG_LEVEL` or `config`), so "why is it not debug" is never a guess.
+`GET /api/v1/settings/observability` and `retnd settings observability` report the level in force and where it came from, as one of two values: `config` when the configured floor decided, or `environment` when either variable above did. So "why is it not debug" is never a guess.
 
 The floor lives in a `slog.LevelVar` inside the logger, shared by every logger derived from it, so a `PATCH` takes effect on the next line without a restart. It moves the engine only. The `web-ui` container has no `config.yaml` and keeps reading the environment alone, which is why the control's tooltip says which process it moves. It is not per backup set, because one process-wide writer cannot honour that: the daemon, API and startup lines have no set to attribute.
+
+## Getting the lines to a shipper
+
+The engine writes its lines to stdout. Both shipped pipelines read plain NDJSON from `/var/log/retnd/*.log`, and getting the lines there is the operator's job: nothing in the engine writes that directory. The example bundle's `container/observability/README.md` (#902) shows a `docker logs -f` follower that does it, and how to read Docker's own json-file output instead by adding a `docker` stage first.
 
 ## Labels: four, and nothing else
 

@@ -17,7 +17,7 @@
 # connection test and per API call, forever. That is unbounded label
 # cardinality, the failure that makes a Loki install fall over, and it
 # charges you for it in index size, not in anything you can see on a
-# dashboard. event and backup_set are bounded but not free: 53 events times
+# dashboard. event and backup_set are bounded but not free: 54 events times
 # your backup sets times four levels is a lot of tiny streams, and a field
 # filter (`| json | event="cycle_end"`) costs nothing to add.
 #

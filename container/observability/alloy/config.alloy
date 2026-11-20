@@ -10,7 +10,7 @@
 // is minted per action, so a label on it is one new Loki stream per cycle,
 // per connection test and per API call: unbounded label cardinality, paid for
 // in index size and in a chunk cut early per stream. event and backup_set are
-// bounded but multiply (53 events times your backup sets times four levels)
+// bounded but multiply (54 events times your backup sets times four levels)
 // for no query a field filter does not already answer.
 //
 // schema is the log schema version (obs.LogSchemaVersion), set here as a
