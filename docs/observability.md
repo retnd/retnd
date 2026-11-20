@@ -1,6 +1,6 @@
 # Observability
 
-This page covers the log stream (FR-100, EPIC O). The scrape endpoint and the alert webhook get their own sections when #899 and #901 land, and the dashboards and the example bundle are #902's.
+This page covers the log stream (FR-100, EPIC O). The scrape endpoint (#899) and the alert webhook (#901) have landed and are set from the same Settings card and `retnd settings observability`; they don't have sections here yet, and the dashboards and the example bundle are #902's.
 
 ## The log stream is a schema
 
@@ -21,7 +21,7 @@ What I added is a promise about the field names. A Loki pipeline, a `jq` filter 
 
 Everything else on a line is a per-event attribute (`version` on `startup`, `duration` on an action's completion, and so on). Those can be added freely and are never reserved. `core/internal/obs/schema_test.go` holds the list against literals typed out again in the test, runs a golden line over the real output, and plants the three drift shapes (a ninth key, `action_id` renamed to `actionId`, `result` dropped from a marked line) to show each is refused and that the refusal names the key. A per-event attribute stays green on purpose.
 
-The version of the schema is `1`. It lives in two places and neither is a per-line field: the `log_schema` attribute on the `startup` event (every process emits it once), and the `schema` stream label the shipped pipelines set. A per-line version would cost bytes on every line of a high-volume stream to answer a question that changes once a year, and Loki already has a place for it.
+The version of the schema is `1`. It lives in two places and neither is a per-line field: the `log_schema` attribute on the `startup` event (every process emits it once, and it's written whatever the log level is, so a deployment set to `warn` still says which schema it writes), and the `schema` stream label the shipped pipelines set. A per-line version would cost bytes on every line of a high-volume stream to answer a question that changes once a year, and Loki already has a place for it.
 
 ## The log level
 
@@ -31,9 +31,13 @@ The version of the schema is `1`. It lives in two places and neither is a per-li
 2. A parseable `LOG_LEVEL` (`debug`, `info`, `warn`, `error`) is next.
 3. Otherwise the configured floor. An unset or unparseable `LOG_LEVEL` defers to it. With nothing configured the floor is `info`, so a deployment that never writes the block logs exactly what it always did.
 
-`GET /api/v1/settings/observability` and `retnd settings observability` report which of the three is in force (`RETND_DEBUG`, `LOG_LEVEL` or `config`), so "why is it not debug" is never a guess.
+`GET /api/v1/settings/observability` and `retnd settings observability` report the level in force and where it came from, as one of two values: `config` when the configured floor decided, or `environment` when either variable above did. So "why is it not debug" is never a guess.
 
 The floor lives in a `slog.LevelVar` inside the logger, shared by every logger derived from it, so a `PATCH` takes effect on the next line without a restart. It moves the engine only. The `web-ui` container has no `config.yaml` and keeps reading the environment alone, which is why the control's tooltip says which process it moves. It is not per backup set, because one process-wide writer cannot honour that: the daemon, API and startup lines have no set to attribute.
+
+## Getting the lines to a shipper
+
+The engine writes its lines to stdout. Both shipped pipelines read plain NDJSON from `/var/log/retnd/*.log`, and getting the lines there is the operator's job: nothing in the engine writes that directory. The example bundle's `container/observability/README.md` (#902) shows a `docker logs -f` follower that does it, and how to read Docker's own json-file output instead by adding a `docker` stage first.
 
 ## Labels: four, and nothing else
 
@@ -61,7 +65,7 @@ Redaction of endpoint strings (`WithRedaction`, built from `config.Remote.Sensit
 
 `container/observability/` is a Prometheus, Alertmanager, Loki, Promtail (or Alloy) and Grafana stack wired to one deployment, with two dashboards and a set of alerting rules. It is an example and not a supported deployment, which is the first line of its README: nothing installs it, no provider ships it, and the canonical `container/compose.yaml` does not change by a line for it.
 
-It is its own compose project. Prometheus joins the canonical stack's `retnd_internal` network, because that is the only place the engine's `/metrics` is reachable, and it is the only bundle container that does, because every container on that network is a direct peer of the engine. Grafana's admin password and the scrape token are required at `up` time with no default, and compose refuses to start without either, naming the variable. Grafana binds to loopback. Loki, Alloy and Grafana have their usage reporting turned off, so the example adds no egress you did not ask for. The bundle's Loki also runs with `limits_config.discover_service_name: []` (`loki/loki.yaml`): Loki 3 otherwise invents a fifth label, `service_name`, from `job` on every stream. The smoke run of the bundle caught it, and a Loki you already run will do the same unless you empty that list too (the command-line flag `-validation.discover-service-name=` was measured not to).
+It is its own compose project. Prometheus joins the canonical stack's `retnd_internal` network, because that is the only place the engine's `/metrics` is reachable, and it is the only bundle container that does, because every container on that network is a direct peer of the engine. Grafana's admin password and the scrape token are required at `up` time with no default, and compose refuses to start without either, naming the variable. Grafana binds to loopback. Loki, Alloy and Grafana have their usage reporting turned off, so the example adds no egress you did not ask for. The bundle's Loki runs with `discover_service_name: []` in `loki/loki.yaml`, for the reason the labels section above gives, and `distribution/packaging/observability_bundle_902_test.go` fails if the list or its mount goes.
 
 The two dashboards are **Backup health** (whether the scrape answers, state, freshness, failures, quarantine, capacity) and **Workflow hooks** (whether hooks can run, run and step outcomes, durations, truncations, remote-exec failures). Every panel's title says what it looks like when nothing is wrong, because an empty graph and a healthy one are otherwise the same picture. The rules in `prometheus/rules/retnd.rules.yml` feed Alertmanager, which is the recommended alerting topology; its one receiver is deliberately wired to nothing, because any real notifier needs an address or a credential.
 

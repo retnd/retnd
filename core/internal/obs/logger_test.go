@@ -73,7 +73,9 @@ func TestLevelFiltering(t *testing.T) {
 	var buf bytes.Buffer
 	l := New(&buf, LevelWarn)
 
-	l.Startup(context.Background(), "1.0.0", "abc123", "go1.27")        // LevelInfo, should be dropped
+	// LevelInfo, should be dropped. Not Startup: that one is written past
+	// the floor on purpose (startup_floor_900_test.go).
+	l.RcloneVersion(context.Background(), "v1.76.0")
 	l.Retry(context.Background(), "copy_to_local", 1, "transient", nil) // LevelWarn, should appear
 
 	lines := decodeLines(t, &buf)
