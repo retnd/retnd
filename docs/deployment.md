@@ -445,6 +445,22 @@ be: the image's own `HEALTHCHECK` (so a plain `docker run` still reports it, and
 headless `daemon` command, which serves no HTTP and has no liveness endpoint to ask), the
 alerts block, and `docker compose exec retnd /retnd status`.
 
+The image's `HEALTHCHECK` reads the default configuration, `/etc/retnd/config/config.yaml`,
+because it runs `/retnd status` with no `--config` and can't see the arguments the container's
+main process was started with. So a container whose engine runs with `--config` pointing
+somewhere else gets a health check that asks about a different (usually empty) path. The case
+you're most likely to meet is an upgrade from before 0.5.0 (#1546, #1609): the engine refuses
+to start while the configuration is still mounted at its old path, and one of the two fixes it
+offers is `--config <old path>`. Take that fix on a plain `docker run` and the health check
+refuses the same way and reports `unhealthy`. Prefer the other fix, mounting the old directory
+at `/etc/retnd/config`, which every command, the health check included, then finds on its own.
+If you do keep a non-default `--config`, give the check the same path: in a compose file,
+`healthcheck: test: ["CMD", "/retnd", "status", "--config", "<path>"]`. `docker run
+--health-cmd` won't do it, because Docker runs that through `/bin/sh` and this image has no
+shell, so use `--no-healthcheck` and run `/retnd status --config <path>` yourself. The shipped
+compose files already override the engine's health check with `/retnd-web healthcheck`, so
+they aren't affected.
+
 Every packaged adapter declares the same start gate, and has to (issue #206). The image's
 instruction and the canonical start gate are now deliberately different commands, so an
 adapter that declares nothing for the engine inherits the freshness verdict rather than the

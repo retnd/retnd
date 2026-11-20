@@ -44,6 +44,24 @@
   directories: exit 1 naming the conflict. Only the new one, or neither (a fresh install),
   starts as before.
 
+- **Every other `retnd` command refuses a pre-0.5.0 mount too** (#1558, #1609). After the
+  entry above, `daemon` and `serve` refused, but the rest of the CLI still went to the new, empty
+  path: `backup-set create` wrote a second `config.yaml` (and journal) there, `ssh-key` and
+  `backup-set test-connection --candidate` set up a first-run store beside it, and the reads
+  (`sources`, `artifacts`, `retention`, `status`, `settings` and the rest) said "no backup set
+  configured yet" or "no such file". Now every command that reads or writes the local
+  configuration or journal gives the same refusal before it reads anything. `--help`, `version`
+  and `--config <old path>` are never refused, and a fresh install works as before.
+  `ssh-key list` and `ssh-key discover` on a fresh install with nothing serving also stopped
+  failing with "first run needs a state database path".
+
+  One thing to know if you run the image with plain `docker run` and fix the mount with
+  `--config <old path>` instead of moving the volume: the image's built-in health check runs
+  `/retnd status` with no `--config`, so it now reports unhealthy (it used to report healthy
+  while looking at the empty path). Mount the old directory at `/etc/retnd/config` instead, or
+  see "Health check" in `docs/deployment.md`. The shipped compose files override the health
+  check and aren't affected.
+
 ## [0.8.0] - 2026-11-14
 
 0.8.0 is a minor release, and nearly all of it is one feature: encrypted retained copies (EPIC N, #967), with
