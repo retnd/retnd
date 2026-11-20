@@ -67,7 +67,10 @@
 # name, so an hour-long full gate never blocks a commit. A wait past
 # CI_FAST_LOCK_TIMEOUT (default 1800) goes ahead without the lock, out loud:
 # a hook that can wait forever is a hook people --no-verify. The
-# always-steps above the Go section take seconds and stay outside it.
+# always-steps above the Go section take seconds and stay outside it, and so
+# does the wait for the full gate's Docker lock before a Docker-backed go
+# test: the run gives the fast lock back, takes the Docker lock, then takes
+# the fast lock again (the order is always Docker, then fast; #1560).
 # CI_FAST_LOCK=0 turns off the lock and the load wait, for a place with one
 # run by construction.
 #
@@ -178,6 +181,7 @@ CI_FAST_CAP_MIN="${CI_FAST_CAP_MIN:-30}"
 CI_FAST_KILL_GRACE="${CI_FAST_KILL_GRACE:-10}"
 
 fast_queued=0
+fast_lock_at=""
 fast_lock_path=""
 fast_lock_mine=""
 fast_run_pid=""
@@ -368,7 +372,34 @@ fast_enter_queue() {
     return 0
   fi
   fast_wait_for_load "$(fast_ncpu)" "$CI_FAST_LOAD_WAIT"
-  fast_lock_acquire "$feq_common/ci-fast.lock"
+  fast_lock_at="$feq_common/ci-fast.lock"
+  fast_lock_acquire "$fast_lock_at"
+}
+
+# fast_docker_step <heading>
+# gate_docker_step, which waits for the full gate's Docker lock for up to
+# GATE_LOCK_TIMEOUT (2 hours), with that wait kept out of the fast queue
+# (#1560). Held through it, the fast lock made every other worktree's commit
+# wait out CI_FAST_LOCK_TIMEOUT behind one run that was doing nothing, and
+# then go ahead unlocked, all together.
+#
+# The lock order is the Docker lock, then the fast lock. This run gives the
+# fast lock back, waits for and takes the Docker lock holding nothing else,
+# then takes the fast lock again before the step's command runs, so the
+# heavy part still runs in one worktree at a time. It never waits for the
+# Docker lock holding the fast lock, and the full gate only ever takes the
+# Docker lock, so no two runs can each hold what the other waits for. A run
+# that went ahead unlocked at the cap, or runs with CI_FAST_LOCK=0, has
+# nothing to give back and just takes the Docker step.
+fast_docker_step() {
+  if [ -z "$fast_lock_mine" ]; then
+    gate_docker_step "$1"
+    return 0
+  fi
+  fast_lock_release
+  echo "==> ci-fast lock: given back while this run waits for the full gate's Docker lock (#1560)"
+  gate_docker_step "$1"
+  fast_lock_acquire "$fast_lock_at"
 }
 
 # fast_tree <pid> -> it and every descendant, parents first.
@@ -695,13 +726,11 @@ EOF
     fast_run "$fast_cap_s" "$(fast_at_least "$fast_stall_s" 1320)" "$module" go test -p 2 -timeout 20m $plain
   fi
   if [ -n "$dock" ]; then
-    # gate_docker_step takes the full gate's Docker lock as well, and can
-    # wait for it with this one held: Docker-backed packages are rare in a
-    # fast run, and a waiter here goes ahead at CI_FAST_LOCK_TIMEOUT anyway.
-    # Their tests get -timeout 45m and pull fixture images in silence, so
-    # the watchdog gives them at least 50 minutes, and 47 of quiet so Go's
-    # own timeout fires first.
-    gate_docker_step "$module go test, Docker-backed touched packages:$dock"
+    # The full gate's Docker lock is waited for outside the fast queue
+    # (fast_docker_step, #1560). These tests get -timeout 45m and pull
+    # fixture images in silence, so the watchdog gives them at least 50
+    # minutes, and 47 of quiet so Go's own timeout fires first.
+    fast_docker_step "$module go test, Docker-backed touched packages:$dock"
     # shellcheck disable=SC2086
     fast_run "$(fast_at_least "$fast_cap_s" 3000)" "$(fast_at_least "$fast_stall_s" 2820)" "$module" go test -p 2 -timeout 45m $dock
   fi
