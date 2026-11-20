@@ -184,6 +184,13 @@ export function RecoverSetDialog({
     // A source target asks about an unencrypted connection BEFORE the password
     // is sent (#1163), and the password goes with this one request only.
     const once = target === "source" ? await source.beforeSubmit() : {};
+    // The prompt is the longest wait there is, a person answers it. A dialog
+    // that went while it was open starts nothing: nobody would see the run,
+    // and the password was meant for the one on screen (#1599).
+    if (!mountedRef.current) {
+      if (once !== null) source.done();
+      return;
+    }
     if (once === null || !runTarget) { if (target === "source" && once !== null) source.done(); return; }
     try {
       await run(once, runTarget);

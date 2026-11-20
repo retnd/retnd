@@ -224,6 +224,7 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
           returnFocus={dialog.kind === "add" ? addButton : undefined}
           onClose={() => { setDialog(null); void load(); }}
           onSaved={({ validator, edited }) => {
+            if (!mountedRef.current) return;
             setDialog(null);
             setStatus((edited ? "Saved " : "Uploaded ") + validator.name + ".");
             void load();
