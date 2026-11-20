@@ -1479,6 +1479,12 @@ if [ "$FAST" != "1" ]; then
   # control is the only thing that can see it. No Docker, a few minutes.
   gate_step "the retention-apply evidence can actually fail (mutation self-test, #602)"
   bash scripts/retention/selftest.sh
+
+  # Discovery's readability probe (#1541), shown to fire the same way: a plant
+  # in discovery.go, the narrowed suite red naming the promise. It had a
+  # self-test and no step until the guard-is-a-gate-step check named it.
+  gate_step "the discovery readability probe can actually fail (mutation self-test, #1541)"
+  bash scripts/discovery/selftest.sh
 fi
 }
 

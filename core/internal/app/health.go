@@ -186,6 +186,13 @@ func (s *Service) BuildHealthReport(ctx context.Context, versionInfo VersionInfo
 				// zero" apart on every surface that renders them.
 				Snapshot: s.snapshotHealth(ctx, bs, unfinishedSnapshots),
 			}
+			// Issue #1541: complete source files the last pass could not
+			// open, in memory like LastSuccessfulPollAt above. A disabled
+			// set is never looked at, so it has nothing current to say,
+			// even before the next cycle skips it and drops its record.
+			if !bs.Disabled {
+				in.PendingUnreadable = s.unreadableState().pending(bs.ID)
+			}
 			if stat, statErr := capacity.StatPath(bs.LocalPath); statErr == nil {
 				free := stat.AvailableBytes
 				in.FreeBytes = &free
