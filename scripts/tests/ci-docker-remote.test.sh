@@ -575,7 +575,29 @@ else
   fail "R16c local mode keeps the named cache volume" "$(gate_line)"
 fi
 
-# --- R17 scratch goes to disk, not to the host's /tmp (#1580) ----------------
+# --- R17 the gate container is named for its host (#1540) --------------------
+# The stall watchdog records step durations under the hostname, and a
+# container's own hostname is its id, new every run.
+run_script bash "$script" --host "$host" --fast
+if gate_line | grep -q -- '--hostname ci-docker-builder.example '; then
+  pass "R17a a remote gate container is named for the remote host"
+else
+  fail "R17a a remote gate container is named for the remote host" "$(gate_line)"
+fi
+if grep -q "cat '/home/fake/workspace/nas-work/ci-docker-[0-9-]*/git/ci-local-step-durations.ci-docker-builder.example'" "$log/ssh"; then
+  pass "R17b and its step durations are fetched back before the copy goes"
+else
+  fail "R17b and its step durations are fetched back before the copy goes" "$(grep durations "$log/ssh" || true)"
+fi
+run_script bash "$script" --fast
+r17_want="ci-docker-$(printf '%s' "$(hostname -s 2>/dev/null || hostname)" | tr -c 'A-Za-z0-9.-' '-')"
+if gate_line | grep -qF -- "--hostname $r17_want "; then
+  pass "R17c a local gate container is named for this machine"
+else
+  fail "R17c a local gate container is named for this machine ($r17_want)" "$(gate_line)"
+fi
+
+# --- R18 scratch goes to disk, not to the host's /tmp (#1580) ----------------
 # On a Linux daemon the container shares the host's /tmp (R11b), and MARS's
 # /tmp is tmpfs: every byte a self-test writes there is memory charged to the
 # container's fence, which cannot be swapped out. The architecture self-test's
@@ -591,27 +613,27 @@ tmp_dir="${tmp_src#-v }"; tmp_dir="${tmp_dir%%:*}"
 if [ "$(rc)" = 0 ] && [ -n "$tmp_dir" ] && [ "$(printf '%s' "$tmp_src" | cut -d: -f2)" = "$tmp_dir" ] \
    && printf '%s' "$gl" | grep -q -- " TMPDIR=$tmp_dir " \
    && printf '%s' "$gl" | grep -q -- '-v /tmp:/tmp'; then
-  pass "R17a remote mode on a Linux daemon puts TMPDIR in the scratch copy on disk, same path inside and out, and still shares /tmp"
+  pass "R18a remote mode on a Linux daemon puts TMPDIR in the scratch copy on disk, same path inside and out, and still shares /tmp"
 else
-  fail "R17a remote TMPDIR is a same-path bind mount of the scratch copy" "rc=$(rc) $gl"
+  fail "R18a remote TMPDIR is a same-path bind mount of the scratch copy" "rc=$(rc) $gl"
 fi
 if grep -q "mkdir -p .*ci-docker-[^ ]*/tmp'" "$log/ssh"; then
-  pass "R17b the TMPDIR directory is made by the remote account, so the remote uid owns it"
+  pass "R18b the TMPDIR directory is made by the remote account, so the remote uid owns it"
 else
-  fail "R17b the TMPDIR directory is made over ssh" "$(head -5 "$log/ssh")"
+  fail "R18b the TMPDIR directory is made over ssh" "$(head -5 "$log/ssh")"
 fi
 run_script env FAKE_SOCK_GID=121 "FAKE_DAEMON_OS=Debian GNU/Linux 12 (bookworm)" bash "$script" --host "$host" --exec true
 el="$(grep -E 'docker run .* true$' "$log/docker" | grep -v -- '--user 0:0' || true)"
 if [ "$(rc)" = 0 ] && printf '%s' "$el" | grep -qE -- ' TMPDIR=[^ ]*/ci-docker-[^ ]*/tmp '; then
-  pass "R17c --exec gets the same TMPDIR as the gate"
+  pass "R18c --exec gets the same TMPDIR as the gate"
 else
-  fail "R17c --exec gets the same TMPDIR" "rc=$(rc) $el"
+  fail "R18c --exec gets the same TMPDIR" "rc=$(rc) $el"
 fi
 run_script bash "$script" --fast
 if ! gate_line | grep -q TMPDIR; then
-  pass "R17d local mode leaves TMPDIR alone"
+  pass "R18d local mode leaves TMPDIR alone"
 else
-  fail "R17d local mode leaves TMPDIR alone" "$(gate_line)"
+  fail "R18d local mode leaves TMPDIR alone" "$(gate_line)"
 fi
 
 # --- R10 the page documents the knobs ---------------------------------------

@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -71,7 +72,7 @@ func cmdSettingsObservability(args []string) int {
 		if named := visitedFlags(fs, "config", "json"); len(named) > 0 {
 			return usageError("settings observability: --%s changes nothing on a read; `settings observability patch --%s ...` is the form that writes", strings.Join(named, ", --"), named[0])
 		}
-		svc, cleanup, err := openBackupService(ctx, *cfgPath, readsConfig)
+		svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)
 		defer cleanup()
 		if err != nil {
 			return fail(err)
@@ -118,12 +119,19 @@ func cmdSettingsObservability(args []string) int {
 			return usageError("settings observability patch: name at least one of --%s; a patch that changes nothing would rewrite and reload the configuration to no effect",
 				strings.Join(observabilityPatchFlagNames, ", --"))
 		}
-		route, cleanup, err := openConfigWriteRoute(ctx, *cfgPath)
+		// With --json the document is the only thing on standard output
+		// (#1152), so the mode announcement, the service's log and the
+		// startup lines go to standard error.
+		out, log := io.Writer(os.Stdout), logger()
+		if *asJSON {
+			out, log = os.Stderr, jsonLogger()
+		}
+		route, cleanup, err := openConfigWriteRouteTo(ctx, *cfgPath, out)
 		if err != nil {
 			return fail(err)
 		}
 		defer cleanup()
-		logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
+		logStartup(ctx, log, app.BuildVersionInfo(version, commit))
 		s, err := route.UpdateObservabilitySettings(ctx, req)
 		if err != nil {
 			return fail(err)
@@ -146,12 +154,17 @@ func cmdSettingsObservability(args []string) int {
 		// Through the same door as `patch`: beside a serving engine the engine
 		// mints, so the credential lands where the endpoint verifies it, and
 		// with nothing serving it is written here, to be read when one starts.
-		route, cleanup, err := openConfigWriteRoute(ctx, *cfgPath)
+		//
+		// Standard output is the credential and nothing else, in both forms:
+		// `... > scrape-token` is how Prometheus's credentials_file gets
+		// written, so the mode announcement, the service's log and the
+		// startup lines all go to standard error (#1568).
+		route, cleanup, err := openConfigWriteRouteTo(ctx, *cfgPath, os.Stderr)
 		if err != nil {
 			return fail(err)
 		}
 		defer cleanup()
-		logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
+		logStartup(ctx, jsonLogger(), app.BuildVersionInfo(version, commit))
 		minted, err := route.MintScrapeToken(ctx)
 		if err != nil {
 			return fail(err)

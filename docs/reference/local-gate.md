@@ -41,6 +41,37 @@ The last line of a run is one of three verdicts, and the exit status matches:
 Only a step that declares itself INCOMPLETE through the ledger may end a run
 at 3. A stray exit 3 from a command the gate did not mark is read as FAILED.
 
+A step the stall watchdog stopped ends the run `==> ci-local: FAILED (STALLED: <step>, <why>)`
+with exit 1 (#1540). Every step is watched from the first one on: no output
+for `RETND_GATE_STALL_MIN` minutes, or a run past the step's hard cap (1.5
+times the longest of the last three durations this host recorded for it,
+never less than `RETND_GATE_STEP_CAP_FLOOR_MIN` or two of the step's own stall
+windows, or `RETND_GATE_STEP_CAP_MIN` when there is no record), and the watchdog prints the last 40 lines the step
+printed, its processes and the containers labelled
+`retnd-test=<this worktree's owner>`, stops the processes (TERM, then KILL
+after `GATE_STALL_GRACE` seconds), removes those containers and ends the run.
+Containers a step starts without that label (the e2e and two-machine rigs)
+are left to that rig's own sweep on the next run.
+
+A step's clocks start once it holds the gate lock, and the browser step's
+start again once it holds the Playwright lock. The gate lock wait has its own
+limit (`GATE_LOCK_TIMEOUT`); the Playwright lock waits on a live holder for
+ever, so that wait is bounded by `RETND_GATE_STEP_CAP_MIN` and past it the
+step ends STALLED. A step that ends having added to the skip ledger (the e2e lane
+exiting 3, a self-test left out for memory) is not recorded, because it took
+less time than the step does. Durations are recorded in
+`<git common dir>/ci-local-step-durations.<host id>`, the host id being
+`RETND_GATE_HOST_ID`, else the hostname. A hostname of twelve hex digits is a
+container's own id and changes every run, so under it nothing is recorded;
+`scripts/ci-docker.sh` names the gate container `ci-docker-<host>` and copies
+a remote run's record back into this checkout's git dir. While the watchdog
+runs, the gate's output goes through `tee` into the log it measures, so a
+step sees a pipe rather than a terminal. A step can override its limits with
+`gate_step "<heading>" --stall-min N --cap-min N`: the core `go test` steps
+take `--stall-min 50`, because `go test` prints a package only when it ends,
+and the browser step `--stall-min 30`, because its rig builds the Playwright
+image with `docker build -q`.
+
 ## Variables the gate reads
 
 | variable | default | what it does |
@@ -67,6 +98,13 @@ at 3. A stray exit 3 from a command the gate did not mark is read as FAILED.
 | `GATE_LOCK_POLL` | `5` | seconds between attempts while waiting for the lock |
 | `GATE_LOCK_TIMEOUT` | `7200` | seconds a run waits for the lock before refusing (FAILED, with the holder's pid, host and worktree and the `rm -r` that breaks it) |
 | `GATE_LOCK_STALE_AFTER` | `600` | a lock whose holder cannot be judged (another host's pid, a lock from before a reboot, no pid file) is reclaimed once it is this old. A lock whose holder is a dead pid on this host and boot is reclaimed at once |
+| `RETND_GATE_STALL_MIN` | `10` | minutes a step may print nothing before the stall watchdog stops it and the run ends `FAILED (STALLED: ...)`. Fractions are fine; `0` turns the no-progress check off |
+| `RETND_GATE_STEP_CAP_MIN` | `180` | the hard cap, in minutes, of a step this host has no recorded duration for. `0` turns the hard cap off; both at `0` turn the watchdog off |
+| `RETND_GATE_STEP_CAP_FLOOR_MIN` | `20` | the least hard cap a recorded step gets, in minutes: its cap is 1.5 times the longest of its last three records, or this, or two of the step's own stall windows, whichever is most. Turning the stall check off (`RETND_GATE_STALL_MIN=0`) does not lower it below this |
+| `RETND_GATE_HOST_ID` | the hostname | the name step durations are recorded under (`ci-local-step-durations.<id>` in the git common dir). Set it where the hostname changes from run to run; a hostname of twelve hex digits (a container's id) records nothing without it |
+| `GATE_DOCKER_INFO_TIMEOUT` | `120` | seconds the daemon probe (`docker info`) may take before the daemon counts as not reachable, so a wedged daemon cannot hang a step that holds the gate lock |
+| `GATE_STALL_POLL` | `15` | seconds between the stall watchdog's looks at the log |
+| `GATE_STALL_GRACE` | `10` | seconds between the TERM and the KILL the watchdog sends a stalled step's processes |
 | `GOLANGCI_LINT_DIR` | unset | a directory to put ahead of `PATH` so a specific golangci-lint wins over Homebrew's |
 | `GOLANGCI_LINT_VERSION` | from `scripts/ci/pins.env` | the linter the gate is pinned to. A run with another version is ledgered INCOMPLETE and the release check refuses its record. `scripts/ci-docker.sh` builds the image with it |
 | `RUFF_VERSION`, `MYPY_VERSION` | from `scripts/ci/pins.env` | the ruff and mypy `scripts/ci-docker.sh` builds into the gate image (with `python3-yaml`), so the Python lint step runs there instead of being ledgered. The gate itself uses whichever ruff and mypy are on `PATH` |

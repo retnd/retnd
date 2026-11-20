@@ -33,6 +33,7 @@ import { insecureAckRequiredNow, useDestructiveGate } from "@shared/hooks/useDes
 import { CommandEcho } from "@shared/pages/CommandEcho";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { copyText } from "@shared/utilities/copyText";
+import { LogLevelControl } from "./LogLevelControl";
 import { metricsEnabledCommand, mintScrapeTokenCommand, metricsIntervalCommand } from "./observabilityCommands";
 
 export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
@@ -226,6 +227,7 @@ export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
             </dl>
           </>
         )}
+        {settings ? <LogLevelControl logs={settings.logs} readOnly={readOnly} onSaved={setSettings} /> : null}
         {settings && (
           <AlertDeliveryControls alerts={settings.alerts} readOnly={readOnly} onSaved={setSettings} />
         )}
