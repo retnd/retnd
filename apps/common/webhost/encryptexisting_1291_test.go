@@ -18,7 +18,8 @@ import (
 // no encryption answers the same 503 the other encryption routes do.
 //
 // They were written by reading the router and the existing encryption route
-// tests and have not been run.
+// tests, and first ran on 2026-11-19 (#1539), all green, each with a planted
+// violation in scripts/bdtools/encryption/controls_n_core.py.
 
 func (f *encryptionFakeBackend) PlanEncryptExisting(_ context.Context, set, artifact, destination string) (apicontract.EncryptExistingPlan, error) {
 	return apicontract.EncryptExistingPlan{Candidates: []apicontract.EncryptExistingCandidate{}}, f.note("plan-existing " + set + " " + artifact + " " + destination)
@@ -73,6 +74,16 @@ func TestTheEncryptExistingRunNeedsCSRFAndTheDryRunDoesNot_1291(t *testing.T) {
 	}
 	if len(b.called()) != 0 {
 		t.Errorf("a run with no CSRF token reached the backend: %v", b.called())
+	}
+
+	// The dry run changes nothing, so the same request with no CSRF token is
+	// answered.
+	get := httptest.NewRequest(http.MethodGet, "/api/v1/encryption/encrypt-existing?set=src/set-1&destination=offsite", nil)
+	get.RemoteAddr = "127.0.0.1:5000"
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, get)
+	if rec.Code != http.StatusOK {
+		t.Errorf("a dry run with no CSRF token: %d %s, want 200", rec.Code, rec.Body.String())
 	}
 }
 

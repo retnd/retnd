@@ -3188,6 +3188,27 @@
             "type": "string",
             "description": "What was recorded against that oldest failing relocation. Served beside the count rather than instead of it, because a count alone cannot tell an operator whether to look at a storage policy, a credential or a network, and this sentence is the only account of the failure that outlives the pass that hit it. Absent when failed_moves is zero.",
             "x-go-omitempty": true
+          },
+          "pending_unreadable": {
+            "type": "integer",
+            "description": "How many source files the last discovery pass proved complete under the set's completion strategy and could not open, because the producer has not published them yet (for example a dump still readable only by root inside a directory the backup account can read). They wait and are checked again every pass; none of them is journaled, so none of them can fail, and none of them changes the set's state. It comes from the running engine's memory, so it is zero from a process that has not run discovery. Zero is a real reading, so it is always present.",
+            "format": "int32"
+          },
+          "pending_unreadable_oldest_age_seconds": {
+            "type": "integer",
+            "description": "How long the longest-waiting of those files has been seen complete and unreadable. Absent when pending_unreadable is zero.",
+            "format": "int64",
+            "x-go-omitempty": true
+          },
+          "pending_unreadable_oldest_path": {
+            "type": "string",
+            "description": "The remote path of that longest-waiting file, as the source listed it. Untrusted text from the source. Absent when pending_unreadable is zero.",
+            "x-go-omitempty": true
+          },
+          "pending_unreadable_warning": {
+            "type": "string",
+            "description": "One sentence naming how many files are waiting, for how long, and the oldest path, present only once the oldest has waited longer than stale_after_seconds: a producer that has not published a finished file within the window the operator set for backups is as overdue as one that produced nothing. A warning beside the state, never part of it. Carries a remote path, so it is untrusted text.",
+            "x-go-omitempty": true
           }
         },
         "required": [
@@ -3208,7 +3229,8 @@
           "away_from_home",
           "unconfirmed_location",
           "open_moves",
-          "failed_moves"
+          "failed_moves",
+          "pending_unreadable"
         ]
       },
       "HealthResponse": {
@@ -10517,6 +10539,17 @@
           },
           "url_set": {
             "type": "boolean"
+          },
+          "url_status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "unresolvable",
+              "invalid",
+              "unknown"
+            ],
+            "description": "What the last read of the URL found: ok, unresolvable (the reference could not be read, so alerts are held and retried), invalid (it read, and is not an acceptable URL) or unknown (not tried yet). Absent unless delivery is webhook and alerting is on. It is a state and never the URL.",
+            "x-go-omitempty": true
           },
           "allow_insecure_http": {
             "type": "boolean"

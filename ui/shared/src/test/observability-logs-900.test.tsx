@@ -9,6 +9,14 @@ import type { RetndApi } from "@shared/api/contracts";
 import { ObservabilityCard } from "@shared/observability/ObservabilityCard";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
 import tooltips from "@shared/tooltips/tooltips.json";
+import * as observabilityCommands from "@shared/observability/observabilityCommands";
+
+// Read through the namespace so a missing export is a red assertion rather
+// than a module that fails to load.
+const commands = observabilityCommands as unknown as {
+  LOG_LEVELS?: readonly string[];
+  logsLevelCommand?: (level: string) => string;
+};
 
 afterEach(cleanup);
 
@@ -60,6 +68,44 @@ describe("the log level control (#900)", () => {
     expect(h.effect).toContain("web-ui");
     expect(h.effect).toContain("RETND_DEBUG");
     expect(Object.keys(tooltips)).toContain("observability.logs.level");
-    expect((tooltips as Record<string, { html: string }>)["observability.logs.level"].html).toContain("--logs-level");
+  });
+
+  // The echo is the terminal line, from the twin module, beside the control.
+  // A line written by hand into the tooltip is one no parser reads, so the
+  // tooltip points at the echo instead of carrying its own copy.
+  it("leaves the terminal line to the echo, not the tooltip", () => {
+    expect((tooltips as Record<string, { html: string }>)["observability.logs.level"].html).not.toContain("retnd settings");
+  });
+
+  it("echoes the terminal line for the saved level, and follows a change", async () => {
+    show(createMockApi());
+    const control = await screen.findByTestId("logs-level-control");
+    await waitFor(() =>
+      expect(control.textContent).toContain("retnd settings observability patch --logs-level info")
+    );
+    fireEvent.change(screen.getByLabelText("Log level"), { target: { value: "error" } });
+    await waitFor(() =>
+      expect(screen.getByTestId("logs-level-control").textContent).toContain("retnd settings observability patch --logs-level error")
+    );
+  });
+});
+
+describe("the log level's twin (#900)", () => {
+  it("is built by logsLevelCommand, the same line core/cliecho prints for PATCH {logs_level}", () => {
+    expect(typeof commands.logsLevelCommand).toBe("function");
+    for (const level of ["debug", "info", "warn", "error"]) {
+      expect(commands.logsLevelCommand?.(level)).toBe("retnd settings observability patch --logs-level " + level);
+    }
+  });
+
+  it("quotes a value a shell would split, so a widened type cannot print a second command", () => {
+    expect(commands.logsLevelCommand?.("warn; id")).toBe("retnd settings observability patch --logs-level 'warn; id'");
+  });
+
+  it("offers exactly the levels the twin module lists, so the select and the pinned twins cannot part", async () => {
+    expect(commands.LOG_LEVELS).toEqual(["debug", "info", "warn", "error"]);
+    show(createMockApi());
+    const select = (await screen.findByLabelText("Log level")) as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(commands.LOG_LEVELS);
   });
 });

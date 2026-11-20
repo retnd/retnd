@@ -17,6 +17,8 @@ package discovery
 import (
 	"context"
 	"fmt"
+	"io"
+	"strings"
 
 	"github.com/retnd/retnd/core/internal/transport"
 )
@@ -34,6 +36,13 @@ type fakeTransport struct {
 	statErr map[string]error
 	hashes  map[string]string
 	hashErr map[string]error
+
+	// openErr fails OpenSourceStream for one path (issue #1541): the
+	// readability probe's view of a file the producer has not published.
+	// opened records every path the probe asked to open, so a test can
+	// tell a candidate that was not probed from one that was.
+	openErr map[string]error
+	opened  []string
 }
 
 // A compile-time check that this double still satisfies the interface.
@@ -69,6 +78,24 @@ func (f *fakeTransport) Stat(_ context.Context, _ transport.Source, remotePath s
 		}
 	}
 	return transport.RemoteArtifact{}, fmt.Errorf("fakeTransport: no such object %q", remotePath)
+}
+
+// OpenSourceStream is the readability probe's open (issue #1541). It
+// fails with the configured error for a path in openErr, hands back a
+// one-byte reader for any other listed path, and reports anything else as
+// not found, which is what a real backend says about a name it does not
+// hold.
+func (f *fakeTransport) OpenSourceStream(_ context.Context, _ transport.Source, remotePath string) (io.ReadCloser, error) {
+	f.opened = append(f.opened, remotePath)
+	if err, ok := f.openErr[remotePath]; ok {
+		return nil, err
+	}
+	for _, a := range f.artifacts {
+		if a.Path == remotePath {
+			return io.NopCloser(strings.NewReader("x")), nil
+		}
+	}
+	return nil, transport.NewError(transport.NotFound, "open_source_stream", fmt.Errorf("fakeTransport: no such object %q", remotePath))
 }
 
 // CopyToLocal always fails, because discovery must never call it. Nothing

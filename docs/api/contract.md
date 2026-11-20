@@ -931,6 +931,15 @@ with for the same call. One code exists only in a tool result and never on the w
 nothing here asked a person to approve; the result says to treat it as not confirmed and to tell an
 operator.
 
+## Recorded decision: the observability block is three operations, and `/metrics` is outside the contract (EPIC O, #899)
+
+`GET` and `PATCH /settings/observability` read and write the deployment-wide `observability:` block, resolved, and `POST /settings/observability/scrape-token` mints the Prometheus scrape credential. They sit under `/settings` for the reason `/settings/workflow` and `/settings/assurance` do. Every setting is global: none is a property of a backup set, so there is no per-set twin.
+
+- **None of the three is an agent tool.** The two settings routes are named refusals in `core/agenttools`, and the mint is on the deny list, so a bearer token of any scope is refused `AGENT_ROUTE_DENIED` there.
+- **The mint returns the credential once**, in `MintedScrapeToken.token`, with `Cache-Control: no-store`, and over plain HTTP from another machine it needs the same acknowledgement an agent-token mint does (`INSECURE_TRANSPORT_ACK_REQUIRED`). The deployment keeps a SHA-256 digest and an eight-character prefix in a file of its own, and `GET` reports only whether a credential exists, that prefix and when it was minted. Minting again replaces the credential at once.
+- **The webhook URL is write-only**, a boolean on a read, because a chat webhook URL is a credential. (The field is declared now and written by the alert sink's issue.)
+- **`GET /metrics` is not in this contract.** It is registered on the engine's root router beside `/health/live` and `/health/ready`, outside `/api/v1`, and answers in the exposition text format rather than JSON. Disabled it is `404`; enabled it needs `Authorization: Bearer <scrape token>` or HTTP basic with the token as the password (the username is ignored): no credential or a wrong one is `401` with an empty body, an address refused ten times in a minute is `429` with `Retry-After`, and every answer carries `Cache-Control: no-store`. An agent `rat_` token does not open it and the scrape token opens nothing under `/api/v1`. It is not forwarded through `web-ui`.
+
 ## Migration record: what was removed and what replaced it
 
 | removed | replaced by |

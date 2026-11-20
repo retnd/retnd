@@ -68,8 +68,12 @@ type ObservabilityAlertsSettings struct {
 // ObservabilityWebhookSettings is `observability.alerts.webhook`. The URL is
 // a credential, so a read says only whether one is set.
 type ObservabilityWebhookSettings struct {
-	Dialect           string
-	URLSet            bool
+	Dialect string
+	URLSet  bool
+	// URLStatus is what the last read of the URL found (ok, unresolvable,
+	// invalid, unknown), or empty when delivery is not the webhook or
+	// alerting is off. It is a state, never the URL.
+	URLStatus         string
 	AllowInsecureHTTP bool
 	RefreshInterval   time.Duration
 	ResolveTTL        time.Duration
@@ -96,7 +100,22 @@ func (r UpdateObservabilitySettingsRequest) isEmpty() bool {
 
 // ObservabilitySettings reports the block as this process is running it.
 func (b *BackupService) ObservabilitySettings(_ context.Context) (ObservabilitySettings, error) {
-	return observabilitySettingsOf(b.state.Load().inner.Config), nil
+	s := b.currentAlertSettings()
+	s.Metrics.ScrapeToken = b.ScrapeTokenState()
+
+	return s, nil
+}
+
+// currentAlertSettings is the resolved block plus the one fact only the
+// running dispatcher knows: whether the webhook URL can be read right now.
+func (b *BackupService) currentAlertSettings() ObservabilitySettings {
+	inner := b.state.Load().inner
+	out := observabilitySettingsOf(inner.Config)
+	if out.Alerts.Delivery == config.ObservabilityDeliveryWebhook {
+		out.Alerts.Webhook.URLStatus = inner.Alerts.DestinationStatus()
+	}
+
+	return out
 }
 
 func observabilitySettingsOf(cfg *config.Config) ObservabilitySettings {
@@ -250,5 +269,8 @@ func (b *BackupService) UpdateObservabilitySettings(_ context.Context, req Updat
 		return ObservabilitySettings{}, err
 	}
 
-	return observabilitySettingsOf(b.state.Load().inner.Config), nil
+	s := b.currentAlertSettings()
+	s.Metrics.ScrapeToken = b.ScrapeTokenState()
+
+	return s, nil
 }

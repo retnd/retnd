@@ -102,8 +102,8 @@ func unanswered(registered, answered map[string]bool, reasons map[string]string)
 func missingFromSpec(registered, inSpec map[string]bool, reasons map[string]string) []string {
 	var out []string
 	for route := range registered {
-		_, path, _ := strings.Cut(route, " ")
-		if !strings.HasPrefix(path, "/health/") {
+		method, path, _ := strings.Cut(route, " ")
+		if !isListedRootRoute(method, path) {
 			continue
 		}
 		if inSpec[route] || strings.TrimSpace(reasons[route]) != "" {

@@ -70,10 +70,10 @@ func TestNoAPIRouteBypassesAuthentication(t *testing.T) {
 
 	var checked int
 	err := chi.Walk(routableFor(t, router), func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
-		if route == "/health/live" || route == "/health/ready" {
-			// Deliberately public (§17: "require UGOS authentication on
-			// /api/", not on infra health checks); see the dedicated
-			// health tests below for that claim.
+		if isListedRootRoute(method, route) {
+			// The probes are deliberately public (§17) and /metrics has a
+			// credential of its own; their own tests (health tests below and
+			// handlers_metrics_test.go) drive every answer they give.
 			return nil
 		}
 
@@ -643,7 +643,7 @@ func TestEveryMutatingAPIRouteRefusesARequestWithNoCSRFPair(t *testing.T) {
 			// deliberately exempt from this gate.
 			return nil
 		}
-		if route == "/health/live" || route == "/health/ready" {
+		if isListedRootRoute(method, route) {
 			return nil
 		}
 		if destructiveGateExemptRoutes[method+" "+route] || destructiveGateTargetKindRoutes[method+" "+route] != nil {

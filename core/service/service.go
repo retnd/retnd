@@ -35,6 +35,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/retnd/retnd/core/internal/alert"
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/backend"
 	"github.com/retnd/retnd/core/internal/config"
@@ -226,6 +227,13 @@ type BackupService struct {
 	// b.state instead, so a reload moves them without moving this.
 	workflow *workflowRuntime
 
+	// scrape is the Prometheus scrape endpoint's state (scrape.go, EPIC O
+	// O1.1): the refusal counter, the loaded credential and the cached
+	// health exposition. Like workflow above it is per-deployment and not
+	// per-configuration, so a hot reload does not rebuild it and does not
+	// drop the cache.
+	scrape scrapeRuntime
+
 	// configPath is the YAML file this BackupService was opened from
 	// (Open), or "" for a BackupService built directly with New (every
 	// core/ test, which constructs its own *config.Config in memory and
@@ -246,6 +254,12 @@ type BackupService struct {
 	// alerting is off. It is written under configMu, which is also the
 	// lock CreateBackupSet reads it under.
 	alertSink AlertSink
+
+	// sinkBuilt, when set, is told about every alert.Sink alertSinkFor
+	// constructs. It exists so a test can count constructions and assert
+	// that exactly one sink is built per configuration (EPIC O, FR-101:
+	// selection, never fan-out). Nothing in production sets it.
+	sinkBuilt func(alert.Sink)
 
 	// releaseJournal drops the SHARED journal lock runStartupSequence took
 	// on this BackupService's behalf (startup.go, lock_unix.go), and is

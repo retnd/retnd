@@ -7,6 +7,11 @@
  * "why is it not debug" is never a guess. A save takes effect on the next
  * line with no restart, and it moves the engine only, because the web-ui
  * container has no config.yaml and reads the environment alone.
+ *
+ * The terminal line for the saved level sits under the control, from
+ * logsLevelCommand, and the select's options are that module's LOG_LEVELS:
+ * the list the twin fixture is written from and core/cmd/retnd holds to the
+ * levels config.yaml accepts.
  */
 import { useState } from "react";
 import { useApi } from "@shared/api/ApiContext";
@@ -14,9 +19,9 @@ import type { ObservabilitySettings } from "@shared/api/contracts";
 import { describeFailure } from "@shared/api/failure";
 import { FieldHelp } from "@shared/components/FieldHelp";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
+import { CommandEcho } from "@shared/pages/CommandEcho";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
-
-export const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
+import { LOG_LEVELS, logsLevelCommand } from "./observabilityCommands";
 
 export function LogLevelControl({ logs, readOnly, onSaved }: {
   logs: ObservabilitySettings["logs"];
@@ -54,6 +59,7 @@ export function LogLevelControl({ logs, readOnly, onSaved }: {
           {" "}Applies to the engine on the next line, with no restart. The web-ui container reads the environment alone.
         </div>
       </InfoTooltip>
+      <CommandEcho label="Equivalent command" commands={[logsLevelCommand(logs.level)]} />
       {problem ? <div role="alert" style={{ color: "var(--text)" }}>{problem}</div> : null}
     </div>
   );

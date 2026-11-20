@@ -947,6 +947,19 @@ function fromWireBackupSet(bs: WireBackupSet, health?: WireBackupSetHealth): Bac
     // undefined still reads as the mapper having an opinion; this way a
     // set with no refusal on record simply does not carry the field.
     ...(haltReason ? { haltReason } : {}),
+    // Issue #1541. Spread for the same reason as haltReason: a set with
+    // nothing waiting carries no key at all, rather than a zeroed block a
+    // card would have to know to ignore.
+    ...(health && health.pending_unreadable > 0
+      ? {
+          pendingUnreadable: {
+            count: health.pending_unreadable,
+            oldestAgeSeconds: health.pending_unreadable_oldest_age_seconds ?? 0,
+            oldestPath: health.pending_unreadable_oldest_path ?? "",
+            ...(health.pending_unreadable_warning ? { warning: health.pending_unreadable_warning } : {})
+          }
+        }
+      : {}),
     // Read, not defaulted. Absent means the report genuinely carries no
     // known-good backup for this set, which is the one case where the
     // card's "never" is the truth.
@@ -3128,7 +3141,7 @@ function fromWireAssuranceSettings(s: WireAssuranceSettingsResponse): AssuranceS
   };
 }
 
-function fromWireObservabilitySettings(s: WireObservabilitySettingsResponse): ObservabilitySettings {
+export function fromWireObservabilitySettings(s: WireObservabilitySettingsResponse): ObservabilitySettings {
   return {
     metrics: {
       enabled: s.metrics?.enabled === true,
@@ -3149,6 +3162,7 @@ function fromWireObservabilitySettings(s: WireObservabilitySettingsResponse): Ob
       webhook: {
         dialect: s.alerts?.webhook?.dialect ?? "generic",
         urlSet: s.alerts?.webhook?.url_set === true,
+        ...(s.alerts?.webhook?.url_status ? { urlStatus: s.alerts.webhook.url_status } : {}),
         allowInsecureHttp: s.alerts?.webhook?.allow_insecure_http === true,
         refreshIntervalSeconds: s.alerts?.webhook?.refresh_interval_seconds ?? 0,
         resolveTtlSeconds: s.alerts?.webhook?.resolve_ttl_seconds ?? 0

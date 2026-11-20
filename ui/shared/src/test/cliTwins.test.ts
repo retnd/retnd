@@ -155,6 +155,22 @@ cases("agents/agentCommands", [
   ["auditCommand", "one token since a week", { tokenId: "agt_0123456789abcdef", since: "7d" }]
 ]);
 
+cases("observability/observabilityCommands", [
+  ["metricsEnabledCommand", "turning it on", true],
+  ["metricsEnabledCommand", "turning it off", false],
+  ["metricsIntervalCommand", "half a minute", 30],
+  ["metricsIntervalCommand", "a minute and a half", 90],
+  ["metricsIntervalCommand", "an hour and ten seconds", 3610],
+  ["metricsIntervalCommand", "a whole hour", 3600],
+  ["mintScrapeTokenCommand", "the mint"],
+  // One line per level the select offers, read from the module rather than
+  // spelled here: core/cmd/retnd's TestLogsLevelTwinIsTheSchema_900 holds
+  // this set to the levels config accepts and each line to cliecho's.
+  ...((modules["observability/observabilityCommands"].LOG_LEVELS ?? []) as string[]).map(
+    (level): [string, string, string] => ["logsLevelCommand", "the " + level + " floor", level]
+  )
+]);
+
 cases("assurance/assuranceCommands", [
   ["scrubCommand", "a set", SET],
   ["scrubCommand", "a hostile set id", HOSTILE_SET],
@@ -439,7 +455,7 @@ function flagsSpelledIn(src: string): string[] {
 
 /** The flags a module spells that none of its lines carries. */
 function unreachedFlags(src: string, lines: string[]): string[] {
-  const words = new Set(lines.flatMap((l) => l.split(/\s+/)));
+  const words = new Set(lines.flatMap((l) => l.split(/[\s=]+/)));
   return flagsSpelledIn(src).filter((f) => !words.has(f));
 }
 

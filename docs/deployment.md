@@ -801,7 +801,7 @@ alerts:
 A config file with no `alerts:` block at all keeps working exactly as before and
 notifies nobody, so turning this on is always a deliberate edit.
 
-**Where the alert goes is not configured here.** Delivery is the platform's own local
+**By default, where the alert goes is not configured here.** Delivery is the platform's own local
 notification capability, supplied by the provider app rather than by this file, which
 is why there is no URL, command or credential to get wrong. A platform that declares
 no native notification capability, and the generic Docker/Linux host is one, cannot
@@ -818,44 +818,134 @@ yourself. The connection stays refused until you do.
 clears and later comes back does alert again, so a recurrence is never lost behind a
 notification you already dismissed.
 
-## Metrics, and the one-release duplicate series
+### Delivering alerts to a webhook
+
+`alerts.enabled` only decides whether anything is observed. To reach a person on a
+deployment whose platform has no notifier (the generic Docker/Linux host is one),
+choose the webhook channel. It is a selection and never a fan-out: exactly one
+channel is built, and switching it keeps what was already announced, so a standing
+alert is not announced again... with one exception. Switching to the `alertmanager`
+format posts each standing alert to Alertmanager within one refresh interval, because
+that receiver has never seen it and expires anything that is not re-sent, and
+Alertmanager then notifies as it would for any new alert.
+
+```yaml
+observability:
+  alerts:
+    delivery: webhook          # platform (default) or webhook
+    webhook:
+      dialect: generic         # or alertmanager
+      url_ref:                 # where the URL is kept: file, env or command
+        file: /run/secrets/retnd-alert-webhook-url
+      allow_insecure_http: false
+      refresh_interval: 4m     # alertmanager only, at least 30s below resolve_ttl
+      resolve_ttl: 10m
+```
+
+The URL is a credential (a Slack, Teams or Discord webhook carries its secret in the
+path), so the file holds a reference and never the URL. It is not shown in the
+settings, in an error or in a log line; a failure names the host and the status code.
+Settings answer only whether one is set.
+
+The reference is read again for every delivery, so replacing the file's contents (or
+the variable, or what the command prints) takes effect at the next alert with no
+restart and no settings change. A reference that cannot be read is never a quiet
+state. Alerting stays on, the settings report `url_status: unresolvable` (or
+`invalid` when it reads and holds something that is not an acceptable URL), the
+Observability card in Settings shows it as an alert, and the activity feed gets one
+`alert_destination` error line when it happens. The alert waits, nothing is lost or
+marked as told, and the engine keeps trying. The moment the reference reads again the
+feed gets one `alert_destination` line saying so, and the waiting alert goes out on
+the next pass rather than at the next step of the retry ladder. The engine reads the
+reference on every alerting pass, not only when an alert is due, so you find out
+before the next incident does. A `command` reference therefore runs once per pass.
+
+Two fixed formats, neither templatable. `generic` posts one JSON object per alert
+(`kind`, `scope`, `title`, `message`, `observed_at`, `schema`) once, and stays quiet
+while the condition lasts. `alertmanager` posts the v2 array with `labels.alertname`
+and `labels.scope`, re-sends a condition that is still true every `refresh_interval`
+so Alertmanager does not expire it, and closes it with `endsAt` set to now when it
+clears. Without that refresh an alert would resolve itself while the backup was still
+stale. If you run Prometheus, its rules over the `retnd_*` series into Alertmanager
+are the better source of truth for staleness; this format is for deployments that
+scrape nothing, and running both means two sources of truth about the same fact.
+
+What is refused: a URL that is not https (unless `allow_insecure_http` is set, which
+is for a receiver on a network you trust, such as `http://alertmanager:9093` on a
+compose network), a URL carrying `user:password@`, a non-HTTP scheme, and any redirect
+(a 3xx counts as a failed delivery and its `Location` is never followed or logged).
+Certificate verification cannot be turned off. Private and link-local targets are
+allowed on purpose, because the common correct target is on a private network.
+
+## Metrics
 
 `core/internal/metrics` renders FR-24's health report as Prometheus text exposition
-(version 0.0.4), and every series it emits is prefixed `retnd_`:
-`retnd_process_info`, `retnd_backup_set_state`, `retnd_workflow_runner_reachable`,
-`retnd_workflow_runs_total` and the rest. **Nothing in this build serves it yet** —
-there is no subcommand and no route wired to it (issues #25, #26) — so a deployment
-today has no scrape endpoint to point Prometheus at. This section is here because the
-names moved and because the move has one hazard worth reading before you write a query
-against them.
+(version 0.0.4), and the engine serves it on `GET /metrics` (EPIC O, #899). Every series
+is prefixed `retnd_` and exists under that one name: `retnd_process_info`,
+`retnd_backup_set_state`, `retnd_workflow_runner_reachable`, `retnd_workflow_runs_total`
+and the rest, 46 families plus `retnd_scrape_rejected_total`. No family is emitted a
+second time under an old prefix, so a query cannot double-count.
 
-Those series were `retnd_*` until EPIC R (#885) renamed the product. An alert rule
-whose series stopped existing does not fire, and a dashboard whose query matches nothing
-is blank; both look exactly like a healthy deployment, which is the failure mode this
-project will not ship. So **every gauge family is emitted a second time under the
-`retnd_` prefix for one release**, derived from the bytes of the first rendering so the
-two cannot disagree, with `DEPRECATED, renamed to retnd_…` in its own `# HELP` line —
-so a scrape carries its own deprecation notice.
+**It is off until you turn it on.** Off, `/metrics` answers `404` and nothing else, so a
+deployment that never asked for it does not advertise it. Turn it on in Settings, or:
 
-**The caveat: a query that reads both prefixes double-counts.** The duplicated samples
-are the same readings under two names, not two measurements, so
-`sum(retnd_backup_set_state) + sum(retnd_backup_set_state)` reports twice as many
-backup sets as exist, and so does any regex matcher loose enough to catch both names
-(`{__name__=~".*backup_set_state"}`). Point every rule, recording rule and dashboard at
-`retnd_*` only. The old names exist so that a rule you have **not** migrated keeps
-firing during the upgrade, not so that both can be read at once.
+```sh
+retnd settings observability patch --metrics-enabled
+retnd settings observability rotate-scrape-token
+```
 
-**No counter is duplicated, and that is structural rather than remembered.** The
-duplication copies a family only when that family's own `# TYPE` line says `gauge`, so a
-counter cannot join the duplicated set by being added to a list. Summing `rate()` across
-two names of one counter doubles the rate, and nothing in the output would tell the
-operator who wrote that query — which is why `retnd_workflow_runs_total` and the other
-`_total` series exist under one name only.
+The second command prints a `rsc_` token **once**. Only its SHA-256 digest and an
+eight-character display prefix are kept, in `scrape_credential/scrape-token.json` beside
+`config.yaml` (mode 0600 in a 0700 directory). Running it again replaces the token at
+once with no overlap, so update the scraper's credentials file and reload it straight
+after. A token typed into `config.yaml` as `observability.metrics.token` is refused at
+load with the command above in the message, and is never echoed back.
 
-**The window is one release.** #895 deletes the duplication along with every other
-EPIC R shim, and `scripts/rename/check-brand-drift.sh`'s alias list is the ledger that
-says so: it reports an alias entry that has stopped matching anything, so the window
-closes because a gate noticed rather than because somebody remembered.
+Point Prometheus at it with the token in a file, as a bearer or as the `basic_auth`
+password (the username is ignored):
+
+```yaml
+scrape_configs:
+  - job_name: retnd
+    authorization:
+      credentials_file: /etc/prometheus/retnd-scrape-token
+    static_configs:
+      - targets: ["retnd:8080"]
+```
+
+**Where it is reachable.** The engine serves `/metrics` on its own listener, which on the
+shipped compose file is `retnd:8080` on the `internal` network. The published `web-ui` port
+forwards only `/health/*` and `/api/v1/*`, so `curl http://<nas>:8080/metrics` from your
+LAN gets the UI's answer, not the exposition. A Prometheus outside the compose network
+reaches it by joining that network or through a reverse proxy you run. If you put a proxy
+in front of it, make sure the proxy does not log the `Authorization` header... this
+product never does.
+
+**What a refusal looks like.** No credential, a wrong one or a malformed header is `401`
+with an empty body. An address that has been refused ten times in a minute gets `429`
+with `Retry-After` for the rest of that minute, even with a valid token, so a scraper's
+`up == 0` alert fires either way. The address is the connection's own peer address, and
+`X-Forwarded-For` is ignored on this route even with `TRUST_FORWARDED_HEADERS` on, because
+nothing trusted forwards `/metrics` to the engine: a header there was written by whoever
+sent the request. A scraper that holds the right token and connects from its own address
+is never refused. If it reaches the engine through a proxy you run, everything behind
+that proxy shares the proxy's address and its limit, so ten bad requests through the
+proxy in a minute will hold your scraper off for the rest of that minute too. Every
+answer carries `Cache-Control: no-store`.
+Refusals are counted, not logged, in `retnd_scrape_rejected_total{reason}` with
+`reason` one of `disabled`, `unauthenticated` or `method`.
+
+**What a scrape costs.** The health half needs a journal read, so it is rebuilt at most
+once per `observability.metrics.min_rebuild_interval` (default `15s`, at least `1s`) and
+reused in between, whatever the number of scrapers. `retnd_report_generated_timestamp_seconds`
+says how old the reading is. A scrape writes no action-log row and no agent audit row.
+
+**Two things it is not.** It is not `/health/live`: liveness still says nothing about
+backup freshness. And an agent token (`rat_`) does not open it, just as the scrape token
+opens nothing under `/api/v1`. The two credentials are kept apart on purpose, and
+ADR 0035 says why. When no workflow engine was ever built in the process, the seven
+`retnd_workflow_*` counter and histogram families are absent rather than zero, because
+"no workflow has failed" and "this process runs no workflows" are different answers.
 
 ## Turning on diagnostics
 

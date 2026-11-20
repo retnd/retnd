@@ -1,0 +1,204 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The Observability section of Settings: the scrape endpoint, its credential shown once, drawn before the code (issue #899)</title>
+<style>
+/* Tokens copied from ui/shared/src/design-system/tokens.css. The ratios in the table below were computed from exactly these
+   values with the arithmetic scripts/contrast/check-ui-pairs.py uses, and the pairs are the ones this note draws. */
+:root,.th-light{
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;--space-8:32px;--space-10:40px;
+  --radius-sm:4px;--radius-md:6px;--radius-lg:8px;--radius-xl:10px;--radius-pill:999px;
+  --bg:#f2f2f0;--surface:#ffffff;--surface-2:#fafaf9;--surface-3:#f0f0ed;
+  --border:#e0dfdc;--border-strong:#c8c7c3;--edge-3:#8b8d8a;
+  --text:#191a19;--text-2:#5b5d5b;--text-3:#696b68;
+  --accent:oklch(0.52 0.09 255);--accent-quiet:oklch(0.95 0.02 255);
+  --ok:oklch(0.52 0.10 155);--ok-quiet:oklch(0.955 0.025 155);
+  --warn:oklch(0.56 0.11 70);--warn-quiet:oklch(0.96 0.035 75);
+  --danger:oklch(0.52 0.15 25);--danger-quiet:oklch(0.955 0.03 25);
+  --shadow:0 1px 2px rgba(20,20,18,0.05),0 1px 1px rgba(20,20,18,0.04);
+  --shadow-lg:0 14px 40px rgba(20,20,18,0.14),0 2px 6px rgba(20,20,18,0.07);
+  --font-mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.th-dark{
+  --bg:#121312;--surface:#1b1d1b;--surface-2:#202220;--surface-3:#262826;
+  --border:#313331;--border-strong:#454745;--edge-3:#767976;
+  --text:#eceeeb;--text-2:#a3a6a2;--text-3:#959892;
+  --accent:oklch(0.70 0.09 255);--accent-quiet:oklch(0.30 0.045 255);
+  --ok:oklch(0.72 0.11 155);--ok-quiet:oklch(0.28 0.05 155);
+  --warn:oklch(0.78 0.12 75);--warn-quiet:oklch(0.30 0.055 70);
+  --danger:oklch(0.68 0.15 25);--danger-quiet:oklch(0.30 0.07 25);
+  --shadow:0 1px 2px rgba(0,0,0,0.4);
+  --shadow-lg:0 16px 44px rgba(0,0,0,0.55);
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:var(--space-6)}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:var(--space-5)}
+h1{font-size:18px;margin:0} h2{font-size:15px;margin:0 0 var(--space-2)} h3,h4{margin:0} h4{font-size:13px}
+.muted,.sub{color:var(--text-2);margin:0}
+code,.mono{font-family:var(--font-mono);font-size:12px}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4)}
+.frame{background:var(--bg);color:var(--text);border:1px solid var(--border-strong);border-radius:var(--radius-xl);padding:var(--space-3)}
+.tag{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);margin-bottom:var(--space-2)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:var(--space-4);display:flex;flex-direction:column;gap:var(--space-3);box-shadow:var(--shadow)}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-2)}
+.row{display:flex;gap:var(--space-2);align-items:center}
+input[type=checkbox]{accent-color:var(--accent)}
+.echo{font-family:var(--font-mono);font-size:12px;color:var(--text-2)}
+.lab{font-size:12px} .field{display:flex;flex-direction:column;gap:4px}
+.box{border:1px solid var(--edge-3);border-radius:var(--radius-md);padding:4px 8px;min-width:72px;background:var(--surface)}
+.btn{display:inline-block;border:1px solid var(--edge-3);border-radius:var(--radius-md);padding:4px 10px;background:var(--surface);color:var(--text);width:fit-content}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+.st{margin:0}
+.reveal{display:flex;flex-direction:column;gap:var(--space-2);border-top:1px solid var(--border);padding-top:var(--space-3)}
+.tok{border:1px solid var(--edge-3);border-radius:var(--radius-md);padding:8px;word-break:break-all}
+.err{border:2px solid var(--danger);background:var(--danger-quiet);color:var(--text);border-radius:var(--radius-md);padding:8px}
+.sum{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px;margin:0} .sum dt{color:var(--text-2)} .sum dd{margin:0}
+table{border-collapse:collapse;width:100%} td,th{border:1px solid var(--border);padding:6px 8px;text-align:left}
+@media (max-width:760px){.pair{grid-template-columns:1fr}}
+</style>
+<div class="wrap">
+<header><h1>The Observability section of Settings, drawn before the code (issue #899, EPIC O)</h1>
+<p class="sub">2026-11-19. This note is a record of a decision at the moment it was taken, and it is not kept in step with later work. It draws the first sub-section of the Observability card, the one #899 owns: the scrape endpoint&rsquo;s switch, its report cache and its credential. The log level (#900) and the alert delivery (#901) are two read-only lines for now and gain their controls from their own issues, under their own tooltip prefixes.</p></header>
+
+<section><h2>1. What is drawn, in both themes</h2>
+<p class="muted">Four states, each in light and in dark: everything off (what a deployment that never wrote the block sees), the endpoint on with a credential minted, the one moment the token is shown, and a refusal in the engine&rsquo;s own words.</p>
+<div class="pair"><div class="frame th-light"><div class="tag">light · off</div>
+  <section class="card"><h3 class="eyebrow">Observability</h3>
+   <p class="muted">What this deployment offers to Prometheus, a log shipper and an alert receiver. All of it is off until you turn it on, and none of it is per backup set.</p>
+   <h4>Prometheus scrape endpoint</h4>
+   <label class="row"><input type="checkbox"  disabled> Serve the scrape endpoint</label>
+   <div class="echo">retnd settings observability patch --metrics-enabled=true</div>
+   <div class="field"><span class="lab">Report cache (seconds)</span><div class="row"><span class="box mono">15</span><span class="btn">Save</span></div></div>
+   <p class="st">No scrape token has been minted, so nothing can scrape yet.</p>
+   <span class="btn">Mint scrape token</span>
+   
+   <div class="echo">retnd settings observability rotate-scrape-token</div>
+   
+   
+   <dl class="sum"><dt>Log level</dt><dd>info (from config)</dd><dt>Alert delivery</dt><dd>platform</dd></dl>
+  </section></div><div class="frame th-dark"><div class="tag">dark · off</div>
+  <section class="card"><h3 class="eyebrow">Observability</h3>
+   <p class="muted">What this deployment offers to Prometheus, a log shipper and an alert receiver. All of it is off until you turn it on, and none of it is per backup set.</p>
+   <h4>Prometheus scrape endpoint</h4>
+   <label class="row"><input type="checkbox"  disabled> Serve the scrape endpoint</label>
+   <div class="echo">retnd settings observability patch --metrics-enabled=true</div>
+   <div class="field"><span class="lab">Report cache (seconds)</span><div class="row"><span class="box mono">15</span><span class="btn">Save</span></div></div>
+   <p class="st">No scrape token has been minted, so nothing can scrape yet.</p>
+   <span class="btn">Mint scrape token</span>
+   
+   <div class="echo">retnd settings observability rotate-scrape-token</div>
+   
+   
+   <dl class="sum"><dt>Log level</dt><dd>info (from config)</dd><dt>Alert delivery</dt><dd>platform</dd></dl>
+  </section></div></div>
+<div class="pair"><div class="frame th-light"><div class="tag">light · on</div>
+  <section class="card"><h3 class="eyebrow">Observability</h3>
+   <p class="muted">What this deployment offers to Prometheus, a log shipper and an alert receiver. All of it is off until you turn it on, and none of it is per backup set.</p>
+   <h4>Prometheus scrape endpoint</h4>
+   <label class="row"><input type="checkbox" checked disabled> Serve the scrape endpoint</label>
+   <div class="echo">retnd settings observability patch --metrics-enabled=false</div>
+   <div class="field"><span class="lab">Report cache (seconds)</span><div class="row"><span class="box mono">30</span><span class="btn">Save</span></div></div>
+   <p class="st">Scrape token minted 2026-11-19T07:41:00Z, starting rsc_Q3xZ.</p>
+   <span class="btn">Mint a new scrape token</span>
+   <p class='muted'>Minting again replaces the current token at once.</p>
+   <div class="echo">retnd settings observability rotate-scrape-token</div>
+   
+   
+   <dl class="sum"><dt>Log level</dt><dd>info (from config)</dd><dt>Alert delivery</dt><dd>platform</dd></dl>
+  </section></div><div class="frame th-dark"><div class="tag">dark · on</div>
+  <section class="card"><h3 class="eyebrow">Observability</h3>
+   <p class="muted">What this deployment offers to Prometheus, a log shipper and an alert receiver. All of it is off until you turn it on, and none of it is per backup set.</p>
+   <h4>Prometheus scrape endpoint</h4>
+   <label class="row"><input type="checkbox" checked disabled> Serve the scrape endpoint</label>
+   <div class="echo">retnd settings observability patch --metrics-enabled=false</div>
+   <div class="field"><span class="lab">Report cache (seconds)</span><div class="row"><span class="box mono">30</span><span class="btn">Save</span></div></div>
+   <p class="st">Scrape token minted 2026-11-19T07:41:00Z, starting rsc_Q3xZ.</p>
+   <span class="btn">Mint a new scrape token</span>
+   <p class='muted'>Minting again replaces the current token at once.</p>
+   <div class="echo">retnd settings observability rotate-scrape-token</div>
+   
+   
+   <dl class="sum"><dt>Log level</dt><dd>info (from config)</dd><dt>Alert delivery</dt><dd>platform</dd></dl>
+  </section></div></div>
+<div class="pair"><div class="frame th-light"><div class="tag">light · reveal</div>
+  <section class="card"><h3 class="eyebrow">Observability</h3>
+   <p class="muted">What this deployment offers to Prometheus, a log shipper and an alert receiver. All of it is off until you turn it on, and none of it is per backup set.</p>
+   <h4>Prometheus scrape endpoint</h4>
+   <label class="row"><input type="checkbox" checked disabled> Serve the scrape endpoint</label>
+   <div class="echo">retnd settings observability patch --metrics-enabled=false</div>
+   <div class="field"><span class="lab">Report cache (seconds)</span><div class="row"><span class="box mono">30</span><span class="btn">Save</span></div></div>
+   <p class="st">Scrape token minted 2026-11-19T07:41:00Z, starting rsc_Q3xZ.</p>
+   <span class="btn">Mint a new scrape token</span>
+   <p class='muted'>Minting again replaces the current token at once.</p>
+   <div class="echo">retnd settings observability rotate-scrape-token</div>
+   <div class='reveal'><div class='tok mono'>rsc_Q3xZ0vB8mWn1kT6yHcP4dLr9aEoJ2uSgXfVi7bKq5Nw</div><span class='btn'>Copy</span><p>This is the only time this token is shown. Put it in Prometheus&rsquo;s credentials file and reload Prometheus; the previous token has already stopped working.</p><span class='btn primary'>I have stored it</span></div>
+   
+   <dl class="sum"><dt>Log level</dt><dd>info (from config)</dd><dt>Alert delivery</dt><dd>platform</dd></dl>
+  </section></div><div class="frame th-dark"><div class="tag">dark · reveal</div>
+  <section class="card"><h3 class="eyebrow">Observability</h3>
+   <p class="muted">What this deployment offers to Prometheus, a log shipper and an alert receiver. All of it is off until you turn it on, and none of it is per backup set.</p>
+   <h4>Prometheus scrape endpoint</h4>
+   <label class="row"><input type="checkbox" checked disabled> Serve the scrape endpoint</label>
+   <div class="echo">retnd settings observability patch --metrics-enabled=false</div>
+   <div class="field"><span class="lab">Report cache (seconds)</span><div class="row"><span class="box mono">30</span><span class="btn">Save</span></div></div>
+   <p class="st">Scrape token minted 2026-11-19T07:41:00Z, starting rsc_Q3xZ.</p>
+   <span class="btn">Mint a new scrape token</span>
+   <p class='muted'>Minting again replaces the current token at once.</p>
+   <div class="echo">retnd settings observability rotate-scrape-token</div>
+   <div class='reveal'><div class='tok mono'>rsc_Q3xZ0vB8mWn1kT6yHcP4dLr9aEoJ2uSgXfVi7bKq5Nw</div><span class='btn'>Copy</span><p>This is the only time this token is shown. Put it in Prometheus&rsquo;s credentials file and reload Prometheus; the previous token has already stopped working.</p><span class='btn primary'>I have stored it</span></div>
+   
+   <dl class="sum"><dt>Log level</dt><dd>info (from config)</dd><dt>Alert delivery</dt><dd>platform</dd></dl>
+  </section></div></div>
+<div class="pair"><div class="frame th-light"><div class="tag">light · error</div>
+  <section class="card"><h3 class="eyebrow">Observability</h3>
+   <p class="muted">What this deployment offers to Prometheus, a log shipper and an alert receiver. All of it is off until you turn it on, and none of it is per backup set.</p>
+   <h4>Prometheus scrape endpoint</h4>
+   <label class="row"><input type="checkbox"  disabled> Serve the scrape endpoint</label>
+   <div class="echo">retnd settings observability patch --metrics-enabled=true</div>
+   <div class="field"><span class="lab">Report cache (seconds)</span><div class="row"><span class="box mono">15</span><span class="btn">Save</span></div></div>
+   <p class="st">No scrape token has been minted, so nothing can scrape yet.</p>
+   <span class="btn">Mint scrape token</span>
+   
+   <div class="echo">retnd settings observability rotate-scrape-token</div>
+   
+   <div class='err' role='alert'>invalid configuration: observability.metrics.min_rebuild_interval: 1ms is below the 1s floor</div>
+   <dl class="sum"><dt>Log level</dt><dd>info (from config)</dd><dt>Alert delivery</dt><dd>platform</dd></dl>
+  </section></div><div class="frame th-dark"><div class="tag">dark · error</div>
+  <section class="card"><h3 class="eyebrow">Observability</h3>
+   <p class="muted">What this deployment offers to Prometheus, a log shipper and an alert receiver. All of it is off until you turn it on, and none of it is per backup set.</p>
+   <h4>Prometheus scrape endpoint</h4>
+   <label class="row"><input type="checkbox"  disabled> Serve the scrape endpoint</label>
+   <div class="echo">retnd settings observability patch --metrics-enabled=true</div>
+   <div class="field"><span class="lab">Report cache (seconds)</span><div class="row"><span class="box mono">15</span><span class="btn">Save</span></div></div>
+   <p class="st">No scrape token has been minted, so nothing can scrape yet.</p>
+   <span class="btn">Mint scrape token</span>
+   
+   <div class="echo">retnd settings observability rotate-scrape-token</div>
+   
+   <div class='err' role='alert'>invalid configuration: observability.metrics.min_rebuild_interval: 1ms is below the 1s floor</div>
+   <dl class="sum"><dt>Log level</dt><dd>info (from config)</dd><dt>Alert delivery</dt><dd>platform</dd></dl>
+  </section></div></div>
+</section>
+
+<section><h2>2. Decisions</h2>
+<p><strong>The switch is a checkbox that writes at once.</strong> It sends <code>PATCH /settings/observability</code> with <code>metrics_enabled</code>, and the card then shows what the engine answered rather than what it hoped it had written. The line under it is the equivalent command, so the terminal always has the same act.</p>
+<p><strong>The report cache is a number of seconds with the engine&rsquo;s floor said before anything is sent.</strong> The floor is one second (<code>config.MinMetricsMinRebuildInterval</code>); the engine refuses lower and writes nothing, and the card says the same in the field&rsquo;s own error slot, in words and not only colour.</p>
+<p><strong>The token has one home.</strong> It exists in the card&rsquo;s state for the life of the reveal and nowhere else: not in the status line (which shows the eight-character prefix only), a tooltip, a live region, an error or browser storage. &ldquo;I have stored it&rdquo; drops it. The mint is <code>POST /settings/observability/scrape-token</code> so an operator with only a browser can wire Prometheus; over a connection that is not encrypted it asks the same question a password does before the request is sent.</p>
+<p><strong>Minting again says what it costs.</strong> The old token stops working at once, with no overlap, so the line under the button says so and the reveal repeats it.</p>
+<p><strong>The two read-only lines have no tooltip.</strong> They are statements of fact and not controls; a field whose effect the code cannot yet state gets no pop-up (checklist section 5).</p>
+<p><strong>Nothing is per backup set.</strong> A scrape endpoint, a log stream and an alert channel belong to the deployment, so there is no per-set card.</p>
+</section>
+
+<section id="contrast"><h2>3. Measured contrast (WCAG 2.x AA)</h2>
+<p class="muted">Computed from the token values in the style block above, converted to linear sRGB with the same function <code>scripts/contrast/check-ui-pairs.py</code> uses; the ratio is (L1 + 0.05) / (L2 + 0.05). Text needs 4.5:1 and a component edge or graphic needs 3:1 (WCAG 1.4.11). Nothing on this card is large text. Every pair is one the picture draws; a pair that is not here is not claimed. I did not run an automated accessibility scanner or check hover and forced-colours states.</p>
+<table id="contrast-table"><thead><tr><th>Pair</th><th>Tokens</th><th>Needs</th><th>Light</th><th>Dark</th></tr></thead><tbody>
+      <tr><td>Body text on the card</td><td><code>--text on --surface</code></td><td>4.5:1</td><td>17.45:1</td><td>14.53:1</td></tr>
+      <tr><td>Secondary text on the card</td><td><code>--text-2 on --surface</code></td><td>4.5:1</td><td>6.64:1</td><td>6.89:1</td></tr>
+      <tr><td>Error text on its fill</td><td><code>--text on --danger-quiet</code></td><td>4.5:1</td><td>15.00:1</td><td>12.02:1</td></tr>
+      <tr><td>Error edge (2px, with the words)</td><td><code>--danger on --surface</code></td><td>3:1</td><td>5.95:1</td><td>5.50:1</td></tr>
+      <tr><td>Switch checkbox (UI component)</td><td><code>--accent on --surface</code></td><td>3:1</td><td>5.51:1</td><td>6.36:1</td></tr>
+      <tr><td>Text box and button edge</td><td><code>--edge-3 on --surface</code></td><td>3:1</td><td>3.48:1</td><td>3.85:1</td></tr>
+</tbody></table>
+</section>
+</div>

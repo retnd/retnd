@@ -21,6 +21,7 @@ import { SET_TERMINAL_ID } from "@shared/pages/SetActivityPanel";
 import { GateRefusal } from "@shared/components/GateRefusal";
 import { CommandEcho } from "@shared/pages/CommandEcho";
 import { recoveryTestCommand } from "./assuranceCommands";
+import { DeclareValidator } from "./DeclareValidator";
 import { OperationPanel } from "./OperationPanel";
 import { useRunAssurance } from "./useRunAssurance";
 import { recoveryTestWouldBeRefused, useSetFacts } from "./verificationModel";
@@ -119,6 +120,8 @@ export function ValidationBlock({ set, readOnly = false }: { set: BackupSet; rea
           );
         })}
       </ul>
+      {/* #1520: validators can be declared for this set from here, not only from Settings. */}
+      <DeclareValidator setId={set.id} readOnly={readOnly} embedded />
       {run.offered ? <CommandEcho label="Same thing from the terminal" commands={[recoveryTestCommand(set.id)]} /> : null}
     </div>
   );

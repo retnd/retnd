@@ -303,6 +303,11 @@ export const SCENARIOS = [
   // Issue #1351 (EPIC U): the Agents card. The default scenario has no token;
   // see agents/mockAgents.ts for what each of these holds.
   ...AGENTS_SCENARIOS,
+  // Issue #1541: a source file the engine proved complete and could not
+  // open. Production PostgreSQL has had one waiting past its stale
+  // threshold (the warning), Billing MySQL one waiting for two hours (the
+  // quiet count). Both sets stay healthy.
+  "pending-unreadable",
 ] as const;
 
 export type Scenario = (typeof SCENARIOS)[number];
@@ -3280,6 +3285,29 @@ function defaultSetWorkflowEnvironment(): WorkflowEnvVariable[] {
   ];
 }
 
+/**
+ * Issue #901: `?webhookurl=unresolvable` (or `invalid`, `ok`, `unknown`)
+ * stands in for what the engine's last read of the webhook URL found. It is a
+ * query parameter rather than a scenario so it composes with any scenario,
+ * the way `?artifacts=N` does. The mock has a URL set whenever it is given
+ * one, and reports the state only while delivery is the webhook, as the
+ * engine does. Read once, when the mock is built.
+ */
+type WebhookURLStatus = NonNullable<ObservabilitySettings["alerts"]["webhook"]["urlStatus"]>;
+function webhookURLStatusFromLocation(): WebhookURLStatus | null {
+  const raw = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("webhookurl");
+  return raw === "ok" || raw === "unresolvable" || raw === "invalid" || raw === "unknown" ? raw : null;
+}
+
+function withWebhookURLState(o: ObservabilitySettings, status: WebhookURLStatus | null): ObservabilitySettings {
+  const out = structuredClone(o);
+  if (status === null) return out;
+  out.alerts.webhook.urlSet = true;
+  if (out.alerts.delivery === "webhook") out.alerts.webhook.urlStatus = status;
+  else delete out.alerts.webhook.urlStatus;
+  return out;
+}
+
 /** The observability block as a deployment that never wrote it reads: the
  *  defaults, which are everything off. */
 function defaultObservabilitySettings(): ObservabilitySettings {
@@ -4232,6 +4260,27 @@ export function createMockApi(
       lastRunAt: null, lastValidation: "unknown", expectedIntervalHours: null, staleAfterSeconds: 36 * 3600,
       retainedCount: null, retainedBytes: null, validations: []
     };
+  // Issue #1541: what the real client maps from GET /system/health's
+  // pending_unreadable* onto a set, for the "pending-unreadable" scenario.
+  const withPendingUnreadable = (set: BackupSet): BackupSet => {
+    if (scenario !== "pending-unreadable") return set;
+    if (set.id === "production/postgres-primary") {
+      return {
+        ...set,
+        pendingUnreadable: {
+          count: 1,
+          oldestAgeSeconds: 30 * 3600,
+          oldestPath: "run-20261103T033855Z/gitea-dump-20261103T033855Z.tar.gz",
+          warning:
+            "1 source file complete but unreadable for 30h, oldest run-20261103T033855Z/gitea-dump-20261103T033855Z.tar.gz; the producer has not published it"
+        }
+      };
+    }
+    if (set.id === "production/billing-mysql") {
+      return { ...set, pendingUnreadable: { count: 2, oldestAgeSeconds: 2 * 3600, oldestPath: "billing-20260829.sql.gz" } };
+    }
+    return set;
+  };
   const wireOverlay = options.wire ? overlayAssurance : (a: BackupArtifact) => a;
   const empty = scenario === "empty";
   const retainedPad = retainedPadFromLocation();
@@ -4452,6 +4501,7 @@ export function createMockApi(
   }
   const assuranceSettings = defaultAssuranceSettings();
   const observabilitySettings = defaultObservabilitySettings();
+  const webhookURLStatus = webhookURLStatusFromLocation();
   if (scenario === "backups-many-ceiling-2") assuranceSettings.maxDownloadStreams = 2;
   const mockRecovery = createMockRecovery(scenario);
 
@@ -4724,9 +4774,9 @@ export function createMockApi(
     getStorage: () =>
       delay(empty ? STORAGE_EMPTY : scenario === "storage-critical" ? STORAGE_CRITICAL : STORAGE),
 
-    listSets: () => delay(empty ? [] : withRetentionAttribution(retentionOverrides, SETS).map(asReportedSet)),
+    listSets: () => delay(empty ? [] : withRetentionAttribution(retentionOverrides, SETS).map(asReportedSet).map(withPendingUnreadable)),
     getSet: (id) => {
-      const found = SETS.map(asReportedSet).find((s) => s.id === id);
+      const found = SETS.map(asReportedSet).map(withPendingUnreadable).find((s) => s.id === id);
       // A rejected promise, not a synchronous throw: getSet's own type
       // signature promises Promise<BackupSet>, and every caller (useAsync,
       // useResource/fetchResource) reaches for fetchFn().then/.catch to
@@ -6126,7 +6176,7 @@ export function createMockApi(
     },
 
     ...validatorsApi,
-    getObservabilitySettings: () => delay(structuredClone(observabilitySettings)),
+    getObservabilitySettings: () => delay(withWebhookURLState(observabilitySettings, webhookURLStatus)),
     patchObservabilitySettings: (patch) => {
       const o = observabilitySettings;
       if (patch.metricsEnabled !== undefined) o.metrics.enabled = patch.metricsEnabled;
@@ -6140,7 +6190,7 @@ export function createMockApi(
       if (patch.webhookAllowInsecureHttp !== undefined) o.alerts.webhook.allowInsecureHttp = patch.webhookAllowInsecureHttp;
       if (patch.webhookRefreshIntervalSeconds !== undefined) o.alerts.webhook.refreshIntervalSeconds = patch.webhookRefreshIntervalSeconds;
       if (patch.webhookResolveTtlSeconds !== undefined) o.alerts.webhook.resolveTtlSeconds = patch.webhookResolveTtlSeconds;
-      return delay(structuredClone(o));
+      return delay(withWebhookURLState(o, webhookURLStatus));
     },
     mintScrapeToken: () => {
       const created = new Date().toISOString();

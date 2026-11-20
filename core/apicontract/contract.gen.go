@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "656294a516e51c2adb15c002253d803fc31e2ecffbac49063e42f310b5c18a1b"
+const ContractSHA256 = "8d93a85fee261d8536b4e6d3f097d615f974268e9f92f71f22f22170e335f5fe"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -2771,34 +2771,38 @@ type BackupSetEditHoldState struct {
 // last pass, so a deployment nobody has run a cycle in front of
 // still reports relocations that have been failing for weeks.
 type BackupSetHealth struct {
-	AwayFromHome                  int    `json:"away_from_home"`
-	AwayFromHomeOldestAgeSeconds  int64  `json:"away_from_home_oldest_age_seconds,omitempty"`
-	BackupSetID                   string `json:"backup_set_id"`
-	CurrentTransfers              int    `json:"current_transfers"`
-	FailedMoveOldestAgeSeconds    int64  `json:"failed_move_oldest_age_seconds,omitempty"`
-	FailedMoveReason              string `json:"failed_move_reason,omitempty"`
-	FailedMoves                   int    `json:"failed_moves"`
-	Failures                      int    `json:"failures"`
-	FreeBytes                     uint64 `json:"free_bytes,omitempty"`
-	FreeBytesKnown                bool   `json:"free_bytes_known"`
-	HaltReason                    string `json:"halt_reason,omitempty"`
-	LastCompletedBackupAt         string `json:"last_completed_backup_at,omitempty"`
-	NewestGoodBackupAt            string `json:"newest_good_backup_at,omitempty"`
-	OpenMoveOldestAgeSeconds      int64  `json:"open_move_oldest_age_seconds,omitempty"`
-	OpenMoves                     int    `json:"open_moves"`
-	PendingDeletes                int    `json:"pending_deletes"`
-	QuarantinedCount              int    `json:"quarantined_count"`
-	QuarantinedLostCount          int    `json:"quarantined_lost_count"`
-	ReadOnlyRetainedCount         int    `json:"read_only_retained_count"`
-	Reason                        string `json:"reason"`
-	ReinstatedRemoteRetainedCount int    `json:"reinstated_remote_retained_count"`
-	SetName                       string `json:"set_name"`
-	SourceName                    string `json:"source_name"`
-	StaleAfterSeconds             int64  `json:"stale_after_seconds"`
-	State                         string `json:"state"`
-	StorageLevel                  string `json:"storage_level,omitempty"`
-	TotalBytes                    uint64 `json:"total_bytes,omitempty"`
-	UnconfirmedLocation           int    `json:"unconfirmed_location"`
+	AwayFromHome                      int    `json:"away_from_home"`
+	AwayFromHomeOldestAgeSeconds      int64  `json:"away_from_home_oldest_age_seconds,omitempty"`
+	BackupSetID                       string `json:"backup_set_id"`
+	CurrentTransfers                  int    `json:"current_transfers"`
+	FailedMoveOldestAgeSeconds        int64  `json:"failed_move_oldest_age_seconds,omitempty"`
+	FailedMoveReason                  string `json:"failed_move_reason,omitempty"`
+	FailedMoves                       int    `json:"failed_moves"`
+	Failures                          int    `json:"failures"`
+	FreeBytes                         uint64 `json:"free_bytes,omitempty"`
+	FreeBytesKnown                    bool   `json:"free_bytes_known"`
+	HaltReason                        string `json:"halt_reason,omitempty"`
+	LastCompletedBackupAt             string `json:"last_completed_backup_at,omitempty"`
+	NewestGoodBackupAt                string `json:"newest_good_backup_at,omitempty"`
+	OpenMoveOldestAgeSeconds          int64  `json:"open_move_oldest_age_seconds,omitempty"`
+	OpenMoves                         int    `json:"open_moves"`
+	PendingDeletes                    int    `json:"pending_deletes"`
+	PendingUnreadable                 int    `json:"pending_unreadable"`
+	PendingUnreadableOldestAgeSeconds int64  `json:"pending_unreadable_oldest_age_seconds,omitempty"`
+	PendingUnreadableOldestPath       string `json:"pending_unreadable_oldest_path,omitempty"`
+	PendingUnreadableWarning          string `json:"pending_unreadable_warning,omitempty"`
+	QuarantinedCount                  int    `json:"quarantined_count"`
+	QuarantinedLostCount              int    `json:"quarantined_lost_count"`
+	ReadOnlyRetainedCount             int    `json:"read_only_retained_count"`
+	Reason                            string `json:"reason"`
+	ReinstatedRemoteRetainedCount     int    `json:"reinstated_remote_retained_count"`
+	SetName                           string `json:"set_name"`
+	SourceName                        string `json:"source_name"`
+	StaleAfterSeconds                 int64  `json:"stale_after_seconds"`
+	State                             string `json:"state"`
+	StorageLevel                      string `json:"storage_level,omitempty"`
+	TotalBytes                        uint64 `json:"total_bytes,omitempty"`
+	UnconfirmedLocation               int    `json:"unconfirmed_location"`
 }
 
 // BackupSetRetention is which retention policy one backup set is retained under, and where
@@ -3932,6 +3936,7 @@ type ObservabilityWebhookSettings struct {
 	RefreshIntervalSeconds int64  `json:"refresh_interval_seconds"`
 	ResolveTtlSeconds      int64  `json:"resolve_ttl_seconds"`
 	URLSet                 bool   `json:"url_set"`
+	URLStatus              string `json:"url_status,omitempty"`
 }
 
 // Operation is one durable operation record. Timestamp fields are omitted, not

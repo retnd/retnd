@@ -165,6 +165,8 @@ const (
 
 	whyConfirmDecide = "a person lists and decides confirmations; an agent only proposes one and reads its own by id"
 
+	whyScrape = "the Prometheus scrape endpoint answers a scraper holding the scrape credential, in the exposition text format; an agent reads this deployment through the catalogue's tools, and no token of either kind opens it"
+
 	whyAudit = "the audit trail is read by an operator from a terminal or the browser; an agent's own calls are in it and it never reads it back"
 
 	whyOperationAction = "this action on the operations route is a restore, a hold or a snapshot check, each a person's decision about data, and no tool starts it"
@@ -196,7 +198,7 @@ var toolRows = []Row{
 	{
 		Tool: "status", Method: "GET", Route: "/system/health", Scope: ScopeRead,
 		Description: "Read the health of every backup set: its state and the reason for it, the newest good backup, quarantined and stale counts, free space and copies away from home.",
-		Untrusted:   []string{"backup_sets[].reason", "backup_sets[].halt_reason", "backup_sets[].failed_move_reason"},
+		Untrusted:   []string{"backup_sets[].reason", "backup_sets[].halt_reason", "backup_sets[].failed_move_reason", "backup_sets[].pending_unreadable_oldest_path", "backup_sets[].pending_unreadable_warning"},
 	},
 	{
 		Tool: "backup_sets_list", Method: "GET", Route: "/backup-sets", Scope: ScopeRead,
@@ -434,6 +436,7 @@ var refusalRows = join(
 		"POST /repositories", "POST /workflow-recovery/{run}/resume-cleanup", "POST /workflow-recovery/{run}/acknowledge"),
 	no(whyCatalogue, "GET /agent/tools"),
 	no(whyAudit, "GET /agent/audit"),
+	no(whyScrape, "GET /metrics"),
 	no(whyConfirmDecide, "GET /agent/confirmations", "POST /agent/confirmations/{id}/approve", "POST /agent/confirmations/{id}/deny"),
 	no(whyTransport, "POST /agent/mcp", "GET /agent/mcp", "DELETE /agent/mcp"),
 	no(whyRead,

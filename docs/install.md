@@ -567,6 +567,13 @@ body rather than left alone or deleted, so the command already in your shell his
 keeps working for the same one release; left alone it would exec a `/retnd` the image
 no longer has.
 
+**If your volumes still land on the pre-rename paths**, `retnd daemon` and
+`retnd-web serve` refuse to start rather than come up empty (#1546). The refusal names
+the old path, the new one and the fix: mount the old directory at the new container
+path, or point `--config` at the old one. If both paths hold a configuration (or a
+state database) it says so and won't pick one, so move the one you don't want aside and
+start again.
+
 ## It derives from the canonical definition, it does not restate it
 
 `container/compose.yaml` is the canonical runtime contract (issue #167), and

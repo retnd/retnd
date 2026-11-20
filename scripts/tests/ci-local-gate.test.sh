@@ -446,6 +446,12 @@ make_full_tree() {
   mkdir -p "$tree/scripts/assurance"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/assurance/selftest.sh"
 
+  # EPIC O's observability mutation self-test (#899), stubbed for the same
+  # reason: the real one copies the tree a dozen times and builds core/ and
+  # apps/common in each copy.
+  mkdir -p "$tree/scripts/observability"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/observability/selftest.sh"
+
   # The race detector's own mutation self-test (#417), stubbed for the
   # seventh time for the seventh identical reason: the real one copies the
   # tree twice, plants a data race in core/service and runs the detector

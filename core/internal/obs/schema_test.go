@@ -324,8 +324,9 @@ func (errProbe) Error() string { return "probe" }
 
 // TestEveryEventConstantIsPinnedByName closes the gap that predates EPIC
 // O: EventSnapshotPhase and EventSnapshotStats were in events.go and in no
-// table. It reads the source, so a 54th constant added without a pin is a
-// red here rather than a name nobody noticed.
+// table. It reads the source, so a 55th constant added without a pin is a
+// red here rather than a name nobody noticed. 54 since O1.3 added
+// EventAlertDestination (the spec was written at 53).
 func TestEveryEventConstantIsPinnedByName(t *testing.T) {
 	pinned := map[string]string{}
 	for _, c := range eventNameCases {
@@ -358,8 +359,8 @@ func TestEveryEventConstantIsPinnedByName(t *testing.T) {
 			return true
 		})
 	}
-	if len(declared) != 53 {
-		t.Errorf("events.go and assurance_events.go declare %d Event* constants, the spec and docs/observability.md say 53; update both together", len(declared))
+	if len(declared) != 54 {
+		t.Errorf("events.go and assurance_events.go declare %d Event* constants, docs/observability.md says 54; update both together", len(declared))
 	}
 	for name, v := range declared {
 		want, ok := pinned[name]

@@ -130,6 +130,18 @@ type backupSetHealthResponse struct {
 	FailedMoves                  int    `json:"failed_moves"`
 	FailedMoveOldestAgeSeconds   int64  `json:"failed_move_oldest_age_seconds,omitempty"`
 	FailedMoveReason             string `json:"failed_move_reason,omitempty"`
+
+	// Issue #1541: source files the last discovery pass proved complete
+	// and could not open, because the producer has not published them.
+	// The count is NOT omitempty, for the reason the placement counts are
+	// not. The age, path and warning ARE, with the placement polarity: they
+	// exist only when the count says there is something to describe, and
+	// the warning only once the oldest has waited past stale_after_seconds.
+	// The path and the warning carry a remote file's name: untrusted.
+	PendingUnreadable                 int    `json:"pending_unreadable"`
+	PendingUnreadableOldestAgeSeconds int64  `json:"pending_unreadable_oldest_age_seconds,omitempty"`
+	PendingUnreadableOldestPath       string `json:"pending_unreadable_oldest_path,omitempty"`
+	PendingUnreadableWarning          string `json:"pending_unreadable_warning,omitempty"`
 }
 
 type healthResponse struct {
@@ -201,5 +213,10 @@ func toBackupSetHealthResponse(bs service.BackupSetHealth) backupSetHealthRespon
 		FailedMoves:                  bs.Placement.FailedMoves,
 		FailedMoveOldestAgeSeconds:   int64(bs.Placement.OldestFailedMoveAge.Seconds()),
 		FailedMoveReason:             bs.Placement.FailedMoveReason,
+
+		PendingUnreadable:                 bs.PendingUnreadable,
+		PendingUnreadableOldestAgeSeconds: int64(bs.PendingUnreadableOldestAge.Seconds()),
+		PendingUnreadableOldestPath:       bs.PendingUnreadableOldestPath,
+		PendingUnreadableWarning:          bs.PendingUnreadableWarning,
 	}
 }

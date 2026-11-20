@@ -1301,6 +1301,21 @@ func (r *engineRoute) UpdateObservabilitySettings(ctx context.Context, req servi
 	return observabilitySettingsFromWire(resp), nil
 }
 
+// MintScrapeToken is POST /settings/observability/scrape-token.
+func (r *engineRoute) MintScrapeToken(ctx context.Context) (service.MintedScrapeToken, error) {
+	resp, err := r.client.MintScrapeToken(ctx)
+	if err != nil {
+		return service.MintedScrapeToken{}, err
+	}
+	state := service.ScrapeTokenState{Exists: resp.ScrapeToken.Exists, Prefix: resp.ScrapeToken.Prefix}
+	if resp.ScrapeToken.CreatedAt != nil {
+		if t, perr := time.Parse(time.RFC3339, *resp.ScrapeToken.CreatedAt); perr == nil {
+			state.CreatedAt = t
+		}
+	}
+	return service.MintedScrapeToken{Token: resp.Token, State: state}, nil
+}
+
 func observabilitySettingsFromWire(w apicontract.ObservabilitySettingsResponse) service.ObservabilitySettings {
 	s := service.ObservabilitySettings{
 		Metrics: service.ObservabilityMetricsSettings{
@@ -1314,6 +1329,7 @@ func observabilitySettingsFromWire(w apicontract.ObservabilitySettingsResponse) 
 			Webhook: service.ObservabilityWebhookSettings{
 				Dialect:           w.Alerts.Webhook.Dialect,
 				URLSet:            w.Alerts.Webhook.URLSet,
+				URLStatus:         w.Alerts.Webhook.URLStatus,
 				AllowInsecureHTTP: w.Alerts.Webhook.AllowInsecureHttp,
 				RefreshInterval:   time.Duration(w.Alerts.Webhook.RefreshIntervalSeconds) * time.Second,
 				ResolveTTL:        time.Duration(w.Alerts.Webhook.ResolveTtlSeconds) * time.Second,
