@@ -34,6 +34,7 @@
  * operation.
  */
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { useApi } from "@shared/api/ApiContext";
@@ -81,6 +82,7 @@ export function SnapshotRestorePage({ readOnly }: { readOnly: boolean }) {
   const snapshots = useAsync(() => api.listSnapshots(source, set), [api, source, set]);
   const restore = useSnapshotOperation("Could not start the restore.");
   const gate = useDestructiveGate();
+  const mountedRef = useMounted();
 
   const [step, setStep] = useState(1);
   const [chosenRun, setChosenRun] = useState<string | null>(query.get("run"));
@@ -500,7 +502,7 @@ export function SnapshotRestorePage({ readOnly }: { readOnly: boolean }) {
             if (gate.stepUpRequired) {
               setStepUpPassword("");
               if (gate.insecureTransportAckRequired && !(await acknowledgeInsecureTransport())) {
-                setStepUpError(stepUpMessage("INSECURE_TRANSPORT_ACK_REQUIRED"));
+                if (mountedRef.current) setStepUpError(stepUpMessage("INSECURE_TRANSPORT_ACK_REQUIRED"));
                 return;
               }
             }
@@ -529,7 +531,7 @@ export function SnapshotRestorePage({ readOnly }: { readOnly: boolean }) {
               }).catch((e: unknown) => {
                 // The engine's step-up refusals belong beside the field they
                 // are about, in words, not in the generic banner above.
-                setStepUpError(stepUpMessage(apiErrorOf(e)?.code));
+                if (mountedRef.current) setStepUpError(stepUpMessage(apiErrorOf(e)?.code));
                 throw e;
               }),
               undefined,

@@ -40,6 +40,7 @@
  * every configured set, and an idle one says when its last cycle finished.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import type { CSSProperties } from "react";
 import type { BackupSet } from "@shared/types/backup";
 import type { ActivityResult, SetActivity, SetActivityEvent, UnfinishedAction } from "@shared/types/activity";
@@ -749,15 +750,16 @@ function ActivityToolbar({
   setId: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const mountedRef = useMounted();
 
   const copy = useCallback(() => {
     const text = logText(events);
     // copyText works on a plain-http origin too (retnd#1049), and "copied"
     // is shown only when the text really was.
     void copyText(text).then((outcome) => {
-      if (outcome === "copied") setCopied(true);
+      if (outcome === "copied" && mountedRef.current) setCopied(true);
     });
-  }, [events]);
+  }, [events, mountedRef]);
 
   useEffect(() => {
     if (!copied) return;

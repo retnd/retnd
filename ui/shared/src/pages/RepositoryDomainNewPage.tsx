@@ -61,6 +61,7 @@
  * other few hundred sentences in this interface (#834).
  */
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useNavigate } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { RetndError } from "@shared/api/contracts";
@@ -95,6 +96,7 @@ export function RepositoryDomainNewPage() {
   const [passphraseRef, setPassphraseRef] = useState("");
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [saving, setSaving] = useState(false);
+  const mountedRef = useMounted();
 
   const ready = domain.trim() !== "" && passphraseRef.trim() !== "";
 
@@ -116,8 +118,9 @@ export function RepositoryDomainNewPage() {
       // The fleet list re-reads on mount, so the domain is there when it
       // draws — reported as answering and not yet readable, because
       // nothing has written its store.
-      navigate("/repositories");
+      if (mountedRef.current) navigate("/repositories");
     } catch (e) {
+      if (!mountedRef.current) return;
       const message =
         e instanceof RetndError ? e.api.message : "This repository domain could not be declared.";
       setRefusal({
@@ -128,7 +131,7 @@ export function RepositoryDomainNewPage() {
         message
       });
     } finally {
-      setSaving(false);
+      if (mountedRef.current) setSaving(false);
     }
   }
 

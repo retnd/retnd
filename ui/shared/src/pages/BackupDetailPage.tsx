@@ -16,6 +16,7 @@
  * artifact's fields under another artifact's URL.
  */
 import { useCallback, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useNavigate, useParams } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { useAsync } from "@shared/hooks/useAsync";
@@ -55,6 +56,7 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
   // as QuarantinePage's, which learned it the same way.
   const [recovery, setRecovery] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const mountedRef = useMounted();
   // Page-local, like the sibling BackupSetDetailPage (mandatory review on
   // #144): nothing else reads this particular artifact, so there is no
   // duplicate fetch to eliminate by putting it on the shared graph, and
@@ -198,11 +200,12 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
         // about what happens next, so this sentence must not read as "it
         // is fixed", and the page goes and looks rather than asserting an
         // outcome the response does not carry.
+        if (!mountedRef.current) return;
         setRecovery({ tone: "ok", text: RETRY_ACCEPTED + " While this card is still here, the backup is still FAILED." });
         artifact.reload();
       })
-      .catch((e: unknown) => setRecovery({ tone: "bad", text: retryRefusalSentence(e) }))
-      .finally(() => setRetrying(false));
+      .catch((e: unknown) => { if (mountedRef.current) setRecovery({ tone: "bad", text: retryRefusalSentence(e) }); })
+      .finally(() => { if (mountedRef.current) setRetrying(false); });
   };
 
   return (
