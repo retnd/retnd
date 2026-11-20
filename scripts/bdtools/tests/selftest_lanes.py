@@ -22,10 +22,17 @@ decides which controls a host can run, and these cases hold it:
      target and not a fixed machine path; and the node lane needs node_modules.
   E  the controls: pin_problems reports a control added to and dropped from the
      pinned set, so B is able to fail.
+  H  the verdict of a run by hand (#1571): with no ledger, a self-test that
+     skipped a control exits 3, INCOMPLETE, and not 1. A body that returns
+     EXIT_INCOMPLETE gets turned into a failure by harness.finish(), so neither
+     body may; the encryption one is run for real with only an RT control
+     selected and no retnd-tests checkout, which skips it and runs nothing else.
 """
 
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -150,6 +157,19 @@ def main() -> int:
             "G node_modules plus node or docker was refused")
     s.check(not lanes.node_lane(root, has_node=False, has_docker=False),
             "G with node_modules and neither node nor docker there is no node lane", "G a lane with no way to run it")
+    # H
+    for name in ("agents", "encryption"):
+        body_src = (SCRIPTS / "bdtools" / name / "selftest.py").read_text()
+        s.check("return harness.EXIT_INCOMPLETE" not in body_src,
+                f"H {name}: the body never returns EXIT_INCOMPLETE, which finish() reports as a failure",
+                f"H {name}: the body returns EXIT_INCOMPLETE, so a hand run that skipped something ends FAILED (#1571)")
+    env = {k: v for k, v in os.environ.items() if k not in ("RETND_SELFTEST_SKIP_LEDGER", "RETND_TESTS_DIR")}
+    proc = subprocess.run([sys.executable, str(SCRIPTS / "bdtools/encryption/selftest.py"), "--only", "RT any suite id"],
+                          capture_output=True, text=True, env=env, timeout=600, check=False)
+    s.check(proc.returncode == 3,
+            "H a hand run with no ledger that skipped an RT control exits 3 (INCOMPLETE)",
+            f"H a hand run with no ledger that skipped an RT control exited {proc.returncode}, not 3 (#1571)",
+            (proc.stdout + proc.stderr)[-1500:])
     return s.finish()
 
 
