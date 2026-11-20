@@ -7,7 +7,7 @@ import { measureContrast, open, setTheme } from "./helpers";
  * browser, as the "Retire a failed backup" design draws it.
  *
  * The fixture is the forge set in miniature (mock scenario `retire-forge`):
- * media-week34.tar FAILED with its source gone, and media-week35.tar backed
+ * media-week34.tar FAILED with its source gone, and media-week35 and 36 backed
  * up cleanly after it. `retire-source-present` is the same with the source
  * still on the host, and `backups-ingest-failed` is the set with nothing newer.
  * Everything the dialog says about a backup comes from the engine's preview
@@ -32,8 +32,8 @@ test.describe("#1528 retiring a failed backup whose source is gone", () => {
     const row = dialog(page).getByTestId("retire-row-" + WEEK34);
     await expect(row).toContainText("Gone from the host");
     await expect(row).toContainText("copy_to_local: not_found");
-    const replaces = dialog(page).getByRole("region", { name: "What replaces them" });
-    await expect(replaces).toContainText("media-week35.tar");
+    const replaces = dialog(page).getByRole("region", { name: "What replaces it" });
+    await expect(replaces).toContainText("media-week36.tar");
     const happens = dialog(page).getByRole("region", { name: "What happens" });
     await expect(happens).toContainText("The backup record stays, marked RETIRED");
     await expect(happens).toContainText("If the source object appears again, the next cycle puts this backup back into the pipeline.");
@@ -42,13 +42,14 @@ test.describe("#1528 retiring a failed backup whose source is gone", () => {
 
     await dialog(page).getByRole("button", { name: "Retire 1 backup" }).click();
     await expect(dialog(page).getByRole("heading", { name: "1 backup retired" })).toBeVisible();
-    await expect(dialog(page).getByRole("status")).toContainText("replaced by media-week35.tar");
+    await expect(dialog(page).getByRole("status")).toContainText("replaced by media-week36.tar");
     await dialog(page).getByRole("button", { name: "Close" }).click();
 
     // The record stays, said in the design's words, and the Retire control is gone.
     const card = page.getByTestId("retirement-card");
-    await expect(card).toContainText("Retired is a final state. It is not a failure");
-    await expect(card).toContainText("Source gone from the host. Replaced by media-week35.tar.");
+    await expect(card).toContainText("Retired is not a failure, and nothing is waiting on it.");
+    await expect(card).toContainText("If the source file appears on the host again, the next cycle puts this backup back into the pipeline.");
+    await expect(card).toContainText("Source gone from the host. Replaced by media-week36.tar.");
     await expect(card).toContainText("Note: host retention removed it");
     await expect(page.getByRole("button", { name: "Retire…" })).toHaveCount(0);
   });

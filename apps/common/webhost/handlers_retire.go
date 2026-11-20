@@ -70,10 +70,13 @@ type retirementPreviewResponse struct {
 	SourceCheckCategory string                       `json:"source_check_category"`
 	SourceCheckSentence string                       `json:"source_check_sentence"`
 	ProposedSuccessor   *retirementSuccessorResponse `json:"proposed_successor,omitempty"`
-	Refusal             *retirementRefusalResponse   `json:"refusal,omitempty"`
-	Effects             []string                     `json:"effects"`
-	Retirement          *retirementRecordResponse    `json:"retirement,omitempty"`
-	Command             string                       `json:"command"`
+	// SuccessorCandidates is every newer good backup the dialog's "Replaced
+	// by" may name, newest first (issue #1528's review).
+	SuccessorCandidates []retirementSuccessorResponse `json:"successor_candidates"`
+	Refusal             *retirementRefusalResponse    `json:"refusal,omitempty"`
+	Effects             []string                      `json:"effects"`
+	Retirement          *retirementRecordResponse     `json:"retirement,omitempty"`
+	Command             string                        `json:"command"`
 }
 
 func toRetirementRecordResponse(r service.Retirement) retirementRecordResponse {
@@ -115,8 +118,12 @@ func (h *handlers) previewRetirement(w http.ResponseWriter, r *http.Request) {
 	resp := retirementPreviewResponse{
 		Artifact: p.Artifact, State: p.State, FailureReason: p.FailureReason,
 		SourceCheck: p.SourceCheck.Result, SourceCheckCategory: p.SourceCheck.Category, SourceCheckSentence: p.SourceCheck.Sentence,
-		Effects: append(make([]string, 0, len(p.Effects)), p.Effects...),
-		Command: retireCommand(r, retireRequest{SupersededBy: req.SupersededBy, NoSuccessor: req.NoSuccessor, AcceptSourcePresent: req.AcceptSourcePresent}),
+		Effects:             append(make([]string, 0, len(p.Effects)), p.Effects...),
+		SuccessorCandidates: make([]retirementSuccessorResponse, 0, len(p.SuccessorCandidates)),
+		Command:             retireCommand(r, retireRequest{SupersededBy: req.SupersededBy, NoSuccessor: req.NoSuccessor, AcceptSourcePresent: req.AcceptSourcePresent}),
+	}
+	for _, c := range p.SuccessorCandidates {
+		resp.SuccessorCandidates = append(resp.SuccessorCandidates, retirementSuccessorResponse{Name: c.Name, State: c.State, DiscoveredAt: c.DiscoveredAt.UTC().Format(time.RFC3339)})
 	}
 	if s := p.ProposedSuccessor; s != nil {
 		resp.ProposedSuccessor = &retirementSuccessorResponse{Name: s.Name, State: s.State, DiscoveredAt: s.DiscoveredAt.UTC().Format(time.RFC3339)}
@@ -233,7 +240,14 @@ func pageArtifacts(r *http.Request, all []service.Artifact) ([]service.Artifact,
 			}
 		}
 	}
-	limit, _ := strconv.Atoi(q.Get("limit"))
+	limit := 0
+	if raw := q.Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil {
+			return nil, "", false
+		}
+		limit = n
+	}
 	if limit <= 0 {
 		return out, "", true
 	}

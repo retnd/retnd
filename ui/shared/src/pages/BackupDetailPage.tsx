@@ -107,6 +107,16 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
     () => (retiredState ? api.previewRetirement(artifactId).then((p) => p.retirement ?? null) : Promise.resolve(null)),
     [api, artifactId, retiredState]
   );
+  // For a FAILED backup, what the source says now (the same preview the
+  // Retire dialog reads): when the file is gone, retrying cannot fetch it, and
+  // the design switches Retry off and says why rather than offering a press
+  // that can only fail again. Nothing is decided here when the host cannot be
+  // asked: Retry stays on.
+  const failedState = artifact.data?.state === "FAILED";
+  const sourceNow = useAsync(
+    () => (failedState ? api.previewRetirement(artifactId).then((p) => p.source_check).catch(() => "") : Promise.resolve("")),
+    [api, artifactId, failedState]
+  );
   const [verifying, setVerifying] = useState<string | null>(null);
   const [failedVerify, setFailedVerify] = useState<Record<string, string>>({});
   const [verifyEnded, setVerifyEnded] = useState(false);
@@ -172,6 +182,7 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
   // a behaviour for leaves every other state alone, which is what a
   // client that does not own the lifecycle graph should do.
   const stuck = isRetryable(a);
+  const sourceGone = stuck && sourceNow.data === "absent";
 
   const retryIngestion = () => {
     setRecovery(null);
@@ -295,12 +306,13 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
           </div>
           <div style={{ padding: "15px 18px", display: "grid", gap: 10, fontSize: "var(--text-sm)" }}>
             <p style={{ margin: 0, color: "var(--text-2)", maxWidth: "72ch" }}>
-              This backup failed an attempt and is not quarantined, so no cycle will attempt it again on its own
-              and the Quarantine page will not list it. Re-attempting it is the way back.
+              {sourceGone
+                ? "This backup failed an attempt and its source file is gone from the host, so a retry has nothing left to fetch. Retiring it keeps the record and stops counting it as a failure."
+                : "This backup failed an attempt and is not quarantined, so no cycle will attempt it again on its own and the Quarantine page will not list it. Re-attempting it is the way back."}
             </p>
-            <span style={{ display: "flex", gap: 7 }}>
+            <span style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
               <InfoTooltip id="backups.detail.retry">
-                <button className="btn btn--sm" disabled={readOnly || retrying} onClick={retryIngestion}>
+                <button className="btn btn--strong-edge" style={{ minHeight: 44 }} disabled={readOnly || retrying || sourceGone} onClick={retryIngestion}>
                   {retrying ? "Retrying…" : "Retry ingestion"}
                 </button>
               </InfoTooltip>
@@ -308,11 +320,16 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
                   is gone. The dialog asks the engine first and says why
                   when it would refuse. */}
               <InfoTooltip id="backups.detail.retire">
-                <button className="btn btn--sm" disabled={readOnly || retrying} onClick={() => setRetireOpen(true)}>
+                <button className="btn btn--strong-edge" style={{ minHeight: 44 }} disabled={readOnly || retrying} onClick={() => setRetireOpen(true)}>
                   Retire…
                 </button>
               </InfoTooltip>
             </span>
+            {sourceGone ? (
+              <p data-testid="retry-off-reason" style={{ margin: 0, color: "var(--text-2)", maxWidth: "72ch" }}>
+                Retry is off because there is nothing left to copy: the host removed the source file.
+              </p>
+            ) : null}
             {recovery ? (
               <p
                 role="status"
@@ -327,8 +344,7 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
 
       {retireOpen ? (
         <RetireDialog
-          artifactIds={[a.id]}
-          setLabel={a.setName}
+          artifactId={a.id}
           readOnly={readOnly}
           onRetry={() => {
             setRetireOpen(false);
@@ -348,12 +364,22 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
           </div>
           <div style={{ padding: "15px 18px", display: "grid", gap: 8, fontSize: "var(--text-sm)" }}>
             <p style={{ margin: 0, color: "var(--text-2)", maxWidth: "72ch" }}>
-              Retired is a final state. It is not a failure, and nothing is waiting on it. The record stays so the history
-              still shows that this backup was attempted.
+              Retired is not a failure, and nothing is waiting on it. The record stays so the history still shows that this
+              backup was attempted.
             </p>
             {retirement.data ? (
               <p style={{ margin: 0, maxWidth: "72ch" }}>
                 {retirementSentence(retirement.data)}
+              </p>
+            ) : null}
+            {retirement.data?.source_check === "absent" ? (
+              <p style={{ margin: 0, color: "var(--text-2)", maxWidth: "72ch" }}>
+                If the source file appears on the host again, the next cycle puts this backup back into the pipeline.
+              </p>
+            ) : null}
+            {retirement.error ? (
+              <p style={{ margin: 0, color: "var(--danger)", maxWidth: "72ch" }}>
+                {"The retirement record could not be read: " + retirement.error.message}
               </p>
             ) : null}
           </div>

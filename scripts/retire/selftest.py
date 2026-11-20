@@ -42,8 +42,8 @@ class Control:
 
 CONTROLS = [
     Control("RV.1", "core/internal/app/cycle.go",
-            "\t\t\ts.autoRetire(ctx, src, bs, after)\n",
-            "\t\t\t_ = after\n",
+            "if n := s.autoRetire(ctx, src, bs, after); n > 0",
+            "if n := len(after) * 0; n > 0",
             "core", "./internal/app/", "TestTheForgeSetGoesFromFailingToHealthyWhenTheSourceIsGone_1528"),
     Control("RV.2", "core/internal/app/retire.go",
             "func sourceCheckFor(remotePath string, listing []transport.RemoteArtifact, listErr error, stat func() error) SourceCheck {\n",
@@ -85,7 +85,7 @@ CONTROLS = [
             "\t\t\tagg.retiredCount++\n\t\t\tagg.failures++\n",
             "core", "./internal/health/", "TestRetiredIsCountedApartAndNeverFails_1528"),
     Control("RV.11", "core/internal/app/retire.go",
-            "\tp.check = s.probe(ctx, src, bs, rec.RemotePath)\n",
+            "\tp.check = s.probe(ctx, src, bs, rec.RemotePath, listing)\n",
             "\tp.check = SourceCheck{Result: state.SourceAbsent}\n",
             "core", "./internal/app/", "TestOperatorRetireRefusesWhileTheSourceIsPresent_1528"),
     Control("RV.12", "apps/common/webhost/agentconfirmations.go",
@@ -96,6 +96,14 @@ CONTROLS = [
             "\tNextCursor *string `json:\"next_cursor\"`\n",
             "\tNextCursor *string `json:\"next_cursor,omitempty\"`\n",
             "apps/common", "./webhost/", "TestTheBackupsListAlwaysCarriesACursor_1528"),
+    Control("RV.14", "core/internal/app/retire.go",
+            "\t\t\tRetry:  &state.RetryUpdate{Count: rec.RetryCount + 1, LastError: r.FailureReason},\n",
+            "",
+            "core", "./internal/app/", "TestARetiredObjectThatReappearsReentersThePipeline_1528"),
+    Control("RV.15", "core/internal/app/retire.go",
+            "if a.Path == remotePath || path.Base(a.Path) == name {",
+            "if a.Path == remotePath || name == \"\" {",
+            "core", "./internal/app/", "TestAnObjectMovedIntoASubdirectoryIsNotRetiredAsGone_1528"),
 ]
 
 

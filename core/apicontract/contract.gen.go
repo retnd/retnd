@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "c3541d42c7882f382ffe9bcbdd0bbfec31801a76bae5acf731008136f8104fb5"
+const ContractSHA256 = "c3a33c23828c681344d6f2d8846708b2ee859cc0631a2a9517c440617cd86d1b"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -2530,28 +2530,29 @@ type ApplyRetentionRequest struct {
 // here names an implementation: the fields describe a backup's
 // identity, freshness and trustworthiness, never how it is stored.
 type Artifact struct {
-	BackupSetID             string      `json:"backup_set_id"`
-	Checksum                string      `json:"checksum,omitempty"`
-	ChecksumAlgorithm       string      `json:"checksum_algorithm,omitempty"`
-	DiscoveredAt            string      `json:"discovered_at"`
-	ID                      string      `json:"id"`
-	LocalPath               string      `json:"local_path"`
-	Name                    string      `json:"name"`
-	Placements              []Placement `json:"placements"`
-	QuarantineIrrecoverable bool        `json:"quarantine_irrecoverable"`
-	QuarantineReason        string      `json:"quarantine_reason,omitempty"`
-	Quarantined             bool        `json:"quarantined"`
-	RemotePath              string      `json:"remote_path"`
-	RemoteSourceRemovedAt   string      `json:"remote_source_removed_at,omitempty"`
-	RetentionPolicy         string      `json:"retention_policy"`
-	RetentionTier           string      `json:"retention_tier,omitempty"`
-	SetName                 string      `json:"set_name"`
-	SizeBytes               int64       `json:"size_bytes"`
-	SourceName              string      `json:"source_name"`
-	State                   string      `json:"state"`
-	UpdatedAt               string      `json:"updated_at"`
-	Validation              string      `json:"validation"`
-	ValidationDetail        string      `json:"validation_detail,omitempty"`
+	BackupSetID             string            `json:"backup_set_id"`
+	Checksum                string            `json:"checksum,omitempty"`
+	ChecksumAlgorithm       string            `json:"checksum_algorithm,omitempty"`
+	DiscoveredAt            string            `json:"discovered_at"`
+	ID                      string            `json:"id"`
+	LocalPath               string            `json:"local_path"`
+	Name                    string            `json:"name"`
+	Placements              []Placement       `json:"placements"`
+	QuarantineIrrecoverable bool              `json:"quarantine_irrecoverable"`
+	QuarantineReason        string            `json:"quarantine_reason,omitempty"`
+	Quarantined             bool              `json:"quarantined"`
+	RemotePath              string            `json:"remote_path"`
+	RemoteSourceRemovedAt   string            `json:"remote_source_removed_at,omitempty"`
+	RetentionPolicy         string            `json:"retention_policy"`
+	RetentionTier           string            `json:"retention_tier,omitempty"`
+	Retirement              *RetirementRecord `json:"retirement,omitempty"`
+	SetName                 string            `json:"set_name"`
+	SizeBytes               int64             `json:"size_bytes"`
+	SourceName              string            `json:"source_name"`
+	State                   string            `json:"state"`
+	UpdatedAt               string            `json:"updated_at"`
+	Validation              string            `json:"validation"`
+	ValidationDetail        string            `json:"validation_detail,omitempty"`
 }
 
 // ArtifactCheckResponse is the verdict of re-checking one quarantined backup. Nothing is
@@ -4653,17 +4654,18 @@ type RetireArtifactResponse struct {
 // dialog shows before anybody acts, computed by the same code that
 // acts (issue #1528). The browser computes none of it.
 type RetirementPreview struct {
-	Artifact            string               `json:"artifact"`
-	Command             string               `json:"command"`
-	Effects             []string             `json:"effects"`
-	FailureReason       string               `json:"failure_reason"`
-	ProposedSuccessor   *RetirementSuccessor `json:"proposed_successor,omitempty"`
-	Refusal             *RetirementRefusal   `json:"refusal,omitempty"`
-	Retirement          *RetirementRecord    `json:"retirement,omitempty"`
-	SourceCheck         string               `json:"source_check"`
-	SourceCheckCategory string               `json:"source_check_category"`
-	SourceCheckSentence string               `json:"source_check_sentence"`
-	State               string               `json:"state"`
+	Artifact            string                `json:"artifact"`
+	Command             string                `json:"command"`
+	Effects             []string              `json:"effects"`
+	FailureReason       string                `json:"failure_reason"`
+	ProposedSuccessor   *RetirementSuccessor  `json:"proposed_successor,omitempty"`
+	Refusal             *RetirementRefusal    `json:"refusal,omitempty"`
+	Retirement          *RetirementRecord     `json:"retirement,omitempty"`
+	SourceCheck         string                `json:"source_check"`
+	SourceCheckCategory string                `json:"source_check_category"`
+	SourceCheckSentence string                `json:"source_check_sentence"`
+	State               string                `json:"state"`
+	SuccessorCandidates []RetirementSuccessor `json:"successor_candidates"`
 }
 
 // RetirementRecord is one recorded retirement (issue #1528): who or what retired the

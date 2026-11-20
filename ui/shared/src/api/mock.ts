@@ -56,7 +56,7 @@ import type {
 } from "./contracts";
 import { RetndError, LOCAL_DESTINATION_ID } from "./contracts";
 import type { ApiErrorCode } from "./contracts";
-import type { WireRetirementPreview, WireRetirementRecord } from "./generated/contract";
+import type { WireRetirementPreview, WireRetirementRecord, WireRetirementSuccessor } from "./generated/contract";
 import { createMockValidators } from "./mockValidators";
 import type { BackupArtifact, BackupSet, RetentionPlan } from "@shared/types/backup";
 import type {
@@ -139,6 +139,8 @@ export const SCENARIOS = [
   // still on the host, which the dialog refuses with "Retry instead".
   "retire-forge",
   "retire-source-present",
+  // The same set after the engine retired media-week34 on its own.
+  "retire-auto",
   "empty",
   "storage-critical",
   "catalog-recovery",
@@ -684,19 +686,31 @@ export function resetMockFixtures(): void {
  * successor to name. A function so each mock API gets its own copies to
  * mutate when a backup is retired.
  */
-function retireForgeArtifacts(): BackupArtifact[] {
-  const out = ARTIFACTS.map((a) => (a.id === "media/weekly-archive/media-week34.tar" ? { ...a, state: "FAILED", validation: "pending" as const } : { ...a }));
+function retireForgeArtifacts(auto = false): BackupArtifact[] {
   const week34 = ARTIFACTS.find((a) => a.id === "media/weekly-archive/media-week34.tar")!;
-  out.push({
+  const out = ARTIFACTS.map((a) =>
+    a.id === week34.id
+      ? {
+          ...a,
+          state: auto ? "RETIRED" : "FAILED",
+          validation: "pending" as const,
+          ...(auto
+            ? { retirement: { actorKind: "automatic", actor: "engine", retiredAt: "2026-09-08T03:12:40+02:00", sourceCheck: "absent", supersededBy: "media-week36.tar", note: "" } }
+            : {})
+        }
+      : { ...a }
+  );
+  const newer = (week: number, day: string) => ({
     ...week34,
-    id: "media/weekly-archive/media-week35.tar",
-    filename: "media-week35.tar",
-    remoteOriginalPath: "media-01:/export/weekly/media-week35.tar",
-    localPath: "/data/backups/media/2026/w35/media-week35.tar",
-    producedAt: "2026-09-01T01:00:00+02:00",
-    receivedAt: "2026-09-01T04:39:02+02:00",
+    id: "media/weekly-archive/media-week" + week + ".tar",
+    filename: "media-week" + week + ".tar",
+    remoteOriginalPath: "media-01:/export/weekly/media-week" + week + ".tar",
+    localPath: "/data/backups/media/2026/w" + week + "/media-week" + week + ".tar",
+    producedAt: day + "T01:00:00+02:00",
+    receivedAt: day + "T04:39:02+02:00",
     state: "COMPLETE"
   });
+  out.push(newer(35, "2026-09-01"), newer(36, "2026-09-08"));
   return out;
 }
 
@@ -4433,8 +4447,8 @@ export function createMockApi(
       )
     : scenario === "backups-ingest-failed"
     ? ARTIFACTS.map((a) => (a.id === "media/weekly-archive/media-week34.tar" ? { ...a, state: "FAILED", validation: "pending" as const } : a))
-    : scenario === "retire-forge" || scenario === "retire-source-present"
-    ? retireForgeArtifacts()
+    : scenario === "retire-forge" || scenario === "retire-source-present" || scenario === "retire-auto"
+    ? retireForgeArtifacts(scenario === "retire-auto")
     : ARTIFACTS;
   // Every backup outside quarantine, padded to ?artifacts=N: what the list
   // answers and what the health report's retainedCount counts (#1186).
@@ -4443,40 +4457,49 @@ export function createMockApi(
   // Issue #1528: what the engine's retirement preview would say about one
   // fixture backup, and the records of the ones retired here.
   const mockRetirements = new Map<string, WireRetirementRecord>();
-  const mockRetirementPreview = (a: BackupArtifact): WireRetirementPreview => {
-    const base = { artifact: a.id, state: a.state, command: retireCommand(a.id), effects: [] as string[] };
+  const mockRetirementPreview = (a: BackupArtifact, ack: { superseded_by?: string; no_successor?: boolean; accept_source_present?: boolean } = {}): WireRetirementPreview => {
+    let command = retireCommand(a.id);
+    const base = { artifact: a.id, state: a.state, effects: [] as string[], successor_candidates: [] as WireRetirementSuccessor[] };
     if (a.state !== "FAILED") {
-      const retirement = mockRetirements.get(a.id);
+      const retirement = mockRetirements.get(a.id) ?? (a.retirement
+        ? { retired_at: a.retirement.retiredAt, actor_kind: a.retirement.actorKind as "automatic", actor: a.retirement.actor, source_check: a.retirement.sourceCheck as "absent", superseded_by: a.retirement.supersededBy, failure_reason: "copy_to_local: not_found: object not found", note: a.retirement.note }
+        : undefined);
       return {
-        ...base, failure_reason: retirement?.failure_reason ?? "", source_check: "" as const, source_check_category: "", source_check_sentence: "",
+        ...base, command, failure_reason: retirement?.failure_reason ?? "", source_check: "" as const, source_check_category: "", source_check_sentence: "",
         refusal: { code: "ARTIFACT_NOT_FAILED", sentence: "This backup is " + a.state + ", not FAILED. Only a failed backup can be retired.", overridable_with: "" as const },
         ...(retirement ? { retirement } : {})
       };
     }
     const failure_reason = "copy_to_local: not_found: object not found";
     const present = scenario === "retire-source-present";
-    const newer = artifacts
+    const candidates = artifacts
       .filter((b) => b.setId === a.setId && b.id !== a.id && !b.quarantine && b.state !== "FAILED" && b.state !== "RETIRED" && b.receivedAt > a.receivedAt)
-      .sort((x, y) => (x.receivedAt < y.receivedAt ? 1 : -1))[0];
-    const proposed_successor = newer ? { name: newer.filename, state: newer.state || "COMPLETE", discovered_at: newer.receivedAt } : undefined;
+      .sort((x, y) => (x.receivedAt < y.receivedAt ? 1 : -1))
+      .map((b) => ({ name: b.filename, state: b.state || "COMPLETE", discovered_at: b.receivedAt }));
+    const named = ack.superseded_by ? candidates.find((c) => c.name === ack.superseded_by) : candidates[0];
+    if (ack.superseded_by && named) command += " --superseded-by " + named.name;
+    if (ack.no_successor) command += " --no-successor";
+    if (ack.accept_source_present) command += " --accept-source-present";
     const source = present
       ? { source_check: "present" as const, source_check_category: "", source_check_sentence: "The source object is still there, so this backup can still be fetched. Retry it instead." }
       : { source_check: "absent" as const, source_check_category: "", source_check_sentence: "The source object is gone: this backup set's listing does not show it and the source answered not found for it." };
-    const refusal = present
+    const refusal = present && !ack.accept_source_present
       ? { code: "RETIRE_SOURCE_PRESENT", sentence: source.source_check_sentence, overridable_with: "accept_source_present" as const }
-      : !proposed_successor
-        ? { code: "RETIRE_NO_SUCCESSOR", sentence: "No newer good backup in this backup set replaces this one. Acknowledge that there is no replacement to retire it anyway.", overridable_with: "no_successor" as const }
-        : undefined;
+      : ack.superseded_by && !named
+        ? { code: "RETIRE_SUCCESSOR_INVALID", sentence: "The named successor is not a newer, good backup in this backup set.", overridable_with: "" as const }
+        : !named && !ack.no_successor
+          ? { code: "RETIRE_NO_SUCCESSOR", sentence: "No newer good backup in this backup set replaces this one. Acknowledge that there is no replacement to retire it anyway.", overridable_with: "no_successor" as const }
+          : undefined;
     return {
-      ...base, failure_reason, ...source,
-      ...(proposed_successor ? { proposed_successor } : {}),
+      ...base, command, failure_reason, ...source, successor_candidates: candidates,
+      ...(named ? { proposed_successor: named } : {}),
       ...(refusal ? { refusal } : {}),
       effects: refusal ? [] : [
         "The backup record stays, marked RETIRED, with who retired it, when and why.",
         "This backup set stops counting it as a failure. It shows under retired instead.",
         "The leftover partial download for this backup is removed.",
         "Nothing on the source is touched and no backup copy is deleted.",
-        "If the source object appears again, the next cycle puts this backup back into the pipeline."
+        ...(source.source_check === "absent" ? ["If the source object appears again, the next cycle puts this backup back into the pipeline."] : ["This manager will not fetch this object again."])
       ]
     };
   };
@@ -5511,21 +5534,21 @@ export function createMockApi(
     // driven end to end: only a FAILED backup is retirable, the newest good
     // backup in the same set received after it is the successor, and the
     // source answers "gone" unless the scenario says it is still there.
-    previewRetirement: (id) => {
+    previewRetirement: (id, ack) => {
       const found = artifacts.find((a) => a.id === id);
       if (!found) {
         return delay(null).then(() => {
           throw new RetndError({ code: "ARTIFACT_NOT_FOUND", message: "no backup with id " + id, correlationId: "cid_mock404" });
         });
       }
-      return delay(mockRetirementPreview(found));
+      return delay(mockRetirementPreview(found, ack ?? {}));
     },
     retireArtifact: (id, req) => {
       const found = artifacts.find((a) => a.id === id);
-      const preview = found ? mockRetirementPreview(found) : null;
+      const preview = found ? mockRetirementPreview(found, req ?? {}) : null;
       const refused = !found
         ? { code: "ARTIFACT_NOT_FOUND" as const, sentence: "no backup with id " + id }
-        : preview!.refusal && !(preview!.refusal.overridable_with === "no_successor" && req?.no_successor)
+        : preview!.refusal
           ? { code: preview!.refusal.code as ApiErrorCode, sentence: preview!.refusal.sentence }
           : null;
       if (refused) {
@@ -5544,6 +5567,7 @@ export function createMockApi(
       };
       mockRetirements.set(id, record);
       found!.state = "RETIRED";
+      found!.retirement = { actorKind: "operator", actor: "admin", retiredAt: record.retired_at, sourceCheck: record.source_check, supersededBy: record.superseded_by, note: record.note };
       return delay({ artifact: id, state: "RETIRED", partial_removed: true, retirement: record });
     },
     reinstate: () =>

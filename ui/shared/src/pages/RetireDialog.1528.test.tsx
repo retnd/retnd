@@ -41,12 +41,12 @@ describe("#1528 the Retire dialog on a failed backup's page", () => {
     const dialog = await screen.findByRole("dialog");
     await within(dialog).findByText("Gone from the host");
     expect(preview).toHaveBeenCalledWith(WEEK34_ID);
-    expect(within(dialog).getByRole("region", { name: "What replaces them" }).textContent).toContain("media-week35.tar");
+    expect(within(dialog).getByRole("region", { name: "What replaces it" }).textContent).toContain("media-week36.tar");
     await user.type(within(dialog).getByLabelText("Note (optional)"), "host retention");
     await user.click(within(dialog).getByRole("button", { name: "Retire 1 backup" }));
     await within(dialog).findByText("1 backup retired");
     expect(retire).toHaveBeenCalledWith(WEEK34_ID, { note: "host retention" });
-    expect(within(dialog).getByRole("status").textContent).toContain("replaced by media-week35.tar");
+    expect(within(dialog).getByRole("status").textContent).toContain("replaced by media-week36.tar");
   });
 
   it("#1528 refuses a source that is still on the host and never calls retire", async () => {
@@ -68,7 +68,9 @@ describe("#1528 the Retire dialog on a failed backup's page", () => {
     await within(dialog).findByText(/This set has no newer good backup/);
     expect((within(dialog).getByRole("button", { name: "Retire" }) as HTMLButtonElement).disabled).toBe(true);
     await user.click(within(dialog).getByRole("checkbox", { name: /I understand there is no replacement/ }));
-    await user.click(within(dialog).getByRole("button", { name: "Retire 1 backup" }));
+    // The dialog asks the engine again with the acknowledgement before it
+    // will retire, so the button turns on once that answer is in.
+    await user.click(await within(dialog).findByRole("button", { name: "Retire 1 backup" }));
     await waitFor(() => expect(retire).toHaveBeenCalledWith(WEEK34_ID, { no_successor: true }));
   });
 });

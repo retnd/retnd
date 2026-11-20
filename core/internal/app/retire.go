@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"sort"
 	"time"
 
@@ -134,8 +135,11 @@ type RetirementPreview struct {
 	FailureReason     string
 	SourceCheck       SourceCheck
 	ProposedSuccessor *Successor
-	Refusal           *RetireRefusal
-	Effects           []string
+	// SuccessorCandidates is every newer good backup in the set, newest
+	// first: what an operator may name with SupersededBy instead.
+	SuccessorCandidates []Successor
+	Refusal             *RetireRefusal
+	Effects             []string
 	// Retirement is the latest record for an artifact that is RETIRED now.
 	Retirement *state.Retirement
 }
@@ -152,6 +156,7 @@ type retirePlan struct {
 	bs            config.BackupSet
 	check         SourceCheck
 	successor     *Successor
+	candidates    []Successor
 	partial       string
 	partialExists bool
 	failureReason string
@@ -175,8 +180,15 @@ func sourceCheckFor(remotePath string, listing []transport.RemoteArtifact, listE
 	if listErr != nil {
 		return unknown(listErr)
 	}
+	// An artifact's identity is its basename (discovery builds the id from
+	// path.Base), so an object listed anywhere under that name is this
+	// artifact as far as discovery is concerned: a producer that moved
+	// db.dump into archive/ has not deleted it. Calling that gone would
+	// retire it with no way back, because discovery files the moved path as
+	// a conflict, never as this artifact reappearing.
+	name := path.Base(remotePath)
 	for _, a := range listing {
-		if a.Path == remotePath {
+		if a.Path == remotePath || path.Base(a.Path) == name {
 			return present
 		}
 	}
@@ -191,15 +203,32 @@ func sourceCheckFor(remotePath string, listing []transport.RemoteArtifact, listE
 	return unknown(err)
 }
 
-// probe asks the source about one object with a fresh listing. A missing
-// transport is an unknown, never an absence.
-func (s *Service) probe(ctx context.Context, src config.Source, bs config.BackupSet, remotePath string) SourceCheck {
+// sourceListing is one fresh listing of a set's source, taken at most once
+// and shared by every artifact the same pass asks about. The automatic pass
+// would otherwise walk the whole source once per FAILED row, every cycle,
+// against hosts that cap connections.
+type sourceListing struct {
+	taken bool
+	items []transport.RemoteArtifact
+	err   error
+}
+
+// probe asks the source about one object: the listing (fresh, or the one this
+// pass already took when listing is non-nil) and a Stat. A missing transport
+// is an unknown, never an absence.
+func (s *Service) probe(ctx context.Context, src config.Source, bs config.BackupSet, remotePath string, listing *sourceListing) SourceCheck {
 	if s.Transport == nil {
 		return sourceCheckFor(remotePath, nil, errors.New("no transport is configured"), nil)
 	}
 	source := sourceFor(s.Config, src, bs)
-	listing, listErr := s.Transport.List(ctx, source)
-	return sourceCheckFor(remotePath, listing, listErr, func() error {
+	if listing == nil {
+		listing = &sourceListing{}
+	}
+	if !listing.taken {
+		listing.items, listing.err = s.Transport.List(ctx, source)
+		listing.taken = true
+	}
+	return sourceCheckFor(remotePath, listing.items, listing.err, func() error {
 		_, err := s.Transport.Stat(ctx, source, remotePath)
 		return err
 	})
@@ -219,6 +248,24 @@ func newerGood(failed, candidate state.Record) bool {
 		return false
 	}
 	return true
+}
+
+// successorsOf is every row that supersedes failed, newest first by
+// discovery time and then name: the choices the retire dialog offers.
+func successorsOf(failed state.Record, records []state.Record) []Successor {
+	var out []Successor
+	for _, r := range records {
+		if newerGood(failed, r) {
+			out = append(out, Successor{Name: r.Artifact.Name, State: lifecycle.State(r.State), DiscoveredAt: r.DiscoveredAt})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].DiscoveredAt.Equal(out[j].DiscoveredAt) {
+			return out[i].DiscoveredAt.After(out[j].DiscoveredAt)
+		}
+		return out[i].Name > out[j].Name
+	})
+	return out
 }
 
 // pickSuccessor is the newest row that supersedes failed, by discovery time
@@ -245,7 +292,7 @@ func pickSuccessor(failed state.Record, records []state.Record) *Successor {
 // refusal rather than an error for every reason the rule says no, so the
 // preview and the action report the same thing; an error is something
 // broken (the journal could not be read).
-func (s *Service) evaluate(ctx context.Context, rec state.Record, src config.Source, bs config.BackupSet, req RetireRequest) (retirePlan, error) {
+func (s *Service) evaluate(ctx context.Context, rec state.Record, src config.Source, bs config.BackupSet, req RetireRequest, listing *sourceListing) (retirePlan, error) {
 	id := rec.Artifact
 	p := retirePlan{rec: rec, bs: bs}
 
@@ -278,6 +325,7 @@ func (s *Service) evaluate(ctx context.Context, rec state.Record, src config.Sou
 	if err != nil {
 		return p, fmt.Errorf("app: retire: listing %s: %w", id.Set, err)
 	}
+	p.candidates = successorsOf(rec, records)
 	if req.SupersededBy != "" {
 		var named *state.Record
 		for i := range records {
@@ -295,7 +343,7 @@ func (s *Service) evaluate(ctx context.Context, rec state.Record, src config.Sou
 		p.successor = pickSuccessor(rec, records)
 	}
 
-	p.check = s.probe(ctx, src, bs, rec.RemotePath)
+	p.check = s.probe(ctx, src, bs, rec.RemotePath, listing)
 	switch {
 	case p.check.Result == state.SourcePresent && !req.AcceptSourcePresent:
 		p.refusal = &RetireRefusal{Code: RefusalSourcePresent, Sentence: p.check.Sentence, OverridableWith: AckAcceptSourcePresent}
@@ -346,13 +394,13 @@ func (s *Service) PreviewRetirement(ctx context.Context, id model.ArtifactID, re
 	if err != nil {
 		return RetirementPreview{}, err
 	}
-	p, err := s.evaluate(ctx, rec, src, bs, req)
+	p, err := s.evaluate(ctx, rec, src, bs, req, nil)
 	if err != nil {
 		return RetirementPreview{}, err
 	}
 	out := RetirementPreview{
 		Artifact: id, State: lifecycle.State(rec.State), FailureReason: p.failureReason,
-		SourceCheck: p.check, ProposedSuccessor: p.successor, Refusal: p.refusal,
+		SourceCheck: p.check, ProposedSuccessor: p.successor, SuccessorCandidates: p.candidates, Refusal: p.refusal,
 	}
 	if p.refusal == nil {
 		out.Effects = p.effects(req)
@@ -373,7 +421,7 @@ func (s *Service) RetireArtifact(ctx context.Context, id model.ArtifactID, req R
 	if err != nil {
 		return RetireResult{}, err
 	}
-	p, err := s.evaluate(ctx, rec, src, bs, req)
+	p, err := s.evaluate(ctx, rec, src, bs, req, nil)
 	if err != nil {
 		return RetireResult{}, err
 	}
@@ -471,10 +519,16 @@ func (s *Service) bringBackReappeared(ctx context.Context, res discovery.Result)
 		if !found || r.SourceCheck != state.SourceAbsent {
 			continue
 		}
+		// A new attempt, counted like every other way back into the
+		// pipeline (RetryFailed, a quarantine release). The count is what
+		// the walk's attempt key is built from: left alone, the next transfer
+		// would present the failed attempt's own key, the journal would read
+		// it as a replay, and the row would sit at DISCOVERED for good.
 		if _, err := lifecycle.Advance(ctx, s.lifecycleDeps(), state.Transition{
 			Artifact: rec.Artifact, Key: retireKeyPrefixWayBack + rec.Artifact.String() + ":" + s.now().Format(time.RFC3339Nano),
 			From: string(lifecycle.Retired), To: string(lifecycle.Discovered),
 			Detail: "the source object a retirement recorded as gone is listed again, so it re-enters the pipeline",
+			Retry:  &state.RetryUpdate{Count: rec.RetryCount + 1, LastError: r.FailureReason},
 		}); err != nil {
 			s.logger().Error(ctx, "unretire", fmt.Errorf("bringing %s back: %w", rec.Artifact, err))
 			continue
@@ -491,7 +545,10 @@ func (s *Service) bringBackReappeared(ctx context.Context, res discovery.Result)
 // It asks the source only for rows that already have a successor: a FAILED
 // row with nothing newer cannot be retired automatically whatever the source
 // says, so the listing and the Stat are spent only where they can matter.
-func (s *Service) autoRetire(ctx context.Context, src config.Source, bs config.BackupSet, records []state.Record) {
+//
+// It reports how many rows it retired, so the cycle does not go on counting
+// them as failures it just dealt with.
+func (s *Service) autoRetire(ctx context.Context, src config.Source, bs config.BackupSet, records []state.Record) (retired int) {
 	var candidates []state.Record
 	for _, rec := range records {
 		switch lifecycle.State(rec.State) {
@@ -506,11 +563,12 @@ func (s *Service) autoRetire(ctx context.Context, src config.Source, bs config.B
 		}
 	}
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].Artifact.Name < candidates[j].Artifact.Name })
+	listing := &sourceListing{}
 	for _, rec := range candidates {
 		if ctx.Err() != nil {
-			return
+			return retired
 		}
-		p, err := s.evaluate(ctx, rec, src, bs, RetireRequest{})
+		p, err := s.evaluate(ctx, rec, src, bs, RetireRequest{}, listing)
 		if err != nil {
 			s.logger().Error(ctx, "auto-retire", err)
 			continue
@@ -520,8 +578,13 @@ func (s *Service) autoRetire(ctx context.Context, src config.Source, bs config.B
 		}
 		if _, err := s.commitRetirement(ctx, p, retireKeyPrefixAutomatic, state.RetirementUpdate{
 			ActorKind: state.RetiredAutomatically, Actor: retireAutomaticActor, SourceCheck: state.SourceAbsent,
-		}, true); err != nil && !errors.Is(err, ErrNotFailed) {
-			s.logger().Error(ctx, "auto-retire", err)
+		}, true); err != nil {
+			if !errors.Is(err, ErrNotFailed) {
+				s.logger().Error(ctx, "auto-retire", err)
+			}
+			continue
 		}
+		retired++
 	}
+	return retired
 }

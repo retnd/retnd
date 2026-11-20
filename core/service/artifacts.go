@@ -181,6 +181,13 @@ type Artifact struct {
 	// internal/revalidate quarantined. See attachQuarantineReason.
 	QuarantineReason string
 
+	// Retirement is the latest retirement record of a RETIRED backup (issue
+	// #1528): who or what retired it, the source check and what replaced it.
+	// Nil for every other state, so the Backups table can say "Retired,
+	// replaced by X" and notice a retirement the engine made on its own
+	// without asking the preview route once per row.
+	Retirement *Retirement
+
 	// RetentionTier is the tier that most recently selected this artifact
 	// for retention, or empty.
 	RetentionTier string
@@ -294,6 +301,9 @@ func (b *BackupService) ListArtifacts(ctx context.Context, filter ArtifactFilter
 				return nil, err
 			}
 		}
+		if err := b.attachRetirement(ctx, &a, rec); err != nil {
+			return nil, err
+		}
 		if filter.QuarantinedOnly && !a.Quarantined {
 			continue
 		}
@@ -324,9 +334,31 @@ func (b *BackupService) GetArtifact(ctx context.Context, id string) (Artifact, e
 			return Artifact{}, err
 		}
 	}
+	if err := b.attachRetirement(ctx, &a, rec); err != nil {
+		return Artifact{}, err
+	}
 	one := []Artifact{a}
 	b.annotateEncryption(ctx, one)
 	return one[0], nil
+}
+
+// attachRetirement fills a.Retirement for a RETIRED row (issue #1528). Any
+// other state is left with none, and a RETIRED row with no record (which
+// only a hand-edited journal could produce) is left with none too rather
+// than failing the whole list.
+func (b *BackupService) attachRetirement(ctx context.Context, a *Artifact, rec state.Record) error {
+	if rec.State != state.RetiredState {
+		return nil
+	}
+	r, found, err := b.journal.LatestRetirement(ctx, rec.Artifact)
+	if err != nil {
+		return fmt.Errorf("service: reading the retirement of %s: %w", rec.Artifact, err)
+	}
+	if found {
+		sr := toServiceRetirement(r)
+		a.Retirement = &sr
+	}
+	return nil
 }
 
 // attachQuarantineReason populates a.QuarantineReason with the literal

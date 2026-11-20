@@ -90,7 +90,10 @@ test.describe("#1528 review of the Retire dialog", () => {
     expect(await insideDialog(page), "focus fell out of the dialog when the result replaced the buttons").toBe(true);
     await page.keyboard.press("Escape");
     await expect(dialog(page)).toHaveCount(0);
-    expect(await page.evaluate(() => document.activeElement !== document.body), "focus was dropped on the body").toBe(true);
+    // The page re-reads the backup as the dialog closes, which replaces the
+    // control that opened it; focus has to settle on the page, not the body.
+    await expect.poll(() => page.evaluate(() => document.activeElement !== document.body), { message: "focus was dropped on the body", timeout: 3000 }).toBe(true);
+    expect(await page.evaluate(() => document.activeElement?.closest("main") !== null), "focus settled outside the page").toBe(true);
   });
 
   test("#1528 with nothing newer, ticking the acknowledgement shows what happens and the engine's own terminal line", async ({ page }) => {

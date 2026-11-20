@@ -67,6 +67,9 @@ type artifactResponse struct {
 	Quarantined             bool   `json:"quarantined"`
 	QuarantineIrrecoverable bool   `json:"quarantine_irrecoverable"`
 	QuarantineReason        string `json:"quarantine_reason,omitempty"`
+	// Retirement is issue #1528's record of a RETIRED backup; absent for
+	// every other state.
+	Retirement *retirementRecordResponse `json:"retirement,omitempty"`
 
 	RetentionTier string `json:"retention_tier,omitempty"`
 
@@ -193,6 +196,10 @@ func toArtifactResponse(a service.Artifact) artifactResponse {
 	resp.DiscoveredAt = formatTime(a.DiscoveredAt)
 	resp.UpdatedAt = formatTime(a.UpdatedAt)
 	resp.RemoteSourceRemovedAt = formatTime(a.RemoteSourceRemovedAt)
+	if a.Retirement != nil {
+		r := toRetirementRecordResponse(*a.Retirement)
+		resp.Retirement = &r
+	}
 	return resp
 }
 
@@ -243,7 +250,7 @@ func writeArtifactsResponse(w http.ResponseWriter, r *http.Request, all []servic
 	artifacts, next, ok := pageArtifacts(r, all)
 	if !ok {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST",
-			"state must be one or more lifecycle states separated by commas, and before must be a next_cursor this route issued")
+			"state must be one or more lifecycle states separated by commas, limit must be a number, and before must be a next_cursor this route issued")
 		return
 	}
 	resp := listArtifactsResponse{Artifacts: make([]artifactResponse, 0, len(artifacts))}

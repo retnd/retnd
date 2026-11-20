@@ -142,7 +142,7 @@ walk, the engine retires artifact *A* if and only if every one of these holds:
 |---|---|---|---|
 | P1 | *A* is `FAILED` | read, then re-checked as the transaction's `From` | only a failure can be retired |
 | P2 | the set runs the artifact engine and is configured | the cycle only reaches this pass for such sets | kopia sets store snapshots and never have artifact rows of their own; their old rows from before an engine switch are left to the operator verb |
-| P3 | this cycle's discovery listing succeeded and does not contain *A*'s remote path | `discovery.Result` of the same cycle (a failed listing returns before this pass) | the listing is what discovery itself trusts |
+| P3 | a fresh listing of the source, taken once per set per pass and shared by every row the pass asks about, succeeded and shows no object with *A*'s identity: not at *A*'s remote path and not under its basename anywhere else | the pass's own listing (a failed listing is "unknown", never absent) | the listing is what discovery itself trusts, and discovery's identity is the basename: a file moved into `archive/` is still listed, so it is not gone |
 | P4 | a `Stat` of *A*'s remote path, made after that listing, fails with transport category `not_found` | `transport.CategoryOf(err) == transport.NotFound` | classified per object; `permission_denied`, `transient`, `authentication`, `unclassified` and success all mean "not proven absent" |
 | P5 | *A* has no durable copy at its final name | `rec.LocalPath != FinalArtifactPath(...)` or nothing is there | #662: `retry` rescues that row; retiring would orphan a real backup |
 | P6 | a successor *B* exists | another row in the same set, `IsDurableRestorePoint(B.state)`, `B.discovered_at > A.discovered_at`, and when both rows carry `remote_mtime`, `B.remote_mtime > A.remote_mtime`; the newest such *B* by `discovered_at` (then name) is recorded | the failure has been superseded by a backup this deployment holds and vouches for |
@@ -154,8 +154,12 @@ When it holds, one transaction moves *A* `FAILED -> RETIRED` and appends the ret
 
 **The way back.** When a later discovery pass lists *A*'s remote path and proves it complete (it
 lands in `AlreadyKnown` because the row exists) while *A* is `RETIRED` and its latest retirement
-recorded `source_check: absent`, the same cycle moves *A* `RETIRED -> DISCOVERED`, and the walk
-that follows picks it up like any new arrival.
+recorded `source_check: absent`, the same cycle moves *A* `RETIRED -> DISCOVERED` and counts it as a
+new attempt (the retry count goes up, as `retry` and a quarantine release do), so the walk that
+follows builds a fresh attempt key and transfers it like any new arrival. Without the count the walk
+would present the failed attempt's own key, the journal would read it as a replay, and the row would
+sit at DISCOVERED for good; `TestARetiredObjectThatReappearsReentersThePipeline_1528` asserts the
+row reaches a durable backup, not just that it left RETIRED.
 
 **Passes.** One pass, two independent probes, plus reversibility. The listing and the `Stat` are
 separate requests answered by separate code paths in the adapter, and a wrong answer from both is
@@ -173,8 +177,8 @@ which covers "the only copy" (P6). A `FAILED` row is never a copy at all, so "th
 cannot be touched by construction; `TestRetireTouchesOnlyFailedRows_1528` pins that.
 
 **Surviving dissent:** this reviewer wanted two observations at least an hour apart before an
-automatic retirement. Answered by the way back: a premature retirement costs one cycle of a
-FAILED row not being counted, and the row returns to the pipeline the moment the object does. A
+automatic retirement. Answered by the way back: a premature retirement costs the cycles in which
+the object was missing, and the cycle that lists it again puts the row back and backs it up. A
 delay would add a durable observation table for a case the reversal already covers.
 
 ### 4. API, CLI and cliecho parity
@@ -260,6 +264,10 @@ acknowledgement is `--no-successor`. The dialog reads everything from the previe
   - present: "The source object is still there, so this backup can still be fetched. Retry it instead."
   - unknown: "The source could not be asked about this object (`<category>`), so this manager cannot say whether it is gone."
 - `proposed_successor`: `{name, state, discovered_at}`, absent when there is none.
+- `successor_candidates`: every newer good backup, newest first, for the dialog's "Replaced by"
+  choice; picking another asks the preview again with `superseded_by`, so the effects and the
+  terminal line shown are the engine's for exactly what will be sent. Ticking the no-successor
+  acknowledgement asks again with `no_successor` the same way.
 - `refusal`: `{code, sentence, overridable_with}`, absent when the action would go through, where
   `overridable_with` is `accept_source_present`, `no_successor` or empty.
 - `effects`, in this order, each included only when true:
@@ -326,7 +334,7 @@ retirement row); remove the `.partial`. Each sweep and the way back are single t
 | after the unlink | `RETIRED` plus its retirement row | clean | nothing |
 | replayed call with the same key | unchanged (`Applied: false`) | unchanged | nothing; the key is per decision, so a second click is a new decision and is refused as `ARTIFACT_NOT_FAILED` |
 | way back, inside its transaction | `RETIRED` (rolled back) | n/a | next discovery repeats it |
-| way back, after commit | `DISCOVERED` | n/a | the walk transfers it |
+| way back, after commit | `DISCOVERED`, retry count one higher | n/a | the walk transfers it under a fresh attempt key |
 
 A transaction that half-writes is impossible by construction (one `RecordTransition`), and
 `TestARetirementAndItsRecordCommitOrRollBackTogether_1528` plants a failure between the two writes

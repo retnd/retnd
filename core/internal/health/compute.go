@@ -256,7 +256,9 @@ func buildAggregate(records []state.Record, staleThreshold time.Duration, now ti
 	haveArrival := false
 
 	for _, r := range records {
-		if r.UpdatedAt.After(agg.newestActivityAt) {
+		// A retirement (issue #1528) is bookkeeping about a failure, not
+		// activity on the source, so it never reads as a backup in progress.
+		if r.UpdatedAt.After(agg.newestActivityAt) && r.State != string(lifecycle.Retired) {
 			agg.newestActivityAt = r.UpdatedAt
 		}
 		if !haveArrival || r.DiscoveredAt.After(newestArrival.DiscoveredAt) {

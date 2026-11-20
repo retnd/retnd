@@ -292,8 +292,10 @@ func TestEveryLifecycleState_IsVisibleToTheCycleVerdict(t *testing.T) {
 			buckets = append(buckets, "terminalFailure")
 		}
 		// Issue #1528: RETIRED is a failure already dealt with, which is
-		// none of the three above, and says so by being in a fourth part.
-		if settled(st) {
+		// none of the three above. It is named here, the one state allowed
+		// to be in none of them, so a sixth state that belongs nowhere still
+		// fails this test instead of slipping through.
+		if st == lifecycle.Retired {
 			buckets = append(buckets, "settled")
 		}
 		for _, b := range buckets {

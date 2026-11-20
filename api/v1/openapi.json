@@ -2872,6 +2872,12 @@
               "configured",
               "none"
             ]
+          },
+          "retirement": {
+            "$ref": "#/components/schemas/RetirementRecord",
+            "description": "The latest retirement record of a RETIRED backup (issue #1528): who or what retired it, what the source looked like and which backup replaced it. Absent for every other state.",
+            "x-go-omitempty": true,
+            "x-go-pointer": true
           }
         },
         "required": [
@@ -10648,7 +10654,8 @@
           "source_check_category",
           "source_check_sentence",
           "effects",
-          "command"
+          "command",
+          "successor_candidates"
         ],
         "properties": {
           "artifact": {
@@ -10709,6 +10716,13 @@
           "command": {
             "type": "string",
             "description": "The retnd retire command the action is equivalent to."
+          },
+          "successor_candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RetirementSuccessor"
+            },
+            "description": "Every newer good backup in the set an operator may name as the replacement with superseded_by, newest first. The first is proposed_successor unless superseded_by named another. Empty when nothing newer replaces it."
           }
         }
       },

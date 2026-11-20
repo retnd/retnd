@@ -36,6 +36,7 @@ import { FieldHelp } from "@shared/components/FieldHelp";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
 import { RetentionBadges, RetentionPolicyBadge } from "@shared/components/RetentionBadge";
 import { StatusBadge } from "@shared/components/StatusBadge";
+import { Banner } from "@shared/components/Banner";
 import { Icon } from "@shared/design-system/icons";
 import { EmptyState, ErrorState } from "@shared/components/EmptyState";
 import { isNotConfigured } from "@shared/api/failure";
@@ -186,8 +187,8 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   const startScrub = useStable((a: BackupArtifact) => void rowRuns.scrub(a));
   const startRetry = useStable((a: BackupArtifact) => void rowRuns.retry(a));
   // Issue #1528: the backup the Retire dialog is open for, from its row menu.
-  const [retiring, setRetiring] = useState<BackupArtifact[] | null>(null);
-  const openRetire = useStable((a: BackupArtifact) => setRetiring([a]));
+  const [retiring, setRetiring] = useState<BackupArtifact | null>(null);
+  const openRetire = useStable((a: BackupArtifact) => setRetiring(a));
   // Adjusted while rendering rather than in an effect: it is derived from the
   // list and has nothing outside React to synchronise with.
   const unfilteredCount = !setFilter && artifacts.data ? artifacts.data.length : null;
@@ -291,20 +292,19 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
     <>
       {retiring ? (
         <RetireDialog
-          artifactIds={retiring.map((a) => a.id)}
-          setLabel={new Set(retiring.map((a) => a.setName)).size === 1 ? retiring[0].setName : "the selected backup sets"}
+          artifactId={retiring.id}
           readOnly={readOnly}
-          onRetry={(id) => {
-            const a = retiring.find((r) => r.id === id);
+          onRetry={() => {
+            const a = retiring;
             setRetiring(null);
-            if (a) startRetry(a);
+            startRetry(a);
           }}
           onClose={(changed) => {
             setRetiring(null);
-            if (changed) {
-              setPicked(new Set());
-              artifacts.reload();
-            }
+            // The selection is left alone: the dialog is opened from one
+            // row's menu, and an operator may have ticked other backups to
+            // recover before retiring this one.
+            if (changed) artifacts.reload();
           }}
         />
       ) : null}
@@ -374,6 +374,22 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
           </>
         }
       />
+      {/* Issue #1528, the design's "When retnd does it for you": a retirement
+          the engine made on its own is said here once, with a way to the
+          backup, so a set turning Healthy by itself is never a surprise. */}
+      {(() => {
+        const auto = (artifacts.data ?? []).filter((a) => a.state === "RETIRED" && a.retirement?.actorKind === "automatic");
+        if (auto.length === 0) return null;
+        return (
+          <Banner tone="info" dismissKey={"auto-retired:" + auto.map((a) => a.id).join(",")} style={{ marginBottom: 12 }}>
+            <span data-testid="auto-retired-notice">
+              <strong>{"retnd retired " + auto.length + (auto.length === 1 ? " failed backup" : " failed backups") + " on its own."}</strong>{" "}
+              {"The source file was gone from the host and a newer good backup exists, so the record is kept as Retired. "}
+              <Link to={artifactPath(auto[0].id)}>See it</Link>
+            </span>
+          </Banner>
+        );
+      })()}
 
       {/*
         artifacts.data is null while still loading and [] once genuinely
@@ -718,7 +734,19 @@ const BackupRow = memo(function BackupRow({
         <td data-encryption-list-cell=""><PlacementEncryptionChips placements={a.placements} /></td>
       ) : null}
       <td style={{ fontSize: "var(--text-sm)", color: "var(--text-2)", whiteSpace: "nowrap" }}>
-        {a.remoteSourceRemovedAt ? "Remote source removed" : "Remote source retained"}
+        {/* Issue #1528: a retired or failed backup says so here, since it has
+            no remote-source story to tell. */}
+        {a.state === "RETIRED" ? (
+          <span style={{ display: "grid", gap: 2 }}>
+            <span><StatusBadge tone="neutral" icon="status-idle">Retired</StatusBadge></span>
+            <span>
+              {a.retirement?.supersededBy ? "Replaced by " + a.retirement.supersededBy : "Nothing replaces it"}
+              {a.retirement?.actorKind === "automatic" ? " (retired automatically)" : ""}
+            </span>
+          </span>
+        ) : a.state === "FAILED" ? (
+          <StatusBadge tone="danger" icon="failure">Failed</StatusBadge>
+        ) : a.remoteSourceRemovedAt ? "Remote source removed" : "Remote source retained"}
       </td>
       {/* The trigger's cell never navigates: the row's click is stopped here,
           like the checkbox cell's. It is also the one cell whose right-click

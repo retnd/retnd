@@ -1983,6 +1983,20 @@ function fromWireArtifact(a: WireArtifact): BackupArtifact {
     // below is "pending", and a FAILED row is not quarantined, so
     // `quarantine` is null. The state is the only field that says it.
     state: a.state,
+    // Issue #1528: the record behind a RETIRED row, so the Backups table can
+    // say what replaced it and notice a retirement the engine made itself.
+    ...(a.retirement
+      ? {
+          retirement: {
+            actorKind: a.retirement.actor_kind,
+            actor: a.retirement.actor,
+            retiredAt: a.retirement.retired_at,
+            sourceCheck: a.retirement.source_check,
+            supersededBy: a.retirement.superseded_by,
+            note: a.retirement.note
+          }
+        }
+      : {}),
     validation:
       a.validation === "passed" ? "verified" : a.validation === "failed" ? "failed" : "pending",
     // The backend records which retention tier last selected an artifact,

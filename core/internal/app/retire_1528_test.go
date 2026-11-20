@@ -589,7 +589,6 @@ func TestAQuarantinedSuccessorDoesNotCount_1528(t *testing.T) {
 	}
 }
 
-
 // P3/P4 and discovery agree on identity: an artifact is its basename, so a
 // producer that moved db-20261101.dump into archive/ has not deleted it. The
 // object is still listed under this artifact's identity, and calling it gone

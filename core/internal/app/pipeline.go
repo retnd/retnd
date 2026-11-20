@@ -537,14 +537,6 @@ func terminalFailure(st lifecycle.State) bool {
 	return false
 }
 
-// settled names the states in which an artifact is neither work, nor a
-// backup, nor a failure: RETIRED (issue #1528), a failure somebody or the
-// engine has already dealt with. It is its own part of the partition rather
-// than an absence from the other three, so a fifth state that belongs in none
-// of them still fails TestEveryLifecycleState_IsVisibleToTheCycleVerdict
-// instead of slipping through silently.
-func settled(st lifecycle.State) bool { return st == lifecycle.Retired }
-
 // durable names the states in which an artifact's bytes are on local disk,
 // verified and fsynced, which is what a backup is (see internal/lifecycle's
 // state doc). Everything before COMMITTED is either still in flight or not

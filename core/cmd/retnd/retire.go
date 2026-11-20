@@ -43,7 +43,8 @@ func cmdRetire(args []string) int {
 	defer cleanup()
 	logStartup(ctx, svc.Logger, app.BuildVersionInfo(version, commit))
 
-	req := app.RetireRequest{SupersededBy: *supersededBy, NoSuccessor: *noSuccessor, AcceptSourcePresent: *acceptPresent, Note: *note}
+	req := app.RetireRequest{SupersededBy: *supersededBy, NoSuccessor: *noSuccessor, AcceptSourcePresent: *acceptPresent, Note: *note,
+		ActorKind: "operator", Actor: cliActor}
 	if *dryRun {
 		p, err := svc.PreviewRetirement(ctx, id, req)
 		if err != nil {

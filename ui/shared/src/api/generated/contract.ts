@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "c3541d42c7882f382ffe9bcbdd0bbfec31801a76bae5acf731008136f8104fb5";
+export const CONTRACT_SHA256 = "c3a33c23828c681344d6f2d8846708b2ee859cc0631a2a9517c440617cd86d1b";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -3785,6 +3785,7 @@ export interface WireArtifact {
   remote_source_removed_at?: string;
   retention_policy: "configured" | "none";
   retention_tier?: string;
+  retirement?: WireRetirementRecord;
   set_name: string;
   size_bytes: number;
   source_name: string;
@@ -5902,6 +5903,7 @@ export interface WireRetirementPreview {
   source_check_category: string;
   source_check_sentence: string;
   state: string;
+  successor_candidates: WireRetirementSuccessor[];
 }
 
 /** One recorded retirement (issue #1528): who or what retired the

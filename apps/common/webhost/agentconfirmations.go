@@ -170,10 +170,15 @@ func (p *agentProposer) propose(w http.ResponseWriter, r *http.Request, principa
 	if row, found := agenttools.Lookup(tool); found && len(row.AgentMayNotSet) > 0 {
 		var fields map[string]json.RawMessage
 		_ = json.Unmarshal(body, &fields)
+		// Without regard to case: every decoder downstream (the handler,
+		// cliecho's echo) matches JSON field names that way, so a field
+		// spelled No_Successor is the same field.
 		for _, f := range row.AgentMayNotSet {
-			if v, set := fields[f]; set && string(v) != "false" && string(v) != "null" {
-				return refuse(w, http.StatusForbidden, "AGENT_RETIRE_ACK_REFUSED",
-					"an agent may not send "+f+": that acknowledgement is a person's to give, so propose the retirement without it")
+			for k, v := range fields {
+				if strings.EqualFold(k, f) && string(v) != "false" && string(v) != "null" {
+					return refuse(w, http.StatusForbidden, "AGENT_RETIRE_ACK_REFUSED",
+						"an agent may not send "+f+": that acknowledgement is a person's to give, so propose the retirement without it")
+				}
 			}
 		}
 	}

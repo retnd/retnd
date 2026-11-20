@@ -70,9 +70,12 @@ type RetirementPreview struct {
 	FailureReason     string
 	SourceCheck       RetirementSourceCheck
 	ProposedSuccessor *RetirementSuccessor
-	Refusal           *RetireRefusal
-	Effects           []string
-	Retirement        *Retirement
+	// SuccessorCandidates is every newer good backup an operator may name
+	// instead, newest first.
+	SuccessorCandidates []RetirementSuccessor
+	Refusal             *RetireRefusal
+	Effects             []string
+	Retirement          *Retirement
 }
 
 // RetireResult is what a successful retirement did.
@@ -134,6 +137,9 @@ func (b *BackupService) PreviewRetirement(ctx context.Context, id string, req Re
 		Artifact: id, State: string(p.State), FailureReason: p.FailureReason,
 		SourceCheck: RetirementSourceCheck{Result: p.SourceCheck.Result, Category: p.SourceCheck.Category, Sentence: p.SourceCheck.Sentence},
 		Effects:     p.Effects,
+	}
+	for _, c := range p.SuccessorCandidates {
+		out.SuccessorCandidates = append(out.SuccessorCandidates, RetirementSuccessor{Name: c.Name, State: string(c.State), DiscoveredAt: c.DiscoveredAt})
 	}
 	if p.ProposedSuccessor != nil {
 		out.ProposedSuccessor = &RetirementSuccessor{Name: p.ProposedSuccessor.Name, State: string(p.ProposedSuccessor.State),

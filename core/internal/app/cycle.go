@@ -629,7 +629,9 @@ func (s *Service) processBackupSet(ctx context.Context, src config.Source, bs co
 		if after, err := s.Journal.ListByBackupSet(ctx, bs.ID); err != nil {
 			s.logger().Error(ctx, "auto-retire", err)
 		} else {
-			s.autoRetire(ctx, src, bs, after)
+			if n := s.autoRetire(ctx, src, bs, after); n > 0 && result.FailedArtifacts >= n {
+				result.FailedArtifacts -= n
+			}
 		}
 	}
 
