@@ -626,6 +626,20 @@ directory that was not there, with the image already loaded and sitting on the h
 Everything else that varies per host is in the `.env`, which is what
 `container/.env.example` documents it for.
 
+### What the install exposes, and what it does not
+
+The one published port is the Web UI's (`LISTEN_PORT`, 8080 by default), and it forwards
+`/health/*` and `/api/v1/*` to the engine and nothing else. The Prometheus endpoint
+(`/metrics`, off until you turn it on with `retnd settings observability patch
+--metrics-enabled`) is served by the engine on its own listener, which is on the
+deployment's internal compose network and is never published, so `curl
+http://<nas>:8080/metrics` gets the Web UI's own page back (it serves its single-page app
+for every path it does not forward), not the exposition. That is by design. A Prometheus reaches it by
+joining that network (`retnd_internal`) or through a reverse proxy you run. The installer
+adds no port for it and writes nothing for it: `container/observability/` holds an example
+Prometheus, Grafana, Loki and Alertmanager bundle that does the joining, and it is an
+example, not something this installer deploys.
+
 ## What "installed" means
 
 Not "the container started". Three conditions, and the third exists because a real

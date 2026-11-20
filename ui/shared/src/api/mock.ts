@@ -72,7 +72,7 @@ import type {
   SystemHealth,
   VersionInfo
 } from "@shared/types/operation";
-import { createMockRecoverMany } from "@shared/assurance/mockRecoverMany";
+import { createMockRecoverMany, recoveryRunProbeFromWindow } from "@shared/assurance/mockRecoverMany";
 import { retireCommand } from "@shared/assurance/assuranceCommands";
 import { createMockHostBrowse } from "@shared/assurance/mockHostBrowse";
 import { BUILTIN_ARTIFACT, DEFAULT_POLICY_NEWEST, DEFAULT_POLICY_TESTED, INGEST_FAILED_SCENARIO, followsDefault, untestedScenario, assuranceLiveEvents, assuranceStoredLines, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
@@ -148,6 +148,14 @@ export const SCENARIOS = [
   // acknowledgement.
   "own-copy-verified",
   "own-copy-unverified",
+  // The forge set where the retirement itself takes a few seconds, so the
+  // in-flight dialog (both buttons off) can be driven by keyboard.
+  "retire-slow",
+  // The forge set where asking again with a different choice fails; and the
+  // set with no newer backup at all, where asking again with the
+  // no-replacement acknowledgement fails.
+  "retire-reask-fails",
+  "retire-reask-fails-alone",
   "empty",
   "storage-critical",
   "catalog-recovery",
@@ -693,7 +701,7 @@ export function resetMockFixtures(): void {
  * successor to name. A function so each mock API gets its own copies to
  * mutate when a backup is retired.
  */
-function retireForgeArtifacts(auto = false): BackupArtifact[] {
+function retireForgeArtifacts(auto = false, alone = false): BackupArtifact[] {
   const week34 = ARTIFACTS.find((a) => a.id === "media/weekly-archive/media-week34.tar")!;
   const out = ARTIFACTS.map((a) =>
     a.id === week34.id
@@ -717,7 +725,7 @@ function retireForgeArtifacts(auto = false): BackupArtifact[] {
     receivedAt: day + "T04:39:02+02:00",
     state: "COMPLETE"
   });
-  out.push(newer(35, "2026-09-01"), newer(36, "2026-09-08"));
+  if (!alone) out.push(newer(35, "2026-09-01"), newer(36, "2026-09-08"));
   return out;
 }
 
@@ -4458,8 +4466,9 @@ export function createMockApi(
       )
     : scenario === "backups-ingest-failed"
     ? ARTIFACTS.map((a) => (a.id === "media/weekly-archive/media-week34.tar" ? { ...a, state: "FAILED", validation: "pending" as const } : a))
-    : scenario === "retire-forge" || scenario === "retire-source-present" || scenario === "retire-auto" || ownCopyScenario
-    ? retireForgeArtifacts(scenario === "retire-auto")
+    : scenario === "retire-forge" || scenario === "retire-source-present" || scenario === "retire-auto" ||
+        scenario === "retire-slow" || scenario === "retire-reask-fails" || scenario === "retire-reask-fails-alone" || ownCopyScenario
+    ? retireForgeArtifacts(scenario === "retire-auto", scenario === "retire-reask-fails-alone")
     : ARTIFACTS;
   // Every backup outside quarantine, padded to ?artifacts=N: what the list
   // answers and what the health report's retainedCount counts (#1186).
@@ -4741,7 +4750,11 @@ export function createMockApi(
   const mockHostBrowse = createMockHostBrowse(scenario, assuranceSettings.stagingRoot);
   // #1106: every row the journal holds for a set, quarantined ones included,
   // which listArtifacts above deliberately leaves out.
-  const mockRecoverMany = createMockRecoverMany(scenario, (setId) => artifacts.filter((a) => a.setId === setId));
+  const mockRecoverMany = createMockRecoverMany(
+    scenario,
+    (setId) => artifacts.filter((a) => a.setId === setId),
+    typeof window === "undefined" ? undefined : recoveryRunProbeFromWindow()
+  );
   // Per-set overrides, keyed by source/set. Modelled the way the service
   // resolves them: a set follows the deployment for every field it does not
   // pin, so a global patch moves it.
@@ -5588,7 +5601,13 @@ export function createMockApi(
           throw new RetndError({ code: "ARTIFACT_NOT_FOUND", message: "no backup with id " + id, correlationId: "cid_mock404" });
         });
       }
-      return delay(mockRetirementPreview(found, ack ?? {}));
+      const choice = ack ?? {};
+      if ((scenario === "retire-reask-fails" || scenario === "retire-reask-fails-alone") && Object.keys(choice).length > 0) {
+        return delay(null).then(() => {
+          throw new RetndError({ code: "INTERNAL_ERROR", message: "the source host did not answer", correlationId: "cid_mockreask" });
+        });
+      }
+      return delay(mockRetirementPreview(found, choice));
     },
     retireArtifact: (id, req) => {
       const found = artifacts.find((a) => a.id === id);
@@ -5615,7 +5634,7 @@ export function createMockApi(
       mockRetirements.set(id, record);
       found!.state = "RETIRED";
       found!.retirement = { actorKind: "operator", actor: "admin", retiredAt: record.retired_at, sourceCheck: record.source_check, supersededBy: record.superseded_by, note: record.note };
-      return delay({ artifact: id, state: "RETIRED", partial_removed: true, retirement: record });
+      return delay({ artifact: id, state: "RETIRED", partial_removed: true, retirement: record }, scenario === "retire-slow" ? 2500 : 180);
     },
     reinstate: () =>
       delay({

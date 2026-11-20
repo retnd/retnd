@@ -10,6 +10,7 @@ import (
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/state"
 )
 
@@ -293,6 +294,18 @@ func (b *BackupService) ListArtifacts(ctx context.Context, filter ArtifactFilter
 		return nil, fmt.Errorf("service: listing artifacts: %w", err)
 	}
 
+	// Issue #1528: every RETIRED row's record, read once for the whole list
+	// rather than once per row, and only when the list has one.
+	var retirements map[model.ArtifactID]state.Retirement
+	for _, rec := range records {
+		if rec.State == state.RetiredState {
+			if retirements, err = b.journal.LatestRetirements(ctx); err != nil {
+				return nil, fmt.Errorf("service: reading retirements: %w", err)
+			}
+			break
+		}
+	}
+
 	out := make([]Artifact, 0, len(records))
 	for _, rec := range records {
 		a := toServiceArtifact(rec, mediums, configured)
@@ -301,8 +314,9 @@ func (b *BackupService) ListArtifacts(ctx context.Context, filter ArtifactFilter
 				return nil, err
 			}
 		}
-		if err := b.attachRetirement(ctx, &a, rec); err != nil {
-			return nil, err
+		if r, ok := retirements[rec.Artifact]; ok && rec.State == state.RetiredState {
+			sr := toServiceRetirement(r)
+			a.Retirement = &sr
 		}
 		if filter.QuarantinedOnly && !a.Quarantined {
 			continue

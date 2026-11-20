@@ -25,6 +25,9 @@ const WEEK34 = "media-week34.tar";
 const WEEK34_ID = "media/weekly-archive/" + WEEK34;
 const BILLING = "billing-20260827.sql.gz";
 const dialog = (page: Page) => page.getByRole("dialog");
+// A pause only when recording, so a short test's GIF shows its last state
+// (the walkthrough specs' beat).
+const beat = (p: Page) => (process.env.E2E_VIDEO ? p.waitForTimeout(900) : Promise.resolve());
 
 async function insideDialog(page: Page): Promise<boolean> {
   return page.evaluate(() => !!document.activeElement?.closest("[role=dialog]"));
@@ -149,14 +152,19 @@ test.describe("#1528 review of the Retire dialog", () => {
     const row = page.getByRole("row").filter({ hasText: WEEK34 });
     await expect(row).toContainText("Retired");
     await expect(row).toContainText("Replaced by media-week36.tar");
+    await row.scrollIntoViewIfNeeded();
+    await row.hover();
+    await beat(page);
   });
 
   test("#1528 when retnd retires a backup on its own, the Backups page says so and links to it", async ({ page }) => {
     await open(page, "/backups", "retire-auto");
     const notice = page.getByTestId("auto-retired-notice");
     await expect(notice).toContainText("retnd retired 1 failed backup on its own");
+    await beat(page);
     await notice.getByRole("link", { name: "See it" }).click();
     await expect(page).toHaveURL(/media-week34\.tar/);
+    await beat(page);
   });
 
   test("#1528 the Retire controls are at least 44px tall", async ({ page }) => {
@@ -178,5 +186,60 @@ test.describe("#1528 review of the Retire dialog", () => {
     await dialog(page).getByRole("button", { name: "Retire 1 backup" }).click();
     await dialog(page).getByRole("button", { name: "Close" }).click();
     await expect(billing).toBeChecked();
+  });
+
+  // The #1536 UI re-check: after the result replaces the buttons, and while
+  // the request is in flight, Tab and Shift+Tab still stay inside.
+  test("#1528 after the result appears, Tab and Shift+Tab stay inside the dialog", async ({ page }) => {
+    await open(page, "/backups/media/weekly-archive/" + WEEK34, "retire-forge");
+    await page.getByRole("button", { name: "Retire…" }).click();
+    await dialog(page).getByRole("button", { name: "Retire 1 backup" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(dialog(page).getByRole("heading", { name: "1 backup retired" })).toBeVisible();
+    for (const key of ["Shift+Tab", "Shift+Tab", "Tab", "Tab", "Tab"]) {
+      await page.keyboard.press(key);
+      expect(await insideDialog(page), key + " after the result left the dialog").toBe(true);
+    }
+  });
+
+  test("#1528 while the retirement is in flight, Tab and Shift+Tab stay inside the dialog", async ({ page }) => {
+    await open(page, "/backups/media/weekly-archive/" + WEEK34, "retire-slow");
+    await page.getByRole("button", { name: "Retire…" }).click();
+    await dialog(page).getByRole("button", { name: "Retire 1 backup" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(dialog(page).getByRole("button", { name: "Retiring…" })).toBeVisible();
+    expect(await insideDialog(page), "focus left the dialog when the buttons turned off").toBe(true);
+    for (const key of ["Shift+Tab", "Tab"]) {
+      await page.keyboard.press(key);
+      expect(await insideDialog(page), key + " during the request left the dialog").toBe(true);
+    }
+    await expect(dialog(page).getByRole("heading", { name: "1 backup retired" })).toBeVisible();
+  });
+
+  // The #1536 UI re-check: a re-ask that fails must never leave the dialog
+  // showing one replacement while sending another.
+  test("#1528 when asking again for another replacement fails, Retire stays off and says why", async ({ page }) => {
+    await open(page, "/backups/media/weekly-archive/" + WEEK34, "retire-reask-fails");
+    await page.getByRole("button", { name: "Retire…" }).click();
+    await dialog(page).getByLabel("Replaced by").selectOption("media-week35.tar");
+    await expect(dialog(page).getByTestId("retire-reask-error")).toBeVisible();
+    await expect(dialog(page).getByRole("button", { name: /^Retire/ }).last()).toBeDisabled();
+    // No terminal line either: there is no answer to show it from.
+    await expect(dialog(page).getByText("Same thing from the terminal")).toHaveCount(0);
+  });
+
+  test("#1528 when asking again with the acknowledgement fails, Retire stays off and says why", async ({ page }) => {
+    await open(page, "/backups/media/weekly-archive/" + WEEK34, "retire-reask-fails-alone");
+    await page.getByRole("button", { name: "Retire…" }).click();
+    await dialog(page).getByRole("checkbox", { name: /I understand there is no replacement/ }).check();
+    await expect(dialog(page).getByTestId("retire-reask-error")).toBeVisible();
+    await expect(dialog(page).getByRole("button", { name: /^Retire/ }).last()).toBeDisabled();
+  });
+
+  test("#1528 the reason Retry is off is announced with the button", async ({ page }) => {
+    await open(page, "/backups/media/weekly-archive/" + WEEK34, "retire-forge");
+    const retry = page.getByRole("button", { name: "Retry ingestion" });
+    await expect(retry).toBeDisabled();
+    await expect(retry).toHaveAccessibleDescription(/nothing left to copy/);
   });
 });

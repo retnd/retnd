@@ -24,6 +24,7 @@
 ==> every self-test and guard script is a step of this gate, or an exemption that names an issue (#1530, #1531, #1533)
 ==> the self-tests run every control the host has a lane for and ledger the rest (#1530, #1531)
 ==> the EPIC U closing check refuses a moved canonical deployment, a migration other than 0022 or a BLOCKED row, and can still fail (#1353)
+==> every retnd_* name, label and Loki field a shipped dashboard or rule names is one retnd emits, and the guard can still fail (#902)
 ==> core/ go build
 ==> core/ go vet
 ==> core/ golangci-lint
@@ -64,6 +65,7 @@
 ==> the published-provenance guard can actually fail (mutation self-test, #895)
 ==> gate self-test (scripts/tests/ci-local-gate.test.sh)
 ==> architecture rules can actually fail (mutation self-test)
+==> the architecture self-test holds at most two tree copies and removes each after its case (#1580)
 ==> the shard runner refuses what it should and speaks the recorder's verdicts (#1460, #1533)
 ==> the --shard i/n split of the self-tests runs every control in exactly one slice (#1461, #1533)
 ==> the release e2e hooks, the stamp guard and the release script behave as documented (#1375, #1533)

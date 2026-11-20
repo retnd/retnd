@@ -24,6 +24,16 @@
 
 ### Fixed
 
+- **`GET /metrics` answers on the real engine, and the token command prints only the token**
+  (#1568). The scrape endpoint above was registered on the API router and tested there, but the
+  engine's serve mux never mounted it, so `retnd-web serve` answered `404` to every scrape. Now the
+  engine mounts it, the mount guard allows it because it's in the one list of root routes, and
+  `web-ui` answers `404` for it itself instead of handing a scraper the UI's `index.html`.
+  `retnd settings observability rotate-scrape-token` also printed its mode line and startup log
+  next to the token, so `> scrape-token` wrote a file Prometheus couldn't use... standard output
+  is now the token and nothing else, and `patch --json` and `--json` on the read print one
+  document.
+
 - **A deployment still mounted at its pre-0.5.0 path refuses to start instead of coming up
   empty** (#1546). Once the EPIC R adoption was gone (#1109), a compose file that still
   mounted the old configuration path got this release's empty one, and the web host wrote a

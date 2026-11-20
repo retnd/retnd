@@ -162,7 +162,13 @@ cases("observability/observabilityCommands", [
   ["metricsIntervalCommand", "a minute and a half", 90],
   ["metricsIntervalCommand", "an hour and ten seconds", 3610],
   ["metricsIntervalCommand", "a whole hour", 3600],
-  ["mintScrapeTokenCommand", "the mint"]
+  ["mintScrapeTokenCommand", "the mint"],
+  // One line per level the select offers, read from the module rather than
+  // spelled here: core/cmd/retnd's TestLogsLevelTwinIsTheSchema_900 holds
+  // this set to the levels config accepts and each line to cliecho's.
+  ...((modules["observability/observabilityCommands"].LOG_LEVELS ?? []) as string[]).map(
+    (level): [string, string, string] => ["logsLevelCommand", "the " + level + " floor", level]
+  )
 ]);
 
 cases("assurance/assuranceCommands", [

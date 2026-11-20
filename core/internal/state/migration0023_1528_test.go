@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/retnd/retnd/core/internal/model"
 )
 
 // Issue #1528's migration. RETIRED is a new artifacts.state value, so the
@@ -138,5 +140,49 @@ func TestARetirementAndItsRecordCommitOrRollBackTogether_1528(t *testing.T) {
 	if _, err := j.RecordTransition(ctx, Transition{Artifact: artifact, Key: "x", From: RetiredState, To: "DISCOVERED", OccurredAt: at,
 		Retirement: &RetirementUpdate{ActorKind: RetiredByOperator, SourceCheck: SourceAbsent}}); err == nil {
 		t.Error("a retirement record was accepted on a transition out of RETIRED")
+	}
+}
+
+// The #1536 backend re-check: the backups list reads every retired row's
+// record in one query. It answers the newest record of a row retired twice,
+// and nothing for a row that came back out of RETIRED.
+func TestLatestRetirementsAnswersTheNewestRecordOfEachRetiredRow_1528(t *testing.T) {
+	ctx := context.Background()
+	j, _ := openJournal(t)
+	at := time.Date(2026, 11, 19, 4, 0, 0, 0, time.UTC)
+	twice := testArtifact(t)
+	back := model.ArtifactID{Set: twice.Set, Name: "back.dump"}
+	step := func(id model.ArtifactID, key, from, to string, by string) {
+		t.Helper()
+		tr := Transition{Artifact: id, Key: key, From: from, To: to, OccurredAt: at}
+		if to == RetiredState {
+			tr.Retirement = &RetirementUpdate{ActorKind: RetiredAutomatically, Actor: "engine", SourceCheck: SourceAbsent, SupersededBy: by}
+		}
+		if _, err := j.RecordTransition(ctx, tr); err != nil {
+			t.Fatalf("%s %s>%s: %v", key, from, to, err)
+		}
+		at = at.Add(time.Hour)
+	}
+	for _, id := range []model.ArtifactID{twice, back} {
+		if _, err := j.Discover(ctx, id, "d-"+id.Name, "/incoming/"+id.Name, RemoteIdentity{}, at); err != nil {
+			t.Fatalf("Discover: %v", err)
+		}
+		step(id, "f1-"+id.Name, "DISCOVERED", "FAILED", "")
+		step(id, "r1-"+id.Name, "FAILED", RetiredState, "first.dump")
+		step(id, "u1-"+id.Name, RetiredState, "DISCOVERED", "")
+	}
+	step(twice, "f2", "DISCOVERED", "FAILED", "")
+	step(twice, "r2", "FAILED", RetiredState, "second.dump")
+
+	got, err := j.LatestRetirements(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[twice].SupersededBy != "second.dump" {
+		t.Errorf("LatestRetirements = %+v, want only %s with its second record", got, twice)
+	}
+	one, found, err := j.LatestRetirement(ctx, twice)
+	if err != nil || !found || one.SupersededBy != got[twice].SupersededBy || !one.RetiredAt.Equal(got[twice].RetiredAt) {
+		t.Errorf("the batched read disagrees with the single read: %+v vs %+v (err %v)", got[twice], one, err)
 	}
 }

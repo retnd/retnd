@@ -707,6 +707,19 @@ all. `retnd status` works identically either way, since it is always a fresh,
 read-only check against the shared state database file, independent of which binary is
 actually running as `retnd`'s main process.
 
+**`/metrics` is the engine's, and stays on the internal network.** When
+`observability.metrics.enabled` is on, the engine answers `GET /metrics` on the
+listener it already has (`retnd:8080` on `internal`), beside `/health/live` and
+`/health/ready` and outside `/api/v1`. `web-ui` forwards `/health/*` and `/api/v1/*`
+only, so the published port does not carry it, and no port, mapping or compose line was
+added for it: `container/compose.yaml` and every provider's file are unchanged. A
+Prometheus on the same host scrapes it by joining `retnd_internal`, which makes it a
+direct peer of the engine (a position this file otherwise gives to `web-ui` alone, and
+the reason `TRUST_FORWARDED_HEADERS` is safe here), so join exactly one container to it.
+`container/observability/` is a worked example of that, with two dashboards and alerting
+rules, and it is an example, not a supported deployment; its README says what it does
+and does not take on.
+
 ## Storage capacity, and capping what this manager may use
 
 By default retnd measures the filesystem your backup root is on and reports
@@ -853,7 +866,12 @@ while the condition lasts. `alertmanager` posts the v2 array with `labels.alertn
 and `labels.scope`, re-sends a condition that is still true every `refresh_interval`
 so Alertmanager does not expire it, and closes it with `endsAt` set to now when it
 clears. Without that refresh an alert would resolve itself while the backup was still
-stale. If you run Prometheus, its rules over the `retnd_*` series into Alertmanager
+stale. Alerts that fall due together are sent in parallel, up to 16 at a time, so the
+30 seconds between `refresh_interval` and `resolve_ttl` (one delivery attempt) covers
+each of them and not just the first. With more than 16 alerts standing at once and a
+receiver that takes close to 30 seconds to answer, add another 30 seconds to
+`resolve_ttl` for each further 16; the defaults leave six minutes, which is plenty.
+If you run Prometheus, its rules over the `retnd_*` series into Alertmanager
 are the better source of truth for staleness; this format is for deployments that
 scrape nothing, and running both means two sources of truth about the same fact.
 
@@ -881,7 +899,10 @@ retnd settings observability patch --metrics-enabled
 retnd settings observability rotate-scrape-token
 ```
 
-The second command prints a `rsc_` token **once**. Only its SHA-256 digest and an
+The second command prints a `rsc_` token **once**, and its standard output is the token and
+nothing else (everything it logs goes to standard error), so
+`retnd settings observability rotate-scrape-token > retnd-scrape-token` writes a file
+Prometheus can use as is. Only its SHA-256 digest and an
 eight-character display prefix are kept, in `scrape_credential/scrape-token.json` beside
 `config.yaml` (mode 0600 in a 0700 directory). Running it again replaces the token at
 once with no overlap, so update the scraper's credentials file and reload it straight
@@ -903,7 +924,7 @@ scrape_configs:
 **Where it is reachable.** The engine serves `/metrics` on its own listener, which on the
 shipped compose file is `retnd:8080` on the `internal` network. The published `web-ui` port
 forwards only `/health/*` and `/api/v1/*`, so `curl http://<nas>:8080/metrics` from your
-LAN gets the UI's answer, not the exposition. A Prometheus outside the compose network
+LAN gets a `404` from `web-ui`, not the exposition. A Prometheus outside the compose network
 reaches it by joining that network or through a reverse proxy you run. If you put a proxy
 in front of it, make sure the proxy does not log the `Authorization` header... this
 product never does.

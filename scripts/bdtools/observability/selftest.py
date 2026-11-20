@@ -22,7 +22,8 @@ run of the PV1 test), one plant per falsification matrix rows O-01, O-03,
 O-04, O-05, O-06 and O-25 name, and the two the #899 review found (the limit
 keyed on a forwarded header, and the /metrics method fallback stripping Allow
 from every API 405). PV3 to PV6 belong to O1.2, O1.3 and O1.4 and
-join this list when those land.
+join this list when those land; PV4 (O1.4, #902) is here, a planted panel and
+a planted rule against the dashboards and rules name guard.
 
 Every mutation is anchored to a verbatim copy of product source, tabs and
 all. An anchor that no longer matches is STALE ANCHOR: the control is skipped
@@ -56,11 +57,16 @@ AGENTACCESS_GO = "apps/common/webhost/agentaccess.go"
 SCRAPE_GO = "core/service/scrape.go"
 CONFIG_GO = "core/internal/config/observability.go"
 COUNTER_GO = "core/internal/metrics/scrape.go"
+DASHBOARD_JSON = "container/observability/grafana/dashboards/backup-health.json"
+RULES_YML = "container/observability/prometheus/rules/retnd.rules.yml"
+DASHBOARD_GUARD = "TestEveryShippedDashboardAndRuleQueriesWhatRetndEmits_902"
+MOUNTS_GO = "apps/common/webhost/serve/mounts.go"
 
 WEB_PKG = ("apps/common", ("./webhost/",))
 SERVICE_PKG = ("core", ("./service/",))
 CONFIG_PKG = ("core", ("./internal/config/",))
 METRICS_PKG = ("core", ("./internal/metrics/",))
+SERVE_PKG = ("apps/common", ("./webhost/serve/",))
 
 PLANT = "// PLANTED VIOLATION (scripts/bdtools/observability/selftest.py): "
 
@@ -122,6 +128,28 @@ def expect_passes(
 # Each entry: label, [(file, old, new), ...], needle, where, pattern. Most
 # plant one swap; the recordActions one needs two files moved together.
 MUTATIONS: list[tuple[Any, ...]] = [
+    (
+        "#1568: the engine's serve mux without /metrics, so the real engine answers 404 to every scrape",
+        [(
+            MOUNTS_GO,
+            '\t\tmount{pattern: "/metrics", handler: apiRouter, kind: mountAPIRouter},\n',
+            "\t\t" + PLANT + "the scrape endpoint is never mounted.\n",
+        )],
+        "the engine's mux answers /metrics with its own 404",
+        SERVE_PKG,
+        "TestEngineMounts_1568_|TestEngine_1568_",
+    ),
+    (
+        "#1568, ADR 0035 decision 5: web-ui forwarding /metrics to the engine",
+        [(
+            MOUNTS_GO,
+            '\t\t{pattern: "/metrics", handler: http.NotFoundHandler(), kind: mountNotForwarded},\n',
+            '\t\t{pattern: "/metrics", handler: proxy, kind: mountEngineProxy}, ' + PLANT + "the published port carries the scrape endpoint.\n",
+        )],
+        "which only the engine serves (ADR 0035, decision 5)",
+        SERVE_PKG,
+        "TestEveryAPIMountIsARouterTheGuardWalks$|TestUI_1568_",
+    ),
     (
         "PV1 (O-01): a handler that serves /metrics without consulting the verifier",
         [(HANDLER_GO, VERIFY, "\t" + PLANT + "the verifier is never asked.\n\tif _ = presented; ok && false {\n")],
@@ -226,7 +254,7 @@ MUTATIONS: list[tuple[Any, ...]] = [
         "O-03: the scrape-token mint over plain HTTP from another machine without the acknowledgement",
         [(
             ROUTER_GO,
-            'r.With(requireCSRF, requireMintTransportAck(h.enforce)).Post("/settings/observability/scrape-token", h.mintScrapeToken)',
+            'r.With(requireCSRF, requireMintTransportAck(h.enforce, "mint a scrape token")).Post("/settings/observability/scrape-token", h.mintScrapeToken)',
             'r.With(requireCSRF).Post("/settings/observability/scrape-token", h.mintScrapeToken) ' + PLANT + "no transport acknowledgement.",
         )],
         "--- FAIL: TestMetrics_AMintOverPlainHTTPFromAnotherMachineNeedsTheAcknowledgement",
@@ -355,6 +383,24 @@ MUTATIONS: list[tuple[Any, ...]] = [
         WEB_PKG,
         "TestMetrics_AScrapeStillAnswersWhileTheAgentAuditTrailIsUnavailable",
     ),
+    (
+        "PV4 (O-14): a dashboard panel querying retnd_backup_set_stale, a name retnd has never emitted",
+        [(
+            DASHBOARD_JSON,
+            '"expr": "retnd_backup_set_failures{backup_set=~\\"$backup_set\\"}",',
+            '"expr": "retnd_backup_set_stale{backup_set=~\\"$backup_set\\"}",',
+        )],
+        'backup-health.json: panel "Failed artifacts (0 when nothing is wrong)": retnd_backup_set_stale is not a series retnd emits',
+        METRICS_PKG,
+        DASHBOARD_GUARD,
+    ),
+    (
+        "O-14, second red: an alerting rule over a renamed family, which would never fire",
+        [(RULES_YML, "expr: retnd_backup_set_quarantined_lost > 0\n", "expr: retnd_backup_set_quarantined_irrecoverable > 0\n")],
+        'retnd.rules.yml: rule "RetndArtifactsIrrecoverablyQuarantined": retnd_backup_set_quarantined_irrecoverable is not a series retnd emits',
+        METRICS_PKG,
+        DASHBOARD_GUARD,
+    ),
 ]
 
 # The clean runs. The first is the spec's two positive controls (a valid
@@ -367,6 +413,9 @@ CLEAN_CONTROLS = [
     ("the credential store and the report cache", SERVICE_PKG, "TestAScrapeCredential|TestOnlyTheCurrentScrapeCredentialVerifies|TestTheHealthExpositionIsRebuilt|TestEveryRefusalReasonIsCounted"),
     ("the observability block", CONFIG_PKG, "TestObservability_"),
     ("the refusal counter's vocabulary", METRICS_PKG, "TestScrapeRejected_"),
+    # PV4's positive control (a panel over a real name passes) and the clean
+    # bundle, without which a guard that refuses every dashboard passes PV4.
+    ("the dashboards and rules name guard and PV4's positive control", METRICS_PKG, "_902$"),
 ]
 
 
