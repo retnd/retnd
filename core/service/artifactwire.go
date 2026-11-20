@@ -29,7 +29,15 @@ func ArtifactWire(a Artifact) apicontract.Artifact {
 	for _, p := range a.Placements {
 		placements = append(placements, placementWire(p))
 	}
+	var retirement *apicontract.RetirementRecord
+	if r := a.Retirement; r != nil {
+		retirement = &apicontract.RetirementRecord{
+			Actor: r.Actor, ActorKind: r.ActorKind, FailureReason: r.FailureReason, Note: r.Note,
+			RetiredAt: r.RetiredAt.UTC().Format(time.RFC3339), SourceCheck: r.SourceCheck, SupersededBy: r.SupersededBy,
+		}
+	}
 	return apicontract.Artifact{
+		Retirement:              retirement,
 		BackupSetID:             a.BackupSetID,
 		Checksum:                a.Checksum,
 		ChecksumAlgorithm:       a.ChecksumAlgorithm,

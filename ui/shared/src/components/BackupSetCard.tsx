@@ -133,6 +133,14 @@ export function BackupSetCard({
               and the set's own page explains the choice where it can be
               changed, which is nowhere. */}
           <EngineBadge engine={set.engine} />
+          {/* Issue #1528: retired failures, said beside the verdict they no
+              longer weigh on, so a set reading Healthy after a retirement
+              still says what was retired. */}
+          {set.retiredCount ? (
+            <InfoTooltip id="sets.card.retired" alignEnd>
+              <StatusBadge tone="neutral" icon="status-idle">{set.retiredCount + " retired"}</StatusBadge>
+            </InfoTooltip>
+          ) : null}
           {/* State, not just an action. An operator scanning this page can
               see which sets are paused without pressing anything, which
               the enable/disable button's own label cannot do on its own:

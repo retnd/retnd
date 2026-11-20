@@ -193,3 +193,30 @@ func TestEditHold1606_ABodyThatIsNotJSONIsRefused(t *testing.T) {
 		t.Error("a refused take still held the set")
 	}
 }
+
+// A token key that is present but empty is a client that meant to name a
+// holder and had an unset variable or a lost value. Reading it as "no
+// token" would turn its renewal into a fresh take, and its release into
+// one that gives back every holder's hold.
+func TestEditHold1606_AnEmptyTokenIsRefusedNotReadAsNoToken(t *testing.T) {
+	router := editHold1606Router(t)
+	rec := send(router, http.MethodPost, editHold1606Path, `{"token":""}`, true)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("take with an empty token = %d %s, want 400", rec.Code, rec.Body.String())
+	}
+	if held1606(t, router) {
+		t.Error("a take with an empty token still held the set")
+	}
+
+	other := take1606(t, router)
+	rec = send(router, http.MethodPost, editHold1606Path+"/release", `{"token":""}`, true)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("release with an empty token = %d %s, want 400", rec.Code, rec.Body.String())
+	}
+	if !held1606(t, router) {
+		t.Error("a release with an empty token gave back another holder's hold")
+	}
+	if rec := send(router, http.MethodPost, editHold1606Path, tokenBody(other), true); rec.Code != http.StatusOK {
+		t.Errorf("the other holder's renewal = %d, want 200", rec.Code)
+	}
+}

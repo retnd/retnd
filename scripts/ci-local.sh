@@ -761,6 +761,13 @@ bash scripts/tests/epic-t-closure.test.sh
 gate_step "the closure checks and their self-tests never pipe into grep -q under pipefail (#1482)"
 bash scripts/tests/closure-no-pipe-grep-q.test.sh
 
+# Issue #1528's planted violations, anchors only: each mutation the
+# self-test plants still matches the product source it names, so a refactor
+# cannot turn a control into one that plants nothing. Builds nothing; the
+# planted runs themselves are the selftest-recovery shard's.
+gate_step "the retirement self-test's planted violations still anchor in the product source (#1528)"
+bash scripts/retire/selftest.sh --check-anchors
+
 # A self-test or guard script that is in the tree and in no step here runs
 # nowhere, and its PASS rows rest on one run (#1530, #1531, #1533). This names
 # the ones the gate does not run, and takes an exemption only with an issue.
@@ -1518,6 +1525,18 @@ if [ "$FAST" != "1" ]; then
   # suite has to go red naming the promise. No Docker, a few minutes.
   gate_step "the recovery guards can actually fail (mutation self-test, #976)"
   bash scripts/recovery/selftest.sh
+
+  # Issue #1528: retiring a FAILED backup. Each row of
+  # docs/conformance/issue-1528-matrix.md's RV.n ledger is planted in a
+  # scratch copy of the tree (the automatic pass skipped, absence read from
+  # any Stat error, the successor's "newer" dropped, the #662 shape, the way
+  # back, the .partial, an edge into RETIRED from COMMITTED, a record that
+  # can fail without its transition rolling back, RETIRED counted as a
+  # failure, the operator path skipping the source check, the agent
+  # acknowledgement, the list cursor), and the narrowed test has to go red
+  # naming itself and green again on the unplanted copy. No Docker.
+  gate_step "the retirement guards can actually fail (mutation self-test, #1528)"
+  bash scripts/retire/selftest.sh
 fi
 }
 

@@ -23,6 +23,13 @@ func cmdRun(args []string) int {
 		return 2
 	}
 
+	// #1558: a cycle against this release's empty path, while the catalogue
+	// sits at the pre-0.5.0 one, backs up nothing and says so as if that were
+	// the configuration. Refuse first, the way daemon does.
+	if refusedAtPreRenamePath(*cfgPath) {
+		return exitFailure
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

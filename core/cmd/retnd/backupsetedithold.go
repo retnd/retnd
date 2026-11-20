@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 
@@ -96,6 +97,14 @@ func cmdBackupSetEditHold(args []string) int {
 	// and report the other half.
 	if *take && *release {
 		return usageError("backup-set edit-hold: --take and --release are opposites; pass one")
+	}
+	// An empty --token is a script whose variable was unset. Read as "no
+	// token" it would take a new hold instead of renewing, or give back
+	// every holder's hold instead of its own (#1606).
+	tokenGiven := false
+	fs.Visit(func(f *flag.Flag) { tokenGiven = tokenGiven || f.Name == "token" })
+	if tokenGiven && *token == "" {
+		return usageError("backup-set edit-hold: --token needs the token --take printed; an empty value is refused so it is never read as no token")
 	}
 	// A report does not act as anybody, so a token with nothing to do
 	// would be silently ignored, and a script that meant --take --token

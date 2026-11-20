@@ -165,3 +165,23 @@ func TestBackupSetEditHold1606_UsageNamesTheToken(t *testing.T) {
 		t.Errorf("usage() does not say what --token does on `backup-set edit-hold`")
 	}
 }
+
+// An empty --token is a script whose variable was unset. It must not be
+// read as "no token", which on --release gives back every holder's hold
+// and on --take takes a new one.
+func TestBackupSetEditHold1606_AnEmptyTokenIsAUsageError(t *testing.T) {
+	cliConfig, e := oneServedDeployment(t)
+	other, err := e.svc.BeginBackupSetEdit(t.Context(), editHold1606Set)
+	if err != nil {
+		t.Fatalf("the other holder's take: %v", err)
+	}
+	for _, mode := range []string{"--release", "--take"} {
+		args := []string{"backup-set", "edit-hold", editHold1606Set, mode, "--token", "", "--config", cliConfig}
+		if got := run(args); got != exitUsage {
+			t.Errorf("%s --token \"\" = %d, want %d", mode, got, exitUsage)
+		}
+	}
+	if _, err := e.svc.RenewBackupSetEdit(t.Context(), editHold1606Set, other.Token); err != nil {
+		t.Errorf("an empty --token released or replaced the other holder's hold: %v", err)
+	}
+}

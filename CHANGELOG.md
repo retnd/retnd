@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+Worth reading before you upgrade:
+
+- **This release applies migration 0023 on its first start, and 0.8.0 won't open the journal
+  after that** (#1528, #1536). 0023 rebuilds the `artifacts` table so it admits the new `RETIRED`
+  state (what `retnd retire` and the engine's own retirement of a FAILED backup move a row to) and
+  adds `artifact_retirements`. It's the first schema migration a patch release has carried. Like
+  every release with a migration, 0.8.0 refuses a `state.db` this build has opened (`version 23
+  is recorded in the database but not compiled into this binary`) and writes nothing when it
+  does, so the only way back is a copy taken before the upgrade. `install --mode upgrade` takes
+  it for you; on a deployment you upgrade by hand, take it yourself and check it first. See
+  [Rolling back a release that carried a
+  migration](docs/install.md#rolling-back-a-release-that-carried-a-migration) for the steps and
+  for what a rollback costs, and decide within hours rather than days.
+
 ### Added
 
 - **An authenticated Prometheus scrape endpoint** (#899, EPIC O). The engine now serves the 46
@@ -19,8 +33,8 @@
   `404` and nothing else changes. **Writing `observability:` into `config.yaml` is a one-way
   door**: older builds refuse the file as an unknown field, so keep the previous `config.yaml` if
   you want a way back. Deleting the block is the rollback, and a minted token's file left behind is
-  inert. A plaintext `observability.metrics.token` in the file is refused at load. No migration:
-  `core/migrations/` stays at `0022`.
+  inert. A plaintext `observability.metrics.token` in the file is refused at load. No migration
+  of its own: the one migration in this release is 0023 (#1528), at the top of this entry.
 
 ### Fixed
 
@@ -57,6 +71,34 @@
   directories: exit 1 naming the conflict. Only the new one, or neither (a fresh install),
   starts as before.
 
+- **A FAILED backup whose source is gone can be retired, and the engine retires the safe case itself**
+  (#1528). `cicd-pipeline/forge` read FAILING for two weeks with a good backup every morning, because two
+  dumps had failed, the host's own retention had since deleted them, and `retry` (the only verb that
+  touched a FAILED row) could only send them round to fail again. There is now a `RETIRED` state,
+  reached only from `FAILED`, with a record of who or what retired the backup, why, what the source
+  looked like at that moment and which newer backup replaces it. `retnd retire <source/set/artifact>`
+  and `POST /api/v1/backups/{source}/{set}/{name}/retire` retire one on request, after asking the source:
+  they refuse while the object is still there (retry it instead) unless you pass
+  `--accept-source-present`, and refuse with no newer good backup unless you pass `--no-successor`.
+  `--dry-run` and `GET` on the same route show what would happen first. A cycle retires a FAILED backup
+  by itself only when the set's listing does not show the object, a `Stat` of it answers not found, and a
+  newer durable backup exists in the same set; if the object ever reappears, the next cycle puts it back
+  into the pipeline. Health stops counting RETIRED as a failure, so a set like forge goes back to HEALTHY,
+  and reports it as `retired_count` (and a `retired` metric) so nothing is hidden. The MCP server gains
+  `retire_backup` (operate, a person confirms, and it may not send either acknowledgement) and
+  `backup_retirement_show` (read), and `GET /backups` gains a `state` filter, `limit` and a cursor, so
+  `backups_list` pages instead of answering `AGENT_RESULT_TOO_LARGE`. In the browser, a failed backup's page
+  and its row menu on the Backups page have a Retire… action whose dialog shows what the engine found
+  (the source gone or still there, the backup that replaces it, what retiring does) before anything
+  happens, a retired backup's page says who retired it and what replaces it, and a set card counts
+  retired backups apart. What an existing deployment sees:
+  FAILED rows whose source is gone and that a newer good backup supersedes are retired on the first cycle
+  after the upgrade, each as a warn-level `artifact_retired` event.
+  **One-way door:** migration 0023 rebuilds the `artifacts` table to admit `RETIRED` and adds
+  `artifact_retirements`. 0.8.0 refuses a `state.db` this build has opened, like every release with a
+  migration, so keep the upgrade archive if you might roll back (the steps are in [Rolling back a
+  release that carried a migration](docs/install.md#rolling-back-a-release-that-carried-a-migration)).
+
 ## [0.8.0] - 2026-11-14
 
 0.8.0 is a minor release, and nearly all of it is one feature: encrypted retained copies (EPIC N, #967), with
@@ -79,7 +121,8 @@ A few things are worth reading before you upgrade:
   `placement_encryption`, `recovery_bundle_exports`, `recovery_bundle_confirmations`, `encrypt_existing_consents`,
   `encryption_key_suites` and `encryption_default_suite`) and changes no existing table or row, so every copy
   you already have reads as unencrypted. Like every release with a migration, 0.7.2 refuses a `state.db` this
-  build has opened, so keep the upgrade archive if you might roll back.
+  build has opened, so keep the upgrade archive if you might roll back
+  ([how](docs/install.md#rolling-back-a-release-that-carried-a-migration)).
 - Writing `retained_copy_encryption:` (and, separately, its `suite:`) into `config.yaml` is a one-way door:
   0.7.2 and older refuse the file as an unknown field. Keep the previous `config.yaml` if you want a way out.
 - If you lose the key and every copy of its recovery bundle, the encrypted copies are gone for good. Export

@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "7d33cbcd78ec7a6ca2c99d556d0bd293ff79ead760f13bfe581aa97ae257cf36"
+const ContractSHA256 = "4561f1ca36e06e8cb7108e479ea17104e4eb1bc84f42f2bfd5cdb31ffd79b60b"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -183,6 +183,12 @@ const (
 	ErrorCodeAgentHttpTransportOff                  ErrorCode = "AGENT_HTTP_TRANSPORT_OFF"
 	ErrorCodeAgentRateLimited                       ErrorCode = "AGENT_RATE_LIMITED"
 	ErrorCodeAgentAuditUnavailable                  ErrorCode = "AGENT_AUDIT_UNAVAILABLE"
+	ErrorCodeRetireOwnCopyAtFinalName               ErrorCode = "RETIRE_OWN_COPY_AT_FINAL_NAME"
+	ErrorCodeRetireSourcePresent                    ErrorCode = "RETIRE_SOURCE_PRESENT"
+	ErrorCodeRetireSourceUnconfirmed                ErrorCode = "RETIRE_SOURCE_UNCONFIRMED"
+	ErrorCodeRetireNoSuccessor                      ErrorCode = "RETIRE_NO_SUCCESSOR"
+	ErrorCodeRetireSuccessorInvalid                 ErrorCode = "RETIRE_SUCCESSOR_INVALID"
+	ErrorCodeAgentRetireAckRefused                  ErrorCode = "AGENT_RETIRE_ACK_REFUSED"
 	ErrorCodeEditHoldGone                           ErrorCode = "EDIT_HOLD_GONE"
 )
 
@@ -314,6 +320,12 @@ var WireErrorCodes = []ErrorCode{
 	ErrorCodeAgentHttpTransportOff,
 	ErrorCodeAgentRateLimited,
 	ErrorCodeAgentAuditUnavailable,
+	ErrorCodeRetireOwnCopyAtFinalName,
+	ErrorCodeRetireSourcePresent,
+	ErrorCodeRetireSourceUnconfirmed,
+	ErrorCodeRetireNoSuccessor,
+	ErrorCodeRetireSuccessorInvalid,
+	ErrorCodeAgentRetireAckRefused,
 	ErrorCodeEditHoldGone,
 }
 
@@ -469,6 +481,12 @@ var ErrorCodes = []ErrorCode{
 	ErrorCodeAgentHttpTransportOff,
 	ErrorCodeAgentRateLimited,
 	ErrorCodeAgentAuditUnavailable,
+	ErrorCodeRetireOwnCopyAtFinalName,
+	ErrorCodeRetireSourcePresent,
+	ErrorCodeRetireSourceUnconfirmed,
+	ErrorCodeRetireNoSuccessor,
+	ErrorCodeRetireSuccessorInvalid,
+	ErrorCodeAgentRetireAckRefused,
 	ErrorCodeEditHoldGone,
 }
 
@@ -476,8 +494,8 @@ var ErrorCodes = []ErrorCode{
 // a red team) can assert the RIGHT refusal rather than any refusal.
 var ErrorClasses = map[string][]ErrorCode{
 	"authentication": {ErrorCodeUnauthenticated, ErrorCodeBootstrapTokenInvalid, ErrorCodeResetTokenInvalid, ErrorCodeVerifyTokenInvalid, ErrorCodeAgentTokenInvalid},
-	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeRecoveryGrantSessionEnded, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired, ErrorCodeAgentScopeInsufficient, ErrorCodeAgentRouteDenied, ErrorCodeAgentHttpTransportOff},
-	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy, ErrorCodeDirectoryNotReadable, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged, ErrorCodeRecoverySourceHostUnavailable, ErrorCodeRecoverySourceHostReadOnly, ErrorCodeRecoverySourceHostNotAcknowledged, ErrorCodeRecoverySourceHostProbeLeftFile, ErrorCodeValidatorExists, ErrorCodeValidatorPatternConflict, ErrorCodeValidatorLimitReached, ErrorCodeValidatorScriptChanged, ErrorCodeEncryptionKeyInUse, ErrorCodeEncryptionKeyState, ErrorCodeEncryptionKeyUnresolvable, ErrorCodeAgentConfirmationRequired, ErrorCodeAgentConfirmationExpired, ErrorCodeAgentConfirmationDecided, ErrorCodeAgentConfirmationTokenEnded, ErrorCodeEditHoldGone},
+	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeRecoveryGrantSessionEnded, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired, ErrorCodeAgentScopeInsufficient, ErrorCodeAgentRouteDenied, ErrorCodeAgentHttpTransportOff, ErrorCodeAgentRetireAckRefused},
+	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy, ErrorCodeDirectoryNotReadable, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged, ErrorCodeRecoverySourceHostUnavailable, ErrorCodeRecoverySourceHostReadOnly, ErrorCodeRecoverySourceHostNotAcknowledged, ErrorCodeRecoverySourceHostProbeLeftFile, ErrorCodeValidatorExists, ErrorCodeValidatorPatternConflict, ErrorCodeValidatorLimitReached, ErrorCodeValidatorScriptChanged, ErrorCodeEncryptionKeyInUse, ErrorCodeEncryptionKeyState, ErrorCodeEncryptionKeyUnresolvable, ErrorCodeAgentConfirmationRequired, ErrorCodeAgentConfirmationExpired, ErrorCodeAgentConfirmationDecided, ErrorCodeAgentConfirmationTokenEnded, ErrorCodeRetireOwnCopyAtFinalName, ErrorCodeRetireSourcePresent, ErrorCodeRetireSourceUnconfirmed, ErrorCodeRetireNoSuccessor, ErrorCodeRetireSuccessorInvalid, ErrorCodeEditHoldGone},
 	"internal":       {ErrorCodeInternal, ErrorCodeInternalError, ErrorCodeAgentAuditUnavailable, ErrorCodeRecoveryLocalCopyCorrupt, ErrorCodeRecoveryRemoteCopyCorrupt, ErrorCodeRecoveryNoSpace, ErrorCodeRecoveryBelowReserve, ErrorCodeRecoveryFailed, ErrorCodeRecoverySourceHostNoSpace},
 	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown, ErrorCodeDirectoryNotFound, ErrorCodeValidatorNotFound, ErrorCodeEncryptionKeyNotFound, ErrorCodeAgentTokenNotFound, ErrorCodeAgentConfirmationNotFound},
 	"throttling":     {ErrorCodeRateLimited, ErrorCodeRecoveryTooManyGrants, ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy, ErrorCodeAgentConfirmationLimit, ErrorCodeAgentRateLimited},
@@ -1390,6 +1408,7 @@ var Endpoints = []Endpoint{
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListArtifactsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
 			404: {ErrorCodeBackupSetNotFound},
 			500: {ErrorCodeInternal},
@@ -1420,6 +1439,28 @@ var Endpoints = []Endpoint{
 			501: {ErrorCodeRecoveryUnavailable},
 			503: {ErrorCodeRecoveryUnavailable, ErrorCodeStepUpUnavailable, ErrorCodeRecoverySourceHostUnreachable},
 			507: {ErrorCodeRecoverySourceHostNoSpace},
+		},
+	},
+	{
+		ID: "previewRetirement", Method: "GET", Path: "/backups/{source}/{set}/{name}/retire",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "RetirementPreview", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeArtifactNotFound, ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "retireArtifact", Method: "POST", Path: "/backups/{source}/{set}/{name}/retire",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "RetireArtifactRequest", ResponseSchema: "RetireArtifactResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeAgentRetireAckRefused},
+			404: {ErrorCodeArtifactNotFound, ErrorCodeBackupSetNotFound},
+			409: {ErrorCodeArtifactNotFailed, ErrorCodeRetireOwnCopyAtFinalName, ErrorCodeRetireSourcePresent, ErrorCodeRetireSourceUnconfirmed, ErrorCodeRetireNoSuccessor, ErrorCodeRetireSuccessorInvalid},
+			500: {ErrorCodeInternal},
 		},
 	},
 	{
@@ -1699,7 +1740,9 @@ var Endpoints = []Endpoint{
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListArtifactsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
 			500: {ErrorCodeInternal},
 		},
 	},
@@ -2493,28 +2536,29 @@ type ApplyRetentionRequest struct {
 // here names an implementation: the fields describe a backup's
 // identity, freshness and trustworthiness, never how it is stored.
 type Artifact struct {
-	BackupSetID             string      `json:"backup_set_id"`
-	Checksum                string      `json:"checksum,omitempty"`
-	ChecksumAlgorithm       string      `json:"checksum_algorithm,omitempty"`
-	DiscoveredAt            string      `json:"discovered_at"`
-	ID                      string      `json:"id"`
-	LocalPath               string      `json:"local_path"`
-	Name                    string      `json:"name"`
-	Placements              []Placement `json:"placements"`
-	QuarantineIrrecoverable bool        `json:"quarantine_irrecoverable"`
-	QuarantineReason        string      `json:"quarantine_reason,omitempty"`
-	Quarantined             bool        `json:"quarantined"`
-	RemotePath              string      `json:"remote_path"`
-	RemoteSourceRemovedAt   string      `json:"remote_source_removed_at,omitempty"`
-	RetentionPolicy         string      `json:"retention_policy"`
-	RetentionTier           string      `json:"retention_tier,omitempty"`
-	SetName                 string      `json:"set_name"`
-	SizeBytes               int64       `json:"size_bytes"`
-	SourceName              string      `json:"source_name"`
-	State                   string      `json:"state"`
-	UpdatedAt               string      `json:"updated_at"`
-	Validation              string      `json:"validation"`
-	ValidationDetail        string      `json:"validation_detail,omitempty"`
+	BackupSetID             string            `json:"backup_set_id"`
+	Checksum                string            `json:"checksum,omitempty"`
+	ChecksumAlgorithm       string            `json:"checksum_algorithm,omitempty"`
+	DiscoveredAt            string            `json:"discovered_at"`
+	ID                      string            `json:"id"`
+	LocalPath               string            `json:"local_path"`
+	Name                    string            `json:"name"`
+	Placements              []Placement       `json:"placements"`
+	QuarantineIrrecoverable bool              `json:"quarantine_irrecoverable"`
+	QuarantineReason        string            `json:"quarantine_reason,omitempty"`
+	Quarantined             bool              `json:"quarantined"`
+	RemotePath              string            `json:"remote_path"`
+	RemoteSourceRemovedAt   string            `json:"remote_source_removed_at,omitempty"`
+	RetentionPolicy         string            `json:"retention_policy"`
+	RetentionTier           string            `json:"retention_tier,omitempty"`
+	Retirement              *RetirementRecord `json:"retirement,omitempty"`
+	SetName                 string            `json:"set_name"`
+	SizeBytes               int64             `json:"size_bytes"`
+	SourceName              string            `json:"source_name"`
+	State                   string            `json:"state"`
+	UpdatedAt               string            `json:"updated_at"`
+	Validation              string            `json:"validation"`
+	ValidationDetail        string            `json:"validation_detail,omitempty"`
 }
 
 // ArtifactCheckResponse is the verdict of re-checking one quarantined backup. Nothing is
@@ -2765,9 +2809,12 @@ type BackupSetEditHold struct {
 // the holder has been released or has lapsed, so a heartbeat that
 // lands after a release can never put the hold back. On /release it
 // gives back that holder alone and leaves any other holder of the
-// same set in force. A client that sends no body, or no token, keeps
-// the behaviour it had before tokens existed: the take route takes a
-// new hold, and /release gives back every hold on the set.
+// same set in force. A `token` that is present but empty is refused
+// with 400, never read as no token, so a client whose token variable
+// was lost cannot take a new hold or give back every holder's hold
+// by accident. A client that sends no body, or no token, keeps the
+// behaviour it had before tokens existed: the take route takes a new
+// hold, and /release gives back every hold on the set.
 type BackupSetEditHoldRequest struct {
 	Token string `json:"token,omitempty"`
 }
@@ -2818,6 +2865,7 @@ type BackupSetHealth struct {
 	ReadOnlyRetainedCount             int    `json:"read_only_retained_count"`
 	Reason                            string `json:"reason"`
 	ReinstatedRemoteRetainedCount     int    `json:"reinstated_remote_retained_count"`
+	RetiredCount                      int    `json:"retired_count"`
 	SetName                           string `json:"set_name"`
 	SourceName                        string `json:"source_name"`
 	StaleAfterSeconds                 int64  `json:"stale_after_seconds"`
@@ -3511,10 +3559,11 @@ type ListAgentTokensResponse struct {
 	Tokens []AgentToken `json:"tokens"`
 }
 
-// ListArtifactsResponse is GET /backups and GET /quarantine. An object with one array field,
-// never a bare top-level array.
+// ListArtifactsResponse is GET /backups and GET /quarantine. An object with one array field
+// and a cursor, never a bare top-level array.
 type ListArtifactsResponse struct {
-	Artifacts []Artifact `json:"artifacts"`
+	Artifacts  []Artifact `json:"artifacts"`
+	NextCursor *string    `json:"next_cursor"`
 }
 
 // ListBackendsResponse is GET /backends. Read-only by design, for Validator's reason one
@@ -4604,6 +4653,71 @@ type RetentionVerdict struct {
 	Reason         string                   `json:"reason"`
 	TierSelections []RetentionTierSelection `json:"tier_selections,omitempty"`
 	Tiers          []string                 `json:"tiers,omitempty"`
+}
+
+// RetireArtifactRequest is POST /backups/{source}/{set}/{name}/retire's optional body (issue
+// #1528). Empty is the conservative retirement: the engine checks
+// the source and picks the newest good backup as the successor, and
+// refuses anything it cannot prove.
+type RetireArtifactRequest struct {
+	AcceptSourcePresent bool   `json:"accept_source_present,omitempty"`
+	NoSuccessor         bool   `json:"no_successor,omitempty"`
+	Note                string `json:"note,omitempty"`
+	SupersededBy        string `json:"superseded_by,omitempty"`
+}
+
+// RetireArtifactResponse is POST /backups/{source}/{set}/{name}/retire's answer: the backup is
+// RETIRED and this is its record.
+type RetireArtifactResponse struct {
+	Artifact       string           `json:"artifact"`
+	PartialRemoved bool             `json:"partial_removed"`
+	Retirement     RetirementRecord `json:"retirement"`
+	State          string           `json:"state"`
+}
+
+// RetirementPreview is GET /backups/{source}/{set}/{name}/retire: everything the retire
+// dialog shows before anybody acts, computed by the same code that
+// acts (issue #1528). The browser computes none of it.
+type RetirementPreview struct {
+	Artifact            string                `json:"artifact"`
+	Command             string                `json:"command"`
+	Effects             []string              `json:"effects"`
+	FailureReason       string                `json:"failure_reason"`
+	ProposedSuccessor   *RetirementSuccessor  `json:"proposed_successor,omitempty"`
+	Refusal             *RetirementRefusal    `json:"refusal,omitempty"`
+	Retirement          *RetirementRecord     `json:"retirement,omitempty"`
+	SourceCheck         string                `json:"source_check"`
+	SourceCheckCategory string                `json:"source_check_category"`
+	SourceCheckSentence string                `json:"source_check_sentence"`
+	State               string                `json:"state"`
+	SuccessorCandidates []RetirementSuccessor `json:"successor_candidates"`
+}
+
+// RetirementRecord is one recorded retirement (issue #1528): who or what retired the
+// backup, when, what the source looked like at that moment and which
+// backup replaces it.
+type RetirementRecord struct {
+	Actor         string `json:"actor"`
+	ActorKind     string `json:"actor_kind"`
+	FailureReason string `json:"failure_reason"`
+	Note          string `json:"note"`
+	RetiredAt     string `json:"retired_at"`
+	SourceCheck   string `json:"source_check"`
+	SupersededBy  string `json:"superseded_by"`
+}
+
+// RetirementRefusal is why a retirement would be refused, in the engine's own words.
+type RetirementRefusal struct {
+	Code            string `json:"code"`
+	OverridableWith string `json:"overridable_with"`
+	Sentence        string `json:"sentence"`
+}
+
+// RetirementSuccessor is the newer good backup a retirement would name.
+type RetirementSuccessor struct {
+	DiscoveredAt string `json:"discovered_at"`
+	Name         string `json:"name"`
+	State        string `json:"state"`
 }
 
 // RetryFailedRequest is POST /backups/{source}/{set}/{name}/retry's optional body.
@@ -6042,6 +6156,12 @@ var SchemaTypes = map[string]any{
 	"RetentionTier":                      RetentionTier{},
 	"RetentionTierSelection":             RetentionTierSelection{},
 	"RetentionVerdict":                   RetentionVerdict{},
+	"RetireArtifactRequest":              RetireArtifactRequest{},
+	"RetireArtifactResponse":             RetireArtifactResponse{},
+	"RetirementPreview":                  RetirementPreview{},
+	"RetirementRecord":                   RetirementRecord{},
+	"RetirementRefusal":                  RetirementRefusal{},
+	"RetirementSuccessor":                RetirementSuccessor{},
 	"RetryFailedRequest":                 RetryFailedRequest{},
 	"RotatePasswordRequest":              RotatePasswordRequest{},
 	"RunningWork":                        RunningWork{},

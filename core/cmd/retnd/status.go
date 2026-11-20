@@ -37,6 +37,13 @@ func cmdStatus(args []string) int {
 		return 2
 	}
 
+	// #1558: before the configuration and the journal are opened, or a
+	// deployment still mounted at its pre-0.5.0 path is reported as a fresh
+	// install with no backup set.
+	if refusedAtPreRenamePath(*cfgPath) {
+		return exitFailure
+	}
+
 	ctx := context.Background()
 	svc, cfg, cleanup, err := openService(ctx, *cfgPath, false)
 	if err != nil {
@@ -164,6 +171,13 @@ func cmdStatus(args []string) int {
 			fmt.Println(line)
 		}
 		fmt.Printf("  quarantined: %d (of which unrecoverable: %d)\n", bs.QuarantinedCount, bs.QuarantinedLostCount)
+		// Issue #1528. Only when there are any, like the counts below: a
+		// retired backup is a failure nobody needs to act on, and saying how
+		// many there are is what keeps retiring one from hiding it.
+		if bs.RetiredCount > 0 {
+			fmt.Printf("  retired: %d (failed backups whose source is gone, kept on record; `%s artifacts --state RETIRED` lists them)\n",
+				bs.RetiredCount, cliecho.Binary)
+		}
 		// Issue #227. Printed only when there are any, because for most
 		// deployments this is permanently zero and a line that always
 		// reads zero is a line an operator stops seeing. When it is not

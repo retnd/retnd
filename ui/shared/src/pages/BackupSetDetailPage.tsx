@@ -404,7 +404,11 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       live = false;
       clearInterval(timer);
       holdToken.current = null;
-      void api.releaseEditHold(source, setName, token ?? undefined).catch(() => {});
+      // No token means no hold of this page's own yet (the effect re-armed
+      // and its heartbeat has not retaken). A release with no token gives
+      // back every hold on the set, another tab's included, so it is
+      // skipped rather than sent.
+      if (token) void api.releaseEditHold(source, setName, token).catch(() => {});
     };
   }, [editing, api, source, setName, setId]);
 

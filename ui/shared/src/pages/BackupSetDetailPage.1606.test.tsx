@@ -56,6 +56,7 @@ interface Editing {
   set: string;
   beat: () => void;
   unmount: () => void;
+  rearm: (next: RetndApi) => void;
 }
 
 /** Opens edit mode on the mock's first set with `take` answering FIRST,
@@ -64,15 +65,16 @@ async function editing(api: RetndApi): Promise<Editing> {
   const target = (await createMockApi().listSets())[0];
   vi.spyOn(api, "workflowRecovery").mockResolvedValue([]);
   const every = vi.spyOn(globalThis, "setInterval");
-  const { unmount } = render(
+  const tree = (a: RetndApi) => (
     <MemoryRouter initialEntries={[backupSetPath(target.source, target.set)]}>
-      <ApiProvider api={api}>
+      <ApiProvider api={a}>
         <Routes>
           <Route path="/sets/:source/:set" element={<BackupSetDetailPage readOnly={false} />} />
         </Routes>
       </ApiProvider>
     </MemoryRouter>
   );
+  const { unmount, rerender } = render(tree(api));
   await screen.findByText(target.name);
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
@@ -80,7 +82,7 @@ async function editing(api: RetndApi): Promise<Editing> {
   await screen.findByRole("button", { name: "SAVE ALL & EXIT EDIT" });
   const call = every.mock.calls.find((c) => c[1] === 30_000);
   expect(call, "the page armed its heartbeat").toBeDefined();
-  return { source: target.source, set: target.set, beat: call![0] as () => void, unmount };
+  return { source: target.source, set: target.set, beat: call![0] as () => void, unmount, rearm: (next) => rerender(tree(next)) };
 }
 
 describe("the edit hold's holder token (#1606)", () => {
@@ -204,5 +206,25 @@ describe("the edit hold's holder token (#1606)", () => {
 
     expect(take).toHaveBeenCalledTimes(1);
     expect(probe.rejections).toEqual([]);
+  });
+
+  // A release with no token gives back EVERY hold on the set, so a page
+  // that has no token of its own must not send one. The effect re-arms
+  // with the token cleared (the cleanup nulls it, the next heartbeat
+  // retakes); leaving before that heartbeat must not drop another tab's
+  // hold.
+  it("does not release anything when it leaves before a re-armed heartbeat took a hold", async () => {
+    const api = createMockApi();
+    vi.spyOn(api, "takeEditHold").mockResolvedValue(FIRST);
+    const { unmount, rearm } = await editing(api);
+    // A different api object re-runs the effect with no token.
+    const api2 = createMockApi();
+    vi.spyOn(api2, "workflowRecovery").mockResolvedValue([]);
+    const release = vi.spyOn(api2, "releaseEditHold");
+    await act(async () => {
+      rearm(api2);
+    });
+    unmount();
+    expect(release).not.toHaveBeenCalled();
   });
 });

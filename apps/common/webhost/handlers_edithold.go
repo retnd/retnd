@@ -1,6 +1,7 @@
 package webhost
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -94,10 +95,32 @@ const maxEditHoldBodyBytes = 4 << 10
 // and had its renewal turned into a fresh take would be this issue again.
 func decodeEditHoldRequest(w http.ResponseWriter, r *http.Request) (editHoldBody, bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxEditHoldBodyBytes)
-	var req editHoldBody
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
 		writeDecodeError(w, err, maxEditHoldBodyBytes)
 		return editHoldBody{}, false
+	}
+	var req editHoldBody
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return req, true
+	}
+	if err := json.Unmarshal(raw, &req); err != nil {
+		writeDecodeError(w, err, maxEditHoldBodyBytes)
+		return editHoldBody{}, false
+	}
+	// "token": "" is not "no token". A client that meant to renew and had
+	// an unset variable would have its renewal turned into a fresh take,
+	// and one that meant to release its own hold would give back every
+	// holder's. The struct cannot tell a present-but-empty key from an
+	// absent one (the contract pins it to a plain string), so the keys are
+	// read once more. Refused like a body that is not JSON.
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &keys); err == nil {
+		if _, present := keys["token"]; present && req.Token == "" {
+			writeError(w, http.StatusBadRequest, "INVALID_REQUEST",
+				"token must name a holder: leave it out to take a new hold (or, on release, to give back every hold)")
+			return editHoldBody{}, false
+		}
 	}
 	return req, true
 }
