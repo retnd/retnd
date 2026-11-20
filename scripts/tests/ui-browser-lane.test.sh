@@ -75,6 +75,7 @@ has "L1 it runs the pinned Playwright image" "$run_line" "[mcr.microsoft.com/pla
 has "L1 it installs the @playwright/test that matches the image" "$run_line" "[LANE_PW=1.62.1]"
 has "L1 it carries a per-test timeout" "$run_line" "[LANE_TEST_TIMEOUT=60]"
 has "L1 it carries a stall limit of ten minutes" "$run_line" "[LANE_STALL=600]"
+has "L1 and runs Python unbuffered, so a self-test's progress reaches the stall check" "$run_line" "[PYTHONUNBUFFERED=1]"
 has "L1 it carries a hard cap" "$run_line" "[LANE_CAP=5400]"
 has "L1 it hands the container the mode and the config" "$run_line" "[specs] [$config]"
 name="$(sed -n 's/.*\[--name\] \[\([^]]*\)\].*/\1/p' <<<"$run_line")"
