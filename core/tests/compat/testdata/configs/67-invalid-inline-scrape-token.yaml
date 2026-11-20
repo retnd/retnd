@@ -1,0 +1,26 @@
+# EPIC O (#898), invalid: a plaintext scrape token in config.yaml. The scrape
+# credential is minted by the product and kept as a digest, so a config that
+# carries one is refused at Load, naming the command that mints one properly.
+# The value below is a placeholder, not a token.
+poll_interval: 15m
+
+state:
+  database: /var/lib/retnd/state.db
+
+observability:
+  metrics:
+    enabled: true
+    token: NOT-A-TOKEN-THIS-IS-A-FIXTURE-PLACEHOLDER
+
+sources:
+  - id: production
+    backup_sets:
+      - id: postgres-primary
+        remote:
+          type: local
+        remote_path: /srv/exports/postgres
+        local_path: /backups/production/postgres
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h

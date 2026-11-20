@@ -10439,6 +10439,252 @@
         "type": "object",
         "description": "One JSON-RPC 2.0 message of the Model Context Protocol. The engine's streamable HTTP transport speaks the protocol revision `retnd agent tools` prints; this contract does not restate it.",
         "additionalProperties": true
+      },
+      "ScrapeTokenState": {
+        "type": "object",
+        "description": "What a read may say about the scrape credential: whether one exists, its eight-character display prefix and when it was minted. Never any more of it; the deployment keeps a SHA-256 digest and the plaintext exists once, in the mint response.",
+        "additionalProperties": false,
+        "properties": {
+          "exists": {
+            "type": "boolean"
+          },
+          "prefix": {
+            "type": "string",
+            "description": "The first eight characters, display-only. Empty when none has been minted."
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Null when none has been minted."
+          }
+        },
+        "required": [
+          "exists",
+          "prefix",
+          "created_at"
+        ]
+      },
+      "ObservabilityMetricsSettings": {
+        "type": "object",
+        "description": "observability.metrics, resolved.",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Off by default. Off, GET /metrics answers 404 with nothing that says the feature exists."
+          },
+          "min_rebuild_interval_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How long a built health report is reused, so N scrapers cost one journal read per interval. Default 15, floor 1."
+          },
+          "scrape_token": {
+            "$ref": "#/components/schemas/ScrapeTokenState"
+          }
+        },
+        "required": [
+          "enabled",
+          "min_rebuild_interval_seconds",
+          "scrape_token"
+        ]
+      },
+      "ObservabilityLogsSettings": {
+        "type": "object",
+        "description": "observability.logs, resolved.",
+        "additionalProperties": false,
+        "properties": {
+          "level": {
+            "type": "string",
+            "enum": [
+              "debug",
+              "info",
+              "warn",
+              "error"
+            ],
+            "description": "The configured floor for the engine's log stream."
+          },
+          "level_in_force": {
+            "type": "string",
+            "description": "The floor the process is actually using, which the environment (RETND_DEBUG, then LOG_LEVEL) can outrank."
+          },
+          "level_source": {
+            "type": "string",
+            "enum": [
+              "config",
+              "environment"
+            ],
+            "description": "Which of the two decided level_in_force."
+          }
+        },
+        "required": [
+          "level",
+          "level_in_force",
+          "level_source"
+        ]
+      },
+      "ObservabilityWebhookSettings": {
+        "type": "object",
+        "description": "observability.alerts.webhook, resolved. The URL is a credential, so a read says only whether one is set.",
+        "additionalProperties": false,
+        "properties": {
+          "dialect": {
+            "type": "string",
+            "enum": [
+              "generic",
+              "alertmanager"
+            ]
+          },
+          "url_set": {
+            "type": "boolean"
+          },
+          "allow_insecure_http": {
+            "type": "boolean"
+          },
+          "refresh_interval_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "description": "alertmanager dialect only: how often a still-observed condition is re-sent. Must stay below resolve_ttl_seconds."
+          },
+          "resolve_ttl_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "description": "alertmanager dialect only: how long a sent alert lives at the receiver before it expires."
+          }
+        },
+        "required": [
+          "dialect",
+          "url_set",
+          "allow_insecure_http",
+          "refresh_interval_seconds",
+          "resolve_ttl_seconds"
+        ]
+      },
+      "ObservabilityAlertsSettings": {
+        "type": "object",
+        "description": "observability.alerts, resolved.",
+        "additionalProperties": false,
+        "properties": {
+          "delivery": {
+            "type": "string",
+            "enum": [
+              "platform",
+              "webhook"
+            ],
+            "description": "Which one alert sink is built. Exactly one is, either way."
+          },
+          "webhook": {
+            "$ref": "#/components/schemas/ObservabilityWebhookSettings"
+          }
+        },
+        "required": [
+          "delivery",
+          "webhook"
+        ]
+      },
+      "ObservabilitySettingsResponse": {
+        "type": "object",
+        "description": "The deployment-wide observability block, RESOLVED: the scrape endpoint, the log floor and the alert channel. A config that never mentions the block reports the defaults, which are everything off. Every setting is global; none is a property of a backup set.",
+        "additionalProperties": false,
+        "properties": {
+          "metrics": {
+            "$ref": "#/components/schemas/ObservabilityMetricsSettings"
+          },
+          "logs": {
+            "$ref": "#/components/schemas/ObservabilityLogsSettings"
+          },
+          "alerts": {
+            "$ref": "#/components/schemas/ObservabilityAlertsSettings"
+          }
+        },
+        "required": [
+          "metrics",
+          "logs",
+          "alerts"
+        ]
+      },
+      "UpdateObservabilitySettingsRequest": {
+        "type": "object",
+        "description": "PATCH the deployment-wide observability block. Every field is nullable because this is a PATCH: omitted leaves the setting alone. A body that names nothing is refused. The scrape credential is not here: it is minted by POST /settings/observability/scrape-token.",
+        "additionalProperties": false,
+        "properties": {
+          "metrics_enabled": {
+            "type": "boolean",
+            "description": "Serve GET /metrics.",
+            "x-go-pointer": true
+          },
+          "metrics_min_rebuild_interval_seconds": {
+            "type": "integer",
+            "description": "How long a built health report is reused. At least 1.",
+            "x-go-pointer": true,
+            "format": "int64"
+          },
+          "logs_level": {
+            "type": "string",
+            "description": "debug, info, warn or error: the configured floor.",
+            "x-go-pointer": true,
+            "enum": [
+              "debug",
+              "info",
+              "warn",
+              "error"
+            ]
+          },
+          "alerts_delivery": {
+            "type": "string",
+            "description": "platform or webhook.",
+            "x-go-pointer": true,
+            "enum": [
+              "platform",
+              "webhook"
+            ]
+          },
+          "webhook_dialect": {
+            "type": "string",
+            "description": "generic or alertmanager.",
+            "x-go-pointer": true,
+            "enum": [
+              "generic",
+              "alertmanager"
+            ]
+          },
+          "webhook_allow_insecure_http": {
+            "type": "boolean",
+            "description": "Allow a plain-http webhook target.",
+            "x-go-pointer": true
+          },
+          "webhook_refresh_interval_seconds": {
+            "type": "integer",
+            "description": "alertmanager dialect: how often a still-observed condition is re-sent. Must stay below the resolve ttl.",
+            "x-go-pointer": true,
+            "format": "int64"
+          },
+          "webhook_resolve_ttl_seconds": {
+            "type": "integer",
+            "description": "alertmanager dialect: how long a sent alert lives at the receiver.",
+            "x-go-pointer": true,
+            "format": "int64"
+          }
+        }
+      },
+      "MintedScrapeToken": {
+        "type": "object",
+        "description": "The one answer that carries the scrape credential itself. token is shown exactly once, here: the deployment stores its SHA-256 and the eight-character prefix, so a lost credential is minted again, never recovered. Minting again replaces the previous credential at once.",
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "scrape_token": {
+            "$ref": "#/components/schemas/ScrapeTokenState"
+          }
+        },
+        "required": [
+          "token",
+          "scrape_token"
+        ]
       }
     },
     "responses": {}
@@ -20942,6 +21188,277 @@
         "x-optimistic-concurrency": null,
         "x-csrf-required": true,
         "x-authenticated": true
+      }
+    },
+    "/settings/observability": {
+      "get": {
+        "operationId": "getObservabilitySettings",
+        "summary": "The deployment-wide observability block as this process is actually running it: the scrape endpoint and whether a credential exists, the log floor in force and where it came from, and the alert channel. Never a secret. Read-only.",
+        "tags": [
+          "observability"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservabilitySettingsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      },
+      "patch": {
+        "operationId": "updateObservabilitySettings",
+        "summary": "Patch the deployment-wide observability block. The patch is validated, written and hot-reloaded in one step. A bearer token is refused AGENT_ROUTE_DENIED.",
+        "tags": [
+          "observability"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateObservabilitySettingsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success. The whole resolved block as it now stands, rather than an echo of the patch.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservabilitySettingsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. The configuration validator refused the resulting block, or the patch named nothing. Nothing is written when it does.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/settings/observability/scrape-token": {
+      "post": {
+        "operationId": "mintScrapeToken",
+        "summary": "Mint the Prometheus scrape credential. The plaintext is in this response and nowhere else, ever; the deployment keeps its SHA-256 and an eight-character prefix in a file of its own. Minting again replaces the previous credential at once. The response is Cache-Control: no-store, and over plain HTTP from another machine it needs X-Retnd-Insecure-Transport-Ack: acknowledged, refused 403 INSECURE_TRANSPORT_ACK_REQUIRED otherwise. A bearer token is refused AGENT_ROUTE_DENIED: no agent mints a scrape credential.",
+        "tags": [
+          "observability"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MintedScrapeToken"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, INSECURE_TRANSPORT_ACK_REQUIRED, AGENT_ROUTE_DENIED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH",
+              "INSECURE_TRANSPORT_ACK_REQUIRED",
+              "AGENT_ROUTE_DENIED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet, or cannot keep a scrape credential.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-insecure-transport-ack": true,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true,
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/InsecureTransportAck"
+          }
+        ]
       }
     },
     "/backup-sets/{source}/{set}/assurance": {
