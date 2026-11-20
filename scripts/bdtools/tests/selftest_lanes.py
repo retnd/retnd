@@ -17,6 +17,9 @@ decides which controls a host can run, and these cases hold it:
      --check-anchors run and a --record run skip nothing.
   D  the skip ledger: a skipped control is one line in the file the gate
      reads into its skip ledger, so the shard ends INCOMPLETE, not ok.
+  F  the node controls (vitest, tsc) never download and never dangle: `npm exec
+     --no`, never a bare npx; the docker branch mounts the node_modules link's
+     target and not a fixed machine path; and the node lane needs node_modules.
   E  the controls: pin_problems reports a control added to and dropped from the
      pinned set, so B is able to fail.
 """
@@ -118,6 +121,33 @@ def main() -> int:
     probs = lanes.pin_problems({"a": [LOCK], "b": []}, {"b": frozenset({"docker"})})
     s.check(len(probs) == 2, "E an unpinned control that needs a lane, and a pinned one that needs none, are reported",
             "E pin_problems missed a disagreement", "\n".join(probs))
+    # F
+    import bdtools.encryption.selftest as enc
+    node_cmds = [c for c in enc.CONTROLS if c.cmd and lanes.LANE_NODE in lanes.visible_needs(c.cmd)]
+    s.check(len(node_cmds) >= 7, f"F the encryption self-test has its node controls ({len(node_cmds)})",
+            "F no node control was found, so F proves nothing")
+    for c in node_cmds:
+        line = " ".join(c.cmd)
+        problems = []
+        if " npx " in line:
+            problems.append("a bare npx can download vitest or tsc")
+        if "npm exec --no" not in line:
+            problems.append("no npm exec --no")
+        if "readlink node_modules" not in line:
+            problems.append("the docker branch does not resolve the node_modules link")
+        if "/Users/" in line:
+            problems.append("a fixed machine path is mounted")
+        s.check(not problems, f"F {c.label}: offline and mounts what it links", f"F {c.label}: {'; '.join(problems)}")
+    root = Path(tempfile.mkdtemp())
+    s.check(not lanes.node_lane(root, has_node=True, has_docker=True),
+            "G the node lane is missing when ui/shared/node_modules is, node and docker or not",
+            "G the node lane was granted with no node_modules")
+    (root / "ui/shared/node_modules").mkdir(parents=True)
+    s.check(lanes.node_lane(root, has_node=True, has_docker=False) and lanes.node_lane(root, has_node=False, has_docker=True),
+            "G with node_modules, node alone or docker alone is enough",
+            "G node_modules plus node or docker was refused")
+    s.check(not lanes.node_lane(root, has_node=False, has_docker=False),
+            "G with node_modules and neither node nor docker there is no node lane", "G a lane with no way to run it")
     return s.finish()
 
 
