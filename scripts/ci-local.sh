@@ -755,6 +755,17 @@ bash scripts/tests/epic-t-closure.test.sh
 gate_step "the closure checks and their self-tests never pipe into grep -q under pipefail (#1482)"
 bash scripts/tests/closure-no-pipe-grep-q.test.sh
 
+# A self-test or guard script that is in the tree and in no step here runs
+# nowhere, and its PASS rows rest on one run (#1530, #1531, #1533). This names
+# the ones the gate does not run, and takes an exemption only with an issue.
+gate_step "every self-test and guard script is a step of this gate, or an exemption that names an issue (#1530, #1531, #1533)"
+bash scripts/tests/every-guard-is-a-gate-step.test.sh
+
+# Which self-test controls a host can run, and that the rest reach the skip
+# ledger (#1530, #1531): the lane plan and the pinned lanes.txt of each.
+gate_step "the self-tests run every control the host has a lane for and ledger the rest (#1530, #1531)"
+bash scripts/tests/selftest-lanes.test.sh
+
 # EPIC U's closing check (#1353), the same shape for the MCP server: the
 # canonical deployment is an empty diff against 9cd53e1f (an agent is a client of
 # /api/v1 and the engine runs exactly as before), the epic adds exactly one
@@ -1354,6 +1365,21 @@ if [ "$FAST" != "1" ]; then
 
   gate_step "architecture rules can actually fail (mutation self-test)"
   bash scripts/architecture/selftest.sh
+
+  # The three self-tests of the gate's own machinery that sat in the tree and
+  # in no step (#1533). Each runs against stand-ins for docker, ssh and rsync
+  # and a throwaway repository, so there is no daemon and no network: the
+  # shard runner (about a second), the --shard i/n split of the
+  # recovery and assurance self-tests (a few seconds), and the release e2e hooks
+  # and script (under half a minute, it makes a throwaway signing key).
+  gate_step "the shard runner refuses what it should and speaks the recorder's verdicts (#1460, #1533)"
+  bash scripts/tests/run-gate-shard.test.sh
+
+  gate_step "the --shard i/n split of the self-tests runs every control in exactly one slice (#1461, #1533)"
+  bash scripts/tests/selftest-shard.test.sh
+
+  gate_step "the release e2e hooks, the stamp guard and the release script behave as documented (#1375, #1533)"
+  bash scripts/tests/release-e2e.test.sh
 fi
 }
 
@@ -1446,6 +1472,12 @@ if [ "$FAST" != "1" ]; then
   # control is the only thing that can see it. No Docker, a few minutes.
   gate_step "the retention-apply evidence can actually fail (mutation self-test, #602)"
   bash scripts/retention/selftest.sh
+
+  # Discovery's readability probe (#1541), shown to fire the same way: a plant
+  # in discovery.go, the narrowed suite red naming the promise. It had a
+  # self-test and no step until the guard-is-a-gate-step check named it.
+  gate_step "the discovery readability probe can actually fail (mutation self-test, #1541)"
+  bash scripts/discovery/selftest.sh
 fi
 }
 
@@ -1475,6 +1507,80 @@ if [ "$FAST" != "1" ]; then
   # no-download promise made again. No Docker, a few minutes.
   gate_step "the assurance guards can actually fail (mutation self-test, #988)"
   bash scripts/assurance/selftest.sh
+fi
+}
+
+# gate_memory_gib: the memory this run may use, in whole GiB: the cgroup limit
+# when there is one (a container's fence), else the machine's. A test can set
+# CI_LOCAL_MEMORY_LIMIT_BYTES to stand in for the measurement.
+gate_memory_gib() {
+  bytes="${CI_LOCAL_MEMORY_LIMIT_BYTES:-}"
+  if [ -z "$bytes" ] && [ -r /sys/fs/cgroup/memory.max ]; then
+    bytes="$(cat /sys/fs/cgroup/memory.max)"; [ "$bytes" = max ] && bytes=""
+  fi
+  if [ -z "$bytes" ] && [ -r /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then
+    bytes="$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)"
+  fi
+  meminfo=""
+  if [ -r /proc/meminfo ]; then meminfo="$(awk '/^MemTotal:/ { print $2 * 1024 }' /proc/meminfo)"; fi
+  [ -n "$meminfo" ] || meminfo="$(sysctl -n hw.memsize 2>/dev/null || echo 0)"
+  if [ -z "$bytes" ] || [ "$bytes" -gt "$meminfo" ] 2>/dev/null; then bytes="$meminfo"; fi
+  echo $(( ${bytes:-0} / 1073741824 ))
+}
+
+# gate_selftest_with_ledger <script>: run a mutation self-test and put every
+# control it could not run on this host into the skip ledger, one line each.
+gate_selftest_with_ledger() {
+  skips="$(mktemp "${TMPDIR:-/tmp}/selftest-skips.XXXXXX")"
+  RETND_SELFTEST_SKIP_LEDGER="$skips" bash "$1" || { rc=$?; rm -f "$skips"; return "$rc"; }
+  while IFS= read -r line; do
+    [ -n "$line" ] && gate_note_skip "$line"
+  done <"$skips"
+  rm -f "$skips"
+}
+
+gate_seg_selftest_encryption() {
+if [ "$FAST" != "1" ]; then
+  # EPIC N and EPIC T (#1531): the retained-copy encryption and suite guards
+  # (the key never on a surface, no downgrade of a suite, a copy that opens
+  # with the documented command, the copy and verify path, the UI chips) are
+  # planted as real violations in real product files, and each has to turn
+  # the narrowed suite red naming the test the matrix row cites. The matrix
+  # rows' PASS dates are from the 0.8.0 run; this is what makes them a
+  # standing claim. Only the anchors half ran before, from check_anchors.py.
+  # No Docker, and the longest of the self-tests, so it is a shard of its own.
+  #
+  # Some controls need more than Go: the Playwright lock, a docker daemon, node
+  # with ui/shared's dependencies, or the retnd-tests checkout. Which ones is
+  # pinned in scripts/bdtools/<x>/lanes.txt, and the self-test probes this host
+  # for each lane: a control whose lane is missing is not run, and lands in this
+  # gate's skip ledger through RETND_SELFTEST_SKIP_LEDGER, so the shard ends
+  # INCOMPLETE naming it instead of ok (#1537 owns the lane that runs them all).
+  #
+  # Two copycrypt controls allocate several GiB and are OOM-killed under about
+  # 8 GiB, so the shard needs 9 GiB: scripts/release/run-gate-shard.sh asks for
+  # a 9g fence and refuses a smaller one, and this step refuses to start the
+  # self-test in less than that, out loud, which also ends INCOMPLETE.
+  gate_step "the encryption and suite guards can actually fail (mutation self-test, #1531)"
+  have_gib="$(gate_memory_gib)"
+  if [ "$have_gib" -lt 9 ]; then
+    gate_note_skip "the encryption self-test (#1531): this run has ${have_gib} GiB and its two copycrypt controls need 9 GiB, so none of it ran. Run the selftest-encryption shard with a 9g fence (scripts/release/run-gate-shard.sh asks for one)"
+  else
+    gate_selftest_with_ledger scripts/encryption/selftest.sh
+  fi
+fi
+}
+
+gate_seg_selftest_agents() {
+if [ "$FAST" != "1" ]; then
+  # EPIC U (#1530): the catalogue, the denied routes and the projection, the
+  # transports, the audit trail, the confirmations and the Agents card, each
+  # planted as a real violation in a real product file, and the narrowed suite
+  # has to go red naming the test. core/tests/agentgate refuses a PASS row
+  # whose control label is not in the file, and this is what runs them. Controls
+  # this host has no lane for go to the skip ledger, as for the encryption one.
+  gate_step "the agent (MCP) guards can actually fail (mutation self-test, #1530)"
+  gate_selftest_with_ledger scripts/agents/selftest.sh
 fi
 }
 
@@ -1548,6 +1654,8 @@ gate_run_segment "selftest-assurance" gate_seg_selftest_retention
 gate_run_segment "selftest-recovery" gate_seg_selftest_recovery
 gate_run_segment "selftest-assurance" gate_seg_selftest_assurance
 gate_run_segment "selftest-assurance" gate_seg_selftest_observability
+gate_run_segment "selftest-encryption" gate_seg_selftest_encryption
+gate_run_segment "selftest-agents" gate_seg_selftest_agents
 gate_run_segment "structure" gate_seg_structure
 gate_run_segment "static" gate_seg_static_e
 gate_run_shard_only gh-rows gate_seg_gh_rows
