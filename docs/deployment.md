@@ -827,7 +827,12 @@ channel is built, and switching it keeps what was already announced, so a standi
 alert is not announced again... with one exception. Switching to the `alertmanager`
 format posts each standing alert to Alertmanager within one refresh interval, because
 that receiver has never seen it and expires anything that is not re-sent, and
-Alertmanager then notifies as it would for any new alert.
+Alertmanager then notifies as it would for any new alert. The flip side of "not
+announced again" is that what was announced is remembered per channel setting, not
+per receiver: a receiver you move to by any other change (a new URL in the
+reference, or `generic` after `alertmanager`) hears about an alert that is already
+standing only when it clears and comes back, and the copies an Alertmanager got
+before you moved away expire at their own `endsAt`.
 
 ```yaml
 observability:

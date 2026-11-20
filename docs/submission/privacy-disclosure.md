@@ -25,12 +25,15 @@ file fails the build.
 
 ## What does it connect to?
 
-Three classes of destination, and the administrator chooses every member of all three:
+Four classes of destination, and the administrator chooses every member of all four:
 the SFTP sources configured as backup sources; any storage destination they configured to
-hold retained copies (an S3 bucket, or any endpoint that speaks the S3 API); and, if they
-configured account recovery, the SMTP server they nominated for the account's own mail.
-Nothing else. The application makes no outbound connection that an administrator did not
-configure, and every host it will ever reach is visible in its own configuration.
+hold retained copies (an S3 bucket, or any endpoint that speaks the S3 API); if they
+configured account recovery, the SMTP server they nominated for the account's own mail;
+and, if they selected webhook alert delivery, the one URL they named for alerts, which
+receives a condition kind, what it is about (a backup set, a repository, a host key), a
+title, a short message and a time, and never a credential. Nothing else. The application
+makes no outbound connection that an administrator did not configure, and every host it
+will ever reach is visible in its own configuration.
 
 The published URLs in this package's metadata point at the project's own source repository,
 its issue tracker and its container registry. Those are for a human reading the listing;

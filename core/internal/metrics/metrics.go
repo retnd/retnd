@@ -7,7 +7,7 @@
 // internal/health already computes every fact FR-24 asks for (process
 // version info, and, per backup set, its health state, freshness, pending
 // deletes, failures, quarantine counts, free space and every timestamp it
-// tracks), and nothing renders any of it yet. This package is exactly one
+// tracks), and before this package nothing rendered any of it. This package is exactly one
 // rendering, and only the mechanical, policy-free half of "metrics and
 // alerts": turning already-computed values into a text format a scraper
 // can read. It makes no decision about what counts as alert-worthy (that

@@ -422,3 +422,61 @@ func TestTheSiteReferenceRouteExtractorsCanActuallyFail(t *testing.T) {
 		t.Fatal("hasHTMLAnchor found an id that is not there")
 	}
 }
+
+// EPIC O (#903): `settings observability` is a sub-noun of `settings`, so the
+// top-level table check above never sees it, and neither did anything else:
+// deleting it from the row turned nothing red. The verbs are read off the
+// sub-noun's own dispatch (`case rest[0] == "..."` in settingsobservability.go)
+// and the bare read, and each has to appear in the `settings` row as a
+// <code> span spelled in full.
+var (
+	observabilitySubverb = regexp.MustCompile(`case rest\[0\] == "([a-z-]+)":`)
+	settingsRow          = regexp.MustCompile(`(?s)<tr><td><code>settings</code></td>(.*?)</tr>`)
+)
+
+func observabilityForms(src string) []string {
+	forms := []string{"settings observability"}
+	for _, m := range observabilitySubverb.FindAllStringSubmatch(src, -1) {
+		forms = append(forms, "settings observability "+m[1])
+	}
+	return forms
+}
+
+func unnamedForms(row string, forms []string) []string {
+	var missing []string
+	for _, f := range forms {
+		if !strings.Contains(row, "<code>"+f+"</code>") {
+			missing = append(missing, f)
+		}
+	}
+	return missing
+}
+
+func TestTheSiteReferenceSettingsRowNamesEveryObservabilityVerb_903(t *testing.T) {
+	src, err := os.ReadFile(Path("core/cmd/retnd/settingsobservability.go"))
+	if err != nil {
+		t.Fatalf("read settingsobservability.go: %v", err)
+	}
+	forms := observabilityForms(string(src))
+	if len(forms) < 3 {
+		t.Fatalf("read %v out of settingsobservability.go's dispatch; want the read, patch and rotate-scrape-token at least", forms)
+	}
+	row := settingsRow.FindStringSubmatch(htmlRegion(t, readReference(t), "CLI-COMMANDS"))
+	if row == nil {
+		t.Fatal("docs/site/reference.html's command table has no `settings` row to hold to the observability verbs")
+	}
+	if missing := unnamedForms(row[1], forms); len(missing) > 0 {
+		t.Errorf("docs/site/reference.html's `settings` row does not name %v, which the binary dispatches", missing)
+	}
+}
+
+func TestTheObservabilityVerbCheckCanActuallyFail_903(t *testing.T) {
+	forms := observabilityForms("\tcase len(rest) == 0:\n\tcase rest[0] == \"patch\":\n\tcase rest[0] == \"rotate-scrape-token\":\n")
+	if len(forms) != 3 || forms[2] != "settings observability rotate-scrape-token" {
+		t.Fatalf("the dispatch reader read %v", forms)
+	}
+	row := `<td><code>settings observability</code> reads and <code>settings observability patch</code> writes; rotating is settings observability rotate-scrape-token in prose.</td>`
+	if got := unnamedForms(row, forms); len(got) != 1 || got[0] != "settings observability rotate-scrape-token" {
+		t.Fatalf("want only the verb written outside a <code> span reported, got %v", got)
+	}
+}

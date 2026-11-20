@@ -54,6 +54,9 @@ const matrixPath = "docs/conformance/epic-o-matrix.md"
 var selfTests = []string{
 	"scripts/bdtools/observability/selftest.py",
 	"scripts/tests/epic-o-closure.test.sh",
+	// The contract drift and client path guards are not EPIC O's, and O-20
+	// re-runs them: their own self-test is where their plants live.
+	"scripts/bdtools/api/selftest.py",
 	"core/tests/observabilitygate/matrix_test.go",
 }
 
@@ -319,7 +322,9 @@ func TestTheEpicOMatrixCheckerCanLie(t *testing.T) {
 		return rows
 	}
 	res := resolver{
-		exists:   func(ref string) bool { return ref == "pkg:TestReal" || ref == "pkg/a_test.go" || ref == "pkg/b_test.go" },
+		exists: func(ref string) bool {
+			return ref == "pkg:TestReal" || ref == "pkg/a_test.go" || ref == "pkg/b_test.go"
+		},
 		contains: func(path, needle string) bool { return path == selfTests[0] && needle == "a real planted mutation" },
 	}
 	for _, closing := range []bool{false, true} {

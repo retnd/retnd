@@ -182,6 +182,9 @@ func TestTheDenyListHoldsTheMaterialBearingRoutes(t *testing.T) {
 		{"GET", "/system/first-run"}, {"POST", "/system/first-run/skip"},
 		{"POST", "/recoveries"}, {"GET", "/recoveries/g1"}, {"POST", "/backups/src/set/name/recovery"},
 		{"GET", "/agent/tokens"}, {"POST", "/agent/tokens/agt_1/revoke"},
+		// EPIC O's scrape credential (#899, #903): no token mints one, as no
+		// token mints a token.
+		{"POST", "/settings/observability/scrape-token"},
 		{"GET", "/agent/audit"}, {"GET", "/agent/confirmations"}, {"POST", "/agent/confirmations/c1/approve"}, {"POST", "/agent/confirmations/c1/deny"},
 		{"GET", "/encryption/keys"}, {"POST", "/encryption/keys/rotate"}, {"POST", "/encryption/keys/k1/export"},
 		{"POST", "/encryption/keys/k1/confirm"}, {"POST", "/encryption/keys/k1/retire"},

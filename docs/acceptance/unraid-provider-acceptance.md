@@ -485,8 +485,8 @@ and nothing in either template changes for it: no port, no variable, no mapping.
 
 - [ ] With metrics enabled and a token minted, a container on the `retnd` network gets
       `200` from `retnd:8080/metrics` with the token and `401` without it
-- [ ] The `retnd-ui` published port serves the Web UI's page for `/metrics`, not the
-      exposition
+- [ ] The `retnd-ui` published port answers `404` for `/metrics` (the Web UI answers that
+      path itself), not the exposition
 
 ## Evidence (§68)
 
