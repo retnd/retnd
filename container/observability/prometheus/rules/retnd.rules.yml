@@ -39,6 +39,18 @@ groups:
             The scrape answers but the report behind it is more than 5 minutes
             old, so the readings below it are stale.
 
+      - alert: RetndScrapeRefused
+        expr: increase(retnd_scrape_rejected_total{reason="unauthenticated"}[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Something is presenting a wrong scrape token to retnd
+          description: >-
+            The engine refused {{ $value }} scrapes without a valid token in the last
+            15 minutes. Prometheus's own scrape is fine (this series is read through
+            it), so it is something else: a second scraper still holding a token from
+            before a rotation, or something probing the endpoint.
+
   - name: retnd-backup-health
     rules:
       - alert: RetndBackupSetFailing

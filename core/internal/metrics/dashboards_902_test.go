@@ -37,8 +37,9 @@ import (
 //
 //   - every retnd_* identifier is a series one of the two renderers emits
 //     (a histogram's _bucket, _sum and _count included), where the emitted set
-//     is computed by rendering a fully loaded health.Report and a fully loaded
-//     workflow counter set, never typed out;
+//     is computed by rendering a fully loaded health.Report, a fully loaded
+//     workflow counter set and the scrape refusal counter, the three renderers
+//     /metrics concatenates, never typed out;
 //   - every label a selector, a grouping clause, a legend or an alert template
 //     names is a label one of the referenced series carries, and every value a
 //     selector compares a closed-vocabulary label against is a value the
@@ -120,7 +121,10 @@ func dashGoldenExposition(t *testing.T) dashExposition {
 		EncryptedCopiesBySuite: map[string]int{"golden-unregistered-suite": 1},
 	}
 
-	text := metrics.Render(report) + labelledWorkflow(t).RenderWorkflow()
+	// The third renderer the endpoint concatenates (#899): the refusal counter,
+	// whose three samples render whether or not anything was refused.
+	var scrape metrics.Scrape
+	text := metrics.Render(report) + labelledWorkflow(t).RenderWorkflow() + scrape.RenderRejected()
 
 	out := dashExposition{}
 	for _, m := range typePattern.FindAllStringSubmatch(text, -1) {

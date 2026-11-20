@@ -303,19 +303,52 @@
     },
     {
       "id": 6,
+      "type": "timeseries",
+      "title": "Refused scrapes by reason (flat at 0 when nothing is wrong)",
+      "description": "Requests to /metrics the engine refused, per interval, by reason: unauthenticated (a missing or wrong token), method, or disabled (counted while metrics were off and only visible once they are back on). Prometheus's own refused scrapes cannot appear here, because a refused scrape reads nothing; they show as 0 in the panel above. A steady unauthenticated line is something else holding an old token, or something probing.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum by (reason) (increase(retnd_scrape_rejected_total[$__rate_interval]))",
+          "legendFormat": "{{reason}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
       "type": "row",
       "title": "State",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 5,
+        "y": 11,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 7,
+      "id": 8,
       "type": "table",
       "title": "State per backup set (every row reads healthy when nothing is wrong)",
       "description": "One row per backup set with the state FR-24 decided for it. The reason behind a state that is not healthy is on the status surface (retnd status, or the Web UI), never a label here.",
@@ -325,7 +358,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 6,
+        "y": 12,
         "w": 24,
         "h": 7
       },
@@ -351,20 +384,20 @@
       }
     },
     {
-      "id": 8,
+      "id": 9,
       "type": "row",
       "title": "Freshness",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 13,
+        "y": 19,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 9,
+      "id": 10,
       "type": "timeseries",
       "title": "Newest good backup age as a share of its stale threshold (stays below 100% when nothing is wrong)",
       "description": "The age of each set's newest known-good backup divided by that set's stale_after. A line reaching 100% is a set about to turn stale. A set with no known-good backup yet has no line, which is not the same as a fresh one.",
@@ -374,7 +407,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 14,
+        "y": 20,
         "w": 12,
         "h": 8
       },
@@ -415,7 +448,7 @@
       }
     },
     {
-      "id": 10,
+      "id": 11,
       "type": "timeseries",
       "title": "Seconds since the last successful discovery poll (a low sawtooth when nothing is wrong)",
       "description": "Each set's time since discovery last completed. It resets every poll, so a healthy set draws a sawtooth no taller than its poll interval. A line that climbs without resetting is a source this manager can no longer list.",
@@ -425,7 +458,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 14,
+        "y": 20,
         "w": 12,
         "h": 8
       },
@@ -448,20 +481,20 @@
       }
     },
     {
-      "id": 11,
+      "id": 12,
       "type": "row",
       "title": "Failures",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 22,
+        "y": 28,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 12,
+      "id": 13,
       "type": "timeseries",
       "title": "Failed artifacts (0 when nothing is wrong)",
       "description": "Artifacts currently FAILED, per set. A failure that retries clears itself; one that stays is what turns a set FAILING.",
@@ -471,7 +504,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 23,
+        "y": 29,
         "w": 12,
         "h": 8
       },
@@ -512,7 +545,7 @@
       }
     },
     {
-      "id": 13,
+      "id": 14,
       "type": "timeseries",
       "title": "Failing relocations (0 when nothing is wrong)",
       "description": "Open moves whose last attempt failed, per set. This is the count that turns an otherwise healthy set DEGRADED; how long the oldest has been failing is in retnd_backup_set_failed_move_oldest_age_seconds.",
@@ -522,7 +555,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 23,
+        "y": 29,
         "w": 12,
         "h": 8
       },
@@ -563,20 +596,20 @@
       }
     },
     {
-      "id": 14,
+      "id": 15,
       "type": "row",
       "title": "Quarantine",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 31,
+        "y": 37,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 15,
+      "id": 16,
       "type": "timeseries",
       "title": "Quarantined artifacts, irrecoverable ones separately (both 0 when nothing is wrong)",
       "description": "Every quarantined artifact per set, recoverable or not, and the irrecoverable (QUARANTINED_LOST) subset on its own line so it is never read as the recoverable kind.",
@@ -586,7 +619,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 32,
+        "y": 38,
         "w": 24,
         "h": 8
       },
@@ -618,20 +651,20 @@
       }
     },
     {
-      "id": 16,
+      "id": 17,
       "type": "row",
       "title": "Capacity",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 40,
+        "y": 46,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 17,
+      "id": 18,
       "type": "timeseries",
       "title": "Free bytes on each local destination (flat or falling slowly when nothing is wrong)",
       "description": "Free space on each set's local destination filesystem. A set whose free space this manager could not read has no line.",
@@ -641,7 +674,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 41,
+        "y": 47,
         "w": 12,
         "h": 8
       },
@@ -664,7 +697,7 @@
       }
     },
     {
-      "id": 18,
+      "id": 19,
       "type": "timeseries",
       "title": "Free bytes a week from now at the last day's rate (stays above 0 when nothing is wrong)",
       "description": "A straight-line projection of each destination's free space seven days ahead, from the last 24 hours. It is a projection, not a promise: a retention run that frees space bends it back up.",
@@ -674,7 +707,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 41,
+        "y": 47,
         "w": 12,
         "h": 8
       },
@@ -715,20 +748,20 @@
       }
     },
     {
-      "id": 19,
+      "id": 20,
       "type": "row",
       "title": "Logs",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 49,
+        "y": 55,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 20,
+      "id": 21,
       "type": "stat",
       "title": "retnd log lines in the last hour (above 0 when nothing is wrong and logs are shipped)",
       "description": "How many lines Loki holds from retnd for the last hour. 0 or no data means the log pipeline is not wired (see the bundle README), and then the panel beside this one is empty for that reason, not because nothing was logged.",
@@ -738,7 +771,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 50,
+        "y": 56,
         "w": 6,
         "h": 8
       },
@@ -785,7 +818,7 @@
       }
     },
     {
-      "id": 21,
+      "id": 22,
       "type": "logs",
       "title": "retnd warnings and errors (few or none when nothing is wrong)",
       "description": "Every warn and error line retnd wrote. The line is JSON; open one to see its event, action_id and backup_set fields, which are fields and deliberately not labels.",
@@ -795,7 +828,7 @@
       },
       "gridPos": {
         "x": 6,
-        "y": 50,
+        "y": 56,
         "w": 18,
         "h": 8
       },
