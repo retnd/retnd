@@ -181,6 +181,15 @@ func (b *BackupService) RunOnSchedule(ctx context.Context) error {
 	}()
 	defer func() { <-alertsStopped }()
 
+	// The Alertmanager dialect's refresh runs on its own, shorter timer
+	// (alertsink.go): the pass above is at poll_interval.
+	refreshStopped := make(chan struct{})
+	go func() {
+		defer close(refreshStopped)
+		b.runAlertRefreshes(ctx)
+	}()
+	defer func() { <-refreshStopped }()
+
 	// EPIC Q's scrub runs on its own timer too (#978), beside the alerting
 	// one and for the same reason: a long content scrub must not hold up a
 	// backup, and a wedged cycle must not stop copies being checked.

@@ -50,6 +50,7 @@ var eventNameCases = []struct {
 	{"EventStaleBackup", EventStaleBackup, "stale_backup"},
 	{"EventDiskPressure", EventDiskPressure, "disk_pressure"},
 	{"EventAlert", EventAlert, "alert"},
+	{"EventAlertDestination", EventAlertDestination, "alert_destination"},
 	{"EventAPIAction", EventAPIAction, "api_action"},
 	{"EventAgentAction", EventAgentAction, "agent_action"},
 	{"EventWorkflowRunStart", EventWorkflowRunStart, "workflow_run_start"},
@@ -688,4 +689,27 @@ func TestEncryptedCopyStageEventsAreNilSafe_992(t *testing.T) {
 	l.CopyVerifyingStored(ctx, "a", "m", ResultSuccess)
 	l.CopyDecryptVerifying(ctx, "a", "m", "k", ResultSuccess)
 	l.KeyRetired(ctx, "k", ResultSuccess)
+}
+
+// EPIC O, #901: an alert destination that cannot be read is the manager
+// failing at its job, so it is an error with an error result; the heal is a
+// success. Neither line carries anything but the state and the reason.
+func TestAlertDestinationEvent(t *testing.T) {
+	l, buf := newRecorder(t)
+	l.AlertDestination(context.Background(), "unresolvable", "the secret file does not exist")
+	l.AlertDestination(context.Background(), "ok", "")
+	lines := decodeLines(t, buf)
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines, want 2", len(lines))
+	}
+	bad, good := lines[0], lines[1]
+	if bad["event"] != EventAlertDestination || bad["level"] != "ERROR" || bad["result"] != "error" || bad["status"] != "unresolvable" || bad["detail"] != "the secret file does not exist" {
+		t.Errorf("unreadable line = %v", bad)
+	}
+	if good["event"] != EventAlertDestination || good["level"] != "INFO" || good["result"] != "success" || good["status"] != "ok" {
+		t.Errorf("healed line = %v", good)
+	}
+	if _, has := good["detail"]; has {
+		t.Errorf("the healed line carries a detail it has no use for: %v", good)
+	}
 }

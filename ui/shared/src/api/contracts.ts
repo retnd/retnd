@@ -2693,6 +2693,12 @@ export interface ObservabilitySettings {
     webhook: {
       dialect: string;
       urlSet: boolean;
+      /** What the engine's last read of the URL found: `ok`, `unresolvable`
+       *  (the reference could not be read, so alerts are held and retried),
+       *  `invalid` (it read, and is not an acceptable URL) or `unknown` (not
+       *  tried yet). Absent unless delivery is webhook and alerting is on.
+       *  A state, never the URL. */
+      urlStatus?: "ok" | "unresolvable" | "invalid" | "unknown";
       allowInsecureHttp: boolean;
       refreshIntervalSeconds: number;
       resolveTtlSeconds: number;

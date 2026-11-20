@@ -29,7 +29,10 @@ describe("the Observability card on Settings", () => {
     expect(screen.getByTestId("scrape-token-state").textContent).toMatch(/No scrape token has been minted/);
     const summary = screen.getByTestId("observability-summary");
     expect(within(summary).getByText("info (from config)")).toBeTruthy();
-    expect(within(summary).getByText("platform")).toBeTruthy();
+    // The delivery is the select AlertDeliveryControls renders (#901), not a
+    // second read-only row beside it.
+    expect(((await screen.findByLabelText("Alert delivery")) as HTMLSelectElement).value).toBe("platform");
+    expect(within(summary).queryByText("platform")).toBeNull();
   });
 
   it("turns the endpoint on through the engine and reports what the engine now says", async () => {

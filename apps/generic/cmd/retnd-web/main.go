@@ -875,9 +875,21 @@ func cmdServe(args []string) int {
 // A provider that DOES declare NativeNotifications gets its alerts
 // through exactly this wiring with no further change.
 func enableAlerts(backend *service.BackupService, platformAdapter capabilities.PlatformAdapter) {
-	if sink, err := notify.NewPlatformSink(platformAdapter); err != nil {
-		fmt.Fprintln(os.Stderr, cliecho.WebBinary+": proactive alerting is off:", err)
-	} else if !backend.EnableAlerts(sink) {
+	// A platform with no notification capability is not an error when the
+	// configuration delivers through a webhook (EPIC O, FR-101): the
+	// platform channel is simply never used, so it is passed as nil and
+	// EnableAlerts decides from the configuration which one channel is built.
+	var sink service.AlertSink
+	platformSink, sinkErr := notify.NewPlatformSink(platformAdapter)
+	if sinkErr == nil {
+		sink = platformSink
+	}
+	if backend.EnableAlerts(sink) {
+		return
+	}
+	if sinkErr != nil {
+		fmt.Fprintln(os.Stderr, cliecho.WebBinary+": proactive alerting is off:", sinkErr)
+	} else {
 		fmt.Fprintln(os.Stderr, cliecho.WebBinary+": proactive alerting is off: the configuration has not set alerts.enabled")
 	}
 }

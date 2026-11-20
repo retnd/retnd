@@ -36,6 +36,16 @@
 # CI_LOCAL_SKIP_JS=1 leaves it out on purpose). The full gate, under
 # CI_LOCAL_FULL=1, still refuses as it always did (#160).
 #
+# THE QUEUE (#1544). Every worktree of this clone runs this hook, so the fast
+# tier's heavy part (go vet, golangci-lint, go test, the JS checks) queues
+# behind other worktrees' runs: it waits while the load is above the core
+# count (10 minutes at most), then takes one lock shared by every worktree
+# and runs at nice 10. A commit that seems stuck is usually waiting its turn,
+# and it says for whom. To see who holds the lock:
+#   readlink "$(git rev-parse --git-common-dir)/ci-fast.lock"
+# and the pid and worktree are in the directory it names. CI_FAST_LOCK=0
+# skips the queue (scripts/ci-fast.sh's header has the rest).
+#
 # Three outcomes, and this hook has to make its own decision about the
 # middle one rather than inherit it by accident:
 #
@@ -207,6 +217,22 @@ fi
 # shellcheck disable=SC2086
 { set +e; bash $gate_cmd 2>&1; echo "$?" >"$gate_status_file"; } | tee "$gate_log"
 gate_status="$(cat "$gate_status_file" 2>/dev/null || echo 1)"
+
+# A fast run that scoped to 0 paths checked nothing, and that is only right
+# when the commit changes nothing. A pathspec commit used to get exactly
+# that: the tier read the real index instead of the commit's and passed a
+# commit it never looked at (#1554). This hook still has git's index for the
+# commit, so it asks it directly, whatever the tier said about itself.
+if [ "$gate_tier" = fast ] && { [ "$gate_status" -eq 0 ] || [ "$gate_status" -eq 3 ]; }; then
+  scoped="$(sed -n 's/^==> ci-fast: the fast tier, scoped to \([0-9][0-9]*\) changed path.*/\1/p' "$gate_log" 2>/dev/null | head -1)"
+  if [ "$scoped" = 0 ] && ! git diff --cached --quiet; then
+    echo "" >&2
+    echo "==> pre-commit: refusing this commit: the fast tier scoped to 0 changed paths, but the commit changes" >&2
+    echo "    files, so nothing checked them (#1554). Stage the paths with git add and commit again, and if this" >&2
+    echo "    keeps happening the tier is reading the wrong index: say so on #1554." >&2
+    exit 1
+  fi
+fi
 
 # The gate ran on the working tree; the commit is the index. When the two
 # differ the gate checked something other than what is being committed,

@@ -25,6 +25,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import { acknowledgeInsecureTransport } from "@shared/api/client";
 import type { MintedScrapeToken, ObservabilitySettings } from "@shared/api/contracts";
+import { AlertDeliveryControls } from "@shared/observability/AlertDeliveryControls";
 import { apiErrorOf, describeFailure, isNotConfigured } from "@shared/api/failure";
 import { FieldHelp } from "@shared/components/FieldHelp";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
@@ -223,12 +224,13 @@ export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
             <dl style={{ margin: 0, display: "grid", gridTemplateColumns: "max-content 1fr", gap: "6px 16px" }} data-testid="observability-summary">
               <dt style={{ color: "var(--text-2)" }}>Log level</dt>
               <dd style={{ margin: 0 }} data-observability-row="logs">{settings.logs.levelInForce + " (from " + settings.logs.levelSource + ")"}</dd>
-              <dt style={{ color: "var(--text-2)" }}>Alert delivery</dt>
-              <dd style={{ margin: 0 }} data-observability-row="alerts">{settings.alerts.delivery}</dd>
             </dl>
           </>
         )}
         {settings ? <LogLevelControl logs={settings.logs} readOnly={readOnly} onSaved={setSettings} /> : null}
+        {settings && (
+          <AlertDeliveryControls alerts={settings.alerts} readOnly={readOnly} onSaved={setSettings} />
+        )}
         {error ? (
           <div role="alert" style={{ color: "var(--text)", border: "1px solid var(--danger)", background: "var(--danger-quiet)", borderRadius: "var(--radius-md)", padding: 8 }} data-testid="observability-error">{error}</div>
         ) : null}
