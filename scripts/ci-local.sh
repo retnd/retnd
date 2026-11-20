@@ -767,6 +767,19 @@ bash scripts/tests/closure-no-pipe-grep-q.test.sh
 # runs in the retnd-tests lane at the pin. No containers, no browser, no network.
 gate_step "the EPIC U closing check refuses a moved canonical deployment, a migration other than 0022 or a BLOCKED row, and can still fail (#1353)"
 bash scripts/tests/epic-u-closure.test.sh
+
+# EPIC O's dashboards and rules name guard (#902, FR-102). A Grafana panel
+# querying a series retnd never emitted draws an empty line that reads like a
+# healthy one, and a rule over such a name never fires. This renders the real
+# exposition from a fully loaded health report and workflow counter set and
+# fails on any retnd_* name, label or closed-vocabulary value in
+# container/observability's dashboards and rules that the renderers do not
+# produce, on any Loki label or field the shipped pipeline and log schema do
+# not carry, and on any panel title that does not say what healthy looks like.
+# Its planted violations (PV4 and the rules-file variant) and positive controls
+# run in the same go test. No containers, no browser, no network.
+gate_step "every retnd_* name, label and Loki field a shipped dashboard or rule names is one retnd emits, and the guard can still fail (#902)"
+bash scripts/observability/check-dashboard-metrics.sh
 }
 
 gate_seg_core_build() {

@@ -1,0 +1,41 @@
+# Prometheus for the retnd example observability bundle (EPIC O, FR-102).
+#
+# This is an example, not a supported deployment. See ../README.md.
+#
+# It scrapes the engine's /metrics on the compose network. The engine
+# publishes no port, and web-ui does not forward /metrics, so this Prometheus
+# reaches it by joining the canonical stack's internal network (see
+# ../compose.observability.yaml); `retnd` is that network's service name.
+#
+# The bearer token is never in this file. Mint it with
+#   retnd settings observability rotate-scrape-token
+# (or the Observability card in Settings), write it to a file, and point
+# RETND_SCRAPE_TOKEN_FILE at that file before `docker compose up`. Compose
+# mounts it as the secret read below. Minting again replaces the token at
+# once: update the file and reload Prometheus.
+global:
+  # 15s matches the engine's default observability.metrics.min_rebuild_interval:
+  # scraping faster than the report is rebuilt only reads the cached copy
+  # again.
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+scrape_configs:
+  - job_name: retnd
+    metrics_path: /metrics
+    scheme: http
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/retnd_scrape_token
+    static_configs:
+      - targets:
+          - retnd:8080

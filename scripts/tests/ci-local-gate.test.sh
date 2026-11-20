@@ -401,6 +401,10 @@ make_full_tree() {
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$t.test.sh"
   done
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/closure-no-pipe-grep-q.test.sh"
+  # EPIC O's dashboards and rules name guard (#902): a go test over the real
+  # renderers and container/observability, neither of which a synthetic tree has.
+  mkdir -p "$tree/scripts/observability"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/observability/check-dashboard-metrics.sh"
   mkdir -p "$tree/scripts/release"
   # ci-docker.sh --host test (#1267): stand-ins and a fixture checkout, none of which a synthetic tree has.
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/ci-docker-remote.test.sh"

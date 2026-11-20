@@ -707,6 +707,19 @@ all. `retnd status` works identically either way, since it is always a fresh,
 read-only check against the shared state database file, independent of which binary is
 actually running as `retnd`'s main process.
 
+**`/metrics` is the engine's, and stays on the internal network.** When
+`observability.metrics.enabled` is on, the engine answers `GET /metrics` on the
+listener it already has (`retnd:8080` on `internal`), beside `/health/live` and
+`/health/ready` and outside `/api/v1`. `web-ui` forwards `/health/*` and `/api/v1/*`
+only, so the published port does not carry it, and no port, mapping or compose line was
+added for it: `container/compose.yaml` and every provider's file are unchanged. A
+Prometheus on the same host scrapes it by joining `retnd_internal`, which makes it a
+direct peer of the engine (a position this file otherwise gives to `web-ui` alone, and
+the reason `TRUST_FORWARDED_HEADERS` is safe here), so join exactly one container to it.
+`container/observability/` is a worked example of that, with two dashboards and alerting
+rules, and it is an example, not a supported deployment; its README says what it does
+and does not take on.
+
 ## Storage capacity, and capping what this manager may use
 
 By default retnd measures the filesystem your backup root is on and reports
