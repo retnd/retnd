@@ -91,6 +91,14 @@ func TestCheck_1546_ConfigDirectoryFormResolvesTheFormerDirectory(t *testing.T) 
 	if e.Former != old {
 		t.Errorf("--config named the directory; refusal names Former=%q, want the config.yaml inside it, %q", e.Former, old)
 	}
+	// Both sides have to be the same shape, or the mount fix points one
+	// level too high: an operator who mounts the old directory at the parent
+	// of the new one gets an empty start, the outcome this refusal exists to
+	// prevent.
+	if cur := l.current("config", "config.yaml"); e.Current != cur {
+		t.Errorf("--config named the directory; refusal names Current=%q, want the config.yaml inside it, %q", e.Current, cur)
+	}
+	mustMention(t, e.Error(), "mount the old directory at "+l.current("config")+" instead of "+l.former("config"))
 }
 
 func TestCheck_1546_BothConfigurationsPopulatedRefusesNamingTheConflict(t *testing.T) {
@@ -104,6 +112,12 @@ func TestCheck_1546_BothConfigurationsPopulatedRefusesNamingTheConflict(t *testi
 		t.Errorf("both paths hold a configuration, but the refusal does not call it a conflict")
 	}
 	mustMention(t, e.Error(), "refusing to start", "two different", cur, old)
+	// In a container the old directory is a bind-mount point on a read-only
+	// root, so "rename it" can't be done; dropping its volume line can.
+	mustMention(t, e.Error(), "volume line whose container side is "+filepath.Dir(old))
+	if strings.Contains(e.Error(), "rename ") {
+		t.Errorf("the conflict diagnostic suggests renaming a path that may be a bind-mount point:\n%s", e.Error())
+	}
 }
 
 func TestCheck_1546_OnlyTheCurrentConfigurationStarts(t *testing.T) {
@@ -172,7 +186,12 @@ func TestCheck_1546_OnlyTheFormerStateDatabaseWithNoConfigurationRefuses(t *test
 	write(t, old, "journal")
 
 	e := refusal(t, prerename.Check(filepath.Join(l.root, "etc", "config.yaml"), cur))
-	mustMention(t, e.Error(), cur, old)
+	mustMention(t, e.Error(), cur, old, "STATE_DATABASE")
+	// retnd daemon has no --state-database flag, so the shared message must
+	// not offer one.
+	if strings.Contains(e.Error(), "--state-database") {
+		t.Errorf("the diagnostic offers --state-database, which retnd daemon doesn't take:\n%s", e.Error())
+	}
 }
 
 func TestCheck_1546_BothStateDatabasesPopulatedRefusesNamingTheConflict(t *testing.T) {
