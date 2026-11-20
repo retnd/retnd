@@ -75,6 +75,16 @@ func TestTheEncryptExistingRunNeedsCSRFAndTheDryRunDoesNot_1291(t *testing.T) {
 	if len(b.called()) != 0 {
 		t.Errorf("a run with no CSRF token reached the backend: %v", b.called())
 	}
+
+	// The dry run changes nothing, so the same request with no CSRF token is
+	// answered.
+	get := httptest.NewRequest(http.MethodGet, "/api/v1/encryption/encrypt-existing?set=src/set-1&destination=offsite", nil)
+	get.RemoteAddr = "127.0.0.1:5000"
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, get)
+	if rec.Code != http.StatusOK {
+		t.Errorf("a dry run with no CSRF token: %d %s, want 200", rec.Code, rec.Body.String())
+	}
 }
 
 // Each refusal keeps its own status and code, and the message is the service's
