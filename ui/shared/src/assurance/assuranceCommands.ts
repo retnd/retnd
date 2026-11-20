@@ -37,6 +37,14 @@ export function retryCommand(artifactId: string): string {
   return "retnd retry " + shellQuote(artifactId);
 }
 
+/** What Retire does (#1528): `retnd retire <id>` retires one FAILED backup
+ *  whose source is gone, the same as POST .../{name}/retire. The Retire
+ *  dialog prints the engine's own line from the preview; this is the line a
+ *  menu item shows before anything has been asked of the engine. */
+export function retireCommand(artifactId: string): string {
+  return "retnd retire " + shellQuote(artifactId);
+}
+
 /** One backup's own record, the terminal's version of its page: `retnd
  *  artifacts` with exactly one operand prints that backup's detail. */
 export function artifactCommand(artifactId: string): string {

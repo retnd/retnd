@@ -2,15 +2,12 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/transport/rclone"
-	"github.com/retnd/retnd/core/prerename"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -54,8 +51,7 @@ func cmdDaemon(args []string) int {
 	// naming both paths and the fix, before it announces or opens anything.
 	// Otherwise it gets this release's empty path and tells the operator it
 	// has no backup set. See core/prerename.
-	if err := prerename.Check(*cfgPath, service.StateDatabaseDefault()); err != nil {
-		fmt.Fprintln(os.Stderr, cliecho.Binary+":", err)
+	if refusedAtPreRenamePath(*cfgPath) {
 		return exitFailure
 	}
 

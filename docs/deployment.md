@@ -445,6 +445,28 @@ be: the image's own `HEALTHCHECK` (so a plain `docker run` still reports it, and
 headless `daemon` command, which serves no HTTP and has no liveness endpoint to ask), the
 alerts block, and `docker compose exec retnd /retnd status`.
 
+The image's `HEALTHCHECK` reads the default configuration, `/etc/retnd/config/config.yaml`,
+because it runs `/retnd status` with no `--config` and can't see the arguments the container's
+main process was started with. So a container whose engine runs with `--config` pointing
+somewhere else gets a health check that asks about a different (usually empty) path. The case
+you're most likely to meet is an upgrade from before 0.5.0 (#1546, #1609): the engine refuses
+to start while the configuration is still mounted at its old path, and one of the two fixes it
+offers is `--config <old path>`. Take that fix on a plain `docker run` and the health check
+refuses the same way and reports `unhealthy`. Prefer the other fix, mounting the old directory
+at `/etc/retnd/config`, which every command, the health check included, then finds on its own.
+If you do keep a non-default `--config`, give the check the same path: in a compose file,
+`healthcheck: test: ["CMD", "/retnd", "status", "--config", "<path>"]`. `docker run
+--health-cmd` won't do it, because Docker runs that through `/bin/sh` and this image has no
+shell, so use `--no-healthcheck` and run `/retnd status --config <path>` yourself. The shipped
+compose files already override the engine's health check with `/retnd-web healthcheck`, so
+they aren't affected. The Unraid engine template (`apps/unraid/template/retnd.xml`) is the
+exception: it is a plain `docker run` and keeps the image's health check, so it has the same
+caveat.
+
+Two commands never ask about the old path, on purpose: `retnd-web auth create-admin` and
+`retnd-web auth set-password` write `/data/state/local-auth.json`, which has no `retnd` path
+component and is neither the configuration nor the journal.
+
 Every packaged adapter declares the same start gate, and has to (issue #206). The image's
 instruction and the canonical start gate are now deliberately different commands, so an
 adapter that declares nothing for the engine inherits the freshness verdict rather than the
@@ -827,7 +849,15 @@ channel is built, and switching it keeps what was already announced, so a standi
 alert is not announced again... with one exception. Switching to the `alertmanager`
 format posts each standing alert to Alertmanager within one refresh interval, because
 that receiver has never seen it and expires anything that is not re-sent, and
-Alertmanager then notifies as it would for any new alert.
+Alertmanager then notifies as it would for any new alert. The flip side of "not
+announced again" is that what was announced is remembered per channel setting, not
+per receiver, and what happens when you move to a new receiver depends on the
+format. A new URL in the reference on the `alertmanager` format needs nothing from
+you: every refresh reads the reference again, so each standing alert reaches the new
+Alertmanager on the next refresh, within one refresh interval. For `generic`, and
+for a switch from `alertmanager` to `generic`, the receiver hears about an alert
+that is already standing only when it clears and comes back. In both cases the
+copies an Alertmanager got before you moved away expire at their own `endsAt`.
 
 ```yaml
 observability:
@@ -866,7 +896,12 @@ while the condition lasts. `alertmanager` posts the v2 array with `labels.alertn
 and `labels.scope`, re-sends a condition that is still true every `refresh_interval`
 so Alertmanager does not expire it, and closes it with `endsAt` set to now when it
 clears. Without that refresh an alert would resolve itself while the backup was still
-stale. If you run Prometheus, its rules over the `retnd_*` series into Alertmanager
+stale. Alerts that fall due together are sent in parallel, up to 16 at a time, so the
+30 seconds between `refresh_interval` and `resolve_ttl` (one delivery attempt) covers
+each of them and not just the first. With more than 16 alerts standing at once and a
+receiver that takes close to 30 seconds to answer, add another 30 seconds to
+`resolve_ttl` for each further 16; the defaults leave six minutes, which is plenty.
+If you run Prometheus, its rules over the `retnd_*` series into Alertmanager
 are the better source of truth for staleness; this format is for deployments that
 scrape nothing, and running both means two sources of truth about the same fact.
 

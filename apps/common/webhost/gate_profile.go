@@ -400,7 +400,7 @@ func (e gateEnforcement) insecureTransportAckNeeded(r *http.Request) bool {
 
 // plainHTTPFromElsewhere is the transport half of the rule on its own: the
 // browser reached retnd over plain HTTP from another machine. It does not
-// read the gate, because the mint of an agent token (requireMintTransportAck)
+// read the gate, because a credential mint (requireMintTransportAck)
 // asks the same consent with the destructive gate shut, and
 // GET /system/capabilities reports this, not the gated acts' narrower
 // answer, so a screen asks exactly when the router would refuse (Q17).
@@ -518,22 +518,28 @@ func (e gateEnforcement) decide(r *http.Request, act gatedAct) (gateRefusal, boo
 	return gateRefusal{}, false
 }
 
-// requireMintTransportAck is the insecure-transport acknowledgement for
-// POST /agent/tokens. The response carries the token, so over plain HTTP from
-// another machine it is exposed the way an exported key is, and the engine
-// asks the same consent, so the browser and a remote `retnd agent token
-// create` behave alike. It is not an act of the destructive gate: the mint
-// touches no backup data, so a gateway profile with the gate shut is asked the
-// same and no gate state is read. It is a consent prompt, not an access
-// control, for the reason insecureTransportAckNeeded gives.
-func requireMintTransportAck(e gateEnforcement) func(http.Handler) http.Handler {
+// requireMintTransportAck is the insecure-transport acknowledgement for a
+// route that mints a credential (POST /agent/tokens, POST
+// /settings/observability/scrape-token). The response carries the token, so
+// over plain HTTP from another machine it is exposed the way an exported key
+// is, and the engine asks the same consent, so the browser and a remote
+// `retnd agent token create` behave alike. It is not an act of the destructive
+// gate: the mint touches no backup data, so a gateway profile with the gate
+// shut is asked the same and no gate state is read. It is a consent prompt,
+// not an access control, for the reason insecureTransportAckNeeded gives.
+//
+// operation is what the action log names a refusal as, and each route passes
+// its own: the check is shared, the act is not, and a refused scrape-token
+// mint logged as "mint an agent token" told an operator the wrong credential
+// was being minted (#1581).
+func requireMintTransportAck(e gateEnforcement, operation string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if e.plainHTTPFromElsewhere(r) && !insecureTransportAcknowledged(r) {
 				ref := newGateRefusal(http.StatusForbidden, "INSECURE_TRANSPORT_ACK_REQUIRED",
 					"the new token comes back over this connection, which is not encrypted and is not from this machine; open retnd over HTTPS, or acknowledge it in the request with the "+InsecureTransportHeader+" header",
 					"", "the mint's connection is not encrypted and not from this machine, and the request did not acknowledge that")
-				ref.write(w, r, "mint an agent token")
+				ref.write(w, r, operation)
 				return
 			}
 			next.ServeHTTP(w, r)

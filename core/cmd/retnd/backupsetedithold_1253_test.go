@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// Issue #1253: `backup-set edit-hold <id> --take` takes (or renews) the
+// Issue #1253: `backup-set edit-hold <id> --take` takes the
 // hold the Web UI takes when its edit form opens, so a scripted
 // multi-step edit can pause the set the same way, and give it back with
 // --release when it is done.
@@ -39,7 +39,11 @@ func TestBackupSetEditHold1253_TakeHoldsTheSetOnTheEngine(t *testing.T) {
 	}
 }
 
-func TestBackupSetEditHold1253_TakeRenewsAHoldAlreadyHeld(t *testing.T) {
+// A second --take with no token on a set somebody already holds is a
+// second holder since #1606, not a renewal of the first: the set stays
+// held either way. Renewing one holder is --take --token
+// (backupsetedithold_1606_test.go).
+func TestBackupSetEditHold1253_TakeOnAHeldSetHoldsItToo(t *testing.T) {
 	cliConfig, e := oneServedDeployment(t)
 	if _, err := e.svc.BeginBackupSetEdit(t.Context(), "production/postgres-primary"); err != nil {
 		t.Fatalf("taking the hold on the engine: %v", err)
@@ -50,10 +54,10 @@ func TestBackupSetEditHold1253_TakeRenewsAHoldAlreadyHeld(t *testing.T) {
 		code = run([]string{"backup-set", "edit-hold", "production/postgres-primary", "--take", "--config", cliConfig})
 	})
 	if code != 0 {
-		t.Fatalf("a second take = %d, want 0 (a renewal is the same act as a take); it printed %q", code, stdout)
+		t.Fatalf("a take on a set already held = %d, want 0 (it is a second holder); it printed %q", code, stdout)
 	}
 	if !strings.Contains(stdout, "held: true") {
-		t.Errorf("the set is not reported held after a renewal:\n%s", stdout)
+		t.Errorf("the set is not reported held after a second take:\n%s", stdout)
 	}
 }
 

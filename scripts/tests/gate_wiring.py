@@ -4,8 +4,10 @@
 A guard is wired when a line of the gate RUNS it as a command: the line starts
 with an executor (bash, sh, python3, `npx playwright test -c <config>`, or
 ci-local.sh's own gate_selftest_with_ledger, which runs `bash <script>`),
-optionally behind env assignments, a quoted lock wrapper such as "$pw_lock", or a
-`(cd <dir> &&`, and the script it runs is the guard, without --check-anchors or
+optionally behind env assignments, a quoted lock wrapper such as "$pw_lock", a
+`(cd <dir> &&`, ci-local.sh's gate_pw_locked (the Playwright lock), or the Chromium lane (`gate_ui_browser "<what>" bash
+scripts/e2e/ui-browser.sh specs <config> | run <command>`, which runs the config
+or the command), and the script it runs is the guard, without --check-anchors or
 --dry-run (an anchors-only run is not a run of the controls). A step title, an
 echo, a skip note, a `[ -f ]` or `[[ -f ]]` test, an assignment, shellcheck over
 the file and `false && bash ...` all name the path without running it. The line
@@ -38,12 +40,15 @@ GUARD_GLOBS = (
 )
 
 EXECUTOR = re.compile(
-    r"^\(?\s*(?:cd\s+(?P<dir>\S+)\s+&&\s+)?"
+    r"^\(?\s*(?:gate_ui_browser\s+\"[^\"]*\"\s+|gate_pw_locked\s+)?(?:cd\s+(?P<dir>\S+)\s+&&\s+)?"
     r"(?:[A-Za-z_]\w*=\S*\s+)*"
     r"(?:\"?\$\{?\w+\}?\"?\s+)?"
     r"(?:exec\s+)?(?P<prog>bash|sh|python3|npx|gate_selftest_with_ledger)\s+(?P<args>.*)$"
 )
 NOT_A_RUN = ("--check-anchors", "--dry-run")
+# The Chromium lane (#1532, #1537) runs what it is handed in a container: `specs
+# <config>` runs that Playwright config, `run <command...>` runs the command.
+LANE = "scripts/e2e/ui-browser.sh"
 SEGMENT = re.compile(r"^(gate_seg_\w+)\(\) \{")
 RUN_SEGMENT = re.compile(r'^gate_run_segment\s+"([^"]*)"\s+(gate_seg_\w+)')
 RUN_ONLY = re.compile(r"^gate_run_shard_only\s+(\S+)\s+(gate_seg_\w+)")
@@ -75,6 +80,13 @@ def runs(command: str) -> str:
             script = args[args.index("-c") + 1]
     else:
         script = next((a for a in args if not a.startswith("-")), "")
+        if script == LANE:
+            rest = args[args.index(script) + 1:]
+            if rest[:1] == ["specs"] and len(rest) > 1:
+                return rest[1]
+            if rest[:1] == ["run"] and len(rest) > 1:
+                return runs(shlex.join(rest[1:]))
+            return ""
     if not script:
         return ""
     if script.startswith("$") and "/scripts/" in script:

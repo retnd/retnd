@@ -14,6 +14,7 @@ import (
 	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/prerename"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -641,6 +642,15 @@ func backupSetCreate(f *backupSetFlags, sourceName, name string) int {
 		VerificationSamplePercent:     *f.verificationSamplePercent,
 		VerificationFullEvery:         *f.verificationFullEvery,
 		VerificationRestoreDrillEvery: *f.verificationRestoreDrillEvery,
+	}
+
+	// #1609: the pre-0.5.0 mount is asked before anything is read (the
+	// passphrase on standard input included), against the journal this
+	// create would name. Otherwise nothing at the new path reads as a fresh
+	// install below, and the first configuration is written beside the
+	// real one.
+	if err := prerename.Check(*f.cfgPath, *f.stateDatabase); err != nil {
+		return fail(err)
 	}
 
 	keyPassphrase, err := readKeyPassphrase(*f.keyPassphraseStdin, "backup-set create")
