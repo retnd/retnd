@@ -1,0 +1,30 @@
+# EPIC O, FR-101 (matrix row O-12): a webhook target that is refused at
+# Load. The URL is a secret, so the block can only name where it is kept and
+# this fixture cannot hold one. It names PATH, an environment variable that
+# is set on every host and is never a URL, so Validate reads it, sees no
+# https scheme, and refuses without the refusal echoing a byte of it.
+poll_interval: 15m
+
+state:
+  database: /var/lib/retnd/state.db
+
+observability:
+  alerts:
+    delivery: webhook
+    webhook:
+      dialect: generic
+      url_ref:
+        env: PATH
+
+sources:
+  - id: production
+    backup_sets:
+      - id: postgres-primary
+        remote:
+          type: local
+        remote_path: /srv/exports/postgres
+        local_path: /backups/production/postgres
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h

@@ -192,6 +192,7 @@ func observabilitySettingsWire(s service.ObservabilitySettings) apicontract.Obse
 			Webhook: apicontract.ObservabilityWebhookSettings{
 				Dialect:                s.Alerts.Webhook.Dialect,
 				URLSet:                 s.Alerts.Webhook.URLSet,
+				URLStatus:              s.Alerts.Webhook.URLStatus,
 				AllowInsecureHttp:      s.Alerts.Webhook.AllowInsecureHTTP,
 				RefreshIntervalSeconds: secs(s.Alerts.Webhook.RefreshInterval),
 				ResolveTtlSeconds:      secs(s.Alerts.Webhook.ResolveTTL),
@@ -213,4 +214,10 @@ func printObservabilitySettings(s service.ObservabilitySettings) {
 	w := s.Alerts.Webhook
 	fmt.Printf("  alerts webhook: dialect=%s  url set=%t  allow_insecure_http=%t  refresh_interval=%s  resolve_ttl=%s\n",
 		w.Dialect, w.URLSet, w.AllowInsecureHTTP, w.RefreshInterval, w.ResolveTTL)
+	switch w.URLStatus {
+	case "unresolvable":
+		fmt.Println("  alerts webhook: the URL reference cannot be read, so alerts are held and retried until it can (observability.alerts.webhook.url_ref)")
+	case "invalid":
+		fmt.Println("  alerts webhook: the URL reference reads, and what it holds is not an acceptable URL, so alerts are held and retried until it is")
+	}
 }
