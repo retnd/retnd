@@ -18,7 +18,8 @@ import (
 // no encryption answers the same 503 the other encryption routes do.
 //
 // They were written by reading the router and the existing encryption route
-// tests and have not been run.
+// tests, and first ran on 2026-11-19 (#1539), all green, each with a planted
+// violation in scripts/bdtools/encryption/controls_n_core.py.
 
 func (f *encryptionFakeBackend) PlanEncryptExisting(_ context.Context, set, artifact, destination string) (apicontract.EncryptExistingPlan, error) {
 	return apicontract.EncryptExistingPlan{Candidates: []apicontract.EncryptExistingCandidate{}}, f.note("plan-existing " + set + " " + artifact + " " + destination)
