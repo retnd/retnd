@@ -6,7 +6,7 @@ as Suite B, so it tests this product the way an operator meets it, from
 outside, with nothing but a browser and a built artefact.
 
 That is only half the story now. Specs came back into `ui/shared/e2e/` one
-issue at a time (128 spec files at the head of #1537), each the proof a piece of UI work
+issue at a time (130 spec files at the head of #1537), each the proof a piece of UI work
 landed with, driven by `ui/shared/e2e/playwright.config.ts` against `vite`
 and the in-process mock API. They are not Suite B and they do not run at the
 pin: the `ui-browser` shard of `scripts/ci-local.sh` runs every one of them,
