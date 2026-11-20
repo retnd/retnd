@@ -56,7 +56,7 @@ at 3. A stray exit 3 from a command the gate did not mark is read as FAILED.
 | `CI_LOCAL_SKIP_E2E` | `0` | `1` skips the browser suite and the CLI smoke slice from retnd-tests. INCOMPLETE |
 | `CI_LOCAL_SKIP_TWO_MACHINE` | `0` | `1` skips the two-machine end-to-end backup proof (#356). INCOMPLETE |
 | `CI_LOCAL_SKIP_UI_BROWSER` | `0` | `1` skips the Chromium lane: the 127 browser specs in `ui/shared/e2e` and the assurance UI mutation self-test (#1532, #1537). INCOMPLETE |
-| `RETND_UI_BROWSER_CPUS`, `RETND_UI_BROWSER_MEMORY` | `2`, `3g` | the Chromium lane's container fence (`scripts/e2e/ui-browser.sh`) |
+| `RETND_UI_BROWSER_CPUS`, `RETND_UI_BROWSER_MEMORY` | `4`, `4g` | the Chromium lane's container fence (`scripts/e2e/ui-browser.sh`) |
 | `RETND_UI_BROWSER_TIMEOUT`, `RETND_UI_BROWSER_STALL`, `RETND_UI_BROWSER_TEST_TIMEOUT` | `5400` for the specs and `2700` for the self-test, `600`, `60` | the lane's hard cap, the seconds without output after which a run counts as stalled and is killed, and the per-test timeout for the specs. Hitting any of them is a FAILED run |
 | `RETND_UI_BROWSER_PLATFORM` | the daemon's own (`docker info` Architecture) | the platform named on the lane's pull and run, so a shared host's tag is never swapped for the other architecture |
 | `RETND_UI_BROWSER_ALLOW_LOCAL` | `0` | `1` lets the Chromium lane run on a Mac, and then only through the Playwright lock. Unset, a Mac ledgers both steps and names `run-gate-shard.sh ui-browser --host mars`, which is also where `run-gate-shard.sh` sends the `ui-browser` shard when no host is given |

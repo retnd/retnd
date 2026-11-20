@@ -35,6 +35,10 @@ lane is most likely to meet and the one that is least visible:
     table is printed, and the run is killed.
 
 Either one is a FAILED run, never a skip: a spec that hangs is a red spec.
+Output is what the stall check watches, so the container runs Python
+unbuffered: the assurance UI self-test prints a line per control, and with
+stdout on a pipe those lines sat in a buffer until a healthy run was killed
+as stalled, six controls in.
 
 Exit statuses, so the gate does not parse prose:
   0  the command passed
@@ -43,8 +47,8 @@ Exit statuses, so the gate does not parse prose:
      not be pulled, the container could not start, the install inside could
      not run). The gate ledgers it, so the run ends INCOMPLETE.
 
-Knobs: RETND_UI_BROWSER_IMAGE (the pinned image), RETND_UI_BROWSER_CPUS (2),
-RETND_UI_BROWSER_MEMORY (3g), RETND_UI_BROWSER_TIMEOUT (5400 for `specs`,
+Knobs: RETND_UI_BROWSER_IMAGE (the pinned image), RETND_UI_BROWSER_CPUS (4),
+RETND_UI_BROWSER_MEMORY (4g), RETND_UI_BROWSER_TIMEOUT (5400 for `specs`,
 2700 for `run`), RETND_UI_BROWSER_STALL (600), RETND_UI_BROWSER_TEST_TIMEOUT
 (60, seconds per test, `specs` only), RETND_UI_BROWSER_PLATFORM (the daemon's
 own by default; it goes on the pull and the run).
@@ -140,7 +144,7 @@ while kill -0 "$pid" 2>/dev/null; do
   if [ -n "$verdict" ]; then
     sleep 1
     echo "==> ui browser lane: $verdict (${idle}s without output, $(( $(date +%s) - started ))s in). The process table:"
-    ps -eo pid,etimes,rss,args | head -n 40
+    ps -eo pid,etimes,rss,args | cut -c1-200 | head -n 40
     kill -TERM -- "-$pid" 2>/dev/null
     sleep 10
     kill -KILL -- "-$pid" 2>/dev/null
@@ -183,8 +187,10 @@ def body(root: Path, argv: list[str], name: str) -> int:
     cap = setting("RETND_UI_BROWSER_TIMEOUT", 5400 if mode == "specs" else 2700)
     stall = setting("RETND_UI_BROWSER_STALL", 600)
     test_timeout = setting("RETND_UI_BROWSER_TEST_TIMEOUT", 60)
-    cpus = os.environ.get("RETND_UI_BROWSER_CPUS", "2")
-    memory = os.environ.get("RETND_UI_BROWSER_MEMORY", "3g")
+    # 4 and 4g: the whole run of the specs took 56 minutes on MARS at 3.5
+    # cpus (#1537), against a 5400s cap, so the fence is not where to save.
+    cpus = os.environ.get("RETND_UI_BROWSER_CPUS", "4")
+    memory = os.environ.get("RETND_UI_BROWSER_MEMORY", "4g")
     version = playwright_version(image)
 
     if mode == "specs" and not (root / rest[0]).is_file():
@@ -209,7 +215,7 @@ def body(root: Path, argv: list[str], name: str) -> int:
     cmd = [
         "docker", "run", "--rm", "--init", "--name", name, *plat,
         "--cpus", cpus, "--memory", memory, "--memory-swap", memory, "--shm-size", "1g", "--pids-limit", "4096",
-        "-e", "CI=1", "-e", "HOME=/tmp/h",
+        "-e", "CI=1", "-e", "HOME=/tmp/h", "-e", "PYTHONUNBUFFERED=1",
         "-e", f"LANE_PW={version}", "-e", f"LANE_CAP={cap}", "-e", f"LANE_STALL={stall}",
         "-e", f"LANE_TEST_TIMEOUT={test_timeout}",
         "-v", f"{tree}:{tree}:ro", "-w", "/tmp",
