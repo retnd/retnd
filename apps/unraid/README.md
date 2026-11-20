@@ -153,6 +153,13 @@ backup lands, and red again if one goes stale. The derivation gate allows the
 inherited check on this adapter for that reason and refuses it on every adapter
 where something waits.
 
+One consequence of that (#1609): the baked-in check runs `/retnd status` with no
+`--config`, so it reads `/etc/retnd/config/config.yaml`. This template is a plain
+`docker run`, the exception to "every shipped compose file overrides it". If you upgraded
+from before 0.5.0 and fixed the refusal with `--config <old path>` instead of mounting the
+old directory at `/etc/retnd/config`, the engine badge goes red. Mount the old directory
+at `/etc/retnd/config` and it follows on its own.
+
 ## Authentication
 
 Local accounts only (§13A), the same reusable local authentication the generic Web

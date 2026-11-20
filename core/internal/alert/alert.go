@@ -46,12 +46,16 @@
 // §71 says "do not add a broad notification framework in v1", so a
 // Dispatcher holds exactly one Sink: not a list of subscribers, not a
 // topic registry, and with no way to attach a second consumer after
-// construction. The chosen mechanism is the platform's own local
-// notification capability, reached at the apps/ layer through
+// construction. Which Sink is chosen, never both (EPIC O, ADR 0035
+// decision 1): by default the platform's own local notification
+// capability, reached at the apps/ layer through
 // apps/common/platform/capabilities.Notifier (core/ cannot import apps/,
-// §7.1, so it always arrives here as a plain Sink). A platform that has
-// not declared that capability gets a refusal at wiring time rather than
-// an emulated one that silently drops alerts (§22).
+// §7.1, so it always arrives here as a plain Sink), and a platform that
+// has not declared that capability gets a refusal at wiring time rather
+// than an emulated one that silently drops alerts (§22); or, with
+// observability.alerts.delivery set to webhook, the HTTPSink in this
+// package, which posts one of two fixed formats to a URL read from a
+// reference at every delivery.
 //
 // # De-duplication is keyed on the condition, not the poll
 //
@@ -61,7 +65,11 @@
 // (Kind, Scope): a condition newly observed fires once, the same
 // condition observed again on later passes fires nothing, and a condition
 // that stops being observed is forgotten, so a genuine recurrence is a
-// fresh alert.
+// fresh alert. The one exception is a Sink that asks for it: the
+// alertmanager format re-sends a delivered condition every refresh
+// interval off the same firing map, because Alertmanager expires an alert
+// that is not re-sent, and sends one resolution when the condition clears
+// (refresh.go). That is not a second decision about what is alert-worthy.
 //
 // A pass that could not evaluate a condition says so, by naming its
 // Subject in Observe's unevaluated argument, and that condition is left

@@ -1,7 +1,7 @@
 """The Chromium lane for the shared UI's own browser specs (#1532, #1537).
 
 Two things in this tree drive a real browser and, until this lane existed,
-ran in no gate step: the Playwright spec files in `ui/shared/e2e/` (130 when the
+ran in no gate step: the Playwright spec files in `ui/shared/e2e/` (131 when the
 lane landed), which are
 the proof the Dashboard, Settings, Agents and suite UI work landed with, and
 EPIC Q's browser-side mutation self-test (`scripts/assurance/ui-selftest.sh`).

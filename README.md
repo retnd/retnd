@@ -277,6 +277,30 @@ connection steps, the scopes in plain words and the threat model are in
 [`docs/agents.md`](docs/agents.md).
 
 
+## Prometheus, Loki and alert webhooks
+
+The scrape endpoint and the webhook are off until you turn them on, and the log stream is the one
+the engine always wrote. The engine can serve its health and workflow metrics on `GET /metrics`
+behind a token of its own, its log stream is newline-delimited JSON with a pinned schema that
+Promtail or Alloy can ship with four labels, and alerts can go to a webhook (a plain JSON post, or
+Alertmanager's format with the refresh it needs so a standing alert does not expire).
+
+```
+retnd settings observability                                # what is on, and where the log level came from
+retnd settings observability patch --metrics-enabled --logs-level warn
+retnd settings observability rotate-scrape-token > token    # shown once; only a digest is kept
+```
+
+The verbs are `settings observability`, `settings observability patch` and
+`settings observability rotate-scrape-token`, and the Observability card in Settings does the same,
+minting included. The webhook's URL is a secret kept by reference in `config.yaml`, and nothing
+shows it. `/metrics` is reachable on the compose network, not on the published port.
+`container/observability/` is an example Prometheus, Loki and Grafana bundle with two dashboards,
+and it is an example rather than something supported. A `config.yaml` that carries `observability:`
+is refused by any build that predates it. [`docs/observability.md`](docs/observability.md) is the
+page to read.
+
+
 ## Two engines: artifacts, and incremental snapshots
 
 Everything above describes the `artifact` engine: a producer writes a finished
