@@ -503,7 +503,7 @@ for f in config.yaml ssh_keys known_hosts.d retained_copy_keys; do
   if [ -e "$CONFIG_DIR/$f" ]; then cp -a "$CONFIG_DIR/$f" "$ARC_CONFIG/"; fi
 done
 cp -a .env compose.image.yaml "$ARCHIVE/"
-echo "archived to $ARCHIVE"
+echo "archived; to check it, export ARCHIVE=$ARCHIVE"
 EOF
 ```
 
@@ -512,28 +512,37 @@ right, because it holds the same private keys an installer archive does. The las
 on the installer's list. `.env` and `compose.image.yaml` name the image you're leaving, which
 is the one thing going back needs and an installer archive doesn't keep.
 
+The block stops the stack before it copies anything. If it fails partway (a full disk, say),
+the stack stays stopped and the half-made archive is no good: start the stack again with
+`up -d`, remove that `archive-*` directory, fix the cause and take it again.
+
 ### Checking the archive before you go on
 
-Don't start the new image until the archive checks out. The check reads a copy, because
-opening a WAL journal writes its `-shm` and the archive should stay exactly as taken. It uses
-the `python3` the installer already needs, so it wants no network and no extra image (on a
-host without one, run the same thing in any container that has `python3`, with the prefix
-mounted read-only). Set `WANT` to the newest migration of the release you'd go back to, `22`
-for 0.8.0, and `ARCHIVE` by hand if the newest one isn't the one you mean:
+Don't start the new image until the archive checks out. Name the archive first, by the path
+the take block or the installer printed (`ls -d ~/retnd/archive-*` lists them all):
+
+    export ARCHIVE=~/retnd/archive-20261121-041000
+
+Nothing below guesses it, because any archive at the right migration would pass the check,
+and restoring an older one than you meant quietly throws away everything in between. The
+check reads a copy, because opening a WAL journal writes its `-shm` and the archive should
+stay exactly as taken. It uses the `python3` the installer already needs, so it wants no
+network and no extra image (on a host without one, run the same thing in any container that
+has `python3`, with the prefix mounted read-only). Set `WANT` to the newest migration of the
+release you'd go back to, `22` for 0.8.0:
 
 ```
 cd ~/retnd
-sh -eu <<'EOF'
-ARCHIVE=$(ls -d "$PWD"/archive-* | tail -n 1)
+sh -eu -s "${ARCHIVE:?export ARCHIVE=<the archive directory> first}" <<'EOF'
+ARCHIVE=$(cd "$1" && pwd)
 WANT=22
-[ -d "$ARCHIVE" ] || { echo "no archive-* directory under $PWD" >&2; exit 1; }
 ARC_STATE=$ARCHIVE/$(basename "$(sed -n 's/^STATE_DIR=//p' .env)")
-echo "checking $ARC_STATE"
 python3 - "$ARC_STATE" "$WANT" <<'PY'
-import os, shutil, sqlite3, sys, tempfile
+import datetime, os, shutil, sqlite3, sys, tempfile
 src, want = sys.argv[1], sys.argv[2]
 if not os.path.isfile(os.path.join(src, "state.db")):
     sys.exit(f"no state.db in {src}: this archive is not a way back")
+taken = datetime.datetime.fromtimestamp(os.path.getmtime(os.path.join(src, "state.db")), datetime.timezone.utc)
 with tempfile.TemporaryDirectory() as tmp:
     for f in ("state.db", "state.db-wal"):
         if os.path.exists(os.path.join(src, f)):
@@ -543,6 +552,7 @@ with tempfile.TemporaryDirectory() as tmp:
     version = db.execute("SELECT max(version) FROM schema_migrations").fetchone()[0]
     artifacts = db.execute("SELECT count(*) FROM artifacts").fetchone()[0]
     db.close()
+print(f"archive:         {src}\njournal from:    {taken:%Y-%m-%d %H:%M:%S} UTC")
 print(f"integrity_check: {integrity}\nmax(version):    {version}\nartifacts:       {artifacts}")
 if integrity != "ok" or str(version) != want:
     sys.exit(f"this archive is not a way back to a release at migration {want}")
@@ -552,36 +562,34 @@ EOF
 ```
 
 It ends `the archive checks out`, or it exits non-zero and says why. Anything but the first
-means this is not a way back: stop and find out why before upgrading.
+means this is not a way back: stop and find out why before upgrading. Look at the time and the
+artifact count too; they're how you tell this archive from another one at the same migration.
 
 ### Going back
 
-Steps 1 to 3 are one block. It stops the stack, runs the same check on the archive, and moves
-nothing until the check passes and nothing it's about to rename would overwrite an earlier
-`.superseded` file:
+Steps 1 to 4 are one block, and it goes back to the archive in `ARCHIVE`, the same variable
+as above. Before it stops anything it checks that archive again and prints what it found,
+checks `PUID` and `PGID`, and checks that nothing it's about to rename would overwrite an
+earlier `.superseded` file. If any of that fails, it exits with the stack still running:
 
 ```
 cd ~/retnd
-sh -eu <<'EOF'
-ARCHIVE=$(ls -d "$PWD"/archive-* | tail -n 1)
+sh -eu -s "${ARCHIVE:?export ARCHIVE=<the archive directory> first}" <<'EOF'
+ARCHIVE=$(cd "$1" && pwd)
 WANT=22
-[ -d "$ARCHIVE" ] || { echo "no archive-* directory under $PWD" >&2; exit 1; }
 STATE_DIR=$(sed -n 's/^STATE_DIR=//p' .env)
 CONFIG_DIR=$(sed -n 's/^CONFIG_DIR=//p' .env)
 ARC_STATE=$ARCHIVE/$(basename "$STATE_DIR")
 ARC_CONFIG=$ARCHIVE/$(basename "$CONFIG_DIR")
 PUID=$(sed -n 's/^PUID=//p' .env); PUID=${PUID:-1000}
 PGID=$(sed -n 's/^PGID=//p' .env); PGID=${PGID:-1000}
-echo "rolling back to $ARCHIVE"
-
-# 1. stop
-docker compose -p retnd --env-file .env -f compose.yaml -f compose.image.yaml stop
 
 python3 - "$ARC_STATE" "$WANT" <<'PY'
-import os, shutil, sqlite3, sys, tempfile
+import datetime, os, shutil, sqlite3, sys, tempfile
 src, want = sys.argv[1], sys.argv[2]
 if not os.path.isfile(os.path.join(src, "state.db")):
     sys.exit(f"no state.db in {src}: this archive is not a way back")
+taken = datetime.datetime.fromtimestamp(os.path.getmtime(os.path.join(src, "state.db")), datetime.timezone.utc)
 with tempfile.TemporaryDirectory() as tmp:
     for f in ("state.db", "state.db-wal"):
         if os.path.exists(os.path.join(src, f)):
@@ -589,22 +597,36 @@ with tempfile.TemporaryDirectory() as tmp:
     db = sqlite3.connect(os.path.join(tmp, "state.db"))
     integrity = db.execute("PRAGMA integrity_check").fetchone()[0]
     version = db.execute("SELECT max(version) FROM schema_migrations").fetchone()[0]
+    artifacts = db.execute("SELECT count(*) FROM artifacts").fetchone()[0]
     db.close()
+print(f"going back to {src}: journal from {taken:%Y-%m-%d %H:%M:%S} UTC, "
+      f"integrity {integrity}, migration {version}, {artifacts} artifacts")
 if integrity != "ok" or str(version) != want:
-    sys.exit(f"{src}: integrity {integrity}, version {version}; not a way back to {want}")
+    sys.exit(f"not a way back to migration {want}; nothing was stopped or moved")
 PY
 
+case "$PUID:$PGID" in
+  *[!0-9:]*|:*|*:) echo "PUID=$PUID PGID=$PGID in .env are not numeric ids; nothing was stopped or moved" >&2; exit 1 ;;
+esac
 CONFIG_BACK=no
 if [ -e "$ARC_CONFIG/config.yaml" ] && ! cmp -s "$ARC_CONFIG/config.yaml" "$CONFIG_DIR/config.yaml"; then
   CONFIG_BACK=yes
 fi
-for p in "$STATE_DIR/state.db" "$STATE_DIR/state.db-wal" "$STATE_DIR/state.db-shm" \
-         "$STATE_DIR/local-auth.json" "$CONFIG_DIR/config.yaml" .env compose.image.yaml; do
+MOVING=
+for f in state.db state.db-wal state.db-shm local-auth.json; do
+  if [ -e "$STATE_DIR/$f" ]; then MOVING="$MOVING $STATE_DIR/$f"; fi
+done
+if [ "$CONFIG_BACK" = yes ]; then MOVING="$MOVING $CONFIG_DIR/config.yaml"; fi
+if [ -e "$ARCHIVE/compose.image.yaml" ]; then MOVING="$MOVING $PWD/.env $PWD/compose.image.yaml"; fi
+for p in $MOVING; do
   if [ -e "$p.superseded" ]; then
-    echo "$p.superseded is already there from an earlier attempt; rename it first" >&2
+    echo "$p.superseded is already there from an earlier attempt; rename it first. Nothing was stopped or moved" >&2
     exit 1
   fi
 done
+
+# 1. stop
+docker compose -p retnd --env-file .env -f compose.yaml -f compose.image.yaml stop
 
 # 2. move the newer journal aside
 for f in state.db state.db-wal state.db-shm local-auth.json; do
@@ -640,7 +662,8 @@ EOF
 
 What it does, and why:
 
-1. **Stops the stack**, so nothing holds the journal open.
+1. **Stops the stack**, so nothing holds the journal open. Everything before this line only
+   reads, so a refusal up there leaves you exactly where you were, still running.
 2. **Moves the newer journal aside**: `state.db`, `-wal`, `-shm` and `local-auth.json`, renamed
    with `.superseded`, never deleted. The `-wal` and `-shm` matter most. SQLite replays a
    `-wal` it finds beside a database, and a newer build's WAL replayed onto the older journal
@@ -663,6 +686,16 @@ What it does, and why:
    installer set up; nothing removes the old image, so `docker image ls ghcr.io/retnd/retnd`
    still shows it) and set `VERSION=` in `.env` to match, so the next installer run sees the
    version that's actually running.
+
+**If it stops partway through 2 to 4** (a full disk, a `chown` that fails), the stack is
+stopped and running the block again refuses on the `.superseded` files it already made. The
+way out is to undo it and start over: in the state directory, rename each `X.superseded` it
+made back to `X` (the same for `config.yaml`, `.env` and `compose.image.yaml` if it got that
+far). That puts the newer release's files back exactly as they were, over any half-finished
+copy from the archive. A `state.db-wal` or `state.db-shm` copied from the archive that has no
+`.superseded` twin has to go as well (it's a copy, the archive still has it), or SQLite
+replays it onto the newer journal. Then either fix the cause and run the block again, or
+`up -d` to carry on with the newer release while you think.
 
 Then start it and look:
 
