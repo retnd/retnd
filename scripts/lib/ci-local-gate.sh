@@ -1145,15 +1145,17 @@ gate_watchdog_record_done() {
   } >"$gate_wd_durations.$$" 2>/dev/null && mv -f "$gate_wd_durations.$$" "$gate_wd_durations" 2>/dev/null || rm -f "$gate_wd_durations.$$" 2>/dev/null || true
 }
 
-# gate_watchdog_tree <root pid> <spared pids> -> every descendant of root,
-# leaving out the spared processes and everything under them.
+# gate_watchdog_tree <root pids> <spared pids> -> every descendant of the roots
+# (one pid, or several separated by spaces), leaving out the roots, the spared
+# processes and everything under them.
 gate_watchdog_tree() {
-  ps -A -o pid= -o ppid= 2>/dev/null | awk -v root="$1" -v spared="$2" '
+  ps -A -o pid= -o ppid= 2>/dev/null | awk -v roots="$1" -v spared="$2" '
     { parent[$1] = $2; order[NR] = $1 }
     END {
       n = split(spared, s, " ")
       for (i = 1; i <= n; i++) skip[s[i]] = 1
-      mine[root] = 1
+      n = split(roots, r, " ")
+      for (i = 1; i <= n; i++) { mine[r[i]] = 1; root[r[i]] = 1 }
       do {
         grew = 0
         for (i = 1; i <= NR; i++) {
@@ -1161,7 +1163,7 @@ gate_watchdog_tree() {
           if (!(p in mine) && !(p in skip) && (parent[p] in mine)) { mine[p] = 1; grew = 1 }
         }
       } while (grew)
-      for (p in mine) if (p != root) print p
+      for (p in mine) if (!(p in root)) print p
     }'
 }
 
@@ -1250,9 +1252,9 @@ gate_watchdog_started() {
 # them: if the gate moved on, this was not a stall and the next step is left
 # alone (returns 1). Then the signal that tells the gate, then the step's
 # processes, taken afresh: TERM, and KILL after GATE_STALL_GRACE seconds for
-# what is under the gate now plus whatever from the first list is still the
-# same process (a child whose parent died and left it to init), never a pid
-# some other process has since been given.
+# whatever from that list is still the same process (including a child whose
+# parent died and left it to init) and everything under it, never a pid some
+# other process has since been given.
 gate_watchdog_fire() {
   gwf_spared="$(cat "$gate_wd_dir/spared" 2>/dev/null || true)"
   gwf_shown="$(gate_watchdog_tree "$gate_wd_gate" "$gwf_spared" | tr '\n' ' ')"
@@ -1294,13 +1296,17 @@ gate_watchdog_fire() {
     sleep 1
     gwf_waited=$((gwf_waited + 1))
   done
-  gwf_last="$(gate_watchdog_tree "$gate_wd_gate" "$gwf_spared" | tr '\n' ' ')"
+  # The survivors, and what they started since: never the gate's own children
+  # by now, because the gate is already in its exit path, printing the report
+  # and removing the containers, and a KILL there ends it with no verdict.
   gwf_same="$(printf '%s\n' "$gwf_seen" | while read -r gwf_p gwf_t; do
     [ -n "$gwf_p" ] || continue
     [ "$(ps -o lstart= -p "$gwf_p" 2>/dev/null | sed 's/^ *//; s/ *$//' || true)" = "$gwf_t" ] && echo "$gwf_p"
   done | tr '\n' ' ')"
+  gwf_under=""
+  [ -z "${gwf_same%% }" ] || gwf_under="$(gate_watchdog_tree "$gwf_same" "$gwf_spared" | tr '\n' ' ')"
   # shellcheck disable=SC2086
-  set -- $gwf_last $gwf_same
+  set -- $gwf_same $gwf_under
   [ "$#" -eq 0 ] || kill -KILL "$@" 2>/dev/null || true
 }
 
@@ -1331,7 +1337,7 @@ gate_watchdog_report() {
     gwr_waited=0
     while kill -0 "$gate_wd_pid" 2>/dev/null && [ "$gwr_waited" -lt $(( (GATE_STALL_GRACE + 60) * 5 )) ]; do
       case "$(ps -o stat= -p "$gate_wd_pid" 2>/dev/null || true)" in *Z*) break ;; esac
-      sleep 0.2
+      sleep 0.2 || true
       gwr_waited=$((gwr_waited + 1))
     done
     wait "$gate_wd_pid" 2>/dev/null || true
@@ -1372,7 +1378,7 @@ gate_watchdog_close() {
   gwc_waited=0
   for gwc_tee in $gate_wd_tees; do
     while kill -0 "$gwc_tee" 2>/dev/null && [ "$gwc_waited" -lt 50 ]; do
-      sleep 0.1
+      sleep 0.1 || true
       gwc_waited=$((gwc_waited + 1))
     done
   done
