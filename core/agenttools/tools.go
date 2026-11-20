@@ -198,7 +198,7 @@ var toolRows = []Row{
 	{
 		Tool: "status", Method: "GET", Route: "/system/health", Scope: ScopeRead,
 		Description: "Read the health of every backup set: its state and the reason for it, the newest good backup, quarantined and stale counts, free space and copies away from home.",
-		Untrusted:   []string{"backup_sets[].reason", "backup_sets[].halt_reason", "backup_sets[].failed_move_reason"},
+		Untrusted:   []string{"backup_sets[].reason", "backup_sets[].halt_reason", "backup_sets[].failed_move_reason", "backup_sets[].pending_unreadable_oldest_path", "backup_sets[].pending_unreadable_warning"},
 	},
 	{
 		Tool: "backup_sets_list", Method: "GET", Route: "/backup-sets", Scope: ScopeRead,

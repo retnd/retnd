@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "656294a516e51c2adb15c002253d803fc31e2ecffbac49063e42f310b5c18a1b";
+export const CONTRACT_SHA256 = "ef4ca3de3bb459857b75f150ba9c08c0f448589a45cddda6f344b0d5c994a356";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -4015,6 +4015,10 @@ export interface WireBackupSetHealth {
   open_move_oldest_age_seconds?: number;
   open_moves: number;
   pending_deletes: number;
+  pending_unreadable: number;
+  pending_unreadable_oldest_age_seconds?: number;
+  pending_unreadable_oldest_path?: string;
+  pending_unreadable_warning?: string;
   quarantined_count: number;
   quarantined_lost_count: number;
   read_only_retained_count: number;

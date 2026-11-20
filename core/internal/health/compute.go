@@ -375,6 +375,7 @@ func ComputeBackupSetHealth(set model.BackupSetID, records []state.Record, reins
 		agg.recoveryUnmet, recoveryKind = recoveryUnmet(records, now)
 	}
 	st, reason := decideState(agg.evidence)
+	unreadableAge, unreadablePath, unreadableWarning := oldestUnreadable(in.PendingUnreadable, staleThreshold, now)
 
 	return BackupSetHealth{
 		Set:    set,
@@ -428,7 +429,52 @@ func ComputeBackupSetHealth(set model.BackupSetID, records []state.Record, reins
 		// nothing. Like the five above it, nothing in it reaches
 		// decideState; see BackupSetHealth.Snapshot.
 		Snapshot: in.Snapshot,
+
+		// The seventh (issue #1541). A count and a warning beside the
+		// verdict, never inside it: see BackupSetHealth.PendingUnreadable*.
+		PendingUnreadableCount:      len(in.PendingUnreadable),
+		PendingUnreadableOldestAge:  unreadableAge,
+		PendingUnreadableOldestPath: unreadablePath,
+		PendingUnreadableWarning:    unreadableWarning,
 	}
+}
+
+// oldestUnreadable picks the longest-waiting of a set's complete but
+// unreadable source files (issue #1541) and, once it has waited longer
+// than the set's stale threshold, the warning that names it.
+//
+// The threshold is stale_after because it is the one number the operator
+// already gave for "how long between backups before something is wrong".
+// A producer that has not published a finished file within that window is
+// exactly as overdue as one that produced nothing, and saying so earlier
+// would warn on every run whose publish step takes a few minutes. Ties on
+// first seen go to the lexically smaller path, so the named file does not
+// flicker between two reports.
+func oldestUnreadable(pending []PendingUnreadable, stale time.Duration, now time.Time) (*time.Duration, string, string) {
+	if len(pending) == 0 {
+		return nil, "", ""
+	}
+	oldest := pending[0]
+	for _, p := range pending[1:] {
+		if p.FirstSeen.Before(oldest.FirstSeen) || (p.FirstSeen.Equal(oldest.FirstSeen) && p.RemotePath < oldest.RemotePath) {
+			oldest = p
+		}
+	}
+	age := max(now.Sub(oldest.FirstSeen), 0)
+	if stale <= 0 || age <= stale {
+		return &age, oldest.RemotePath, ""
+	}
+
+	files, them := "files", "them"
+	if len(pending) == 1 {
+		files, them = "file", "it"
+	}
+	waited := fmt.Sprintf("%dh", int(age.Hours()))
+	if age < time.Hour {
+		waited = fmt.Sprintf("%dm", int(age.Minutes()))
+	}
+	return &age, oldest.RemotePath, fmt.Sprintf("%d source %s complete but unreadable for %s, oldest %s; the producer has not published %s",
+		len(pending), files, waited, oldest.RemotePath, them)
 }
 
 func pluralY(n int) string {

@@ -29,9 +29,11 @@
 //
 // # Bounded
 //
-// A result larger than MaxResultBytes is not truncated. The server asks the
-// route for a smaller page (halving its limit) and hands back the route's own
-// next_cursor, which the agent sends back as `before`. A route with no cursor
-// that answers over the cap is refused AGENT_RESULT_TOO_LARGE, and nothing is
-// cut.
+// A result larger than MaxResultBytes is not truncated. A route that pages is
+// asked for a smaller page (halving its limit) and its own next_cursor comes
+// back, which the agent sends back as `before`. A route with no cursor is
+// paged by the server (page.go): whole items of its largest array, and a
+// cursor of the server's own for the rest, good only for that answer. What has
+// no list to cut, or whose one item is over the cap, is refused
+// AGENT_RESULT_TOO_LARGE, and nothing is ever cut without a cursor.
 package agentmcp
