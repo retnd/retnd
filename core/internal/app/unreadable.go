@@ -31,10 +31,14 @@ import (
 // is kept by passes, not by the clock: every pass that runs discovery on
 // the set carries the first-seen times forward however long after the last
 // one it ran (one cycle runs its sets in turn, transfers included, so a set
-// can be reached well after its poll interval), and a pass that ends
-// without running discovery, or a cycle that skips the set as disabled or
-// held, drops the record. Otherwise a set nobody is discovering would keep
-// ageing a warning that blames its producer for something no pass checked.
+// can be reached well after its poll interval). Every pass is bracketed
+// where it is dispatched (startPass and endPass, from RunCycle and Fetch),
+// outside the workflow lifecycle and everything else that can turn it
+// away, so a pass that ends without running discovery, for whatever reason
+// and at whatever layer, drops the record; so does a cycle that skips the
+// set as disabled or held. Otherwise a set nobody is discovering would
+// keep ageing a warning that blames its producer for something no pass
+// checked.
 
 // unreadableSources is the per-set record. It has its own lock because the
 // cycle writes it while the alerting goroutine's health report reads it,
@@ -42,6 +46,11 @@ import (
 type unreadableSources struct {
 	mu    sync.Mutex
 	bySet map[model.BackupSetID]map[string]time.Time
+
+	// discoveries counts, per set, the passes that ran discovery, which is
+	// how endPass tells a pass that looked at the source from one that did
+	// not.
+	discoveries map[model.BackupSetID]uint64
 }
 
 // observe replaces set's record with what this discovery pass found
@@ -65,8 +74,29 @@ func (u *unreadableSources) observe(set model.BackupSetID, res discovery.Result,
 	}
 	if u.bySet == nil {
 		u.bySet = make(map[model.BackupSetID]map[string]time.Time)
+		u.discoveries = make(map[model.BackupSetID]uint64)
 	}
 	u.bySet[set] = next
+	u.discoveries[set]++
+}
+
+// startPass is called as a pass over set is dispatched and returns what
+// endPass compares against.
+func (u *unreadableSources) startPass(set model.BackupSetID) uint64 {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.discoveries[set]
+}
+
+// endPass is called when that pass is over, however it ended. If it ran no
+// discovery (the workflow refused it, it stopped, reconcile or the listing
+// failed, or its engine runs none) the set's record goes.
+func (u *unreadableSources) endPass(set model.BackupSetID, since uint64) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.discoveries[set] == since {
+		delete(u.bySet, set)
+	}
 }
 
 // forget drops set's record: a pass ended without running discovery on it,
@@ -110,6 +140,11 @@ func (u *unreadableSources) keepOnly(cfg *config.Config) {
 	for set := range u.bySet {
 		if !configured[set] {
 			delete(u.bySet, set)
+		}
+	}
+	for set := range u.discoveries {
+		if !configured[set] {
+			delete(u.discoveries, set)
 		}
 	}
 }

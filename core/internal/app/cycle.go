@@ -352,7 +352,13 @@ sourcesLoop:
 				continue
 			}
 			s.recordPollAttempt(bs.ID, s.now())
+			// Issue #1541: bracketed here, outside the workflow and every
+			// early return inside the pass, so a pass that never ran
+			// discovery drops the set's unreadable record whatever stopped
+			// it (see unreadable.go).
+			since := s.unreadableState().startPass(bs.ID)
 			report.Sets = append(report.Sets, s.runBackupSetInWorkflow(ctx, src, bs))
+			s.unreadableState().endPass(bs.ID, since)
 		}
 	}
 
@@ -429,17 +435,6 @@ sourcesLoop:
 func (s *Service) processBackupSet(ctx context.Context, src config.Source, bs config.BackupSet) BackupSetCycleResult {
 	result := BackupSetCycleResult{Set: bs.ID}
 	source := sourceFor(s.Config, src, bs)
-
-	// Issue #1541: a pass that ends before discovery ran (a stop, the host
-	// slot, a reconcile error, an engine that runs no discovery) says
-	// nothing current about which source files are unreadable, so the
-	// set's record goes and the next pass that does look starts again.
-	reachedDiscovery := false
-	defer func() {
-		if !reachedDiscovery {
-			s.unreadableState().forget(bs.ID)
-		}
-	}()
 
 	// From here on this set runs on its own context, cancelled the moment
 	// an edit hold lands on it (issue #350, holds.go). Every ctx.Err()
@@ -594,7 +589,6 @@ func (s *Service) processBackupSet(ctx context.Context, src config.Source, bs co
 		return result
 	}
 	discRes, err := s.discoverOne(ctx, source, bs)
-	reachedDiscovery = err == nil
 	result.Discovery = discRes
 	discovered, alreadyKnown, pending, rejected, conflicts, errored := eventDiscoveryCounts(discRes)
 	s.logger().Discovery(ctx, bs.ID.String(), discovered, alreadyKnown, pending, rejected, conflicts, errored)

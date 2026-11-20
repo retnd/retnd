@@ -793,8 +793,9 @@ oldest one has waited longer than the set's `stale_after` the set shows a
 warning naming it, without its state changing. That record is kept in
 the engine's memory and carried by every pass that runs discovery on the
 set, however late in its cycle the set is reached. A pass that ends
-without running discovery, or a cycle that skips the set as disabled or
-held, drops it, so such a set reports none and the next pass that looks
+without running discovery (whatever stopped it, the set's workflow
+refusing it included), or a cycle that skips the set as disabled or held,
+drops it, so such a set reports none and the next pass that looks
 starts the clock again. Transfer is unchanged: an
 artifact already DISCOVERED that is denied at its open is still FAILED
 under FR-22.

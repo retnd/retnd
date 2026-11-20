@@ -70,12 +70,10 @@ func (s *Service) discoverOne(ctx context.Context, source transport.Source, bs c
 		return err
 	})
 	// Issue #1541. A pass that listed the source says which files are
-	// unreadable now. One that could not list it says nothing current, so
-	// the record goes rather than ageing a warning nobody has checked.
+	// unreadable now. One that could not says nothing current, and the
+	// bracket around the whole pass (startPass/endPass) drops the record.
 	if err == nil {
 		s.unreadableState().observe(bs.ID, res, s.now())
-	} else {
-		s.unreadableState().forget(bs.ID)
 	}
 	return res, err
 }
