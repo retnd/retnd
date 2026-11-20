@@ -211,6 +211,23 @@ else
   fail "M5 ui-browser opt-in" "rc=$(rc) $(cat "$work/stdout")"
 fi
 
+# M3-M6: a shard with a minimum memory (selftest-encryption, 9g: its two copycrypt
+# controls allocate several GiB and were OOM-killed at 4g, the #1538 review B3).
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard selftest-encryption)" CI_DOCKER_MEMORY=6g bash "$runner" selftest-encryption --host mars --out "$work/out"
+if [ "$(rc)" = 3 ] && [ ! -s "$work/log/ci-docker" ] && grep -q 'at least 9g' "$work/stdout" && result_has status=incomplete selftest-encryption; then
+  pass "M3 selftest-encryption under a 6g fence: INCOMPLETE before anything ships, naming the 9g it needs"
+else
+  fail "M3 encryption fence too small" "rc=$(rc) $(head -c 400 "$work/stdout")"
+fi
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard selftest-encryption)" CI_DOCKER_MEMORY=8192m bash "$runner" selftest-encryption --host mars --out "$work/out"
+[ "$(rc)" = 3 ] && [ ! -s "$work/log/ci-docker" ] && pass "M4 8192m is still under 9g and refused the same way" || fail "M4 8192m" "rc=$(rc)"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard selftest-encryption)" CI_DOCKER_MEMORY=9g bash "$runner" selftest-encryption --host mars --out "$work/out"
+[ "$(rc)" = 0 ] && grep -q 'memory=9g' "$work/log/ci-docker-env" && pass "M5 control: a 9g fence runs it" || fail "M5 9g" "rc=$(rc) $(cat "$work/log/ci-docker-env")"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard selftest-encryption)" bash "$runner" selftest-encryption --host mars --out "$work/out"
+[ "$(rc)" = 0 ] && grep -q 'memory=9g' "$work/log/ci-docker-env" && pass "M6 no fence asked for: the runner asks ci-docker for the shard's 9g" || fail "M6 default" "rc=$(rc) $(cat "$work/log/ci-docker-env")"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard core-docker)" CI_DOCKER_MEMORY=6g bash "$runner" core-docker --host mars --out "$work/out"
+[ "$(rc)" = 0 ] && pass "M7 control: a shard with no minimum still takes a 6g fence" || fail "M7 other shard" "rc=$(rc)"
+
 # --- R what a reader of the result can trust ---------------------------------
 run_runner env FAKE_VERDICT="==> ci-local: ok (shard static)" bash "$runner" static --host mars --out "$work/out"
 run_runner env FAKE_VERDICT="==> ci-local: ok" bash "$runner" static --host mars --out "$work/out"

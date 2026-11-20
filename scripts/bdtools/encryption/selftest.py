@@ -57,7 +57,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from bdtools import harness, selftest_swap
+from bdtools import harness, selftest_lanes, selftest_swap
+
+# Which controls need a lane beyond Go, pinned (bdtools/selftest_lanes.py).
+LANES_FILE = Path(__file__).resolve().parent / "lanes.txt"
 
 PROGRAM = "encryption selftest"
 
@@ -398,14 +401,6 @@ def caught(c: Control, code: int, out: str) -> tuple[bool, str]:
     return True, "; ".join(lines)[:400] + (f" | {detail[:300]}" if detail else "")
 
 
-def needs_lane(cmd: list[str]) -> bool:
-    """A control that drives a browser or the capture rig (the Playwright
-    lock), starts docker itself, or runs a case from the retnd-tests checkout:
-    none of which a gate host has inside its own container."""
-    line = " ".join(cmd)
-    return cmd[0].endswith("xdg-pw-lock.sh") or "docker " in line or "retnd_tests_case.sh" in line
-
-
 def selected(c: Control, only: list[str]) -> bool:
     return not only or any(o in c.label or o in c.rows for o in only)
 
@@ -420,14 +415,14 @@ def commit_of(root: Path) -> str:
 def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | None) -> int:
     tally = selftest_swap.Tally()
     controls = [c for c in CONTROLS if selected(c, only)]
-    if os.environ.get("RETND_SELFTEST_SKIP_BROWSER") == "1":
-        # The controls that drive a browser or the capture rig go through the
-        # Playwright lock on a machine that has the pinned image; the gate hosts
-        # do not (#1537). Say so out loud, run the rest, and leave the skipped
-        # ones to a lane that has a browser.
-        browser = [c for c in controls if c.cmd and needs_lane(c.cmd)]
-        controls = [c for c in controls if c not in browser]
-        print(f"==> RETND_SELFTEST_SKIP_BROWSER=1: not running {len(browser)} controls that need the Playwright lock, a docker daemon or the retnd-tests checkout")
+    pinned = selftest_lanes.load_pinned(LANES_FILE)
+    lane_problems = selftest_lanes.pin_problems({c.label: c.cmd for c in CONTROLS}, pinned)
+    if lane_problems:
+        harness.die(f"the controls that need a lane disagree with {LANES_FILE.name}; edit it in the same change, it is the reviewed list",
+                    *lane_problems)
+    have = {} if dry_run or record is not None else selftest_lanes.host_lanes(root)
+    controls, skipped = selftest_lanes.plan(controls, pinned, have, dry_run=dry_run, recording=record is not None)
+    skip_code = selftest_lanes.report(skipped, "encryption", os.environ.get("RETND_SELFTEST_SKIP_LEDGER", ""))
     labels = [c.label for c in CONTROLS]
     dupes = sorted({x for x in labels if labels.count(x) > 1})
     if dupes:
@@ -506,6 +501,9 @@ def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | 
         print(f"OK: all {checked} encryption mutation anchors still name code that is in this tree.")
     else:
         print(f"OK: all {tally.passed} encryption controls went red naming their test and green again unplanted.")
+        if skip_code:
+            print(f"INCOMPLETE: {len(skipped)} controls were not run on this host (listed above).", file=sys.stderr)
+            return harness.EXIT_INCOMPLETE
     return harness.EXIT_OK
 
 
