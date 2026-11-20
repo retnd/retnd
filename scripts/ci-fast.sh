@@ -17,7 +17,8 @@
 #                 check (seconds each, and the two that would have caught
 #                 both headline breaks on main)
 #   Go test files the former-name scan (scripts/rename/check-no-former-name.sh)
-#                 on any commit that touches a *_test.go (#1618)
+#                 on any commit that touches a *_test.go (#1618); it reads the
+#                 staged blobs, not the working tree (#1622)
 #   Go files      gofmt on the changed files, then go vet, golangci-lint
 #                 and go test on the packages those files live in, per
 #                 module. Nothing downstream of them is rebuilt. A
@@ -568,7 +569,9 @@ bash scripts/api/check-contract-drift.sh
 # test file now runs the tree-wide scan (scripts/rename/check-no-former-name.sh,
 # git grep over tracked files, no Go toolchain, about a second). It is not
 # scoped to the staged files: the name in a file nobody touched is the same
-# failure, and the scan is cheaper than working out which files it owns.
+# failure, and the scan is cheaper than working out which files it owns. It
+# reads the index (git grep --cached, #1622), so it judges what is staged, not
+# whatever the working tree happens to hold.
 if has '_test\.go$'; then
   gate_step "no test file spells the former name (#1618)"
   bash scripts/rename/check-no-former-name.sh
