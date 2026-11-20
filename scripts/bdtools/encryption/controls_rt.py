@@ -1,13 +1,14 @@
-# The retnd-tests half of EPIC T's T2.4 and EPIC N's N2.5 (#1331), and the
-# in-repo checker controls T2.4 names. exec'd by selftest.py with Control and
-# PLANT already defined.
+# The retnd-tests half of EPIC T's T2.4 and the in-repo checker controls T2.4
+# names (#1331), plus EPIC N's in-repo Suite C control (#1565). exec'd by
+# selftest.py with Control and PLANT already defined.
 #
-# The Suite A and Suite C controls run scripts/bdtools/encryption/
-# retnd_tests_case.sh, which builds retnd and retnd-web from the planted copy
-# and runs one case of the retnd-tests checkout at the pinned sha against
-# them. They need RETND_TESTS_DIR (that checkout, with Suite C's npm
-# dependencies and Playwright browser installed) and RETND_COMMIT in the
-# environment, and Suite C needs ui/shared's node_modules in the real tree.
+# T2.4's Suite A controls run scripts/bdtools/encryption/retnd_tests_case.sh,
+# which builds retnd from the planted copy and runs one case of the
+# retnd-tests checkout at the pinned sha against it. They need RETND_TESTS_DIR
+# (that checkout) and RETND_COMMIT in the environment. EPIC N's control is plain
+# go test: N's suites are proved in this repository, because retnd-tests
+# cannot make an encrypted retained copy (its suites/cli/COVERAGE.md, Known
+# gaps).
 
 from typing import TYPE_CHECKING
 
@@ -20,7 +21,7 @@ NEGATIVES_TEST = "core/tests/encryptionsuites/negatives_test.go"
 SUITES_TEST = "core/tests/encryptionsuites/suites_test.go"
 CONFIG_RCE_RT = "core/internal/config/retainedcopyencryption.go"
 KEYSTORE_RT = "core/internal/keycustody/store.go"
-SCRUB_CLI = "core/cmd/retnd/scrub.go"
+ENCRYPTION_CLI_RT = "core/cmd/retnd/encryption.go"
 CASE = "scripts/bdtools/encryption/retnd_tests_case.sh"
 # The checker's loop over the negative cases; a plant here makes it skip a kind.
 LOOP = "\tfor i, c := range cases {\n\t\tdir := filepath.Join(base.root, fmt.Sprintf(\"recovered-%d\", i))"
@@ -60,16 +61,19 @@ CONTROLS = [
         needles=["--- FAIL: TestCLIContract/encryption/a-key-created-under-age-v1-stays-age-v1"],
         timeout="30m",
     ),
+    # EPIC N's Suite C exit-code clause: the engine route (the API) and the
+    # direct route have to exit alike. The plant leaves the answer and the
+    # configuration identical and changes only the engine route's exit code on
+    # a success, so nothing but the exit-code comparison can catch it.
     Control(
-        "RT the CLI exits 0 on a failing scrub, under Suite C",
+        "RT the engine route exits 1 where the direct route succeeds, under Suite C",
         ("N2.5",),
-        [(SCRUB_CLI, "\tif sum.Failed+sum.CouldNotComplete+sum.SkippedHeld+sum.SkippedLeased+sum.Refused > 0 {\n\t\treturn 1\n\t}",
-          "\tif sum.Failed+sum.CouldNotComplete+sum.SkippedHeld+sum.SkippedLeased+sum.Refused > 0 {\n\t\treturn 0 " + PLANT.strip() + "\n\t}")],
-        "",
-        cmd=["bash", CASE, "c", "specs/exit-codes.986.spec.ts", "a corrupted copy fails its scrub"],
-        needles=["1 failed", "a failed scrub must not exit 0"],
-        links=["ui/shared/node_modules"],
-        timeout="30m",
+        [(ENCRYPTION_CLI_RT, "\t\tgot, err := route.ResetEncryptionPolicy(ctx)\n\t\tif err != nil {\n\t\t\treturn fail(err)\n\t\t}\n\t\treturn encryptionAnswer(*asJSON, got, func() { printEncryptionPolicy(got) })",
+          "\t\tgot, err := route.ResetEncryptionPolicy(ctx)\n\t\tif err != nil {\n\t\t\treturn fail(err)\n\t\t}\n"
+          "\t\tcode := encryptionAnswer(*asJSON, got, func() { printEncryptionPolicy(got) })\n"
+          "\t\tif _, viaEngine := route.(*engineRoute); viaEngine { " + PLANT.strip() + "\n\t\t\treturn exitFailure\n\t\t}\n\t\treturn code")],
+        "./cmd/retnd/",
+        ["TestEveryEncryptionWriteLeavesTheSameConfigurationOnBothRoutes_996"],
     ),
 ]
 
