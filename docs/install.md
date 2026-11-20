@@ -503,7 +503,7 @@ for f in config.yaml ssh_keys known_hosts.d retained_copy_keys; do
   if [ -e "$CONFIG_DIR/$f" ]; then cp -a "$CONFIG_DIR/$f" "$ARC_CONFIG/"; fi
 done
 cp -a .env compose.image.yaml "$ARCHIVE/"
-echo "archived; to check it, export ARCHIVE=$ARCHIVE"
+echo "archived; to check it, export ARCHIVE='$ARCHIVE'"
 EOF
 ```
 
@@ -612,18 +612,19 @@ CONFIG_BACK=no
 if [ -e "$ARC_CONFIG/config.yaml" ] && ! cmp -s "$ARC_CONFIG/config.yaml" "$CONFIG_DIR/config.yaml"; then
   CONFIG_BACK=yes
 fi
-MOVING=
+taken() {
+  echo "$1.superseded is already there from an earlier attempt; rename it first. Nothing was stopped or moved" >&2
+  exit 1
+}
 for f in state.db state.db-wal state.db-shm local-auth.json; do
-  if [ -e "$STATE_DIR/$f" ]; then MOVING="$MOVING $STATE_DIR/$f"; fi
+  if [ -e "$STATE_DIR/$f" ] && [ -e "$STATE_DIR/$f.superseded" ]; then taken "$STATE_DIR/$f"; fi
 done
-if [ "$CONFIG_BACK" = yes ]; then MOVING="$MOVING $CONFIG_DIR/config.yaml"; fi
-if [ -e "$ARCHIVE/compose.image.yaml" ]; then MOVING="$MOVING $PWD/.env $PWD/compose.image.yaml"; fi
-for p in $MOVING; do
-  if [ -e "$p.superseded" ]; then
-    echo "$p.superseded is already there from an earlier attempt; rename it first. Nothing was stopped or moved" >&2
-    exit 1
-  fi
-done
+if [ "$CONFIG_BACK" = yes ] && [ -e "$CONFIG_DIR/config.yaml.superseded" ]; then taken "$CONFIG_DIR/config.yaml"; fi
+if [ -e "$ARCHIVE/compose.image.yaml" ]; then
+  for f in .env compose.image.yaml; do
+    if [ -e "$f.superseded" ]; then taken "$PWD/$f"; fi
+  done
+fi
 
 # 1. stop
 docker compose -p retnd --env-file .env -f compose.yaml -f compose.image.yaml stop
@@ -692,9 +693,11 @@ stopped and running the block again refuses on the `.superseded` files it alread
 way out is to undo it and start over: in the state directory, rename each `X.superseded` it
 made back to `X` (the same for `config.yaml`, `.env` and `compose.image.yaml` if it got that
 far). That puts the newer release's files back exactly as they were, over any half-finished
-copy from the archive. A `state.db-wal` or `state.db-shm` copied from the archive that has no
-`.superseded` twin has to go as well (it's a copy, the archive still has it), or SQLite
-replays it onto the newer journal. Then either fix the cause and run the block again, or
+copy from the archive. A file the block copied from the archive that has no `.superseded`
+twin has to go as well (it's a copy, the archive still has it): a `state.db-wal` or
+`state.db-shm`, or SQLite replays it onto the newer journal, and a `local-auth.json` when
+the newer release had none, or you're back on the newer release with an administrator record
+it didn't have. Then either fix the cause and run the block again, or
 `up -d` to carry on with the newer release while you think.
 
 Then start it and look:
