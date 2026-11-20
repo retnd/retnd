@@ -298,7 +298,7 @@ if [ -n "$target" ]; then
   # every directory above a key and refuse a group-writable one, so every
   # SFTP fixture failed with "has a containing directory ... with
   # permissions 0775" and nothing about the remote copy said why (#1331).
-  "${rsh[@]}" "$target" "umask 022 && mkdir -p '$run_repo' '$run_git' '$remote_root/xdg'"
+  "${rsh[@]}" "$target" "umask 022 && mkdir -p '$run_repo' '$run_git' '$remote_root/xdg' '$remote_root/tmp'"
 
   # The files git knows about, so what .gitignore keeps out (node_modules,
   # build output, most credential files) stays out. node_modules would be
@@ -412,9 +412,19 @@ declare -a mounts=(
 # The scratch copy is removed with everything else on exit.
 if [ -n "$target" ]; then
   mounts+=(-v "$remote_root/xdg:$remote_root/xdg")
+  # TMPDIR on disk, in the same scratch copy (#1580). On a Linux daemon /tmp
+  # is the host's (below), and MARS's /tmp is tmpfs: whatever a self-test
+  # writes there is memory charged to this container's fence, which cannot be
+  # swapped out, and the architecture self-test's tree copies took the gate
+  # past 7g that way. Same path inside and out, so a test that bind-mounts a
+  # temp directory into a sibling container still names a path the daemon
+  # can find. /tmp itself stays shared: the tests that need a short root for
+  # a unix socket ask for /tmp by name, not through TMPDIR. Removed with the
+  # rest of the scratch copy on exit.
+  mounts+=(-v "$remote_root/tmp:$remote_root/tmp")
   # `env` in front of the command rather than a -e flag, because this mode
   # promises the container no environment variables from the caller.
-  xdg_env=(env "XDG_CACHE_HOME=$remote_root/xdg")
+  xdg_env=(env "XDG_CACHE_HOME=$remote_root/xdg" "TMPDIR=$remote_root/tmp")
 else
   mounts+=(-v "${vol_prefix}-xdg:/ci/.cache/retnd-tests-gate")
 fi
