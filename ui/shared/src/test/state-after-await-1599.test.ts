@@ -13,7 +13,8 @@
  * Every .ts and .tsx under src that ships is parsed with TypeScript. A
  * setter is the second name out of `useState` or `useReducer`, or a `set*`
  * name destructured from another hook's answer, in the component or hook
- * that declares it. A call to one is "after an await" when an `await` comes
+ * that declares it, and so is a plain function there that calls one
+ * straight away (`const forget = () => { ...; setHasPassword(false); }`). A call to one is "after an await" when an `await` comes
  * before it in the same async function (or in a loop that awaits), or when
  * it sits in a `.then`, `.catch` or `.finally` callback. A setter handed
  * straight to `.then(setX)` can never be guarded, so it always counts.
@@ -132,8 +133,21 @@ function findSites(file: string, text: string): Site[] {
     return s;
   };
 
+  // Plain (not async) functions a component declares, which may set state
+  // themselves: `const forget = () => { ...; setHasPassword(false); }`.
+  const helpers: { scope: Scope; name: string; fn: Fn }[] = [];
+  const helper = (n: ts.Node, name: string, fn: ts.Node) => {
+    if (isFn(fn) && !isAsync(fn) && enclosingFn(n)) helpers.push({ scope: scopeOf(n), name, fn });
+  };
+
   // First pass: what each function declares.
   const declare = (n: ts.Node) => {
+    if (ts.isFunctionDeclaration(n) && n.name) helper(n, n.name.text, n);
+    if (ts.isVariableDeclaration(n) && n.initializer && ts.isIdentifier(n.name)) {
+      const init = unparen(n.initializer);
+      if (ts.isCallExpression(init) && calleeName(init) === "useCallback" && init.arguments[0]) helper(n, n.name.text, init.arguments[0]);
+      else helper(n, n.name.text, init);
+    }
     if (ts.isVariableDeclaration(n) && n.initializer) {
       const init = unparen(n.initializer);
       if (ts.isCallExpression(init)) {
@@ -192,6 +206,27 @@ function findSites(file: string, text: string): Site[] {
     }
     return out;
   };
+
+  // A helper that calls a setter (or another such helper) synchronously is a
+  // setter too, as far as a caller after an await is concerned.
+  const setsStateNow = (fn: Fn, s: Scope, self: string): boolean => {
+    let found = false;
+    const walk = (m: ts.Node) => {
+      if (found || (isFn(m) && m !== fn)) return;
+      if (ts.isCallExpression(m) && ts.isIdentifier(m.expression) && m.expression.text !== self && s.setters.has(m.expression.text)) found = true;
+      ts.forEachChild(m, walk);
+    };
+    if (fn.body) walk(fn.body);
+    return found;
+  };
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const h of helpers) {
+      if (h.scope.setters.has(h.name) || !setsStateNow(h.fn, visible(h.fn), h.name)) continue;
+      h.scope.setters.add(h.name);
+      changed = true;
+    }
+  }
 
   // Truthy only while mounted, and truthy whenever gone. The two are each
   // other's negation, which is what lets `!` flip one into the other.
@@ -454,6 +489,15 @@ describe("#1599 the guard check itself", () => {
   it("counts a callback made after an await, unless the check comes first", () => {
     expect(flagged("  const go = async () => { await api.a(); setTimeout(() => setX(0), 10); };")).toEqual(["x.tsx › Card.go › setX"]);
     expect(flagged("  const go = async () => { await api.a(); if (!mounted.current) return; [1].forEach((v) => setX(v)); };")).toEqual([]);
+  });
+
+  it("counts a plain helper that sets state, called after an await", () => {
+    const body = "  const forget = () => { setX(0); };\n  const go = async () => { await api.a(); forget(); };";
+    expect(flagged(body)).toEqual(["x.tsx › Card.go › forget"]);
+    const deeper = "  const reset = useCallback(() => setX(0), []);\n  function both() { reset(); }\n  const go = async () => { await api.a(); both(); };";
+    expect(flagged(deeper)).toEqual(["x.tsx › Card.go › both"]);
+    const later = "  const soon = () => { setTimeout(() => setX(0), 10); };\n  const go = async () => { await api.a(); soon(); };";
+    expect(flagged(later)).toEqual([]);
   });
 
   it("sees set* names destructured from another hook", () => {
