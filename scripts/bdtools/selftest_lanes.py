@@ -37,9 +37,9 @@ PW_LOCK = Path("/Users/rom/workspace/xdg-pw-lock.sh")
 
 # docker run in command position: at the start, or after ; & | ( or then/else.
 _DOCKER_RUN = re.compile(r"(?:^|[;&|(]\s*|\b(?:then|else|do)\s+)docker\s+run\b")
-# a vitest or tsc run that falls back from docker to npx (see ui_node in
-# encryption/controls_ui.py): it needs node and ui/shared's dependencies.
-_NODE_RUN = re.compile(r"\belse\s+(?:env\s+(?:\S+=\S+\s+)*)?npx\s+(?:vitest|tsc)\b")
+# a vitest or tsc run that prefers the local node (see ui_node in
+# encryption/controls_ui.py): it needs node or docker, and ui/shared's dependencies.
+_NODE_RUN = re.compile(r"\bthen\s+(?:env\s+(?:\S+=\S+\s+)*)?npm\s+exec\s+--no\s+--\s+(?:vitest|tsc)\b")
 
 
 class HasCommand(Protocol):
@@ -91,6 +91,11 @@ def pin_problems(commands: dict[str, list[str]], pinned: dict[str, frozenset[str
     return problems
 
 
+def node_lane(root: Path, *, has_node: bool, has_docker: bool) -> bool:
+    """vitest and tsc need ui/shared's node_modules, and node or a docker daemon to run them."""
+    return (root / "ui/shared/node_modules").is_dir() and (has_node or has_docker)
+
+
 def host_lanes(root: Path) -> dict[str, bool]:
     """Probe this host for each lane."""
     docker = False
@@ -99,7 +104,7 @@ def host_lanes(root: Path) -> dict[str, bool]:
             docker = subprocess.run(["docker", "info"], capture_output=True, timeout=20, check=False).returncode == 0
         except (OSError, subprocess.TimeoutExpired):
             docker = False
-    node = docker or (shutil.which("node") is not None and (root / "ui/shared/node_modules").is_dir())
+    node = node_lane(root, has_node=shutil.which("node") is not None, has_docker=docker)
     tests_dir = os.environ.get("RETND_TESTS_DIR", "")
     return {
         LANE_LOCK: docker and PW_LOCK.is_file(),

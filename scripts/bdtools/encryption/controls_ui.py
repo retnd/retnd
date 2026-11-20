@@ -47,16 +47,21 @@ def ui_playwright(spec: str, grep: str = "") -> list[str]:
             f'npx playwright test -c e2e/playwright.config.ts --output /tmp/h/pw-out {spec}{g}']
 
 
-def ui_node(npx: str, env: str) -> list[str]:
-    # vitest and tsc need node and ui/shared's dependencies, not a browser. On a
-    # machine with a docker daemon they run in the pinned node image, as they
-    # always did; in a gate container with no daemon they run with the node it
-    # has, from the copy (whose node_modules is linked from the real tree). The
-    # `else npx` is what selftest_lanes reads as the node lane.
+def ui_node(exe: str, env: str) -> list[str]:
+    # vitest and tsc need node and ui/shared's dependencies, not a browser. The
+    # copy's node_modules is a link into the real tree. With node and that link
+    # in place they run right here (the gate container has both); otherwise in
+    # the pinned node image with the link's target mounted beside the copy, the
+    # way the agents helpers do it. `npm exec --no` never downloads: a missing
+    # tool is a failure, not a fetch. The `then ... npm exec --no` is what
+    # selftest_lanes reads as the node lane, and it needs node_modules either way.
+    flags = " ".join("-e " + e_ for e_ in env.split())
     return ["sh", "-c",
-            'w=$(cd ../.. && pwd -P); if docker info >/dev/null 2>&1; then '
-            f'docker run --rm --cpus 3 --memory 4g --user 501:20 -e HOME=/tmp/h {" ".join("-e " + e for e in env.split())} '
-            f'{_mounts()} {UI_NODE_IMAGE} npx {npx}; else env {env} npx {npx}; fi']
+            'w=$(cd ../.. && pwd -P); if command -v node >/dev/null 2>&1 && [ -d node_modules ]; then '
+            f'env {env} npm exec --no -- {exe}; else '
+            'l=$(readlink node_modules || echo "$w/ui/shared"); '
+            f'docker run --rm --cpus 3 --memory 4g --user 501:20 -e HOME=/tmp/h {flags} '
+            f'-v "$w:$w" -v "$l:$l" -w "$w/ui/shared" {UI_NODE_IMAGE} npm exec --no -- {exe}; fi']
 
 
 def ui_tsc() -> list[str]:

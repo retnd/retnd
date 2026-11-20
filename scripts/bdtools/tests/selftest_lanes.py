@@ -40,7 +40,7 @@ from bdtools.tests import testkit  # noqa: E402
 
 LOCK = "/Users/rom/workspace/xdg-pw-lock.sh"
 NODE_FALLBACK = (
-    "w=$(pwd); if docker info >/dev/null 2>&1; then docker run img npx vitest run a; else npx vitest run a; fi"
+    "if command -v node && [ -d node_modules ]; then env CI=1 npm exec --no -- vitest run a; else docker run img x; fi"
 )
 
 
@@ -57,7 +57,7 @@ def main() -> int:
     vis = lanes.visible_needs
     s.assert_eq("A a Playwright spec needs the lock and docker", "docker,playwright-lock",
                 ",".join(sorted(vis([LOCK, "sh", "-c", "w=$(pwd); docker run img npx playwright test x"]))))
-    s.assert_eq("A a vitest run with the node fallback needs node only", "node",
+    s.assert_eq("A a vitest run that prefers the local node needs node only", "node",
                 ",".join(sorted(vis(["sh", "-c", NODE_FALLBACK]))))
     s.assert_eq("A a bare docker run needs docker", "docker",
                 ",".join(sorted(vis(["sh", "-c", "w=$(pwd); docker run --rm img true"]))))
@@ -143,7 +143,9 @@ def main() -> int:
             "G the node lane is missing when ui/shared/node_modules is, node and docker or not",
             "G the node lane was granted with no node_modules")
     (root / "ui/shared/node_modules").mkdir(parents=True)
-    s.check(lanes.node_lane(root, has_node=True, has_docker=False) and lanes.node_lane(root, has_node=False, has_docker=True),
+    node_only = lanes.node_lane(root, has_node=True, has_docker=False)
+    docker_only = lanes.node_lane(root, has_node=False, has_docker=True)
+    s.check(node_only and docker_only,
             "G with node_modules, node alone or docker alone is enough",
             "G node_modules plus node or docker was refused")
     s.check(not lanes.node_lane(root, has_node=False, has_docker=False),
