@@ -36,6 +36,16 @@
 # CI_LOCAL_SKIP_JS=1 leaves it out on purpose). The full gate, under
 # CI_LOCAL_FULL=1, still refuses as it always did (#160).
 #
+# THE QUEUE (#1544). Every worktree of this clone runs this hook, so the fast
+# tier's heavy part (go vet, golangci-lint, go test, the JS checks) queues
+# behind other worktrees' runs: it waits while the load is above the core
+# count (10 minutes at most), then takes one lock shared by every worktree
+# and runs at nice 10. A commit that seems stuck is usually waiting its turn,
+# and it says for whom. To see who holds the lock:
+#   readlink "$(git rev-parse --git-common-dir)/ci-fast.lock"
+# and the pid and worktree are in the directory it names. CI_FAST_LOCK=0
+# skips the queue (scripts/ci-fast.sh's header has the rest).
+#
 # Three outcomes, and this hook has to make its own decision about the
 # middle one rather than inherit it by accident:
 #

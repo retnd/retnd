@@ -72,10 +72,14 @@
 # run by construction.
 #
 # Every heavy command runs under a watchdog: no output for CI_FAST_STALL_MIN
-# minutes (default 10), or a run past CI_FAST_CAP_MIN (default 30; the
-# Docker-backed tests get at least 50 and 20), stops it and everything under
-# it and ends the run "ci-local: FAILED (STALLED: <step>, <why>)". 0 turns
-# a limit off.
+# minutes (default 10), or a run past CI_FAST_CAP_MIN (default 30), stops it
+# and everything under it and ends the run "ci-local: FAILED (STALLED:
+# <step>, <why>)". 0 turns a limit off. The Go steps are quiet by nature
+# (go vet and golangci-lint print nothing until they finish, go test nothing
+# until a package does), so their quiet limit has a floor: 20 minutes for
+# vet and lint, and for go test 2 minutes past its own -timeout (22, and 47
+# for the Docker-backed packages, whose cap is at least 50), so a real hang
+# ends in Go's timeout panic with its goroutine dump instead of a kill.
 set -e
 
 mode=staged
@@ -243,8 +247,20 @@ fast_wait_for_load() {
 # holder's own directory beside it, see gate_lock_acquire), its dead-holder
 # reclaim, and a wait that is capped and goes ahead without the lock at the
 # cap instead of failing the commit.
+#
+# fast_lock_path is set before the first attempt, not after the loop: a
+# signal can land between the `ln -s` and the next line, and release has to
+# see the path then, or it deletes the holder directory and leaves the link
+# pointing at nothing (#1552 review, B2). Release only removes a link that
+# points at this run's own directory, so knowing the path early is safe.
+#
+# A link whose holder directory is gone has no holder to ask. It is only
+# that way for an instant during a reclaim (the directory is renamed, then
+# the link), so one still dangling at the same target after three polls was
+# left by a run killed in that instant and is removed.
 fast_lock_acquire() {
   fla_path="$1"
+  fast_lock_path="$fla_path"
   fast_lock_mine="$fla_path.$(gate_lock_identity)"
   rm -rf "$fast_lock_mine"
   mkdir -p "$fast_lock_mine"
@@ -256,10 +272,36 @@ fast_lock_acquire() {
   fla_began="$(date +%s)"
   fla_said=-60
   fla_waited=0
+  fla_dangling=""
+  fla_dangling_polls=0
   while ! gate_lock_try "$fla_path" "$(basename "$fast_lock_mine")"; do
     fla_holder=""
     fla_target="$(readlink "$fla_path" 2>/dev/null || true)"
     [ -z "$fla_target" ] || fla_holder="$(dirname "$fla_path")/$fla_target"
+    if [ -n "$fla_holder" ] && [ ! -d "$fla_holder" ]; then
+      if [ "$fla_target" = "$fla_dangling" ]; then
+        fla_dangling_polls=$((fla_dangling_polls + 1))
+      else
+        fla_dangling="$fla_target"
+        fla_dangling_polls=1
+      fi
+      if [ "$fla_dangling_polls" -ge 3 ] && mv "$fla_path" "$fla_path.deadlink.$$" 2>/dev/null; then
+        if [ "$(readlink "$fla_path.deadlink.$$" 2>/dev/null)" = "$fla_target" ]; then
+          rm -f "$fla_path.deadlink.$$"
+          echo "==> ci-fast lock: reclaiming $fla_path, a link to $fla_target, which no longer exists (a run was killed while releasing or reclaiming it)"
+        else
+          # A fresh holder linked between the look and the rename: give its
+          # link back. If yet another run got in first, that one holds it.
+          mv -n "$fla_path.deadlink.$$" "$fla_path" 2>/dev/null || rm -f "$fla_path.deadlink.$$"
+        fi
+        fla_dangling=""
+        fla_dangling_polls=0
+        continue
+      fi
+    else
+      fla_dangling=""
+      fla_dangling_polls=0
+    fi
     if [ -n "$fla_holder" ] && [ -d "$fla_holder" ] && gate_lock_dead "$fla_holder"; then
       fla_stale="$fla_holder.reclaimed.$$"
       if mv "$fla_holder" "$fla_stale" 2>/dev/null; then
@@ -272,12 +314,13 @@ fast_lock_acquire() {
       continue
     fi
     fla_pid="$(cat "$fla_holder/pid" 2>/dev/null || echo '?')"
-    fla_where="$(cat "$fla_holder/where" 2>/dev/null || echo 'unknown worktree')"
+    fla_where="$(cat "$fla_holder/where" 2>/dev/null || echo "no holder directory at ${fla_target:-?}")"
     fla_waited=$(( $(date +%s) - fla_began ))
     if [ "$fla_waited" -ge "$CI_FAST_LOCK_TIMEOUT" ]; then
       echo "==> ci-fast lock: still held by pid $fla_pid ($fla_where) after ${fla_waited}s; going ahead without the lock, because a hook that waits forever gets bypassed. CI_FAST_LOCK_TIMEOUT=<seconds> changes the wait."
       rm -rf "$fast_lock_mine"
       fast_lock_mine=""
+      fast_lock_path=""
       return 0
     fi
     if [ $(( fla_waited - fla_said )) -ge 60 ]; then
@@ -286,7 +329,6 @@ fast_lock_acquire() {
     fi
     sleep "$CI_FAST_POLL"
   done
-  fast_lock_path="$fla_path"
   if [ "$fla_said" -ge 0 ]; then
     echo "==> ci-fast lock: acquired after ${fla_waited}s"
   else
@@ -464,9 +506,9 @@ trap 'fast_leave_queue; gate_on_signal HUP 129' HUP
 case "$mode" in
   staged)
     if [ -n "$commit_index" ]; then
-      changed="$(GIT_INDEX_FILE="$commit_index" git diff --cached --name-only -z --no-renames --diff-filter=ACMRD | tr '\0' '\n')"
+      changed="$(GIT_INDEX_FILE="$commit_index" git diff --cached --name-only -z --no-renames --diff-filter=ACMRTD | tr '\0' '\n')"
     else
-      changed="$(git diff --cached --name-only -z --no-renames --diff-filter=ACMRD | tr '\0' '\n')"
+      changed="$(git diff --cached --name-only -z --no-renames --diff-filter=ACMRTD | tr '\0' '\n')"
     fi
     ;;
   base) changed="$(git diff --name-only -z --no-renames "$base...HEAD" | tr '\0' '\n')" ;;
@@ -613,7 +655,7 @@ EOF
 
   if [ "$whole" = 1 ]; then
     gate_step "$module go vet ./... (go.mod or go.sum changed)"
-    fast_run "$fast_cap_s" "$fast_stall_s" "$module" go vet ./...
+    fast_run "$fast_cap_s" "$(fast_at_least "$fast_stall_s" 1200)" "$module" go vet ./...
     gate_note_skip "$module golangci-lint and go test after a go.mod/go.sum change: a dependency bump can break any package, and only the full gate runs the whole module (docs/rclone-upgrade.md for core)"
     continue
   fi
@@ -621,12 +663,12 @@ EOF
 
   gate_step "$module go vet, touched packages:$pkgs"
   # shellcheck disable=SC2086
-  fast_run "$fast_cap_s" "$fast_stall_s" "$module" go vet $pkgs
+  fast_run "$fast_cap_s" "$(fast_at_least "$fast_stall_s" 1200)" "$module" go vet $pkgs
 
   if [ "$lint_ready" = 1 ]; then
     gate_step "$module golangci-lint, touched packages:$pkgs"
     # shellcheck disable=SC2086
-    fast_run "$fast_cap_s" "$fast_stall_s" . gate_lint "$module" $pkgs
+    fast_run "$fast_cap_s" "$(fast_at_least "$fast_stall_s" 1200)" . gate_lint "$module" $pkgs
   else
     gate_note_skip "$module golangci-lint on the touched packages:$pkgs. golangci-lint is not on PATH; build the pinned one (scripts/ci/pins.env)."
   fi
@@ -650,17 +692,18 @@ EOF
   if [ -n "$plain" ]; then
     gate_step "$module go test, touched packages:$plain"
     # shellcheck disable=SC2086
-    fast_run "$fast_cap_s" "$fast_stall_s" "$module" go test -p 2 -timeout 20m $plain
+    fast_run "$fast_cap_s" "$(fast_at_least "$fast_stall_s" 1320)" "$module" go test -p 2 -timeout 20m $plain
   fi
   if [ -n "$dock" ]; then
     # gate_docker_step takes the full gate's Docker lock as well, and can
     # wait for it with this one held: Docker-backed packages are rare in a
     # fast run, and a waiter here goes ahead at CI_FAST_LOCK_TIMEOUT anyway.
     # Their tests get -timeout 45m and pull fixture images in silence, so
-    # the watchdog gives them at least 50 minutes and 20 of quiet.
+    # the watchdog gives them at least 50 minutes, and 47 of quiet so Go's
+    # own timeout fires first.
     gate_docker_step "$module go test, Docker-backed touched packages:$dock"
     # shellcheck disable=SC2086
-    fast_run "$(fast_at_least "$fast_cap_s" 3000)" "$(fast_at_least "$fast_stall_s" 1200)" "$module" go test -p 2 -timeout 45m $dock
+    fast_run "$(fast_at_least "$fast_cap_s" 3000)" "$(fast_at_least "$fast_stall_s" 2820)" "$module" go test -p 2 -timeout 45m $dock
   fi
 done
 
