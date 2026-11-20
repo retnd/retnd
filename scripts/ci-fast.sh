@@ -574,7 +574,14 @@ bash scripts/api/check-contract-drift.sh
 # whatever the working tree happens to hold.
 if has '_test\.go$'; then
   gate_step "no test file spells the former name (#1618)"
-  bash scripts/rename/check-no-former-name.sh
+  # GIT_INDEX_FILE was unset above, and in a hook `commit -a` and
+  # `commit -- <paths>` commit from a temporary index: without it
+  # `git grep --cached` reads the real index, which still has the old blob.
+  if [ -n "$commit_index" ]; then
+    GIT_INDEX_FILE="$commit_index" bash scripts/rename/check-no-former-name.sh
+  else
+    bash scripts/rename/check-no-former-name.sh
+  fi
 fi
 
 # --------------------------------------------------------------- formatting
