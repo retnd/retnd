@@ -15,7 +15,8 @@ plan() then runs every control whose lanes this host has and skips the rest,
 naming what each is missing, except in a --check-anchors or a --record run,
 which skip nothing. report() writes the skips to the file the gate hands over
 in RETND_SELFTEST_SKIP_LEDGER, so the gate's skip ledger holds them and the shard
-ends INCOMPLETE; run by hand with no ledger, a run that skipped anything exits 3.
+ends INCOMPLETE; run by hand with no ledger, a run that skipped anything exits 3
+(through harness.EXIT_CANNOT_RUN, #1571).
 """
 
 from __future__ import annotations
@@ -26,6 +27,8 @@ import shutil
 import subprocess
 from pathlib import Path
 from typing import Protocol, Sequence, TypeVar
+
+from bdtools import harness
 
 LANE_LOCK = "playwright-lock"
 LANE_DOCKER = "docker"
@@ -131,7 +134,10 @@ def plan(controls: Sequence[C], pinned: dict[str, frozenset[str]], have: dict[st
 
 
 def report(skipped: Sequence[tuple[HasCommand, list[str]]], selftest: str, ledger: str) -> int:
-    """Say what was skipped. 0 when the gate took the list, 3 when nobody did."""
+    """Say what was skipped. 0 when the gate took the list; when nobody did,
+    harness.EXIT_CANNOT_RUN, the status harness.finish() turns into 3. Never a
+    bare 3: finish() reads a 3 out of a body as somebody else's and reports a
+    failure (#1571)."""
     if not skipped:
         return 0
     lines = [f"{selftest} self-test: {c.label} (needs {', '.join(m)})" for c, m in skipped]
@@ -142,4 +148,4 @@ def report(skipped: Sequence[tuple[HasCommand, list[str]]], selftest: str, ledge
         with open(ledger, "a") as fh:
             fh.write("".join(x + "\n" for x in lines))
         return 0
-    return 3
+    return harness.EXIT_CANNOT_RUN
