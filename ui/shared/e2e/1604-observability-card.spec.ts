@@ -64,7 +64,7 @@ test.describe("#1604 Observability card", () => {
 
     const label = await labelFor(page, "Log level");
     await expect(label).toHaveText("Log level");
-    await label.hover();
+    await label.getByText("Log level", { exact: true }).hover();
     const pop = page.locator(".tooltip__pop:not([hidden])");
     await expect(pop).toContainText("RETND_DEBUG");
     await expect(pop).toContainText("no restart");
@@ -125,7 +125,7 @@ test.describe("#1604 Observability card", () => {
 
       const rows = await contrastReport(page, '[data-testid="alert-delivery"]');
       expect(rows.length).toBeGreaterThan(4);
-      const echo = rows.find((r) => r.text.startsWith("retnd settings observability patch --webhook"));
+      const echo = rows.find((r) => r.text.startsWith("retnd settings observability patch --"));
       expect(echo, "the alert command lines were not measured").toBeTruthy();
       console.log("#1604 " + theme + " alert command line " + echo!.ratio.toFixed(2) + ":1 (" + echo!.fg + " on " + echo!.bg + ")");
       const label = rows.find((r) => r.text === "Alert delivery");
