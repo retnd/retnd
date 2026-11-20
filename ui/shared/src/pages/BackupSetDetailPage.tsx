@@ -610,7 +610,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     // Inline editing holds the page open longer than a dialog did, so
     // this matters more here, not less.
     if (!snapshot || isSetEditStale(snapshot)) {
-      setStale(true);
+      if (mountedRef.current) setStale(true);
       return { ok: false, reason: "this set changed somewhere else while it was being edited" };
     }
 
@@ -627,7 +627,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
         else Object.assign(patch, parsed.patch);
       }
       if (Object.keys(problems).length > 0) {
-        setFieldErrors((prev) => ({ ...prev, ...problems }));
+        if (mountedRef.current) setFieldErrors((prev) => ({ ...prev, ...problems }));
         return { ok: false, reason: Object.values(problems).join(" ") };
       }
     }
@@ -641,7 +641,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     // first answer.
     if (acknowledge === "repoint") patch.acknowledgeRepoint = true;
     if (acknowledge === "hostKey") patch.acknowledgeHostKeyChange = true;
-    setRefusal(null);
+    if (mountedRef.current) setRefusal(null);
 
     // Added to, and later removed from, rather than replaced wholesale.
     // Two per-box Saves can genuinely overlap (press one, press another
@@ -649,7 +649,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     // one's entry: its button springs back to "Save", enabled, while its
     // request is still in flight, which invites the double submit it was
     // meant to prevent.
-    setSavingFields((prev) => [...prev, ...keys]);
+    if (mountedRef.current) setSavingFields((prev) => [...prev, ...keys]);
     try {
       const updated = await api.updateBackupSet(source, setName, patch);
       // The persisted truth goes back on the graph directly, rather than
@@ -728,9 +728,10 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     // does.
     const hookKeys = HOOK_DIR_KEYS.filter((key) => hookStateOf(key) === "changed");
     if (hookKeys.length > 0 && !(await saveHooks(hookKeys))) return;
-    // The page went while the directories were saving: the second write
-    // is the page's own follow-up step, so it isn't sent (#1599).
-    if (!mountedRef.current) return;
+    // An explicit Save all runs to the end even if the page went while the
+    // directories were saving: the second write is a request, not a setter,
+    // and the operator asked for both. saveFields only sets the page's
+    // state while the page is there (#1599).
     const outcome = await saveFields(dirtyKeys(), null, true);
     if (!mountedRef.current) return;
     if (!outcome.ok) {

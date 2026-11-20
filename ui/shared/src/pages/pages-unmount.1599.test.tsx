@@ -14,7 +14,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiProvider } from "@shared/api/ApiContext";
-import type { EditHoldState, EditHoldTaken, MediumPreflight, RetndApi } from "@shared/api/contracts";
+import type { BackupSetWorkflow, EditHoldState, EditHoldTaken, MediumPreflight, RetndApi } from "@shared/api/contracts";
 import { createMockApi, resetMockFixtures } from "@shared/api/mock";
 import { resetGraphForTests } from "@shared/state/graph";
 import { held, teardownProbe } from "@shared/test/teardownProbe";
@@ -95,6 +95,29 @@ describe("BackupSetDetailPage's Edit after unmount (#1599)", () => {
     expect(probe.rejections).toEqual([]);
     expect(probe.stateUpdates).toBe(0);
     expect(release).toHaveBeenCalledWith(target.source, target.set, "tok-late");
+  });
+  it("Save all still sends the field write when the page goes while the directories are saving", async () => {
+    const dirs = held<BackupSetWorkflow>();
+    const api = createMockApi();
+    const target = (await createMockApi().listSets())[0];
+    const patchWorkflow = vi.spyOn(api, "patchBackupSetWorkflow").mockReturnValue(dirs.promise);
+    const update = vi.spyOn(api, "updateBackupSet");
+    const { unmount } = await detailPage(api);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Edit" })); });
+    await screen.findByRole("button", { name: "SAVE ALL & EXIT EDIT" });
+    fireEvent.change(await screen.findByLabelText("Completion method"), { target: { value: "stable-size" } });
+    fireEvent.change(await screen.findByLabelText("Stable for (seconds)"), { target: { value: "300" } });
+    fireEvent.change(await screen.findByLabelText("Before workflow directory"), { target: { value: "/etc/retnd/before.d" } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "SAVE ALL & EXIT EDIT" })); });
+    await waitFor(() => expect(patchWorkflow).toHaveBeenCalled());
+    unmount();
+    probe.tearDown();
+    dirs.resolve((await api.getBackupSetWorkflow(target.source, target.set)));
+    await probe.settle(300);
+    expect(probe.rejections).toEqual([]);
+    expect(probe.stateUpdates).toBe(0);
+    // The operator asked for both writes, and both go.
+    expect(update).toHaveBeenCalledTimes(1);
   });
 });
 
