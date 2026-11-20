@@ -91,7 +91,7 @@ from typing import Any, Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from bdtools import harness
+from bdtools import harness, selftest_swap
 
 PROGRAM = "api selftest"
 
@@ -190,6 +190,8 @@ def body(root: Path) -> int:
 
     with tempfile.TemporaryDirectory(prefix="retnd-api-selftest.", ignore_cleanup_errors=True) as tmp_str:
         tmp = Path(tmp_str)
+        # One copy on disk at a time (#1580): the next case's copy replaces this one.
+        mutant = selftest_swap.one_at_a_time(lambda name: _mutant(root, tmp, name), root)
 
         drift = ["bash", "scripts/api/check-contract-drift.sh"]
         client_paths = ["bash", "scripts/api/check-client-paths.sh"]
@@ -209,13 +211,13 @@ def body(root: Path) -> int:
         print()
         print("==> generated output is generated, not edited")
 
-        d = _mutant(root, tmp, "go-binding-hand-edited")
+        d = mutant("go-binding-hand-edited")
         _sed_replace(d / "core/apicontract/contract.gen.go", 'json:"config_revision"', 'json:"configRevision"')
         _expect_check_fails(
             tally, "a hand edit to the generated Go binding", d, "the checked-in Go binding does not match", drift
         )
 
-        d = _mutant(root, tmp, "ts-binding-hand-edited")
+        d = mutant("ts-binding-hand-edited")
         _sed_replace(d / "ui/shared/src/api/generated/contract.ts", "plan_id: string;", "plan_id?: string;")
         _expect_check_fails(
             tally,
@@ -225,11 +227,11 @@ def body(root: Path) -> int:
             drift,
         )
 
-        d = _mutant(root, tmp, "ts-binding-missing")
+        d = mutant("ts-binding-missing")
         (d / "ui/shared/src/api/generated/contract.ts").unlink()
         _expect_check_fails(tally, "a deleted TypeScript binding", d, "is missing. Run scripts/api/generate.sh", drift)
 
-        d = _mutant(root, tmp, "contract-changed-without-regenerating")
+        d = mutant("contract-changed-without-regenerating")
         text = (d / "api/v1/openapi.json").read_text()
         text = text.replace('"known_hosts_line"', '"known_hosts"')
         (d / "api/v1/openapi.json").write_text(text)
@@ -256,7 +258,7 @@ def body(root: Path) -> int:
         print()
         print("==> the public schema carries no implementation type")
 
-        d = _mutant(root, tmp, "schema-leaks-sqlite")
+        d = mutant("schema-leaks-sqlite")
 
         def _leak_sqlite(doc: dict[str, Any]) -> None:
             schema = doc["components"]["schemas"]["VersionResponse"]
@@ -272,7 +274,7 @@ def body(root: Path) -> int:
             drift,
         )
 
-        d = _mutant(root, tmp, "schema-leaks-provider-sdk")
+        d = mutant("schema-leaks-provider-sdk")
 
         def _leak_sdk(doc: dict[str, Any]) -> None:
             doc["components"]["schemas"]["CapabilitiesResponse"]["properties"]["ugos_sdk_handle"] = {"type": "string"}
@@ -290,7 +292,7 @@ def body(root: Path) -> int:
         print()
         print("==> the contract says the same thing about a session and a token twice")
 
-        d = _mutant(root, tmp, "contract-security-drops-the-csrf-scheme")
+        d = mutant("contract-security-drops-the-csrf-scheme")
 
         def _drop_csrf(doc: dict[str, Any]) -> None:
             del doc["paths"]["/backup-sets/{source}/{set}"]["delete"]["security"][0]["csrf"]
@@ -304,7 +306,7 @@ def body(root: Path) -> int:
             drift,
         )
 
-        d = _mutant(root, tmp, "contract-authenticated-extension-flipped")
+        d = mutant("contract-authenticated-extension-flipped")
 
         def _flip_auth(doc: dict[str, Any]) -> None:
             doc["paths"]["/auth/logout"]["post"]["x-authenticated"] = False
@@ -318,7 +320,7 @@ def body(root: Path) -> int:
             drift,
         )
 
-        d = _mutant(root, tmp, "contract-security-shape-this-rule-cannot-read")
+        d = mutant("contract-security-shape-this-rule-cannot-read")
 
         def _unreadable_security(doc: dict[str, Any]) -> None:
             del doc["paths"]["/backup-sets"]["post"]["security"]
@@ -332,7 +334,7 @@ def body(root: Path) -> int:
             drift,
         )
 
-        d = _mutant(root, tmp, "contract-with-no-security-at-all")
+        d = mutant("contract-with-no-security-at-all")
         verbs = ("get", "put", "post", "delete", "options", "head", "patch", "trace")
 
         def _strip_all_security(doc: dict[str, Any]) -> None:
@@ -353,20 +355,20 @@ def body(root: Path) -> int:
         print()
         print("==> a gate that inspected nothing refuses")
 
-        d = _mutant(root, tmp, "contract-with-no-operations")
+        d = mutant("contract-with-no-operations")
         _json_edit(d / "api/v1/openapi.json", lambda doc: doc.__setitem__("paths", {}))
         _expect_check_fails(
             tally, "a contract that declares no operations at all", d, "would produce nothing and pass vacuously", drift
         )
 
-        d = _mutant(root, tmp, "contract-unparseable")
+        d = mutant("contract-unparseable")
         (d / "api/v1/openapi.json").write_text("not json at all\n")
         _expect_check_fails(tally, "a contract the generator cannot read", d, "the generator refused", drift)
 
         print()
         print("==> the gate that gates actually runs these checks")
 
-        d = _mutant(root, tmp, "ci-local-without-the-drift-gate")
+        d = mutant("ci-local-without-the-drift-gate")
         text = (d / "scripts/ci-local.sh").read_text()
         lines = [
             ln
@@ -383,7 +385,7 @@ def body(root: Path) -> int:
             drift,
         )
 
-        d = _mutant(root, tmp, "ci-local-without-the-client-path-gate")
+        d = mutant("ci-local-without-the-client-path-gate")
         text = (d / "scripts/ci-local.sh").read_text()
         lines = [
             ln
@@ -399,7 +401,7 @@ def body(root: Path) -> int:
             drift,
         )
 
-        d = _mutant(root, tmp, "ci-local-without-the-selftest")
+        d = mutant("ci-local-without-the-selftest")
         text = (d / "scripts/ci-local.sh").read_text()
         lines = [
             ln for ln in text.splitlines(keepends=True) if not ln.lstrip().startswith("bash scripts/api/selftest.sh")
@@ -412,7 +414,7 @@ def body(root: Path) -> int:
         print()
         print("==> every /api/v1 path the shared client builds is a declared operation (#211)")
 
-        d = _mutant(root, tmp, "client-path-the-contract-does-not-declare")
+        d = mutant("client-path-the-contract-does-not-declare")
         _sed_replace(d / "ui/shared/src/api/client.ts", '"/validators"', '"/validator-catalog"')
         _expect_check_fails(
             tally,
@@ -422,13 +424,13 @@ def body(root: Path) -> int:
             client_paths,
         )
 
-        d = _mutant(root, tmp, "client-verb-the-contract-does-not-declare")
+        d = mutant("client-verb-the-contract-does-not-declare")
         _sed_replace(d / "ui/shared/src/api/client.ts", 'method: "PATCH"', 'method: "PUT"')
         _expect_check_fails(
             tally, "the right path under a verb the contract does not declare", d, "on this path, not PUT", client_paths
         )
 
-        d = _mutant(root, tmp, "contract-renamed-an-operation-the-client-calls")
+        d = mutant("contract-renamed-an-operation-the-client-calls")
         _json_edit(
             d / "api/v1/openapi.json",
             lambda doc: doc["paths"].__setitem__("/preferences", doc["paths"].pop("/settings")),
@@ -441,7 +443,7 @@ def body(root: Path) -> int:
             client_paths,
         )
 
-        d = _mutant(root, tmp, "client-method-that-makes-no-request")
+        d = mutant("client-method-that-makes-no-request")
         _sed_replace(
             d / "ui/shared/src/api/client.ts", 'logout: () => post("/auth/logout")', "logout: () => Promise.resolve()"
         )
@@ -453,7 +455,7 @@ def body(root: Path) -> int:
             client_paths,
         )
 
-        d = _mutant(root, tmp, "client-path-that-is-entirely-interpolated")
+        d = mutant("client-path-that-is-entirely-interpolated")
         _sed_replace(
             d / "ui/shared/src/api/client.ts",
             'request<WireSettingsResponse>("/settings")',
@@ -467,7 +469,7 @@ def body(root: Path) -> int:
             client_paths,
         )
 
-        d = _mutant(root, tmp, "client-path-not-rooted-at-slash")
+        d = mutant("client-path-not-rooted-at-slash")
         _sed_replace(
             d / "ui/shared/src/api/client.ts",
             'request<WireSettingsResponse>("/settings")',
@@ -477,7 +479,7 @@ def body(root: Path) -> int:
             tally, 'a request path that is not rooted at "/" at all', d, "which is not rooted at", client_paths
         )
 
-        d = _mutant(root, tmp, "client-with-a-second-fetch")
+        d = mutant("client-with-a-second-fetch")
         with (d / "ui/shared/src/api/client.ts").open("a") as f:
             f.write('\nexport const strayRequest = () => fetch("/api/v1/anything");\n')
         _expect_check_fails(
@@ -488,13 +490,13 @@ def body(root: Path) -> int:
             client_paths,
         )
 
-        d = _mutant(root, tmp, "client-base-path-moved")
+        d = mutant("client-base-path-moved")
         _sed_replace(d / "ui/shared/src/api/client.ts", 'const BASE = "/api/v1";', 'const BASE = "/api/v2";')
         _expect_check_fails(
             tally, "a client whose base path is no longer the one this gate checks", d, 'not "/api/v1"', client_paths
         )
 
-        d = _mutant(root, tmp, "client-paths-against-an-empty-contract")
+        d = mutant("client-paths-against-an-empty-contract")
         _json_edit(d / "api/v1/openapi.json", lambda doc: doc.__setitem__("paths", {}))
         _expect_check_fails(
             tally,
@@ -507,7 +509,7 @@ def body(root: Path) -> int:
         print()
         print("==> the generator refuses a shape it would otherwise drop")
 
-        d = _mutant(root, tmp, "contract-oneof-on-a-named-schema")
+        d = mutant("contract-oneof-on-a-named-schema")
 
         def _oneof(doc: dict[str, Any]) -> None:
             doc["components"]["schemas"]["SubmitOperationConflict"] = {
@@ -529,7 +531,7 @@ def body(root: Path) -> int:
         print()
         print("==> Go handlers still match the contract (go test)")
 
-        d = _mutant(root, tmp, "handler-field-renamed")
+        d = mutant("handler-field-renamed")
         _sed_replace(
             d / "apps/common/webhost/handlers_system.go",
             'ConfigRevision string `json:"config_revision"`',
@@ -543,7 +545,7 @@ def body(root: Path) -> int:
             ["bash", "-c", "cd apps/common && go test -count=1 -run TestContract ./webhost/"],
         )
 
-        d = _mutant(root, tmp, "handler-field-added")
+        d = mutant("handler-field-added")
         _sed_replace(
             d / "apps/common/webhost/handlers_system.go",
             '\tReady bool `json:"ready"`',
@@ -557,7 +559,7 @@ def body(root: Path) -> int:
             ["bash", "-c", "cd apps/common && go test -count=1 -run TestContract ./webhost/"],
         )
 
-        d = _mutant(root, tmp, "route-outside-the-contract")
+        d = mutant("route-outside-the-contract")
         _sed_replace(
             d / "apps/common/webhost/router.go",
             '\t\tr.Get("/validators", h.listValidators)',
@@ -571,7 +573,7 @@ def body(root: Path) -> int:
             ["bash", "-c", "cd apps/common && go test -count=1 -run TestContract ./webhost/"],
         )
 
-        d = _mutant(root, tmp, "unregistered-error-code")
+        d = mutant("unregistered-error-code")
         _sed_replace(
             d / "apps/common/webhost/handlers_operations.go",
             'writeError(w, http.StatusNotFound, "OPERATION_NOT_FOUND"',
@@ -585,7 +587,7 @@ def body(root: Path) -> int:
             ["bash", "-c", "cd apps/common && go test -count=1 -run TestContract ./webhost/"],
         )
 
-        d = _mutant(root, tmp, "contract-path-no-client-can-build")
+        d = mutant("contract-path-no-client-can-build")
 
         def _identity_spans_segments(doc: dict[str, Any]) -> None:
             item = doc["paths"].pop("/backups/{source}/{set}/{name}")
@@ -628,7 +630,7 @@ def body(root: Path) -> int:
             ],
         )
 
-        d = _mutant(root, tmp, "profile-changes-backup-semantics")
+        d = mutant("profile-changes-backup-semantics")
         path = d / "apps/common/webhost/handlers_backupsets.go"
         text = path.read_text()
         text = text.replace(

@@ -37,6 +37,13 @@ func cmdStatus(args []string) int {
 		return 2
 	}
 
+	// #1558: before the configuration and the journal are opened, or a
+	// deployment still mounted at its pre-0.5.0 path is reported as a fresh
+	// install with no backup set.
+	if refusedAtPreRenamePath(*cfgPath) {
+		return exitFailure
+	}
+
 	ctx := context.Background()
 	svc, cfg, cleanup, err := openService(ctx, *cfgPath, false)
 	if err != nil {

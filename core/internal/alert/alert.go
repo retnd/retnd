@@ -558,11 +558,20 @@ type firingCondition struct {
 
 	// alert is what was first rendered for this occurrence (its
 	// ObservedAt is the occurrence's start), and sentAt is when a sink
-	// last accepted it. Only a RefreshingSink reads either: refresh.go
-	// re-sends alert while it is still observed and resolves it when it
-	// is not.
-	alert  Alert
-	sentAt time.Time
+	// last accepted it, which is the time the receiver's expiry counts
+	// from. Only a RefreshingSink reads these: refresh.go re-sends alert
+	// while it is still observed and resolves it when it is not.
+	//
+	// sentAt moves only when a send succeeds. A refresh that is out is
+	// inFlight, and one that failed sets retryAt, so neither changes what
+	// the receiver was last told. That is what a reload copies
+	// (AdoptState), and a stamp that ran ahead of a send which then failed
+	// had the rebuilt dispatcher wait a whole interval past an alert that
+	// was about to expire (#1567).
+	alert    Alert
+	sentAt   time.Time
+	inFlight bool
+	retryAt  time.Time
 }
 
 const (
@@ -636,7 +645,9 @@ func NewDispatcher(sink Sink, logger *obs.Logger) *Dispatcher {
 //
 // Delivery happens after this dispatcher's lock is released, one bounded
 // attempt per alert, so a slow or hung Sink can never stall the cycle
-// that called this. A condition that resolves while its own notification
+// that called this. For a sink whose receiver expires alerts the attempts
+// run in parallel (sendEach), so no alert's expiry runs down while it waits
+// behind another's send; any other sink gets them one at a time. A condition that resolves while its own notification
 // is still in flight is simply forgotten; the late delivery marks an
 // entry that is no longer in the map, which changes nothing.
 func (d *Dispatcher) Observe(ctx context.Context, conditions []Condition, unevaluated []Subject, now time.Time) []Alert {
@@ -644,21 +655,28 @@ func (d *Dispatcher) Observe(ctx context.Context, conditions []Condition, uneval
 		return nil
 	}
 
-	var delivered []Alert
 	pending, resolved := d.plan(conditions, unevaluated, now)
-	for _, a := range pending {
+	ok := make([]bool, len(pending))
+	d.sendEach(len(pending), func(i int) {
+		a := pending[i]
 		if a.refresh {
 			d.refreshOne(ctx, a, now)
-			continue
+			return
 		}
 		if err := d.deliver(ctx, a.alert); err != nil {
-			continue
+			return
 		}
 		d.mu.Lock()
 		a.entry.delivered = true
 		a.entry.sentAt = now
 		d.mu.Unlock()
-		delivered = append(delivered, a.alert)
+		ok[i] = true
+	})
+	var delivered []Alert
+	for i, a := range pending {
+		if ok[i] && !a.refresh {
+			delivered = append(delivered, a.alert)
+		}
 	}
 	d.refreshAndResolve(ctx, now, resolved)
 	return delivered

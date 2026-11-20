@@ -7,6 +7,14 @@
  * run never leaves a half-written one. The page cannot see the host's last
  * word once the connection is gone, so every line that had not finished is
  * reported as not started.
+ *
+ * Leaving the dialog closes the connection too (#1592). The dialog is the only
+ * place a run can be watched or stopped, so a run left going after it unmounts
+ * would be one nobody can see the end of, and the engine already reads a
+ * closed connection as a cancel: that is what a closed tab, a reload and Ctrl-C
+ * in `retnd recover` do. So the dialog has one rule, the run lives as long as
+ * the dialog showing it, and nothing it started touches its state once it has
+ * gone.
  */
 import { useEffect, useRef, useState } from "react";
 import type { StepUpOptions } from "@shared/api/contracts";
@@ -57,15 +65,35 @@ export function BackupsRecoverRun({
     return () => back?.focus?.();
   }, []);
 
+  // Set in its own effect, so strict mode's rehearsal (mount, unmount, mount
+  // again, all in one commit) leaves it true. The cleanup closes the run's
+  // connection only if the dialog is still gone once that commit is over:
+  // the rehearsal remounts before a microtask can run, and a recovery that
+  // cancelled itself on start in development would be no recovery at all.
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    const run = abort.current;
+    return () => {
+      mounted.current = false;
+      queueMicrotask(() => {
+        if (!mounted.current) run.abort();
+      });
+    };
+  }, []);
+
   useEffect(() => {
     // Strict mode runs effects twice; a recovery must start once.
     if (started.current) return;
     started.current = true;
     const stepUp = once?.() ?? {};
     void runRecoverMany(api, files.map((f) => f.id), target, acknowledged, abort.current.signal, {
-      update: (id, patch) => setItems((cur) => cur.map((x) => (x.id === id ? { ...x, ...patch } : x))),
-      progress: (done, total) => setProgress({ done, total })
+      update: (id, patch) => { if (mounted.current) setItems((cur) => cur.map((x) => (x.id === id ? { ...x, ...patch } : x))); },
+      progress: (done, total) => { if (mounted.current) setProgress({ done, total }); }
     }, stepUp).then((o) => {
+      // Gone: the run was cancelled on the way out, and there is no dialog
+      // left to tell, nor a bar to hand a refusal back to.
+      if (!mounted.current) return;
       if (o.refusal && target.kind === "source" && onSourceRefused && sourceHostRefusal(o.code)) {
         onSourceRefused(o.code ?? "");
         return;

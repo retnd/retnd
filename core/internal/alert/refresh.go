@@ -3,6 +3,7 @@ package alert
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -75,10 +76,11 @@ func (d *Dispatcher) NextRefresh(now time.Time) time.Duration {
 	wait := every
 	d.mu.Lock()
 	for _, entry := range d.firing {
-		if !entry.delivered {
+		// One that is out is not waited on here: its pass is sending it.
+		if !entry.delivered || entry.inFlight {
 			continue
 		}
-		if w := entry.sentAt.Add(every).Sub(now); w < wait {
+		if w := refreshDueAt(entry, every).Sub(now); w < wait {
 			wait = w
 		}
 	}
@@ -86,37 +88,93 @@ func (d *Dispatcher) NextRefresh(now time.Time) time.Duration {
 	return max(wait, 0)
 }
 
-// refreshDue reports whether a delivered entry is due its refresh. It is
-// called with d.mu held. The sentAt stamp moves forward as soon as the
-// attempt is planned, so two concurrent passes cannot both re-send it; a
-// failed attempt rolls it back (refreshOne) so the next pass tries again.
+// refreshDueAt is when a delivered entry next falls due: one interval after
+// the receiver last accepted it, or later while a failed refresh waits for
+// its retry.
+func refreshDueAt(entry *firingCondition, every time.Duration) time.Time {
+	due := entry.sentAt.Add(every)
+	if entry.retryAt.After(due) {
+		return entry.retryAt
+	}
+	return due
+}
+
+// refreshDue reports whether a delivered entry is due its refresh, and
+// claims it if so. It is called with d.mu held. The claim (inFlight) is what
+// stops two concurrent passes both re-sending it; sentAt stays what the
+// receiver last accepted until a send succeeds.
 func (d *Dispatcher) refreshDue(entry *firingCondition, now time.Time) (attempt, bool) {
 	rs := d.refreshing()
-	if rs == nil || now.Sub(entry.sentAt) < rs.RefreshInterval() {
+	if rs == nil || entry.inFlight || now.Before(refreshDueAt(entry, rs.RefreshInterval())) {
 		return attempt{}, false
 	}
-	entry.sentAt = now
+	entry.inFlight = true
 	return attempt{entry: entry, alert: entry.alert, refresh: true}, true
 }
 
 // refreshOne makes one bounded refresh attempt. A failure is logged and
 // the entry stays delivered: the first delivery is what the operator was
-// told about, and the refresh is tried again a quarter interval later (the
-// stamp is moved back so the entry falls due then, which is when a loop
-// sleeping on NextRefresh wakes for it).
+// told about, and the refresh is tried again a quarter interval later
+// (retryAt), which is when a loop sleeping on NextRefresh wakes for it.
 func (d *Dispatcher) refreshOne(ctx context.Context, a attempt, now time.Time) {
 	ctx, cancel := context.WithTimeout(ctx, deliveryTimeout)
 	defer cancel()
 	err := d.refreshing().Refresh(ctx, a.alert, now)
 	d.noteDestination(ctx, err)
+	d.mu.Lock()
+	a.entry.inFlight = false
+	if err == nil {
+		a.entry.sentAt = now
+		a.entry.retryAt = time.Time{}
+	} else {
+		a.entry.retryAt = now.Add(d.refreshing().RefreshInterval() / 4)
+	}
+	d.mu.Unlock()
 	if err != nil {
 		d.logger.Error(ctx, "alert-delivery",
 			fmt.Errorf("refreshing the %s alert for %s: %w", a.alert.Kind, a.alert.Scope, err))
-		every := d.refreshing().RefreshInterval()
-		d.mu.Lock()
-		a.entry.sentAt = now.Add(every/4 - every)
-		d.mu.Unlock()
 	}
+}
+
+// sendConcurrency is how many sends to a refreshing sink one pass has out at
+// once.
+//
+// The refresh rule leaves one delivery attempt (config.WebhookDeliveryBound)
+// between a re-send falling due and the receiver expiring the alert. Sent one
+// at a time, alerts that fell due together each waited for every send ahead
+// of them, so with a slow receiver the last of three landed after its alert
+// had expired (#1567). In parallel, every alert in a pass waits for no other,
+// and the rule's margin holds for up to this many alerts falling due at once.
+// Past that, a later one can wait one more send for a free slot, which
+// docs/deployment.md says. The cap is there so a burst of alerts is a few
+// connections to one receiver rather than one per alert.
+const sendConcurrency = 16
+
+// sendEach runs send(0) to send(n-1) and returns when all have finished.
+// For a refreshing sink they run in parallel, at most sendConcurrency at a
+// time, because there each alert's expiry is running while it waits. Any
+// other sink keeps one at a time, as it always was: a platform notifier
+// promises nothing about concurrent calls, and an observe-once receiver has
+// no expiry to race.
+func (d *Dispatcher) sendEach(n int, send func(i int)) {
+	if n < 2 || !d.refreshes() {
+		for i := range n {
+			send(i)
+		}
+		return
+	}
+	slots := make(chan struct{}, sendConcurrency)
+	var wg sync.WaitGroup
+	for i := range n {
+		slots <- struct{}{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-slots }()
+			send(i)
+		}()
+	}
+	wg.Wait()
 }
 
 // refreshAndResolve closes every alert a pass found resolved. It is best
@@ -161,9 +219,7 @@ func (d *Dispatcher) Refresh(ctx context.Context, now time.Time) {
 		}
 	}
 	d.mu.Unlock()
-	for _, a := range due {
-		d.refreshOne(ctx, a, now)
-	}
+	d.sendEach(len(due), func(i int) { d.refreshOne(ctx, due[i], now) })
 }
 
 // AdoptState carries prev's de-duplication state (which conditions are
@@ -180,6 +236,12 @@ func (d *Dispatcher) AdoptState(prev *Dispatcher) {
 	copied := make(map[string]*firingCondition, len(prev.firing))
 	for k, v := range prev.firing {
 		c := *v
+		// A refresh prev still has out belongs to prev: its outcome lands on
+		// prev's entry, not on this copy. So the copy is not claimed, and its
+		// sentAt (what the receiver last accepted, never a planned send) has
+		// this dispatcher re-send as soon as that is due, rather than wait on
+		// an attempt that may be failing (#1567).
+		c.inFlight = false
 		copied[k] = &c
 	}
 	// The destination state travels too, so a reference that stays broken
