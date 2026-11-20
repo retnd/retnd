@@ -433,6 +433,141 @@ recovery bundle you exported is still the copy of the key that matters, so befor
 upgrade or reset on a deployment that encrypts, check that you can put your hand on it. See
 [encrypted copies](encrypted-copies.md).
 
+## Rolling back a release that carried a migration
+
+Most releases come back off by pinning the previous image. One that carries a schema
+migration doesn't, and 0.8.1 is one of those (migration 0023, #1528). Every migration the
+engine applies is recorded in `schema_migrations` inside `state.db`, and a build that finds a
+version there it doesn't carry refuses to open the journal. So once 0.8.1 has started, 0.8.0
+stops at startup with:
+
+```
+service: open state: state: database schema is newer than this binary's migrations: version 23 is recorded in the database but not compiled into this binary
+```
+
+That refusal is harmless. It's decided before anything is written and the engine doesn't
+touch the files on the way out, so the journal stays byte for byte what the newer build left
+(the rehearsal in #1579 checked that with `sha256sum`). It's also all 0.8.0 will tell you: it
+shipped before 0023 existed, so it can't say what to do next. This section does.
+
+There's no downgrade command, on purpose: it would be the one program that edits
+`schema_migrations`, which the migration runner never does. The engine's own pre-migration
+copy lives in memory and exists only to undo a migration that failed, so after a successful
+one nothing is left on disk. The way back is a copy of the state and config directories taken
+**with the stack stopped, before the newer build first started**:
+
+- **`install --mode upgrade` takes it for you.** It's the `archive-<timestamp>` directory under
+  `--prefix` that the upgrade named (`==> Archived N item(s) to ...`), with `state/` and
+  `config/` inside.
+- **A deployment upgraded by hand** (editing the `image:` lines in `compose.image.yaml`, or
+  `docker compose pull`) has no archive unless you took one. Take it as below, between `stop`
+  and the first `up` on the new image.
+
+`install --release <older> --mode upgrade` is not a way back. The installer refuses an older
+version (see above), and it couldn't undo a migration anyway.
+
+### Taking the archive by hand
+
+Run it from `--prefix` (`~/retnd` unless you chose another). It reads the state and config
+directories back out of `.env`, so it holds whether you used the defaults or
+`--state-dir`/`--config-dir`, and it copies exactly the installer's list (`archive_plan` in
+`install_docker_host.py`), in its order:
+
+```
+cd ~/retnd
+STATE_DIR=$(sed -n 's/^STATE_DIR=//p' .env)
+CONFIG_DIR=$(sed -n 's/^CONFIG_DIR=//p' .env)
+docker compose -p retnd --env-file .env -f compose.yaml -f compose.image.yaml stop
+
+ARCHIVE=$PWD/archive-$(date +%Y%m%d-%H%M%S)
+mkdir -m 700 "$ARCHIVE" "$ARCHIVE/state" "$ARCHIVE/config"
+for f in local-auth.json state.db state.db-wal state.db-shm; do
+  if [ -e "$STATE_DIR/$f" ]; then cp -a "$STATE_DIR/$f" "$ARCHIVE/state/"; fi
+done
+for f in config.yaml ssh_keys known_hosts.d retained_copy_keys; do
+  if [ -e "$CONFIG_DIR/$f" ]; then cp -a "$CONFIG_DIR/$f" "$ARCHIVE/config/"; fi
+done
+cp -a compose.image.yaml "$ARCHIVE/"
+```
+
+The `archive-` name is deliberate: `install` counts it toward its limit of five, which is
+right, because it holds the same private keys an installer archive does. The last line isn't
+on the installer's list. It keeps the image reference you're leaving, which is the one thing
+step 4 below needs and an installer archive doesn't have. If `PUID` in `.env` is not your own
+account, run the copies under `sudo` so `cp -a` keeps the owner.
+
+### Checking the archive before you go on
+
+Don't start the new image until the archive checks out. In a throwaway container (any image
+with `sqlite3` will do), on a copy, because opening a WAL journal writes its `-shm` and the
+archive should stay exactly as taken:
+
+```
+docker run --rm -v "$ARCHIVE/state:/archive:ro" alpine:3.20 sh -c '
+  apk add --no-cache sqlite >/dev/null &&
+  cp -a /archive /tmp/check &&
+  sqlite3 /tmp/check/state.db "PRAGMA integrity_check; SELECT max(version) FROM schema_migrations; SELECT count(*) FROM artifacts;"'
+```
+
+Three lines back: `ok`, the newest migration the release you're leaving carries (`22` for
+0.8.0), and the number of catalogued artifacts. Anything other than `ok`, or a version you
+didn't expect, means this is not a way back: stop and find out why before upgrading.
+
+### Going back
+
+1. Stop the stack:
+   `docker compose -p retnd --env-file .env -f compose.yaml -f compose.image.yaml stop`.
+2. Move the newer journal aside. Rename, don't delete, and move all four:
+   ```
+   for f in state.db state.db-wal state.db-shm local-auth.json; do
+     if [ -e "$STATE_DIR/$f" ]; then mv "$STATE_DIR/$f" "$STATE_DIR/$f.superseded"; fi
+   done
+   ```
+   The `-wal` and `-shm` matter most. SQLite replays a `-wal` it finds beside a database, and
+   a newer build's WAL replayed onto the older journal is a corrupt journal. If a
+   `.superseded` file is already there from an earlier attempt, pick a fresh suffix.
+3. Copy the archive's state back: `cp -a "$ARCHIVE/state/." "$STATE_DIR/"`. Then
+   `cmp "$ARCHIVE/config/config.yaml" "$CONFIG_DIR/config.yaml"`. If they differ, something
+   wrote the file after the upgrade, and a key the older release doesn't know makes it refuse
+   the whole file, so move the current one aside the same way and copy the archive's back.
+   Leave `ssh_keys`, `known_hosts.d` and `retained_copy_keys` as they are: anything in them
+   since the upgrade is extra, and the older release reads them fine.
+4. Pin the previous image. Put both `image:` lines in `compose.image.yaml` back to the release
+   you're returning to: `mv compose.image.yaml compose.image.yaml.superseded` and
+   `cp -a "$ARCHIVE/compose.image.yaml" .` if you took the archive by hand, otherwise edit
+   them to the old reference (`ghcr.io/retnd/retnd:0.8.0` for a host the 0.8.0 installer set
+   up; nothing removes the old image, so `docker image ls ghcr.io/retnd/retnd` still shows
+   it). Set `VERSION=` in `.env` to match, so the next installer run sees the version that's
+   actually running.
+5. `docker compose -p retnd --env-file .env -f compose.yaml -f compose.image.yaml up -d`.
+6. Check it: `docker compose -p retnd --env-file .env -f compose.yaml -f compose.image.yaml
+   logs retnd` shows the engine starting with no `schema is newer` line, and
+   `docker compose -p retnd --env-file .env -f compose.yaml -f compose.image.yaml exec retnd
+   /retnd status` answers.
+
+### What a rollback costs, and how long you have
+
+The journal goes back to the moment you took the archive, so everything the newer build
+journaled after that is gone from it:
+
+- **Whatever the new release did on purpose.** For 0.8.1, that's retirements: every backup it
+  retired is FAILED again, which is how it read before 0.8.1, so a set like the one in #1528
+  reads FAILING again.
+- **Backups that completed after the upgrade.** Their files stay on disk under the backup
+  directory, but the restored journal doesn't know them. If the object is still on the source,
+  a later cycle discovers it and fetches it again. If the set deleted the source copy after
+  committing, it's a file on disk the catalog no longer describes.
+- **What retention pruned after the upgrade.** It's still listed in the restored catalog, and
+  the file behind it is gone.
+- **Changes made through the UI or the CLI after the upgrade**: a password changed (that's
+  `local-auth.json`), and anything in `config.yaml` if step 3 had to put the old one back.
+
+Until the engine's first backup cycle after the upgrade, a rollback costs you next to nothing
+beyond the migration itself. Every cycle after that adds to the list, so make the call within hours, not
+days. Once you're settled on the new release, the archive is just insurance; keep it until the
+next upgrade has its own, then clear it out (it holds private keys, and `install` stops at
+five).
+
 ## It will not adopt a layout you did not ask for
 
 Every directory the installer archives, destroys or rewrites used to come from the

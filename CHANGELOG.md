@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+Worth reading before you upgrade:
+
+- **This release applies migration 0023 on its first start, and 0.8.0 won't open the journal
+  after that** (#1528). 0023 rebuilds the `artifacts` table so it admits `RETIRED` and adds
+  `artifact_retirements`. It's the first schema migration a patch release has carried. Like
+  every release with a migration, 0.8.0 refuses a `state.db` this build has opened (`version 23
+  is recorded in the database but not compiled into this binary`) and writes nothing when it
+  does, so the only way back is a copy taken before the upgrade. `install --mode upgrade` takes
+  it for you; on a deployment you upgrade by hand, take it yourself and check it first. See
+  [Rolling back a release that carried a
+  migration](docs/install.md#rolling-back-a-release-that-carried-a-migration) for the steps and
+  for what a rollback costs, and decide within hours rather than days.
+
 ### Added
 
 - **An authenticated Prometheus scrape endpoint** (#899, EPIC O). The engine now serves the 46
@@ -56,7 +69,8 @@ A few things are worth reading before you upgrade:
   `placement_encryption`, `recovery_bundle_exports`, `recovery_bundle_confirmations`, `encrypt_existing_consents`,
   `encryption_key_suites` and `encryption_default_suite`) and changes no existing table or row, so every copy
   you already have reads as unencrypted. Like every release with a migration, 0.7.2 refuses a `state.db` this
-  build has opened, so keep the upgrade archive if you might roll back.
+  build has opened, so keep the upgrade archive if you might roll back
+  ([how](docs/install.md#rolling-back-a-release-that-carried-a-migration)).
 - Writing `retained_copy_encryption:` (and, separately, its `suite:`) into `config.yaml` is a one-way door:
   0.7.2 and older refuse the file as an unknown field. Keep the previous `config.yaml` if you want a way out.
 - If you lose the key and every copy of its recovery bundle, the encrypted copies are gone for good. Export
