@@ -124,14 +124,17 @@ is exercised by all thirty-one controls rather than by none of them.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterator
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -189,10 +192,20 @@ def _run(cwd: Path, *argv: str) -> tuple[int, str]:
     hazard note on why a port that read only the message would pass a
     check that printed the right words and exited 0.
     """
-    proc = subprocess.run(
-        list(argv), cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False
+    # Its own process group, so an interrupt takes the whole check with it
+    # (#1580): a go or golangci-lint the check started would otherwise keep
+    # writing into the copy while the copy is being removed.
+    proc = subprocess.Popen(
+        list(argv), cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True
     )
-    return proc.returncode, proc.stdout
+    try:
+        out, _ = proc.communicate()
+    except BaseException:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
+        raise
+    return proc.returncode, out
 
 
 class Selftest:
@@ -204,8 +217,10 @@ class Selftest:
 
     # ---- fixtures ----------------------------------------------------
 
-    def mutant(self, name: str) -> Path:
-        """Copy the working tree into `tmp/<name>` and return its path.
+    @contextlib.contextmanager
+    def mutant(self, name: str) -> Iterator[Path]:
+        """Copy the working tree into `tmp/<name>` for one case, and remove
+        the copy when the case's `with` block ends, however it ends.
 
         `--cached --others --exclude-standard`, not plain `git ls-files`:
         the copy has to include files that are present but not yet
@@ -213,8 +228,28 @@ class Selftest:
         uncommitted while they are being written. See the hazard note.
         `--exclude-standard` keeps node_modules and build output out, so
         the copy stays quick.
+
+        One copy at a time (#1580). Each is about as big as the tree, and
+        keeping all of them until the end of the run came to about 7.8 GB.
+        On a Linux docker host the gate's /tmp can be the host's tmpfs, where
+        every byte is memory charged to the container's fence, and the run
+        was SIGKILLed partway through. A case that raises, or a SIGINT or
+        SIGTERM in the middle of one, still removes its copy, because the
+        exception leaves through this `finally`.
         """
         directory = self.tmp / name
+        try:
+            self._copy_tree(directory)
+            if not self._checked_runnable:
+                self._checked_runnable = True
+                self._assert_mutant_is_runnable(directory)
+            yield directory
+        finally:
+            shutil.rmtree(directory, ignore_errors=True)
+
+    def _copy_tree(self, directory: Path) -> None:
+        """The copy itself, about as big as the tree (#1580). Its own method
+        so a test can count the copies alive at once without making any."""
         directory.mkdir(parents=True, exist_ok=True)
 
         listing = subprocess.run(
@@ -247,11 +282,6 @@ class Selftest:
         harness.sh(["git", "-C", str(directory), "init", "-q"])
         harness.sh(["git", "-C", str(directory), "add", "-A"])
         harness.sh(["git", "-C", str(directory), *GIT_IDENTITY, "commit", "-q", "-m", "selftest baseline"])
-
-        if not self._checked_runnable:
-            self._checked_runnable = True
-            self._assert_mutant_is_runnable(directory)
-        return directory
 
     def _assert_mutant_is_runnable(self, directory: Path) -> None:
         """The copy must be able to EXECUTE a check at all.
@@ -394,6 +424,10 @@ def test_the_harness_itself(st: Selftest) -> None:
 def main(argv: list[str]) -> int:
     del argv
     harness.set_program(PROGRAM)
+    # SIGINT and SIGTERM become an exception, so a timeout's TERM unwinds
+    # through the case's `with` and the `finally` below and leaves no scratch
+    # behind (#1580). Without this a TERM ended the run where it stood.
+    harness.install_signal_handlers()
     root = arch.resolve_toplevel()
     os.chdir(root)
 
@@ -402,6 +436,10 @@ def main(argv: list[str]) -> int:
     try:
         return harness.finish(lambda: body(st))
     finally:
+        # A second Ctrl-C or TERM here would cut the cleanup short with a
+        # traceback, so the scratch goes first and the run ends after.
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
         shutil.rmtree(tmp, ignore_errors=True)
 
 
@@ -428,62 +466,62 @@ def body(st: Selftest) -> int:
     # add. See the hazard note's "fixture names no product will ever
     # have" entry: this one used to be apps/casaos, and #170 added CasaOS
     # for real.
-    d = st.mutant("manifest-unclassified")
-    (d / "apps/selftest-unclassified-provider/frontend").mkdir(parents=True)
-    (d / "apps/selftest-unclassified-provider/frontend/platform.ts").write_text(
-        'export const selftestBridge = { id: "selftest-unclassified-provider" };\n'
-    )
-    harness.sh(["git", "-C", str(d), "add", "-A"])
-    st.expect_check_fails(
-        "a new provider directory nobody classified",
-        d,
-        "apps/selftest-unclassified-provider/frontend/platform.ts",
-        "./scripts/architecture/check-layer-manifest.sh",
-    )
+    with st.mutant("manifest-unclassified") as d:
+        (d / "apps/selftest-unclassified-provider/frontend").mkdir(parents=True)
+        (d / "apps/selftest-unclassified-provider/frontend/platform.ts").write_text(
+            'export const selftestBridge = { id: "selftest-unclassified-provider" };\n'
+        )
+        harness.sh(["git", "-C", str(d), "add", "-A"])
+        st.expect_check_fails(
+            "a new provider directory nobody classified",
+            d,
+            "apps/selftest-unclassified-provider/frontend/platform.ts",
+            "./scripts/architecture/check-layer-manifest.sh",
+        )
 
     # A file at the repository root is the other way to slip through: no
     # directory prefix to notice, so it is classified by an exact-name row
     # or by nothing. CNAME did exactly that on main (#1136).
-    d = st.mutant("manifest-unclassified-root-file")
-    (d / "SELFTEST-UNCLASSIFIED-ROOT-FILE").write_text("nobody classified this\n")
-    harness.sh(["git", "-C", str(d), "add", "-A"])
-    st.expect_check_fails(
-        "a new root-level file nobody classified",
-        d,
-        "SELFTEST-UNCLASSIFIED-ROOT-FILE",
-        "./scripts/architecture/check-layer-manifest.sh",
-    )
+    with st.mutant("manifest-unclassified-root-file") as d:
+        (d / "SELFTEST-UNCLASSIFIED-ROOT-FILE").write_text("nobody classified this\n")
+        harness.sh(["git", "-C", str(d), "add", "-A"])
+        st.expect_check_fails(
+            "a new root-level file nobody classified",
+            d,
+            "SELFTEST-UNCLASSIFIED-ROOT-FILE",
+            "./scripts/architecture/check-layer-manifest.sh",
+        )
 
-    d = st.mutant("manifest-stale")
-    _append(d / arch.MANIFEST, "\ncore            -           a/path/that/does/not/exist\n")
-    st.expect_check_fails(
-        "a manifest entry pointing at a path that does not exist",
-        d,
-        "does not exist",
-        "./scripts/architecture/check-layer-manifest.sh",
-    )
+    with st.mutant("manifest-stale") as d:
+        _append(d / arch.MANIFEST, "\ncore            -           a/path/that/does/not/exist\n")
+        st.expect_check_fails(
+            "a manifest entry pointing at a path that does not exist",
+            d,
+            "does not exist",
+            "./scripts/architecture/check-layer-manifest.sh",
+        )
 
-    d = st.mutant("manifest-badkind")
-    _sub(
-        d / arch.MANIFEST,
-        r"^distribution    adapter     apps/unraid/template$",
-        "distribution    -           apps/unraid/template",
-    )
-    st.expect_check_fails(
-        "a distribution entry with no adapter/canonical kind",
-        d,
-        'must be "adapter" or "canonical"',
-        "./scripts/architecture/check-layer-manifest.sh",
-    )
+    with st.mutant("manifest-badkind") as d:
+        _sub(
+            d / arch.MANIFEST,
+            r"^distribution    adapter     apps/unraid/template$",
+            "distribution    -           apps/unraid/template",
+        )
+        st.expect_check_fails(
+            "a distribution entry with no adapter/canonical kind",
+            d,
+            'must be "adapter" or "canonical"',
+            "./scripts/architecture/check-layer-manifest.sh",
+        )
 
-    d = st.mutant("manifest-noadapters")
-    _sub(d / arch.MANIFEST, r"^distribution    adapter ", "distribution    canonical ")
-    st.expect_check_fails(
-        "a manifest with no adapter paths at all, which would make the deletion proof vacuous",
-        d,
-        "would delete nothing and pass vacuously",
-        "./scripts/architecture/check-layer-manifest.sh",
-    )
+    with st.mutant("manifest-noadapters") as d:
+        _sub(d / arch.MANIFEST, r"^distribution    adapter ", "distribution    canonical ")
+        st.expect_check_fails(
+            "a manifest with no adapter paths at all, which would make the deletion proof vacuous",
+            d,
+            "would delete nothing and pass vacuously",
+            "./scripts/architecture/check-layer-manifest.sh",
+        )
 
     print(flush=True)
     print("==> manifest paths that leave the repository", flush=True)
@@ -495,125 +533,125 @@ def body(st: Selftest) -> int:
     # shape of an entry at all: it matches no tracked file, so the
     # completeness guard never mentions it, and the existence test is
     # satisfied by whatever is really out there.
-    d = st.mutant("manifest-traversal")
-    _append(d / arch.MANIFEST, f"\ndistribution    adapter     {TRAVERSAL_ENTRY}\n")
-    st.expect_check_fails(
-        'a manifest entry with a ".." segment in the middle of it',
-        d,
-        "escapes the repository",
-        "./scripts/architecture/check-layer-manifest.sh",
-    )
+    with st.mutant("manifest-traversal") as d:
+        _append(d / arch.MANIFEST, f"\ndistribution    adapter     {TRAVERSAL_ENTRY}\n")
+        st.expect_check_fails(
+            'a manifest entry with a ".." segment in the middle of it',
+            d,
+            "escapes the repository",
+            "./scripts/architecture/check-layer-manifest.sh",
+        )
 
-    d = st.mutant("manifest-absolute")
-    _append(d / arch.MANIFEST, "\ndistribution    adapter     /retnd-selftest-absolute-target\n")
-    st.expect_check_fails(
-        "a manifest entry naming an absolute path",
-        d,
-        "is absolute",
-        "./scripts/architecture/check-layer-manifest.sh",
-    )
+    with st.mutant("manifest-absolute") as d:
+        _append(d / arch.MANIFEST, "\ndistribution    adapter     /retnd-selftest-absolute-target\n")
+        st.expect_check_fails(
+            "a manifest entry naming an absolute path",
+            d,
+            "is absolute",
+            "./scripts/architecture/check-layer-manifest.sh",
+        )
 
     # And the same entry against the check that would actually delete it.
     # This runs the deletion proof, but it never reaches a build: the
     # refusal happens in the delete loop, before any go build.
-    d = st.mutant("delete-traversal")
-    _append(d / arch.MANIFEST, f"\ndistribution    adapter     {TRAVERSAL_ENTRY}\n")
-    st.commit_mutant(d, "plant a traversal entry in the layer manifest")
-    st.expect_check_fails(
-        "the adapter-deletion proof handed a manifest entry that escapes the repository",
-        d,
-        "refuses to run against a manifest entry it cannot vouch for",
-        "./scripts/architecture/verify-core-without-distribution.sh",
-    )
+    with st.mutant("delete-traversal") as d:
+        _append(d / arch.MANIFEST, f"\ndistribution    adapter     {TRAVERSAL_ENTRY}\n")
+        st.commit_mutant(d, "plant a traversal entry in the layer manifest")
+        st.expect_check_fails(
+            "the adapter-deletion proof handed a manifest entry that escapes the repository",
+            d,
+            "refuses to run against a manifest entry it cannot vouch for",
+            "./scripts/architecture/verify-core-without-distribution.sh",
+        )
 
     # The control for the containment assertion specifically, which is
     # the half that does not trust the input: this entry has a clean
     # shape, and it still resolves outside the worktree because a
     # directory on the way is a symlink. Nothing but resolving the path
     # and looking at the answer catches it.
-    d = st.mutant("delete-symlink-escape")
-    escape_target = tmp / "selftest-escape-target"
-    (escape_target / "adapter").mkdir(parents=True, exist_ok=True)
-    (d / "apps/selftest-escape").symlink_to(escape_target)
-    _append(d / arch.MANIFEST, "\ndistribution    adapter     apps/selftest-escape/adapter\n")
-    st.commit_mutant(d, "plant a symlinked adapter path in the layer manifest")
-    st.expect_check_fails(
-        "the adapter-deletion proof handed a path that resolves outside the worktree through a symlink",
-        d,
-        "which is outside the throwaway worktree",
-        "./scripts/architecture/verify-core-without-distribution.sh",
-    )
-    # The refusal message is not enough on its own: a check that printed
-    # it AFTER deleting through the symlink would satisfy the assertion
-    # above. So the target's survival is its own assertion.
-    if not (escape_target / "adapter").is_dir():
-        st.tally.bad("the adapter-deletion proof deleted through the symlink anyway.")
-    else:
-        st.tally.ok("intact", "the symlink's target survived the refusal")
+    with st.mutant("delete-symlink-escape") as d:
+        escape_target = tmp / "selftest-escape-target"
+        (escape_target / "adapter").mkdir(parents=True, exist_ok=True)
+        (d / "apps/selftest-escape").symlink_to(escape_target)
+        _append(d / arch.MANIFEST, "\ndistribution    adapter     apps/selftest-escape/adapter\n")
+        st.commit_mutant(d, "plant a symlinked adapter path in the layer manifest")
+        st.expect_check_fails(
+            "the adapter-deletion proof handed a path that resolves outside the worktree through a symlink",
+            d,
+            "which is outside the throwaway worktree",
+            "./scripts/architecture/verify-core-without-distribution.sh",
+        )
+        # The refusal message is not enough on its own: a check that printed
+        # it AFTER deleting through the symlink would satisfy the assertion
+        # above. So the target's survival is its own assertion.
+        if not (escape_target / "adapter").is_dir():
+            st.tally.bad("the adapter-deletion proof deleted through the symlink anyway.")
+        else:
+            st.tally.ok("intact", "the symlink's target survived the refusal")
 
     print(flush=True)
     print("==> dependency direction", flush=True)
 
-    d = st.mutant("dep-core-to-distribution")
-    (d / "apps/common/webhost").mkdir(parents=True, exist_ok=True)
-    (d / "apps/common/webhost/selftest_reverse_import.go").write_text(
-        "package webhost\n\nimport _ \"github.com/retnd/retnd/distribution/packaging\"\n"
-    )
-    # The reverse import has to resolve, so the mutant module gets a
-    # replace pointing at its own sibling copy. Without it `go list`
-    # fails for a dependency-resolution reason and the check would
-    # "catch" the wrong thing.
-    _go_mod_edit(d / "apps/common", "../../distribution")
-    st.expect_check_fails(
-        "a core-layer package importing distribution",
-        d,
-        "core/app \u2500X\u2500\u25ba distribution",
-        "./scripts/architecture/check-core-dependency-rule.sh",
-    )
+    with st.mutant("dep-core-to-distribution") as d:
+        (d / "apps/common/webhost").mkdir(parents=True, exist_ok=True)
+        (d / "apps/common/webhost/selftest_reverse_import.go").write_text(
+            "package webhost\n\nimport _ \"github.com/retnd/retnd/distribution/packaging\"\n"
+        )
+        # The reverse import has to resolve, so the mutant module gets a
+        # replace pointing at its own sibling copy. Without it `go list`
+        # fails for a dependency-resolution reason and the check would
+        # "catch" the wrong thing.
+        _go_mod_edit(d / "apps/common", "../../distribution")
+        st.expect_check_fails(
+            "a core-layer package importing distribution",
+            d,
+            "core/app \u2500X\u2500\u25ba distribution",
+            "./scripts/architecture/check-core-dependency-rule.sh",
+        )
 
-    d = st.mutant("dep-platform-to-distribution")
-    (d / "apps/generic/platform").mkdir(parents=True, exist_ok=True)
-    (d / "apps/generic/platform/selftest_reverse_import.go").write_text(
-        "package platform\n\nimport _ \"github.com/retnd/retnd/distribution/packaging\"\n"
-    )
-    _go_mod_edit(d / "apps/generic", "../../distribution")
-    st.expect_check_fails(
-        "a platform-layer package importing distribution",
-        d,
-        "platform/app \u2500X\u2500\u25ba distribution",
-        "./scripts/architecture/check-core-dependency-rule.sh",
-    )
+    with st.mutant("dep-platform-to-distribution") as d:
+        (d / "apps/generic/platform").mkdir(parents=True, exist_ok=True)
+        (d / "apps/generic/platform/selftest_reverse_import.go").write_text(
+            "package platform\n\nimport _ \"github.com/retnd/retnd/distribution/packaging\"\n"
+        )
+        _go_mod_edit(d / "apps/generic", "../../distribution")
+        st.expect_check_fails(
+            "a platform-layer package importing distribution",
+            d,
+            "platform/app \u2500X\u2500\u25ba distribution",
+            "./scripts/architecture/check-core-dependency-rule.sh",
+        )
 
-    d = st.mutant("dep-core-to-provider-sdk")
-    (d / "core/internal/lifecycle").mkdir(parents=True, exist_ok=True)
-    (d / "core/internal/lifecycle/selftest_sdk_import.go").write_text(
-        'package lifecycle\n\nimport _ "github.com/truenas/api-client-golang/truenas"\n'
-    )
-    harness.sh(
-        [
-            "go", "mod", "edit",
-            "-require=github.com/truenas/api-client-golang@v0.0.0",
-            "-replace=github.com/truenas/api-client-golang=./internal/selftest-fake-sdk",
-        ],
-        cwd=d / "core",
-        env={**os.environ, "GOWORK": "off"},
-    )
-    (d / "core/internal/selftest-fake-sdk/truenas").mkdir(parents=True, exist_ok=True)
-    (d / "core/internal/selftest-fake-sdk/go.mod").write_text(
-        "module github.com/truenas/api-client-golang\n\ngo 1.27.0\n"
-    )
-    (d / "core/internal/selftest-fake-sdk/truenas/client.go").write_text(
-        "package truenas\n\n"
-        "// Client stands in for a real NAS vendor SDK, so the provider-SDK rule can\n"
-        "// be shown to fire against an import that actually resolves.\n"
-        "type Client struct{}\n"
-    )
-    st.expect_check_fails(
-        "core importing a NAS vendor SDK",
-        d,
-        "\u2500X\u2500\u25ba NAS SDKs",
-        "./scripts/architecture/check-core-dependency-rule.sh",
-    )
+    with st.mutant("dep-core-to-provider-sdk") as d:
+        (d / "core/internal/lifecycle").mkdir(parents=True, exist_ok=True)
+        (d / "core/internal/lifecycle/selftest_sdk_import.go").write_text(
+            'package lifecycle\n\nimport _ "github.com/truenas/api-client-golang/truenas"\n'
+        )
+        harness.sh(
+            [
+                "go", "mod", "edit",
+                "-require=github.com/truenas/api-client-golang@v0.0.0",
+                "-replace=github.com/truenas/api-client-golang=./internal/selftest-fake-sdk",
+            ],
+            cwd=d / "core",
+            env={**os.environ, "GOWORK": "off"},
+        )
+        (d / "core/internal/selftest-fake-sdk/truenas").mkdir(parents=True, exist_ok=True)
+        (d / "core/internal/selftest-fake-sdk/go.mod").write_text(
+            "module github.com/truenas/api-client-golang\n\ngo 1.27.0\n"
+        )
+        (d / "core/internal/selftest-fake-sdk/truenas/client.go").write_text(
+            "package truenas\n\n"
+            "// Client stands in for a real NAS vendor SDK, so the provider-SDK rule can\n"
+            "// be shown to fire against an import that actually resolves.\n"
+            "type Client struct{}\n"
+        )
+        st.expect_check_fails(
+            "core importing a NAS vendor SDK",
+            d,
+            "\u2500X\u2500\u25ba NAS SDKs",
+            "./scripts/architecture/check-core-dependency-rule.sh",
+        )
 
     # A check that inspected nothing must refuse rather than report
     # success over an empty set. The two controls below are a matched
@@ -622,18 +660,18 @@ def body(st: Selftest) -> int:
     # is worth anything without the other, because a check that ignores
     # untracked modules and a check that has stopped looking at anything
     # at all produce the same green.
-    d = st.mutant("dep-unclassified-module")
-    (d / "apps/selftest-unclassified-provider").mkdir(parents=True, exist_ok=True)
-    (d / "apps/selftest-unclassified-provider/go.mod").write_text(
-        "module github.com/retnd/retnd/apps/selftest-unclassified-provider\n\ngo 1.27.0\n"
-    )
-    harness.sh(["git", "-C", str(d), "add", "-A"])
-    st.expect_check_fails(
-        "a TRACKED Go module the manifest classifies into no layer",
-        d,
-        "classified into no layer",
-        "./scripts/architecture/check-core-dependency-rule.sh",
-    )
+    with st.mutant("dep-unclassified-module") as d:
+        (d / "apps/selftest-unclassified-provider").mkdir(parents=True, exist_ok=True)
+        (d / "apps/selftest-unclassified-provider/go.mod").write_text(
+            "module github.com/retnd/retnd/apps/selftest-unclassified-provider\n\ngo 1.27.0\n"
+        )
+        harness.sh(["git", "-C", str(d), "add", "-A"])
+        st.expect_check_fails(
+            "a TRACKED Go module the manifest classifies into no layer",
+            d,
+            "classified into no layer",
+            "./scripts/architecture/check-core-dependency-rule.sh",
+        )
 
     # The other half of the pair, and the literal #207 regression:
     # modules that are on disk but not in the repository cannot fail this
@@ -643,40 +681,40 @@ def body(st: Selftest) -> int:
     # untracked directory that no ignore rule mentions, so this control
     # cannot pass merely because .gitignore happened to hide the first
     # one; only sourcing the list from the index excludes it.
-    d = st.mutant("dep-untracked-module")
-    (d / ".claude/worktrees/selftest-planted/core").mkdir(parents=True, exist_ok=True)
-    (d / ".claude/worktrees/selftest-planted/core/go.mod").write_text(
-        "module github.com/retnd/retnd/core\n\ngo 1.27.0\n"
-    )
-    (d / "selftest-untracked-module").mkdir(parents=True, exist_ok=True)
-    (d / "selftest-untracked-module/go.mod").write_text(
-        "module example.invalid/selftest-untracked-module\n\ngo 1.27.0\n"
-    )
-    if harness.sh_ok(
-        ["git", "-C", str(d), "ls-files", "--error-unmatch", "selftest-untracked-module/go.mod"]
-    ):
-        st.tally.bad("the planted untracked module is tracked after all, so this control proves nothing.")
-    out = st.expect_check_passes(
-        "untracked go.mod files, in a nested worktree and in a plain untracked directory (must NOT fire)",
-        d,
-        "./scripts/architecture/check-core-dependency-rule.sh",
-    )
-
-    # And assert WHY it passed, because "the check passed" is also what a
-    # check that inspected nothing looks like. The same run has to have
-    # named a real tracked module, and neither planted path.
-    if (
-        re.search(r"^==> core \(core layer\)$", out, re.MULTILINE)
-        and "selftest-planted" not in out
-        and "selftest-untracked-module" not in out
-    ):
-        st.tally.ok("why", "the same run still inspected the tracked core module, and named neither planted path")
-    else:
-        st.tally.bad(
-            "the check passed beside the planted untracked modules, but not for the required reason.",
-            out,
-            '    it must still inspect tracked modules ("==> core (core layer)") and mention neither planted path.',
+    with st.mutant("dep-untracked-module") as d:
+        (d / ".claude/worktrees/selftest-planted/core").mkdir(parents=True, exist_ok=True)
+        (d / ".claude/worktrees/selftest-planted/core/go.mod").write_text(
+            "module github.com/retnd/retnd/core\n\ngo 1.27.0\n"
         )
+        (d / "selftest-untracked-module").mkdir(parents=True, exist_ok=True)
+        (d / "selftest-untracked-module/go.mod").write_text(
+            "module example.invalid/selftest-untracked-module\n\ngo 1.27.0\n"
+        )
+        if harness.sh_ok(
+            ["git", "-C", str(d), "ls-files", "--error-unmatch", "selftest-untracked-module/go.mod"]
+        ):
+            st.tally.bad("the planted untracked module is tracked after all, so this control proves nothing.")
+        out = st.expect_check_passes(
+            "untracked go.mod files, in a nested worktree and in a plain untracked directory (must NOT fire)",
+            d,
+            "./scripts/architecture/check-core-dependency-rule.sh",
+        )
+
+        # And assert WHY it passed, because "the check passed" is also what a
+        # check that inspected nothing looks like. The same run has to have
+        # named a real tracked module, and neither planted path.
+        if (
+            re.search(r"^==> core \(core layer\)$", out, re.MULTILINE)
+            and "selftest-planted" not in out
+            and "selftest-untracked-module" not in out
+        ):
+            st.tally.ok("why", "the same run still inspected the tracked core module, and named neither planted path")
+        else:
+            st.tally.bad(
+                "the check passed beside the planted untracked modules, but not for the required reason.",
+                out,
+                '    it must still inspect tracked modules ("==> core (core layer)") and mention neither planted path.',
+            )
 
     print(flush=True)
     print("==> layer ownership, one mutation per rule", flush=True)
@@ -685,10 +723,10 @@ def body(st: Selftest) -> int:
     # REAL distribution package alternately, so no rule is proven only in
     # one layer.
     def plant_ownership(label: str, rule: str, target: str, pkg: str, decl: str) -> None:
-        d = st.mutant(f"own-{label}")
-        (d / target).parent.mkdir(parents=True, exist_ok=True)
-        (d / target).write_text(f"package {pkg}\n\n{decl}\n")
-        st.expect_check_fails(label, d, rule, "./scripts/architecture/check-layer-ownership.sh")
+        with st.mutant(f"own-{label}") as d:
+            (d / target).parent.mkdir(parents=True, exist_ok=True)
+            (d / target).write_text(f"package {pkg}\n\n{decl}\n")
+            st.expect_check_fails(label, d, rule, "./scripts/architecture/check-layer-ownership.sh")
 
     plant_ownership(
         "lifecycle-state declared in a runtime profile",
@@ -765,59 +803,59 @@ def body(st: Selftest) -> int:
     # identifier is a local convenience rather than a claim of ownership.
     # Neither may fire, or the rule becomes noise a contributor learns to
     # route around.
-    d = st.mutant("own-go-local-noise")
-    (d / "apps/generic/platform/selftest_owns.go").write_text(
-        "package platform\n\n"
-        "// selftestNoise is planted by the self-test.\n"
-        "func selftestNoise(retentionPolicy int) int {\n"
-        "\tvalidatorCatalog := retentionPolicy\n"
-        "\treturn validatorCatalog\n}\n"
-    )
-    st.expect_check_passes(
-        "a prohibited name as a function parameter and a short variable (must NOT fire)",
-        d,
-        "./scripts/architecture/check-layer-ownership.sh",
-    )
+    with st.mutant("own-go-local-noise") as d:
+        (d / "apps/generic/platform/selftest_owns.go").write_text(
+            "package platform\n\n"
+            "// selftestNoise is planted by the self-test.\n"
+            "func selftestNoise(retentionPolicy int) int {\n"
+            "\tvalidatorCatalog := retentionPolicy\n"
+            "\treturn validatorCatalog\n}\n"
+        )
+        st.expect_check_passes(
+            "a prohibited name as a function parameter and a short variable (must NOT fire)",
+            d,
+            "./scripts/architecture/check-layer-ownership.sh",
+        )
 
     # TypeScript side: the bridges are where a runtime profile would most
     # plausibly grow a second opinion about retention.
-    d = st.mutant("own-ts")
-    _append(
-        d / "apps/truenas/frontend/platform.ts",
-        "\n// Planted by the self-test.\nexport interface RetentionPolicy { keep: number }\n",
-    )
-    st.expect_check_fails(
-        "retention-policy declared in a provider bridge (TypeScript)",
-        d,
-        'violates rule "retention-policy"',
-        "./scripts/architecture/check-layer-ownership.sh",
-    )
+    with st.mutant("own-ts") as d:
+        _append(
+            d / "apps/truenas/frontend/platform.ts",
+            "\n// Planted by the self-test.\nexport interface RetentionPolicy { keep: number }\n",
+        )
+        st.expect_check_fails(
+            "retention-policy declared in a provider bridge (TypeScript)",
+            d,
+            'violates rule "retention-policy"',
+            "./scripts/architecture/check-layer-ownership.sh",
+        )
 
     # And the control the TypeScript scanner most needs: a mention inside
     # a comment is NOT a declaration, and must not fire.
-    d = st.mutant("own-ts-comment")
-    _append(
-        d / "apps/truenas/frontend/platform.ts",
-        "\n// This bridge never defines a RetentionPolicy; core owns that.\n"
-        "// export interface RetentionPolicy { keep: number }\n",
-    )
-    st.expect_check_passes(
-        "a commented-out retention declaration in a bridge (must NOT fire)",
-        d,
-        "./scripts/architecture/check-layer-ownership.sh",
-    )
+    with st.mutant("own-ts-comment") as d:
+        _append(
+            d / "apps/truenas/frontend/platform.ts",
+            "\n// This bridge never defines a RetentionPolicy; core owns that.\n"
+            "// export interface RetentionPolicy { keep: number }\n",
+        )
+        st.expect_check_passes(
+            "a commented-out retention declaration in a bridge (must NOT fire)",
+            d,
+            "./scripts/architecture/check-layer-ownership.sh",
+        )
 
     # The ownership check's own empty-set guard: a manifest whose
     # platform and distribution paths hold no Go or TypeScript at all
     # would otherwise make "no violations found" true and worthless.
-    d = st.mutant("own-nothing-to-scan")
-    _rewrite_layers_to_container(d / arch.MANIFEST)
-    st.expect_check_fails(
-        "an ownership run with no Go or TypeScript file to scan",
-        d,
-        "verified nothing",
-        "./scripts/architecture/check-layer-ownership.sh",
-    )
+    with st.mutant("own-nothing-to-scan") as d:
+        _rewrite_layers_to_container(d / arch.MANIFEST)
+        st.expect_check_fails(
+            "an ownership run with no Go or TypeScript file to scan",
+            d,
+            "verified nothing",
+            "./scripts/architecture/check-layer-ownership.sh",
+        )
 
     print(flush=True)
     print("==> shared UI provider-SDK import scan", flush=True)
@@ -826,56 +864,56 @@ def body(st: Selftest) -> int:
     # an npm ci in a fresh worktree, which is minutes rather than
     # seconds, and it is the scan that carries the four platforms with no
     # directory to delete.
-    d = st.mutant("ui-relative-import")
-    _append(
-        d / "ui/shared/src/types/platform.ts",
-        '\n// Planted by the self-test.\nexport { ugosBridge } from "../../../apps/ugos/frontend/platform";\n',
-    )
-    st.expect_check_fails(
-        "the shared UI reaching into a provider directory",
-        d,
-        "a relative reach into a provider directory",
-        "./scripts/architecture/check-ui-shared-provider-imports.sh",
-    )
+    with st.mutant("ui-relative-import") as d:
+        _append(
+            d / "ui/shared/src/types/platform.ts",
+            '\n// Planted by the self-test.\nexport { ugosBridge } from "../../../apps/ugos/frontend/platform";\n',
+        )
+        st.expect_check_fails(
+            "the shared UI reaching into a provider directory",
+            d,
+            "a relative reach into a provider directory",
+            "./scripts/architecture/check-ui-shared-provider-imports.sh",
+        )
 
-    d = st.mutant("ui-bare-sdk")
-    _append(
-        d / "ui/shared/src/types/platform.ts",
-        "\n// Planted by the self-test: a platform with no directory to delete, so\n"
-        '// only the scan can catch it.\nexport { probe } from "@casaos/app-store-sdk";\n',
-    )
-    st.expect_check_fails(
-        "the shared UI importing a bare provider SDK package",
-        d,
-        "a provider SDK package",
-        "./scripts/architecture/check-ui-shared-provider-imports.sh",
-    )
+    with st.mutant("ui-bare-sdk") as d:
+        _append(
+            d / "ui/shared/src/types/platform.ts",
+            "\n// Planted by the self-test: a platform with no directory to delete, so\n"
+            '// only the scan can catch it.\nexport { probe } from "@casaos/app-store-sdk";\n',
+        )
+        st.expect_check_fails(
+            "the shared UI importing a bare provider SDK package",
+            d,
+            "a provider SDK package",
+            "./scripts/architecture/check-ui-shared-provider-imports.sh",
+        )
 
     # The control the scan most needs: ui/shared names every platform in
     # its PlatformId union and in prose, and none of that is an import.
-    d = st.mutant("ui-prose-mention")
-    _append(
-        d / "ui/shared/src/types/platform.ts",
-        "\n// Planted by the self-test: prose and a type, never an import. CasaOS,\n"
-        "// ZimaOS, Dockge and Portainer are named here on purpose.\n"
-        'export type SelftestPlatformId = "casaos" | "zimaos" | "dockge" | "portainer";\n',
-    )
-    st.expect_check_passes(
-        "platform names in prose and in a type union (must NOT fire)",
-        d,
-        "./scripts/architecture/check-ui-shared-provider-imports.sh",
-    )
+    with st.mutant("ui-prose-mention") as d:
+        _append(
+            d / "ui/shared/src/types/platform.ts",
+            "\n// Planted by the self-test: prose and a type, never an import. CasaOS,\n"
+            "// ZimaOS, Dockge and Portainer are named here on purpose.\n"
+            'export type SelftestPlatformId = "casaos" | "zimaos" | "dockge" | "portainer";\n',
+        )
+        st.expect_check_passes(
+            "platform names in prose and in a type union (must NOT fire)",
+            d,
+            "./scripts/architecture/check-ui-shared-provider-imports.sh",
+        )
 
     # The scan's own empty-set guard: if ui/shared/src moved, "no
     # provider import was found" would be true and meaningless.
-    d = st.mutant("ui-nothing-to-scan")
-    (d / "ui/shared/src").rename(d / "ui/shared/source")
-    st.expect_check_fails(
-        "a UI scan with no TypeScript file to read",
-        d,
-        "verified nothing",
-        "./scripts/architecture/check-ui-shared-provider-imports.sh",
-    )
+    with st.mutant("ui-nothing-to-scan") as d:
+        (d / "ui/shared/src").rename(d / "ui/shared/source")
+        st.expect_check_fails(
+            "a UI scan with no TypeScript file to read",
+            d,
+            "verified nothing",
+            "./scripts/architecture/check-ui-shared-provider-imports.sh",
+        )
 
     print(flush=True)
     print("==> Go files no module owns (#417)", flush=True)
@@ -904,38 +942,38 @@ def body(st: Selftest) -> int:
     else:
         st.tally.bad("check-unowned-go FAILED against the real tree, so its failures mean nothing.", out)
 
-    d = st.mutant("unowned-vet")
-    (d / "scripts/selftest-unowned").mkdir(parents=True, exist_ok=True)
-    # A printf verb that does not match its argument: compiles, runs, and
-    # is exactly the class `go vet` exists for.
-    (d / "scripts/selftest-unowned/planted.go").write_text(
-        'package main\n\nimport "fmt"\n\nfunc main() {\n'
-        '\tfmt.Printf("%d\\n", "planted by scripts/architecture/selftest.sh")\n}\n'
-    )
-    harness.sh(["git", "-C", str(d), "add", "-A"])
-    st.expect_check_fails(
-        "a vet-catchable defect in a Go file no module owns",
-        d,
-        "wrong type string",
-        "./scripts/architecture/check-unowned-go.sh",
-    )
+    with st.mutant("unowned-vet") as d:
+        (d / "scripts/selftest-unowned").mkdir(parents=True, exist_ok=True)
+        # A printf verb that does not match its argument: compiles, runs, and
+        # is exactly the class `go vet` exists for.
+        (d / "scripts/selftest-unowned/planted.go").write_text(
+            'package main\n\nimport "fmt"\n\nfunc main() {\n'
+            '\tfmt.Printf("%d\\n", "planted by scripts/architecture/selftest.sh")\n}\n'
+        )
+        harness.sh(["git", "-C", str(d), "add", "-A"])
+        st.expect_check_fails(
+            "a vet-catchable defect in a Go file no module owns",
+            d,
+            "wrong type string",
+            "./scripts/architecture/check-unowned-go.sh",
+        )
 
-    d = st.mutant("unowned-lint")
-    (d / "scripts/selftest-unowned").mkdir(parents=True, exist_ok=True)
-    # An ineffectual assignment: `go vet` is silent on this one
-    # (measured, not assumed), and golangci-lint's ineffassign is not.
-    # Without this cell the lint half of the check could be removed and
-    # every other cell would stay green.
-    (d / "scripts/selftest-unowned/planted.go").write_text(
-        'package main\n\nimport "fmt"\n\nfunc main() {\n\tn := 1\n\tn = 2\n\tfmt.Println(n)\n}\n'
-    )
-    harness.sh(["git", "-C", str(d), "add", "-A"])
-    st.expect_check_fails(
-        "a defect only the linter catches, in a Go file no module owns",
-        d,
-        "ineffectual assignment",
-        "./scripts/architecture/check-unowned-go.sh",
-    )
+    with st.mutant("unowned-lint") as d:
+        (d / "scripts/selftest-unowned").mkdir(parents=True, exist_ok=True)
+        # An ineffectual assignment: `go vet` is silent on this one
+        # (measured, not assumed), and golangci-lint's ineffassign is not.
+        # Without this cell the lint half of the check could be removed and
+        # every other cell would stay green.
+        (d / "scripts/selftest-unowned/planted.go").write_text(
+            'package main\n\nimport "fmt"\n\nfunc main() {\n\tn := 1\n\tn = 2\n\tfmt.Println(n)\n}\n'
+        )
+        harness.sh(["git", "-C", str(d), "add", "-A"])
+        st.expect_check_fails(
+            "a defect only the linter catches, in a Go file no module owns",
+            d,
+            "ineffectual assignment",
+            "./scripts/architecture/check-unowned-go.sh",
+        )
 
     if st.tally.failed != 0:
         print(file=sys.stderr, flush=True)

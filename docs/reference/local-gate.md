@@ -176,9 +176,17 @@ or remotely, and the fixtures handle the last:
 - **`/tmp`.** `core/tests/containerhooks` builds its runner layout under a
   short `/tmp` root and bind-mounts it into each hook container, so the
   daemon has to find the same path on its own disk. On a daemon that is not
-  Docker Desktop the host's `/tmp` is mounted at `/tmp`, and every test's
-  temporary directory lands there; Go removes them as tests finish, but a
-  run killed halfway can leave some behind in the host's `/tmp`.
+  Docker Desktop the host's `/tmp` is mounted at `/tmp`. In remote mode,
+  when that host's `/tmp` is tmpfs (MARS's is), `TMPDIR` points somewhere
+  else: a `tmp/` directory in the shipped scratch copy, on disk and mounted at
+  the same path inside and out, so temporary directories land there and go
+  when the scratch copy does (#1580). Everything written to a tmpfs `/tmp`
+  was memory charged to the gate container's fence that could not be swapped
+  out, and the architecture self-test's tree copies got SIGKILLed that way.
+  Tests that need the short root ask for `/tmp` by name and still get the
+  host's. A host whose `/tmp` is on disk keeps `TMPDIR` as it was: on
+  colima (MERCURY) the scratch copy reaches the VM through the Mac's file
+  share, where a test that makes a named pipe would skip.
 
 - **The scratch copy's modes.** A Linux account's umask is often 002, which
   left the remote scratch directories group-writable, and the SSH key checks

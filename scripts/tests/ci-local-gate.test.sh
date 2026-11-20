@@ -413,6 +413,9 @@ make_full_tree() {
   for t in run-gate-shard selftest-shard release-e2e; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$t.test.sh"
   done
+  # The architecture self-test's scratch bound (#1580) imports the real
+  # self-test, which a synthetic tree does not have.
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/architecture-selftest-scratch.test.sh"
   mkdir -p "$tree/scripts/release"
   # ci-docker.sh --host test (#1267): stand-ins and a fixture checkout, none of which a synthetic tree has.
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/ci-docker-remote.test.sh"
