@@ -10,6 +10,7 @@
  * as inert text in a bounded block, never as HTML and never linkified.
  */
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import { describeFailure, apiErrorOf } from "@shared/api/failure";
 import { ErrorState } from "@shared/components/EmptyState";
@@ -56,29 +57,25 @@ export function AuditRegion({ tokens, tools, revision }: { tokens: AgentToken[];
   // An answer can land after the region has gone (the page was left, or a
   // test unmounted it), and setting state then throws once a test's window
   // has been torn down (#1589). Every answer below checks this first.
-  const mounted = useRef(false);
-  useEffect(() => {
-    mounted.current = true;
-    return () => { mounted.current = false; };
-  }, []);
+  const mountedRef = useMounted();
 
   // One read per filter or revision: the first page, replacing what is shown.
   useEffect(() => {
     const mine = ++latest.current;
     api.listAgentAudit({ tokenId: tokenId || undefined, since: since || undefined }).then(
       (page) => {
-        if (!mounted.current || mine !== latest.current) return;
+        if (!mountedRef.current || mine !== latest.current) return;
         setRows(page.rows);
         setCursor(page.nextCursor);
         setFailure(null);
         setOpen(new Set());
       },
       (e) => {
-        if (!mounted.current || mine !== latest.current) return;
+        if (!mountedRef.current || mine !== latest.current) return;
         setFailure(engineFailure(e, "the audit could not be read"));
       }
     );
-  }, [api, tokenId, since, revision, nonce]);
+  }, [api, tokenId, since, revision, nonce, mountedRef]);
 
   const showOlder = useCallback(async () => {
     if (!cursor) return;
@@ -89,16 +86,16 @@ export function AuditRegion({ tokens, tools, revision }: { tokens: AgentToken[];
     setOlder(true);
     try {
       const page = await api.listAgentAudit({ tokenId: tokenId || undefined, since: since || undefined, cursor });
-      if (!mounted.current || mine !== latest.current) return;
+      if (!mountedRef.current || mine !== latest.current) return;
       setRows((r) => [...(r ?? []), ...page.rows]);
       setCursor(page.nextCursor);
     } catch (e) {
-      if (!mounted.current || mine !== latest.current) return;
+      if (!mountedRef.current || mine !== latest.current) return;
       setFailure(engineFailure(e, "older calls could not be read"));
     } finally {
-      if (mounted.current) setOlder(false);
+      if (mountedRef.current) setOlder(false);
     }
-  }, [api, cursor, tokenId, since]);
+  }, [api, cursor, tokenId, since, mountedRef]);
 
   const toggle = (seq: number) =>
     setOpen((o) => { const n = new Set(o); if (n.has(seq)) n.delete(seq); else n.add(seq); return n; });

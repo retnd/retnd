@@ -52,6 +52,7 @@
  * and never runs at all before one has been submitted.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useMounted } from "./useMounted";
 
 import { useApi } from "@shared/api/ApiContext";
 import { newIdempotencyKey } from "@shared/api/client";
@@ -175,12 +176,7 @@ export function useSnapshotOperation(fallbackMessage: string): SnapshotAction {
   // screen by then (#1593). An update to a screen that has unmounted does
   // nothing useful, and once a test environment has been torn down it
   // throws inside the promise, so the submit's answers check this first.
-  // Set in its own effect so strict mode's remount sets it back.
-  const mounted = useRef(false);
-  useEffect(() => {
-    mounted.current = true;
-    return () => { mounted.current = false; };
-  }, []);
+  const mountedRef = useMounted();
 
   const configRevision = version.data?.configRevision;
   const ready = typeof configRevision === "string" && configRevision !== "";
@@ -211,7 +207,7 @@ export function useSnapshotOperation(fallbackMessage: string): SnapshotAction {
           // The screen can be gone by now (#1593). The act still happened
           // and the operation is durable; there is just nothing left to
           // show it on, and onDone's setters belong to the same screen.
-          if (!mounted.current) return;
+          if (!mountedRef.current) return;
           setBusy(false);
           setOperation(result.operation);
           onDone?.(result);
@@ -219,7 +215,7 @@ export function useSnapshotOperation(fallbackMessage: string): SnapshotAction {
         (e: unknown) => {
           // The key is deliberately KEPT. Pressing the button again is
           // the same act retried, which is the whole point of the header.
-          if (!mounted.current) return;
+          if (!mountedRef.current) return;
           setBusy(false);
           if (terminal !== undefined && isGateRefusal(e)) {
             setGate(gateRefusalNotice({ ...terminal, correlationId: apiErrorOf(e)?.correlationId }));
@@ -229,7 +225,7 @@ export function useSnapshotOperation(fallbackMessage: string): SnapshotAction {
         }
       );
     },
-    [configRevision, fallbackMessage, ready]
+    [configRevision, fallbackMessage, ready, mountedRef]
   );
 
   const watchedId = operation === null ? null : operation.id;

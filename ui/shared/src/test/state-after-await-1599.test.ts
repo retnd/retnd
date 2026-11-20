@@ -21,16 +21,16 @@
  *
  * Such a call is guarded when, after the last await before it, one of these
  * stands between the await and the call:
- *   - `if (!mounted.current) return;` (or throw, break, continue), where
+ *   - `if (!mountedRef.current) return;` (or throw, break, continue), where
  *     `mounted` comes from useMounted();
- *   - `if (mounted.current) setX(...)`, `mounted.current && setX(...)` or a
+ *   - `if (mountedRef.current) setX(...)`, `mountedRef.current && setX(...)` or a
  *     `?:` on it;
  *   - the same with an effect's own flag: a `let` (or a ref) its cleanup
  *     sets, read the right way round (`live` set false, `cancelled` set
  *     true), or the `.aborted` of a signal a cleanup aborts.
  * A zero-argument arrow that returns such a check (`const current = () =>
- * mounted.current && mine === asked.current`) counts as the check. The
- * direction is checked too, so `if (mounted.current) return;` guards
+ * mountedRef.current && mine === asked.current`) counts as the check. The
+ * direction is checked too, so `if (mountedRef.current) return;` guards
  * nothing. A newest-answer counter on its own isn't a guard: a ref keeps its
  * value after unmount.
  *
@@ -55,6 +55,273 @@ const sources = import.meta.glob<string>(["../**/*.{ts,tsx}", "!../test/**", "!.
 
 /** `file › Component.function › setter`, with the reason it stays as it is. */
 const ALLOWED: Record<string, string> = {};
+
+/**
+ * The sites still waiting for their batch. #1599 is fixed in three stacked
+ * PRs (the hook with agents/, assurance/ and hooks/; then pages/; then the
+ * rest), and every commit has to pass, so this list holds what the later
+ * batches haven't reached yet. Each batch takes its own sites off it, an
+ * entry that no longer matches a site fails the run, and the last batch
+ * deletes the list.
+ */
+const PENDING = new Set<string>([
+  "App.tsx › App.onSkip › setFirstRun",
+  "auth/EnrollmentPage.tsx › EnrollmentPage.submit › setBusy",
+  "auth/EnrollmentPage.tsx › EnrollmentPage.submit › setFailure",
+  "auth/ForgotPasswordPage.tsx › ForgotPasswordPage.submit › setAsked",
+  "auth/ForgotPasswordPage.tsx › ForgotPasswordPage.submit › setBusy",
+  "auth/ForgotPasswordPage.tsx › ForgotPasswordPage.submit › setFailure",
+  "auth/LoginPage.tsx › SignInForm.submit › setBusy",
+  "auth/LoginPage.tsx › SignInForm.submit › setFailure",
+  "auth/ResetPasswordPage.tsx › ResetPasswordPage.submit › setBusy",
+  "auth/ResetPasswordPage.tsx › ResetPasswordPage.submit › setConfirm",
+  "auth/ResetPasswordPage.tsx › ResetPasswordPage.submit › setDone",
+  "auth/ResetPasswordPage.tsx › ResetPasswordPage.submit › setFailure",
+  "auth/ResetPasswordPage.tsx › ResetPasswordPage.submit › setPassword",
+  "components/ActivityDock.tsx › ActivityDock.copy › setCopied",
+  "components/EmptyState.tsx › ErrorState.onClick › setCopied",
+  "components/FirstRunGuide.tsx › FirstRunGuide.onClick › setBusy",
+  "components/RecoveryVerificationBanner.tsx › RecoveryVerificationBanner.resend › setFailure",
+  "components/RecoveryVerificationBanner.tsx › RecoveryVerificationBanner.resend › setResending",
+  "components/RecoveryVerificationBanner.tsx › RecoveryVerificationBanner.resend › setResent",
+  "components/RemoveBackupSetDialog.tsx › RemoveBackupSetDialog.onConfirm › setError",
+  "components/RemoveBackupSetDialog.tsx › RemoveBackupSetDialog.onConfirm › setRemoving",
+  "components/SSHAuthWizard.tsx › OpenWizard.apply › setBusy",
+  "components/SSHAuthWizard.tsx › OpenWizard.apply › setError",
+  "components/SSHAuthWizard.tsx › OpenWizard.apply › setStep",
+  "components/SSHAuthWizard.tsx › OpenWizard.importPasted › setBusy",
+  "components/SSHAuthWizard.tsx › OpenWizard.importPasted › setChosen",
+  "components/SSHAuthWizard.tsx › OpenWizard.importPasted › setError",
+  "components/SSHAuthWizard.tsx › OpenWizard.importPasted › setOutcome",
+  "components/SSHAuthWizard.tsx › OpenWizard.importPasted › setPastedKey",
+  "components/SSHAuthWizard.tsx › OpenWizard.importPasted › setPastedPassphrase",
+  "components/SSHAuthWizard.tsx › OpenWizard.importPasted › setReloadToken",
+  "components/SSHAuthWizard.tsx › OpenWizard.importPasted › setVerifiedAgainst",
+  "components/SSHAuthWizard.tsx › OpenWizard.probe › setAckedFingerprint",
+  "components/SSHAuthWizard.tsx › OpenWizard.probe › setBusy",
+  "components/SSHAuthWizard.tsx › OpenWizard.probe › setError",
+  "components/SSHAuthWizard.tsx › OpenWizard.probe › setOutcome",
+  "components/SSHAuthWizard.tsx › OpenWizard.probe › setProbed",
+  "components/SSHAuthWizard.tsx › OpenWizard.probe › setVerifiedAgainst",
+  "components/SSHAuthWizard.tsx › OpenWizard.selectCandidate › setBusy",
+  "components/SSHAuthWizard.tsx › OpenWizard.selectCandidate › setChosen",
+  "components/SSHAuthWizard.tsx › OpenWizard.selectCandidate › setError",
+  "components/SSHAuthWizard.tsx › OpenWizard.selectCandidate › setOutcome",
+  "components/SSHAuthWizard.tsx › OpenWizard.selectCandidate › setReloadToken",
+  "components/SSHAuthWizard.tsx › OpenWizard.selectCandidate › setVerifiedAgainst",
+  "components/SSHAuthWizard.tsx › OpenWizard.verify › setBusy",
+  "components/SSHAuthWizard.tsx › OpenWizard.verify › setError",
+  "components/SSHAuthWizard.tsx › OpenWizard.verify › setOutcome",
+  "components/SSHAuthWizard.tsx › OpenWizard.verify › setVerifiedAgainst",
+  "components/StepLogTerminal.tsx › StepLogTerminal.copy › setCopied",
+  "components/WorkflowEnvironmentEditor.tsx › WorkflowEnvironmentEditor.remove › setBusy",
+  "components/WorkflowEnvironmentEditor.tsx › WorkflowEnvironmentEditor.remove › setFailure",
+  "components/WorkflowEnvironmentEditor.tsx › WorkflowEnvironmentEditor.save › setBusy",
+  "components/WorkflowEnvironmentEditor.tsx › WorkflowEnvironmentEditor.save › setDraftName",
+  "components/WorkflowEnvironmentEditor.tsx › WorkflowEnvironmentEditor.save › setDraftValue",
+  "components/WorkflowEnvironmentEditor.tsx › WorkflowEnvironmentEditor.save › setFailure",
+  "components/WorkflowRecoveryBanner.tsx › WorkflowRecoveryBanner.acknowledge › setAcknowledging",
+  "components/WorkflowRecoveryBanner.tsx › WorkflowRecoveryBanner.acknowledge › setBusy",
+  "components/WorkflowRecoveryBanner.tsx › WorkflowRecoveryBanner.acknowledge › setFailure",
+  "components/WorkflowRecoveryBanner.tsx › WorkflowRecoveryBanner.acknowledge › setReason",
+  "components/WorkflowRecoveryBanner.tsx › WorkflowRecoveryBanner.resume › setBusy",
+  "components/WorkflowRecoveryBanner.tsx › WorkflowRecoveryBanner.resume › setFailure",
+  "encryption/BundleDialog.tsx › BundleDialog.download › forget",
+  "encryption/BundleDialog.tsx › BundleDialog.download › setBusy",
+  "encryption/BundleDialog.tsx › BundleDialog.download › setError",
+  "encryption/ClippedText.tsx › ClippedText.copy › setCopied",
+  "encryption/EncryptionCard.tsx › EncryptionCard.act › setBusy",
+  "encryption/EncryptionCard.tsx › EncryptionCard.act › setFailure",
+  "encryption/EncryptionCard.tsx › EncryptionCard.onConfirm › close",
+  "encryption/EncryptionCard.tsx › EncryptionCard.onEnable › close",
+  "encryption/EncryptionCard.tsx › EncryptionCard.onRetire › close",
+  "encryption/EncryptionCard.tsx › EncryptionCard.onSave › close",
+  "encryption/ExternalReferenceFields.tsx › ExternalReferenceFields.test › setProbe",
+  "encryption/ExternalReferenceFields.tsx › ExternalReferenceFields.test › setProbeFailure",
+  "encryption/ExternalReferenceFields.tsx › ExternalReferenceFields.test › setTesting",
+  "encryption/ReencryptDialog.tsx › ReencryptDialog.run › setBusy",
+  "encryption/ReencryptDialog.tsx › ReencryptDialog.run › setFailure",
+  "encryption/ReencryptDialog.tsx › ReencryptDialog.run › setStarted",
+  "encryption/SetEncryptionCard.tsx › SetEncryptionCard.change › setBusy",
+  "encryption/SetEncryptionCard.tsx › SetEncryptionCard.change › setFailure",
+  "encryption/SetEncryptionCard.tsx › SetEncryptionCard.onClick › setDraft",
+  "encryption/SetEncryptionCard.tsx › SetEncryptionCard.onClick › setOwnKey",
+  "encryption/SuiteControls.tsx › SuiteChangeFlow.onConfirm › setKeyId",
+  "encryption/SuiteControls.tsx › SuiteChangeFlow.onConfirm › setStep",
+  "encryption/SuiteControls.tsx › SuiteChangeFlow.run › setBusy",
+  "encryption/SuiteControls.tsx › SuiteChangeFlow.run › setFailure",
+  "encryption/VerifyRecoverableDialog.tsx › VerifyRecoverableDialog.start › setBusy",
+  "encryption/VerifyRecoverableDialog.tsx › VerifyRecoverableDialog.start › setOpId",
+  "encryption/VerifyRecoverableDialog.tsx › VerifyRecoverableDialog.start › setRefusal",
+  "observability/AlertDeliveryControls.tsx › AlertDeliveryControls.save › setBusy",
+  "observability/AlertDeliveryControls.tsx › AlertDeliveryControls.save › setError",
+  "observability/LogLevelControl.tsx › LogLevelControl.change › setProblem",
+  "observability/LogLevelControl.tsx › LogLevelControl.change › setSaving",
+  "observability/ObservabilityCard.tsx › ObservabilityCard.apply › setBusy",
+  "observability/ObservabilityCard.tsx › ObservabilityCard.apply › setError",
+  "observability/ObservabilityCard.tsx › ObservabilityCard.apply › setInterval",
+  "observability/ObservabilityCard.tsx › ObservabilityCard.apply › setSettings",
+  "observability/ObservabilityCard.tsx › ObservabilityCard.mint › setBusy",
+  "observability/ObservabilityCard.tsx › ObservabilityCard.mint › setCopied",
+  "observability/ObservabilityCard.tsx › ObservabilityCard.mint › setError",
+  "observability/ObservabilityCard.tsx › ObservabilityCard.mint › setMinted",
+  "observability/ObservabilityCard.tsx › ObservabilityCard.mint › setSettings",
+  "observability/ObservabilityCard.tsx › ObservabilityCard.onClick › setCopied",
+  "pages/ActivityPage.tsx › ActivityPage.loadOlder › setLoadingOlder",
+  "pages/ActivityPage.tsx › ActivityPage.loadOlder › setOlder",
+  "pages/ActivityPage.tsx › ActivityPage.loadOlder › setOlderFailure",
+  "pages/ActivityStrip.tsx › ActivityToolbar.copy › setCopied",
+  "pages/BackupDetailPage.tsx › BackupDetailPage.retryIngestion › setRecovery",
+  "pages/BackupDetailPage.tsx › BackupDetailPage.retryIngestion › setRetrying",
+  "pages/BackupSetConfigurationCard.tsx › IncrementalConfiguration.save › setEditing",
+  "pages/BackupSetConfigurationCard.tsx › IncrementalConfiguration.save › setSaveError",
+  "pages/BackupSetConfigurationCard.tsx › IncrementalConfiguration.save › setSaving",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.confirmRefusal › leaveEditMode",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.enterEditMode › setBaseline",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.enterEditMode › setDraft",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.enterEditMode › setEditing",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.enterEditMode › setEnterError",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.enterEditMode › setFieldErrors",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.enterEditMode › setRefusal",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.enterEditMode › setSnapshot",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.enterEditMode › setStale",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.enterEditMode › setStopped",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.onEditPressed › setEnterError",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.onEditPressed › setWarnAbout",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.runConnectionTest › setSourceWritable",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.runConnectionTest › setTesting",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveAllAndExit › leaveEditMode",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveAllAndExit › setPartialSave",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveFields › setBaseline",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveFields › setDraft",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveFields › setFieldErrors",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveFields › setRefusal",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveFields › setSavedThisSession",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveFields › setSavingFields",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveFields › setSnapshot",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveHooks › setHookDraft",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveHooks › setHookErrors",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveHooks › setSavedThisSession",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.saveHooks › setSavingHooks",
+  "pages/BackupSetDetailPage.tsx › BackupSetDetailPage.toggleReadOnly › setSourceWritable",
+  "pages/BackupSetRetentionCard.tsx › RetentionPanel.apply › setBusy",
+  "pages/BackupSetRetentionCard.tsx › RetentionPanel.apply › setError",
+  "pages/BackupSetRetentionCard.tsx › RetentionPanel.apply › setR",
+  "pages/BackupSetsPage.tsx › BackupSetsPage.toggleEnabled › publishBusy",
+  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.handleSave › setRepointRefusal",
+  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.handleSave › setRunNotStarted",
+  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.handleSave › setSaveError",
+  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.handleSave › setSaving",
+  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.onClick › setImportedFingerprint",
+  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.onClick › setImportedKeyId",
+  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.onClick › setImportError",
+  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.onClick › setImporting",
+  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.onClick › setImportPasted",
+  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.runConnectionTest › setConnectionError",
+  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.runConnectionTest › setConnectionResult",
+  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.runConnectionTest › setConnectionTestedFor",
+  "pages/BackupSetWizardPage.tsx › BackupSetWizardPage.runConnectionTest › setTesting",
+  "pages/BackupSetWorkflowCard.tsx › ExecConnectionPicker.onChange › setFailure",
+  "pages/BackupSetWorkflowCard.tsx › ExecConnectionPicker.onChange › setSaving",
+  "pages/BackupSetWorkflowCard.tsx › SetWorkflowCard.validate › setValidatedAt",
+  "pages/BackupSetWorkflowCard.tsx › SetWorkflowCard.validate › setValidating",
+  "pages/BackupSetWorkflowCard.tsx › SetWorkflowCard.validate › setValidation",
+  "pages/BackupSetWorkflowCard.tsx › SetWorkflowCard.validate › setValidationError",
+  "pages/CapacityCard.tsx › CapacityEditor.onSave › setBaseline",
+  "pages/CapacityCard.tsx › CapacityEditor.onSave › setBusy",
+  "pages/CapacityCard.tsx › CapacityEditor.onSave › setCap",
+  "pages/CapacityCard.tsx › CapacityEditor.onSave › setCritical",
+  "pages/CapacityCard.tsx › CapacityEditor.onSave › setSaved",
+  "pages/CapacityCard.tsx › CapacityEditor.onSave › setSaveError",
+  "pages/CapacityCard.tsx › CapacityEditor.onSave › setWarning",
+  "pages/CatalogRecoveryPage.tsx › CatalogRecoveryPage.onConfirm › setConfirming",
+  "pages/CatalogRecoveryPage.tsx › CatalogRecoveryPage.onConfirm › setFailure",
+  "pages/CatalogRecoveryPage.tsx › CatalogRecoveryPage.scan › setFailure",
+  "pages/CatalogRecoveryPage.tsx › CatalogRecoveryPage.scan › setPreview",
+  "pages/CatalogRecoveryPage.tsx › CatalogRecoveryPage.scan › setScanning",
+  "pages/DestinationConfigureWizard.tsx › DestinationConfigureWizard.runProbe › setBusy",
+  "pages/DestinationConfigureWizard.tsx › DestinationConfigureWizard.runProbe › setCredential",
+  "pages/DestinationConfigureWizard.tsx › DestinationConfigureWizard.runProbe › setCredentialConfigured",
+  "pages/DestinationConfigureWizard.tsx › DestinationConfigureWizard.runProbe › setCredentialsId",
+  "pages/DestinationConfigureWizard.tsx › DestinationConfigureWizard.runProbe › setElapsedMs",
+  "pages/DestinationConfigureWizard.tsx › DestinationConfigureWizard.runProbe › setFailure",
+  "pages/DestinationConfigureWizard.tsx › DestinationConfigureWizard.runProbe › setProvenFor",
+  "pages/DestinationConfigureWizard.tsx › DestinationConfigureWizard.runProbe › setReport",
+  "pages/DestinationConfigureWizard.tsx › DestinationConfigureWizard.save › setBusy",
+  "pages/DestinationConfigureWizard.tsx › DestinationConfigureWizard.save › setFailure",
+  "pages/QuarantinePage.tsx › QuarantinePage.reinstate › setConfirming",
+  "pages/QuarantinePage.tsx › QuarantinePage.reinstate › setOutcome",
+  "pages/QuarantinePage.tsx › QuarantinePage.reinstate › setRunning",
+  "pages/QuarantinePage.tsx › QuarantinePage.retryIngestion › setOutcome",
+  "pages/QuarantinePage.tsx › QuarantinePage.revalidate › setOutcome",
+  "pages/RepositoryDomainNewPage.tsx › RepositoryDomainNewPage.create › setRefusal",
+  "pages/RepositoryDomainNewPage.tsx › RepositoryDomainNewPage.create › setSaving",
+  "pages/retentionChain.tsx › MediumPreflightRow.run › setBusy",
+  "pages/retentionChain.tsx › MediumPreflightRow.run › setError",
+  "pages/retentionChain.tsx › MediumPreflightRow.run › setReport",
+  "pages/retentionChain.tsx › TierDestinationActions.test › setBusy",
+  "pages/retentionChain.tsx › TierDestinationActions.test › setError",
+  "pages/retentionChain.tsx › TierDestinationActions.test › setReport",
+  "pages/RetentionPolicyCard.tsx › RetentionPolicyEditor.submit › setAcknowledged",
+  "pages/RetentionPolicyCard.tsx › RetentionPolicyEditor.submit › setBaseline",
+  "pages/RetentionPolicyCard.tsx › RetentionPolicyEditor.submit › setBusy",
+  "pages/RetentionPolicyCard.tsx › RetentionPolicyEditor.submit › setProtect",
+  "pages/RetentionPolicyCard.tsx › RetentionPolicyEditor.submit › setSaved",
+  "pages/RetentionPolicyCard.tsx › RetentionPolicyEditor.submit › setSaveError",
+  "pages/RetentionPolicyCard.tsx › RetentionPolicyEditor.submit › setTiers",
+  "pages/RetentionPolicyCard.tsx › RetentionPolicyEditor.submit › setTimezone",
+  "pages/RetentionPolicyCard.tsx › RetentionPolicyEditor.submit › setWeekStartsOn",
+  "pages/RetentionPreviewDialog.tsx › RetentionPreviewDialog.handleApply › setApplyError",
+  "pages/RetentionPreviewDialog.tsx › RetentionPreviewDialog.handleApply › setConfirming",
+  "pages/RetentionPreviewDialog.tsx › RetentionPreviewDialog.handleApply › setGateNotice",
+  "pages/S3DestinationWizard.tsx › S3DestinationWizard.save › setBusy",
+  "pages/S3DestinationWizard.tsx › S3DestinationWizard.save › setFailure",
+  "pages/S3DestinationWizard.tsx › S3DestinationWizard.toVerify › setAccessKeyId",
+  "pages/S3DestinationWizard.tsx › S3DestinationWizard.toVerify › setBusy",
+  "pages/S3DestinationWizard.tsx › S3DestinationWizard.toVerify › setCredentialsId",
+  "pages/S3DestinationWizard.tsx › S3DestinationWizard.toVerify › setFailure",
+  "pages/S3DestinationWizard.tsx › S3DestinationWizard.toVerify › setReport",
+  "pages/S3DestinationWizard.tsx › S3DestinationWizard.toVerify › setSecretAccessKey",
+  "pages/S3DestinationWizard.tsx › S3DestinationWizard.toVerify › setStep",
+  "pages/S3DestinationWizard.tsx › S3DestinationWizard.verifyAgain › setBusy",
+  "pages/S3DestinationWizard.tsx › S3DestinationWizard.verifyAgain › setFailure",
+  "pages/S3DestinationWizard.tsx › S3DestinationWizard.verifyAgain › setReport",
+  "pages/ServiceBehaviourCard.tsx › ServiceBehaviourEditor.onSave › setBaselineSeconds",
+  "pages/ServiceBehaviourCard.tsx › ServiceBehaviourEditor.onSave › setBusy",
+  "pages/ServiceBehaviourCard.tsx › ServiceBehaviourEditor.onSave › setMinutes",
+  "pages/ServiceBehaviourCard.tsx › ServiceBehaviourEditor.onSave › setSaved",
+  "pages/ServiceBehaviourCard.tsx › ServiceBehaviourEditor.onSave › setSaveError",
+  "pages/SettingsPage.tsx › ChangePasswordCard.submit › setBusy",
+  "pages/SettingsPage.tsx › ChangePasswordCard.submit › setConfirm",
+  "pages/SettingsPage.tsx › ChangePasswordCard.submit › setCurrent",
+  "pages/SettingsPage.tsx › ChangePasswordCard.submit › setFailure",
+  "pages/SettingsPage.tsx › ChangePasswordCard.submit › setNext",
+  "pages/SettingsPage.tsx › ChangePasswordCard.submit › setSuccess",
+  "pages/SettingsPage.tsx › RecoveryEditor.save › setCurrent",
+  "pages/SettingsPage.tsx › RecoveryEditor.save › setEmail",
+  "pages/SettingsPage.tsx › RecoveryEditor.save › setFailure",
+  "pages/SettingsPage.tsx › RecoveryEditor.save › setPassword",
+  "pages/SettingsPage.tsx › RecoveryEditor.save › setSaved",
+  "pages/SettingsPage.tsx › RecoveryEditor.save › setSaving",
+  "pages/SettingsPage.tsx › RecoveryEditor.save › setSmtp",
+  "pages/SettingsPage.tsx › RecoveryEditor.sendTest › setFailure",
+  "pages/SettingsPage.tsx › RecoveryEditor.sendTest › setTested",
+  "pages/SettingsPage.tsx › RecoveryEditor.sendTest › setTesting",
+  "pages/SnapshotRestorePage.tsx › SnapshotRestorePage.onFinish › setStepUpError",
+  "pages/StorageDestinationsCard.tsx › DestinationRow.makeDefault › setBusy",
+  "pages/StorageDestinationsCard.tsx › DestinationRow.makeDefault › setFailure",
+  "pages/StorageDestinationsCard.tsx › DestinationRow.remove › setBusy",
+  "pages/StorageDestinationsCard.tsx › DestinationRow.remove › setFailure",
+  "pages/StorageDestinationsCard.tsx › DestinationRow.remove › setUsage",
+  "pages/StorageDestinationsCard.tsx › DestinationRow.testConnection › setBusy",
+  "pages/StorageDestinationsCard.tsx › DestinationRow.testConnection › setFailure",
+  "pages/StorageDestinationsCard.tsx › DestinationRow.testConnection › setReport",
+  "pages/StorageDestinationsCard.tsx › DestinationRow.testConnection › setUsage",
+  "pages/useSetWorkflow.ts › useSetWorkflow.write › setRefusal",
+  "pages/WorkflowSettingsCard.tsx › WorkflowSettingsCard.save › setFailure",
+  "pages/WorkflowSettingsCard.tsx › WorkflowSettingsCard.save › setRefusal",
+  "pages/WorkflowSettingsCard.tsx › WorkflowSettingsCard.save › setSaving",
+]);
 
 interface Site {
   file: string;
@@ -207,27 +474,6 @@ function findSites(file: string, text: string): Site[] {
     return out;
   };
 
-  // A helper that calls a setter (or another such helper) synchronously is a
-  // setter too, as far as a caller after an await is concerned.
-  const setsStateNow = (fn: Fn, s: Scope, self: string): boolean => {
-    let found = false;
-    const walk = (m: ts.Node) => {
-      if (found || (isFn(m) && m !== fn)) return;
-      if (ts.isCallExpression(m) && ts.isIdentifier(m.expression) && m.expression.text !== self && s.setters.has(m.expression.text)) found = true;
-      ts.forEachChild(m, walk);
-    };
-    if (fn.body) walk(fn.body);
-    return found;
-  };
-  for (let changed = true; changed; ) {
-    changed = false;
-    for (const h of helpers) {
-      if (h.scope.setters.has(h.name) || !setsStateNow(h.fn, visible(h.fn), h.name)) continue;
-      h.scope.setters.add(h.name);
-      changed = true;
-    }
-  }
-
   // Truthy only while mounted, and truthy whenever gone. The two are each
   // other's negation, which is what lets `!` flip one into the other.
   const impliesAlive = (e: ts.Expression, s: Scope, depth = 0): boolean => {
@@ -338,6 +584,31 @@ function findSites(file: string, text: string): Site[] {
     return false;
   };
 
+  // A helper that calls a setter (or another such helper) synchronously is a
+  // setter too, as far as a caller after an await is concerned, unless it
+  // checks for itself.
+  const setsStateNow = (fn: Fn, s: Scope, self: string): boolean => {
+    let found = false;
+    const walk = (m: ts.Node) => {
+      if (found || (isFn(m) && m !== fn)) return;
+      if (
+        ts.isCallExpression(m) && ts.isIdentifier(m.expression) && m.expression.text !== self && s.setters.has(m.expression.text) &&
+        !guarded(m, { fn, from: fn.body ? fn.body.getStart(sf) : 0 }, s)
+      ) found = true;
+      ts.forEachChild(m, walk);
+    };
+    if (fn.body) walk(fn.body);
+    return found;
+  };
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const h of helpers) {
+      if (h.scope.setters.has(h.name) || !setsStateNow(h.fn, visible(h.fn), h.name)) continue;
+      h.scope.setters.add(h.name);
+      changed = true;
+    }
+  }
+
   /** `Component.handler`: the named functions around a node, outermost first. */
   const nameOf = (node: ts.Node): string => {
     const names: string[] = [];
@@ -388,7 +659,7 @@ function allSites(): Site[] {
 describe("#1599 no state setter runs after an await without checking the component is still mounted", () => {
   it("every setter after an await is guarded, or allowed below with its reason", () => {
     const offenders = allSites()
-      .filter((s) => !(s.key in ALLOWED))
+      .filter((s) => !(s.key in ALLOWED) && !PENDING.has(s.key))
       .map((s) => s.file.replace(/^\.\.\//, "") + ":" + s.line + "  " + s.key);
     expect(offenders, "unguarded setters after an await:\n" + offenders.join("\n")).toEqual([]);
   });
@@ -396,6 +667,11 @@ describe("#1599 no state setter runs after an await without checking the compone
   it("every allowed site still exists, so the list can't outlive what it excused", () => {
     const keys = new Set(allSites().map((s) => s.key));
     expect(Object.keys(ALLOWED).filter((k) => !keys.has(k))).toEqual([]);
+  });
+
+  it("every pending site is still waiting, so a fixed one comes off the list", () => {
+    const keys = new Set(allSites().map((s) => s.key));
+    expect([...PENDING].filter((k) => !keys.has(k))).toEqual([]);
   });
 
   it("every allowed site says why", () => {
@@ -410,7 +686,7 @@ describe("#1599 the guard check itself", () => {
       "import { useMounted } from '@shared/hooks/useMounted';",
       "export function Card({ api }: { api: any }) {",
       "  const [x, setX] = useState(0);",
-      "  const mounted = useMounted();",
+      "  const mountedRef = useMounted();",
       body,
       "  return null;",
       "}"
@@ -428,7 +704,7 @@ describe("#1599 the guard check itself", () => {
 
   it("counts an await inside the setter's own argument", () => {
     expect(flagged("  const go = async () => { setX(await api.a()); };")).toEqual(["x.tsx › Card.go › setX"]);
-    expect(flagged("  const go = async () => { mounted.current && setX(await api.a()); };")).toEqual(["x.tsx › Card.go › setX"]);
+    expect(flagged("  const go = async () => { mountedRef.current && setX(await api.a()); };")).toEqual(["x.tsx › Card.go › setX"]);
   });
 
   it("leaves a setter before the first await alone", () => {
@@ -437,22 +713,22 @@ describe("#1599 the guard check itself", () => {
   });
 
   it("takes an exit guard after the await, and refuses one before it", () => {
-    expect(flagged("  const go = async () => { await api.a(); if (!mounted.current) return; setX(1); };")).toEqual([]);
-    expect(flagged("  const go = async () => { if (!mounted.current) return; await api.a(); setX(1); };")).toEqual(["x.tsx › Card.go › setX"]);
+    expect(flagged("  const go = async () => { await api.a(); if (!mountedRef.current) return; setX(1); };")).toEqual([]);
+    expect(flagged("  const go = async () => { if (!mountedRef.current) return; await api.a(); setX(1); };")).toEqual(["x.tsx › Card.go › setX"]);
   });
 
   it("checks the guard each time control comes back", () => {
-    expect(flagged("  const go = async () => { await api.a(); if (!mounted.current) return; setX(1); await api.b(); setX(2); };")).toEqual([
+    expect(flagged("  const go = async () => { await api.a(); if (!mountedRef.current) return; setX(1); await api.b(); setX(2); };")).toEqual([
       "x.tsx › Card.go › setX"
     ]);
   });
 
   it("takes a guarded call, && and ?: and refuses the wrong way round", () => {
-    expect(flagged("  const go = async () => { await api.a(); if (mounted.current) setX(1); };")).toEqual([]);
-    expect(flagged("  const go = async () => { await api.a(); mounted.current && setX(1); };")).toEqual([]);
-    expect(flagged("  const go = () => api.a().then(() => mounted.current ? setX(1) : undefined);")).toEqual([]);
-    expect(flagged("  const go = async () => { await api.a(); if (mounted.current) return; setX(1); };")).toEqual(["x.tsx › Card.go › setX"]);
-    expect(flagged("  const go = async () => { await api.a(); if (!mounted.current) setX(1); };")).toEqual(["x.tsx › Card.go › setX"]);
+    expect(flagged("  const go = async () => { await api.a(); if (mountedRef.current) setX(1); };")).toEqual([]);
+    expect(flagged("  const go = async () => { await api.a(); mountedRef.current && setX(1); };")).toEqual([]);
+    expect(flagged("  const go = () => api.a().then(() => mountedRef.current ? setX(1) : undefined);")).toEqual([]);
+    expect(flagged("  const go = async () => { await api.a(); if (mountedRef.current) return; setX(1); };")).toEqual(["x.tsx › Card.go › setX"]);
+    expect(flagged("  const go = async () => { await api.a(); if (!mountedRef.current) setX(1); };")).toEqual(["x.tsx › Card.go › setX"]);
   });
 
   it("takes an effect's own flag, read the right way round", () => {
@@ -473,12 +749,12 @@ describe("#1599 the guard check itself", () => {
 
   it("doesn't take a newest-answer counter on its own, but takes a check that includes the mounted ref", () => {
     expect(flagged("  const go = async () => { const mine = 1; await api.a(); if (mine !== 1) return; setX(1); };")).toEqual(["x.tsx › Card.go › setX"]);
-    expect(flagged("  const go = async () => { const current = () => mounted.current && x === 0; await api.a(); if (!current()) return; setX(1); };")).toEqual([]);
+    expect(flagged("  const go = async () => { const current = () => mountedRef.current && x === 0; await api.a(); if (!current()) return; setX(1); };")).toEqual([]);
   });
 
   it("follows the call into a try, its catch and its finally", () => {
     const body =
-      "  const go = async () => { try { await api.a(); if (!mounted.current) return; setX(1); } catch { setX(2); } finally { if (mounted.current) setX(3); } };";
+      "  const go = async () => { try { await api.a(); if (!mountedRef.current) return; setX(1); } catch { setX(2); } finally { if (mountedRef.current) setX(3); } };";
     expect(findSites("x.tsx", component(body)).map((s) => s.line)).toEqual([6]);
   });
 
@@ -488,7 +764,7 @@ describe("#1599 the guard check itself", () => {
 
   it("counts a callback made after an await, unless the check comes first", () => {
     expect(flagged("  const go = async () => { await api.a(); setTimeout(() => setX(0), 10); };")).toEqual(["x.tsx › Card.go › setX"]);
-    expect(flagged("  const go = async () => { await api.a(); if (!mounted.current) return; [1].forEach((v) => setX(v)); };")).toEqual([]);
+    expect(flagged("  const go = async () => { await api.a(); if (!mountedRef.current) return; [1].forEach((v) => setX(v)); };")).toEqual([]);
   });
 
   it("counts a plain helper that sets state, called after an await", () => {
@@ -498,6 +774,8 @@ describe("#1599 the guard check itself", () => {
     expect(flagged(deeper)).toEqual(["x.tsx › Card.go › both"]);
     const later = "  const soon = () => { setTimeout(() => setX(0), 10); };\n  const go = async () => { await api.a(); soon(); };";
     expect(flagged(later)).toEqual([]);
+    const checks = "  const done = () => { if (mountedRef.current) setX(0); };\n  const go = async () => { await api.a(); done(); };";
+    expect(flagged(checks)).toEqual([]);
   });
 
   it("sees set* names destructured from another hook", () => {

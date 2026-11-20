@@ -27,6 +27,7 @@
  * over and forgets it) and is never part of a request object a screen holds.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import { acknowledgeInsecureTransport } from "@shared/api/client";
 import { apiErrorOf, describeFailure } from "@shared/api/failure";
@@ -125,6 +126,7 @@ export function useSourceRecovery(
   const [hasPasswordFor, setHasPasswordFor] = useState<string | null>(null);
   const [forgotten, setForgotten] = useState(0);
   const submittingRef = useRef(false);
+  const mountedRef = useMounted();
   const [submitting, setSubmitting] = useState(false);
   const checkAbort = useRef<AbortController | null>(null);
 
@@ -232,13 +234,16 @@ export function useSourceRecovery(
       setSubmitting(true);
       setErrorFor(null);
       if (gate.stepUpRequired && gate.insecureTransportAckRequired && !(await acknowledgeInsecureTransport())) {
-        setErrorFor({ key, message: sourceHostRefusal("INSECURE_TRANSPORT_ACK_REQUIRED") ?? "Nothing was sent." });
         submittingRef.current = false;
-        setSubmitting(false);
+        if (mountedRef.current) {
+          setErrorFor({ key, message: sourceHostRefusal("INSECURE_TRANSPORT_ACK_REQUIRED") ?? "Nothing was sent." });
+          setSubmitting(false);
+        }
         return null;
       }
       const opts: StepUpOptions = gate.stepUpRequired && password.current ? { stepUpPassword: password.current } : {};
-      forget();
+      if (mountedRef.current) forget();
+      else password.current = "";
       return opts;
     },
     done: () => { submittingRef.current = false; setSubmitting(false); },

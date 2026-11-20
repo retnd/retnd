@@ -42,6 +42,7 @@
  */
 import "./assurance.css";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import type { RefObject } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import type {
@@ -103,6 +104,7 @@ export function RecoverSetDialog({
   const [plan, setPlan] = useState<RecoverManyPlan | null>(null);
   const [planFailure, setPlanFailure] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>({ k: "choose" });
+  const mountedRef = useMounted();
   const box = useRef<HTMLDivElement>(null);
   const abort = useRef<AbortController | null>(null);
   const kopia = engine === "kopia";
@@ -198,15 +200,16 @@ export function RecoverSetDialog({
       const result = await api.recoverMany({ ...planRequest, target: runTarget }, {
         ...once,
         signal: abort.current.signal,
-        onProgress: (p) => setPhase((cur) => {
+        onProgress: (p) => mountedRef.current && setPhase((cur) => {
           if (cur.k !== "running") return cur;
           if (p.kind === "plan") return { ...cur, total: p.totalBytes };
           if (p.kind === "start") return { ...cur, current: p.item, index: p.index, of: p.total };
           return { ...cur, lines: [...cur.lines, p], current: undefined, done: p.doneBytes, total: p.totalBytes, index: p.index, of: p.total };
         })
       });
-      setPhase({ k: "done", result });
+      if (mountedRef.current) setPhase({ k: "done", result });
     } catch (e) {
+      if (!mountedRef.current) return;
       const code = (e as { api?: { code?: string } })?.api?.code ?? "";
       // The tick or the password (#1191): back to the choice, with the reason.
       if (target === "source" && source.refusal(code)) {

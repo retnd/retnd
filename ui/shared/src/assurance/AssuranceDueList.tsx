@@ -24,6 +24,7 @@
  * the pointer and never says "finished" about a backup that is still owed.
  */
 import { useMemo, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import type { GateRefusalNotice } from "@shared/api/gate";
 import { GateRefusal } from "@shared/components/GateRefusal";
@@ -138,6 +139,7 @@ export function AssuranceDueList({ tally, byArtifact, readOnly }: { tally: Tally
   // Which rows have a start on the wire, read before state catches up, so
   // two presses in one tick send one POST.
   const starting = useRef(new Set<string>());
+  const mountedRef = useMounted();
   const opIds = useMemo(
     () => Object.values(runs).map((r) => r.opId).filter((id): id is string => !!id),
     [runs]
@@ -185,6 +187,7 @@ export function AssuranceDueList({ tally, byArtifact, readOnly }: { tally: Tally
     setRuns((r) => ({ ...r, [id]: { starting: true, joined: false, error: null, refused: null } }));
     const out = await startRecoveryRun(api, facts.setId, id, gate);
     starting.current.delete(id);
+    if (!mountedRef.current) return;
     setRuns((r) => ({
       ...r,
       [id]: { starting: false, opId: out.operation?.id, joined: !!out.operation?.joined, error: out.error ?? null, refused: out.refused ?? null }

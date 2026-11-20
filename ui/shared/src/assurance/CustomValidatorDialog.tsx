@@ -22,6 +22,7 @@
  * from running.
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import type { RefObject } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import { acknowledgeInsecureTransport } from "@shared/api/client";
@@ -67,6 +68,7 @@ export function CustomValidatorDialog({
 }) {
   const api = useApi();
   const gate = useDestructiveGate();
+  const mountedRef = useMounted();
   const box = useRef<HTMLDivElement>(null);
   const edit = mode.kind === "edit" ? mode.validator : null;
   const artifact = mode.kind === "add" ? mode.artifact : undefined;
@@ -180,18 +182,20 @@ export function CustomValidatorDialog({
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (e) {
-      setDefaultFailed(describeFailure(e, "could not read the default script").message);
+      if (mountedRef.current) setDefaultFailed(describeFailure(e, "could not read the default script").message);
     }
   };
 
   const startFromDefault = async () => {
     setDefaultFailed(null);
     try {
-      setScript((await defaultValidatorScript(api)).content);
+      const d = await defaultValidatorScript(api);
+      if (!mountedRef.current) return;
+      setScript(d.content);
       setFileNote(null);
       setFileProblem(null);
     } catch (e) {
-      setDefaultFailed(describeFailure(e, "could not read the default script").message);
+      if (mountedRef.current) setDefaultFailed(describeFailure(e, "could not read the default script").message);
     }
   };
 
@@ -202,12 +206,14 @@ export function CustomValidatorDialog({
     setRefusal(null);
     // The question comes BEFORE the password leaves the browser.
     if (needsPassword && gate.insecureTransportAckRequired && !(await acknowledgeInsecureTransport())) {
+      if (!mountedRef.current) return;
       setError(stepUpMessage("INSECURE_TRANSPORT_ACK_REQUIRED", "validator") ?? "Nothing was sent.");
       setSubmitting(false);
       return;
     }
     const opts: StepUpOptions = needsPassword && password.current ? { stepUpPassword: password.current } : {};
-    forget();
+    if (mountedRef.current) forget();
+    else password.current = "";
     try {
       const validator = edit
         ? await api.updateCustomValidator(
@@ -221,6 +227,7 @@ export function CustomValidatorDialog({
         : await api.createCustomValidator({ name, pattern, backupSetId: setId || undefined, script, env: validatorEnv }, opts);
       onSaved({ validator, edited: edit !== null });
     } catch (e) {
+      if (!mountedRef.current) return;
       setSubmitting(false);
       const a = apiErrorOf(e);
       if (isGateRefusal(e)) {
@@ -251,6 +258,7 @@ export function CustomValidatorDialog({
 
   const chooseFile = async (f: File) => {
     const got = await readScriptFile(f, list.maxScriptBytes);
+    if (!mountedRef.current) return;
     if (got.ok) {
       setScript(got.text);
       setFileProblem(null);

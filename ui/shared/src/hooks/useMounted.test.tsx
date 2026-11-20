@@ -24,12 +24,12 @@ afterEach(() => {
  *  shape every migrated handler has. */
 function Saver({ answer, seen }: { answer: Promise<string>; seen?: (m: { readonly current: boolean }) => void }) {
   const [text, setText] = useState("idle");
-  const mounted = useMounted();
-  seen?.(mounted);
+  const mountedRef = useMounted();
+  useLayoutEffect(() => { seen?.(mountedRef); });
   const save = async () => {
     setText("saving");
     const got = await answer;
-    if (!mounted.current) return;
+    if (!mountedRef.current) return;
     setText(got);
   };
   return <button onClick={() => void save()}>{text}</button>;
@@ -96,8 +96,8 @@ describe("useMounted (#1599)", () => {
   it("is already true in the commit, before passive effects run", () => {
     let atCommit: boolean | undefined;
     function Early() {
-      const mounted = useMounted();
-      useLayoutEffect(() => { atCommit = mounted.current; }, [mounted]);
+      const mountedRef = useMounted();
+      useLayoutEffect(() => { atCommit = mountedRef.current; }, [mountedRef]);
       return null;
     }
     render(<Early />);
