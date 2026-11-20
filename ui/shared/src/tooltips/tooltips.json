@@ -2309,7 +2309,7 @@
   },
   "observability.alerts.delivery": {
     "label": "Alert delivery",
-    "html": "Which <strong>one</strong> channel alerts go out through. <strong>platform</strong> is the platform's own notifier, which no shipped deployment has, so nothing is delivered. <strong>webhook</strong> posts each alert to the URL named by <code>url_ref</code> in config.yaml. Never both: switching keeps what has already been announced, so a standing alert is not announced again, with one exception. Switching to the <strong>alertmanager</strong> format posts each standing alert to Alertmanager within one refresh interval, because that receiver has never seen it and expires anything that is not re-sent, and Alertmanager then notifies as it would for any new alert."
+    "html": "Which <strong>one</strong> channel alerts go out through. <strong>platform</strong> is the platform's own notifier, which no shipped deployment has, so nothing is delivered. <strong>webhook</strong> posts each alert to the URL named by <code>url_ref</code> in config.yaml. Never both. A change carries over what the engine has already announced, and that memory is per channel setting, not per receiver: a receiver you switch to (a new URL, or <strong>generic</strong> after <strong>alertmanager</strong>) is not told about an alert that is already standing, only about the next one, or this one if it clears and comes back. Two exceptions. The <strong>alertmanager</strong> format re-sends every standing alert each refresh interval, so a new Alertmanager has them all within one interval. And where the platform has no notifier, <strong>platform</strong> announced nothing, so the first pass after switching to <strong>webhook</strong> posts every standing alert. Moving off <strong>alertmanager</strong> stops its re-sends, so Alertmanager lets the alerts it holds expire."
   },
   "observability.alerts.dialect": {
     "label": "Webhook format",
@@ -2328,12 +2328,16 @@
     "html": "How long Alertmanager keeps an alert after it was last sent (<code>endsAt</code>). The refresh interval must be at least 30 seconds shorter than this, or the alert expires while the problem is still there."
   },
   "observability.logs.level": {
+    "label": "Log level",
+    "html": "The quietest line the <strong>engine</strong> writes: <code>debug</code> writes everything, <code>info</code> is the default, <code>warn</code> keeps warnings and errors, <code>error</code> keeps only errors. Choosing one saves it to config.yaml and applies it from the next line, with no restart. <code>RETND_DEBUG=1</code>, or a <code>LOG_LEVEL</code> that names a level, still wins, and the line under the select says which is in force. The <strong>web-ui</strong> container reads the environment alone and is not moved by this."
+  },
+  "observability.logs.in-force": {
     "label": "Log level in force",
     "html": "Which floor the <strong>engine</strong> is logging at right now, and where it came from: <code>config</code> is the setting here, <code>environment</code> is <code>RETND_DEBUG=1</code> or a <code>LOG_LEVEL</code> that names a level, either of which beats the setting. The <strong>web-ui</strong> container reads the environment alone and is not moved by this. The equivalent terminal command is shown under the control."
   },
   "observability.card": {
     "label": "Observability",
-    "html": "What this deployment offers to Prometheus, a log shipper and an alert receiver. <strong>Everything is off until you turn it on</strong>, and none of it is per backup set: a scrape endpoint, a log stream and an alert channel belong to the whole deployment."
+    "html": "What this deployment offers to Prometheus, a log shipper and an alert receiver. The engine <strong>always</strong> writes its log, at <code>info</code> unless you choose another level. The scrape endpoint is off until you turn it on, and alerts go through the platform's own notifier until you choose a webhook. None of it is per backup set: a scrape endpoint, a log stream and an alert channel belong to the whole deployment."
   },
   "observability.metrics.enabled": {
     "label": "Serve the scrape endpoint",

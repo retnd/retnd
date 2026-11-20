@@ -4,11 +4,17 @@
  * Three integrations an operator points other software at: a Prometheus
  * scrape endpoint, a log stream and an alert channel. #899 lands the first
  * sub-section (the endpoint's switch, its report cache and its credential);
- * the log level (#900) and the alert delivery (#901) are added under their
- * own tooltip prefixes (`observability.logs.*`, `observability.alerts.*`) so
- * the registry diff does not conflict. Until then those two are read-only
- * statements of fact, which need no tooltip: a field whose effect cannot yet
- * be stated gets no pop-up (docs/epic-checklist.md section 5).
+ * the log level (#900, LogLevelControl) and the alert delivery (#901,
+ * AlertDeliveryControls) sit under their own tooltip prefixes
+ * (`observability.logs.*`, `observability.alerts.*`). Each is shown once, as
+ * its control: the read-only rows that stood in for them before they were
+ * controls are gone (#1518, #1591).
+ *
+ * Every input has a three-part field help entry, and its visible label
+ * carries its registry tooltip (#1604), the shape the metrics controls here
+ * and the suite picker in encryption/SuiteControls.tsx already use: the
+ * tooltip on the label and the field help on the control, so one hover never
+ * opens two pop-ups over each other.
  *
  * Nothing here is per backup set: a scrape endpoint, a log stream and an alert
  * channel are properties of a deployment.
@@ -113,7 +119,7 @@ export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
       </div>
       <div className="card__body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <p style={{ margin: 0, color: "var(--text-2)" }}>
-          What this deployment offers to Prometheus, a log shipper and an alert receiver. All of it is off until you turn it on, and none of it is per backup set.
+          What this deployment offers to Prometheus, a log shipper and an alert receiver. The engine always writes its log, at info unless you choose another level. The scrape endpoint is off until you turn it on, alerts go through the platform's own notifier until you choose a webhook, and none of it is per backup set.
         </p>
         {notConfigured ? (
           <p style={{ margin: 0 }} data-testid="observability-not-configured">Nothing is configured yet, so there are no observability settings to show.</p>
@@ -220,11 +226,6 @@ export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
                 </div>
               ) : null}
             </div>
-
-            <dl style={{ margin: 0, display: "grid", gridTemplateColumns: "max-content 1fr", gap: "6px 16px" }} data-testid="observability-summary">
-              <dt style={{ color: "var(--text-2)" }}>Log level</dt>
-              <dd style={{ margin: 0 }} data-observability-row="logs">{settings.logs.levelInForce + " (from " + settings.logs.levelSource + ")"}</dd>
-            </dl>
           </>
         )}
         {settings ? <LogLevelControl logs={settings.logs} readOnly={readOnly} onSaved={setSettings} /> : null}
