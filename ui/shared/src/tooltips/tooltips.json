@@ -2305,7 +2305,7 @@
   },
   "observability.alerts.delivery": {
     "label": "Alert delivery",
-    "html": "Which <strong>one</strong> channel alerts go out through. <strong>platform</strong> is the platform's own notifier, which no shipped deployment has, so nothing is delivered. <strong>webhook</strong> posts each alert to the URL named by <code>url_ref</code> in config.yaml. Never both: switching keeps what has already been announced, so a standing alert is not announced again."
+    "html": "Which <strong>one</strong> channel alerts go out through. <strong>platform</strong> is the platform's own notifier, which no shipped deployment has, so nothing is delivered. <strong>webhook</strong> posts each alert to the URL named by <code>url_ref</code> in config.yaml. Never both: switching keeps what has already been announced, so a standing alert is not announced again, with one exception. Switching to the <strong>alertmanager</strong> format posts each standing alert to Alertmanager within one refresh interval, because that receiver has never seen it and expires anything that is not re-sent, and Alertmanager then notifies as it would for any new alert."
   },
   "observability.alerts.dialect": {
     "label": "Webhook format",
@@ -2317,11 +2317,11 @@
   },
   "observability.alerts.refresh": {
     "label": "Refresh interval",
-    "html": "How often an Alertmanager alert that is still true is sent again, so the receiver does not expire it. It must be shorter than the expiry time."
+    "html": "How often an Alertmanager alert that is still true is sent again, so the receiver does not expire it. It must be at least 30 seconds shorter than the expiry time, since one delivery attempt can take that long."
   },
   "observability.alerts.resolve-ttl": {
     "label": "Expiry time",
-    "html": "How long Alertmanager keeps an alert after it was last sent (<code>endsAt</code>). The refresh interval must be shorter than this, or the alert expires while the problem is still there."
+    "html": "How long Alertmanager keeps an alert after it was last sent (<code>endsAt</code>). The refresh interval must be at least 30 seconds shorter than this, or the alert expires while the problem is still there."
   },
   "observability.card": {
     "label": "Observability",

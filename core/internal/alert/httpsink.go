@@ -86,11 +86,20 @@ func NewHTTPSink(source func(context.Context) (obs.Secret, error), dialect strin
 	if dialect != DialectGeneric && dialect != DialectAlertmanager {
 		return nil, fmt.Errorf("unknown webhook dialect %q", dialect)
 	}
-	if dialect == DialectAlertmanager && (refreshInterval <= 0 || refreshInterval >= resolveTTL) {
-		return nil, errors.New("the webhook refresh interval must be positive and shorter than resolve_ttl")
+	if dialect == DialectAlertmanager && (refreshInterval <= 0 || refreshInterval+config.WebhookDeliveryBound > resolveTTL) {
+		return nil, fmt.Errorf("the webhook refresh interval must be positive and at least %s (one delivery attempt) shorter than resolve_ttl", config.WebhookDeliveryBound)
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	// A plain-http URL goes to a forward proxy whole, secret path included,
+	// so only https (a CONNECT tunnel, which shows the proxy the host alone)
+	// may use one from the environment.
+	transport.Proxy = func(r *http.Request) (*url.URL, error) {
+		if r.URL.Scheme != "https" {
+			return nil, nil
+		}
+		return http.ProxyFromEnvironment(r)
+	}
 	return &HTTPSink{
 		source:            source,
 		allowInsecureHTTP: allowInsecureHTTP,

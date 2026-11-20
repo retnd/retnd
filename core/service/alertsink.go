@@ -35,8 +35,18 @@ func (b *BackupService) alertSinkFor(ctx context.Context, cfg *config.Config) (a
 		// The URL is read at every delivery (custody checked each time, the
 		// value never kept), so a rotated file is used by the next alert and
 		// an unreadable one is a state the sink reports, never a silence.
+		//
+		// A command ref's failure is reported without the command's error
+		// output, which secretref appends: a helper that fails after
+		// printing the URL to stderr would otherwise put the URL in the
+		// activity feed and the log (#1518's review). A file or env ref's
+		// error names a path or a variable, which is not the secret.
 		hs, err := alert.NewHTTPSink(func(ctx context.Context) (obs.Secret, error) {
-			return secretref.Resolve(ctx, ref)
+			s, err := secretref.Resolve(ctx, ref)
+			if err != nil && len(ref.Command) > 0 {
+				return obs.Secret{}, fmt.Errorf("the url_ref command %s did not print a URL (its output is not repeated here, since it may hold the URL)", ref.Command[0])
+			}
+			return s, err
 		}, w.Dialect, w.ResolveTTL, w.RefreshInterval, w.AllowInsecureHTTP)
 		if err != nil {
 			return nil, fmt.Errorf("observability.alerts.webhook: %w", err)
@@ -63,8 +73,9 @@ func (b *BackupService) alertSinkFor(ctx context.Context, cfg *config.Config) (a
 // is built and a dispatcher over it adopts the previous dispatcher's firing
 // map and delivered flags, so exactly one sink exists per configuration and
 // a condition that was already delivered is not announced again just
-// because the channel moved. A webhook whose URL file changes content under
-// an unchanged block is not re-read here: that takes a PATCH or a restart.
+// because the channel moved. Nothing about the URL itself is carried or
+// re-read here: the sink reads its reference at every delivery, so a URL
+// file whose contents change is used by the next alert with no reload.
 func (b *BackupService) carryAlerts(ctx context.Context, prev, next *app.Service) {
 	if prev.Alerts != nil && reflect.DeepEqual(prev.Config.Observability.Alerts, next.Config.Observability.Alerts) &&
 		next.AdoptAlerts(prev.Alerts) {
@@ -89,13 +100,20 @@ func (b *BackupService) carryAlerts(ctx context.Context, prev, next *app.Service
 // refreshing only from the alerting pass would let the alert self-resolve
 // between passes. It decides nothing: Dispatcher.Refresh reads the firing
 // map the last pass left, and does nothing for a sink that does not refresh.
-// The interval is re-read each round because a reload can switch the
-// channel under a running loop.
+//
+// It sleeps until the next re-send is due (Dispatcher.NextRefresh), so a
+// re-send leaves on time rather than on the next tick after it. It wakes at
+// least every refreshLoopCeiling as well, because a reload can swap the
+// dispatcher (and its due times) under a sleeping loop.
 func (b *BackupService) runAlertRefreshes(ctx context.Context) {
+	const (
+		refreshLoopCeiling = time.Second
+		refreshLoopFloor   = 10 * time.Millisecond
+	)
 	for {
 		wait := time.Minute
-		if every := b.state.Load().inner.Alerts.RefreshEvery(); every > 0 {
-			wait = max(every/4, time.Second)
+		if d := b.state.Load().inner.Alerts; d.RefreshEvery() > 0 {
+			wait = min(max(d.NextRefresh(time.Now()), refreshLoopFloor), refreshLoopCeiling)
 		}
 		timer := time.NewTimer(wait)
 		select {

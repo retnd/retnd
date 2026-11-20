@@ -811,7 +811,10 @@ notification you already dismissed.
 deployment whose platform has no notifier (the generic Docker/Linux host is one),
 choose the webhook channel. It is a selection and never a fan-out: exactly one
 channel is built, and switching it keeps what was already announced, so a standing
-alert is not announced again.
+alert is not announced again... with one exception. Switching to the `alertmanager`
+format posts each standing alert to Alertmanager within one refresh interval, because
+that receiver has never seen it and expires anything that is not re-sent, and
+Alertmanager then notifies as it would for any new alert.
 
 ```yaml
 observability:
@@ -822,7 +825,7 @@ observability:
       url_ref:                 # where the URL is kept: file, env or command
         file: /run/secrets/retnd-alert-webhook-url
       allow_insecure_http: false
-      refresh_interval: 4m     # alertmanager only, must be below resolve_ttl
+      refresh_interval: 4m     # alertmanager only, at least 30s below resolve_ttl
       resolve_ttl: 10m
 ```
 

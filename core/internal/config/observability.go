@@ -227,9 +227,9 @@ func (c *Config) resolveObservability(v *validator) {
 			}
 		}
 	}
-	if out.Alerts.Webhook.RefreshInterval >= out.Alerts.Webhook.ResolveTTL {
-		v.addf("%s.alerts.webhook.refresh_interval: %s must be below resolve_ttl %s, or a refresh arrives after the receiver has already expired the alert",
-			p, out.Alerts.Webhook.RefreshInterval, out.Alerts.Webhook.ResolveTTL)
+	if w := out.Alerts.Webhook; w.RefreshInterval+WebhookDeliveryBound > w.ResolveTTL {
+		v.addf("%s.alerts.webhook.refresh_interval: %s must be at least %s below resolve_ttl %s (one delivery attempt can take that long), or a refresh arrives after the receiver has already expired the alert",
+			p, w.RefreshInterval, WebhookDeliveryBound, w.ResolveTTL)
 	}
 
 	validateWebhookDelivery(v, p, out.Alerts)

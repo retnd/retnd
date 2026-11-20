@@ -56,6 +56,36 @@ func (d *Dispatcher) RefreshEvery() time.Duration {
 
 func (d *Dispatcher) refreshes() bool { return d.refreshing() != nil }
 
+// NextRefresh is how long a refresh loop may sleep from now: until the
+// earliest delivered condition is due its re-send, and never longer than one
+// refresh interval, since a condition delivered while the loop sleeps is due
+// no sooner than that. It is zero for a dispatcher that does not refresh.
+//
+// The loop has to wake when a re-send is due, not on a tick near it. A tick
+// of a quarter interval (what this replaced) re-sent up to a quarter
+// interval late, and with resolve_ttl close above refresh_interval the
+// receiver expired the alert in that gap and fired it again: the false
+// all-clear the refresh exists to prevent (#1518's review).
+func (d *Dispatcher) NextRefresh(now time.Time) time.Duration {
+	rs := d.refreshing()
+	if rs == nil {
+		return 0
+	}
+	every := rs.RefreshInterval()
+	wait := every
+	d.mu.Lock()
+	for _, entry := range d.firing {
+		if !entry.delivered {
+			continue
+		}
+		if w := entry.sentAt.Add(every).Sub(now); w < wait {
+			wait = w
+		}
+	}
+	d.mu.Unlock()
+	return max(wait, 0)
+}
+
 // refreshDue reports whether a delivered entry is due its refresh. It is
 // called with d.mu held. The sentAt stamp moves forward as soon as the
 // attempt is planned, so two concurrent passes cannot both re-send it; a
@@ -71,7 +101,9 @@ func (d *Dispatcher) refreshDue(entry *firingCondition, now time.Time) (attempt,
 
 // refreshOne makes one bounded refresh attempt. A failure is logged and
 // the entry stays delivered: the first delivery is what the operator was
-// told about, and the refresh is simply retried on the next pass.
+// told about, and the refresh is tried again a quarter interval later (the
+// stamp is moved back so the entry falls due then, which is when a loop
+// sleeping on NextRefresh wakes for it).
 func (d *Dispatcher) refreshOne(ctx context.Context, a attempt, now time.Time) {
 	ctx, cancel := context.WithTimeout(ctx, deliveryTimeout)
 	defer cancel()
@@ -80,8 +112,9 @@ func (d *Dispatcher) refreshOne(ctx context.Context, a attempt, now time.Time) {
 	if err != nil {
 		d.logger.Error(ctx, "alert-delivery",
 			fmt.Errorf("refreshing the %s alert for %s: %w", a.alert.Kind, a.alert.Scope, err))
+		every := d.refreshing().RefreshInterval()
 		d.mu.Lock()
-		a.entry.sentAt = time.Time{}
+		a.entry.sentAt = now.Add(every/4 - every)
 		d.mu.Unlock()
 	}
 }

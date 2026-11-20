@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"net/url"
+	"time"
 )
 
 // CheckWebhookURL is the one place a webhook alert target is judged,
@@ -41,3 +42,10 @@ func CheckWebhookURL(raw string, allowInsecureHTTP bool) error {
 	}
 	return nil
 }
+
+// WebhookDeliveryBound is how long one alert delivery attempt may take
+// (internal/alert's deliveryTimeout is this value). A refresh leaves when it
+// is due and can take this long to land, so resolve_ttl has to clear
+// refresh_interval by at least this much, or a slow receiver answers after it
+// has already expired the alert (#1518's review).
+const WebhookDeliveryBound = 30 * time.Second

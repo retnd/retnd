@@ -223,8 +223,6 @@ export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
             <dl style={{ margin: 0, display: "grid", gridTemplateColumns: "max-content 1fr", gap: "6px 16px" }} data-testid="observability-summary">
               <dt style={{ color: "var(--text-2)" }}>Log level</dt>
               <dd style={{ margin: 0 }} data-observability-row="logs">{settings.logs.levelInForce + " (from " + settings.logs.levelSource + ")"}</dd>
-              <dt style={{ color: "var(--text-2)" }}>Alert delivery</dt>
-              <dd style={{ margin: 0 }} data-observability-row="alerts">{settings.alerts.delivery}</dd>
             </dl>
           </>
         )}
