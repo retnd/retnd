@@ -159,8 +159,8 @@ CONTROLS = [
     Control(
         "an oversize answer from a route with no cursor returned instead of refused",
         ("U1.6",),
-        [(MCP_SERVER_GO, "\t\tif _, paged := body[\"next_cursor\"]; !paged {\n\t\t\tbreak\n\t\t}",
-          "\t\tif _, paged := body[\"next_cursor\"]; !paged { " + PLANT.strip() + "\n\t\t\tdata, untrusted := splitUntrusted(decoded, t.Untrusted)\n\t\t\treturn Result{OK: true, Code: CodeOK, Message: staticOKMessage, CorrelationID: correlated, Command: command, Data: data, Untrusted: untrusted}\n\t\t}")],
+        [(MCP_SERVER_GO, "\t\treturn tooLarge(s.cfg.MaxResultBytes, correlated, command)\n\t}\n\t// The cap is on Data and Untrusted together",
+          "\t\tdata, untrusted := splitUntrusted(body, t.Untrusted) " + PLANT.strip() + "\n\t\treturn Result{OK: true, Code: CodeOK, Message: staticOKMessage, CorrelationID: correlated, Command: command, Data: data, Untrusted: untrusted}\n\t}\n\t// The cap is on Data and Untrusted together")],
         "./agentmcp/",
         ["TestAnOversizeAnswerFromARouteWithNoPageIsRefusedNotCut"],
     ),

@@ -10812,6 +10812,17 @@
           "url_set": {
             "type": "boolean"
           },
+          "url_status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "unresolvable",
+              "invalid",
+              "unknown"
+            ],
+            "description": "What the last read of the URL found: ok, unresolvable (the reference could not be read, so alerts are held and retried), invalid (it read, and is not an acceptable URL) or unknown (not tried yet). Absent unless delivery is webhook and alerting is on. It is a state and never the URL.",
+            "x-go-omitempty": true
+          },
           "allow_insecure_http": {
             "type": "boolean"
           },

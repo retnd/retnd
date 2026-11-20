@@ -127,6 +127,15 @@ succeeded and what failed. Secrets are redacted rather than written; that
 redaction has its own regression suite, because "we do not log secrets" is a
 claim that decays silently.
 
+## Alert delivery
+
+Alerting is off unless the operator turns it on. With the webhook channel selected
+(`observability.alerts.delivery: webhook`), each alert is sent to the one URL the
+operator named, and nowhere else. An alert carries a condition kind, the backup set or
+repository domain it is about, a title, a short message and a time, and never a
+credential or file contents. The URL is held as a secret and is not written to a log,
+an error or a settings response.
+
 ## Deleting everything
 
 Removing the app and deleting the state, config and secrets directories the

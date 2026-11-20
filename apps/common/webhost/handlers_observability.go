@@ -155,6 +155,7 @@ func toObservabilityBody(s service.ObservabilitySettings) apicontract.Observabil
 			Webhook: apicontract.ObservabilityWebhookSettings{
 				Dialect:                s.Alerts.Webhook.Dialect,
 				URLSet:                 s.Alerts.Webhook.URLSet,
+				URLStatus:              s.Alerts.Webhook.URLStatus,
 				AllowInsecureHttp:      s.Alerts.Webhook.AllowInsecureHTTP,
 				RefreshIntervalSeconds: int64(s.Alerts.Webhook.RefreshInterval / time.Second),
 				ResolveTtlSeconds:      int64(s.Alerts.Webhook.ResolveTTL / time.Second),

@@ -1329,6 +1329,7 @@ func observabilitySettingsFromWire(w apicontract.ObservabilitySettingsResponse) 
 			Webhook: service.ObservabilityWebhookSettings{
 				Dialect:           w.Alerts.Webhook.Dialect,
 				URLSet:            w.Alerts.Webhook.URLSet,
+				URLStatus:         w.Alerts.Webhook.URLStatus,
 				AllowInsecureHTTP: w.Alerts.Webhook.AllowInsecureHttp,
 				RefreshInterval:   time.Duration(w.Alerts.Webhook.RefreshIntervalSeconds) * time.Second,
 				ResolveTTL:        time.Duration(w.Alerts.Webhook.ResolveTtlSeconds) * time.Second,

@@ -47,17 +47,30 @@ def ui_playwright(spec: str, grep: str = "") -> list[str]:
             f'npx playwright test -c e2e/playwright.config.ts --output /tmp/h/pw-out {spec}{g}']
 
 
-def ui_tsc() -> list[str]:
+def ui_node(exe: str, env: str) -> list[str]:
+    # vitest and tsc need node and ui/shared's dependencies, not a browser. The
+    # copy's node_modules is a link into the real tree. With node and that link
+    # in place they run right here (the gate container has both); otherwise in
+    # the pinned node image with the link's target mounted beside the copy, the
+    # way the agents helpers do it. `npm exec --no` never downloads: a missing
+    # tool is a failure, not a fetch. The `then ... npm exec --no` is what
+    # selftest_lanes reads as the node lane, and it needs node_modules either way.
+    flags = " ".join("-e " + e_ for e_ in env.split())
     return ["sh", "-c",
-            'w=$(cd ../.. && pwd -P); docker run --rm --cpus 3 --memory 4g --user 501:20 -e HOME=/tmp/h -e CI=1 '
-            f'{_mounts()} {UI_NODE_IMAGE} npx tsc --noEmit --pretty false']
+            'w=$(cd ../.. && pwd -P); if command -v node >/dev/null 2>&1 && [ -d node_modules ]; then '
+            f'env {env} npm exec --no -- {exe}; else '
+            'l=$(readlink node_modules || echo "$w/ui/shared"); '
+            f'docker run --rm --cpus 3 --memory 4g --user 501:20 -e HOME=/tmp/h {flags} '
+            f'-v "$w:$w" -v "$l:$l" -w "$w/ui/shared" {UI_NODE_IMAGE} npm exec --no -- {exe}; fi']
+
+
+def ui_tsc() -> list[str]:
+    return ui_node("tsc --noEmit --pretty false", "CI=1")
 
 
 def ui_vitest(files: str, name: str = "") -> list[str]:
     t = f' -t "{name}"' if name else ""
-    return ["sh", "-c",
-            'w=$(cd ../.. && pwd -P); docker run --rm --cpus 3 --memory 4g --user 501:20 -e HOME=/tmp/h -e CI=1 -e NO_COLOR=1 -e FORCE_COLOR=0 '
-            f'{_mounts()} {UI_NODE_IMAGE} npx vitest run {files}{t}']
+    return ui_node(f"vitest run {files}{t}", "CI=1 NO_COLOR=1 FORCE_COLOR=0")
 
 
 CONTROLS = [
