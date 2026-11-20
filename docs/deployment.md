@@ -881,7 +881,10 @@ retnd settings observability patch --metrics-enabled
 retnd settings observability rotate-scrape-token
 ```
 
-The second command prints a `rsc_` token **once**. Only its SHA-256 digest and an
+The second command prints a `rsc_` token **once**, and its standard output is the token and
+nothing else (everything it logs goes to standard error), so
+`retnd settings observability rotate-scrape-token > retnd-scrape-token` writes a file
+Prometheus can use as is. Only its SHA-256 digest and an
 eight-character display prefix are kept, in `scrape_credential/scrape-token.json` beside
 `config.yaml` (mode 0600 in a 0700 directory). Running it again replaces the token at
 once with no overlap, so update the scraper's credentials file and reload it straight
@@ -903,7 +906,7 @@ scrape_configs:
 **Where it is reachable.** The engine serves `/metrics` on its own listener, which on the
 shipped compose file is `retnd:8080` on the `internal` network. The published `web-ui` port
 forwards only `/health/*` and `/api/v1/*`, so `curl http://<nas>:8080/metrics` from your
-LAN gets the UI's answer, not the exposition. A Prometheus outside the compose network
+LAN gets a `404` from `web-ui`, not the exposition. A Prometheus outside the compose network
 reaches it by joining that network or through a reverse proxy you run. If you put a proxy
 in front of it, make sure the proxy does not log the `Authorization` header... this
 product never does.
