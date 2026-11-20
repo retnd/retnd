@@ -47,6 +47,8 @@ The shipped Promtail and Alloy pipelines (`container/observability/promtail/prom
 
 The shipped configs are the documentation that executes. `core/tests/logpipeline` runs the real Promtail and Alloy images over a log file written by the real logger, receives what they push, and reads the label set off the wire. Its control runs the same thing over a config that promotes `action_id` and watches the assertion refuse it. Run it with `scripts/observability/log-pipeline.sh` (it needs a Docker daemon and fails without one rather than skipping).
 
+There's one catch, and it's on the Loki side. Loki 3.2.1 adds a fifth label, `service_name`, to every stream it stores unless its own config file sets `discover_service_name: []` under `limits_config`. The command-line flag doesn't stop it (that was measured still adding the label); only the config file does. So the four labels above hold only on a Loki whose config has `discover_service_name: []`. The example bundle's `container/observability/loki/loki.yaml` sets it. `core/tests/logpipeline` can't see this, because its receiver stands in for Loki and never adds a label of its own, so the requirement lives here and `core/internal/obs/lokilabels_doc_900_test.go` keeps this paragraph from being dropped.
+
 ## Shipping logs is an egress decision
 
 Pointing Promtail or Alloy at the stream sends it to a store you chose, and I do not control what that store keeps or who reads it. The stream can carry operator-authored text: hook script output, `msg` strings, refusal reasons. If an operator prints a password in a hook, it is in the stream, and nothing in this product can promise otherwise.
