@@ -318,7 +318,7 @@ if [ -n "$target" ]; then
   # every directory above a key and refuse a group-writable one, so every
   # SFTP fixture failed with "has a containing directory ... with
   # permissions 0775" and nothing about the remote copy said why (#1331).
-  "${rsh[@]}" "$target" "umask 022 && mkdir -p '$run_repo' '$run_git' '$remote_root/xdg' '$remote_root/tmp'"
+  "${rsh[@]}" "$target" "umask 022 && mkdir -p '$run_repo' '$run_git' '$remote_root/xdg'"
 
   # The files git knows about, so what .gitignore keeps out (node_modules,
   # build output, most credential files) stays out. node_modules would be
@@ -432,19 +432,9 @@ declare -a mounts=(
 # The scratch copy is removed with everything else on exit.
 if [ -n "$target" ]; then
   mounts+=(-v "$remote_root/xdg:$remote_root/xdg")
-  # TMPDIR on disk, in the same scratch copy (#1580). On a Linux daemon /tmp
-  # is the host's (below), and MARS's /tmp is tmpfs: whatever a self-test
-  # writes there is memory charged to this container's fence, which cannot be
-  # swapped out, and the architecture self-test's tree copies took the gate
-  # past 7g that way. Same path inside and out, so a test that bind-mounts a
-  # temp directory into a sibling container still names a path the daemon
-  # can find. /tmp itself stays shared: the tests that need a short root for
-  # a unix socket ask for /tmp by name, not through TMPDIR. Removed with the
-  # rest of the scratch copy on exit.
-  mounts+=(-v "$remote_root/tmp:$remote_root/tmp")
   # `env` in front of the command rather than a -e flag, because this mode
   # promises the container no environment variables from the caller.
-  xdg_env=(env "XDG_CACHE_HOME=$remote_root/xdg" "TMPDIR=$remote_root/tmp")
+  xdg_env=(env "XDG_CACHE_HOME=$remote_root/xdg")
 else
   mounts+=(-v "${vol_prefix}-xdg:/ci/.cache/retnd-tests-gate")
 fi
@@ -587,6 +577,25 @@ if [ "$share_host" = 1 ]; then
   say "sharing the daemon host's network and /tmp with the container (CI_DOCKER_SHARE_HOST=0 turns it off)"
   as_user+=(--network host)
   mounts+=(-v /tmp:/tmp)
+  # TMPDIR on disk, in the scratch copy, when the shared /tmp is tmpfs (#1580).
+  # MARS's is: whatever a self-test writes there is memory charged to this
+  # container's fence, which cannot be swapped out, and the architecture
+  # self-test's tree copies took the gate past 7g that way. Same path inside
+  # and out, so a test that bind-mounts a temp directory into a sibling
+  # container still names a path the daemon can find. /tmp itself stays
+  # shared: the tests that need a short root for a unix socket ask for /tmp
+  # by name, not through TMPDIR. Only on a tmpfs /tmp, and only remotely: on
+  # a colima host (MERCURY) the probe asks the Mac, whose /tmp is on disk,
+  # and leaves TMPDIR alone, because there the scratch copy reaches the VM
+  # through the Mac's file share, where a test that makes a named pipe would
+  # skip rather than fail. The probe makes the
+  # directory as the remote account and says "tmpfs" only when it did; it
+  # goes with the rest of the scratch copy on exit.
+  if [ -n "$target" ] && [ "$("${rsh[@]}" "$target" "if [ \"\$(stat -f -c %T /tmp 2>/dev/null)\" = tmpfs ]; then umask 022 && mkdir -p '$remote_root/tmp' && echo tmpfs; fi" 2>/dev/null || true)" = tmpfs ]; then
+    say "the daemon host's /tmp is tmpfs, so TMPDIR is $remote_root/tmp, on disk"
+    mounts+=(-v "$remote_root/tmp:$remote_root/tmp")
+    xdg_env+=("TMPDIR=$remote_root/tmp")
+  fi
 fi
 
 # A named volume that shadows a path the IMAGE does not have is created

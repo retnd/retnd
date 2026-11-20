@@ -128,6 +128,7 @@ import contextlib
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -191,10 +192,20 @@ def _run(cwd: Path, *argv: str) -> tuple[int, str]:
     hazard note on why a port that read only the message would pass a
     check that printed the right words and exited 0.
     """
-    proc = subprocess.run(
-        list(argv), cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False
+    # Its own process group, so an interrupt takes the whole check with it
+    # (#1580): a go or golangci-lint the check started would otherwise keep
+    # writing into the copy while the copy is being removed.
+    proc = subprocess.Popen(
+        list(argv), cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True
     )
-    return proc.returncode, proc.stdout
+    try:
+        out, _ = proc.communicate()
+    except BaseException:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
+        raise
+    return proc.returncode, out
 
 
 class Selftest:
@@ -425,6 +436,10 @@ def main(argv: list[str]) -> int:
     try:
         return harness.finish(lambda: body(st))
     finally:
+        # A second Ctrl-C or TERM here would cut the cleanup short with a
+        # traceback, so the scratch goes first and the run ends after.
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
         shutil.rmtree(tmp, ignore_errors=True)
 
 
