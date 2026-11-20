@@ -11,67 +11,22 @@
  * hands the list to, so the promise `void load()` threw away rejects and
  * nothing is listening.
  *
- * Waiting for the timer would make these cases flaky in exactly the way the
- * hook was, so each one holds the request open, unmounts, and only then lets
- * it answer. After the unmount `window.event` is swapped for a getter that
- * throws the error teardown would produce, so any state update the card
- * still makes shows up twice: as a read of `window.event`, and as the
- * unhandled rejection the hook saw.
+ * Each case holds a request open, unmounts, and only then lets it answer;
+ * test/teardownProbe.ts says why that is the deterministic way to catch it.
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ApiProvider } from "@shared/api/ApiContext";
 import type { CustomValidator, CustomValidatorList, ValidatorScript } from "@shared/api/contracts";
 import { createMockApi } from "@shared/api/mock";
+import { held, teardownProbe } from "@shared/test/teardownProbe";
+import type { TeardownProbe } from "@shared/test/teardownProbe";
 import { CustomValidatorsCard } from "./CustomValidatorsCard";
 
-type Held<T> = { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void };
-function held<T>(): Held<T> {
-  let resolve!: (v: T) => void;
-  let reject!: (e: unknown) => void;
-  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
-  return { promise, resolve, reject };
-}
-
-const rejections: unknown[] = [];
-const onRejection = (reason: unknown) => { rejections.push(reason); };
-let stateReads = 0;
-let restoreEvent: (() => void) | null = null;
-
-/** Stands in for teardown: from here on, a state update throws the way it
- *  does once vitest has removed `window`. */
-function tearDownWindow() {
-  const before = Object.getOwnPropertyDescriptor(window, "event");
-  Object.defineProperty(window, "event", {
-    configurable: true,
-    get() {
-      stateReads += 1;
-      throw new ReferenceError("window is not defined");
-    }
-  });
-  restoreEvent = () => {
-    if (before) Object.defineProperty(window, "event", before);
-    else delete (window as { event?: unknown }).event;
-  };
-}
-
-/** Lets the held answer run its callbacks, then gives Node the turn it
- *  reports unhandled rejections on. */
-async function settle() {
-  for (let i = 0; i < 5; i++) await Promise.resolve();
-  await new Promise((r) => setTimeout(r, 0));
-}
-
-beforeEach(() => {
-  rejections.length = 0;
-  stateReads = 0;
-  process.on("unhandledRejection", onRejection);
-});
-
+let probe: TeardownProbe;
+beforeEach(() => { probe = teardownProbe(); });
 afterEach(() => {
-  restoreEvent?.();
-  restoreEvent = null;
-  process.off("unhandledRejection", onRejection);
+  probe.dispose();
   cleanup();
 });
 
@@ -84,12 +39,12 @@ describe("CustomValidatorsCard after unmount (#1589)", () => {
 
     const { unmount } = render(<ApiProvider api={api}><CustomValidatorsCard readOnly={false} /></ApiProvider>);
     unmount();
-    tearDownWindow();
+    probe.tearDown();
     answer.resolve(list);
-    await settle();
+    await probe.settle();
 
-    expect(rejections.map(String)).toEqual([]);
-    expect(stateReads).toBe(0);
+    expect(probe.rejections).toEqual([]);
+    expect(probe.stateUpdates).toBe(0);
   });
 
   it("ignores a list read that fails after the card has gone", async () => {
@@ -98,12 +53,12 @@ describe("CustomValidatorsCard after unmount (#1589)", () => {
 
     const { unmount } = render(<ApiProvider api={api}><CustomValidatorsCard readOnly={false} /></ApiProvider>);
     unmount();
-    tearDownWindow();
+    probe.tearDown();
     answer.reject(new Error("the engine went away"));
-    await settle();
+    await probe.settle();
 
-    expect(rejections.map(String)).toEqual([]);
-    expect(stateReads).toBe(0);
+    expect(probe.rejections).toEqual([]);
+    expect(probe.stateUpdates).toBe(0);
   });
 
   it("ignores a script that arrives after the card has gone", async () => {
@@ -120,12 +75,12 @@ describe("CustomValidatorsCard after unmount (#1589)", () => {
     const { unmount } = render(<ApiProvider api={api}><CustomValidatorsCard readOnly={false} /></ApiProvider>);
     fireEvent.click(await screen.findByRole("button", { name: "View script billing-dump" }));
     unmount();
-    tearDownWindow();
+    probe.tearDown();
     answer.resolve(script);
-    await settle();
+    await probe.settle();
 
-    expect(rejections.map(String)).toEqual([]);
-    expect(stateReads).toBe(0);
+    expect(probe.rejections).toEqual([]);
+    expect(probe.stateUpdates).toBe(0);
   });
 
   it("ignores a remove that finishes after the card has gone", async () => {
@@ -142,12 +97,12 @@ describe("CustomValidatorsCard after unmount (#1589)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Remove billing-dump" }));
     fireEvent.click(await screen.findByRole("button", { name: "Remove validator" }));
     unmount();
-    tearDownWindow();
+    probe.tearDown();
     answer.resolve(list.validators.find((v) => v.name === "billing-dump")!);
-    await settle();
+    await probe.settle();
 
-    expect(rejections.map(String)).toEqual([]);
-    expect(stateReads).toBe(0);
+    expect(probe.rejections).toEqual([]);
+    expect(probe.stateUpdates).toBe(0);
   });
 
   // The control: the probe is not the thing failing. A card left mounted
