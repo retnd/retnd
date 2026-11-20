@@ -528,7 +528,13 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     try {
       const hold = await api.takeEditHold(source, setName);
       holdToken.current = hold.token;
-      if (!mountedRef.current) return;
+      if (!mountedRef.current) {
+        // The page went while the hold was being taken. Nothing will renew
+        // or release it from here, so it's released by its own token now
+        // rather than left to run out its 90-second lease (#1606).
+        void api.releaseEditHold(source, setName, hold.token).catch(() => undefined);
+        return;
+      }
       setStopped(hold.stopped);
     } catch (e) {
       if (mountedRef.current) setEnterError(describeFailure(e, "retnd could not pause this backup set for editing.").message);

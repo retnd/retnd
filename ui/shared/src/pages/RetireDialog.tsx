@@ -32,6 +32,7 @@
  * opened the dialog, or to the page's heading when that control is gone.
  */
 import { useEffect, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import type { WireRetireArtifactRequest, WireRetirementPreview } from "@shared/api/generated/contract";
@@ -90,6 +91,7 @@ export function RetireDialog({
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const mountedRef = useMounted();
   const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const resultRef = useRef<HTMLHeadingElement>(null);
@@ -229,7 +231,7 @@ export function RetireDialog({
     setBusy(true);
     try {
       const res = await api.retireArtifact(artifactId, { ...(note ? { note } : {}), ...ack });
-      setOutcome({
+      if (mountedRef.current) setOutcome({
         retired: true,
         detail: res.retirement.superseded_by ? "replaced by " + res.retirement.superseded_by : "retired with no replacement"
       });
@@ -239,9 +241,9 @@ export function RetireDialog({
       fetchResource(setsNode, () => api.listSets());
       fetchResource(healthNode, () => api.getHealth());
     } catch (e: unknown) {
-      setOutcome({ retired: false, detail: describeFailure(e, "the retirement could not be made").message });
+      if (mountedRef.current) setOutcome({ retired: false, detail: describeFailure(e, "the retirement could not be made").message });
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   };
 
