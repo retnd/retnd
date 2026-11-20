@@ -18,8 +18,10 @@ This file is O1.1's half of `scripts/observability/selftest.sh`: PV1 (a
 handler that never consults the verifier) and PV2 (a plaintext token in
 config accepted), the positive controls the spec pairs with them (a valid
 bearer and the same token through basic_auth both scrape, which is the clean
-run of the PV1 test), and one plant per falsification matrix rows O-01, O-03,
-O-04, O-05, O-06 and O-25 name. PV3 to PV6 belong to O1.2, O1.3 and O1.4 and
+run of the PV1 test), one plant per falsification matrix rows O-01, O-03,
+O-04, O-05, O-06 and O-25 name, and the two the #899 review found (the limit
+keyed on a forwarded header, and the /metrics method fallback stripping Allow
+from every API 405). PV3 to PV6 belong to O1.2, O1.3 and O1.4 and
 join this list when those land.
 
 Every mutation is anchored to a verbatim copy of product source, tabs and
@@ -50,8 +52,10 @@ HANDLER_GO = "apps/common/webhost/handlers_metrics.go"
 ROUTER_GO = "apps/common/webhost/router.go"
 AUTH_GO = "apps/common/webhost/auth.go"
 ACTIONLOG_GO = "apps/common/webhost/actionlog.go"
+AGENTACCESS_GO = "apps/common/webhost/agentaccess.go"
 SCRAPE_GO = "core/service/scrape.go"
 CONFIG_GO = "core/internal/config/observability.go"
+COUNTER_GO = "core/internal/metrics/scrape.go"
 
 WEB_PKG = ("apps/common", ("./webhost/",))
 SERVICE_PKG = ("core", ("./service/",))
@@ -144,6 +148,44 @@ MUTATIONS: list[tuple[Any, ...]] = [
         "TestMetrics_TheEleventhRefusalFromOneAddressIsRateLimitedAndACleanAddressIsNot",
     ),
     (
+        "O-01: the limit keyed on a forwarded header a stranger wrote",
+        [(
+            HANDLER_GO,
+            "func scrapeClientAddress(r *http.Request) string {\n",
+            "func scrapeClientAddress(r *http.Request) string {\n\tif first := firstForwardedEntry(r.Header.Get(\"X-Forwarded-For\")); first != \"\" { "
+            + PLANT
+            + "the header picks the key.\n\t\treturn first\n\t}\n",
+        )],
+        "after a stranger sent ten refusals claiming to be it",
+        WEB_PKG,
+        "TestMetrics_TheRefusalLimitIsKeyedOnThePeerAndNeverOnAForwardedHeader",
+    ),
+    (
+        "the /metrics method fallback set on the root mux, which chi copies into every subrouter",
+        [(
+            ROUTER_GO,
+            METRICS_ROUTE,
+            METRICS_ROUTE
+            + "\tr.MethodNotAllowed(func(w http.ResponseWriter, req *http.Request) { "
+            + PLANT
+            + "every 405 loses its Allow.\n\t\tif req.URL.Path == \"/metrics\" {\n\t\t\th.metrics(w, req)\n\n\t\t\treturn\n\t\t}\n\t\tw.WriteHeader(http.StatusMethodNotAllowed)\n\t})\n",
+        )],
+        "answered 405 with Allow",
+        WEB_PKG,
+        "TestA405OutsideTheScrapeEndpointStillListsItsMethods",
+    ),
+    (
+        "a wrong method on /metrics answered by chi, uncounted and before the credential",
+        [(
+            ROUTER_GO,
+            '\t\t\tif req.URL.Path == "/metrics" && req.Method != http.MethodGet {\n',
+            '\t\t\tif false && req.URL.Path == "/metrics" && req.Method != http.MethodGet { ' + PLANT + "chi answers the method.\n",
+        )],
+        "POST /metrics with the credential",
+        WEB_PKG,
+        "TestA405OutsideTheScrapeEndpointStillListsItsMethods",
+    ),
+    (
         "O-01 control: a limiter that counts every scrape, so a clean address is limited",
         [(
             HANDLER_GO,
@@ -168,6 +210,19 @@ MUTATIONS: list[tuple[Any, ...]] = [
         "TestAScrapeCredentialIsStoredAsADigestInAPrivateFile",
     ),
     (
+        "O-03: the plaintext left in a second file under the state directory, which only the route-level byte scan reads",
+        [(
+            SCRAPE_GO,
+            "\tb.scrape.loaded = false\n\n\treturn MintedScrapeToken{Token: token,",
+            "\t_ = os.WriteFile(filepath.Join(filepath.Dir(dir), \"scrape-token.txt\"), []byte(token), 0o600) "
+            + PLANT
+            + "a plaintext copy beside config.yaml.\n\tb.scrape.loaded = false\n\n\treturn MintedScrapeToken{Token: token,",
+        )],
+        "--- FAIL: TestMetrics_NoPlaintextScrapeTokenIsPersistedAnywhere",
+        WEB_PKG,
+        "TestMetrics_NoPlaintextScrapeTokenIsPersistedAnywhere",
+    ),
+    (
         "O-03: the scrape-token mint over plain HTTP from another machine without the acknowledgement",
         [(
             ROUTER_GO,
@@ -187,6 +242,22 @@ MUTATIONS: list[tuple[Any, ...]] = [
         "--- FAIL: TestMetrics_FiftyScrapesWriteNoActionLogRow",
         WEB_PKG,
         "TestMetrics_FiftyScrapesWriteNoActionLogRow",
+    ),
+    (
+        "O-04: the refusal counter labelled with a value the request carried",
+        [
+            (COUNTER_GO, "\trejected [len(scrapeRejectedReasons)]uint64\n", "\trejected [len(scrapeRejectedReasons)]uint64\n\tlast     string " + PLANT + "the last reason seen, whatever it was.\n"),
+            (COUNTER_GO, "\treturn false\n}\n", "\ts.mu.Lock()\n\ts.last = reason\n\ts.mu.Unlock()\n\n\treturn false\n}\n"),
+            (COUNTER_GO, "\ts.mu.Lock()\n\tcounts := s.rejected\n\ts.mu.Unlock()\n", "\ts.mu.Lock()\n\tcounts := s.rejected\n\tlast := s.last\n\ts.mu.Unlock()\n"),
+            (
+                COUNTER_GO,
+                '\t\tb.WriteString(name + "{reason=" + quoteLabel(r) + "} " + formatFloat(float64(counts[i])) + "\\n")\n\t}\n',
+                '\t\tb.WriteString(name + "{reason=" + quoteLabel(r) + "} " + formatFloat(float64(counts[i])) + "\\n")\n\t}\n\tif last != "" {\n\t\tb.WriteString(name + "{reason=" + quoteLabel(last) + "} 1\\n")\n\t}\n',
+            ),
+        ],
+        "--- FAIL: TestScrapeRejected_AValueOutsideTheVocabularyNeverBecomesALabel",
+        METRICS_PKG,
+        "TestScrapeRejected_AValueOutsideTheVocabularyNeverBecomesALabel",
     ),
     (
         "O-04: a refused scrape that is never counted",
@@ -259,6 +330,17 @@ MUTATIONS: list[tuple[Any, ...]] = [
         "TestMetrics_TheScrapeCredentialAndTheAgentTokenNeverCross",
     ),
     (
+        "O-25, the audit half: an rsc_ bearer taken for an attempted agent token",
+        [(
+            AGENTACCESS_GO,
+            "\tif !strings.HasPrefix(token, service.AgentTokenPrefix) {\n",
+            '\tif !strings.HasPrefix(token, service.AgentTokenPrefix) && !strings.HasPrefix(token, "rsc_") { ' + PLANT + "a scrape token is tried as an agent's.\n",
+        )],
+        "a crossed credential wrote an agent_audit row",
+        WEB_PKG,
+        "TestMetrics_TheScrapeCredentialAndTheAgentTokenNeverCross",
+    ),
+    (
         "O-25, third red: /metrics behind auditAgentCalls with the scrape taken for an agent's call",
         [(
             ROUTER_GO,
@@ -280,7 +362,7 @@ MUTATIONS: list[tuple[Any, ...]] = [
 # exposition), without which a handler that refuses everything passes PV1.
 CLEAN_CONTROLS = [
     ("the positive controls: a valid bearer and basic_auth both scrape", WEB_PKG, "TestMetrics_AnUnauthenticatedScrapeIsRefusedAndTheCredentialStillWorks"),
-    ("the scrape endpoint suite", WEB_PKG, "TestMetrics_"),
+    ("the scrape endpoint suite and the 405 guard", WEB_PKG, "TestMetrics_|TestA405OutsideTheScrapeEndpointStillListsItsMethods"),
     ("the shared root-route allowlist", WEB_PKG, "TestEveryRootRouteOutsideTheAPIIsInTheOneList|TestAPlantedRootRouteOutsideTheListIsCaught"),
     ("the credential store and the report cache", SERVICE_PKG, "TestAScrapeCredential|TestOnlyTheCurrentScrapeCredentialVerifies|TestTheHealthExpositionIsRebuilt|TestEveryRefusalReasonIsCounted"),
     ("the observability block", CONFIG_PKG, "TestObservability_"),

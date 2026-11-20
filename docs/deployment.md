@@ -852,8 +852,14 @@ product never does.
 **What a refusal looks like.** No credential, a wrong one or a malformed header is `401`
 with an empty body. An address that has been refused ten times in a minute gets `429`
 with `Retry-After` for the rest of that minute, even with a valid token, so a scraper's
-`up == 0` alert fires either way. A scraper that holds the right token is never refused,
-so it never gets near the limit. Every answer carries `Cache-Control: no-store`.
+`up == 0` alert fires either way. The address is the connection's own peer address, and
+`X-Forwarded-For` is ignored on this route even with `TRUST_FORWARDED_HEADERS` on, because
+nothing trusted forwards `/metrics` to the engine: a header there was written by whoever
+sent the request. A scraper that holds the right token and connects from its own address
+is never refused. If it reaches the engine through a proxy you run, everything behind
+that proxy shares the proxy's address and its limit, so ten bad requests through the
+proxy in a minute will hold your scraper off for the rest of that minute too. Every
+answer carries `Cache-Control: no-store`.
 Refusals are counted, not logged, in `retnd_scrape_rejected_total{reason}` with
 `reason` one of `disabled`, `unauthenticated` or `method`.
 

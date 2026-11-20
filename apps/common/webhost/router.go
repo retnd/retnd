@@ -250,11 +250,10 @@ func debugShortcutEnv() bool {
 type handlers struct {
 	agents        AgentAccess
 	observability ObservabilityAccess
-	// scrape is the Prometheus endpoint's backend, the limiter that bounds the
-	// refusals one address may cause, and the forwarded-header rule that keys it.
+	// scrape is the Prometheus endpoint's backend, and the limiter that bounds
+	// the refusals one peer address may cause.
 	scrape        ScrapeAccess
 	scrapeLimiter *local.RateLimiter
-	trustFwd      bool
 	confirmations AgentConfirmations
 	// router is the handler a confirmation's recorded request is replayed
 	// through (agentconfirmations.go): the whole /api/v1 chain, set once NewRouter
@@ -359,7 +358,6 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		observability: observability,
 		scrape:        scrape,
 		scrapeLimiter: newScrapeLimiter(),
-		trustFwd:      cfg.TrustForwardedHeaders,
 		confirmations: confirmations,
 		agentPolicy:   policy,
 		platform:      cfg.Platform,
@@ -395,26 +393,30 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// before any route below, which is chi's own requirement for a
 	// root-level Use.
 	r.Use(RequestScope)
+	// /metrics answers every method itself, so a wrong one is refused after the
+	// credential and counted (reason "method") rather than a bare 405. That is
+	// done here, for that one path, and not with r.MethodNotAllowed: chi copies
+	// a root method-not-allowed handler into every subrouter, and a custom one
+	// there would strip the Allow header from every 405 under /api/v1 (#899
+	// review). The route table still says what is true: /metrics is a GET route.
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if req.URL.Path == "/metrics" && req.Method != http.MethodGet {
+				h.metrics(w, req)
+
+				return
+			}
+			next.ServeHTTP(w, req)
+		})
+	})
 
 	r.Get("/health/live", healthLive)
 	r.Get("/health/ready", h.healthReady)
 	// The Prometheus scrape endpoint (EPIC O, #899), a sibling of the probes and
 	// outside the /api/v1 group: no recordActions, no CSRF, no destructive gate,
 	// no auditAgentCalls. Its own handler does authentication and nothing else,
-	// on every method so a refused method is counted rather than a bare 405.
+	// and the other methods reach it through the root middleware above.
 	r.Get("/metrics", h.metrics)
-	// Every other method on that path reaches the same handler, which counts it
-	// as a refused method once the credential has checked out. Registered as
-	// the mux's method-not-allowed answer rather than as a route per verb, so
-	// the route table says what is true: this is a GET route.
-	r.MethodNotAllowed(func(w http.ResponseWriter, req *http.Request) {
-		if req.URL.Path == "/metrics" {
-			h.metrics(w, req)
-
-			return
-		}
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	})
 
 	root := r
 	var proposer *agentProposer

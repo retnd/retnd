@@ -53,8 +53,9 @@ func TestEveryRootRouteOutsideTheAPIIsInTheOneList(t *testing.T) {
 }
 
 // The negative control: a planted route that is neither under /api/v1 nor in
-// the list is found, and the guards that read the list see it as an ordinary
-// route (so the authentication guard below fails on it).
+// the list is the one unlisted route the shared check finds, and the list does
+// not claim it, so every guard that asks isListedRootRoute treats it as an
+// ordinary route rather than an exempt one.
 func TestAPlantedRootRouteOutsideTheListIsCaught(t *testing.T) {
 	router := NewRouter(RouterConfig{Platform: noAuthWiredAdapter{}, Backend: newSyncFakeBackend(), Gate: alwaysPassGate{}, BinaryVersion: "test", Commit: "test"})
 	planted := chi.NewRouter()
