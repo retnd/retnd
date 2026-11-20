@@ -575,6 +575,45 @@ else
   fail "R16c local mode keeps the named cache volume" "$(gate_line)"
 fi
 
+# --- R17 scratch goes to disk, not to the host's /tmp (#1580) ----------------
+# On a Linux daemon the container shares the host's /tmp (R11b), and MARS's
+# /tmp is tmpfs: every byte a self-test writes there is memory charged to the
+# container's fence, which cannot be swapped out. The architecture self-test's
+# tree copies took the gate past 7g that way. Remote mode points TMPDIR at a
+# directory inside the shipped scratch copy, on disk, mounted at the same path
+# inside and out (so a test that bind-mounts a temp directory into a sibling
+# container still names a path the daemon can find), and keeps /tmp shared for
+# the tests that need a short /tmp root.
+run_script env FAKE_SOCK_GID=116 "FAKE_DAEMON_OS=Debian GNU/Linux 13 (trixie)" bash "$script" --host "$host" --fast
+gl="$(gate_line)"
+tmp_src="$(printf '%s' "$gl" | grep -oE -- '-v [^ ]*/ci-docker-[^ ]*/tmp:[^ ]*' | head -1)"
+tmp_dir="${tmp_src#-v }"; tmp_dir="${tmp_dir%%:*}"
+if [ "$(rc)" = 0 ] && [ -n "$tmp_dir" ] && [ "$(printf '%s' "$tmp_src" | cut -d: -f2)" = "$tmp_dir" ] \
+   && printf '%s' "$gl" | grep -q -- " TMPDIR=$tmp_dir " \
+   && printf '%s' "$gl" | grep -q -- '-v /tmp:/tmp'; then
+  pass "R17a remote mode on a Linux daemon puts TMPDIR in the scratch copy on disk, same path inside and out, and still shares /tmp"
+else
+  fail "R17a remote TMPDIR is a same-path bind mount of the scratch copy" "rc=$(rc) $gl"
+fi
+if grep -q "mkdir -p .*ci-docker-[^ ]*/tmp'" "$log/ssh"; then
+  pass "R17b the TMPDIR directory is made by the remote account, so the remote uid owns it"
+else
+  fail "R17b the TMPDIR directory is made over ssh" "$(head -5 "$log/ssh")"
+fi
+run_script env FAKE_SOCK_GID=121 "FAKE_DAEMON_OS=Debian GNU/Linux 12 (bookworm)" bash "$script" --host "$host" --exec true
+el="$(grep -E 'docker run .* true$' "$log/docker" | grep -v -- '--user 0:0' || true)"
+if [ "$(rc)" = 0 ] && printf '%s' "$el" | grep -qE -- ' TMPDIR=[^ ]*/ci-docker-[^ ]*/tmp '; then
+  pass "R17c --exec gets the same TMPDIR as the gate"
+else
+  fail "R17c --exec gets the same TMPDIR" "rc=$(rc) $el"
+fi
+run_script bash "$script" --fast
+if ! gate_line | grep -q TMPDIR; then
+  pass "R17d local mode leaves TMPDIR alone"
+else
+  fail "R17d local mode leaves TMPDIR alone" "$(gate_line)"
+fi
+
 # --- R10 the page documents the knobs ---------------------------------------
 for v in CI_DOCKER_HOST CI_DOCKER_REMOTE_DIR CI_DOCKER_MIN_FREE_MB CI_DOCKER_KEEP_CACHE CI_DOCKER_SYNC CI_DOCKER_SHARE_HOST; do
   if grep -q "\`$v\`" "$repo_root/docs/reference/local-gate.md"; then

@@ -1,0 +1,267 @@
+#!/usr/bin/env python3
+"""How much scratch the architecture self-test holds at once (#1580).
+
+The self-test copies the whole tree (about 340 MB) once per mutation case.
+It used to keep every copy until the very end, so by the dependency-direction
+section nine copies were on disk at once, and all of them together came to
+about 7.8 GB. On a Linux docker host the gate container shares the host's
+/tmp, MARS's /tmp is tmpfs, and tmpfs pages count against the container's
+memory fence and cannot be swapped out, so the run was SIGKILLed (137).
+
+These cases hold the scratch bound without copying anything. The copy step is
+`Selftest._copy_tree`, and a stand-in for it makes a small skeleton (only the
+files the planted mutations edit) and records the directory. Whether a copy is
+still alive is read from the filesystem, never from a counter the self-test
+keeps about itself. Every check the self-test would run, and every git or go
+command it would shell out to, is stubbed, so nothing here needs go, git or
+the linters.
+
+  A  the bound: at most MAX_LIVE copies are on disk at once, and each copy is
+     gone before the next one is made, so a copy is removed right after its
+     own case. The bound is two rather than one because the deletion-proof
+     cases build a git worktree of their copy as well, which is a second tree
+     on disk for the length of that case.
+  B  nothing is left behind once the body returns: the last copy goes with
+     its case, not with the run's final cleanup.
+  C  a case that raises, is interrupted (KeyboardInterrupt) or is told to stop
+     by the harness (harness.Interrupted, which is what SIGTERM becomes) still
+     removes its copy and every earlier one before the exception leaves the
+     body.
+  D  SIGTERM through main(): main installs the harness's signal handlers, so
+     a TERM in the middle of a case unwinds, removes the scratch and exits 143
+     instead of dying with the copies still on disk.
+  E  every `st.mutant(...)` in the body is the context expression of a `with`,
+     so a case added later cannot quietly go back to keeping its copy.
+  F  the run made a real number of copies, so A to C cannot pass by the body
+     having stopped making any.
+"""
+
+from __future__ import annotations
+
+import ast
+import contextlib
+import os
+import shutil
+import signal
+import sys
+import tempfile
+from pathlib import Path
+from typing import Callable, Iterator
+from unittest import mock
+
+HERE = Path(__file__).resolve()
+SCRIPTS = HERE.parents[2]
+REPO = SCRIPTS.parent
+sys.path.insert(0, str(SCRIPTS))
+
+from bdtools import architecture as arch  # noqa: E402
+from bdtools import harness  # noqa: E402
+from bdtools.architecture import selftest as arch_selftest  # noqa: E402
+from bdtools.tests import testkit  # noqa: E402
+
+MAX_LIVE = 2
+MIN_COPIES = 20
+
+# The files the planted mutations edit in place (append, substitute, rename),
+# copied from the real tree so a substitution sees the real text. Every other
+# planted file is written under a directory the case makes itself.
+SKELETON_FILES = (
+    "scripts/architecture/layers.conf",
+    "apps/truenas/frontend/platform.ts",
+    "ui/shared/src/types/platform.ts",
+)
+SKELETON_DIRS = ("apps/generic/platform",)
+
+# The case whose check is made to raise or be interrupted. Far enough in that
+# several copies have been made before it, and it plants into core/.
+TRIP_CASE = "dep-core-to-provider-sdk"
+
+
+class Recorder:
+    """What the stand-in copy step saw."""
+
+    def __init__(self) -> None:
+        self.copies: list[Path] = []
+        self.peak = 0
+        # (the copy being made, the earlier copies still on disk at that moment)
+        self.leftovers: list[tuple[str, list[str]]] = []
+
+    def alive(self) -> list[Path]:
+        return [p for p in self.copies if p.exists()]
+
+
+def fake_selftest_class(rec: Recorder) -> type:
+    class FakeSelftest(arch_selftest.Selftest):
+        def _copy_tree(self, directory: Path) -> None:
+            earlier = rec.alive()
+            if earlier:
+                rec.leftovers.append((directory.name, [p.name for p in earlier]))
+            directory.mkdir(parents=True, exist_ok=True)
+            for rel in SKELETON_FILES:
+                (directory / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(REPO / rel, directory / rel)
+            for rel in SKELETON_DIRS:
+                (directory / rel).mkdir(parents=True, exist_ok=True)
+            rec.copies.append(directory)
+            rec.peak = max(rec.peak, len(earlier) + 1)
+
+    return FakeSelftest
+
+
+def quiet_run(trip: Callable[[], None] | None = None) -> Callable[..., tuple[int, str]]:
+    """A stand-in for the module's `_run`: every check exits 1 saying nothing,
+    and the first one run inside TRIP_CASE's copy calls `trip`."""
+    state = {"tripped": False}
+
+    def run(cwd: Path, *argv: str) -> tuple[int, str]:
+        del argv
+        if trip is not None and not state["tripped"] and Path(cwd).name == TRIP_CASE:
+            state["tripped"] = True
+            trip()
+        return 1, ""
+
+    return run
+
+
+@contextlib.contextmanager
+def stubbed(run: Callable[..., tuple[int, str]]) -> Iterator[None]:
+    """No subprocess at all: the checks, git and go are all stand-ins, and the
+    self-test's own output goes nowhere (it reports a FAIL per control here,
+    because every stubbed check fails, and that is not what is measured)."""
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(mock.patch.object(arch_selftest, "_run", run))
+        stack.enter_context(mock.patch.object(harness, "sh", lambda *a, **k: None))
+        stack.enter_context(mock.patch.object(harness, "sh_ok", lambda *a, **k: False))
+        devnull = stack.enter_context(open(os.devnull, "w", encoding="utf-8"))
+        stack.enter_context(contextlib.redirect_stdout(devnull))
+        stack.enter_context(contextlib.redirect_stderr(devnull))
+        yield
+
+
+def run_body(rec: Recorder, tmp: Path, trip: Callable[[], None] | None = None) -> BaseException | None:
+    st = fake_selftest_class(rec)(REPO, tmp)
+    with stubbed(quiet_run(trip)):
+        try:
+            arch_selftest.body(st)
+        except BaseException as exc:  # the cases below are about exactly this
+            return exc
+    return None
+
+
+def names(paths: list[Path]) -> str:
+    return ", ".join(p.name for p in paths) or "(none)"
+
+
+def behaviour(s: testkit.Suite) -> None:
+    """A to D, against a stand-in for the copy step."""
+    work = Path(tempfile.mkdtemp(prefix="arch-selftest-scratch."))
+    try:
+        # A, B, F: a whole run with nothing going wrong.
+        rec = Recorder()
+        tmp = work / "clean"
+        tmp.mkdir()
+        exc = run_body(rec, tmp)
+        s.check(exc is None, "A the body runs to its end against the stand-ins",
+                f"A the body raised against the stand-ins: {exc!r}")
+        s.check(len(rec.copies) >= MIN_COPIES, f"F the run made {len(rec.copies)} copies (at least {MIN_COPIES})",
+                f"F the run made only {len(rec.copies)} copies, so the bound below proves little")
+        s.check(rec.peak <= MAX_LIVE, f"A at most {MAX_LIVE} tree copies alive at once (peak {rec.peak})",
+                f"A {rec.peak} tree copies were alive at once, the bound is {MAX_LIVE} (about 340 MB each)")
+        s.check(not rec.leftovers, "A each copy is gone before the next case makes its own",
+                "A earlier copies were still on disk when a later case made its copy",
+                "\n".join(f"{made}: {', '.join(left)}" for made, left in rec.leftovers[:5]))
+        s.check(not rec.alive(), "B no copy is left once the body returns",
+                f"B {len(rec.alive())} copies were still on disk after the body returned", names(rec.alive()))
+
+        # C: the case raises, is interrupted, or is told to stop.
+        def raise_error() -> None:
+            raise RuntimeError("a check blew up mid-case")
+
+        def keyboard() -> None:
+            raise KeyboardInterrupt
+
+        def terminated() -> None:
+            raise harness.Interrupted(harness.EXIT_TERMINATED, "SIGTERM")
+
+        for label, trip, want in (
+            ("raises", raise_error, RuntimeError),
+            ("is interrupted (KeyboardInterrupt)", keyboard, KeyboardInterrupt),
+            ("is stopped by the harness (SIGTERM)", terminated, harness.Interrupted),
+        ):
+            rec = Recorder()
+            tmp = work / f"trip-{want.__name__}"
+            tmp.mkdir()
+            exc = run_body(rec, tmp, trip)
+            tripped = isinstance(exc, want) and any(p.name == TRIP_CASE for p in rec.copies)
+            s.check(tripped, f"C a case that {label} reached {TRIP_CASE} and the exception left the body",
+                    f"C a case that {label}: the exception did not come out of {TRIP_CASE} ({exc!r})")
+            s.check(tripped and not rec.alive(),
+                    f"C a case that {label} leaves no copy behind ({len(rec.copies)} made)",
+                    f"C a case that {label} left {len(rec.alive())} copies on disk", names(rec.alive()))
+
+        # D: a real SIGTERM, through main().
+        rec = Recorder()
+        tmpdir = work / "sigterm"
+        tmpdir.mkdir()
+        unhandled: list[int] = []
+        before = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
+        cwd = os.getcwd()
+        signal.signal(signal.SIGTERM, lambda signum, _frame: unhandled.append(signum))
+        status: int | None = None
+        try:
+            with stubbed(quiet_run(lambda: os.kill(os.getpid(), signal.SIGTERM))), \
+                    mock.patch.object(arch_selftest, "Selftest", fake_selftest_class(rec)), \
+                    mock.patch.object(arch, "resolve_toplevel", lambda: REPO), \
+                    mock.patch.dict(os.environ, {"TMPDIR": str(tmpdir)}):
+                status = arch_selftest.main([])
+        finally:
+            for sig, handler in before.items():
+                signal.signal(sig, handler)
+            os.chdir(cwd)
+        s.check(not unhandled and status == harness.EXIT_TERMINATED,
+                "D a SIGTERM mid-case is handled by main and the run exits 143",
+                f"D main did not handle a SIGTERM mid-case (exit {status}, it reached the test's own handler "
+                f"{len(unhandled)} time(s)), so a TERM from a timeout kills the run with the copies on disk")
+        s.check(not rec.alive() and not any(tmpdir.iterdir()),
+                "D nothing is left under TMPDIR after a SIGTERM",
+                "D scratch was left under TMPDIR after a SIGTERM", names(list(tmpdir.iterdir())))
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def main() -> int:
+    s = testkit.Suite("architecture-selftest-scratch")
+
+    # Without the seam the stand-in would never be called and every case below
+    # would make real copies, so its absence is a failure of its own.
+    seam = callable(getattr(arch_selftest.Selftest, "_copy_tree", None))
+    s.check(seam, "the copy step is its own method (Selftest._copy_tree), so a stand-in can count copies",
+            "Selftest has no _copy_tree, so copies cannot be counted without making them for real "
+            "(about 340 MB each); A to D did not run")
+    if seam:
+        behaviour(s)
+
+    # E: every copy the body makes is scoped by a `with`.
+    tree = ast.parse(Path(arch_selftest.__file__).read_text(encoding="utf-8"))
+    body_fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "body")
+    scoped = {
+        id(item.context_expr)
+        for node in ast.walk(body_fn)
+        if isinstance(node, ast.With)
+        for item in node.items
+    }
+    calls = [
+        node for node in ast.walk(body_fn)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "mutant"
+    ]
+    loose = [node.lineno for node in calls if id(node) not in scoped]
+    s.check(bool(calls) and not loose,
+            f"E all {len(calls)} st.mutant(...) calls in body() are scoped by a with",
+            f"E {len(loose)} of {len(calls)} st.mutant(...) calls in body() are not the subject of a with, "
+            f"so their copies outlive their case (lines {', '.join(map(str, loose[:10]))})")
+
+    return s.finish()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
