@@ -3209,8 +3209,11 @@ tree="$(make_full_tree)"
 printf '#!/usr/bin/env bash\necho "PW-LOCK-HELD $*"\n"$@"\n' >"$tree/bin/pw-lock"
 chmod +x "$tree/bin/pw-lock"
 run_gate "$tree" STUB_UNAME_S=Darwin RETND_UI_BROWSER_ALLOW_LOCAL=1 RETND_PW_LOCK="$tree/bin/pw-lock" -- --shard ui-browser
-assert_contains "Z9 with the opt-in the specs run under the lock" 'PW-LOCK-HELD bash scripts/e2e/ui-browser.sh specs' "$out"
-assert_contains "Z9 the self-test runs under the lock" 'PW-LOCK-HELD bash scripts/e2e/ui-browser.sh run' "$out"
+# Under the lock the command is wrapped so the stall watchdog's clocks start
+# once the lock is held (#1540): the lock runs `sh -c ... <resume> <command>`.
+z9_locked="$(printf '%s\n' "$out" | grep '^PW-LOCK-HELD sh -c ' || true)"
+assert_contains "Z9 with the opt-in the specs run under the lock" 'bash scripts/e2e/ui-browser.sh specs ui/shared/e2e/playwright.config.ts' "$z9_locked"
+assert_contains "Z9 the self-test runs under the lock" 'bash scripts/e2e/ui-browser.sh run bash scripts/assurance/ui-selftest.sh' "$z9_locked"
 assert_eq "Z9 and the shard ends ok" "==> ci-local: ok (shard ui-browser)" "$(printf '%s\n' "$out" | tail -n 1)"
 
 # Z10: the opt-in never means bare: with no lock to take, a Mac ledgers them.
