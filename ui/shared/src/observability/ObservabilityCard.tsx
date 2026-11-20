@@ -119,7 +119,7 @@ export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
       </div>
       <div className="card__body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <p style={{ margin: 0, color: "var(--text-2)" }}>
-          What this deployment offers to Prometheus, a log shipper and an alert receiver. The engine always writes its log, at info unless you choose another level. The scrape endpoint is off until you turn it on, alerts go through the platform's own notifier until you choose a webhook, and none of it is per backup set.
+          What this deployment offers to Prometheus, a log shipper and an alert receiver. The engine always writes its log, at info unless you choose another level here or RETND_DEBUG or LOG_LEVEL says otherwise. The scrape endpoint is off until you turn it on, alerts go through the platform's own notifier until you choose a webhook, and none of it is per backup set.
         </p>
         {notConfigured ? (
           <p style={{ margin: 0 }} data-testid="observability-not-configured">Nothing is configured yet, so there are no observability settings to show.</p>

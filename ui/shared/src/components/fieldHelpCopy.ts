@@ -680,7 +680,7 @@ export const FIELD_HELP = {
     what: "Which one channel this deployment's alerts go out through: the platform's own notifier, or a webhook. Never both.",
     example: "webhook",
     effect:
-      "Saves webhook to config.yaml and builds the one alert channel again, with no restart; the platform notifier stops being used. The engine refuses the change and writes nothing unless config.yaml already names where the URL is kept (observability.alerts.webhook.url_ref), and it refuses a URL it can read and finds unusable. An alert the old channel already announced is not announced again through the new one. On a platform with no notifier, platform announced nothing, so the next alerting pass posts every alert that is standing. Nothing is observed at all unless alerts.enabled is set."
+      "Saves webhook to config.yaml and builds the one alert channel again, with no restart; the platform notifier stops being used. The engine refuses the change and writes nothing unless config.yaml already names where the URL is kept (observability.alerts.webhook.url_ref), and it refuses a URL it can read and finds unusable. An alert the old channel already announced is not announced again through the new one, with one exception: the alertmanager format re-sends every standing alert each refresh interval, so a new Alertmanager receiver has them all within one interval. On a platform with no notifier, platform announced nothing, so the next alerting pass posts every alert that is standing. Nothing is observed at all unless alerts.enabled is set."
   },
   observabilityAlertsDialect: {
     what: "The shape of each webhook post: one JSON object per alert, or the Alertmanager v2 array.",

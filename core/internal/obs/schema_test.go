@@ -359,8 +359,9 @@ func TestEveryEventConstantIsPinnedByName(t *testing.T) {
 			return true
 		})
 	}
-	if len(declared) != 54 {
-		t.Errorf("events.go and assurance_events.go declare %d Event* constants, docs/observability.md says 54; update both together", len(declared))
+	// 56 since #1528 added EventArtifactRetired and EventArtifactUnretired.
+	if len(declared) != 56 {
+		t.Errorf("events.go and assurance_events.go declare %d Event* constants, docs/observability.md says 56; update both together", len(declared))
 	}
 	for name, v := range declared {
 		want, ok := pinned[name]

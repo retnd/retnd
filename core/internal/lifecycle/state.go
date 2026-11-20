@@ -21,6 +21,7 @@
 //	FAILED             (exceptional)
 //	QUARANTINED        (exceptional, recoverable)
 //	QUARANTINED_LOST   (exceptional, terminal)
+//	RETIRED            (a failure that needs nobody any more, issue #1528)
 //
 // # Why a graph, not a set of constants
 //
@@ -54,7 +55,7 @@
 // and TestCompleteCannotLivelockThroughQuarantine).
 package lifecycle
 
-// This file is the vocabulary: the thirteen state names, the type that
+// This file is the vocabulary: the fourteen state names, the type that
 // carries one, and the parse and validity checks that keep a raw string from
 // becoming a State without being looked at.
 //
@@ -74,7 +75,7 @@ package lifecycle
 // contract with every row already on disk.
 type State string
 
-// The thirteen states. Their string forms are a contract with the FR-9
+// The fourteen states. Their string forms are a contract with the FR-9
 // journal and with every log line an operator has already read, so a name
 // here is not renameable without a migration and an FR-35 conversation.
 const (
@@ -163,6 +164,26 @@ const (
 	// lists, added to close a gap FR-17's reconciliation table doesn't
 	// cover (see the package doc).
 	QuarantinedLost State = "QUARANTINED_LOST"
+
+	// Retired means a FAILED artifact that nobody needs to act on any more
+	// (issue #1528): its source object is gone, or an operator has
+	// acknowledged that it cannot or should not be fetched, and the record
+	// is kept rather than deleted, because an audit wants the evidence that
+	// a backup was attempted and failed. It is reachable only from Failed.
+	// The retirement itself (who or what retired it, why, what the source
+	// looked like at that moment and which newer artifact supersedes it) is
+	// a row in the journal's artifact_retirements table, written in the same
+	// transaction as this state.
+	//
+	// It is a state rather than a flag on FAILED on purpose: every reader of
+	// FAILED (health, the cycle's failure count, the activity feed) would
+	// otherwise have to remember to check a second column, which is exactly
+	// how a stuck failure would come back to read as FAILING.
+	//
+	// It has one way out, back to Discovered, taken only by discovery when
+	// the exact object a retirement recorded as gone is listed again. See
+	// machine.go and docs/design/1528-retire-failed-artifacts.md.
+	Retired State = "RETIRED"
 )
 
 // AllStates lists every state this package recognizes, happy path first and
@@ -183,6 +204,7 @@ var AllStates = []State{
 	Failed,
 	Quarantined,
 	QuarantinedLost,
+	Retired,
 }
 
 // validStates is AllStates as a set, built once at init.

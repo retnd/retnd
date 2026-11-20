@@ -7,7 +7,7 @@
     },
     {
       "path": "ui/shared/src/assurance/assuranceCommands.ts",
-      "sha256": "6427846445035d39e5c8569016d86e56151e224bb5b734fad2a6fa2b6a1927c2"
+      "sha256": "d8a89cfbf412f7b67f5289b9cae9615b6e38af7a3d8ad2300531bade480b0afe"
     },
     {
       "path": "ui/shared/src/assurance/validatorCommands.ts",
@@ -39,7 +39,7 @@
     },
     {
       "path": "ui/shared/src/test/cliTwins.test.ts",
-      "sha256": "2a142f4b8cc36336036d78e4ee5c37d93833f78a1a651fe1660bfe3dbdbdb824"
+      "sha256": "e8b761cce9b3b45c2baefaff69fc52b9150977619ef2e2625e34930abf8ae484"
     }
   ],
   "twins": [
@@ -132,6 +132,12 @@
       "fn": "retryCommand",
       "case": "one backup",
       "line": "retnd retry api-server/var-backups/dump-2026-10-01.tar.gz"
+    },
+    {
+      "module": "assurance/assuranceCommands",
+      "fn": "retireCommand",
+      "case": "one backup",
+      "line": "retnd retire api-server/var-backups/dump-2026-10-01.tar.gz"
     },
     {
       "module": "assurance/assuranceCommands",

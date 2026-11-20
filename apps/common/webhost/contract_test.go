@@ -133,7 +133,11 @@ var contractBindings = map[string]contractBinding{
 	// response type: the note is the only thing a caller can send, and a
 	// 204 leaves no resource to describe.
 	"retryFailedIngestion": {retryFailedIngestionRequest{}, nil, "/api/v1/backups/src/set-1/backup.dump/retry"},
-	"reinstateArtifact":    {nil, artifactReinstateResponse{}, "/api/v1/quarantine/src/set-1/backup.dump/reinstate"},
+	// Issue #1528's second way out of FAILED, and the preview the retire
+	// dialog reads before anybody acts.
+	"previewRetirement": {nil, retirementPreviewResponse{}, "/api/v1/backups/src/set-1/backup.dump/retire"},
+	"retireArtifact":    {retireRequest{}, retireArtifactResponse{}, "/api/v1/backups/src/set-1/backup.dump/retire"},
+	"reinstateArtifact": {nil, artifactReinstateResponse{}, "/api/v1/quarantine/src/set-1/backup.dump/reinstate"},
 	// EPIC Q (#976): the recovery pair. The redeem's contract names two
 	// success shapes (the verified bytes, or the placement for a
 	// server-side target); the JSON one is the one with fields to hold.
@@ -1464,6 +1468,28 @@ func TestContract_APathBuiltFromTheContractReachesTheResourceItNames(t *testing.
 			reached: func(t *testing.T, b *backupSetFakeBackend, rec *httptest.ResponseRecorder) {
 				if got := b.lastRecoveryMint.ArtifactID; got != artifactID {
 					t.Errorf("the mint reached the backend for artifact %q, want %q (response %d %q)", got, artifactID, rec.Code, rec.Body.String())
+				}
+			},
+		},
+		{
+			operation: "retireArtifact",
+			identity:  artifactID,
+			body:      "{}",
+			csrf:      true,
+			arrange:   func(*backupSetFakeBackend) {},
+			reached: func(t *testing.T, b *backupSetFakeBackend, rec *httptest.ResponseRecorder) {
+				if got := b.lastRetired; got != artifactID {
+					t.Errorf("the retirement reached the backend for %q, want %q (response %d %q)", got, artifactID, rec.Code, rec.Body.String())
+				}
+			},
+		},
+		{
+			operation: "previewRetirement",
+			identity:  artifactID,
+			arrange:   func(*backupSetFakeBackend) {},
+			reached: func(t *testing.T, _ *backupSetFakeBackend, rec *httptest.ResponseRecorder) {
+				if !strings.Contains(rec.Body.String(), `"artifact":"`+artifactID+`"`) {
+					t.Errorf("the preview did not answer for %q (response %d %q)", artifactID, rec.Code, rec.Body.String())
 				}
 			},
 		},

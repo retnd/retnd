@@ -194,6 +194,7 @@ cases("assurance/assuranceCommands", [
   ["recoveryTestArtifactCommand", "hostile ids", HOSTILE_SET, HOSTILE_ARTIFACT],
   ["recoveryTestFollowCommand", "a set", SET],
   ["retryCommand", "one backup", ARTIFACT],
+  ["retireCommand", "one backup", ARTIFACT],
   ["artifactCommand", "one backup", ARTIFACT],
   ["artifactsInSetCommand", "a set", SET],
   ["artifactsListCommand", "no filter", {}],

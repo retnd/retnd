@@ -44,6 +44,33 @@
   directories: exit 1 naming the conflict. Only the new one, or neither (a fresh install),
   starts as before.
 
+- **A FAILED backup whose source is gone can be retired, and the engine retires the safe case itself**
+  (#1528). `cicd-pipeline/forge` read FAILING for two weeks with a good backup every morning, because two
+  dumps had failed, the host's own retention had since deleted them, and `retry` (the only verb that
+  touched a FAILED row) could only send them round to fail again. There is now a `RETIRED` state,
+  reached only from `FAILED`, with a record of who or what retired the backup, why, what the source
+  looked like at that moment and which newer backup replaces it. `retnd retire <source/set/artifact>`
+  and `POST /api/v1/backups/{source}/{set}/{name}/retire` retire one on request, after asking the source:
+  they refuse while the object is still there (retry it instead) unless you pass
+  `--accept-source-present`, and refuse with no newer good backup unless you pass `--no-successor`.
+  `--dry-run` and `GET` on the same route show what would happen first. A cycle retires a FAILED backup
+  by itself only when the set's listing does not show the object, a `Stat` of it answers not found, and a
+  newer durable backup exists in the same set; if the object ever reappears, the next cycle puts it back
+  into the pipeline. Health stops counting RETIRED as a failure, so a set like forge goes back to HEALTHY,
+  and reports it as `retired_count` (and a `retired` metric) so nothing is hidden. The MCP server gains
+  `retire_backup` (operate, a person confirms, and it may not send either acknowledgement) and
+  `backup_retirement_show` (read), and `GET /backups` gains a `state` filter, `limit` and a cursor, so
+  `backups_list` pages instead of answering `AGENT_RESULT_TOO_LARGE`. In the browser, a failed backup's page
+  and its row menu on the Backups page have a Retire… action whose dialog shows what the engine found
+  (the source gone or still there, the backup that replaces it, what retiring does) before anything
+  happens, a retired backup's page says who retired it and what replaces it, and a set card counts
+  retired backups apart. What an existing deployment sees:
+  FAILED rows whose source is gone and that a newer good backup supersedes are retired on the first cycle
+  after the upgrade, each as a warn-level `artifact_retired` event.
+  **One-way door:** migration 0023 rebuilds the `artifacts` table to admit `RETIRED` and adds
+  `artifact_retirements`. 0.8.0 refuses a `state.db` this build has opened, like every release with a
+  migration, so keep the upgrade archive if you might roll back.
+
 ## [0.8.0] - 2026-11-14
 
 0.8.0 is a minor release, and nearly all of it is one feature: encrypted retained copies (EPIC N, #967), with

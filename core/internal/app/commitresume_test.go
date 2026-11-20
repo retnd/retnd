@@ -291,6 +291,13 @@ func TestEveryLifecycleState_IsVisibleToTheCycleVerdict(t *testing.T) {
 		if terminalFailure(st) {
 			buckets = append(buckets, "terminalFailure")
 		}
+		// Issue #1528: RETIRED is a failure already dealt with, which is
+		// none of the three above. It is named here, the one state allowed
+		// to be in none of them, so a sixth state that belongs nowhere still
+		// fails this test instead of slipping through.
+		if st == lifecycle.Retired {
+			buckets = append(buckets, "settled")
+		}
 		for _, b := range buckets {
 			filled[b]++
 		}
@@ -313,7 +320,7 @@ func TestEveryLifecycleState_IsVisibleToTheCycleVerdict(t *testing.T) {
 		t.Errorf("lifecycle.AllStates does not carry %s, so this test no longer says anything about the "+
 			"state issue #372 was filed for", lifecycle.Committing)
 	}
-	for _, bucket := range []string{"acquiring", "durable", "terminalFailure"} {
+	for _, bucket := range []string{"acquiring", "durable", "terminalFailure", "settled"} {
 		if filled[bucket] == 0 {
 			t.Errorf("no state in lifecycle.AllStates landed in %s; a partition with an empty part means "+
 				"this test walked a table that cannot exercise it", bucket)

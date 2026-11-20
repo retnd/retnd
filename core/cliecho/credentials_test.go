@@ -303,7 +303,11 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	// credentials stay behind that id.
 	"--copy": "the id of the storage medium holding the copy to recover",
 
-	"--note": "the operator's own note on a retry, which they wrote and can read back",
+	"--note": "the operator's own note on a retry or a retirement, which they wrote and can read back",
+
+	// Issue #1528: the successor a retirement names, by its own artifact
+	// name in the same backup set.
+	"--superseded-by": "the name of the newer backup in the same set that a retirement names as the replacement",
 
 	// Retained-copy encryption (#993). Each is a word from a closed
 	// vocabulary, a source DESCRIPTION (a path, the NAME of a variable) or an
@@ -441,7 +445,8 @@ var flagRoutes = map[string][]string{
 	"--local-path":                  {"PATCH /backup-sets/{source}/{set}", "POST /backup-sets", "POST /system/first-run"},
 	"--location":                    {"POST /repositories"},
 	"--medium":                      {"POST /encryption/verify", "POST /operations"},
-	"--note":                        {"POST /backups/{source}/{set}/{name}/retry"},
+	"--note":                        {"POST /backups/{source}/{set}/{name}/retire", "POST /backups/{source}/{set}/{name}/retry"},
+	"--superseded-by":               {"POST /backups/{source}/{set}/{name}/retire"},
 	"--owner":                       {"POST /repositories"},
 	"--passphrase-env":              {"POST /repositories"},
 	"--passphrase-file":             {"POST /repositories"},
