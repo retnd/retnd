@@ -34,6 +34,18 @@ the linters.
      so a case added later cannot quietly go back to keeping its copy.
   F  the run made a real number of copies, so A to C cannot pass by the body
      having stopped making any.
+
+The other self-tests that plant mutations in whole-tree copies one case after
+another (api, compat, conformance, race, retention, discovery) had the same
+pile-up, up to about thirty copies each. They hand their copies out through
+`selftest_swap.one_at_a_time`, and:
+
+  G  one_at_a_time removes the previous copy when the next one is asked for,
+     so one is on disk at a time, and never removes the real tree (which is
+     what a --check-anchors run gets instead of a copy).
+  H  in each of those self-tests every whole-tree copy is made through
+     one_at_a_time: no call to the copy function sits anywhere but in the
+     function handed to it.
 """
 
 from __future__ import annotations
@@ -55,7 +67,7 @@ REPO = SCRIPTS.parent
 sys.path.insert(0, str(SCRIPTS))
 
 from bdtools import architecture as arch  # noqa: E402
-from bdtools import harness  # noqa: E402
+from bdtools import harness, selftest_swap  # noqa: E402
 from bdtools.architecture import selftest as arch_selftest  # noqa: E402
 from bdtools.tests import testkit  # noqa: E402
 
@@ -260,7 +272,65 @@ def main() -> int:
             f"E {len(loose)} of {len(calls)} st.mutant(...) calls in body() are not the subject of a with, "
             f"so their copies outlive their case (lines {', '.join(map(str, loose[:10]))})")
 
+    one_at_a_time(s)
     return s.finish()
+
+
+# The self-tests whose cases each make a whole-tree copy in turn. All of them
+# copy with selftest_swap.mutant, except api, which has its own _mutant.
+SWAP_USERS = ("api", "compat", "conformance", "race", "retention", "discovery")
+
+
+def one_at_a_time(s: testkit.Suite) -> None:
+    helper = getattr(selftest_swap, "one_at_a_time", None)
+    if not callable(helper):
+        s.bad("G selftest_swap has no one_at_a_time, so the swap self-tests keep every copy until they end")
+    else:
+        work = Path(tempfile.mkdtemp(prefix="arch-selftest-one-at-a-time."))
+        try:
+            root = work / "root"
+            root.mkdir()
+
+            def make(name: str) -> Path:
+                d = work / name
+                d.mkdir()
+                return d
+
+            next_copy = helper(make, root)
+            made = [next_copy(f"case-{i}") for i in range(5)]
+            alive = [p.name for p in made if p.exists()]
+            s.check(alive == ["case-4"], "G one_at_a_time keeps only the latest copy on disk",
+                    f"G one_at_a_time left {alive} on disk after five cases, want only case-4")
+            dry = helper(lambda name: root, root)
+            dry("a")
+            dry("b")
+            s.check(root.is_dir(), "G one_at_a_time never removes the real tree a dry run hands back",
+                    "G one_at_a_time removed the real tree")
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+    for domain in SWAP_USERS:
+        path = SCRIPTS / "bdtools" / domain / "selftest.py"
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        handed: set[int] = set()
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "one_at_a_time"):
+                for arg in node.args:
+                    handed.update(id(sub) for sub in ast.walk(arg))
+        copies = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and (
+                (isinstance(node.func, ast.Attribute) and node.func.attr == "mutant"
+                 and isinstance(node.func.value, ast.Name) and node.func.value.id == "selftest_swap")
+                or (isinstance(node.func, ast.Name) and node.func.id == "_mutant")
+            )
+        ]
+        loose = [node.lineno for node in copies if id(node) not in handed]
+        s.check(bool(copies) and not loose,
+                f"H {domain}: every whole-tree copy goes through one_at_a_time",
+                f"H {domain}: {len(loose)} of {len(copies)} whole-tree copies are made outside one_at_a_time "
+                f"and kept until the run ends (lines {', '.join(map(str, loose[:8]))})")
 
 
 if __name__ == "__main__":

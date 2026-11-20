@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # How much scratch the architecture self-test holds at once (#1580): at most
 # two tree copies alive, each removed right after its case, even when the case
-# raises or is interrupted. The cases are
+# raises or is interrupted; and the other whole-tree mutation self-tests hand
+# their copies out one at a time too. The cases are
 # scripts/bdtools/tests/architecture_selftest_scratch.py.
 set -euo pipefail
 
