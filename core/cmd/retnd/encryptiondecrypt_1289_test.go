@@ -169,7 +169,16 @@ func dirNames(t *testing.T, dir string) []string {
 // The round trip: the recovered file is the artifact, it is private, it is
 // the only thing in the destination directory, and nothing that was printed
 // carries the key or the plaintext.
+//
+// It is also the clean-machine recovery (EPIC N, N1.12 and NC-15): the
+// decrypt is handed the bundle, the sidecar and the copy and no
+// configuration. A machine that has a deployment at the default config path
+// is not a clean machine, and a decrypt that quietly read that deployment's
+// state would pass here, so the test refuses to run there instead.
 func TestDecryptRoundTripsThroughTheBundleAndTheSidecar_1289(t *testing.T) {
+	if _, err := os.Stat(defaultConfigPath); err == nil {
+		t.Fatalf("%s exists, so this is not a clean machine and the recovery below would prove nothing about one; run it where no deployment is installed", defaultConfigPath)
+	}
 	f := newDecryptFixture(t)
 	code, stdout, stderr := runAll(t, f.decryptArgs()...)
 	if code != exitOK {
