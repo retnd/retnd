@@ -1201,7 +1201,7 @@ fi
 }
 
 gate_seg_ui_browser() {
-# The Chromium lane (#1532, #1537). The spec files in ui/shared/e2e (126 when
+# The Chromium lane (#1532, #1537). The spec files in ui/shared/e2e (128 when
 # this landed) are
 # the proof the Dashboard, Settings, Agents and suite UI work landed with, and
 # EPIC Q's assurance UI self-test is what says the glyph and wording guards can
