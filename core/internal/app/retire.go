@@ -76,6 +76,7 @@ const (
 	RefusalSuccessorInvalid   = "RETIRE_SUCCESSOR_INVALID"
 	AckAcceptSourcePresent    = "accept_source_present"
 	AckNoSuccessor            = "no_successor"
+	AckAcceptUnverifiedCopy   = "accept_unverified_copy"
 	retireAutomaticActor      = "engine"
 	retireKeyPrefixOperator   = "app:retire:"
 	retireKeyPrefixAutomatic  = "app:auto-retire:"
@@ -101,6 +102,10 @@ type RetireRequest struct {
 	// AcceptSourcePresent acknowledges that the source object is still
 	// there, or could not be asked about, and retires it anyway.
 	AcceptSourcePresent bool
+	// AcceptUnverifiedCopy acknowledges, for issue #1594's shape (the row's
+	// own copy at its final name, the source confirmed gone), that the copy
+	// could not be verified, and retires the row anyway. The file is kept.
+	AcceptUnverifiedCopy bool
 	// Note is recorded with the retirement.
 	Note string
 	// ActorKind is state.RetiredByOperator or state.RetiredByAgent; Actor

@@ -68,6 +68,27 @@ var ErrQuarantineIrrecoverable = errors.New("app: quarantined artifact has no re
 // waiting for your judgement", the other is "this backup is not stuck".
 var ErrNotFailed = errors.New("app: artifact is not failed")
 
+// RefusalRetryOwnCopyUnverified is RetryFailedIngestion's refusal for issue
+// #1594's shape: the row's own copy sits at its final name, the source is
+// confirmed gone, and the copy cannot be verified, so a retry has nothing to
+// fetch and nothing it may keep. It is a wire code.
+const RefusalRetryOwnCopyUnverified = "RETRY_OWN_COPY_UNVERIFIED"
+
+// RetryRefusal is a named reason a retry was not made. Code is the wire code;
+// Sentence is what an operator reads and names the way out.
+type RetryRefusal struct {
+	Code     string
+	Sentence string
+}
+
+func (r *RetryRefusal) Error() string { return "app: retry refused (" + r.Code + "): " + r.Sentence }
+
+// AsRetryRefusal reports whether err is, or wraps, a *RetryRefusal.
+func AsRetryRefusal(err error) (*RetryRefusal, bool) {
+	var r *RetryRefusal
+	return r, errors.As(err, &r)
+}
+
 // unconfiguredSet is the refusal all three actions below share for an
 // artifact whose backup set the configuration no longer names (issue
 // #391): the same *NotFoundError ListArtifacts returns for a filter over
