@@ -341,8 +341,10 @@ var rows = []row{
 		look:    all,
 	},
 	{
-		name:    "O-02/log",
-		marker:  `"event":"startup"`,
+		name: "O-02/log",
+		// A line the engine wrote, not the startup line this test writes
+		// itself through Logger.Startup.
+		marker:  `"event":"cycle_end"`,
 		collect: func(w *world) []byte { return w.log },
 		look:    all,
 	},
@@ -463,22 +465,50 @@ func TestAPlantingTurnsExactlyItsOwnRowRed_903_WouldCatchOne(t *testing.T) {
 	}
 }
 
-// The corpus has to be about a deployment that really did the three things,
-// or every row is clean because nothing happened: the cycle ran, the alert was
-// delivered once the URL could be read, and the log says the reference was
-// unreadable before that.
-func TestTheCorpusRunIsARealRun_903(t *testing.T) {
-	w := corpusWorld(t)
-	for _, want := range []string{`"event":"startup"`, `"event":"alert_destination"`, `"event":"alert"`} {
-		if !bytes.Contains(w.log, []byte(want)) {
-			t.Errorf("the log has no %s line, so the run did not exercise what the log row claims:\n%.2000s", want, w.log)
+// The corpus has to be about a deployment that really did the things its rows
+// rest on, or every row is clean because nothing happened (#1600's review):
+// the cycle ran to its end, the kopia set's snapshot reached SUCCESS and
+// measured its run (that snapshot is the one thing that reads the passphrase
+// file, so a set that stopped snapshotting leaves the passphrase half of the log
+// and exposition rows clean for the wrong reason), the alert was delivered once
+// the URL could be read, and the log says the reference was unreadable before
+// that.
+//
+// What it does not cover, said so nobody reads it in: the startup line here is
+// written by this test through the real Logger.Startup, not by the engine's own
+// call site (core/cmd/retnd's logStartup, in package main, beside the rclone
+// version line), so the log row's marker is a line the engine wrote
+// (cycle_end), not that one; and with the level pinned to debug the
+// write-past-the-floor path #1522 added is not exercised. core/internal/obs's
+// startup tests and cmd/retnd's daemon test hold those.
+func realRunGaps(log, exposition []byte, deliveries int) []string {
+	var gaps []string
+	for _, want := range []string{
+		`"event":"cycle_end"`,
+		`"event":"snapshot_phase"`,
+		`"to":"SUCCESS"`,
+		`"event":"snapshot_stats"`,
+		`"event":"alert_destination"`,
+		`"event":"alert"`,
+	} {
+		if !bytes.Contains(log, []byte(want)) {
+			gaps = append(gaps, "the log has no "+want)
 		}
 	}
-	if !bytes.Contains(w.exposition, []byte("retnd_backup_set_state{")) {
-		t.Errorf("the exposition carries no backup set state, so no health report was rendered:\n%.1500s", w.exposition)
+	if !bytes.Contains(exposition, []byte("retnd_backup_set_state{")) {
+		gaps = append(gaps, "the exposition carries no backup set state")
 	}
-	if len(w.deliveries) == 0 {
-		t.Error("no delivery reached the receiver")
+	if deliveries == 0 {
+		gaps = append(gaps, "no delivery reached the receiver")
+	}
+
+	return gaps
+}
+
+func TestTheCorpusRunIsARealRun_903(t *testing.T) {
+	w := corpusWorld(t)
+	for _, g := range realRunGaps(w.log, w.exposition, len(w.deliveries)) {
+		t.Errorf("%s, so the run did not exercise what the rows claim:\n%.2000s", g, w.log)
 	}
 	// What the run did, for the record a matrix row cites: the distinct
 	// events the log carried and how many deliveries the receiver saw.
@@ -497,3 +527,33 @@ func TestTheCorpusRunIsARealRun_903(t *testing.T) {
 }
 
 var eventField = regexp.MustCompile(`"event":"([a-z_]+)"`)
+
+// The plant for the check above: take the real run's log and remove what a set
+// that stopped snapshotting would not have written, and the check has to go red
+// naming it. Red if the check goes back to requiring only lines this test or
+// the alert path write.
+func TestTheRealRunCheckGoesRedWhenTheSnapshotStopped_903_WouldCatchOne(t *testing.T) {
+	w := corpusWorld(t)
+	if g := realRunGaps(w.log, w.exposition, len(w.deliveries)); len(g) != 0 {
+		t.Fatalf("the real run has gaps, so the plant below proves nothing: %v", g)
+	}
+	var kept [][]byte
+	for _, line := range bytes.Split(w.log, []byte("\n")) {
+		if bytes.Contains(line, []byte(`"event":"snapshot_phase"`)) || bytes.Contains(line, []byte(`"event":"snapshot_stats"`)) {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	got := strings.Join(realRunGaps(bytes.Join(kept, []byte("\n")), w.exposition, len(w.deliveries)), "\n")
+	for _, want := range []string{`"event":"snapshot_phase"`, `"to":"SUCCESS"`, `"event":"snapshot_stats"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("a log with no snapshot lines was not refused for %s: %q", want, got)
+		}
+	}
+	// A snapshot that began and failed still wrote snapshot_phase lines: only
+	// the SUCCESS is what separates a real run from one that stopped midway.
+	failed := bytes.ReplaceAll(w.log, []byte(`"to":"SUCCESS"`), []byte(`"to":"FAILED"`))
+	if g := strings.Join(realRunGaps(failed, w.exposition, len(w.deliveries)), "\n"); !strings.Contains(g, `"to":"SUCCESS"`) {
+		t.Errorf("a snapshot that never reached SUCCESS was not refused: %q", g)
+	}
+}

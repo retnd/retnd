@@ -30,7 +30,7 @@ the SFTP sources configured as backup sources; any storage destination they conf
 hold retained copies (an S3 bucket, or any endpoint that speaks the S3 API); if they
 configured account recovery, the SMTP server they nominated for the account's own mail;
 and, if they selected webhook alert delivery, the one URL they named for alerts, which
-receives a condition kind, what it is about (a backup set, a repository, a host key), a
+receives a condition kind, what it is about (a backup set or a repository), a
 title, a short message and a time, and never a credential. Nothing else. The application
 makes no outbound connection that an administrator did not configure, and every host it
 will ever reach is visible in its own configuration.

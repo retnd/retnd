@@ -57,7 +57,6 @@ var selfTests = []string{
 	// The contract drift and client path guards are not EPIC O's, and O-20
 	// re-runs them: their own self-test is where their plants live.
 	"scripts/bdtools/api/selftest.py",
-	"core/tests/observabilitygate/matrix_test.go",
 }
 
 var (
@@ -72,6 +71,26 @@ var (
 	byHand    = regexp.MustCompile(`by [^,;:()]{3,60} on 20[0-9]{2}-[0-9]{2}-[0-9]{2}`)
 	missingRe = regexp.MustCompile(`Missing: .{12,}`)
 )
+
+// epicIssues are the tracker and the sub-issues the matrix's own header names
+// ("Tracker: #898. Sub-issues: O1.1 #899, ..."). Every one of them closes when
+// the epic's last pull request merges, so a row that is still PARTIAL cannot
+// wait on one: it would read as tracked by work that is already closed (#1600's
+// review). Read from the text, so the rule needs no network.
+var headerIssues = regexp.MustCompile(`(?m)^Tracker: .*$`)
+
+var issueRef = regexp.MustCompile(`#([0-9]+)`)
+
+func epicIssues(text string) map[int]bool {
+	out := map[int]bool{}
+	for _, m := range issueRef.FindAllStringSubmatch(headerIssues.FindString(text), -1) {
+		var n int
+		_, _ = fmt.Sscanf(m[1], "%d", &n)
+		out[n] = true
+	}
+
+	return out
+}
 
 type row struct {
 	id, claim, proof, falsif, status, waitsOn string
@@ -175,7 +194,7 @@ func ranMutation(cell string, r resolver) bool {
 // checkRows returns one finding per way the matrix does not hold. closing adds
 // the rules that only bind at the end: no BLOCKED row, and every proof a row
 // cites resolves.
-func checkRows(rows []row, r resolver, closing bool) []string {
+func checkRows(rows []row, epic map[int]bool, r resolver, closing bool) []string {
 	var out []string
 	seen := map[string]bool{}
 	details := map[string]string{}
@@ -220,6 +239,13 @@ func checkRows(rows []row, r resolver, closing bool) []string {
 			}
 			if !strings.Contains(x.waitsOn, "#") {
 				out = append(out, x.id+" is PARTIAL but names no issue it waits on")
+			}
+			for _, m := range issueRef.FindAllStringSubmatch(x.waitsOn, -1) {
+				var n int
+				_, _ = fmt.Sscanf(m[1], "%d", &n)
+				if epic[n] {
+					out = append(out, fmt.Sprintf("%s is PARTIAL and waits on #%d, which is this epic's own tracker or a sub-issue and closes with it; open a follow-up and cite that", x.id, n))
+				}
 			}
 		case "BLOCKED":
 			if closing {
@@ -306,6 +332,20 @@ func readMatrix(t *testing.T, root string) []row {
 	return parseMatrix(string(raw))
 }
 
+func readEpicIssues(t *testing.T, root string) map[int]bool {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(root, matrixPath))
+	if err != nil {
+		t.Fatalf("reading %s: %v", matrixPath, err)
+	}
+	epic := epicIssues(string(raw))
+	if len(epic) < 2 {
+		t.Fatalf("%s's header names the issues %v; it has to name the tracker and the sub-issues on its \"Tracker:\" line, or the follow-up rule reads nothing", matrixPath, epic)
+	}
+
+	return epic
+}
+
 func TestTheEpicOMatrixCheckerCanLie(t *testing.T) {
 	good := func() []row {
 		rows := []row{
@@ -321,6 +361,10 @@ func TestTheEpicOMatrixCheckerCanLie(t *testing.T) {
 
 		return rows
 	}
+	epic := epicIssues("# x\n\nTracker: #898. Sub-issues: O1.1 #899, O1.5 #903.\n")
+	if !epic[898] || !epic[899] || !epic[903] || len(epic) != 3 {
+		t.Fatalf("the header reader read %v", epic)
+	}
 	res := resolver{
 		exists: func(ref string) bool {
 			return ref == "pkg:TestReal" || ref == "pkg/a_test.go" || ref == "pkg/b_test.go"
@@ -328,7 +372,7 @@ func TestTheEpicOMatrixCheckerCanLie(t *testing.T) {
 		contains: func(path, needle string) bool { return path == selfTests[0] && needle == "a real planted mutation" },
 	}
 	for _, closing := range []bool{false, true} {
-		if got := checkRows(good(), res, closing); len(got) != 0 {
+		if got := checkRows(good(), epic, res, closing); len(got) != 0 {
 			t.Fatalf("the control matrix should be clean (closing=%v): %v", closing, got)
 		}
 	}
@@ -356,6 +400,14 @@ func TestTheEpicOMatrixCheckerCanLie(t *testing.T) {
 			r[4].status, r[4].falsif = "PARTIAL", "Missing: the log half of the corpus"
 			return r
 		}, "names no issue", false},
+		{"a PARTIAL detailed row waiting on the epic's own closing sub-issue", func(r []row) []row {
+			r[1].status, r[1].falsif, r[1].waitsOn = "PARTIAL", "Missing: a person reading the screen", "PARTIAL (#903)"
+			return r
+		}, "waits on #903, which is this epic's own tracker", false},
+		{"a PARTIAL gate row waiting on the tracker", func(r []row) []row {
+			r[4].status, r[4].falsif, r[4].waitsOn = "PARTIAL", "Missing: the full gate run", "#898"
+			return r
+		}, "waits on #898", false},
 		{"a status that is none of the four", func(r []row) []row { r[5].status = "DONE"; return r }, "has status", false},
 		{"an exit-gate PASS resting on a PARTIAL row", func(r []row) []row {
 			r[0].status, r[0].falsif, r[0].waitsOn = "PARTIAL", "Missing: the log half of the corpus", "PARTIAL (#903)"
@@ -368,7 +420,7 @@ func TestTheEpicOMatrixCheckerCanLie(t *testing.T) {
 		{"a row with no proof while closing", func(r []row) []row { r[5].proof = "none yet"; return r }, "names no executable proof", true},
 	}
 	for _, l := range lies {
-		got := checkRows(l.mutate(good()), res, l.closing)
+		got := checkRows(l.mutate(good()), epic, res, l.closing)
 		if len(got) == 0 || !strings.Contains(strings.Join(got, "\n"), l.want) {
 			t.Errorf("%s was not refused with %q: %v", l.name, l.want, got)
 		}
@@ -379,7 +431,7 @@ func TestTheEpicOMatrixCheckerCanLie(t *testing.T) {
 	open := good()
 	open[3].status = "BLOCKED (#903)"
 	open[5].proof = "`pkg:TestGone`"
-	if got := checkRows(open, res, false); len(got) != 0 {
+	if got := checkRows(open, epic, res, false); len(got) != 0 {
 		t.Errorf("a BLOCKED row or an unresolved proof was refused before closing: %v", got)
 	}
 }
@@ -403,10 +455,10 @@ func TestTheCheckerReadsEveryEpicOFamilyAndRefusesABlockedOneWhileClosing(t *tes
 		if len(rows) != 1 || rows[0].id != id {
 			t.Fatalf("the parser read %v out of a one-row table with id %s; it has to read every EPIC O family", rows, id)
 		}
-		if got := strings.Join(checkRows(rows, res, true), "\n"); !strings.Contains(got, "does not close with a blocked row") {
+		if got := strings.Join(checkRows(rows, nil, res, true), "\n"); !strings.Contains(got, "does not close with a blocked row") {
 			t.Errorf("a BLOCKED %s row was not refused while closing: %q", id, got)
 		}
-		if open := checkRows(rows, res, false); len(open) != 0 {
+		if open := checkRows(rows, nil, res, false); len(open) != 0 {
 			t.Errorf("a BLOCKED %s row was refused before closing: %v", id, open)
 		}
 	}
@@ -446,7 +498,7 @@ func TestTheEpicOMatrixParserReadsTheRealTableRatherThanItsShape(t *testing.T) {
 
 func TestTheEpicOMatrixDoesNotMisstateAStatus(t *testing.T) {
 	root := repoRoot(t)
-	for _, p := range checkRows(readMatrix(t, root), repoResolver(root), false) {
+	for _, p := range checkRows(readMatrix(t, root), readEpicIssues(t, root), repoResolver(root), false) {
 		t.Error(p)
 	}
 }
@@ -465,7 +517,7 @@ func TestEpicOIsClosed(t *testing.T) {
 	if len(rows) == 0 {
 		t.Fatalf("%s parsed to no rows, so the parser or the file is wrong", matrixPath)
 	}
-	for _, p := range checkRows(rows, repoResolver(root), true) {
+	for _, p := range checkRows(rows, readEpicIssues(t, root), repoResolver(root), true) {
 		t.Error(p)
 	}
 }

@@ -19,12 +19,17 @@ the rule; `no-mandatory-telemetry` in the cross-provider conformance matrix is
 where it is enforced, and it is enforced for every provider column rather than
 for one.
 
-The shipped binaries construct two HTTP clients of their own. One talks to
-`127.0.0.1`: it is the container health check asking the local process whether
-it is healthy (`apps/generic/cmd/retnd-web`), and it never leaves the container.
-The other is the alert webhook (`core/internal/alert/httpsink.go`), and it sends
-nothing unless the operator selected that channel and named its URL (see "Alert
-delivery" below).
+The shipped binaries construct several HTTP clients of their own, and only one of
+them can leave the deployment toward a host the operator named for it. The container
+health check (`apps/generic/cmd/retnd-web`) asks the local process whether it is
+healthy over `127.0.0.1`, and never leaves the container. The web UI's reverse proxy
+(`apps/common/webhost/serve/ui.go`) forwards browser requests to the engine it was
+pointed at. The `retnd` command line's remote client (`core/cmd/retnd/remote.go`,
+`core/internal/apiclient`) talks to the engine at `RETND_API_URL`, which is the
+address the person running the command gave it. The alert webhook
+(`core/internal/alert/httpsink.go`) is the one that can reach an outside host, and
+it sends nothing unless the operator selected that channel and named its URL (see
+"Alert delivery" below).
 
 The app does open outbound network connections, and it opens exactly the ones
 the operator configured. There are four kinds, the alert webhook being the fourth

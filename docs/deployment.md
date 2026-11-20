@@ -829,10 +829,13 @@ format posts each standing alert to Alertmanager within one refresh interval, be
 that receiver has never seen it and expires anything that is not re-sent, and
 Alertmanager then notifies as it would for any new alert. The flip side of "not
 announced again" is that what was announced is remembered per channel setting, not
-per receiver: a receiver you move to by any other change (a new URL in the
-reference, or `generic` after `alertmanager`) hears about an alert that is already
-standing only when it clears and comes back, and the copies an Alertmanager got
-before you moved away expire at their own `endsAt`.
+per receiver, and what happens when you move to a new receiver depends on the
+format. A new URL in the reference on the `alertmanager` format needs nothing from
+you: every refresh reads the reference again, so each standing alert reaches the new
+Alertmanager on the next refresh, within one refresh interval. For `generic`, and
+for a switch from `alertmanager` to `generic`, the receiver hears about an alert
+that is already standing only when it clears and comes back. In both cases the
+copies an Alertmanager got before you moved away expire at their own `endsAt`.
 
 ```yaml
 observability:
