@@ -333,8 +333,16 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   // at all: a closed laptop or a lost network stops renewing, and the
   // server's own lease lapses. A set left permanently paused because
   // somebody closed a tab is a backup silently not happening.
+  //
+  // Clearing the interval stops the next renewal, not one already out
+  // (#1593). A renewal answered after edit mode was left, the page
+  // included, belongs to a hold this page has already given back, so
+  // `live` drops it. The banner it would set only shows in edit mode,
+  // and entering it again takes a fresh hold that says for itself what it
+  // stopped, so nothing an operator could see is lost.
   useEffect(() => {
     if (!editing || !setId) return;
+    let live = true;
     const timer = setInterval(() => {
       void api
         .takeEditHold(source, setName)
@@ -347,7 +355,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
         // difference between an operator knowing a backup was interrupted
         // and finding out from the artifact list later.
         .then((hold) => {
-          if (hold.stopped) setStopped(hold.stopped);
+          if (live && hold.stopped) setStopped(hold.stopped);
         })
         // Swallowed on purpose. A failed renewal is not an operator's
         // problem to act on: the lease simply lapses and the set resumes
@@ -357,6 +365,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
         .catch(() => {});
     }, HOLD_HEARTBEAT_MS);
     return () => {
+      live = false;
       clearInterval(timer);
       void api.releaseEditHold(source, setName).catch(() => {});
     };
