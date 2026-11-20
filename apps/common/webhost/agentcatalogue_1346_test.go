@@ -221,6 +221,7 @@ func TestAChangeThatHasAToolStillAsksForAPerson(t *testing.T) {
 		{http.MethodPatch, "/api/v1/backup-sets/src/set-1/assurance"},
 		{http.MethodPost, "/api/v1/operations"},
 		{http.MethodPost, "/api/v1/backups/src/set-1/dump.tar/retry"},
+		{http.MethodPost, "/api/v1/backups/src/set-1/dump.tar/retire"},
 	} {
 		router, _ := agentRouter()
 		body := "{}"

@@ -196,7 +196,9 @@ import type {
   WireAgentToolsResponse,
   WireListAgentAuditResponse,
   WireMintAgentTokenRequest,
-  WireMintedAgentToken
+  WireMintedAgentToken,
+  WireRetireArtifactResponse,
+  WireRetirementPreview
 } from "./generated/contract";
 import {
   fromWireAgentAudit, fromWireAgentConfirmation, fromWireAgentToken, fromWireAgentTools,
@@ -937,6 +939,9 @@ function fromWireBackupSet(bs: WireBackupSet, health?: WireBackupSetHealth): Bac
     // a verdict: a health endpoint nobody could ask is not evidence this
     // set is retaining nothing.
     readOnlyRetainedCount: health?.read_only_retained_count ?? 0,
+    // Issue #1528: retired failures, counted apart so retiring one never
+    // hides it. 0 when health could not be read, for the reason above.
+    retiredCount: health?.retired_count ?? 0,
     // Spread, not `haltReason: undefined`. A key that is present and
     // undefined still reads as the mapper having an opinion; this way a
     // set with no refusal on record simply does not carry the field.
@@ -2141,7 +2146,11 @@ type ActivityCaption = { type: ActivityEventType; severity: Severity; text: stri
  */
 const ACTIVITY_BY_TRANSITION: Record<`${string}>${string}`, ActivityCaption> = {
   "FAILED>FAILED": { type: "verification-passed", severity: "ok", text: "Durable copy matched the remote object" },
-  "FAILED>QUARANTINED": { type: "validation-failed", severity: "info", text: "Held for the reinstatement judgement" }
+  "FAILED>QUARANTINED": { type: "validation-failed", severity: "info", text: "Held for the reinstatement judgement" },
+  // Issue #1528. Neither is a failure: one closes the books on one, the
+  // other is the engine undoing a retirement because the source came back.
+  "FAILED>RETIRED": { type: "backup-discovered", severity: "info", text: "Retired: the failed backup's source is gone, record kept" },
+  "RETIRED>DISCOVERED": { type: "backup-discovered", severity: "info", text: "Source back on the host: re-entering the pipeline" }
 };
 
 /** Where a transition ended, for the moves that origin does not change. */
@@ -3945,6 +3954,21 @@ export const httpApi: RetndApi = {
       method: "POST",
       body: JSON.stringify(note ? { note } : {})
     }).then(() => undefined),
+  // Issue #1528. The preview takes the acknowledgements as query parameters
+  // so the dialog can ask "and with this?" before acting.
+  previewRetirement: async (id, ack) => {
+    const q = new URLSearchParams();
+    if (ack?.superseded_by) q.set("superseded_by", ack.superseded_by);
+    if (ack?.no_successor) q.set("no_successor", "true");
+    if (ack?.accept_source_present) q.set("accept_source_present", "true");
+    const qs = q.toString();
+    return request<WireRetirementPreview>(artifactPath(id) + "/retire" + (qs ? "?" + qs : ""));
+  },
+  retireArtifact: async (id, req) =>
+    request<WireRetireArtifactResponse>(artifactPath(id) + "/retire", {
+      method: "POST",
+      body: JSON.stringify(req ?? {})
+    }),
   // Unlike its two siblings this one reads its response. A reinstate that
   // reaches the backend and comes back saying the copy is bad is a 200,
   // not a rejection, so a caller that ignored the body could not tell that

@@ -773,6 +773,34 @@ Recovery runs inside written budgets (`core/internal/recovery/budget`, #983), an
 
 The UI host (`retnd-ui`) is the front door in the two-container topology, so a download goes through its reverse proxy. That proxy bounds the wait for the engine's first response byte at five seconds and its server bounds a whole response at thirty, both right for JSON and both fatal to a download whose first request has to make the preparation read of the whole copy before the first byte. `/api/v1/recoveries/` gets its own proxy with no header bound and a write deadline that rolls with the client accepting bytes. A different gateway in front of that one needs the same treatment: a read timeout longer than the time to read the copy, and no response buffering.
 
+## Recorded decision: retiring a FAILED backup is a preview and an action, and the backups list always carries a cursor (#1528)
+
+`GET /backups/{source}/{set}/{name}/retire` (`previewRetirement`) and `POST` on the same path
+(`retireArtifact`) are the second way out of FAILED, for a backup whose source object is gone. I made
+the preview a route of its own rather than a `dry_run` field on the action for two reasons: the retire
+dialog has to show whether the source is still there and which backup would replace it before anybody
+clicks, without computing either in the browser, and an agent should be able to read that at read
+scope without a person being asked to confirm a question. Both answer with the same refusal codes
+(`ARTIFACT_NOT_FAILED`, `RETIRE_OWN_COPY_AT_FINAL_NAME`, `RETIRE_SOURCE_PRESENT`,
+`RETIRE_SOURCE_UNCONFIRMED`, `RETIRE_NO_SUCCESSOR`, `RETIRE_SUCCESSOR_INVALID`): the action as a 409, the
+preview inside `refusal`, with the acknowledgement that overrides it (`accept_source_present`,
+`no_successor`) or nothing. Every sentence in the preview is the engine's. An agent's approved request
+carrying either acknowledgement is refused with `AGENT_RETIRE_ACK_REFUSED` (403), and the proposer
+refuses it before a person is asked.
+
+The action carries CSRF and no destructive gate. It deletes no backup copy and touches nothing on the
+source; the one file it removes is the leftover `.partial` a failed transfer left.
+
+`ListArtifactsResponse` gained `next_cursor`, required and nullable, and `GET /backups` gained `state`,
+`limit` and `before` (`GET /quarantine` gained `setId`, `limit` and `before`). Without `limit` the answer
+and its order are what they were, and `next_cursor` is null. I made it always present because the MCP
+server pages an answer over its size cap only when the body carries the key, and a list that only
+grew the key on a full page could never be asked for its first smaller page. A client that rejects
+unknown fields sees one new field; nothing it already reads changed.
+
+`BackupSetHealth.retired_count` is required: RETIRED never counts in `failures` and never forces
+FAILING, and this count is what keeps it visible.
+
 ## Recorded decision: retained-copy encryption is fourteen operations, one write-only field and one route that returns key material (#993)
 
 EPIC N adds the `encryption` surface, all of it additive: nothing existing

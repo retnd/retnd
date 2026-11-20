@@ -155,6 +155,18 @@ const (
 	// reconciler did about a mismatch.
 	EventReconciliation = "reconciliation"
 
+	// EventArtifactRetired records a FAILED artifact moving to RETIRED
+	// (issue #1528), with who or what retired it, what the source looked
+	// like and which artifact supersedes it. An automatic retirement is a
+	// warn line, so `activity --severity warn` finds every one the engine
+	// made by itself; an operator's is info.
+	EventArtifactRetired = "artifact_retired"
+
+	// EventArtifactUnretired records a RETIRED artifact going back into the
+	// pipeline because the object its retirement called gone was listed
+	// again (issue #1528).
+	EventArtifactUnretired = "artifact_unretired"
+
 	// EventRetention records one FR-18/FR-19 GFS retention verdict for a
 	// single artifact.
 	EventRetention = "retention"
@@ -654,6 +666,29 @@ func (l *Logger) Reconciliation(ctx context.Context, artifact, scenario, action 
 		slog.String("artifact", artifact),
 		slog.String("scenario", scenario),
 		slog.String("action", action),
+	)
+}
+
+// ArtifactRetired logs EventArtifactRetired (issue #1528). automatic picks
+// the level: warn for the engine's own retirement, info for a person's.
+func (l *Logger) ArtifactRetired(ctx context.Context, artifact, actorKind, actor, sourceCheck, supersededBy string, automatic bool) {
+	level, result := LevelInfo, ResultInfo
+	if automatic {
+		level, result = LevelWarn, ResultWarn
+	}
+	l.emitMarked(ctx, level, mark{result: result}, EventArtifactRetired, "failed backup retired",
+		slog.String("artifact", artifact),
+		slog.String("actor_kind", actorKind),
+		slog.String("actor", actor),
+		slog.String("source_check", sourceCheck),
+		slog.String("superseded_by", supersededBy),
+	)
+}
+
+// ArtifactUnretired logs EventArtifactUnretired (issue #1528).
+func (l *Logger) ArtifactUnretired(ctx context.Context, artifact string) {
+	l.emitMarked(ctx, LevelWarn, mark{result: ResultWarn}, EventArtifactUnretired, "retired backup's source object is back; re-entering the pipeline",
+		slog.String("artifact", artifact),
 	)
 }
 

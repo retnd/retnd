@@ -153,6 +153,13 @@ func cmdStatus(args []string) int {
 			fmt.Printf("    the backups themselves are fine; what is wrong is that this manager cannot confirm the newest one.\n")
 		}
 		fmt.Printf("  quarantined: %d (of which unrecoverable: %d)\n", bs.QuarantinedCount, bs.QuarantinedLostCount)
+		// Issue #1528. Only when there are any, like the counts below: a
+		// retired backup is a failure nobody needs to act on, and saying how
+		// many there are is what keeps retiring one from hiding it.
+		if bs.RetiredCount > 0 {
+			fmt.Printf("  retired: %d (failed backups whose source is gone, kept on record; `%s artifacts --state RETIRED` lists them)\n",
+				bs.RetiredCount, cliecho.Binary)
+		}
 		// Issue #227. Printed only when there are any, because for most
 		// deployments this is permanently zero and a line that always
 		// reads zero is a line an operator stops seeing. When it is not

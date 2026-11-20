@@ -340,6 +340,15 @@ type BackupSetHealth struct {
 	// both would be counted twice. See CountRetained.
 	RetainedCount int
 
+	// RetiredCount is how many of this set's artifacts are RETIRED (issue
+	// #1528): failures that nobody needs to act on any more, because their
+	// source object is gone and a newer good backup supersedes them, or
+	// because an operator said so. They count toward neither Failures nor
+	// StuckFailures and never force FAILING, and they are not in
+	// RetainedCount either, because a retired failure never produced a
+	// backup this deployment holds. This count is what keeps them visible.
+	RetiredCount int
+
 	// ScrubFailingCopies is how many of this set's ACTIVE copies have
 	// failed, or been unable to complete, their scheduled check
 	// ScrubFailureThreshold times running (EPIC Q, #978). It degrades a

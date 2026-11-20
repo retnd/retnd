@@ -182,6 +182,7 @@ type aggregate struct {
 	quarantinedLostCount  int
 	readOnlyRetainedCount int
 	retainedCount         int
+	retiredCount          int
 }
 
 // countReinstatedRemoteRetained is issue #227's join: of the artifacts the
@@ -312,6 +313,10 @@ func buildAggregate(records []state.Record, staleThreshold time.Duration, now ti
 			agg.hasQuarantinedLost = true
 		case lifecycle.RemoteRetained:
 			agg.readOnlyRetainedCount++
+		case lifecycle.Retired:
+			// Issue #1528: counted apart and nowhere else. A retired
+			// failure is not a failure, not stuck and not retrying.
+			agg.retiredCount++
 		}
 	}
 
@@ -321,9 +326,11 @@ func buildAggregate(records []state.Record, staleThreshold time.Duration, now ti
 }
 
 // retained is whether a backup in this state counts toward RetainedCount:
-// every state but the two quarantine ones (issue #1186).
+// every state but the two quarantine ones (issue #1186) and RETIRED (issue
+// #1528), which has its own count and was never a backup this deployment
+// holds.
 func retained(st lifecycle.State) bool {
-	return st != lifecycle.Quarantined && st != lifecycle.QuarantinedLost
+	return st != lifecycle.Quarantined && st != lifecycle.QuarantinedLost && st != lifecycle.Retired
 }
 
 // CountRetained is RetainedCount over any slice of journal rows. The report
@@ -396,6 +403,7 @@ func ComputeBackupSetHealth(set model.BackupSetID, records []state.Record, reins
 		QuarantinedCount:     agg.quarantinedCount,
 		QuarantinedLostCount: agg.quarantinedLostCount,
 		RetainedCount:        agg.retainedCount,
+		RetiredCount:         agg.retiredCount,
 		ScrubFailingCopies:   agg.scrubFailing,
 		ScrubOverdueCopies:   scrubOverdue(records, in.ScrubCadence, now),
 		RecoveryTestFailed:   recoveryKind == recoveryFailed,

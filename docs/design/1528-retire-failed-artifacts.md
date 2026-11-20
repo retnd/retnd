@@ -248,17 +248,20 @@ would have made, and a person approves the exact echoed command.
 being designed separately and comes later; what this PR owes it is a contract under which the
 browser computes nothing.
 
-**Consensus.** This PR ships the API and the TypeScript contract types only (regenerated
-`contract.ts`, the `RetndApi` methods `previewRetirement` and `retireArtifact` in `client.ts` and
-`mock.ts` so the shared package compiles). The dialog reads everything from the preview:
+**Consensus.** The API and the TypeScript contract types first; the dialog itself followed in the same
+pull request once the design landed (`ui/shared/src/pages/RetireDialog.tsx`, the Retire… button on a
+failed backup's page, the Retire… item in the Backups row menu, the retirement card on a retired
+backup's page and the retired count on a set card). Where the design and the engine disagree the
+engine wins: one pass that finds the object gone retires it (the design says three checks), and the
+acknowledgement is `--no-successor`. The dialog reads everything from the preview:
 
 - `source_check`: `absent` | `present` | `unknown`, and `source_check_sentence`, exactly one of:
   - absent: "The source object is gone: this backup set's listing does not show it and the source answered not found for it."
   - present: "The source object is still there, so this backup can still be fetched. Retry it instead."
   - unknown: "The source could not be asked about this object (`<category>`), so this manager cannot say whether it is gone."
-- `proposed_successor`: `{name, state, discovered_at}` or null.
-- `refusal`: `{code, sentence, overridable_with}` or null, where `overridable_with` is
-  `accept_source_present`, `no_successor` or empty.
+- `proposed_successor`: `{name, state, discovered_at}`, absent when there is none.
+- `refusal`: `{code, sentence, overridable_with}`, absent when the action would go through, where
+  `overridable_with` is `accept_source_present`, `no_successor` or empty.
 - `effects`, in this order, each included only when true:
   - "The backup record stays, marked RETIRED, with who retired it, when and why."
   - "This backup set stops counting it as a failure. It shows under retired instead."
@@ -266,8 +269,12 @@ browser computes nothing.
   - "Nothing on the source is touched and no backup copy is deleted."
   - "If the source object appears again, the next cycle puts this backup back into the pipeline."
   - "This manager will not fetch this object again." (only with `accept_source_present`)
-- `retirement` (when already `RETIRED`): `{actor_kind, actor, retired_at, source_check,
+- `retirement` (present only when already `RETIRED`): `{actor_kind, actor, retired_at, source_check,
   superseded_by, failure_reason, note}`.
+- `source_check_category`: for `unknown`, the transport category behind it; empty otherwise.
+
+The three objects are absent rather than null because the generated TypeScript types them as
+optional, and a wire value the types do not admit is how a dialog breaks in a way no compiler sees.
 - `command`: the `retnd retire` line the action is equivalent to, for `CommandEcho`.
 
 **Surviving dissent:** none. The design's own copy may shorten these sentences; if it does, the
@@ -342,52 +349,63 @@ refusal, so the gap was not coverage but size: the list routes whose answers gro
 
 ## Test plan, red first
 
-Every test below is committed red before the code that turns it green.
+The first commit on the branch after this note holds the red tests (`Local-Gate: red`); the fix
+turned them green. Every name below exists in the tree.
 
-**The forge reproduction and its negative control** (`core/internal/app`):
-- `TestTheForgeSetGoesFromFailingToHealthyWhenTheSourceIsGone_1528`: one `FAILED` artifact with a
-  `not_found` failure, a second `FAILED` with `permission_denied`, a newer `COMPLETE` artifact, the
-  two failed sources absent from the fake transport. Health reads FAILING before the cycle, HEALTHY
-  after, `retired_count` 2, both rows still present as `RETIRED` with `superseded_by` naming the
-  newer artifact and the failure reason kept.
-- `TestNothingIsRetiredWhileTheSourceIsStillThere_1528`: the same set with the failed object still
-  listed. Nothing changes, health still FAILING.
+**The forge reproduction and its negative control** (`core/internal/app/retire_1528_test.go`):
+- `TestTheForgeSetGoesFromFailingToHealthyWhenTheSourceIsGone_1528`: built through the real cycle.
+  One dump fails with `not_found`, one with `permission_denied`, a newer dump is backed up, the host
+  deletes the two failed ones. Health reads FAILING, the next cycle retires both, health reads
+  HEALTHY with `failures` 0 and `retired_count` 2, and both records are still there as `RETIRED`.
+- `TestNothingIsRetiredWhileTheSourceIsStillThere_1528`: the same set with the failed objects still
+  on the source. Nothing changes and the set stays FAILING.
 
-**The predicate, one test per condition** (`core/internal/app`):
-`TestAPermissionFailureOnAPresentFileIsNeverAutoRetired_1528`,
-`TestATransientStatIsNotAbsence_1528`, `TestNoNewerGoodBackupMeansNoAutomaticRetirement_1528`,
-`TestAQuarantinedSuccessorDoesNotCount_1528`, `TestAnOlderGoodBackupIsNotASuccessor_1528`,
-`TestTheOwnCopyAtTheFinalNameIsNeverRetired_1528`, `TestRetireTouchesOnlyFailedRows_1528`,
-`TestARetiredObjectThatReappearsReentersThePipeline_1528`,
-`TestAnAcknowledgedRetirementStaysWhenTheObjectIsListed_1528`,
-`TestTheLeftoverPartialIsRemovedAndSweptAfterACrash_1528`.
+**The predicate, one test per condition** (same file): `TestAPermissionFailureOnAPresentFileIsNeverAutoRetired_1528`
+and `TestATransientStatIsNotAbsence_1528` (P4), `TestNoNewerGoodBackupMeansNoAutomaticRetirement_1528`,
+`TestAnOlderGoodBackupIsNotASuccessor_1528` and `TestAQuarantinedSuccessorDoesNotCount_1528` (P6),
+`TestTheOwnCopyAtTheFinalNameIsNeverRetired_1528` (P5), `TestRetireTouchesOnlyFailedRows_1528` (P1),
+`TestARetiredObjectThatReappearsReentersThePipeline_1528` and
+`TestAnAcknowledgedRetirementStaysWhenTheObjectIsListed_1528` (the way back),
+`TestTheLeftoverPartialIsRemovedWithTheRetirement_1528`.
 
-**The operator path** (`core/internal/app`, `apps/common/webhost`, `core/cmd/retnd`):
-`TestOperatorRetireRefusesWhileTheSourceIsPresent_1528`,
+**The operator path**: `TestOperatorRetireRefusesWhileTheSourceIsPresent_1528`,
 `TestOperatorRetireWithoutASuccessorNeedsTheAcknowledgement_1528`,
-`TestANamedSuccessorMustBeNewerGoodAndInTheSameSet_1528`,
-`TestTheRetireRouteAnswersEveryRefusalByName_1528`, `TestThePreviewAndTheActionRefuseAlike_1528`,
-`TestRetireCLIPrintsTheEnginesSentenceAndExitsOne_1528`.
+`TestANamedSuccessorMustBeNewerGoodAndInTheSameSet_1528`, `TestThePreviewAndTheActionRefuseAlike_1528`
+(`core/internal/app`); `TestTheRetireRouteRetiresAndAnswersWithTheRecord_1528`,
+`TestThePreviewSaysWhetherTheSourceIsStillThere_1528`, `TestTheRetireRouteCarriesTheBodyToTheEngine_1528`,
+`TestTheRetireRouteAnswersEveryRefusalByName_1528` (`apps/common/webhost`);
+`TestRetireIsDiscoverableFromTheCommandLine_1528` (`core/cmd/retnd`).
 
-**Lifecycle and journal** (`core/internal/lifecycle`, `core/internal/state`):
-`TestRetiredIsReachableOnlyFromFailed_1528`, `TestRetiredLeavesOnlyForDiscovered_1528`,
-`TestRetiredIsNotExceptionalAndHoldsNoCopy_1528`,
-`TestARetirementAndItsRecordCommitOrRollBackTogether_1528`,
-`TestMigration0023KeepsEveryRowAndAdmitsRetired_1528`, plus the existing guards that go red the
-moment the state exists without its migration (`TestJournalAcceptsExactlyTheStatesTheMachineDefines`,
-`TestEveryStateIsClassifiedAsHoldingALocalCopyOrNot`, `TestAllStatesAreValidAndDistinct`).
+**Lifecycle and journal**: `TestRetiredIsAStateTheMachineKnows_1528`, `TestRetiredIsReachableOnlyFromFailed_1528`,
+`TestRetiredLeavesOnlyForDiscovered_1528`, `TestRetiredIsNotExceptionalAndHoldsNoCopy_1528`
+(`core/internal/lifecycle`); `TestMigration0023KeepsEveryRowAndAdmitsRetired_1528` and
+`TestARetirementAndItsRecordCommitOrRollBackTogether_1528` (`core/internal/state`), plus the existing
+guards that went red the moment the state existed without its migration
+(`TestJournalAcceptsExactlyTheStatesTheMachineDefines`, `TestEveryStateIsClassifiedAsHoldingALocalCopyOrNot`,
+`TestAllStatesAreValidAndDistinct`, `TestEveryLifecycleState_IsVisibleToTheCycleVerdict`).
 
-**Health and reconcile:** `TestRetiredIsCountedApartAndNeverFails_1528`,
-`TestRetiredIsNotARetainedBackup_1528`, `TestReconcileLeavesRetiredAlone_1528`.
+**Health and reconcile**: `TestRetiredIsCountedApartAndNeverFails_1528` (with a FAILED control) and
+`TestRetiredIsNotARetainedBackup_1528` (`core/internal/health`); `TestReconcileLeavesRetiredAlone_1528`.
 
-**MCP and listing:** `TestTheBackupsListFiltersByStateAndPagesWithACursor_1528`,
-`TestABackupsListOverTheCapIsPagedNotRefused_1528`,
-`TestAnAgentCannotSendARetireAcknowledgement_1528`, and the catalogue's own guards
-(`TestEveryAPIRouteIsAToolOrANamedRefusal`, `TestEveryAPIRouteNamesItsCLIEquivalentOrTheGap`).
+**MCP and listing**: `TestTheBackupsListAlwaysCarriesACursor_1528`,
+`TestTheBackupsListRefusesAStateItDoesNotKnow_1528`, `TestTheBackupsListFiltersByStateAndPagesWithACursor_1528`,
+`TestAnAgentCannotSendARetireAcknowledgement_1528` (with the conservative proposal as its control),
+and the catalogue's own guards (`TestEveryAPIRouteIsAToolOrANamedRefusal`,
+`TestEveryAPIRouteNamesItsCLIEquivalentOrTheGap`, `TestTheCatalogueHoldsTheSpecsNamesAndNothingElse`).
+The halving loop that turns `next_cursor` into smaller pages is `agentmcp`'s and already pinned by
+`TestAnOversizeAnswerIsPagedWithTheRoutesCursorAndNeverTruncated`.
 
-**Crash cells** (`core/internal/app`, in-process with a journal that fails on command, because the
-crash harness only drives the pipeline): `TestCrash_RetireBeforeCommitLeavesFailed_1528`,
-`TestCrash_RetireAfterCommitBeforeUnlinkIsSwept_1528`.
+**Crash cells**, in process, because the SIGKILL harness drives only the pipeline:
+`TestCrash_RetireBeforeCommitLeavesFailed_1528` (the write refused inside its transaction: the row
+stays FAILED, no record, the `.partial` untouched, and the next cycle retires it) and
+`TestCrash_RetireAfterCommitBeforeUnlinkIsSwept_1528` (RETIRED with a `.partial` still on disk: the
+next cycle sweeps it).
+
+**Planted violations**: `scripts/retire/selftest.sh` plants each `RV.n` row of
+`docs/conformance/issue-1528-matrix.md` in a scratch copy of the tree and needs the named test red,
+then green on the unplanted copy. `scripts/ci-local.sh` runs it in the `selftest-recovery` shard and
+its anchor check (`--check-anchors`, builds nothing) in the static shard; both are stubbed in
+`scripts/tests/ci-local-gate.test.sh`.
 
 ## Risks
 

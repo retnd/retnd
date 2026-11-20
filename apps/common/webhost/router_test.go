@@ -166,6 +166,12 @@ var destructiveGateExemptRoutes = map[string]bool{
 	// TestOnlyCommittedPrecedesRemoteDeletePending).
 	"POST /api/v1/backups/{source}/{set}/{name}/retry": true,
 
+	// Issue #1528: retiring a FAILED backup moves its row to RETIRED and
+	// removes only the leftover .partial a failed transfer left. No backup
+	// copy and nothing on the source is touched, and FAILED is reachable
+	// only before COMMITTED, so no delete is reachable from it either.
+	"POST /api/v1/backups/{source}/{set}/{name}/retire": true,
+
 	// Issue #443: the storage medium's equivalent of test-connection,
 	// and exempt for the same reason with one extra sentence, because
 	// unlike test-connection this one WRITES.

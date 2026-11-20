@@ -20,8 +20,8 @@ import (
 // copy: a tool added to or dropped from the table without the spec moving
 // fails here.
 var (
-	specRead      = []string{"status", "backup_sets_list", "backup_set_show", "backups_list", "backup_show", "copies_show", "encryption_state", "assurance_due", "assurance_show", "activity", "activity_live", "quarantine_list", "operations_list", "operation_show", "storage_mediums_list", "storage_usage", "retention_preview", "workflow_runs_list", "workflow_run_show", "confirmation_status"}
-	specOperate   = []string{"run_cycle", "run_backup_set", "recovery_test_start", "verify_copy", "scrub_start", "retry_backup", "quarantine_revalidate"}
+	specRead      = []string{"status", "backup_sets_list", "backup_set_show", "backups_list", "backup_retirement_show", "backup_show", "copies_show", "encryption_state", "assurance_due", "assurance_show", "activity", "activity_live", "quarantine_list", "operations_list", "operation_show", "storage_mediums_list", "storage_usage", "retention_preview", "workflow_runs_list", "workflow_run_show", "confirmation_status"}
+	specOperate   = []string{"run_cycle", "run_backup_set", "recovery_test_start", "verify_copy", "scrub_start", "retry_backup", "retire_backup", "quarantine_revalidate"}
 	specConfigure = []string{"backup_set_enabled", "backup_set_retention_set", "backup_set_retention_clear", "backup_set_assurance_set"}
 	specResources = []string{"retnd://status", "retnd://backup-sets", "retnd://backup-sets/{source}/{set}", "retnd://backups/{source}/{set}/{name}", "retnd://activity", "retnd://encryption", "retnd://assurance/due"}
 	specPrompts   = []string{"triage-health", "explain-backup", "prepare-recovery-test"}

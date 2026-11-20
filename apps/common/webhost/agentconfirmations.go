@@ -164,6 +164,19 @@ func (p *agentProposer) propose(w http.ResponseWriter, r *http.Request, principa
 	if !ok {
 		return 0, "", "", false
 	}
+	// Issue #1528: fields this tool's catalogue row says an agent may not
+	// send are refused here, before a person is asked to approve a request
+	// that would only be refused again on replay.
+	if row, found := agenttools.Lookup(tool); found && len(row.AgentMayNotSet) > 0 {
+		var fields map[string]json.RawMessage
+		_ = json.Unmarshal(body, &fields)
+		for _, f := range row.AgentMayNotSet {
+			if v, set := fields[f]; set && string(v) != "false" && string(v) != "null" {
+				return refuse(w, http.StatusForbidden, "AGENT_RETIRE_ACK_REFUSED",
+					"an agent may not send "+f+": that acknowledgement is a person's to give, so propose the retirement without it")
+			}
+		}
+	}
 	if p.revision != nil {
 		body = stampRevision(r.Method, rel, act.Action, body, p.revision())
 	}

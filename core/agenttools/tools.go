@@ -43,6 +43,13 @@ type Row struct {
 	Description string
 	Untrusted   []string
 	Why         string
+
+	// AgentMayNotSet names top-level body fields an agent may not send on
+	// this tool's request (issue #1528). The proposer refuses a request
+	// carrying any of them with AGENT_RETIRE_ACK_REFUSED before a person is
+	// asked, so an agent can propose only the conservative form of the act
+	// and a person's acknowledgement stays a person's.
+	AgentMayNotSet []string
 }
 
 // Key is "METHOD /route", the string cliecho keys its table by.
@@ -54,6 +61,7 @@ func Rows() []Row {
 	out := make([]Row, len(rows))
 	for i, r := range rows {
 		r.Untrusted = slices.Clone(r.Untrusted)
+		r.AgentMayNotSet = slices.Clone(r.AgentMayNotSet)
 		out[i] = r
 	}
 	return out
@@ -218,6 +226,14 @@ var toolRows = []Row{
 		},
 	},
 	{
+		Tool: "backup_retirement_show", Method: "GET", Route: "/backups/{source}/{set}/{name}/retire", Scope: ScopeRead,
+		Description: "Read what retiring one failed backup would do: whether its source object is still there, which newer backup would replace it, and the refusal or effects. It changes nothing.",
+		Untrusted: []string{
+			"artifact", "failure_reason", "proposed_successor.name", "retirement.superseded_by", "retirement.note",
+			"retirement.failure_reason", "retirement.actor", "command",
+		},
+	},
+	{
 		Tool: "backup_show", Method: "GET", Route: "/backups/{source}/{set}/{name}", Scope: ScopeRead,
 		Description: "Read one backup by source, set and name: its state, validation, checksum, retention tier and every placement that holds a copy.",
 		Untrusted: []string{
@@ -344,6 +360,12 @@ var toolRows = []Row{
 		Tool: "retry_backup", Method: "POST", Route: "/backups/{source}/{set}/{name}/retry", Scope: ScopeOperate,
 		Description: "Propose retrying one backup that failed. A person confirms it before anything starts.",
 		Untrusted:   []string{},
+	},
+	{
+		Tool: "retire_backup", Method: "POST", Route: "/backups/{source}/{set}/{name}/retire", Scope: ScopeOperate,
+		Description:    "Propose retiring one failed backup whose source object is gone and that a newer good backup replaces. A person confirms it before anything changes.",
+		Untrusted:      []string{"artifact", "retirement.superseded_by", "retirement.note", "retirement.failure_reason", "retirement.actor"},
+		AgentMayNotSet: []string{"accept_source_present", "no_successor"},
 	},
 	{
 		Tool: "quarantine_revalidate", Method: "POST", Route: "/quarantine/{source}/{set}/{name}/revalidate", Scope: ScopeOperate,

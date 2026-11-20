@@ -54,6 +54,8 @@ import type {
   WorkflowValidation
 } from "./contracts";
 import { RetndError, LOCAL_DESTINATION_ID } from "./contracts";
+import type { ApiErrorCode } from "./contracts";
+import type { WireRetirementPreview, WireRetirementRecord } from "./generated/contract";
 import { createMockValidators } from "./mockValidators";
 import type { BackupArtifact, BackupSet, RetentionPlan } from "@shared/types/backup";
 import type {
@@ -70,6 +72,7 @@ import type {
   VersionInfo
 } from "@shared/types/operation";
 import { createMockRecoverMany } from "@shared/assurance/mockRecoverMany";
+import { retireCommand } from "@shared/assurance/assuranceCommands";
 import { createMockHostBrowse } from "@shared/assurance/mockHostBrowse";
 import { BUILTIN_ARTIFACT, DEFAULT_POLICY_NEWEST, DEFAULT_POLICY_TESTED, INGEST_FAILED_SCENARIO, followsDefault, untestedScenario, assuranceLiveEvents, assuranceStoredLines, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
 import { createHttpAssurance } from "@shared/assurance/realAssurance";
@@ -129,6 +132,12 @@ export const SCENARIOS = [
   // row menu offers Retry ingestion for.
   "backups-many-artifact-sets",
   "backups-ingest-failed",
+  // Issue #1528: the forge set in miniature. media-week34 FAILED with its
+  // source gone and a newer media-week35 backed up after it, so the Retire
+  // dialog has a successor to name; and the same fixture with the source
+  // still on the host, which the dialog refuses with "Retry instead".
+  "retire-forge",
+  "retire-source-present",
   "empty",
   "storage-critical",
   "catalog-recovery",
@@ -662,6 +671,29 @@ export function resetMockFixtures(): void {
  * combination only a fixture had, so it passed its test and rendered for
  * no real backup.
  */
+/**
+ * Issue #1528's fixture, the forge set in miniature: media-week34 FAILED
+ * (its source gone, unless the scenario is retire-source-present) and a
+ * newer media-week35 backed up cleanly after it, so the Retire dialog has a
+ * successor to name. A function so each mock API gets its own copies to
+ * mutate when a backup is retired.
+ */
+function retireForgeArtifacts(): BackupArtifact[] {
+  const out = ARTIFACTS.map((a) => (a.id === "media/weekly-archive/media-week34.tar" ? { ...a, state: "FAILED", validation: "pending" as const } : { ...a }));
+  const week34 = ARTIFACTS.find((a) => a.id === "media/weekly-archive/media-week34.tar")!;
+  out.push({
+    ...week34,
+    id: "media/weekly-archive/media-week35.tar",
+    filename: "media-week35.tar",
+    remoteOriginalPath: "media-01:/export/weekly/media-week35.tar",
+    localPath: "/data/backups/media/2026/w35/media-week35.tar",
+    producedAt: "2026-09-01T01:00:00+02:00",
+    receivedAt: "2026-09-01T04:39:02+02:00",
+    state: "COMPLETE"
+  });
+  return out;
+}
+
 const ARTIFACTS: BackupArtifact[] = [
   {
     id: "production/postgres-primary/postgres-prod-20260828.dump.zst",
@@ -4338,11 +4370,53 @@ export function createMockApi(
       )
     : scenario === "backups-ingest-failed"
     ? ARTIFACTS.map((a) => (a.id === "media/weekly-archive/media-week34.tar" ? { ...a, state: "FAILED", validation: "pending" as const } : a))
+    : scenario === "retire-forge" || scenario === "retire-source-present"
+    ? retireForgeArtifacts()
     : ARTIFACTS;
   // Every backup outside quarantine, padded to ?artifacts=N: what the list
   // answers and what the health report's retainedCount counts (#1186).
   // Read on every call, because writes here mutate the fixtures.
   const retained = (): BackupArtifact[] => padRetained(artifacts.filter((a) => !a.quarantine), retainedPad);
+  // Issue #1528: what the engine's retirement preview would say about one
+  // fixture backup, and the records of the ones retired here.
+  const mockRetirements = new Map<string, WireRetirementRecord>();
+  const mockRetirementPreview = (a: BackupArtifact): WireRetirementPreview => {
+    const base = { artifact: a.id, state: a.state, command: retireCommand(a.id), effects: [] as string[] };
+    if (a.state !== "FAILED") {
+      const retirement = mockRetirements.get(a.id);
+      return {
+        ...base, failure_reason: retirement?.failure_reason ?? "", source_check: "" as const, source_check_category: "", source_check_sentence: "",
+        refusal: { code: "ARTIFACT_NOT_FAILED", sentence: "This backup is " + a.state + ", not FAILED. Only a failed backup can be retired.", overridable_with: "" as const },
+        ...(retirement ? { retirement } : {})
+      };
+    }
+    const failure_reason = "copy_to_local: not_found: object not found";
+    const present = scenario === "retire-source-present";
+    const newer = artifacts
+      .filter((b) => b.setId === a.setId && b.id !== a.id && !b.quarantine && b.state !== "FAILED" && b.state !== "RETIRED" && b.receivedAt > a.receivedAt)
+      .sort((x, y) => (x.receivedAt < y.receivedAt ? 1 : -1))[0];
+    const proposed_successor = newer ? { name: newer.filename, state: newer.state || "COMPLETE", discovered_at: newer.receivedAt } : undefined;
+    const source = present
+      ? { source_check: "present" as const, source_check_category: "", source_check_sentence: "The source object is still there, so this backup can still be fetched. Retry it instead." }
+      : { source_check: "absent" as const, source_check_category: "", source_check_sentence: "The source object is gone: this backup set's listing does not show it and the source answered not found for it." };
+    const refusal = present
+      ? { code: "RETIRE_SOURCE_PRESENT", sentence: source.source_check_sentence, overridable_with: "accept_source_present" as const }
+      : !proposed_successor
+        ? { code: "RETIRE_NO_SUCCESSOR", sentence: "No newer good backup in this backup set replaces this one. Acknowledge that there is no replacement to retire it anyway.", overridable_with: "no_successor" as const }
+        : undefined;
+    return {
+      ...base, failure_reason, ...source,
+      ...(proposed_successor ? { proposed_successor } : {}),
+      ...(refusal ? { refusal } : {}),
+      effects: refusal ? [] : [
+        "The backup record stays, marked RETIRED, with who retired it, when and why.",
+        "This backup set stops counting it as a failure. It shows under retired instead.",
+        "The leftover partial download for this backup is removed.",
+        "Nothing on the source is touched and no backup copy is deleted.",
+        "If the source object appears again, the next cycle puts this backup back into the pipeline."
+      ]
+    };
+  };
   // Issue #1203: the custom validators see every backup the journal holds,
   // quarantined ones included, as the engine's reads do.
   const validatorsApi = createMockValidators({
@@ -4709,7 +4783,13 @@ export function createMockApi(
     getStorage: () =>
       delay(empty ? STORAGE_EMPTY : scenario === "storage-critical" ? STORAGE_CRITICAL : STORAGE),
 
-    listSets: () => delay(empty ? [] : withRetentionAttribution(retentionOverrides, SETS).map(asReportedSet)),
+    // Issue #1528: each set's retired count is read off the fixtures, which a
+    // retirement here mutates, the way the engine's health report counts it.
+    listSets: () =>
+      delay(empty ? [] : withRetentionAttribution(retentionOverrides, SETS).map(asReportedSet).map((set) => {
+        const retiredCount = artifacts.filter((a) => a.setId === set.id && a.state === "RETIRED").length;
+        return retiredCount ? { ...set, retiredCount } : set;
+      })),
     getSet: (id) => {
       const found = SETS.map(asReportedSet).find((s) => s.id === id);
       // A rejected promise, not a synchronous throw: getSet's own type
@@ -5362,6 +5442,45 @@ export function createMockApi(
     revalidate: () => delay(undefined),
     retryIngestion: () => delay(undefined),
     retryFailedIngestion: () => delay(undefined),
+    // Issue #1528. The mock keeps the rule's shape so the Retire dialog can be
+    // driven end to end: only a FAILED backup is retirable, the newest good
+    // backup in the same set received after it is the successor, and the
+    // source answers "gone" unless the scenario says it is still there.
+    previewRetirement: (id) => {
+      const found = artifacts.find((a) => a.id === id);
+      if (!found) {
+        return delay(null).then(() => {
+          throw new RetndError({ code: "ARTIFACT_NOT_FOUND", message: "no backup with id " + id, correlationId: "cid_mock404" });
+        });
+      }
+      return delay(mockRetirementPreview(found));
+    },
+    retireArtifact: (id, req) => {
+      const found = artifacts.find((a) => a.id === id);
+      const preview = found ? mockRetirementPreview(found) : null;
+      const refused = !found
+        ? { code: "ARTIFACT_NOT_FOUND" as const, sentence: "no backup with id " + id }
+        : preview!.refusal && !(preview!.refusal.overridable_with === "no_successor" && req?.no_successor)
+          ? { code: preview!.refusal.code as ApiErrorCode, sentence: preview!.refusal.sentence }
+          : null;
+      if (refused) {
+        return delay(null).then(() => {
+          throw new RetndError({ code: refused.code, message: refused.sentence, correlationId: "cid_mockretire" });
+        });
+      }
+      const record = {
+        retired_at: new Date().toISOString(),
+        actor_kind: "operator" as const,
+        actor: "admin",
+        source_check: preview!.source_check as "absent",
+        superseded_by: preview!.proposed_successor?.name ?? "",
+        failure_reason: preview!.failure_reason,
+        note: req?.note ?? ""
+      };
+      mockRetirements.set(id, record);
+      found!.state = "RETIRED";
+      return delay({ artifact: id, state: "RETIRED", partial_removed: true, retirement: record });
+    },
     reinstate: () =>
       delay({
         reinstated: true,

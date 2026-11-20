@@ -142,6 +142,12 @@ func render(report health.Report) string {
 			return float64(s.QuarantinedLostCount), true
 		})
 
+	writeGauge(&b, sets, "retired",
+		"Artifacts currently RETIRED for this backup set: failures nobody needs to act on any more (issue #1528).",
+		func(s health.BackupSetHealth) (float64, bool) {
+			return float64(s.RetiredCount), true
+		})
+
 	// Issue #227. A reinstated artifact never authorises deleting its
 	// remote source again, so this number only ever grows, and a scrape is
 	// the surface that answers "is it growing" over the months an operator

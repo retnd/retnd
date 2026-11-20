@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"reflect"
 	"testing"
 	"time"
 
@@ -52,6 +51,9 @@ func newForgeFixture(t *testing.T) *forgeFixture {
 	localDir := t.TempDir()
 	bs := testBackupSet(t, localDir)
 	bs.RemotePath = ""
+	// A day, as a deployment would set it: the fixture's clock moves an
+	// hour per cycle, and a zero threshold would read every backup as stale.
+	bs.StaleAfter = mustParseDuration(t, "24h")
 
 	f := &forgeFixture{t: t, tr: newFakeTransport(), journal: openJournal(t), localDir: localDir, set: bs.ID, now: epoch}
 	f.svc = New(testConfig(t, testSource("production", bs)), f.journal, f.tr, nil)
@@ -136,17 +138,6 @@ func (f *forgeFixture) health() health.BackupSetHealth {
 	return health.BackupSetHealth{}
 }
 
-// retiredCount reads BackupSetHealth.RetiredCount by name, so this file
-// states the field the issue asks for before the field exists.
-func retiredCount(t *testing.T, h health.BackupSetHealth) int {
-	t.Helper()
-	v := reflect.ValueOf(h).FieldByName("RetiredCount")
-	if !v.IsValid() {
-		t.Fatalf("BackupSetHealth has no RetiredCount: a retired backup has to be counted apart, not hidden")
-	}
-	return int(v.Int())
-}
-
 // The forge, end to end: FAILING with two dead records and a good backup from
 // this morning, then HEALTHY once the engine retires them, with both records
 // still in the journal.
@@ -178,7 +169,7 @@ func TestTheForgeSetGoesFromFailingToHealthyWhenTheSourceIsGone_1528(t *testing.
 	if after.Failures != 0 || len(after.StuckFailures) != 0 {
 		t.Errorf("a retired record still counts: failures=%d stuck=%v", after.Failures, after.StuckFailures)
 	}
-	if n := retiredCount(t, after); n != 2 {
+	if n := after.RetiredCount; n != 2 {
 		t.Errorf("retired_count = %d, want 2: nothing is hidden, it is counted apart", n)
 	}
 
@@ -347,5 +338,247 @@ func TestTheLeftoverPartialIsRemovedWithTheRetirement_1528(t *testing.T) {
 	}
 	if _, err := os.Stat(partial); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the leftover partial %s is still there (stat err %v)", partial, err)
+	}
+}
+
+// --- the operator path: the same rule, with the acknowledgements ---
+
+func TestOperatorRetireRefusesWhileTheSourceIsPresent_1528(t *testing.T) {
+	f := newForgeFixture(t)
+	failed := f.failWith("db-20261101.dump", transport.PermissionDenied)
+	f.backUp("db-20261119.dump")
+	ctx := context.Background()
+
+	_, err := f.svc.RetireArtifact(ctx, failed, RetireRequest{})
+	r, ok := AsRetireRefusal(err)
+	if !ok || r.Code != RefusalSourcePresent || r.OverridableWith != AckAcceptSourcePresent {
+		t.Fatalf("retiring a present object: err = %v, want RETIRE_SOURCE_PRESENT overridable with accept_source_present", err)
+	}
+	if got := f.stateOf(failed); got != string(lifecycle.Failed) {
+		t.Fatalf("a refused retirement left the row %s", got)
+	}
+
+	// The acknowledgement goes through, and the record says the source was present.
+	res, err := f.svc.RetireArtifact(ctx, failed, RetireRequest{AcceptSourcePresent: true, Note: "a junk file", Actor: "alice"})
+	if err != nil {
+		t.Fatalf("an acknowledged retirement: %v", err)
+	}
+	if res.Retirement.SourceCheck != state.SourcePresent || res.Retirement.ActorKind != state.RetiredByOperator || res.Retirement.Note != "a junk file" {
+		t.Errorf("the record reads %+v", res.Retirement)
+	}
+	if got := f.stateOf(failed); got != retiredState {
+		t.Errorf("after an acknowledged retirement the row is %s", got)
+	}
+}
+
+func TestOperatorRetireWithoutASuccessorNeedsTheAcknowledgement_1528(t *testing.T) {
+	f := newForgeFixture(t)
+	failed := f.failWith("db-20261101.dump", transport.NotFound)
+	f.hostDeletes("db-20261101.dump")
+	ctx := context.Background()
+
+	_, err := f.svc.RetireArtifact(ctx, failed, RetireRequest{})
+	if r, ok := AsRetireRefusal(err); !ok || r.Code != RefusalNoSuccessor {
+		t.Fatalf("err = %v, want RETIRE_NO_SUCCESSOR", err)
+	}
+	res, err := f.svc.RetireArtifact(ctx, failed, RetireRequest{NoSuccessor: true})
+	if err != nil {
+		t.Fatalf("with the acknowledgement: %v", err)
+	}
+	if res.Retirement.SupersededBy != "" || res.Retirement.SourceCheck != state.SourceAbsent {
+		t.Errorf("the record reads %+v", res.Retirement)
+	}
+}
+
+func TestANamedSuccessorMustBeNewerGoodAndInTheSameSet_1528(t *testing.T) {
+	f := newForgeFixture(t)
+	older := f.backUp("db-20261030.dump")
+	failed := f.failWith("db-20261101.dump", transport.NotFound)
+	newer := f.backUp("db-20261119.dump")
+	f.hostDeletes("db-20261101.dump")
+	ctx := context.Background()
+
+	for _, name := range []string{older.Name, "no-such.dump", failed.Name} {
+		_, err := f.svc.RetireArtifact(ctx, failed, RetireRequest{SupersededBy: name})
+		if r, ok := AsRetireRefusal(err); !ok || r.Code != RefusalSuccessorInvalid {
+			t.Errorf("superseded_by %q: err = %v, want RETIRE_SUCCESSOR_INVALID", name, err)
+		}
+	}
+	res, err := f.svc.RetireArtifact(ctx, failed, RetireRequest{SupersededBy: newer.Name})
+	if err != nil || res.Retirement.SupersededBy != newer.Name {
+		t.Fatalf("naming the newer backup: res=%+v err=%v", res, err)
+	}
+}
+
+// Nothing but a FAILED row can be retired, whatever the caller asks.
+func TestRetireTouchesOnlyFailedRows_1528(t *testing.T) {
+	f := newForgeFixture(t)
+	good := f.backUp("db-20261101.dump")
+	_, err := f.svc.RetireArtifact(context.Background(), good, RetireRequest{AcceptSourcePresent: true, NoSuccessor: true})
+	if !errors.Is(err, ErrNotFailed) {
+		t.Fatalf("retiring a %s backup: err = %v, want ErrNotFailed", f.stateOf(good), err)
+	}
+	if got := f.stateOf(good); !lifecycle.IsDurableRestorePoint(lifecycle.State(got)) {
+		t.Errorf("a good backup became %s", got)
+	}
+}
+
+// An operator who retired a present object meant it: listing the object
+// again does not bring it back, only a retirement that called it gone does.
+func TestAnAcknowledgedRetirementStaysWhenTheObjectIsListed_1528(t *testing.T) {
+	f := newForgeFixture(t)
+	failed := f.failWith("db-20261101.dump", transport.PermissionDenied)
+	f.backUp("db-20261119.dump")
+	if _, err := f.svc.RetireArtifact(context.Background(), failed, RetireRequest{AcceptSourcePresent: true}); err != nil {
+		t.Fatalf("RetireArtifact: %v", err)
+	}
+	f.cycle()
+	f.cycle()
+	if got := f.stateOf(failed); got != retiredState {
+		t.Errorf("an acknowledged retirement became %s once the object was listed", got)
+	}
+}
+
+// The preview reports exactly the refusal the action would make, and the
+// effects only when it would go through.
+func TestThePreviewAndTheActionRefuseAlike_1528(t *testing.T) {
+	f := newForgeFixture(t)
+	failed := f.failWith("db-20261101.dump", transport.NotFound)
+	f.backUp("db-20261119.dump")
+	ctx := context.Background()
+
+	pv, err := f.svc.PreviewRetirement(ctx, failed, RetireRequest{})
+	if err != nil {
+		t.Fatalf("PreviewRetirement: %v", err)
+	}
+	if pv.Refusal == nil || pv.Refusal.Code != RefusalSourcePresent || pv.SourceCheck.Result != state.SourcePresent || len(pv.Effects) != 0 {
+		t.Errorf("preview over a present object: %+v", pv)
+	}
+	if pv.ProposedSuccessor == nil || pv.ProposedSuccessor.Name != "db-20261119.dump" {
+		t.Errorf("proposed successor = %+v", pv.ProposedSuccessor)
+	}
+
+	f.hostDeletes("db-20261101.dump")
+	pv, err = f.svc.PreviewRetirement(ctx, failed, RetireRequest{})
+	if err != nil || pv.Refusal != nil || pv.SourceCheck.Result != state.SourceAbsent {
+		t.Fatalf("preview over a gone object: %+v err=%v", pv, err)
+	}
+	if len(pv.Effects) == 0 || pv.Effects[len(pv.Effects)-1] != retireEffectWayBack {
+		t.Errorf("effects = %q, want the way back last", pv.Effects)
+	}
+	if got := f.stateOf(failed); got != string(lifecycle.Failed) {
+		t.Errorf("a preview changed the row to %s", got)
+	}
+}
+
+// --- crash cells, in process: the crash harness under core/tests/crashmatrix
+// drives only the pipeline, so these stop the retirement at its two
+// boundaries with a journal that fails on command ---
+
+func TestCrash_RetireBeforeCommitLeavesFailed_1528(t *testing.T) {
+	f := newForgeFixture(t)
+	failed := f.failWith("db-20261101.dump", transport.NotFound)
+	final, _ := lifecycle.FinalArtifactPath(f.localDir, failed)
+	partial := final + ".partial"
+	mustWriteFile(t, partial, "half a dump")
+	f.backUp("db-20261119.dump")
+	f.hostDeletes("db-20261101.dump")
+
+	crashing := &crashJournal{Journal: f.journal, failInto: retiredState}
+	f.svc.Journal = crashing
+	_, err := f.svc.RetireArtifact(context.Background(), failed, RetireRequest{})
+	if err == nil {
+		t.Fatal("the retirement reported success through a journal that refused the write")
+	}
+	f.svc.Journal = f.journal
+	if got := f.stateOf(failed); got != string(lifecycle.Failed) {
+		t.Errorf("after a crash before the commit the row is %s, want FAILED", got)
+	}
+	if _, found, _ := f.journal.LatestRetirement(context.Background(), failed); found {
+		t.Error("a retirement record exists for a retirement that never committed")
+	}
+	if _, err := os.Stat(partial); err != nil {
+		t.Errorf("the partial was removed although the retirement did not commit: %v", err)
+	}
+
+	// Restart: the next cycle evaluates from scratch and retires it.
+	f.cycle()
+	if got := f.stateOf(failed); got != retiredState {
+		t.Errorf("after the restart the row is %s, want RETIRED", got)
+	}
+}
+
+func TestCrash_RetireAfterCommitBeforeUnlinkIsSwept_1528(t *testing.T) {
+	f := newForgeFixture(t)
+	failed := f.failWith("db-20261101.dump", transport.NotFound)
+	f.backUp("db-20261119.dump")
+	f.hostDeletes("db-20261101.dump")
+	f.cycle()
+	if got := f.stateOf(failed); got != retiredState {
+		t.Fatalf("fixture: %s is %s", failed, got)
+	}
+
+	// The process died after the commit and before the unlink: the row is
+	// RETIRED and the .partial is still on disk.
+	final, _ := lifecycle.FinalArtifactPath(f.localDir, failed)
+	partial := final + ".partial"
+	mustWriteFile(t, partial, "half a dump")
+	f.cycle()
+	if _, err := os.Stat(partial); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the next cycle did not sweep the RETIRED row's partial (stat err %v)", err)
+	}
+	if got := f.stateOf(failed); got != retiredState {
+		t.Errorf("the sweep moved the row to %s", got)
+	}
+}
+
+// crashJournal refuses any transition into failInto, which is the process
+// dying inside the transaction: nothing of it is written.
+type crashJournal struct {
+	*state.Journal
+	failInto string
+}
+
+func (c *crashJournal) RecordTransition(ctx context.Context, t state.Transition) (state.Outcome, error) {
+	if t.To == c.failInto {
+		return state.Outcome{}, errors.New("crash: the process died inside the transaction")
+	}
+	return c.Journal.RecordTransition(ctx, t)
+}
+
+var _ Journal = (*crashJournal)(nil)
+
+// P6, at the predicate itself: only a durable restore point supersedes a
+// failure. A quarantined, failed, retired or in-flight row does not, however
+// new it is, and an older good row does not either.
+func TestAQuarantinedSuccessorDoesNotCount_1528(t *testing.T) {
+	set, err := model.NewBackupSetID("cicd-pipeline", "forge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := func(name string, st lifecycle.State, discovered time.Time) state.Record {
+		id, err := model.NewArtifactID(set, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return state.Record{Artifact: id, State: string(st), DiscoveredAt: discovered}
+	}
+	failed := row("old.dump", lifecycle.Failed, epoch)
+	later := epoch.Add(24 * time.Hour)
+	for _, st := range []lifecycle.State{lifecycle.Quarantined, lifecycle.QuarantinedLost, lifecycle.Failed, lifecycle.Retired, lifecycle.Transferring, lifecycle.Discovered} {
+		if newerGood(failed, row("new.dump", st, later)) {
+			t.Errorf("a newer %s row counts as a successor", st)
+		}
+	}
+	for _, st := range []lifecycle.State{lifecycle.Committed, lifecycle.RemoteDeletePending, lifecycle.Complete, lifecycle.RemoteRetained} {
+		if !newerGood(failed, row("new.dump", st, later)) {
+			t.Errorf("a newer %s row does not count as a successor", st)
+		}
+		if newerGood(failed, row("older.dump", st, epoch.Add(-time.Hour))) {
+			t.Errorf("an older %s row counts as a successor", st)
+		}
+	}
+	if newerGood(failed, failed) {
+		t.Error("a failure supersedes itself")
 	}
 }

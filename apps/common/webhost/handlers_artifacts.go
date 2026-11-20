@@ -139,6 +139,9 @@ type placementResponse struct {
 // breaking a client that parsed a bare top-level array.
 type listArtifactsResponse struct {
 	Artifacts []artifactResponse `json:"artifacts"`
+	// NextCursor is issue #1528's cursor: the value to send back as
+	// `before` for the next page, or null when there is none.
+	NextCursor *string `json:"next_cursor"`
 }
 
 // artifactCheckResponse is POST /api/v1/quarantine/{id}/revalidate's body.
@@ -231,10 +234,24 @@ func formatTime(t time.Time) string {
 // zero rather than leaving it nil. That is what makes an empty result an
 // empty JSON array instead of null, and the two are not interchangeable to
 // a client: one iterates and the other has to be guarded first.
-func writeArtifactsResponse(w http.ResponseWriter, artifacts []service.Artifact) {
+//
+// Issue #1528 added the state filter and the cursor, and next_cursor is
+// always present (null at the end): it is how an agent's MCP client knows
+// this route can be asked for a smaller page instead of refusing an answer
+// over its result cap.
+func writeArtifactsResponse(w http.ResponseWriter, r *http.Request, all []service.Artifact) {
+	artifacts, next, ok := pageArtifacts(r, all)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST",
+			"state must be one or more lifecycle states separated by commas, and before must be a next_cursor this route issued")
+		return
+	}
 	resp := listArtifactsResponse{Artifacts: make([]artifactResponse, 0, len(artifacts))}
 	for _, a := range artifacts {
 		resp.Artifacts = append(resp.Artifacts, toArtifactResponse(a))
+	}
+	if next != "" {
+		resp.NextCursor = &next
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -263,18 +280,25 @@ func (h *handlers) listArtifacts(w http.ResponseWriter, r *http.Request) {
 		h.internalError(w, r, "INTERNAL", "failed to list backups", err)
 		return
 	}
-	writeArtifactsResponse(w, artifacts)
+	writeArtifactsResponse(w, r, artifacts)
 }
 
 // listQuarantine is GET /api/v1/quarantine: the same read, narrowed to
 // the backups being held for a human. Read-only.
 func (h *handlers) listQuarantine(w http.ResponseWriter, r *http.Request) {
-	artifacts, err := h.backend.ListArtifacts(r.Context(), service.ArtifactFilter{QuarantinedOnly: true})
+	artifacts, err := h.backend.ListArtifacts(r.Context(), service.ArtifactFilter{
+		QuarantinedOnly: true,
+		BackupSetID:     r.URL.Query().Get("setId"),
+	})
 	if err != nil {
+		if errors.Is(err, service.ErrBackupSetNotFound) {
+			writeError(w, http.StatusNotFound, "BACKUP_SET_NOT_FOUND", "no such backup set")
+			return
+		}
 		h.internalError(w, r, "INTERNAL", "failed to list quarantined backups", err)
 		return
 	}
-	writeArtifactsResponse(w, artifacts)
+	writeArtifactsResponse(w, r, artifacts)
 }
 
 // getArtifact is GET /api/v1/backups/{id}. Read-only.
