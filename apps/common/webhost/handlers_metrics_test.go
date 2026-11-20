@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -226,6 +227,49 @@ func TestMetrics_TheEleventhRefusalFromOneAddressIsRateLimitedAndACleanAddressIs
 	}
 }
 
+// O-01, the limiter's key. The shipped compose file trusts forwarded headers on
+// the engine, because web-ui is the peer in front of /api/v1 and rewrites
+// X-Forwarded-For. web-ui never forwards /metrics (ADR 0035, decision 5), so
+// any X-Forwarded-For on a scrape was written by whoever sent it, and the limit
+// has to be keyed on the peer. Two ways a header-keyed limit fails: a stranger
+// names the real scraper's address and locks it out, and a stranger who
+// rotates the header is never limited at all.
+func TestMetrics_TheRefusalLimitIsKeyedOnThePeerAndNeverOnAForwardedHeader(t *testing.T) {
+	rig := newScrapeRig(t, scrapeBlockOn)
+	token := rig.mint()
+	router := NewRouter(RouterConfig{
+		Platform: noAuthWiredAdapter{}, Backend: rig.svc, Gate: alwaysPassGate{}, BinaryVersion: "test", Commit: "test",
+		TrustForwardedHeaders: true,
+	})
+	scrape := func(peer, forwarded, authorization string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+		req.RemoteAddr = peer
+		if forwarded != "" {
+			req.Header.Set("X-Forwarded-For", forwarded)
+		}
+		req.Header.Set("Authorization", authorization)
+
+		return serve(router, req)
+	}
+
+	// A stranger names the scraper's address in the header ten times.
+	for i := 1; i <= 10; i++ {
+		scrape("203.0.113.66:4000", "10.0.0.5", "Bearer wrong-"+strings.Repeat("x", i))
+	}
+	if rec := scrape("10.0.0.5:9090", "", "Bearer "+token); rec.Code != http.StatusOK {
+		t.Errorf("the real scraper at 10.0.0.5 = %d (Retry-After %q) after a stranger sent ten refusals claiming to be it, want 200: the limit followed a header the stranger wrote", rec.Code, rec.Header().Get("Retry-After"))
+	}
+
+	// A stranger rotates the header on every request.
+	stranger := "203.0.113.67:4000"
+	for i := 1; i <= 10; i++ {
+		scrape(stranger, "198.51.100."+strconv.Itoa(i), "Bearer wrong-"+strings.Repeat("y", i))
+	}
+	if rec := scrape(stranger, "198.51.100.99", "Bearer wrong-again"); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("the eleventh refusal from one peer that rotates X-Forwarded-For = %d, want 429: a new header value bought it a new limit", rec.Code)
+	}
+}
+
 // O-25. The two credentials never cross, in either direction, and each works
 // on its own route (the positive controls).
 func TestMetrics_TheScrapeCredentialAndTheAgentTokenNeverCross(t *testing.T) {
@@ -258,6 +302,18 @@ func TestMetrics_TheScrapeCredentialAndTheAgentTokenNeverCross(t *testing.T) {
 		t.Errorf("the scrape credential on the agent MCP endpoint = %d %s, want 401", rec.Code, rec.Body.String())
 	}
 
+	// Neither crossing wrote an agent_audit row: the agent token on /metrics
+	// never reached the audit, and the scrape credential on /api/v1 was never
+	// taken for an agent's. Read before the positive controls, because the
+	// agent's own catalogue read below is an audited call and writes one.
+	rows, _, err := rig.svc.ListAgentAudit(t.Context(), service.AgentAuditQuery{})
+	if err != nil {
+		t.Fatalf("reading the agent audit: %v", err)
+	}
+	for _, row := range rows {
+		t.Errorf("a crossed credential wrote an agent_audit row against token %q (status %d): neither crossing is an agent call", row.TokenID, row.Status)
+	}
+
 	// Positive controls: each credential on its own route.
 	if rec := rig.scrape("192.0.2.41:1000", "Bearer "+scrapeToken); rec.Code != http.StatusOK {
 		t.Errorf("the scrape credential on /metrics = %d, want 200", rec.Code)
@@ -270,27 +326,50 @@ func TestMetrics_TheScrapeCredentialAndTheAgentTokenNeverCross(t *testing.T) {
 	}
 }
 
-// failingAudit makes every agent call's audit row fail, which is what a full
-// disk does to the trail. A scrape must not depend on it.
+// failingAuditBackend is the trail a full disk leaves: no room is ever
+// reserved for an agent call's row (the check auditAgentCalls makes before it
+// dispatches, which is what answers 503 AGENT_AUDIT_UNAVAILABLE), and a row
+// that is written anyway is refused. A scrape must not depend on either.
 type failingAuditBackend struct{ *service.BackupService }
+
+func (failingAuditBackend) ReserveAgentAudit(_ context.Context) error {
+	return os.ErrClosed
+}
 
 func (failingAuditBackend) RecordAgentCall(_ context.Context, _ service.AgentCall) error {
 	return os.ErrClosed
 }
 
 // O-25, third red: a scrape still answers while the agent audit trail is
-// unavailable, because /metrics is not routed through auditAgentCalls.
+// unavailable, because /metrics is not routed through auditAgentCalls and the
+// scrape credential is never an agent principal. The control is the agent's
+// own catalogue read through the same router, which has to be refused 503: a
+// failing trail that refused nothing would let a scrape behind the audit pass.
 func TestMetrics_AScrapeStillAnswersWhileTheAgentAuditTrailIsUnavailable(t *testing.T) {
 	rig := newScrapeRig(t, scrapeBlockOn)
 	token := rig.mint()
+	agent, err := rig.svc.MintAgentToken(t.Context(), service.MintAgentTokenRequest{Name: "triage", Scope: service.AgentScopeRead, Owner: "alice"})
+	if err != nil {
+		t.Fatalf("minting an agent token: %v", err)
+	}
 	router := NewRouter(RouterConfig{
 		Platform: noAuthWiredAdapter{}, Backend: failingAuditBackend{rig.svc}, Gate: alwaysPassGate{}, BinaryVersion: "test", Commit: "test",
 	})
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
-	req.RemoteAddr = "192.0.2.50:1000"
-	req.Header.Set("Authorization", "Bearer "+token)
-	if rec := serve(router, req); rec.Code != http.StatusOK {
-		t.Errorf("a scrape with the audit trail unavailable = %d %s, want 200", rec.Code, rec.Body.String())
+
+	read := httptest.NewRequest(http.MethodGet, "/api/v1/system/health", nil)
+	read.RemoteAddr = "192.0.2.51:1000"
+	read.Header.Set("Authorization", "Bearer "+agent.Token)
+	if rec := serve(router, read); rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "AGENT_AUDIT_UNAVAILABLE") {
+		t.Fatalf("control: an agent's catalogue read with the audit trail unavailable = %d %s, want 503 AGENT_AUDIT_UNAVAILABLE, so this trail is not failing and the scrape below proves nothing", rec.Code, rec.Body.String())
+	}
+
+	for name, header := range map[string]string{"a bearer": "Bearer " + token, "basic_auth": basic("prometheus", token)} {
+		req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+		req.RemoteAddr = "192.0.2.50:1000"
+		req.Header.Set("Authorization", header)
+		if rec := serve(router, req); rec.Code != http.StatusOK {
+			t.Errorf("a scrape with %s while the agent audit trail is unavailable = %d %s, want 200: the scrape must not depend on the agent audit", name, rec.Code, rec.Body.String())
+		}
 	}
 }
 

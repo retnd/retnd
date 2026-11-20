@@ -72,6 +72,12 @@ type scrapeRuntime struct {
 	credentialStat os.FileInfo
 	loaded         bool
 
+	// cacheMu guards the cached exposition, and only that. It is not mu: a
+	// slow journal read behind a rebuild must not hold up verifying a token or
+	// reading the credential's state for GET /settings/observability (#899
+	// review). Concurrent scrapes still wait on cacheMu, so they share one
+	// rebuild instead of each starting their own.
+	cacheMu sync.Mutex
 	// cached is the last rendered health exposition and when it was built.
 	cached   string
 	cachedAt time.Time
@@ -237,8 +243,8 @@ func (b *BackupService) HealthExposition(ctx context.Context, binaryVersion, com
 		interval = config.DefaultMetricsMinRebuildInterval
 	}
 
-	b.scrape.mu.Lock()
-	defer b.scrape.mu.Unlock()
+	b.scrape.cacheMu.Lock()
+	defer b.scrape.cacheMu.Unlock()
 	if !b.scrape.cachedAt.IsZero() && now().Sub(b.scrape.cachedAt) < interval {
 		return b.scrape.cached, b.scrape.cacheErr
 	}

@@ -9,11 +9,11 @@
  * time.
  */
 import { expect, test } from "@playwright/test";
-import { card, openAgents, region } from "./1351-agents";
+import { card, openAgentsWithAudit, region } from "./1351-agents";
 
 test.describe("#1423 the Agents audit filters are labelled", () => {
   test("#1423 no control in the Agents card is unlabelled by the lane's sweep", async ({ page }) => {
-    await openAgents(page);
+    await openAgentsWithAudit(page);
     const unlabelled = await card(page).evaluate((root) =>
       Array.from(root.querySelectorAll("button, a[href], input, select, textarea"))
         .filter((el) => {
@@ -30,7 +30,7 @@ test.describe("#1423 the Agents audit filters are labelled", () => {
   });
 
   test("#1423 the Since input is named Since, and the Token select keeps its name", async ({ page }) => {
-    await openAgents(page);
+    await openAgentsWithAudit(page);
     await expect(region(page, "audit").getByRole("textbox", { name: "Since" })).toHaveAttribute("aria-label", "Since");
     await expect(region(page, "audit").getByRole("combobox", { name: "Token" })).toBeVisible();
   });

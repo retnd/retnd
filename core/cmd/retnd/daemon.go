@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/prerename"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -45,6 +48,15 @@ func cmdDaemon(args []string) int {
 	fs, cfgPath := newFlagSet("daemon")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+
+	// #1546: a deployment still mounted at its pre-0.5.0 path refuses here,
+	// naming both paths and the fix, before it announces or opens anything.
+	// Otherwise it gets this release's empty path and tells the operator it
+	// has no backup set. See core/prerename.
+	if err := prerename.Check(*cfgPath, service.StateDatabaseDefault()); err != nil {
+		fmt.Fprintln(os.Stderr, cliecho.Binary+":", err)
+		return exitFailure
 	}
 
 	// Before anything can reach a remote, so rclone's own handler is never

@@ -102,14 +102,13 @@ func scrapeCredential(r *http.Request) (string, bool) {
 }
 
 // scrapeClientAddress is the address the refusal limit is keyed on: the peer,
-// or the first X-Forwarded-For entry when the deployment says the peer in front
-// is the project's own proxy.
-func (h *handlers) scrapeClientAddress(r *http.Request) string {
-	if h.trustFwd {
-		if first := firstForwardedEntry(r.Header.Get("X-Forwarded-For")); first != "" {
-			return first
-		}
-	}
+// and only the peer. TrustForwardedHeaders does not apply here. It is safe on
+// /api/v1 because web-ui is the peer in front of it and rewrites
+// X-Forwarded-For, but web-ui never forwards /metrics (ADR 0035, decision 5),
+// so a forwarded header on a scrape was written by whoever sent it. Keyed on
+// it, a stranger could name the real scraper's address and lock it out, or
+// rotate the value and never be limited.
+func scrapeClientAddress(r *http.Request) string {
 	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
 		return host
 	}
@@ -136,7 +135,7 @@ func (h *handlers) metrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	address := h.scrapeClientAddress(r)
+	address := scrapeClientAddress(r)
 	if wait := h.scrapeLimiter.RetryAfter(address); wait > 0 {
 		// Before the credential is looked at, so a valid token from a limited
 		// address is limited too. Counted as unauthenticated: the closed

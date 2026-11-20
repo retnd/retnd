@@ -7,13 +7,13 @@
  * run at a time.
  */
 import { expect, test } from "@playwright/test";
-import { card, openAgents, region } from "./1351-agents";
+import { card, openAgentsWithAudit, region } from "./1351-agents";
 
 const rows = (page: Parameters<typeof region>[0]) => region(page, "audit").locator("tbody tr[data-audit-row]");
 
 test.describe("#1351 the audit table", () => {
   test("#1351 has the six columns the design names, newest first, reads included", async ({ page }) => {
-    await openAgents(page);
+    await openAgentsWithAudit(page);
     const heads = (await region(page, "audit").locator("thead th").allTextContents()).map((h) => h.trim());
     expect(heads.slice(0, 6)).toEqual(["Time", "Token", "Tool", "Needs", "Outcome", "Correlation id"]);
     await expect(rows(page)).toHaveCount(8);
@@ -23,7 +23,7 @@ test.describe("#1351 the audit table", () => {
   });
 
   test("#1351 draws a success, a call waiting for a person and a refusal as different chips, none by colour alone", async ({ page }) => {
-    await openAgents(page);
+    await openAgentsWithAudit(page);
     const chip = (tool: string, n = 0) => region(page, "audit").locator('tr[data-tool="' + tool + '"] [data-chip="outcome"]').nth(n);
     // The success and refusal marks are the design system's icon artwork,
     // the waiting one a clock glyph: three different marks beside the words.
@@ -40,7 +40,7 @@ test.describe("#1351 the audit table", () => {
   });
 
   test("#1351 names the token from the engine's token_name and the scope the tool needs from the catalogue, and echoes the audit twin", async ({ page }) => {
-    await openAgents(page);
+    await openAgentsWithAudit(page);
     const run = region(page, "audit").locator('tr[data-tool="run_cycle"]').first();
     await expect(run.locator("td[data-label='Token']")).toHaveText("agent:recovery-drill");
     await expect(run.locator("td[data-label='Needs']")).toHaveText("operate");
@@ -49,13 +49,13 @@ test.describe("#1351 the audit table", () => {
   });
 
   test("#1351 has no exit-code column, no total and no page number", async ({ page }) => {
-    await openAgents(page);
+    await openAgentsWithAudit(page);
     await expect(region(page, "audit")).not.toContainText(/exit code|total|page \d/i);
     await expect(region(page, "audit").getByRole("columnheader", { name: /exit/i })).toHaveCount(0);
   });
 
   test("#1351 Show older appends the next page and the rows already there do not move", async ({ page }) => {
-    await openAgents(page, "agents-audit-many");
+    await openAgentsWithAudit(page, "agents-audit-many");
     await expect(rows(page)).toHaveCount(25);
     const firstTime = await rows(page).first().getAttribute("data-audit-row");
     const olderButton = region(page, "audit").getByRole("button", { name: "Show older" });
@@ -69,7 +69,7 @@ test.describe("#1351 the audit table", () => {
   });
 
   test("#1351 states that the trail is bounded without saying how many days", async ({ page }) => {
-    await openAgents(page);
+    await openAgentsWithAudit(page);
     await expect(region(page, "audit")).toContainText("The trail is bounded: older rows are pruned.");
     await expect(region(page, "audit")).not.toContainText(/\b\d+ days\b/);
   });
@@ -77,7 +77,7 @@ test.describe("#1351 the audit table", () => {
 
 test.describe("#1351 the filters", () => {
   test("#1351 Token narrows the table to one token's calls, and All tokens brings the rest back", async ({ page }) => {
-    await openAgents(page);
+    await openAgentsWithAudit(page);
     await region(page, "audit").getByLabel("Token", { exact: true }).selectOption({ label: "agent:recovery-drill" });
     await expect(rows(page)).toHaveCount(2);
     for (const cell of await rows(page).locator("td:nth-child(2)").allInnerTexts()) expect(cell).toBe("agent:recovery-drill");
@@ -86,7 +86,7 @@ test.describe("#1351 the filters", () => {
   });
 
   test("#1351 Since asks for the last stretch of time", async ({ page }) => {
-    await openAgents(page);
+    await openAgentsWithAudit(page);
     const since = region(page, "audit").getByLabel("Since", { exact: true });
     await since.fill("40m");
     await since.press("Enter");
@@ -94,7 +94,7 @@ test.describe("#1351 the filters", () => {
   });
 
   test("#1351 a filter that matches nothing says so and offers Clear filters, which is a different fact from empty", async ({ page }) => {
-    await openAgents(page);
+    await openAgentsWithAudit(page);
     const since = region(page, "audit").getByLabel("Since", { exact: true });
     await since.fill("1m");
     await since.press("Enter");
@@ -107,7 +107,7 @@ test.describe("#1351 the filters", () => {
   });
 
   test("#1351 a since the engine refuses is shown as the engine wrote it", async ({ page }) => {
-    await openAgents(page);
+    await openAgentsWithAudit(page);
     const since = region(page, "audit").getByLabel("Since", { exact: true });
     await since.fill("yesterday");
     await since.press("Enter");
@@ -117,7 +117,7 @@ test.describe("#1351 the filters", () => {
 
 test.describe("#1351 Details", () => {
   test("#1351 expands the transport and the arguments, as inert text an agent supplied", async ({ page }) => {
-    await openAgents(page);
+    await openAgentsWithAudit(page);
     await page.evaluate(() => { (window as unknown as { __agentPwned?: number }).__agentPwned = undefined; });
     const row = region(page, "audit").locator('tr[data-tool="activity"]').first();
     await row.getByRole("button", { name: /^Details of activity/ }).click();
@@ -138,7 +138,7 @@ test.describe("#1351 Details", () => {
 
 test.describe("#1351 failure and emptiness are separate, and per region", () => {
   test("#1351 a failed audit shows the engine's words and code, and leaves the tokens drawn", async ({ page }) => {
-    await openAgents(page, "agents-audit-failed");
+    await openAgentsWithAudit(page, "agents-audit-failed");
     await expect(region(page, "audit")).toContainText("the audit could not be read.");
     await expect(region(page, "audit").getByRole("button", { name: /try again|retry/i })).toBeVisible();
     await expect(region(page, "tokens").locator("tbody tr")).toHaveCount(5);
