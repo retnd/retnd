@@ -238,6 +238,9 @@ var toolRows = []Row{
 		Untrusted: []string{
 			"artifact", "failure_reason", "proposed_successor.name", "successor_candidates[].name", "retirement.superseded_by", "retirement.note",
 			"retirement.failure_reason", "retirement.actor", "command",
+			// Issue #1594: an effect line may name the kept own copy's path, and
+			// that path ends in the file name the source chose.
+			"effects[]",
 		},
 	},
 	{
@@ -373,7 +376,7 @@ var toolRows = []Row{
 		Tool: "retire_backup", Method: "POST", Route: "/backups/{source}/{set}/{name}/retire", Scope: ScopeOperate,
 		Description:    "Propose retiring one failed backup whose source object is gone and that a newer good backup replaces. A person confirms it before anything changes.",
 		Untrusted:      []string{"artifact", "retirement.superseded_by", "retirement.note", "retirement.failure_reason", "retirement.actor"},
-		AgentMayNotSet: []string{"accept_source_present", "no_successor"},
+		AgentMayNotSet: []string{"accept_source_present", "no_successor", "accept_unverified_copy"},
 	},
 	{
 		Tool: "quarantine_revalidate", Method: "POST", Route: "/quarantine/{source}/{set}/{name}/revalidate", Scope: ScopeOperate,

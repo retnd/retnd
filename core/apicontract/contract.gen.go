@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "4561f1ca36e06e8cb7108e479ea17104e4eb1bc84f42f2bfd5cdb31ffd79b60b"
+const ContractSHA256 = "f0b548f691bff89aff42595600cb96f9be96b618fe0fccebe28723a2c51c7813"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -189,6 +189,7 @@ const (
 	ErrorCodeRetireNoSuccessor                      ErrorCode = "RETIRE_NO_SUCCESSOR"
 	ErrorCodeRetireSuccessorInvalid                 ErrorCode = "RETIRE_SUCCESSOR_INVALID"
 	ErrorCodeAgentRetireAckRefused                  ErrorCode = "AGENT_RETIRE_ACK_REFUSED"
+	ErrorCodeRetryOwnCopyUnverified                 ErrorCode = "RETRY_OWN_COPY_UNVERIFIED"
 	ErrorCodeEditHoldGone                           ErrorCode = "EDIT_HOLD_GONE"
 )
 
@@ -326,6 +327,7 @@ var WireErrorCodes = []ErrorCode{
 	ErrorCodeRetireNoSuccessor,
 	ErrorCodeRetireSuccessorInvalid,
 	ErrorCodeAgentRetireAckRefused,
+	ErrorCodeRetryOwnCopyUnverified,
 	ErrorCodeEditHoldGone,
 }
 
@@ -487,6 +489,7 @@ var ErrorCodes = []ErrorCode{
 	ErrorCodeRetireNoSuccessor,
 	ErrorCodeRetireSuccessorInvalid,
 	ErrorCodeAgentRetireAckRefused,
+	ErrorCodeRetryOwnCopyUnverified,
 	ErrorCodeEditHoldGone,
 }
 
@@ -495,7 +498,7 @@ var ErrorCodes = []ErrorCode{
 var ErrorClasses = map[string][]ErrorCode{
 	"authentication": {ErrorCodeUnauthenticated, ErrorCodeBootstrapTokenInvalid, ErrorCodeResetTokenInvalid, ErrorCodeVerifyTokenInvalid, ErrorCodeAgentTokenInvalid},
 	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeRecoveryGrantSessionEnded, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired, ErrorCodeAgentScopeInsufficient, ErrorCodeAgentRouteDenied, ErrorCodeAgentHttpTransportOff, ErrorCodeAgentRetireAckRefused},
-	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy, ErrorCodeDirectoryNotReadable, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged, ErrorCodeRecoverySourceHostUnavailable, ErrorCodeRecoverySourceHostReadOnly, ErrorCodeRecoverySourceHostNotAcknowledged, ErrorCodeRecoverySourceHostProbeLeftFile, ErrorCodeValidatorExists, ErrorCodeValidatorPatternConflict, ErrorCodeValidatorLimitReached, ErrorCodeValidatorScriptChanged, ErrorCodeEncryptionKeyInUse, ErrorCodeEncryptionKeyState, ErrorCodeEncryptionKeyUnresolvable, ErrorCodeAgentConfirmationRequired, ErrorCodeAgentConfirmationExpired, ErrorCodeAgentConfirmationDecided, ErrorCodeAgentConfirmationTokenEnded, ErrorCodeRetireOwnCopyAtFinalName, ErrorCodeRetireSourcePresent, ErrorCodeRetireSourceUnconfirmed, ErrorCodeRetireNoSuccessor, ErrorCodeRetireSuccessorInvalid, ErrorCodeEditHoldGone},
+	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy, ErrorCodeDirectoryNotReadable, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged, ErrorCodeRecoverySourceHostUnavailable, ErrorCodeRecoverySourceHostReadOnly, ErrorCodeRecoverySourceHostNotAcknowledged, ErrorCodeRecoverySourceHostProbeLeftFile, ErrorCodeValidatorExists, ErrorCodeValidatorPatternConflict, ErrorCodeValidatorLimitReached, ErrorCodeValidatorScriptChanged, ErrorCodeEncryptionKeyInUse, ErrorCodeEncryptionKeyState, ErrorCodeEncryptionKeyUnresolvable, ErrorCodeAgentConfirmationRequired, ErrorCodeAgentConfirmationExpired, ErrorCodeAgentConfirmationDecided, ErrorCodeAgentConfirmationTokenEnded, ErrorCodeRetireOwnCopyAtFinalName, ErrorCodeRetireSourcePresent, ErrorCodeRetireSourceUnconfirmed, ErrorCodeRetireNoSuccessor, ErrorCodeRetireSuccessorInvalid, ErrorCodeRetryOwnCopyUnverified, ErrorCodeEditHoldGone},
 	"internal":       {ErrorCodeInternal, ErrorCodeInternalError, ErrorCodeAgentAuditUnavailable, ErrorCodeRecoveryLocalCopyCorrupt, ErrorCodeRecoveryRemoteCopyCorrupt, ErrorCodeRecoveryNoSpace, ErrorCodeRecoveryBelowReserve, ErrorCodeRecoveryFailed, ErrorCodeRecoverySourceHostNoSpace},
 	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown, ErrorCodeDirectoryNotFound, ErrorCodeValidatorNotFound, ErrorCodeEncryptionKeyNotFound, ErrorCodeAgentTokenNotFound, ErrorCodeAgentConfirmationNotFound},
 	"throttling":     {ErrorCodeRateLimited, ErrorCodeRecoveryTooManyGrants, ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy, ErrorCodeAgentConfirmationLimit, ErrorCodeAgentRateLimited},
@@ -1447,6 +1450,7 @@ var Endpoints = []Endpoint{
 		RequestSchema: "", ResponseSchema: "RetirementPreview", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeAgentRetireAckRefused},
 			404: {ErrorCodeArtifactNotFound, ErrorCodeBackupSetNotFound},
 			500: {ErrorCodeInternal},
 		},
@@ -1471,7 +1475,7 @@ var Endpoints = []Endpoint{
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
 			404: {ErrorCodeArtifactNotFound, ErrorCodeBackupSetNotFound},
-			409: {ErrorCodeArtifactNotFailed},
+			409: {ErrorCodeArtifactNotFailed, ErrorCodeRetryOwnCopyUnverified},
 			500: {ErrorCodeInternal},
 		},
 	},
@@ -4660,10 +4664,11 @@ type RetentionVerdict struct {
 // the source and picks the newest good backup as the successor, and
 // refuses anything it cannot prove.
 type RetireArtifactRequest struct {
-	AcceptSourcePresent bool   `json:"accept_source_present,omitempty"`
-	NoSuccessor         bool   `json:"no_successor,omitempty"`
-	Note                string `json:"note,omitempty"`
-	SupersededBy        string `json:"superseded_by,omitempty"`
+	AcceptSourcePresent  bool   `json:"accept_source_present,omitempty"`
+	AcceptUnverifiedCopy bool   `json:"accept_unverified_copy,omitempty"`
+	NoSuccessor          bool   `json:"no_successor,omitempty"`
+	Note                 string `json:"note,omitempty"`
+	SupersededBy         string `json:"superseded_by,omitempty"`
 }
 
 // RetireArtifactResponse is POST /backups/{source}/{set}/{name}/retire's answer: the backup is

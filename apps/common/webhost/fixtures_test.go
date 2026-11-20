@@ -235,6 +235,7 @@ type syncFakeBackend struct {
 	errOnRetry           error
 	errOnRetryFailed     error
 	errOnRetire          error
+	previewRefusal       *service.RetireRefusal
 	errOnMediumPreflight error
 	mediumPreflight      service.MediumPreflight
 	errOnReinstate       error
@@ -798,8 +799,8 @@ func (f *syncFakeBackend) PreviewRetirement(_ context.Context, id string, req se
 	defer f.mu.Unlock()
 	f.lastRetireRequest = req
 	return service.RetirementPreview{Artifact: id, State: "FAILED",
-		SourceCheck: service.RetirementSourceCheck{Result: "absent", Sentence: "gone"},
-		Effects:     []string{"The backup record stays, marked RETIRED, with who retired it, when and why."}}, nil
+		SourceCheck: service.RetirementSourceCheck{Result: "absent", Sentence: "gone"}, Refusal: f.previewRefusal,
+		Effects: []string{"The backup record stays, marked RETIRED, with who retired it, when and why."}}, nil
 }
 
 func (f *syncFakeBackend) RetireArtifact(_ context.Context, id string, req service.RetireRequest) (service.RetireResult, error) {

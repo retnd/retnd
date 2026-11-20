@@ -33,10 +33,23 @@ type RetireRequest struct {
 	SupersededBy        string
 	NoSuccessor         bool
 	AcceptSourcePresent bool
-	Note                string
-	ActorKind           string
-	Actor               string
+	// AcceptUnverifiedCopy is issue #1594's acknowledgement: the row's own
+	// copy at its final name could not be verified and the source is gone.
+	AcceptUnverifiedCopy bool
+	Note                 string
+	ActorKind            string
+	Actor                string
 }
+
+// RetryRefusal is a named reason a retry was not made (issue #1594's
+// RETRY_OWN_COPY_UNVERIFIED), so the API layer can answer it by code with the
+// engine's sentence.
+type RetryRefusal struct {
+	Code     string
+	Sentence string
+}
+
+func (r *RetryRefusal) Error() string { return r.Sentence }
 
 // RetirementSourceCheck is what the source said about the object just now.
 type RetirementSourceCheck struct {
@@ -103,7 +116,7 @@ func toServiceRetirement(r state.Retirement) Retirement {
 
 func toAppRetireRequest(req RetireRequest) app.RetireRequest {
 	return app.RetireRequest{SupersededBy: req.SupersededBy, NoSuccessor: req.NoSuccessor, AcceptSourcePresent: req.AcceptSourcePresent,
-		Note: req.Note, ActorKind: req.ActorKind, Actor: req.Actor}
+		AcceptUnverifiedCopy: req.AcceptUnverifiedCopy, Note: req.Note, ActorKind: req.ActorKind, Actor: req.Actor}
 }
 
 // retireError maps the app layer's refusals onto this package's sentinels,

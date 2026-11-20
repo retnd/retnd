@@ -160,6 +160,7 @@ GET /backups/{source}/{set}/{name}
 GET /backups/{source}/{set}/{name}/retire
 	example: command
 	example ?accept_source_present=true: command
+	example ?accept_unverified_copy=true: command
 
 GET /encryption/copies
 	example ?artifact=api-server%2Fvar-backups%2FMANIFEST-20260902T153521Z.txt: command
@@ -506,6 +507,7 @@ POST /backups/{source}/{set}/{name}/retire
 	example: command
 	example {"superseded_by":"gitea-dump-20261119T033012Z.tar.gz","note":"the host deleted it"}: command
 	example {"accept_source_present":true,"no_successor":true}: command
+	example {"accept_unverified_copy":true}: command
 	body that isn't JSON: command
 
 POST /backups/{source}/{set}/{name}/retry
