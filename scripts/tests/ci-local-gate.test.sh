@@ -709,8 +709,14 @@ run_gate() { # <tree> [VAR=VAL ...] [-- <ci-local.sh args...>]
   # silently turn every fail-closed case into a pass, and the gate exports
   # CI_LOCAL_SELFTEST=1 around this very script, which would otherwise reach
   # every synthetic run as an inherited skip.
+  #
+  # RETND_PW_LOCK defaults to a lock that does not exist (#1540 review): on
+  # the Mac a fixture's browser step would otherwise queue on the real
+  # workspace Playwright lock, behind every other Playwright run, and the
+  # stall watchdog deliberately does not count that wait. A case that wants
+  # a lock passes its own, which comes later and wins.
   out="$(cd "$gate_tree" && scrub_env CI_LOCAL_LOCK_DIR="$gate_tree/.gate-lock" \
-    CI_LOCAL_MEMORY_LIMIT_BYTES="$ROOMY" PATH="$gate_tree/bin:$PATH" ${gate_envs[@]+"${gate_envs[@]}"} bash scripts/ci-local.sh ${gate_args[@]+"${gate_args[@]}"} 2>&1)"
+    CI_LOCAL_MEMORY_LIMIT_BYTES="$ROOMY" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh PATH="$gate_tree/bin:$PATH" ${gate_envs[@]+"${gate_envs[@]}"} bash scripts/ci-local.sh ${gate_args[@]+"${gate_args[@]}"} 2>&1)"
   status=$?
 }
 
@@ -2883,9 +2889,61 @@ assert_eq "Y11 three records kept per step, the oldest dropped" "2 2 8" "$(awk -
 # 3 is ledgered) is not recorded: it would cap the next healthy run short.
 tree="$(y_tree)"
 printf '#!/usr/bin/env bash\necho "lane could not run"\nexit 3\n' >"$tree/scripts/e2e/run-tests-repo-gate.sh"
-y_run_on "$tree" e2e "${Y_KNOBS[@]}"
+y_run_on "$tree" e2e "${Y_KNOBS[@]}" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh
 assert_eq "Y12 the e2e shard is INCOMPLETE" "$INCOMPLETE" "$status"
 assert_eq "Y12 and the ledgered step left no record" "" "$(cat "$tree"/.git/ci-local-step-durations.* 2>/dev/null | awk -F '\t' -v h="$Y_E2E" '$2 == h')"
+
+# The cases below come from the second review of #1556.
+
+y_darwin() { # <tree>: the fixture's uname says Darwin, so the browser step takes the Playwright lock path
+  printf '#!/bin/sh\n[ "$1" = -s ] && { echo Darwin; exit 0; }\nexec %s "$@"\n' "$(command -v uname)" >"$1/bin/uname"
+  chmod +x "$1/bin/uname"
+}
+
+# Y13: a fixture never queues on the real workspace Playwright lock. With
+# no RETND_PW_LOCK of its own, run_gate hands the gate one that does not exist.
+tree="$(y_tree)"
+y_darwin "$tree"
+y_run_on "$tree" e2e "${Y_KNOBS[@]}"
+assert_contains "Y13 run_gate's default Playwright lock is one that does not exist" "browser gate running without the Playwright lock (/nonexistent/xdg-pw-lock.sh" "$out"
+
+# Y14: the cap's floor follows the step's own stall window: two of them (here
+# 2 x 6s = 12s) when that is more than RETND_GATE_STEP_CAP_FLOOR_MIN (3s), so a
+# step with a long window, whose cached runs fill the record, is not cut short
+# on a cold run. Recorded 2s, an 8s step ends ok.
+tree="$(y_tree)"
+printf '2\t%s\n' "$Y_HEADING" | y_plant "$tree"
+y_step "$tree" 'for i in 1 2 3 4 5 6 7 8; do echo "chatty $i"; sleep 1; done'
+y_run "$tree" "${Y_KNOBS[@]}" RETND_GATE_STEP_CAP_FLOOR_MIN=0.05
+assert_not_contains "Y14 the floor is two of the step's stall windows when that is more" "FAILED (STALLED" "$out"
+assert_eq "Y14 and the shard ends ok" 0 "$status"
+
+# Y15: every Docker step that ran with no daemon stays off the record, not
+# only the first: the ledger takes the Docker skip once per run, and every
+# later Docker step's suites t.Skip and end early just the same.
+tree="$(y_tree)"
+printf '#!/bin/sh\necho "$*" >>"$(dirname "$0")/../docker.log"\nexit 1\n' >"$tree/bin/docker"
+chmod +x "$tree/bin/docker"
+y_run_on "$tree" apps "${Y_KNOBS[@]}" CI_LOCAL_SKIP_DOCKER=1
+assert_contains "Y15 the apps shard ran its Docker steps without a daemon" "distribution go build, vet, test -race" "$out"
+assert_eq "Y15 and none of them is on record" "" "$(cat "$tree"/.git/ci-local-step-durations.* 2>/dev/null | grep -E '	(apps/common go build|distribution go build|apps/generic go build)')"
+
+# Y16: the Playwright lock waits on a live holder for ever, so the wait is
+# bounded by RETND_GATE_STEP_CAP_MIN: a holder that never lets go ends the
+# step STALLED, saying it was the lock.
+tree="$(y_tree)"
+y_darwin "$tree"
+cat >"$tree/bin/pw-lock" <<'LOCK'
+#!/bin/sh
+i=0
+while [ $i -lt 60 ]; do i=$((i + 1)); echo "pw-lock stand-in: still waiting ($i)"; sleep 1; done
+exec "$@"
+LOCK
+chmod +x "$tree/bin/pw-lock"
+y_run_on "$tree" e2e "${Y_KNOBS[@]}" RETND_GATE_STEP_CAP_MIN=0.1 RETND_PW_LOCK="$tree/bin/pw-lock"
+assert_contains "Y16 a Playwright lock that never comes ends the step STALLED" "==> ci-local: FAILED (STALLED: $Y_E2E, waited" "$out"
+assert_contains "Y16 and says it was the lock" "for the lock its command runs under" "$out"
+if [ "$y_took" -lt 40 ]; then pass "Y16 and did not wait out the holder (${y_took}s of 60s)"; else fail "Y16 and did not wait out the holder (${y_took}s)" "$out"; fi
 
 # ------------- Group W: the gate knows its shards (#1457)
 
