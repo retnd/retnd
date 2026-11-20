@@ -245,6 +245,12 @@ FAST="${CI_LOCAL_FAST:-0}"
 # gate_install_traps.
 gate_install_traps
 
+# Every step is watched for a stall from the first one on (#1540): no output
+# for RETND_GATE_STALL_MIN minutes, or past its hard cap, and the step is
+# stopped with its containers and the run ends FAILED (STALLED: ...). This
+# only checks the knobs; see the stall watchdog in lib/ci-local-gate.sh.
+gate_watchdog_arm
+
 # The hook cannot report its own absence, so the gate does, first thing
 # and every run (#1260). A warning rather than a refusal: a run by hand in
 # a clone without the hook is still a run. The recorder refuses.
@@ -793,7 +799,11 @@ gate_lint core
 
 gate_seg_core_test() {
 if [ "$FAST" = "1" ]; then
-  gate_docker_step "core/ go test -race ./internal/... (CI_LOCAL_FAST=1: skipping ./tests/... Docker suites)"
+  # go test prints a package only when it finishes, in order, and kopia alone
+  # took 715s on the 0.8.0 run, so this step is quiet for longer than the
+  # stall watchdog's ten minutes on a healthy run. Its own -timeout 45m is the
+  # bound that names the test; the watchdog waits past it (#1540).
+  gate_docker_step "core/ go test -race ./internal/... (CI_LOCAL_FAST=1: skipping ./tests/... Docker suites)" --stall-min 50
   (cd core && GOWORK=off go test -race -timeout 45m ./internal/...)
 else
   # tests/crashmatrix, tests/sftpintegration, tests/sshexecintegration,
@@ -821,7 +831,8 @@ else
   # resolve into. Each one lands in the skip ledger, so the run ends
   # INCOMPLETE naming them, and a matrix with no BLOCKED row costs nothing.
   gate_github_ledger_open
-  gate_docker_step "core/ go test -race ./... (excluding tests/crashmatrix + tests/sftpintegration + tests/sshexecintegration + tests/miniointegration + tests/conformance + tests/machinegate + tests/containerhooks and cmd/gotestwatch, all run next)"
+  # --stall-min 50 for the reason given on the CI_LOCAL_FAST step above (#1540).
+  gate_docker_step "core/ go test -race ./... (excluding tests/crashmatrix + tests/sftpintegration + tests/sshexecintegration + tests/miniointegration + tests/conformance + tests/machinegate + tests/containerhooks and cmd/gotestwatch, all run next)" --stall-min 50
   # shellcheck disable=SC2046  # the package list from `go list` is meant to split into one word each
   (cd core && GOWORK=off go test -race -timeout 45m $(GOWORK=off go list ./... | grep -vE '/(tests/(crashmatrix|sftpintegration|sshexecintegration|miniointegration|conformance|machinegate|containerhooks)|cmd/gotestwatch)$' | gate_core_shard_filter))
   gate_github_ledger_close
@@ -1085,7 +1096,11 @@ if [ "$FAST" != "1" ]; then
     # and runs the three-machine rig, the most Docker-heavy stretch of
     # the whole gate, and it used to be the one step that dropped the
     # lock the crash matrix had just held.
-    gate_docker_step "browser e2e + CLI smoke, from retnd-tests at the pinned sha (#197), the browser suite judged against the known-red ratchet (#1260)"
+    # --stall-min 30: the rig builds the client image (the pinned Playwright
+    # image, over a gigabyte) with `docker build -q`, which prints nothing
+    # until it is done, and on a cold cache that takes longer than the stall
+    # watchdog's ten minutes (#1540).
+    gate_docker_step "browser e2e + CLI smoke, from retnd-tests at the pinned sha (#197), the browser suite judged against the known-red ratchet (#1260)" --stall-min 30
     # Not under `set -e`: exit 3 is a verdict this script has to READ, and
     # `set -e` would end the run on it before the ledger ever saw it.
     set +e
@@ -1096,7 +1111,12 @@ if [ "$FAST" != "1" ]; then
     # path the run goes ahead bare, and says so.
     pw_lock="${RETND_PW_LOCK:-/Users/rom/workspace/xdg-pw-lock.sh}"
     if [ "$(uname -s)" = "Darwin" ] && [ -x "$pw_lock" ]; then
-      "$pw_lock" bash scripts/e2e/run-tests-repo-gate.sh
+      # Every Playwright run in the workspace queues on that lock, and the
+      # wait is not this step's: the stall watchdog holds the step's clocks
+      # until the command under the lock writes the time it got it (#1540).
+      gate_watchdog_hold
+      # shellcheck disable=SC2016,SC2154  # $1 is the inner shell's; gate_wd_resume comes from lib/ci-local-gate.sh
+      "$pw_lock" sh -c '[ -z "$1" ] || date +%s >"$1"; shift; exec "$@"' sh "$gate_wd_resume" bash scripts/e2e/run-tests-repo-gate.sh
     else
       if [ "$(uname -s)" = "Darwin" ]; then
         echo "==> ci-local: browser gate running without the Playwright lock ($pw_lock is not an executable file; RETND_PW_LOCK names another)"
