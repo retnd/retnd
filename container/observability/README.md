@@ -20,7 +20,7 @@ The canonical deployment does not change for any of this. `container/compose.yam
 
 ## Before you start
 
-1. **Turn the scrape endpoint on and mint a token.** In Settings, the Observability card, or from a terminal: `retnd settings observability patch --metrics-enabled` to enable metrics, then `retnd settings observability rotate-scrape-token`. The token is shown once. Write it to a file on the host, readable by uid 65534 (the user Prometheus runs as), for example `chmod 0400` and `chown 65534`. Minting again replaces the token at once, so update the file and restart Prometheus when you rotate.
+1. **Turn the scrape endpoint on and mint a token.** In Settings, the Observability card, or from a terminal: `retnd settings observability patch --metrics-enabled` to enable metrics, then `retnd settings observability rotate-scrape-token`. The token is shown once, on the line that starts `rsc_` (the command also prints a status line and its startup log lines, so keep only that line: `retnd settings observability rotate-scrape-token | grep '^rsc_' > scrape-token`). Put it in a file on the host readable by uid 65534 (the user Prometheus runs as), for example `chmod 0400` and `chown 65534`. Minting again replaces the token at once, so update the file and restart Prometheus when you rotate.
 2. **The canonical stack has to be running**, because Prometheus joins its `retnd_internal` network, which only exists while that project is up.
 3. **Pick a Grafana admin password.** There is no default, on purpose.
 

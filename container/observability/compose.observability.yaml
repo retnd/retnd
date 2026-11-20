@@ -90,6 +90,10 @@ services:
       # Loki reports anonymous usage statistics to Grafana Labs unless told
       # not to. An example should not add egress the operator did not ask for.
       - -reporting.enabled=false
+      # Loki 3 invents a service_name label from job (or app, container, ...)
+      # on every stream unless this list is empty. The documented label set is
+      # job, instance, level and schema, and nothing else (docs/observability.md).
+      - -validation.discover-service-name=
     volumes:
       - loki-data:/loki
     networks:
