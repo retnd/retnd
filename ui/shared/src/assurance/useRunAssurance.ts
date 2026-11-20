@@ -19,6 +19,7 @@
  * reading is the caller's, so a list of rows reads the capabilities once.
  */
 import { useEffect, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import { gateRefusalNotice, isGateRefusal } from "@shared/api/gate";
 import type { GateRefusalNotice } from "@shared/api/gate";
@@ -75,6 +76,7 @@ export function useRunAssurance(setId: string, opts: { attach?: boolean; gate: G
   // State is a render late, so two presses in one tick would both see
   // `starting` false; the ref is what stops the second POST.
   const inFlight = useRef(false);
+  const mountedRef = useMounted();
   const [error, setError] = useState<string | null>(null);
   const [refused, setRefused] = useState<GateRefusalNotice | null>(null);
   const [joined, setJoined] = useState(false);
@@ -100,6 +102,7 @@ export function useRunAssurance(setId: string, opts: { attach?: boolean; gate: G
     setStarting(true);
     const out = await startRecoveryRun(api, setId, undefined, opts.gate);
     inFlight.current = false;
+    if (!mountedRef.current) return;
     setStarting(false);
     if (out.operation) {
       setJoined(!!out.operation.joined);

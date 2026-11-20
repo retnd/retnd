@@ -11,6 +11,7 @@
  */
 import "./assurance.css";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import type { CustomValidator, CustomValidatorList, ValidatorScript } from "@shared/api/contracts";
 import { apiErrorOf, describeFailure, isNotConfigured } from "@shared/api/failure";
@@ -40,18 +41,14 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
   // update to an unmounted card does nothing useful, and once the test
   // environment has been torn down it throws inside the promise and fails
   // the run as an unhandled rejection, so each answer checks this first.
-  const mounted = useRef(false);
-  useEffect(() => {
-    mounted.current = true;
-    return () => { mounted.current = false; };
-  }, []);
+  const mountedRef = useMounted();
 
   // Only the newest read's answer is kept: a read that was asked first can
   // be answered last, and must not put an older list back.
   const asked = useRef(0);
   const load = useCallback(() => {
     const mine = ++asked.current;
-    const current = () => mounted.current && mine === asked.current;
+    const current = () => mountedRef.current && mine === asked.current;
     return api.listCustomValidators().then(
       (l) => { if (current()) { setList(l); setError(null); } },
       (e: unknown) => {
@@ -60,7 +57,7 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
         else setError(describeFailure(e, "could not read the custom validators").message);
       }
     );
-  }, [api]);
+  }, [api, mountedRef]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -68,9 +65,9 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
     setError(null);
     try {
       const got = await api.getCustomValidatorScript(name);
-      if (mounted.current) setScript({ name, script: got });
+      if (mountedRef.current) setScript({ name, script: got });
     } catch (e) {
-      if (mounted.current) setError(describeFailure(e, "could not read the script").message);
+      if (mountedRef.current) setError(describeFailure(e, "could not read the script").message);
     }
   };
 
@@ -79,16 +76,16 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
     setRemoveBusy(true);
     try {
       await api.removeCustomValidator(removing.name);
-      if (!mounted.current) return;
+      if (!mountedRef.current) return;
       setStatus("Removed " + removing.name + ". Nothing runs it any more, and its script was moved aside, not deleted.");
       setRemoving(null);
       await load();
     } catch (e) {
-      if (!mounted.current) return;
+      if (!mountedRef.current) return;
       setRemoving(null);
       setError(describeFailure(e, "could not remove the validator").message);
     } finally {
-      if (mounted.current) setRemoveBusy(false);
+      if (mountedRef.current) setRemoveBusy(false);
     }
   };
 
@@ -227,6 +224,7 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
           returnFocus={dialog.kind === "add" ? addButton : undefined}
           onClose={() => { setDialog(null); void load(); }}
           onSaved={({ validator, edited }) => {
+            if (!mountedRef.current) return;
             setDialog(null);
             setStatus((edited ? "Saved " : "Uploaded ") + validator.name + ".");
             void load();

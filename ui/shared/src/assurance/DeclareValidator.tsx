@@ -7,6 +7,7 @@
  * this backup, so an operator is not left guessing why a new one is refused.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useOptionalApi } from "@shared/api/ApiContext";
 import type { CustomValidatorList } from "@shared/api/contracts";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
@@ -43,20 +44,16 @@ export function DeclareValidator({
   // after this has unmounted is dropped too: setting state then throws once
   // a test's window has been torn down (#1589).
   const asked = useRef(0);
-  const mounted = useRef(false);
-  useEffect(() => {
-    mounted.current = true;
-    return () => { mounted.current = false; };
-  }, []);
+  const mountedRef = useMounted();
   const load = useCallback(() => {
     // An engine older than #1203 has no such route; the row is then not drawn.
     if (!api || typeof api.listCustomValidators !== "function") return Promise.resolve();
     const mine = ++asked.current;
     return api.listCustomValidators(artifactId ? { artifactId } : { backupSetId: setId }).then(
-      (l) => { if (mounted.current && mine === asked.current) setList(l); },
-      () => { if (mounted.current && mine === asked.current) setList(null); }
+      (l) => { if (mountedRef.current && mine === asked.current) setList(l); },
+      () => { if (mountedRef.current && mine === asked.current) setList(null); }
     );
-  }, [api, artifactId, setId]);
+  }, [api, artifactId, setId, mountedRef]);
 
   useEffect(() => { void load(); }, [load]);
 

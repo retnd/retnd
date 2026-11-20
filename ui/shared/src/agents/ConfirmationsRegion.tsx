@@ -35,6 +35,7 @@
  * expired, so the browser never decides it).
  */
 import { useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import { acknowledgeInsecureTransport } from "@shared/api/client";
 import { apiErrorOf, describeFailure } from "@shared/api/failure";
@@ -69,6 +70,7 @@ export function ConfirmationsRegion({
   // engine's refusal is what the operator needs to read.
   const [strips, setStrips] = useState<Array<{ id: string; confirmation: AgentConfirmation; execution: AgentExecution }>>([]);
   const [notice, setNotice] = useState("");
+  const mountedRef = useMounted();
 
   return (
     <div className="ag-region" id="agents-confirmations" data-agents-region="confirmations" data-surface="confirm">
@@ -106,6 +108,7 @@ export function ConfirmationsRegion({
               now={now}
               readOnly={readOnly}
               onApproved={(decided) => {
+                if (!mountedRef.current) return;
                 const execution = decided.execution;
                 const refused = execution !== null && (execution.status >= 400 || execution.code !== "");
                 if (refused) setStrips((s) => [...s, { id: c.id, confirmation: c, execution }]);
@@ -114,6 +117,7 @@ export function ConfirmationsRegion({
                 onDecided();
               }}
               onDenied={() => {
+                if (!mountedRef.current) return;
                 setNotice("Denied. Nothing ran.");
                 confirmations.reload();
                 onDecided();
@@ -139,6 +143,7 @@ function ConfirmationRow({
 }) {
   const api = useApi();
   const gate = useDestructiveGate();
+  const mountedRef = useMounted();
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -156,16 +161,19 @@ function ConfirmationRow({
     // The password is never the first thing to cross a connection the
     // operator has not been told about.
     if ((await insecureAckRequiredNow(api, gate)) && !(await acknowledgeInsecureTransport())) {
+      if (!mountedRef.current) return;
       setFailure({ message: stepUpMessage("INSECURE_TRANSPORT_ACK_REQUIRED", "agent") ?? "Nothing was sent.", code: null, correlationId: null });
       setBusy(false);
       return;
     }
     const stepUpPassword = password.current;
-    forget();
+    if (mountedRef.current) forget();
+    else password.current = "";
     try {
       const decision = await api.approveAgentConfirmation(c.id, { stepUpPassword });
       onApproved(decision);
     } catch (e) {
+      if (!mountedRef.current) return;
       const err = apiErrorOf(e);
       const own = stepUpMessage(err?.code, "agent");
       setFailure({
@@ -184,6 +192,7 @@ function ConfirmationRow({
       await api.denyAgentConfirmation(c.id);
       onDenied();
     } catch (e) {
+      if (!mountedRef.current) return;
       const err = apiErrorOf(e);
       setFailure({ message: describeFailure(e, "the request was not denied").message, code: err?.code ?? null, correlationId: err?.correlationId ?? null });
       setBusy(false);
