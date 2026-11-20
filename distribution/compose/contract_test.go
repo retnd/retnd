@@ -627,6 +627,22 @@ func TestEveryComposeArtifactInTheTreeIsRegistered(t *testing.T) {
 		registered[d] = true
 	}
 
+	// Compose files that are deliberately not a deployment of retnd, so none
+	// of the runtime contract's rules (roles, mounts, ports, prohibitions)
+	// describe them. An entry needs its reason, and the file has to still
+	// exist, so a stale exemption fails instead of hiding a later file.
+	// container/observability/README.md says it: "an example, not a supported
+	// deployment". The bundle runs Prometheus, Loki and Grafana beside the
+	// canonical project and declares no retnd service of its own (#1557, #1618).
+	exempt := map[string]string{
+		"container/observability/compose.observability.yaml": "the example observability bundle: a separate project run beside the canonical one, with no retnd service",
+	}
+	for rel := range exempt {
+		if _, err := os.Stat(compose.Path(rel)); err != nil {
+			t.Errorf("exempt %s: %v. Remove the exemption if the file is gone", rel, err)
+		}
+	}
+
 	var found []string
 	roots := []string{"apps", "container", "distribution"}
 	for _, root := range roots {
@@ -661,6 +677,9 @@ func TestEveryComposeArtifactInTheTreeIsRegistered(t *testing.T) {
 		t.Fatal("the walk found no compose artifact at all, so this completeness check is checking nothing")
 	}
 	for _, rel := range found {
+		if exempt[rel] != "" {
+			continue
+		}
 		if !registered[rel] {
 			t.Errorf("%s declares compose services but is not registered in runtime-contract.json, so no prohibition rule ever runs against it", rel)
 		}

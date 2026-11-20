@@ -26,6 +26,9 @@ import type {
   WireMediumPreflightCheck,
   WireRecoverySettingsResponse,
   WireRecoverySettingsUpdate,
+  WireRetireArtifactRequest,
+  WireRetireArtifactResponse,
+  WireRetirementPreview,
   WireSmtpSettings,
   WireSmtpSettingsView
 } from "./generated/contract";
@@ -475,9 +478,14 @@ export interface EditHoldState {
   running: RunningWork | null;
 }
 
-/** What taking the hold answers: `stopped` is null when nothing was
- *  running, so a caller never claims to have interrupted something. */
+/** What taking or renewing the hold answers: `stopped` is null when
+ *  nothing was running, so a caller never claims to have interrupted
+ *  something. */
 export interface EditHoldTaken {
+  /** This holder's token (#1606). Renewing and releasing with it touch
+   *  this page's hold and nobody else's, and a renewal under it that lands
+   *  after the release is refused rather than putting the hold back. */
+  token: string;
   expiresAt: string;
   stopped: RunningWork | null;
 }
@@ -3474,14 +3482,20 @@ export interface RetndApi {
    * which is what lets edit mode open with no prompt at all.
    */
   getEditHold(source: string, set: string): Promise<EditHoldState>;
-  /** Takes the hold, or renews one already held (the same call: see the
-   *  route's own doc for why a late heartbeat must not be refused).
-   *  Resolves with what it interrupted, or null when nothing was
-   *  running, so a caller never claims to have stopped something. */
+  /** Takes a NEW hold and resolves with its token and what it
+   *  interrupted, or null when nothing was running, so a caller never
+   *  claims to have stopped something. */
   takeEditHold(source: string, set: string): Promise<EditHoldTaken>;
-  /** Leaves edit mode. Every route out of edit mode calls it, and
-   *  releasing a hold that is not held is a success. */
-  releaseEditHold(source: string, set: string): Promise<void>;
+  /** Renews the hold `token` names, and only that one (#1606). Rejects
+   *  with EDIT_HOLD_GONE once that hold was released or lapsed: a renewal
+   *  never creates a hold, so a heartbeat that lands after the release
+   *  cannot put it back. A caller still editing takes a fresh hold. */
+  renewEditHold(source: string, set: string, token: string): Promise<EditHoldTaken>;
+  /** Leaves edit mode. With a token it gives back that hold alone, so
+   *  another tab editing the same set keeps its own; with none it gives
+   *  back every hold on the set. Every route out of edit mode calls it,
+   *  and releasing a hold that is not held is a success. */
+  releaseEditHold(source: string, set: string, token?: string): Promise<void>;
 
   /** Issue #146 (B2.7): the wizard's three Save buttons. */
   createBackupSet(req: CreateBackupSetRequest): Promise<CreatedBackupSet>;
@@ -3693,6 +3707,25 @@ export interface RetndApi {
    * stale screen produces.
    */
   retryFailedIngestion(artifactId: string, note?: string): Promise<void>;
+
+  /**
+   * What retiring a FAILED backup would do (issue #1528): whether its source
+   * object is still there, which newer backup would replace it, the refusal
+   * the action would give and its effects, every sentence the engine's own.
+   * The retire dialog shows this before anybody acts; nothing here is
+   * computed in the browser.
+   */
+  previewRetirement(
+    artifactId: string,
+    ack?: Pick<WireRetireArtifactRequest, "superseded_by" | "no_successor" | "accept_source_present">
+  ): Promise<WireRetirementPreview>;
+
+  /**
+   * Retire one FAILED backup whose source is gone (issue #1528). Rejects
+   * with the preview's refusal codes (RETIRE_SOURCE_PRESENT and the rest)
+   * when the engine says no.
+   */
+  retireArtifact(artifactId: string, request?: WireRetireArtifactRequest): Promise<WireRetireArtifactResponse>;
 
   /**
    * Re-check a quarantined backup's durable local copy and, when what is

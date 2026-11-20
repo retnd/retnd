@@ -242,6 +242,14 @@ var refusingInputs = []refusingInput{
 			return []string{"encryption", "reencrypt", "--suite", "nosuch/v9", "--dry-run", "--config", configPath}
 		},
 	},
+	// #903: EPIC O's settings write. A log level the block does not take is
+	// config.Validate's refusal on both routes, never a quiet no-op on one.
+	{
+		name: "patch the observability block with a log level it does not take",
+		args: func(configPath, _ string) []string {
+			return []string{"settings", "observability", "patch", "--logs-level", "loud", "--config", configPath}
+		},
+	},
 }
 
 func TestARefusalIsTheSameOnBothRoutes(t *testing.T) {

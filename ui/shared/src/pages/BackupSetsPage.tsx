@@ -293,7 +293,7 @@ export function BackupSetsPage({
           open
           onCancel={() => setRemoveTarget(null)}
           onRemoved={() => {
-            setRemoveTarget(null);
+            if (mountedRef.current) setRemoveTarget(null);
             sets.reload();
           }}
         />

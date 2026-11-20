@@ -90,6 +90,11 @@ func cmdBackupSetShow(args []string) int {
 // and a JSON document with a log line in front of it is not one a script
 // can parse.
 func readConfiguredBackupSets(ctx context.Context, configPath string) ([]service.BackupSet, error) {
+	// #1609: before the load, which would otherwise report the pre-0.5.0
+	// mount as a missing file.
+	if err := checkPreRenamePath(configPath); err != nil {
+		return nil, err
+	}
 	cfg, err := config.LoadAndValidate(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("config: %w", err)

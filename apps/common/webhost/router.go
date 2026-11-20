@@ -744,6 +744,14 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// before COMMITTED.
 		r.With(requireCSRF).Post("/backups/{source}/{set}/{name}/retry", h.retryFailedIngestion)
 
+		// Issue #1528: the second way out of FAILED, for a backup whose
+		// source object is gone. CSRF and no destructive gate: it moves a
+		// FAILED row to RETIRED and removes only the leftover .partial,
+		// never a backup copy and never anything on the source. The GET is
+		// the preview the retire dialog reads before anybody acts.
+		r.Get("/backups/{source}/{set}/{name}/retire", h.previewRetirement)
+		r.With(requireCSRF).Post("/backups/{source}/{set}/{name}/retire", h.retireArtifact)
+
 		// EPIC Q (#976): artifact recovery, as its own pair rather than a
 		// seventh POST /operations action, because that route is behind a
 		// destructive gate that never passes in this repository and a
@@ -913,7 +921,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// refuses a bearer here (core/agenttools' deny list), so a token can never
 		// mint, list or revoke a token.
 		r.Get("/agent/tokens", h.listAgentTokens)
-		r.With(requireCSRF, requireMintTransportAck(h.enforce)).Post("/agent/tokens", h.mintAgentToken)
+		r.With(requireCSRF, requireMintTransportAck(h.enforce, "mint an agent token")).Post("/agent/tokens", h.mintAgentToken)
 		r.With(requireCSRF).Post("/agent/tokens/{id}/revoke", h.revokeAgentToken)
 		// The audit trail (#1348): session only for the same reason.
 		r.Get("/agent/audit", h.listAgentAudit)
@@ -1068,7 +1076,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// needs the same acknowledgement an agent-token mint does.
 		r.Get("/settings/observability", h.getObservabilitySettings)
 		r.With(requireCSRF).Patch("/settings/observability", h.updateObservabilitySettings)
-		r.With(requireCSRF, requireMintTransportAck(h.enforce)).Post("/settings/observability/scrape-token", h.mintScrapeToken)
+		r.With(requireCSRF, requireMintTransportAck(h.enforce, "mint a scrape token")).Post("/settings/observability/scrape-token", h.mintScrapeToken)
 		r.Get("/assurance/due", h.listAssuranceDue)
 		// Stop a running scrub or recovery test. Deliberately not under
 		// /operations: that is the destructive gate's, and stopping a read

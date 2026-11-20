@@ -4,7 +4,13 @@
  * `observability.logs.level` is the engine's configured log floor. The
  * environment outranks it (RETND_DEBUG=1, then a LOG_LEVEL that names a
  * level), so the line under the select says which of the two is in force:
- * "why is it not debug" is never a guess. A save takes effect on the next
+ * "why is it not debug" is never a guess.
+ *
+ * The select has a visible label, and that label carries the select's own
+ * tooltip (`observability.logs.level`); the in-force line has its own
+ * (`observability.logs.in-force`), since it states something different: where
+ * the level came from. This is the only place the card shows the level
+ * (#1591 removed the read-only row that repeated it above the select). A save takes effect on the next
  * line with no restart, and it moves the engine only, because the web-ui
  * container has no config.yaml and reads the environment alone.
  *
@@ -13,7 +19,7 @@
  * the list the twin fixture is written from and core/cmd/retnd holds to the
  * levels config.yaml accepts.
  */
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import type { ObservabilitySettings } from "@shared/api/contracts";
@@ -30,6 +36,7 @@ export function LogLevelControl({ logs, readOnly, onSaved }: {
   onSaved: (s: ObservabilitySettings) => void;
 }) {
   const api = useApi();
+  const selectId = useId();
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const mountedRef = useMounted();
@@ -46,15 +53,18 @@ export function LogLevelControl({ logs, readOnly, onSaved }: {
   const overridden = logs.levelSource !== "config" && logs.levelInForce !== logs.level;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }} data-testid="logs-level-control" data-scope="deployment-wide">
+      <label htmlFor={selectId}>
+        <InfoTooltip id="observability.logs.level"><span className="field__label">Log level</span></InfoTooltip>
+      </label>
       <FieldHelp label="Log level" help={FIELD_HELP.observabilityLogsLevel}>
         {(helpId) => (
-          <select className="input" aria-label="Log level" aria-describedby={helpId} value={logs.level}
+          <select id={selectId} className="input" aria-describedby={helpId} value={logs.level}
             disabled={readOnly || saving} onChange={(e) => change(e.target.value)}>
             {LOG_LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
           </select>
         )}
       </FieldHelp>
-      <InfoTooltip id="observability.logs.level" block>
+      <InfoTooltip id="observability.logs.in-force" block>
         <div style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }} data-testid="logs-level-in-force">
           In force: <b className="mono">{logs.levelInForce}</b> (from {logs.levelSource}).
           {overridden ? " The environment is overriding the saved level, so changing it here has no effect until RETND_DEBUG and LOG_LEVEL are unset." : ""}

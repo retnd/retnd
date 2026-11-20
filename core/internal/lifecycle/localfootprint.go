@@ -66,6 +66,9 @@ var StatesHoldingLocalCopy = []State{
 var StatesWithNoLocalCopy = []State{
 	Discovered,
 	Failed,
+	// Retired (issue #1528): retiring removes the leftover .partial, and a
+	// FAILED artifact never had a durable copy to begin with.
+	Retired,
 }
 
 // HoldsLocalCopy reports whether an artifact in state s occupies space on

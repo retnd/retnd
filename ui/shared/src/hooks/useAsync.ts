@@ -16,6 +16,7 @@
  * wrapper by definition cannot show them.
  */
 import { useCallback, useEffect, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { asApiError } from "@shared/api/failure";
 import { reportSessionLost } from "@shared/api/sessionLoss";
 import type { ApiError } from "@shared/api/contracts";
@@ -39,6 +40,7 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[] = []): AsyncSt
   const [error, setError] = useState<ApiError | null>(null);
   const [loading, setLoading] = useState(true);
   const [nonce, setNonce] = useState(0);
+  const mountedRef = useMounted();
 
   // This wrapper's whole job is forwarding a caller-supplied deps array
   // to useCallback, which the newer react-hooks/use-memo rule can't
@@ -90,7 +92,13 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[] = []): AsyncSt
     };
   }, [run, nonce]);
 
-  return { data, error, loading, reload: () => setNonce((n) => n + 1) };
+  // `reload` bumps a counter in the component that called the hook, and a
+  // handler calls it after an await (`.then(() => list.reload())`), so it
+  // checks that component is still there (#1599).
+  const reload = () => {
+    if (mountedRef.current) setNonce((n) => n + 1);
+  };
+  return { data, error, loading, reload };
 }
 
 /**

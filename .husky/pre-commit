@@ -88,7 +88,8 @@
 # then stamps `Local-Gate: red <why>` on the commit, so a reviewer sees why
 # the gate did not run, right in the history. A product file riding along
 # with the red tests is a fix, and the gate exists to run on fixes, so it
-# is refused by name.
+# is refused by name. The red route still runs the former-name scan when a Go
+# test file is staged (#1618): a red commit used to carry the name onto main.
 #
 # --no-verify still exists and nothing can stop it, but it is not the
 # documented route any more: git runs prepare-commit-msg even then, and it
@@ -191,6 +192,18 @@ EOF
     echo "    Commit the red tests on their own with CI_LOCAL_RED, then the fix without it." >&2
     exit 1
   fi
+  # The one check the red route still runs (#1618). A red commit skips the
+  # tier, and the fix that follows it usually touches other files, so a test
+  # file spelling the former name went in here and nothing ever looked at it
+  # again until main was red. The scan is git grep, about a second.
+  case "$staged" in
+    *_test.go*)
+      if ! bash scripts/rename/check-no-former-name.sh; then
+        echo "==> pre-commit: refusing a red commit: a test file spells the former name (#1618). Red tests skip the gate, not this scan." >&2
+        exit 1
+      fi
+      ;;
+  esac
   printf 'red %s %s\n' "$tree" "$reason" >"$marker"
   echo "==> pre-commit: red commit, the gate did not run. Reason: $reason"
   echo "    Only test files are staged, this is $branch, and the commit will carry Local-Gate: red."

@@ -217,6 +217,13 @@ export function RecoverArtifactDialog({
     // password is sent, as for a restore (#1163), and hands the password over
     // for this one request (#1193's review). A second press is ignored.
     const once = kind === "source" ? await source.beforeSubmit() : {};
+    // A dialog that went while the prompt was open starts nothing: nobody
+    // would see the recovery, and the password was meant for the one on
+    // screen (#1599).
+    if (!mountedRef.current) {
+      if (once !== null) source.done();
+      return;
+    }
     if (once === null) return;
     try {
       await mint(once);

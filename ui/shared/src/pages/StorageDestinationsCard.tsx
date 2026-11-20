@@ -97,6 +97,7 @@ export function StorageDestinationsCard({
 }) {
   const api = useApi();
   const mediums = useAsync<StorageMedium[]>(() => api.listStorageMediums(), [api]);
+  const mountedRef = useMounted();
   // The registry, for the configure step's renderer. Read here rather
   // than inside that step so the ONE fact both halves of the add flow
   // need - which backends exist and what each one declares - is read
@@ -109,6 +110,7 @@ export function StorageDestinationsCard({
   // and a row that remembered one and forgot the other is exactly the
   // half-refresh #634 is about.
   function changed() {
+    if (!mountedRef.current) return;
     mediums.reload();
     onChanged?.();
   }
@@ -241,6 +243,7 @@ export function StorageDestinationsCard({
               currentDefault={mediums.data?.find((m) => m.isDefault)?.id ?? null}
               onClose={() => setConfiguring(null)}
               onSaved={() => {
+                if (!mountedRef.current) return;
                 setConfiguring(null);
                 changed();
               }}
@@ -252,6 +255,7 @@ export function StorageDestinationsCard({
             editing={editing}
             onClose={() => setEditing(null)}
             onSaved={() => {
+              if (!mountedRef.current) return;
               setEditing(null);
               changed();
             }}

@@ -1,8 +1,8 @@
 # ADR 0035: Where the observability integrations stop
 
-- Status: accepted for decisions 2 and 5, which landed with O1.1 (#899). Decisions 1, 3 and 4 are
-  decided in the spec and land with O1.3 (#901) and O1.2 (#900); this record is the place they
-  are written down, and #903 confirms them when the epic closes.
+- Status: accepted, all five. Decisions 2 and 5 landed with O1.1 (#899), decision 1 and 4 with
+  O1.3 (#901), decision 3 with O1.2 (#900), and #903 confirmed them against the merged code when
+  the epic closed (2026-11-20).
 - Date: 2026-11-19
 - Scope: EPIC O (#898), FR-99 through FR-104. Recorded under O1.1 (#899) against
   `docs/EPIC-O-observability-integrations.md`.
@@ -71,7 +71,9 @@ The engine answers `/metrics` on its existing listener (`retnd:8080` on the comp
 published `web-ui` port still forwards only `/health/*` and `/api/v1/*`, so the canonical compose
 file and the eleven providers' files change by zero lines.
 
-Rejected: a `/metrics` pass-through in `apps/common/webhost/serve/ui.go`. It needs no compose edit,
+Rejected: a `/metrics` pass-through on the `web-ui` side (since #1570 that would be a
+`mountEngineProxy` row in `uiMounts`, `apps/common/webhost/serve/mounts.go`, which instead answers
+`404` for `/metrics` itself, and a self-test plants the forwarding row). It needs no compose edit,
 but it puts a bearer-protected exposition on the one port published to the LAN, which is a larger
 decision than this epic's. It is a one-line change if a remote scraper is ever needed.
 

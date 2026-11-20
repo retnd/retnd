@@ -44,6 +44,8 @@ var eventNameCases = []struct {
 	{"EventCommit", EventCommit, "commit"},
 	{"EventRemoteDelete", EventRemoteDelete, "remote_delete"},
 	{"EventReconciliation", EventReconciliation, "reconciliation"},
+	{"EventArtifactRetired", EventArtifactRetired, "artifact_retired"},
+	{"EventArtifactUnretired", EventArtifactUnretired, "artifact_unretired"},
 	{"EventRetention", EventRetention, "retention"},
 	{"EventRetentionHold", EventRetentionHold, "retention_hold"},
 	{"EventRetry", EventRetry, "retry"},

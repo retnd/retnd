@@ -246,7 +246,10 @@ export function useSourceRecovery(
       else password.current = "";
       return opts;
     },
-    done: () => { submittingRef.current = false; setSubmitting(false); },
+    done: () => {
+      submittingRef.current = false;
+      if (mountedRef.current) setSubmitting(false);
+    },
     refusal: (code) => {
       const message = sourceHostRefusal(code);
       if (message) {

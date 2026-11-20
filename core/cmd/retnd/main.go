@@ -100,6 +100,7 @@ var commands = map[string]func([]string) int{
 	"medium":          cmdMedium,
 	"storage":         cmdStorage,
 	"retry":           cmdRetry,
+	"retire":          cmdRetire,
 	"restore":         cmdRestore,
 	"recover":         cmdRecover,
 	"snapshot":        cmdSnapshot,
@@ -846,6 +847,14 @@ commands:
                                                   durable local copy is still intact this completes it in place
                                                   instead of re-fetching, and that also forfeits any future remote
                                                   delete, the same as quarantine reinstate (#662)
+  retire <source/backup-set/artifact> [--superseded-by NAME] [--no-successor] [--accept-source-present] [--note T] [--dry-run]
+                                                  retire one FAILED backup whose source is gone, so the set stops
+                                                  counting it as a failure while its record stays (#1528). It asks
+                                                  the source first and refuses while the object is still there
+                                                  (retry it instead) unless you pass --accept-source-present, and
+                                                  refuses with no newer good backup unless you pass --no-successor.
+                                                  The cycle does the safe case on its own: object gone, newer good
+                                                  backup present. --dry-run prints what it would do
   restore <source/backup-set/artifact> --medium M [--days N] --acknowledge
                                                   ask the storage provider to make one archived copy readable again
                                                   (EPIC E, FR-34). --acknowledge is required rather than a --force
@@ -1027,6 +1036,10 @@ commands:
                                                   A hold lives in the memory of the process serving this deployment
                                                   and does not survive it, so this needs a route to that process (a
                                                   remote terminal works too) and refuses without one (#350, #600, #1253)
+                                                  --take prints the hold's token. --take --token T renews that hold
+                                                  and is refused once it was released or has lapsed, rather than
+                                                  taking the set again; --release --token T gives back only that
+                                                  hold, and --release alone gives back every hold on the set (#1606)
   backup-set retention <source/backup-set> [--inherit] [--policy-file F]
                        [--timezone T] [--week-starts-on D]
                        [--daily-days N] [--weekly-months N] [--monthly-months N]
