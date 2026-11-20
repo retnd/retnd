@@ -56,11 +56,13 @@ AGENTACCESS_GO = "apps/common/webhost/agentaccess.go"
 SCRAPE_GO = "core/service/scrape.go"
 CONFIG_GO = "core/internal/config/observability.go"
 COUNTER_GO = "core/internal/metrics/scrape.go"
+MOUNTS_GO = "apps/common/webhost/serve/mounts.go"
 
 WEB_PKG = ("apps/common", ("./webhost/",))
 SERVICE_PKG = ("core", ("./service/",))
 CONFIG_PKG = ("core", ("./internal/config/",))
 METRICS_PKG = ("core", ("./internal/metrics/",))
+SERVE_PKG = ("apps/common", ("./webhost/serve/",))
 
 PLANT = "// PLANTED VIOLATION (scripts/bdtools/observability/selftest.py): "
 
@@ -122,6 +124,28 @@ def expect_passes(
 # Each entry: label, [(file, old, new), ...], needle, where, pattern. Most
 # plant one swap; the recordActions one needs two files moved together.
 MUTATIONS: list[tuple[Any, ...]] = [
+    (
+        "#1568: the engine's serve mux without /metrics, so the real engine answers 404 to every scrape",
+        [(
+            MOUNTS_GO,
+            '\t\tmount{pattern: "/metrics", handler: apiRouter, kind: mountAPIRouter},\n',
+            "\t\t" + PLANT + "the scrape endpoint is never mounted.\n",
+        )],
+        "the engine's mux answers /metrics with its own 404",
+        SERVE_PKG,
+        "TestEngineMounts_1568_|TestEngine_1568_",
+    ),
+    (
+        "#1568, ADR 0035 decision 5: web-ui forwarding /metrics to the engine",
+        [(
+            MOUNTS_GO,
+            '\t\t{pattern: "/metrics", handler: http.NotFoundHandler(), kind: mountNotForwarded},\n',
+            '\t\t{pattern: "/metrics", handler: proxy, kind: mountEngineProxy}, ' + PLANT + "the published port carries the scrape endpoint.\n",
+        )],
+        "which only the engine serves (ADR 0035, decision 5)",
+        SERVE_PKG,
+        "TestEveryAPIMountIsARouterTheGuardWalks$|TestUI_1568_",
+    ),
     (
         "PV1 (O-01): a handler that serves /metrics without consulting the verifier",
         [(HANDLER_GO, VERIFY, "\t" + PLANT + "the verifier is never asked.\n\tif _ = presented; ok && false {\n")],
