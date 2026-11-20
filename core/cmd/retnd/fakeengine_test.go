@@ -345,6 +345,12 @@ func (e *fakeEngine) api(w http.ResponseWriter, r *http.Request, path, token str
 		e.getAssuranceSettings(w, r)
 	case path == "/settings/assurance" && r.Method == http.MethodPatch:
 		e.updateAssuranceSettings(w, r)
+	// EPIC O's settings block (#903), so a refusal can be compared on both
+	// routes: the same service call the real engine's handler makes.
+	case path == "/settings/observability" && r.Method == http.MethodGet:
+		e.getObservabilitySettings(w, r)
+	case path == "/settings/observability" && r.Method == http.MethodPatch:
+		e.updateObservabilitySettings(w, r)
 	case strings.HasPrefix(path, "/backup-sets/") && strings.HasSuffix(path, "/assurance"):
 		e.backupSetAssurance(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/backup-sets/"), "/assurance"))
 	case r.Method == http.MethodGet && path == "/system/version":
@@ -1290,6 +1296,38 @@ func (e *fakeEngine) updateAssuranceSettings(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusOK, assuranceSettingsWire(s))
+}
+
+func (e *fakeEngine) getObservabilitySettings(w http.ResponseWriter, r *http.Request) {
+	s, err := e.svc.ObservabilitySettings(r.Context())
+	if err != nil {
+		refuseServiceError(w, "getObservabilitySettings", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, observabilitySettingsWire(s))
+}
+
+func (e *fakeEngine) updateObservabilitySettings(w http.ResponseWriter, r *http.Request) {
+	var body apicontract.UpdateObservabilitySettingsRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		refuse(w, http.StatusBadRequest, apicontract.ErrorCodeInvalidRequest, err.Error())
+		return
+	}
+	s, err := e.svc.UpdateObservabilitySettings(r.Context(), service.UpdateObservabilitySettingsRequest{
+		MetricsEnabled:            body.MetricsEnabled,
+		MetricsMinRebuildInterval: durationFromSeconds(body.MetricsMinRebuildIntervalSeconds),
+		LogsLevel:                 body.LogsLevel,
+		AlertsDelivery:            body.AlertsDelivery,
+		WebhookDialect:            body.WebhookDialect,
+		WebhookAllowInsecureHTTP:  body.WebhookAllowInsecureHttp,
+		WebhookRefreshInterval:    durationFromSeconds(body.WebhookRefreshIntervalSeconds),
+		WebhookResolveTTL:         durationFromSeconds(body.WebhookResolveTtlSeconds),
+	})
+	if err != nil {
+		refuseServiceError(w, "updateObservabilitySettings", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, observabilitySettingsWire(s))
 }
 
 func (e *fakeEngine) backupSetAssurance(w http.ResponseWriter, r *http.Request, id string) {

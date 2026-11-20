@@ -36,6 +36,46 @@ Worth reading before you upgrade:
   inert. A plaintext `observability.metrics.token` in the file is refused at load. No migration
   of its own: the one migration in this release is 0023 (#1528), at the top of this entry.
 
+- **The log stream is a pinned schema, with a level you can set** (#900, EPIC O). The engine
+  already wrote newline-delimited JSON; now its eight reserved keys (`time`, `level`, `msg`,
+  `event`, `result`, `action`, `action_id`, `backup_set`) are a wire contract held by a golden
+  line, and all 54 event names are pinned. `observability.logs.level` (`debug`, `info`, `warn`,
+  `error`, default `info`) sets the engine's floor from Settings, the CLI or the API without a
+  restart; `RETND_DEBUG` and `LOG_LEVEL` still win, and the settings read says which decided
+  (`config` or `environment`). The `startup` line carries `log_schema` and is written at any
+  level. Promtail and Alloy pipelines label exactly `job`, `instance`, `level` and `schema`, and
+  a real Loki needs `limits_config.discover_service_name: []` to keep it to those four
+  (`docs/observability.md`). Nothing changes on a line you already parse apart from the one new
+  attribute on `startup`.
+
+- **Alerts can go to a webhook, and for the first time reach someone on a shipped deployment**
+  (#901, EPIC O). `observability.alerts.delivery: webhook` posts each alert to a URL kept by
+  reference (`url_ref`: a file, an environment variable or a command), read again at every
+  delivery and never shown, logged or put in an error. Two fixed formats: `generic` (one JSON
+  object per occurrence) and `alertmanager` (the v2 array, re-sent every `refresh_interval` so
+  Alertmanager does not expire a still-true alert, and closed with `endsAt` when it clears).
+  Only https unless `allow_insecure_http` is set, no redirect is followed, and an unreadable URL
+  is an alert on the Settings card and one `alert_destination` line in the feed rather than a
+  silence. Exactly one channel is built either way. **What an existing deployment sees:
+  nothing**: `delivery` defaults to `platform`, which is what alerting did before.
+
+- **Example Grafana dashboards and an observability bundle** (#902, EPIC O).
+  `container/observability/` is a Prometheus, Alertmanager, Loki, Promtail or Alloy, and Grafana
+  stack for one deployment, with two dashboards and alerting rules. It is an example, not a
+  supported deployment: nothing installs it, and the canonical compose file and every provider's
+  file are unchanged. A gate step fails on any metric, label or Loki field a dashboard or rule
+  names that the product does not emit.
+
+- **EPIC O's closing check, its no-secret corpus and the conformance matrix** (#903). One test
+  run loads a deployment with a repository passphrase, an S3 secret key, a scrape token, a
+  webhook credential and (where an engine could see one, since it holds none) an SMTP password,
+  runs a cycle, scrapes and delivers an alert, and fails
+  per surface (the exposition, the log, the webhook request) if any of the five reaches it.
+  `scripts/release/check-epic-o-closed.sh` refuses a moved canonical deployment, any migration, a
+  BLOCKED matrix row or an unticked exit-gate box. The shipped Promtail and Alloy pipelines now
+  run in the gate. The whole epic adds one top-level key to `config.yaml`, `observability:`, and
+  that is the one one-way door: an older build refuses a file that has it.
+
 ### Fixed
 
 - **`GET /metrics` answers on the real engine, and the token command prints only the token**

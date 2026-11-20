@@ -804,6 +804,18 @@ bash scripts/tests/epic-u-closure.test.sh
 # run in the same go test. No containers, no browser, no network.
 gate_step "every retnd_* name, label and Loki field a shipped dashboard or rule names is one retnd emits, and the guard can still fail (#902)"
 bash scripts/observability/check-dashboard-metrics.sh
+
+# EPIC O's closing check (#903), the same shape as N, T and U's: the canonical
+# deployment is an empty diff against 89af3d93 (/metrics is on the listener the
+# engine already had, and the bundle is an example), core/migrations has not
+# moved at all (EPIC O stores nothing in the journal), no row of
+# docs/conformance/epic-o-matrix.md is BLOCKED and every exit-gate box in the
+# spec is ticked. This drives the real script against throwaway repositories,
+# one planted violation per guard and four controls. The matrix half in closing
+# mode is core/tests/observabilitygate, which runs with the core suite below in
+# open mode and carries its own lie table. No containers, no browser, no network.
+gate_step "the EPIC O closing check refuses a moved canonical deployment, any migration, a BLOCKED row or an unticked exit-gate box, and can still fail (#903)"
+bash scripts/tests/epic-o-closure.test.sh
 }
 
 gate_seg_core_build() {
@@ -907,6 +919,16 @@ if [ "$FAST" != "1" ]; then
   # window (45s here) still catches a stall; only the overall backstop moves.
   gate_docker_step "core/ tests/crashmatrix + tests/sftpintegration + tests/sshexecintegration + tests/miniointegration + tests/conformance + tests/machinegate + tests/containerhooks under gotestwatch, -race (issue #256: no fixed go test -timeout)"
   (cd core && GOWORK=off go run ./cmd/gotestwatch -overall-floor 12m -- -race -count=1 ./tests/crashmatrix/... ./tests/sftpintegration/... ./tests/sshexecintegration/... ./tests/miniointegration/... ./tests/conformance/... ./tests/machinegate/... ./tests/containerhooks/...)
+
+  # EPIC O's shipped log pipelines, executed rather than read (#900, #903,
+  # matrix row O-08): the real Promtail 3.2.1 and Alloy 1.5.1 images run over a
+  # log file the real logger wrote, and the label set they push has to be
+  # exactly job, instance, level and schema. Its control (a config promoting
+  # action_id) runs in the same go test. It needs this daemon, which is why it
+  # sits here with the other Docker-backed suites; it fails rather than skips
+  # without one.
+  gate_docker_step "the shipped Promtail and Alloy pipelines label exactly job, instance, level and schema (#903)"
+  bash scripts/observability/log-pipeline.sh
 fi
 }
 

@@ -941,8 +941,8 @@ The one published port is the Web UI's (`LISTEN_PORT`, 8080 by default), and it 
 (`/metrics`, off until you turn it on with `retnd settings observability patch
 --metrics-enabled`) is served by the engine on its own listener, which is on the
 deployment's internal compose network and is never published, so `curl
-http://<nas>:8080/metrics` gets the Web UI's own page back (it serves its single-page app
-for every path it does not forward), not the exposition. That is by design. A Prometheus reaches it by
+http://<nas>:8080/metrics` gets a `404` from the Web UI, which answers that one path
+itself rather than serving its single-page app for it, not the exposition. That is by design. A Prometheus reaches it by
 joining that network (`retnd_internal`) or through a reverse proxy you run. The installer
 adds no port for it and writes nothing for it: `container/observability/` holds an example
 Prometheus, Grafana, Loki and Alertmanager bundle that does the joining, and it is an

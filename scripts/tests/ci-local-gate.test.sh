@@ -397,7 +397,7 @@ make_full_tree() {
   for t in first-run-report pin-on-main every-module-builds-on-its-own \
     release-refuses-an-ungated-publish local-gate-reference \
     release-moves-latest two-machine-ci-verdict record-published-release \
-    publish-image-guards published-provenance-guards epic-n-closure epic-t-closure epic-u-closure; do
+    publish-image-guards published-provenance-guards epic-n-closure epic-t-closure epic-u-closure epic-o-closure; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$t.test.sh"
   done
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/closure-no-pipe-grep-q.test.sh"
@@ -469,6 +469,8 @@ make_full_tree() {
   # apps/common in each copy.
   mkdir -p "$tree/scripts/observability"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/observability/selftest.sh"
+  # And EPIC O's log pipeline run (#903), which pulls two images and runs them.
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/observability/log-pipeline.sh"
 
   # The encryption (EPIC N and T, #1531) and agent (EPIC U, #1530) mutation
   # self-tests, stubbed for the reason above: each copies the tree for every
