@@ -280,7 +280,7 @@ def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | 
         print(f"OK: all {tally.passed} agents controls went red naming their test and green again unplanted.")
         if skip_code:
             print(f"INCOMPLETE: {len(skipped)} controls were not run on this host (listed above).", file=sys.stderr)
-            return harness.EXIT_INCOMPLETE
+            return harness.EXIT_CANNOT_RUN
     return harness.EXIT_OK
 
 
