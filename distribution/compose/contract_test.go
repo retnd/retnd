@@ -689,24 +689,17 @@ func TestEveryComposeArtifactInTheTreeIsRegistered(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------
-// Roles come from the command, never from the service name
-// ---------------------------------------------------------------------
-
-// TestServiceRolesAreDerivedFromTheCommand pins the one design decision
-// the rest of this package rests on. Every per-role rule (which mounts,
-// which ports, which health check) resolves a role first, and if that
-// resolution keyed on the service name then renaming a service in an
-// adapter would silently exempt it from all of them rather than fail.
-// So the rename is the control: the same two services under different
-// names have to come back with the same two roles.
 // TestTheExemptObservabilityBundleDeclaresNoRetndService is the other half of
 // the exemption above (#1622). The exemption is only honest while the bundle
 // stays a Prometheus, Loki and Grafana example. If someone adds a retnd
 // service to it, it becomes a real deployment file that the runtime contract
 // never looks at, so this fails and says to register it instead. "A retnd
 // service" is read two ways: a service the canonical file also declares, and
-// a service whose name, image or container name spells the product.
+// a service whose name, image or container name spells the product. It is a
+// tripwire, not a proof: it does not follow a top-level include: or a service
+// extends:, and a retnd service given a neutral name and image would pass.
+// The registration test above is what catches a new file; this one catches
+// the obvious edit to the exempt one.
 func TestTheExemptObservabilityBundleDeclaresNoRetndService(t *testing.T) {
 	t.Parallel()
 
@@ -745,6 +738,17 @@ func TestTheExemptObservabilityBundleDeclaresNoRetndService(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------
+// Roles come from the command, never from the service name
+// ---------------------------------------------------------------------
+
+// TestServiceRolesAreDerivedFromTheCommand pins the one design decision
+// the rest of this package rests on. Every per-role rule (which mounts,
+// which ports, which health check) resolves a role first, and if that
+// resolution keyed on the service name then renaming a service in an
+// adapter would silently exempt it from all of them rather than fail.
+// So the rename is the control: the same two services under different
+// names have to come back with the same two roles.
 func TestServiceRolesAreDerivedFromTheCommand(t *testing.T) {
 	t.Parallel()
 

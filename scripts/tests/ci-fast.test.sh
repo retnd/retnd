@@ -403,6 +403,37 @@ fx "$fix" CI_LOCAL_RED="#1622: red tests for the scan" -- git commit -qm "red"
 assert_nonzero "B3d a staged foo.test.ts spelling the name is refused on the red route" "$status"
 assert_contains "B3d and the file is named" 'ui/shared/src/foo.test.ts:1' "$out"
 
+# B3e (#1622): in a hook, `git commit -a` and `git commit -- <paths>` commit
+# from a temporary index (GIT_INDEX_FILE), and the real .git/index still holds
+# the old blob. The scan has to read the index being committed, so an edited
+# tracked test file spelling the name is refused on both, and a clean edit is
+# not. Real script, fast tier.
+for mode in all paths; do
+  for variant in hit clean; do
+    fix="$(make_repo)"; real_scan "$fix"
+    (cd "$fix" && printf 'package a\n' >core/internal/a/a_test.go && git add core/internal/a/a_test.go \
+      && git -c core.hooksPath=/dev/null commit -qm "base test")
+    if [ "$variant" = hit ]; then
+      (cd "$fix" && printf 'package a\n// %s\n' "$former" >core/internal/a/a_test.go)
+    else
+      (cd "$fix" && printf 'package a\n\nvar X = 1\n' >core/internal/a/a_test.go)
+    fi
+    if [ "$mode" = all ]; then
+      fx "$fix" -- git commit -qam "edit"
+    else
+      fx "$fix" -- git commit -qm "edit" -- core/internal/a/a_test.go
+    fi
+    if [ "$variant" = hit ]; then
+      assert_nonzero "B3e (commit $mode) an unstaged edit that spells the name is refused" "$status"
+      assert_contains "B3e (commit $mode) and the file is named" 'core/internal/a/a_test.go:2' "$out"
+      assert_eq "B3e (commit $mode) and no commit was made" 2 "$(commit_count "$fix")"
+    else
+      assert_eq "B3e (commit $mode) a clean edit goes through" 0 "$status"
+      assert_eq "B3e (commit $mode) and the commit was made" 3 "$(commit_count "$fix")"
+    fi
+  done
+done
+
 # B4: CI_LOCAL_FULL=1 runs the full gate, and a green full run leaves no
 # trailer (the only thing that does).
 fix="$(make_repo)"
