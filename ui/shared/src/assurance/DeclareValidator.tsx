@@ -125,6 +125,9 @@ export function DeclareValidator({
           returnFocus={opener}
           onClose={() => setOpen(false)}
           onSaved={({ validator }) => {
+            // The dialog calls this after its request answers, and this card
+            // can have gone by then (#1599).
+            if (!mountedRef.current) return;
             setOpen(false);
             setSaid(
               "Uploaded " + validator.name + ". It checks backups named like " + validator.pattern + " in " +

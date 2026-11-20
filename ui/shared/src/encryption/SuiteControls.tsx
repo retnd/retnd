@@ -242,7 +242,10 @@ export function SuiteChangeFlow({
         eyebrow="Retained-copy encryption"
         header={<StepStrip now="bundle" />}
         onCancel={cancel}
-        onDone={() => { onChanged(); setStep("confirm"); }}
+        onDone={() => {
+          onChanged();
+          if (mountedRef.current) setStep("confirm");
+        }}
       />
     );
   }
