@@ -7,7 +7,7 @@
     },
     {
       "path": "ui/shared/src/assurance/assuranceCommands.ts",
-      "sha256": "6427846445035d39e5c8569016d86e56151e224bb5b734fad2a6fa2b6a1927c2"
+      "sha256": "d8a89cfbf412f7b67f5289b9cae9615b6e38af7a3d8ad2300531bade480b0afe"
     },
     {
       "path": "ui/shared/src/assurance/validatorCommands.ts",
@@ -23,7 +23,7 @@
     },
     {
       "path": "ui/shared/src/observability/observabilityCommands.ts",
-      "sha256": "c2a816e5d56be61a43496c3f6a1a335b292ba8a4e4afefd152d702fcf68fd9b4"
+      "sha256": "c008c1137c5bb01e1a7e1b92e1826761b709a153f823024b3f8572b8e7075108"
     },
     {
       "path": "ui/shared/src/pages/destinationConfigureCommands.ts",
@@ -39,7 +39,7 @@
     },
     {
       "path": "ui/shared/src/test/cliTwins.test.ts",
-      "sha256": "649fd72b0ed6bdfeeaae9f0758d2b7306ceb0d607ad6dc7ada9c20f572cdc517"
+      "sha256": "5d324763466bb160cc38f688309337f43875c0f4473ca70a445f9b0088db23e0"
     }
   ],
   "twins": [
@@ -132,6 +132,12 @@
       "fn": "retryCommand",
       "case": "one backup",
       "line": "retnd retry api-server/var-backups/dump-2026-10-01.tar.gz"
+    },
+    {
+      "module": "assurance/assuranceCommands",
+      "fn": "retireCommand",
+      "case": "one backup",
+      "line": "retnd retire api-server/var-backups/dump-2026-10-01.tar.gz"
     },
     {
       "module": "assurance/assuranceCommands",
@@ -750,6 +756,30 @@
       "fn": "mintScrapeTokenCommand",
       "case": "the mint",
       "line": "retnd settings observability rotate-scrape-token"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "logsLevelCommand",
+      "case": "the debug floor",
+      "line": "retnd settings observability patch --logs-level debug"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "logsLevelCommand",
+      "case": "the info floor",
+      "line": "retnd settings observability patch --logs-level info"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "logsLevelCommand",
+      "case": "the warn floor",
+      "line": "retnd settings observability patch --logs-level warn"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "logsLevelCommand",
+      "case": "the error floor",
+      "line": "retnd settings observability patch --logs-level error"
     },
     {
       "module": "pages/destinationConfigureCommands",

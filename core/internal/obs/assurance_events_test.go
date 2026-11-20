@@ -10,18 +10,22 @@ import (
 // EPIC Q, Q1.4 (#982): FR-23 catalog additions for scrubbing, recovery and
 // recovery testing. Additions only; the wire names below are a contract.
 
+// assuranceNameCases is package-level so schema_test.go can hold it, with
+// eventNameCases, against every Event* constant the package declares.
+var assuranceNameCases = map[string][2]string{
+	"EventRecoveryStart":                 {EventRecoveryStart, "recovery_start"},
+	"EventRecoveryStage":                 {EventRecoveryStage, "recovery_stage"},
+	"EventRecoveryEnd":                   {EventRecoveryEnd, "recovery_end"},
+	"EventRecoveryTestStart":             {EventRecoveryTestStart, "recovery_test_start"},
+	"EventRecoveryTestEnd":               {EventRecoveryTestEnd, "recovery_test_end"},
+	"EventRecoveryTestValidatorFallback": {EventRecoveryTestValidatorFallback, "recovery_test_validator_fallback"},
+	"EventRecoveryTestValidatorEdited":   {EventRecoveryTestValidatorEdited, "recovery_test_validator_edited"},
+	"ActionRecovery":                     {ActionRecovery, "recovery"},
+	"ActionRecoveryTest":                 {ActionRecoveryTest, "recovery_test"},
+}
+
 func TestAssuranceEventNamesAreStable(t *testing.T) {
-	for name, pair := range map[string][2]string{
-		"EventRecoveryStart":                 {EventRecoveryStart, "recovery_start"},
-		"EventRecoveryStage":                 {EventRecoveryStage, "recovery_stage"},
-		"EventRecoveryEnd":                   {EventRecoveryEnd, "recovery_end"},
-		"EventRecoveryTestStart":             {EventRecoveryTestStart, "recovery_test_start"},
-		"EventRecoveryTestEnd":               {EventRecoveryTestEnd, "recovery_test_end"},
-		"EventRecoveryTestValidatorFallback": {EventRecoveryTestValidatorFallback, "recovery_test_validator_fallback"},
-		"EventRecoveryTestValidatorEdited":   {EventRecoveryTestValidatorEdited, "recovery_test_validator_edited"},
-		"ActionRecovery":                     {ActionRecovery, "recovery"},
-		"ActionRecoveryTest":                 {ActionRecoveryTest, "recovery_test"},
-	} {
+	for name, pair := range assuranceNameCases {
 		if pair[0] != pair[1] {
 			t.Errorf("%s = %q, want %q (renaming a catalog name is a breaking change)", name, pair[0], pair[1])
 		}

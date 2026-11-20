@@ -47,6 +47,9 @@ const (
 	// way a test can put a broken state directory in front of this
 	// binary's own startup.
 	serveChildStateDB = "RETND_WEB_TEST_SERVE_STATE_DB"
+	// serveChildListen is optional too: a test that talks to the child over
+	// HTTP names the address, since port 0 is never printed back.
+	serveChildListen = "RETND_WEB_TEST_SERVE_LISTEN"
 )
 
 // serveShutdownNotice is the line `serve` prints once its own shutdown
@@ -76,10 +79,14 @@ func TestServeChildProcess(t *testing.T) {
 	if os.Getenv(serveChildEnv) != "1" {
 		t.Skip("child-process entry point: only runs when a parent test re-executes this binary")
 	}
+	listen := os.Getenv(serveChildListen)
+	if listen == "" {
+		listen = "127.0.0.1:0"
+	}
 	args := []string{
 		"serve",
 		"--config", os.Getenv(serveChildConfig),
-		"--listen", "127.0.0.1:0",
+		"--listen", listen,
 		"--auth-store", os.Getenv(serveChildAuthStore),
 	}
 	if db := os.Getenv(serveChildStateDB); db != "" {

@@ -274,6 +274,13 @@ func FinalArtifactPath(localDir string, artifact model.ArtifactID) (string, erro
 	return finalPath(localDir, artifact)
 }
 
+// PartialArtifactPath is partialPath exported for internal/app's retirement
+// (issue #1528), which removes a retired artifact's leftover .partial and
+// must name exactly the file Transfer writes, never the final copy beside it.
+func PartialArtifactPath(localDir string, artifact model.ArtifactID) (string, error) {
+	return partialPath(localDir, artifact)
+}
+
 // Transfer runs FR-11's copy step for one artifact: it records TRANSFERRING
 // with the .partial destination, copies the remote object to that
 // destination through Transport.CopyToLocal (retried under Policy for

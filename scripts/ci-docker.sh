@@ -222,6 +222,17 @@ vol_prefix="rcm-ci-u${ci_uid}"
 # they already are; remotely it is the scratch copy made here.
 run_repo="$repo"
 run_git="$git_common"
+# The gate's stall watchdog keeps each host's step durations under that
+# host's name (#1540), and a container's own hostname is its id, new every
+# run. So the container is named for the machine its daemon runs on, and a
+# remote run's record comes back here afterwards (cleanup), so the next copy
+# carries it out again.
+if [ -n "$target" ]; then
+  gate_host_id="${target#*@}"
+else
+  gate_host_id="$(hostname -s 2>/dev/null || hostname)"
+fi
+gate_host_id="ci-docker-$(printf '%s' "$gate_host_id" | tr -c 'A-Za-z0-9.-' '-')"
 built_here=0
 have_image=0
 mount_ok=0
@@ -237,6 +248,15 @@ cleanup() {
     # The container the command ran in, by name, before its scratch directory
     # goes: a dropped ssh session can leave it running on the host (#1375).
     docker rm -f "$scratch_name" >/dev/null 2>&1
+    # The step durations this run recorded, back into this checkout's git dir
+    # before the copy goes (#1540). Only a non-empty answer replaces the old.
+    rec_name="ci-local-step-durations.$gate_host_id"
+    "${rsh[@]}" "$target" "cat '$run_git/$rec_name' 2>/dev/null" >"$git_common/$rec_name.$$" 2>/dev/null
+    if [ -s "$git_common/$rec_name.$$" ]; then
+      mv -f "$git_common/$rec_name.$$" "$git_common/$rec_name"
+    else
+      rm -f "$git_common/$rec_name.$$"
+    fi
     # From inside a container: the gate's containers write into the copy
     # (mount points, build output) and the host account may not own that.
     # Not when the daemon saw the copy as empty: a container would then
@@ -465,7 +485,7 @@ esac
 if [ "$d_swap" = false ]; then
   printf 'ci-docker: WARNING the daemon cannot limit swap (SwapLimit=false), so the memory limit does not stop a run from swapping the host\n' >&2
 fi
-fence=(--memory "$gate_mem" --memory-swap "$gate_mem" --cpus "$gate_cpus" --pids-limit 4096)
+fence=(--memory "$gate_mem" --memory-swap "$gate_mem" --cpus "$gate_cpus" --pids-limit 4096 --hostname "$gate_host_id")
 [ -n "$git_common" ] && [ -d "$git_common" ] && mounts+=(-v "$run_git:$run_git")
 
 # node_modules never comes from the host, and this is not an
@@ -557,6 +577,25 @@ if [ "$share_host" = 1 ]; then
   say "sharing the daemon host's network and /tmp with the container (CI_DOCKER_SHARE_HOST=0 turns it off)"
   as_user+=(--network host)
   mounts+=(-v /tmp:/tmp)
+  # TMPDIR on disk, in the scratch copy, when the shared /tmp is tmpfs (#1580).
+  # MARS's is: whatever a self-test writes there is memory charged to this
+  # container's fence, which cannot be swapped out, and the architecture
+  # self-test's tree copies took the gate past 7g that way. Same path inside
+  # and out, so a test that bind-mounts a temp directory into a sibling
+  # container still names a path the daemon can find. /tmp itself stays
+  # shared: the tests that need a short root for a unix socket ask for /tmp
+  # by name, not through TMPDIR. Only on a tmpfs /tmp, and only remotely: on
+  # a colima host (MERCURY) the probe asks the Mac, whose /tmp is on disk,
+  # and leaves TMPDIR alone, because there the scratch copy reaches the VM
+  # through the Mac's file share, where a test that makes a named pipe would
+  # skip rather than fail. The probe makes the
+  # directory as the remote account and says "tmpfs" only when it did; it
+  # goes with the rest of the scratch copy on exit.
+  if [ -n "$target" ] && [ "$("${rsh[@]}" "$target" "if [ \"\$(stat -f -c %T /tmp 2>/dev/null)\" = tmpfs ]; then umask 022 && mkdir -p '$remote_root/tmp' && echo tmpfs; fi" 2>/dev/null || true)" = tmpfs ]; then
+    say "the daemon host's /tmp is tmpfs, so TMPDIR is $remote_root/tmp, on disk"
+    mounts+=(-v "$remote_root/tmp:$remote_root/tmp")
+    xdg_env+=("TMPDIR=$remote_root/tmp")
+  fi
 fi
 
 # A named volume that shadows a path the IMAGE does not have is created

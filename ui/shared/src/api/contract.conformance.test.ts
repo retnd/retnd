@@ -367,6 +367,8 @@ describe("every request the shared client makes is a declared operation", () => 
       ["revalidate", () => httpApi.revalidate("src/set-1/a.tar.gz")],
       ["retryIngestion", () => httpApi.retryIngestion("src/set-1/a.tar.gz")],
       ["retryFailedIngestion", () => httpApi.retryFailedIngestion("src/set-1/a.tar.gz", "the NAS came back")],
+      ["previewRetirement", () => httpApi.previewRetirement("src/set-1/a.tar.gz", { accept_source_present: true })],
+      ["retireArtifact", () => httpApi.retireArtifact("src/set-1/a.tar.gz", { note: "the host deleted it" })],
       ["reinstate", () => httpApi.reinstate("src/set-1/a.tar.gz")],
       // EPIC K's ten calls (issue #788): six reads, the operation read
       // beside them, and the four snapshot actions. Every one is listed
