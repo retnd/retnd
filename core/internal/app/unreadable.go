@@ -27,77 +27,63 @@ import (
 //
 // The record only ever describes a set that is configured and being looked
 // at (the review of #1551). A reload drops the sets the new configuration
-// no longer names, so a set re-added under the same id starts clean. And
-// each set remembers when a pass last ran discovery on it: once that is
-// older than unreadableFreshFor, nothing is reported, and the next pass
-// that does look starts the clock again. Otherwise a disabled set, or one
-// whose passes fail before discovery, would keep ageing a warning that
-// blames the producer for something no pass has checked.
-
-// unreadableSet is one set's record: the unreadable files with when each
-// was first seen, and when a pass last ran discovery on the set.
-type unreadableSet struct {
-	files   map[string]time.Time
-	checked time.Time
-}
+// no longer names, so a set re-added under the same id starts clean. And it
+// is kept by passes, not by the clock: every pass that runs discovery on
+// the set carries the first-seen times forward however long after the last
+// one it ran (one cycle runs its sets in turn, transfers included, so a set
+// can be reached well after its poll interval), and a pass that ends
+// without running discovery, or a cycle that skips the set as disabled or
+// held, drops the record. Otherwise a set nobody is discovering would keep
+// ageing a warning that blames its producer for something no pass checked.
 
 // unreadableSources is the per-set record. It has its own lock because the
 // cycle writes it while the alerting goroutine's health report reads it,
 // and a reload shares the pointer between two Services.
 type unreadableSources struct {
 	mu    sync.Mutex
-	bySet map[model.BackupSetID]*unreadableSet
-}
-
-// unreadableFreshFor is how long after the last pass that ran discovery a
-// set's record is still reported: two of its poll intervals, so one late
-// or failed pass does not blank it, with a floor of two of the shortest
-// interval a configuration can set, for a Service built without one.
-func (s *Service) unreadableFreshFor(bs config.BackupSet) time.Duration {
-	return max(2*s.Config.EffectivePollInterval(bs), 2*config.MinPollInterval)
+	bySet map[model.BackupSetID]map[string]time.Time
 }
 
 // observe replaces set's record with what this discovery pass found
-// unreadable. A file still there keeps its first-seen time, but only when
-// the previous pass that looked is itself within fresh: after a gap nobody
-// was watching, the clock starts again at this pass. A file the pass
+// unreadable. A file still there keeps its first-seen time; a file the pass
 // admitted, or that has gone, drops out, which is the whole of how the
 // warning clears.
-func (u *unreadableSources) observe(set model.BackupSetID, res discovery.Result, now time.Time, fresh time.Duration) {
+func (u *unreadableSources) observe(set model.BackupSetID, res discovery.Result, now time.Time) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	var carried map[string]time.Time
-	if prev := u.bySet[set]; prev != nil && now.Sub(prev.checked) <= fresh {
-		carried = prev.files
-	}
+	prev := u.bySet[set]
 	next := make(map[string]time.Time)
 	for _, p := range res.Pending {
 		if !p.Unreadable {
 			continue
 		}
-		if seen, ok := carried[p.RemotePath]; ok {
+		if seen, ok := prev[p.RemotePath]; ok {
 			next[p.RemotePath] = seen
 		} else {
 			next[p.RemotePath] = now
 		}
 	}
 	if u.bySet == nil {
-		u.bySet = make(map[model.BackupSetID]*unreadableSet)
+		u.bySet = make(map[model.BackupSetID]map[string]time.Time)
 	}
-	u.bySet[set] = &unreadableSet{files: next, checked: now}
+	u.bySet[set] = next
 }
 
-// pending is set's record as health reads it, oldest first, or nothing
-// when no pass has run discovery on the set within fresh.
-func (u *unreadableSources) pending(set model.BackupSetID, now time.Time, fresh time.Duration) []health.PendingUnreadable {
+// forget drops set's record: a pass ended without running discovery on it,
+// or the cycle skipped it, so nothing current can be said about its files,
+// and the next pass that does look starts the clock again.
+func (u *unreadableSources) forget(set model.BackupSetID) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	rec := u.bySet[set]
-	if rec == nil || now.Sub(rec.checked) > fresh {
-		return nil
-	}
-	out := make([]health.PendingUnreadable, 0, len(rec.files))
-	for path, seen := range rec.files {
+	delete(u.bySet, set)
+}
+
+// pending is set's record as health reads it, oldest first.
+func (u *unreadableSources) pending(set model.BackupSetID) []health.PendingUnreadable {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	out := make([]health.PendingUnreadable, 0, len(u.bySet[set]))
+	for path, seen := range u.bySet[set] {
 		out = append(out, health.PendingUnreadable{RemotePath: path, FirstSeen: seen})
 	}
 	sort.Slice(out, func(i, j int) bool {

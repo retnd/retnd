@@ -321,6 +321,9 @@ sourcesLoop:
 			// `sources`/GET /backup-sets) without ever being acted on,
 			// until an operator re-enables it.
 			if bs.Disabled {
+				// Issue #1541: nothing is looking at its source, so
+				// what was unreadable there is no longer known.
+				s.unreadableState().forget(bs.ID)
 				continue
 			}
 			// A backup set held for editing (issue #350) is skipped for
@@ -331,6 +334,7 @@ sourcesLoop:
 			// would be the same race with extra steps. Unlike Disabled
 			// this is not persisted anywhere; see holds.go.
 			if holds := BackupSetHoldsFrom(ctx); holds != nil && holds.Held(bs.ID.String()) {
+				s.unreadableState().forget(bs.ID) // #1541, as for a disabled set
 				continue
 			}
 			// Issue #845's per-set cadence. On a SCHEDULED wake a set
@@ -425,6 +429,17 @@ sourcesLoop:
 func (s *Service) processBackupSet(ctx context.Context, src config.Source, bs config.BackupSet) BackupSetCycleResult {
 	result := BackupSetCycleResult{Set: bs.ID}
 	source := sourceFor(s.Config, src, bs)
+
+	// Issue #1541: a pass that ends before discovery ran (a stop, the host
+	// slot, a reconcile error, an engine that runs no discovery) says
+	// nothing current about which source files are unreadable, so the
+	// set's record goes and the next pass that does look starts again.
+	reachedDiscovery := false
+	defer func() {
+		if !reachedDiscovery {
+			s.unreadableState().forget(bs.ID)
+		}
+	}()
 
 	// From here on this set runs on its own context, cancelled the moment
 	// an edit hold lands on it (issue #350, holds.go). Every ctx.Err()
@@ -579,6 +594,7 @@ func (s *Service) processBackupSet(ctx context.Context, src config.Source, bs co
 		return result
 	}
 	discRes, err := s.discoverOne(ctx, source, bs)
+	reachedDiscovery = err == nil
 	result.Discovery = discRes
 	discovered, alreadyKnown, pending, rejected, conflicts, errored := eventDiscoveryCounts(discRes)
 	s.logger().Discovery(ctx, bs.ID.String(), discovered, alreadyKnown, pending, rejected, conflicts, errored)

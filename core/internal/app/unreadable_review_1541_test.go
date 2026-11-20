@@ -30,8 +30,8 @@ func unpublishedForge(t *testing.T) (*unpublishedTransport, func(disabled bool) 
 		bs := testBackupSet(t, local)
 		bs.StaleAfter = mustParseDuration(t, "24h")
 		bs.Disabled = disabled
-		// Polled hourly, so passes an hour apart carry a file's first-seen
-		// time and a longer silence does not.
+		// Polled hourly. A file's first-seen time is carried by every pass
+		// that runs discovery, and dropped by one that does not.
 		cfg := testConfig(t, testSource("production", bs))
 		cfg.PollInterval = config.Duration(time.Hour)
 		return New(cfg, journal, tr, nil)

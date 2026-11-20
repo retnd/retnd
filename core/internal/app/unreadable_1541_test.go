@@ -94,9 +94,7 @@ func adoptUnreadable(t *testing.T, next, prev *Service) {
 }
 
 // dailyPolled is the forge set as it runs: polled once a day, so a pass 25
-// or 30 hours after the last one is the next pass rather than a gap nobody
-// was watching (an unreadable file's record is only carried between passes
-// that are within two poll intervals of each other).
+// or 30 hours after the last one is simply the next pass.
 func dailyPolled(t *testing.T, bs config.BackupSet) *config.Config {
 	t.Helper()
 	cfg := testConfig(t, testSource("production", bs))

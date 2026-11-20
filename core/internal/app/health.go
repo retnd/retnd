@@ -187,11 +187,11 @@ func (s *Service) BuildHealthReport(ctx context.Context, versionInfo VersionInfo
 				Snapshot: s.snapshotHealth(ctx, bs, unfinishedSnapshots),
 			}
 			// Issue #1541: complete source files the last pass could not
-			// open, in memory like LastSuccessfulPollAt above, and only for
-			// a set that is being discovered: a disabled set is never
-			// looked at, so it has nothing current to say.
+			// open, in memory like LastSuccessfulPollAt above. A disabled
+			// set is never looked at, so it has nothing current to say,
+			// even before the next cycle skips it and drops its record.
 			if !bs.Disabled {
-				in.PendingUnreadable = s.unreadableState().pending(bs.ID, now, s.unreadableFreshFor(bs))
+				in.PendingUnreadable = s.unreadableState().pending(bs.ID)
 			}
 			if stat, statErr := capacity.StatPath(bs.LocalPath); statErr == nil {
 				free := stat.AvailableBytes

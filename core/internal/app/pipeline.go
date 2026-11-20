@@ -69,11 +69,13 @@ func (s *Service) discoverOne(ctx context.Context, source transport.Source, bs c
 		res, err = discovery.Discover(ctx, deps, source, bs)
 		return err
 	})
-	// Issue #1541. Only a pass that listed the source says anything about
-	// which files are unreadable; a failed one leaves the record as it
-	// was rather than clearing a warning nobody has checked.
+	// Issue #1541. A pass that listed the source says which files are
+	// unreadable now. One that could not list it says nothing current, so
+	// the record goes rather than ageing a warning nobody has checked.
 	if err == nil {
-		s.unreadableState().observe(bs.ID, res, s.now(), s.unreadableFreshFor(bs))
+		s.unreadableState().observe(bs.ID, res, s.now())
+	} else {
+		s.unreadableState().forget(bs.ID)
 	}
 	return res, err
 }
