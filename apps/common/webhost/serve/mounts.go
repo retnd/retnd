@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+
+	"github.com/retnd/retnd/core/cliecho"
 )
 
 // Every serve mux this package builds, as data (#1253).
@@ -18,6 +20,13 @@ import (
 // (TestOnlyNewMuxBuildsAServeMux), and mountProblems holds the lists to
 // the rule: anything under /api or /health is a router the guard walks,
 // or a proxy to an engine whose own mounts are.
+//
+// The one other kind of path the engine serves is a root route listed in
+// cliecho.RootRoutesOutsideAPI, the list every route guard in
+// apps/common/webhost reads (today that is GET /metrics, #899). The engine
+// mounts each one at its exact path with the API router, which registers it,
+// and the UI answers it 404 itself rather than forward it or let the static
+// bundle's fallback hand it index.html (ADR 0035, decision 5; #1568).
 
 // mountKind is what answers a mount, in the guard's terms.
 type mountKind int
@@ -32,6 +41,9 @@ const (
 	mountEngineProxy
 	// mountStatic is the UI bundle, with no API route behind it.
 	mountStatic
+	// mountNotForwarded is the UI's 404 for a root route the engine serves
+	// and the UI deliberately does not forward.
+	mountNotForwarded
 )
 
 // authPrefix is where the auth router is mounted, with that prefix
@@ -60,8 +72,8 @@ func newMux(mounts []mount) *http.ServeMux {
 }
 
 // engineMounts is the engine's composition: the auth router when there is
-// one, and the API router for the health probes and everything else under
-// /api/v1.
+// one, and the API router for the health probes, the scrape endpoint and
+// everything else under /api/v1.
 func engineMounts(apiRouter, authRoutes http.Handler) []mount {
 	var out []mount
 	if authRoutes != nil {
@@ -69,6 +81,9 @@ func engineMounts(apiRouter, authRoutes http.Handler) []mount {
 	}
 	return append(out,
 		mount{pattern: "/health/", handler: apiRouter, kind: mountAPIRouter},
+		// GET /metrics (#899), at its exact path and with no method, so the
+		// router's own middleware answers the other methods (#1568).
+		mount{pattern: "/metrics", handler: apiRouter, kind: mountAPIRouter},
 		mount{pattern: "/api/v1/", handler: apiRouter, kind: mountAPIRouter},
 	)
 }
@@ -86,6 +101,9 @@ func uiMounts(proxy, downloads, static http.Handler) []mount {
 		// because the subtree pattern above would otherwise answer it with
 		// a redirect, which turns the POST into a GET.
 		{pattern: "/api/v1/recoveries", handler: downloads, kind: mountEngineProxy},
+		// ADR 0035 decision 5: the published port never carries the scrape
+		// endpoint, and a scraper pointed at it is told so (#1568).
+		{pattern: "/metrics", handler: http.NotFoundHandler(), kind: mountNotForwarded},
 		{pattern: "/", handler: static, kind: mountStatic},
 	}
 }
@@ -100,6 +118,18 @@ func isAPIPattern(pattern string) bool {
 		p = p[i:]
 	}
 	return p == "/api" || strings.HasPrefix(p, "/api/") || p == "/health" || strings.HasPrefix(p, "/health/")
+}
+
+// listedRootPath says whether pattern is exactly the path of a root route in
+// cliecho.RootRoutesOutsideAPI. A subtree (a trailing slash) never is: it
+// would answer every path under the route, and the list names routes.
+func listedRootPath(pattern string) bool {
+	for route := range cliecho.RootRoutesOutsideAPI() {
+		if _, path, ok := strings.Cut(route, " "); ok && path == pattern {
+			return true
+		}
+	}
+	return false
 }
 
 // sameHandler compares two handlers without panicking on a func type.
@@ -139,8 +169,8 @@ func mountProblems(engine, ui []mount, apiRouter, authRoutes http.Handler) []str
 			out = append(out, "the engine's "+m.pattern+" is not the auth router at "+authPrefix+", which is where the guard walks it")
 		case m.kind != mountAPIRouter && m.kind != mountAuthRouter:
 			out = append(out, "the engine mounts "+m.pattern+" with something other than a router the guard walks")
-		case !isAPIPattern(m.pattern):
-			out = append(out, "the engine mounts a router at "+m.pattern+", outside /api and /health, where it would answer paths the guard never asks about")
+		case !isAPIPattern(m.pattern) && !listedRootPath(m.pattern):
+			out = append(out, "the engine mounts a router at "+m.pattern+", outside /api and /health and not a route in cliecho.RootRoutesOutsideAPI, where it would answer paths the guard never asks about")
 		}
 	}
 
@@ -152,14 +182,32 @@ func mountProblems(engine, ui []mount, apiRouter, authRoutes http.Handler) []str
 		}
 		return false
 	}
+	engineRoot := map[string]bool{}
+	for _, e := range engine {
+		if !isAPIPattern(e.pattern) {
+			engineRoot[e.pattern] = true
+		}
+	}
+	uiNotForwarded := map[string]bool{}
 	for _, m := range ui {
 		switch {
+		case m.kind == mountNotForwarded && !engineRoot[m.pattern]:
+			out = append(out, "the UI declines to forward "+m.pattern+", which is not a root route the engine serves")
+		case m.kind == mountNotForwarded:
+			uiNotForwarded[m.pattern] = true
+		case engineRoot[m.pattern]:
+			out = append(out, "the UI mounts "+m.pattern+", which only the engine serves (ADR 0035, decision 5), with something other than its own 404")
 		case isAPIPattern(m.pattern) && m.kind != mountEngineProxy:
 			out = append(out, "the UI mounts "+m.pattern+" with something other than the proxy to the engine")
 		case isAPIPattern(m.pattern) && !covered(m.pattern):
 			out = append(out, "the UI forwards "+m.pattern+" and no engine mount answers it")
 		case !isAPIPattern(m.pattern) && m.kind != mountStatic:
 			out = append(out, "the UI mounts "+m.pattern+", outside /api and /health, with something other than the static bundle")
+		}
+	}
+	for pattern := range engineRoot {
+		if !uiNotForwarded[pattern] {
+			out = append(out, "the UI has no 404 of its own for "+pattern+", which the engine serves at its root, so the static bundle would answer it with index.html and a 200")
 		}
 	}
 	return out
