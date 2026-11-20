@@ -2309,7 +2309,7 @@
   },
   "observability.logs.level": {
     "label": "Log level in force",
-    "html": "Which floor the <strong>engine</strong> is logging at right now, and where it came from: <code>config</code> is the setting here, <code>environment</code> is <code>RETND_DEBUG=1</code> or a <code>LOG_LEVEL</code> that names a level, either of which beats the setting. The <strong>web-ui</strong> container reads the environment alone and is not moved by this. From a terminal: <code>retnd settings observability patch --logs-level warn</code>."
+    "html": "Which floor the <strong>engine</strong> is logging at right now, and where it came from: <code>config</code> is the setting here, <code>environment</code> is <code>RETND_DEBUG=1</code> or a <code>LOG_LEVEL</code> that names a level, either of which beats the setting. The <strong>web-ui</strong> container reads the environment alone and is not moved by this. The equivalent terminal command is shown under the control."
   },
   "observability.card": {
     "label": "Observability",
