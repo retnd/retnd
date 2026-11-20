@@ -23,10 +23,10 @@ decides which controls a host can run, and these cases hold it:
   E  the controls: pin_problems reports a control added to and dropped from the
      pinned set, so B is able to fail.
   H  the verdict of a run by hand (#1571): with no ledger, a self-test that
-     skipped a control exits 3, INCOMPLETE, and not 1. A body that returns
-     EXIT_INCOMPLETE gets turned into a failure by harness.finish(), so neither
-     body may; the encryption one is run for real with only an RT control
-     selected and no retnd-tests checkout, which skips it and runs nothing else.
+     skipped a control exits 3, INCOMPLETE, and not 1 (harness.finish() reports
+     a bare 3 out of a body as a failure). Both self-tests are run for real with
+     one control picked that the host is made to lack a lane for, so it is
+     skipped and nothing else runs.
 """
 
 from __future__ import annotations
@@ -42,6 +42,7 @@ HERE = Path(__file__).resolve()
 SCRIPTS = HERE.parents[2]
 sys.path.insert(0, str(SCRIPTS))
 
+from bdtools import harness  # noqa: E402
 from bdtools import selftest_lanes as lanes  # noqa: E402
 from bdtools.tests import testkit  # noqa: E402
 
@@ -118,7 +119,7 @@ def main() -> int:
         s.check(code == 0 and len(lines) == 2 and all("encryption self-test" in x for x in lines),
                 "D two skipped controls are two lines in the gate's ledger file", "D the ledger file is wrong",
                 f"code={code} lines={lines}")
-        s.check(lanes.report(skipped, "encryption", "") == 3,
+        s.check(lanes.report(skipped, "encryption", "") == harness.EXIT_CANNOT_RUN,
                 "D without a ledger file a run that skipped something is INCOMPLETE (3)",
                 "D a run that skipped controls with nobody to tell exited as if whole")
         s.check(lanes.report([], "encryption", "") == 0, "D a run that skipped nothing is 0",
@@ -157,19 +158,30 @@ def main() -> int:
             "G node_modules plus node or docker was refused")
     s.check(not lanes.node_lane(root, has_node=False, has_docker=False),
             "G with node_modules and neither node nor docker there is no node lane", "G a lane with no way to run it")
-    # H
-    for name in ("agents", "encryption"):
-        body_src = (SCRIPTS / "bdtools" / name / "selftest.py").read_text()
-        s.check("return harness.EXIT_INCOMPLETE" not in body_src,
-                f"H {name}: the body never returns EXIT_INCOMPLETE, which finish() reports as a failure",
-                f"H {name}: the body returns EXIT_INCOMPLETE, so a hand run that skipped something ends FAILED (#1571)")
-    env = {k: v for k, v in os.environ.items() if k not in ("RETND_SELFTEST_SKIP_LEDGER", "RETND_TESTS_DIR")}
-    proc = subprocess.run([sys.executable, str(SCRIPTS / "bdtools/encryption/selftest.py"), "--only", "RT any suite id"],
-                          capture_output=True, text=True, env=env, timeout=600, check=False)
-    s.check(proc.returncode == 3,
-            "H a hand run with no ledger that skipped an RT control exits 3 (INCOMPLETE)",
-            f"H a hand run with no ledger that skipped an RT control exited {proc.returncode}, not 3 (#1571)",
-            (proc.stdout + proc.stderr)[-1500:])
+    # H: both self-tests run by hand, no ledger. A docker that always fails is
+    # first on PATH, so the docker and Playwright lanes are missing on any host
+    # and the one control picked is skipped; RETND_TESTS_DIR is unset, so the RT
+    # one is too. Nothing is built or started.
+    with tempfile.TemporaryDirectory() as stub_dir:
+        stub = Path(stub_dir) / "docker"
+        stub.write_text("#!/bin/sh\nexit 1\n")
+        stub.chmod(0o755)
+        env = {k: v for k, v in os.environ.items() if k not in ("RETND_SELFTEST_SKIP_LEDGER", "RETND_TESTS_DIR")}
+        env["PATH"] = f"{stub_dir}{os.pathsep}{env.get('PATH', '')}"
+        picks = (
+            ("agents", "AGENTS the token kept in the list row after the dialog closes"),
+            ("encryption", "RT any suite id"),
+        )
+        for name, pick in picks:
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPTS / "bdtools" / name / "selftest.py"), "--only", pick],
+                capture_output=True, text=True, env=env, timeout=600, check=False,
+            )
+            s.check(proc.returncode == 3,
+                    f"H {name}: a hand run with no ledger that skipped a control exits 3 (INCOMPLETE)",
+                    f"H {name}: a hand run with no ledger that skipped a control exited "
+                    f"{proc.returncode}, not 3 (#1571)",
+                    (proc.stdout + proc.stderr)[-1500:])
     return s.finish()
 
 
