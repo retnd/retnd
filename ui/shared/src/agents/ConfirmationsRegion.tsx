@@ -70,6 +70,7 @@ export function ConfirmationsRegion({
   // engine's refusal is what the operator needs to read.
   const [strips, setStrips] = useState<Array<{ id: string; confirmation: AgentConfirmation; execution: AgentExecution }>>([]);
   const [notice, setNotice] = useState("");
+  const mountedRef = useMounted();
 
   return (
     <div className="ag-region" id="agents-confirmations" data-agents-region="confirmations" data-surface="confirm">
@@ -107,6 +108,7 @@ export function ConfirmationsRegion({
               now={now}
               readOnly={readOnly}
               onApproved={(decided) => {
+                if (!mountedRef.current) return;
                 const execution = decided.execution;
                 const refused = execution !== null && (execution.status >= 400 || execution.code !== "");
                 if (refused) setStrips((s) => [...s, { id: c.id, confirmation: c, execution }]);
@@ -115,6 +117,7 @@ export function ConfirmationsRegion({
                 onDecided();
               }}
               onDenied={() => {
+                if (!mountedRef.current) return;
                 setNotice("Denied. Nothing ran.");
                 confirmations.reload();
                 onDecided();
