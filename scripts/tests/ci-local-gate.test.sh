@@ -668,7 +668,8 @@ scrub_env() {
     -u CI_LOCAL_SELFTEST -u CI_LOCAL_SKIP_E2E -u CI_LOCAL_SKIP_TWO_MACHINE \
     -u CI_LOCAL_RED -u CI_LOCAL_FULL -u CI_LOCAL_TIER -u CI_LOCAL_MEMORY_LIMIT_BYTES -u RETND_SELFTEST_SKIP_LEDGER -u GATE_SHARD -u CI -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
     -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_PREFIX \
-    -u RETND_GATE_STALL_MIN -u RETND_GATE_STEP_CAP_MIN -u GATE_STALL_POLL -u GATE_STALL_GRACE "$@"
+    -u RETND_GATE_STALL_MIN -u RETND_GATE_STEP_CAP_MIN -u RETND_GATE_STEP_CAP_FLOOR_MIN -u RETND_GATE_HOST_ID \
+    -u GATE_STALL_POLL -u GATE_STALL_GRACE -u GATE_DOCKER_INFO_TIMEOUT "$@"
 }
 
 run_hook() { # <tree> [VAR=VAL ...]
@@ -2651,7 +2652,7 @@ echo "==> Y. the stall watchdog"
 # answers the watchdog's label query with one container, so "its containers
 # were stopped" is a call this suite can read back.
 Y_HEADING='the recovery guards can actually fail (mutation self-test, #976)'
-Y_KNOBS=(RETND_GATE_STALL_MIN=0.1 GATE_STALL_POLL=0.5 GATE_STALL_GRACE=2)
+Y_KNOBS=(RETND_GATE_STALL_MIN=0.1 GATE_STALL_POLL=0.5 GATE_STALL_GRACE=2 RETND_GATE_HOST_ID=fixture-host)
 
 y_tree() { # -> a full tree with a logging docker and a private TMPDIR
   y_t="$(make_full_tree)"
@@ -2681,6 +2682,14 @@ y_owner() {
   y_top="$(cd "$1" && git rev-parse --show-toplevel)"
   if command -v sha256sum >/dev/null 2>&1; then printf '%s' "$y_top" | sha256sum | cut -c1-12
   else printf '%s' "$y_top" | shasum -a 256 | cut -c1-12; fi
+}
+
+# Duration records on stdin, planted under the fixture's host id and under
+# this machine's hostname, so a gate that keys them either way reads them.
+y_plant() { # <tree>
+  y_lines="$(cat)"
+  printf '%s\n' "$y_lines" >"$1/.git/ci-local-step-durations.fixture-host"
+  printf '%s\n' "$y_lines" >"$1/.git/ci-local-step-durations.$(hostname)"
 }
 
 y_run() { # <tree> [VAR=VAL ...]; sets out, status and y_took (seconds)
@@ -2731,7 +2740,7 @@ assert_contains "Y2 the watchdog was watching it" "==> stall watchdog: a step is
 assert_contains "Y2 it ran to its end" "chatty 12" "$out"
 assert_eq "Y2 and the shard ends ok" "==> ci-local: ok (shard selftest-recovery)" "$(printf '%s\n' "$out" | tail -n 1)"
 assert_eq "Y2 with status 0" 0 "$status"
-y_rec="$(awk -F '\t' -v h="$Y_HEADING" '$2 == h { print $1 }' "$tree/.git/ci-local-step-durations.$(hostname)" 2>/dev/null)"
+y_rec="$(awk -F '\t' -v h="$Y_HEADING" '$2 == h { print $1 }' "$tree/.git/ci-local-step-durations.fixture-host" 2>/dev/null)"
 if [ -n "$y_rec" ] && [ "$y_rec" -ge 11 ]; then pass "Y2 the step's duration is recorded for the next run's cap (${y_rec}s)"; else fail "Y2 the step's duration is recorded for the next run's cap" "[$y_rec]"; fi
 assert_eq "Y2 the watchdog left nothing in TMPDIR" "" "$(ls "$tree/tmp")"
 
@@ -2745,11 +2754,11 @@ assert_contains "Y3 and the cap is the one asked for" "past its 12s hard cap" "$
 if [ "$y_took" -lt 60 ]; then pass "Y3 and it did not run its 120s (${y_took}s)"; else fail "Y3 and it did not run its 120s (${y_took}s)" "$out"; fi
 
 # Y4: with a recorded duration, the cap is 1.5 times it (here 10s -> 15s, above
-# the floor of two 6s windows), not RETND_GATE_STEP_CAP_MIN's 180 minutes.
+# a 6s floor), not RETND_GATE_STEP_CAP_MIN's 180 minutes.
 tree="$(y_tree)"
-printf '10\t%s\n' "$Y_HEADING" >"$tree/.git/ci-local-step-durations.$(hostname)"
+printf '10\t%s\n' "$Y_HEADING" | y_plant "$tree"
 y_step "$tree" 'i=0; while [ $i -lt 240 ]; do i=$((i + 1)); echo "endless $i"; sleep 0.5; done'
-y_run "$tree" "${Y_KNOBS[@]}"
+y_run "$tree" "${Y_KNOBS[@]}" RETND_GATE_STEP_CAP_FLOOR_MIN=0.1
 assert_contains "Y4 a recorded 10s step is capped at 15s" "past its 15s hard cap" "$out"
 assert_eq "Y4 and that fails the run" 1 "$status"
 
@@ -2759,6 +2768,116 @@ y_run "$tree" RETND_GATE_STALL_MIN=ten
 assert_nonzero "Y5 RETND_GATE_STALL_MIN=ten is refused" "$status"
 assert_contains "Y5 and says what it wants" "have to be a number of minutes" "$out"
 assert_not_contains "Y5 and no step ran" "$Y_HEADING [" "$out"
+
+# The cases below come from the review of #1556. Each was red against the
+# first version of the watchdog.
+
+y_run_on() { # <tree> <shard> [VAR=VAL ...]; y_run for another shard
+  y_began="$(date +%s)"
+  y_t="$1"
+  y_shard="$2"
+  shift 2
+  run_gate "$y_t" TMPDIR="$y_t/tmp" "$@" -- --shard "$y_shard"
+  y_took=$(( $(date +%s) - y_began ))
+}
+
+# A docker stand-in whose `info` hangs for 90s once the gate lock is held:
+# the daemon wedging in the middle of a run, after the preflight answered.
+y_hanging_docker() { # <tree>
+  cat >"$1/bin/docker" <<'DOCKER'
+#!/bin/sh
+echo "$*" >>"$(dirname "$0")/../docker.log"
+if [ "$1" = info ] && { [ -L "$CI_LOCAL_LOCK_DIR" ] || [ -d "$CI_LOCAL_LOCK_DIR" ]; }; then
+  sleep 90
+fi
+exit 0
+DOCKER
+  chmod +x "$1/bin/docker"
+}
+Y_CONFORMANCE='the composed conformance cells can actually fail (mutation self-test, #242)'
+Y_E2E='browser e2e + CLI smoke, from retnd-tests at the pinned sha (#197), the browser suite judged against the known-red ratchet (#1260)'
+
+# Y6: a daemon probe that hangs while this run holds the gate lock is watched
+# like any other step, and the lock is let go.
+tree="$(y_tree)"
+y_hanging_docker "$tree"
+y_run_on "$tree" selftest-conformance "${Y_KNOBS[@]}"
+assert_contains "Y6 a docker info that hangs under the gate lock is STALLED" "==> ci-local: FAILED (STALLED: $Y_CONFORMANCE, no output for" "$out"
+if [ "$y_took" -lt 60 ]; then pass "Y6 and stopped, not waited out (${y_took}s of 90s)"; else fail "Y6 and stopped, not waited out (${y_took}s)" "$out"; fi
+if [ ! -e "$tree/.gate-lock" ] && [ ! -L "$tree/.gate-lock" ]; then pass "Y6 and the gate lock is released"; else fail "Y6 and the gate lock is released"; fi
+
+# Y7: the probe is bounded on its own too, with the watchdog off: past
+# GATE_DOCKER_INFO_TIMEOUT the daemon is not reachable, and that step fails.
+tree="$(y_tree)"
+y_hanging_docker "$tree"
+y_run_on "$tree" selftest-conformance RETND_GATE_STALL_MIN=0 RETND_GATE_STEP_CAP_MIN=0 GATE_DOCKER_INFO_TIMEOUT=3
+assert_nonzero "Y7 a docker info past GATE_DOCKER_INFO_TIMEOUT fails the run" "$status"
+assert_contains "Y7 at the step that needed it" "==> ci-local: FAILED ($Y_CONFORMANCE)" "$out"
+assert_contains "Y7 saying the daemon went away" "The Docker daemon is not reachable" "$out"
+if [ "$y_took" -lt 60 ]; then pass "Y7 and it did not wait out the 90s (${y_took}s)"; else fail "Y7 and it did not wait out the 90s (${y_took}s)" "$out"; fi
+
+# Y8: on a Mac the browser suite queues on the workspace Playwright lock. That
+# wait is not the step's: a 15s wait (printing as xdg-pw-lock.sh does) against
+# a 3s cap (recorded 2s, floor 3s) must not end STALLED, and the record must
+# not include it.
+tree="$(y_tree)"
+y_uname="$(command -v uname)"
+printf '#!/bin/sh\n[ "$1" = -s ] && { echo Darwin; exit 0; }\nexec %s "$@"\n' "$y_uname" >"$tree/bin/uname"
+cat >"$tree/bin/pw-lock" <<'LOCK'
+#!/bin/sh
+i=0
+while [ $i -lt 15 ]; do i=$((i + 1)); echo "pw-lock stand-in: waiting ($i)"; sleep 1; done
+echo "pw-lock stand-in: acquired"
+exec "$@"
+LOCK
+chmod +x "$tree/bin/uname" "$tree/bin/pw-lock"
+printf '2\t%s\n' "$Y_E2E" | y_plant "$tree"
+y_run_on "$tree" e2e "${Y_KNOBS[@]}" RETND_GATE_STEP_CAP_FLOOR_MIN=0.05 RETND_PW_LOCK="$tree/bin/pw-lock"
+assert_contains "Y8 the browser step went through the Playwright lock" "pw-lock stand-in: acquired" "$out"
+assert_not_contains "Y8 and waiting for it is not a stall" "FAILED (STALLED" "$out"
+assert_contains "Y8 the suite ran" "$E2E_STUB" "$out"
+y_recs="$(awk -F '\t' -v h="$Y_E2E" '$2 == h { print $1 }' "$tree/.git/ci-local-step-durations.fixture-host" 2>/dev/null)"
+y_rec="$(printf '%s\n' "$y_recs" | tail -n 1)"
+if [ "$(printf '%s\n' "$y_recs" | grep -c .)" = 2 ] && [ "$y_rec" -lt 8 ]; then pass "Y8 this run is recorded, without the lock wait (${y_rec}s)"; else fail "Y8 this run is recorded, without the lock wait" "[$y_recs]"; fi
+
+# Y9: a hostname that is a container's id (twelve hex digits, new every run)
+# records nothing, rather than a file nobody reads back.
+tree="$(y_tree)"
+printf '#!/bin/sh\necho 0123456789ab\n' >"$tree/bin/hostname"
+chmod +x "$tree/bin/hostname"
+y_step "$tree" 'echo "quick step"'
+y_run "$tree" RETND_GATE_STALL_MIN=0.1 GATE_STALL_POLL=0.5 GATE_STALL_GRACE=2
+assert_eq "Y9 the run itself is ok" 0 "$status"
+assert_eq "Y9 no duration file under a container id" "" "$(cd "$tree/.git" && ls ci-local-step-durations.* 2>/dev/null)"
+assert_contains "Y9 and the run says why" "no stable host id here" "$out"
+
+# Y10: RETND_GATE_STALL_MIN=0 turns the no-progress check off and must not
+# take the cap's floor with it: a step recorded at 4s that talks for 12s ends ok.
+tree="$(y_tree)"
+printf '4\t%s\n' "$Y_HEADING" | y_plant "$tree"
+y_step "$tree" 'for i in 1 2 3 4 5 6 7 8 9 10 11 12; do echo "chatty $i"; sleep 1; done'
+y_run "$tree" RETND_GATE_STALL_MIN=0 GATE_STALL_POLL=0.5 GATE_STALL_GRACE=2 RETND_GATE_HOST_ID=fixture-host
+assert_not_contains "Y10 with the no-progress check off, a recorded step keeps a real floor" "FAILED (STALLED" "$out"
+assert_eq "Y10 and the shard ends ok" 0 "$status"
+assert_contains "Y10 the start line says the check is off" "the no-progress check is off" "$out"
+
+# Y11: the cap reads the longest of the last three records, not the last one
+# (records 100, 2, 2 and a 3s floor: an 8s step must not be cut at 3s), and
+# the file keeps three per step.
+tree="$(y_tree)"
+printf '100\t%s\n2\t%s\n2\t%s\n' "$Y_HEADING" "$Y_HEADING" "$Y_HEADING" | y_plant "$tree"
+y_step "$tree" 'for i in 1 2 3 4 5 6 7 8; do echo "chatty $i"; sleep 1; done'
+y_run "$tree" RETND_GATE_STALL_MIN=0 RETND_GATE_STEP_CAP_FLOOR_MIN=0.05 GATE_STALL_POLL=0.5 GATE_STALL_GRACE=2 RETND_GATE_HOST_ID=fixture-host
+assert_not_contains "Y11 the cap is 1.5 times the longest recent record" "FAILED (STALLED" "$out"
+assert_eq "Y11 three records kept per step, the oldest dropped" "2 2 8" "$(awk -F '\t' -v h="$Y_HEADING" '$2 == h { printf "%s%s", sep, ($1 >= 7 && $1 <= 12 ? 8 : $1); sep = " " }' "$tree/.git/ci-local-step-durations.fixture-host")"
+
+# Y12: a step that ended early and let the run carry on (the e2e lane exiting
+# 3 is ledgered) is not recorded: it would cap the next healthy run short.
+tree="$(y_tree)"
+printf '#!/usr/bin/env bash\necho "lane could not run"\nexit 3\n' >"$tree/scripts/e2e/run-tests-repo-gate.sh"
+y_run_on "$tree" e2e "${Y_KNOBS[@]}"
+assert_eq "Y12 the e2e shard is INCOMPLETE" "$INCOMPLETE" "$status"
+assert_eq "Y12 and the ledgered step left no record" "" "$(cat "$tree"/.git/ci-local-step-durations.* 2>/dev/null | awk -F '\t' -v h="$Y_E2E" '$2 == h')"
 
 # ------------- Group W: the gate knows its shards (#1457)
 

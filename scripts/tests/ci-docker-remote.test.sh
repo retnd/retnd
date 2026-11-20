@@ -575,6 +575,28 @@ else
   fail "R16c local mode keeps the named cache volume" "$(gate_line)"
 fi
 
+# --- R17 the gate container is named for its host (#1540) --------------------
+# The stall watchdog records step durations under the hostname, and a
+# container's own hostname is its id, new every run.
+run_script bash "$script" --host "$host" --fast
+if gate_line | grep -q -- '--hostname ci-docker-builder.example '; then
+  pass "R17a a remote gate container is named for the remote host"
+else
+  fail "R17a a remote gate container is named for the remote host" "$(gate_line)"
+fi
+if grep -q "cat '/home/fake/workspace/nas-work/ci-docker-[0-9-]*/git/ci-local-step-durations.ci-docker-builder.example'" "$log/ssh"; then
+  pass "R17b and its step durations are fetched back before the copy goes"
+else
+  fail "R17b and its step durations are fetched back before the copy goes" "$(grep durations "$log/ssh" || true)"
+fi
+run_script bash "$script" --fast
+r17_want="ci-docker-$(printf '%s' "$(hostname -s 2>/dev/null || hostname)" | tr -c 'A-Za-z0-9.-' '-')"
+if gate_line | grep -qF -- "--hostname $r17_want "; then
+  pass "R17c a local gate container is named for this machine"
+else
+  fail "R17c a local gate container is named for this machine ($r17_want)" "$(gate_line)"
+fi
+
 # --- R10 the page documents the knobs ---------------------------------------
 for v in CI_DOCKER_HOST CI_DOCKER_REMOTE_DIR CI_DOCKER_MIN_FREE_MB CI_DOCKER_KEEP_CACHE CI_DOCKER_SYNC CI_DOCKER_SHARE_HOST; do
   if grep -q "\`$v\`" "$repo_root/docs/reference/local-gate.md"; then

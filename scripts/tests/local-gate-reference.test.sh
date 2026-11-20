@@ -37,7 +37,7 @@ pass "the reference page exists"
 # Every variable the gate reads. A `CI_LOCAL_SKIP_*` glob in prose is not a
 # variable, so a name has to end on a letter or digit.
 # shellcheck disable=SC2086
-vars="$(grep -ohE '\b(CI_LOCAL(_[A-Z0-9]+)*|GATE_LOCK_[A-Z_]*[A-Z]|GATE_STALL_[A-Z_]*[A-Z]|RETND_GATE_(STALL_MIN|STEP_CAP_MIN)|RETND_TEST_OWNER|GOLANGCI_LINT_(DIR|VERSION)|GOTOOLCHAIN|PUBLISH)\b' $sources | sort -u)"
+vars="$(grep -ohE '\b(CI_LOCAL(_[A-Z0-9]+)*|GATE_LOCK_[A-Z_]*[A-Z]|GATE_STALL_[A-Z_]*[A-Z]|GATE_DOCKER_INFO_TIMEOUT|RETND_GATE_(STALL_MIN|STEP_CAP_MIN|STEP_CAP_FLOOR_MIN|HOST_ID)|RETND_TEST_OWNER|GOLANGCI_LINT_(DIR|VERSION)|GOTOOLCHAIN|PUBLISH)\b' $sources | sort -u)"
 [ -n "$vars" ] || fail "the sources name at least one variable" "the grep over the gate's sources found nothing; the pattern or the file list is wrong"
 for v in $vars; do
   if grep -q "\`$v\`" "$doc"; then
