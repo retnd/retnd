@@ -17,6 +17,7 @@ import { genericBridge } from "../../../../apps/generic/frontend/platform";
 import { graph, resetGraphForTests } from "@shared/state/graph";
 import { versionNode } from "@shared/state/appNodes";
 import type { VersionInfo } from "@shared/types/operation";
+import { teardownProbe } from "./teardownProbe";
 
 /**
  * H2.2 (#622): picking a destination under a retention tier, the local
@@ -468,6 +469,36 @@ describe("picking a destination under a retention tier (#622)", () => {
     // And nothing else moved.
     expect(picker(1).value).toBe(LOCAL_DESTINATION_ID);
     expect(picker(2).value).toBe(LOCAL_DESTINATION_ID);
+  });
+});
+
+// #1589: this file used to fail the hook now and then on an unhandled
+// rejection after teardown. Every case here ends by unmounting the whole
+// Settings page, and a card's read that was still out (the mock answers
+// after 180ms) landed after jsdom had gone and set state on it.
+// teardownProbe.ts says how that turns into a rejection. Leaving the page
+// with every card's first read in flight is the worst case of it, so this
+// waits out the mock's answers and asserts none of them touched state.
+describe("leaving the Settings page (#1589)", () => {
+  beforeEach(() => resetGraphForTests());
+  afterEach(() => {
+    cleanup();
+    resetGraphForTests();
+  });
+
+  it("leaves no read behind that touches state once the page has gone", async () => {
+    const probe = teardownProbe();
+    try {
+      await renderSettings();
+      cleanup();
+      probe.tearDown();
+      await probe.settle(1000);
+
+      expect(probe.rejections).toEqual([]);
+      expect(probe.stateUpdates).toBe(0);
+    } finally {
+      probe.dispose();
+    }
   });
 });
 
