@@ -125,6 +125,11 @@ func cmdActivity(args []string) int {
 		}
 	}
 
+	// #1609: before either way in below, the journal opened here or the
+	// remote route --follow takes from a host with no deployment.
+	if err := checkPreRenamePath(*cfgPath); err != nil {
+		return fail(err)
+	}
 	ctx := context.Background()
 	if *followFlag {
 		// The live feed is only ever the engine's, so from a terminal with
