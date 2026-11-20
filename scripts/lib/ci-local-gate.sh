@@ -343,12 +343,16 @@ gate_recheck_docker() {
     return 0
   fi
 
+  # From here on the step runs with no daemon, so its Docker suites t.Skip
+  # and it ends early: the stall watchdog must not record that time (#1540).
   if [ "$gate_docker_verified" != 1 ]; then
+    gate_wd_step_soft=1
     gate_note_docker_skip "the Docker daemon was never reachable in this run, so those tests t.Skip themselves and report ok"
     return 0
   fi
 
   if [ "${CI_LOCAL_SKIP_DOCKER:-0}" = "1" ]; then
+    gate_wd_step_soft=1
     gate_note_docker_skip "the Docker daemon answered at the preflight and had gone away by \"$1\", so those tests t.Skip themselves and report ok (CI_LOCAL_SKIP_DOCKER=1)"
     return 0
   fi
@@ -403,9 +407,19 @@ gate_bounded() {
     timeout "$gate_bd_secs" "$@" || gate_bd_rc=$?
     return "$gate_bd_rc"
   fi
+  # The command runs as an asynchronous list, so its stdin is /dev/null and
+  # it ignores SIGINT: right for docker info, ps and rm, worth knowing before
+  # this is used for anything that reads input. The sleeper waits on its own
+  # sleep and takes it down when it is stopped, so a command that finishes in
+  # time leaves no stray `sleep <seconds>` behind.
   "$@" &
   gate_bd_pid=$!
-  (sleep "$gate_bd_secs"; kill "$gate_bd_pid" 2>/dev/null) >/dev/null 2>&1 &
+  (
+    trap 'kill "$gate_bd_nap" 2>/dev/null; exit 0' TERM
+    sleep "$gate_bd_secs" &
+    gate_bd_nap=$!
+    wait "$gate_bd_nap" && kill "$gate_bd_pid" 2>/dev/null
+  ) >/dev/null 2>&1 &
   gate_bd_sleeper=$!
   gate_bd_rc=0
   wait "$gate_bd_pid" || gate_bd_rc=$?
@@ -864,7 +878,8 @@ gate_stop_docker_sentinel() {
 #     minutes (default 10), the step is stalled;
 #   - hard cap: a step that keeps printing and never ends is stopped once it
 #     has run 1.5 times the longest of its last three recorded durations
-#     (never less than RETND_GATE_STEP_CAP_FLOOR_MIN, default 20), or
+#     (never less than RETND_GATE_STEP_CAP_FLOOR_MIN, default 20, or two of
+#     the step's own stall windows, whichever is more), or
 #     RETND_GATE_STEP_CAP_MIN (default 180) when this host has no record of
 #     it yet. A step that completes without adding to the skip ledger records
 #     how long it took in <git common dir>/ci-local-step-durations.<host id>,
@@ -872,9 +887,10 @@ gate_stop_docker_sentinel() {
 #     of twelve hex digits is a container's own id, new every run, so under
 #     it nothing is recorded (scripts/ci-docker.sh names its containers).
 #
-# Waits on a lock are not watched: the gate lock (gate_docker_step) and the
-# Playwright lock (gate_watchdog_hold) each have their own limit, and the
-# step's clocks start once the lock is held.
+# Waits on a lock are not counted against the step: its clocks start once
+# the lock is held. The gate lock (gate_docker_step) has its own limit,
+# GATE_LOCK_TIMEOUT; the Playwright lock (gate_watchdog_hold) has none, so
+# that wait is bounded by RETND_GATE_STEP_CAP_MIN.
 #
 # A stalled step gets its diagnostics captured first (the last 40 lines it
 # printed, its processes, the containers labelled with this worktree's
@@ -909,6 +925,7 @@ gate_wd_owner=""
 gate_wd_step_began=""
 gate_wd_step_skips=""
 gate_wd_resume=""
+gate_wd_step_soft=""
 
 # gate_minutes_to_seconds <minutes> -> whole seconds, or nothing at all for a
 # value that is not a plain number of minutes (fractions are fine).
@@ -1067,8 +1084,14 @@ gate_watchdog_step() {
     if [ "$gate_wd_cap_s" != 0 ]; then
       gws_rec="$(gate_watchdog_recorded "$gws_heading")"
       if [ -n "$gws_rec" ]; then
+        # The floor is RETND_GATE_STEP_CAP_FLOOR_MIN or two of this step's own
+        # stall windows, whichever is more: a step given a long window (the
+        # core go test steps, --stall-min 50) is one whose healthy cold run
+        # is long, while its cached runs are what fill the record.
+        gws_floor="$gate_wd_floor_s"
+        [ "$gws_floor" -ge $((gws_stall * 2)) ] || gws_floor=$((gws_stall * 2))
         gws_cap=$((gws_rec * 3 / 2))
-        [ "$gws_cap" -ge "$gate_wd_floor_s" ] || gws_cap="$gate_wd_floor_s"
+        [ "$gws_cap" -ge "$gws_floor" ] || gws_cap="$gws_floor"
         [ "$gws_cap" -gt 0 ] || gws_cap="$gate_wd_cap_s"
       fi
     fi
@@ -1078,6 +1101,7 @@ gate_watchdog_step() {
   gate_wd_cur_cap="$gws_cap"
   gate_wd_step_began="$(date +%s)"
   gate_wd_step_skips="$gate_skipped"
+  gate_wd_step_soft=""
   gate_wd_resume=""
   gate_wd_serial=$((gate_wd_serial + 1))
   gate_watchdog_write "$gate_wd_serial" "$gws_stall" "$gws_cap" "$gws_heading" ""
@@ -1092,8 +1116,9 @@ gate_watchdog_pause() {
 }
 
 # gate_watchdog_hold
-# For a wait inside the step's own command that has its own limit (the
-# Playwright lock): the step's clocks stop until the command writes the time
+# For a wait inside the step's own command on a lock that is not the step's
+# (the Playwright lock, which has no limit of its own, so the wait is
+# bounded by RETND_GATE_STEP_CAP_MIN): the step's clocks stop until the command writes the time
 # into $gate_wd_resume, which this sets (empty when no watchdog runs), and
 # start again from that moment with the step's own limits. The command runs as
 #   <lock> sh -c '[ -z "$1" ] || date +%s >"$1"; shift; exec "$@"' sh "$gate_wd_resume" <command...>
@@ -1131,6 +1156,10 @@ gate_watchdog_recorded() {
 gate_watchdog_record_done() {
   [ -n "$gate_wd_dir" ] && [ -n "$gate_wd_durations" ] && [ -n "$gate_wd_step_began" ] || return 0
   [ "$gate_skipped" = "$gate_wd_step_skips" ] || return 0
+  # A Docker step that ran without a daemon: its suites t.Skip, and the
+  # ledger only takes that once per run, so the string test above misses
+  # every Docker step after the first (gate_recheck_docker sets this).
+  [ -z "${gate_wd_step_soft:-}" ] || return 0
   grd_began="$gate_wd_step_began"
   if [ -n "$gate_wd_resume" ] && [ -s "$gate_wd_resume" ]; then
     grd_began="$(head -n 1 "$gate_wd_resume")"
@@ -1205,12 +1234,23 @@ gate_watchdog_loop() {
     fi
     # Held for a lock inside the step: nothing counts until the step's
     # command says it has the lock, and then both clocks start from there.
+    # That lock (xdg-pw-lock.sh) has no limit of its own and waits on a live
+    # holder for ever, so the wait is bounded by RETND_GATE_STEP_CAP_MIN: a
+    # Playwright run hung in another repository must not hold this gate, and
+    # the gate lock it holds, for good.
     if [ -n "$gwl_held" ]; then
       if [ -e "$gwl_held" ]; then
         gwl_held=""
         gwl_size="$gwl_cur"
         gwl_quiet="$gwl_now"
         gwl_start="$gwl_now"
+        continue
+      fi
+      if [ "$gate_wd_cap_s" -gt 0 ] && [ $((gwl_now - gwl_start)) -ge "$gate_wd_cap_s" ]; then
+        gwl_why="waited $((gwl_now - gwl_start))s for the lock its command runs under, past the ${gate_wd_cap_s}s RETND_GATE_STEP_CAP_MIN"
+        [ "$(head -n 1 "$gate_wd_dir/step" 2>/dev/null)" = "$gwl_serial" ] || continue
+        gate_watchdog_fire "$gwl_s_heading" "$gwl_why" "$gwl_s_segment" "$gwl_serial" || continue
+        return 0
       fi
       continue
     fi

@@ -45,8 +45,8 @@ A step the stall watchdog stopped ends the run `==> ci-local: FAILED (STALLED: <
 with exit 1 (#1540). Every step is watched from the first one on: no output
 for `RETND_GATE_STALL_MIN` minutes, or a run past the step's hard cap (1.5
 times the longest of the last three durations this host recorded for it,
-never less than `RETND_GATE_STEP_CAP_FLOOR_MIN`, or `RETND_GATE_STEP_CAP_MIN`
-when there is no record), and the watchdog prints the last 40 lines the step
+never less than `RETND_GATE_STEP_CAP_FLOOR_MIN` or two of the step's own stall
+windows, or `RETND_GATE_STEP_CAP_MIN` when there is no record), and the watchdog prints the last 40 lines the step
 printed, its processes and the containers labelled
 `retnd-test=<this worktree's owner>`, stops the processes (TERM, then KILL
 after `GATE_STALL_GRACE` seconds), removes those containers and ends the run.
@@ -54,8 +54,10 @@ Containers a step starts without that label (the e2e and two-machine rigs)
 are left to that rig's own sweep on the next run.
 
 A step's clocks start once it holds the gate lock, and the browser step's
-start again once it holds the Playwright lock: those waits have limits of
-their own. A step that ends having added to the skip ledger (the e2e lane
+start again once it holds the Playwright lock. The gate lock wait has its own
+limit (`GATE_LOCK_TIMEOUT`); the Playwright lock waits on a live holder for
+ever, so that wait is bounded by `RETND_GATE_STEP_CAP_MIN` and past it the
+step ends STALLED. A step that ends having added to the skip ledger (the e2e lane
 exiting 3, a self-test left out for memory) is not recorded, because it took
 less time than the step does. Durations are recorded in
 `<git common dir>/ci-local-step-durations.<host id>`, the host id being
@@ -98,7 +100,7 @@ image with `docker build -q`.
 | `GATE_LOCK_STALE_AFTER` | `600` | a lock whose holder cannot be judged (another host's pid, a lock from before a reboot, no pid file) is reclaimed once it is this old. A lock whose holder is a dead pid on this host and boot is reclaimed at once |
 | `RETND_GATE_STALL_MIN` | `10` | minutes a step may print nothing before the stall watchdog stops it and the run ends `FAILED (STALLED: ...)`. Fractions are fine; `0` turns the no-progress check off |
 | `RETND_GATE_STEP_CAP_MIN` | `180` | the hard cap, in minutes, of a step this host has no recorded duration for. `0` turns the hard cap off; both at `0` turn the watchdog off |
-| `RETND_GATE_STEP_CAP_FLOOR_MIN` | `20` | the least hard cap a recorded step gets, in minutes: its cap is 1.5 times the longest of its last three records, or this, whichever is more. Independent of the stall window, so `RETND_GATE_STALL_MIN=0` does not shorten any cap |
+| `RETND_GATE_STEP_CAP_FLOOR_MIN` | `20` | the least hard cap a recorded step gets, in minutes: its cap is 1.5 times the longest of its last three records, or this, or two of the step's own stall windows, whichever is most. Turning the stall check off (`RETND_GATE_STALL_MIN=0`) does not lower it below this |
 | `RETND_GATE_HOST_ID` | the hostname | the name step durations are recorded under (`ci-local-step-durations.<id>` in the git common dir). Set it where the hostname changes from run to run; a hostname of twelve hex digits (a container's id) records nothing without it |
 | `GATE_DOCKER_INFO_TIMEOUT` | `120` | seconds the daemon probe (`docker info`) may take before the daemon counts as not reachable, so a wedged daemon cannot hang a step that holds the gate lock |
 | `GATE_STALL_POLL` | `15` | seconds between the stall watchdog's looks at the log |
