@@ -125,8 +125,8 @@ CONTROLS = [
     Control(
         "AGENTS a file name put into the text of a tool result",
         ("U2.4",),
-        [(MCP_SERVER, "Message: staticOKMessage, CorrelationID: correlated, Command: command, Data: data, Untrusted: untrusted}",
-          "Message: staticOKMessage + string(resp.Body), CorrelationID: correlated, Command: command, Data: data, Untrusted: untrusted} // " + PLANT.split("// ", 1)[1] + "data in the text.")],
+        [(MCP_SERVER, "Message: staticOKMessage, CorrelationID: correlated, Command: command, Data: data, Untrusted: untrusted}\n\t\t\tif m, ok := decoded.(map[string]any); ok {",
+          "Message: staticOKMessage + string(resp.Body), CorrelationID: correlated, Command: command, Data: data, Untrusted: untrusted} // " + PLANT.split("// ", 1)[1] + "data in the text.\n\t\t\tif m, ok := decoded.(map[string]any); ok {")],
         "./tests/agentinjection/",
         ["TestAnUntrustedStringArrivesOnlyAsData"],
         timeout="20m",

@@ -437,6 +437,8 @@ make_full_tree() {
   # real one copies the tree eight times and builds core/ in each copy.
   mkdir -p "$tree/scripts/retention"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/retention/selftest.sh"
+  mkdir -p "$tree/scripts/discovery"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/discovery/selftest.sh"
 
   # EPIC Q's recovery mutation self-test (#976), stubbed for the reason
   # above: the real one copies the tree a couple of dozen times and builds

@@ -273,12 +273,15 @@ func TestAnOversizeAnswerFromARouteWithNoPageIsRefusedNotCut(t *testing.T) {
 	}
 }
 
-// Q3 of the EPIC U panel (#1364). workflow_runs_list takes a limit and has no
-// cursor, so halving the page would hand back a short list that reads as
-// complete. Only a route whose answer carries next_cursor is paged smaller.
+// Q3 of the EPIC U panel (#1364), as #1529 settled it. workflow_runs_list
+// takes a limit and has no cursor, so halving the page would hand back a short
+// list that reads as complete. The server pages it with a cursor of its own
+// instead: every page is whole, the result says there is more, and the route
+// is asked for the whole list each time, never for a smaller one.
 //
-// Falsify: halve the limit on any route that answers a list.
-func TestAnOverCapAnswerWithoutACursorIsRefusedNotCut(t *testing.T) {
+// Falsify: halve the limit on any route that answers a list, or cut the list
+// and leave no cursor.
+func TestAnOverCapAnswerWithoutACursorIsPagedByTheServerNotCut(t *testing.T) {
 	var b strings.Builder
 	b.WriteString(`{"runs":[`)
 	for i := 0; i < 70; i++ {
@@ -294,14 +297,14 @@ func TestAnOverCapAnswerWithoutACursorIsRefusedNotCut(t *testing.T) {
 	caller := okBody(b.String())
 	tools := append(append([]agenttools.Row{}, testTools...), row("workflow_runs_list", "GET", "/workflow-runs", "Runs.", "runs[].failed_step"))
 	res, got := call(t, connectTools(t, tools, caller, 0), "workflow_runs_list", nil)
-	if !res.IsError || got.OK || got.Code != CodeResultTooLarge || got.Data != nil || got.NextCursor != "" {
-		t.Fatalf("result = %+v, want AGENT_RESULT_TOO_LARGE and no data", got)
+	if res.IsError || !got.OK || got.NextCursor == "" {
+		t.Fatalf("result = %+v, want a whole page and a cursor for the rest", got)
 	}
-	if len(caller.calls) != 1 {
-		t.Errorf("the server asked the route %d times, want once: a route with no cursor has no smaller page to ask for", len(caller.calls))
+	if len(caller.calls) != 1 || caller.calls[0].Query.Get("limit") != "" {
+		t.Errorf("the route was called %d times with query %v, want once and with no limit of ours", len(caller.calls), caller.calls[0].Query)
 	}
-	if got.ExitCode != ExitFailure || got.CorrelationID != "cid_ok" {
-		t.Errorf("exit %d, correlation %q", got.ExitCode, got.CorrelationID)
+	if got.CorrelationID != "cid_ok" {
+		t.Errorf("correlation %q", got.CorrelationID)
 	}
 }
 
