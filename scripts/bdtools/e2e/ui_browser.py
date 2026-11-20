@@ -35,6 +35,10 @@ lane is most likely to meet and the one that is least visible:
     table is printed, and the run is killed.
 
 Either one is a FAILED run, never a skip: a spec that hangs is a red spec.
+Output is what the stall check watches, so the container runs Python
+unbuffered: the assurance UI self-test prints a line per control, and with
+stdout on a pipe those lines sat in a buffer until a healthy run was killed
+as stalled, six controls in.
 
 Exit statuses, so the gate does not parse prose:
   0  the command passed
@@ -140,7 +144,7 @@ while kill -0 "$pid" 2>/dev/null; do
   if [ -n "$verdict" ]; then
     sleep 1
     echo "==> ui browser lane: $verdict (${idle}s without output, $(( $(date +%s) - started ))s in). The process table:"
-    ps -eo pid,etimes,rss,args | head -n 40
+    ps -eo pid,etimes,rss,args | cut -c1-200 | head -n 40
     kill -TERM -- "-$pid" 2>/dev/null
     sleep 10
     kill -KILL -- "-$pid" 2>/dev/null
@@ -209,7 +213,7 @@ def body(root: Path, argv: list[str], name: str) -> int:
     cmd = [
         "docker", "run", "--rm", "--init", "--name", name, *plat,
         "--cpus", cpus, "--memory", memory, "--memory-swap", memory, "--shm-size", "1g", "--pids-limit", "4096",
-        "-e", "CI=1", "-e", "HOME=/tmp/h",
+        "-e", "CI=1", "-e", "HOME=/tmp/h", "-e", "PYTHONUNBUFFERED=1",
         "-e", f"LANE_PW={version}", "-e", f"LANE_CAP={cap}", "-e", f"LANE_STALL={stall}",
         "-e", f"LANE_TEST_TIMEOUT={test_timeout}",
         "-v", f"{tree}:{tree}:ro", "-w", "/tmp",
