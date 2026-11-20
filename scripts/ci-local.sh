@@ -1096,7 +1096,11 @@ if [ "$FAST" != "1" ]; then
     # and runs the three-machine rig, the most Docker-heavy stretch of
     # the whole gate, and it used to be the one step that dropped the
     # lock the crash matrix had just held.
-    gate_docker_step "browser e2e + CLI smoke, from retnd-tests at the pinned sha (#197), the browser suite judged against the known-red ratchet (#1260)"
+    # --stall-min 30: the rig builds the client image (the pinned Playwright
+    # image, over a gigabyte) with `docker build -q`, which prints nothing
+    # until it is done, and on a cold cache that takes longer than the stall
+    # watchdog's ten minutes (#1540).
+    gate_docker_step "browser e2e + CLI smoke, from retnd-tests at the pinned sha (#197), the browser suite judged against the known-red ratchet (#1260)" --stall-min 30
     # Not under `set -e`: exit 3 is a verdict this script has to READ, and
     # `set -e` would end the run on it before the ledger ever saw it.
     set +e
@@ -1107,7 +1111,12 @@ if [ "$FAST" != "1" ]; then
     # path the run goes ahead bare, and says so.
     pw_lock="${RETND_PW_LOCK:-/Users/rom/workspace/xdg-pw-lock.sh}"
     if [ "$(uname -s)" = "Darwin" ] && [ -x "$pw_lock" ]; then
-      "$pw_lock" bash scripts/e2e/run-tests-repo-gate.sh
+      # Every Playwright run in the workspace queues on that lock, and the
+      # wait is not this step's: the stall watchdog holds the step's clocks
+      # until the command under the lock writes the time it got it (#1540).
+      gate_watchdog_hold
+      # shellcheck disable=SC2016,SC2154  # $1 is the inner shell's; gate_wd_resume comes from lib/ci-local-gate.sh
+      "$pw_lock" sh -c '[ -z "$1" ] || date +%s >"$1"; shift; exec "$@"' sh "$gate_wd_resume" bash scripts/e2e/run-tests-repo-gate.sh
     else
       if [ "$(uname -s)" = "Darwin" ]; then
         echo "==> ci-local: browser gate running without the Playwright lock ($pw_lock is not an executable file; RETND_PW_LOCK names another)"
