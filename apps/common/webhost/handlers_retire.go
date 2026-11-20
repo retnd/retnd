@@ -113,6 +113,15 @@ func retireCommand(r *http.Request, req retireRequest) string {
 // Read-only, though it asks the source about the object.
 func (h *handlers) previewRetirement(w http.ResponseWriter, r *http.Request) {
 	req := retireRequestFromQuery(r)
+	// The acknowledgements on this GET are the operator's: with
+	// accept_unverified_copy the engine reads the whole copy and runs the
+	// set's validator, and a read-scope token may call a GET. The plain
+	// preview never reads the file (issue #1594's review).
+	if _, isAgent := agentPrincipalFrom(r.Context()); isAgent && (req.AcceptUnverifiedCopy || req.AcceptSourcePresent || req.NoSuccessor) {
+		writeError(w, http.StatusForbidden, "AGENT_RETIRE_ACK_REFUSED",
+			"an agent may read the plain preview only; the acknowledgements are a person's")
+		return
+	}
 	p, err := h.backend.PreviewRetirement(r.Context(), artifactIDFrom(r), req)
 	if err != nil {
 		h.writeRetireError(w, r, err, "failed to preview the retirement")

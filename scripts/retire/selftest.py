@@ -125,6 +125,29 @@ CONTROLS = [
             "\"no_successor\", \"accept_unverified_copy\"}",
             "\"no_successor\"}",
             "core", "./agenttools/", "TestAnAgentMayNotAcknowledgeAnUnverifiedCopy_1594"),
+    # Issue #1594's review: the gate retry's local keep sits behind, the
+    # acknowledgements an agent may not send on any read, and the loser of
+    # two retries.
+    Control("RV.21", "core/internal/app/quarantineactions.go",
+            "\t	if s.probe(ctx, src, bs, rec.RemotePath, nil).Result == state.SourceAbsent {\n",
+            "\t	if true {\n",
+            "core", "./internal/app/", "TestRetryOnlyKeepsAnOwnCopyWhenTheSourceIsConfirmedGone_1594"),
+    Control("RV.22", "core/internal/app/quarantineactions.go",
+            "\t	if s.probe(ctx, src, bs, rec.RemotePath, nil).Result == state.SourceAbsent {\n",
+            "\t	if s.probe(ctx, src, bs, rec.RemotePath, nil).Result != state.SourcePresent {\n",
+            "core", "./internal/app/", "TestRetryOnlyKeepsAnOwnCopyWhenTheSourceIsConfirmedGone_1594"),
+    Control("RV.23", "core/agentmcp/server.go",
+            "\t		if isAcknowledgement(k) {\n",
+            "\t		if false {\n",
+            "core", "./agentmcp/", "TestNoToolPassesAnAcknowledgementThroughItsQuery_1594"),
+    Control("RV.24", "apps/common/webhost/handlers_retire.go",
+            "isAgent && (req.AcceptUnverifiedCopy ||",
+            "isAgent && (false ||",
+            "apps/common", "./webhost/", "TestAnAgentTokenCannotAskThePreviewToReadTheFile_1594"),
+    Control("RV.25", "core/internal/app/quarantineactions.go",
+            "\t\tif notQuarantined || errors.Is(err, ErrNotQuarantined) || errors.Is(err, state.ErrStateMismatch) {\n",
+            "\t\tif notQuarantined && false || errors.Is(err, state.ErrStateMismatch) {\n",
+            "core", "./internal/app/", "TestALosingRetryOfAnOwnCopyIsNotStuckNotAnInternalError_1594"),
 ]
 
 

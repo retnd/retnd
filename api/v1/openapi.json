@@ -16731,6 +16731,19 @@
               "UNAUTHENTICATED"
             ]
           },
+          "403": {
+            "description": "Refused: AGENT_RETIRE_ACK_REFUSED. An agent token may read the plain preview only; the acknowledgements (accept_unverified_copy makes the engine read the whole copy and run the set's validator) are a person's to give.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AGENT_RETIRE_ACK_REFUSED"
+            ]
+          },
           "404": {
             "description": "Refused: ARTIFACT_NOT_FOUND, BACKUP_SET_NOT_FOUND. The second is a backup under a backup set whose configuration has been removed (issue #391).",
             "content": {

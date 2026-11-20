@@ -235,7 +235,12 @@ export function RetireDialog({
   // The engine's sentence is shown for every refusal but the no-replacement
   // one, which has its own banner: for an own copy at the final name it is
   // the explanation the acknowledgement below answers.
-  const explained = !!refusal && refusal.overridable_with !== "no_successor";
+  //
+  // While the engine is asked again, or when asking again failed, the answer
+  // it gave first stays on screen: its sentence and the way out (Retry
+  // instead) do not blink away under a pointer that has just ticked a box.
+  const shown = current ? refusal : preview?.refusal;
+  const explained = !!shown && shown.overridable_with !== "no_successor";
   const ready = !!current && !asking && !refusal;
   const command = current ? current.command + (note ? " --note " + shellQuote(note) : "") : "";
 
@@ -327,10 +332,10 @@ export function RetireDialog({
                       <span style={{ display: "block", color: "var(--text-2)", fontSize: "var(--text-xs)" }}>checked just now</span>
                     </span>
                   </div>
-                  {explained && refusal ? (
+                  {explained && shown ? (
                     <Banner tone="warn" dismissible={false} style={{ display: "grid", gap: 8 }}>
-                      <span>{refusal.sentence}</span>
-                      {(refusal.code === "RETIRE_SOURCE_PRESENT" || refusal.code === "RETIRE_OWN_COPY_AT_FINAL_NAME") && onRetry ? (
+                      <span>{shown.sentence}</span>
+                      {(shown.code === "RETIRE_SOURCE_PRESENT" || shown.code === "RETIRE_OWN_COPY_AT_FINAL_NAME") && onRetry ? (
                         <span>
                           <button className="btn btn--strong-edge" style={TARGET} onClick={onRetry}>
                             Retry instead

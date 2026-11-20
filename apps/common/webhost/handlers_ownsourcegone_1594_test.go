@@ -134,3 +134,26 @@ func TestThePreviewNamesTheUnverifiedCopyAcknowledgement_1594(t *testing.T) {
 		t.Errorf("refusal = %+v, want RETIRE_OWN_COPY_AT_FINAL_NAME overridable with accept_unverified_copy", got.Refusal)
 	}
 }
+
+// The preview is a GET that a read-scope token may call, and with
+// accept_unverified_copy it hashes the whole copy and runs the set's validator.
+// That is the operator's deliberate tick in the dialog, never an agent's: the
+// preview refuses the acknowledgements from an agent token, so a read token
+// cannot make the engine re-read a big dump on every call.
+func TestAnAgentTokenCannotAskThePreviewToReadTheFile_1594(t *testing.T) {
+	path := "/api/v1/backups/src/set-1/dump.tar/retire"
+	for _, q := range []string{"?accept_unverified_copy=true", "?accept_source_present=true", "?no_successor=true"} {
+		rig := retireRig(t)
+		rec := serve(rig.router, toolCall(http.MethodGet, path+q, "", readToken, "backup_retirement_show"))
+		if rec.Code != http.StatusForbidden || responseErrorCode(rec.Body.String()) != "AGENT_RETIRE_ACK_REFUSED" {
+			t.Errorf("agent GET %s = %d %s, want 403 AGENT_RETIRE_ACK_REFUSED", q, rec.Code, rec.Body.String())
+		}
+		if got := rig.backend.lastRetireRequest; got.AcceptUnverifiedCopy || got.AcceptSourcePresent || got.NoSuccessor {
+			t.Errorf("agent GET %s reached the engine as %+v", q, got)
+		}
+	}
+	rig := retireRig(t)
+	if rec := serve(rig.router, toolCall(http.MethodGet, path, "", readToken, "backup_retirement_show")); rec.Code != http.StatusOK {
+		t.Errorf("the plain agent preview = %d %s, want 200", rec.Code, rec.Body.String())
+	}
+}

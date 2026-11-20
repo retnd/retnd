@@ -148,6 +148,10 @@ export const SCENARIOS = [
   // acknowledgement.
   "own-copy-verified",
   "own-copy-unverified",
+  // The same unverified copy where asking again with the acknowledgement
+  // fails, and where it takes a couple of seconds.
+  "own-copy-reask-fails",
+  "own-copy-reask-slow",
   // The forge set where the retirement itself takes a few seconds, so the
   // in-flight dialog (both buttons off) can be driven by keyboard.
   "retire-slow",
@@ -4435,7 +4439,7 @@ export function createMockApi(
   const bulk = /^backups-(\d+)$/.exec(scenario);
   // Issue #1594's two fixtures: media-week34's own copy at its final name with
   // its source gone, and whether that copy still verifies.
-  const ownCopyScenario = scenario === "own-copy-verified" || scenario === "own-copy-unverified";
+  const ownCopyScenario = scenario === "own-copy-verified" || scenario === "own-copy-unverified" || scenario === "own-copy-reask-fails" || scenario === "own-copy-reask-slow";
   const ownCopyVerifies = scenario === "own-copy-verified";
   const artifacts = bulk
     ? [...ARTIFACTS, ...bulkGenerated(Number(bulk[1]))]
@@ -5613,6 +5617,14 @@ export function createMockApi(
         return delay(null).then(() => {
           throw new RetndError({ code: "INTERNAL_ERROR", message: "the source host did not answer", correlationId: "cid_mockreask" });
         });
+      }
+      if (scenario === "own-copy-reask-fails" && choice.accept_unverified_copy) {
+        return delay(null).then(() => {
+          throw new RetndError({ code: "INTERNAL_ERROR", message: "the copy could not be read", correlationId: "cid_mockreask" });
+        });
+      }
+      if (scenario === "own-copy-reask-slow" && choice.accept_unverified_copy) {
+        return new Promise<void>((r) => setTimeout(r, 2500)).then(() => mockRetirementPreview(found, choice));
       }
       return delay(mockRetirementPreview(found, choice));
     },

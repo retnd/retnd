@@ -66,7 +66,7 @@ proven is worth anything is a person's call.
 Agents: `accept_unverified_copy` joins `accept_source_present` and `no_successor` as a field an agent
 may not send, refused with `AGENT_RETIRE_ACK_REFUSED` by the proposer (in any letter case) and again
 on replay. An agent's approved retry is replayed through the same handler, so it reads the same
-`RETRY_OWN_COPY_UNVERIFIED` a person does.
+`RETRY_OWN_COPY_UNVERIFIED` a person does. The preview is a GET a read-scope token may call, and with the acknowledgement it hashes the whole copy and runs the validator, so the acknowledgements stay on the preview for the operator (the dialog asks again when the box is ticked, which is how it learns the copy verifies) and an agent token is refused them there too (`AGENT_RETIRE_ACK_REFUSED`, 403), as the MCP server refuses any acknowledgement name in any tool's query.
 
 ## The surfaces
 

@@ -97,6 +97,49 @@ test.describe("#1594 a failed backup with its own copy at the final name and its
     await hold(page);
   });
 
+  // The #1598 UI review: ticking the acknowledgement asks the engine again,
+  // and while it does (or when it cannot answer) the first answer's sentence
+  // and its way out stay on screen, Retire stays off, and the failure is said.
+  test("#1594 while the engine is asked again with the acknowledgement, its sentence and Retry instead stay", async ({ page }) => {
+    await open(page, PAGE, "own-copy-reask-slow");
+    await openRetire(page);
+    const row = dialog(page).getByTestId("retire-row-" + WEEK34);
+    await dialog(page).getByRole("checkbox", { name: /could not be verified/ }).check();
+    await expect(dialog(page).getByRole("button", { name: "Retire", exact: true })).toBeDisabled();
+    await expect(row).toContainText("its own copy is at its final name");
+    await expect(row.getByRole("button", { name: "Retry instead" })).toBeVisible();
+    await expect(dialog(page).getByRole("button", { name: "Retire 1 backup" })).toBeEnabled({ timeout: 8000 });
+    await expect(row.getByRole("button", { name: "Retry instead" })).toHaveCount(0);
+  });
+
+  test("#1594 an acknowledgement the engine cannot answer leaves Retire off and says so, with the first sentence kept", async ({ page }) => {
+    await open(page, PAGE, "own-copy-reask-fails");
+    await openRetire(page);
+    const row = dialog(page).getByTestId("retire-row-" + WEEK34);
+    await dialog(page).getByRole("checkbox", { name: /could not be verified/ }).check();
+    await expect(dialog(page).getByTestId("retire-reask-error")).toContainText("Retire stays off until it answers");
+    await expect(dialog(page).getByRole("button", { name: /^Retire/ }).last()).toBeDisabled();
+    await expect(row).toContainText("its own copy is at its final name");
+    await expect(row.getByRole("button", { name: "Retry instead" })).toBeVisible();
+    await expect(dialog(page).getByRole("checkbox", { name: /could not be verified/ })).toBeChecked();
+    await hold(page);
+  });
+
+  test("#1594 the acknowledgement is a 44px target and takes a visible focus ring from Tab", async ({ page }) => {
+    await open(page, PAGE, "own-copy-unverified");
+    await openRetire(page);
+    const box = dialog(page).getByRole("checkbox", { name: /could not be verified/ });
+    const label = dialog(page).locator("label").filter({ hasText: /could not be verified/ });
+    expect((await label.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    for (let i = 0; i < 8 && !(await box.evaluate((el) => el === document.activeElement)); i++) await page.keyboard.press("Tab");
+    await expect(box).toBeFocused();
+    const ring = await box.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { outline: cs.outlineStyle !== "none" && parseFloat(cs.outlineWidth) > 0, shadow: cs.boxShadow !== "none" };
+    });
+    expect(ring.outline || ring.shadow, "a keyboard-focused checkbox shows a ring").toBe(true);
+  });
+
   for (const theme of ["light", "dark"] as const) {
     test("#1594 the Recovery card and the acknowledgement meet WCAG AA in the " + theme + " theme", async ({ page }) => {
       await open(page, PAGE, "own-copy-unverified");

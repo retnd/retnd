@@ -535,6 +535,13 @@ func (s *Service) keepOwnCopyOnLocalEvidence(ctx context.Context, rec state.Reco
 		if e, ok := lifecycle.AsInsufficientEvidence(err); ok {
 			return refuse(e.Reason)
 		}
+		// A second retry got there first: the row has moved on, at one of the
+		// three places that can notice. That is "not stuck", a 409, and not
+		// an internal error.
+		_, notQuarantined := lifecycle.AsNotQuarantined(err)
+		if notQuarantined || errors.Is(err, ErrNotQuarantined) || errors.Is(err, state.ErrStateMismatch) {
+			return fmt.Errorf("%w: %s changed state while it was being retried", ErrNotFailed, id)
+		}
 		return fmt.Errorf("app: retry failed ingestion: keeping %s's own copy with its source gone: %w", id, err)
 	}
 	if !res.Reinstated {
