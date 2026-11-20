@@ -38,7 +38,7 @@ problems() {
   wired="$(python3 "$repo_root/scripts/tests/gate_wiring.py" "$root" | cut -f1)"
   for f in $(python3 "$repo_root/scripts/tests/gate_wiring.py" "$root" --guards); do
     if grep -qxF -- "$f" <<<"$wired"; then continue; fi
-    if [ -f "$exempt" ] && grep -qF -- "$f"$'\t' "$exempt"; then continue; fi
+    if [ -f "$exempt" ] && awk -F'\t' -v f="$f" '$0 !~ /^[[:space:]]*#/ && $1 == f { found = 1 } END { exit !found }' "$exempt"; then continue; fi
     echo "$f is in the tree and is no executed step of scripts/ci-local.sh in a shard of the manifest (wire it, or name it in scripts/tests/testdata/unwired-guards.txt with an issue)"
   done
   [ -f "$exempt" ] || return 0
@@ -117,9 +117,54 @@ if [ -z "$(problems "$work/c7")" ]; then pass "a for loop is expanded, so a wire
 
 mk "$work/c8" '  bash scripts/tests/bar.test.sh'
 mkdir -p "$work/c8/.github/workflows"
-printf 'jobs:\n  x:\n    steps:\n      - run: bash scripts/foo/selftest.sh\n' >"$work/c8/.github/workflows/release.yml"
 printf '      run: bash scripts/foo/selftest.sh\n' >"$work/c8/.github/workflows/release.yml"
 if [ -z "$(problems "$work/c8")" ]; then pass "a script the release job runs counts as wired"; else fail "a script the release job runs counts as wired" "$(problems "$work/c8")"; fi
+
+# Only a line that runs the script as a command counts (the #1538 review, B4).
+mk "$work/c9" '  bash scripts/foo/selftest.sh --check-anchors
+  bash scripts/tests/bar.test.sh'
+expect_unwired "an anchors-only run (--check-anchors) is not a run of the controls" "$work/c9"
+
+mk "$work/c10" '  gate_docker_step "runs scripts/foo/selftest.sh"
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a gate_docker_step title is not a run" "$work/c10"
+
+mk "$work/c11" '  [[ -f scripts/foo/selftest.sh ]] && echo yes
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a [[ -f ]] test is not a run" "$work/c11"
+
+mk "$work/c12" '  st=scripts/foo/selftest.sh
+  bash scripts/tests/bar.test.sh'
+expect_unwired "an assignment is not a run" "$work/c12"
+
+mk "$work/c13" '  shellcheck scripts/foo/selftest.sh
+  bash scripts/tests/bar.test.sh'
+expect_unwired "shellcheck over the script is not a run" "$work/c13"
+
+mk "$work/c14" '  false && bash scripts/foo/selftest.sh
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a run behind false && is not a run" "$work/c14"
+
+mk "$work/c15" '  "$pw_lock" bash scripts/foo/selftest.sh
+  CI_LOCAL_SELFTEST=1 bash scripts/tests/bar.test.sh'
+if [ -z "$(problems "$work/c15")" ]; then pass "control: a run through a lock wrapper or behind an env assignment counts"; else fail "control: a run through a lock wrapper or behind an env assignment counts" "$(problems "$work/c15")"; fi
+
+mk "$work/c16" '  gate_selftest_with_ledger scripts/foo/selftest.sh
+  bash scripts/tests/bar.test.sh'
+if [ -z "$(problems "$work/c16")" ]; then pass "control: a run through gate_selftest_with_ledger counts"; else fail "control: a run through gate_selftest_with_ledger counts" "$(problems "$work/c16")"; fi
+
+# The Chromium lane's steps (#1537, #1543): a wrapper first, then the lane,
+# and the guard is what the lane runs.
+mk "$work/c17" '  gate_ui_browser "the foo self-test" bash scripts/e2e/ui-browser.sh run bash scripts/foo/selftest.sh
+  gate_pw_locked bash scripts/tests/bar.test.sh'
+if [ -z "$(problems "$work/c17")" ]; then pass "control: a run through gate_ui_browser and the lane, or gate_pw_locked, counts"; else fail "control: a run through gate_ui_browser and the lane, or gate_pw_locked, counts" "$(problems "$work/c17")"; fi
+
+mk "$work/c18" '  gate_ui_browser "the foo self-test" bash scripts/e2e/ui-browser.sh run bash scripts/foo/selftest.sh --check-anchors
+  bash scripts/tests/bar.test.sh'
+expect_unwired "an anchors-only run through the lane is still not a run" "$work/c18"
+
+mk "$work/h" '  bash scripts/tests/bar.test.sh' '# scripts/foo/selftest.sh\tneeds a browser, #1532'
+expect_unwired "a commented-out exemption does not exempt" "$work/h"
 
 mk "$work/d" '  bash scripts/tests/bar.test.sh' 'scripts/foo/selftest.sh\tneeds a browser, #1532'
 if [ -z "$(problems "$work/d")" ]; then pass "an exemption with an issue lets it by"; else fail "an exemption with an issue lets it by" "$(problems "$work/d")"; fi

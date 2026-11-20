@@ -45,7 +45,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from bdtools import harness, selftest_lane, selftest_swap
+from bdtools import harness, selftest_lanes, selftest_swap
+
+# Which controls need a lane beyond Go, pinned (bdtools/selftest_lanes.py).
+LANES_FILE = Path(__file__).resolve().parent / "lanes.txt"
 
 PROGRAM = "agents selftest"
 
@@ -76,10 +79,6 @@ class Control:
     cmd: list[str] = field(default_factory=list)
     needles: list[str] = field(default_factory=list)
     links: list[str] = field(default_factory=list)
-    # Something outside the tree the control cannot run without, a key of
-    # bdtools.selftest_lane.NEEDS: it is left out, counted and named, unless
-    # the variables that provide it are set (#1543).
-    needs: str = ""
 
 
 # The controls live in controls_*.py beside this file, one file per area,
@@ -114,10 +113,10 @@ def gate(work: Path, c: Control, race: bool) -> tuple[int, str]:
     if c.cmd:
         cwd = work if c.module == "core" else work / c.module
         cmd = c.cmd
-        if selftest_lane.in_lane(cmd):
+        if selftest_lanes.in_lane(cmd):
             # On a Mac, through the Playwright lock (body() leaves the lane
             # controls out when there is none); elsewhere, as it is.
-            cmd = [*(selftest_lane.lock_prefix() or []), *cmd]
+            cmd = [*(selftest_lanes.lock_prefix() or []), *cmd]
         proc = harness.sh(cmd, check=False, capture=True, cwd=cwd, env=env)
         return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
     tops = sorted({n.split("/", 1)[0] for n in c.names})
@@ -198,25 +197,15 @@ def mutant(root: Path, tmp: Path, name: str, *, dry_run: bool) -> Path:
 def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | None) -> int:
     tally = selftest_swap.Tally()
     controls = [c for c in CONTROLS if selected(c, only)]
-    # Which controls run here (#1543): RETND_SELFTEST_LANE=skip leaves the
-    # Chromium lane's half out by name, =only runs just that half, and a
-    # control that needs something outside the tree is left out, counted and
-    # named, until the variables that provide it are set. --check-anchors
-    # checks every anchor whatever the split.
-    incomplete: list[str] = []
-    if not dry_run:
-        try:
-            mode = selftest_lane.mode_from_env(os.environ)
-        except ValueError as e:
-            harness.die(str(e))
-        controls, left = selftest_lane.plan(controls, mode, os.environ)
-        selftest_lane.announce(left)
-        in_lane = [c for c in controls if c.cmd and selftest_lane.in_lane(c.cmd)]
-        if in_lane and selftest_lane.lock_prefix() is None:
-            # A browser never runs bare on the maintainer's Mac.
-            print(f"==> not running {len(in_lane)} Chromium lane controls: this is a Mac and there is no Playwright lock at RETND_PW_LOCK to take")
-            incomplete += [c.label for c in in_lane]
-            controls = [c for c in controls if c not in in_lane]
+    pinned = selftest_lanes.load_pinned(LANES_FILE)
+    lane_problems = selftest_lanes.pin_problems({c.label: c.cmd for c in CONTROLS}, pinned)
+    if lane_problems:
+        harness.die(f"the controls that need a lane disagree with {LANES_FILE.name}; edit it in the same change, it is the reviewed list",
+                    *lane_problems)
+    have = {} if dry_run or record is not None else selftest_lanes.host_lanes(root)
+    controls, skipped = selftest_lanes.plan(controls, pinned, have, dry_run=dry_run, recording=record is not None)
+    skip_code = selftest_lanes.report(skipped, "agents", os.environ.get("RETND_SELFTEST_SKIP_LEDGER", ""))
+    late: list[tuple[Control, list[str]]] = []
     labels = [c.label for c in CONTROLS]
     dupes = sorted({x for x in labels if labels.count(x) > 1})
     if dupes:
@@ -244,11 +233,11 @@ def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | 
                 if tracker.stale_verdict(c.label) or tracker.anchors_only(c.label):
                     continue
                 code, out = gate(work, c, race)
-                if c.cmd and selftest_lane.in_lane(c.cmd) and code == harness.EXIT_INCOMPLETE:
+                if c.cmd and selftest_lanes.in_lane(c.cmd) and code == harness.EXIT_INCOMPLETE:
                     # The lane's 3: this machine could not run it (no daemon,
                     # no image, the install inside failed). Not a verdict.
                     print(f"    the Chromium lane could not run on this machine:\n{out[-2000:]}")
-                    incomplete.append(c.label)
+                    late.append((c, [selftest_lanes.LANE_CHROMIUM + " (it could not run on this host)"]))
                     continue
                 if EXPLORE:
                     fails = [x.strip() for x in out.splitlines() if "--- FAIL" in x or "build failed" in x or x.startswith("FAIL")]
@@ -266,9 +255,9 @@ def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | 
                 verdict, green = "NOT CAUGHT", "-"
             else:
                 gcode, gout = gate(work, c, race)
-                if c.cmd and selftest_lane.in_lane(c.cmd) and gcode == harness.EXIT_INCOMPLETE:
+                if c.cmd and selftest_lanes.in_lane(c.cmd) and gcode == harness.EXIT_INCOMPLETE:
                     print(f"    the Chromium lane could not run the unplanted tree on this machine:\n{gout[-2000:]}")
-                    incomplete.append(c.label)
+                    late.append((c, [selftest_lanes.LANE_CHROMIUM + " (it could not run on this host)"]))
                     continue
                 if gcode != 0:
                     tally.bad(f"{c.label}. The narrowed test FAILED on the unplanted tree, so its red means nothing.", gout[-6000:])
@@ -300,21 +289,16 @@ def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | 
             file=sys.stderr,
         )
         return harness.EXIT_FAILED
-    if incomplete:
-        print(file=sys.stderr)
-        print(
-            f"INCOMPLETE: {len(incomplete)} agents controls could not run in the Chromium lane on this machine "
-            f"({tally.passed} others went red naming their test and green again):",
-            file=sys.stderr,
-        )
-        for label in incomplete:
-            print(f"    {label}", file=sys.stderr)
-        return harness.EXIT_CANNOT_RUN
+    # A lane that answered 3 mid-run is a skip like any other (#1543).
+    skip_code = selftest_lanes.report(late, "agents", os.environ.get("RETND_SELFTEST_SKIP_LEDGER", "")) or skip_code
     print()
     if dry_run:
         print(f"OK: all {checked} agents mutation anchors still name code that is in this tree.")
     else:
         print(f"OK: all {tally.passed} agents controls went red naming their test and green again unplanted.")
+        if skip_code:
+            print(f"INCOMPLETE: {len(skipped) + len(late)} controls were not run on this host (listed above).", file=sys.stderr)
+            return harness.EXIT_CANNOT_RUN
     return harness.EXIT_OK
 
 

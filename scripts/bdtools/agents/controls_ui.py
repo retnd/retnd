@@ -16,7 +16,7 @@
 
 from typing import TYPE_CHECKING
 
-from bdtools import selftest_lane
+from bdtools import selftest_lanes
 
 if TYPE_CHECKING:
     # Only for the type checker: at run time selftest.py execs this file
@@ -49,7 +49,7 @@ CONTROLS = [
          (TOKENS_REGION, "data-token-prefix=\"\">{t.prefix}</td>",
           "data-token-prefix=\"\">{t.prefix}<i hidden>{(globalThis as any).__lastSecret}</i></td>")],
         "",
-        cmd=selftest_lane.spec("e2e/1351-agents-mint.spec.ts", "after I have stored it the token is nowhere"),
+        cmd=selftest_lanes.spec("e2e/1351-agents-mint.spec.ts", "after I have stored it the token is nowhere"),
         needles=["after I have stored it the token is nowhere", "1 failed"],
         timeout="20m",
     ),
@@ -59,7 +59,7 @@ CONTROLS = [
         [(CONFIRM_REGION, "disabled={busy || !hasPassword} onClick={() => void approve()}",
           "disabled={busy} onClick={() => void approve()} /* " + PLANT.split("// ", 1)[1] + "no password needed. */")],
         "",
-        cmd=selftest_lane.spec("e2e/1351-agents-confirmations.spec.ts", "pressing Approve asks for the password and runs nothing"),
+        cmd=selftest_lanes.spec("e2e/1351-agents-confirmations.spec.ts", "pressing Approve asks for the password and runs nothing"),
         needles=["pressing Approve asks for the password and runs nothing", "1 failed"],
         timeout="20m",
     ),
@@ -69,7 +69,7 @@ CONTROLS = [
         [(TOKENS_REGION, "{catalogue.data!.tools.filter((t) => t.scope === s).map((t) => <li key={t.name}><code>{t.name}</code></li>)}",
           "{catalogue.data!.tools.filter((t) => t.scope === s).map((t) => <li key={t.name}><code>{t.name}</code></li>)}{s === \"read\" ? <li key=\"planted\"><code>planted_tool</code></li> : null}{/* " + PLANT.split("// ", 1)[1] + "a tool the catalogue does not list. */}")],
         "",
-        cmd=selftest_lane.spec("e2e/1351-agents-card.spec.ts", "lists what the catalogue lists, by scope"),
+        cmd=selftest_lanes.spec("e2e/1351-agents-card.spec.ts", "lists what the catalogue lists, by scope"),
         needles=["lists what the catalogue lists, by scope", "1 failed"],
         timeout="20m",
     ),
@@ -79,7 +79,7 @@ CONTROLS = [
         [(AGENTS_CSS, ".ag-secondary { color: var(--text-2); font-size: var(--text-xs); }",
           ".ag-secondary { color: var(--border); font-size: var(--text-xs); } /* " + PLANT.split("// ", 1)[1] + "ink under 4.5 to 1. */")],
         "",
-        cmd=selftest_lane.spec("e2e/1351-agents-contrast.spec.ts", "the tokens region, the scope list and the transport line"),
+        cmd=selftest_lanes.spec("e2e/1351-agents-contrast.spec.ts", "the tokens region, the scope list and the transport line"),
         needles=["the tokens region, the scope list and the transport line", "1 failed"],
         timeout="20m",
     ),
@@ -136,7 +136,7 @@ CONTROLS = [
         [(MOCK_AGENTS, '"destructive operations are refused over HTTP in this release,',
           '"destructive operations are blocked over HTTP in this release,')],
         "",
-        cmd=selftest_lane.spec("e2e/1352-agent-equivalence.spec.ts", "an approved run_cycle at the shut gate"),
+        cmd=selftest_lanes.spec("e2e/1352-agent-equivalence.spec.ts", "an approved run_cycle at the shut gate"),
         needles=["an approved run_cycle at the shut gate", "1 failed"],
         timeout="20m",
     ),
@@ -195,7 +195,7 @@ CONTROLS = [
         [(CAP_HARNESS, "  await page.clock.setFixedTime(FROZEN_TIME);",
           "  // " + PLANT.split("// ", 1)[1] + "the clock is not pinned.")],
         "",
-        cmd=selftest_lane.capture("docs/site/tools/capture-agents.mjs", "--check --only audit"),
+        cmd=selftest_lanes.capture("docs/site/tools/capture-agents.mjs", "--check --only audit"),
         needles=["NOT REPRODUCIBLE", "agents-audit"],
         timeout="20m",
     ),

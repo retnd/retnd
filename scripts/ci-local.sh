@@ -766,15 +766,20 @@ bash scripts/tests/closure-no-pipe-grep-q.test.sh
 # A self-test or guard script that is in the tree and in no step here runs
 # nowhere, and its PASS rows rest on one run (#1530, #1531, #1533). This names
 # the ones the gate does not run, and takes an exemption only with an issue.
-gate_step "every self-test and guard script is a step of this gate, or an exemption that names its open issue (#1530, #1531, #1533)"
+gate_step "every self-test and guard script is a step of this gate, or an exemption that names an issue (#1530, #1531, #1533)"
 bash scripts/tests/every-guard-is-a-gate-step.test.sh
+
+# Which self-test controls a host can run, and that the rest reach the skip
+# ledger (#1530, #1531): the lane plan and the pinned lanes.txt of each.
+gate_step "the self-tests run every control the host has a lane for and ledger the rest (#1530, #1531)"
+bash scripts/tests/selftest-lanes.test.sh
 
 # The agents and encryption self-tests' controls used to hard-code paths on
 # the maintainer's Mac and a hand-built capture image, so the gate left about
 # twenty of them out wholesale (#1543). This lists every control that would
-# not run on a Linux gate host and refuses any without an allowed reason, and
-# checks each self-test's lane half is a step of the ui-browser shard. Static,
-# a second or two: it imports the two self-tests and reads this file.
+# not run on a Linux gate host and refuses any without an allowed reason (only
+# the retnd-tests checkout, #1548). Static, a second or two: it imports the two
+# self-tests and reads their lanes.txt.
 gate_step "every agents and encryption self-test control runs on a Linux gate host, in the Chromium lane or where the driver runs, or skips for an allowed reason (#1543)"
 bash scripts/tests/selftest-linux-skips.test.sh
 
@@ -1189,7 +1194,7 @@ gate_seg_ui_browser() {
 # Mac unless RETND_UI_BROWSER_ALLOW_LOCAL=1 says so (see gate_ui_browser).
 if [ "$FAST" != "1" ]; then
   if [ "${CI_LOCAL_SKIP_UI_BROWSER:-0}" = "1" ]; then
-    gate_note_skip "the ui/shared browser specs, the assurance UI mutation self-test and the lane half of the encryption and agents self-tests, which are the only automated execution any of them gets (CI_LOCAL_SKIP_UI_BROWSER=1)"
+    gate_note_skip "the ui/shared browser specs and the assurance UI mutation self-test, which are the only automated execution either of them gets (CI_LOCAL_SKIP_UI_BROWSER=1)"
   else
     gate_docker_step "ui/shared browser specs (ui/shared/e2e), every file, in the pinned Playwright image (#1537)"
     gate_ui_browser "the ui/shared browser specs" bash scripts/e2e/ui-browser.sh specs ui/shared/e2e/playwright.config.ts
@@ -1200,19 +1205,6 @@ if [ "$FAST" != "1" ]; then
     gate_docker_step "the assurance UI guards can actually fail (browser mutation self-test, #1532)"
     gate_ui_browser "the assurance UI mutation self-test" bash scripts/e2e/ui-browser.sh run bash scripts/assurance/ui-selftest.sh
 
-    # The lane half of the encryption (#1531) and agents (#1530) mutation
-    # self-tests (#1543): their browser spec, vitest, tsc, contrast and
-    # capture controls, which their own shards leave out by name because those
-    # have no docker. Each control plants its violation in a copy of the tree
-    # and runs its narrowed command through this lane from the copy, twice
-    # (planted, then not), so the copy has to sit where the daemon sees the
-    # same path: TMPDIR, which scripts/ci-docker.sh shares with a Linux host.
-    # The capture controls use the image scripts/e2e/capture.Dockerfile
-    # describes (scripts/e2e/ui-capture.sh builds it). A 3 is ledgered.
-    gate_docker_step "the encryption and suite guards' browser and capture controls can actually fail, in the Chromium lane (#1531, #1543)"
-    gate_ui_browser "the encryption self-test's lane controls" env RETND_SELFTEST_LANE=only bash scripts/encryption/selftest.sh
-    gate_docker_step "the agent guards' browser and capture controls can actually fail, in the Chromium lane (#1530, #1543)"
-    gate_ui_browser "the agents self-test's lane controls" env RETND_SELFTEST_LANE=only bash scripts/agents/selftest.sh
   fi
 fi
 }
@@ -1590,6 +1582,35 @@ if [ "$FAST" != "1" ]; then
 fi
 }
 
+# gate_memory_gib: the memory this run may use, in whole GiB: the cgroup limit
+# when there is one (a container's fence), else the machine's. A test can set
+# CI_LOCAL_MEMORY_LIMIT_BYTES to stand in for the measurement.
+gate_memory_gib() {
+  bytes="${CI_LOCAL_MEMORY_LIMIT_BYTES:-}"
+  if [ -z "$bytes" ] && [ -r /sys/fs/cgroup/memory.max ]; then
+    bytes="$(cat /sys/fs/cgroup/memory.max)"; [ "$bytes" = max ] && bytes=""
+  fi
+  if [ -z "$bytes" ] && [ -r /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then
+    bytes="$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)"
+  fi
+  meminfo=""
+  if [ -r /proc/meminfo ]; then meminfo="$(awk '/^MemTotal:/ { print $2 * 1024 }' /proc/meminfo)"; fi
+  [ -n "$meminfo" ] || meminfo="$(sysctl -n hw.memsize 2>/dev/null || echo 0)"
+  if [ -z "$bytes" ] || [ "$bytes" -gt "$meminfo" ] 2>/dev/null; then bytes="$meminfo"; fi
+  echo $(( ${bytes:-0} / 1073741824 ))
+}
+
+# gate_selftest_with_ledger <script>: run a mutation self-test and put every
+# control it could not run on this host into the skip ledger, one line each.
+gate_selftest_with_ledger() {
+  skips="$(mktemp "${TMPDIR:-/tmp}/selftest-skips.XXXXXX")"
+  RETND_SELFTEST_SKIP_LEDGER="$skips" bash "$1" || { rc=$?; rm -f "$skips"; return "$rc"; }
+  while IFS= read -r line; do
+    [ -n "$line" ] && gate_note_skip "$line"
+  done <"$skips"
+  rm -f "$skips"
+}
+
 gate_seg_selftest_encryption() {
 if [ "$FAST" != "1" ]; then
   # EPIC N and EPIC T (#1531): the retained-copy encryption and suite guards
@@ -1601,15 +1622,27 @@ if [ "$FAST" != "1" ]; then
   # standing claim. Only the anchors half ran before, from check_anchors.py.
   # No Docker, and the longest of the self-tests, so it is a shard of its own.
   #
-  # The controls whose proof is a browser spec, vitest, tsc, the browser
-  # contrast check or the capture rig (thirteen of them) go through the
-  # Chromium lane, and this shard has no docker, so it leaves them out by name
-  # with RETND_SELFTEST_LANE=skip and the ui-browser shard runs them (#1543).
-  # The three retnd-tests cases need a checkout no shard hands the self-test
-  # yet (#1548), and say so, counted. Every other control runs. Two copycrypt
-  # controls allocate several GiB, so this shard needs a fence above 4 GB.
+  # Some controls need more than Go: the Playwright lock, a docker daemon, node
+  # with ui/shared's dependencies, or the retnd-tests checkout. Which ones is
+  # pinned in scripts/bdtools/<x>/lanes.txt, and the self-test probes this host
+  # for each lane: a control whose lane is missing is not run, and lands in this
+  # gate's skip ledger through RETND_SELFTEST_SKIP_LEDGER, so the shard ends
+  # INCOMPLETE naming it instead of ok. The browser specs, the browser contrast
+  # check and the capture rig go through the Chromium lane (scripts/e2e/ui-browser.sh,
+  # #1537, #1543), which needs only the docker daemon a gate container has; the
+  # three retnd-tests cases have no shard with the checkout yet (#1548).
+  #
+  # Two copycrypt controls allocate several GiB and are OOM-killed under about
+  # 8 GiB, so the shard needs 9 GiB: scripts/release/run-gate-shard.sh asks for
+  # a 9g fence and refuses a smaller one, and this step refuses to start the
+  # self-test in less than that, out loud, which also ends INCOMPLETE.
   gate_step "the encryption and suite guards can actually fail (mutation self-test, #1531)"
-  RETND_SELFTEST_LANE=skip bash scripts/encryption/selftest.sh
+  have_gib="$(gate_memory_gib)"
+  if [ "$have_gib" -lt 9 ]; then
+    gate_note_skip "the encryption self-test (#1531): this run has ${have_gib} GiB and its two copycrypt controls need 9 GiB, so none of it ran. Run the selftest-encryption shard with a 9g fence (scripts/release/run-gate-shard.sh asks for one)"
+  else
+    gate_selftest_with_ledger scripts/encryption/selftest.sh
+  fi
 fi
 }
 
@@ -1619,11 +1652,10 @@ if [ "$FAST" != "1" ]; then
   # transports, the audit trail, the confirmations and the Agents card, each
   # planted as a real violation in a real product file, and the narrowed suite
   # has to go red naming the test. core/tests/agentgate refuses a PASS row
-  # whose control label is not in the file, and this is what runs them.
-  # The browser and capture controls run in the ui-browser shard's Chromium
-  # lane and are left out here by name, as for the encryption one above (#1543).
+  # whose control label is not in the file, and this is what runs them. Controls
+  # this host has no lane for go to the skip ledger, as for the encryption one.
   gate_step "the agent (MCP) guards can actually fail (mutation self-test, #1530)"
-  RETND_SELFTEST_LANE=skip bash scripts/agents/selftest.sh
+  gate_selftest_with_ledger scripts/agents/selftest.sh
 fi
 }
 

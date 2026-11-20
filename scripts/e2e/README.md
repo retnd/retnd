@@ -27,11 +27,12 @@ To run one spec the way the gate does, on a Linux docker host:
 
     bash scripts/e2e/ui-browser.sh specs ui/shared/e2e/playwright.config.ts 1351-agents-card.spec.ts
 
-The same shard runs the lane half of the encryption and agents mutation
-self-tests (#1543): their browser spec, vitest, tsc, contrast and capture
-controls, each run through the lane from the planted copy
-(`RETND_SELFTEST_LANE=only`; their own shards run the rest with `=skip`). The
-capture controls go through `ui-capture.sh`, which builds the image
+The encryption and agents mutation self-tests use the lane too (#1543): their
+browser spec, contrast and capture controls each run through it from the
+planted copy, in those self-tests' own shards, which have the docker daemon
+the lane needs (a host without it ledgers them, `scripts/bdtools/<x>/lanes.txt`
+pins which controls need the `chromium-lane`). The capture controls go
+through `ui-capture.sh`, which builds the image
 `capture.Dockerfile` describes (the lane's Playwright image plus ffmpeg from a
 pinned Ubuntu snapshot), tagged with that file's hash, and hands it to the
 lane as `RETND_UI_BROWSER_IMAGE`:

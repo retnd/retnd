@@ -1,0 +1,9 @@
+# agents self-test controls that need more than Go, and which lanes (bdtools/selftest_lanes.py).
+# A gate host without a lane skips those controls into the gate's skip ledger. Edit this
+# file in the same change as a control that starts or stops needing a lane.
+chromium-lane	AGENTS the token kept in the list row after the dialog closes
+chromium-lane	AGENTS Approve and run enabled with no password typed
+chromium-lane	AGENTS one tool hard-coded into the scope disclosure
+chromium-lane	AGENTS the secondary ink lightened under 4.5 to 1 on the card
+chromium-lane	AGENTS the gate sentence reworded on one surface
+chromium-lane	AGENTS the capture clock left unpinned

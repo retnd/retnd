@@ -417,6 +417,7 @@ make_full_tree() {
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/every-guard-is-a-gate-step.test.sh"
   # It imports the real agents and encryption self-tests (#1543).
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/selftest-linux-skips.test.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/selftest-lanes.test.sh"
   # The self-tests of the gate's own machinery (#1533): the shard runner, the
   # --shard i/n split of the self-tests, and the release e2e hooks. Each makes
   # its own throwaway repositories and stand-in commands.
@@ -672,6 +673,10 @@ make_full_tree() {
 
 out=""
 status=0
+# Every synthetic run is told it has 10 GiB, so the encryption shard's memory
+# preflight (9 GiB, #1538 review B3) measures this case, not the machine running
+# the suite. Group X overrides it.
+ROOMY=10737418240
 
 # run_hook drives .husky/pre-commit; run_gate drives scripts/ci-local.sh.
 # Both share $out/$status, and both scrub every CI_LOCAL_* variable so the
@@ -683,7 +688,7 @@ status=0
 scrub_env() {
   env -u CI_LOCAL_FAST -u CI_LOCAL_SKIP_JS -u CI_LOCAL_SKIP_DOCKER \
     -u CI_LOCAL_SELFTEST -u CI_LOCAL_SKIP_E2E -u CI_LOCAL_SKIP_TWO_MACHINE -u CI_LOCAL_SKIP_UI_BROWSER -u RETND_UI_BROWSER_ALLOW_LOCAL -u STUB_UNAME_S \
-    -u CI_LOCAL_RED -u CI_LOCAL_FULL -u CI_LOCAL_TIER -u GATE_SHARD -u CI -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
+    -u CI_LOCAL_RED -u CI_LOCAL_FULL -u CI_LOCAL_TIER -u CI_LOCAL_MEMORY_LIMIT_BYTES -u RETND_SELFTEST_SKIP_LEDGER -u GATE_SHARD -u CI -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
     -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_PREFIX "$@"
 }
 
@@ -693,7 +698,7 @@ run_hook() { # <tree> [VAR=VAL ...]
   # CI_LOCAL_FULL=1: this suite measures the hook acting on the FULL gate's
   # exit status. What the default fast tier does is scripts/tests/ci-fast.test.sh's.
   out="$(cd "$hook_tree" && scrub_env CI_LOCAL_LOCK_DIR="$hook_tree/.gate-lock" \
-    CI_LOCAL_FULL=1 PATH="$hook_tree/bin:$PATH" "$@" sh .husky/pre-commit 2>&1)"
+    CI_LOCAL_MEMORY_LIMIT_BYTES="$ROOMY" CI_LOCAL_FULL=1 PATH="$hook_tree/bin:$PATH" "$@" sh .husky/pre-commit 2>&1)"
   status=$?
 }
 
@@ -717,7 +722,7 @@ run_gate() { # <tree> [VAR=VAL ...] [-- <ci-local.sh args...>]
   # CI_LOCAL_SELFTEST=1 around this very script, which would otherwise reach
   # every synthetic run as an inherited skip.
   out="$(cd "$gate_tree" && scrub_env CI_LOCAL_LOCK_DIR="$gate_tree/.gate-lock" \
-    PATH="$gate_tree/bin:$PATH" ${gate_envs[@]+"${gate_envs[@]}"} bash scripts/ci-local.sh ${gate_args[@]+"${gate_args[@]}"} 2>&1)"
+    CI_LOCAL_MEMORY_LIMIT_BYTES="$ROOMY" PATH="$gate_tree/bin:$PATH" ${gate_envs[@]+"${gate_envs[@]}"} bash scripts/ci-local.sh ${gate_args[@]+"${gate_args[@]}"} 2>&1)"
   status=$?
 }
 
@@ -738,7 +743,7 @@ run_git_commit() { # <tree> [VAR=VAL ...] -- <git commit args...>
   done
   [ "${1:-}" = "--" ] && shift
   out="$(cd "$commit_tree" && scrub_env CI_LOCAL_LOCK_DIR="$commit_tree/.gate-lock" \
-    CI_LOCAL_FULL=1 PATH="$commit_tree/bin:$PATH" "${commit_vars[@]}" git commit "$@" 2>&1)"
+    CI_LOCAL_MEMORY_LIMIT_BYTES="$ROOMY" CI_LOCAL_FULL=1 PATH="$commit_tree/bin:$PATH" "${commit_vars[@]}" git commit "$@" 2>&1)"
   status=$?
 }
 
@@ -2888,36 +2893,34 @@ assert_contains "X11 a Linux host runs the specs" "$UI_BROWSER_STUB specs" "$out
 assert_not_contains "X11 bare, with no lock to take" 'PW-LOCK-HELD' "$out"
 assert_eq "X11 and the shard ends ok" "==> ci-local: ok (shard ui-browser)" "$(printf '%s\n' "$out" | tail -n 1)"
 
-# X12: the lane half of the encryption and agents self-tests runs in this
-# shard, and only that half; their own shards leave it out by name (#1543).
-selftest_stubs() { # <tree> <encryption exit> <agents exit>
-  printf '#!/usr/bin/env bash\necho "SELFTEST-STUB encryption lane=$RETND_SELFTEST_LANE"\nexit %s\n' "$2" >"$1/scripts/encryption/selftest.sh"
-  printf '#!/usr/bin/env bash\necho "SELFTEST-STUB agents lane=$RETND_SELFTEST_LANE"\nexit %s\n' "$3" >"$1/scripts/agents/selftest.sh"
-}
+# --------------------------------------- X the self-test shards' honesty (#1538 review)
+# X1: the encryption shard refuses to run under 9 GiB, out loud, and ends INCOMPLETE.
 tree="$(make_full_tree)"
-selftest_stubs "$tree" 0 0
-run_gate "$tree" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh -- --shard ui-browser
-assert_contains "X12 the ui-browser shard runs the encryption self-test's lane half" "SELFTEST-STUB encryption lane=only" "$out"
-assert_contains "X12 and the agents self-test's" "SELFTEST-STUB agents lane=only" "$out"
-assert_eq "X12 and ends ok" "==> ci-local: ok (shard ui-browser)" "$(printf '%s\n' "$out" | tail -n 1)"
+printf '#!/usr/bin/env bash\necho ENCRYPTION-SELFTEST-RAN\nexit 0\n' >"$tree/scripts/encryption/selftest.sh"
+run_gate "$tree" CI_LOCAL_MEMORY_LIMIT_BYTES=4294967296 -- --shard selftest-encryption
+assert_eq "X1 the encryption shard under 4 GiB exits $INCOMPLETE" "$INCOMPLETE" "$status"
+assert_contains "X1 and says it needs 9 GiB for the copycrypt controls" "copycrypt" "$out"
+assert_not_contains "X1 and did not start the self-test to be OOM-killed" "ENCRYPTION-SELFTEST-RAN" "$out"
+run_gate "$tree" CI_LOCAL_MEMORY_LIMIT_BYTES=9663676416 -- --shard selftest-encryption
+assert_eq "X1 control: 9 GiB runs it and ends ok" 0 "$status"
+assert_contains "X1 control: and the self-test ran" "ENCRYPTION-SELFTEST-RAN" "$out"
+
+# X2: a control the host could not run reaches the skip ledger, so the shard is
+# INCOMPLETE and names it, for both self-tests.
+for st in encryption agents; do
+  tree="$(make_full_tree)"
+  printf '#!/usr/bin/env bash\n[ -n "${RETND_SELFTEST_SKIP_LEDGER:-}" ] || exit 9\necho "%s self-test: PLANTED-CONTROL (needs docker)" >>"$RETND_SELFTEST_SKIP_LEDGER"\nexit 0\n' "$st" >"$tree/scripts/$st/selftest.sh"
+  run_gate "$tree" -- --shard "selftest-$st"
+  assert_eq "X2 a skipped $st control makes the shard exit $INCOMPLETE" "$INCOMPLETE" "$status"
+  assert_contains "X2 and the summary names the control" "PLANTED-CONTROL (needs docker)" "$out"
+done
+
+# X3: a self-test that skipped nothing leaves the shard ok (the ledger file is
+# handed over and stays empty).
 tree="$(make_full_tree)"
-selftest_stubs "$tree" 0 0
-run_gate "$tree" -- --shard selftest-encryption
-assert_contains "X12 the selftest-encryption shard leaves the lane half out" "SELFTEST-STUB encryption lane=skip" "$out"
-tree="$(make_full_tree)"
-selftest_stubs "$tree" 0 0
+printf '#!/usr/bin/env bash\n[ -n "${RETND_SELFTEST_SKIP_LEDGER:-}" ] || exit 9\nexit 0\n' >"$tree/scripts/agents/selftest.sh"
 run_gate "$tree" -- --shard selftest-agents
-assert_contains "X12 the selftest-agents shard leaves the lane half out" "SELFTEST-STUB agents lane=skip" "$out"
-tree="$(make_full_tree)"
-selftest_stubs "$tree" 1 0
-run_gate "$tree" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh -- --shard ui-browser
-assert_nonzero "X12 a lane control that did not go red fails the run" "$status"
-assert_contains "X12 the verdict line names the step" "ci-local: FAILED (the encryption and suite guards' browser and capture controls" "$out"
-tree="$(make_full_tree)"
-selftest_stubs "$tree" 0 3
-run_gate "$tree" RETND_PW_LOCK=/nonexistent/xdg-pw-lock.sh -- --shard ui-browser
-assert_contains "X12 a lane the agents self-test could not run is ledgered" '==> ci-local: INCOMPLETE (shard ui-browser)' "$out"
-assert_eq "X12 it exits $INCOMPLETE" "$INCOMPLETE" "$status"
+assert_eq "X3 an agents self-test with nothing skipped ends ok" 0 "$status"
 
 # ------------------------------------------------------------------ result
 

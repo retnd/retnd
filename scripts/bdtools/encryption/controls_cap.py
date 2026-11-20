@@ -15,7 +15,7 @@
 
 from typing import TYPE_CHECKING
 
-from bdtools import selftest_lane
+from bdtools import selftest_lanes
 
 if TYPE_CHECKING:
     # Only for the type checker: at run time selftest.py execs this file
@@ -33,7 +33,7 @@ CONTROLS = [
         [(CAP_HARNESS, "  await page.clock.setFixedTime(FROZEN_TIME);",
           "  // PLANTED VIOLATION (scripts/bdtools/encryption/selftest.py): the clock is not pinned.")],
         "",
-        cmd=selftest_lane.capture("docs/site/tools/capture-encryption.mjs", "--check --only rotated"),
+        cmd=selftest_lanes.capture("docs/site/tools/capture-encryption.mjs", "--check --only rotated"),
         needles=["NOT REPRODUCIBLE", "encryption-08-rotated"],
         timeout="20m",
     ),
@@ -43,7 +43,7 @@ CONTROLS = [
         [(CAP_MOCK, '      description: canary ? PQ_CANARY : "age v1 with a hybrid ML-KEM-768 and X25519 recipient; 128-bit security level.",',
           '      description: canary || scenario === "encryption-suite-change" ? PQ_CANARY : "age v1 with a hybrid ML-KEM-768 and X25519 recipient; 128-bit security level.", // PLANTED VIOLATION (scripts/bdtools/encryption/selftest.py)')],
         "",
-        cmd=selftest_lane.capture("docs/site/tools/capture-encryption.mjs", "--only suite-select"),
+        cmd=selftest_lanes.capture("docs/site/tools/capture-encryption.mjs", "--only suite-select"),
         needles=["encryption-25-suite-select would photograph key material or a canary value"],
         timeout="20m",
     ),
@@ -53,7 +53,7 @@ CONTROLS = [
         [(CAP_MOCK, '      description: canary ? PQ_CANARY : "age v1 with a hybrid ML-KEM-768 and X25519 recipient; 128-bit security level.",',
           '      description: canary || scenario === "encryption-suite-change" ? PQ_CANARY : "age v1 with a hybrid ML-KEM-768 and X25519 recipient; 128-bit security level.", // PLANTED VIOLATION (scripts/bdtools/encryption/selftest.py)')],
         "",
-        cmd=selftest_lane.capture("docs/site/tools/capture-encryption.mjs", "--only suite-flow"),
+        cmd=selftest_lanes.capture("docs/site/tools/capture-encryption.mjs", "--only suite-flow"),
         needles=["encryption-suite-flow would photograph key material or a canary value"],
         timeout="20m",
     ),
