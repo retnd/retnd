@@ -667,5 +667,43 @@ export const FIELD_HELP = {
     example: "30",
     effect:
       "Scrapes inside those 30 seconds all get the report built at the first of them, so ten scrapers cost one journal read. A shorter value shows a fresher view and costs more reads; the smallest the engine accepts is 1 second, and it refuses anything lower and writes nothing."
+  },
+  // Issue #1604 (EPIC O, #901's inputs). Read out of the PATCH and its
+  // validation (core/service/observability.go, core/internal/config's
+  // observability.go and observability_alerts.go, webhookurl.go), the reload
+  // seam (core/service/alertsink.go: carryAlerts, and AdoptState in
+  // core/internal/alert/refresh.go) and the sink (core/internal/alert's
+  // httpsink.go). The generic provider's wiring (apps/generic/cmd/retnd-web,
+  // enableAlerts) is why "platform announced nothing" is true there: with no
+  // notifier no dispatcher is built, so there is no firing map to carry.
+  observabilityAlertsDelivery: {
+    what: "Which one channel this deployment's alerts go out through: the platform's own notifier, or a webhook. Never both.",
+    example: "webhook",
+    effect:
+      "Saves webhook to config.yaml and builds the one alert channel again, with no restart; the platform notifier stops being used. The engine refuses the change and writes nothing unless config.yaml already names where the URL is kept (observability.alerts.webhook.url_ref), and it refuses a URL it can read and finds unusable. An alert the old channel already announced is not announced again through the new one, with one exception: the alertmanager format re-sends every standing alert each refresh interval, so a new Alertmanager receiver has them all within one interval. On a platform with no notifier, platform announced nothing, so the next alerting pass posts every alert that is standing. Nothing is observed at all unless alerts.enabled is set."
+  },
+  observabilityAlertsDialect: {
+    what: "The shape of each webhook post: one JSON object per alert, or the Alertmanager v2 array.",
+    example: "alertmanager",
+    effect:
+      "Each alert goes out as an Alertmanager v2 array and is sent again every refresh interval while the condition holds, so Alertmanager does not expire it, then gets one closing post (best effort) when it clears. Alerts already standing reach the receiver within one refresh interval, because the re-send covers them too. generic posts one JSON object per alert, once, sends nothing while the condition lasts or when it clears, and does not post an alert the old setting already announced. Saved to config.yaml, with no restart."
+  },
+  observabilityAlertsInsecureHttp: {
+    what: "Whether the webhook URL may use plain http as well as https.",
+    example: "allowed (trusted private network)",
+    effect:
+      "Lets an http:// URL such as http://alertmanager:9093 on the compose network through, and alerts then cross that network unencrypted. Nothing else loosens: a URL carrying a user or password is still refused, a redirect is still never followed, and an https receiver's certificate is still checked. Set back to refused, the engine refuses the change and writes nothing while the URL it can read is plain http. Saved to config.yaml, with no restart."
+  },
+  observabilityAlertsRefresh: {
+    what: "How often, in seconds, an alert that is still true is sent to Alertmanager again.",
+    example: "240",
+    effect:
+      "Each standing alert is re-sent every 4 minutes with a fresh expiry, so Alertmanager keeps it firing instead of expiring it. The engine refuses a value that is not at least 30 seconds below the expiry time, because one delivery attempt can take that long, and writes nothing. Only the alertmanager format refreshes. Saved to config.yaml when you leave the field, with no restart."
+  },
+  observabilityAlertsResolveTtl: {
+    what: "How far ahead, in seconds, each post to Alertmanager sets the alert's expiry (endsAt).",
+    example: "600",
+    effect:
+      "Every post says the alert ends 10 minutes later, so if the posts stop (the engine is down, or the network is) Alertmanager resolves the alert on its own within 10 minutes of the last one. It has to stay at least 30 seconds above the refresh interval, or the engine refuses it and writes nothing. Only the alertmanager format uses it. Saved to config.yaml when you leave the field, with no restart."
   }
 } as const satisfies Record<string, FieldHelpCopy>;
