@@ -419,6 +419,23 @@ request carries the browser's own attempt id, so a console screenshot and a
 container log can be matched up even when the browser never got a response at all.
 
 
+## When a failed backup can never be fetched again
+
+A backup that failed stays FAILED, and its set reads FAILING, because somebody has to decide what
+happens next. `retnd retry <source/set/artifact>` sends it back through the pipeline. When the host
+has deleted the source object since, a retry can only fail again, so retire it instead:
+
+```
+retnd retire cicd-pipeline/forge/gitea-dump-20261029T034245Z.tar.gz --dry-run   # what it would do
+retnd retire cicd-pipeline/forge/gitea-dump-20261029T034245Z.tar.gz
+```
+
+It asks the source first and refuses while the object is still there, or when no newer good
+backup replaces it, unless you acknowledge either (`--accept-source-present`, `--no-successor`).
+The record stays, marked RETIRED, and the health report counts it apart rather than as a failure.
+A cycle retires the plain case on its own (object gone, newer good backup present) and puts it back
+in the pipeline if the object ever comes back.
+
 ## Licence
 
 MIT License. The full text is in [`LICENSE`](LICENSE).

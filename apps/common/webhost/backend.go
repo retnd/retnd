@@ -325,6 +325,13 @@ type BackupServiceClient interface {
 	// had ever taken it, so a backup that reached it stopped being worked
 	// on permanently.
 	RetryFailedArtifact(ctx context.Context, id, note string) error
+
+	// PreviewRetirement and RetireArtifact back GET and POST
+	// /api/v1/backups/{id}/retire (issue #1528): the second way out of
+	// FAILED, for a backup whose source object is gone. The preview runs
+	// the same check the action runs and changes nothing.
+	PreviewRetirement(ctx context.Context, id string, req service.RetireRequest) (service.RetirementPreview, error)
+	RetireArtifact(ctx context.Context, id string, req service.RetireRequest) (service.RetireResult, error)
 	ReinstateArtifact(ctx context.Context, id, note string) (service.ArtifactReinstatement, error)
 
 	// PreflightStorageMedium backs POST

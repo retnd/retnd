@@ -26,6 +26,9 @@ import type {
   WireMediumPreflightCheck,
   WireRecoverySettingsResponse,
   WireRecoverySettingsUpdate,
+  WireRetireArtifactRequest,
+  WireRetireArtifactResponse,
+  WireRetirementPreview,
   WireSmtpSettings,
   WireSmtpSettingsView
 } from "./generated/contract";
@@ -3693,6 +3696,25 @@ export interface RetndApi {
    * stale screen produces.
    */
   retryFailedIngestion(artifactId: string, note?: string): Promise<void>;
+
+  /**
+   * What retiring a FAILED backup would do (issue #1528): whether its source
+   * object is still there, which newer backup would replace it, the refusal
+   * the action would give and its effects, every sentence the engine's own.
+   * The retire dialog shows this before anybody acts; nothing here is
+   * computed in the browser.
+   */
+  previewRetirement(
+    artifactId: string,
+    ack?: Pick<WireRetireArtifactRequest, "superseded_by" | "no_successor" | "accept_source_present">
+  ): Promise<WireRetirementPreview>;
+
+  /**
+   * Retire one FAILED backup whose source is gone (issue #1528). Rejects
+   * with the preview's refusal codes (RETIRE_SOURCE_PRESENT and the rest)
+   * when the engine says no.
+   */
+  retireArtifact(artifactId: string, request?: WireRetireArtifactRequest): Promise<WireRetireArtifactResponse>;
 
   /**
    * Re-check a quarantined backup's durable local copy and, when what is

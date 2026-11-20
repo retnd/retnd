@@ -723,11 +723,22 @@ var routes = map[string]entry{
 			if set := a.Query.Get("setId"); set != "" {
 				c.flag("backup-set", set)
 			}
+			// Issue #1528's state filter. The terminal's --state takes one
+			// state, so a comma list has no single line to print. limit and
+			// before are not echoed: they page the same list, which the
+			// terminal prints whole.
+			if st := a.Query.Get("state"); st != "" {
+				if strings.Contains(st, ",") {
+					return c.refuse("`" + Binary + " artifacts --state` takes one state at a time, so run it once for each state in the list")
+				}
+				c.flag("state", st)
+			}
 			return c
 		},
 		examples: []Action{
 			{},
 			{Query: mustQuery("setId=api-server/var-backups")},
+			{Query: mustQuery("setId=api-server/var-backups&state=FAILED&limit=50")},
 		},
 	},
 	key("GET", "/backups/{source}/{set}/{name}"): {
@@ -897,10 +908,59 @@ var routes = map[string]entry{
 		},
 	},
 
+	// Issue #1528: the second way out of FAILED. The preview is the same
+	// verb with --dry-run, and both print the engine's own sentences.
+	key("GET", "/backups/{source}/{set}/{name}/retire"): {
+		build: func(a Action) *cmd {
+			c := newCmd("retire", artifactID(a)).bare("dry-run")
+			c.flagIfSet("superseded-by", a.Query.Get("superseded_by"))
+			if a.Query.Get("no_successor") == "true" {
+				c.bare("no-successor")
+			}
+			if a.Query.Get("accept_source_present") == "true" {
+				c.bare("accept-source-present")
+			}
+			return c
+		},
+		examples: []Action{
+			{Params: map[string]string{"source": "cicd-pipeline", "set": "forge", "name": "gitea-dump-20261029T034245Z.tar.gz"}},
+			{Params: map[string]string{"source": "cicd-pipeline", "set": "forge", "name": "gitea-dump-20261029T034245Z.tar.gz"},
+				Query: mustQuery("accept_source_present=true")},
+		},
+	},
+	key("POST", "/backups/{source}/{set}/{name}/retire"): {
+		build: func(a Action) *cmd {
+			var req apicontract.RetireArtifactRequest
+			c := newCmd("retire", artifactID(a))
+			if decode(a.Body, &req) {
+				c.flagIfSet("superseded-by", req.SupersededBy)
+				if req.NoSuccessor {
+					c.bare("no-successor")
+				}
+				if req.AcceptSourcePresent {
+					c.bare("accept-source-present")
+				}
+				c.flagIfSet("note", req.Note)
+			}
+			return c
+		},
+		examples: []Action{
+			{Params: map[string]string{"source": "cicd-pipeline", "set": "forge", "name": "gitea-dump-20261029T034245Z.tar.gz"}},
+			{Params: map[string]string{"source": "cicd-pipeline", "set": "forge", "name": "gitea-dump-20261029T034245Z.tar.gz"},
+				Body: []byte(`{"superseded_by":"gitea-dump-20261119T033012Z.tar.gz","note":"the host deleted it"}`)},
+			{Params: map[string]string{"source": "cicd-pipeline", "set": "forge", "name": "gitea-dump-20261103T033855Z.tar.gz"},
+				Body: []byte(`{"accept_source_present":true,"no_successor":true}`)},
+		},
+	},
+
 	// ------------------------------------------------------ quarantine ---
 	key("GET", "/quarantine"): {
-		build:    func(a Action) *cmd { return newCmd("quarantine", "list") },
-		examples: []Action{{}},
+		build: func(a Action) *cmd {
+			// setId, limit and before (issue #1528) narrow and page the same
+			// list; `quarantine list` prints it whole for every set.
+			return newCmd("quarantine", "list")
+		},
+		examples: []Action{{}, {Query: mustQuery("setId=api-server/var-backups&limit=20")}},
 	},
 	key("POST", "/quarantine/{source}/{set}/{name}/revalidate"): {
 		build:    func(a Action) *cmd { return newCmd("quarantine", "revalidate", artifactID(a)) },

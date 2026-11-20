@@ -605,6 +605,11 @@ func (s *Service) processBackupSet(ctx context.Context, src config.Source, bs co
 		return result
 	}
 
+	// Issue #1528's way back, before the journal is listed for the walk,
+	// so an artifact whose retired source object is listed again is
+	// walked in this same cycle.
+	s.bringBackReappeared(ctx, discRes)
+
 	records, err := s.Journal.ListByBackupSet(ctx, bs.ID)
 	if err != nil {
 		s.logger().Error(ctx, "list-artifacts", err)
@@ -616,6 +621,18 @@ func (s *Service) processBackupSet(ctx context.Context, src config.Source, bs co
 	result.Progress = foldDiscoveryErrors(walk, discRes)
 	if err := stopReason(); err != nil {
 		result.Err = err
+	}
+
+	// Issue #1528's automatic retirement, after the walk so nothing it
+	// looks at is in flight, and only while the set is still live (P7).
+	if result.Err == nil && ctx.Err() == nil {
+		if after, err := s.Journal.ListByBackupSet(ctx, bs.ID); err != nil {
+			s.logger().Error(ctx, "auto-retire", err)
+		} else {
+			if n := s.autoRetire(ctx, src, bs, after); n > 0 && result.FailedArtifacts >= n {
+				result.FailedArtifacts -= n
+			}
+		}
 	}
 
 	if ctx.Err() == nil {
