@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -223,6 +224,49 @@ func TestMetrics_TheEleventhRefusalFromOneAddressIsRateLimitedAndACleanAddressIs
 		if rec := rig.scrape("192.0.2.31:1000", "Bearer "+token); rec.Code != http.StatusOK {
 			t.Fatalf("scrape %d from a clean address = %d, want 200: a 15 second scraper must never trip the limiter", i+1, rec.Code)
 		}
+	}
+}
+
+// O-01, the limiter's key. The shipped compose file trusts forwarded headers on
+// the engine, because web-ui is the peer in front of /api/v1 and rewrites
+// X-Forwarded-For. web-ui never forwards /metrics (ADR 0035, decision 5), so
+// any X-Forwarded-For on a scrape was written by whoever sent it, and the limit
+// has to be keyed on the peer. Two ways a header-keyed limit fails: a stranger
+// names the real scraper's address and locks it out, and a stranger who
+// rotates the header is never limited at all.
+func TestMetrics_TheRefusalLimitIsKeyedOnThePeerAndNeverOnAForwardedHeader(t *testing.T) {
+	rig := newScrapeRig(t, scrapeBlockOn)
+	token := rig.mint()
+	router := NewRouter(RouterConfig{
+		Platform: noAuthWiredAdapter{}, Backend: rig.svc, Gate: alwaysPassGate{}, BinaryVersion: "test", Commit: "test",
+		TrustForwardedHeaders: true,
+	})
+	scrape := func(peer, forwarded, authorization string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+		req.RemoteAddr = peer
+		if forwarded != "" {
+			req.Header.Set("X-Forwarded-For", forwarded)
+		}
+		req.Header.Set("Authorization", authorization)
+
+		return serve(router, req)
+	}
+
+	// A stranger names the scraper's address in the header ten times.
+	for i := 1; i <= 10; i++ {
+		scrape("203.0.113.66:4000", "10.0.0.5", "Bearer wrong-"+strings.Repeat("x", i))
+	}
+	if rec := scrape("10.0.0.5:9090", "", "Bearer "+token); rec.Code != http.StatusOK {
+		t.Errorf("the real scraper at 10.0.0.5 = %d (Retry-After %q) after a stranger sent ten refusals claiming to be it, want 200: the limit followed a header the stranger wrote", rec.Code, rec.Header().Get("Retry-After"))
+	}
+
+	// A stranger rotates the header on every request.
+	stranger := "203.0.113.67:4000"
+	for i := 1; i <= 10; i++ {
+		scrape(stranger, "198.51.100."+strconv.Itoa(i), "Bearer wrong-"+strings.Repeat("y", i))
+	}
+	if rec := scrape(stranger, "198.51.100.99", "Bearer wrong-again"); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("the eleventh refusal from one peer that rotates X-Forwarded-For = %d, want 429: a new header value bought it a new limit", rec.Code)
 	}
 }
 
