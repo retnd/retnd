@@ -387,6 +387,16 @@ fx "$fix" -- git commit -q --allow-empty -m "empty"
 assert_eq "B9 an empty commit on a 0-path run still commits" 0 "$status"
 assert_eq "B9 and was made" 3 "$(commit_count "$fix")"
 
+# B10: a commit whose only change is a file turned into a symlink (a type
+# change, T to git) is a change like any other: the tier scopes it, so the
+# B9 refusal does not fire on it.
+fix="$(make_repo)"
+(cd "$fix" && rm docs/x.md && ln -s other.md docs/x.md && git add docs/x.md)
+fx "$fix" -- git commit -qm "type change"
+assert_eq "B10 a type-change-only commit commits" 0 "$status"
+assert_contains "B10 the tier scoped the changed path" 'scoped to 1 changed path(s)' "$out"
+assert_not_contains "B10 and the 0-path refusal did not fire" 'scoped to 0 changed paths' "$out"
+
 # --------------------------------------- Group C: the pre-merge check
 
 echo "==> C. scripts/merge-gate.sh"
@@ -524,7 +534,8 @@ write_queue_go() { # <dir>
 #!/usr/bin/env bash
 echo "${PWD#"$FIX_ROOT"/}: go $* tier=${CI_LOCAL_TIER:-}" >>"$FIX_LOG"
 common="$(git rev-parse --path-format=absolute --git-common-dir)"
-if [ -L "$common/ci-fast.lock" ]; then held=held; else held=free; fi
+# Held means a link that resolves to a holder's directory, not a dangling one.
+if [ -L "$common/ci-fast.lock" ] && [ -d "$common/ci-fast.lock" ]; then held=held; else held=free; fi
 echo "go $1 nice=$(ps -o nice= -p $$ | tr -d ' ') gomaxprocs=${GOMAXPROCS:-unset} lock=$held" >>"$FIX_LOG"
 if [ -n "${STUB_SERIAL_LOG:-}" ]; then
   echo "begin $1 ${STUB_WT:-?}" >>"$STUB_SERIAL_LOG"
@@ -542,10 +553,50 @@ case "${STUB_GO_HANG:-}:$1" in
     echo $$ >"$FIX_ROOT/hung.pid"
     for _ in $(seq 1 120); do echo "still going"; sleep 0.25; done
     ;;
+  hold:vet)
+    echo $$ >"$FIX_ROOT/hung.pid"
+    sleep 30 &
+    echo $! >"$FIX_ROOT/hung.child"
+    wait
+    ;;
 esac
+# Healthy but quiet: go vet and go test say nothing until they finish, and
+# a slow package can take minutes doing it.
+case "$1" in vet | test) [ -z "${STUB_GO_QUIET:-}" ] || sleep "$STUB_GO_QUIET" ;; esac
 exit 0
 STUB
   chmod +x "$1/bin/go"
+}
+
+# A golangci-lint that is silent for STUB_LINT_QUIET seconds and then passes,
+# as a cold-cache lint is.
+write_quiet_lint() { # <dir>
+  cat >"$1/bin/golangci-lint" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  --version) echo "golangci-lint has version v1.0.0 built with go1.27.0"; exit 0 ;;
+esac
+echo "${PWD#"$FIX_ROOT"/}: golangci-lint $* tier=${CI_LOCAL_TIER:-}" >>"$FIX_LOG"
+sleep "${STUB_LINT_QUIET:-0}"
+exit 0
+STUB
+  chmod +x "$1/bin/golangci-lint"
+}
+
+# An npm whose `npm test` hangs in silence, recording its pid and its child's.
+write_hanging_npm() { # <dir>
+  cat >"$1/bin/npm" <<'STUB'
+#!/usr/bin/env bash
+echo "${PWD#"$FIX_ROOT"/}: npm $* tier=${CI_LOCAL_TIER:-}" >>"$FIX_LOG"
+if [ "$1" = test ]; then
+  echo $$ >"$FIX_ROOT/hung.pid"
+  sleep 30 &
+  echo $! >"$FIX_ROOT/hung.child"
+  wait
+fi
+exit 0
+STUB
+  chmod +x "$1/bin/npm"
 }
 
 # The anchors check, saying whether the lock was held when it ran.
@@ -731,20 +782,20 @@ fast "$fix" STUB_LOAD=99.00 CI_FAST_LOAD_WAIT=30 CI_FAST_LOCK=0 -- core/internal
 assert_not_contains "E5 CI_FAST_LOCK=0 skips the load wait too" "waiting for the load" "$out"
 
 # E6: a step that prints nothing for CI_FAST_STALL_MIN is killed, with
-# everything under it, and the run fails saying STALLED and why. The lock is
-# given back.
+# everything under it, and the run fails saying STALLED and why, on one
+# exact verdict line. The lock is given back. The step is the ui/shared test
+# suite: the Go steps have quiet floors of their own (E8).
 fix="$(make_repo)"
-write_queue_go "$fix"
+write_hanging_npm "$fix"
+mkdir -p "$fix/ui/shared/node_modules"
 e6_began="$(date +%s)"
-fast "$fix" STUB_GO_HANG=silent CI_FAST_STALL_MIN=0.05 CI_FAST_KILL_GRACE=1 -- core/internal/a/a.go
+fast "$fix" CI_FAST_STALL_MIN=0.05 CI_FAST_KILL_GRACE=1 -- ui/shared/src/x.ts
 e6_took=$(( $(date +%s) - e6_began ))
 assert_nonzero "E6 a silent hang fails the run" "$status"
-assert_contains "E6 the verdict says STALLED" "STALLED" "$out"
-assert_contains "E6 and why" "no output for" "$out"
-assert_contains "E6 and names the knob" "CI_FAST_STALL_MIN" "$out"
-assert_contains "E6 the verdict is FAILED" "ci-local: FAILED" "$out"
+assert_contains "E6 the exact verdict line names the step and why" "==> ci-local: FAILED (STALLED: ui/shared tests, no output for " "$out"
+assert_contains "E6 and names the knob" "(CI_FAST_STALL_MIN=0.05))" "$out"
 if [ "$e6_took" -lt 20 ]; then pass "E6 it was killed well before the hang ended (${e6_took}s)"; else fail "E6 killed inside 20s -- took ${e6_took}s" "$out"; fi
-assert_eq "E6 the hung go is gone" gone "$(alive "$(cat "$fix/hung.pid" 2>/dev/null || echo 999999)")"
+assert_eq "E6 the hung npm is gone" gone "$(alive "$(cat "$fix/hung.pid" 2>/dev/null || echo 999999)")"
 assert_eq "E6 and so is its child" gone "$(alive "$(cat "$fix/hung.child" 2>/dev/null || echo 999999)")"
 assert_eq "E6 the lock is given back" free "$(lock_left "$fix")"
 
@@ -762,6 +813,82 @@ assert_contains "E7 the step's own output still came through" "still going" "$ou
 if [ "$e7_took" -lt 20 ]; then pass "E7 it was stopped well before the step ended (${e7_took}s)"; else fail "E7 stopped inside 20s -- took ${e7_took}s" "$out"; fi
 assert_eq "E7 the go that would not stop is gone" gone "$(alive "$(cat "$fix/hung.pid" 2>/dev/null || echo 999999)")"
 assert_eq "E7 the lock is given back" free "$(lock_left "$fix")"
+
+# E8: healthy steps that are quiet for longer than CI_FAST_STALL_MIN are not
+# stalls. go vet and go test print nothing until a package is done, and
+# golangci-lint nothing until it finishes, so they get quiet floors of their
+# own; go test's sits above its -timeout, so a real hang still ends in Go's
+# own timeout panic and goroutine dump rather than a kill.
+fix="$(make_repo)"
+write_queue_go "$fix"
+write_quiet_lint "$fix"
+fast "$fix" STUB_GO_QUIET=5 STUB_LINT_QUIET=5 CI_FAST_STALL_MIN=0.05 CI_FAST_KILL_GRACE=1 -- core/internal/a/a.go
+assert_eq "E8 quiet-but-healthy vet, lint and test pass" 0 "$status"
+assert_not_contains "E8 and nothing was called stalled" "STALLED" "$out"
+assert_contains "E8 go test ran to the end" 'core: go test -p 2 -timeout 20m ./internal/a' "$(calls "$fix")"
+
+# E9: a signal mid-step gives the lock back and stops the step's tree, and
+# the verdict says which signal.
+fix="$(make_repo)"
+write_queue_go "$fix"
+printf 'core/internal/a/a.go\n' >"$fix/paths.txt"
+: >"$fix/calls.log"
+(cd "$fix" && exec env -u GOMAXPROCS -u CI_FAST_LOCK FIX_ROOT="$fix" FIX_LOG="$fix/calls.log" CI_LOCAL_LOCK_DIR="$fix/.gate-lock" \
+  CI_FAST_LOAD_WAIT=0 CI_FAST_POLL=0.2 CI_FAST_KILL_GRACE=1 STUB_GO_HANG=hold PATH="$fix/bin:$PATH" \
+  bash scripts/ci-fast.sh --paths-from "$fix/paths.txt") >"$SANDBOX/e9.out" 2>&1 &
+e9_pid=$!
+for _ in $(seq 1 100); do [ -s "$fix/hung.child" ] && break; sleep 0.1; done
+assert_eq "E9 the run is holding the lock mid-step" held "$(lock_left "$fix")"
+kill -TERM "$e9_pid"
+wait "$e9_pid"
+e9_status=$?
+assert_eq "E9 SIGTERM ends the run with 143" 143 "$e9_status"
+assert_contains "E9 the verdict names the signal" "interrupted by SIGTERM" "$(cat "$SANDBOX/e9.out")"
+assert_eq "E9 the lock is given back" free "$(lock_left "$fix")"
+assert_eq "E9 the step is gone" gone "$(alive "$(cat "$fix/hung.pid" 2>/dev/null || echo 999999)")"
+assert_eq "E9 and so is its child" gone "$(alive "$(cat "$fix/hung.child" 2>/dev/null || echo 999999)")"
+
+# E10: a signal in the instant after the link is made and before the run
+# notes that it holds it. The fixture's copy of the library signals the run
+# from inside gate_lock_try, right after its `ln -s` succeeds. Whatever the
+# timing, no link may be left pointing at nothing.
+fix="$(make_repo)"
+write_queue_go "$fix"
+cat >>"$fix/scripts/lib/ci-local-gate.sh" <<'LIB'
+eval "$(declare -f gate_lock_try | sed '1s/gate_lock_try/e10_real_gate_lock_try/')"
+gate_lock_try() {
+  e10_real_gate_lock_try "$@" || return 1
+  kill -TERM $$
+  return 0
+}
+LIB
+fast "$fix" -- core/internal/a/a.go
+assert_eq "E10 the signal ends the run with 143" 143 "$status"
+assert_eq "E10 and no lock is left behind, dangling or not" free "$(lock_left "$fix")"
+
+# E11: a link whose holder directory is gone (left by a signal in that window
+# on an older build, or by a reclaimer killed between its two renames) is
+# dead. It is reclaimed after a few polls, not waited out to the cap. The
+# second fixture also has the killed reclaimer's renamed directory beside it.
+for case in dangling reclaimer; do
+  fix="$(make_repo)"
+  write_queue_go "$fix"
+  ln -s ci-fast.lock.4242.gone "$fix/.git/ci-fast.lock"
+  if [ "$case" = reclaimer ]; then
+    mkdir -p "$fix/.git/ci-fast.lock.4242.gone.reclaimed.4343"
+    echo 4242 >"$fix/.git/ci-fast.lock.4242.gone.reclaimed.4343/pid"
+  fi
+  e11_began="$(date +%s)"
+  fast "$fix" CI_FAST_LOCK_TIMEOUT=20 -- core/internal/a/a.go
+  e11_took=$(( $(date +%s) - e11_began ))
+  assert_eq "E11 ($case) the run passes" 0 "$status"
+  assert_contains "E11 ($case) it reclaims the dead link, and says so" "reclaiming" "$out"
+  assert_not_contains "E11 ($case) and does not go ahead unlocked" "without the lock" "$out"
+  if [ "$e11_took" -lt 15 ]; then pass "E11 ($case) well inside the 20s cap (${e11_took}s)"; else fail "E11 ($case) inside 15s -- took ${e11_took}s" "$out"; fi
+  assert_contains "E11 ($case) go test ran under its own lock" 'lock=held' "$(printf '%s\n' "$(calls "$fix")" | grep '^go test ')"
+  assert_eq "E11 ($case) nothing is left behind" free "$(lock_left "$fix")"
+  assert_eq "E11 ($case) no stray holder directories either" 0 "$(find "$fix/.git" -maxdepth 1 -name 'ci-fast.lock.*' | grep -c .)"
+done
 
 # ---------------------------------- Group D: the live check stands down
 
