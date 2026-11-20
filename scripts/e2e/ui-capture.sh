@@ -20,9 +20,9 @@
 # Exit statuses are the lane's (0 passed, 1 failed, 3 this machine could not
 # run it), and a 3 here too when the image could not be built.
 #
-# Knobs: the lane's (RETND_UI_BROWSER_*), with RETND_UI_BROWSER_MEMORY at 5g
-# unless set, because a GIF pass holds every frame; RETND_UI_BROWSER_PLATFORM
-# goes on the build as well as the run.
+# Knobs: the lane's (RETND_UI_BROWSER_*), its fence included: the capture
+# controls passed on MARS in 3.5g, under the lane's 4g default.
+# RETND_UI_BROWSER_PLATFORM goes on the build as well as the run.
 set -euo pipefail
 
 if [ "${1:-}" = "--inside" ]; then
@@ -77,6 +77,5 @@ if ! docker image inspect "$tag" >/dev/null 2>&1; then
 fi
 
 export RETND_UI_BROWSER_IMAGE="$tag"
-export RETND_UI_BROWSER_MEMORY="${RETND_UI_BROWSER_MEMORY:-5g}"
 [ -z "$platform" ] || export RETND_UI_BROWSER_PLATFORM="$platform"
 exec bash "$root/scripts/e2e/ui-browser.sh" run bash scripts/e2e/ui-capture.sh --inside "$@"
