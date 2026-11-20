@@ -38,7 +38,7 @@ problems() {
   wired="$(python3 "$repo_root/scripts/tests/gate_wiring.py" "$root" | cut -f1)"
   for f in $(python3 "$repo_root/scripts/tests/gate_wiring.py" "$root" --guards); do
     if grep -qxF -- "$f" <<<"$wired"; then continue; fi
-    if [ -f "$exempt" ] && grep -qF -- "$f"$'\t' "$exempt"; then continue; fi
+    if [ -f "$exempt" ] && awk -F'\t' -v f="$f" '$0 !~ /^[[:space:]]*#/ && $1 == f { found = 1 } END { exit !found }' "$exempt"; then continue; fi
     echo "$f is in the tree and is no executed step of scripts/ci-local.sh in a shard of the manifest (wire it, or name it in scripts/tests/testdata/unwired-guards.txt with an issue)"
   done
   [ -f "$exempt" ] || return 0
@@ -148,6 +148,10 @@ expect_unwired "a run behind false && is not a run" "$work/c14"
 mk "$work/c15" '  "$pw_lock" bash scripts/foo/selftest.sh
   CI_LOCAL_SELFTEST=1 bash scripts/tests/bar.test.sh'
 if [ -z "$(problems "$work/c15")" ]; then pass "control: a run through a lock wrapper or behind an env assignment counts"; else fail "control: a run through a lock wrapper or behind an env assignment counts" "$(problems "$work/c15")"; fi
+
+mk "$work/c16" '  gate_selftest_with_ledger scripts/foo/selftest.sh
+  bash scripts/tests/bar.test.sh'
+if [ -z "$(problems "$work/c16")" ]; then pass "control: a run through gate_selftest_with_ledger counts"; else fail "control: a run through gate_selftest_with_ledger counts" "$(problems "$work/c16")"; fi
 
 mk "$work/h" '  bash scripts/tests/bar.test.sh' '# scripts/foo/selftest.sh\tneeds a browser, #1532'
 expect_unwired "a commented-out exemption does not exempt" "$work/h"

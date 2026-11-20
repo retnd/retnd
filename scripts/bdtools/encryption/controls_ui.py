@@ -47,17 +47,25 @@ def ui_playwright(spec: str, grep: str = "") -> list[str]:
             f'npx playwright test -c e2e/playwright.config.ts --output /tmp/h/pw-out {spec}{g}']
 
 
-def ui_tsc() -> list[str]:
+def ui_node(npx: str, env: str) -> list[str]:
+    # vitest and tsc need node and ui/shared's dependencies, not a browser. On a
+    # machine with a docker daemon they run in the pinned node image, as they
+    # always did; in a gate container with no daemon they run with the node it
+    # has, from the copy (whose node_modules is linked from the real tree). The
+    # `else npx` is what selftest_lanes reads as the node lane.
     return ["sh", "-c",
-            'w=$(cd ../.. && pwd -P); docker run --rm --cpus 3 --memory 4g --user 501:20 -e HOME=/tmp/h -e CI=1 '
-            f'{_mounts()} {UI_NODE_IMAGE} npx tsc --noEmit --pretty false']
+            'w=$(cd ../.. && pwd -P); if docker info >/dev/null 2>&1; then '
+            f'docker run --rm --cpus 3 --memory 4g --user 501:20 -e HOME=/tmp/h {" ".join("-e " + e for e in env.split())} '
+            f'{_mounts()} {UI_NODE_IMAGE} npx {npx}; else env {env} npx {npx}; fi']
+
+
+def ui_tsc() -> list[str]:
+    return ui_node("tsc --noEmit --pretty false", "CI=1")
 
 
 def ui_vitest(files: str, name: str = "") -> list[str]:
     t = f' -t "{name}"' if name else ""
-    return ["sh", "-c",
-            'w=$(cd ../.. && pwd -P); docker run --rm --cpus 3 --memory 4g --user 501:20 -e HOME=/tmp/h -e CI=1 -e NO_COLOR=1 -e FORCE_COLOR=0 '
-            f'{_mounts()} {UI_NODE_IMAGE} npx vitest run {files}{t}']
+    return ui_node(f"vitest run {files}{t}", "CI=1 NO_COLOR=1 FORCE_COLOR=0")
 
 
 CONTROLS = [

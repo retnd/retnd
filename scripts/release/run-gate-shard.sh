@@ -42,6 +42,13 @@
 # host runs `tar -x` into that scratch directory and nothing else of its own.
 #
 #   CI_DOCKER_MEMORY / CI_DOCKER_CPUS   the shard's container fence, passed on
+#
+# A shard can have a minimum memory, in shard_min_gib below (the manifest has
+# no columns, the fence is this runner's business). selftest-encryption needs
+# 9g: two copycrypt controls allocate several GiB and were OOM-killed at 4g. No
+# CI_DOCKER_MEMORY asks ci-docker.sh for that minimum, and a smaller one is
+# refused as INCOMPLETE before anything ships. The gate itself refuses the step
+# in less than 9 GiB too, for a daemon that clamps the fence to its own memory.
 #   CI_DOCKER_SH                        test seam: a stand-in for ci-docker.sh
 set -uo pipefail
 
@@ -123,6 +130,30 @@ esac
 if [ -n "$want_default" ]; then
   if [ -n "${RCM_CI_PLATFORM:-}" ] && [ "$RCM_CI_PLATFORM" != "$want_default" ]; then
     incomplete "RCM_CI_PLATFORM=$RCM_CI_PLATFORM would run emulated on $host, which is $want_default native"
+  fi
+fi
+
+# --- per-shard minimum memory (#1531) --------------------------------------------
+shard_min_gib() { case "$1" in selftest-encryption) echo 9 ;; *) echo 0 ;; esac; }
+mem_mib() { # a docker --memory value as MiB, or nothing when it cannot be read
+  case "$1" in
+    *[gG]) n="${1%[gG]}"; unit=1024 ;;
+    *[mM]) n="${1%[mM]}"; unit=1 ;;
+    *[kK]) n="${1%[kK]}"; echo $(( n / 1024 )); return ;;
+    *) n="$1"; unit=0 ;;
+  esac
+  case "$n" in ''|*[!0-9]*) return ;; esac
+  if [ "$unit" = 0 ]; then echo $(( n / 1048576 )); else echo $(( n * unit )); fi
+}
+min_gib="$(shard_min_gib "$shard")"
+if [ "$min_gib" -gt 0 ] && [ "$host" != mac ]; then
+  if [ -z "${CI_DOCKER_MEMORY:-}" ]; then
+    export CI_DOCKER_MEMORY="${min_gib}g"
+  else
+    have_mib="$(mem_mib "$CI_DOCKER_MEMORY")"
+    if [ -z "$have_mib" ] || [ "$have_mib" -lt $(( min_gib * 1024 )) ]; then
+      incomplete "shard $shard needs a fence of at least ${min_gib}g (two copycrypt controls allocate several GiB), and CI_DOCKER_MEMORY=$CI_DOCKER_MEMORY is less or unreadable"
+    fi
   fi
 fi
 
