@@ -20,6 +20,8 @@
 ==> the EPIC N closing check refuses a moved container contract or a second migration, and can still fail (#998)
 ==> the EPIC T closing check refuses a moved canonical deployment or a migration other than 0020 and 0021, and can still fail (#1320)
 ==> the closure checks and their self-tests never pipe into grep -q under pipefail (#1482)
+==> every self-test and guard script is a step of this gate, or an exemption that names an issue (#1530, #1531, #1533)
+==> the self-tests run every control the host has a lane for and ledger the rest (#1530, #1531)
 ==> the EPIC U closing check refuses a moved canonical deployment, a migration other than 0022 or a BLOCKED row, and can still fail (#1353)
 ==> core/ go build
 ==> core/ go vet
@@ -61,12 +63,19 @@
 ==> the published-provenance guard can actually fail (mutation self-test, #895)
 ==> gate self-test (scripts/tests/ci-local-gate.test.sh)
 ==> architecture rules can actually fail (mutation self-test)
+==> the shard runner refuses what it should and speaks the recorder's verdicts (#1460, #1533)
+==> the --shard i/n split of the self-tests runs every control in exactly one slice (#1461, #1533)
+==> the release e2e hooks, the stamp guard and the release script behave as documented (#1375, #1533)
 ==> the race detector can actually catch a race (mutation self-test, #417)
 ==> the formatting gate can actually fail (mutation self-test, #417)
 ==> the package-documentation gate can actually fail, and its independent half stays quiet (mutation self-test, #526)
 ==> the FR-35 compatibility cells can actually fail (mutation self-test, #242)
 ==> the composed conformance cells can actually fail (mutation self-test, #242)
 ==> the retention-apply evidence can actually fail (mutation self-test, #602)
+==> the discovery readability probe can actually fail (mutation self-test, #1541)
 ==> the recovery guards can actually fail (mutation self-test, #976)
 ==> the assurance guards can actually fail (mutation self-test, #988)
+==> the observability guards can actually fail (mutation self-test, #899)
+==> the encryption and suite guards can actually fail (mutation self-test, #1531)
+==> the agent (MCP) guards can actually fail (mutation self-test, #1530)
 ==> repository-structure dependency rules (§7.1), by actual deletion
