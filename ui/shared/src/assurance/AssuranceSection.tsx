@@ -35,6 +35,7 @@
  */
 import "./assurance.css";
 import { useCallback, useEffect, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import type { AssuranceDue, BackupSetAssurance, BackupSetAssurancePatch } from "@shared/api/contracts";
 import { describeFailure } from "@shared/api/failure";
@@ -83,6 +84,7 @@ function splitSet(setId: string): [string, string] {
 export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly: boolean }) {
   const root = useApi();
   const api = root.assurance;
+  const mountedRef = useMounted();
   const [source, setName] = splitSet(setId);
   const [policy, setPolicy] = useState<BackupSetAssurance | null>(null);
   const [due, setDue] = useState<AssuranceDue | null>(null);
@@ -126,7 +128,11 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
 
   const refresh = useCallback(async () => {
     const p = await root.getBackupSetAssurance(source, setName);
-    root.listAssuranceDue({ backupSetId: setId }).then(setDue, () => setDue(null));
+    if (!mountedRef.current) return;
+    root.listAssuranceDue({ backupSetId: setId }).then(
+      (d) => { if (mountedRef.current) setDue(d); },
+      () => { if (mountedRef.current) setDue(null); }
+    );
     // The copies are read before the policy is shown, so the Run recovery test
     // button is never drawn enabled for the instant before the copy's own
     // record (the fallback for a server without validator_declared) is known.
@@ -141,12 +147,13 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
         recordedNotConfigured = recorded.length > 0 && recorded.every((r) => r === "not_configured");
       } catch { newestClaim = undefined; recordedNotConfigured = false; }
     }
+    if (!mountedRef.current) return;
     setLatest(newestClaim);
     setNewestId(newestClaim?.artifactId ?? null);
     setCopyNotConfigured(recordedNotConfigured);
     setPolicy(p);
     setDraft(draftOf(p));
-  }, [root, api, setId, source, setName]);
+  }, [root, api, setId, source, setName, mountedRef]);
 
   // Mount: read the set, and attach to a running operation if there is one.
   useEffect(() => {
@@ -171,7 +178,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
   // once that read has landed.
   const op = useOperation(follow ? api : undefined, opId, (o) => {
     noteAssuranceChanged();
-    void Promise.all([refresh(), assuranceModelSettled()]).finally(() => setSettled(o.id));
+    void Promise.all([refresh(), assuranceModelSettled()]).finally(() => { if (mountedRef.current) setSettled(o.id); });
   }, { retainEvents: false });
   const running = op.operation?.state === "running";
   const checking = opId !== null && settled !== opId;
@@ -182,11 +189,11 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
     setStarting(true);
     try {
       const o = kind === "scrub" ? await api.startScrub(setId) : await api.startRecoveryTest(setId);
-      setOpId(o.id);
+      if (mountedRef.current) setOpId(o.id);
     } catch (e) {
-      setError(describeFailure(e, "could not start").message);
+      if (mountedRef.current) setError(describeFailure(e, "could not start").message);
     } finally {
-      setStarting(false);
+      if (mountedRef.current) setStarting(false);
     }
   };
 
@@ -225,16 +232,20 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
       }
       await refresh();
       noteAssuranceChanged();
-      setSaved(true);
+      if (mountedRef.current) setSaved(true);
     } catch (e) {
-      setError(describeFailure(e, "could not save").message);
+      if (mountedRef.current) setError(describeFailure(e, "could not save").message);
     }
   };
 
   const showValidator = async () => {
     if (!api) return;
-    try { setValidatorResult(await api.getValidatorResult(setId)); }
-    catch (e) { setError(describeFailure(e, "could not read the validator's output").message); }
+    try {
+      const result = await api.getValidatorResult(setId);
+      if (mountedRef.current) setValidatorResult(result);
+    } catch (e) {
+      if (mountedRef.current) setError(describeFailure(e, "could not read the validator's output").message);
+    }
   };
 
   const overdue = due?.items.filter((i) => i.overdue).length ?? 0;
