@@ -446,11 +446,11 @@ service: open state: state: database schema is newer than this binary's migratio
 ```
 
 The process exits with status 1, and under compose (`restart: unless-stopped`) that's an
-engine container restarting and printing the same line over and over. The refusal is harmless
-every time. It's decided before anything is written and the engine doesn't touch the files on
-the way out, so the journal stays byte for byte what the newer build left (the rehearsal in
-#1579 checked that with `sha256sum`). It's also all 0.8.0 will tell you: it
-shipped before 0023 existed, so it can't say what to do next. This section does.
+engine container restarting and printing the same line over and over. `web-ui` waits for a
+healthy engine, so what you notice first is usually the Web UI not answering. The refusal is
+harmless every time: it's decided before anything is written, and the engine leaves every
+file in the state directory exactly as the newer build left it. It's also all 0.8.0 will tell
+you: it shipped before 0023 existed, so it can't say what to do next. This section does.
 
 There's no downgrade command, on purpose: it would be the one program that edits
 `schema_migrations`, which the migration runner never does. The engine's own pre-migration
@@ -459,97 +459,228 @@ one nothing is left on disk. The way back is a copy of the state and config dire
 **with the stack stopped, before the newer build first started**:
 
 - **`install --mode upgrade` takes it for you.** It's the `archive-<timestamp>` directory under
-  `--prefix` that the upgrade named (`==> Archived N item(s) to ...`), with `state/` and
-  `config/` inside.
+  `--prefix` that the upgrade named (`==> Archived N item(s) to ...`). Inside, each directory
+  is a folder named after the last part of its path: `state/` and `config/` with the default
+  layout, and `db/` for a `--state-dir /volume1/docker/retnd/db`. The blocks below work that
+  out from `.env`, so they don't care which.
 - **A deployment upgraded by hand** (editing the `image:` lines in `compose.image.yaml`, or
   `docker compose pull`) has no archive unless you took one. Take it as below, between `stop`
   and the first `up` on the new image.
 
 `install --release <older> --mode upgrade` is not a way back. The installer refuses an older
-version (see above), and it couldn't undo a migration anyway.
+version (see above), and it couldn't undo a migration anyway. Everything here assumes the
+layout the installer gives you (a prefix with `.env`, `compose.yaml` and
+`compose.image.yaml`). A NAS package that upgrades itself (a Synology `.spk`, say) takes no
+archive and has its own layout, so the blocks below don't apply to it as written.
+
+Each block below runs from `--prefix` (`~/retnd` unless you chose another) and is a
+`sh -eu` script, so it stops at the first thing that goes wrong instead of carrying on. If
+`PUID` in `.env` isn't your own account, put `sudo` in front of each `sh`, and use the same
+account for all three: the files are the engine's, so reading them into the archive, moving
+them aside and handing them back to `PUID` all need that account or root.
 
 ### Taking the archive by hand
 
-Run it from `--prefix` (`~/retnd` unless you chose another). It reads the state and config
-directories back out of `.env`, so it holds whether you used the defaults or
-`--state-dir`/`--config-dir`, and it copies exactly the installer's list (`archive_plan` in
-`install_docker_host.py`), in its order:
+It copies exactly the installer's list (`archive_plan` in `install_docker_host.py`), in its
+order, into folders named the way the installer names them:
 
 ```
 cd ~/retnd
+sh -eu <<'EOF'
 STATE_DIR=$(sed -n 's/^STATE_DIR=//p' .env)
 CONFIG_DIR=$(sed -n 's/^CONFIG_DIR=//p' .env)
 docker compose -p retnd --env-file .env -f compose.yaml -f compose.image.yaml stop
 
 ARCHIVE=$PWD/archive-$(date +%Y%m%d-%H%M%S)
-mkdir -m 700 "$ARCHIVE" "$ARCHIVE/state" "$ARCHIVE/config"
+ARC_STATE=$ARCHIVE/$(basename "$STATE_DIR")
+ARC_CONFIG=$ARCHIVE/$(basename "$CONFIG_DIR")
+mkdir -m 700 "$ARCHIVE"
+mkdir -p -m 700 "$ARC_STATE" "$ARC_CONFIG"
 for f in local-auth.json state.db state.db-wal state.db-shm; do
-  if [ -e "$STATE_DIR/$f" ]; then cp -a "$STATE_DIR/$f" "$ARCHIVE/state/"; fi
+  if [ -e "$STATE_DIR/$f" ]; then cp -a "$STATE_DIR/$f" "$ARC_STATE/"; fi
 done
 for f in config.yaml ssh_keys known_hosts.d retained_copy_keys; do
-  if [ -e "$CONFIG_DIR/$f" ]; then cp -a "$CONFIG_DIR/$f" "$ARCHIVE/config/"; fi
+  if [ -e "$CONFIG_DIR/$f" ]; then cp -a "$CONFIG_DIR/$f" "$ARC_CONFIG/"; fi
 done
-cp -a compose.image.yaml "$ARCHIVE/"
+cp -a .env compose.image.yaml "$ARCHIVE/"
+echo "archived to $ARCHIVE"
+EOF
 ```
 
 The `archive-` name is deliberate: `install` counts it toward its limit of five, which is
-right, because it holds the same private keys an installer archive does. The last line isn't
-on the installer's list. It keeps the image reference you're leaving, which is the one thing
-step 4 below needs and an installer archive doesn't have. If `PUID` in `.env` is not your own
-account, run the copies under `sudo` so `cp -a` keeps the owner.
+right, because it holds the same private keys an installer archive does. The last copy isn't
+on the installer's list. `.env` and `compose.image.yaml` name the image you're leaving, which
+is the one thing going back needs and an installer archive doesn't keep.
 
 ### Checking the archive before you go on
 
-Don't start the new image until the archive checks out. In a throwaway container (any image
-with `sqlite3` will do), on a copy, because opening a WAL journal writes its `-shm` and the
-archive should stay exactly as taken:
+Don't start the new image until the archive checks out. The check reads a copy, because
+opening a WAL journal writes its `-shm` and the archive should stay exactly as taken. It uses
+the `python3` the installer already needs, so it wants no network and no extra image (on a
+host without one, run the same thing in any container that has `python3`, with the prefix
+mounted read-only). Set `WANT` to the newest migration of the release you'd go back to, `22`
+for 0.8.0, and `ARCHIVE` by hand if the newest one isn't the one you mean:
 
 ```
-docker run --rm -v "$ARCHIVE/state:/archive:ro" alpine:3.20 sh -c '
-  apk add --no-cache sqlite >/dev/null &&
-  cp -a /archive /tmp/check &&
-  sqlite3 /tmp/check/state.db "PRAGMA integrity_check; SELECT max(version) FROM schema_migrations; SELECT count(*) FROM artifacts;"'
+cd ~/retnd
+sh -eu <<'EOF'
+ARCHIVE=$(ls -d "$PWD"/archive-* | tail -n 1)
+WANT=22
+[ -d "$ARCHIVE" ] || { echo "no archive-* directory under $PWD" >&2; exit 1; }
+ARC_STATE=$ARCHIVE/$(basename "$(sed -n 's/^STATE_DIR=//p' .env)")
+echo "checking $ARC_STATE"
+python3 - "$ARC_STATE" "$WANT" <<'PY'
+import os, shutil, sqlite3, sys, tempfile
+src, want = sys.argv[1], sys.argv[2]
+if not os.path.isfile(os.path.join(src, "state.db")):
+    sys.exit(f"no state.db in {src}: this archive is not a way back")
+with tempfile.TemporaryDirectory() as tmp:
+    for f in ("state.db", "state.db-wal"):
+        if os.path.exists(os.path.join(src, f)):
+            shutil.copy2(os.path.join(src, f), tmp)
+    db = sqlite3.connect(os.path.join(tmp, "state.db"))
+    integrity = db.execute("PRAGMA integrity_check").fetchone()[0]
+    version = db.execute("SELECT max(version) FROM schema_migrations").fetchone()[0]
+    artifacts = db.execute("SELECT count(*) FROM artifacts").fetchone()[0]
+    db.close()
+print(f"integrity_check: {integrity}\nmax(version):    {version}\nartifacts:       {artifacts}")
+if integrity != "ok" or str(version) != want:
+    sys.exit(f"this archive is not a way back to a release at migration {want}")
+print("the archive checks out")
+PY
+EOF
 ```
 
-Three lines back: `ok`, the newest migration the release you're leaving carries (`22` for
-0.8.0), and the number of catalogued artifacts. Anything other than `ok`, or a version you
-didn't expect, means this is not a way back: stop and find out why before upgrading.
+It ends `the archive checks out`, or it exits non-zero and says why. Anything but the first
+means this is not a way back: stop and find out why before upgrading.
 
 ### Going back
 
-1. Stop the stack:
-   `docker compose -p retnd --env-file .env -f compose.yaml -f compose.image.yaml stop`.
-2. Move the newer journal aside. Rename, don't delete, and move all four:
-   ```
-   for f in state.db state.db-wal state.db-shm local-auth.json; do
-     if [ -e "$STATE_DIR/$f" ]; then mv "$STATE_DIR/$f" "$STATE_DIR/$f.superseded"; fi
-   done
-   ```
-   The `-wal` and `-shm` matter most. SQLite replays a `-wal` it finds beside a database, and
-   a newer build's WAL replayed onto the older journal is a corrupt journal. If a
-   `.superseded` file is already there from an earlier attempt, pick a fresh suffix. Leave
-   the other files beside them alone: `state.db.deployment-id` is this deployment's identity
-   and stays the same across the rollback, and the `*-lock` files are empty lock files the
-   engine reuses.
-3. Copy the archive's state back: `cp -a "$ARCHIVE/state/." "$STATE_DIR/"`. Then
-   `cmp "$ARCHIVE/config/config.yaml" "$CONFIG_DIR/config.yaml"`. If they differ, something
-   wrote the file after the upgrade, and a key the older release doesn't know makes it refuse
-   the whole file, so move the current one aside the same way and copy the archive's back.
-   Leave `ssh_keys`, `known_hosts.d` and `retained_copy_keys` as they are: anything in them
-   since the upgrade is extra, and the older release reads them fine.
-4. Pin the previous image. Put both `image:` lines in `compose.image.yaml` back to the release
-   you're returning to: `mv compose.image.yaml compose.image.yaml.superseded` and
-   `cp -a "$ARCHIVE/compose.image.yaml" .` if you took the archive by hand, otherwise edit
-   them to the old reference (`ghcr.io/retnd/retnd:0.8.0` for a host the 0.8.0 installer set
-   up; nothing removes the old image, so `docker image ls ghcr.io/retnd/retnd` still shows
-   it). Set `VERSION=` in `.env` to match, so the next installer run sees the version that's
-   actually running.
-5. `docker compose -p retnd --env-file .env -f compose.yaml -f compose.image.yaml up -d`.
-6. Check it: `docker compose -p retnd --env-file .env -f compose.yaml -f compose.image.yaml
-   logs retnd` shows the engine starting with no `schema is newer` line, and
-   `docker compose -p retnd --env-file .env -f compose.yaml -f compose.image.yaml exec retnd
-   /retnd status` answers with a `process: retnd 0.8.0 ...` line for the release you went back
-   to.
+Steps 1 to 3 are one block. It stops the stack, runs the same check on the archive, and moves
+nothing until the check passes and nothing it's about to rename would overwrite an earlier
+`.superseded` file:
+
+```
+cd ~/retnd
+sh -eu <<'EOF'
+ARCHIVE=$(ls -d "$PWD"/archive-* | tail -n 1)
+WANT=22
+[ -d "$ARCHIVE" ] || { echo "no archive-* directory under $PWD" >&2; exit 1; }
+STATE_DIR=$(sed -n 's/^STATE_DIR=//p' .env)
+CONFIG_DIR=$(sed -n 's/^CONFIG_DIR=//p' .env)
+ARC_STATE=$ARCHIVE/$(basename "$STATE_DIR")
+ARC_CONFIG=$ARCHIVE/$(basename "$CONFIG_DIR")
+PUID=$(sed -n 's/^PUID=//p' .env); PUID=${PUID:-1000}
+PGID=$(sed -n 's/^PGID=//p' .env); PGID=${PGID:-1000}
+echo "rolling back to $ARCHIVE"
+
+# 1. stop
+docker compose -p retnd --env-file .env -f compose.yaml -f compose.image.yaml stop
+
+python3 - "$ARC_STATE" "$WANT" <<'PY'
+import os, shutil, sqlite3, sys, tempfile
+src, want = sys.argv[1], sys.argv[2]
+if not os.path.isfile(os.path.join(src, "state.db")):
+    sys.exit(f"no state.db in {src}: this archive is not a way back")
+with tempfile.TemporaryDirectory() as tmp:
+    for f in ("state.db", "state.db-wal"):
+        if os.path.exists(os.path.join(src, f)):
+            shutil.copy2(os.path.join(src, f), tmp)
+    db = sqlite3.connect(os.path.join(tmp, "state.db"))
+    integrity = db.execute("PRAGMA integrity_check").fetchone()[0]
+    version = db.execute("SELECT max(version) FROM schema_migrations").fetchone()[0]
+    db.close()
+if integrity != "ok" or str(version) != want:
+    sys.exit(f"{src}: integrity {integrity}, version {version}; not a way back to {want}")
+PY
+
+CONFIG_BACK=no
+if [ -e "$ARC_CONFIG/config.yaml" ] && ! cmp -s "$ARC_CONFIG/config.yaml" "$CONFIG_DIR/config.yaml"; then
+  CONFIG_BACK=yes
+fi
+for p in "$STATE_DIR/state.db" "$STATE_DIR/state.db-wal" "$STATE_DIR/state.db-shm" \
+         "$STATE_DIR/local-auth.json" "$CONFIG_DIR/config.yaml" .env compose.image.yaml; do
+  if [ -e "$p.superseded" ]; then
+    echo "$p.superseded is already there from an earlier attempt; rename it first" >&2
+    exit 1
+  fi
+done
+
+# 2. move the newer journal aside
+for f in state.db state.db-wal state.db-shm local-auth.json; do
+  if [ -e "$STATE_DIR/$f" ]; then mv "$STATE_DIR/$f" "$STATE_DIR/$f.superseded"; fi
+done
+
+# 3. copy the archive's files back one by one, owned by the engine's account
+for f in local-auth.json state.db state.db-wal state.db-shm; do
+  if [ -e "$ARC_STATE/$f" ]; then
+    cp -p "$ARC_STATE/$f" "$STATE_DIR/"
+    chown "$PUID:$PGID" "$STATE_DIR/$f"
+  fi
+done
+if [ "$CONFIG_BACK" = yes ]; then
+  mv "$CONFIG_DIR/config.yaml" "$CONFIG_DIR/config.yaml.superseded"
+  cp -p "$ARC_CONFIG/config.yaml" "$CONFIG_DIR/"
+  chown "$PUID:$PGID" "$CONFIG_DIR/config.yaml"
+  echo "config.yaml had changed since the archive, so the archived one is back"
+fi
+
+# 4. the previous image, when the archive kept it
+if [ -e "$ARCHIVE/compose.image.yaml" ]; then
+  for f in .env compose.image.yaml; do
+    mv "$f" "$f.superseded"
+    cp -a "$ARCHIVE/$f" .
+  done
+  echo "compose.image.yaml and .env are back as they were when you took the archive"
+else
+  echo "now point both image: lines in compose.image.yaml, and VERSION= in .env, at the previous release"
+fi
+EOF
+```
+
+What it does, and why:
+
+1. **Stops the stack**, so nothing holds the journal open.
+2. **Moves the newer journal aside**: `state.db`, `-wal`, `-shm` and `local-auth.json`, renamed
+   with `.superseded`, never deleted. The `-wal` and `-shm` matter most. SQLite replays a
+   `-wal` it finds beside a database, and a newer build's WAL replayed onto the older journal
+   is a corrupt journal. It leaves the other files beside them alone: `state.db.deployment-id`
+   is this deployment's identity and stays the same across the rollback, and the `*-lock`
+   files are empty lock files the engine reuses.
+3. **Copies the archive's files back** one at a time, never the folder, so the state directory
+   keeps its own owner and mode and the engine (running as `PUID`) can still get into it. Each
+   file keeps its archived mode and is handed to `PUID:PGID` from `.env` (compose's own
+   default, `1000:1000`, when they're not set), because the installer's archive copies don't
+   keep the owner: one taken under `sudo` holds root-owned `0600` files the engine couldn't
+   read.
+   `config.yaml` goes back only if it changed after the upgrade, because a key the older
+   release doesn't know makes it refuse the whole file. `ssh_keys`, `known_hosts.d` and
+   `retained_copy_keys` stay as they are: anything in them since the upgrade is extra, and the
+   older release reads them fine.
+4. **Pins the previous image.** A hand-taken archive kept `.env` and `compose.image.yaml`, so
+   the block puts them back. An installer archive didn't, so edit both `image:` lines in
+   `compose.image.yaml` to the old reference (`ghcr.io/retnd/retnd:0.8.0` for a host the 0.8.0
+   installer set up; nothing removes the old image, so `docker image ls ghcr.io/retnd/retnd`
+   still shows it) and set `VERSION=` in `.env` to match, so the next installer run sees the
+   version that's actually running.
+
+Then start it and look:
+
+```
+cd ~/retnd
+docker compose -p retnd --env-file .env -f compose.yaml -f compose.image.yaml up -d
+```
+
+```
+cd ~/retnd
+docker compose -p retnd --env-file .env -f compose.yaml -f compose.image.yaml logs retnd
+docker compose -p retnd --env-file .env -f compose.yaml -f compose.image.yaml exec retnd /retnd status
+```
+
+5. **The log** shows the engine starting with no `schema is newer` line.
+6. **`retnd status`** answers with a `process: retnd 0.8.0 ...` line for the release you went
+   back to. It exits 1 while any set reads FAILING, and after rolling back 0.8.1 one will (the
+   backups it retired are FAILED again, see below), so that exit is expected.
 
 ### What a rollback costs, and how long you have
 
@@ -569,8 +700,8 @@ journaled after that is gone from it:
   `local-auth.json`), and anything in `config.yaml` if step 3 had to put the old one back.
 
 Until the engine's first backup cycle after the upgrade, a rollback costs you next to nothing
-beyond the migration itself. Every cycle after that adds to the list, so make the call within hours, not
-days. Once you're settled on the new release, the archive is just insurance; keep it until the
+beyond the migration itself. Every cycle after that adds to the list, so make the call
+within hours, not days. Once you're settled on the new release, the archive is just insurance; keep it until the
 next upgrade has its own, then clear it out (it holds private keys, and `install` stops at
 five).
 

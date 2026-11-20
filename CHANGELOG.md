@@ -32,8 +32,8 @@ Worth reading before you upgrade:
   `404` and nothing else changes. **Writing `observability:` into `config.yaml` is a one-way
   door**: older builds refuse the file as an unknown field, so keep the previous `config.yaml` if
   you want a way back. Deleting the block is the rollback, and a minted token's file left behind is
-  inert. A plaintext `observability.metrics.token` in the file is refused at load. No migration:
-  `core/migrations/` stays at `0022`.
+  inert. A plaintext `observability.metrics.token` in the file is refused at load. No migration
+  of its own: the one migration in this release is 0023 (#1528), at the top of this entry.
 
 ### Fixed
 
