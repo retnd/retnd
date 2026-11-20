@@ -680,6 +680,9 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     // does.
     const hookKeys = HOOK_DIR_KEYS.filter((key) => hookStateOf(key) === "changed");
     if (hookKeys.length > 0 && !(await saveHooks(hookKeys))) return;
+    // The page went while the directories were saving: the second write
+    // is the page's own follow-up step, so it isn't sent (#1599).
+    if (!mountedRef.current) return;
     const outcome = await saveFields(dirtyKeys(), null, true);
     if (!mountedRef.current) return;
     if (!outcome.ok) {
@@ -1580,7 +1583,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
         open={sshWizardOpen}
         onCancel={() => setSSHWizardOpen(false)}
         onApplied={() => {
-          setSSHWizardOpen(false);
+          if (mountedRef.current) setSSHWizardOpen(false);
           set.reload();
         }}
       />
@@ -1590,8 +1593,11 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
         open={removeOpen}
         onCancel={() => setRemoveOpen(false)}
         onRemoved={() => {
-          setRemoveOpen(false);
+          // The set is gone either way, so the list is re-read; the page's
+          // own steps only run while it's still there.
           fetchResource(setsNode, () => api.listSets());
+          if (!mountedRef.current) return;
+          setRemoveOpen(false);
           navigate("/sets");
         }}
       />
