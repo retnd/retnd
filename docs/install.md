@@ -435,8 +435,8 @@ upgrade or reset on a deployment that encrypts, check that you can put your hand
 
 ## Rolling back a release that carried a migration
 
-Most releases come back off by pinning the previous image. One that carries a schema
-migration doesn't, and 0.8.1 is one of those (migration 0023, #1528). Every migration the
+You can back most releases out by pinning the previous image. Not one that carries a schema
+migration, and 0.8.1 is one of those (migration 0023, #1528). Every migration the
 engine applies is recorded in `schema_migrations` inside `state.db`, and a build that finds a
 version there it doesn't carry refuses to open the journal. So once 0.8.1 has started, 0.8.0
 stops at startup with:
@@ -445,9 +445,11 @@ stops at startup with:
 service: open state: state: database schema is newer than this binary's migrations: version 23 is recorded in the database but not compiled into this binary
 ```
 
-That refusal is harmless. It's decided before anything is written and the engine doesn't
-touch the files on the way out, so the journal stays byte for byte what the newer build left
-(the rehearsal in #1579 checked that with `sha256sum`). It's also all 0.8.0 will tell you: it
+The process exits with status 1, and under compose (`restart: unless-stopped`) that's an
+engine container restarting and printing the same line over and over. The refusal is harmless
+every time. It's decided before anything is written and the engine doesn't touch the files on
+the way out, so the journal stays byte for byte what the newer build left (the rehearsal in
+#1579 checked that with `sha256sum`). It's also all 0.8.0 will tell you: it
 shipped before 0023 existed, so it can't say what to do next. This section does.
 
 There's no downgrade command, on purpose: it would be the one program that edits
@@ -525,7 +527,10 @@ didn't expect, means this is not a way back: stop and find out why before upgrad
    ```
    The `-wal` and `-shm` matter most. SQLite replays a `-wal` it finds beside a database, and
    a newer build's WAL replayed onto the older journal is a corrupt journal. If a
-   `.superseded` file is already there from an earlier attempt, pick a fresh suffix.
+   `.superseded` file is already there from an earlier attempt, pick a fresh suffix. Leave
+   the other files beside them alone: `state.db.deployment-id` is this deployment's identity
+   and stays the same across the rollback, and the `*-lock` files are empty lock files the
+   engine reuses.
 3. Copy the archive's state back: `cp -a "$ARCHIVE/state/." "$STATE_DIR/"`. Then
    `cmp "$ARCHIVE/config/config.yaml" "$CONFIG_DIR/config.yaml"`. If they differ, something
    wrote the file after the upgrade, and a key the older release doesn't know makes it refuse
@@ -543,7 +548,8 @@ didn't expect, means this is not a way back: stop and find out why before upgrad
 6. Check it: `docker compose -p retnd --env-file .env -f compose.yaml -f compose.image.yaml
    logs retnd` shows the engine starting with no `schema is newer` line, and
    `docker compose -p retnd --env-file .env -f compose.yaml -f compose.image.yaml exec retnd
-   /retnd status` answers.
+   /retnd status` answers with a `process: retnd 0.8.0 ...` line for the release you went back
+   to.
 
 ### What a rollback costs, and how long you have
 
