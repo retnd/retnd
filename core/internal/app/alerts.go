@@ -115,6 +115,10 @@ func (s *Service) AdoptAlerts(d *alert.Dispatcher) bool {
 // Staleness and storage pressure are both measured in hours, so being one
 // artifact behind changes no verdict.
 func (s *Service) AlertTick(ctx context.Context) {
+	// Whether the alert destination can be read at all is checked on every
+	// tick, so an unreadable one shows in the settings and the activity feed
+	// within one poll even when no condition is firing (EPIC O, FR-101).
+	s.Alerts.Probe(ctx)
 	s.evaluateAlerts(ctx, CycleReport{})
 }
 

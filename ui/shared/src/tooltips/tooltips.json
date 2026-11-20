@@ -931,6 +931,10 @@
     "label": "State note",
     "html": "The service's own sentence about why this set is in the health state shown above it. It is the first thing to read when a set is stale or failing."
   },
+  "sets.card.pending-unreadable": {
+    "label": "Not published yet",
+    "html": "Source files the engine found complete but could not open on its most recent pass that reached the source, usually because the producer has not made them readable to the backup account yet. They are not taken, so they cannot fail; each is checked again on every pass and taken the first time it can be read. The line names the oldest one and how long it has waited, and turns into a warning once that is longer than this set's stale threshold. The age counts every pass that reached the source. A disabled or held set, or one whose last pass could not reach the source, shows nothing rather than an age nobody checked, and the next pass that does look starts again. It never changes the set's health state."
+  },
   "sets.card.newest-known-good": {
     "label": "Newest known-good",
     "html": "How long ago the most recent backup that passed its validation was taken. This is the age of what could actually be recovered, which a merely finished run is not."
@@ -2302,5 +2306,49 @@
   "agents.audit.outcome": {
     "label": "Outcome",
     "html": "The status and code the engine answered with, the same code the command line prints."
+  },
+  "observability.alerts.delivery": {
+    "label": "Alert delivery",
+    "html": "Which <strong>one</strong> channel alerts go out through. <strong>platform</strong> is the platform's own notifier, which no shipped deployment has, so nothing is delivered. <strong>webhook</strong> posts each alert to the URL named by <code>url_ref</code> in config.yaml. Never both: switching keeps what has already been announced, so a standing alert is not announced again, with one exception. Switching to the <strong>alertmanager</strong> format posts each standing alert to Alertmanager within one refresh interval, because that receiver has never seen it and expires anything that is not re-sent, and Alertmanager then notifies as it would for any new alert."
+  },
+  "observability.alerts.dialect": {
+    "label": "Webhook format",
+    "html": "<strong>generic</strong> posts one JSON object per alert, once, and stays quiet while the condition lasts. <strong>alertmanager</strong> posts the Alertmanager v2 array, re-sends a condition that is still true before it expires, and closes it when it clears."
+  },
+  "observability.alerts.insecure-http": {
+    "label": "Plain http",
+    "html": "A webhook URL must be <strong>https</strong> unless you allow plain http here. Allow it only for a receiver on a network you trust, such as an Alertmanager on the compose network. Redirects are never followed and certificate checks cannot be turned off."
+  },
+  "observability.alerts.refresh": {
+    "label": "Refresh interval",
+    "html": "How often an Alertmanager alert that is still true is sent again, so the receiver does not expire it. It must be at least 30 seconds shorter than the expiry time, since one delivery attempt can take that long."
+  },
+  "observability.alerts.resolve-ttl": {
+    "label": "Expiry time",
+    "html": "How long Alertmanager keeps an alert after it was last sent (<code>endsAt</code>). The refresh interval must be at least 30 seconds shorter than this, or the alert expires while the problem is still there."
+  },
+  "observability.card": {
+    "label": "Observability",
+    "html": "What this deployment offers to Prometheus, a log shipper and an alert receiver. <strong>Everything is off until you turn it on</strong>, and none of it is per backup set: a scrape endpoint, a log stream and an alert channel belong to the whole deployment."
+  },
+  "observability.metrics.enabled": {
+    "label": "Serve the scrape endpoint",
+    "html": "Turns <code>GET /metrics</code> on or off. Off, the route answers <code>404</code> and says nothing else. On, a request needs the scrape token, as a bearer token or as the password of basic auth (the username is ignored). The engine serves it on its own port inside the compose network; the published web port does not forward it."
+  },
+  "observability.metrics.interval": {
+    "label": "Report cache",
+    "html": "How long the engine reuses one health report before it reads the journal again, so any number of scrapers cost one read per interval. At least one second, 15 by default. How old the view is shows in <code>retnd_report_generated_timestamp_seconds</code>."
+  },
+  "observability.metrics.mint": {
+    "label": "Mint scrape token",
+    "html": "Makes the credential Prometheus scrapes with: a random 256-bit token starting <code>rsc_</code>, shown <strong>once</strong>. The engine keeps only a digest and the first eight characters. Minting again replaces the old token at once, so put the new one in Prometheus's credentials file and reload it. An agent token does not work on <code>/metrics</code>, and this token works nowhere else."
+  },
+  "observability.metrics.copy": {
+    "label": "Copy",
+    "html": "Writes the token to your clipboard. It does nothing else."
+  },
+  "observability.metrics.stored": {
+    "label": "I have stored it",
+    "html": "Hides the token. It cannot be shown again after this: the engine keeps only a digest. If it is lost, mint another."
   }
 }

@@ -71,6 +71,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -159,6 +161,20 @@ type PendingCandidate struct {
 	// is the difference between a pass that looks stuck and one that is
 	// obviously waiting for the producer.
 	Reason string
+
+	// Unreadable says the candidate IS complete under its strategy and
+	// could not be opened (issue #1541): the source refused the open with
+	// permission denied, or the object was listed and then gone. Both are
+	// a producer that has not published yet, so it waits here and is
+	// asked again next pass, rather than being journaled and failed on
+	// bytes nobody could read.
+	//
+	// It is a flag beside Reason rather than a sentence to match on,
+	// because internal/app counts these apart from the ordinary pending
+	// (they get an age, and a warning once that age passes the set's
+	// stale_after) and a caller parsing Reason is a caller that breaks
+	// the day the wording changes.
+	Unreadable bool
 }
 
 // RejectedEntry is a remote object Discover refused to treat as a candidate
@@ -238,7 +254,10 @@ type Result struct {
 	// Pending is the routine one: matched the include patterns, has not
 	// proven complete yet. It is expected to be non-empty on a healthy
 	// system, because a producer that is mid-write is exactly what the
-	// completion strategies exist to wait for.
+	// completion strategies exist to wait for. Since issue #1541 it also
+	// holds a candidate that is complete but could not be opened yet
+	// (PendingCandidate.Unreadable), which is the same producer one step
+	// later: finished writing, not yet published.
 	Pending []PendingCandidate
 
 	// Rejected is a name this package refused to build an identity from.
@@ -358,6 +377,25 @@ func Discover(ctx context.Context, deps Deps, source transport.Source, set confi
 			continue
 		}
 
+		// Issue #1541: complete is not the same as published. A privileged
+		// producer that writes as root and publishes by chmod leaves a
+		// file that is finished by size and mtime and still cannot be
+		// opened, and journaling it here sent it to FAILED nineteen
+		// seconds later on permission_denied. So a NEW candidate is opened
+		// once before it is admitted. One already in the journal is not
+		// probed again: it was admitted on an earlier pass, and a
+		// read-only set lists every retained object on every pass, so
+		// probing those would be a source open per retained file per pass.
+		unreadable, err := probeNewCandidate(ctx, deps, source, artifactID, relPath)
+		if err != nil {
+			res.Errors = append(res.Errors, CandidateError{RemotePath: relPath, Err: fmt.Errorf("checking it can be read: %w", err)})
+			continue
+		}
+		if unreadable != "" {
+			res.Pending = append(res.Pending, PendingCandidate{RemotePath: relPath, Reason: unreadable, Unreadable: true})
+			continue
+		}
+
 		identity, err := captureRemoteIdentity(ctx, deps.Transport, source, relPath)
 		if err != nil {
 			res.Errors = append(res.Errors, CandidateError{RemotePath: relPath, Err: fmt.Errorf("capturing identity: %w", err)})
@@ -443,6 +481,81 @@ func isCleanRelativePath(p string) bool {
 		}
 	}
 	return true
+}
+
+// sourceOpener is what the readability probe needs from a transport: open
+// one object on the source for a single forward read.
+//
+// It is the open lifecycle.Transfer's copy makes. internal/transport/
+// rclone's CopyToLocal and OpenSourceStream both build the source Fs, take
+// NewObject and Open the object, so a file this probe can open is a file
+// the transfer can open, and a file it cannot is one the transfer would
+// have failed on. The rclone Adapter has the method. A transport without
+// it is not probed, which is what discovery did before issue #1541 and is
+// the honest fallback for a double that cannot answer.
+type sourceOpener interface {
+	OpenSourceStream(ctx context.Context, src transport.Source, remotePath string) (io.ReadCloser, error)
+}
+
+// probeNewCandidate decides whether a candidate already proven complete
+// can be admitted, or has to wait as Pending because the source will not
+// let anyone read it yet (issue #1541). It returns the pending reason, or
+// "" to admit, or an error for a failure that is neither of the two shapes
+// a publish race takes.
+//
+// Only a candidate the journal has no row for is probed. A row means an
+// earlier pass admitted it, and whatever happens at its open from here on
+// is transfer's business under FR-22 (a DISCOVERED artifact denied at open
+// is still FAILED). A journal read that errors is treated as "no row":
+// probing costs one open and records nothing, and Advance below reports
+// the journal's trouble in its own words.
+//
+// Classification is transport.CategoryOf on the adapter's error, plus the
+// standard library's own sentinels for an error from the one-byte read,
+// which reaches here from the backend's reader without passing through the
+// adapter's classifier. PermissionDenied and NotFound wait; everything
+// else is an Errors entry, exactly as a failed Stat already is, because a
+// transient fault or a broken connection is not evidence about publishing.
+func probeNewCandidate(ctx context.Context, deps Deps, source transport.Source, id model.ArtifactID, relPath string) (string, error) {
+	opener, ok := deps.Transport.(sourceOpener)
+	if !ok {
+		return "", nil
+	}
+	if _, err := deps.Journal.Get(ctx, id); err == nil {
+		return "", nil
+	}
+
+	err := readOneByte(ctx, opener, source, relPath)
+	if err == nil {
+		return "", nil
+	}
+	category, _ := transport.CategoryOf(err)
+	switch {
+	case category == transport.PermissionDenied || errors.Is(err, os.ErrPermission):
+		return "unreadable at the source (permission denied): the producer has not published it yet", nil
+	case category == transport.NotFound || errors.Is(err, os.ErrNotExist):
+		return "unreadable at the source (listed, then not found): the producer has not published it yet", nil
+	default:
+		return "", err
+	}
+}
+
+// readOneByte opens relPath through opener, reads at most one byte and
+// closes it. The byte is read because some backends open lazily: an open
+// that succeeds and a first read that is refused is still a file nobody
+// can copy. An empty file reads io.EOF, which is readable.
+func readOneByte(ctx context.Context, opener sourceOpener, source transport.Source, relPath string) error {
+	rc, err := opener.OpenSourceStream(ctx, source, relPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rc.Close() }()
+
+	var one [1]byte
+	if _, err := rc.Read(one[:]); err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	return nil
 }
 
 // captureRemoteIdentity builds the FR-16 identity to persist alongside a

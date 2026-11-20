@@ -65,6 +65,9 @@ import type {
   WireActivityEvent,
   WireAssuranceDueResponse,
   WireAssuranceSettingsResponse,
+  WireMintedScrapeToken,
+  WireObservabilitySettingsResponse,
+  WireUpdateObservabilitySettingsRequest,
   WireBackupSetAssurance,
   WireRecoveryManyEvent,
   WireRecoveryManyItem,
@@ -221,6 +224,9 @@ import type {
   RecoveryTestOutput,
   AssuranceSettings,
   AssuranceSettingsPatch,
+  ObservabilitySettings,
+  ObservabilitySettingsPatch,
+  MintedScrapeToken,
   CustomValidator,
   CustomValidatorList,
   CustomValidatorPatterns,
@@ -941,6 +947,19 @@ function fromWireBackupSet(bs: WireBackupSet, health?: WireBackupSetHealth): Bac
     // undefined still reads as the mapper having an opinion; this way a
     // set with no refusal on record simply does not carry the field.
     ...(haltReason ? { haltReason } : {}),
+    // Issue #1541. Spread for the same reason as haltReason: a set with
+    // nothing waiting carries no key at all, rather than a zeroed block a
+    // card would have to know to ignore.
+    ...(health && health.pending_unreadable > 0
+      ? {
+          pendingUnreadable: {
+            count: health.pending_unreadable,
+            oldestAgeSeconds: health.pending_unreadable_oldest_age_seconds ?? 0,
+            oldestPath: health.pending_unreadable_oldest_path ?? "",
+            ...(health.pending_unreadable_warning ? { warning: health.pending_unreadable_warning } : {})
+          }
+        }
+      : {}),
     // Read, not defaulted. Absent means the report genuinely carries no
     // known-good backup for this set, which is the one case where the
     // card's "never" is the truth.
@@ -3122,6 +3141,49 @@ function fromWireAssuranceSettings(s: WireAssuranceSettingsResponse): AssuranceS
   };
 }
 
+export function fromWireObservabilitySettings(s: WireObservabilitySettingsResponse): ObservabilitySettings {
+  return {
+    metrics: {
+      enabled: s.metrics?.enabled === true,
+      minRebuildIntervalSeconds: s.metrics?.min_rebuild_interval_seconds ?? 0,
+      scrapeToken: {
+        exists: s.metrics?.scrape_token?.exists === true,
+        prefix: s.metrics?.scrape_token?.prefix ?? "",
+        createdAt: s.metrics?.scrape_token?.created_at ?? null
+      }
+    },
+    logs: {
+      level: s.logs?.level ?? "info",
+      levelInForce: s.logs?.level_in_force ?? "info",
+      levelSource: s.logs?.level_source ?? "config"
+    },
+    alerts: {
+      delivery: s.alerts?.delivery ?? "platform",
+      webhook: {
+        dialect: s.alerts?.webhook?.dialect ?? "generic",
+        urlSet: s.alerts?.webhook?.url_set === true,
+        ...(s.alerts?.webhook?.url_status ? { urlStatus: s.alerts.webhook.url_status } : {}),
+        allowInsecureHttp: s.alerts?.webhook?.allow_insecure_http === true,
+        refreshIntervalSeconds: s.alerts?.webhook?.refresh_interval_seconds ?? 0,
+        resolveTtlSeconds: s.alerts?.webhook?.resolve_ttl_seconds ?? 0
+      }
+    }
+  };
+}
+
+function wireObservabilityPatch(p: ObservabilitySettingsPatch): WireUpdateObservabilitySettingsRequest {
+  const body: WireUpdateObservabilitySettingsRequest = {};
+  if (p.metricsEnabled !== undefined) body.metrics_enabled = p.metricsEnabled;
+  if (p.metricsMinRebuildIntervalSeconds !== undefined) body.metrics_min_rebuild_interval_seconds = p.metricsMinRebuildIntervalSeconds;
+  if (p.logsLevel !== undefined) body.logs_level = p.logsLevel as WireUpdateObservabilitySettingsRequest["logs_level"];
+  if (p.alertsDelivery !== undefined) body.alerts_delivery = p.alertsDelivery as WireUpdateObservabilitySettingsRequest["alerts_delivery"];
+  if (p.webhookDialect !== undefined) body.webhook_dialect = p.webhookDialect as WireUpdateObservabilitySettingsRequest["webhook_dialect"];
+  if (p.webhookAllowInsecureHttp !== undefined) body.webhook_allow_insecure_http = p.webhookAllowInsecureHttp;
+  if (p.webhookRefreshIntervalSeconds !== undefined) body.webhook_refresh_interval_seconds = p.webhookRefreshIntervalSeconds;
+  if (p.webhookResolveTtlSeconds !== undefined) body.webhook_resolve_ttl_seconds = p.webhookResolveTtlSeconds;
+  return body;
+}
+
 function fromWireBackupSetAssurance(s: WireBackupSetAssurance): BackupSetAssurance {
   return { ...fromWireAssurancePolicy(s), backupSetId: s.backup_set_id ?? "", isOverride: s.is_override === true };
 }
@@ -4521,6 +4583,20 @@ export const httpApi: RetndApi = {
       method: "PATCH",
       body: JSON.stringify(wireAssurancePatch(patch))
     }).then(fromWireAssuranceSettings),
+  getObservabilitySettings: () =>
+    request<WireObservabilitySettingsResponse>("/settings/observability").then(fromWireObservabilitySettings),
+  patchObservabilitySettings: (patch) =>
+    request<WireObservabilitySettingsResponse>("/settings/observability", {
+      method: "PATCH",
+      body: JSON.stringify(wireObservabilityPatch(patch))
+    }).then(fromWireObservabilitySettings),
+  mintScrapeToken: () =>
+    request<WireMintedScrapeToken>("/settings/observability/scrape-token", { method: "POST" }).then(
+      (m): MintedScrapeToken => ({
+        token: m.token,
+        scrapeToken: { exists: m.scrape_token.exists, prefix: m.scrape_token.prefix, createdAt: m.scrape_token.created_at ?? null }
+      })
+    ),
   listCustomValidators: (filter) => {
     const q = new URLSearchParams();
     if (filter?.backupSetId) q.set("backup_set", filter.backupSetId);

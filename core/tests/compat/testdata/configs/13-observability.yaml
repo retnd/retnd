@@ -1,0 +1,39 @@
+# EPIC O (#898), valid: the observability block written out, all three
+# sub-blocks. Every key is optional; a config that writes none of them
+# resolves metrics off, a 15s report cache, the info log floor and platform
+# alert delivery. The webhook URL is a reference to where it lives, never a
+# value, and there is no scrape token here at all: that one is minted by the
+# product and kept as a digest in a file of its own.
+poll_interval: 15m
+
+state:
+  database: /var/lib/retnd/state.db
+
+observability:
+  metrics:
+    enabled: true
+    min_rebuild_interval: 30s
+  logs:
+    level: warn
+  alerts:
+    delivery: webhook
+    webhook:
+      dialect: alertmanager
+      url_ref:
+        env: RETND_ALERT_WEBHOOK_URL
+      allow_insecure_http: true
+      refresh_interval: 3m
+      resolve_ttl: 9m
+
+sources:
+  - id: production
+    backup_sets:
+      - id: postgres-primary
+        remote:
+          type: local
+        remote_path: /srv/exports/postgres
+        local_path: /backups/production/postgres
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h

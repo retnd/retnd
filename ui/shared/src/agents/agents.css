@@ -38,12 +38,19 @@
 .ag-table td { padding: 8px; border-top: 1px solid var(--border); vertical-align: top; }
 .ag-table td > .ag-secondary { display: block; }
 .ag-cell-mono { font-family: var(--font-mono); font-size: var(--text-xs); overflow-wrap: anywhere; }
+/* #1525: the audit stays a table at every width: a call is one row, and the table
+   scrolls inside its own box when the columns do not fit. The other tables keep
+   the stacked-cards layout below 640px. */
+.ag-scroll { overflow-x: auto; max-width: 100%; min-width: 0; }
+.ag-table[data-agents-table="audit"] { min-width: 680px; }
+.ag-region__toggle { display: inline-flex; align-items: center; gap: 8px; background: none; border: 0; padding: 4px 0; font: inherit; color: inherit; cursor: pointer; min-height: 32px; }
+.ag-region__count { font-weight: 400; font-size: var(--text-sm); color: var(--text-2); }
 @container (max-width: 640px) {
-  .ag-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  .ag-table, .ag-table tbody, .ag-table tr, .ag-table td { display: block; width: 100%; }
-  .ag-table tr { border-top: 1.5px solid var(--border-strong); padding: 6px 0; }
-  .ag-table td { border-top: 0; padding: 3px 8px; }
-  .ag-table td[data-label]::before { content: attr(data-label); display: block; font-size: var(--text-xs); color: var(--text-2); }
+  .ag-table:not([data-agents-table="audit"]) thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .ag-table:not([data-agents-table="audit"]), .ag-table:not([data-agents-table="audit"]) tbody, .ag-table:not([data-agents-table="audit"]) tr, .ag-table:not([data-agents-table="audit"]) td { display: block; width: 100%; }
+  .ag-table:not([data-agents-table="audit"]) tr { border-top: 1.5px solid var(--border-strong); padding: 6px 0; }
+  .ag-table:not([data-agents-table="audit"]) td { border-top: 0; padding: 3px 8px; }
+  .ag-table:not([data-agents-table="audit"]) td[data-label]::before { content: attr(data-label); display: block; font-size: var(--text-xs); color: var(--text-2); }
 }
 
 /* The scope disclosure. */

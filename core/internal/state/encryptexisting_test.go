@@ -35,6 +35,36 @@ func TestAnOptInBelongsToTheMoveItWasRecordedFor_1291(t *testing.T) {
 	}
 }
 
+// The opt-in is the move's and never the artifact's: an operator who opted
+// one move in and then cancelled it has not opted in the next move of the
+// same artifact, which a retention cycle may plan on its own. Two moves of
+// one artifact, one after the other, only the first opted in. Red if the
+// consent is read back through the artifact (any move of it) instead of the
+// move id, which the test above cannot see because it plans one move.
+func TestAnOptInIsNotInheritedByALaterMoveOfTheSameArtifact_1291(t *testing.T) {
+	ctx := context.Background()
+	j, artifact := moveJournal(t)
+	first := planOne(t, j, artifact)
+	if err := j.RecordEncryptExisting(ctx, first.ID, moveNow); err != nil {
+		t.Fatalf("RecordEncryptExisting: %v", err)
+	}
+	if _, err := j.AdvanceMove(ctx, MoveAdvance{MoveID: first.ID, From: MovePlanned, To: MoveAbandoned, OccurredAt: moveNow, Error: "cancelled by the operator"}); err != nil {
+		t.Fatalf("abandoning the opted-in move: %v", err)
+	}
+	second := planOne(t, j, artifact)
+	if second.ID == first.ID || second.Artifact != first.Artifact {
+		t.Fatalf("the fixture did not plan a second move of the same artifact: first %+v, second %+v", first, second)
+	}
+	if ok, err := j.EncryptExistingConsented(ctx, second.ID); err != nil || ok {
+		t.Fatalf("a later move of the same artifact inherited the first move's opt-in (ok=%v err=%v)", ok, err)
+	}
+	// Control: the first move's opt-in still reads back, so the false above is
+	// the read being keyed by move and not the read being broken.
+	if ok, err := j.EncryptExistingConsented(ctx, first.ID); err != nil || !ok {
+		t.Fatalf("control: the opted-in move no longer reads as consented (ok=%v err=%v)", ok, err)
+	}
+}
+
 // Red if a second record errors (a resumed run records again) or writes a
 // second row.
 func TestRecordingAnOptInTwiceIsIdempotent_1291(t *testing.T) {

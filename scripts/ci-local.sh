@@ -1540,6 +1540,12 @@ if [ "$FAST" != "1" ]; then
   # control is the only thing that can see it. No Docker, a few minutes.
   gate_step "the retention-apply evidence can actually fail (mutation self-test, #602)"
   bash scripts/retention/selftest.sh
+
+  # Discovery's readability probe (#1541), shown to fire the same way: a plant
+  # in discovery.go, the narrowed suite red naming the promise. It had a
+  # self-test and no step until the guard-is-a-gate-step check named it.
+  gate_step "the discovery readability probe can actually fail (mutation self-test, #1541)"
+  bash scripts/discovery/selftest.sh
 fi
 }
 
@@ -1647,6 +1653,20 @@ if [ "$FAST" != "1" ]; then
 fi
 }
 
+gate_seg_selftest_observability() {
+if [ "$FAST" != "1" ]; then
+  # EPIC O (#899): the scrape endpoint's guards (the verifier, the inline
+  # token refusal, the refusal limiter, the digest-only store, the action-log
+  # silence, the absent-not-zero workflow half, the report cache, and the
+  # scrape credential and the agent token never crossing) each planted as a
+  # real violation in a real product file, and the narrowed suite has to go
+  # red naming the promise. PV1 and PV2 of the spec live here; O1.2 to O1.4
+  # add theirs to the same file. No Docker, a few minutes.
+  gate_step "the observability guards can actually fail (mutation self-test, #899)"
+  bash scripts/observability/selftest.sh
+fi
+}
+
 gate_seg_structure() {
 if [ "$FAST" != "1" ]; then
   gate_step "repository-structure dependency rules (§7.1), by actual deletion"
@@ -1703,6 +1723,7 @@ gate_run_segment "selftest-conformance" gate_seg_selftest_conformance
 gate_run_segment "selftest-assurance" gate_seg_selftest_retention
 gate_run_segment "selftest-recovery" gate_seg_selftest_recovery
 gate_run_segment "selftest-assurance" gate_seg_selftest_assurance
+gate_run_segment "selftest-assurance" gate_seg_selftest_observability
 gate_run_segment "selftest-encryption" gate_seg_selftest_encryption
 gate_run_segment "selftest-agents" gate_seg_selftest_agents
 gate_run_segment "structure" gate_seg_structure

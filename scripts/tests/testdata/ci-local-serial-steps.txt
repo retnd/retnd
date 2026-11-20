@@ -75,8 +75,10 @@
 ==> the FR-35 compatibility cells can actually fail (mutation self-test, #242)
 ==> the composed conformance cells can actually fail (mutation self-test, #242)
 ==> the retention-apply evidence can actually fail (mutation self-test, #602)
+==> the discovery readability probe can actually fail (mutation self-test, #1541)
 ==> the recovery guards can actually fail (mutation self-test, #976)
 ==> the assurance guards can actually fail (mutation self-test, #988)
+==> the observability guards can actually fail (mutation self-test, #899)
 ==> the encryption and suite guards can actually fail (mutation self-test, #1531)
 ==> the agent (MCP) guards can actually fail (mutation self-test, #1530)
 ==> repository-structure dependency rules (§7.1), by actual deletion

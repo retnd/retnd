@@ -165,6 +165,8 @@ const (
 
 	whyConfirmDecide = "a person lists and decides confirmations; an agent only proposes one and reads its own by id"
 
+	whyScrape = "the Prometheus scrape endpoint answers a scraper holding the scrape credential, in the exposition text format; an agent reads this deployment through the catalogue's tools, and no token of either kind opens it"
+
 	whyAudit = "the audit trail is read by an operator from a terminal or the browser; an agent's own calls are in it and it never reads it back"
 
 	whyOperationAction = "this action on the operations route is a restore, a hold or a snapshot check, each a person's decision about data, and no tool starts it"
@@ -196,7 +198,7 @@ var toolRows = []Row{
 	{
 		Tool: "status", Method: "GET", Route: "/system/health", Scope: ScopeRead,
 		Description: "Read the health of every backup set: its state and the reason for it, the newest good backup, quarantined and stale counts, free space and copies away from home.",
-		Untrusted:   []string{"backup_sets[].reason", "backup_sets[].halt_reason", "backup_sets[].failed_move_reason"},
+		Untrusted:   []string{"backup_sets[].reason", "backup_sets[].halt_reason", "backup_sets[].failed_move_reason", "backup_sets[].pending_unreadable_oldest_path", "backup_sets[].pending_unreadable_warning"},
 	},
 	{
 		Tool: "backup_sets_list", Method: "GET", Route: "/backup-sets", Scope: ScopeRead,
@@ -390,7 +392,8 @@ var refusalRows = join(
 		"POST /auth/verify-email/resend", "GET /auth/recovery", "PATCH /auth/recovery", "POST /auth/recovery/test"),
 	no(whyFirstRun, "GET /system/first-run", "POST /system/first-run", "POST /system/first-run/skip"),
 	no(whyGrant, "POST /recoveries", "GET /recoveries/{grant}", "POST /backups/{source}/{set}/{name}/recovery"),
-	no(whyTokens, "GET /agent/tokens", "POST /agent/tokens", "POST /agent/tokens/{id}/revoke"),
+	no(whyTokens, "GET /agent/tokens", "POST /agent/tokens", "POST /agent/tokens/{id}/revoke",
+		"POST /settings/observability/scrape-token"),
 	no(whyKeys,
 		"GET /encryption/keys", "POST /encryption/keys", "POST /encryption/keys/rotate",
 		"POST /encryption/keys/{id}/retire", "POST /encryption/keys/{id}/export", "POST /encryption/keys/{id}/confirm"),
@@ -421,6 +424,7 @@ var refusalRows = join(
 		"PUT /storage-mediums/{id}", "PUT /storage-mediums/{id}/default",
 		"PATCH /settings", "PATCH /settings/workflow", "PATCH /backup-sets/{source}/{set}/workflow",
 		"PATCH /settings/assurance", "DELETE /backup-sets/{source}/{set}/assurance",
+		"PATCH /settings/observability",
 		"PATCH /encryption/policy", "POST /encryption/policy/reset",
 		"PUT /backup-sets/{source}/{set}/encryption", "DELETE /backup-sets/{source}/{set}/encryption",
 		"POST /assurance/validators", "PUT /assurance/validators/{name}", "DELETE /assurance/validators/{name}"),
@@ -432,6 +436,7 @@ var refusalRows = join(
 		"POST /repositories", "POST /workflow-recovery/{run}/resume-cleanup", "POST /workflow-recovery/{run}/acknowledge"),
 	no(whyCatalogue, "GET /agent/tools"),
 	no(whyAudit, "GET /agent/audit"),
+	no(whyScrape, "GET /metrics"),
 	no(whyConfirmDecide, "GET /agent/confirmations", "POST /agent/confirmations/{id}/approve", "POST /agent/confirmations/{id}/deny"),
 	no(whyTransport, "POST /agent/mcp", "GET /agent/mcp", "DELETE /agent/mcp"),
 	no(whyRead,
@@ -443,7 +448,7 @@ var refusalRows = join(
 		"GET /backup-sets/{source}/{set}/source-host", "GET /storage-mediums/{id}",
 		"GET /validators", "GET /backends", "GET /settings", "GET /settings/workflow",
 		"GET /backup-sets/{source}/{set}/workflow", "GET /backup-sets/{source}/{set}/workflow/validation",
-		"GET /settings/assurance", "GET /backup-sets/{source}/{set}/recovery-test/output",
+		"GET /settings/assurance", "GET /settings/observability", "GET /backup-sets/{source}/{set}/recovery-test/output",
 		"GET /encryption/suites", "GET /encryption/encrypt-existing", "GET /encryption/reencrypt",
 		"GET /assurance/validators", "GET /assurance/validator-patterns", "GET /assurance/default-validator-script",
 		"GET /assurance/operations/{op}", "GET /workflow-runs/{run}/steps", "GET /workflow-recovery"),

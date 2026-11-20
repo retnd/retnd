@@ -45,6 +45,34 @@ if (typeof window !== "undefined" && !storageIsUsable()) {
   Object.defineProperty(window, "localStorage", { value: storage, configurable: true });
 }
 
+// Every file starts with empty storage (#1542). This runs before the test
+// file's own imports, which matters because some modules read storage AT
+// IMPORT: state/tooltipNodes.ts seeds the tooltip preference from it, and
+// resetGraphForTests() then resets the node to that seeded value, not to
+// the default. Storage also outlives a file whenever files share a fork:
+// the in-memory store above is installed on the process-wide global, and
+// under singleFork (or isolate: false) every file shares one jsdom window.
+// So a file that opted out of tooltips handed the next file a node stuck
+// "off", and registry-tooltips failed on MARS for a reason that had
+// nothing to do with it. sessionStorage gets the same treatment, since
+// assurance/mockAssurance.ts and api/mock.ts keep state in it and read it
+// back lazily. The root's data-theme goes too: App writes it on every
+// render and theme.ts's resolveTheme() trusts it ahead of storage, so a
+// file that rendered the app dark would hand the next one a dark app. A
+// file that wants something stored writes it itself.
+// scripts/shared-fork-1542.test.mjs runs three files in one fork to keep
+// this fixed.
+if (typeof window !== "undefined") {
+  for (const area of ["localStorage", "sessionStorage"] as const) {
+    try {
+      window[area]?.clear();
+    } catch {
+      // A storage the environment cannot provide has nothing to leak.
+    }
+  }
+  document.documentElement.removeAttribute("data-theme");
+}
+
 // Testing Library's findBy*/waitFor give up after 1000ms by default, and
 // vitest fails a test after 5000ms. Both numbers are tuned for a unit of
 // a few elements. This suite renders whole pages through real stylesheets
