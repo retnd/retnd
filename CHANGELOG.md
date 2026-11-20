@@ -5,8 +5,9 @@
 Worth reading before you upgrade:
 
 - **This release applies migration 0023 on its first start, and 0.8.0 won't open the journal
-  after that** (#1528). 0023 rebuilds the `artifacts` table so it admits `RETIRED` and adds
-  `artifact_retirements`. It's the first schema migration a patch release has carried. Like
+  after that** (#1528, #1536). 0023 rebuilds the `artifacts` table so it admits the new `RETIRED`
+  state (what `retnd retire` and the engine's own retirement of a FAILED backup move a row to) and
+  adds `artifact_retirements`. It's the first schema migration a patch release has carried. Like
   every release with a migration, 0.8.0 refuses a `state.db` this build has opened (`version 23
   is recorded in the database but not compiled into this binary`) and writes nothing when it
   does, so the only way back is a copy taken before the upgrade. `install --mode upgrade` takes
@@ -82,7 +83,8 @@ Worth reading before you upgrade:
   after the upgrade, each as a warn-level `artifact_retired` event.
   **One-way door:** migration 0023 rebuilds the `artifacts` table to admit `RETIRED` and adds
   `artifact_retirements`. 0.8.0 refuses a `state.db` this build has opened, like every release with a
-  migration, so keep the upgrade archive if you might roll back.
+  migration, so keep the upgrade archive if you might roll back (the steps are in [Rolling back a
+  release that carried a migration](docs/install.md#rolling-back-a-release-that-carried-a-migration)).
 
 ## [0.8.0] - 2026-11-14
 
