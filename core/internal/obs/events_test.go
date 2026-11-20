@@ -25,6 +25,64 @@ import (
 // is exactly as brittle as one keyed on the event field, and nothing
 // outside this package would notice either one moving.
 
+// eventNameCases is the pinned table, package-level so the coverage test in
+// schema_test.go can hold it against the constants events.go declares.
+var eventNameCases = []struct {
+	name string
+	got  string
+	want string
+}{
+	{"EventStartup", EventStartup, "startup"},
+	{"EventRcloneVersion", EventRcloneVersion, "rclone_version"},
+	{"EventCycleStart", EventCycleStart, "cycle_start"},
+	{"EventCycleEnd", EventCycleEnd, "cycle_end"},
+	{"EventDiscovery", EventDiscovery, "discovery"},
+	{"EventLifecycleTransition", EventLifecycleTransition, "lifecycle_transition"},
+	{"EventTransferStats", EventTransferStats, "transfer_stats"},
+	{"EventHash", EventHash, "hash"},
+	{"EventValidation", EventValidation, "validation"},
+	{"EventCommit", EventCommit, "commit"},
+	{"EventRemoteDelete", EventRemoteDelete, "remote_delete"},
+	{"EventReconciliation", EventReconciliation, "reconciliation"},
+	{"EventArtifactRetired", EventArtifactRetired, "artifact_retired"},
+	{"EventArtifactUnretired", EventArtifactUnretired, "artifact_unretired"},
+	{"EventRetention", EventRetention, "retention"},
+	{"EventRetentionHold", EventRetentionHold, "retention_hold"},
+	{"EventRetry", EventRetry, "retry"},
+	{"EventStaleBackup", EventStaleBackup, "stale_backup"},
+	{"EventDiskPressure", EventDiskPressure, "disk_pressure"},
+	{"EventAlert", EventAlert, "alert"},
+	{"EventAlertDestination", EventAlertDestination, "alert_destination"},
+	{"EventAPIAction", EventAPIAction, "api_action"},
+	{"EventAgentAction", EventAgentAction, "agent_action"},
+	{"EventWorkflowRunStart", EventWorkflowRunStart, "workflow_run_start"},
+	{"EventWorkflowRunEnd", EventWorkflowRunEnd, "workflow_run_end"},
+	{"EventWorkflowStepStart", EventWorkflowStepStart, "workflow_step_start"},
+	{"EventWorkflowStepEnd", EventWorkflowStepEnd, "workflow_step_end"},
+	{"EventWorkflowBypassed", EventWorkflowBypassed, "workflow_bypassed"},
+	{"EventScrubPass", EventScrubPass, "scrub_pass"},
+	{"EventScrubStart", EventScrubStart, "scrub_start"},
+	{"EventScrubFailure", EventScrubFailure, "scrub_failure"},
+	{"EventRecoveryTest", EventRecoveryTest, "recovery_test"},
+	{"EventScrubUnknownObject", EventScrubUnknownObject, "scrub_unknown_object"},
+	{"EventScrubUnlisted", EventScrubUnlisted, "scrub_unlisted"},
+	{"EventError", EventError, "error"},
+	{"EventActivityPruneDeferred", EventActivityPruneDeferred, "activity_prune_deferred"},
+	{"EventJournalSlowHold", EventJournalSlowHold, "journal_slow_hold"},
+	{"EventKeyCreated", EventKeyCreated, "key_created"},
+	{"EventKeyRotated", EventKeyRotated, "key_rotated"},
+	{"EventKeyBundleExported", EventKeyBundleExported, "key_bundle_exported"},
+	{"EventKeyBundleConfirmed", EventKeyBundleConfirmed, "key_bundle_confirmed"},
+	{"EventKeyRetired", EventKeyRetired, "key_retired"},
+	{"EventEncryptionDefaultSuiteChanged", EventEncryptionDefaultSuiteChanged, "encryption_default_suite_changed"},
+	{"EventCopyEncrypting", EventCopyEncrypting, "copy_encrypting"},
+	{"EventCopyUploadingEncrypted", EventCopyUploadingEncrypted, "copy_uploading_encrypted"},
+	{"EventCopyVerifyingStored", EventCopyVerifyingStored, "copy_verifying_stored"},
+	{"EventCopyDecryptVerifying", EventCopyDecryptVerifying, "copy_decrypt_verifying"},
+	{"EventSnapshotPhase", EventSnapshotPhase, "snapshot_phase"},
+	{"EventSnapshotStats", EventSnapshotStats, "snapshot_stats"},
+}
+
 // TestEventNamesAreStable pins every event constant's literal string
 // against a value hardcoded independently, right here, rather than against
 // itself. If a future edit to events.go changes what EventLifecycleTransition
@@ -33,59 +91,7 @@ import (
 // "event" field. Do not "simplify" this table to compare a constant against
 // itself; that would stop testing anything.
 func TestEventNamesAreStable(t *testing.T) {
-	cases := []struct {
-		name string
-		got  string
-		want string
-	}{
-		{"EventStartup", EventStartup, "startup"},
-		{"EventRcloneVersion", EventRcloneVersion, "rclone_version"},
-		{"EventCycleStart", EventCycleStart, "cycle_start"},
-		{"EventCycleEnd", EventCycleEnd, "cycle_end"},
-		{"EventDiscovery", EventDiscovery, "discovery"},
-		{"EventLifecycleTransition", EventLifecycleTransition, "lifecycle_transition"},
-		{"EventTransferStats", EventTransferStats, "transfer_stats"},
-		{"EventHash", EventHash, "hash"},
-		{"EventValidation", EventValidation, "validation"},
-		{"EventCommit", EventCommit, "commit"},
-		{"EventRemoteDelete", EventRemoteDelete, "remote_delete"},
-		{"EventReconciliation", EventReconciliation, "reconciliation"},
-		{"EventArtifactRetired", EventArtifactRetired, "artifact_retired"},
-		{"EventArtifactUnretired", EventArtifactUnretired, "artifact_unretired"},
-		{"EventRetention", EventRetention, "retention"},
-		{"EventRetentionHold", EventRetentionHold, "retention_hold"},
-		{"EventRetry", EventRetry, "retry"},
-		{"EventStaleBackup", EventStaleBackup, "stale_backup"},
-		{"EventDiskPressure", EventDiskPressure, "disk_pressure"},
-		{"EventAlert", EventAlert, "alert"},
-		{"EventAlertDestination", EventAlertDestination, "alert_destination"},
-		{"EventAPIAction", EventAPIAction, "api_action"},
-		{"EventAgentAction", EventAgentAction, "agent_action"},
-		{"EventWorkflowRunStart", EventWorkflowRunStart, "workflow_run_start"},
-		{"EventWorkflowRunEnd", EventWorkflowRunEnd, "workflow_run_end"},
-		{"EventWorkflowStepStart", EventWorkflowStepStart, "workflow_step_start"},
-		{"EventWorkflowStepEnd", EventWorkflowStepEnd, "workflow_step_end"},
-		{"EventWorkflowBypassed", EventWorkflowBypassed, "workflow_bypassed"},
-		{"EventScrubPass", EventScrubPass, "scrub_pass"},
-		{"EventScrubStart", EventScrubStart, "scrub_start"},
-		{"EventScrubFailure", EventScrubFailure, "scrub_failure"},
-		{"EventRecoveryTest", EventRecoveryTest, "recovery_test"},
-		{"EventScrubUnknownObject", EventScrubUnknownObject, "scrub_unknown_object"},
-		{"EventScrubUnlisted", EventScrubUnlisted, "scrub_unlisted"},
-		{"EventError", EventError, "error"},
-		{"EventActivityPruneDeferred", EventActivityPruneDeferred, "activity_prune_deferred"},
-		{"EventJournalSlowHold", EventJournalSlowHold, "journal_slow_hold"},
-		{"EventKeyCreated", EventKeyCreated, "key_created"},
-		{"EventKeyRotated", EventKeyRotated, "key_rotated"},
-		{"EventKeyBundleExported", EventKeyBundleExported, "key_bundle_exported"},
-		{"EventKeyBundleConfirmed", EventKeyBundleConfirmed, "key_bundle_confirmed"},
-		{"EventKeyRetired", EventKeyRetired, "key_retired"},
-		{"EventEncryptionDefaultSuiteChanged", EventEncryptionDefaultSuiteChanged, "encryption_default_suite_changed"},
-		{"EventCopyEncrypting", EventCopyEncrypting, "copy_encrypting"},
-		{"EventCopyUploadingEncrypted", EventCopyUploadingEncrypted, "copy_uploading_encrypted"},
-		{"EventCopyVerifyingStored", EventCopyVerifyingStored, "copy_verifying_stored"},
-		{"EventCopyDecryptVerifying", EventCopyDecryptVerifying, "copy_decrypt_verifying"},
-	}
+	cases := eventNameCases
 	seen := make(map[string]string, len(cases))
 	for _, c := range cases {
 		if c.got != c.want {

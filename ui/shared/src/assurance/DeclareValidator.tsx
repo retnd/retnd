@@ -39,15 +39,22 @@ export function DeclareValidator({
   const filename = (artifactId ?? "").split("/").slice(2).join("/");
 
   // Answers can arrive out of order (another backup, a save while a read is
-  // out); only the newest question's answer is kept.
+  // out); only the newest question's answer is kept. An answer that arrives
+  // after this has unmounted is dropped too: setting state then throws once
+  // a test's window has been torn down (#1589).
   const asked = useRef(0);
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   const load = useCallback(() => {
     // An engine older than #1203 has no such route; the row is then not drawn.
     if (!api || typeof api.listCustomValidators !== "function") return Promise.resolve();
     const mine = ++asked.current;
     return api.listCustomValidators(artifactId ? { artifactId } : { backupSetId: setId }).then(
-      (l) => { if (mine === asked.current) setList(l); },
-      () => { if (mine === asked.current) setList(null); }
+      (l) => { if (mounted.current && mine === asked.current) setList(l); },
+      () => { if (mounted.current && mine === asked.current) setList(null); }
     );
   }, [api, artifactId, setId]);
 

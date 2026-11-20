@@ -2339,6 +2339,10 @@
     "label": "Expiry time",
     "html": "How long Alertmanager keeps an alert after it was last sent (<code>endsAt</code>). The refresh interval must be at least 30 seconds shorter than this, or the alert expires while the problem is still there."
   },
+  "observability.logs.level": {
+    "label": "Log level in force",
+    "html": "Which floor the <strong>engine</strong> is logging at right now, and where it came from: <code>config</code> is the setting here, <code>environment</code> is <code>RETND_DEBUG=1</code> or a <code>LOG_LEVEL</code> that names a level, either of which beats the setting. The <strong>web-ui</strong> container reads the environment alone and is not moved by this. The equivalent terminal command is shown under the control."
+  },
   "observability.card": {
     "label": "Observability",
     "html": "What this deployment offers to Prometheus, a log shipper and an alert receiver. <strong>Everything is off until you turn it on</strong>, and none of it is per backup set: a scrape endpoint, a log stream and an alert channel belong to the whole deployment."

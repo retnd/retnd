@@ -53,19 +53,28 @@ export function AuditRegion({ tokens, tools, revision }: { tokens: AgentToken[];
   // always the real one.
   const [expanded, setExpanded] = useState(false);
 
+  // An answer can land after the region has gone (the page was left, or a
+  // test unmounted it), and setting state then throws once a test's window
+  // has been torn down (#1589). Every answer below checks this first.
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
   // One read per filter or revision: the first page, replacing what is shown.
   useEffect(() => {
     const mine = ++latest.current;
     api.listAgentAudit({ tokenId: tokenId || undefined, since: since || undefined }).then(
       (page) => {
-        if (mine !== latest.current) return;
+        if (!mounted.current || mine !== latest.current) return;
         setRows(page.rows);
         setCursor(page.nextCursor);
         setFailure(null);
         setOpen(new Set());
       },
       (e) => {
-        if (mine !== latest.current) return;
+        if (!mounted.current || mine !== latest.current) return;
         setFailure(engineFailure(e, "the audit could not be read"));
       }
     );
@@ -80,14 +89,14 @@ export function AuditRegion({ tokens, tools, revision }: { tokens: AgentToken[];
     setOlder(true);
     try {
       const page = await api.listAgentAudit({ tokenId: tokenId || undefined, since: since || undefined, cursor });
-      if (mine !== latest.current) return;
+      if (!mounted.current || mine !== latest.current) return;
       setRows((r) => [...(r ?? []), ...page.rows]);
       setCursor(page.nextCursor);
     } catch (e) {
-      if (mine !== latest.current) return;
+      if (!mounted.current || mine !== latest.current) return;
       setFailure(engineFailure(e, "older calls could not be read"));
     } finally {
-      setOlder(false);
+      if (mounted.current) setOlder(false);
     }
   }, [api, cursor, tokenId, since]);
 
