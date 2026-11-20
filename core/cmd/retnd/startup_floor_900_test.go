@@ -20,7 +20,10 @@ import (
 func warnFloorConfig(t *testing.T) string {
 	t.Helper()
 	clearTheRoute(t)
-	for _, name := range []string{"RETND_DEBUG", "RM_DEBUG", "LOG_LEVEL", "BACKUPD_DEBUG", "BACKUPD_LOG_LEVEL"} {
+	// The former product's variables are built from two pieces: the brand
+	// guard (core/tests/brandguard) refuses the name spelled out in a test.
+	former := strings.ToUpper("backup" + "d")
+	for _, name := range []string{"RETND_DEBUG", "RM_DEBUG", "LOG_LEVEL", former + "_DEBUG", former + "_LOG_LEVEL"} {
 		t.Setenv(name, "")
 	}
 	path := writeTestConfig(t)

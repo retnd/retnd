@@ -402,6 +402,10 @@ func backupSetTestCandidateConnection(f *backupSetFlags) int {
 // in that process. Everything else is the door every configuration write
 // goes through, which is what routes it to a serving engine.
 func openCandidateCheckRoute(ctx context.Context, cfgPath string, out io.Writer) (sourceConnectionTester, func(), error) {
+	// Before the stat that picks the first-run branch (#1609).
+	if err := checkPreRenamePath(cfgPath); err != nil {
+		return nil, func() {}, err
+	}
 	configFile := config.ResolvePath(cfgPath)
 	if _, err := os.Stat(configFile); errors.Is(err, os.ErrNotExist) {
 		route, _, err := sshKeyFirstRunRoute(ctx, "so the check is made by it, against the key store it holds, at %s")

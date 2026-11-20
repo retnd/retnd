@@ -11,6 +11,12 @@
 # passes none), runs the same command directly in this tree. mercury is refused:
 # gate work stays off it (benchmarks own it, through bench-queue.sh).
 #
+# The ui-browser shard (#1532, #1537) is the exception to that default: it
+# drives a Chromium through every spec file in ui/shared/e2e, and heavy retnd
+# steps stay off the Mac, so with no --host it goes to mars. `--host mac` for
+# it is refused unless RETND_UI_BROWSER_ALLOW_LOCAL=1 is set, and the gate then
+# runs it through the Playwright lock.
+#
 # What comes back, in DIR (default $TMPDIR/retnd-shard-runs, outside the git
 # dir ci-docker.sh ships, and refused inside the tree, which it would dirty):
 #   <shard>.log      everything the run printed (also streamed to stdout)
@@ -57,7 +63,7 @@ usage() { echo "usage: run-gate-shard.sh <shard> [--host <mars|nas|mac>] [--out 
 
 shard="${1:-}"; [ -n "$shard" ] || usage
 shift
-host=mac; out=""
+host=""; out=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --host) [ "$#" -ge 2 ] || usage; host="$2"; shift 2 ;;
@@ -67,6 +73,16 @@ while [ "$#" -gt 0 ]; do
 done
 case "$shard" in [a-z0-9]*) ;; *) echo "run-gate-shard: bad shard name [$shard]" >&2; exit 2 ;; esac
 case "$shard" in *[!a-z0-9-]*) echo "run-gate-shard: bad shard name [$shard]" >&2; exit 2 ;; esac
+if [ -z "$host" ]; then
+  case "$shard" in
+    ui-browser) host=mars; echo "run-gate-shard: no --host given, so the ui-browser shard runs on mars (heavy steps stay off the Mac)" >&2 ;;
+    *) host=mac ;;
+  esac
+fi
+if [ "$shard" = ui-browser ] && [ "$host" = mac ] && [ "${RETND_UI_BROWSER_ALLOW_LOCAL:-0}" != 1 ]; then
+  echo "run-gate-shard: the ui-browser shard does not run on the Mac, where heavy steps do not run. Use --host mars, or set RETND_UI_BROWSER_ALLOW_LOCAL=1 to run it here through the Playwright lock" >&2
+  exit 2
+fi
 case "$host" in
   mars) target=devshell@192.168.0.100; platform=linux/amd64 ;;
   nas) target=rom@192.168.0.10; platform=linux/amd64 ;;

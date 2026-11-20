@@ -126,6 +126,13 @@ func reconcileOne(ctx context.Context, deps Deps, source transport.Source, rec s
 		// second-guess them.
 		return noAction(rec.Artifact, st, fmt.Sprintf("%s: exceptional state outside reconciliation's scope", st)), nil
 
+	case lifecycle.Retired:
+		// Issue #1528: a retired failure has no local copy to check and no
+		// remote action pending. Its one way out is discovery listing the
+		// object again, which internal/app owns, and its leftover .partial
+		// is swept by the retirement pass, not here.
+		return noAction(rec.Artifact, st, "RETIRED: a failure nobody needs to act on; nothing to reconcile"), nil
+
 	default:
 		return Finding{}, fmt.Errorf("reconcile: state %s has no reconciliation handling", st)
 	}

@@ -152,9 +152,14 @@ GET /backup-sets/{source}/{set}/workflow/validation
 GET /backups
 	example: command
 	example ?setId=api-server%2Fvar-backups: command
+	example ?limit=50&setId=api-server%2Fvar-backups&state=FAILED: command
 
 GET /backups/{source}/{set}/{name}
 	example: command
+
+GET /backups/{source}/{set}/{name}/retire
+	example: command
+	example ?accept_source_present=true: command
 
 GET /encryption/copies
 	example ?artifact=api-server%2Fvar-backups%2FMANIFEST-20260902T153521Z.txt: command
@@ -185,6 +190,7 @@ GET /operations/{id}
 
 GET /quarantine
 	example: command
+	example ?limit=20&setId=api-server%2Fvar-backups: command
 
 GET /recoveries/{grant}
 	no command: a grant is minted and redeemed in one step by `retnd recover`, in your own shell, so there is no verb that redeems a grant somebody else minted: the token belongs to the browser session that asked for it
@@ -438,11 +444,15 @@ POST /backup-sets/test-connection
 	body that isn't JSON: malformed: there is no verb that checks a source connection from a request body
 
 POST /backup-sets/{source}/{set}/edit-hold
+	corpus: command
 	example: command
+	example {"token":"3f9c0d2a"}: command
 	body that isn't JSON: command
 
 POST /backup-sets/{source}/{set}/edit-hold/release
+	corpus: command
 	example: command
+	example {"token":"3f9c0d2a"}: command
 	body that isn't JSON: command
 
 POST /backup-sets/{source}/{set}/enabled
@@ -490,6 +500,13 @@ POST /backups/{source}/{set}/{name}/recovery
 	example {"target":{"kind":"source","path":"retnd-recovered-20261015-101500-a1b2","acknowledged_destination":"sh1-0123456789abcdef0123456789abcdef"}}: command
 	example {"target":{"kind":"staging","path":"source:old"}}: command
 	body that isn't JSON: malformed: the request body would not decode, so there is no recovery to name a destination for
+
+POST /backups/{source}/{set}/{name}/retire
+	corpus: command
+	example: command
+	example {"superseded_by":"gitea-dump-20261119T033012Z.tar.gz","note":"the host deleted it"}: command
+	example {"accept_source_present":true,"no_successor":true}: command
+	body that isn't JSON: command
 
 POST /backups/{source}/{set}/{name}/retry
 	corpus: command

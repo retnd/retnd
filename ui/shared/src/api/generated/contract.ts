@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "8d93a85fee261d8536b4e6d3f097d615f974268e9f92f71f22f22170e335f5fe";
+export const CONTRACT_SHA256 = "4561f1ca36e06e8cb7108e479ea17104e4eb1bc84f42f2bfd5cdb31ffd79b60b";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -146,6 +146,13 @@ export const WIRE_ERROR_CODES = [
   "AGENT_HTTP_TRANSPORT_OFF",
   "AGENT_RATE_LIMITED",
   "AGENT_AUDIT_UNAVAILABLE",
+  "RETIRE_OWN_COPY_AT_FINAL_NAME",
+  "RETIRE_SOURCE_PRESENT",
+  "RETIRE_SOURCE_UNCONFIRMED",
+  "RETIRE_NO_SUCCESSOR",
+  "RETIRE_SUCCESSOR_INVALID",
+  "AGENT_RETIRE_ACK_REFUSED",
+  "EDIT_HOLD_GONE",
 ] as const;
 
 /** This UI's own presentation vocabulary. No endpoint emits these;
@@ -304,6 +311,13 @@ export const API_ERROR_CODES = [
   "AGENT_HTTP_TRANSPORT_OFF",
   "AGENT_RATE_LIMITED",
   "AGENT_AUDIT_UNAVAILABLE",
+  "RETIRE_OWN_COPY_AT_FINAL_NAME",
+  "RETIRE_SOURCE_PRESENT",
+  "RETIRE_SOURCE_UNCONFIRMED",
+  "RETIRE_NO_SUCCESSOR",
+  "RETIRE_SUCCESSOR_INVALID",
+  "AGENT_RETIRE_ACK_REFUSED",
+  "EDIT_HOLD_GONE",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -312,8 +326,8 @@ export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
  *  the RIGHT refusal rather than any refusal. */
 export const API_ERROR_CLASSES = {
   "authentication": ["UNAUTHENTICATED", "BOOTSTRAP_TOKEN_INVALID", "RESET_TOKEN_INVALID", "VERIFY_TOKEN_INVALID", "AGENT_TOKEN_INVALID"],
-  "authorization": ["ENROLLMENT_CLOSED", "DESTRUCTIVE_OPERATIONS_DISABLED", "CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "RECOVERY_GRANT_SESSION_ENDED", "STEP_UP_REQUIRED", "STEP_UP_FAILED", "INSECURE_TRANSPORT_ACK_REQUIRED", "AGENT_SCOPE_INSUFFICIENT", "AGENT_ROUTE_DENIED", "AGENT_HTTP_TRANSPORT_OFF"],
-  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED", "RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED", "RECOVERY_TARGET_EXISTS", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_BUSY", "DIRECTORY_NOT_READABLE", "RESTORE_TARGET_NOT_ACKNOWLEDGED", "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_UNAVAILABLE", "RECOVERY_SOURCE_HOST_READ_ONLY", "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE", "VALIDATOR_EXISTS", "VALIDATOR_PATTERN_CONFLICT", "VALIDATOR_LIMIT_REACHED", "VALIDATOR_SCRIPT_CHANGED", "ENCRYPTION_KEY_IN_USE", "ENCRYPTION_KEY_STATE", "ENCRYPTION_KEY_UNRESOLVABLE", "AGENT_CONFIRMATION_REQUIRED", "AGENT_CONFIRMATION_EXPIRED", "AGENT_CONFIRMATION_DECIDED", "AGENT_CONFIRMATION_TOKEN_ENDED"],
+  "authorization": ["ENROLLMENT_CLOSED", "DESTRUCTIVE_OPERATIONS_DISABLED", "CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "RECOVERY_GRANT_SESSION_ENDED", "STEP_UP_REQUIRED", "STEP_UP_FAILED", "INSECURE_TRANSPORT_ACK_REQUIRED", "AGENT_SCOPE_INSUFFICIENT", "AGENT_ROUTE_DENIED", "AGENT_HTTP_TRANSPORT_OFF", "AGENT_RETIRE_ACK_REFUSED"],
+  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED", "RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED", "RECOVERY_TARGET_EXISTS", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_BUSY", "DIRECTORY_NOT_READABLE", "RESTORE_TARGET_NOT_ACKNOWLEDGED", "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_UNAVAILABLE", "RECOVERY_SOURCE_HOST_READ_ONLY", "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE", "VALIDATOR_EXISTS", "VALIDATOR_PATTERN_CONFLICT", "VALIDATOR_LIMIT_REACHED", "VALIDATOR_SCRIPT_CHANGED", "ENCRYPTION_KEY_IN_USE", "ENCRYPTION_KEY_STATE", "ENCRYPTION_KEY_UNRESOLVABLE", "AGENT_CONFIRMATION_REQUIRED", "AGENT_CONFIRMATION_EXPIRED", "AGENT_CONFIRMATION_DECIDED", "AGENT_CONFIRMATION_TOKEN_ENDED", "RETIRE_OWN_COPY_AT_FINAL_NAME", "RETIRE_SOURCE_PRESENT", "RETIRE_SOURCE_UNCONFIRMED", "RETIRE_NO_SUCCESSOR", "RETIRE_SUCCESSOR_INVALID", "EDIT_HOLD_GONE"],
   "internal": ["INTERNAL", "INTERNAL_ERROR", "AGENT_AUDIT_UNAVAILABLE", "RECOVERY_LOCAL_COPY_CORRUPT", "RECOVERY_REMOTE_COPY_CORRUPT", "RECOVERY_NO_SPACE", "RECOVERY_BELOW_RESERVE", "RECOVERY_FAILED", "RECOVERY_SOURCE_HOST_NO_SPACE"],
   "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN", "DIRECTORY_NOT_FOUND", "VALIDATOR_NOT_FOUND", "ENCRYPTION_KEY_NOT_FOUND", "AGENT_TOKEN_NOT_FOUND", "AGENT_CONFIRMATION_NOT_FOUND"],
   "throttling": ["RATE_LIMITED", "RECOVERY_TOO_MANY_GRANTS", "RECOVERY_READS_BUSY", "RECOVERY_DESTINATION_BUSY", "RECOVERY_DOWNLOADS_BUSY", "AGENT_CONFIRMATION_LIMIT", "AGENT_RATE_LIMITED"],
@@ -1341,13 +1355,15 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     destructiveGate: false,
     insecureTransportAck: false,
     concurrency: "",
-    requestSchema: "",
+    requestSchema: "BackupSetEditHoldRequest",
     responseSchema: "BackupSetEditHold",
     successStatus: 200,
     errorCodes: {
+      400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
       403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
       404: ["BACKUP_SET_NOT_FOUND"],
+      409: ["EDIT_HOLD_GONE"],
       500: ["INTERNAL"],
     }
   },
@@ -1361,10 +1377,11 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     destructiveGate: false,
     insecureTransportAck: false,
     concurrency: "",
-    requestSchema: "",
+    requestSchema: "BackupSetEditHoldRequest",
     responseSchema: "",
     successStatus: 204,
     errorCodes: {
+      400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
       403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
       404: ["BACKUP_SET_NOT_FOUND"],
@@ -1904,6 +1921,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     responseSchema: "ListArtifactsResponse",
     successStatus: 200,
     errorCodes: {
+      400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
       404: ["BACKUP_SET_NOT_FOUND"],
       500: ["INTERNAL"],
@@ -1952,6 +1970,46 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       501: ["RECOVERY_UNAVAILABLE"],
       503: ["RECOVERY_UNAVAILABLE", "STEP_UP_UNAVAILABLE", "RECOVERY_SOURCE_HOST_UNREACHABLE"],
       507: ["RECOVERY_SOURCE_HOST_NO_SPACE"],
+    }
+  },
+  {
+    id: "previewRetirement",
+    method: "GET",
+    path: "/backups/{source}/{set}/{name}/retire",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "RetirementPreview",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["ARTIFACT_NOT_FOUND", "BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "retireArtifact",
+    method: "POST",
+    path: "/backups/{source}/{set}/{name}/retire",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "RetireArtifactRequest",
+    responseSchema: "RetireArtifactResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "AGENT_RETIRE_ACK_REFUSED"],
+      404: ["ARTIFACT_NOT_FOUND", "BACKUP_SET_NOT_FOUND"],
+      409: ["ARTIFACT_NOT_FAILED", "RETIRE_OWN_COPY_AT_FINAL_NAME", "RETIRE_SOURCE_PRESENT", "RETIRE_SOURCE_UNCONFIRMED", "RETIRE_NO_SUCCESSOR", "RETIRE_SUCCESSOR_INVALID"],
+      500: ["INTERNAL"],
     }
   },
   {
@@ -2447,7 +2505,9 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     responseSchema: "ListArtifactsResponse",
     successStatus: 200,
     errorCodes: {
+      400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
       500: ["INTERNAL"],
     }
   },
@@ -3730,6 +3790,7 @@ export interface WireArtifact {
   remote_source_removed_at?: string;
   retention_policy: "configured" | "none";
   retention_tier?: string;
+  retirement?: WireRetirementRecord;
   set_name: string;
   size_bytes: number;
   source_name: string;
@@ -3969,13 +4030,32 @@ export interface WireBackupSetAssurance {
 }
 
 /** POST /backup-sets/{source}/{set}/edit-hold. The lease just taken
- *  or renewed, plus what taking it interrupted. `stopped` is null
- *  when nothing was running, so a client never claims to have stopped
- *  something it did not. */
+ *  or renewed, the holder token that names it, and what taking it
+ *  interrupted. `stopped` is null when nothing was running, so a
+ *  client never claims to have stopped something it did not; a
+ *  renewal of a live lease always answers null. */
 export interface WireBackupSetEditHold {
   backup_set_id: string;
   expires_at: string;
   stopped?: WireRunningWork;
+  token: string;
+}
+
+/** The optional body of POST /backup-sets/{source}/{set}/edit-hold
+ *  and of its /release (issue #1606). `token` names one holder: the
+ *  hold a take returned. On the take route it turns the call into a
+ *  renewal of that holder's lease, refused with EDIT_HOLD_GONE once
+ *  the holder has been released or has lapsed, so a heartbeat that
+ *  lands after a release can never put the hold back. On /release it
+ *  gives back that holder alone and leaves any other holder of the
+ *  same set in force. A `token` that is present but empty is refused
+ *  with 400, never read as no token, so a client whose token variable
+ *  was lost cannot take a new hold or give back every holder's hold
+ *  by accident. A client that sends no body, or no token, keeps the
+ *  behaviour it had before tokens existed: the take route takes a new
+ *  hold, and /release gives back every hold on the set. */
+export interface WireBackupSetEditHoldRequest {
+  token?: string;
 }
 
 /** GET /backup-sets/{source}/{set}/edit-hold. What entering edit mode
@@ -4024,6 +4104,7 @@ export interface WireBackupSetHealth {
   read_only_retained_count: number;
   reason: string;
   reinstated_remote_retained_count: number;
+  retired_count: number;
   set_name: string;
   source_name: string;
   stale_after_seconds: number;
@@ -4715,10 +4796,11 @@ export interface WireListAgentTokensResponse {
   tokens: WireAgentToken[];
 }
 
-/** GET /backups and GET /quarantine. An object with one array field,
- *  never a bare top-level array. */
+/** GET /backups and GET /quarantine. An object with one array field
+ *  and a cursor, never a bare top-level array. */
 export interface WireListArtifactsResponse {
   artifacts: WireArtifact[];
+  next_cursor: string | null;
 }
 
 /** GET /backends. Read-only by design, for Validator's reason one
@@ -5808,6 +5890,71 @@ export interface WireRetentionVerdict {
   reason: string;
   tier_selections?: WireRetentionTierSelection[];
   tiers?: string[];
+}
+
+/** POST /backups/{source}/{set}/{name}/retire's optional body (issue
+ *  #1528). Empty is the conservative retirement: the engine checks
+ *  the source and picks the newest good backup as the successor, and
+ *  refuses anything it cannot prove. */
+export interface WireRetireArtifactRequest {
+  accept_source_present?: boolean;
+  no_successor?: boolean;
+  note?: string;
+  superseded_by?: string;
+}
+
+/** POST /backups/{source}/{set}/{name}/retire's answer: the backup is
+ *  RETIRED and this is its record. */
+export interface WireRetireArtifactResponse {
+  artifact: string;
+  partial_removed: boolean;
+  retirement: WireRetirementRecord;
+  state: string;
+}
+
+/** GET /backups/{source}/{set}/{name}/retire: everything the retire
+ *  dialog shows before anybody acts, computed by the same code that
+ *  acts (issue #1528). The browser computes none of it. */
+export interface WireRetirementPreview {
+  artifact: string;
+  command: string;
+  effects: string[];
+  failure_reason: string;
+  proposed_successor?: WireRetirementSuccessor;
+  refusal?: WireRetirementRefusal;
+  retirement?: WireRetirementRecord;
+  source_check: "absent" | "present" | "unknown" | "";
+  source_check_category: string;
+  source_check_sentence: string;
+  state: string;
+  successor_candidates: WireRetirementSuccessor[];
+}
+
+/** One recorded retirement (issue #1528): who or what retired the
+ *  backup, when, what the source looked like at that moment and which
+ *  backup replaces it. */
+export interface WireRetirementRecord {
+  actor: string;
+  actor_kind: "automatic" | "operator" | "agent";
+  failure_reason: string;
+  note: string;
+  retired_at: string;
+  source_check: "absent" | "present" | "unknown";
+  superseded_by: string;
+}
+
+/** Why a retirement would be refused, in the engine's own words. */
+export interface WireRetirementRefusal {
+  code: string;
+  overridable_with: "" | "accept_source_present" | "no_successor";
+  sentence: string;
+}
+
+/** The newer good backup a retirement would name. */
+export interface WireRetirementSuccessor {
+  discovered_at: string;
+  name: string;
+  state: string;
 }
 
 /** POST /backups/{source}/{set}/{name}/retry's optional body.

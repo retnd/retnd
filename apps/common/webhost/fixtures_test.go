@@ -234,6 +234,7 @@ type syncFakeBackend struct {
 	errOnRevalidate      error
 	errOnRetry           error
 	errOnRetryFailed     error
+	errOnRetire          error
 	errOnMediumPreflight error
 	mediumPreflight      service.MediumPreflight
 	errOnReinstate       error
@@ -252,6 +253,8 @@ type syncFakeBackend struct {
 	lastRevalidated       string
 	lastRetried           string
 	lastRetriedFailed     string
+	lastRetired           string
+	lastRetireRequest     service.RetireRequest
 	lastRecoveryMint      service.RecoveryRequest
 	lastRetryFailedNote   string
 	lastPreflightedMedium string
@@ -524,10 +527,14 @@ func (f *syncFakeBackend) BackupSetEditState(_ context.Context, id string) (serv
 }
 
 func (f *syncFakeBackend) BeginBackupSetEdit(_ context.Context, id string) (service.EditHold, error) {
-	return service.EditHold{BackupSetID: id, ExpiresAt: time.Now().UTC().Add(time.Minute)}, nil
+	return service.EditHold{BackupSetID: id, Token: "hold-1", ExpiresAt: time.Now().UTC().Add(time.Minute)}, nil
 }
 
-func (f *syncFakeBackend) EndBackupSetEdit(context.Context, string) error { return nil }
+func (f *syncFakeBackend) RenewBackupSetEdit(_ context.Context, id, token string) (service.EditHold, error) {
+	return service.EditHold{BackupSetID: id, Token: token, ExpiresAt: time.Now().UTC().Add(time.Minute)}, nil
+}
+
+func (f *syncFakeBackend) EndBackupSetEdit(context.Context, string, string) error { return nil }
 
 func (f *syncFakeBackend) UpdateBackupSet(context.Context, string, service.UpdateBackupSetRequest) (service.BackupSet, error) {
 	return service.BackupSet{}, errors.New("syncFakeBackend: UpdateBackupSet not implemented")
@@ -781,6 +788,30 @@ func (f *syncFakeBackend) RetryFailedArtifact(_ context.Context, id, note string
 	f.lastRetriedFailed = id
 	f.lastRetryFailedNote = note
 	return nil
+}
+
+func (f *syncFakeBackend) PreviewRetirement(_ context.Context, id string, req service.RetireRequest) (service.RetirementPreview, error) {
+	if f.errOnRetire != nil {
+		return service.RetirementPreview{}, f.errOnRetire
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lastRetireRequest = req
+	return service.RetirementPreview{Artifact: id, State: "FAILED",
+		SourceCheck: service.RetirementSourceCheck{Result: "absent", Sentence: "gone"},
+		Effects:     []string{"The backup record stays, marked RETIRED, with who retired it, when and why."}}, nil
+}
+
+func (f *syncFakeBackend) RetireArtifact(_ context.Context, id string, req service.RetireRequest) (service.RetireResult, error) {
+	if f.errOnRetire != nil {
+		return service.RetireResult{}, f.errOnRetire
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lastRetired = id
+	f.lastRetireRequest = req
+	return service.RetireResult{Artifact: id, State: "RETIRED", Retirement: service.Retirement{ActorKind: req.ActorKind, Actor: req.Actor,
+		SourceCheck: "absent", Note: req.Note}}, nil
 }
 
 func (f *syncFakeBackend) PreflightStorageMedium(_ context.Context, id string) (service.MediumPreflight, error) {
@@ -1228,10 +1259,14 @@ func (f *asyncFakeBackend) BackupSetEditState(_ context.Context, id string) (ser
 }
 
 func (f *asyncFakeBackend) BeginBackupSetEdit(_ context.Context, id string) (service.EditHold, error) {
-	return service.EditHold{BackupSetID: id, ExpiresAt: time.Now().UTC().Add(time.Minute)}, nil
+	return service.EditHold{BackupSetID: id, Token: "hold-1", ExpiresAt: time.Now().UTC().Add(time.Minute)}, nil
 }
 
-func (f *asyncFakeBackend) EndBackupSetEdit(context.Context, string) error { return nil }
+func (f *asyncFakeBackend) RenewBackupSetEdit(_ context.Context, id, token string) (service.EditHold, error) {
+	return service.EditHold{BackupSetID: id, Token: token, ExpiresAt: time.Now().UTC().Add(time.Minute)}, nil
+}
+
+func (f *asyncFakeBackend) EndBackupSetEdit(context.Context, string, string) error { return nil }
 
 func (f *asyncFakeBackend) UpdateBackupSet(context.Context, string, service.UpdateBackupSetRequest) (service.BackupSet, error) {
 	return service.BackupSet{}, errors.New("asyncFakeBackend: UpdateBackupSet not implemented")
@@ -1322,6 +1357,14 @@ func (f *asyncFakeBackend) RevalidateArtifact(context.Context, string) (service.
 func (f *asyncFakeBackend) RetryArtifactIngestion(context.Context, string) error { return nil }
 
 func (f *asyncFakeBackend) RetryFailedArtifact(context.Context, string, string) error { return nil }
+
+func (f *asyncFakeBackend) PreviewRetirement(context.Context, string, service.RetireRequest) (service.RetirementPreview, error) {
+	return service.RetirementPreview{}, nil
+}
+
+func (f *asyncFakeBackend) RetireArtifact(context.Context, string, service.RetireRequest) (service.RetireResult, error) {
+	return service.RetireResult{}, nil
+}
 
 func (f *asyncFakeBackend) PreflightStorageMedium(context.Context, string) (service.MediumPreflight, error) {
 	return service.MediumPreflight{}, nil
@@ -1556,12 +1599,22 @@ func (f *backupSetFakeBackend) BeginBackupSetEdit(_ context.Context, id string) 
 	f.beginCallCount++
 	return service.EditHold{
 		BackupSetID: id,
+		Token:       "hold-1",
 		ExpiresAt:   time.Now().UTC().Add(90 * time.Second),
 		Stopped:     f.running,
 	}, nil
 }
 
-func (f *backupSetFakeBackend) EndBackupSetEdit(_ context.Context, id string) error {
+func (f *backupSetFakeBackend) RenewBackupSetEdit(_ context.Context, id, token string) (service.EditHold, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.sets[id]; !ok {
+		return service.EditHold{}, service.ErrBackupSetNotFound
+	}
+	return service.EditHold{BackupSetID: id, Token: token, ExpiresAt: time.Now().UTC().Add(90 * time.Second)}, nil
+}
+
+func (f *backupSetFakeBackend) EndBackupSetEdit(_ context.Context, id, _ string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if _, ok := f.sets[id]; !ok {

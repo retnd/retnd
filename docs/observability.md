@@ -1,19 +1,34 @@
 # Observability
 
-This page covers the log stream (FR-100, EPIC O). The scrape endpoint (#899) and the alert webhook (#901) have landed and are set from the same Settings card and `retnd settings observability`; they don't have sections here yet, and the dashboards and the example bundle are #902's.
+This is the one page to read for EPIC O: the scrape endpoint, the log stream, alert delivery to a webhook, and the example bundle. All of it is off (or exactly what it was) until you change something: `/metrics` answers `404`, the log stream is the one the engine always wrote, and alerts go where they always went. Everything here is set from the Observability card in Settings, from `retnd settings observability`, or from `PATCH /api/v1/settings/observability`; `docs/deployment.md` has the long form of the endpoint and the webhook, and ADR 0035 has the decisions behind them.
+
+## The scrape endpoint
+
+`GET /metrics` is served by the engine, on the listener it already has (`retnd:8080` on the compose network's `internal`), beside `/health/live` and outside `/api/v1`. The published `web-ui` port does not carry it: `web-ui` answers `404` for `/metrics` itself. A Prometheus reaches it by joining `retnd_internal` (the example bundle does exactly that) or through a reverse proxy you run.
+
+```sh
+retnd settings observability patch --metrics-enabled
+retnd settings observability rotate-scrape-token > retnd-scrape-token
+```
+
+The second command prints a `rsc_` token once, and its standard output is the token and nothing else. Running it again replaces the token at once, with no overlap window, so update the scraper's `credentials_file` and reload it straight after. Only a SHA-256 digest and an eight-character display prefix are kept, in a 0600 file in a 0700 directory beside `config.yaml`. A token written into `config.yaml` is refused at load. The Settings card mints the same way and shows the token once, so an operator with only a browser can wire Prometheus.
+
+Prometheus sends the token as a bearer (`authorization: credentials_file:`) or as the `basic_auth` password; the username is ignored. Off, the answer is `404`. On, no credential, a wrong one or a malformed header is `401` with an empty body; ten refusals from one peer address in a minute and that address gets `429` with `Retry-After` for the rest of the minute, valid token or not. The address is the connection's own peer; `X-Forwarded-For` is ignored on this route. Every answer carries `Cache-Control: no-store`. Refusals are counted in `retnd_scrape_rejected_total{reason}` (`disabled`, `unauthenticated`, `method`), and a scrape writes no action-log row. The health half is rebuilt at most once per `observability.metrics.min_rebuild_interval` (default `15s`, at least `1s`), and `retnd_report_generated_timestamp_seconds` says how old it is. The seven workflow families are absent, not zero, in a process that never built a workflow engine.
+
+The scrape token and an agent's `rat_` token never open each other's routes.
 
 ## The log stream is a schema
 
 The engine writes newline-delimited JSON to stdout, one object per event, and the one-shot CLI verbs write the same stream to stderr. There is no other output mode and no toggle to switch to one: a switch whose off position does not exist would only be a control I could not explain.
 
-What I added is a promise about the field names. A Loki pipeline, a `jq` filter or a dashboard is written against field names, and renaming one is exactly as breaking as renaming an event, so the eight reserved keys are a wire contract in the same sense `core/internal/obs/events.go` already claims for the 54 event names.
+What I added is a promise about the field names. A Loki pipeline, a `jq` filter or a dashboard is written against field names, and renaming one is exactly as breaking as renaming an event, so the eight reserved keys are a wire contract in the same sense `core/internal/obs/events.go` already claims for the 56 event names.
 
 | Key | On which lines | What it is |
 |---|---|---|
 | `time` | every line | RFC 3339 timestamp with nanoseconds |
 | `level` | every line | `DEBUG`, `INFO`, `WARN` or `ERROR` |
 | `msg` | every line | the human-readable summary |
-| `event` | every line | one of the 54 event names, which are pinned by name |
+| `event` | every line | one of the 56 event names, which are pinned by name |
 | `result` | a line that states an outcome | `success`, `warn`, `error` or `info` |
 | `action` | a line that opens or closes a bracketed action | `cycle`, `workflow_run`, `workflow_step`, `recovery`, `recovery_test` |
 | `action_id` | the same lines | minted per action, so a start and its completion pair by something other than spelling |
@@ -47,17 +62,25 @@ The shipped Promtail and Alloy pipelines (`container/observability/promtail/prom
 {job="retnd", level="error"} | json | event="cycle_end" | backup_set="alpha"
 ```
 
-`event`, `action`, `action_id` and `backup_set` are not labels, on purpose. A Loki label is a stream dimension, and every distinct value is a new stream, which is an index entry and a chunk cut early. `action_id` is minted per action, so promoting it means one stream per cycle, per connection test and per API call, forever. That is unbounded label cardinality, and Loki bills you for it in index size, which is not a thing a dashboard shows you until the install is already slow. `event` and `backup_set` are bounded but multiply (54 events, times your backup sets, times four levels) for no query a field filter does not already answer.
+`event`, `action`, `action_id` and `backup_set` are not labels, on purpose. A Loki label is a stream dimension, and every distinct value is a new stream, which is an index entry and a chunk cut early. `action_id` is minted per action, so promoting it means one stream per cycle, per connection test and per API call, forever. That is unbounded label cardinality, and Loki bills you for it in index size, which is not a thing a dashboard shows you until the install is already slow. `event` and `backup_set` are bounded but multiply (56 events, times your backup sets, times four levels) for no query a field filter does not already answer.
 
 The shipped configs are the documentation that executes. `core/tests/logpipeline` runs the real Promtail and Alloy images over a log file written by the real logger, receives what they push, and reads the label set off the wire. Its control runs the same thing over a config that promotes `action_id` and watches the assertion refuse it. Run it with `scripts/observability/log-pipeline.sh` (it needs a Docker daemon and fails without one rather than skipping).
 
 There's one catch, and it's on the Loki side. Loki 3.2.1 adds a fifth label, `service_name`, to every stream it stores unless its own config file sets `discover_service_name: []` under `limits_config`. The command-line flag doesn't stop it (that was measured still adding the label); only the config file does. So the four labels above hold only on a Loki whose config has `discover_service_name: []`. The example bundle's `container/observability/loki/loki.yaml` sets it. `core/tests/logpipeline` can't see this, because its receiver stands in for Loki and never adds a label of its own, so the requirement lives here and `core/internal/obs/lokilabels_doc_900_test.go` keeps this paragraph from being dropped.
 
+## Alert delivery to a webhook
+
+`observability.alerts.delivery` is `platform` (the default, today's behaviour) or `webhook`, and exactly one channel is built either way. The webhook URL is kept by reference (`url_ref`: a `file`, an `env` variable or a `command`), never as a value, because a Slack, Teams or Discord URL carries its secret in the path. The reference is read again for every delivery. It is set in `config.yaml` only: the card, the CLI and the API change the format, the transport flag and the two intervals, and report whether a URL is set and whether it reads (`url_status`), never the URL.
+
+Two fixed formats, neither templatable. `generic` posts one JSON object per occurrence and stays quiet while the condition lasts. `alertmanager` posts the v2 array, re-sends a still-true condition every `refresh_interval` (default `4m`) so Alertmanager does not expire it, and closes it with `endsAt` set to now when it clears; `resolve_ttl` (default `10m`) has to clear `refresh_interval` by at least 30s, one delivery attempt. If you run Prometheus, its rules into Alertmanager are the better source of truth for staleness, and the bundle ships them.
+
+Refused: anything but `https` unless `allow_insecure_http` is set, a URL with `user:password@`, any redirect (a 3xx is a failed delivery and its `Location` is never followed or logged). Certificate checks cannot be turned off. Private targets such as `http://alertmanager:9093` are allowed on purpose. `docs/deployment.md` ("Delivering alerts to a webhook") has what an unreadable reference looks like and what a switch of channel keeps.
+
 ## Shipping logs is an egress decision
 
 Pointing Promtail or Alloy at the stream sends it to a store you chose, and I do not control what that store keeps or who reads it. The stream can carry operator-authored text: hook script output, `msg` strings, refusal reasons. If an operator prints a password in a hook, it is in the stream, and nothing in this product can promise otherwise.
 
-What FR-104 does promise is narrower and mechanised: no *resolved* secret this product holds (a repository passphrase, an S3 secret key, an SMTP password, a scrape token, a webhook credential) appears in any log line, and the corpus in `core/tests/observabilitycorpus` (it lands with #903) proves it for the log stream, the endpoint and the webhook. That is the honest boundary: it covers secrets the product holds, and it cannot cover text a person typed into a hook.
+What FR-104 does promise is narrower and mechanised: no *resolved* secret this product holds (a repository passphrase, an S3 secret key, an SMTP password, a scrape token, a webhook credential) appears in any log line, and the corpus in `core/tests/observabilitycorpus` checks it for the log stream, the endpoint and the webhook, each as its own row. One limit is written into the corpus itself: no engine process holds an SMTP password (that belongs to the web host's account mailer), so for that one the corpus can only show it never reaches the three surfaces from where an engine could see it at all. That is the honest boundary: it covers secrets the product holds, and it cannot cover text a person typed into a hook.
 
 Redaction of endpoint strings (`WithRedaction`, built from `config.Remote.Sensitive`) is opt-in per endpoint, so a deployment that opted nothing in still ships its `msg` strings unredacted. Treat the log store with the same care as the host.
 

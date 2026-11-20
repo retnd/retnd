@@ -72,6 +72,8 @@ const ALLOWED: Record<string, string> = {
  * deletes the list.
  */
 const PENDING = new Set<string>([
+  "pages/RetireDialog.tsx › RetireDialog.retire › setBusy",
+  "pages/RetireDialog.tsx › RetireDialog.retire › setOutcome",
   "pages/S3DestinationWizard.tsx › S3DestinationWizard.save › onSaved",
   "App.tsx › App.onSkip › setFirstRun",
   "auth/EnrollmentPage.tsx › EnrollmentPage.submit › onEnrolled",

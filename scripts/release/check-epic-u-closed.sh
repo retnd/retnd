@@ -34,12 +34,22 @@
 #   EPIC_U_BASE     the commit the epic started from (default: 9cd53e1f, the
 #                   merge of #1330, which is the tree the EPIC U specification
 #                   was measured on)
+#   EPIC_U_TIP      the commit the epic ended at (default: 76f23453, the merge
+#                   of #1500 that cut v0.8.0 with all of EPIC U in it). Check 2
+#                   reads the migrations ADDED between EPIC_U_BASE and this
+#                   commit, so a later change's own migration (#1528's 0023)
+#                   is not a failure here, exactly as EPIC_T_TIP does for the
+#                   T check (#1407). An edit to an existing migration still
+#                   fails at any point. WORKTREE reads additions up to the
+#                   working tree, untracked files included, which is what the
+#                   self-test uses.
 #   EPIC_U_SKIP_GO  1 leaves out check 3's Go run (the self-test sets it; the
 #                   Go checker has its own lie table)
 set -uo pipefail
 
 root="${EPIC_U_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
 base="${EPIC_U_BASE:-9cd53e1f}"
+tip="${EPIC_U_TIP:-76f23453}"
 cd "$root" || exit 2
 
 fails=0
@@ -48,6 +58,11 @@ ok() { printf 'epic-u-closed: ok   %s\n' "$1"; }
 
 if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
   echo "epic-u-closed: the base commit $base is not in this checkout, so nothing can be compared to it (fetch the full history)" >&2
+  exit 2
+fi
+
+if [ "$tip" != "WORKTREE" ] && ! git rev-parse --verify --quiet "$tip^{commit}" >/dev/null; then
+  echo "epic-u-closed: the tip commit $tip is not in this checkout, so the epic's own migration cannot be told from a later change's (fetch the full history)" >&2
   exit 2
 fi
 
@@ -61,7 +76,11 @@ else
 fi
 
 # 2. The epic's one migration, and no other.
-added="$(git diff --name-only --diff-filter=A "$base" -- core/migrations; git ls-files --others --exclude-standard -- core/migrations)"
+if [ "$tip" = "WORKTREE" ]; then
+  added="$(git diff --name-only --diff-filter=A "$base" -- core/migrations; git ls-files --others --exclude-standard -- core/migrations)"
+else
+  added="$(git diff --name-only --diff-filter=A "$base" "$tip" -- core/migrations)"
+fi
 touched="$(git diff --name-only --diff-filter=MDRT "$base" -- core/migrations)"
 want="core/migrations/0022_agent_access.sql"
 unexpected="$(printf '%s\n' "$added" | grep -vxF -e "$want" | grep -v '^$' || true)"
