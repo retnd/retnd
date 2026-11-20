@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A deployment still mounted at its pre-0.5.0 path refuses to start instead of coming up
+  empty** (#1546). Once the EPIC R adoption was gone (#1109), a compose file that still
+  mounted the old configuration path got this release's empty one, and the web host wrote a
+  fresh default configuration there... Now `retnd daemon` and `retnd-web serve` check both
+  spellings of the configuration and state database paths first. Only the old one holds
+  something: exit 1 with a paragraph naming both paths and the fix (mount the old directory
+  at the new path, or point `--config` at it). Both hold something and they're different
+  directories: exit 1 naming the conflict. Only the new one, or neither (a fresh install),
+  starts as before.
+
 ## [0.8.0] - 2026-11-14
 
 0.8.0 is a minor release, and nearly all of it is one feature: encrypted retained copies (EPIC N, #967), with
