@@ -14,7 +14,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiProvider } from "@shared/api/ApiContext";
-import type { EditHoldState, MediumPreflight, RetndApi } from "@shared/api/contracts";
+import type { EditHoldState, EditHoldTaken, MediumPreflight, RetndApi } from "@shared/api/contracts";
 import { createMockApi, resetMockFixtures } from "@shared/api/mock";
 import { resetGraphForTests } from "@shared/state/graph";
 import { held, teardownProbe } from "@shared/test/teardownProbe";
@@ -77,6 +77,24 @@ describe("BackupSetDetailPage's Edit after unmount (#1599)", () => {
     await probe.settle();
     expect(probe.rejections).toEqual([]);
     expect(probe.stateUpdates).toBe(0);
+  });
+
+  it("releases a hold that was taken after the page had gone, with its own token", async () => {
+    const taken = held<EditHoldTaken>();
+    const api = createMockApi();
+    vi.spyOn(api, "takeEditHold").mockReturnValue(taken.promise);
+    const release = vi.spyOn(api, "releaseEditHold").mockResolvedValue(undefined);
+    const target = (await createMockApi().listSets())[0];
+    const { unmount } = await detailPage(api);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Edit" })); });
+    await waitFor(() => expect(api.takeEditHold).toHaveBeenCalled());
+    unmount();
+    probe.tearDown();
+    taken.resolve({ token: "tok-late", expiresAt: "2030-01-01T00:00:00Z", stopped: null });
+    await probe.settle();
+    expect(probe.rejections).toEqual([]);
+    expect(probe.stateUpdates).toBe(0);
+    expect(release).toHaveBeenCalledWith(target.source, target.set, "tok-late");
   });
 });
 
