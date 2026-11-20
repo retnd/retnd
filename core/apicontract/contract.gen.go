@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "0fd6625f54da557b31059fbd8d7fb73f0cafb7daba7eaa0b48e58179548055ab"
+const ContractSHA256 = "0a7e716f342b8eb407bfa1a912bc61b60804d2a9787dffccaf2116146ea5f593"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -1887,6 +1887,39 @@ var Endpoints = []Endpoint{
 			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getObservabilitySettings", Method: "GET", Path: "/settings/observability",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ObservabilitySettingsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "updateObservabilitySettings", Method: "PATCH", Path: "/settings/observability",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: false, Concurrency: "",
+		RequestSchema: "UpdateObservabilitySettingsRequest", ResponseSchema: "ObservabilitySettingsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "mintScrapeToken", Method: "POST", Path: "/settings/observability/scrape-token",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, InsecureTransportAck: true, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "MintedScrapeToken", SuccessStatus: 201,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeInsecureTransportAckRequired, ErrorCodeAgentRouteDenied},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeNotConfigured},
 		},
@@ -3900,6 +3933,56 @@ type MintedAgentToken struct {
 	Token      string     `json:"token"`
 }
 
+// MintedScrapeToken is the one answer that carries the scrape credential itself. token is
+// shown exactly once, here: the deployment stores its SHA-256 and
+// the eight-character prefix, so a lost credential is minted again,
+// never recovered. Minting again replaces the previous credential at
+// once.
+type MintedScrapeToken struct {
+	ScrapeToken ScrapeTokenState `json:"scrape_token"`
+	Token       string           `json:"token"`
+}
+
+// ObservabilityAlertsSettings is observability.alerts, resolved.
+type ObservabilityAlertsSettings struct {
+	Delivery string                       `json:"delivery"`
+	Webhook  ObservabilityWebhookSettings `json:"webhook"`
+}
+
+// ObservabilityLogsSettings is observability.logs, resolved.
+type ObservabilityLogsSettings struct {
+	Level        string `json:"level"`
+	LevelInForce string `json:"level_in_force"`
+	LevelSource  string `json:"level_source"`
+}
+
+// ObservabilityMetricsSettings is observability.metrics, resolved.
+type ObservabilityMetricsSettings struct {
+	Enabled                   bool             `json:"enabled"`
+	MinRebuildIntervalSeconds int64            `json:"min_rebuild_interval_seconds"`
+	ScrapeToken               ScrapeTokenState `json:"scrape_token"`
+}
+
+// ObservabilitySettingsResponse is the deployment-wide observability block, RESOLVED: the scrape
+// endpoint, the log floor and the alert channel. A config that never
+// mentions the block reports the defaults, which are everything off.
+// Every setting is global; none is a property of a backup set.
+type ObservabilitySettingsResponse struct {
+	Alerts  ObservabilityAlertsSettings  `json:"alerts"`
+	Logs    ObservabilityLogsSettings    `json:"logs"`
+	Metrics ObservabilityMetricsSettings `json:"metrics"`
+}
+
+// ObservabilityWebhookSettings is observability.alerts.webhook, resolved. The URL is a credential,
+// so a read says only whether one is set.
+type ObservabilityWebhookSettings struct {
+	AllowInsecureHttp      bool   `json:"allow_insecure_http"`
+	Dialect                string `json:"dialect"`
+	RefreshIntervalSeconds int64  `json:"refresh_interval_seconds"`
+	ResolveTtlSeconds      int64  `json:"resolve_ttl_seconds"`
+	URLSet                 bool   `json:"url_set"`
+}
+
 // Operation is one durable operation record. Timestamp fields are omitted, not
 // zero-valued, until the event they name has happened. progress is
 // the separate, ephemeral thing: see OperationProgress for why it is
@@ -4688,6 +4771,16 @@ type SSHKeyDiscoveryLocation struct {
 	Problem string `json:"problem,omitempty"`
 }
 
+// ScrapeTokenState is what a read may say about the scrape credential: whether one
+// exists, its eight-character display prefix and when it was minted.
+// Never any more of it; the deployment keeps a SHA-256 digest and
+// the plaintext exists once, in the mint response.
+type ScrapeTokenState struct {
+	CreatedAt *string `json:"created_at"`
+	Exists    bool    `json:"exists"`
+	Prefix    string  `json:"prefix"`
+}
+
 // ScrubArtifactError is an artifact the pass could not give a verdict at all, with the
 // infrastructure problem that stopped it. The copies it did get a
 // verdict for are in the set's copies, each once.
@@ -5415,6 +5508,22 @@ type UpdateCustomValidatorRequest struct {
 	ScriptSha256 string `json:"script_sha256"`
 }
 
+// UpdateObservabilitySettingsRequest is PATCH the deployment-wide observability block. Every field is
+// nullable because this is a PATCH: omitted leaves the setting
+// alone. A body that names nothing is refused. The scrape credential
+// is not here: it is minted by POST
+// /settings/observability/scrape-token.
+type UpdateObservabilitySettingsRequest struct {
+	AlertsDelivery                   *string `json:"alerts_delivery"`
+	LogsLevel                        *string `json:"logs_level"`
+	MetricsEnabled                   *bool   `json:"metrics_enabled"`
+	MetricsMinRebuildIntervalSeconds *int64  `json:"metrics_min_rebuild_interval_seconds"`
+	WebhookAllowInsecureHttp         *bool   `json:"webhook_allow_insecure_http"`
+	WebhookDialect                   *string `json:"webhook_dialect"`
+	WebhookRefreshIntervalSeconds    *int64  `json:"webhook_refresh_interval_seconds"`
+	WebhookResolveTtlSeconds         *int64  `json:"webhook_resolve_ttl_seconds"`
+}
+
 // UpdateRetentionSettings is A PARTIAL retention update. An omitted field is left exactly as
 // the running configuration has it; omitting tiers leaves the chain,
 // and a legacy file's own spelling of it, untouched.
@@ -5972,6 +6081,12 @@ var SchemaTypes = map[string]any{
 	"MediumPreflightResponse":            MediumPreflightResponse{},
 	"MintAgentTokenRequest":              MintAgentTokenRequest{},
 	"MintedAgentToken":                   MintedAgentToken{},
+	"MintedScrapeToken":                  MintedScrapeToken{},
+	"ObservabilityAlertsSettings":        ObservabilityAlertsSettings{},
+	"ObservabilityLogsSettings":          ObservabilityLogsSettings{},
+	"ObservabilityMetricsSettings":       ObservabilityMetricsSettings{},
+	"ObservabilitySettingsResponse":      ObservabilitySettingsResponse{},
+	"ObservabilityWebhookSettings":       ObservabilityWebhookSettings{},
 	"Operation":                          Operation{},
 	"OperationProgress":                  OperationProgress{},
 	"OperationRestore":                   OperationRestore{},
@@ -6024,6 +6139,7 @@ var SchemaTypes = map[string]any{
 	"SSHKey":                             SSHKey{},
 	"SSHKeyCandidate":                    SSHKeyCandidate{},
 	"SSHKeyDiscoveryLocation":            SSHKeyDiscoveryLocation{},
+	"ScrapeTokenState":                   ScrapeTokenState{},
 	"ScrubArtifactError":                 ScrubArtifactError{},
 	"ScrubCopyOutcome":                   ScrubCopyOutcome{},
 	"ScrubResult":                        ScrubResult{},
@@ -6078,6 +6194,7 @@ var SchemaTypes = map[string]any{
 	"UpdateBackupSetWorkflowRequest":     UpdateBackupSetWorkflowRequest{},
 	"UpdateCapacitySettings":             UpdateCapacitySettings{},
 	"UpdateCustomValidatorRequest":       UpdateCustomValidatorRequest{},
+	"UpdateObservabilitySettingsRequest": UpdateObservabilitySettingsRequest{},
 	"UpdateRetentionSettings":            UpdateRetentionSettings{},
 	"UpdateServiceSettings":              UpdateServiceSettings{},
 	"UpdateSettingsRequest":              UpdateSettingsRequest{},

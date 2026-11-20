@@ -121,6 +121,7 @@ export const SETTINGS_SECTIONS = {
   storageDestinations: "storage-destinations",
   encryption: "encryption",
   agents: "agents",
+  observability: "observability",
   workflow: "workflow",
   assurance: "assurance",
   validators: "validators",

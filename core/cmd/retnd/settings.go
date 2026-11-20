@@ -120,6 +120,12 @@ func cmdSettings(args []string) int {
 		if a == settingsAssuranceOperand {
 			return cmdSettingsAssurance(args)
 		}
+		// EPIC O's observability block (#898), dispatched before anything
+		// parses for the same reason: its flags are not declared on this
+		// command's flag set.
+		if a == settingsObservabilityOperand {
+			return cmdSettingsObservability(args)
+		}
 	}
 
 	fs, cfgPath := newFlagSet("settings")

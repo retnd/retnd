@@ -131,6 +131,11 @@ func TestCrashMatrixOverAnEncryptedCopy(t *testing.T) {
 		// differ from the one the dead process left (ciphertext is not
 		// deterministic, so a re-copy writes different bytes at one key).
 		freshObject bool
+		// freshOverStaged says the object at the key after the restart must
+		// differ from the finished ciphertext the dead process left in the
+		// staging area: uploading that file would be resuming the killed
+		// attempt, which is what "a re-copy is a fresh encryption" forbids.
+		freshOverStaged bool
 	}{
 		{
 			name:   "E1 part-way through reading the artifact into the encrypting pass",
@@ -150,9 +155,10 @@ func TestCrashMatrixOverAnEncryptedCopy(t *testing.T) {
 			},
 		},
 		{
-			name:   "E2 the instant the staged ciphertext is complete, before the upload",
-			kill:   []string{"-plan", "-kill-before-upload"},
-			proves: "a finished staging object nobody uploaded is replaced by a fresh encryption, never resumed or trusted, and the staging area ends empty",
+			name:            "E2 the instant the staged ciphertext is complete, before the upload",
+			kill:            []string{"-plan", "-kill-before-upload"},
+			proves:          "a finished staging object nobody uploaded is replaced by a fresh encryption, never resumed or trusted, and the staging area ends empty",
+			freshOverStaged: true,
 			afterCrash: func(t *testing.T, w *world) {
 				left := w.stagingLeftovers()
 				if len(left) != 1 || strings.HasPrefix(left[0], copycrypt.TempPrefix) {
@@ -207,6 +213,18 @@ func TestCrashMatrixOverAnEncryptedCopy(t *testing.T) {
 			if cell.afterCrash != nil {
 				cell.afterCrash(t, w)
 			}
+			var staged []byte
+			if cell.freshOverStaged {
+				left := w.stagingLeftovers()
+				if len(left) != 1 {
+					t.Fatalf("the staging area holds %v; this cell needs the one finished object the dead process staged", left)
+				}
+				b, err := os.ReadFile(filepath.Join(w.root, placement.StagingDirName, left[0]))
+				if err != nil || len(b) == 0 {
+					t.Fatalf("reading the staged ciphertext the dead process left: %v (%d bytes)", err, len(b))
+				}
+				staged = b
+			}
 
 			j := w.journalNow()
 			w.checkInvariantNow(j, "at the instant of the crash ("+cell.name+")")
@@ -241,6 +259,9 @@ func TestCrashMatrixOverAnEncryptedCopy(t *testing.T) {
 			}
 			if cell.freshObject && bytes.Equal(obj, first) {
 				t.Fatal("the object at the key is byte-identical to the dead process's; a re-copy must be a fresh encryption")
+			}
+			if staged != nil && bytes.Equal(obj, staged) {
+				t.Fatal("the object at the key is the ciphertext the dead process staged; a re-copy must be a fresh encryption, never the killed attempt's staging object resumed")
 			}
 
 			enc, ok, err := j.PlacementEncryption(w.ctx, w.artifact, crashMedium)

@@ -213,6 +213,12 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	// material; the token itself is never in a request.
 	"--scope":      "an agent token's scope, one of read, operate or configure",
 	"--expires-in": "an agent token's lifetime, a duration such as 90d",
+	// The observability block (EPIC O, #898): three closed vocabularies. The
+	// scrape credential and the webhook URL are never in a request body, the
+	// first because it is minted and the second because it is a reference.
+	"--logs-level":      "the configured log floor, one of debug, info, warn or error",
+	"--alerts-delivery": "which alert sink is built, platform or webhook",
+	"--webhook-dialect": "the fixed payload schema, generic or alertmanager",
 	// The artifact a recovery test was asked about: a backup's own id
 	// (source/set/name), which an operator retyping the command has to say
 	// and which is a name, not material.
@@ -408,6 +414,9 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 var flagRoutes = map[string][]string{
 	"--scope":                       {"POST /agent/tokens"},
 	"--expires-in":                  {"POST /agent/tokens"},
+	"--logs-level":                  {"PATCH /settings/observability"},
+	"--alerts-delivery":             {"PATCH /settings/observability"},
+	"--webhook-dialect":             {"PATCH /settings/observability"},
 	"--username":                    {"POST /auth/enroll", "POST /auth/forgot-password"},
 	"--until":                       {"POST /recoveries"},
 	"--after-dir":                   {"PATCH /backup-sets/{source}/{set}/workflow", "PATCH /settings/workflow"},

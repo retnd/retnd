@@ -2674,6 +2674,55 @@ export interface StagingDirectory {
   truncated: boolean;
 }
 
+/** What a read may say about the Prometheus scrape credential: whether one
+ *  exists, its eight-character display prefix and when it was minted. Never
+ *  any more of it (EPIC O, #898). */
+export interface ScrapeTokenState {
+  exists: boolean;
+  prefix: string;
+  createdAt: string | null;
+}
+
+/** The deployment-wide observability block, resolved (EPIC O, #898): the
+ *  scrape endpoint, the log floor and the alert channel. Every setting is
+ *  global, none is a property of a backup set, and none of it is a secret. */
+export interface ObservabilitySettings {
+  metrics: { enabled: boolean; minRebuildIntervalSeconds: number; scrapeToken: ScrapeTokenState };
+  /** `level` is the configured floor, `levelInForce` the one the process is
+   *  using, and `levelSource` says which of the two decided. */
+  logs: { level: string; levelInForce: string; levelSource: string };
+  alerts: {
+    delivery: string;
+    webhook: {
+      dialect: string;
+      urlSet: boolean;
+      allowInsecureHttp: boolean;
+      refreshIntervalSeconds: number;
+      resolveTtlSeconds: number;
+    };
+  };
+}
+
+/** The one answer that carries the scrape credential itself. `token` is shown
+ *  exactly once, here; the deployment keeps a digest, so a lost credential is
+ *  minted again and never recovered. Minting again replaces the old one. */
+export interface MintedScrapeToken {
+  token: string;
+  scrapeToken: ScrapeTokenState;
+}
+
+/** A sparse write. An absent field is "leave this alone". */
+export interface ObservabilitySettingsPatch {
+  metricsEnabled?: boolean;
+  metricsMinRebuildIntervalSeconds?: number;
+  logsLevel?: string;
+  alertsDelivery?: string;
+  webhookDialect?: string;
+  webhookAllowInsecureHttp?: boolean;
+  webhookRefreshIntervalSeconds?: number;
+  webhookResolveTtlSeconds?: number;
+}
+
 /** The deployment-wide assurance policy. `configured` false means every
  *  value is a default nobody had to set. */
 export interface AssuranceSettings extends AssurancePolicy {
@@ -4152,6 +4201,14 @@ export interface RetndApi {
    *  browser on "Under the staging root on this retnd host" (issue #1179). */
   listStagingDirectories(path?: string): Promise<StagingDirectory>;
   patchAssuranceSettings(patch: AssuranceSettingsPatch): Promise<AssuranceSettings>;
+  /** EPIC O's observability block (#898): the scrape endpoint, the log floor
+   *  and the alert channel, deployment-wide. A write is validated, persisted
+   *  and hot-reloaded in one step. */
+  getObservabilitySettings(): Promise<ObservabilitySettings>;
+  patchObservabilitySettings(patch: ObservabilitySettingsPatch): Promise<ObservabilitySettings>;
+  /** Mint the Prometheus scrape credential. The plaintext is in this answer and
+   *  nowhere else, ever: the browser path to wiring Prometheus. */
+  mintScrapeToken(): Promise<MintedScrapeToken>;
   getBackupSetAssurance(source: string, set: string): Promise<BackupSetAssurance>;
   patchBackupSetAssurance(source: string, set: string, patch: BackupSetAssurancePatch): Promise<BackupSetAssurance>;
   resetBackupSetAssurance(source: string, set: string): Promise<BackupSetAssurance>;

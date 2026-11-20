@@ -376,6 +376,10 @@ describe("every request the shared client makes is a declared operation", () => 
       // method nobody drives from this list is invisible to the whole
       // file — and each of them is also the thing that deletes its own
       // name from UNREACHED_SERVER_OPERATIONS below.
+      // EPIC O (#898): the observability block and the scrape credential's mint.
+      ["getObservabilitySettings", () => httpApi.getObservabilitySettings()],
+      ["patchObservabilitySettings", () => httpApi.patchObservabilitySettings({ metricsEnabled: true })],
+      ["mintScrapeToken", () => httpApi.mintScrapeToken()],
       ["listSnapshots", () => httpApi.listSnapshots("src", "set-1")],
       ["getSnapshot", () => httpApi.getSnapshot("src", "set-1", "run-1")],
       ["listSnapshotHolds", () => httpApi.listSnapshotHolds("src", "set-1")],

@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/retnd/retnd/apps/common/auth/local"
 	"github.com/retnd/retnd/apps/common/platform/capabilities"
 	"github.com/retnd/retnd/core/envcompat"
 	"github.com/retnd/retnd/core/legacypath"
@@ -248,6 +249,11 @@ func debugShortcutEnv() bool {
 // handlers_operations.go need, built once by NewRouter.
 type handlers struct {
 	agents        AgentAccess
+	observability ObservabilityAccess
+	// scrape is the Prometheus endpoint's backend, and the limiter that bounds
+	// the refusals one peer address may cause.
+	scrape        ScrapeAccess
+	scrapeLimiter *local.RateLimiter
 	confirmations AgentConfirmations
 	// router is the handler a confirmation's recorded request is replayed
 	// through (agentconfirmations.go): the whole /api/v1 chain, set once NewRouter
@@ -332,6 +338,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// agent access, and a bearer request meets AGENT_TOKEN_INVALID.
 	agents, _ := cfg.Backend.(AgentAccess)
 	confirmations, _ := cfg.Backend.(AgentConfirmations)
+	observability, _ := cfg.Backend.(ObservabilityAccess)
+	scrape, _ := cfg.Backend.(ScrapeAccess)
 
 	// The agents: block as it resolved, for the limits and the transport. A
 	// backend that does not report one gets the defaults: transport off, sixty
@@ -347,6 +355,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	h := &handlers{
 		agents:        agents,
+		observability: observability,
+		scrape:        scrape,
+		scrapeLimiter: newScrapeLimiter(),
 		confirmations: confirmations,
 		agentPolicy:   policy,
 		platform:      cfg.Platform,
@@ -382,9 +393,30 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// before any route below, which is chi's own requirement for a
 	// root-level Use.
 	r.Use(RequestScope)
+	// /metrics answers every method itself, so a wrong one is refused after the
+	// credential and counted (reason "method") rather than a bare 405. That is
+	// done here, for that one path, and not with r.MethodNotAllowed: chi copies
+	// a root method-not-allowed handler into every subrouter, and a custom one
+	// there would strip the Allow header from every 405 under /api/v1 (#899
+	// review). The route table still says what is true: /metrics is a GET route.
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if req.URL.Path == "/metrics" && req.Method != http.MethodGet {
+				h.metrics(w, req)
+
+				return
+			}
+			next.ServeHTTP(w, req)
+		})
+	})
 
 	r.Get("/health/live", healthLive)
 	r.Get("/health/ready", h.healthReady)
+	// The Prometheus scrape endpoint (EPIC O, #899), a sibling of the probes and
+	// outside the /api/v1 group: no recordActions, no CSRF, no destructive gate,
+	// no auditAgentCalls. Its own handler does authentication and nothing else,
+	// and the other methods reach it through the root middleware above.
+	r.Get("/metrics", h.metrics)
 
 	root := r
 	var proposer *agentProposer
@@ -1038,6 +1070,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// question an operator asks of it is deployment-wide.
 		r.Get("/settings/assurance", h.getAssuranceSettings)
 		r.With(requireCSRF).Patch("/settings/assurance", h.updateAssuranceSettings)
+		// EPIC O (#898). The block that holds the scrape endpoint, the log
+		// floor and the alert channel. The mint is a person's act: it is on
+		// the agent deny list, and over plain HTTP from another machine it
+		// needs the same acknowledgement an agent-token mint does.
+		r.Get("/settings/observability", h.getObservabilitySettings)
+		r.With(requireCSRF).Patch("/settings/observability", h.updateObservabilitySettings)
+		r.With(requireCSRF, requireMintTransportAck(h.enforce)).Post("/settings/observability/scrape-token", h.mintScrapeToken)
 		r.Get("/assurance/due", h.listAssuranceDue)
 		// Stop a running scrub or recovery test. Deliberately not under
 		// /operations: that is the destructive gate's, and stopping a read

@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "0fd6625f54da557b31059fbd8d7fb73f0cafb7daba7eaa0b48e58179548055ab";
+export const CONTRACT_SHA256 = "0a7e716f342b8eb407bfa1a912bc61b60804d2a9787dffccaf2116146ea5f593";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -2766,6 +2766,66 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "getObservabilitySettings",
+    method: "GET",
+    path: "/settings/observability",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ObservabilitySettingsResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "updateObservabilitySettings",
+    method: "PATCH",
+    path: "/settings/observability",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: false,
+    concurrency: "",
+    requestSchema: "UpdateObservabilitySettingsRequest",
+    responseSchema: "ObservabilitySettingsResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "mintScrapeToken",
+    method: "POST",
+    path: "/settings/observability/scrape-token",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    insecureTransportAck: true,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "MintedScrapeToken",
+    successStatus: 201,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "INSECURE_TRANSPORT_ACK_REQUIRED", "AGENT_ROUTE_DENIED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
     id: "getWorkflowSettings",
     method: "GET",
     path: "/settings/workflow",
@@ -5111,6 +5171,56 @@ export interface WireMintedAgentToken {
   token: string;
 }
 
+/** The one answer that carries the scrape credential itself. token is
+ *  shown exactly once, here: the deployment stores its SHA-256 and
+ *  the eight-character prefix, so a lost credential is minted again,
+ *  never recovered. Minting again replaces the previous credential at
+ *  once. */
+export interface WireMintedScrapeToken {
+  scrape_token: WireScrapeTokenState;
+  token: string;
+}
+
+/** observability.alerts, resolved. */
+export interface WireObservabilityAlertsSettings {
+  delivery: "platform" | "webhook";
+  webhook: WireObservabilityWebhookSettings;
+}
+
+/** observability.logs, resolved. */
+export interface WireObservabilityLogsSettings {
+  level: "debug" | "info" | "warn" | "error";
+  level_in_force: string;
+  level_source: "config" | "environment";
+}
+
+/** observability.metrics, resolved. */
+export interface WireObservabilityMetricsSettings {
+  enabled: boolean;
+  min_rebuild_interval_seconds: number;
+  scrape_token: WireScrapeTokenState;
+}
+
+/** The deployment-wide observability block, RESOLVED: the scrape
+ *  endpoint, the log floor and the alert channel. A config that never
+ *  mentions the block reports the defaults, which are everything off.
+ *  Every setting is global; none is a property of a backup set. */
+export interface WireObservabilitySettingsResponse {
+  alerts: WireObservabilityAlertsSettings;
+  logs: WireObservabilityLogsSettings;
+  metrics: WireObservabilityMetricsSettings;
+}
+
+/** observability.alerts.webhook, resolved. The URL is a credential,
+ *  so a read says only whether one is set. */
+export interface WireObservabilityWebhookSettings {
+  allow_insecure_http: boolean;
+  dialect: "generic" | "alertmanager";
+  refresh_interval_seconds: number;
+  resolve_ttl_seconds: number;
+  url_set: boolean;
+}
+
 /** One durable operation record. Timestamp fields are omitted, not
  *  zero-valued, until the event they name has happened. progress is
  *  the separate, ephemeral thing: see OperationProgress for why it is
@@ -5899,6 +6009,16 @@ export interface WireSSHKeyDiscoveryLocation {
   problem?: string;
 }
 
+/** What a read may say about the scrape credential: whether one
+ *  exists, its eight-character display prefix and when it was minted.
+ *  Never any more of it; the deployment keeps a SHA-256 digest and
+ *  the plaintext exists once, in the mint response. */
+export interface WireScrapeTokenState {
+  created_at: string | null;
+  exists: boolean;
+  prefix: string;
+}
+
 /** An artifact the pass could not give a verdict at all, with the
  *  infrastructure problem that stopped it. The copies it did get a
  *  verdict for are in the set's copies, each once. */
@@ -6624,6 +6744,22 @@ export interface WireUpdateCustomValidatorRequest {
   pattern: string;
   script?: string;
   script_sha256?: string;
+}
+
+/** PATCH the deployment-wide observability block. Every field is
+ *  nullable because this is a PATCH: omitted leaves the setting
+ *  alone. A body that names nothing is refused. The scrape credential
+ *  is not here: it is minted by POST
+ *  /settings/observability/scrape-token. */
+export interface WireUpdateObservabilitySettingsRequest {
+  alerts_delivery?: "platform" | "webhook";
+  logs_level?: "debug" | "info" | "warn" | "error";
+  metrics_enabled?: boolean;
+  metrics_min_rebuild_interval_seconds?: number;
+  webhook_allow_insecure_http?: boolean;
+  webhook_dialect?: "generic" | "alertmanager";
+  webhook_refresh_interval_seconds?: number;
+  webhook_resolve_ttl_seconds?: number;
 }
 
 /** A PARTIAL retention update. An omitted field is left exactly as
