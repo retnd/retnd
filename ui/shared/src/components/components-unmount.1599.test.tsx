@@ -11,12 +11,16 @@
  * Each case holds the answer, unmounts, tears down and only then answers;
  * see test/teardownProbe.ts.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { FirstRunStatus } from "@shared/api/contracts";
+import { ApiProvider } from "@shared/api/ApiContext";
+import type { FirstRunStatus, ObservabilitySettings, RetndApi } from "@shared/api/contracts";
+import { createMockApi } from "@shared/api/mock";
 import { FirstRunGuide } from "@shared/components/FirstRunGuide";
 import { ClippedText } from "@shared/encryption/ClippedText";
+import { AlertDeliveryControls } from "@shared/observability/AlertDeliveryControls";
+import { LogLevelControl } from "@shared/observability/LogLevelControl";
 import { held, teardownProbe } from "@shared/test/teardownProbe";
 import type { TeardownProbe } from "@shared/test/teardownProbe";
 
@@ -91,5 +95,60 @@ describe("a clipped value's Copy after unmount (#1599)", () => {
     pressCopy(() => answer.promise);
     answer.resolve();
     expect(await screen.findByRole("status")).toHaveTextContent("Copied");
+  });
+});
+
+describe("the observability controls hand an answer to the parent only while they're there (#1599)", () => {
+  async function settingsAndApi(patch: () => Promise<ObservabilitySettings>) {
+    const base = createMockApi("default");
+    const settings = await base.getObservabilitySettings();
+    const call = vi.fn(patch);
+    const api = { ...base, patchObservabilitySettings: call } as unknown as RetndApi;
+    return { settings, call, api };
+  }
+
+  it("LogLevelControl: a level saved after the control has gone doesn't reach the parent's setter", async () => {
+    const answer = held<ObservabilitySettings>();
+    const { settings, call, api } = await settingsAndApi(() => answer.promise);
+    const onSaved = vi.fn();
+    const view = render(
+      <ApiProvider api={api}><LogLevelControl logs={settings.logs} readOnly={false} onSaved={onSaved} /></ApiProvider>
+    );
+    fireEvent.change(screen.getByLabelText("Log level"), { target: { value: settings.logs.level === "debug" ? "warn" : "debug" } });
+    await waitFor(() => expect(call).toHaveBeenCalled());
+    view.unmount();
+    probe.tearDown();
+    answer.resolve(settings);
+    await probe.settle();
+    expect(probe.rejections).toEqual([]);
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it("LogLevelControl: while it's there the parent still gets the saved settings", async () => {
+    const answer = held<ObservabilitySettings>();
+    const { settings, call, api } = await settingsAndApi(() => answer.promise);
+    const onSaved = vi.fn();
+    render(<ApiProvider api={api}><LogLevelControl logs={settings.logs} readOnly={false} onSaved={onSaved} /></ApiProvider>);
+    fireEvent.change(screen.getByLabelText("Log level"), { target: { value: settings.logs.level === "debug" ? "warn" : "debug" } });
+    await waitFor(() => expect(call).toHaveBeenCalled());
+    await act(async () => { answer.resolve(settings); });
+    expect(onSaved).toHaveBeenCalledWith(settings);
+  });
+
+  it("AlertDeliveryControls: a delivery saved after the control has gone doesn't reach the parent's setter", async () => {
+    const answer = held<ObservabilitySettings>();
+    const { settings, call, api } = await settingsAndApi(() => answer.promise);
+    const onSaved = vi.fn();
+    const view = render(
+      <ApiProvider api={api}><AlertDeliveryControls alerts={settings.alerts} readOnly={false} onSaved={onSaved} /></ApiProvider>
+    );
+    fireEvent.change(screen.getByLabelText("Alert delivery"), { target: { value: settings.alerts.delivery === "webhook" ? "platform" : "webhook" } });
+    await waitFor(() => expect(call).toHaveBeenCalled());
+    view.unmount();
+    probe.tearDown();
+    answer.resolve(settings);
+    await probe.settle();
+    expect(probe.rejections).toEqual([]);
+    expect(onSaved).not.toHaveBeenCalled();
   });
 });
