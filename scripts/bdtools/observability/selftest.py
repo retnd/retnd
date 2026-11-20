@@ -254,7 +254,7 @@ MUTATIONS: list[tuple[Any, ...]] = [
         "O-03: the scrape-token mint over plain HTTP from another machine without the acknowledgement",
         [(
             ROUTER_GO,
-            'r.With(requireCSRF, requireMintTransportAck(h.enforce)).Post("/settings/observability/scrape-token", h.mintScrapeToken)',
+            'r.With(requireCSRF, requireMintTransportAck(h.enforce, "mint a scrape token")).Post("/settings/observability/scrape-token", h.mintScrapeToken)',
             'r.With(requireCSRF).Post("/settings/observability/scrape-token", h.mintScrapeToken) ' + PLANT + "no transport acknowledgement.",
         )],
         "--- FAIL: TestMetrics_AMintOverPlainHTTPFromAnotherMachineNeedsTheAcknowledgement",
