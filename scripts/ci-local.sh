@@ -1269,7 +1269,6 @@ if [ "$FAST" != "1" ]; then
     # Its anchors are also checked statically by scripts/selftest/check-anchors.sh.
     gate_docker_step "the assurance UI guards can actually fail (browser mutation self-test, #1532)"
     gate_ui_browser "the assurance UI mutation self-test" bash scripts/e2e/ui-browser.sh run bash scripts/assurance/ui-selftest.sh
-
   fi
 fi
 }
