@@ -189,6 +189,15 @@ const (
 	// re-stating a still-unresolved condition on every poll.
 	EventAlert = "alert"
 
+	// EventAlertDestination records the alert destination changing between
+	// readable and not (EPIC O, #901): a webhook URL reference that stopped
+	// reading, or read and is not an acceptable URL, and the moment it reads
+	// again. One line per CHANGE, never one per pass, for EventAlert's
+	// reason: the feed has to answer "since when has nobody been told
+	// anything", and a line per poll buries that answer. It carries the
+	// state and the reason, never the URL.
+	EventAlertDestination = "alert_destination"
+
 	// EventAPIAction records one action somebody took through the
 	// /api/v1 surface: what was asked, by whom, what came back, and the
 	// `retnd` command that would have done the same thing
@@ -813,6 +822,26 @@ func (l *Logger) Alert(ctx context.Context, kind, backupSet, detail string) {
 	l.emitMarked(ctx, LevelWarn, mark{result: ResultWarn}, EventAlert, "proactive alert delivered",
 		slog.String("alert_kind", kind),
 		slog.String("backup_set", backupSet),
+		slog.String("detail", detail),
+	)
+}
+
+// AlertDestination logs EventAlertDestination: the alert destination is now
+// in status ("ok", "unresolvable" or "invalid"), and detail says why when it
+// is not ok. A destination that cannot be read is the manager failing at the
+// one thing alerting is for, so it is LevelError with ResultError, unlike
+// Alert, which is the manager correctly reporting a problem it found. The
+// heal is a success at info. detail must already be free of the URL; the
+// sink's errors are built that way (internal/alert/httpsink.go).
+func (l *Logger) AlertDestination(ctx context.Context, status, detail string) {
+	if status == "ok" {
+		l.emitMarked(ctx, LevelInfo, mark{result: ResultSuccess}, EventAlertDestination, "alert destination readable again",
+			slog.String("status", status),
+		)
+		return
+	}
+	l.emitMarked(ctx, LevelError, mark{result: ResultError}, EventAlertDestination, "alert destination cannot be used, alerts are held and retried",
+		slog.String("status", status),
 		slog.String("detail", detail),
 	)
 }

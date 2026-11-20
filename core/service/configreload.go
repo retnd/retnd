@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/config"
 )
@@ -69,8 +71,10 @@ import (
 // rebuilding it would re-alert every still-unresolved condition the next
 // time a cycle ran, purely because somebody changed the configuration.
 // When it declines (alerting was off before this reload, or has just been
-// turned off), the question is settled from b.alertSink instead, which is
-// what makes turning alerting ON take effect here too.
+// turned off), or when observability.alerts changed, carryAlerts settles
+// the question from the configuration's own delivery selection instead,
+// which is what makes turning alerting ON, and switching platform to
+// webhook, take effect here too.
 //
 // # Removal holds
 //
@@ -98,9 +102,7 @@ func (b *BackupService) adoptConfig(cfg *config.Config) string {
 	// itself race the swap below.
 	prevInner := b.state.Load().inner
 	newInner := app.New(cfg, b.journal, prevInner.Transport, b.logger)
-	if !newInner.AdoptAlerts(prevInner.Alerts) && b.alertSink != nil {
-		newInner.EnableAlerts(sinkAdapter{sink: b.alertSink})
-	}
+	b.carryAlerts(context.Background(), prevInner, newInner)
 	// Carried forward for AdoptAlerts' reason: the lifecycle is a
 	// property of this PROCESS (one engine, one lock table, one record of
 	// which sets are blocked), and a reload that dropped it would leave a

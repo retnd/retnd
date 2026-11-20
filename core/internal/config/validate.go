@@ -184,6 +184,7 @@ func (c *Config) Validate() error {
 	c.resolveAssurance(v)
 	c.resolveRetainedCopyEncryption(v)
 	c.resolveAgents(v)
+	c.resolveObservability(v)
 
 	// Phase 2 as well, and for a related reason: resolving a tier's medium
 	// needs BOTH halves finished, the declared list and every chain that
