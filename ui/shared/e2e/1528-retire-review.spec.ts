@@ -25,6 +25,9 @@ const WEEK34 = "media-week34.tar";
 const WEEK34_ID = "media/weekly-archive/" + WEEK34;
 const BILLING = "billing-20260827.sql.gz";
 const dialog = (page: Page) => page.getByRole("dialog");
+// A pause only when recording, so a short test's GIF shows its last state
+// (the walkthrough specs' beat).
+const beat = (p: Page) => (process.env.E2E_VIDEO ? p.waitForTimeout(900) : Promise.resolve());
 
 async function insideDialog(page: Page): Promise<boolean> {
   return page.evaluate(() => !!document.activeElement?.closest("[role=dialog]"));
@@ -149,14 +152,19 @@ test.describe("#1528 review of the Retire dialog", () => {
     const row = page.getByRole("row").filter({ hasText: WEEK34 });
     await expect(row).toContainText("Retired");
     await expect(row).toContainText("Replaced by media-week36.tar");
+    await row.scrollIntoViewIfNeeded();
+    await row.hover();
+    await beat(page);
   });
 
   test("#1528 when retnd retires a backup on its own, the Backups page says so and links to it", async ({ page }) => {
     await open(page, "/backups", "retire-auto");
     const notice = page.getByTestId("auto-retired-notice");
     await expect(notice).toContainText("retnd retired 1 failed backup on its own");
+    await beat(page);
     await notice.getByRole("link", { name: "See it" }).click();
     await expect(page).toHaveURL(/media-week34\.tar/);
+    await beat(page);
   });
 
   test("#1528 the Retire controls are at least 44px tall", async ({ page }) => {

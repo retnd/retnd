@@ -330,22 +330,22 @@ var rows = []Row{{Tool: "a", Description: "Read " + setName}, {Tool: "b", Descri
 // output, an activity message, a remote hostname. Each field named here has to
 // be in the tool's Untrusted list.
 var outsideOrigins = map[string][]string{
-	"status":               {"backup_sets[].reason", "backup_sets[].pending_unreadable_oldest_path", "backup_sets[].pending_unreadable_warning"},
-	"backup_sets_list":     {"backup_sets[].host", "backup_sets[].remote_path"},
-	"backup_set_show":      {"host", "remote_path"},
-	"backups_list":         {"artifacts[].id", "artifacts[].name", "artifacts[].validation_detail", "artifacts[].remote_path", "artifacts[].retirement.superseded_by", "artifacts[].retirement.failure_reason"},
-	"backup_show":          {"id", "name", "validation_detail", "remote_path", "retirement.superseded_by", "retirement.failure_reason"},
+	"status":                 {"backup_sets[].reason", "backup_sets[].pending_unreadable_oldest_path", "backup_sets[].pending_unreadable_warning"},
+	"backup_sets_list":       {"backup_sets[].host", "backup_sets[].remote_path"},
+	"backup_set_show":        {"host", "remote_path"},
+	"backups_list":           {"artifacts[].id", "artifacts[].name", "artifacts[].validation_detail", "artifacts[].remote_path", "artifacts[].retirement.superseded_by", "artifacts[].retirement.failure_reason"},
+	"backup_show":            {"id", "name", "validation_detail", "remote_path", "retirement.superseded_by", "retirement.failure_reason"},
 	"backup_retirement_show": {"failure_reason", "proposed_successor.name", "successor_candidates[].name", "retirement.superseded_by", "retirement.failure_reason"},
-	"assurance_due":        {"items[].artifact_name"},
-	"activity":             {"events[].artifact_id", "events[].artifact_name", "events[].detail"},
-	"activity_live":        {"sets[].events[].message", "deployment.events[].message"},
-	"quarantine_list":      {"artifacts[].id", "artifacts[].name", "artifacts[].quarantine_reason"},
-	"operations_list":      {"operations[].error", "operations[].result"},
-	"operation_show":       {"error", "result"},
-	"storage_mediums_list": {"mediums[].endpoint"},
-	"retention_preview":    {"verdicts[].artifact", "verdicts[].reason"},
-	"workflow_runs_list":   {"runs[].failed_script", "runs[].steps[].script_name"},
-	"workflow_run_show":    {"failed_script", "steps[].script_name"},
+	"assurance_due":          {"items[].artifact_name"},
+	"activity":               {"events[].artifact_id", "events[].artifact_name", "events[].detail"},
+	"activity_live":          {"sets[].events[].message", "deployment.events[].message"},
+	"quarantine_list":        {"artifacts[].id", "artifacts[].name", "artifacts[].quarantine_reason"},
+	"operations_list":        {"operations[].error", "operations[].result"},
+	"operation_show":         {"error", "result"},
+	"storage_mediums_list":   {"mediums[].endpoint"},
+	"retention_preview":      {"verdicts[].artifact", "verdicts[].reason"},
+	"workflow_runs_list":     {"runs[].failed_script", "runs[].steps[].script_name"},
+	"workflow_run_show":      {"failed_script", "steps[].script_name"},
 }
 
 func missingUntrusted(rows []Row) []string {

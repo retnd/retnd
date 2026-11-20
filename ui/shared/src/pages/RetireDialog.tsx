@@ -158,20 +158,25 @@ export function RetireDialog({
   // Asked again for exactly what will be sent, whenever the operator changes
   // the acknowledgement or the replacement. The answer is kept with the
   // choice it answers, so a stale answer is never shown for a newer choice.
-  const [asked, setAsked] = useState<{ key: string; preview: WireRetirementPreview } | null>(null);
+  //
+  // A re-ask that fails leaves no answer for that choice: Retire stays off and
+  // the dialog says so. Falling back to the first answer would show one
+  // replacement and send another.
+  const [asked, setAsked] = useState<{ key: string; preview: WireRetirementPreview | null; error: string } | null>(null);
   useEffect(() => {
     if (!preview || ackKey === "{}") return;
     let live = true;
     api
       .previewRetirement(artifactId, JSON.parse(ackKey) as Ack)
-      .then((p) => live && setAsked({ key: ackKey, preview: p }))
-      .catch(() => live && setAsked({ key: ackKey, preview }));
+      .then((p) => live && setAsked({ key: ackKey, preview: p, error: "" }))
+      .catch((e: unknown) => live && setAsked({ key: ackKey, preview: null, error: describeFailure(e, "no answer came back").message }));
     return () => {
       live = false;
     };
   }, [api, artifactId, ackKey, preview]);
   const asking = ackKey !== "{}" && asked?.key !== ackKey;
   const current = ackKey === "{}" ? preview : asked?.key === ackKey ? asked.preview : null;
+  const reaskError = ackKey !== "{}" && asked?.key === ackKey ? asked.error : "";
 
   useEffect(() => {
     if (outcome) resultRef.current?.focus();
@@ -187,15 +192,25 @@ export function RetireDialog({
       return;
     }
     if (e.key !== "Tab" || !dialogRef.current) return;
-    const items = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null || el === document.activeElement);
-    if (items.length === 0) return;
+    const items = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null);
+    const here = document.activeElement as HTMLElement | null;
+    // Nothing to move to (both buttons off while the request is in flight):
+    // focus stays on the panel itself.
+    if (items.length === 0) {
+      e.preventDefault();
+      dialogRef.current.focus();
+      return;
+    }
     const first = items[0];
     const last = items[items.length - 1];
-    const here = document.activeElement;
-    if (e.shiftKey && (here === first || !dialogRef.current.contains(here))) {
+    const at = here ? items.indexOf(here) : -1;
+    // Wrap at either end, and whenever focus is on something that is not one
+    // of the dialog's own controls (the result heading, the panel), so Tab
+    // and Shift+Tab never reach the page behind.
+    if (e.shiftKey && (at <= 0)) {
       e.preventDefault();
       last.focus();
-    } else if (!e.shiftKey && (here === last || !dialogRef.current.contains(here))) {
+    } else if (!e.shiftKey && (at === -1 || at === items.length - 1)) {
       e.preventDefault();
       first.focus();
     }
@@ -208,6 +223,9 @@ export function RetireDialog({
   const command = current ? current.command + (note ? " --note " + shellQuote(note) : "") : "";
 
   const retire = async () => {
+    // The buttons turn off for the request, which would drop focus to the
+    // page behind; the panel holds it until the result takes it.
+    dialogRef.current?.focus();
     setBusy(true);
     try {
       const res = await api.retireArtifact(artifactId, { ...(note ? { note } : {}), ...ack });
@@ -237,7 +255,8 @@ export function RetireDialog({
         aria-modal="true"
         aria-labelledby="retire-title"
         className="dialog"
-        style={{ maxWidth: 820, width: "100%" }}
+        tabIndex={-1}
+        style={{ maxWidth: 820, width: "100%", outline: "none" }}
         onKeyDown={onKeyDown}
       >
         <div style={{ padding: "20px 22px 6px", display: "grid", gap: 6 }}>
@@ -357,6 +376,14 @@ export function RetireDialog({
                     I understand there is no replacement for this backup, and I want to retire it anyway. (Same as{" "}
                     <span className="mono">--no-successor</span> in the terminal.)
                   </Acknowledgement>
+                </Banner>
+              ) : null}
+
+              {reaskError ? (
+                <Banner tone="danger" dismissible={false}>
+                  <span data-testid="retire-reask-error">
+                    {"Asking the host again with this choice failed, so Retire stays off until it answers. " + reaskError}
+                  </span>
                 </Banner>
               ) : null}
 

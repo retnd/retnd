@@ -128,3 +128,38 @@ func (j *Journal) LatestRetirement(ctx context.Context, id model.ArtifactID) (Re
 	r.RetiredAt = at
 	return r, true, nil
 }
+
+// LatestRetirements reads the most recent retirement record of every artifact
+// that is RETIRED now, in one query, so the backups list does not ask once
+// per retired row (the #1536 backend re-check).
+func (j *Journal) LatestRetirements(ctx context.Context) (map[model.ArtifactID]Retirement, error) {
+	rows, err := j.db.QueryContext(ctx,
+		`SELECT a.source, a.backup_set, a.artifact_name,
+		        r.retired_at, r.actor_kind, r.actor, r.source_check, r.superseded_by, r.failure_reason, r.note
+		   FROM artifact_retirements r JOIN artifacts a ON a.id = r.artifact_id
+		  WHERE a.state = ?
+		    AND r.id = (SELECT MAX(r2.id) FROM artifact_retirements r2 WHERE r2.artifact_id = r.artifact_id)`,
+		RetiredState,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("state: read retirements: %w", err)
+	}
+	defer rows.Close()
+	out := map[model.ArtifactID]Retirement{}
+	for rows.Next() {
+		var r Retirement
+		var retiredAt string
+		if err := rows.Scan(&r.Artifact.Set.Source, &r.Artifact.Set.Set, &r.Artifact.Name,
+			&retiredAt, &r.ActorKind, &r.Actor, &r.SourceCheck, &r.SupersededBy, &r.FailureReason, &r.Note); err != nil {
+			return nil, fmt.Errorf("state: read retirements: %w", err)
+		}
+		if r.RetiredAt, err = parseTime(retiredAt); err != nil {
+			return nil, fmt.Errorf("state: retirement for %s: %w", r.Artifact, err)
+		}
+		out[r.Artifact] = r
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("state: read retirements: %w", err)
+	}
+	return out, nil
+}

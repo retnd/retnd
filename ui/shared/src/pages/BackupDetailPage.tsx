@@ -312,7 +312,13 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
             </p>
             <span style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
               <InfoTooltip id="backups.detail.retry">
-                <button className="btn btn--strong-edge" style={{ minHeight: 44 }} disabled={readOnly || retrying || sourceGone} onClick={retryIngestion}>
+                <button
+                  className="btn btn--strong-edge"
+                  style={{ minHeight: 44 }}
+                  disabled={readOnly || retrying || sourceGone}
+                  aria-describedby={sourceGone ? "retry-off-reason" : undefined}
+                  onClick={retryIngestion}
+                >
                   {retrying ? "Retrying…" : "Retry ingestion"}
                 </button>
               </InfoTooltip>
@@ -326,7 +332,7 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
               </InfoTooltip>
             </span>
             {sourceGone ? (
-              <p data-testid="retry-off-reason" style={{ margin: 0, color: "var(--text-2)", maxWidth: "72ch" }}>
+              <p id="retry-off-reason" data-testid="retry-off-reason" style={{ margin: 0, color: "var(--text-2)", maxWidth: "72ch" }}>
                 Retry is off because there is nothing left to copy: the host removed the source file.
               </p>
             ) : null}

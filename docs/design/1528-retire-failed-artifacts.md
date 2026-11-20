@@ -161,6 +161,17 @@ would present the failed attempt's own key, the journal would read it as a repla
 sit at DISCOVERED for good; `TestARetiredObjectThatReappearsReentersThePipeline_1528` asserts the
 row reaches a durable backup, not just that it left RETIRED.
 
+That count is spent on every return, so a mount that flaps (empty on one cycle, back on the next,
+for a row whose object is genuinely gone each time it fails) spends one retry per flap: fail,
+retire, come back, fail again. I'm fine with that, with one effect worth knowing about... the count
+is FR-22's shared one, so verify's `StallBudget` reads it too: a row that has flapped three times
+reaches QUARANTINED three hash stalls sooner, exactly as a row released from quarantine three times
+does today (verify.go argues that direction is the right one, and I agree). The unclaimed-copy
+budget in transfer.go is not shortened, because it also needs a charge from the same stay in
+TRANSFERRING. Each flap needs the object to come back listed and complete, which a mount that is
+merely empty does not do, and nothing deletes anything at a threshold. A deployment that sees the
+count climb has a source that keeps losing and finding the same file, which is worth seeing.
+
 **Passes.** One pass, two independent probes, plus reversibility. The listing and the `Stat` are
 separate requests answered by separate code paths in the adapter, and a wrong answer from both is
 undone by the object's return.

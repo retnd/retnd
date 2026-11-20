@@ -285,7 +285,7 @@
   },
   "backups.col.status": {
     "label": "Status",
-    "html": "Whether the original has been deleted from the remote server. Removal happens only after a copy here is verified and committed, so a retained original is never a loss."
+    "html": "Whether the original has been deleted from the remote server. Removal happens only after a copy here is verified and committed, so a retained original is never a loss. A backup that never arrived shows <strong>Failed</strong>; one that was set aside because its source is gone and a newer backup replaced it shows <strong>Retired</strong>, with its record kept."
   },
   "backups.showing": {
     "label": "Row count",

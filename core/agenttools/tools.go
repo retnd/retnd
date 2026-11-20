@@ -225,13 +225,18 @@ var toolRows = []Row{
 			"artifacts[].id", "artifacts[].name", "artifacts[].remote_path", "artifacts[].local_path", "artifacts[].validation_detail",
 			"artifacts[].quarantine_reason", "artifacts[].placements[].location",
 			"artifacts[].placements[].last_failure_reason", "artifacts[].placements[].recovery_failure_reason",
+			// Issue #1528: a RETIRED row carries its retirement record. The
+			// successor is a file name the source chose, the failure reason a
+			// remote error's text, and the note and actor are typed by people.
+			"artifacts[].retirement.superseded_by", "artifacts[].retirement.failure_reason",
+			"artifacts[].retirement.note", "artifacts[].retirement.actor",
 		},
 	},
 	{
 		Tool: "backup_retirement_show", Method: "GET", Route: "/backups/{source}/{set}/{name}/retire", Scope: ScopeRead,
 		Description: "Read what retiring one failed backup would do: whether its source object is still there, which newer backup would replace it, and the refusal or effects. It changes nothing.",
 		Untrusted: []string{
-			"artifact", "failure_reason", "proposed_successor.name", "retirement.superseded_by", "retirement.note",
+			"artifact", "failure_reason", "proposed_successor.name", "successor_candidates[].name", "retirement.superseded_by", "retirement.note",
 			"retirement.failure_reason", "retirement.actor", "command",
 		},
 	},
@@ -241,6 +246,7 @@ var toolRows = []Row{
 		Untrusted: []string{
 			"id", "name", "remote_path", "local_path", "validation_detail", "quarantine_reason",
 			"placements[].location", "placements[].last_failure_reason", "placements[].recovery_failure_reason",
+			"retirement.superseded_by", "retirement.failure_reason", "retirement.note", "retirement.actor",
 		},
 	},
 	{
