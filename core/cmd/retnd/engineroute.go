@@ -1271,6 +1271,79 @@ func (r *engineRoute) UpdateAssuranceSettings(ctx context.Context, req service.U
 	return assuranceSettingsFromWire(resp), nil
 }
 
+// UpdateObservabilitySettings is PATCH /settings/observability.
+func (r *engineRoute) UpdateObservabilitySettings(ctx context.Context, req service.UpdateObservabilitySettingsRequest) (service.ObservabilitySettings, error) {
+	var wire apicontract.UpdateObservabilitySettingsRequest
+	wire.MetricsEnabled = req.MetricsEnabled
+	wire.LogsLevel = req.LogsLevel
+	wire.AlertsDelivery = req.AlertsDelivery
+	wire.WebhookDialect = req.WebhookDialect
+	wire.WebhookAllowInsecureHttp = req.WebhookAllowInsecureHTTP
+	for _, f := range []struct {
+		in   *time.Duration
+		out  **int64
+		flag string
+	}{
+		{req.MetricsMinRebuildInterval, &wire.MetricsMinRebuildIntervalSeconds, "--metrics-min-rebuild-interval"},
+		{req.WebhookRefreshInterval, &wire.WebhookRefreshIntervalSeconds, "--webhook-refresh-interval"},
+		{req.WebhookResolveTTL, &wire.WebhookResolveTtlSeconds, "--webhook-resolve-ttl"},
+	} {
+		n, err := assuranceSecondsPtr(f.in, f.flag)
+		if err != nil {
+			return service.ObservabilitySettings{}, err
+		}
+		*f.out = n
+	}
+	resp, err := r.client.UpdateObservabilitySettings(ctx, wire)
+	if err != nil {
+		return service.ObservabilitySettings{}, err
+	}
+	return observabilitySettingsFromWire(resp), nil
+}
+
+// MintScrapeToken is POST /settings/observability/scrape-token.
+func (r *engineRoute) MintScrapeToken(ctx context.Context) (service.MintedScrapeToken, error) {
+	resp, err := r.client.MintScrapeToken(ctx)
+	if err != nil {
+		return service.MintedScrapeToken{}, err
+	}
+	state := service.ScrapeTokenState{Exists: resp.ScrapeToken.Exists, Prefix: resp.ScrapeToken.Prefix}
+	if resp.ScrapeToken.CreatedAt != nil {
+		if t, perr := time.Parse(time.RFC3339, *resp.ScrapeToken.CreatedAt); perr == nil {
+			state.CreatedAt = t
+		}
+	}
+	return service.MintedScrapeToken{Token: resp.Token, State: state}, nil
+}
+
+func observabilitySettingsFromWire(w apicontract.ObservabilitySettingsResponse) service.ObservabilitySettings {
+	s := service.ObservabilitySettings{
+		Metrics: service.ObservabilityMetricsSettings{
+			Enabled:            w.Metrics.Enabled,
+			MinRebuildInterval: time.Duration(w.Metrics.MinRebuildIntervalSeconds) * time.Second,
+			ScrapeToken:        service.ScrapeTokenState{Exists: w.Metrics.ScrapeToken.Exists, Prefix: w.Metrics.ScrapeToken.Prefix},
+		},
+		Logs: service.ObservabilityLogsSettings{Level: w.Logs.Level, LevelInForce: w.Logs.LevelInForce, LevelSource: w.Logs.LevelSource},
+		Alerts: service.ObservabilityAlertsSettings{
+			Delivery: w.Alerts.Delivery,
+			Webhook: service.ObservabilityWebhookSettings{
+				Dialect:           w.Alerts.Webhook.Dialect,
+				URLSet:            w.Alerts.Webhook.URLSet,
+				URLStatus:         w.Alerts.Webhook.URLStatus,
+				AllowInsecureHTTP: w.Alerts.Webhook.AllowInsecureHttp,
+				RefreshInterval:   time.Duration(w.Alerts.Webhook.RefreshIntervalSeconds) * time.Second,
+				ResolveTTL:        time.Duration(w.Alerts.Webhook.ResolveTtlSeconds) * time.Second,
+			},
+		},
+	}
+	if w.Metrics.ScrapeToken.CreatedAt != nil {
+		if t, err := time.Parse(time.RFC3339, *w.Metrics.ScrapeToken.CreatedAt); err == nil {
+			s.Metrics.ScrapeToken.CreatedAt = t
+		}
+	}
+	return s
+}
+
 // UpdateBackupSetAssurance is PATCH /backup-sets/{source}/{set}/assurance.
 func (r *engineRoute) UpdateBackupSetAssurance(ctx context.Context, id string, req service.UpdateBackupSetAssuranceRequest) (service.BackupSetAssurance, error) {
 	source, set, ok := splitBackupSetID(id)

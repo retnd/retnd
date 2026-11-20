@@ -1709,6 +1709,60 @@ var routes = map[string]entry{
 			{Body: []byte(`{"recovery_test_builtin_check":"off"}`)},
 		},
 	},
+	// EPIC O (#898). The observability block is global only, so there is no
+	// per-set twin. Booleans are printed with assigned (--x=true) because a Go
+	// flag set takes a boolean as an assignment, never as a following word, and
+	// every field prints on nil-ness so an explicit false or zero survives.
+	key("GET", "/settings/observability"): {
+		build:    func(Action) *cmd { return newCmd("settings", "observability") },
+		examples: []Action{{}},
+	},
+	key("PATCH", "/settings/observability"): {
+		build: func(a Action) *cmd {
+			var req apicontract.UpdateObservabilitySettingsRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("settings", "observability", "patch")
+			if req.MetricsEnabled != nil {
+				c.assigned("metrics-enabled", *req.MetricsEnabled)
+			}
+			if req.MetricsMinRebuildIntervalSeconds != nil {
+				c.flag("metrics-min-rebuild-interval", seconds(*req.MetricsMinRebuildIntervalSeconds))
+			}
+			if req.LogsLevel != nil {
+				c.flag("logs-level", *req.LogsLevel)
+			}
+			if req.AlertsDelivery != nil {
+				c.flag("alerts-delivery", *req.AlertsDelivery)
+			}
+			if req.WebhookDialect != nil {
+				c.flag("webhook-dialect", *req.WebhookDialect)
+			}
+			if req.WebhookAllowInsecureHttp != nil {
+				c.assigned("webhook-allow-insecure-http", *req.WebhookAllowInsecureHttp)
+			}
+			if req.WebhookRefreshIntervalSeconds != nil {
+				c.flag("webhook-refresh-interval", seconds(*req.WebhookRefreshIntervalSeconds))
+			}
+			if req.WebhookResolveTtlSeconds != nil {
+				c.flag("webhook-resolve-ttl", seconds(*req.WebhookResolveTtlSeconds))
+			}
+			return c
+		},
+		why: "there is no verb that patches the deployment's observability block from a request body",
+		examples: []Action{
+			{Body: []byte(`{"metrics_enabled":true}`)},
+			{Body: []byte(`{"metrics_enabled":false,"metrics_min_rebuild_interval_seconds":30}`)},
+			{Body: []byte(`{"logs_level":"warn"}`)},
+			{Body: []byte(`{"alerts_delivery":"webhook","webhook_dialect":"alertmanager","webhook_allow_insecure_http":true}`)},
+			{Body: []byte(`{"webhook_refresh_interval_seconds":180,"webhook_resolve_ttl_seconds":540}`)},
+		},
+	},
+	key("POST", "/settings/observability/scrape-token"): {
+		build:    func(Action) *cmd { return newCmd("settings", "observability", "rotate-scrape-token") },
+		examples: []Action{{}},
+	},
 	key("GET", "/backup-sets/{source}/{set}/assurance"): {
 		build:    func(a Action) *cmd { return newCmd("backup-set", "assurance", setID(a)) },
 		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
@@ -2758,10 +2812,19 @@ func onOff(v bool) string {
 // resolved, an entry or a reason, and so the route-to-verb guard in
 // apps/common/webhost (issue #1150) can tell a probe somebody thought about
 // from a route somebody forgot.
+//
+// It is also THE list of routes that deliberately live on the root router
+// outside /api/v1 (RootRoutesOutsideAPI), one line per route with its reason.
+// Every route guard in apps/common/webhost reads it, so a guard cannot quietly
+// grow its own exemption: a root route that is not listed here is held to the
+// guards like any other.
+func RootRoutesOutsideAPI() map[string]string { return RecordedReasons() }
+
 func RecordedReasons() map[string]string {
 	return map[string]string{
 		"GET /health/live":  "an unauthenticated liveness probe for an orchestrator, deliberately outside /api/v1 and the spec; `" + WebBinary + " healthcheck --url` is the command that calls any probe",
 		"GET /health/ready": "an unauthenticated readiness probe for an orchestrator, deliberately outside /api/v1 and the spec; `" + WebBinary + " healthcheck --url` is the command that calls any probe",
+		"GET /metrics":      "the Prometheus scrape endpoint (EPIC O): a poll by a scraper holding the scrape credential, deliberately outside /api/v1 and the spec, and not an operator action. `" + Binary + " settings observability` turns it on and `" + Binary + " settings observability rotate-scrape-token` mints the credential",
 	}
 }
 

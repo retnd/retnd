@@ -152,6 +152,17 @@ type Config struct {
 	// the pointer above.
 	Agents Agents `yaml:"-"`
 
+	// ObservabilityBlock is the deployment-wide `observability:` block (EPIC
+	// O, FR-103), global only, see observability.go. Nil means the operator
+	// wrote nothing, which resolves to everything off, and omitempty keeps a
+	// config that never mentions it byte-identical through a re-marshal. A
+	// config carrying the key is refused by an older build under Load's
+	// KnownFields(true); the CHANGELOG names that door.
+	ObservabilityBlock *ObservabilityBlock `yaml:"observability,omitempty"`
+	// Observability is the resolved block, filled by Validate. Read this,
+	// never the pointer above.
+	Observability Observability `yaml:"-"`
+
 	// AssuranceBlock is the deployment-wide assurance policy (EPIC Q,
 	// Q1.4). Nil means "the operator wrote nothing", which resolves to
 	// good defaults, and omitempty keeps a config that never mentions it

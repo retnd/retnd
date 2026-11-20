@@ -27,8 +27,8 @@ func uncovered(registered map[string]bool, rows []agenttools.Row) []string {
 	}
 	var out []string
 	for route := range registered {
-		if strings.Contains(route, " /health/") {
-			continue
+		if m, p, _ := strings.Cut(route, " "); isListedRootRoute(m, p) && p != "/metrics" {
+			continue // answered by the list (the scrape endpoint also has a named refusal row)
 		}
 		if !have[route] {
 			out = append(out, route)

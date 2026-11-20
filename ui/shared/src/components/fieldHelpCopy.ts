@@ -642,5 +642,21 @@ export const FIELD_HELP = {
     example: "24h",
     effect:
       "The table asks the engine for calls from the last 24 hours. Calls older than the trail's retention are no longer there to show."
+  },
+  // Issue #899 (EPIC O). Read out of the scrape endpoint's handler
+  // (apps/common/webhost/handlers_metrics.go: 404 when disabled, a credential
+  // otherwise) and the report cache (core/service/scrape.go: one rebuild per
+  // observability.metrics.min_rebuild_interval, floor one second).
+  observabilityMetricsEnabled: {
+    what: "Whether this deployment answers Prometheus at /metrics.",
+    example: "On, so a Prometheus on the compose network can scrape retnd:8080/metrics",
+    effect:
+      "While it is off the route answers 404 and says nothing else. Turned on, a scrape needs the scrape token; one without it gets 401 with an empty body, and an address that has been refused ten times in a minute gets 429 until the minute is up. The setting is written to config.yaml and takes effect on the next scrape, with no restart."
+  },
+  observabilityMetricsInterval: {
+    what: "How many seconds one health report is reused before the journal is read again.",
+    example: "30",
+    effect:
+      "Scrapes inside those 30 seconds all get the report built at the first of them, so ten scrapers cost one journal read. A shorter value shows a fresher view and costs more reads; the smallest the engine accepts is 1 second, and it refuses anything lower and writes nothing."
   }
 } as const satisfies Record<string, FieldHelpCopy>;

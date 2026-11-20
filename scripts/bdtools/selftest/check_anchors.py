@@ -123,9 +123,9 @@ from bdtools import harness
 
 PROGRAM = "selftest check-anchors"
 
-# The eleven selftests with anchors of their own (the encryption one joined for the
-# 0.8.0 release, #1331, discovery's readability probe for #1541, and the agents
-# one for #1530). Not architecture or api:
+# The twelve selftests with anchors of their own (the encryption one joined for the
+# 0.8.0 release, #1331, discovery's readability probe for #1541, the observability one with
+# EPIC O, #899, and the agents one for #1530). Not architecture or api:
 # neither uses the selftest_swap anchor pattern, and adding a domain with
 # no anchors to an anchor checker is a row that always passes -- a new
 # vacuous check created inside the very port whose subject is vacuous
@@ -142,11 +142,12 @@ SELFTESTS = (
     "scripts/assurance/selftest.sh",
     "scripts/encryption/selftest.sh",
     "scripts/discovery/selftest.sh",
+    "scripts/observability/selftest.sh",
     "scripts/agents/selftest.sh",
 )
 
 # Pinned independent of len(SELFTESTS) -- see this file's hazard note.
-EXPECTED_SELFTESTS = 11
+EXPECTED_SELFTESTS = 12
 
 
 def run_one(root: Path, selftest: str) -> int:
@@ -188,7 +189,7 @@ def body(root: Path) -> int:
 
     print(
         "OK: every mutation anchor and precondition in the compat, conformance, race, format, docs "
-        "retention, recovery, assurance, encryption and discovery selftests still matches the real tree."
+        "retention, recovery, assurance, encryption, discovery and observability selftests still matches the real tree."
     )
     return harness.EXIT_OK
 

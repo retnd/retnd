@@ -47,6 +47,7 @@ import type {
   WorkflowRecoveryHold,
   WorkflowRun,
   AssuranceSettings,
+  ObservabilitySettings,
   BackupSetAssurance,
   WorkflowSettings,
   WorkflowStepLogPage,
@@ -3284,6 +3285,42 @@ function defaultSetWorkflowEnvironment(): WorkflowEnvVariable[] {
   ];
 }
 
+/**
+ * Issue #901: `?webhookurl=unresolvable` (or `invalid`, `ok`, `unknown`)
+ * stands in for what the engine's last read of the webhook URL found. It is a
+ * query parameter rather than a scenario so it composes with any scenario,
+ * the way `?artifacts=N` does. The mock has a URL set whenever it is given
+ * one, and reports the state only while delivery is the webhook, as the
+ * engine does. Read once, when the mock is built.
+ */
+type WebhookURLStatus = NonNullable<ObservabilitySettings["alerts"]["webhook"]["urlStatus"]>;
+function webhookURLStatusFromLocation(): WebhookURLStatus | null {
+  const raw = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("webhookurl");
+  return raw === "ok" || raw === "unresolvable" || raw === "invalid" || raw === "unknown" ? raw : null;
+}
+
+function withWebhookURLState(o: ObservabilitySettings, status: WebhookURLStatus | null): ObservabilitySettings {
+  const out = structuredClone(o);
+  if (status === null) return out;
+  out.alerts.webhook.urlSet = true;
+  if (out.alerts.delivery === "webhook") out.alerts.webhook.urlStatus = status;
+  else delete out.alerts.webhook.urlStatus;
+  return out;
+}
+
+/** The observability block as a deployment that never wrote it reads: the
+ *  defaults, which are everything off. */
+function defaultObservabilitySettings(): ObservabilitySettings {
+  return {
+    metrics: { enabled: false, minRebuildIntervalSeconds: 15, scrapeToken: { exists: false, prefix: "", createdAt: null } },
+    logs: { level: "info", levelInForce: "info", levelSource: "config" },
+    alerts: {
+      delivery: "platform",
+      webhook: { dialect: "generic", urlSet: false, allowInsecureHttp: false, refreshIntervalSeconds: 240, resolveTtlSeconds: 600 }
+    }
+  };
+}
+
 function defaultAssuranceSettings(): AssuranceSettings {
   return {
     configured: false,
@@ -4463,6 +4500,8 @@ export function createMockApi(
     workflowSettings.afterDir = "";
   }
   const assuranceSettings = defaultAssuranceSettings();
+  const observabilitySettings = defaultObservabilitySettings();
+  const webhookURLStatus = webhookURLStatusFromLocation();
   if (scenario === "backups-many-ceiling-2") assuranceSettings.maxDownloadStreams = 2;
   const mockRecovery = createMockRecovery(scenario);
 
@@ -6137,6 +6176,28 @@ export function createMockApi(
     },
 
     ...validatorsApi,
+    getObservabilitySettings: () => delay(withWebhookURLState(observabilitySettings, webhookURLStatus)),
+    patchObservabilitySettings: (patch) => {
+      const o = observabilitySettings;
+      if (patch.metricsEnabled !== undefined) o.metrics.enabled = patch.metricsEnabled;
+      if (patch.metricsMinRebuildIntervalSeconds !== undefined) o.metrics.minRebuildIntervalSeconds = patch.metricsMinRebuildIntervalSeconds;
+      if (patch.logsLevel !== undefined) {
+        o.logs.level = patch.logsLevel;
+        o.logs.levelInForce = patch.logsLevel;
+      }
+      if (patch.alertsDelivery !== undefined) o.alerts.delivery = patch.alertsDelivery;
+      if (patch.webhookDialect !== undefined) o.alerts.webhook.dialect = patch.webhookDialect;
+      if (patch.webhookAllowInsecureHttp !== undefined) o.alerts.webhook.allowInsecureHttp = patch.webhookAllowInsecureHttp;
+      if (patch.webhookRefreshIntervalSeconds !== undefined) o.alerts.webhook.refreshIntervalSeconds = patch.webhookRefreshIntervalSeconds;
+      if (patch.webhookResolveTtlSeconds !== undefined) o.alerts.webhook.resolveTtlSeconds = patch.webhookResolveTtlSeconds;
+      return delay(withWebhookURLState(o, webhookURLStatus));
+    },
+    mintScrapeToken: () => {
+      const created = new Date().toISOString();
+      const token = "rsc_" + Math.random().toString(36).slice(2).padEnd(43, "0");
+      observabilitySettings.metrics.scrapeToken = { exists: true, prefix: token.slice(0, 8), createdAt: created };
+      return delay({ token, scrapeToken: structuredClone(observabilitySettings.metrics.scrapeToken) });
+    },
     getAssuranceSettings: () => delay(structuredClone(assuranceSettings)),
     listStagingDirectories: (path) => mockHostBrowse(path ?? ""),
     patchAssuranceSettings: (patch) => {

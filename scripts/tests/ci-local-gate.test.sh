@@ -452,6 +452,12 @@ make_full_tree() {
   mkdir -p "$tree/scripts/assurance"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/assurance/selftest.sh"
 
+  # EPIC O's observability mutation self-test (#899), stubbed for the same
+  # reason: the real one copies the tree a dozen times and builds core/ and
+  # apps/common in each copy.
+  mkdir -p "$tree/scripts/observability"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/observability/selftest.sh"
+
   # The encryption (EPIC N and T, #1531) and agent (EPIC U, #1530) mutation
   # self-tests, stubbed for the reason above: each copies the tree for every
   # planted violation and builds core/ in the copy, and the encryption one
