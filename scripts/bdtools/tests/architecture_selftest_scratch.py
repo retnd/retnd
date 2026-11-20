@@ -33,7 +33,9 @@ the linters.
      is removing the scratch (a double Ctrl-C) does not cut that short.
   I  a check that is interrupted takes its whole process group with it, so a
      go or golangci-lint it started is not left writing into a copy that is
-     being removed.
+     being removed. And a group that is already gone by the time it is killed
+     (macOS says EPERM, not ESRCH, when the last process in it has exited
+     but is not reaped yet, #1602) still ends the run with 143, not 1.
   E  every `st.mutant(...)` in the body is the context expression of a `with`,
      so a case added later cannot quietly go back to keeping its copy, and no
      `d` is read outside such a block.
@@ -285,8 +287,54 @@ def behaviour(s: testkit.Suite) -> None:
 
         # I: an interrupted check takes its process group with it.
         interrupted_check(s, work)
+        killpg_refused(s, work, cwd)
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def killpg_refused(s: testkit.Suite, work: Path, cwd: str) -> None:
+    """I, the window #1602 is about: SIGTERM arrives while a real check runs,
+    and killing its group raises PermissionError, the way macOS answers for a
+    group whose last process has exited and is not reaped yet."""
+    rec = Recorder()
+    tmpdir = work / "killpg-eperm"
+    tmpdir.mkdir()
+    real_run = arch_selftest._run
+    real_killpg = os.killpg
+    refused: list[int] = []
+
+    def killpg_eperm(pgid: int, sig: int) -> None:
+        refused.append(pgid)
+        with contextlib.suppress(OSError):
+            real_killpg(pgid, sig)
+        raise PermissionError(1, "Operation not permitted")
+
+    def term_soon() -> None:
+        signal.setitimer(signal.ITIMER_REAL, 0.5)
+        real_run(Path("/"), "bash", "-c", "sleep 30")
+
+    before = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGALRM)}
+    signal.signal(signal.SIGALRM, lambda _signum, _frame: os.kill(os.getpid(), signal.SIGTERM))
+    escaped: BaseException | None = None
+    status: int | None = None
+    try:
+        with stubbed(quiet_run(term_soon)), \
+                mock.patch.object(arch_selftest, "Selftest", fake_selftest_class(rec)), \
+                mock.patch.object(arch, "resolve_toplevel", lambda: REPO), \
+                mock.patch.object(os, "killpg", killpg_eperm), \
+                mock.patch.dict(os.environ, {"TMPDIR": str(tmpdir)}):
+            status = arch_selftest.main([])
+    except BaseException as exc:  # the case is about exactly this
+        escaped = exc
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        for sig, handler in before.items():
+            signal.signal(sig, handler)
+        os.chdir(cwd)
+    s.check(bool(refused) and escaped is None and status == harness.EXIT_TERMINATED and not any(tmpdir.iterdir()),
+            "I a SIGTERM whose killpg is refused with EPERM (macOS, #1602) still exits 143 with nothing left",
+            f"I a SIGTERM whose killpg was refused (refused: {bool(refused)}) ended the run with {escaped!r} and "
+            f"exit {status}, leaving {names(list(tmpdir.iterdir()))}")
 
 
 def interrupted_check(s: testkit.Suite, work: Path) -> None:
