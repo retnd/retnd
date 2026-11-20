@@ -386,6 +386,13 @@ type Service struct {
 	// what happened, and this decides what happens next.
 	schedule *pollSchedule
 
+	// unreadable is every source file discovery proved complete and could
+	// not open, per set, with when this process first saw it (issue
+	// #1541). Shared across a configuration reload the way schedule is
+	// (AdoptUnreadableSources), and for the same reason: a settings save
+	// must not reset how long a producer has been failing to publish.
+	unreadable *unreadableSources
+
 	lastRetention map[model.BackupSetID]time.Time
 }
 

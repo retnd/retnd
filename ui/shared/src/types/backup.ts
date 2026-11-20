@@ -211,6 +211,24 @@ export interface BackupSet {
    * never dismiss, retry or re-trust.
    */
   haltReason?: "host-key-changed" | "authentication-failed" | "key-permissions";
+  /**
+   * Source files the engine's last discovery pass proved complete and could
+   * not open, because the producer has not published them yet (issue
+   * #1541), from GET /system/health's `pending_unreadable*`. Absent when
+   * none are waiting or the report was not read.
+   *
+   * `warning` is the engine's own sentence, present only once the oldest
+   * has waited longer than the set's stale threshold. None of this moves
+   * `state`: a file waiting for its producer is not a failed backup.
+   * `oldestPath` is a remote file's name, untrusted text, and is rendered
+   * as text.
+   */
+  pendingUnreadable?: {
+    count: number;
+    oldestAgeSeconds: number;
+    oldestPath: string;
+    warning?: string;
+  };
   newestKnownGoodAt: string | null;
   lastRunAt: string | null;
   /**

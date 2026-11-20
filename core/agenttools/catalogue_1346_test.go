@@ -330,7 +330,7 @@ var rows = []Row{{Tool: "a", Description: "Read " + setName}, {Tool: "b", Descri
 // output, an activity message, a remote hostname. Each field named here has to
 // be in the tool's Untrusted list.
 var outsideOrigins = map[string][]string{
-	"status":               {"backup_sets[].reason"},
+	"status":               {"backup_sets[].reason", "backup_sets[].pending_unreadable_oldest_path", "backup_sets[].pending_unreadable_warning"},
 	"backup_sets_list":     {"backup_sets[].host", "backup_sets[].remote_path"},
 	"backup_set_show":      {"host", "remote_path"},
 	"backups_list":         {"artifacts[].id", "artifacts[].name", "artifacts[].validation_detail", "artifacts[].remote_path"},

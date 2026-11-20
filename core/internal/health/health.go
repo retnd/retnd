@@ -249,6 +249,23 @@ type BackupSetInputs struct {
 	// (internal/state's snapshot runs); this package computes none of
 	// it, exactly as it computes none of the four facts above.
 	Snapshot *SnapshotHealth
+
+	// PendingUnreadable is every source file this process's discovery has
+	// proven complete and could not open (issue #1541), with when it first
+	// saw each one. The caller keeps it in memory (internal/app), so it is
+	// empty for a process that has not run discovery, which is the same
+	// honest "unknown from here" LastSuccessfulPollAt gives.
+	//
+	// Like everything above, it never reaches decideState: a file waiting
+	// for its producer to publish it is not a failed backup.
+	PendingUnreadable []PendingUnreadable
+}
+
+// PendingUnreadable is one source file that is complete under its set's
+// strategy but that the source would not let discovery open (issue #1541).
+type PendingUnreadable struct {
+	RemotePath string
+	FirstSeen  time.Time
 }
 
 // TransferInProgress names one artifact currently in the TRANSFERRING
@@ -528,6 +545,24 @@ type BackupSetHealth struct {
 	// answer here -- from four byte counts -- would be a verdict built
 	// out of throughput.
 	Snapshot *SnapshotHealth
+
+	// PendingUnreadableCount is how many source files are complete but
+	// could not be opened on the last discovery pass (issue #1541), and
+	// PendingUnreadableOldestAge and PendingUnreadableOldestPath name the
+	// one that has waited longest. The age is nil when the count is zero.
+	//
+	// PendingUnreadableWarning is set once that oldest one has waited
+	// longer than StaleThreshold, and says which file and for how long.
+	// Below that threshold a waiting file is the ordinary gap between a
+	// producer finishing and publishing, and is counted without a warning.
+	//
+	// None of the four reaches decideState. The set's State is what its
+	// backups say it is; a producer that never publishes is visible here,
+	// next to the verdict, without being called a failed backup.
+	PendingUnreadableCount      int
+	PendingUnreadableOldestAge  *time.Duration
+	PendingUnreadableOldestPath string
+	PendingUnreadableWarning    string
 }
 
 // SnapshotHealth is what this set's newest snapshot run measured, in the

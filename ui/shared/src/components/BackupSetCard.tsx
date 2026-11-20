@@ -9,6 +9,7 @@ import { backupSetIdentity } from "@shared/utilities/backupSetIdentity";
 import { relativeAge } from "@shared/utilities/format";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
+import { Icon } from "@shared/design-system/icons";
 
 /**
  * One backup set, as a card.
@@ -164,6 +165,15 @@ export function BackupSetCard({
         </p>
       </InfoTooltip>
 
+      {/* Issue #1541: source files the engine proved complete and could not
+          open, because the producer has not published them. Beside the
+          state note and never in the badge, because the set's verdict is
+          what its backups say and a file waiting for its producer is not a
+          failed backup. Quiet while the oldest is inside the stale
+          threshold; the engine's warning sentence, on the warn tint, once
+          it is not. The path is a remote file's name and goes in as text. */}
+      {set.pendingUnreadable ? <PendingUnreadableReadout pending={set.pendingUnreadable} /> : null}
+
       <dl
         style={{
           margin: 0, padding: "13px 17px", borderTop: "1px solid var(--border)",
@@ -305,5 +315,37 @@ function Field({ label, value, mono, tip }: { label: string; value: ReactNode; m
         {tip ? <InfoTooltip id={tip}><span>{value}</span></InfoTooltip> : value}
       </dd>
     </div>
+  );
+}
+
+function PendingUnreadableReadout({ pending }: { pending: NonNullable<BackupSet["pendingUnreadable"]> }) {
+  const warned = Boolean(pending.warning);
+  const waited =
+    pending.oldestAgeSeconds >= 3600
+      ? Math.floor(pending.oldestAgeSeconds / 3600) + "h"
+      : Math.floor(pending.oldestAgeSeconds / 60) + "m";
+  const files = pending.count === 1 ? "1 complete source file" : pending.count + " complete source files";
+  return (
+    <InfoTooltip id="sets.card.pending-unreadable" block>
+      <p
+        data-testid="pending-unreadable"
+        data-warned={warned ? "true" : "false"}
+        style={{
+          margin: "0 17px 13px", padding: "8px 10px", borderRadius: 6,
+          display: "flex", gap: 8, alignItems: "flex-start",
+          fontSize: "var(--text-sm)", color: "var(--text)",
+          background: warned ? "var(--warn-quiet)" : "var(--surface-2)",
+          border: "1px solid " + (warned ? "var(--warn)" : "var(--border)")
+        }}
+      >
+        <Icon name={warned ? "warning" : "status-idle"} style={{ flex: "none", marginTop: 2, color: warned ? "var(--warn)" : "var(--text-2)" }} />
+        <span style={{ overflowWrap: "anywhere" }}>
+          <strong>Not published yet.</strong>{" "}
+          {warned
+            ? pending.warning
+            : files + " not readable yet, the oldest " + pending.oldestPath + " for " + waited + "."}
+        </span>
+      </p>
+    </InfoTooltip>
   );
 }

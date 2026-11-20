@@ -778,6 +778,28 @@ exclude a real artifact from every backup. The sibling per-artifact marker
 convention (`<artifact-name>.complete`) is unrelated to this field and
 stays fixed.
 
+Completeness is proven first, and then readability is checked (issue
+#1541). A candidate that is complete under its strategy and has no journal
+row yet is opened once through the same source read path a transfer uses,
+and at most one byte is read. If the source refuses the open with
+permission denied, or the object was listed and is gone by the open, the
+candidate stays pending as "unreadable at the source": it is not
+journaled, so it can never be failed, and it is checked again on every
+pass and admitted the first time it can be read. Any other open failure is
+a per-candidate discovery error, as a failed stat already is. An unreadable
+complete candidate is reported and never failed: the set's health carries
+how many are waiting and the oldest one's path and age, and once that
+oldest one has waited longer than the set's `stale_after` the set shows a
+warning naming it, without its state changing. That record is kept in
+the engine's memory and carried by every pass that runs discovery on the
+set, however late in its cycle the set is reached. A pass that ends
+without running discovery (whatever stopped it, the set's workflow
+refusing it included), or a cycle that skips the set as disabled or held,
+drops it, so such a set reports none and the next pass that looks
+starts the clock again. Transfer is unchanged: an
+artifact already DISCOVERED that is denied at its open is still FAILED
+under FR-22.
+
 ------------------------------------------------------------------------
 
 ## FR-9 --- SQLite Lifecycle Journal

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/internal/model"
 )
 
@@ -119,22 +120,28 @@ func (d readDecision) agreeOnArtifact(ctx context.Context, id model.ArtifactID, 
 // round trip apart legitimately differ in the last digits of one, and a
 // check that compared those would fire on nothing at all. The state is the
 // verdict an operator reads and the one the exit code is computed from.
-func (d readDecision) agreeOnHealth(ctx context.Context, mine []string) error {
+//
+// The engine's answer is handed back when the two agree, because one part of
+// it only the engine can know (issue #1541): which complete source files its
+// discovery could not open, which it keeps in memory and this short-lived
+// process never ran discovery to find out. Not attached, there is no engine
+// to ask and the zero answer comes back.
+func (d readDecision) agreeOnHealth(ctx context.Context, mine []string) (apicontract.HealthResponse, error) {
 	if !d.attached() {
-		return nil
+		return apicontract.HealthResponse{}, nil
 	}
 	answer, err := d.client.SystemHealth(ctx)
 	if err != nil {
-		return d.unanswered("how healthy this deployment is", err)
+		return apicontract.HealthResponse{}, d.unanswered("how healthy this deployment is", err)
 	}
 	theirs := make([]string, 0, len(answer.BackupSets))
 	for _, bs := range answer.BackupSets {
 		theirs = append(theirs, bs.BackupSetID+" "+bs.State)
 	}
 	if differ(mine, theirs) {
-		return disagreement(d.engine, "which backup sets are healthy", mine, theirs)
+		return apicontract.HealthResponse{}, disagreement(d.engine, "which backup sets are healthy", mine, theirs)
 	}
-	return nil
+	return answer, nil
 }
 
 // agreeOnRetention is `retention`: for one backup set, the same verdict on
