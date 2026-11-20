@@ -76,8 +76,9 @@ func (e *Error) Error() string {
 		return fmt.Sprintf(
 			"refusing to start: there are two different %s files, %s and %s, and the second is at the path "+
 				"from before the product was renamed to retnd in %s. This process can't tell which one the deployment "+
-				"means, so it won't pick. Put the one this deployment should serve at %s, move the other one somewhere "+
-				"retnd doesn't look (rename %s, for example), and start again. Nothing was read or written.",
+				"means, so it won't pick. Put the one this deployment should serve at %s and take the other one out "+
+				"of retnd's sight (in a compose file, remove the volume line whose container side is %s; on a plain "+
+				"host, move that directory aside), then start again. Nothing was read or written.",
 			e.What, e.Current, e.Former, renameRelease, curDir, oldDir)
 	}
 	return fmt.Sprintf(
@@ -95,7 +96,9 @@ func (e *Error) pointAt() string {
 	if e.What == whatConfig {
 		return "start with --config " + e.Former
 	}
-	return "set state.database in config.yaml (or --state-database, before there is a configuration) to " + e.Former
+	// STATE_DATABASE rather than --state-database: both binaries read the
+	// variable, and retnd daemon has no such flag.
+	return "set state.database in config.yaml (or STATE_DATABASE, before there is a configuration) to " + e.Former
 }
 
 const (
@@ -116,8 +119,15 @@ func Check(configPath, stateDatabase string) error {
 	former := formerSpelling(current)
 	if former != "" {
 		// ResolvePath again: --config may name a directory that only
-		// exists under its old spelling.
-		former = config.ResolvePath(former)
+		// exists under its old spelling. When it does, current is still the
+		// bare directory (ResolvePath leaves a missing path alone), so give
+		// it the same config.yaml on the end. Otherwise the two paths are
+		// different shapes, and the mount fix in the diagnostic points one
+		// level too high, at a mount that leaves both paths empty.
+		if resolved := config.ResolvePath(former); resolved != former {
+			former = resolved
+			current = filepath.Join(current, config.DefaultFileName)
+		}
 	}
 	if err := decide(whatConfig, current, former); err != nil {
 		return err

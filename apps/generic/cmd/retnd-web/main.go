@@ -511,6 +511,9 @@ func cmdServe(args []string) int {
 	// a pre-rename path to adopt, so a deployment still mounted at its
 	// pre-0.5.0 path is refused here, naming both paths and the fix, instead
 	// of getting a default configuration written at the empty new path.
+	// Unlike the legacypath decision above, service.OpenConfigAndJournal
+	// does not repeat this one: only this command and `retnd daemon` run
+	// it, so a provider app that skips this call gets no refusal.
 	if err := prerename.Check(*configPath, *stateDatabase); err != nil {
 		fmt.Fprintln(os.Stderr, cliecho.WebBinary+":", err)
 		return exitFailure
