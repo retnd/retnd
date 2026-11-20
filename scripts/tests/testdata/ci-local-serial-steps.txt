@@ -8,6 +8,7 @@
 ==> a skipped first-run spec fails the gate (#1049)
 ==> a tests pin must be on retnd-tests main (#1074)
 ==> the web-ui ratchet refuses a new failure, a listed pass, an expired or other-pin entry and a grown skip count (#1260)
+==> the Chromium lane hands the daemon a read-only tree and a fence, and tells a red run from a machine that cannot run it (#1532, #1537)
 ==> docs/reference/local-gate.md documents every knob the gate reads (#1260)
 ==> the fast tier, the hook's hooks-path refusal and the pre-merge check behave as documented (#1361)
 ==> ci-docker.sh --host runs the gate on a remote daemon from a copy, and cleans up (#1267)
@@ -48,6 +49,8 @@
 ==> apps/common/tests eslint
 ==> cross-provider conformance suite (apps/common/tests)
 ==> browser e2e + CLI smoke, from retnd-tests at the pinned sha (#197), the browser suite judged against the known-red ratchet (#1260)
+==> ui/shared browser specs (ui/shared/e2e), every file, in the pinned Playwright image (#1537)
+==> the assurance UI guards can actually fail (browser mutation self-test, #1532)
 ==> two throwaway machines, one temporary network, one real backup (#356)
 ==> three-layer boundaries, static checks (§7.1, #165)
 ==> installer prerequisite refusals (#262)

@@ -1,0 +1,22 @@
+# EPIC O (#898, #903), pinned valid: the upgrade case, a config that never
+# mentions observability. It has to load exactly as it did before the block
+# existed: metrics off (so /metrics answers 404), a 15s report cache, the info
+# log floor, platform alert delivery, and no observability key written back by
+# a load, an upgrade or a settings read.
+poll_interval: 15m
+
+state:
+  database: /var/lib/retnd/state.db
+
+sources:
+  - id: production
+    backup_sets:
+      - id: postgres-primary
+        remote:
+          type: local
+        remote_path: /srv/exports/postgres
+        local_path: /backups/production/postgres
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h

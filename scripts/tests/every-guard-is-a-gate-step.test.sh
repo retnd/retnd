@@ -153,6 +153,22 @@ mk "$work/c16" '  gate_selftest_with_ledger scripts/foo/selftest.sh
   bash scripts/tests/bar.test.sh'
 if [ -z "$(problems "$work/c16")" ]; then pass "control: a run through gate_selftest_with_ledger counts"; else fail "control: a run through gate_selftest_with_ledger counts" "$(problems "$work/c16")"; fi
 
+mk "$work/c17" '  gate_ui_browser "the foo self-test" bash scripts/e2e/ui-browser.sh run bash scripts/foo/selftest.sh
+  bash scripts/tests/bar.test.sh'
+if [ -z "$(problems "$work/c17")" ]; then pass "control: a run through the Chromium lane counts (#1532, #1537)"; else fail "control: a run through the Chromium lane counts (#1532, #1537)" "$(problems "$work/c17")"; fi
+
+mk "$work/c17b" '  gate_pw_locked bash scripts/foo/selftest.sh
+  bash scripts/tests/bar.test.sh'
+if [ -z "$(problems "$work/c17b")" ]; then pass "control: a run through gate_pw_locked counts"; else fail "control: a run through gate_pw_locked counts" "$(problems "$work/c17b")"; fi
+
+mk "$work/c18" '  gate_ui_browser "the foo self-test" bash scripts/e2e/ui-browser.sh run bash scripts/foo/selftest.sh --check-anchors
+  bash scripts/tests/bar.test.sh'
+expect_unwired "an anchors-only run through the Chromium lane is not a run" "$work/c18"
+
+mk "$work/c19" '  echo gate_ui_browser "x" bash scripts/e2e/ui-browser.sh run bash scripts/foo/selftest.sh
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a lane call inside an echo is not a run" "$work/c19"
+
 mk "$work/h" '  bash scripts/tests/bar.test.sh' '# scripts/foo/selftest.sh\tneeds a browser, #1532'
 expect_unwired "a commented-out exemption does not exempt" "$work/h"
 

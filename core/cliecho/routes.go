@@ -694,23 +694,49 @@ var routes = map[string]entry{
 	// All three are commands now. #600 built `backup-set edit-hold
 	// <source/backup-set> [--release]`, which reports a hold and gives one
 	// back, and #1253 added --take, so a scripted multi-step edit can pause
-	// the set the way the browser's edit form does. A hold is a lease, so
-	// the line that takes one is also the line that renews it.
+	// the set the way the browser's edit form does. #1606 gave a hold a
+	// holder: a body naming a token is a renewal of that holder (or a
+	// release of that holder alone), and the line says so with --token.
+	// The token itself is a placeholder rather than the value: it names a
+	// lease that is gone within ninety seconds of nobody renewing it, so
+	// a copied line would be refused by the time anybody ran it, and a
+	// field called token is not one this table prints (credentials_test.go
+	// has the rule). A body with no token, or one that is not JSON, echoes
+	// the plain line, which is what the engine does with it too (or
+	// refuses it, and the line beside this one says so).
 	key("GET", "/backup-sets/{source}/{set}/edit-hold"): {
 		build:    func(a Action) *cmd { return newCmd("backup-set", "edit-hold", setID(a)) },
 		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
 	},
 	key("POST", "/backup-sets/{source}/{set}/edit-hold"): {
 		build: func(a Action) *cmd {
-			return newCmd("backup-set", "edit-hold", setID(a)).bare("take")
+			var req apicontract.BackupSetEditHoldRequest
+			decode(a.Body, &req)
+			c := newCmd("backup-set", "edit-hold", setID(a)).bare("take")
+			if req.Token != "" {
+				c.placeholderFlag("token", "the token --take printed")
+			}
+			return c
 		},
-		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Body: []byte(`{"token":"3f9c0d2a"}`)},
+		},
 	},
 	key("POST", "/backup-sets/{source}/{set}/edit-hold/release"): {
 		build: func(a Action) *cmd {
-			return newCmd("backup-set", "edit-hold", setID(a)).bare("release")
+			var req apicontract.BackupSetEditHoldRequest
+			decode(a.Body, &req)
+			c := newCmd("backup-set", "edit-hold", setID(a)).bare("release")
+			if req.Token != "" {
+				c.placeholderFlag("token", "the token --take printed")
+			}
+			return c
 		},
-		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Body: []byte(`{"token":"3f9c0d2a"}`)},
+		},
 	},
 
 	// -------------------------------------------------------- backups ---
@@ -2894,7 +2920,7 @@ func RecordedReasons() map[string]string {
 	return map[string]string{
 		"GET /health/live":  "an unauthenticated liveness probe for an orchestrator, deliberately outside /api/v1 and the spec; `" + WebBinary + " healthcheck --url` is the command that calls any probe",
 		"GET /health/ready": "an unauthenticated readiness probe for an orchestrator, deliberately outside /api/v1 and the spec; `" + WebBinary + " healthcheck --url` is the command that calls any probe",
-		"GET /metrics":      "the Prometheus scrape endpoint (EPIC O): a poll by a scraper holding the scrape credential, deliberately outside /api/v1 and the spec, and not an operator action. `" + Binary + " settings observability` turns it on and `" + Binary + " settings observability rotate-scrape-token` mints the credential",
+		"GET /metrics":      "the Prometheus scrape endpoint (EPIC O): a poll by a scraper holding the scrape credential, deliberately outside /api/v1 and the spec, and not an operator action. `" + Binary + " settings observability patch --metrics-enabled` turns it on and `" + Binary + " settings observability rotate-scrape-token` mints the credential",
 	}
 }
 

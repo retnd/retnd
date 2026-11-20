@@ -17,8 +17,10 @@ import (
 // #1546's deployment fixture: a root with the current and the pre-rename
 // spelling of the configuration directory under it.
 //
-// Falsify: drop the prerename.Check call from any one of the three commands;
-// only that command's subtests go red.
+// Falsify: drop the refusedAtPreRenamePath call from check, or the
+// checkPreRenamePath call from openService (status) or openBackupDataPlane
+// (run); that command's subtests go red. prerename_everycommand_1609_test.go
+// has the rest of the verbs.
 
 var commands1558 = []string{"check", "status", "run"}
 

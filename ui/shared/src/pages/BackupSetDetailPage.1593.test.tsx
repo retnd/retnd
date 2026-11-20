@@ -1,6 +1,10 @@
 /**
  * Issue #1593: the edit hold's heartbeat once the page has gone.
  *
+ * Since #1606 the heartbeat is a renewal under the page's own holder
+ * token (renewEditHold) rather than a second take, so the cases below hold
+ * that call open; BackupSetDetailPage.1606.test.tsx covers the token.
+ *
  * While edit mode is open the page renews its hold on a 30 second interval.
  * Leaving the page clears that interval and releases the hold, and does
  * nothing about a renewal already out: its answer still called setStopped
@@ -62,6 +66,7 @@ async function editing(api: RetndApi): Promise<{ beat: () => void; unmount: () =
 }
 
 const STOPPED: EditHoldTaken = {
+  token: "hold-1593",
   expiresAt: "2026-11-20T06:00:00Z",
   stopped: { artifact: "2026-11-20T05-00.dump", stage: "transferring" }
 };
@@ -70,9 +75,9 @@ describe("the edit hold's heartbeat after unmount (#1593)", () => {
   it("ignores a renewal that answers after the page has gone", async () => {
     const api = createMockApi();
     const renewal = held<EditHoldTaken>();
-    const take = vi.spyOn(api, "takeEditHold");
+    const renew = vi.spyOn(api, "renewEditHold");
     const { beat, unmount } = await editing(api);
-    take.mockImplementation(() => renewal.promise);
+    renew.mockImplementation(() => renewal.promise);
 
     beat();
     unmount();
@@ -89,9 +94,9 @@ describe("the edit hold's heartbeat after unmount (#1593)", () => {
   it("still reports a cycle the renewal stopped while the page is there", async () => {
     const api = createMockApi();
     const renewal = held<EditHoldTaken>();
-    const take = vi.spyOn(api, "takeEditHold");
+    const renew = vi.spyOn(api, "renewEditHold");
     const { beat } = await editing(api);
-    take.mockImplementation(() => renewal.promise);
+    renew.mockImplementation(() => renewal.promise);
 
     beat();
     await act(async () => {

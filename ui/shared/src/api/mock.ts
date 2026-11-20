@@ -653,7 +653,11 @@ const PRISTINE_SETS: BackupSet[] = SETS.map((set) => ({
  * is what stops a patch that replaces includePatterns, or one that
  * raises a verification level, leaking into the pristine copy.
  */
+/** The mock's edit-hold tokens, numbered so two takes are two holders. */
+let mockHoldTokens = 0;
+
 export function resetMockFixtures(): void {
+  mockHoldTokens = 0;
   SETS.length = 0;
   for (const set of PRISTINE_SETS) {
     SETS.push({
@@ -5087,7 +5091,10 @@ export function createMockApi(
     // product only shows sometimes. A test that wants the warning stubs
     // this one call.
     getEditHold: () => delay({ held: false, running: null }),
-    takeEditHold: () => delay({ expiresAt: new Date(Date.now() + 90_000).toISOString(), stopped: null }),
+    takeEditHold: () =>
+      delay({ token: `mock-hold-${++mockHoldTokens}`, expiresAt: new Date(Date.now() + 90_000).toISOString(), stopped: null }),
+    renewEditHold: (_source, _set, token) =>
+      delay({ token, expiresAt: new Date(Date.now() + 90_000).toISOString(), stopped: null }),
     releaseEditHold: () => delay(undefined),
 
     createBackupSet: (req: CreateBackupSetRequest): Promise<CreatedBackupSet> => {

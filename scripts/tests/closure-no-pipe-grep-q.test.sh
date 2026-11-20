@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The N, T and U closure checks and their self-tests run under pipefail. A
+# The N, T, U and O closure checks and their self-tests run under pipefail. A
 # `printf ... | grep -q X` there is a flake: grep quits on the first match,
 # printf takes SIGPIPE on the rest, and a busy machine reads a found match as a
 # failure (#1407, #1482). A here-string (`grep -q X <<<"$x"`) has no pipe to
@@ -12,7 +12,7 @@ cd "$REPO_ROOT" || exit 2
 echo "==> the closure checks do not pipe into grep -q under pipefail (#1482)"
 
 bad=0
-for e in n t u; do
+for e in n t u o; do
   for f in "scripts/release/check-epic-$e-closed.sh" "scripts/tests/epic-$e-closure.test.sh"; do
     if [ ! -f "$f" ]; then echo "    FAIL $f is missing"; bad=$((bad + 1)); continue; fi
     hits="$(grep -nE '\| *grep -[a-zA-Z]*q' "$f" || true)"
