@@ -16,6 +16,7 @@
  * nothing here retires or deletes anything itself.
  */
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import { describeFailure } from "@shared/api/failure";
 import { ConfirmationDialog } from "@shared/components/ConfirmationDialog";
@@ -52,6 +53,7 @@ export function ReencryptDialog({ suite, onClose }: { suite: string; onClose(): 
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [started, setStarted] = useState<string | null>(null);
+  const mountedRef = useMounted();
 
   const proposed = proposal.data?.copies ?? [];
   const destinations = [...new Set(proposed.filter((c) => c.refusal === null).map((c) => c.to).filter((t): t is string => t !== null))];
@@ -67,11 +69,11 @@ export function ReencryptDialog({ suite, onClose }: { suite: string; onClose(): 
     setFailure(null);
     try {
       const r = await api.startReencrypt({ suite, to });
-      setStarted(r.operationId);
+      if (mountedRef.current) setStarted(r.operationId);
     } catch (e) {
-      setFailure(describeFailure(e, "the re-encryption was not started").message);
+      if (mountedRef.current) setFailure(describeFailure(e, "the re-encryption was not started").message);
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   };
 

@@ -20,6 +20,7 @@
  * levels config.yaml accepts.
  */
 import { useId, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import type { ObservabilitySettings } from "@shared/api/contracts";
 import { describeFailure } from "@shared/api/failure";
@@ -38,13 +39,20 @@ export function LogLevelControl({ logs, readOnly, onSaved }: {
   const selectId = useId();
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const mountedRef = useMounted();
 
   const change = (level: string) => {
     setSaving(true);
     setProblem(null);
     api.patchObservabilitySettings({ logsLevel: level }).then(
-      (s) => { setSaving(false); onSaved(s); },
-      (e: unknown) => { setSaving(false); setProblem(describeFailure(e, "could not save the log level").message); }
+      (s) => {
+        // The parent's setter is as gone as this control when the page is, so
+        // a saved level that lands after that is dropped with it (#1599).
+        if (!mountedRef.current) return;
+        setSaving(false);
+        onSaved(s);
+      },
+      (e: unknown) => { if (!mountedRef.current) return; setSaving(false); setProblem(describeFailure(e, "could not save the log level").message); }
     );
   };
 

@@ -58,6 +58,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { clock } from "@shared/utilities/format";
 import { Icon } from "@shared/design-system/icons";
 import type { IconName } from "@shared/design-system/icons";
@@ -141,6 +142,7 @@ export function StepLogTerminal({ runId, stepId, step, api }: StepLogTerminalPro
   const [wrap, setWrap] = useState(true);
   const [timestamps, setTimestamps] = useState(true);
   const [copied, setCopied] = useState(false);
+  const mountedRef = useMounted();
   const scroller = useRef<HTMLDivElement | null>(null);
   const pinnedToEnd = useRef(true);
 
@@ -296,9 +298,9 @@ export function StepLogTerminal({ runId, stepId, step, api }: StepLogTerminalPro
 
   const copy = useCallback(() => {
     void copyText(transcript()).then((outcome) => {
-      if (outcome === "copied") setCopied(true);
+      if (outcome === "copied" && mountedRef.current) setCopied(true);
     });
-  }, [transcript]);
+  }, [transcript, mountedRef]);
 
   const download = useCallback(() => {
     // The sanitised content, deliberately: see transcriptText. A file is

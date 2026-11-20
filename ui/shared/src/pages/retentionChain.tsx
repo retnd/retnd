@@ -533,7 +533,7 @@ export function localDriveDescription(m: StorageMedium): string {
  * the one that reproduces the click, so somebody who moved one tier by
  * clicking has read the command that moves the next fifty.
  */
-function TierDestinationActions({
+export function TierDestinationActions({
   tier,
   readOnly,
   onDestinationsChanged,
@@ -649,6 +649,8 @@ function TierDestinationActions({
         <S3DestinationWizard
           onClose={() => setAdding(false)}
           onSaved={(created) => {
+            // Called after the wizard's save answers; this tier can have gone (#1599).
+            if (!mountedRef.current) return;
             setAdding(false);
             // Picked immediately, because choosing it is why they made
             // it. A wizard that saved and left the tier on its old

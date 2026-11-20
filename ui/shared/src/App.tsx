@@ -25,6 +25,7 @@
  * here is the footer naming what it is running on.
  */
 import { useCallback, useEffect, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { OperationDetailPage } from "@shared/assurance/OperationDetailPage";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import "@shared/design-system/tokens.css";
@@ -114,6 +115,7 @@ export function App() {
   const [restartRequired, setRestartRequired] = useState(false);
   // retnd#1049: where the guided setup stands, from the same answer.
   const [firstRun, setFirstRun] = useState<FirstRunStatus | null>(null);
+  const mountedRef = useMounted();
 
   useEffect(() => {
     if (!auth?.authenticated) return;
@@ -282,7 +284,8 @@ export function App() {
           status={firstRun}
           configured={configured !== false}
           onSkip={async (step) => {
-            setFirstRun(await api.skipFirstRunStep(step));
+            const next = await api.skipFirstRunStep(step);
+            if (mountedRef.current) setFirstRun(next);
           }}
         />
       ) : null}

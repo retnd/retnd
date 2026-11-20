@@ -16,6 +16,7 @@
  * rejection afterwards, and the service remains the one that decides.
  */
 import { useId, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { Link } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { bootstrapTokenFromLocation } from "@shared/api/client";
@@ -168,6 +169,7 @@ export function EnrollmentPage({ onEnrolled }: { onEnrolled(): void }) {
   // is finished later in Settings, so a missing mail server never stops a
   // first install.
   const [withRecovery, setWithRecovery] = useState(false);
+  const mountedRef = useMounted();
   const valid =
     username.length > 0 &&
     password.length >= MIN_LENGTH &&
@@ -187,8 +189,13 @@ export function EnrollmentPage({ onEnrolled }: { onEnrolled(): void }) {
         withRecovery ? smtpInput(smtp) : undefined
       )
       .then(onEnrolled)
-      .catch((e: unknown) => setFailure(describeEnrollmentFailure(e, bootstrapTokenFromLocation() !== null)))
-      .finally(() => setBusy(false));
+      .catch((e: unknown) => {
+        if (!mountedRef.current) return;
+        setFailure(describeEnrollmentFailure(e, bootstrapTokenFromLocation() !== null));
+      })
+      .finally(() => {
+        if (mountedRef.current) setBusy(false);
+      });
   };
 
   return (

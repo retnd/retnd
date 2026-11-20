@@ -41,6 +41,7 @@
  * that recovery would mail to an unproven mailbox.
  */
 import { useCallback, useEffect, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import { describeFailure } from "@shared/api/failure";
 import type { OperatorFailure } from "@shared/api/failure";
@@ -65,6 +66,7 @@ export function RecoveryVerificationBanner() {
   const api = useApi();
   const recovery = useCausl(recoveryVerificationNode);
   const [resending, setResending] = useState(false);
+  const mountedRef = useMounted();
   const [resent, setResent] = useState(false);
   const [failure, setFailure] = useState<OperatorFailure | null>(null);
 
@@ -101,16 +103,18 @@ export function RecoveryVerificationBanner() {
     api
       .resendRecoveryEmailVerification()
       .then(() => {
+        if (!mountedRef.current) return;
         setResent(true);
         // Re-read rather than assume: the send is what the service just
         // did, and the deadline (and, if somebody verified in another
         // tab meanwhile, the whole banner) comes from its answer.
         load();
       })
-      .catch((e: unknown) =>
-        setFailure(describeFailure(e, "The verification email was not sent."))
-      )
-      .finally(() => setResending(false));
+      .catch((e: unknown) => {
+        if (!mountedRef.current) return;
+        setFailure(describeFailure(e, "The verification email was not sent."));
+      })
+      .finally(() => { if (mountedRef.current) setResending(false); });
   };
 
   // Nothing to say: verified, not read yet, or an administrator with no
