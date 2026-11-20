@@ -91,7 +91,9 @@ CONTROLS = [
         'return "retnd scrub-now " + shellQuote(setId); // ' + PLANT,
         ["src/test/assurance-wiring.test.ts"],
         [],
-        "assurance-wiring",
+        # The test's own title, not the file name vitest prints for a passing
+        # file as well (#1549 review).
+        "scrub, recovery-test, restore and snapshot restore exist as verbs",
     ),
     (
         "a replayed feed merged without de-duplicating by sequence",

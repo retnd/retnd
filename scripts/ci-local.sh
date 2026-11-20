@@ -202,8 +202,10 @@ fi
 export CI_LOCAL=1
 
 # And CI, which this gate had never set (#1259, #1260). vitest reads it to
-# pick its non-interactive reporter, Playwright reads it to refuse a
-# `.only` and to stop retrying, and core/tests/machines keys a refusal
+# pick its non-interactive reporter, Playwright reads it to stop retrying
+# (and to refuse a `.only` where a config sets forbidOnly from it, which
+# ui/shared/e2e's does; the Chromium lane passes --forbid-only as well), and
+# core/tests/machines keys a refusal
 # on it, so its comment about "a failure under CI" described a run nobody
 # ever made. The recorder sets it too; both, so
 # neither depends on the other being the version in the worktree.
@@ -1166,7 +1168,8 @@ fi
 }
 
 gate_seg_ui_browser() {
-# The Chromium lane (#1532, #1537). The 127 spec files in ui/shared/e2e are
+# The Chromium lane (#1532, #1537). The spec files in ui/shared/e2e (126 when
+# this landed) are
 # the proof the Dashboard, Settings, Agents and suite UI work landed with, and
 # EPIC Q's assurance UI self-test is what says the glyph and wording guards can
 # still go red. Neither ran anywhere before this but on somebody's Mac, so a
@@ -1180,7 +1183,7 @@ gate_seg_ui_browser() {
 # stalled run, and it is killed), and the specs a per-test timeout; any of
 # those is a FAILED run, not a skip. Its 3 means the machine could not run the
 # lane at all, and is ledgered. CI_LOCAL_SKIP_UI_BROWSER=1 is the out-loud
-# opt-out, and ledgers too. Non-FAST only, about forty minutes for the specs
+# opt-out, and ledgers too. Non-FAST only, about 56 minutes for the specs
 # at workers: 1, so it is a shard of its own, and one that does not run on a
 # Mac unless RETND_UI_BROWSER_ALLOW_LOCAL=1 says so (see gate_ui_browser).
 if [ "$FAST" != "1" ]; then

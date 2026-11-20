@@ -3,7 +3,7 @@
 # against a stand-in docker, so what it hands the daemon and what it makes of
 # each answer are measured without a daemon, a browser or a network.
 #
-# The lane is the only thing that runs the 127 specs in ui/shared/e2e and the
+# The lane is the only thing that runs the spec files in ui/shared/e2e and the
 # assurance UI self-test, so its exit status is the whole verdict the gate
 # sees. The cases hold the three answers apart: 0 for a run that passed, 1 for
 # a run that failed, stalled or hit its cap, 3 only for a machine that could
