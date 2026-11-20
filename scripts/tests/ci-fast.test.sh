@@ -15,7 +15,8 @@
 #   Group C  scripts/merge-gate.sh against a bare "remote" and a stub gh
 #   Group D  the live-issue test stands down under CI_LOCAL_TIER=fast
 #   Group E  the queue (#1544): one fast tier at a time across worktrees,
-#            the load wait, nice/GOMAXPROCS/-p 2, the stall and cap kills
+#            the load wait, nice/GOMAXPROCS/-p 2, the stall and cap kills,
+#            and waiting for the full gate's Docker lock outside it (#1560)
 #
 # Every negative assertion has a positive control next to it: "go test was
 # not run for ./internal/b" is only worth anything beside "go test was run
@@ -889,6 +890,230 @@ for case in dangling reclaimer; do
   assert_eq "E11 ($case) nothing is left behind" free "$(lock_left "$fix")"
   assert_eq "E11 ($case) no stray holder directories either" 0 "$(find "$fix/.git" -maxdepth 1 -name 'ci-fast.lock.*' | grep -c .)"
 done
+
+# The Docker lock (#1560). A Docker-backed package goes through
+# gate_docker_step, which waits for the full gate's ci-local.lock, for up to
+# GATE_LOCK_TIMEOUT. That wait must happen outside the fast queue, or one
+# commit sits on ci-fast.lock for as long as a release full gate runs and
+# every other worktree's commit waits out CI_FAST_LOCK_TIMEOUT and then goes
+# ahead unlocked, all together. The cases below share one Docker lock
+# between two worktrees and plant a live "full gate" holding it.
+
+# A daemon that answers, so the Docker step runs instead of being ledgered.
+write_docker_up() { # <dir>
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$1/bin/docker"
+  chmod +x "$1/bin/docker"
+}
+
+# plant_gate_holder <lock path> <pid>: the full gate's Docker lock, in its
+# symlink shape, held by <pid> on this host and boot.
+plant_gate_holder() {
+  local dir="$1.$2.planted"
+  mkdir -p "$dir"
+  echo "$2" >"$dir/pid"
+  hostname >"$dir/host"
+  (. "$REPO_ROOT/scripts/lib/ci-local-gate.sh" && gate_boot_id) >"$dir/boot"
+  echo "/elsewhere/full-gate" >"$dir/where"
+  ln -s "$(basename "$dir")" "$1"
+}
+
+# bg_fast <worktree> <out> [VAR=VAL ...] -- <paths...>: ci-fast.sh over a
+# list of paths in the background, as fast does, writing to <out>. Its pid is
+# left in bg_pid.
+bg_fast() {
+  local wt="$1" o="$2"
+  shift 2
+  local vars=()
+  while [ $# -gt 0 ] && [ "$1" != "--" ]; do vars+=("$1"); shift; done
+  [ "${1:-}" = "--" ] && shift
+  printf '%s\n' "$@" >"$wt/paths.txt"
+  : >"$wt/calls.log"
+  (cd "$wt" && exec env -u CI_LOCAL_FAST -u CI_LOCAL_SKIP_JS -u CI_LOCAL_SKIP_DOCKER -u CI_LOCAL_TIER \
+    -u GOTOOLCHAIN -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR \
+    -u GOMAXPROCS -u CI_FAST_LOCK -u CI_FAST_LOCK_TIMEOUT -u CI_FAST_STALL_MIN -u CI_FAST_CAP_MIN \
+    -u CI_FAST_KILL_GRACE \
+    FIX_ROOT="$wt" FIX_LOG="$wt/calls.log" CI_FAST_LOAD_WAIT=0 CI_FAST_POLL=0.2 GATE_LOCK_POLL=0.2 \
+    CI_FAST_KILL_GRACE=1 PATH="$wt/bin:$PATH" ${vars[@]+"${vars[@]}"} \
+    bash scripts/ci-fast.sh --paths-from "$wt/paths.txt") >"$o" 2>&1 &
+  bg_pid=$!
+}
+
+# wait_for <file> <text> <seconds>: 0 once <file> contains <text>.
+wait_for() {
+  local i=0
+  while [ "$i" -lt $(($3 * 10)) ]; do
+    grep -qF -- "$2" "$1" 2>/dev/null && return 0
+    sleep 0.1
+    i=$((i + 1))
+  done
+  return 1
+}
+
+# line_of <file> <text>: the number of the last line holding <text>, or 0.
+line_of() { grep -nF -- "$2" "$1" 2>/dev/null | tail -1 | cut -d: -f1 | grep . || echo 0; }
+
+# two_worktrees <fix>: w1 and w2 beside it, with the queue's go and a daemon.
+two_worktrees() {
+  local w
+  for w in w1 w2; do
+    (cd "$1" && git worktree add -q --detach "$1.$w" main) >/dev/null 2>&1
+    write_queue_go "$1.$w"
+    write_docker_up "$1.$w"
+  done
+}
+
+# E12: while a full gate holds the Docker lock, a commit with a Docker-backed
+# package waits for it without holding the fast lock, so a plain commit in
+# another worktree goes straight through, under the lock, with no wait. Once
+# the full gate lets go, the first run takes the Docker lock, then the fast
+# lock again, and runs its Docker-backed go test holding both.
+fix="$(make_repo)"
+two_worktrees "$fix"
+gate_lock="$fix/.gate-lock-shared"
+sleep 300 &
+full_gate=$!
+plant_gate_holder "$gate_lock" "$full_gate"
+bg_fast "$fix.w1" "$SANDBOX/e12.w1.out" CI_LOCAL_LOCK_DIR="$gate_lock" CI_FAST_LOCK_TIMEOUT=60 GATE_LOCK_TIMEOUT=60 \
+  -- core/tests/crashmatrix/c.go
+e12_w1=$bg_pid
+if wait_for "$SANDBOX/e12.w1.out" "gate lock: waiting" 20; then
+  pass "E12 the Docker-backed run waits for the full gate's Docker lock"
+else
+  fail "E12 the Docker-backed run waits for the full gate's Docker lock" "$(cat "$SANDBOX/e12.w1.out")"
+fi
+sleep 1
+assert_eq "E12 and holds no fast lock while it waits" free "$(lock_left "$fix")"
+assert_contains "E12 it says it gave the fast lock back" "given back" "$(cat "$SANDBOX/e12.w1.out")"
+e12_began="$(date +%s)"
+fast "$fix.w2" CI_LOCAL_LOCK_DIR="$gate_lock" CI_FAST_LOCK_TIMEOUT=8 -- core/internal/a/a.go
+e12_took=$(( $(date +%s) - e12_began ))
+assert_eq "E12 a plain commit in another worktree passes meanwhile" 0 "$status"
+assert_contains "E12 it took the fast lock" "ci-fast lock: held" "$out"
+assert_not_contains "E12 without waiting for it" "ci-fast lock: waiting" "$out"
+assert_not_contains "E12 and did not go ahead unlocked" "without the lock" "$out"
+if [ "$e12_took" -lt 6 ]; then pass "E12 well inside its 8s lock cap (${e12_took}s)"; else fail "E12 inside 6s -- took ${e12_took}s" "$out"; fi
+assert_eq "E12 the first run is still waiting for Docker" alive "$(alive "$e12_w1")"
+kill "$full_gate" 2>/dev/null
+wait "$full_gate" 2>/dev/null
+wait "$e12_w1"
+e12_status=$?
+e12_out="$(cat "$SANDBOX/e12.w1.out")"
+assert_eq "E12 once the full gate is done the Docker-backed run passes" 0 "$e12_status"
+assert_contains "E12 its Docker-backed go test ran" 'core: go test -p 2 -timeout 45m ./tests/crashmatrix' "$(calls "$fix.w1")"
+assert_contains "E12 holding the fast lock" 'lock=held' "$(grep '^go test ' "$fix.w1/calls.log")"
+e12_gate_at="$(line_of "$SANDBOX/e12.w1.out" "gate lock: acquired")"
+e12_fast_at="$(grep -nE 'ci-fast lock: (held|acquired)' "$SANDBOX/e12.w1.out" | tail -1 | cut -d: -f1)"
+if [ "$e12_gate_at" -gt 0 ] && [ "${e12_fast_at:-0}" -gt "$e12_gate_at" ]; then
+  pass "E12 it took the Docker lock first, then the fast lock again (lines $e12_gate_at, $e12_fast_at)"
+else
+  fail "E12 the Docker lock first, then the fast lock again -- lines [$e12_gate_at] and [${e12_fast_at:-}]" "$e12_out"
+fi
+assert_eq "E12 no fast lock is left behind" free "$(lock_left "$fix")"
+if [ -L "$gate_lock" ] || [ -e "$gate_lock" ]; then fail "E12 no Docker lock is left behind" "$(ls -la "$fix")"; else pass "E12 no Docker lock is left behind"; fi
+
+# E13: no lock-order deadlock, and still one worktree's heavy steps at a time.
+# w1 holds the Docker lock and wants the fast lock back; w2 holds the fast
+# lock with a plain package in hand and a Docker-backed one to come. If w2
+# waited for Docker holding the fast lock, they would sit there until a cap.
+# They both have to finish well inside the caps, locked, never overlapping.
+fix="$(make_repo)"
+two_worktrees "$fix"
+gate_lock="$fix/.gate-lock-shared"
+serial="$SANDBOX/e13.serial.log"
+: >"$serial"
+sleep 300 &
+full_gate=$!
+plant_gate_holder "$gate_lock" "$full_gate"
+e13_began="$(date +%s)"
+bg_fast "$fix.w1" "$SANDBOX/e13.w1.out" CI_LOCAL_LOCK_DIR="$gate_lock" CI_FAST_LOCK_TIMEOUT=60 GATE_LOCK_TIMEOUT=60 \
+  STUB_SERIAL_LOG="$serial" STUB_GO_SLEEP=1 STUB_WT=w1 -- core/tests/crashmatrix/c.go
+e13_w1=$bg_pid
+wait_for "$SANDBOX/e13.w1.out" "gate lock: waiting" 20 || true
+bg_fast "$fix.w2" "$SANDBOX/e13.w2.out" CI_LOCAL_LOCK_DIR="$gate_lock" CI_FAST_LOCK_TIMEOUT=60 GATE_LOCK_TIMEOUT=60 \
+  STUB_SERIAL_LOG="$serial" STUB_GO_SLEEP=2 STUB_WT=w2 -- core/internal/a/a.go core/tests/crashmatrix/c.go
+e13_w2=$bg_pid
+if wait_for "$SANDBOX/e13.w2.out" "ci-fast lock: held" 20; then
+  pass "E13 w2 takes the fast lock while w1 waits for Docker"
+else
+  fail "E13 w2 takes the fast lock while w1 waits for Docker" "$(cat "$SANDBOX/e13.w2.out")"
+fi
+kill "$full_gate" 2>/dev/null
+wait "$full_gate" 2>/dev/null
+wait "$e13_w1"
+e13_s1=$?
+wait "$e13_w2"
+e13_s2=$?
+e13_took=$(( $(date +%s) - e13_began ))
+assert_eq "E13 w1 passes" 0 "$e13_s1"
+assert_eq "E13 w2 passes" 0 "$e13_s2"
+assert_not_contains "E13 neither went ahead without a lock" "without the lock" "$(cat "$SANDBOX/e13.w1.out" "$SANDBOX/e13.w2.out")"
+assert_not_contains "E13 neither hit the Docker lock's cap" "FAILED (gate lock)" "$(cat "$SANDBOX/e13.w1.out" "$SANDBOX/e13.w2.out")"
+if [ "$e13_took" -lt 40 ]; then pass "E13 both finished well inside the 60s caps (${e13_took}s)"; else fail "E13 inside 40s -- took ${e13_took}s" "$(cat "$serial")"; fi
+assert_eq "E13 every go call ran (w1 vet, test; w2 vet, test, test)" 10 "$(grep -c . "$serial")"
+interleaved=0
+prev=""
+while read -r what step wt; do
+  if [ "$what" = begin ]; then
+    [ -z "$prev" ] || interleaved=1
+    prev="$step $wt"
+  else
+    [ "$prev" = "$step $wt" ] || interleaved=1
+    prev=""
+  fi
+done <"$serial"
+assert_eq "E13 no go call overlapped another" 0 "$interleaved"
+assert_eq "E13 no fast lock is left behind" free "$(lock_left "$fix")"
+if [ -L "$gate_lock" ] || [ -e "$gate_lock" ]; then fail "E13 no Docker lock is left behind" "$(ls -la "$fix")"; else pass "E13 no Docker lock is left behind"; fi
+
+# E14: a signal in either wait gives back what the run holds, and only that.
+# First while it waits for the Docker lock (it holds nothing), then while it
+# holds the Docker lock and waits for the fast lock behind another worktree.
+fix="$(make_repo)"
+two_worktrees "$fix"
+gate_lock="$fix/.gate-lock-shared"
+sleep 300 &
+full_gate=$!
+plant_gate_holder "$gate_lock" "$full_gate"
+bg_fast "$fix.w1" "$SANDBOX/e14a.out" CI_LOCAL_LOCK_DIR="$gate_lock" CI_FAST_LOCK_TIMEOUT=60 GATE_LOCK_TIMEOUT=60 \
+  -- core/tests/crashmatrix/c.go
+e14_w1=$bg_pid
+wait_for "$SANDBOX/e14a.out" "gate lock: waiting" 20 || true
+kill -TERM "$e14_w1"
+wait "$e14_w1"
+assert_eq "E14 SIGTERM while waiting for Docker ends the run with 143" 143 "$?"
+assert_eq "E14 and leaves no fast lock" free "$(lock_left "$fix")"
+assert_eq "E14 and leaves the full gate's Docker lock alone" "$(basename "$gate_lock").$full_gate.planted" "$(readlink "$gate_lock")"
+
+bg_fast "$fix.w1" "$SANDBOX/e14b.w1.out" CI_LOCAL_LOCK_DIR="$gate_lock" CI_FAST_LOCK_TIMEOUT=60 GATE_LOCK_TIMEOUT=60 \
+  -- core/tests/crashmatrix/c.go
+e14_w1=$bg_pid
+wait_for "$SANDBOX/e14b.w1.out" "gate lock: waiting" 20 || true
+bg_fast "$fix.w2" "$SANDBOX/e14b.w2.out" CI_LOCAL_LOCK_DIR="$gate_lock" CI_FAST_LOCK_TIMEOUT=60 STUB_GO_HANG=hold \
+  -- core/internal/a/a.go
+e14_w2=$bg_pid
+for _ in $(seq 1 200); do [ -s "$fix.w2/hung.child" ] && break; sleep 0.1; done
+kill "$full_gate" 2>/dev/null
+wait "$full_gate" 2>/dev/null
+wait_for "$SANDBOX/e14b.w1.out" "gate lock: acquired" 20 || true
+e14_gate_at="$(line_of "$SANDBOX/e14b.w1.out" "gate lock: acquired")"
+for _ in $(seq 1 100); do
+  [ "$(line_of "$SANDBOX/e14b.w1.out" "ci-fast lock: waiting")" -gt "$e14_gate_at" ] && break
+  sleep 0.1
+done
+if [ "$e14_gate_at" -gt 0 ] && [ "$(line_of "$SANDBOX/e14b.w1.out" "ci-fast lock: waiting")" -gt "$e14_gate_at" ]; then
+  pass "E14 w1 holds the Docker lock and waits for the fast lock behind w2"
+else
+  fail "E14 w1 holds the Docker lock and waits for the fast lock behind w2" "$(cat "$SANDBOX/e14b.w1.out")"
+fi
+kill -TERM "$e14_w1"
+wait "$e14_w1"
+assert_eq "E14 SIGTERM in that wait ends the run with 143" 143 "$?"
+if [ -L "$gate_lock" ] || [ -e "$gate_lock" ]; then fail "E14 it gives the Docker lock back" "$(ls -la "$fix")"; else pass "E14 it gives the Docker lock back"; fi
+assert_eq "E14 and leaves w2's fast lock alone" held "$(lock_left "$fix")"
+assert_eq "E14 w2 is still running" alive "$(alive "$e14_w2")"
+kill -TERM "$e14_w2"
+wait "$e14_w2" 2>/dev/null
+assert_eq "E14 once w2 is stopped no fast lock is left" free "$(lock_left "$fix")"
 
 # ---------------------------------- Group D: the live check stands down
 
