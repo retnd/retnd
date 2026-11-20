@@ -76,6 +76,15 @@ has "L1 it installs the @playwright/test that matches the image" "$run_line" "[L
 has "L1 it carries a per-test timeout" "$run_line" "[LANE_TEST_TIMEOUT=60]"
 has "L1 it carries a stall limit of ten minutes" "$run_line" "[LANE_STALL=600]"
 has "L1 and runs Python unbuffered, so a self-test's progress reaches the stall check" "$run_line" "[PYTHONUNBUFFERED=1]"
+# A test.only left in one spec would otherwise run that one test, exit 0 and
+# read as the whole suite passing (#1549 review). CI=1 alone does not refuse
+# it: Playwright does only with --forbid-only or a config's forbidOnly.
+has "L1 the specs refuse a focused test (--forbid-only)" "$run_line" "--forbid-only"
+if grep -q 'forbidOnly: !!process.env.CI' "$repo_root/$config"; then
+  pass "L1 and the specs' own config refuses one under CI, for a run outside the lane"
+else
+  fail "L1 and the specs' own config refuses one under CI, for a run outside the lane"
+fi
 has "L1 it carries a hard cap" "$run_line" "[LANE_CAP=5400]"
 has "L1 it hands the container the mode and the config" "$run_line" "[specs] [$config]"
 name="$(sed -n 's/.*\[--name\] \[\([^]]*\)\].*/\1/p' <<<"$run_line")"
@@ -92,6 +101,12 @@ has "L4 and says it stalled" "$out" "STALLED"
 lane_run STUB_RUN=124 -- specs "$config"
 is "L5 a run that hit its cap exits 1" 1 "$status" "$out"
 has "L5 and names the cap" "$out" "cap"
+# 126 and 127 from the command inside (a renamed self-test, a missing tool)
+# are a defect in the tree, not a machine that cannot run the lane, so the
+# container says 95 for them and the lane fails.
+lane_run STUB_RUN=95 -- run bash scripts/assurance/ui-selftest.sh
+is "L5b a command inside that could not be run (126 or 127) fails, never INCOMPLETE" 1 "$status" "$out"
+has "L5b and says so" "$out" "could not be run"
 lane_run STUB_RUN=3 -- run bash scripts/assurance/ui-selftest.sh
 is "L6 a 3 from the command inside is a failure, not the machine verdict" 1 "$status" "$out"
 
@@ -126,8 +141,14 @@ has "L16 an arm64 daemon gets linux/arm64, never an emulated image" "$calls" "[-
 lane_run STUB_ARCH=aarch64 RETND_UI_BROWSER_PLATFORM=linux/amd64 STUB_INSPECT=1 -- specs "$config"
 has "L16 RETND_UI_BROWSER_PLATFORM wins on the pull" "$calls" "docker [pull] [--platform] [linux/amd64]"
 has "L16 and on the run" "$calls" "[--platform] [linux/amd64] [--cpus]"
+# A platform the lane cannot name is refused rather than left to the daemon:
+# on a shared host an unnamed pull is what swaps a tag for everyone (#1549
+# review). RETND_UI_BROWSER_PLATFORM names one by hand.
 lane_run STUB_ARCH=riscv -- specs "$config"
-hasnt "L16 an architecture it cannot name leaves the choice to the daemon" "$calls" "[--platform]"
+is "L16 an architecture it cannot name is refused as a machine that cannot run the lane" 3 "$status" "$out"
+hasnt "L16 and starts nothing" "$calls" "docker [run]"
+lane_run STUB_ARCH=riscv RETND_UI_BROWSER_PLATFORM=linux/riscv64 -- specs "$config"
+has "L16 unless RETND_UI_BROWSER_PLATFORM names one" "$calls" "[--platform] [linux/riscv64] [--cpus]"
 lane_run RETND_UI_BROWSER_STALL=soon -- specs "$config"
 is "L13 a stall limit that is not a number is refused" 1 "$status" "$out"
 hasnt "L13 before anything starts" "$calls" "docker [run]"
