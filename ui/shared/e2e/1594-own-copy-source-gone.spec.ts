@@ -27,6 +27,17 @@ const WEEK34_ID = "media/weekly-archive/" + WEEK34;
 const PAGE = "/backups/media/weekly-archive/" + WEEK34;
 const dialog = (page: Page) => page.getByRole("dialog");
 const recovery = (page: Page) => page.getByTestId("recovery-card");
+/** A recording (E2E_VIDEO) keeps the last state on screen long enough to read
+ *  in the GIF; an ordinary run does not wait. */
+const hold = async (page: Page) => {
+  if (process.env.E2E_VIDEO) await page.waitForTimeout(1500);
+};
+/** Opens the Retire dialog and moves the pointer off the button, so the
+ *  button's own tooltip does not sit over the dialog. */
+async function openRetire(page: Page) {
+  await page.getByRole("button", { name: "Retire…" }).click();
+  await page.mouse.move(2, 2);
+}
 
 test.describe("#1594 a failed backup with its own copy at the final name and its source gone", () => {
   test("#1594 Retry stays on, says it keeps the copy, and keeping it takes the backup out of FAILED", async ({ page }) => {
@@ -38,6 +49,7 @@ test.describe("#1594 a failed backup with its own copy at the final name and its
     await retry.click();
     await expect(page.getByRole("button", { name: "Retry ingestion" })).toHaveCount(0);
     await expect(recovery(page)).toHaveCount(0);
+    await hold(page);
   });
 
   test("#1594 a copy that does not verify is refused by Retry with the engine's way out", async ({ page }) => {
@@ -47,11 +59,13 @@ test.describe("#1594 a failed backup with its own copy at the final name and its
     await expect(said).toContainText("could not be verified");
     await expect(said).toContainText("--accept-unverified-copy");
     await expect(page.getByRole("button", { name: "Retry ingestion" })).toBeVisible();
+    await said.scrollIntoViewIfNeeded();
+    await hold(page);
   });
 
   test("#1594 the Retire dialog asks for the unverified-copy acknowledgement, keeps the file and retires it", async ({ page }) => {
     await open(page, PAGE, "own-copy-unverified");
-    await page.getByRole("button", { name: "Retire…" }).click();
+    await openRetire(page);
     const row = dialog(page).getByTestId("retire-row-" + WEEK34);
     await expect(row).toContainText("Gone from the host");
     await expect(dialog(page)).toContainText("its own copy is at its final name");
@@ -66,18 +80,21 @@ test.describe("#1594 a failed backup with its own copy at the final name and its
     await dialog(page).getByRole("button", { name: "Retire 1 backup" }).click();
     await expect(dialog(page).getByRole("heading", { name: "1 backup retired" })).toBeVisible();
     await expect(dialog(page).getByRole("status")).toContainText("replaced by media-week36.tar");
+    await hold(page);
   });
 
   test("#1594 a copy that verifies is never retired: the acknowledgement turns into Retry instead", async ({ page }) => {
     await open(page, PAGE, "own-copy-verified");
-    await page.getByRole("button", { name: "Retire…" }).click();
+    await openRetire(page);
     await dialog(page).getByRole("checkbox", { name: /could not be verified/ }).check();
     const row = dialog(page).getByTestId("retire-row-" + WEEK34);
     await expect(row).toContainText("still matches");
     await expect(row.getByRole("button", { name: "Retry instead" })).toBeVisible();
     await expect(dialog(page).getByRole("button", { name: /^Retire/ }).last()).toBeDisabled();
+    await hold(page);
     await row.getByRole("button", { name: "Retry instead" }).click();
     await expect(recovery(page)).toHaveCount(0);
+    await hold(page);
   });
 
   for (const theme of ["light", "dark"] as const) {
