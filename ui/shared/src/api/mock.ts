@@ -303,6 +303,11 @@ export const SCENARIOS = [
   // Issue #1351 (EPIC U): the Agents card. The default scenario has no token;
   // see agents/mockAgents.ts for what each of these holds.
   ...AGENTS_SCENARIOS,
+  // Issue #1541: a source file the engine proved complete and could not
+  // open. Production PostgreSQL has had one waiting past its stale
+  // threshold (the warning), Billing MySQL one waiting for two hours (the
+  // quiet count). Both sets stay healthy.
+  "pending-unreadable",
 ] as const;
 
 export type Scenario = (typeof SCENARIOS)[number];
@@ -4232,6 +4237,27 @@ export function createMockApi(
       lastRunAt: null, lastValidation: "unknown", expectedIntervalHours: null, staleAfterSeconds: 36 * 3600,
       retainedCount: null, retainedBytes: null, validations: []
     };
+  // Issue #1541: what the real client maps from GET /system/health's
+  // pending_unreadable* onto a set, for the "pending-unreadable" scenario.
+  const withPendingUnreadable = (set: BackupSet): BackupSet => {
+    if (scenario !== "pending-unreadable") return set;
+    if (set.id === "production/postgres-primary") {
+      return {
+        ...set,
+        pendingUnreadable: {
+          count: 1,
+          oldestAgeSeconds: 30 * 3600,
+          oldestPath: "run-20261103T033855Z/gitea-dump-20261103T033855Z.tar.gz",
+          warning:
+            "1 source file complete but unreadable for 30h, oldest run-20261103T033855Z/gitea-dump-20261103T033855Z.tar.gz; the producer has not published it"
+        }
+      };
+    }
+    if (set.id === "production/billing-mysql") {
+      return { ...set, pendingUnreadable: { count: 2, oldestAgeSeconds: 2 * 3600, oldestPath: "billing-20260829.sql.gz" } };
+    }
+    return set;
+  };
   const wireOverlay = options.wire ? overlayAssurance : (a: BackupArtifact) => a;
   const empty = scenario === "empty";
   const retainedPad = retainedPadFromLocation();
@@ -4724,9 +4750,9 @@ export function createMockApi(
     getStorage: () =>
       delay(empty ? STORAGE_EMPTY : scenario === "storage-critical" ? STORAGE_CRITICAL : STORAGE),
 
-    listSets: () => delay(empty ? [] : withRetentionAttribution(retentionOverrides, SETS).map(asReportedSet)),
+    listSets: () => delay(empty ? [] : withRetentionAttribution(retentionOverrides, SETS).map(asReportedSet).map(withPendingUnreadable)),
     getSet: (id) => {
-      const found = SETS.map(asReportedSet).find((s) => s.id === id);
+      const found = SETS.map(asReportedSet).map(withPendingUnreadable).find((s) => s.id === id);
       // A rejected promise, not a synchronous throw: getSet's own type
       // signature promises Promise<BackupSet>, and every caller (useAsync,
       // useResource/fetchResource) reaches for fetchFn().then/.catch to

@@ -42,6 +42,9 @@ async function agents(page: Page) {
   await open(page, "/settings", "agent-refusals");
   const card = page.locator("[data-agents-card]");
   await expect(card).toBeVisible();
+  // #1525: the audit is collapsed until asked for.
+  const audit = card.locator('[data-agents-region="audit"]').getByRole("button", { name: /^Audit/ });
+  if ((await audit.getAttribute("aria-expanded")) !== "true") await audit.click();
   return card;
 }
 

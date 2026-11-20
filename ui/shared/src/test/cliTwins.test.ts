@@ -155,6 +155,16 @@ cases("agents/agentCommands", [
   ["auditCommand", "one token since a week", { tokenId: "agt_0123456789abcdef", since: "7d" }]
 ]);
 
+cases("observability/observabilityCommands", [
+  ["metricsEnabledCommand", "turning it on", true],
+  ["metricsEnabledCommand", "turning it off", false],
+  ["metricsIntervalCommand", "half a minute", 30],
+  ["metricsIntervalCommand", "a minute and a half", 90],
+  ["metricsIntervalCommand", "an hour and ten seconds", 3610],
+  ["metricsIntervalCommand", "a whole hour", 3600],
+  ["mintScrapeTokenCommand", "the mint"]
+]);
+
 cases("assurance/assuranceCommands", [
   ["scrubCommand", "a set", SET],
   ["scrubCommand", "a hostile set id", HOSTILE_SET],
@@ -439,7 +449,7 @@ function flagsSpelledIn(src: string): string[] {
 
 /** The flags a module spells that none of its lines carries. */
 function unreachedFlags(src: string, lines: string[]): string[] {
-  const words = new Set(lines.flatMap((l) => l.split(/\s+/)));
+  const words = new Set(lines.flatMap((l) => l.split(/[\s=]+/)));
   return flagsSpelledIn(src).filter((f) => !words.has(f));
 }
 

@@ -126,6 +126,9 @@ func (b *BackupService) adoptConfig(cfg *config.Config) string {
 	newInner.AdoptAssuranceEpisodes(prevInner)
 	// Before the store, deliberately: see this function's doc.
 	newInner.AdoptPollSchedule(prevInner)
+	// And how long each unreadable source file has waited (#1541), so a
+	// settings save does not restart the clock its warning runs on.
+	newInner.AdoptUnreadableSources(prevInner)
 	revision := computeConfigRevision(cfg)
 	// Every reload re-reads the file, so the default workflow root is
 	// resolved again here (#1246): a mount that has appeared since the last

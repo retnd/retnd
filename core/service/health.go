@@ -149,6 +149,20 @@ type BackupSetHealth struct {
 	// from OK and must not be collapsed into it.
 	TotalBytes   uint64
 	StorageLevel string
+
+	// PendingUnreadable is how many source files the last discovery pass
+	// proved complete and could not open (issue #1541): a producer that
+	// has finished a file and not yet published it. The oldest one's age
+	// and path travel with it and mean something only when the count is
+	// non-zero, the PlacementHealth convention. PendingUnreadableWarning
+	// is internal/health's sentence once that oldest one has waited longer
+	// than StaleAfter, and empty before then.
+	//
+	// The path is a remote file's name, so it is untrusted text (FR-8).
+	PendingUnreadable           int
+	PendingUnreadableOldestAge  time.Duration
+	PendingUnreadableOldestPath string
+	PendingUnreadableWarning    string
 }
 
 // PlacementHealth is where one backup set's artifacts actually are, as
@@ -344,6 +358,13 @@ func toServiceBackupSetHealth(bs health.BackupSetHealth) BackupSetHealth {
 	if bs.FreeBytes != nil {
 		out.FreeBytes = *bs.FreeBytes
 		out.FreeBytesKnown = true
+	}
+	// Issue #1541. The age's companion is the count, as with placement.
+	out.PendingUnreadable = bs.PendingUnreadableCount
+	out.PendingUnreadableOldestPath = bs.PendingUnreadableOldestPath
+	out.PendingUnreadableWarning = bs.PendingUnreadableWarning
+	if bs.PendingUnreadableOldestAge != nil {
+		out.PendingUnreadableOldestAge = *bs.PendingUnreadableOldestAge
 	}
 	return out
 }

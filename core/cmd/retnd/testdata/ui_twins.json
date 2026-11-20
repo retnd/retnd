@@ -22,6 +22,10 @@
       "sha256": "5c277b88a537cdfc2f2c63aaf47b66f6487e29c42dcc5641d5c658c1d3376048"
     },
     {
+      "path": "ui/shared/src/observability/observabilityCommands.ts",
+      "sha256": "c2a816e5d56be61a43496c3f6a1a335b292ba8a4e4afefd152d702fcf68fd9b4"
+    },
+    {
       "path": "ui/shared/src/pages/destinationConfigureCommands.ts",
       "sha256": "e146c768728a6215edf16a2179043894fb27f3cd8e864400a2f81bb27f422178"
     },
@@ -35,7 +39,7 @@
     },
     {
       "path": "ui/shared/src/test/cliTwins.test.ts",
-      "sha256": "5ad070c8fe369bf04039b2e71f465a3774d330b293da8a9e9bc43c7d45b718f6"
+      "sha256": "649fd72b0ed6bdfeeaae9f0758d2b7306ceb0d607ad6dc7ada9c20f572cdc517"
     }
   ],
   "twins": [
@@ -704,6 +708,48 @@
       "fn": "noticeCommand",
       "case": "any other outcome, every set",
       "line": "retnd operation run"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "metricsEnabledCommand",
+      "case": "turning it on",
+      "line": "retnd settings observability patch --metrics-enabled=true"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "metricsEnabledCommand",
+      "case": "turning it off",
+      "line": "retnd settings observability patch --metrics-enabled=false"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "metricsIntervalCommand",
+      "case": "half a minute",
+      "line": "retnd settings observability patch --metrics-min-rebuild-interval 30s"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "metricsIntervalCommand",
+      "case": "a minute and a half",
+      "line": "retnd settings observability patch --metrics-min-rebuild-interval 1m30s"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "metricsIntervalCommand",
+      "case": "an hour and ten seconds",
+      "line": "retnd settings observability patch --metrics-min-rebuild-interval 1h10s"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "metricsIntervalCommand",
+      "case": "a whole hour",
+      "line": "retnd settings observability patch --metrics-min-rebuild-interval 1h"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "mintScrapeTokenCommand",
+      "case": "the mint",
+      "line": "retnd settings observability rotate-scrape-token"
     },
     {
       "module": "pages/destinationConfigureCommands",
