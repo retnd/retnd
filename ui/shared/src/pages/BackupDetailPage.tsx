@@ -34,6 +34,7 @@ import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
 import { bytes, stamp } from "@shared/utilities/format";
 import { RETRY_ACCEPTED, isRetryable, retryRefusalSentence } from "./retryIngestion";
+import { RetireDialog } from "./RetireDialog";
 import type { ArtifactRetentionPolicy, BackupArtifact } from "@shared/types/backup";
 
 export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
@@ -96,6 +97,15 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
         ? api.listEncryptionCopies(artifactId).catch(() => null)
         : Promise.resolve(null),
     [api, artifactId]
+  );
+  // Issue #1528: the Retire dialog, and for a backup that is already RETIRED
+  // the record the engine kept (who, when, why, what replaces it), read from
+  // the same preview route the dialog uses.
+  const [retireOpen, setRetireOpen] = useState(false);
+  const retiredState = artifact.data?.state === "RETIRED";
+  const retirement = useAsync(
+    () => (retiredState ? api.previewRetirement(artifactId).then((p) => p.retirement ?? null) : Promise.resolve(null)),
+    [api, artifactId, retiredState]
   );
   const [verifying, setVerifying] = useState<string | null>(null);
   const [failedVerify, setFailedVerify] = useState<Record<string, string>>({});
@@ -294,6 +304,14 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
                   {retrying ? "Retrying…" : "Retry ingestion"}
                 </button>
               </InfoTooltip>
+              {/* Issue #1528: the second way out, for a backup whose source
+                  is gone. The dialog asks the engine first and says why
+                  when it would refuse. */}
+              <InfoTooltip id="backups.detail.retire">
+                <button className="btn btn--sm" disabled={readOnly || retrying} onClick={() => setRetireOpen(true)}>
+                  Retire…
+                </button>
+              </InfoTooltip>
             </span>
             {recovery ? (
               <p
@@ -301,6 +319,41 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
                 style={{ margin: 0, maxWidth: "72ch", color: recovery.tone === "ok" ? "var(--text-2)" : "var(--danger)" }}
               >
                 {recovery.text}
+              </p>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      {retireOpen ? (
+        <RetireDialog
+          artifactIds={[a.id]}
+          setLabel={a.setName}
+          readOnly={readOnly}
+          onRetry={() => {
+            setRetireOpen(false);
+            retryIngestion();
+          }}
+          onClose={(changed) => {
+            setRetireOpen(false);
+            if (changed) artifact.reload();
+          }}
+        />
+      ) : null}
+
+      {retiredState ? (
+        <section className="card" style={{ marginTop: 14 }} data-testid="retirement-card">
+          <div className="card__header">
+            <InfoTooltip id="backups.detail.retirement-card"><h2 className="eyebrow">Retired</h2></InfoTooltip>
+          </div>
+          <div style={{ padding: "15px 18px", display: "grid", gap: 8, fontSize: "var(--text-sm)" }}>
+            <p style={{ margin: 0, color: "var(--text-2)", maxWidth: "72ch" }}>
+              Retired is a final state. It is not a failure, and nothing is waiting on it. The record stays so the history
+              still shows that this backup was attempted.
+            </p>
+            {retirement.data ? (
+              <p style={{ margin: 0, maxWidth: "72ch" }}>
+                {retirementSentence(retirement.data)}
               </p>
             ) : null}
           </div>
@@ -418,4 +471,13 @@ function Row({ label, value, mono, tip, testId }: { label: string; value: string
       </dd>
     </>
   );
+}
+
+/** One sentence for a kept retirement record (issue #1528), in the design's
+ *  words: what the source looked like, what replaces it, who and when. */
+function retirementSentence(r: { actor_kind: string; actor: string; retired_at: string; source_check: string; superseded_by: string; failure_reason: string; note: string }): string {
+  const source = r.source_check === "absent" ? "Source gone from the host." : r.source_check === "present" ? "Retired although the source was still on the host." : "Retired without confirming the source.";
+  const replaced = r.superseded_by ? " Replaced by " + r.superseded_by + "." : " Nothing replaces it.";
+  const who = r.actor_kind === "automatic" ? "Retired automatically" : r.actor_kind === "agent" ? "Retired by " + (r.actor || "an agent") + " with a person's approval" : "Retired by " + (r.actor || "an operator");
+  return source + replaced + " " + who + ", " + stamp(r.retired_at) + "." + (r.note ? " Note: " + r.note : "");
 }

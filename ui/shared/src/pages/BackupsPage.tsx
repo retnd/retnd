@@ -74,6 +74,7 @@ import { filterEcho, rowMenuGroups } from "./backupRowMenu";
 import type { MenuRun } from "./backupRowMenu";
 import { useBatchedSearchParams } from "./useBatchedSearchParams";
 import { useRowMenuRuns } from "./useRowMenuRuns";
+import { RetireDialog } from "./RetireDialog";
 
 /** Called "Backups", never "Restore points" — the product does not perform
  *  application restore (§13). */
@@ -184,6 +185,9 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   const startTest = useStable((a: BackupArtifact) => void rowRuns.test(a));
   const startScrub = useStable((a: BackupArtifact) => void rowRuns.scrub(a));
   const startRetry = useStable((a: BackupArtifact) => void rowRuns.retry(a));
+  // Issue #1528: the backup the Retire dialog is open for, from its row menu.
+  const [retiring, setRetiring] = useState<BackupArtifact[] | null>(null);
+  const openRetire = useStable((a: BackupArtifact) => setRetiring([a]));
   // Adjusted while rendering rather than in an effect: it is derived from the
   // list and has nothing outside React to synchronise with.
   const unfilteredCount = !setFilter && artifacts.data ? artifacts.data.length : null;
@@ -285,6 +289,25 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
 
   return (
     <>
+      {retiring ? (
+        <RetireDialog
+          artifactIds={retiring.map((a) => a.id)}
+          setLabel={new Set(retiring.map((a) => a.setName)).size === 1 ? retiring[0].setName : "the selected backup sets"}
+          readOnly={readOnly}
+          onRetry={(id) => {
+            const a = retiring.find((r) => r.id === id);
+            setRetiring(null);
+            if (a) startRetry(a);
+          }}
+          onClose={(changed) => {
+            setRetiring(null);
+            if (changed) {
+              setPicked(new Set());
+              artifacts.reload();
+            }
+          }}
+        />
+      ) : null}
       <PageHeader
         title="Backups"
         tip="nav.backups"
@@ -497,6 +520,7 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
                     onTest={startTest}
                     onScrub={startScrub}
                     onRetry={startRetry}
+                    onRetire={openRetire}
                   />
                 ))}
               </tbody>
@@ -618,7 +642,7 @@ const NO_GROUPS: never[] = [];
  *  and a table of a hundred rows should not be rebuilt each time (#1202). */
 const BackupRow = memo(function BackupRow({
   a, canRecover, showsMedium, showsEncryption, ticked, facts, claimsAvailable, menuAt, menuCtx,
-  onOpenBackup, onToggle, onOpenMenu, onCloseMenu, onRecover, onTest, onScrub, onRetry
+  onOpenBackup, onToggle, onOpenMenu, onCloseMenu, onRecover, onTest, onScrub, onRetry, onRetire
 }: {
   a: BackupArtifact;
   canRecover: boolean;
@@ -637,6 +661,7 @@ const BackupRow = memo(function BackupRow({
   onTest(a: BackupArtifact): void;
   onScrub(a: BackupArtifact): void;
   onRetry(a: BackupArtifact): void;
+  onRetire(a: BackupArtifact): void;
 }) {
   const open = menuAt !== null;
   return (
@@ -717,6 +742,7 @@ const BackupRow = memo(function BackupRow({
             onTest: () => onTest(a),
             onScrub: () => onScrub(a),
             onRetry: () => onRetry(a),
+            onRetire: () => onRetire(a),
             onOpen: () => onOpenBackup(a)
           }) : NO_GROUPS}
         />

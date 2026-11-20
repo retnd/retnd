@@ -355,6 +355,14 @@
     "label": "Retry ingestion",
     "html": "Puts this backup back into the pipeline for the next cycle to attempt. The service accepts the request rather than carrying it out at once, so the backup stays failed until an attempt actually runs."
   },
+  "backups.detail.retire": {
+    "label": "Retire",
+    "html": "Opens the Retire dialog, which first asks the host whether this backup's source file is still there. Retiring marks a failed backup <strong>Retired</strong> when its source is gone and a newer good backup replaces it: the record stays, and the backup set stops counting it as a failure. It is refused while the source is still there, because retrying can still fetch it."
+  },
+  "backups.detail.retirement-card": {
+    "label": "Retired",
+    "html": "This backup failed, its source is gone, and it was retired: a final state that is not a failure and that nothing is waiting on. The record says who retired it, when, and which newer backup replaces it. If the source file ever appears on the host again, the next cycle puts the backup back into the pipeline."
+  },
   "backups.lifecycle.discovered": {
     "label": "Discovered",
     "html": "The remote server signalled that the artifact was complete and ready to take. Nothing has been transferred at this point."
@@ -974,6 +982,10 @@
   "sets.card.current-operation": {
     "label": "Current operation",
     "html": "What a run is doing for this set right now, with progress where the service can measure it. An idle set has nothing in flight, which is not a claim that it is healthy."
+  },
+  "sets.card.retired": {
+    "label": "Retired backups",
+    "html": "How many failed backups in this set were retired because their source is gone. They no longer count as failures, so they do not make the set read Failing, and each keeps its record on its own backup page."
   },
   "sets.activity.refresh": {
     "label": "Refresh cadence",
