@@ -206,6 +206,24 @@ func (c *Client) UpdateAssuranceSettings(ctx context.Context, req apicontract.Up
 	return out, err
 }
 
+// UpdateObservabilitySettings is PATCH /settings/observability (EPIC O,
+// #898): the deployment-wide observability block, written by the engine that
+// is serving it, for UpdateSettings's reason: a change left in config.yaml
+// beside a serving engine is one that process never reads.
+func (c *Client) UpdateObservabilitySettings(ctx context.Context, req apicontract.UpdateObservabilitySettingsRequest) (apicontract.ObservabilitySettingsResponse, error) {
+	var out apicontract.ObservabilitySettingsResponse
+	err := c.call(ctx, "updateObservabilitySettings", nil, req, &out)
+	return out, err
+}
+
+// MintScrapeToken is POST /settings/observability/scrape-token. The answer
+// carries the credential itself, once; nothing afterwards returns it.
+func (c *Client) MintScrapeToken(ctx context.Context) (apicontract.MintedScrapeToken, error) {
+	var out apicontract.MintedScrapeToken
+	err := c.call(ctx, "mintScrapeToken", nil, nil, &out)
+	return out, err
+}
+
 // UpdateBackupSetAssurance is PATCH /backup-sets/{source}/{set}/assurance.
 func (c *Client) UpdateBackupSetAssurance(ctx context.Context, source, set string, req apicontract.UpdateBackupSetAssuranceRequest) (apicontract.BackupSetAssurance, error) {
 	var out apicontract.BackupSetAssurance
@@ -643,14 +661,29 @@ func (c *Client) GetBackupSetEditHold(ctx context.Context, source, set string) (
 // ReleaseBackupSetEditHold is POST
 // /backup-sets/{source}/{set}/edit-hold/release: give the lease back, so
 // the scheduler may run this set again without waiting for the hold to
-// lapse.
-func (c *Client) ReleaseBackupSetEditHold(ctx context.Context, source, set string) error {
-	return c.call(ctx, "releaseBackupSetEditHold", []string{source, set}, nil, nil)
+// lapse. With a token it gives back that holder alone and leaves any other
+// holder of the set in force; with "" it gives back every hold (#1606).
+func (c *Client) ReleaseBackupSetEditHold(ctx context.Context, source, set, token string) error {
+	var body any
+	if token != "" {
+		body = apicontract.BackupSetEditHoldRequest{Token: token}
+	}
+	return c.call(ctx, "releaseBackupSetEditHold", []string{source, set}, body, nil)
+}
+
+// RenewBackupSetEditHold is the take route with a holder token in the
+// body (#1606): it extends that holder's lease and nothing else, and the
+// engine refuses it with EDIT_HOLD_GONE once that holder was released or
+// lapsed, rather than taking the set again.
+func (c *Client) RenewBackupSetEditHold(ctx context.Context, source, set, token string) (apicontract.BackupSetEditHold, error) {
+	var out apicontract.BackupSetEditHold
+	err := c.call(ctx, "takeBackupSetEditHold", []string{source, set}, apicontract.BackupSetEditHoldRequest{Token: token}, &out)
+	return out, err
 }
 
 // TakeBackupSetEditHold is POST /backup-sets/{source}/{set}/edit-hold:
-// take, or renew, the lease that stops a cycle running against this set
-// while it is edited, and learn what taking it interrupted.
+// take a new lease that stops a cycle running against this set while it
+// is edited, and learn its holder token and what taking it interrupted.
 //
 // It was deliberately absent until #1253, on the reasoning that a CLI
 // edit is one `backup-set patch` with no session to protect. A scripted

@@ -211,7 +211,14 @@
           "AGENT_CONFIRMATION_NOT_FOUND",
           "AGENT_HTTP_TRANSPORT_OFF",
           "AGENT_RATE_LIMITED",
-          "AGENT_AUDIT_UNAVAILABLE"
+          "AGENT_AUDIT_UNAVAILABLE",
+          "RETIRE_OWN_COPY_AT_FINAL_NAME",
+          "RETIRE_SOURCE_PRESENT",
+          "RETIRE_SOURCE_UNCONFIRMED",
+          "RETIRE_NO_SUCCESSOR",
+          "RETIRE_SUCCESSOR_INVALID",
+          "AGENT_RETIRE_ACK_REFUSED",
+          "EDIT_HOLD_GONE"
         ],
         "x-code-origins": {
           "authentication-failed": "ui",
@@ -349,7 +356,14 @@
           "AGENT_CONFIRMATION_NOT_FOUND": "wire",
           "AGENT_HTTP_TRANSPORT_OFF": "wire",
           "AGENT_RATE_LIMITED": "wire",
-          "AGENT_AUDIT_UNAVAILABLE": "wire"
+          "AGENT_AUDIT_UNAVAILABLE": "wire",
+          "RETIRE_OWN_COPY_AT_FINAL_NAME": "wire",
+          "RETIRE_SOURCE_PRESENT": "wire",
+          "RETIRE_SOURCE_UNCONFIRMED": "wire",
+          "RETIRE_NO_SUCCESSOR": "wire",
+          "RETIRE_SUCCESSOR_INVALID": "wire",
+          "AGENT_RETIRE_ACK_REFUSED": "wire",
+          "EDIT_HOLD_GONE": "wire"
         },
         "x-error-classes": {
           "authentication": [
@@ -370,7 +384,8 @@
             "INSECURE_TRANSPORT_ACK_REQUIRED",
             "AGENT_SCOPE_INSUFFICIENT",
             "AGENT_ROUTE_DENIED",
-            "AGENT_HTTP_TRANSPORT_OFF"
+            "AGENT_HTTP_TRANSPORT_OFF",
+            "AGENT_RETIRE_ACK_REFUSED"
           ],
           "validation": [
             "INVALID_REQUEST",
@@ -434,7 +449,13 @@
             "AGENT_CONFIRMATION_REQUIRED",
             "AGENT_CONFIRMATION_EXPIRED",
             "AGENT_CONFIRMATION_DECIDED",
-            "AGENT_CONFIRMATION_TOKEN_ENDED"
+            "AGENT_CONFIRMATION_TOKEN_ENDED",
+            "RETIRE_OWN_COPY_AT_FINAL_NAME",
+            "RETIRE_SOURCE_PRESENT",
+            "RETIRE_SOURCE_UNCONFIRMED",
+            "RETIRE_NO_SUCCESSOR",
+            "RETIRE_SUCCESSOR_INVALID",
+            "EDIT_HOLD_GONE"
           ],
           "not-found": [
             "BACKUP_SET_NOT_FOUND",
@@ -2854,6 +2875,12 @@
               "configured",
               "none"
             ]
+          },
+          "retirement": {
+            "$ref": "#/components/schemas/RetirementRecord",
+            "description": "The latest retirement record of a RETIRED backup (issue #1528): who or what retired it, what the source looked like and which backup replaced it. Absent for every other state.",
+            "x-go-omitempty": true,
+            "x-go-pointer": true
           }
         },
         "required": [
@@ -2877,7 +2904,7 @@
       },
       "ListArtifactsResponse": {
         "type": "object",
-        "description": "GET /backups and GET /quarantine. An object with one array field, never a bare top-level array.",
+        "description": "GET /backups and GET /quarantine. An object with one array field and a cursor, never a bare top-level array.",
         "additionalProperties": false,
         "properties": {
           "artifacts": {
@@ -2885,10 +2912,18 @@
             "items": {
               "$ref": "#/components/schemas/Artifact"
             }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The value to send back as `before` for the next page, or null when this answer holds the rest of the list (issue #1528). It is always present, so a client that is over a size cap knows it can ask for a smaller page with `limit` instead of giving up. It is an opaque token: echo it, never parse it."
           }
         },
         "required": [
-          "artifacts"
+          "artifacts",
+          "next_cursor"
         ]
       },
       "ArtifactCheckResponse": {
@@ -3188,6 +3223,32 @@
             "type": "string",
             "description": "What was recorded against that oldest failing relocation. Served beside the count rather than instead of it, because a count alone cannot tell an operator whether to look at a storage policy, a credential or a network, and this sentence is the only account of the failure that outlives the pass that hit it. Absent when failed_moves is zero.",
             "x-go-omitempty": true
+          },
+          "retired_count": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many of this set's backups are RETIRED (issue #1528): failures nobody needs to act on any more, because their source object is gone and a newer good backup replaces them, or because an operator said so. They are never part of failures and never force FAILING; this count is what keeps them visible."
+          },
+          "pending_unreadable": {
+            "type": "integer",
+            "description": "How many source files the last discovery pass proved complete under the set's completion strategy and could not open, because the producer has not published them yet (for example a dump still readable only by root inside a directory the backup account can read). They wait and are checked again every pass; none of them is journaled, so none of them can fail, and none of them changes the set's state. It comes from the running engine's memory, so it is zero from a process that has not run discovery. Zero is a real reading, so it is always present.",
+            "format": "int32"
+          },
+          "pending_unreadable_oldest_age_seconds": {
+            "type": "integer",
+            "description": "How long the longest-waiting of those files has been seen complete and unreadable. Absent when pending_unreadable is zero.",
+            "format": "int64",
+            "x-go-omitempty": true
+          },
+          "pending_unreadable_oldest_path": {
+            "type": "string",
+            "description": "The remote path of that longest-waiting file, as the source listed it. Untrusted text from the source. Absent when pending_unreadable is zero.",
+            "x-go-omitempty": true
+          },
+          "pending_unreadable_warning": {
+            "type": "string",
+            "description": "One sentence naming how many files are waiting, for how long, and the oldest path, present only once the oldest has waited longer than stale_after_seconds: a producer that has not published a finished file within the window the operator set for backups is as overdue as one that produced nothing. A warning beside the state, never part of it. Carries a remote path, so it is untrusted text.",
+            "x-go-omitempty": true
           }
         },
         "required": [
@@ -3208,7 +3269,9 @@
           "away_from_home",
           "unconfirmed_location",
           "open_moves",
-          "failed_moves"
+          "failed_moves",
+          "retired_count",
+          "pending_unreadable"
         ]
       },
       "HealthResponse": {
@@ -3501,7 +3564,7 @@
       },
       "BackupSetEditHold": {
         "type": "object",
-        "description": "POST /backup-sets/{source}/{set}/edit-hold. The lease just taken or renewed, plus what taking it interrupted. `stopped` is null when nothing was running, so a client never claims to have stopped something it did not.",
+        "description": "POST /backup-sets/{source}/{set}/edit-hold. The lease just taken or renewed, the holder token that names it, and what taking it interrupted. `stopped` is null when nothing was running, so a client never claims to have stopped something it did not; a renewal of a live lease always answers null.",
         "additionalProperties": false,
         "properties": {
           "backup_set_id": {
@@ -3514,12 +3577,29 @@
           "stopped": {
             "$ref": "#/components/schemas/RunningWork",
             "x-go-pointer": true
+          },
+          "token": {
+            "type": "string",
+            "description": "This holder's token (issue #1606). Send it back in the body to renew this lease, and to release it without giving back anybody else's hold on the same set. A renewal answers with the same token."
           }
         },
         "required": [
           "backup_set_id",
-          "expires_at"
+          "expires_at",
+          "token"
         ]
+      },
+      "BackupSetEditHoldRequest": {
+        "type": "object",
+        "description": "The optional body of POST /backup-sets/{source}/{set}/edit-hold and of its /release (issue #1606). `token` names one holder: the hold a take returned. On the take route it turns the call into a renewal of that holder's lease, refused with EDIT_HOLD_GONE once the holder has been released or has lapsed, so a heartbeat that lands after a release can never put the hold back. On /release it gives back that holder alone and leaves any other holder of the same set in force. A `token` that is present but empty is refused with 400, never read as no token, so a client whose token variable was lost cannot take a new hold or give back every holder's hold by accident. A client that sends no body, or no token, keeps the behaviour it had before tokens existed: the take route takes a new hold, and /release gives back every hold on the set.",
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The holder token a take returned. Opaque, held only in the engine's memory, and gone after a release, a lapse or an engine restart."
+          }
+        }
       },
       "RetentionOverride": {
         "type": "object",
@@ -10417,6 +10497,511 @@
         "type": "object",
         "description": "One JSON-RPC 2.0 message of the Model Context Protocol. The engine's streamable HTTP transport speaks the protocol revision `retnd agent tools` prints; this contract does not restate it.",
         "additionalProperties": true
+      },
+      "RetireArtifactRequest": {
+        "type": "object",
+        "description": "POST /backups/{source}/{set}/{name}/retire's optional body (issue #1528). Empty is the conservative retirement: the engine checks the source and picks the newest good backup as the successor, and refuses anything it cannot prove.",
+        "additionalProperties": false,
+        "properties": {
+          "superseded_by": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The name of the newer good backup in the same backup set that replaces this one, instead of the one the engine would pick. Refused with RETIRE_SUCCESSOR_INVALID unless it is a durable restore point discovered after this backup."
+          },
+          "no_successor": {
+            "type": "boolean",
+            "x-go-omitempty": true,
+            "description": "Acknowledges that no newer good backup replaces this one. Without it a set with no successor is refused with RETIRE_NO_SUCCESSOR. An agent may not send it (AGENT_RETIRE_ACK_REFUSED)."
+          },
+          "accept_source_present": {
+            "type": "boolean",
+            "x-go-omitempty": true,
+            "description": "Acknowledges that the source object is still there, or could not be asked about, and retires the backup anyway. Without it those cases are refused with RETIRE_SOURCE_PRESENT or RETIRE_SOURCE_UNCONFIRMED. An agent may not send it (AGENT_RETIRE_ACK_REFUSED)."
+          },
+          "note": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "An operator's own note, recorded with the retirement."
+          }
+        }
+      },
+      "RetirementRecord": {
+        "type": "object",
+        "description": "One recorded retirement (issue #1528): who or what retired the backup, when, what the source looked like at that moment and which backup replaces it.",
+        "additionalProperties": false,
+        "required": [
+          "retired_at",
+          "actor_kind",
+          "actor",
+          "source_check",
+          "superseded_by",
+          "failure_reason",
+          "note"
+        ],
+        "properties": {
+          "retired_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the retirement was recorded."
+          },
+          "actor_kind": {
+            "type": "string",
+            "enum": [
+              "automatic",
+              "operator",
+              "agent"
+            ],
+            "description": "automatic is the engine's own conservative pass; operator is a person; agent is an agent whose proposal a person approved."
+          },
+          "actor": {
+            "type": "string",
+            "description": "Who: engine, the signed-in user, or agent:<name>. Empty when the caller had no name."
+          },
+          "source_check": {
+            "type": "string",
+            "enum": [
+              "absent",
+              "present",
+              "unknown"
+            ],
+            "description": "What the source said about the object when it was retired. Only absent lets the engine bring the backup back if the object reappears."
+          },
+          "superseded_by": {
+            "type": "string",
+            "description": "The newer backup in the same set that replaces this one, or empty when the operator acknowledged there is none."
+          },
+          "failure_reason": {
+            "type": "string",
+            "description": "The failure the backup was retired from, as recorded when it failed."
+          },
+          "note": {
+            "type": "string",
+            "description": "The operator's note, or empty."
+          }
+        }
+      },
+      "RetireArtifactResponse": {
+        "type": "object",
+        "description": "POST /backups/{source}/{set}/{name}/retire's answer: the backup is RETIRED and this is its record.",
+        "additionalProperties": false,
+        "required": [
+          "artifact",
+          "state",
+          "retirement",
+          "partial_removed"
+        ],
+        "properties": {
+          "artifact": {
+            "type": "string",
+            "description": "The backup's source/set/name."
+          },
+          "state": {
+            "type": "string",
+            "description": "Always RETIRED."
+          },
+          "retirement": {
+            "$ref": "#/components/schemas/RetirementRecord"
+          },
+          "partial_removed": {
+            "type": "boolean",
+            "description": "Whether a leftover partial download was removed. A false here with one still on disk is swept by the next cycle."
+          }
+        }
+      },
+      "RetirementSuccessor": {
+        "type": "object",
+        "description": "The newer good backup a retirement would name.",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "state",
+          "discovered_at"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Its name within the backup set."
+          },
+          "state": {
+            "type": "string",
+            "description": "Its lifecycle state, always a durable restore point."
+          },
+          "discovered_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was discovered, which is what newer means here."
+          }
+        }
+      },
+      "RetirementRefusal": {
+        "type": "object",
+        "description": "Why a retirement would be refused, in the engine's own words.",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "sentence",
+          "overridable_with"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "The same code the action would answer with: ARTIFACT_NOT_FAILED, RETIRE_OWN_COPY_AT_FINAL_NAME, RETIRE_SOURCE_PRESENT, RETIRE_SOURCE_UNCONFIRMED, RETIRE_NO_SUCCESSOR or RETIRE_SUCCESSOR_INVALID."
+          },
+          "sentence": {
+            "type": "string",
+            "description": "What to tell the operator."
+          },
+          "overridable_with": {
+            "type": "string",
+            "enum": [
+              "",
+              "accept_source_present",
+              "no_successor"
+            ],
+            "description": "The acknowledgement that would let the operator go ahead anyway, or empty when nothing can."
+          }
+        }
+      },
+      "RetirementPreview": {
+        "type": "object",
+        "description": "GET /backups/{source}/{set}/{name}/retire: everything the retire dialog shows before anybody acts, computed by the same code that acts (issue #1528). The browser computes none of it.",
+        "additionalProperties": false,
+        "required": [
+          "artifact",
+          "state",
+          "failure_reason",
+          "source_check",
+          "source_check_category",
+          "source_check_sentence",
+          "effects",
+          "command",
+          "successor_candidates"
+        ],
+        "properties": {
+          "artifact": {
+            "type": "string",
+            "description": "The backup's source/set/name."
+          },
+          "state": {
+            "type": "string",
+            "description": "Its lifecycle state now."
+          },
+          "failure_reason": {
+            "type": "string",
+            "description": "What it failed on, as recorded when it failed, or empty."
+          },
+          "source_check": {
+            "type": "string",
+            "enum": [
+              "absent",
+              "present",
+              "unknown",
+              ""
+            ],
+            "description": "What the source said about the object just now: absent (the listing does not show it and the source answered not found), present, or unknown (the source could not be asked). Empty when the backup is not FAILED and nothing was asked."
+          },
+          "source_check_category": {
+            "type": "string",
+            "description": "For unknown, the transport category behind it (transient, permission_denied, ...); empty otherwise."
+          },
+          "source_check_sentence": {
+            "type": "string",
+            "description": "The engine's sentence for source_check, for the dialog to show as written."
+          },
+          "proposed_successor": {
+            "$ref": "#/components/schemas/RetirementSuccessor",
+            "description": "The newer good backup the retirement would name Absent when there is none.",
+            "x-go-pointer": true,
+            "x-go-omitempty": true
+          },
+          "refusal": {
+            "$ref": "#/components/schemas/RetirementRefusal",
+            "description": "Why the action would be refused with what was asked Absent when it would go through.",
+            "x-go-pointer": true,
+            "x-go-omitempty": true
+          },
+          "effects": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What retiring would do, one sentence each, in order. Empty when it would be refused."
+          },
+          "retirement": {
+            "$ref": "#/components/schemas/RetirementRecord",
+            "description": "The latest recorded retirement when the backup is RETIRED now. Absent otherwise.",
+            "x-go-pointer": true,
+            "x-go-omitempty": true
+          },
+          "command": {
+            "type": "string",
+            "description": "The retnd retire command the action is equivalent to."
+          },
+          "successor_candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RetirementSuccessor"
+            },
+            "description": "Every newer good backup in the set an operator may name as the replacement with superseded_by, newest first. The first is proposed_successor unless superseded_by named another. Empty when nothing newer replaces it."
+          }
+        }
+      },
+      "ScrapeTokenState": {
+        "type": "object",
+        "description": "What a read may say about the scrape credential: whether one exists, its eight-character display prefix and when it was minted. Never any more of it; the deployment keeps a SHA-256 digest and the plaintext exists once, in the mint response.",
+        "additionalProperties": false,
+        "properties": {
+          "exists": {
+            "type": "boolean"
+          },
+          "prefix": {
+            "type": "string",
+            "description": "The first eight characters, display-only. Empty when none has been minted."
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Null when none has been minted."
+          }
+        },
+        "required": [
+          "exists",
+          "prefix",
+          "created_at"
+        ]
+      },
+      "ObservabilityMetricsSettings": {
+        "type": "object",
+        "description": "observability.metrics, resolved.",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Off by default. Off, GET /metrics answers 404 with nothing that says the feature exists."
+          },
+          "min_rebuild_interval_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How long a built health report is reused, so N scrapers cost one journal read per interval. Default 15, floor 1."
+          },
+          "scrape_token": {
+            "$ref": "#/components/schemas/ScrapeTokenState"
+          }
+        },
+        "required": [
+          "enabled",
+          "min_rebuild_interval_seconds",
+          "scrape_token"
+        ]
+      },
+      "ObservabilityLogsSettings": {
+        "type": "object",
+        "description": "observability.logs, resolved.",
+        "additionalProperties": false,
+        "properties": {
+          "level": {
+            "type": "string",
+            "enum": [
+              "debug",
+              "info",
+              "warn",
+              "error"
+            ],
+            "description": "The configured floor for the engine's log stream."
+          },
+          "level_in_force": {
+            "type": "string",
+            "description": "The floor the process is actually using, which the environment (RETND_DEBUG, then LOG_LEVEL) can outrank."
+          },
+          "level_source": {
+            "type": "string",
+            "enum": [
+              "config",
+              "environment"
+            ],
+            "description": "Which of the two decided level_in_force."
+          }
+        },
+        "required": [
+          "level",
+          "level_in_force",
+          "level_source"
+        ]
+      },
+      "ObservabilityWebhookSettings": {
+        "type": "object",
+        "description": "observability.alerts.webhook, resolved. The URL is a credential, so a read says only whether one is set.",
+        "additionalProperties": false,
+        "properties": {
+          "dialect": {
+            "type": "string",
+            "enum": [
+              "generic",
+              "alertmanager"
+            ]
+          },
+          "url_set": {
+            "type": "boolean"
+          },
+          "url_status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "unresolvable",
+              "invalid",
+              "unknown"
+            ],
+            "description": "What the last read of the URL found: ok, unresolvable (the reference could not be read, so alerts are held and retried), invalid (it read, and is not an acceptable URL) or unknown (not tried yet). Absent unless delivery is webhook and alerting is on. It is a state and never the URL.",
+            "x-go-omitempty": true
+          },
+          "allow_insecure_http": {
+            "type": "boolean"
+          },
+          "refresh_interval_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "description": "alertmanager dialect only: how often a still-observed condition is re-sent. Must stay below resolve_ttl_seconds."
+          },
+          "resolve_ttl_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "description": "alertmanager dialect only: how long a sent alert lives at the receiver before it expires."
+          }
+        },
+        "required": [
+          "dialect",
+          "url_set",
+          "allow_insecure_http",
+          "refresh_interval_seconds",
+          "resolve_ttl_seconds"
+        ]
+      },
+      "ObservabilityAlertsSettings": {
+        "type": "object",
+        "description": "observability.alerts, resolved.",
+        "additionalProperties": false,
+        "properties": {
+          "delivery": {
+            "type": "string",
+            "enum": [
+              "platform",
+              "webhook"
+            ],
+            "description": "Which one alert sink is built. Exactly one is, either way."
+          },
+          "webhook": {
+            "$ref": "#/components/schemas/ObservabilityWebhookSettings"
+          }
+        },
+        "required": [
+          "delivery",
+          "webhook"
+        ]
+      },
+      "ObservabilitySettingsResponse": {
+        "type": "object",
+        "description": "The deployment-wide observability block, RESOLVED: the scrape endpoint, the log floor and the alert channel. A config that never mentions the block reports the defaults, which are everything off. Every setting is global; none is a property of a backup set.",
+        "additionalProperties": false,
+        "properties": {
+          "metrics": {
+            "$ref": "#/components/schemas/ObservabilityMetricsSettings"
+          },
+          "logs": {
+            "$ref": "#/components/schemas/ObservabilityLogsSettings"
+          },
+          "alerts": {
+            "$ref": "#/components/schemas/ObservabilityAlertsSettings"
+          }
+        },
+        "required": [
+          "metrics",
+          "logs",
+          "alerts"
+        ]
+      },
+      "UpdateObservabilitySettingsRequest": {
+        "type": "object",
+        "description": "PATCH the deployment-wide observability block. Every field is nullable because this is a PATCH: omitted leaves the setting alone. A body that names nothing is refused. The scrape credential is not here: it is minted by POST /settings/observability/scrape-token.",
+        "additionalProperties": false,
+        "properties": {
+          "metrics_enabled": {
+            "type": "boolean",
+            "description": "Serve GET /metrics.",
+            "x-go-pointer": true
+          },
+          "metrics_min_rebuild_interval_seconds": {
+            "type": "integer",
+            "description": "How long a built health report is reused. At least 1.",
+            "x-go-pointer": true,
+            "format": "int64"
+          },
+          "logs_level": {
+            "type": "string",
+            "description": "debug, info, warn or error: the configured floor.",
+            "x-go-pointer": true,
+            "enum": [
+              "debug",
+              "info",
+              "warn",
+              "error"
+            ]
+          },
+          "alerts_delivery": {
+            "type": "string",
+            "description": "platform or webhook.",
+            "x-go-pointer": true,
+            "enum": [
+              "platform",
+              "webhook"
+            ]
+          },
+          "webhook_dialect": {
+            "type": "string",
+            "description": "generic or alertmanager.",
+            "x-go-pointer": true,
+            "enum": [
+              "generic",
+              "alertmanager"
+            ]
+          },
+          "webhook_allow_insecure_http": {
+            "type": "boolean",
+            "description": "Allow a plain-http webhook target.",
+            "x-go-pointer": true
+          },
+          "webhook_refresh_interval_seconds": {
+            "type": "integer",
+            "description": "alertmanager dialect: how often a still-observed condition is re-sent. Must stay below the resolve ttl.",
+            "x-go-pointer": true,
+            "format": "int64"
+          },
+          "webhook_resolve_ttl_seconds": {
+            "type": "integer",
+            "description": "alertmanager dialect: how long a sent alert lives at the receiver.",
+            "x-go-pointer": true,
+            "format": "int64"
+          }
+        }
+      },
+      "MintedScrapeToken": {
+        "type": "object",
+        "description": "The one answer that carries the scrape credential itself. token is shown exactly once, here: the deployment stores its SHA-256 and the eight-character prefix, so a lost credential is minted again, never recovered. Minting again replaces the previous credential at once.",
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "scrape_token": {
+            "$ref": "#/components/schemas/ScrapeTokenState"
+          }
+        },
+        "required": [
+          "token",
+          "scrape_token"
+        ]
       }
     },
     "responses": {}
@@ -13520,6 +14105,34 @@
               "type": "string"
             },
             "description": "A two-part \"source/set\" identity. An id that names no configured backup set is refused, not answered with an empty list: an empty list means the set exists and holds no backups yet, and those two call for opposite responses. This filter is over CONFIGURED backup sets only: a set whose configuration was removed is refused here exactly like a name that never existed, even though its backups appear in the unfiltered list. Create a backup set with the same source and name again to narrow to them."
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Only backups in these lifecycle states: one state, or several separated by commas (\"FAILED\", \"FAILED,RETIRED\"). A name the lifecycle does not define is refused with INVALID_REQUEST rather than matched against nothing (issue #1528)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "description": "How many backups to return in one page (issue #1528). Omitted or non-positive returns the whole list in its usual order. With a limit the list is ordered by source, backup set and name, and a page that does not reach the end carries a next_cursor; anything above the server's maximum is clamped rather than refused."
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The next_cursor of the previous page, sent back unchanged to get the page after it. It is named before for the agent client's paging convention; it means 'continue after this one'. Only meaningful together with limit. A value this route could not have issued is refused with INVALID_REQUEST."
           }
         ],
         "responses": {
@@ -13532,6 +14145,19 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. A state the lifecycle does not define, or a before this route did not issue.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
           },
           "401": {
             "description": "Refused: UNAUTHENTICATED.",
@@ -13780,6 +14406,19 @@
               }
             }
           },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. A state the lifecycle does not define, or a before this route did not issue.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
           "401": {
             "description": "Refused: UNAUTHENTICATED.",
             "content": {
@@ -13791,6 +14430,19 @@
             },
             "x-error-codes": [
               "UNAUTHENTICATED"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND"
             ]
           },
           "500": {
@@ -13811,7 +14463,37 @@
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": false,
-        "x-authenticated": true
+        "x-authenticated": true,
+        "parameters": [
+          {
+            "name": "setId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "A two-part \"source/set\" identity, matched exactly against CONFIGURED backup sets. One that names no configured set is refused with BACKUP_SET_NOT_FOUND, not answered with an empty list (issue #1528)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "description": "How many backups to return in one page (issue #1528). Omitted or non-positive returns the whole list in its usual order. With a limit the list is ordered by source, backup set and name, and a page that does not reach the end carries a next_cursor; anything above the server's maximum is clamped rather than refused."
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The next_cursor of the previous page, sent back unchanged to get the page after it. It is named before for the agent client's paging convention; it means 'continue after this one'. Only meaningful together with limit. A value this route could not have issued is refused with INVALID_REQUEST."
+          }
+        ]
       }
     },
     "/quarantine/{source}/{set}/{name}/revalidate": {
@@ -14773,7 +15455,7 @@
       },
       "post": {
         "operationId": "takeBackupSetEditHold",
-        "summary": "Take, or renew, the edit hold on one backup set (issue #350). The cycle currently processing it stops at its next safe boundary and the scheduler starts no new pass for it until the hold is released or its lease lapses. One route for both taking and renewing: a renewal is 'hold this set for another lease', and refusing a heartbeat that arrived a second late would leave the set unheld while the operator's form stayed open.",
+        "summary": "Take the edit hold on one backup set, or renew one holder's lease (issues #350, #1606). The cycle currently processing the set stops at its next safe boundary and the scheduler starts no new pass for it until every hold on it is released or has lapsed. With no token this takes a NEW hold and answers its token. With a token it renews that holder only, and is refused with 409 EDIT_HOLD_GONE when that holder was released or lapsed: a renewal never creates a hold, so one that lands after a release cannot put it back. A client still in edit mode that gets EDIT_HOLD_GONE takes a fresh hold.",
         "tags": [
           "backup-sets"
         ],
@@ -14804,6 +15486,16 @@
             "description": "The backup set's own name within that source."
           }
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupSetEditHoldRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Success.",
@@ -14814,6 +15506,19 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. The body is not JSON, or is larger than the limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
           },
           "401": {
             "description": "Refused: UNAUTHENTICATED.",
@@ -14855,6 +15560,19 @@
               "BACKUP_SET_NOT_FOUND"
             ]
           },
+          "409": {
+            "description": "Refused: EDIT_HOLD_GONE. The holder this token named is no longer holding the set: it was released, its lease lapsed, or the engine restarted. Nothing was held. A client that still means to edit takes a new hold by sending no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "EDIT_HOLD_GONE"
+            ]
+          },
           "500": {
             "description": "Refused: INTERNAL.",
             "content": {
@@ -14879,7 +15597,7 @@
     "/backup-sets/{source}/{set}/edit-hold/release": {
       "post": {
         "operationId": "releaseBackupSetEditHold",
-        "summary": "Leave edit mode and let normal scheduling resume for this backup set (issue #350). Every route out of edit mode calls it, and releasing a hold that is not held is a success: several routes fire for one edit, and a duplicate release must not be something a client has to avoid.",
+        "summary": "Leave edit mode and let normal scheduling resume for this backup set (issues #350, #1606). With a token this gives back that holder alone, and the set stays held while any other holder's lease is live. With no token it gives back every hold on the set, which is what an operator clearing a hold somebody left behind wants and what a client from before tokens sends. Releasing a hold that is not held, or a token that is already gone, is a success: several routes fire for one edit, and a duplicate release must not be something a client has to avoid.",
         "tags": [
           "backup-sets"
         ],
@@ -14910,9 +15628,32 @@
             "description": "The backup set's own name within that source."
           }
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupSetEditHoldRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "204": {
             "description": "Released. There is nothing to say, so there is no body."
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. The body is not JSON, or is larger than the limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
           },
           "401": {
             "description": "Refused: UNAUTHENTICATED.",
@@ -15844,6 +16585,284 @@
             },
             "x-error-codes": [
               "ARTIFACT_NOT_FAILED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/backups/{source}/{set}/{name}/retire": {
+      "get": {
+        "operationId": "previewRetirement",
+        "summary": "What retiring one backup would do: whether its source object is still there, which newer backup would replace it, the refusal the action would give and its effects. It asks the source and changes nothing.",
+        "tags": [
+          "backups"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The configured source the backup set holding this backup is defined under."
+          },
+          {
+            "name": "set",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup set holding this backup, by its own name within that source."
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup's own name within that backup set. A backup's identity is exactly source/set/name, and a name never contains a separator, which is why this route declares three parameters rather than taking one value and splitting it."
+          },
+          {
+            "name": "superseded_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Preview with this successor named, as the action's superseded_by would."
+          },
+          {
+            "name": "no_successor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "description": "Preview with the no-successor acknowledgement."
+          },
+          {
+            "name": "accept_source_present",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "description": "Preview with the source-present acknowledgement."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetirementPreview"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "404": {
+            "description": "Refused: ARTIFACT_NOT_FOUND, BACKUP_SET_NOT_FOUND. The second is a backup under a backup set whose configuration has been removed (issue #391).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ARTIFACT_NOT_FOUND",
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      },
+      "post": {
+        "operationId": "retireArtifact",
+        "summary": "Retire one failed backup whose source is gone: it moves to RETIRED, stops counting as a failure and keeps its record. It deletes no backup copy and touches nothing on the source; only a leftover partial download is removed.",
+        "tags": [
+          "backups"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The configured source the backup set holding this backup is defined under."
+          },
+          {
+            "name": "set",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup set holding this backup, by its own name within that source."
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup's own name within that backup set. A backup's identity is exactly source/set/name, and a name never contains a separator, which is why this route declares three parameters rather than taking one value and splitting it."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetireArtifactRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetireArtifactResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, AGENT_RETIRE_ACK_REFUSED. The last is an agent's approved request carrying an acknowledgement, which is a person's to give.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH",
+              "AGENT_RETIRE_ACK_REFUSED"
+            ]
+          },
+          "404": {
+            "description": "Refused: ARTIFACT_NOT_FOUND, BACKUP_SET_NOT_FOUND. The second is a backup under a backup set whose configuration has been removed (issue #391).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ARTIFACT_NOT_FOUND",
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "409": {
+            "description": "Refused: ARTIFACT_NOT_FAILED, RETIRE_OWN_COPY_AT_FINAL_NAME, RETIRE_SOURCE_PRESENT, RETIRE_SOURCE_UNCONFIRMED, RETIRE_NO_SUCCESSOR, RETIRE_SUCCESSOR_INVALID. Each carries the engine's sentence; the source and successor refusals name the acknowledgement that overrides them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ARTIFACT_NOT_FAILED",
+              "RETIRE_OWN_COPY_AT_FINAL_NAME",
+              "RETIRE_SOURCE_PRESENT",
+              "RETIRE_SOURCE_UNCONFIRMED",
+              "RETIRE_NO_SUCCESSOR",
+              "RETIRE_SUCCESSOR_INVALID"
             ]
           },
           "500": {
@@ -20920,6 +21939,277 @@
         "x-optimistic-concurrency": null,
         "x-csrf-required": true,
         "x-authenticated": true
+      }
+    },
+    "/settings/observability": {
+      "get": {
+        "operationId": "getObservabilitySettings",
+        "summary": "The deployment-wide observability block as this process is actually running it: the scrape endpoint and whether a credential exists, the log floor in force and where it came from, and the alert channel. Never a secret. Read-only.",
+        "tags": [
+          "observability"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservabilitySettingsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      },
+      "patch": {
+        "operationId": "updateObservabilitySettings",
+        "summary": "Patch the deployment-wide observability block. The patch is validated, written and hot-reloaded in one step. A bearer token is refused AGENT_ROUTE_DENIED.",
+        "tags": [
+          "observability"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateObservabilitySettingsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success. The whole resolved block as it now stands, rather than an echo of the patch.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservabilitySettingsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. The configuration validator refused the resulting block, or the patch named nothing. Nothing is written when it does.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/settings/observability/scrape-token": {
+      "post": {
+        "operationId": "mintScrapeToken",
+        "summary": "Mint the Prometheus scrape credential. The plaintext is in this response and nowhere else, ever; the deployment keeps its SHA-256 and an eight-character prefix in a file of its own. Minting again replaces the previous credential at once. The response is Cache-Control: no-store, and over plain HTTP from another machine it needs X-Retnd-Insecure-Transport-Ack: acknowledged, refused 403 INSECURE_TRANSPORT_ACK_REQUIRED otherwise. A bearer token is refused AGENT_ROUTE_DENIED: no agent mints a scrape credential.",
+        "tags": [
+          "observability"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MintedScrapeToken"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, INSECURE_TRANSPORT_ACK_REQUIRED, AGENT_ROUTE_DENIED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH",
+              "INSECURE_TRANSPORT_ACK_REQUIRED",
+              "AGENT_ROUTE_DENIED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet, or cannot keep a scrape credential.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-insecure-transport-ack": true,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true,
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/InsecureTransportAck"
+          }
+        ]
       }
     },
     "/backup-sets/{source}/{set}/assurance": {

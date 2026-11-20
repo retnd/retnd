@@ -100,6 +100,7 @@ var commands = map[string]func([]string) int{
 	"medium":          cmdMedium,
 	"storage":         cmdStorage,
 	"retry":           cmdRetry,
+	"retire":          cmdRetire,
 	"restore":         cmdRestore,
 	"recover":         cmdRecover,
 	"snapshot":        cmdSnapshot,
@@ -846,6 +847,14 @@ commands:
                                                   durable local copy is still intact this completes it in place
                                                   instead of re-fetching, and that also forfeits any future remote
                                                   delete, the same as quarantine reinstate (#662)
+  retire <source/backup-set/artifact> [--superseded-by NAME] [--no-successor] [--accept-source-present] [--note T] [--dry-run]
+                                                  retire one FAILED backup whose source is gone, so the set stops
+                                                  counting it as a failure while its record stays (#1528). It asks
+                                                  the source first and refuses while the object is still there
+                                                  (retry it instead) unless you pass --accept-source-present, and
+                                                  refuses with no newer good backup unless you pass --no-successor.
+                                                  The cycle does the safe case on its own: object gone, newer good
+                                                  backup present. --dry-run prints what it would do
   restore <source/backup-set/artifact> --medium M [--days N] --acknowledge
                                                   ask the storage provider to make one archived copy readable again
                                                   (EPIC E, FR-34). --acknowledge is required rather than a --force
@@ -1027,6 +1036,10 @@ commands:
                                                   A hold lives in the memory of the process serving this deployment
                                                   and does not survive it, so this needs a route to that process (a
                                                   remote terminal works too) and refuses without one (#350, #600, #1253)
+                                                  --take prints the hold's token. --take --token T renews that hold
+                                                  and is refused once it was released or has lapsed, rather than
+                                                  taking the set again; --release --token T gives back only that
+                                                  hold, and --release alone gives back every hold on the set (#1606)
   backup-set retention <source/backup-set> [--inherit] [--policy-file F]
                        [--timezone T] [--week-starts-on D]
                        [--daily-days N] [--weekly-months N] [--monthly-months N]
@@ -1162,6 +1175,20 @@ commands:
                                                   the scrub schedule, most overdue first: each copy's last-assured time, when
                                                   it is next due under its set's resolved cadence, and whether that has
                                                   passed. A copy nobody has looked at is overdue, never fine
+  settings observability [--json]                report the resolved deployment-wide observability block: whether GET
+                                                  /metrics answers and whether a scrape credential has been minted, the
+                                                  log floor and where the one in force came from, and the alert channel.
+                                                  Never a secret. A config that sets none reports the defaults, which are
+                                                  everything off
+  settings observability patch [--metrics-enabled[=false]] [--metrics-min-rebuild-interval D]
+                        [--logs-level L] [--alerts-delivery platform|webhook]
+                        [--webhook-dialect generic|alertmanager] [--webhook-allow-insecure-http[=false]]
+                        [--webhook-refresh-interval D] [--webhook-resolve-ttl D] [--json]
+                                                  change the block in place. Beside a serving engine this command has a
+                                                  route to, that is PATCH /api/v1/settings/observability against the
+                                                  engine; with nothing serving, the file is written here
+  settings observability rotate-scrape-token     mint the Prometheus scrape credential and print it once. Minting again
+                                                  replaces the previous one at once; only a digest is kept
   backup-set assurance <source/backup-set> [--json]
                                                   one backup set's resolved assurance policy and whether it is the set's own
   backup-set assurance <source/backup-set> [--scrub-cadence D] [--scrub-strategy S]

@@ -1,0 +1,20 @@
+# Grafana dashboard provisioning for the retnd example observability bundle
+# (EPIC O, FR-102). This is an example, not a supported deployment. See
+# ../../../README.md.
+#
+# Loads the two dashboards in grafana/dashboards, which compose mounts at
+# /etc/grafana/dashboards. They are provisioned read-only from the files:
+# edit the JSON in the repository rather than in the UI, so the name guard
+# keeps holding them to what retnd emits.
+apiVersion: 1
+
+providers:
+  - name: retnd
+    folder: retnd
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 60
+    options:
+      path: /etc/grafana/dashboards
+      foldersFromFilesStructure: false

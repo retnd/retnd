@@ -46,12 +46,16 @@
 // §71 says "do not add a broad notification framework in v1", so a
 // Dispatcher holds exactly one Sink: not a list of subscribers, not a
 // topic registry, and with no way to attach a second consumer after
-// construction. The chosen mechanism is the platform's own local
-// notification capability, reached at the apps/ layer through
+// construction. Which Sink is chosen, never both (EPIC O, ADR 0035
+// decision 1): by default the platform's own local notification
+// capability, reached at the apps/ layer through
 // apps/common/platform/capabilities.Notifier (core/ cannot import apps/,
-// §7.1, so it always arrives here as a plain Sink). A platform that has
-// not declared that capability gets a refusal at wiring time rather than
-// an emulated one that silently drops alerts (§22).
+// §7.1, so it always arrives here as a plain Sink), and a platform that
+// has not declared that capability gets a refusal at wiring time rather
+// than an emulated one that silently drops alerts (§22); or, with
+// observability.alerts.delivery set to webhook, the HTTPSink in this
+// package, which posts one of two fixed formats to a URL read from a
+// reference at every delivery.
 //
 // # De-duplication is keyed on the condition, not the poll
 //
@@ -61,7 +65,11 @@
 // (Kind, Scope): a condition newly observed fires once, the same
 // condition observed again on later passes fires nothing, and a condition
 // that stops being observed is forgotten, so a genuine recurrence is a
-// fresh alert.
+// fresh alert. The one exception is a Sink that asks for it: the
+// alertmanager format re-sends a delivered condition every refresh
+// interval off the same firing map, because Alertmanager expires an alert
+// that is not re-sent, and sends one resolution when the condition clears
+// (refresh.go). That is not a second decision about what is alert-worthy.
 //
 // A pass that could not evaluate a condition says so, by naming its
 // Subject in Observe's unevaluated argument, and that condition is left
@@ -528,6 +536,12 @@ type Dispatcher struct {
 	// observes the condition, and removed by the first pass that both
 	// fails to observe it and was able to tell.
 	firing map[string]*firingCondition
+
+	// destination is the last state of the sink's destination this
+	// dispatcher reported (refresh.go's noteDestination), so a state is
+	// said once when it changes and not on every pass. Empty until the
+	// first report, and always empty for a sink with no such notion.
+	destination string
 }
 
 // firingCondition is everything Dispatcher remembers about one currently
@@ -541,6 +555,23 @@ type firingCondition struct {
 	delivered   bool
 	attempts    int
 	lastAttempt time.Time
+
+	// alert is what was first rendered for this occurrence (its
+	// ObservedAt is the occurrence's start), and sentAt is when a sink
+	// last accepted it, which is the time the receiver's expiry counts
+	// from. Only a RefreshingSink reads these: refresh.go re-sends alert
+	// while it is still observed and resolves it when it is not.
+	//
+	// sentAt moves only when a send succeeds. A refresh that is out is
+	// inFlight, and one that failed sets retryAt, so neither changes what
+	// the receiver was last told. That is what a reload copies
+	// (AdoptState), and a stamp that ran ahead of a send which then failed
+	// had the rebuilt dispatcher wait a whole interval past an alert that
+	// was about to expire (#1567).
+	alert    Alert
+	sentAt   time.Time
+	inFlight bool
+	retryAt  time.Time
 }
 
 const (
@@ -614,7 +645,9 @@ func NewDispatcher(sink Sink, logger *obs.Logger) *Dispatcher {
 //
 // Delivery happens after this dispatcher's lock is released, one bounded
 // attempt per alert, so a slow or hung Sink can never stall the cycle
-// that called this. A condition that resolves while its own notification
+// that called this. For a sink whose receiver expires alerts the attempts
+// run in parallel (sendEach), so no alert's expiry runs down while it waits
+// behind another's send; any other sink gets them one at a time. A condition that resolves while its own notification
 // is still in flight is simply forgotten; the late delivery marks an
 // entry that is no longer in the map, which changes nothing.
 func (d *Dispatcher) Observe(ctx context.Context, conditions []Condition, unevaluated []Subject, now time.Time) []Alert {
@@ -622,16 +655,30 @@ func (d *Dispatcher) Observe(ctx context.Context, conditions []Condition, uneval
 		return nil
 	}
 
-	var delivered []Alert
-	for _, a := range d.plan(conditions, unevaluated, now) {
+	pending, resolved := d.plan(conditions, unevaluated, now)
+	ok := make([]bool, len(pending))
+	d.sendEach(len(pending), func(i int) {
+		a := pending[i]
+		if a.refresh {
+			d.refreshOne(ctx, a, now)
+			return
+		}
 		if err := d.deliver(ctx, a.alert); err != nil {
-			continue
+			return
 		}
 		d.mu.Lock()
 		a.entry.delivered = true
+		a.entry.sentAt = now
 		d.mu.Unlock()
-		delivered = append(delivered, a.alert)
+		ok[i] = true
+	})
+	var delivered []Alert
+	for i, a := range pending {
+		if ok[i] && !a.refresh {
+			delivered = append(delivered, a.alert)
+		}
 	}
+	d.refreshAndResolve(ctx, now, resolved)
 	return delivered
 }
 
@@ -642,12 +689,15 @@ func (d *Dispatcher) Observe(ctx context.Context, conditions []Condition, uneval
 type attempt struct {
 	entry *firingCondition
 	alert Alert
+	// refresh marks a re-send of an already-delivered condition (see
+	// refresh.go) rather than its first delivery.
+	refresh bool
 }
 
 // plan is the whole of Observe's state update and the only part that
 // takes the lock: it records what is now observed, forgets what has
 // resolved, and returns the deliveries to make once the lock is gone.
-func (d *Dispatcher) plan(conditions []Condition, unevaluated []Subject, now time.Time) []attempt {
+func (d *Dispatcher) plan(conditions []Condition, unevaluated []Subject, now time.Time) (pending []attempt, resolved []Alert) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -660,7 +710,6 @@ func (d *Dispatcher) plan(conditions []Condition, unevaluated []Subject, now tim
 		unknown[s.Key()] = struct{}{}
 	}
 
-	var pending []attempt
 	for _, c := range conditions {
 		if c.Kind == "" {
 			continue
@@ -673,10 +722,14 @@ func (d *Dispatcher) plan(conditions []Condition, unevaluated []Subject, now tim
 
 		entry, observed := d.firing[key]
 		if !observed {
-			entry = &firingCondition{}
+			entry = &firingCondition{alert: c.alert(now)}
 			d.firing[key] = entry
 		}
+		entry.alert.Message = c.Detail
 		if entry.delivered {
+			if due, ok := d.refreshDue(entry, now); ok {
+				pending = append(pending, due)
+			}
 			continue
 		}
 		if entry.attempts > 0 && now.Sub(entry.lastAttempt) < retryDelay(entry.attempts) {
@@ -698,10 +751,13 @@ func (d *Dispatcher) plan(conditions []Condition, unevaluated []Subject, now tim
 		if _, cannotTell := unknown[key]; cannotTell {
 			continue
 		}
+		if entry := d.firing[key]; entry.delivered && d.refreshes() {
+			resolved = append(resolved, entry.alert)
+		}
 		delete(d.firing, key)
 	}
 
-	return pending
+	return pending, resolved
 }
 
 // deliver makes one bounded delivery attempt and reports whether an
@@ -710,7 +766,9 @@ func (d *Dispatcher) deliver(ctx context.Context, a Alert) error {
 	ctx, cancel := context.WithTimeout(ctx, deliveryTimeout)
 	defer cancel()
 
-	if err := d.sink.Deliver(ctx, a); err != nil {
+	err := d.sink.Deliver(ctx, a)
+	d.noteDestination(ctx, err)
+	if err != nil {
 		d.logger.Error(ctx, "alert-delivery",
 			fmt.Errorf("delivering the %s alert for %s: %w", a.Kind, a.Scope, err))
 		return err

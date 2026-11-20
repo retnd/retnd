@@ -47,20 +47,34 @@ export function AuditRegion({ tokens, tools, revision }: { tokens: AgentToken[];
   const latest = useRef(0);
   const tokenSelectId = useId();
   const sinceId = useId();
+  const bodyId = useId();
+  // #1525: a long list of calls is collapsed until asked for. The body stays
+  // mounted (hidden) so the reads keep running and the count in the header is
+  // always the real one.
+  const [expanded, setExpanded] = useState(false);
+
+  // An answer can land after the region has gone (the page was left, or a
+  // test unmounted it), and setting state then throws once a test's window
+  // has been torn down (#1589). Every answer below checks this first.
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   // One read per filter or revision: the first page, replacing what is shown.
   useEffect(() => {
     const mine = ++latest.current;
     api.listAgentAudit({ tokenId: tokenId || undefined, since: since || undefined }).then(
       (page) => {
-        if (mine !== latest.current) return;
+        if (!mounted.current || mine !== latest.current) return;
         setRows(page.rows);
         setCursor(page.nextCursor);
         setFailure(null);
         setOpen(new Set());
       },
       (e) => {
-        if (mine !== latest.current) return;
+        if (!mounted.current || mine !== latest.current) return;
         setFailure(engineFailure(e, "the audit could not be read"));
       }
     );
@@ -75,14 +89,14 @@ export function AuditRegion({ tokens, tools, revision }: { tokens: AgentToken[];
     setOlder(true);
     try {
       const page = await api.listAgentAudit({ tokenId: tokenId || undefined, since: since || undefined, cursor });
-      if (mine !== latest.current) return;
+      if (!mounted.current || mine !== latest.current) return;
       setRows((r) => [...(r ?? []), ...page.rows]);
       setCursor(page.nextCursor);
     } catch (e) {
-      if (mine !== latest.current) return;
+      if (!mounted.current || mine !== latest.current) return;
       setFailure(engineFailure(e, "older calls could not be read"));
     } finally {
-      setOlder(false);
+      if (mounted.current) setOlder(false);
     }
   }, [api, cursor, tokenId, since]);
 
@@ -94,8 +108,28 @@ export function AuditRegion({ tokens, tools, revision }: { tokens: AgentToken[];
   return (
     <div className="ag-region" data-agents-region="audit" data-surface="audit">
       <div className="ag-region__head">
-        <InfoTooltip id="agents.audit"><h3 className="ag-region__title">Audit</h3></InfoTooltip>
+        <InfoTooltip id="agents.audit">
+          <h3 className="ag-region__title">
+            <button
+              type="button"
+              className="ag-region__toggle"
+              aria-expanded={expanded}
+              aria-controls={bodyId}
+              onClick={() => setExpanded((v) => !v)}
+            >
+              <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flex: "none", transition: "transform 120ms", transform: expanded ? "rotate(90deg)" : "none" }}>
+                <path d="M5 3l5 5-5 5" />
+              </svg>
+              Audit
+              <span className="ag-region__count">
+                {rows === null ? "reading" : rows.length === 0 ? "no calls yet" : rows.length + (cursor ? "+" : "") + (rows.length === 1 && !cursor ? " call" : " calls")}
+              </span>
+            </button>
+          </h3>
+        </InfoTooltip>
       </div>
+
+      <div id={bodyId} hidden={!expanded} style={{ display: expanded ? "flex" : undefined, flexDirection: "column", gap: "var(--space-3)", minWidth: 0 }}>
 
       <form className="ag-filters" onSubmit={(e) => { e.preventDefault(); commitSince(); }}>
         <FieldHelp label="Token" help={FIELD_HELP.agentsAuditToken}>
@@ -146,6 +180,7 @@ export function AuditRegion({ tokens, tools, revision }: { tokens: AgentToken[];
         )
       ) : (
         <>
+          <div className="ag-scroll">
           <table className="ag-table" data-agents-table="audit">
             <caption className="visually-hidden">Agent calls, newest first</caption>
             <thead>
@@ -172,6 +207,7 @@ export function AuditRegion({ tokens, tools, revision }: { tokens: AgentToken[];
               ))}
             </tbody>
           </table>
+          </div>
           {failure ? <p className="ag-err" role="alert" data-audit-error="">{failure.message}</p> : null}
           {cursor ? (
             <InfoTooltip id="agents.audit.older">
@@ -181,6 +217,7 @@ export function AuditRegion({ tokens, tools, revision }: { tokens: AgentToken[];
         </>
       )}
       <p className="ag-note">The trail is bounded: older rows are pruned.</p>
+      </div>
     </div>
   );
 }

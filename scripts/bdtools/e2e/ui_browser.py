@@ -1,7 +1,8 @@
 """The Chromium lane for the shared UI's own browser specs (#1532, #1537).
 
 Two things in this tree drive a real browser and, until this lane existed,
-ran in no gate step: the 127 Playwright specs in `ui/shared/e2e/`, which are
+ran in no gate step: the Playwright spec files in `ui/shared/e2e/` (131 when the
+lane landed), which are
 the proof the Dashboard, Settings, Agents and suite UI work landed with, and
 EPIC Q's browser-side mutation self-test (`scripts/assurance/ui-selftest.sh`).
 Both need node, a linux install of `ui/shared`'s lockfile, `@playwright/test`
@@ -22,7 +23,8 @@ the command runs. Nothing is written to the tree, and `--rm` takes the rest.
 
 `specs` runs `npx playwright test -c <config>` from the config's workspace
 (the directory above the one it sits in) with a per-test timeout, a global
-timeout and the list reporter. `run` runs any command from the copy's root;
+timeout, the list reporter and --forbid-only: a test.only left in one spec
+would otherwise run that one test and pass for the whole suite. `run` runs any command from the copy's root;
 the gate uses it for the assurance UI self-test.
 
 Every run is bounded twice, because a browser that hangs is the failure the
@@ -79,8 +81,10 @@ IMAGE = (
 # `docker info`'s Architecture, as the platform the daemon runs natively.
 NATIVE = {"x86_64": "linux/amd64", "amd64": "linux/amd64", "aarch64": "linux/arm64", "arm64": "linux/arm64"}
 
-# Inside the container: 96 is "the lane could not be prepared", 98 is "the
-# run stalled", 124 is coreutils timeout's own "the cap was reached".
+# Inside the container: 95 is "the command could not be run" (its 126 or
+# 127), 96 is "the lane could not be prepared", 98 is "the run stalled", 124 is
+# coreutils timeout's own "the cap was reached".
+NOT_RUNNABLE = 95
 PREP_FAILED = 96
 STALLED = 98
 CAPPED = 124
@@ -116,7 +120,7 @@ case $mode in
     shift
     ws=${cfg%/*/*}
     cd "$w/$ws" || exit 96
-    set -- npx playwright test -c "${cfg#"$ws"/}" --output /tmp/pw-out --reporter=list \
+    set -- npx playwright test -c "${cfg#"$ws"/}" --output /tmp/pw-out --reporter=list --forbid-only \
       --timeout "$((LANE_TEST_TIMEOUT * 1000))" --global-timeout "$((LANE_CAP * 1000))" "$@"
     ;;
   run)
@@ -157,6 +161,10 @@ done
 wait "$pid"
 status=$?
 wait "$tailer" 2>/dev/null
+# 126 and 127 from the command are a defect in the tree (a renamed script, a
+# missing tool), not docker failing to start the container, which owns them
+# on the outside.
+case $status in 126|127) exit 95 ;; esac
 exit "$status"
 """
 
@@ -200,12 +208,17 @@ def body(root: Path, argv: list[str], name: str) -> int:
     # Always a named platform on the pull and the run: the daemon's own, unless
     # RETND_UI_BROWSER_PLATFORM says otherwise. A shared host (MARS) asks every
     # pull and run to name one, so the lane can never swap a shared tag for the
-    # other architecture.
+    # other architecture; a daemon it cannot name is refused, not guessed at.
     platform = os.environ.get("RETND_UI_BROWSER_PLATFORM", "")
     if not platform:
         arch = harness.sh(["docker", "info", "--format", "{{.Architecture}}"], check=False).stdout.strip()
         platform = NATIVE.get(arch, "")
-    plat = ["--platform", platform] if platform else []
+        if not platform:
+            harness.cannot_run(
+                f"cannot name a platform for a daemon that reports architecture {arch!r}.",
+                "Set RETND_UI_BROWSER_PLATFORM (linux/amd64, linux/arm64) to run the lane here.",
+            )
+    plat = ["--platform", platform]
     if not harness.sh_ok(["docker", "image", "inspect", image]):
         harness.step(f"pulling {image}")
         if harness.sh(["docker", "pull", *plat, image], check=False, capture=False).returncode != 0:
@@ -235,6 +248,8 @@ def body(root: Path, argv: list[str], name: str) -> int:
         harness.cannot_run("the container could not be prepared (the copy or the npm install in it failed, see above).")
     if status in (125, 126, 127):
         harness.cannot_run(f"docker could not start the lane's container (exit {status}, see above).")
+    if status == NOT_RUNNABLE:
+        harness.die(f"{' '.join(rest)} could not be run in the lane (exit 126 or 127, see above).")
     if status == STALLED:
         harness.die(f"the run STALLED: no output for {stall}s, so it was killed (the process table is above).")
     if status == CAPPED:

@@ -109,6 +109,7 @@ func wireBackupSetHealth(bs service.BackupSetHealth) apicontract.BackupSetHealth
 		Failures:              bs.Failures,
 		QuarantinedCount:      bs.QuarantinedCount,
 		QuarantinedLostCount:  bs.QuarantinedLostCount,
+		RetiredCount:          bs.RetiredCount,
 
 		ReinstatedRemoteRetainedCount: bs.ReinstatedRemoteRetainedCount,
 		ReadOnlyRetainedCount:         bs.ReadOnlyRetainedCount,
@@ -125,5 +126,10 @@ func wireBackupSetHealth(bs service.BackupSetHealth) apicontract.BackupSetHealth
 		FailedMoves:                  bs.Placement.FailedMoves,
 		FailedMoveOldestAgeSeconds:   int64(bs.Placement.OldestFailedMoveAge.Seconds()),
 		FailedMoveReason:             bs.Placement.FailedMoveReason,
+
+		PendingUnreadable:                 bs.PendingUnreadable,
+		PendingUnreadableOldestAgeSeconds: int64(bs.PendingUnreadableOldestAge.Seconds()),
+		PendingUnreadableOldestPath:       bs.PendingUnreadableOldestPath,
+		PendingUnreadableWarning:          bs.PendingUnreadableWarning,
 	}
 }

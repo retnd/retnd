@@ -388,7 +388,7 @@ describe("issue #350: Edit is an inline mode, not a dialog", () => {
     await screen.findByText(second.name);
     expect(screen.queryByRole("button", { name: "SAVE ALL & EXIT EDIT" })).toBeNull();
     expect(screen.queryByDisplayValue("belongs-to-the-first-set")).toBeNull();
-    await waitFor(() => expect(release).toHaveBeenCalledWith(first.source, first.set));
+    await waitFor(() => expect(release).toHaveBeenCalledWith(first.source, first.set, expect.stringMatching(/^mock-hold-/)));
   });
 
   // Two per-box Saves can overlap: press one, press another before the
@@ -525,7 +525,7 @@ describe("issue #350: entering edit mode stops the cycle, and says so first", ()
       fireEvent.click(screen.getByRole("button", { name: "SAVE ALL & EXIT EDIT" }));
     });
 
-    await waitFor(() => expect(release).toHaveBeenCalledWith(target.source, target.set));
+    await waitFor(() => expect(release).toHaveBeenCalledWith(target.source, target.set, expect.stringMatching(/^mock-hold-/)));
   });
 
   it("releases the hold when the page goes away without pressing anything", async () => {
@@ -555,7 +555,7 @@ describe("issue #350: entering edit mode stops the cycle, and says so first", ()
     // A set left permanently paused because somebody closed a tab is a
     // backup silently not happening, which is this product's worst
     // failure mode.
-    await waitFor(() => expect(release).toHaveBeenCalledWith(target.source, target.set));
+    await waitFor(() => expect(release).toHaveBeenCalledWith(target.source, target.set, expect.stringMatching(/^mock-hold-/)));
   });
 });
 

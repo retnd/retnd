@@ -213,6 +213,12 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	// material; the token itself is never in a request.
 	"--scope":      "an agent token's scope, one of read, operate or configure",
 	"--expires-in": "an agent token's lifetime, a duration such as 90d",
+	// The observability block (EPIC O, #898): three closed vocabularies. The
+	// scrape credential and the webhook URL are never in a request body, the
+	// first because it is minted and the second because it is a reference.
+	"--logs-level":      "the configured log floor, one of debug, info, warn or error",
+	"--alerts-delivery": "which alert sink is built, platform or webhook",
+	"--webhook-dialect": "the fixed payload schema, generic or alertmanager",
 	// The artifact a recovery test was asked about: a backup's own id
 	// (source/set/name), which an operator retyping the command has to say
 	// and which is a name, not material.
@@ -297,7 +303,11 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	// credentials stay behind that id.
 	"--copy": "the id of the storage medium holding the copy to recover",
 
-	"--note": "the operator's own note on a retry, which they wrote and can read back",
+	"--note": "the operator's own note on a retry or a retirement, which they wrote and can read back",
+
+	// Issue #1528: the successor a retirement names, by its own artifact
+	// name in the same backup set.
+	"--superseded-by": "the name of the newer backup in the same set that a retirement names as the replacement",
 
 	// Retained-copy encryption (#993). Each is a word from a closed
 	// vocabulary, a source DESCRIPTION (a path, the NAME of a variable) or an
@@ -404,6 +414,9 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 var flagRoutes = map[string][]string{
 	"--scope":                       {"POST /agent/tokens"},
 	"--expires-in":                  {"POST /agent/tokens"},
+	"--logs-level":                  {"PATCH /settings/observability"},
+	"--alerts-delivery":             {"PATCH /settings/observability"},
+	"--webhook-dialect":             {"PATCH /settings/observability"},
 	"--username":                    {"POST /auth/enroll", "POST /auth/forgot-password"},
 	"--until":                       {"POST /recoveries"},
 	"--after-dir":                   {"PATCH /backup-sets/{source}/{set}/workflow", "PATCH /settings/workflow"},
@@ -432,7 +445,8 @@ var flagRoutes = map[string][]string{
 	"--local-path":                  {"PATCH /backup-sets/{source}/{set}", "POST /backup-sets", "POST /system/first-run"},
 	"--location":                    {"POST /repositories"},
 	"--medium":                      {"POST /encryption/verify", "POST /operations"},
-	"--note":                        {"POST /backups/{source}/{set}/{name}/retry"},
+	"--note":                        {"POST /backups/{source}/{set}/{name}/retire", "POST /backups/{source}/{set}/{name}/retry"},
+	"--superseded-by":               {"POST /backups/{source}/{set}/{name}/retire"},
 	"--owner":                       {"POST /repositories"},
 	"--passphrase-env":              {"POST /repositories"},
 	"--passphrase-file":             {"POST /repositories"},

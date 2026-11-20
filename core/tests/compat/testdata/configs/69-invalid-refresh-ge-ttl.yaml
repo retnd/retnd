@@ -1,0 +1,32 @@
+# EPIC O, FR-101 (matrix row O-10): a refresh interval that is not below the
+# resolve TTL is refused, because Alertmanager would expire the alert before
+# the refresh arrived, which is the silent false all-clear configured
+# rather than coded.
+poll_interval: 15m
+
+state:
+  database: /var/lib/retnd/state.db
+
+observability:
+  alerts:
+    delivery: webhook
+    webhook:
+      dialect: alertmanager
+      refresh_interval: 10m
+      resolve_ttl: 10m
+      allow_insecure_http: true
+      url_ref:
+        file: /run/secrets/retnd-alert-webhook-url
+
+sources:
+  - id: production
+    backup_sets:
+      - id: postgres-primary
+        remote:
+          type: local
+        remote_path: /srv/exports/postgres
+        local_path: /backups/production/postgres
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h

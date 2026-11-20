@@ -199,6 +199,28 @@ var matrixPairs = []matrixPair{
 		ledger:   ledgerRowPerGuard,
 		whereCol: 2,
 	},
+	{
+		// EPIC O (#898) registers last, in its closing issue (#903), and the
+		// order is the honest one: its matrix landed with 25 detailed rows,
+		// O-01 to O-25, which every test and self-test in the tree names, and
+		// they do not map one to one onto the spec's 21 exit-gate lines. So
+		// the matrix gains an exit-gate table (O1.1 to O1.21, one per line of
+		// "## Phase 1 exit gate", each naming the detailed rows it rests on)
+		// and a ledger (OV.1 to OV.6, one per planted violation in the spec's
+		// section 4), rather than renumbering rows other files cite.
+		// core/tests/observabilitygate holds each gate row to the detailed
+		// rows it names.
+		name:     "EPIC O",
+		spec:     "../../../docs/EPIC-O-observability-integrations.md",
+		matrix:   "../../../docs/conformance/epic-o-matrix.md",
+		gateID:   regexp.MustCompile(`^O1\.\d+$`),
+		ledgerID: regexp.MustCompile(`^OV\.\d+$`),
+		gates: []gatePhase{
+			{prefix: "O1", heading: "## Phase 1 exit gate"},
+		},
+		ledger:   ledgerRowPerGuard,
+		whereCol: 2,
+	},
 }
 
 // matrixRepo is the repository whose issues a BLOCKED row cites. It is

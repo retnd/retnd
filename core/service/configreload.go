@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/config"
 )
@@ -69,8 +71,10 @@ import (
 // rebuilding it would re-alert every still-unresolved condition the next
 // time a cycle ran, purely because somebody changed the configuration.
 // When it declines (alerting was off before this reload, or has just been
-// turned off), the question is settled from b.alertSink instead, which is
-// what makes turning alerting ON take effect here too.
+// turned off), or when observability.alerts changed, carryAlerts settles
+// the question from the configuration's own delivery selection instead,
+// which is what makes turning alerting ON, and switching platform to
+// webhook, take effect here too.
 //
 // # Removal holds
 //
@@ -98,9 +102,7 @@ func (b *BackupService) adoptConfig(cfg *config.Config) string {
 	// itself race the swap below.
 	prevInner := b.state.Load().inner
 	newInner := app.New(cfg, b.journal, prevInner.Transport, b.logger)
-	if !newInner.AdoptAlerts(prevInner.Alerts) && b.alertSink != nil {
-		newInner.EnableAlerts(sinkAdapter{sink: b.alertSink})
-	}
+	b.carryAlerts(context.Background(), prevInner, newInner)
 	// Carried forward for AdoptAlerts' reason: the lifecycle is a
 	// property of this PROCESS (one engine, one lock table, one record of
 	// which sets are blocked), and a reload that dropped it would leave a
@@ -126,10 +128,19 @@ func (b *BackupService) adoptConfig(cfg *config.Config) string {
 	newInner.AdoptAssuranceEpisodes(prevInner)
 	// Before the store, deliberately: see this function's doc.
 	newInner.AdoptPollSchedule(prevInner)
+	// And how long each unreadable source file has waited (#1541), so a
+	// settings save does not restart the clock its warning runs on.
+	newInner.AdoptUnreadableSources(prevInner)
 	revision := computeConfigRevision(cfg)
 	// Every reload re-reads the file, so the default workflow root is
 	// resolved again here (#1246): a mount that has appeared since the last
 	// one is picked up, and a root the write just named replaces it.
+	// The log floor follows a PATCH to observability.logs.level without a
+	// restart. Only when the level changed: a reload for any other reason
+	// must not reset a floor somebody set another way.
+	if prevInner.Config.Observability.Logs.Level != cfg.Observability.Logs.Level {
+		applyLogFloor(b.logger, cfg)
+	}
 	b.state.Store(&configState{inner: newInner, revision: revision, workflowRoot: ResolveWorkflowRoot(cfg, b.rootDefault)})
 	b.holds.forgetRemovedNamedIn(cfg)
 	// Last, once everything a woken loop would read is in place: the

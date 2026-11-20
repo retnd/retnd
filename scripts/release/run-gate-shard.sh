@@ -12,10 +12,10 @@
 # gate work stays off it (benchmarks own it, through bench-queue.sh).
 #
 # The ui-browser shard (#1532, #1537) is the exception to that default: it
-# drives a Chromium through 127 spec files, and heavy retnd steps stay off the
-# Mac, so with no --host it goes to mars. `--host mac` for it is refused unless
-# RETND_UI_BROWSER_ALLOW_LOCAL=1 is set, and the gate then runs it through the
-# Playwright lock.
+# drives a Chromium through every spec file in ui/shared/e2e, and heavy retnd
+# steps stay off the Mac, so with no --host it goes to mars. `--host mac` for
+# it is refused unless RETND_UI_BROWSER_ALLOW_LOCAL=1 is set, and the gate then
+# runs it through the Playwright lock.
 #
 # What comes back, in DIR (default $TMPDIR/retnd-shard-runs, outside the git
 # dir ci-docker.sh ships, and refused inside the tree, which it would dirty):

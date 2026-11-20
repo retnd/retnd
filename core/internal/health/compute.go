@@ -182,6 +182,7 @@ type aggregate struct {
 	quarantinedLostCount  int
 	readOnlyRetainedCount int
 	retainedCount         int
+	retiredCount          int
 }
 
 // countReinstatedRemoteRetained is issue #227's join: of the artifacts the
@@ -255,7 +256,9 @@ func buildAggregate(records []state.Record, staleThreshold time.Duration, now ti
 	haveArrival := false
 
 	for _, r := range records {
-		if r.UpdatedAt.After(agg.newestActivityAt) {
+		// A retirement (issue #1528) is bookkeeping about a failure, not
+		// activity on the source, so it never reads as a backup in progress.
+		if r.UpdatedAt.After(agg.newestActivityAt) && r.State != string(lifecycle.Retired) {
 			agg.newestActivityAt = r.UpdatedAt
 		}
 		if !haveArrival || r.DiscoveredAt.After(newestArrival.DiscoveredAt) {
@@ -312,6 +315,10 @@ func buildAggregate(records []state.Record, staleThreshold time.Duration, now ti
 			agg.hasQuarantinedLost = true
 		case lifecycle.RemoteRetained:
 			agg.readOnlyRetainedCount++
+		case lifecycle.Retired:
+			// Issue #1528: counted apart and nowhere else. A retired
+			// failure is not a failure, not stuck and not retrying.
+			agg.retiredCount++
 		}
 	}
 
@@ -321,9 +328,11 @@ func buildAggregate(records []state.Record, staleThreshold time.Duration, now ti
 }
 
 // retained is whether a backup in this state counts toward RetainedCount:
-// every state but the two quarantine ones (issue #1186).
+// every state but the two quarantine ones (issue #1186) and RETIRED (issue
+// #1528), which has its own count and was never a backup this deployment
+// holds.
 func retained(st lifecycle.State) bool {
-	return st != lifecycle.Quarantined && st != lifecycle.QuarantinedLost
+	return st != lifecycle.Quarantined && st != lifecycle.QuarantinedLost && st != lifecycle.Retired
 }
 
 // CountRetained is RetainedCount over any slice of journal rows. The report
@@ -375,6 +384,7 @@ func ComputeBackupSetHealth(set model.BackupSetID, records []state.Record, reins
 		agg.recoveryUnmet, recoveryKind = recoveryUnmet(records, now)
 	}
 	st, reason := decideState(agg.evidence)
+	unreadableAge, unreadablePath, unreadableWarning := oldestUnreadable(in.PendingUnreadable, staleThreshold, now)
 
 	return BackupSetHealth{
 		Set:    set,
@@ -396,6 +406,7 @@ func ComputeBackupSetHealth(set model.BackupSetID, records []state.Record, reins
 		QuarantinedCount:     agg.quarantinedCount,
 		QuarantinedLostCount: agg.quarantinedLostCount,
 		RetainedCount:        agg.retainedCount,
+		RetiredCount:         agg.retiredCount,
 		ScrubFailingCopies:   agg.scrubFailing,
 		ScrubOverdueCopies:   scrubOverdue(records, in.ScrubCadence, now),
 		RecoveryTestFailed:   recoveryKind == recoveryFailed,
@@ -428,7 +439,52 @@ func ComputeBackupSetHealth(set model.BackupSetID, records []state.Record, reins
 		// nothing. Like the five above it, nothing in it reaches
 		// decideState; see BackupSetHealth.Snapshot.
 		Snapshot: in.Snapshot,
+
+		// The seventh (issue #1541). A count and a warning beside the
+		// verdict, never inside it: see BackupSetHealth.PendingUnreadable*.
+		PendingUnreadableCount:      len(in.PendingUnreadable),
+		PendingUnreadableOldestAge:  unreadableAge,
+		PendingUnreadableOldestPath: unreadablePath,
+		PendingUnreadableWarning:    unreadableWarning,
 	}
+}
+
+// oldestUnreadable picks the longest-waiting of a set's complete but
+// unreadable source files (issue #1541) and, once it has waited longer
+// than the set's stale threshold, the warning that names it.
+//
+// The threshold is stale_after because it is the one number the operator
+// already gave for "how long between backups before something is wrong".
+// A producer that has not published a finished file within that window is
+// exactly as overdue as one that produced nothing, and saying so earlier
+// would warn on every run whose publish step takes a few minutes. Ties on
+// first seen go to the lexically smaller path, so the named file does not
+// flicker between two reports.
+func oldestUnreadable(pending []PendingUnreadable, stale time.Duration, now time.Time) (*time.Duration, string, string) {
+	if len(pending) == 0 {
+		return nil, "", ""
+	}
+	oldest := pending[0]
+	for _, p := range pending[1:] {
+		if p.FirstSeen.Before(oldest.FirstSeen) || (p.FirstSeen.Equal(oldest.FirstSeen) && p.RemotePath < oldest.RemotePath) {
+			oldest = p
+		}
+	}
+	age := max(now.Sub(oldest.FirstSeen), 0)
+	if stale <= 0 || age <= stale {
+		return &age, oldest.RemotePath, ""
+	}
+
+	files, them := "files", "them"
+	if len(pending) == 1 {
+		files, them = "file", "it"
+	}
+	waited := fmt.Sprintf("%dh", int(age.Hours()))
+	if age < time.Hour {
+		waited = fmt.Sprintf("%dm", int(age.Minutes()))
+	}
+	return &age, oldest.RemotePath, fmt.Sprintf("%d source %s complete but unreadable for %s, oldest %s; the producer has not published %s",
+		len(pending), files, waited, oldest.RemotePath, them)
 }
 
 func pluralY(n int) string {

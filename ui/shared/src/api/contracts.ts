@@ -26,6 +26,9 @@ import type {
   WireMediumPreflightCheck,
   WireRecoverySettingsResponse,
   WireRecoverySettingsUpdate,
+  WireRetireArtifactRequest,
+  WireRetireArtifactResponse,
+  WireRetirementPreview,
   WireSmtpSettings,
   WireSmtpSettingsView
 } from "./generated/contract";
@@ -475,9 +478,14 @@ export interface EditHoldState {
   running: RunningWork | null;
 }
 
-/** What taking the hold answers: `stopped` is null when nothing was
- *  running, so a caller never claims to have interrupted something. */
+/** What taking or renewing the hold answers: `stopped` is null when
+ *  nothing was running, so a caller never claims to have interrupted
+ *  something. */
 export interface EditHoldTaken {
+  /** This holder's token (#1606). Renewing and releasing with it touch
+   *  this page's hold and nobody else's, and a renewal under it that lands
+   *  after the release is refused rather than putting the hold back. */
+  token: string;
   expiresAt: string;
   stopped: RunningWork | null;
 }
@@ -2671,6 +2679,61 @@ export interface StagingDirectory {
   truncated: boolean;
 }
 
+/** What a read may say about the Prometheus scrape credential: whether one
+ *  exists, its eight-character display prefix and when it was minted. Never
+ *  any more of it (EPIC O, #898). */
+export interface ScrapeTokenState {
+  exists: boolean;
+  prefix: string;
+  createdAt: string | null;
+}
+
+/** The deployment-wide observability block, resolved (EPIC O, #898): the
+ *  scrape endpoint, the log floor and the alert channel. Every setting is
+ *  global, none is a property of a backup set, and none of it is a secret. */
+export interface ObservabilitySettings {
+  metrics: { enabled: boolean; minRebuildIntervalSeconds: number; scrapeToken: ScrapeTokenState };
+  /** `level` is the configured floor, `levelInForce` the one the process is
+   *  using, and `levelSource` says which of the two decided. */
+  logs: { level: string; levelInForce: string; levelSource: string };
+  alerts: {
+    delivery: string;
+    webhook: {
+      dialect: string;
+      urlSet: boolean;
+      /** What the engine's last read of the URL found: `ok`, `unresolvable`
+       *  (the reference could not be read, so alerts are held and retried),
+       *  `invalid` (it read, and is not an acceptable URL) or `unknown` (not
+       *  tried yet). Absent unless delivery is webhook and alerting is on.
+       *  A state, never the URL. */
+      urlStatus?: "ok" | "unresolvable" | "invalid" | "unknown";
+      allowInsecureHttp: boolean;
+      refreshIntervalSeconds: number;
+      resolveTtlSeconds: number;
+    };
+  };
+}
+
+/** The one answer that carries the scrape credential itself. `token` is shown
+ *  exactly once, here; the deployment keeps a digest, so a lost credential is
+ *  minted again and never recovered. Minting again replaces the old one. */
+export interface MintedScrapeToken {
+  token: string;
+  scrapeToken: ScrapeTokenState;
+}
+
+/** A sparse write. An absent field is "leave this alone". */
+export interface ObservabilitySettingsPatch {
+  metricsEnabled?: boolean;
+  metricsMinRebuildIntervalSeconds?: number;
+  logsLevel?: string;
+  alertsDelivery?: string;
+  webhookDialect?: string;
+  webhookAllowInsecureHttp?: boolean;
+  webhookRefreshIntervalSeconds?: number;
+  webhookResolveTtlSeconds?: number;
+}
+
 /** The deployment-wide assurance policy. `configured` false means every
  *  value is a default nobody had to set. */
 export interface AssuranceSettings extends AssurancePolicy {
@@ -3419,14 +3482,20 @@ export interface RetndApi {
    * which is what lets edit mode open with no prompt at all.
    */
   getEditHold(source: string, set: string): Promise<EditHoldState>;
-  /** Takes the hold, or renews one already held (the same call: see the
-   *  route's own doc for why a late heartbeat must not be refused).
-   *  Resolves with what it interrupted, or null when nothing was
-   *  running, so a caller never claims to have stopped something. */
+  /** Takes a NEW hold and resolves with its token and what it
+   *  interrupted, or null when nothing was running, so a caller never
+   *  claims to have stopped something. */
   takeEditHold(source: string, set: string): Promise<EditHoldTaken>;
-  /** Leaves edit mode. Every route out of edit mode calls it, and
-   *  releasing a hold that is not held is a success. */
-  releaseEditHold(source: string, set: string): Promise<void>;
+  /** Renews the hold `token` names, and only that one (#1606). Rejects
+   *  with EDIT_HOLD_GONE once that hold was released or lapsed: a renewal
+   *  never creates a hold, so a heartbeat that lands after the release
+   *  cannot put it back. A caller still editing takes a fresh hold. */
+  renewEditHold(source: string, set: string, token: string): Promise<EditHoldTaken>;
+  /** Leaves edit mode. With a token it gives back that hold alone, so
+   *  another tab editing the same set keeps its own; with none it gives
+   *  back every hold on the set. Every route out of edit mode calls it,
+   *  and releasing a hold that is not held is a success. */
+  releaseEditHold(source: string, set: string, token?: string): Promise<void>;
 
   /** Issue #146 (B2.7): the wizard's three Save buttons. */
   createBackupSet(req: CreateBackupSetRequest): Promise<CreatedBackupSet>;
@@ -3638,6 +3707,25 @@ export interface RetndApi {
    * stale screen produces.
    */
   retryFailedIngestion(artifactId: string, note?: string): Promise<void>;
+
+  /**
+   * What retiring a FAILED backup would do (issue #1528): whether its source
+   * object is still there, which newer backup would replace it, the refusal
+   * the action would give and its effects, every sentence the engine's own.
+   * The retire dialog shows this before anybody acts; nothing here is
+   * computed in the browser.
+   */
+  previewRetirement(
+    artifactId: string,
+    ack?: Pick<WireRetireArtifactRequest, "superseded_by" | "no_successor" | "accept_source_present">
+  ): Promise<WireRetirementPreview>;
+
+  /**
+   * Retire one FAILED backup whose source is gone (issue #1528). Rejects
+   * with the preview's refusal codes (RETIRE_SOURCE_PRESENT and the rest)
+   * when the engine says no.
+   */
+  retireArtifact(artifactId: string, request?: WireRetireArtifactRequest): Promise<WireRetireArtifactResponse>;
 
   /**
    * Re-check a quarantined backup's durable local copy and, when what is
@@ -4130,6 +4218,14 @@ export interface RetndApi {
    *  browser on "Under the staging root on this retnd host" (issue #1179). */
   listStagingDirectories(path?: string): Promise<StagingDirectory>;
   patchAssuranceSettings(patch: AssuranceSettingsPatch): Promise<AssuranceSettings>;
+  /** EPIC O's observability block (#898): the scrape endpoint, the log floor
+   *  and the alert channel, deployment-wide. A write is validated, persisted
+   *  and hot-reloaded in one step. */
+  getObservabilitySettings(): Promise<ObservabilitySettings>;
+  patchObservabilitySettings(patch: ObservabilitySettingsPatch): Promise<ObservabilitySettings>;
+  /** Mint the Prometheus scrape credential. The plaintext is in this answer and
+   *  nowhere else, ever: the browser path to wiring Prometheus. */
+  mintScrapeToken(): Promise<MintedScrapeToken>;
   getBackupSetAssurance(source: string, set: string): Promise<BackupSetAssurance>;
   patchBackupSetAssurance(source: string, set: string, patch: BackupSetAssurancePatch): Promise<BackupSetAssurance>;
   resetBackupSetAssurance(source: string, set: string): Promise<BackupSetAssurance>;

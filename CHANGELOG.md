@@ -2,6 +2,161 @@
 
 ## [Unreleased]
 
+Worth reading before you upgrade:
+
+- **This release applies migration 0023 on its first start, and 0.8.0 won't open the journal
+  after that** (#1528, #1536). 0023 rebuilds the `artifacts` table so it admits the new `RETIRED`
+  state (what `retnd retire` and the engine's own retirement of a FAILED backup move a row to) and
+  adds `artifact_retirements`. It's the first schema migration a patch release has carried. Like
+  every release with a migration, 0.8.0 refuses a `state.db` this build has opened (`version 23
+  is recorded in the database but not compiled into this binary`) and writes nothing when it
+  does, so the only way back is a copy taken before the upgrade. `install --mode upgrade` takes
+  it for you; on a deployment you upgrade by hand, take it yourself and check it first. See
+  [Rolling back a release that carried a
+  migration](docs/install.md#rolling-back-a-release-that-carried-a-migration) for the steps and
+  for what a rollback costs, and decide within hours rather than days.
+
+### Added
+
+- **An authenticated Prometheus scrape endpoint** (#899, EPIC O). The engine now serves the 46
+  metric families it already rendered, plus a new `retnd_scrape_rejected_total{reason}`, on
+  `GET /metrics`. It is off until you turn it on (`retnd settings observability patch
+  --metrics-enabled`, or the Observability section in Settings), and off it answers `404`. On, it
+  wants the token `retnd settings observability rotate-scrape-token` prints once, as a bearer or
+  as the `basic_auth` password, and keeps only its SHA-256 digest in a 0600 file beside
+  `config.yaml`. It is reachable on the compose network at `retnd:8080`, not through the published
+  `web-ui` port. A scrape writes no action-log row, the health half is rebuilt at most once per
+  `min_rebuild_interval` (default 15s), and an agent token does not open it. `docs/deployment.md`
+  has the Prometheus config and ADR 0035 has the reasons.
+
+  **What an existing deployment sees: nothing.** With no `observability:` block, `/metrics` is
+  `404` and nothing else changes. **Writing `observability:` into `config.yaml` is a one-way
+  door**: older builds refuse the file as an unknown field, so keep the previous `config.yaml` if
+  you want a way back. Deleting the block is the rollback, and a minted token's file left behind is
+  inert. A plaintext `observability.metrics.token` in the file is refused at load. No migration
+  of its own: the one migration in this release is 0023 (#1528), at the top of this entry.
+
+- **The log stream is a pinned schema, with a level you can set** (#900, EPIC O). The engine
+  already wrote newline-delimited JSON; now its eight reserved keys (`time`, `level`, `msg`,
+  `event`, `result`, `action`, `action_id`, `backup_set`) are a wire contract held by a golden
+  line, and all 54 event names are pinned. `observability.logs.level` (`debug`, `info`, `warn`,
+  `error`, default `info`) sets the engine's floor from Settings, the CLI or the API without a
+  restart; `RETND_DEBUG` and `LOG_LEVEL` still win, and the settings read says which decided
+  (`config` or `environment`). The `startup` line carries `log_schema` and is written at any
+  level. Promtail and Alloy pipelines label exactly `job`, `instance`, `level` and `schema`, and
+  a real Loki needs `limits_config.discover_service_name: []` to keep it to those four
+  (`docs/observability.md`). Nothing changes on a line you already parse apart from the one new
+  attribute on `startup`.
+
+- **Alerts can go to a webhook, and for the first time reach someone on a shipped deployment**
+  (#901, EPIC O). `observability.alerts.delivery: webhook` posts each alert to a URL kept by
+  reference (`url_ref`: a file, an environment variable or a command), read again at every
+  delivery and never shown, logged or put in an error. Two fixed formats: `generic` (one JSON
+  object per occurrence) and `alertmanager` (the v2 array, re-sent every `refresh_interval` so
+  Alertmanager does not expire a still-true alert, and closed with `endsAt` when it clears).
+  Only https unless `allow_insecure_http` is set, no redirect is followed, and an unreadable URL
+  is an alert on the Settings card and one `alert_destination` line in the feed rather than a
+  silence. Exactly one channel is built either way. **What an existing deployment sees:
+  nothing**: `delivery` defaults to `platform`, which is what alerting did before.
+
+- **Example Grafana dashboards and an observability bundle** (#902, EPIC O).
+  `container/observability/` is a Prometheus, Alertmanager, Loki, Promtail or Alloy, and Grafana
+  stack for one deployment, with two dashboards and alerting rules. It is an example, not a
+  supported deployment: nothing installs it, and the canonical compose file and every provider's
+  file are unchanged. A gate step fails on any metric, label or Loki field a dashboard or rule
+  names that the product does not emit.
+
+- **EPIC O's closing check, its no-secret corpus and the conformance matrix** (#903). One test
+  run loads a deployment with a repository passphrase, an S3 secret key, a scrape token, a
+  webhook credential and (where an engine could see one, since it holds none) an SMTP password,
+  runs a cycle, scrapes and delivers an alert, and fails
+  per surface (the exposition, the log, the webhook request) if any of the five reaches it.
+  `scripts/release/check-epic-o-closed.sh` refuses a moved canonical deployment, any migration, a
+  BLOCKED matrix row or an unticked exit-gate box. The shipped Promtail and Alloy pipelines now
+  run in the gate. The whole epic adds one top-level key to `config.yaml`, `observability:`, and
+  that is the one one-way door: an older build refuses a file that has it.
+
+### Fixed
+
+- **A heartbeat that lands after leaving edit mode no longer puts the edit hold back** (#1606).
+  Taking and renewing an edit hold were the same call, so a renewal still in flight when you left
+  edit mode could land after the release, pause the backup set for another 90 seconds and stop a
+  run that had started in between. A hold now has a holder: `POST
+  /api/v1/backup-sets/{source}/{set}/edit-hold` answers a `token`, sending `{"token": ...}` back
+  renews that holder only, and a renewal whose hold was released or has lapsed is refused with
+  `409 EDIT_HOLD_GONE` instead of taking the set again. `.../edit-hold/release` with a token gives
+  back that holder alone, so a second tab editing the same set keeps its hold. A client that sends
+  no body gets what it always got: a take takes a hold, and a release gives back every hold on the
+  set. On the CLI, `backup-set edit-hold --take` prints the token, `--take --token T` renews it and
+  `--release --token T` gives back only that hold. The web UI does all of this for you, and
+  nothing you see changes.
+
+- **`GET /metrics` answers on the real engine, and the token command prints only the token**
+  (#1568). The scrape endpoint above was registered on the API router and tested there, but the
+  engine's serve mux never mounted it, so `retnd-web serve` answered `404` to every scrape. Now the
+  engine mounts it, the mount guard allows it because it's in the one list of root routes, and
+  `web-ui` answers `404` for it itself instead of handing a scraper the UI's `index.html`.
+  `retnd settings observability rotate-scrape-token` also printed its mode line and startup log
+  next to the token, so `> scrape-token` wrote a file Prometheus couldn't use... standard output
+  is now the token and nothing else, and `patch --json` and `--json` on the read print one
+  document.
+
+- **A deployment still mounted at its pre-0.5.0 path refuses to start instead of coming up
+  empty** (#1546). Once the EPIC R adoption was gone (#1109), a compose file that still
+  mounted the old configuration path got this release's empty one, and the web host wrote a
+  fresh default configuration there... Now `retnd daemon` and `retnd-web serve` check both
+  spellings of the configuration and state database paths first. Only the old one holds
+  something: exit 1 with a paragraph naming both paths and the fix (mount the old directory
+  at the new path, or point `--config` at it). Both hold something and they're different
+  directories: exit 1 naming the conflict. Only the new one, or neither (a fresh install),
+  starts as before.
+
+- **Every other `retnd` command refuses a pre-0.5.0 mount too** (#1558, #1609). After the
+  entry above, `daemon` and `serve` refused, but the rest of the CLI still went to the new, empty
+  path: `backup-set create` wrote a second `config.yaml` (and journal) there, `ssh-key` and
+  `backup-set test-connection --candidate` set up a first-run store beside it, and the reads
+  (`sources`, `artifacts`, `retention`, `status`, `settings` and the rest) said "no backup set
+  configured yet" or "no such file". Now every command that reads or writes the local
+  configuration or journal gives the same refusal before it reads anything. `--help`, `version`
+  and `--config <old path>` are never refused, and a fresh install works as before.
+  `ssh-key list` and `ssh-key discover` on a fresh install with nothing serving also stopped
+  failing with "first run needs a state database path".
+
+  One thing to know if you run the image with plain `docker run` and fix the mount with
+  `--config <old path>` instead of moving the volume: the image's built-in health check runs
+  `/retnd status` with no `--config`, so it now reports unhealthy (it used to report healthy
+  while looking at the empty path). Mount the old directory at `/etc/retnd/config` instead, or
+  see "Health check" in `docs/deployment.md`. The shipped compose files override the health
+  check and aren't affected.
+
+- **A FAILED backup whose source is gone can be retired, and the engine retires the safe case itself**
+  (#1528). `cicd-pipeline/forge` read FAILING for two weeks with a good backup every morning, because two
+  dumps had failed, the host's own retention had since deleted them, and `retry` (the only verb that
+  touched a FAILED row) could only send them round to fail again. There is now a `RETIRED` state,
+  reached only from `FAILED`, with a record of who or what retired the backup, why, what the source
+  looked like at that moment and which newer backup replaces it. `retnd retire <source/set/artifact>`
+  and `POST /api/v1/backups/{source}/{set}/{name}/retire` retire one on request, after asking the source:
+  they refuse while the object is still there (retry it instead) unless you pass
+  `--accept-source-present`, and refuse with no newer good backup unless you pass `--no-successor`.
+  `--dry-run` and `GET` on the same route show what would happen first. A cycle retires a FAILED backup
+  by itself only when the set's listing does not show the object, a `Stat` of it answers not found, and a
+  newer durable backup exists in the same set; if the object ever reappears, the next cycle puts it back
+  into the pipeline. Health stops counting RETIRED as a failure, so a set like forge goes back to HEALTHY,
+  and reports it as `retired_count` (and a `retired` metric) so nothing is hidden. The MCP server gains
+  `retire_backup` (operate, a person confirms, and it may not send either acknowledgement) and
+  `backup_retirement_show` (read), and `GET /backups` gains a `state` filter, `limit` and a cursor, so
+  `backups_list` pages instead of answering `AGENT_RESULT_TOO_LARGE`. In the browser, a failed backup's page
+  and its row menu on the Backups page have a Retire… action whose dialog shows what the engine found
+  (the source gone or still there, the backup that replaces it, what retiring does) before anything
+  happens, a retired backup's page says who retired it and what replaces it, and a set card counts
+  retired backups apart. What an existing deployment sees:
+  FAILED rows whose source is gone and that a newer good backup supersedes are retired on the first cycle
+  after the upgrade, each as a warn-level `artifact_retired` event.
+  **One-way door:** migration 0023 rebuilds the `artifacts` table to admit `RETIRED` and adds
+  `artifact_retirements`. 0.8.0 refuses a `state.db` this build has opened, like every release with a
+  migration, so keep the upgrade archive if you might roll back (the steps are in [Rolling back a
+  release that carried a migration](docs/install.md#rolling-back-a-release-that-carried-a-migration)).
+
 ## [0.8.0] - 2026-11-14
 
 0.8.0 is a minor release, and nearly all of it is one feature: encrypted retained copies (EPIC N, #967), with
@@ -24,7 +179,8 @@ A few things are worth reading before you upgrade:
   `placement_encryption`, `recovery_bundle_exports`, `recovery_bundle_confirmations`, `encrypt_existing_consents`,
   `encryption_key_suites` and `encryption_default_suite`) and changes no existing table or row, so every copy
   you already have reads as unencrypted. Like every release with a migration, 0.7.2 refuses a `state.db` this
-  build has opened, so keep the upgrade archive if you might roll back.
+  build has opened, so keep the upgrade archive if you might roll back
+  ([how](docs/install.md#rolling-back-a-release-that-carried-a-migration)).
 - Writing `retained_copy_encryption:` (and, separately, its `suite:`) into `config.yaml` is a one-way door:
   0.7.2 and older refuse the file as an unknown field. Keep the previous `config.yaml` if you want a way out.
 - If you lose the key and every copy of its recovery bundle, the encrypted copies are gone for good. Export
@@ -2366,7 +2522,7 @@ re-recorded hashes rather than an edit to a published tag (#1042).
   names, not two measurements — which is why no counter is duplicated and why
   the window is one release; point every rule and dashboard at `retnd_*` and
   read the caveat where the metrics are, in
-  [`docs/deployment.md`](docs/deployment.md#metrics-and-the-one-release-duplicate-series).
+  [`docs/deployment.md`](docs/deployment.md#metrics).
 
   **Two changes with no compatibility window at all.** The CLI's default
   `User-Agent` is `retnd-cli (api 1)` where it was `retnd-cli (api 1)`:

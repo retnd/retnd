@@ -1,1 +1,2 @@
 # path<TAB>why, with an issue number. See scripts/tests/every-guard-is-a-gate-step.test.sh.
+scripts/release/check-epic-o-closed.sh	the EPIC O closing check, which joins release.yml as require-epic-o-closed (the way N, T and U did) once exit-gate lines 14, 15, 19 and 20 are done; wired before that it would refuse every release on them, and its self-test is a gate step already: #1615

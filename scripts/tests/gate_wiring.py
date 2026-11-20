@@ -4,12 +4,11 @@
 A guard is wired when a line of the gate RUNS it as a command: the line starts
 with an executor (bash, sh, python3, `npx playwright test -c <config>`, or
 ci-local.sh's own gate_selftest_with_ledger, which runs `bash <script>`),
-optionally behind env assignments, a quoted lock wrapper such as "$pw_lock",
-ci-local.sh's gate_pw_locked or gate_ui_browser "<what>" wrappers, or a
-`(cd <dir> &&`; through the Chromium lane (scripts/e2e/ui-browser.sh) the guard
-is what the lane runs (`specs <config>`, `run <command>`), and the script it
-runs is the guard, without --check-anchors or --dry-run (an anchors-only run is
-not a run of the controls). A step title, an
+optionally behind env assignments, a quoted lock wrapper such as "$pw_lock", a
+`(cd <dir> &&`, ci-local.sh's gate_pw_locked (the Playwright lock), or the Chromium lane (`gate_ui_browser "<what>" bash
+scripts/e2e/ui-browser.sh specs <config> | run <command>`, which runs the config
+or the command), and the script it runs is the guard, without --check-anchors or
+--dry-run (an anchors-only run is not a run of the controls). A step title, an
 echo, a skip note, a `[ -f ]` or `[[ -f ]]` test, an assignment, shellcheck over
 the file and `false && bash ...` all name the path without running it. The line
 has to sit inside a gate_seg_* function that a `gate_run_segment` or `gate_run_shard_only`
@@ -41,13 +40,14 @@ GUARD_GLOBS = (
 )
 
 EXECUTOR = re.compile(
-    r"^\(?\s*(?:cd\s+(?P<dir>\S+)\s+&&\s+)?"
-    r"(?:gate_pw_locked\s+|gate_ui_browser\s+\"[^\"]*\"\s+|env\s+)?"
+    r"^\(?\s*(?:gate_ui_browser\s+\"[^\"]*\"\s+|gate_pw_locked\s+)?(?:cd\s+(?P<dir>\S+)\s+&&\s+)?"
     r"(?:[A-Za-z_]\w*=\S*\s+)*"
     r"(?:\"?\$\{?\w+\}?\"?\s+)?"
     r"(?:exec\s+)?(?P<prog>bash|sh|python3|npx|gate_selftest_with_ledger)\s+(?P<args>.*)$"
 )
 NOT_A_RUN = ("--check-anchors", "--dry-run")
+# The Chromium lane (#1532, #1537) runs what it is handed in a container: `specs
+# <config>` runs that Playwright config, `run <command...>` runs the command.
 LANE = "scripts/e2e/ui-browser.sh"
 SEGMENT = re.compile(r"^(gate_seg_\w+)\(\) \{")
 RUN_SEGMENT = re.compile(r'^gate_run_segment\s+"([^"]*)"\s+(gate_seg_\w+)')
@@ -80,15 +80,15 @@ def runs(command: str) -> str:
             script = args[args.index("-c") + 1]
     else:
         script = next((a for a in args if not a.startswith("-")), "")
+        if script == LANE:
+            rest = args[args.index(script) + 1:]
+            if rest[:1] == ["specs"] and len(rest) > 1:
+                return rest[1]
+            if rest[:1] == ["run"] and len(rest) > 1:
+                return runs(shlex.join(rest[1:]))
+            return ""
     if not script:
         return ""
-    if script == LANE and len(args) >= 3:
-        # Through the Chromium lane (#1537, #1543): `specs <config>` runs that
-        # config's specs, `run <command...>` runs the command.
-        if args[1] == "specs":
-            return args[2]
-        if args[1] == "run":
-            return runs(shlex.join(args[2:]))
     if script.startswith("$") and "/scripts/" in script:
         script = script[script.index("/scripts/") + 1:]
     if m.group("dir"):

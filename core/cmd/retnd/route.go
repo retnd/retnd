@@ -360,6 +360,17 @@ type assuranceRoute interface {
 	ResetBackupSetAssurance(ctx context.Context, id string) (service.BackupSetAssurance, error)
 }
 
+// observabilityRoute is the observability block's half of the same seam
+// (EPIC O, #898), for settingsRoute's reason restated for a fifth noun in
+// config.yaml: `settings observability patch` writes the file, so beside a
+// serving engine a write left there is one that process never reads.
+//
+// *service.BackupService satisfies it as it already stands.
+type observabilityRoute interface {
+	UpdateObservabilitySettings(ctx context.Context, req service.UpdateObservabilitySettingsRequest) (service.ObservabilitySettings, error)
+	MintScrapeToken(ctx context.Context) (service.MintedScrapeToken, error)
+}
+
 // sshKeyRoute is the key store's half of the same seam (issue #1153).
 //
 // The store belongs to whichever process serves the deployment: a key
@@ -420,6 +431,7 @@ type configWriteRoute interface {
 	mediumRoute
 	repositoryRoute
 	assuranceRoute
+	observabilityRoute
 	sshKeyRoute
 	workflowRetentionRoute
 	customValidatorRoute

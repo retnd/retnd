@@ -10,13 +10,18 @@ import { expect, test } from "@playwright/test";
 import { SECRET, card, openAgents, region, tokenRow } from "./1351-agents";
 
 test.describe("#1351 the card and its place", () => {
-  test("#1351 sits directly after Retained-copy encryption and before Workflow, with its own anchor", async ({ page }) => {
+  // EPIC O (#899) put its Observability card directly after this one, "the
+  // other thing that reads this deployment from outside", so the card is no
+  // longer directly before Workflow; it is still after encryption and before
+  // the housekeeping (#1549 found this the first time the spec ran in a gate).
+  test("#1351 sits directly after Retained-copy encryption, then Observability, then Workflow, with its own anchor", async ({ page }) => {
     await openAgents(page, "default");
     const order = await page.locator("[data-settings-section]").evaluateAll((els) => els.map((e) => e.id));
     const at = (id: string) => order.indexOf(id);
     expect(at("agents")).toBeGreaterThan(-1);
     expect(at("agents")).toBe(at("encryption") + 1);
-    expect(at("agents")).toBe(at("workflow") - 1);
+    expect(at("observability")).toBe(at("agents") + 1);
+    expect(at("workflow")).toBe(at("observability") + 1);
     await page.goto("/settings?scenario=default#agents");
     await expect(card(page).getByRole("heading", { name: "Agents", level: 2 })).toBeInViewport();
   });

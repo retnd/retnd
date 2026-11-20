@@ -445,6 +445,28 @@ be: the image's own `HEALTHCHECK` (so a plain `docker run` still reports it, and
 headless `daemon` command, which serves no HTTP and has no liveness endpoint to ask), the
 alerts block, and `docker compose exec retnd /retnd status`.
 
+The image's `HEALTHCHECK` reads the default configuration, `/etc/retnd/config/config.yaml`,
+because it runs `/retnd status` with no `--config` and can't see the arguments the container's
+main process was started with. So a container whose engine runs with `--config` pointing
+somewhere else gets a health check that asks about a different (usually empty) path. The case
+you're most likely to meet is an upgrade from before 0.5.0 (#1546, #1609): the engine refuses
+to start while the configuration is still mounted at its old path, and one of the two fixes it
+offers is `--config <old path>`. Take that fix on a plain `docker run` and the health check
+refuses the same way and reports `unhealthy`. Prefer the other fix, mounting the old directory
+at `/etc/retnd/config`, which every command, the health check included, then finds on its own.
+If you do keep a non-default `--config`, give the check the same path: in a compose file,
+`healthcheck: test: ["CMD", "/retnd", "status", "--config", "<path>"]`. `docker run
+--health-cmd` won't do it, because Docker runs that through `/bin/sh` and this image has no
+shell, so use `--no-healthcheck` and run `/retnd status --config <path>` yourself. The shipped
+compose files already override the engine's health check with `/retnd-web healthcheck`, so
+they aren't affected. The Unraid engine template (`apps/unraid/template/retnd.xml`) is the
+exception: it is a plain `docker run` and keeps the image's health check, so it has the same
+caveat.
+
+Two commands never ask about the old path, on purpose: `retnd-web auth create-admin` and
+`retnd-web auth set-password` write `/data/state/local-auth.json`, which has no `retnd` path
+component and is neither the configuration nor the journal.
+
 Every packaged adapter declares the same start gate, and has to (issue #206). The image's
 instruction and the canonical start gate are now deliberately different commands, so an
 adapter that declares nothing for the engine inherits the freshness verdict rather than the
@@ -707,6 +729,19 @@ all. `retnd status` works identically either way, since it is always a fresh,
 read-only check against the shared state database file, independent of which binary is
 actually running as `retnd`'s main process.
 
+**`/metrics` is the engine's, and stays on the internal network.** When
+`observability.metrics.enabled` is on, the engine answers `GET /metrics` on the
+listener it already has (`retnd:8080` on `internal`), beside `/health/live` and
+`/health/ready` and outside `/api/v1`. `web-ui` forwards `/health/*` and `/api/v1/*`
+only, so the published port does not carry it, and no port, mapping or compose line was
+added for it: `container/compose.yaml` and every provider's file are unchanged. A
+Prometheus on the same host scrapes it by joining `retnd_internal`, which makes it a
+direct peer of the engine (a position this file otherwise gives to `web-ui` alone, and
+the reason `TRUST_FORWARDED_HEADERS` is safe here), so join exactly one container to it.
+`container/observability/` is a worked example of that, with two dashboards and alerting
+rules, and it is an example, not a supported deployment; its README says what it does
+and does not take on.
+
 ## Storage capacity, and capping what this manager may use
 
 By default retnd measures the filesystem your backup root is on and reports
@@ -788,7 +823,7 @@ alerts:
 A config file with no `alerts:` block at all keeps working exactly as before and
 notifies nobody, so turning this on is always a deliberate edit.
 
-**Where the alert goes is not configured here.** Delivery is the platform's own local
+**By default, where the alert goes is not configured here.** Delivery is the platform's own local
 notification capability, supplied by the provider app rather than by this file, which
 is why there is no URL, command or credential to get wrong. A platform that declares
 no native notification capability, and the generic Docker/Linux host is one, cannot
@@ -805,44 +840,150 @@ yourself. The connection stays refused until you do.
 clears and later comes back does alert again, so a recurrence is never lost behind a
 notification you already dismissed.
 
-## Metrics, and the one-release duplicate series
+### Delivering alerts to a webhook
+
+`alerts.enabled` only decides whether anything is observed. To reach a person on a
+deployment whose platform has no notifier (the generic Docker/Linux host is one),
+choose the webhook channel. It is a selection and never a fan-out: exactly one
+channel is built, and switching it keeps what was already announced, so a standing
+alert is not announced again... with one exception. Switching to the `alertmanager`
+format posts each standing alert to Alertmanager within one refresh interval, because
+that receiver has never seen it and expires anything that is not re-sent, and
+Alertmanager then notifies as it would for any new alert. The flip side of "not
+announced again" is that what was announced is remembered per channel setting, not
+per receiver, and what happens when you move to a new receiver depends on the
+format. A new URL in the reference on the `alertmanager` format needs nothing from
+you: every refresh reads the reference again, so each standing alert reaches the new
+Alertmanager on the next refresh, within one refresh interval. For `generic`, and
+for a switch from `alertmanager` to `generic`, the receiver hears about an alert
+that is already standing only when it clears and comes back. In both cases the
+copies an Alertmanager got before you moved away expire at their own `endsAt`.
+
+```yaml
+observability:
+  alerts:
+    delivery: webhook          # platform (default) or webhook
+    webhook:
+      dialect: generic         # or alertmanager
+      url_ref:                 # where the URL is kept: file, env or command
+        file: /run/secrets/retnd-alert-webhook-url
+      allow_insecure_http: false
+      refresh_interval: 4m     # alertmanager only, at least 30s below resolve_ttl
+      resolve_ttl: 10m
+```
+
+The URL is a credential (a Slack, Teams or Discord webhook carries its secret in the
+path), so the file holds a reference and never the URL. It is not shown in the
+settings, in an error or in a log line; a failure names the host and the status code.
+Settings answer only whether one is set.
+
+The reference is read again for every delivery, so replacing the file's contents (or
+the variable, or what the command prints) takes effect at the next alert with no
+restart and no settings change. A reference that cannot be read is never a quiet
+state. Alerting stays on, the settings report `url_status: unresolvable` (or
+`invalid` when it reads and holds something that is not an acceptable URL), the
+Observability card in Settings shows it as an alert, and the activity feed gets one
+`alert_destination` error line when it happens. The alert waits, nothing is lost or
+marked as told, and the engine keeps trying. The moment the reference reads again the
+feed gets one `alert_destination` line saying so, and the waiting alert goes out on
+the next pass rather than at the next step of the retry ladder. The engine reads the
+reference on every alerting pass, not only when an alert is due, so you find out
+before the next incident does. A `command` reference therefore runs once per pass.
+
+Two fixed formats, neither templatable. `generic` posts one JSON object per alert
+(`kind`, `scope`, `title`, `message`, `observed_at`, `schema`) once, and stays quiet
+while the condition lasts. `alertmanager` posts the v2 array with `labels.alertname`
+and `labels.scope`, re-sends a condition that is still true every `refresh_interval`
+so Alertmanager does not expire it, and closes it with `endsAt` set to now when it
+clears. Without that refresh an alert would resolve itself while the backup was still
+stale. Alerts that fall due together are sent in parallel, up to 16 at a time, so the
+30 seconds between `refresh_interval` and `resolve_ttl` (one delivery attempt) covers
+each of them and not just the first. With more than 16 alerts standing at once and a
+receiver that takes close to 30 seconds to answer, add another 30 seconds to
+`resolve_ttl` for each further 16; the defaults leave six minutes, which is plenty.
+If you run Prometheus, its rules over the `retnd_*` series into Alertmanager
+are the better source of truth for staleness; this format is for deployments that
+scrape nothing, and running both means two sources of truth about the same fact.
+
+What is refused: a URL that is not https (unless `allow_insecure_http` is set, which
+is for a receiver on a network you trust, such as `http://alertmanager:9093` on a
+compose network), a URL carrying `user:password@`, a non-HTTP scheme, and any redirect
+(a 3xx counts as a failed delivery and its `Location` is never followed or logged).
+Certificate verification cannot be turned off. Private and link-local targets are
+allowed on purpose, because the common correct target is on a private network.
+
+## Metrics
 
 `core/internal/metrics` renders FR-24's health report as Prometheus text exposition
-(version 0.0.4), and every series it emits is prefixed `retnd_`:
-`retnd_process_info`, `retnd_backup_set_state`, `retnd_workflow_runner_reachable`,
-`retnd_workflow_runs_total` and the rest. **Nothing in this build serves it yet** —
-there is no subcommand and no route wired to it (issues #25, #26) — so a deployment
-today has no scrape endpoint to point Prometheus at. This section is here because the
-names moved and because the move has one hazard worth reading before you write a query
-against them.
+(version 0.0.4), and the engine serves it on `GET /metrics` (EPIC O, #899). Every series
+is prefixed `retnd_` and exists under that one name: `retnd_process_info`,
+`retnd_backup_set_state`, `retnd_workflow_runner_reachable`, `retnd_workflow_runs_total`
+and the rest, 46 families plus `retnd_scrape_rejected_total`. No family is emitted a
+second time under an old prefix, so a query cannot double-count.
 
-Those series were `retnd_*` until EPIC R (#885) renamed the product. An alert rule
-whose series stopped existing does not fire, and a dashboard whose query matches nothing
-is blank; both look exactly like a healthy deployment, which is the failure mode this
-project will not ship. So **every gauge family is emitted a second time under the
-`retnd_` prefix for one release**, derived from the bytes of the first rendering so the
-two cannot disagree, with `DEPRECATED, renamed to retnd_…` in its own `# HELP` line —
-so a scrape carries its own deprecation notice.
+**It is off until you turn it on.** Off, `/metrics` answers `404` and nothing else, so a
+deployment that never asked for it does not advertise it. Turn it on in Settings, or:
 
-**The caveat: a query that reads both prefixes double-counts.** The duplicated samples
-are the same readings under two names, not two measurements, so
-`sum(retnd_backup_set_state) + sum(retnd_backup_set_state)` reports twice as many
-backup sets as exist, and so does any regex matcher loose enough to catch both names
-(`{__name__=~".*backup_set_state"}`). Point every rule, recording rule and dashboard at
-`retnd_*` only. The old names exist so that a rule you have **not** migrated keeps
-firing during the upgrade, not so that both can be read at once.
+```sh
+retnd settings observability patch --metrics-enabled
+retnd settings observability rotate-scrape-token
+```
 
-**No counter is duplicated, and that is structural rather than remembered.** The
-duplication copies a family only when that family's own `# TYPE` line says `gauge`, so a
-counter cannot join the duplicated set by being added to a list. Summing `rate()` across
-two names of one counter doubles the rate, and nothing in the output would tell the
-operator who wrote that query — which is why `retnd_workflow_runs_total` and the other
-`_total` series exist under one name only.
+The second command prints a `rsc_` token **once**, and its standard output is the token and
+nothing else (everything it logs goes to standard error), so
+`retnd settings observability rotate-scrape-token > retnd-scrape-token` writes a file
+Prometheus can use as is. Only its SHA-256 digest and an
+eight-character display prefix are kept, in `scrape_credential/scrape-token.json` beside
+`config.yaml` (mode 0600 in a 0700 directory). Running it again replaces the token at
+once with no overlap, so update the scraper's credentials file and reload it straight
+after. A token typed into `config.yaml` as `observability.metrics.token` is refused at
+load with the command above in the message, and is never echoed back.
 
-**The window is one release.** #895 deletes the duplication along with every other
-EPIC R shim, and `scripts/rename/check-brand-drift.sh`'s alias list is the ledger that
-says so: it reports an alias entry that has stopped matching anything, so the window
-closes because a gate noticed rather than because somebody remembered.
+Point Prometheus at it with the token in a file, as a bearer or as the `basic_auth`
+password (the username is ignored):
+
+```yaml
+scrape_configs:
+  - job_name: retnd
+    authorization:
+      credentials_file: /etc/prometheus/retnd-scrape-token
+    static_configs:
+      - targets: ["retnd:8080"]
+```
+
+**Where it is reachable.** The engine serves `/metrics` on its own listener, which on the
+shipped compose file is `retnd:8080` on the `internal` network. The published `web-ui` port
+forwards only `/health/*` and `/api/v1/*`, so `curl http://<nas>:8080/metrics` from your
+LAN gets a `404` from `web-ui`, not the exposition. A Prometheus outside the compose network
+reaches it by joining that network or through a reverse proxy you run. If you put a proxy
+in front of it, make sure the proxy does not log the `Authorization` header... this
+product never does.
+
+**What a refusal looks like.** No credential, a wrong one or a malformed header is `401`
+with an empty body. An address that has been refused ten times in a minute gets `429`
+with `Retry-After` for the rest of that minute, even with a valid token, so a scraper's
+`up == 0` alert fires either way. The address is the connection's own peer address, and
+`X-Forwarded-For` is ignored on this route even with `TRUST_FORWARDED_HEADERS` on, because
+nothing trusted forwards `/metrics` to the engine: a header there was written by whoever
+sent the request. A scraper that holds the right token and connects from its own address
+is never refused. If it reaches the engine through a proxy you run, everything behind
+that proxy shares the proxy's address and its limit, so ten bad requests through the
+proxy in a minute will hold your scraper off for the rest of that minute too. Every
+answer carries `Cache-Control: no-store`.
+Refusals are counted, not logged, in `retnd_scrape_rejected_total{reason}` with
+`reason` one of `disabled`, `unauthenticated` or `method`.
+
+**What a scrape costs.** The health half needs a journal read, so it is rebuilt at most
+once per `observability.metrics.min_rebuild_interval` (default `15s`, at least `1s`) and
+reused in between, whatever the number of scrapers. `retnd_report_generated_timestamp_seconds`
+says how old the reading is. A scrape writes no action-log row and no agent audit row.
+
+**Two things it is not.** It is not `/health/live`: liveness still says nothing about
+backup freshness. And an agent token (`rat_`) does not open it, just as the scrape token
+opens nothing under `/api/v1`. The two credentials are kept apart on purpose, and
+ADR 0035 says why. When no workflow engine was ever built in the process, the seven
+`retnd_workflow_*` counter and histogram families are absent rather than zero, because
+"no workflow has failed" and "this process runs no workflows" are different answers.
 
 ## Turning on diagnostics
 

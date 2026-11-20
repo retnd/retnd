@@ -773,6 +773,34 @@ Recovery runs inside written budgets (`core/internal/recovery/budget`, #983), an
 
 The UI host (`retnd-ui`) is the front door in the two-container topology, so a download goes through its reverse proxy. That proxy bounds the wait for the engine's first response byte at five seconds and its server bounds a whole response at thirty, both right for JSON and both fatal to a download whose first request has to make the preparation read of the whole copy before the first byte. `/api/v1/recoveries/` gets its own proxy with no header bound and a write deadline that rolls with the client accepting bytes. A different gateway in front of that one needs the same treatment: a read timeout longer than the time to read the copy, and no response buffering.
 
+## Recorded decision: retiring a FAILED backup is a preview and an action, and the backups list always carries a cursor (#1528)
+
+`GET /backups/{source}/{set}/{name}/retire` (`previewRetirement`) and `POST` on the same path
+(`retireArtifact`) are the second way out of FAILED, for a backup whose source object is gone. I made
+the preview a route of its own rather than a `dry_run` field on the action for two reasons: the retire
+dialog has to show whether the source is still there and which backup would replace it before anybody
+clicks, without computing either in the browser, and an agent should be able to read that at read
+scope without a person being asked to confirm a question. Both answer with the same refusal codes
+(`ARTIFACT_NOT_FAILED`, `RETIRE_OWN_COPY_AT_FINAL_NAME`, `RETIRE_SOURCE_PRESENT`,
+`RETIRE_SOURCE_UNCONFIRMED`, `RETIRE_NO_SUCCESSOR`, `RETIRE_SUCCESSOR_INVALID`): the action as a 409, the
+preview inside `refusal`, with the acknowledgement that overrides it (`accept_source_present`,
+`no_successor`) or nothing. Every sentence in the preview is the engine's. An agent's approved request
+carrying either acknowledgement is refused with `AGENT_RETIRE_ACK_REFUSED` (403), and the proposer
+refuses it before a person is asked.
+
+The action carries CSRF and no destructive gate. It deletes no backup copy and touches nothing on the
+source; the one file it removes is the leftover `.partial` a failed transfer left.
+
+`ListArtifactsResponse` gained `next_cursor`, required and nullable, and `GET /backups` gained `state`,
+`limit` and `before` (`GET /quarantine` gained `setId`, `limit` and `before`). Without `limit` the answer
+and its order are what they were, and `next_cursor` is null. I made it always present because the MCP
+server pages an answer over its size cap only when the body carries the key, and a list that only
+grew the key on a full page could never be asked for its first smaller page. A client that rejects
+unknown fields sees one new field; nothing it already reads changed.
+
+`BackupSetHealth.retired_count` is required: RETIRED never counts in `failures` and never forces
+FAILING, and this count is what keeps it visible.
+
 ## Recorded decision: retained-copy encryption is fourteen operations, one write-only field and one route that returns key material (#993)
 
 EPIC N adds the `encryption` surface, all of it additive: nothing existing
@@ -930,6 +958,16 @@ with for the same call. One code exists only in a tool result and never on the w
 `AGENT_UNEXPECTED_ANSWER`, for a proposed change the engine answered as if it had run, which
 nothing here asked a person to approve; the result says to treat it as not confirmed and to tell an
 operator.
+
+## Recorded decision: the observability block is three operations, and `/metrics` is outside the contract (EPIC O, #899)
+
+`GET` and `PATCH /settings/observability` read and write the deployment-wide `observability:` block, resolved, and `POST /settings/observability/scrape-token` mints the Prometheus scrape credential. They sit under `/settings` for the reason `/settings/workflow` and `/settings/assurance` do. Every setting is global: none is a property of a backup set, so there is no per-set twin.
+
+- **None of the three is an agent tool.** The two settings routes are named refusals in `core/agenttools`, and the mint is on the deny list, so a bearer token of any scope is refused `AGENT_ROUTE_DENIED` there.
+- **The mint returns the credential once**, in `MintedScrapeToken.token`, with `Cache-Control: no-store`, and over plain HTTP from another machine it needs the same acknowledgement an agent-token mint does (`INSECURE_TRANSPORT_ACK_REQUIRED`). The deployment keeps a SHA-256 digest and an eight-character prefix in a file of its own, and `GET` reports only whether a credential exists, that prefix and when it was minted. Minting again replaces the credential at once.
+- **The webhook URL is not in this contract at all**, in either direction, because a chat webhook URL is a credential. It is kept by reference (`observability.alerts.webhook.url_ref`: a file, an environment variable or a command) in `config.yaml`, which no route writes; a read carries only `url_set` and `url_status` (`unknown` until the first read, then `ok`, `unresolvable` or `invalid`), never the URL, its host or where it is kept. The `PATCH` sets the delivery, the format, `allow_insecure_http` and the two intervals.
+- **A wrong method on `/metrics` after a good credential is `405`** with `Allow: GET`, and counted as `reason="method"`.
+- **`GET /metrics` is not in this contract.** It is registered on the engine's root router beside `/health/live` and `/health/ready`, outside `/api/v1`, and answers in the exposition text format rather than JSON. Disabled it is `404`; enabled it needs `Authorization: Bearer <scrape token>` or HTTP basic with the token as the password (the username is ignored): no credential or a wrong one is `401` with an empty body, an address refused ten times in a minute is `429` with `Retry-After`, and every answer carries `Cache-Control: no-store`. An agent `rat_` token does not open it and the scrape token opens nothing under `/api/v1`. It is not forwarded through `web-ui`.
 
 ## Migration record: what was removed and what replaced it
 

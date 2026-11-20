@@ -26,6 +26,13 @@ scripts/release/record-local-gate.sh      # a full run, then provenance/local-ga
 The gate takes a while (the recorder prints the wall time). Start it and go
 and do something else.
 
+A full `scripts/ci-local.sh` on a Mac ends INCOMPLETE unless it is asked to
+run the Chromium lane there (`RETND_UI_BROWSER_ALLOW_LOCAL=1`, through the
+Playwright lock): heavy steps stay off the Mac, so the `ui-browser` shard's two
+steps are ledgered with the command that runs them on MARS
+(`scripts/release/run-gate-shard.sh ui-browser --host mars`, which is also
+where the runner sends that shard when no host is given).
+
 ## Verdicts and exit statuses
 
 The last line of a run is one of three verdicts, and the exit status matches:
@@ -41,12 +48,43 @@ The last line of a run is one of three verdicts, and the exit status matches:
 Only a step that declares itself INCOMPLETE through the ledger may end a run
 at 3. A stray exit 3 from a command the gate did not mark is read as FAILED.
 
+A step the stall watchdog stopped ends the run `==> ci-local: FAILED (STALLED: <step>, <why>)`
+with exit 1 (#1540). Every step is watched from the first one on: no output
+for `RETND_GATE_STALL_MIN` minutes, or a run past the step's hard cap (1.5
+times the longest of the last three durations this host recorded for it,
+never less than `RETND_GATE_STEP_CAP_FLOOR_MIN` or two of the step's own stall
+windows, or `RETND_GATE_STEP_CAP_MIN` when there is no record), and the watchdog prints the last 40 lines the step
+printed, its processes and the containers labelled
+`retnd-test=<this worktree's owner>`, stops the processes (TERM, then KILL
+after `GATE_STALL_GRACE` seconds), removes those containers and ends the run.
+Containers a step starts without that label (the e2e and two-machine rigs)
+are left to that rig's own sweep on the next run.
+
+A step's clocks start once it holds the gate lock, and the browser step's
+start again once it holds the Playwright lock. The gate lock wait has its own
+limit (`GATE_LOCK_TIMEOUT`); the Playwright lock waits on a live holder for
+ever, so that wait is bounded by `RETND_GATE_STEP_CAP_MIN` and past it the
+step ends STALLED. A step that ends having added to the skip ledger (the e2e lane
+exiting 3, a self-test left out for memory) is not recorded, because it took
+less time than the step does. Durations are recorded in
+`<git common dir>/ci-local-step-durations.<host id>`, the host id being
+`RETND_GATE_HOST_ID`, else the hostname. A hostname of twelve hex digits is a
+container's own id and changes every run, so under it nothing is recorded;
+`scripts/ci-docker.sh` names the gate container `ci-docker-<host>` and copies
+a remote run's record back into this checkout's git dir. While the watchdog
+runs, the gate's output goes through `tee` into the log it measures, so a
+step sees a pipe rather than a terminal. A step can override its limits with
+`gate_step "<heading>" --stall-min N --cap-min N`: the core `go test` steps
+take `--stall-min 50`, because `go test` prints a package only when it ends,
+and the browser step `--stall-min 30`, because its rig builds the Playwright
+image with `docker build -q`.
+
 ## Variables the gate reads
 
 | variable | default | what it does |
 | --- | --- | --- |
 | `CI_LOCAL` | set to `1` by the gate | tells fixtures they run under the gate: a skip that would be tolerated on a developer's machine is a failure here. Load-bearing in `core/tests`; never rename it |
-| `CI` | set to `1` by the gate | the conventional "non-interactive" flag. vitest picks its non-interactive reporter from it, Playwright refuses a `.only` and stops retrying, and `core/tests/machines` keys a refusal on it |
+| `CI` | set to `1` by the gate | the conventional "non-interactive" flag. vitest picks its non-interactive reporter from it, Playwright stops retrying (and refuses a `.only` only where the config sets `forbidOnly` from it, as `ui/shared/e2e/playwright.config.ts` does; the Chromium lane also passes `--forbid-only`), and `core/tests/machines` keys a refusal on it |
 | `CI_LOCAL_FAST` | `0` | `1` skips the Docker suites, the cross-compiles, the production builds, the browser suite, the Chromium lane and the gate's own self-test. Always INCOMPLETE; for an iteration loop, never for evidence |
 | `CI_LOCAL_FULL` | `0` | `1` makes `.husky/pre-commit` run the full gate (`scripts/ci-local.sh`) instead of the fast tier. A green full run is the only thing that leaves a commit with no `Local-Gate` trailer |
 | `CI_LOCAL_TIER` | `full` under `ci-local.sh`, `fast` under `ci-fast.sh`, unset by hand | which tier is running. `core/tests/compat` stands down its live GitHub check under `fast` (see Tiers). Do not set it yourself |
@@ -55,7 +93,7 @@ at 3. A stray exit 3 from a command the gate did not mark is read as FAILED.
 | `CI_LOCAL_SKIP_JS` | `0` | `1` skips the JS workspaces (lint, typecheck, unit tests, builds). INCOMPLETE |
 | `CI_LOCAL_SKIP_E2E` | `0` | `1` skips the browser suite and the CLI smoke slice from retnd-tests. INCOMPLETE |
 | `CI_LOCAL_SKIP_TWO_MACHINE` | `0` | `1` skips the two-machine end-to-end backup proof (#356). INCOMPLETE |
-| `CI_LOCAL_SKIP_UI_BROWSER` | `0` | `1` skips the Chromium lane: the 127 browser specs in `ui/shared/e2e` and the assurance UI mutation self-test (#1532, #1537). INCOMPLETE |
+| `CI_LOCAL_SKIP_UI_BROWSER` | `0` | `1` skips the Chromium lane: the browser spec files in `ui/shared/e2e` and the assurance UI mutation self-test (#1532, #1537). INCOMPLETE |
 | `RETND_UI_BROWSER_CPUS`, `RETND_UI_BROWSER_MEMORY` | `4`, `4g` | the Chromium lane's container fence (`scripts/e2e/ui-browser.sh`) |
 | `RETND_UI_BROWSER_TIMEOUT`, `RETND_UI_BROWSER_STALL`, `RETND_UI_BROWSER_TEST_TIMEOUT` | `5400` for the specs and `2700` for the self-test, `600`, `60` | the lane's hard cap, the seconds without output after which a run counts as stalled and is killed, and the per-test timeout for the specs. Hitting any of them is a FAILED run |
 | `RETND_UI_BROWSER_PLATFORM` | the daemon's own (`docker info` Architecture) | the platform named on the lane's pull and run, so a shared host's tag is never swapped for the other architecture |
@@ -73,6 +111,13 @@ at 3. A stray exit 3 from a command the gate did not mark is read as FAILED.
 | `GATE_LOCK_POLL` | `5` | seconds between attempts while waiting for the lock |
 | `GATE_LOCK_TIMEOUT` | `7200` | seconds a run waits for the lock before refusing (FAILED, with the holder's pid, host and worktree and the `rm -r` that breaks it) |
 | `GATE_LOCK_STALE_AFTER` | `600` | a lock whose holder cannot be judged (another host's pid, a lock from before a reboot, no pid file) is reclaimed once it is this old. A lock whose holder is a dead pid on this host and boot is reclaimed at once |
+| `RETND_GATE_STALL_MIN` | `10` | minutes a step may print nothing before the stall watchdog stops it and the run ends `FAILED (STALLED: ...)`. Fractions are fine; `0` turns the no-progress check off |
+| `RETND_GATE_STEP_CAP_MIN` | `180` | the hard cap, in minutes, of a step this host has no recorded duration for. `0` turns the hard cap off; both at `0` turn the watchdog off |
+| `RETND_GATE_STEP_CAP_FLOOR_MIN` | `20` | the least hard cap a recorded step gets, in minutes: its cap is 1.5 times the longest of its last three records, or this, or two of the step's own stall windows, whichever is most. Turning the stall check off (`RETND_GATE_STALL_MIN=0`) does not lower it below this |
+| `RETND_GATE_HOST_ID` | the hostname | the name step durations are recorded under (`ci-local-step-durations.<id>` in the git common dir). Set it where the hostname changes from run to run; a hostname of twelve hex digits (a container's id) records nothing without it |
+| `GATE_DOCKER_INFO_TIMEOUT` | `120` | seconds the daemon probe (`docker info`) may take before the daemon counts as not reachable, so a wedged daemon cannot hang a step that holds the gate lock |
+| `GATE_STALL_POLL` | `15` | seconds between the stall watchdog's looks at the log |
+| `GATE_STALL_GRACE` | `10` | seconds between the TERM and the KILL the watchdog sends a stalled step's processes |
 | `GOLANGCI_LINT_DIR` | unset | a directory to put ahead of `PATH` so a specific golangci-lint wins over Homebrew's |
 | `GOLANGCI_LINT_VERSION` | from `scripts/ci/pins.env` | the linter the gate is pinned to. A run with another version is ledgered INCOMPLETE and the release check refuses its record. `scripts/ci-docker.sh` builds the image with it |
 | `RUFF_VERSION`, `MYPY_VERSION` | from `scripts/ci/pins.env` | the ruff and mypy `scripts/ci-docker.sh` builds into the gate image (with `python3-yaml`), so the Python lint step runs there instead of being ledgered. The gate itself uses whichever ruff and mypy are on `PATH` |
@@ -144,9 +189,17 @@ or remotely, and the fixtures handle the last:
 - **`/tmp`.** `core/tests/containerhooks` builds its runner layout under a
   short `/tmp` root and bind-mounts it into each hook container, so the
   daemon has to find the same path on its own disk. On a daemon that is not
-  Docker Desktop the host's `/tmp` is mounted at `/tmp`, and every test's
-  temporary directory lands there; Go removes them as tests finish, but a
-  run killed halfway can leave some behind in the host's `/tmp`.
+  Docker Desktop the host's `/tmp` is mounted at `/tmp`. In remote mode,
+  when that host's `/tmp` is tmpfs (MARS's is), `TMPDIR` points somewhere
+  else: a `tmp/` directory in the shipped scratch copy, on disk and mounted at
+  the same path inside and out, so temporary directories land there and go
+  when the scratch copy does (#1580). Everything written to a tmpfs `/tmp`
+  was memory charged to the gate container's fence that could not be swapped
+  out, and the architecture self-test's tree copies got SIGKILLed that way.
+  Tests that need the short root ask for `/tmp` by name and still get the
+  host's. A host whose `/tmp` is on disk keeps `TMPDIR` as it was: on
+  colima (MERCURY) the scratch copy reaches the VM through the Mac's file
+  share, where a test that makes a named pipe would skip.
 
 - **The scratch copy's modes.** A Linux account's umask is often 002, which
   left the remote scratch directories group-writable, and the SSH key checks

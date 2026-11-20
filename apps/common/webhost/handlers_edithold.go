@@ -1,7 +1,10 @@
 package webhost
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"time"
 
@@ -57,13 +60,69 @@ type editHoldStateResponse struct {
 	Running     *runningWorkResponse `json:"running"`
 }
 
-// editHoldResponse is POST /edit-hold's body: the lease, plus what taking
-// it interrupted (null when nothing was running, so a client never claims
-// to have stopped something it did not).
+// editHoldResponse is POST /edit-hold's body: the lease, the holder token
+// that names it, plus what taking it interrupted (null when nothing was
+// running, so a client never claims to have stopped something it did not).
 type editHoldResponse struct {
 	BackupSetID string               `json:"backup_set_id"`
 	ExpiresAt   string               `json:"expires_at"`
+	Token       string               `json:"token"`
 	Stopped     *runningWorkResponse `json:"stopped"`
+}
+
+// editHoldBody is the optional body of POST /edit-hold and of
+// /edit-hold/release (issue #1606): the holder the call is about.
+//
+// Optional on both, and that is the backwards compatibility. A client from
+// before tokens sends no body: on the take route that takes a new hold,
+// exactly as it always did, and on /release it gives back every hold on
+// the set, exactly as it always did. Only a client that sends a token gets
+// the new guarantees, and the web UI and the CLI both do.
+type editHoldBody struct {
+	Token string `json:"token,omitempty"`
+}
+
+// maxEditHoldBodyBytes bounds the body above. It carries one opaque token,
+// so anything near this size is not a request this route understands.
+const maxEditHoldBodyBytes = 4 << 10
+
+// decodeEditHoldRequest reads the optional body. An absent body is
+// legitimate and is what a client from before tokens sends, so io.EOF is
+// not an error; decoding unconditionally rather than gating on
+// ContentLength is retryFailedIngestion's reason (a chunked body has no
+// length and would otherwise be read as absent). A body that is not JSON
+// is refused rather than read as "no token": a client that meant to renew
+// and had its renewal turned into a fresh take would be this issue again.
+func decodeEditHoldRequest(w http.ResponseWriter, r *http.Request) (editHoldBody, bool) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxEditHoldBodyBytes)
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeDecodeError(w, err, maxEditHoldBodyBytes)
+		return editHoldBody{}, false
+	}
+	var req editHoldBody
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return req, true
+	}
+	if err := json.Unmarshal(raw, &req); err != nil {
+		writeDecodeError(w, err, maxEditHoldBodyBytes)
+		return editHoldBody{}, false
+	}
+	// "token": "" is not "no token". A client that meant to renew and had
+	// an unset variable would have its renewal turned into a fresh take,
+	// and one that meant to release its own hold would give back every
+	// holder's. The struct cannot tell a present-but-empty key from an
+	// absent one (the contract pins it to a plain string), so the keys are
+	// read once more. Refused like a body that is not JSON.
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &keys); err == nil {
+		if _, present := keys["token"]; present && req.Token == "" {
+			writeError(w, http.StatusBadRequest, "INVALID_REQUEST",
+				"token must name a holder: leave it out to take a new hold (or, on release, to give back every hold)")
+			return editHoldBody{}, false
+		}
+	}
+	return req, true
 }
 
 func toRunningWorkResponse(w *service.RunningWork) *runningWorkResponse {
@@ -101,16 +160,24 @@ func (h *handlers) getBackupSetEditHold(w http.ResponseWriter, r *http.Request) 
 }
 
 // takeBackupSetEditHold is POST
-// /api/v1/backup-sets/{source}/{set}/edit-hold: take the hold, or renew
-// one already held. The cycle currently processing this set, if any, is
+// /api/v1/backup-sets/{source}/{set}/edit-hold: take a hold, or renew one
+// holder's lease. The cycle currently processing this set, if any, is
 // stopped at its next safe boundary, and no new pass starts for it until
-// the hold is released or lapses.
+// every hold on it is released or lapses.
 //
-// One route for both taking and renewing, rather than two: a renewal IS
-// "hold this set for another lease", and a client whose heartbeat arrives
-// a second after the lease lapsed still has its form open with an
-// operator mid-edit, so refusing it would leave the set unheld while the
-// form stayed on screen (see core/service.RenewBackupSetEdit's doc).
+// One route for both, told apart by the body (issue #1606). No token takes
+// a NEW hold and answers its token. A token renews that holder and nothing
+// else, and is refused with 409 EDIT_HOLD_GONE once the holder was
+// released or lapsed: a renewal never creates a hold, which is what stops
+// a heartbeat that was in flight when edit mode was left from putting the
+// hold back after the release. A client still in edit mode that gets the
+// refusal takes a fresh hold, so a heartbeat that arrived a second late
+// still ends with the set held while the form is open.
+//
+// One route rather than a separate /renew, because a renewal and a take
+// answer the same shape and share every requirement, and a fourth route
+// would be a fourth entry in the MCP catalogue, the CLI echo table and
+// every proxy for no difference a caller could act on.
 //
 // requireCSRF and NOT requireDestructiveGate. Nothing reachable from here
 // starts work or deletes anything: it STOPS work. Gating it would mean an
@@ -119,7 +186,17 @@ func (h *handlers) getBackupSetEditHold(w http.ResponseWriter, r *http.Request) 
 // for.
 func (h *handlers) takeBackupSetEditHold(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "source") + "/" + chi.URLParam(r, "set")
-	hold, err := h.backend.BeginBackupSetEdit(r.Context(), id)
+	req, ok := decodeEditHoldRequest(w, r)
+	if !ok {
+		return
+	}
+	var hold service.EditHold
+	var err error
+	if req.Token == "" {
+		hold, err = h.backend.BeginBackupSetEdit(r.Context(), id)
+	} else {
+		hold, err = h.backend.RenewBackupSetEdit(r.Context(), id, req.Token)
+	}
 	if err != nil {
 		h.writeEditHoldError(w, r, err)
 		return
@@ -127,6 +204,7 @@ func (h *handlers) takeBackupSetEditHold(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, editHoldResponse{
 		BackupSetID: hold.BackupSetID,
 		ExpiresAt:   hold.ExpiresAt.UTC().Format(time.RFC3339Nano),
+		Token:       hold.Token,
 		Stopped:     toRunningWorkResponse(hold.Stopped),
 	})
 }
@@ -141,25 +219,44 @@ func (h *handlers) takeBackupSetEditHold(w http.ResponseWriter, r *http.Request)
 // client). And the release has to be callable from a page that is going
 // away, where the browser APIs that survive an unload are POST-shaped.
 //
+// With a token it gives back that holder alone, so one tab leaving edit
+// mode does not drop the hold another tab is still editing under. With no
+// token it gives back every hold on the set, which is what a client from
+// before tokens sends and what an operator clearing a hold somebody left
+// behind means (issue #1606).
+//
 // 204, not 200: there is nothing to say. Releasing a hold that is not
-// held is a success for the same reason core/service.EndBackupSetEdit
-// says so: several routes out of edit mode fire for one edit, and a
-// duplicate release must not be something a client has to avoid.
+// held, or a token that is already gone, is a success for the same reason
+// core/service.EndBackupSetEdit says so: several routes out of edit mode
+// fire for one edit, and a duplicate release must not be something a
+// client has to avoid.
 func (h *handlers) releaseBackupSetEditHold(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "source") + "/" + chi.URLParam(r, "set")
-	if err := h.backend.EndBackupSetEdit(r.Context(), id); err != nil {
+	req, ok := decodeEditHoldRequest(w, r)
+	if !ok {
+		return
+	}
+	if err := h.backend.EndBackupSetEdit(r.Context(), id, req.Token); err != nil {
 		h.writeEditHoldError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// writeEditHoldError maps the one refusal these three routes can produce
-// to the vocabulary the rest of the backup-set surface already uses, so a
-// client does not learn a second code for the same condition.
+// writeEditHoldError maps the refusals these three routes can produce. A
+// set that does not exist uses the vocabulary the rest of the backup-set
+// surface already uses, so a client does not learn a second code for the
+// same condition. EDIT_HOLD_GONE is the renewal's own (issue #1606): the
+// holder it named is not holding the set any more, nothing was held, and a
+// client that still means to edit takes a fresh hold.
 func (h *handlers) writeEditHoldError(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, service.ErrBackupSetNotFound) {
 		writeError(w, http.StatusNotFound, "BACKUP_SET_NOT_FOUND", "no such backup set")
+		return
+	}
+	if errors.Is(err, service.ErrEditHoldGone) {
+		writeError(w, http.StatusConflict, "EDIT_HOLD_GONE",
+			"this edit hold was released or has lapsed, so it was not renewed and nothing is held under it; take a new hold to keep editing")
 		return
 	}
 	// Deliberately not err.Error(): an unclassified error here could

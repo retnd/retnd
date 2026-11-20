@@ -2267,6 +2267,46 @@ describe("listSets joins the per-set health report (issue #245)", () => {
     expect(set.haltReason).toBe("key-permissions");
   });
 
+  it("carries complete but unreadable source files through, with the engine's warning (#1541)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch(
+        [wireSet("cicd-pipeline/forge", "forge")],
+        [
+          wireHealth("cicd-pipeline/forge", {
+            pending_unreadable: 1,
+            pending_unreadable_oldest_age_seconds: 30 * 3600,
+            pending_unreadable_oldest_path: "run-1/gitea-dump.tar.gz",
+            pending_unreadable_warning: "1 source file complete but unreadable for 30h, oldest run-1/gitea-dump.tar.gz; the producer has not published it"
+          })
+        ]
+      )
+    );
+
+    const [set] = await httpApi.listSets();
+    expect(set.pendingUnreadable).toEqual({
+      count: 1,
+      oldestAgeSeconds: 30 * 3600,
+      oldestPath: "run-1/gitea-dump.tar.gz",
+      warning: "1 source file complete but unreadable for 30h, oldest run-1/gitea-dump.tar.gz; the producer has not published it"
+    });
+  });
+
+  it("carries no unreadable block for a set with nothing waiting, or from an engine that does not report it (#1541)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch(
+        [wireSet("cicd-pipeline/forge", "forge"), wireSet("cicd-pipeline/registry", "registry")],
+        [wireHealth("cicd-pipeline/forge", { pending_unreadable: 0 }), wireHealth("cicd-pipeline/registry")]
+      )
+    );
+
+    const sets = await httpApi.listSets();
+    for (const set of sets) {
+      expect(set).not.toHaveProperty("pendingUnreadable");
+    }
+  });
+
   it("does not render a reason this build does not understand", async () => {
     vi.stubGlobal(
       "fetch",
