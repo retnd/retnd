@@ -1,8 +1,11 @@
 package webhost
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/retnd/retnd/core/service"
@@ -216,5 +219,45 @@ func TestTheBackupsListFiltersByStateAndPagesWithACursor_1528(t *testing.T) {
 		t.Errorf("FAILED,RETIRED without a limit: %d rows, cursor %v; want 5 and null", len(p.Artifacts), p.NextCursor)
 	}
 	rec = rt.get(t, "/api/v1/backups?limit=2&before=!!not-base64!!")
+	mustStatus(t, rec, http.StatusBadRequest)
+}
+
+// JSON field names are matched without regard to case by every decoder
+// downstream, so the proposer's refusal has to be too: {"No_Successor":true}
+// must not reach a person (the #1536 backend review's S3).
+func TestAnAgentCannotSendAnAcknowledgementInAnotherCase_1528(t *testing.T) {
+	for _, body := range []string{`{"No_Successor":true}`, `{"ACCEPT_SOURCE_PRESENT":true}`} {
+		rig := retireRig(t)
+		rec := serve(rig.router, toolCall(http.MethodPost, "/api/v1/backups/src/set-1/dump.tar/retire", body, operateToken, "retire_backup"))
+		if rec.Code != http.StatusForbidden || responseErrorCode(rec.Body.String()) != "AGENT_RETIRE_ACK_REFUSED" {
+			t.Errorf("%s = %d %s, want 403 AGENT_RETIRE_ACK_REFUSED", body, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// The replay of an approved agent request is refused an acknowledgement too,
+// whatever the proposer let through: the second guard, on its own.
+func TestAReplayedAgentRetirementCannotCarryAnAcknowledgement_1528(t *testing.T) {
+	rt := newReadSurfaceRouter(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups/production/postgres/bad.dump/retire", strings.NewReader(`{"no_successor":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	attachValidCSRF(req)
+	req = req.WithContext(context.WithValue(req.Context(), replayContextKey{}, service.AgentPrincipal{Name: "triage"}))
+	rec := httptest.NewRecorder()
+	rt.router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden || responseErrorCode(rec.Body.String()) != "AGENT_RETIRE_ACK_REFUSED" {
+		t.Fatalf("replayed acknowledgement = %d %s, want 403 AGENT_RETIRE_ACK_REFUSED", rec.Code, rec.Body.String())
+	}
+	if rt.backend.lastRetired != "" {
+		t.Errorf("the engine was asked to retire %q", rt.backend.lastRetired)
+	}
+}
+
+// A limit that is not a number is refused like a state that is not one,
+// rather than answered with the whole list, which is the answer that
+// overflowed the agent's cap in the first place (the #1536 backend review's S9).
+func TestTheBackupsListRefusesALimitThatIsNotANumber_1528(t *testing.T) {
+	rt := newReadSurfaceRouter(t)
+	rec := rt.get(t, "/api/v1/backups?limit=fifty")
 	mustStatus(t, rec, http.StatusBadRequest)
 }

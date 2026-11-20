@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
@@ -310,9 +311,14 @@ func TestARetiredObjectThatReappearsReentersThePipeline_1528(t *testing.T) {
 
 	f.tr.put("db-20261101.dump", "dump db-20261101.dump", f.now.Unix())
 	f.cycle()
+	f.cycle()
 
-	if got := f.stateOf(failed); got == retiredState || got == string(lifecycle.Failed) {
-		t.Errorf("%s is %s after its object reappeared, want it back in the pipeline", failed, got)
+	// Back in the pipeline is not enough: the object has to be backed up. A
+	// way back that left the row at DISCOVERED replaying the failed attempt's
+	// own key would read as nothing wrong while the object is never copied
+	// (the #1536 backend review's B1).
+	if got := f.stateOf(failed); !lifecycle.IsDurableRestorePoint(lifecycle.State(got)) {
+		t.Errorf("%s is %s two cycles after its object reappeared, want it backed up (a durable restore point)", failed, got)
 	}
 	if _, found, err := f.journal.LastTransition(context.Background(), failed, retiredState, string(lifecycle.Discovered)); err != nil || !found {
 		t.Errorf("no RETIRED -> DISCOVERED transition was recorded (found=%v err=%v)", found, err)
@@ -580,5 +586,89 @@ func TestAQuarantinedSuccessorDoesNotCount_1528(t *testing.T) {
 	}
 	if newerGood(failed, failed) {
 		t.Error("a failure supersedes itself")
+	}
+}
+
+
+// P3/P4 and discovery agree on identity: an artifact is its basename, so a
+// producer that moved db-20261101.dump into archive/ has not deleted it. The
+// object is still listed under this artifact's identity, and calling it gone
+// would retire it with no way back, because discovery files the moved path
+// as a conflict rather than as this artifact (the #1536 backend review's B2).
+func TestAnObjectMovedIntoASubdirectoryIsNotRetiredAsGone_1528(t *testing.T) {
+	f := newForgeFixture(t)
+	failed := f.failWith("db-20261101.dump", transport.NotFound)
+	f.backUp("db-20261119.dump")
+	f.tr.objects["archive/db-20261101.dump"] = f.tr.objects["db-20261101.dump"]
+	f.hostDeletes("db-20261101.dump")
+	f.cycle()
+	f.cycle()
+	if got := f.stateOf(failed); got != string(lifecycle.Failed) {
+		t.Errorf("%s is %s although an object with its identity is listed at archive/, want FAILED", failed, got)
+	}
+	pv, err := f.svc.PreviewRetirement(context.Background(), failed, RetireRequest{})
+	if err != nil {
+		t.Fatalf("PreviewRetirement: %v", err)
+	}
+	if pv.SourceCheck.Result == state.SourceAbsent {
+		t.Errorf("the preview calls the moved object gone: %+v", pv.SourceCheck)
+	}
+}
+
+// A listing that fails is never absence, on the operator path too, even when
+// Stat says not_found (the #1536 backend review's S1).
+func TestAnUnreadableListingNeverRetires_1528(t *testing.T) {
+	f := newForgeFixture(t)
+	failed := f.failWith("db-20261101.dump", transport.NotFound)
+	f.backUp("db-20261119.dump")
+	f.hostDeletes("db-20261101.dump")
+	f.tr.listErr = transport.NewError(transport.Transient, "list", errors.New("connection reset"))
+	_, err := f.svc.RetireArtifact(context.Background(), failed, RetireRequest{})
+	if r, ok := AsRetireRefusal(err); !ok || r.Code != RefusalSourceUnconfirmed {
+		t.Fatalf("retiring over a listing that failed: err = %v, want RETIRE_SOURCE_UNCONFIRMED", err)
+	}
+	if got := f.stateOf(failed); got != string(lifecycle.Failed) {
+		t.Errorf("%s is %s, want FAILED", failed, got)
+	}
+}
+
+// The design's "Replaced by" choice: the preview names every newer good
+// backup an operator may pick, newest first, so the browser computes none of
+// them.
+func TestThePreviewOffersEveryNewerGoodBackupAsASuccessor_1528(t *testing.T) {
+	f := newForgeFixture(t)
+	f.backUp("db-20261030.dump")
+	failed := f.failWith("db-20261101.dump", transport.NotFound)
+	f.backUp("db-20261118.dump")
+	f.backUp("db-20261119.dump")
+	f.hostDeletes("db-20261101.dump")
+	pv, err := f.svc.PreviewRetirement(context.Background(), failed, RetireRequest{})
+	if err != nil {
+		t.Fatalf("PreviewRetirement: %v", err)
+	}
+	v := reflect.ValueOf(pv).FieldByName("SuccessorCandidates")
+	if !v.IsValid() {
+		t.Fatal("RetirementPreview has no SuccessorCandidates, so the dialog cannot offer a choice")
+	}
+	var names []string
+	for i := 0; i < v.Len(); i++ {
+		names = append(names, v.Index(i).FieldByName("Name").String())
+	}
+	if !reflect.DeepEqual(names, []string{"db-20261119.dump", "db-20261118.dump"}) {
+		t.Errorf("candidates = %v, want the two newer good backups, newest first", names)
+	}
+}
+
+// The automatic pass asks the source once per set per cycle, however many
+// FAILED rows it looks at (the #1536 backend review's S2).
+func TestTheAutomaticPassListsTheSourceOncePerCycle_1528(t *testing.T) {
+	f := newForgeFixture(t)
+	f.failWith("db-20261101.dump", transport.PermissionDenied)
+	f.failWith("db-20261102.dump", transport.PermissionDenied)
+	f.backUp("db-20261119.dump")
+	before := f.tr.listCalls
+	f.cycle()
+	if n := f.tr.listCalls - before; n > 2 {
+		t.Errorf("one cycle listed the source %d times, want at most 2 (discovery and the retirement pass)", n)
 	}
 }

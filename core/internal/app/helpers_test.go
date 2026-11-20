@@ -179,6 +179,12 @@ type fakeTransport struct {
 	// than not_found (permission_denied, transient) for an object the
 	// listing does not show.
 	statErrFor map[string]error
+
+	// listErr, when non-nil, is what List returns, leaving Stat alone, and
+	// listCalls counts every List (issue #1528's review: a listing that fails
+	// is never absence, and the retirement pass lists once per cycle).
+	listErr   error
+	listCalls int
 }
 
 func newFakeTransport() *fakeTransport {
@@ -199,8 +205,12 @@ func (f *fakeTransport) failsFor(source transport.Source) bool {
 }
 
 func (f *fakeTransport) List(ctx context.Context, source transport.Source) ([]transport.RemoteArtifact, error) {
+	f.listCalls++
 	if f.failsFor(source) {
 		return nil, f.failErr
+	}
+	if f.listErr != nil {
+		return nil, f.listErr
 	}
 	out := make([]transport.RemoteArtifact, 0, len(f.objects))
 	for path, obj := range f.objects {

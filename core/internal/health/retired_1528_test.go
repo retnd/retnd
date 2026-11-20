@@ -52,3 +52,19 @@ func TestRetiredIsNotARetainedBackup_1528(t *testing.T) {
 		t.Errorf("CountRetained = %d, want 1", n)
 	}
 }
+
+// A retirement is a bookkeeping change, not activity on the source: a set
+// whose only recent row is a retirement and whose good backup is past the
+// threshold reads STALE, not "recent activity" DEGRADED (the #1536 backend
+// review's S5).
+func TestARetirementIsNotFreshActivity_1528(t *testing.T) {
+	now := time.Now().UTC()
+	records := []state.Record{
+		rec("old-good.dump", lifecycle.Complete, now.Add(-10*day), now.Add(-9*day)),
+		rec("failed.dump", lifecycle.Retired, now.Add(-5*day), now.Add(-time.Minute)),
+	}
+	got := ComputeBackupSetHealth(testSet, records, nil, PlacementEvidence{}, day, BackupSetInputs{}, now)
+	if got.State != Stale {
+		t.Errorf("State = %s (%s), want STALE: retiring a row a minute ago is not a backup in progress", got.State, got.Reason)
+	}
+}
