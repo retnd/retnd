@@ -156,9 +156,12 @@ func TestBackupSetEditHold1606_TokenOnItsOwnIsAUsageError(t *testing.T) {
 	}
 }
 
+// The synopsis line itself stays as it was, because retnd-tests pins it
+// whole (suites/cli/cases/global/g3-usage-lists-every-command.yaml); the
+// token is in the description under it.
 func TestBackupSetEditHold1606_UsageNamesTheToken(t *testing.T) {
 	text := captureStderr(t, usage)
-	if !strings.Contains(text, "backup-set edit-hold <source/backup-set> [--take | --release] [--token T]") {
-		t.Errorf("usage() does not list --token on `backup-set edit-hold`")
+	if !strings.Contains(text, "--take --token T renews that hold") {
+		t.Errorf("usage() does not say what --token does on `backup-set edit-hold`")
 	}
 }

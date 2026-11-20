@@ -1027,6 +1027,10 @@ commands:
                                                   A hold lives in the memory of the process serving this deployment
                                                   and does not survive it, so this needs a route to that process (a
                                                   remote terminal works too) and refuses without one (#350, #600, #1253)
+                                                  --take prints the hold's token. --take --token T renews that hold
+                                                  and is refused once it was released or has lapsed, rather than
+                                                  taking the set again; --release --token T gives back only that
+                                                  hold, and --release alone gives back every hold on the set (#1606)
   backup-set retention <source/backup-set> [--inherit] [--policy-file F]
                        [--timezone T] [--week-starts-on D]
                        [--daily-days N] [--weekly-months N] [--monthly-months N]

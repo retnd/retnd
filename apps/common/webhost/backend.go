@@ -288,8 +288,15 @@ type BackupServiceClient interface {
 	// core/service/edithold.go for the lease, and for why it is a lease
 	// rather than a flag.
 	BackupSetEditState(ctx context.Context, id string) (service.BackupSetEditState, error)
+	//
+	// Since #1606 a hold has a holder: BeginBackupSetEdit answers a token,
+	// RenewBackupSetEdit extends that holder's lease or refuses with
+	// service.ErrEditHoldGone once it was released or lapsed, and
+	// EndBackupSetEdit with a token gives back that holder alone ("" gives
+	// back every holder of the set).
 	BeginBackupSetEdit(ctx context.Context, id string) (service.EditHold, error)
-	EndBackupSetEdit(ctx context.Context, id string) error
+	RenewBackupSetEdit(ctx context.Context, id, token string) (service.EditHold, error)
+	EndBackupSetEdit(ctx context.Context, id, token string) error
 
 	// TestBackupSetConnection backs the persisted-set mode of POST
 	// /api/v1/backup-sets/test-connection (issue #211): the same

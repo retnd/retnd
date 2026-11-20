@@ -217,6 +217,11 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   const [enterError, setEnterError] = useState<string | null>(null);
   const [warnAbout, setWarnAbout] = useState<RunningWork | null>(null);
   const [stopped, setStopped] = useState<RunningWork | null>(null);
+  // The token the engine gave this page's hold (#1606). The take that
+  // opens edit mode writes it and the hold effect below reads it once when
+  // it arms, so a ref rather than state: changing it must not re-run the
+  // effect, which would release the hold it just renewed.
+  const holdToken = useRef<string | null>(null);
   // The service refused this save because it needs something said out
   // loud first. Held rather than turned into a field error, because it is
   // not a field error: the value is fine, and the operator has one
@@ -340,22 +345,53 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   // `live` drops it. The banner it would set only shows in edit mode,
   // and entering it again takes a fresh hold that says for itself what it
   // stopped, so nothing an operator could see is lost.
+  //
+  // The hold has a holder since #1606. The heartbeat renews under the
+  // token this page's own take answered, and the release names it, so a
+  // second tab editing the same set keeps its own hold. A renewal that
+  // lands after the release is refused by the engine (EDIT_HOLD_GONE)
+  // rather than putting the hold back, which is the half #1593 could not
+  // fix from here.
   useEffect(() => {
     if (!editing || !setId) return;
     let live = true;
+    let token = holdToken.current;
+    // A fresh hold, for when the one this page held is gone while the
+    // form is still open. If it answers after edit mode was left, nobody
+    // will renew or release it, so it goes straight back.
+    const retake = () =>
+      api.takeEditHold(source, setName).then((hold) => {
+        if (!live) {
+          void api.releaseEditHold(source, setName, hold.token).catch(() => {});
+          return;
+        }
+        token = hold.token;
+        holdToken.current = hold.token;
+        // A fresh hold stops something in exactly one case, and it is a
+        // real one: the old hold lapsed while nobody was renewing (a
+        // sleeping laptop, a network that came back, an engine restart),
+        // a cycle started against this set in the meantime, and this take
+        // cancelled it. Reporting that through the same banner an initial
+        // hold uses is the difference between an operator knowing a
+        // backup was interrupted and finding out from the artifact list
+        // later.
+        if (hold.stopped) setStopped(hold.stopped);
+      });
     const timer = setInterval(() => {
-      void api
-        .takeEditHold(source, setName)
-        // A renewal usually stops nothing, because the set is already
-        // held. It stops something in exactly one case, and it is a real
-        // one: the lease lapsed while nobody was renewing (a sleeping
-        // laptop, a network that came back), a cycle started against this
-        // set in the meantime, and this renewal cancelled it. Reporting
-        // that through the same banner an initial hold uses is the
-        // difference between an operator knowing a backup was interrupted
-        // and finding out from the artifact list later.
-        .then((hold) => {
-          if (live && hold.stopped) setStopped(hold.stopped);
+      const beat = token
+        ? api.renewEditHold(source, setName, token).then((hold) => {
+            // The engine answers null here for a live lease; the banner
+            // is kept for any answer that says otherwise, as before.
+            if (live && hold.stopped) setStopped(hold.stopped);
+          })
+        : retake();
+      void beat
+        .catch((e: unknown) => {
+          // EDIT_HOLD_GONE is "the hold is gone", not an error: it was
+          // released somewhere else, it lapsed, or the engine restarted.
+          // Still editing, so take a fresh one; edit mode already left,
+          // so there is nothing to hold.
+          if (live && apiErrorOf(e)?.code === "EDIT_HOLD_GONE") return retake();
         })
         // Swallowed on purpose. A failed renewal is not an operator's
         // problem to act on: the lease simply lapses and the set resumes
@@ -367,7 +403,8 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     return () => {
       live = false;
       clearInterval(timer);
-      void api.releaseEditHold(source, setName).catch(() => {});
+      holdToken.current = null;
+      void api.releaseEditHold(source, setName, token ?? undefined).catch(() => {});
     };
   }, [editing, api, source, setName, setId]);
 
@@ -483,6 +520,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     setEnterError(null);
     try {
       const hold = await api.takeEditHold(source, setName);
+      holdToken.current = hold.token;
       setStopped(hold.stopped);
     } catch (e) {
       setEnterError(describeFailure(e, "retnd could not pause this backup set for editing.").message);

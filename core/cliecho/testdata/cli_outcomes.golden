@@ -438,11 +438,15 @@ POST /backup-sets/test-connection
 	body that isn't JSON: malformed: there is no verb that checks a source connection from a request body
 
 POST /backup-sets/{source}/{set}/edit-hold
+	corpus: command
 	example: command
+	example {"token":"3f9c0d2a"}: command
 	body that isn't JSON: command
 
 POST /backup-sets/{source}/{set}/edit-hold/release
+	corpus: command
 	example: command
+	example {"token":"3f9c0d2a"}: command
 	body that isn't JSON: command
 
 POST /backup-sets/{source}/{set}/enabled
