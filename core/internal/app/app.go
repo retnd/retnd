@@ -124,6 +124,12 @@ type Journal interface {
 	RecordBackupSetHalt(ctx context.Context, set model.BackupSetID, reason string, observedAt time.Time) error
 	ClearBackupSetHalt(ctx context.Context, set model.BackupSetID) error
 	ListBackupSetHalts(ctx context.Context) ([]state.BackupSetHalt, error)
+
+	// LatestRetirement is issue #1528's record of the most recent
+	// retirement of one artifact: who, why, the source check and the
+	// successor. Discovery's way back reads its source check, and the
+	// preview reports it for an artifact that is already RETIRED.
+	LatestRetirement(ctx context.Context, id model.ArtifactID) (state.Retirement, bool, error)
 }
 
 var _ Journal = (*state.Journal)(nil)

@@ -329,10 +329,10 @@ Opening the destructive gate. Any tool over key export, import, decrypt, bundle 
 |---|---|
 | Principal | `agent:<name>` in every `Actor` field |
 | Scopes | `read`, `operate`, `configure` (`agenttools.Scope`) |
-| Catalogue | `core/agenttools`: `Tools()`, `Lookup(name)`, `Routes()`; a row is `{Tool, Method, Route, Scope, Untrusted []string, Why}` |
+| Catalogue | `core/agenttools`: `Tools()`, `Lookup(name)`, `Routes()`; a row is `{Tool, Method, Route, Scope, Untrusted []string, Why, AgentMayNotSet []string}` |
 | Projection | `agenttools.Project(v any) any`, the field denylist `agenttools.DeniedFields`, the shapes shared with `core/tests/encryptedretention` |
-| Read tools | `status`, `backup_sets_list`, `backup_set_show`, `backups_list`, `backup_show`, `copies_show`, `encryption_state`, `assurance_due`, `assurance_show`, `activity`, `activity_live`, `quarantine_list`, `operations_list`, `operation_show`, `storage_mediums_list`, `storage_usage`, `retention_preview`, `workflow_runs_list`, `workflow_run_show`, and `confirmation_status` (U2.1: an agent reads the state of a change it proposed, its own only, over `GET /agent/confirmations/{id}`) |
-| Operate tools | `run_cycle`, `run_backup_set`, `recovery_test_start`, `verify_copy`, `scrub_start`, `retry_backup`, `quarantine_revalidate` |
+| Read tools | `status`, `backup_sets_list`, `backup_set_show`, `backups_list`, `backup_retirement_show` (#1528), `backup_show`, `copies_show`, `encryption_state`, `assurance_due`, `assurance_show`, `activity`, `activity_live`, `quarantine_list`, `operations_list`, `operation_show`, `storage_mediums_list`, `storage_usage`, `retention_preview`, `workflow_runs_list`, `workflow_run_show`, and `confirmation_status` (U2.1: an agent reads the state of a change it proposed, its own only, over `GET /agent/confirmations/{id}`) |
+| Operate tools | `run_cycle`, `run_backup_set`, `recovery_test_start`, `verify_copy`, `scrub_start`, `retry_backup`, `retire_backup` (#1528: it may not carry `accept_source_present` or `no_successor`, `AGENT_RETIRE_ACK_REFUSED` 403), `quarantine_revalidate` |
 | Configure tools | `backup_set_enabled`, `backup_set_retention_set`, `backup_set_retention_clear`, `backup_set_assurance_set` |
 | Resources | `retnd://status`, `retnd://backup-sets`, `retnd://backup-sets/{source}/{set}`, `retnd://backups/{source}/{set}/{name}`, `retnd://activity`, `retnd://encryption`, `retnd://assurance/due` |
 | Prompts | `triage-health`, `explain-backup`, `prepare-recovery-test` |

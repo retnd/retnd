@@ -465,6 +465,11 @@ make_full_tree() {
   # core/ and apps/common in each copy.
   mkdir -p "$tree/scripts/recovery"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/recovery/selftest.sh"
+  # Issue #1528's retirement self-test: it copies the tree and runs go test,
+  # neither of which a synthetic tree supports, and its anchor check reads
+  # product files the synthetic tree does not carry.
+  mkdir -p "$tree/scripts/retire"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/retire/selftest.sh"
 
   # EPIC Q's assurance mutation self-test (#988), stubbed for the same
   # reason: the real one copies the tree a dozen times and builds core/ in

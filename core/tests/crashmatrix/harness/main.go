@@ -447,7 +447,7 @@ func run() error {
 				return fmt.Errorf("DeleteRemote: %w", err)
 			}
 
-		case lifecycle.Complete, lifecycle.Failed, lifecycle.Quarantined, lifecycle.QuarantinedLost:
+		case lifecycle.Complete, lifecycle.Failed, lifecycle.Quarantined, lifecycle.QuarantinedLost, lifecycle.Retired:
 			fmt.Printf("FINAL_STATE=%s\n", rec.State)
 			return nil
 
