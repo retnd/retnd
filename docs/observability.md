@@ -6,14 +6,14 @@ This page covers the log stream (FR-100, EPIC O). The scrape endpoint (#899) and
 
 The engine writes newline-delimited JSON to stdout, one object per event, and the one-shot CLI verbs write the same stream to stderr. There is no other output mode and no toggle to switch to one: a switch whose off position does not exist would only be a control I could not explain.
 
-What I added is a promise about the field names. A Loki pipeline, a `jq` filter or a dashboard is written against field names, and renaming one is exactly as breaking as renaming an event, so the eight reserved keys are a wire contract in the same sense `core/internal/obs/events.go` already claims for the 54 event names.
+What I added is a promise about the field names. A Loki pipeline, a `jq` filter or a dashboard is written against field names, and renaming one is exactly as breaking as renaming an event, so the eight reserved keys are a wire contract in the same sense `core/internal/obs/events.go` already claims for the 56 event names.
 
 | Key | On which lines | What it is |
 |---|---|---|
 | `time` | every line | RFC 3339 timestamp with nanoseconds |
 | `level` | every line | `DEBUG`, `INFO`, `WARN` or `ERROR` |
 | `msg` | every line | the human-readable summary |
-| `event` | every line | one of the 54 event names, which are pinned by name |
+| `event` | every line | one of the 56 event names, which are pinned by name |
 | `result` | a line that states an outcome | `success`, `warn`, `error` or `info` |
 | `action` | a line that opens or closes a bracketed action | `cycle`, `workflow_run`, `workflow_step`, `recovery`, `recovery_test` |
 | `action_id` | the same lines | minted per action, so a start and its completion pair by something other than spelling |
@@ -47,7 +47,7 @@ The shipped Promtail and Alloy pipelines (`container/observability/promtail/prom
 {job="retnd", level="error"} | json | event="cycle_end" | backup_set="alpha"
 ```
 
-`event`, `action`, `action_id` and `backup_set` are not labels, on purpose. A Loki label is a stream dimension, and every distinct value is a new stream, which is an index entry and a chunk cut early. `action_id` is minted per action, so promoting it means one stream per cycle, per connection test and per API call, forever. That is unbounded label cardinality, and Loki bills you for it in index size, which is not a thing a dashboard shows you until the install is already slow. `event` and `backup_set` are bounded but multiply (54 events, times your backup sets, times four levels) for no query a field filter does not already answer.
+`event`, `action`, `action_id` and `backup_set` are not labels, on purpose. A Loki label is a stream dimension, and every distinct value is a new stream, which is an index entry and a chunk cut early. `action_id` is minted per action, so promoting it means one stream per cycle, per connection test and per API call, forever. That is unbounded label cardinality, and Loki bills you for it in index size, which is not a thing a dashboard shows you until the install is already slow. `event` and `backup_set` are bounded but multiply (56 events, times your backup sets, times four levels) for no query a field filter does not already answer.
 
 The shipped configs are the documentation that executes. `core/tests/logpipeline` runs the real Promtail and Alloy images over a log file written by the real logger, receives what they push, and reads the label set off the wire. Its control runs the same thing over a config that promotes `action_id` and watches the assertion refuse it. Run it with `scripts/observability/log-pipeline.sh` (it needs a Docker daemon and fails without one rather than skipping).
 

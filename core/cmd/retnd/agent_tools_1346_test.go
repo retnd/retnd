@@ -28,9 +28,10 @@ func TestAgentToolsJSONIsTheCatalogueDocument(t *testing.T) {
 	if want := agenttools.Document(); !reflect.DeepEqual(got, want) {
 		t.Errorf("agent tools --json is not agenttools.Document():\n got %+v\nwant %+v", got, want)
 	}
-	// 30 from U1.3 and confirmation_status from U2.1.
-	if len(got.Tools) != 31 {
-		t.Errorf("the catalogue prints %d tools, the spec names 31", len(got.Tools))
+	// 30 from U1.3, confirmation_status from U2.1, and #1528's
+	// backup_retirement_show and retire_backup.
+	if len(got.Tools) != 33 {
+		t.Errorf("the catalogue prints %d tools, the spec names 33", len(got.Tools))
 	}
 }
 

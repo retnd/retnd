@@ -60,6 +60,9 @@ type backupSetHealthResponse struct {
 	Failures             int `json:"failures"`
 	QuarantinedCount     int `json:"quarantined_count"`
 	QuarantinedLostCount int `json:"quarantined_lost_count"`
+	// RetiredCount is issue #1528's count of RETIRED backups: failures
+	// nobody needs to act on any more, never part of failures.
+	RetiredCount int `json:"retired_count"`
 
 	// ReinstatedRemoteRetainedCount is how many backups here were
 	// re-trusted after quarantine and still hold a remote source this
@@ -194,6 +197,7 @@ func toBackupSetHealthResponse(bs service.BackupSetHealth) backupSetHealthRespon
 		Failures:              bs.Failures,
 		QuarantinedCount:      bs.QuarantinedCount,
 		QuarantinedLostCount:  bs.QuarantinedLostCount,
+		RetiredCount:          bs.RetiredCount,
 
 		ReinstatedRemoteRetainedCount: bs.ReinstatedRemoteRetainedCount,
 		ReadOnlyRetainedCount:         bs.ReadOnlyRetainedCount,
