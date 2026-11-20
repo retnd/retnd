@@ -78,6 +78,19 @@ Worth reading before you upgrade:
 
 ### Fixed
 
+- **A heartbeat that lands after leaving edit mode no longer puts the edit hold back** (#1606).
+  Taking and renewing an edit hold were the same call, so a renewal still in flight when you left
+  edit mode could land after the release, pause the backup set for another 90 seconds and stop a
+  run that had started in between. A hold now has a holder: `POST
+  /api/v1/backup-sets/{source}/{set}/edit-hold` answers a `token`, sending `{"token": ...}` back
+  renews that holder only, and a renewal whose hold was released or has lapsed is refused with
+  `409 EDIT_HOLD_GONE` instead of taking the set again. `.../edit-hold/release` with a token gives
+  back that holder alone, so a second tab editing the same set keeps its hold. A client that sends
+  no body gets what it always got: a take takes a hold, and a release gives back every hold on the
+  set. On the CLI, `backup-set edit-hold --take` prints the token, `--take --token T` renews it and
+  `--release --token T` gives back only that hold. The web UI does all of this for you, and
+  nothing you see changes.
+
 - **`GET /metrics` answers on the real engine, and the token command prints only the token**
   (#1568). The scrape endpoint above was registered on the API router and tested there, but the
   engine's serve mux never mounted it, so `retnd-web serve` answered `404` to every scrape. Now the

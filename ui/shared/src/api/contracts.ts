@@ -478,9 +478,14 @@ export interface EditHoldState {
   running: RunningWork | null;
 }
 
-/** What taking the hold answers: `stopped` is null when nothing was
- *  running, so a caller never claims to have interrupted something. */
+/** What taking or renewing the hold answers: `stopped` is null when
+ *  nothing was running, so a caller never claims to have interrupted
+ *  something. */
 export interface EditHoldTaken {
+  /** This holder's token (#1606). Renewing and releasing with it touch
+   *  this page's hold and nobody else's, and a renewal under it that lands
+   *  after the release is refused rather than putting the hold back. */
+  token: string;
   expiresAt: string;
   stopped: RunningWork | null;
 }
@@ -3477,14 +3482,20 @@ export interface RetndApi {
    * which is what lets edit mode open with no prompt at all.
    */
   getEditHold(source: string, set: string): Promise<EditHoldState>;
-  /** Takes the hold, or renews one already held (the same call: see the
-   *  route's own doc for why a late heartbeat must not be refused).
-   *  Resolves with what it interrupted, or null when nothing was
-   *  running, so a caller never claims to have stopped something. */
+  /** Takes a NEW hold and resolves with its token and what it
+   *  interrupted, or null when nothing was running, so a caller never
+   *  claims to have stopped something. */
   takeEditHold(source: string, set: string): Promise<EditHoldTaken>;
-  /** Leaves edit mode. Every route out of edit mode calls it, and
-   *  releasing a hold that is not held is a success. */
-  releaseEditHold(source: string, set: string): Promise<void>;
+  /** Renews the hold `token` names, and only that one (#1606). Rejects
+   *  with EDIT_HOLD_GONE once that hold was released or lapsed: a renewal
+   *  never creates a hold, so a heartbeat that lands after the release
+   *  cannot put it back. A caller still editing takes a fresh hold. */
+  renewEditHold(source: string, set: string, token: string): Promise<EditHoldTaken>;
+  /** Leaves edit mode. With a token it gives back that hold alone, so
+   *  another tab editing the same set keeps its own; with none it gives
+   *  back every hold on the set. Every route out of edit mode calls it,
+   *  and releasing a hold that is not held is a success. */
+  releaseEditHold(source: string, set: string, token?: string): Promise<void>;
 
   /** Issue #146 (B2.7): the wizard's three Save buttons. */
   createBackupSet(req: CreateBackupSetRequest): Promise<CreatedBackupSet>;

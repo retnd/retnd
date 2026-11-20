@@ -87,6 +87,7 @@ import type {
   WireBackupSet,
   WireBackupSetRetention,
   WireBackupSetEditHold,
+  WireBackupSetEditHoldRequest,
   WireBackupSetEditHoldState,
   WireBackupSetHealth,
   WireBackupSetSpec,
@@ -257,6 +258,7 @@ import type {
   RetentionSettings,
   RetentionTierSetting,
   RunningWork,
+  EditHoldTaken,
   SSHKeyImportResult,
   SSHKeyListing,
   SmtpSettingsInput,
@@ -2566,6 +2568,11 @@ function fromWireRunningWork(w: WireRunningWork | null | undefined): RunningWork
   return { artifact: w.artifact, stage: w.stage };
 }
 
+/** A take and a renewal answer the same shape, token included (#1606). */
+function fromWireEditHold(r: WireBackupSetEditHold): EditHoldTaken {
+  return { token: r.token, expiresAt: r.expires_at, stopped: fromWireRunningWork(r.stopped) };
+}
+
 function perSetHealth(): Promise<Map<string, WireBackupSetHealth>> {
   return request<WireHealthResponse>("/system/health")
     .then((r) => new Map((r.backup_sets ?? []).map((set) => [set.backup_set_id, set])))
@@ -3906,9 +3913,18 @@ export const httpApi: RetndApi = {
     })),
   takeEditHold: (source, set) =>
     request<WireBackupSetEditHold>(backupSetPath(source, set) + "/edit-hold", { method: "POST" }).then(
-      (r) => ({ expiresAt: r.expires_at, stopped: fromWireRunningWork(r.stopped) })
+      fromWireEditHold
     ),
-  releaseEditHold: (source, set) => post(backupSetPath(source, set) + "/edit-hold/release"),
+  // The same route as the take, told apart by the token in the body
+  // (#1606): a renewal names its holder and is refused with
+  // EDIT_HOLD_GONE once that holder was released or lapsed.
+  renewEditHold: (source, set, token) =>
+    request<WireBackupSetEditHold>(backupSetPath(source, set) + "/edit-hold", {
+      method: "POST",
+      body: JSON.stringify({ token } satisfies WireBackupSetEditHoldRequest)
+    }).then(fromWireEditHold),
+  releaseEditHold: (source, set, token) =>
+    post(backupSetPath(source, set) + "/edit-hold/release", token ? ({ token } satisfies WireBackupSetEditHoldRequest) : undefined),
 
   createBackupSet: (req) =>
     request<WireCreateBackupSetResponse>("/backup-sets", {

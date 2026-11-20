@@ -217,7 +217,8 @@
           "RETIRE_SOURCE_UNCONFIRMED",
           "RETIRE_NO_SUCCESSOR",
           "RETIRE_SUCCESSOR_INVALID",
-          "AGENT_RETIRE_ACK_REFUSED"
+          "AGENT_RETIRE_ACK_REFUSED",
+          "EDIT_HOLD_GONE"
         ],
         "x-code-origins": {
           "authentication-failed": "ui",
@@ -361,7 +362,8 @@
           "RETIRE_SOURCE_UNCONFIRMED": "wire",
           "RETIRE_NO_SUCCESSOR": "wire",
           "RETIRE_SUCCESSOR_INVALID": "wire",
-          "AGENT_RETIRE_ACK_REFUSED": "wire"
+          "AGENT_RETIRE_ACK_REFUSED": "wire",
+          "EDIT_HOLD_GONE": "wire"
         },
         "x-error-classes": {
           "authentication": [
@@ -452,7 +454,8 @@
             "RETIRE_SOURCE_PRESENT",
             "RETIRE_SOURCE_UNCONFIRMED",
             "RETIRE_NO_SUCCESSOR",
-            "RETIRE_SUCCESSOR_INVALID"
+            "RETIRE_SUCCESSOR_INVALID",
+            "EDIT_HOLD_GONE"
           ],
           "not-found": [
             "BACKUP_SET_NOT_FOUND",
@@ -3561,7 +3564,7 @@
       },
       "BackupSetEditHold": {
         "type": "object",
-        "description": "POST /backup-sets/{source}/{set}/edit-hold. The lease just taken or renewed, plus what taking it interrupted. `stopped` is null when nothing was running, so a client never claims to have stopped something it did not.",
+        "description": "POST /backup-sets/{source}/{set}/edit-hold. The lease just taken or renewed, the holder token that names it, and what taking it interrupted. `stopped` is null when nothing was running, so a client never claims to have stopped something it did not; a renewal of a live lease always answers null.",
         "additionalProperties": false,
         "properties": {
           "backup_set_id": {
@@ -3574,12 +3577,29 @@
           "stopped": {
             "$ref": "#/components/schemas/RunningWork",
             "x-go-pointer": true
+          },
+          "token": {
+            "type": "string",
+            "description": "This holder's token (issue #1606). Send it back in the body to renew this lease, and to release it without giving back anybody else's hold on the same set. A renewal answers with the same token."
           }
         },
         "required": [
           "backup_set_id",
-          "expires_at"
+          "expires_at",
+          "token"
         ]
+      },
+      "BackupSetEditHoldRequest": {
+        "type": "object",
+        "description": "The optional body of POST /backup-sets/{source}/{set}/edit-hold and of its /release (issue #1606). `token` names one holder: the hold a take returned. On the take route it turns the call into a renewal of that holder's lease, refused with EDIT_HOLD_GONE once the holder has been released or has lapsed, so a heartbeat that lands after a release can never put the hold back. On /release it gives back that holder alone and leaves any other holder of the same set in force. A `token` that is present but empty is refused with 400, never read as no token, so a client whose token variable was lost cannot take a new hold or give back every holder's hold by accident. A client that sends no body, or no token, keeps the behaviour it had before tokens existed: the take route takes a new hold, and /release gives back every hold on the set.",
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The holder token a take returned. Opaque, held only in the engine's memory, and gone after a release, a lapse or an engine restart."
+          }
+        }
       },
       "RetentionOverride": {
         "type": "object",
@@ -15435,7 +15455,7 @@
       },
       "post": {
         "operationId": "takeBackupSetEditHold",
-        "summary": "Take, or renew, the edit hold on one backup set (issue #350). The cycle currently processing it stops at its next safe boundary and the scheduler starts no new pass for it until the hold is released or its lease lapses. One route for both taking and renewing: a renewal is 'hold this set for another lease', and refusing a heartbeat that arrived a second late would leave the set unheld while the operator's form stayed open.",
+        "summary": "Take the edit hold on one backup set, or renew one holder's lease (issues #350, #1606). The cycle currently processing the set stops at its next safe boundary and the scheduler starts no new pass for it until every hold on it is released or has lapsed. With no token this takes a NEW hold and answers its token. With a token it renews that holder only, and is refused with 409 EDIT_HOLD_GONE when that holder was released or lapsed: a renewal never creates a hold, so one that lands after a release cannot put it back. A client still in edit mode that gets EDIT_HOLD_GONE takes a fresh hold.",
         "tags": [
           "backup-sets"
         ],
@@ -15466,6 +15486,16 @@
             "description": "The backup set's own name within that source."
           }
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupSetEditHoldRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Success.",
@@ -15476,6 +15506,19 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. The body is not JSON, or is larger than the limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
           },
           "401": {
             "description": "Refused: UNAUTHENTICATED.",
@@ -15517,6 +15560,19 @@
               "BACKUP_SET_NOT_FOUND"
             ]
           },
+          "409": {
+            "description": "Refused: EDIT_HOLD_GONE. The holder this token named is no longer holding the set: it was released, its lease lapsed, or the engine restarted. Nothing was held. A client that still means to edit takes a new hold by sending no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "EDIT_HOLD_GONE"
+            ]
+          },
           "500": {
             "description": "Refused: INTERNAL.",
             "content": {
@@ -15541,7 +15597,7 @@
     "/backup-sets/{source}/{set}/edit-hold/release": {
       "post": {
         "operationId": "releaseBackupSetEditHold",
-        "summary": "Leave edit mode and let normal scheduling resume for this backup set (issue #350). Every route out of edit mode calls it, and releasing a hold that is not held is a success: several routes fire for one edit, and a duplicate release must not be something a client has to avoid.",
+        "summary": "Leave edit mode and let normal scheduling resume for this backup set (issues #350, #1606). With a token this gives back that holder alone, and the set stays held while any other holder's lease is live. With no token it gives back every hold on the set, which is what an operator clearing a hold somebody left behind wants and what a client from before tokens sends. Releasing a hold that is not held, or a token that is already gone, is a success: several routes fire for one edit, and a duplicate release must not be something a client has to avoid.",
         "tags": [
           "backup-sets"
         ],
@@ -15572,9 +15628,32 @@
             "description": "The backup set's own name within that source."
           }
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupSetEditHoldRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "204": {
             "description": "Released. There is nothing to say, so there is no body."
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. The body is not JSON, or is larger than the limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
           },
           "401": {
             "description": "Refused: UNAUTHENTICATED.",

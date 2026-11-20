@@ -527,10 +527,14 @@ func (f *syncFakeBackend) BackupSetEditState(_ context.Context, id string) (serv
 }
 
 func (f *syncFakeBackend) BeginBackupSetEdit(_ context.Context, id string) (service.EditHold, error) {
-	return service.EditHold{BackupSetID: id, ExpiresAt: time.Now().UTC().Add(time.Minute)}, nil
+	return service.EditHold{BackupSetID: id, Token: "hold-1", ExpiresAt: time.Now().UTC().Add(time.Minute)}, nil
 }
 
-func (f *syncFakeBackend) EndBackupSetEdit(context.Context, string) error { return nil }
+func (f *syncFakeBackend) RenewBackupSetEdit(_ context.Context, id, token string) (service.EditHold, error) {
+	return service.EditHold{BackupSetID: id, Token: token, ExpiresAt: time.Now().UTC().Add(time.Minute)}, nil
+}
+
+func (f *syncFakeBackend) EndBackupSetEdit(context.Context, string, string) error { return nil }
 
 func (f *syncFakeBackend) UpdateBackupSet(context.Context, string, service.UpdateBackupSetRequest) (service.BackupSet, error) {
 	return service.BackupSet{}, errors.New("syncFakeBackend: UpdateBackupSet not implemented")
@@ -1255,10 +1259,14 @@ func (f *asyncFakeBackend) BackupSetEditState(_ context.Context, id string) (ser
 }
 
 func (f *asyncFakeBackend) BeginBackupSetEdit(_ context.Context, id string) (service.EditHold, error) {
-	return service.EditHold{BackupSetID: id, ExpiresAt: time.Now().UTC().Add(time.Minute)}, nil
+	return service.EditHold{BackupSetID: id, Token: "hold-1", ExpiresAt: time.Now().UTC().Add(time.Minute)}, nil
 }
 
-func (f *asyncFakeBackend) EndBackupSetEdit(context.Context, string) error { return nil }
+func (f *asyncFakeBackend) RenewBackupSetEdit(_ context.Context, id, token string) (service.EditHold, error) {
+	return service.EditHold{BackupSetID: id, Token: token, ExpiresAt: time.Now().UTC().Add(time.Minute)}, nil
+}
+
+func (f *asyncFakeBackend) EndBackupSetEdit(context.Context, string, string) error { return nil }
 
 func (f *asyncFakeBackend) UpdateBackupSet(context.Context, string, service.UpdateBackupSetRequest) (service.BackupSet, error) {
 	return service.BackupSet{}, errors.New("asyncFakeBackend: UpdateBackupSet not implemented")
@@ -1591,12 +1599,22 @@ func (f *backupSetFakeBackend) BeginBackupSetEdit(_ context.Context, id string) 
 	f.beginCallCount++
 	return service.EditHold{
 		BackupSetID: id,
+		Token:       "hold-1",
 		ExpiresAt:   time.Now().UTC().Add(90 * time.Second),
 		Stopped:     f.running,
 	}, nil
 }
 
-func (f *backupSetFakeBackend) EndBackupSetEdit(_ context.Context, id string) error {
+func (f *backupSetFakeBackend) RenewBackupSetEdit(_ context.Context, id, token string) (service.EditHold, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.sets[id]; !ok {
+		return service.EditHold{}, service.ErrBackupSetNotFound
+	}
+	return service.EditHold{BackupSetID: id, Token: token, ExpiresAt: time.Now().UTC().Add(90 * time.Second)}, nil
+}
+
+func (f *backupSetFakeBackend) EndBackupSetEdit(_ context.Context, id, _ string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if _, ok := f.sets[id]; !ok {
