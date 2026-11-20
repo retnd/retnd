@@ -57,6 +57,7 @@ var everyCommandRows1609 = []everyCommand1609{
 	{name: "validate", argv: fixed1609("validate", artifact1609)},
 	{name: "scrub", argv: fixed1609("scrub", set1609)},
 	{name: "retry", argv: fixed1609("retry", artifact1609)},
+	{name: "retire", argv: fixed1609("retire", artifact1609)},
 	{name: "quarantine revalidate", argv: fixed1609("quarantine", "revalidate", artifact1609)},
 	{name: "unconfigured", argv: fixed1609("unconfigured")},
 	{name: "catalog rebuild", argv: fixed1609("catalog", "rebuild", "--dry-run")},

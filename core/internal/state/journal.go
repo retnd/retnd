@@ -116,6 +116,16 @@ type Transition struct {
 	// PlacementUpdate's own doc for why this package cannot tell a
 	// durable copy from a half-written .partial on its own.
 	Placement *PlacementUpdate
+
+	// Retirement, when non-nil, is the record of a FAILED -> RETIRED
+	// transition (issue #1528): who or what retired the artifact, why, what
+	// the source looked like at that moment and which artifact supersedes
+	// it. It is appended to artifact_retirements inside this transition's
+	// own transaction, for the reason Placement is: a RETIRED row without
+	// its record, or a record whose transition rolled back, would each be a
+	// claim nothing justifies. It is refused on any transition that does
+	// not enter RETIRED.
+	Retirement *RetirementUpdate
 }
 
 // Outcome reports what RecordTransition actually did.
@@ -254,6 +264,16 @@ func (j *Journal) RecordTransition(ctx context.Context, t Transition) (Outcome, 
 		}
 	}
 
+	// The retirement record goes in the same transaction for the same
+	// reason (issue #1528). Its free-text fields pass the redactor like
+	// state_transitions.detail does, because failure_reason is copied from
+	// exactly that column's text and note is whatever a person typed.
+	if t.Retirement != nil {
+		if err := insertRetirement(ctx, tx, artifactRowID, t, redact); err != nil {
+			return Outcome{}, err
+		}
+	}
+
 	rec, err := getByRowID(ctx, tx, artifactRowID)
 	if err != nil {
 		return Outcome{}, err
@@ -287,6 +307,10 @@ func validateTransition(t Transition) error {
 		return fmt.Errorf("state: transition requires OccurredAt")
 	case t.From == "" && t.RemotePath == "":
 		return fmt.Errorf("state: the first transition for an artifact requires RemotePath")
+	case t.Retirement != nil && t.To != RetiredState:
+		return fmt.Errorf("state: a retirement record belongs only on a transition into %s, not %s", RetiredState, t.To)
+	case t.Retirement != nil:
+		return t.Retirement.validate()
 	}
 	return nil
 }

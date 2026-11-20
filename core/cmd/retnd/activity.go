@@ -334,6 +334,8 @@ var activitySeverityByState = map[string]int{
 var activitySeverityByEdge = map[[2]string]int{
 	{"FAILED", "FAILED"}:      severityInfo, // durable copy matched the remote object
 	{"FAILED", "QUARANTINED"}: severityInfo, // held for the reinstatement judgement
+	{"FAILED", "RETIRED"}:     severityInfo, // #1528: a failure whose source is gone, record kept
+	{"RETIRED", "DISCOVERED"}: severityInfo, // #1528: the source came back, re-entering the pipeline
 }
 
 // activitySeverity is the severity filterActivity and the page both key

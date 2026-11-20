@@ -459,7 +459,13 @@ If you do keep a non-default `--config`, give the check the same path: in a comp
 --health-cmd` won't do it, because Docker runs that through `/bin/sh` and this image has no
 shell, so use `--no-healthcheck` and run `/retnd status --config <path>` yourself. The shipped
 compose files already override the engine's health check with `/retnd-web healthcheck`, so
-they aren't affected.
+they aren't affected. The Unraid engine template (`apps/unraid/template/retnd.xml`) is the
+exception: it is a plain `docker run` and keeps the image's health check, so it has the same
+caveat.
+
+Two commands never ask about the old path, on purpose: `retnd-web auth create-admin` and
+`retnd-web auth set-password` write `/data/state/local-auth.json`, which has no `retnd` path
+component and is neither the configuration nor the journal.
 
 Every packaged adapter declares the same start gate, and has to (issue #206). The image's
 instruction and the canonical start gate are now deliberately different commands, so an

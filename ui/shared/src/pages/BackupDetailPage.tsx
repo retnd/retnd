@@ -34,6 +34,7 @@ import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
 import { bytes, stamp } from "@shared/utilities/format";
 import { RETRY_ACCEPTED, isRetryable, retryRefusalSentence } from "./retryIngestion";
+import { RetireDialog } from "./RetireDialog";
 import type { ArtifactRetentionPolicy, BackupArtifact } from "@shared/types/backup";
 
 export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
@@ -96,6 +97,25 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
         ? api.listEncryptionCopies(artifactId).catch(() => null)
         : Promise.resolve(null),
     [api, artifactId]
+  );
+  // Issue #1528: the Retire dialog, and for a backup that is already RETIRED
+  // the record the engine kept (who, when, why, what replaces it), read from
+  // the same preview route the dialog uses.
+  const [retireOpen, setRetireOpen] = useState(false);
+  const retiredState = artifact.data?.state === "RETIRED";
+  const retirement = useAsync(
+    () => (retiredState ? api.previewRetirement(artifactId).then((p) => p.retirement ?? null) : Promise.resolve(null)),
+    [api, artifactId, retiredState]
+  );
+  // For a FAILED backup, what the source says now (the same preview the
+  // Retire dialog reads): when the file is gone, retrying cannot fetch it, and
+  // the design switches Retry off and says why rather than offering a press
+  // that can only fail again. Nothing is decided here when the host cannot be
+  // asked: Retry stays on.
+  const failedState = artifact.data?.state === "FAILED";
+  const sourceNow = useAsync(
+    () => (failedState ? api.previewRetirement(artifactId).then((p) => p.source_check).catch(() => "") : Promise.resolve("")),
+    [api, artifactId, failedState]
   );
   const [verifying, setVerifying] = useState<string | null>(null);
   const [failedVerify, setFailedVerify] = useState<Record<string, string>>({});
@@ -162,6 +182,7 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
   // a behaviour for leaves every other state alone, which is what a
   // client that does not own the lifecycle graph should do.
   const stuck = isRetryable(a);
+  const sourceGone = stuck && sourceNow.data === "absent";
 
   const retryIngestion = () => {
     setRecovery(null);
@@ -285,22 +306,86 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
           </div>
           <div style={{ padding: "15px 18px", display: "grid", gap: 10, fontSize: "var(--text-sm)" }}>
             <p style={{ margin: 0, color: "var(--text-2)", maxWidth: "72ch" }}>
-              This backup failed an attempt and is not quarantined, so no cycle will attempt it again on its own
-              and the Quarantine page will not list it. Re-attempting it is the way back.
+              {sourceGone
+                ? "This backup failed an attempt and its source file is gone from the host, so a retry has nothing left to fetch. Retiring it keeps the record and stops counting it as a failure."
+                : "This backup failed an attempt and is not quarantined, so no cycle will attempt it again on its own and the Quarantine page will not list it. Re-attempting it is the way back."}
             </p>
-            <span style={{ display: "flex", gap: 7 }}>
+            <span style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
               <InfoTooltip id="backups.detail.retry">
-                <button className="btn btn--sm" disabled={readOnly || retrying} onClick={retryIngestion}>
+                <button
+                  className="btn btn--strong-edge"
+                  style={{ minHeight: 44 }}
+                  disabled={readOnly || retrying || sourceGone}
+                  aria-describedby={sourceGone ? "retry-off-reason" : undefined}
+                  onClick={retryIngestion}
+                >
                   {retrying ? "Retrying…" : "Retry ingestion"}
                 </button>
               </InfoTooltip>
+              {/* Issue #1528: the second way out, for a backup whose source
+                  is gone. The dialog asks the engine first and says why
+                  when it would refuse. */}
+              <InfoTooltip id="backups.detail.retire">
+                <button className="btn btn--strong-edge" style={{ minHeight: 44 }} disabled={readOnly || retrying} onClick={() => setRetireOpen(true)}>
+                  Retire…
+                </button>
+              </InfoTooltip>
             </span>
+            {sourceGone ? (
+              <p id="retry-off-reason" data-testid="retry-off-reason" style={{ margin: 0, color: "var(--text-2)", maxWidth: "72ch" }}>
+                Retry is off because there is nothing left to copy: the host removed the source file.
+              </p>
+            ) : null}
             {recovery ? (
               <p
                 role="status"
                 style={{ margin: 0, maxWidth: "72ch", color: recovery.tone === "ok" ? "var(--text-2)" : "var(--danger)" }}
               >
                 {recovery.text}
+              </p>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      {retireOpen ? (
+        <RetireDialog
+          artifactId={a.id}
+          readOnly={readOnly}
+          onRetry={() => {
+            setRetireOpen(false);
+            retryIngestion();
+          }}
+          onClose={(changed) => {
+            setRetireOpen(false);
+            if (changed) artifact.reload();
+          }}
+        />
+      ) : null}
+
+      {retiredState ? (
+        <section className="card" style={{ marginTop: 14 }} data-testid="retirement-card">
+          <div className="card__header">
+            <InfoTooltip id="backups.detail.retirement-card"><h2 className="eyebrow">Retired</h2></InfoTooltip>
+          </div>
+          <div style={{ padding: "15px 18px", display: "grid", gap: 8, fontSize: "var(--text-sm)" }}>
+            <p style={{ margin: 0, color: "var(--text-2)", maxWidth: "72ch" }}>
+              Retired is not a failure, and nothing is waiting on it. The record stays so the history still shows that this
+              backup was attempted.
+            </p>
+            {retirement.data ? (
+              <p style={{ margin: 0, maxWidth: "72ch" }}>
+                {retirementSentence(retirement.data)}
+              </p>
+            ) : null}
+            {retirement.data?.source_check === "absent" ? (
+              <p style={{ margin: 0, color: "var(--text-2)", maxWidth: "72ch" }}>
+                If the source file appears on the host again, the next cycle puts this backup back into the pipeline.
+              </p>
+            ) : null}
+            {retirement.error ? (
+              <p style={{ margin: 0, color: "var(--danger)", maxWidth: "72ch" }}>
+                {"The retirement record could not be read: " + retirement.error.message}
               </p>
             ) : null}
           </div>
@@ -418,4 +503,13 @@ function Row({ label, value, mono, tip, testId }: { label: string; value: string
       </dd>
     </>
   );
+}
+
+/** One sentence for a kept retirement record (issue #1528), in the design's
+ *  words: what the source looked like, what replaces it, who and when. */
+function retirementSentence(r: { actor_kind: string; actor: string; retired_at: string; source_check: string; superseded_by: string; failure_reason: string; note: string }): string {
+  const source = r.source_check === "absent" ? "Source gone from the host." : r.source_check === "present" ? "Retired although the source was still on the host." : "Retired without confirming the source.";
+  const replaced = r.superseded_by ? " Replaced by " + r.superseded_by + "." : " Nothing replaces it.";
+  const who = r.actor_kind === "automatic" ? "Retired automatically" : r.actor_kind === "agent" ? "Retired by " + (r.actor || "an agent") + " with a person's approval" : "Retired by " + (r.actor || "an operator");
+  return source + replaced + " " + who + ", " + stamp(r.retired_at) + "." + (r.note ? " Note: " + r.note : "");
 }
