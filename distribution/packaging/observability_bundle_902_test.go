@@ -247,6 +247,32 @@ func TestTheBundleMountsTheLogPipelinesItShips_902(t *testing.T) {
 			t.Errorf("%s/%s: %v", bundleDir, file, err)
 		}
 	}
+	// Loki 3 adds a service_name stream label unless this list is present and
+	// empty, which would make the documented four labels five. Measured on a
+	// real Loki 3.2.1 by the bundle smoke; the command-line flag does not do it.
+	var loki struct {
+		Limits struct {
+			DiscoverServiceName *[]string `yaml:"discover_service_name"`
+		} `yaml:"limits_config"`
+	}
+	data, err := os.ReadFile(Path(filepath.Join(bundleDir, "loki", "loki.yaml")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := yaml.Unmarshal(data, &loki); err != nil {
+		t.Fatal(err)
+	}
+	if loki.Limits.DiscoverServiceName == nil || len(*loki.Limits.DiscoverServiceName) != 0 {
+		t.Errorf("loki/loki.yaml must set limits_config.discover_service_name: [] or Loki invents a service_name label on every stream")
+	}
+	mountedLoki := false
+	for _, v := range c.Services["loki"].Volumes {
+		mountedLoki = mountedLoki || strings.HasPrefix(v, "./loki/loki.yaml:")
+	}
+	if !mountedLoki {
+		t.Errorf("service loki does not mount ./loki/loki.yaml, so it runs the image's config and adds service_name")
+	}
+
 	if len(c.Services["alloy"].Profiles) == 0 {
 		t.Errorf("alloy runs by default beside promtail, so every line would be shipped twice; it needs a profile")
 	}

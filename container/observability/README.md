@@ -16,6 +16,7 @@ The canonical deployment does not change for any of this. `container/compose.yam
 | `alertmanager/alertmanager.yml` | One receiver, deliberately wired to nothing (add yours) |
 | `grafana/provisioning/` | The Prometheus, Loki and Alertmanager datasources and the dashboard provider |
 | `grafana/dashboards/` | Two dashboards: **Backup health** and **Workflow hooks** |
+| `loki/loki.yaml` | Single-node Loki with usage reporting off and `discover_service_name` emptied, so it keeps the four documented labels |
 | `promtail/promtail.yaml`, `alloy/config.alloy` | The log pipeline, four labels and nothing else (authored with the log schema, #900) |
 
 ## Before you start

@@ -85,16 +85,13 @@ services:
   loki:
     <<: *hardening
     image: grafana/loki:3.2.1
+    # loki/loki.yaml is the image's single-node config with usage reporting off
+    # and discover_service_name emptied, so Loki keeps the four documented
+    # labels instead of inventing service_name (see the file).
     command:
-      - -config.file=/etc/loki/local-config.yaml
-      # Loki reports anonymous usage statistics to Grafana Labs unless told
-      # not to. An example should not add egress the operator did not ask for.
-      - -reporting.enabled=false
-      # Loki 3 invents a service_name label from job (or app, container, ...)
-      # on every stream unless this list is empty. The documented label set is
-      # job, instance, level and schema, and nothing else (docs/observability.md).
-      - -validation.discover-service-name=
+      - -config.file=/etc/loki/loki.yaml
     volumes:
+      - ./loki/loki.yaml:/etc/loki/loki.yaml:ro
       - loki-data:/loki
     networks:
       - observability
