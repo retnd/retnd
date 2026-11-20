@@ -29,9 +29,14 @@ the linters.
      body.
   D  SIGTERM through main(): main installs the harness's signal handlers, so
      a TERM in the middle of a case unwinds, removes the scratch and exits 143
-     instead of dying with the copies still on disk.
+     instead of dying with the copies still on disk. A second TERM while main
+     is removing the scratch (a double Ctrl-C) does not cut that short.
+  I  a check that is interrupted takes its whole process group with it, so a
+     go or golangci-lint it started is not left writing into a copy that is
+     being removed.
   E  every `st.mutant(...)` in the body is the context expression of a `with`,
-     so a case added later cannot quietly go back to keeping its copy.
+     so a case added later cannot quietly go back to keeping its copy, and no
+     `d` is read outside such a block.
   F  the run made a real number of copies, so A to C cannot pass by the body
      having stopped making any.
 
@@ -42,10 +47,12 @@ pile-up, up to about thirty copies each. They hand their copies out through
 
   G  one_at_a_time removes the previous copy when the next one is asked for,
      so one is on disk at a time, and never removes the real tree (which is
-     what a --check-anchors run gets instead of a copy).
+     what a --check-anchors run gets instead of a copy), even when the path it
+     is handed is spelled differently or is a directory holding the real tree.
   H  in each of those self-tests every whole-tree copy is made through
      one_at_a_time: no call to the copy function sits anywhere but in the
-     function handed to it.
+     function handed to it, the copy function is never imported under a bare
+     name, and there is exactly one one_at_a_time per self-test.
 """
 
 from __future__ import annotations
@@ -55,8 +62,10 @@ import contextlib
 import os
 import shutil
 import signal
+import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Callable, Iterator
 from unittest import mock
@@ -237,8 +246,84 @@ def behaviour(s: testkit.Suite) -> None:
         s.check(not rec.alive() and not any(tmpdir.iterdir()),
                 "D nothing is left under TMPDIR after a SIGTERM",
                 "D scratch was left under TMPDIR after a SIGTERM", names(list(tmpdir.iterdir())))
+
+        # D, the second signal: TERM mid-case, then TERM again while main is
+        # removing its scratch directory.
+        rec = Recorder()
+        tmpdir = work / "sigterm-twice"
+        tmpdir.mkdir()
+        real_rmtree = shutil.rmtree
+        second: list[Path] = []
+
+        def rmtree_with_a_second_term(path: str | os.PathLike[str], *args: object, **kwargs: object) -> None:
+            if Path(path).parent == tmpdir and not second:
+                second.append(Path(path))
+                os.kill(os.getpid(), signal.SIGTERM)
+            real_rmtree(path, ignore_errors=True)
+
+        escaped: BaseException | None = None
+        status = None
+        before = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
+        try:
+            with stubbed(quiet_run(lambda: os.kill(os.getpid(), signal.SIGTERM))), \
+                    mock.patch.object(arch_selftest, "Selftest", fake_selftest_class(rec)), \
+                    mock.patch.object(arch, "resolve_toplevel", lambda: REPO), \
+                    mock.patch.object(shutil, "rmtree", rmtree_with_a_second_term), \
+                    mock.patch.dict(os.environ, {"TMPDIR": str(tmpdir)}):
+                status = arch_selftest.main([])
+        except BaseException as exc:  # the case is about exactly this
+            escaped = exc
+        finally:
+            for sig, handler in before.items():
+                signal.signal(sig, handler)
+            os.chdir(cwd)
+        s.check(bool(second) and escaped is None and status == harness.EXIT_TERMINATED
+                and not any(tmpdir.iterdir()),
+                "D a second SIGTERM during main's final cleanup is ignored: exit 143, nothing left",
+                f"D a second SIGTERM during main's final cleanup (sent: {bool(second)}) ended the run with "
+                f"{escaped!r} and exit {status}, leaving {names(list(tmpdir.iterdir()))}")
+
+        # I: an interrupted check takes its process group with it.
+        interrupted_check(s, work)
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def interrupted_check(s: testkit.Suite, work: Path) -> None:
+    pidfile = work / "grandchild.pid"
+
+    def alarm(_signum: int, _frame: object) -> None:
+        raise harness.Interrupted(harness.EXIT_TERMINATED, "SIGTERM")
+
+    before = signal.signal(signal.SIGALRM, alarm)
+    raised = False
+    try:
+        signal.setitimer(signal.ITIMER_REAL, 1.0)
+        # A check that starts a long-lived child of its own, the way go test
+        # and golangci-lint do, and waits on it.
+        arch_selftest._run(work, "bash", "-c", f"sleep 300 & echo $! > {pidfile}; wait")
+    except harness.Interrupted:
+        raised = True
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, before)
+
+    def alive(pid: int) -> bool:
+        state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], stdout=subprocess.PIPE, text=True,
+                               check=False).stdout.strip()
+        return bool(state) and not state.startswith("Z")
+
+    pid = int(pidfile.read_text().strip()) if pidfile.exists() else 0
+    deadline = time.monotonic() + 5
+    while pid and alive(pid) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    left = bool(pid) and alive(pid)
+    if left:
+        os.kill(pid, signal.SIGKILL)
+    s.check(raised and bool(pid) and not left,
+            "I an interrupted check's own children go with it",
+            f"I an interrupted check left its child running (interrupted: {raised}, child pid {pid or 'unknown'}), "
+            "so it can keep writing into a copy that is being removed")
 
 
 def main() -> int:
@@ -271,6 +356,18 @@ def main() -> int:
             f"E all {len(calls)} st.mutant(...) calls in body() are scoped by a with",
             f"E {len(loose)} of {len(calls)} st.mutant(...) calls in body() are not the subject of a with, "
             f"so their copies outlive their case (lines {', '.join(map(str, loose[:10]))})")
+    inside: set[int] = set()
+    for node in ast.walk(body_fn):
+        if isinstance(node, ast.With) and any(id(item.context_expr) in {id(c) for c in calls} for item in node.items):
+            for stmt in node.body:
+                inside.update(id(sub) for sub in ast.walk(stmt))
+    outside = [
+        node.lineno for node in ast.walk(body_fn)
+        if isinstance(node, ast.Name) and node.id == "d" and isinstance(node.ctx, ast.Load) and id(node) not in inside
+    ]
+    s.check(bool(calls) and not outside, "E no d is read outside the with block that made its copy",
+            f"E d is read outside a with st.mutant(...) block, after its copy is gone (lines "
+            f"{', '.join(map(str, outside[:10]))})")
 
     one_at_a_time(s)
     return s.finish()
@@ -306,6 +403,15 @@ def one_at_a_time(s: testkit.Suite) -> None:
             dry("b")
             s.check(root.is_dir(), "G one_at_a_time never removes the real tree a dry run hands back",
                     "G one_at_a_time removed the real tree")
+            alias = root / ".." / "root"
+            spelled = helper(lambda name: alias, root)
+            spelled("a")
+            spelled("b")
+            s.check(root.is_dir(), "G nor the real tree spelled another way (root/../root)",
+                    "G one_at_a_time removed the real tree when it was handed root/../root")
+            selftest_swap.discard(work, root)
+            s.check(root.is_dir(), "G discard never removes a directory that holds the real tree",
+                    "G discard removed a directory holding the real tree")
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
@@ -327,6 +433,19 @@ def one_at_a_time(s: testkit.Suite) -> None:
             )
         ]
         loose = [node.lineno for node in copies if id(node) not in handed]
+        helpers = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "one_at_a_time"
+        ]
+        bare = [
+            node.lineno for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and (node.module or "").endswith("selftest_swap")
+            and any(alias.name in ("mutant", "one_at_a_time") for alias in node.names)
+        ]
+        s.check(len(helpers) == 1 and not bare,
+                f"H {domain}: one one_at_a_time, and no bare import of the copy function",
+                f"H {domain}: {len(helpers)} one_at_a_time calls (want 1), bare imports of selftest_swap's "
+                f"mutant or one_at_a_time at lines {bare}")
         s.check(bool(copies) and not loose,
                 f"H {domain}: every whole-tree copy goes through one_at_a_time",
                 f"H {domain}: {len(loose)} of {len(copies)} whole-tree copies are made outside one_at_a_time "
