@@ -395,9 +395,13 @@ gate_docker_step() {
 gate_bounded() {
   gate_bd_secs="$1"
   shift
+  # The status is passed on by number: a bare `return` in a function called
+  # from a trap hands back the status from before the trap (the gate's exit
+  # status, in gate_on_exit), not the command's.
   if command -v timeout >/dev/null 2>&1; then
-    timeout "$gate_bd_secs" "$@"
-    return
+    gate_bd_rc=0
+    timeout "$gate_bd_secs" "$@" || gate_bd_rc=$?
+    return "$gate_bd_rc"
   fi
   "$@" &
   gate_bd_pid=$!
@@ -1356,10 +1360,12 @@ gate_watchdog_report() {
       echo "==> stall watchdog: no container labelled retnd-test=$gate_wd_owner to stop" >&2
     fi
     for gate_wd_id in $gate_wd_ids; do
-      if gate_watchdog_docker rm -f "$gate_wd_id" >/dev/null 2>&1; then
+      gate_wd_rm=0
+      gate_watchdog_docker rm -f "$gate_wd_id" >/dev/null 2>&1 || gate_wd_rm=$?
+      if [ "$gate_wd_rm" = 0 ]; then
         echo "==> stall watchdog: stopped and removed container $gate_wd_id" >&2
       else
-        echo "==> stall watchdog: could not remove container $gate_wd_id" >&2
+        echo "==> stall watchdog: could not remove container $gate_wd_id (docker rm -f exited $gate_wd_rm)" >&2
       fi
     done
   fi
