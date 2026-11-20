@@ -201,7 +201,10 @@ def _run(cwd: Path, *argv: str) -> tuple[int, str]:
     try:
         out, _ = proc.communicate()
     except BaseException:
-        with contextlib.suppress(ProcessLookupError):
+        # The group may be gone already: ESRCH on Linux, and on macOS EPERM
+        # when its last process has exited and is not reaped yet (#1602).
+        # Either way the interrupt is what this run has to end with.
+        with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(proc.pid, signal.SIGKILL)
         proc.wait()
         raise
