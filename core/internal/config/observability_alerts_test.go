@@ -86,3 +86,25 @@ func TestValidate_WebhookRefreshMustBeBelowResolveTTL(t *testing.T) {
 		t.Fatalf("Validate() = %v, want a refusal naming refresh_interval", err)
 	}
 }
+
+// #1518 review: a refresh has to land, and its delivery attempt finish,
+// before the receiver expires the alert. One delivery attempt is bounded at
+// 30s (internal/alert's deliveryTimeout), so resolve_ttl must leave at least
+// that much room above refresh_interval. 240s against 250s used to load, and
+// a slow receiver then answered after Alertmanager had already resolved it.
+func TestValidate_WebhookExpiryLeavesRoomForOneDeliveryAttempt(t *testing.T) {
+	block := func(refresh, ttl string) string {
+		return "observability:\n  alerts:\n    delivery: webhook\n    webhook:\n      dialect: alertmanager\n      refresh_interval: " + refresh + "\n      resolve_ttl: " + ttl + "\n      allow_insecure_http: true\n      url_ref:\n        file: /nonexistent/url\n"
+	}
+	for _, tc := range []struct{ refresh, ttl string }{{"240s", "250s"}, {"9m31s", "10m"}} {
+		err := webhookConfig(t, block(tc.refresh, tc.ttl)).Validate()
+		if err == nil || !strings.Contains(err.Error(), "refresh_interval") || !strings.Contains(err.Error(), "30s") {
+			t.Errorf("refresh %s against resolve_ttl %s: Validate() = %v, want a refusal naming refresh_interval and the 30s delivery bound", tc.refresh, tc.ttl, err)
+		}
+	}
+	for _, tc := range []struct{ refresh, ttl string }{{"9m30s", "10m"}, {"4m", "10m"}, {"400ms", "31s"}} {
+		if err := webhookConfig(t, block(tc.refresh, tc.ttl)).Validate(); err != nil {
+			t.Errorf("refresh %s against resolve_ttl %s was refused: %v", tc.refresh, tc.ttl, err)
+		}
+	}
+}

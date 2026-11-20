@@ -206,7 +206,9 @@ func TestWebhookAlertmanagerRefreshesBeforeResolveTTL(t *testing.T) {
 
 func TestWebhookAlertmanagerRefreshIntervalMustBeBelowTTL(t *testing.T) {
 	u := fixedURL("https://alertmanager.example.invalid/api/v2/alerts")
-	for _, refresh := range []time.Duration{10 * time.Minute, 11 * time.Minute, 0} {
+	// 9m45s is below 10m but leaves less than one 30s delivery attempt of
+	// room, so a slow receiver would answer after the alert expired.
+	for _, refresh := range []time.Duration{10 * time.Minute, 11 * time.Minute, 0, 9*time.Minute + 45*time.Second} {
 		if _, err := alert.NewHTTPSink(u, alert.DialectAlertmanager, 10*time.Minute, refresh, false); err == nil {
 			t.Errorf("refresh %v against ttl 10m was accepted", refresh)
 		}

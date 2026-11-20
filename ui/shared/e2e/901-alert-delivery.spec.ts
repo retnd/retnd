@@ -58,6 +58,17 @@ test.describe("#901 alert delivery controls", () => {
     await settle(page);
   });
 
+  test("#901 a URL that reads and is not acceptable is stated as an alert of its own", async ({ page }) => {
+    await open(page, "/settings", "default");
+    await page.goto("/settings?scenario=default&webhookurl=invalid");
+    await field(page, "Alert delivery").selectOption("webhook");
+    const alert = page.getByTestId("alert-webhook-invalid");
+    await expect(alert).toBeVisible();
+    await expect(alert).toContainText("not an acceptable URL");
+    await expect(page.getByTestId("alert-webhook-unresolvable")).toHaveCount(0);
+    await settle(page);
+  });
+
   for (const theme of ["light", "dark"] as const) {
     test("#901 text in the card clears WCAG AA in the " + theme + " theme, including the unreadable-URL alert", async ({ page }) => {
       await open(page, "/settings", "default");

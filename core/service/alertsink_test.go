@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -20,10 +21,12 @@ import (
 // and what a change of channel does to the firing map. The receiver is a
 // local httptest server; nothing here contacts a real webhook.
 
-// webhookReceiver counts the requests its handler sees.
+// webhookReceiver counts the requests its handler sees, and when.
 type webhookReceiver struct {
 	srv  *httptest.Server
 	hits atomic.Int32
+	mu   sync.Mutex
+	at   []time.Time
 }
 
 func newWebhookReceiver(t *testing.T) *webhookReceiver {
@@ -31,6 +34,9 @@ func newWebhookReceiver(t *testing.T) *webhookReceiver {
 	r := &webhookReceiver{}
 	r.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
 		_, _ = io.Copy(io.Discard, q.Body)
+		r.mu.Lock()
+		r.at = append(r.at, time.Now())
+		r.mu.Unlock()
 		r.hits.Add(1)
 	}))
 	t.Cleanup(r.srv.Close)
@@ -246,6 +252,9 @@ func TestAlertSelection_AnUnreadableURLIsLoudAndHeals(t *testing.T) {
 	for name, ref := range map[string]string{
 		"missing file":    "file: " + urlFile,
 		"failing command": `command: ["/bin/false"]`,
+		// A helper that prints the URL on its error output and fails: the
+		// output is the secret, so it reaches neither the feed nor a log.
+		"command leaking on stderr": `command: ["/bin/sh", "-c", "echo https://hooks.example.invalid/T0LEAKEDSECRET >&2; exit 3"]`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			_ = os.Remove(urlFile)
@@ -297,10 +306,30 @@ func TestAlertSelection_AnUnreadableURLIsLoudAndHeals(t *testing.T) {
 			if got := destinationStates(t, svc); len(got) != 1 || got[0] != "unresolvable" {
 				t.Fatalf("activity feed alert_destination states = %v, want exactly one unresolvable, said once and not per pass", got)
 			}
+			if where := feedMentions(t, svc, "T0LEAKEDSECRET"); where != "" {
+				t.Fatalf("the url_ref command's error output reached the activity feed (%s)", where)
+			}
 
 			if name != "missing file" {
 				return
 			}
+
+			// A PATCH that rebuilds the sink while the URL is still broken
+			// carries the state across: the feed already said unresolvable,
+			// and saying it again would read as a second breakage.
+			before := svc.state.Load().inner.Alerts
+			am := "alertmanager"
+			if _, err := svc.UpdateObservabilitySettings(ctx, UpdateObservabilitySettingsRequest{WebhookDialect: &am}); err != nil {
+				t.Fatalf("UpdateObservabilitySettings: %v", err)
+			}
+			if svc.state.Load().inner.Alerts == before {
+				t.Fatal("changing the dialect did not rebuild the dispatcher, so this proves nothing about the reload")
+			}
+			svc.state.Load().inner.AlertTick(ctx)
+			if got := destinationStates(t, svc); len(got) != 1 {
+				t.Fatalf("activity feed alert_destination states after a PATCH while broken = %v, want the one unresolvable line, not a second", got)
+			}
+
 			receiver := newWebhookReceiver(t)
 			if err := os.WriteFile(urlFile, []byte(receiver.srv.URL+"/hook"), 0o600); err != nil {
 				t.Fatal(err)
@@ -340,4 +369,88 @@ func destinationStates(t *testing.T, svc *BackupService) []string {
 		out = append(out, v)
 	}
 	return out
+}
+
+// feedMentions names the first activity event, in any scope, whose message
+// or fields contain needle, or returns "".
+func feedMentions(t *testing.T, svc *BackupService, needle string) string {
+	t.Helper()
+	live, err := svc.LiveActivity(context.Background(), LiveActivityRequest{Limit: liveActivityMaxLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var all []LiveActivityEvent
+	if live.Deployment != nil {
+		all = append(all, live.Deployment.Events...)
+	}
+	for _, s := range live.Sets {
+		all = append(all, s.Events...)
+	}
+	for _, e := range all {
+		if strings.Contains(e.Message, needle) {
+			return e.Event + " message"
+		}
+		for _, f := range e.Fields {
+			if strings.Contains(f.Value, needle) {
+				return e.Event + " " + f.Key
+			}
+		}
+	}
+	return ""
+}
+
+// #1518 review: the refresh loop has to wake when a re-send is due. A loop
+// that wakes on a coarse tick (it was refresh_interval/4, floored at a
+// second) re-sends up to a quarter interval late, and with a resolve_ttl
+// close above the interval Alertmanager resolves the alert in between and
+// fires it again: the false all-clear O-10 exists for. This runs the real
+// loop on the real clock against a receiver that records arrival times.
+func TestAlertRefresh_TheRealLoopResendsWhenDue(t *testing.T) {
+	const refresh = 400 * time.Millisecond
+	configPath := writeAlertingConfigFile(t, true)
+	r := newWebhookReceiver(t)
+	writeWebhookBlock(t, configPath, r, "webhook")
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content = []byte(strings.Replace(string(content), "dialect: generic", "dialect: alertmanager\n      refresh_interval: 400ms\n      resolve_ttl: 31s", 1))
+	if err := os.WriteFile(configPath, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc, cleanup, err := Open(context.Background(), configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cleanup() })
+	if !svc.EnableAlerts(nil) {
+		t.Fatal("alerting did not come on")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc.state.Load().inner.RunCycle(ctx)
+	waitStale()
+	svc.state.Load().inner.AlertTick(ctx)
+	if r.hits.Load() != 1 {
+		t.Fatalf("receiver got %d requests from the alerting pass, want the one delivery", r.hits.Load())
+	}
+
+	done := make(chan struct{})
+	go func() { defer close(done); svc.runAlertRefreshes(ctx) }()
+	time.Sleep(3*refresh + refresh/2)
+	cancel()
+	<-done
+
+	r.mu.Lock()
+	at := append([]time.Time(nil), r.at...)
+	r.mu.Unlock()
+	if len(at) < 4 {
+		t.Fatalf("receiver got %d requests in %s, want the delivery and three refreshes", len(at), 3*refresh+refresh/2)
+	}
+	const slack = 150 * time.Millisecond
+	for i := 1; i < len(at); i++ {
+		if gap := at[i].Sub(at[i-1]); gap < refresh-20*time.Millisecond || gap > refresh+slack {
+			t.Errorf("request %d came %s after the one before it, want %s (within %s): the loop is not waking when the re-send is due", i, gap, refresh, slack)
+		}
+	}
 }
