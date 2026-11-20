@@ -196,8 +196,8 @@ var contractBindings = map[string]contractBinding{
 	// (204), so it binds no response type; the contract declares no
 	// response schema for it either, which is what keeps the two in step.
 	"getBackupSetEditHold":     {nil, editHoldStateResponse{}, "/api/v1/backup-sets/src/set-1/edit-hold"},
-	"takeBackupSetEditHold":    {nil, editHoldResponse{}, "/api/v1/backup-sets/src/set-1/edit-hold"},
-	"releaseBackupSetEditHold": {nil, nil, "/api/v1/backup-sets/src/set-1/edit-hold/release"},
+	"takeBackupSetEditHold":    {editHoldBody{}, editHoldResponse{}, "/api/v1/backup-sets/src/set-1/edit-hold"},
+	"releaseBackupSetEditHold": {editHoldBody{}, nil, "/api/v1/backup-sets/src/set-1/edit-hold/release"},
 	"scanCatalog":              {nil, catalogReportResponse{}, "/api/v1/catalog/scan"},
 	"rebuildCatalog":           {nil, catalogReportResponse{}, "/api/v1/catalog/rebuild"},
 	// EPIC K's snapshot and repository reads (#788). Every one of them

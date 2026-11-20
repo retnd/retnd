@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -1050,18 +1051,44 @@ func (e *fakeEngine) getEditHold(w http.ResponseWriter, r *http.Request, id stri
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// takeEditHold is #1253's --take, off the same registry.
+// editHoldToken reads #1606's optional body. An absent body is a client
+// from before tokens, which the engine still serves.
+func editHoldToken(w http.ResponseWriter, r *http.Request) (string, bool) {
+	var body apicontract.BackupSetEditHoldRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		refuse(w, http.StatusBadRequest, apicontract.ErrorCodeInvalidRequest, "malformed JSON body")
+		return "", false
+	}
+	return body.Token, true
+}
+
+// takeEditHold is #1253's --take, off the same registry, and since #1606
+// a renewal of one holder when the body names a token.
 func (e *fakeEngine) takeEditHold(w http.ResponseWriter, r *http.Request, id string) {
-	hold, err := e.svc.BeginBackupSetEdit(r.Context(), id)
+	token, ok := editHoldToken(w, r)
+	if !ok {
+		return
+	}
+	var hold service.EditHold
+	var err error
+	if token == "" {
+		hold, err = e.svc.BeginBackupSetEdit(r.Context(), id)
+	} else {
+		hold, err = e.svc.RenewBackupSetEdit(r.Context(), id, token)
+	}
 	if err != nil {
 		if errors.Is(err, service.ErrBackupSetNotFound) {
 			refuse(w, http.StatusNotFound, apicontract.ErrorCodeBackupSetNotFound, "no such backup set")
 			return
 		}
+		if errors.Is(err, service.ErrEditHoldGone) {
+			refuse(w, http.StatusConflict, apicontract.ErrorCodeEditHoldGone, "this edit hold was released or has lapsed")
+			return
+		}
 		refuse(w, http.StatusInternalServerError, apicontract.ErrorCodeInternal, "failed to take this backup set's edit hold")
 		return
 	}
-	resp := apicontract.BackupSetEditHold{BackupSetID: id, ExpiresAt: hold.ExpiresAt.Format(time.RFC3339Nano)}
+	resp := apicontract.BackupSetEditHold{BackupSetID: id, ExpiresAt: hold.ExpiresAt.Format(time.RFC3339Nano), Token: hold.Token}
 	if hold.Stopped != nil {
 		resp.Stopped = &apicontract.RunningWork{Artifact: hold.Stopped.Artifact, Stage: hold.Stopped.Stage}
 	}
@@ -1069,7 +1096,11 @@ func (e *fakeEngine) takeEditHold(w http.ResponseWriter, r *http.Request, id str
 }
 
 func (e *fakeEngine) releaseEditHold(w http.ResponseWriter, r *http.Request, id string) {
-	if err := e.svc.EndBackupSetEdit(r.Context(), id); err != nil {
+	token, ok := editHoldToken(w, r)
+	if !ok {
+		return
+	}
+	if err := e.svc.EndBackupSetEdit(r.Context(), id, token); err != nil {
 		if errors.Is(err, service.ErrBackupSetNotFound) {
 			refuse(w, http.StatusNotFound, apicontract.ErrorCodeBackupSetNotFound, "no such backup set")
 			return

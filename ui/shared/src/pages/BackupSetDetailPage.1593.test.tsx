@@ -62,6 +62,7 @@ async function editing(api: RetndApi): Promise<{ beat: () => void; unmount: () =
 }
 
 const STOPPED: EditHoldTaken = {
+  token: "hold-1593",
   expiresAt: "2026-11-20T06:00:00Z",
   stopped: { artifact: "2026-11-20T05-00.dump", stage: "transferring" }
 };
