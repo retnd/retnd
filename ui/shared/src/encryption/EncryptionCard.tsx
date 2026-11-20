@@ -100,7 +100,11 @@ export function EncryptionCard({ readOnly }: { readOnly: boolean }) {
   );
 
   const reload = () => { policy.reload(); keys.reload(); suites.reload(); };
-  const close = () => { setDialog(null); setFailure(null); };
+  const close = () => {
+    if (!mountedRef.current) return;
+    setDialog(null);
+    setFailure(null);
+  };
 
   /** One mutation: busy while it runs, the engine's own words if it refuses,
    *  and a re-read of everything the card shows once it has landed. */

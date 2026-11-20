@@ -45,7 +45,13 @@ export function LogLevelControl({ logs, readOnly, onSaved }: {
     setSaving(true);
     setProblem(null);
     api.patchObservabilitySettings({ logsLevel: level }).then(
-      (s) => { if (mountedRef.current) setSaving(false); onSaved(s); },
+      (s) => {
+        // The parent's setter is as gone as this control when the page is, so
+        // a saved level that lands after that is dropped with it (#1599).
+        if (!mountedRef.current) return;
+        setSaving(false);
+        onSaved(s);
+      },
       (e: unknown) => { if (!mountedRef.current) return; setSaving(false); setProblem(describeFailure(e, "could not save the log level").message); }
     );
   };

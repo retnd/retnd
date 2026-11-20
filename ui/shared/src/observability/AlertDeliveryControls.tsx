@@ -73,7 +73,10 @@ export function AlertDeliveryControls({
     setBusy(true);
     setError(null);
     try {
-      onSaved(await api.patchObservabilitySettings(patch));
+      const saved = await api.patchObservabilitySettings(patch);
+      // The parent's setter is as gone as this control when the page is (#1599).
+      if (!mountedRef.current) return;
+      onSaved(saved);
     } catch (e) {
       if (mountedRef.current) setError(describeFailure(e, "could not save the alert delivery settings").message);
     } finally {
