@@ -116,7 +116,7 @@ func toServiceRetirement(r state.Retirement) Retirement {
 
 func toAppRetireRequest(req RetireRequest) app.RetireRequest {
 	return app.RetireRequest{SupersededBy: req.SupersededBy, NoSuccessor: req.NoSuccessor, AcceptSourcePresent: req.AcceptSourcePresent,
-		Note: req.Note, ActorKind: req.ActorKind, Actor: req.Actor}
+		AcceptUnverifiedCopy: req.AcceptUnverifiedCopy, Note: req.Note, ActorKind: req.ActorKind, Actor: req.Actor}
 }
 
 // retireError maps the app layer's refusals onto this package's sentinels,

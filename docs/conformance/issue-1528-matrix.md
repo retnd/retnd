@@ -59,6 +59,11 @@ the same run on the unplanted copy, which must be green.
 | RV.13 | `next_cursor` is omitted when empty | R.14 |
 | RV.14 | the way back leaves the retry count alone, so the walk replays the failed attempt's key | R.6 |
 | RV.15 | an object listed under the artifact's basename elsewhere is not counted as present | R.3 |
+| RV.16 | retry never takes the own-copy, source-gone path (#1594) | #1594 |
+| RV.17 | an acknowledged retirement does not check whether the own copy verifies (#1594) | #1594 |
+| RV.18 | the unverified-copy acknowledgement applies while the source is there or unknown (#1594) | #1594 |
+| RV.19 | reinstating a FAILED row holds it at QUARANTINED before checking the evidence is enough (#1594) | #1594 |
+| RV.20 | the catalogue lets an agent send `accept_unverified_copy` (#1594) | #1594 |
 
 ## The limits of this matrix
 

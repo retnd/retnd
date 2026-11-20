@@ -31,8 +31,12 @@ import (
 //
 // The one rule underneath all three:
 //
-//   - only a FAILED artifact can be retired, and never one whose own durable
-//     copy sits at its final name (issue #662's shape, which retry rescues);
+//   - only a FAILED artifact can be retired. One whose own durable copy sits
+//     at its final name (issue #662's shape) is refused while its source is
+//     there or unknown, because retry rescues it; with the source confirmed
+//     gone it is retired only on the operator's accept_unverified_copy
+//     acknowledgement, only when the copy really does not verify, and the
+//     file is kept (issue #1594, docs/design/1594-own-copy-source-gone.md);
 //   - the source is asked, now: a fresh listing of the set and a Stat of the
 //     object's remote path. Only a listing that does not show it AND a Stat
 //     classified not_found proves it gone. Anything else is "present" or
@@ -87,6 +91,7 @@ const (
 	retireEffectNothingElse   = "Nothing on the source is touched and no backup copy is deleted."
 	retireEffectWayBack       = "If the source object appears again, the next cycle puts this backup back into the pipeline."
 	retireEffectNeverFetched  = "This manager will not fetch this object again."
+	retireEffectKeptCopy      = "The file at its final name, %s, is kept where it is. It could not be verified, so it is not counted as a backup, and nothing will prune it."
 )
 
 // RetireRequest is what a caller asks for. The zero value is the
@@ -166,6 +171,9 @@ type retirePlan struct {
 	partialExists bool
 	failureReason string
 	refusal       *RetireRefusal
+	// keptCopy is the path of issue #1594's unverified own copy, which the
+	// retirement leaves where it is; empty for every other row.
+	keptCopy string
 }
 
 // sourceCheckFor turns the two probes into one verdict. The listing is
@@ -318,12 +326,18 @@ func (s *Service) evaluate(ctx context.Context, rec state.Record, src config.Sou
 	}
 
 	// Issue #662's shape: the row's own durable copy at its final name.
-	if final, err := lifecycle.FinalArtifactPath(bs.LocalPath, id); err == nil && rec.LocalPath == final {
-		if _, err := os.Stat(final); err == nil {
-			p.refusal = &RetireRefusal{Code: RefusalOwnCopy, Sentence: "This backup's own copy is already at its final name. " +
-				"Retry it instead: retry checks that copy against the source and keeps it."}
-			return p, nil
+	// #1528 refused it outright because retry rescues it, by comparing the
+	// copy with the remote object. Issue #1594: with the source gone that
+	// rescue is gone too, so the answer depends on the source and, only when
+	// the operator acknowledges it, on the copy.
+	ownCopy := ownCopyAtFinalName(rec, bs)
+	if ownCopy {
+		p.check = s.probe(ctx, src, bs, rec.RemotePath, listing) // the own copy's source (#1594)
+		if refusal, err := s.ownCopyRefusal(ctx, rec, bs, p.check, req); err != nil || refusal != nil {
+			p.refusal = refusal
+			return p, err
 		}
+		p.keptCopy = rec.LocalPath
 	}
 
 	records, err := s.Journal.ListByBackupSet(ctx, id.Set)
@@ -348,7 +362,9 @@ func (s *Service) evaluate(ctx context.Context, rec state.Record, src config.Sou
 		p.successor = pickSuccessor(rec, records)
 	}
 
-	p.check = s.probe(ctx, src, bs, rec.RemotePath, listing)
+	if !ownCopy {
+		p.check = s.probe(ctx, src, bs, rec.RemotePath, listing)
+	}
 	switch {
 	case p.check.Result == state.SourcePresent && !req.AcceptSourcePresent:
 		p.refusal = &RetireRefusal{Code: RefusalSourcePresent, Sentence: p.check.Sentence, OverridableWith: AckAcceptSourcePresent}
@@ -361,10 +377,45 @@ func (s *Service) evaluate(ctx context.Context, rec state.Record, src config.Sou
 	return p, nil
 }
 
+// ownCopyRefusal is issue #1594's part of the rule, for a row whose own copy
+// sits at its final name. It returns nil when the retirement may go on: the
+// source is confirmed gone, the operator acknowledged an unverified copy, and
+// the copy really does not verify.
+//
+// The copy is read only when the acknowledgement is there. The backup page
+// asks for the plain preview every time it shows a FAILED backup, and hashing
+// a large dump on every page load is not a cost a preview gets to spend; the
+// plain answer says what the acknowledged one would check.
+func (s *Service) ownCopyRefusal(ctx context.Context, rec state.Record, bs config.BackupSet, check SourceCheck, req RetireRequest) (*RetireRefusal, error) {
+	if check.Result != state.SourceAbsent {
+		return &RetireRefusal{Code: RefusalOwnCopy, Sentence: "This backup's own copy is already at its final name. " +
+			"Retry it instead: retry checks that copy against the source and keeps it."}, nil
+	}
+	if !req.AcceptUnverifiedCopy {
+		return &RetireRefusal{Code: RefusalOwnCopy, OverridableWith: AckAcceptUnverifiedCopy, Sentence: "This backup's source is gone " +
+			"from the host, but its own copy is at its final name. Retry it: retry keeps that copy if it still matches the checksum " +
+			"recorded when it was verified. If it does not, it can only be retired with the acknowledgement that the copy could not " +
+			"be verified, and the file is kept where it is."}, nil
+	}
+	checks, err := s.runValidationChecks(ctx, rec, bs.Validation, ValidateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("app: retire: checking %s's own copy at %s: %w", rec.Artifact, rec.LocalPath, err)
+	}
+	if checks.Passed && lifecycle.CheckReinstatementEvidence(rec, checks.evidence()) == nil {
+		return &RetireRefusal{Code: RefusalOwnCopy, Sentence: "This backup's own copy at its final name still matches the checksum " +
+			"recorded when it was verified, so it is a good backup and is not retired. Retry it: with the source gone, retry keeps " +
+			"that copy."}, nil
+	}
+	return nil, nil
+}
+
 func (p retirePlan) effects(req RetireRequest) []string {
 	out := []string{retireEffectRecordStays, retireEffectStopsCounting}
 	if p.partialExists {
 		out = append(out, retireEffectPartial)
+	}
+	if p.keptCopy != "" {
+		out = append(out, fmt.Sprintf(retireEffectKeptCopy, p.keptCopy))
 	}
 	out = append(out, retireEffectNothingElse)
 	switch {
@@ -461,6 +512,9 @@ func (s *Service) commitRetirement(ctx context.Context, p retirePlan, keyPrefix 
 		detail += ", superseded by " + r.SupersededBy
 	} else {
 		detail += ", no successor acknowledged"
+	}
+	if p.keptCopy != "" {
+		detail += "; its own copy at " + p.keptCopy + " could not be verified and was kept where it is"
 	}
 	if r.Note != "" {
 		detail += ": " + r.Note
@@ -562,7 +616,11 @@ func (s *Service) autoRetire(ctx context.Context, src config.Source, bs config.B
 				s.removePartial(ctx, partial)
 			}
 		case lifecycle.Failed:
-			if pickSuccessor(rec, records) != nil {
+			// An own copy at the final name is never retired by the cycle
+			// (issue #1594): whether a copy nobody can verify is worth
+			// keeping counted is a person's call, and the pass must not
+			// read every such file every cycle to find out.
+			if pickSuccessor(rec, records) != nil && !ownCopyAtFinalName(rec, bs) {
 				candidates = append(candidates, rec)
 			}
 		}

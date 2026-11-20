@@ -280,6 +280,17 @@ func (s *Service) RetryFailedIngestion(ctx context.Context, id model.ArtifactID,
 		return nil
 	}
 
+	// Issue #1594: the same shape with the source gone. The comparison
+	// above had nothing to compare against, and an ordinary retry can only
+	// meet the collision guard again, so the row is settled here on local
+	// evidence or refused by name. Only a source confirmed gone gets this:
+	// one that is there, or not answering, keeps today's ordinary retry.
+	if ownCopyAtFinalName(rec, bs) {
+		if s.probe(ctx, src, bs, rec.RemotePath, nil).Result == state.SourceAbsent {
+			return s.keepOwnCopyOnLocalEvidence(ctx, rec, note)
+		}
+	}
+
 	var recoveringFrom string
 	if detail, err := s.GetArtifactDetail(ctx, id); err == nil {
 		recoveringFrom = detail.FailureReason
@@ -393,6 +404,16 @@ func (s *Service) ReinstateQuarantined(ctx context.Context, id model.ArtifactID,
 		return result, nil
 	}
 
+	// A pass that could not have failed (no recorded hash, no validator)
+	// or that a recorded validator rejection outweighs is refused here,
+	// before the hop below, by the same rule ReinstateFromQuarantine
+	// applies after it. Refusing only there left a FAILED artifact moved
+	// to QUARANTINED by a reinstatement that was never going to happen
+	// (issue #1594, which reaches this from retry).
+	if err := lifecycle.CheckReinstatementEvidence(rec, checks.evidence()); err != nil {
+		return result, err
+	}
+
 	// A FAILED artifact has to be held for the judgement before the
 	// judgement can be recorded: reinstatement is only reachable from a
 	// quarantine state, and deliberately so (lifecycle.Transitions
@@ -471,6 +492,55 @@ func (s *Service) ReinstateQuarantined(ctx context.Context, id model.ArtifactID,
 // together that have no reason to move in step.
 func holdsAJudgementCall(s lifecycle.State) bool {
 	return lifecycle.IsQuarantineState(s) || s == lifecycle.Failed
+}
+
+// ownCopyAtFinalName reports whether rec is issue #662's shape: its own
+// recorded local path is its final name and a file is there. Only the durable
+// commit records that path, which is what makes the file this artifact's own
+// copy rather than a stray one.
+func ownCopyAtFinalName(rec state.Record, bs config.BackupSet) bool {
+	final, err := lifecycle.FinalArtifactPath(bs.LocalPath, rec.Artifact)
+	if err != nil || rec.LocalPath != final {
+		return false
+	}
+	_, err = os.Stat(final)
+	return err == nil
+}
+
+// keepOwnCopyOnLocalEvidence is retry's answer to issue #1594: a FAILED row
+// whose own copy sits at its final name and whose source is confirmed gone.
+//
+// The copy is kept if it verifies on the evidence `quarantine reinstate`
+// already accepts (it still hashes to what was recorded at verification, or
+// the set's validator runs and passes on it now), through that same
+// reinstatement path, so it returns to the durable state it was quarantined
+// from and its remote delete is forfeited for good. Nothing new is trusted:
+// this is the reinstatement an operator could have asked for by hand, reached
+// from the verb they actually pressed.
+//
+// A copy that does not verify is refused with RETRY_OWN_COPY_UNVERIFIED and
+// nothing is written. Sending the row round an ordinary retry instead is the
+// loop: there is nothing left to fetch, and the collision guard refuses the
+// file in the way. The sentence names both ways out.
+func (s *Service) keepOwnCopyOnLocalEvidence(ctx context.Context, rec state.Record, note string) error {
+	id := rec.Artifact
+	refuse := func(reason string) error {
+		return &RetryRefusal{Code: RefusalRetryOwnCopyUnverified, Sentence: "This backup's source is gone from the host and its own copy " +
+			"at the final name could not be verified (" + reason + "), so there is nothing to fetch it from and nothing a retry may keep. " +
+			"If the copy is good, add a validator for this backup set that passes on it and retry. Otherwise retire it with the " +
+			"unverified-copy acknowledgement (--accept-unverified-copy), which keeps the file where it is."}
+	}
+	res, err := s.ReinstateQuarantined(ctx, id, note)
+	if err != nil {
+		if e, ok := lifecycle.AsInsufficientEvidence(err); ok {
+			return refuse(e.Reason)
+		}
+		return fmt.Errorf("app: retry failed ingestion: keeping %s's own copy with its source gone: %w", id, err)
+	}
+	if !res.Reinstated {
+		return refuse(res.Reason)
+	}
+	return nil
 }
 
 // completeIngestionInPlace finishes an ingestion whose only remaining

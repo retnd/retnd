@@ -141,6 +141,13 @@ export const SCENARIOS = [
   "retire-source-present",
   // The same set after the engine retired media-week34 on its own.
   "retire-auto",
+  // Issue #1594: media-week34's own copy sits at its final name and its
+  // source is gone. In the first the copy still matches the checksum
+  // recorded when it was verified, so retry keeps it; in the second it does
+  // not, so retry refuses and Retire takes the unverified-copy
+  // acknowledgement.
+  "own-copy-verified",
+  "own-copy-unverified",
   "empty",
   "storage-critical",
   "catalog-recovery",
@@ -4414,6 +4421,10 @@ export function createMockApi(
   // shape migration 0007's backfill leaves every pre-EPIC-E deployment in.
   const many = scenario.startsWith("backups-many");
   const bulk = /^backups-(\d+)$/.exec(scenario);
+  // Issue #1594's two fixtures: media-week34's own copy at its final name with
+  // its source gone, and whether that copy still verifies.
+  const ownCopyScenario = scenario === "own-copy-verified" || scenario === "own-copy-unverified";
+  const ownCopyVerifies = scenario === "own-copy-verified";
   const artifacts = bulk
     ? [...ARTIFACTS, ...bulkGenerated(Number(bulk[1]))]
     : many
@@ -4447,7 +4458,7 @@ export function createMockApi(
       )
     : scenario === "backups-ingest-failed"
     ? ARTIFACTS.map((a) => (a.id === "media/weekly-archive/media-week34.tar" ? { ...a, state: "FAILED", validation: "pending" as const } : a))
-    : scenario === "retire-forge" || scenario === "retire-source-present" || scenario === "retire-auto"
+    : scenario === "retire-forge" || scenario === "retire-source-present" || scenario === "retire-auto" || ownCopyScenario
     ? retireForgeArtifacts(scenario === "retire-auto")
     : ARTIFACTS;
   // Every backup outside quarantine, padded to ?artifacts=N: what the list
@@ -4457,7 +4468,7 @@ export function createMockApi(
   // Issue #1528: what the engine's retirement preview would say about one
   // fixture backup, and the records of the ones retired here.
   const mockRetirements = new Map<string, WireRetirementRecord>();
-  const mockRetirementPreview = (a: BackupArtifact, ack: { superseded_by?: string; no_successor?: boolean; accept_source_present?: boolean } = {}): WireRetirementPreview => {
+  const mockRetirementPreview = (a: BackupArtifact, ack: { superseded_by?: string; no_successor?: boolean; accept_source_present?: boolean; accept_unverified_copy?: boolean } = {}): WireRetirementPreview => {
     let command = retireCommand(a.id);
     const base = { artifact: a.id, state: a.state, effects: [] as string[], successor_candidates: [] as WireRetirementSuccessor[] };
     if (a.state !== "FAILED") {
@@ -4480,10 +4491,24 @@ export function createMockApi(
     if (ack.superseded_by && named) command += " --superseded-by " + named.name;
     if (ack.no_successor) command += " --no-successor";
     if (ack.accept_source_present) command += " --accept-source-present";
+    if (ack.accept_unverified_copy) command += " --accept-unverified-copy";
+    // Issue #1594: the engine's answer for an own copy at the final name
+    // with the source gone. Without the acknowledgement it does not read
+    // the file; with it, a copy that verifies is still refused.
+    const ownCopy = ownCopyScenario && a.id === "media/weekly-archive/media-week34.tar";
+    const ownCopyRefusal = !ownCopy
+      ? undefined
+      : !ack.accept_unverified_copy
+        ? { code: "RETIRE_OWN_COPY_AT_FINAL_NAME", overridable_with: "accept_unverified_copy" as const, sentence: "This backup's source is gone from the host, but its own copy is at its final name. Retry it: retry keeps that copy if it still matches the checksum recorded when it was verified. If it does not, it can only be retired with the acknowledgement that the copy could not be verified, and the file is kept where it is." }
+        : ownCopyVerifies
+          ? { code: "RETIRE_OWN_COPY_AT_FINAL_NAME", overridable_with: "" as const, sentence: "This backup's own copy at its final name still matches the checksum recorded when it was verified, so it is a good backup and is not retired. Retry it: with the source gone, retry keeps that copy." }
+          : undefined;
     const source = present
       ? { source_check: "present" as const, source_check_category: "", source_check_sentence: "The source object is still there, so this backup can still be fetched. Retry it instead." }
       : { source_check: "absent" as const, source_check_category: "", source_check_sentence: "The source object is gone: this backup set's listing does not show it and the source answered not found for it." };
-    const refusal = present && !ack.accept_source_present
+    const refusal = ownCopyRefusal
+      ? ownCopyRefusal
+      : present && !ack.accept_source_present
       ? { code: "RETIRE_SOURCE_PRESENT", sentence: source.source_check_sentence, overridable_with: "accept_source_present" as const }
       : ack.superseded_by && !named
         ? { code: "RETIRE_SUCCESSOR_INVALID", sentence: "The named successor is not a newer, good backup in this backup set.", overridable_with: "" as const }
@@ -4498,6 +4523,7 @@ export function createMockApi(
         "The backup record stays, marked RETIRED, with who retired it, when and why.",
         "This backup set stops counting it as a failure. It shows under retired instead.",
         "The leftover partial download for this backup is removed.",
+        ...(ownCopy ? ["The file at its final name, " + a.localPath + ", is kept where it is. It could not be verified, so it is not counted as a backup, and nothing will prune it."] : []),
         "Nothing on the source is touched and no backup copy is deleted.",
         ...(source.source_check === "absent" ? ["If the source object appears again, the next cycle puts this backup back into the pipeline."] : ["This manager will not fetch this object again."])
       ]
@@ -5529,7 +5555,28 @@ export function createMockApi(
     listQuarantine: () => delay(empty ? [] : artifacts.filter((a) => a.quarantine)),
     revalidate: () => delay(undefined),
     retryIngestion: () => delay(undefined),
-    retryFailedIngestion: () => delay(undefined),
+    // Issue #1594: for an own copy at the final name with its source gone,
+    // retry keeps a copy that verifies (back to the durable state it was
+    // quarantined from) and refuses one that does not, by name, with the
+    // engine's sentence.
+    retryFailedIngestion: (id) => {
+      const found = artifacts.find((a) => a.id === id);
+      if (!ownCopyScenario || !found || found.id !== "media/weekly-archive/media-week34.tar" || found.state !== "FAILED") return delay(undefined);
+      if (ownCopyVerifies) {
+        found.state = "REMOTE_RETAINED";
+        return delay(undefined);
+      }
+      return delay(null).then(() => {
+        throw new RetndError({
+          code: "RETRY_OWN_COPY_UNVERIFIED",
+          message:
+            "This backup's source is gone from the host and its own copy at the final name could not be verified (local final file " +
+            found.localPath + " now hashes to a different checksum than the one recorded at verification), so there is nothing to fetch it from and nothing a retry may keep. " +
+            "If the copy is good, add a validator for this backup set that passes on it and retry. Otherwise retire it with the unverified-copy acknowledgement (--accept-unverified-copy), which keeps the file where it is.",
+          correlationId: "cid_mockretry1594"
+        });
+      });
+    },
     // Issue #1528. The mock keeps the rule's shape so the Retire dialog can be
     // driven end to end: only a FAILED backup is retirable, the newest good
     // backup in the same set received after it is the successor, and the

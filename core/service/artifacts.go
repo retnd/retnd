@@ -448,6 +448,12 @@ func (b *BackupService) RetryFailedArtifact(ctx context.Context, id, note string
 	}
 
 	err = b.state.Load().inner.RetryFailedIngestion(ctx, artifactID, note)
+	if r, ok := app.AsRetryRefusal(err); ok {
+		// Issue #1594: a refusal the engine names, with a sentence built
+		// from its own fixed text and its own measurement of the local
+		// copy, never from a remote string.
+		return &RetryRefusal{Code: r.Code, Sentence: r.Sentence}
+	}
 	switch {
 	case errors.Is(err, state.ErrArtifactNotFound):
 		return fmt.Errorf("%w: %s", ErrArtifactNotFound, id)

@@ -217,7 +217,8 @@
           "RETIRE_SOURCE_UNCONFIRMED",
           "RETIRE_NO_SUCCESSOR",
           "RETIRE_SUCCESSOR_INVALID",
-          "AGENT_RETIRE_ACK_REFUSED"
+          "AGENT_RETIRE_ACK_REFUSED",
+          "RETRY_OWN_COPY_UNVERIFIED"
         ],
         "x-code-origins": {
           "authentication-failed": "ui",
@@ -361,7 +362,8 @@
           "RETIRE_SOURCE_UNCONFIRMED": "wire",
           "RETIRE_NO_SUCCESSOR": "wire",
           "RETIRE_SUCCESSOR_INVALID": "wire",
-          "AGENT_RETIRE_ACK_REFUSED": "wire"
+          "AGENT_RETIRE_ACK_REFUSED": "wire",
+          "RETRY_OWN_COPY_UNVERIFIED": "wire"
         },
         "x-error-classes": {
           "authentication": [
@@ -452,7 +454,8 @@
             "RETIRE_SOURCE_PRESENT",
             "RETIRE_SOURCE_UNCONFIRMED",
             "RETIRE_NO_SUCCESSOR",
-            "RETIRE_SUCCESSOR_INVALID"
+            "RETIRE_SUCCESSOR_INVALID",
+            "RETRY_OWN_COPY_UNVERIFIED"
           ],
           "not-found": [
             "BACKUP_SET_NOT_FOUND",
@@ -10502,6 +10505,11 @@
             "type": "string",
             "x-go-omitempty": true,
             "description": "An operator's own note, recorded with the retirement."
+          },
+          "accept_unverified_copy": {
+            "type": "boolean",
+            "x-go-omitempty": true,
+            "description": "Issue #1594. Acknowledges, for a backup whose own copy sits at its final name and whose source is confirmed gone, that the copy could not be verified, and retires it anyway; the file is kept where it is. Without it that shape is refused with RETIRE_OWN_COPY_AT_FINAL_NAME. A copy that does verify is refused even with it, because retry keeps it. An agent may not send it (AGENT_RETIRE_ACK_REFUSED)."
           }
         }
       },
@@ -10636,7 +10644,8 @@
             "enum": [
               "",
               "accept_source_present",
-              "no_successor"
+              "no_successor",
+              "accept_unverified_copy"
             ],
             "description": "The acknowledgement that would let the operator go ahead anyway, or empty when nothing can."
           }
@@ -16496,7 +16505,7 @@
             ]
           },
           "409": {
-            "description": "Refused: ARTIFACT_NOT_FAILED. The backup is not stuck: it is either making progress, already finished, or quarantined and waiting for a judgement, which is a different action.",
+            "description": "Refused: ARTIFACT_NOT_FAILED, RETRY_OWN_COPY_UNVERIFIED. The first: the backup is not stuck: it is either making progress, already finished, or quarantined and waiting for a judgement, which is a different action. The second (issue #1594): the backup's own copy sits at its final name, its source is confirmed gone, and the copy does not match the checksum recorded when it was verified (and no validator passes on it), so there is nothing to fetch it from and nothing a retry may keep. The message is the engine's sentence and names the way out: a validator that passes on the copy, or retiring it with accept_unverified_copy. A copy that does verify is kept instead, and the answer is 204.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16505,7 +16514,8 @@
               }
             },
             "x-error-codes": [
-              "ARTIFACT_NOT_FAILED"
+              "ARTIFACT_NOT_FAILED",
+              "RETRY_OWN_COPY_UNVERIFIED"
             ]
           },
           "500": {
@@ -16603,6 +16613,19 @@
               ]
             },
             "description": "Preview with the source-present acknowledgement."
+          },
+          {
+            "name": "accept_unverified_copy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "description": "Preview with the unverified-copy acknowledgement (issue #1594). Only with it does the preview read a backup's own copy at its final name to see whether it verifies."
           }
         ],
         "responses": {

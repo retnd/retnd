@@ -453,6 +453,16 @@ func (h *handlers) retryFailedIngestion(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := h.backend.RetryFailedArtifact(r.Context(), artifactIDFrom(r), req.Note); err != nil {
+		// Issue #1594: the engine refuses a retry that has nothing to
+		// fetch and a copy it cannot verify, by name and with its own
+		// sentence, which names the way out. Spelled out code by code, like
+		// the retire refusals: a code the engine grows later is an internal
+		// error here until the contract declares it.
+		var refusal *service.RetryRefusal
+		if errors.As(err, &refusal) && refusal.Code == "RETRY_OWN_COPY_UNVERIFIED" {
+			writeError(w, http.StatusConflict, "RETRY_OWN_COPY_UNVERIFIED", refusal.Sentence)
+			return
+		}
 		if errors.Is(err, service.ErrArtifactNotFailed) {
 			writeError(w, http.StatusConflict, "ARTIFACT_NOT_FAILED",
 				"this backup is not stuck: it is making progress, already finished, or quarantined and waiting for a judgement")

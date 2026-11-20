@@ -4037,6 +4037,7 @@ export const httpApi: RetndApi = {
     if (ack?.superseded_by) q.set("superseded_by", ack.superseded_by);
     if (ack?.no_successor) q.set("no_successor", "true");
     if (ack?.accept_source_present) q.set("accept_source_present", "true");
+    if (ack?.accept_unverified_copy) q.set("accept_unverified_copy", "true");
     const qs = q.toString();
     return request<WireRetirementPreview>(artifactPath(id) + "/retire" + (qs ? "?" + qs : ""));
   },

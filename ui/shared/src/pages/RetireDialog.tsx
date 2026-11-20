@@ -26,6 +26,12 @@
  * design draws it; `--accept-source-present` in a terminal is the only way past
  * that refusal, and the dialog says so when the host could not be asked.
  *
+ * A backup whose own copy already sits at its final name (issue #1594) is
+ * retry's job while its source is there. With the source gone the engine
+ * names the unverified-copy acknowledgement; ticking it asks again, and the
+ * engine either retires it (the file stays) or, when the copy still matches
+ * its recorded checksum, refuses with Retry instead, because retry keeps it.
+ *
  * Keyboard: focus starts on Cancel (the safe action, as ConfirmationDialog
  * does), Tab and Shift+Tab stay inside, Escape closes, the result takes focus
  * when it replaces the buttons, and closing hands focus back to whatever
@@ -60,7 +66,7 @@ function sourceChip(check: string): { text: string; tone: StatusTone; icon: Icon
   }
 }
 
-type Ack = Pick<WireRetireArtifactRequest, "superseded_by" | "no_successor" | "accept_source_present">;
+type Ack = Pick<WireRetireArtifactRequest, "superseded_by" | "no_successor" | "accept_source_present" | "accept_unverified_copy">;
 type Outcome = { retired: boolean; detail: string };
 
 const FOCUSABLE = "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
@@ -86,6 +92,7 @@ export function RetireDialog({
   const [base, setBase] = useState<WireRetirementPreview | Error | null>(null);
   const [terminalOnly, setTerminalOnly] = useState<string | null>(null);
   const [noSuccessorAck, setNoSuccessorAck] = useState(false);
+  const [unverifiedAck, setUnverifiedAck] = useState(false);
   const [chosen, setChosen] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -150,6 +157,7 @@ export function RetireDialog({
   const preview = base && !(base instanceof Error) ? base : null;
   const proposed = preview?.proposed_successor?.name ?? "";
   const ack: Ack = {
+    ...(unverifiedAck ? { accept_unverified_copy: true } : {}),
     ...(noSuccessorAck ? { no_successor: true } : {}),
     ...(chosen && chosen !== proposed ? { superseded_by: chosen } : {})
   };
@@ -202,8 +210,17 @@ export function RetireDialog({
   };
 
   const refusal = current?.refusal;
-  const needsAck = preview?.refusal?.overridable_with === "no_successor";
-  const blocked = !!refusal && refusal.overridable_with !== "no_successor";
+  // The acknowledgements a person can give here, each shown once the engine
+  // has named it, and kept on screen once ticked so it can be unticked. The
+  // unverified-copy one (issue #1594) comes first, and the no-replacement one
+  // can follow it once the engine has checked the copy.
+  const needsUnverifiedAck = preview?.refusal?.overridable_with === "accept_unverified_copy";
+  const needsAck = preview?.refusal?.overridable_with === "no_successor" || refusal?.overridable_with === "no_successor" || noSuccessorAck;
+  const blocked = !!refusal && refusal.overridable_with !== "no_successor" && refusal.overridable_with !== "accept_unverified_copy";
+  // The engine's sentence is shown for every refusal but the no-replacement
+  // one, which has its own banner: for an own copy at the final name it is
+  // the explanation the acknowledgement below answers.
+  const explained = !!refusal && refusal.overridable_with !== "no_successor";
   const ready = !!current && !asking && !refusal;
   const command = current ? current.command + (note ? " --note " + shellQuote(note) : "") : "";
 
@@ -291,7 +308,7 @@ export function RetireDialog({
                       <span style={{ display: "block", color: "var(--text-2)", fontSize: "var(--text-xs)" }}>checked just now</span>
                     </span>
                   </div>
-                  {blocked && refusal ? (
+                  {explained && refusal ? (
                     <Banner tone="warn" dismissible={false} style={{ display: "grid", gap: 8 }}>
                       <span>{refusal.sentence}</span>
                       {(refusal.code === "RETIRE_SOURCE_PRESENT" || refusal.code === "RETIRE_OWN_COPY_AT_FINAL_NAME") && onRetry ? (
@@ -345,6 +362,19 @@ export function RetireDialog({
                     </select>
                   </div>
                 </section>
+              ) : null}
+
+              {needsUnverifiedAck ? (
+                <Banner tone="danger" dismissible={false} style={{ display: "grid", gap: 8 }}>
+                  <span>
+                    <strong>The file stays, but it stops counting.</strong> Retiring leaves it at its final name, where it is
+                    not counted as a backup and nothing prunes it.
+                  </span>
+                  <Acknowledgement checked={unverifiedAck} onChange={setUnverifiedAck} disabled={readOnly || busy}>
+                    I understand this backup&rsquo;s own copy could not be verified, and I want to retire it anyway and keep the
+                    file. (Same as <span className="mono">--accept-unverified-copy</span> in the terminal.)
+                  </Acknowledgement>
+                </Banner>
               ) : null}
 
               {needsAck ? (

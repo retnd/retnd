@@ -160,6 +160,34 @@ func TestRetryRefusesAnOwnCopyItCannotVerifyOnceTheSourceIsGone_1594(t *testing.
 	}
 }
 
+// A copy with nothing to verify it against (no hash recorded at
+// verification, no validator) is refused the same way, and nothing moves.
+// The reinstatement this goes through holds a FAILED row at QUARANTINED
+// first; refusing only after that hold left the row QUARANTINED by a
+// reinstatement that was never going to happen.
+func TestRetryRefusesAnOwnCopyWithNothingToVerifyItAgainst_1594(t *testing.T) {
+	fx := ownCopySourceGone(t, true)
+	ctx := context.Background()
+	if _, err := lifecycle.Advance(ctx, lifecycle.Deps{Journal: fx.journal, Now: fx.svc.Now}, state.Transition{
+		Artifact: fx.artifact, Key: "fixture:1594-no-baseline", From: string(lifecycle.Failed), To: string(lifecycle.Failed),
+		Hashes: &state.HashUpdate{}, Detail: "fixture: no hash recorded at verification",
+	}); err != nil {
+		t.Fatalf("fixture: clearing the recorded hash: %v", err)
+	}
+	rows := transitionRows(t, fx.journal)
+
+	err := fx.svc.RetryFailedIngestion(ctx, fx.artifact, "issue #1594")
+	if r, ok := AsRetryRefusal(err); !ok || r.Code != RefusalRetryOwnCopyUnverified {
+		t.Fatalf("retry = %v, want a %s refusal: a copy with nothing to check it against is not evidence", err, RefusalRetryOwnCopyUnverified)
+	}
+	if got := stateOf662(t, fx.journal, fx.artifact); got != string(lifecycle.Failed) {
+		t.Errorf("%s is %s after a refused retry, want FAILED", fx.artifact, got)
+	}
+	if n := transitionRows(t, fx.journal); n != rows {
+		t.Errorf("a refused retry wrote %d transition rows; a refusal writes nothing", n-rows)
+	}
+}
+
 // The preview names the acknowledgement once the source is gone, and stops
 // telling the operator that retry "checks that copy against the source",
 // which with the source gone is no longer true.

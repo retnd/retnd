@@ -22,7 +22,7 @@ import (
 // handlers translate it, so the browser, the terminal and an agent read the
 // same refusal and the same sentences.
 
-// maxRetireBodyBytes bounds POST .../retire's body: four small fields.
+// maxRetireBodyBytes bounds POST .../retire's body: five small fields.
 const maxRetireBodyBytes = 8 << 10
 
 // retireRequest is POST .../retire's optional body.
@@ -30,7 +30,9 @@ type retireRequest struct {
 	SupersededBy        string `json:"superseded_by,omitempty"`
 	NoSuccessor         bool   `json:"no_successor,omitempty"`
 	AcceptSourcePresent bool   `json:"accept_source_present,omitempty"`
-	Note                string `json:"note,omitempty"`
+	// AcceptUnverifiedCopy is issue #1594's acknowledgement.
+	AcceptUnverifiedCopy bool   `json:"accept_unverified_copy,omitempty"`
+	Note                 string `json:"note,omitempty"`
 }
 
 type retirementRecordResponse struct {
@@ -90,9 +92,10 @@ func toRetirementRecordResponse(r service.Retirement) retirementRecordResponse {
 func retireRequestFromQuery(r *http.Request) service.RetireRequest {
 	q := r.URL.Query()
 	return service.RetireRequest{
-		SupersededBy:        q.Get("superseded_by"),
-		NoSuccessor:         q.Get("no_successor") == "true",
-		AcceptSourcePresent: q.Get("accept_source_present") == "true",
+		SupersededBy:         q.Get("superseded_by"),
+		NoSuccessor:          q.Get("no_successor") == "true",
+		AcceptSourcePresent:  q.Get("accept_source_present") == "true",
+		AcceptUnverifiedCopy: q.Get("accept_unverified_copy") == "true",
 	}
 }
 
@@ -120,7 +123,8 @@ func (h *handlers) previewRetirement(w http.ResponseWriter, r *http.Request) {
 		SourceCheck: p.SourceCheck.Result, SourceCheckCategory: p.SourceCheck.Category, SourceCheckSentence: p.SourceCheck.Sentence,
 		Effects:             append(make([]string, 0, len(p.Effects)), p.Effects...),
 		SuccessorCandidates: make([]retirementSuccessorResponse, 0, len(p.SuccessorCandidates)),
-		Command:             retireCommand(r, retireRequest{SupersededBy: req.SupersededBy, NoSuccessor: req.NoSuccessor, AcceptSourcePresent: req.AcceptSourcePresent}),
+		Command: retireCommand(r, retireRequest{SupersededBy: req.SupersededBy, NoSuccessor: req.NoSuccessor, AcceptSourcePresent: req.AcceptSourcePresent,
+			AcceptUnverifiedCopy: req.AcceptUnverifiedCopy}),
 	}
 	for _, c := range p.SuccessorCandidates {
 		resp.SuccessorCandidates = append(resp.SuccessorCandidates, retirementSuccessorResponse{Name: c.Name, State: c.State, DiscoveredAt: c.DiscoveredAt.UTC().Format(time.RFC3339)})
@@ -140,7 +144,7 @@ func (h *handlers) previewRetirement(w http.ResponseWriter, r *http.Request) {
 
 // retireArtifact is POST .../retire: retire one FAILED backup.
 //
-// An agent's approved replay may not carry either acknowledgement. The
+// An agent's approved replay may not carry any of the acknowledgements. The
 // proposer already refuses them before a person is asked (the catalogue's
 // AgentMayNotSet); this is the same refusal again, so a replay that somehow
 // carried one still cannot act on it.
@@ -154,9 +158,9 @@ func (h *handlers) retireArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sreq := service.RetireRequest{SupersededBy: req.SupersededBy, NoSuccessor: req.NoSuccessor,
-		AcceptSourcePresent: req.AcceptSourcePresent, Note: req.Note, ActorKind: "operator"}
+		AcceptSourcePresent: req.AcceptSourcePresent, AcceptUnverifiedCopy: req.AcceptUnverifiedCopy, Note: req.Note, ActorKind: "operator"}
 	if p, ok := agentReplayFrom(r.Context()); ok {
-		if req.NoSuccessor || req.AcceptSourcePresent {
+		if req.NoSuccessor || req.AcceptSourcePresent || req.AcceptUnverifiedCopy {
 			writeError(w, http.StatusForbidden, "AGENT_RETIRE_ACK_REFUSED",
 				"an agent may propose only the retirement the engine itself would make; the acknowledgements are a person's")
 			return

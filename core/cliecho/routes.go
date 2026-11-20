@@ -920,12 +920,17 @@ var routes = map[string]entry{
 			if a.Query.Get("accept_source_present") == "true" {
 				c.bare("accept-source-present")
 			}
+			if a.Query.Get("accept_unverified_copy") == "true" {
+				c.bare("accept-unverified-copy")
+			}
 			return c
 		},
 		examples: []Action{
 			{Params: map[string]string{"source": "cicd-pipeline", "set": "forge", "name": "gitea-dump-20261029T034245Z.tar.gz"}},
 			{Params: map[string]string{"source": "cicd-pipeline", "set": "forge", "name": "gitea-dump-20261029T034245Z.tar.gz"},
 				Query: mustQuery("accept_source_present=true")},
+			{Params: map[string]string{"source": "cicd-pipeline", "set": "var-backups", "name": "dpkg.diversions.5.gz"},
+				Query: mustQuery("accept_unverified_copy=true")},
 		},
 	},
 	key("POST", "/backups/{source}/{set}/{name}/retire"): {
@@ -940,6 +945,9 @@ var routes = map[string]entry{
 				if req.AcceptSourcePresent {
 					c.bare("accept-source-present")
 				}
+				if req.AcceptUnverifiedCopy {
+					c.bare("accept-unverified-copy")
+				}
 				c.flagIfSet("note", req.Note)
 			}
 			return c
@@ -950,6 +958,8 @@ var routes = map[string]entry{
 				Body: []byte(`{"superseded_by":"gitea-dump-20261119T033012Z.tar.gz","note":"the host deleted it"}`)},
 			{Params: map[string]string{"source": "cicd-pipeline", "set": "forge", "name": "gitea-dump-20261103T033855Z.tar.gz"},
 				Body: []byte(`{"accept_source_present":true,"no_successor":true}`)},
+			{Params: map[string]string{"source": "cicd-pipeline", "set": "var-backups", "name": "dpkg.diversions.5.gz"},
+				Body: []byte(`{"accept_unverified_copy":true}`)},
 		},
 	},
 
