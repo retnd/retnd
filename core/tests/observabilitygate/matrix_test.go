@@ -57,6 +57,9 @@ var selfTests = []string{
 	// The contract drift and client path guards are not EPIC O's, and O-20
 	// re-runs them: their own self-test is where their plants live.
 	"scripts/bdtools/api/selftest.py",
+	// The tooltip suite's orphan plant lives with the encryption controls
+	// that first needed it; O-19 quotes it because the suite is shared.
+	"scripts/bdtools/encryption/controls_ui.py",
 }
 
 var (

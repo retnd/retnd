@@ -168,7 +168,21 @@ cases("observability/observabilityCommands", [
   // this set to the levels config accepts and each line to cliecho's.
   ...((modules["observability/observabilityCommands"].LOG_LEVELS ?? []) as string[]).map(
     (level): [string, string, string] => ["logsLevelCommand", "the " + level + " floor", level]
-  )
+  ),
+  // The alert inputs (#1604). core/cmd/retnd's TestAlertTwinsAreTheEcho_1604
+  // holds each of these lines to the one core/cliecho prints for the same
+  // PATCH, byte for byte.
+  ["alertsDeliveryCommand", "the platform notifier", "platform"],
+  ["alertsDeliveryCommand", "a webhook", "webhook"],
+  ["alertsDeliveryCommand", "a hostile delivery", HOSTILE],
+  ["webhookDialectCommand", "one object per alert", "generic"],
+  ["webhookDialectCommand", "the Alertmanager array", "alertmanager"],
+  ["webhookAllowInsecureHttpCommand", "plain http allowed", true],
+  ["webhookAllowInsecureHttpCommand", "plain http refused", false],
+  ["webhookRefreshIntervalCommand", "the default four minutes", 240],
+  ["webhookRefreshIntervalCommand", "a minute and a half", 90],
+  ["webhookResolveTtlCommand", "the default ten minutes", 600],
+  ["webhookResolveTtlCommand", "an hour and ten seconds", 3610]
 ]);
 
 cases("assurance/assuranceCommands", [

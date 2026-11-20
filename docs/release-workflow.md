@@ -29,7 +29,10 @@ A release crosses three states:
 `main` is where work and release metadata are prepared. `release` is an
 append-only publish destination: never branch from it, rebase it, force-push it
 or put product changes directly on it. A semantic version already pushed to the
-registry is immutable by policy. A correction gets a new version.
+registry is immutable by policy. A correction gets a new version. A patch release
+may carry a schema migration when the fix needs one, as long as its changelog entry
+names that one-way door as the first item of its "before you upgrade" list and links
+[Rolling back a release that carried a migration](install.md#rolling-back-a-release-that-carried-a-migration).
 
 ## Files that define a release
 

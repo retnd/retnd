@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+Worth reading before you upgrade:
+
+- **This release applies migration 0023 on its first start, and 0.8.0 won't open the journal
+  after that** (#1528, #1536). 0023 rebuilds the `artifacts` table so it admits the new `RETIRED`
+  state (what `retnd retire` and the engine's own retirement of a FAILED backup move a row to) and
+  adds `artifact_retirements`. It's the first schema migration a patch release has carried. Like
+  every release with a migration, 0.8.0 refuses a `state.db` this build has opened (`version 23
+  is recorded in the database but not compiled into this binary`) and writes nothing when it
+  does, so the only way back is a copy taken before the upgrade. `install --mode upgrade` takes
+  it for you; on a deployment you upgrade by hand, take it yourself and check it first. See
+  [Rolling back a release that carried a
+  migration](docs/install.md#rolling-back-a-release-that-carried-a-migration) for the steps and
+  for what a rollback costs, and decide within hours rather than days.
+
 ### Added
 
 - **An authenticated Prometheus scrape endpoint** (#899, EPIC O). The engine now serves the 46
@@ -19,8 +33,8 @@
   `404` and nothing else changes. **Writing `observability:` into `config.yaml` is a one-way
   door**: older builds refuse the file as an unknown field, so keep the previous `config.yaml` if
   you want a way back. Deleting the block is the rollback, and a minted token's file left behind is
-  inert. A plaintext `observability.metrics.token` in the file is refused at load. No migration:
-  `core/migrations/` stays at `0022`.
+  inert. A plaintext `observability.metrics.token` in the file is refused at load. No migration
+  of its own: the one migration in this release is 0023 (#1528), at the top of this entry.
 
 - **The log stream is a pinned schema, with a level you can set** (#900, EPIC O). The engine
   already wrote newline-delimited JSON; now its eight reserved keys (`time`, `level`, `msg`,
@@ -84,6 +98,24 @@
   directories: exit 1 naming the conflict. Only the new one, or neither (a fresh install),
   starts as before.
 
+- **Every other `retnd` command refuses a pre-0.5.0 mount too** (#1558, #1609). After the
+  entry above, `daemon` and `serve` refused, but the rest of the CLI still went to the new, empty
+  path: `backup-set create` wrote a second `config.yaml` (and journal) there, `ssh-key` and
+  `backup-set test-connection --candidate` set up a first-run store beside it, and the reads
+  (`sources`, `artifacts`, `retention`, `status`, `settings` and the rest) said "no backup set
+  configured yet" or "no such file". Now every command that reads or writes the local
+  configuration or journal gives the same refusal before it reads anything. `--help`, `version`
+  and `--config <old path>` are never refused, and a fresh install works as before.
+  `ssh-key list` and `ssh-key discover` on a fresh install with nothing serving also stopped
+  failing with "first run needs a state database path".
+
+  One thing to know if you run the image with plain `docker run` and fix the mount with
+  `--config <old path>` instead of moving the volume: the image's built-in health check runs
+  `/retnd status` with no `--config`, so it now reports unhealthy (it used to report healthy
+  while looking at the empty path). Mount the old directory at `/etc/retnd/config` instead, or
+  see "Health check" in `docs/deployment.md`. The shipped compose files override the health
+  check and aren't affected.
+
 - **A FAILED backup whose source is gone can be retired, and the engine retires the safe case itself**
   (#1528). `cicd-pipeline/forge` read FAILING for two weeks with a good backup every morning, because two
   dumps had failed, the host's own retention had since deleted them, and `retry` (the only verb that
@@ -109,7 +141,8 @@
   after the upgrade, each as a warn-level `artifact_retired` event.
   **One-way door:** migration 0023 rebuilds the `artifacts` table to admit `RETIRED` and adds
   `artifact_retirements`. 0.8.0 refuses a `state.db` this build has opened, like every release with a
-  migration, so keep the upgrade archive if you might roll back.
+  migration, so keep the upgrade archive if you might roll back (the steps are in [Rolling back a
+  release that carried a migration](docs/install.md#rolling-back-a-release-that-carried-a-migration)).
 
 ## [0.8.0] - 2026-11-14
 
@@ -133,7 +166,8 @@ A few things are worth reading before you upgrade:
   `placement_encryption`, `recovery_bundle_exports`, `recovery_bundle_confirmations`, `encrypt_existing_consents`,
   `encryption_key_suites` and `encryption_default_suite`) and changes no existing table or row, so every copy
   you already have reads as unencrypted. Like every release with a migration, 0.7.2 refuses a `state.db` this
-  build has opened, so keep the upgrade archive if you might roll back.
+  build has opened, so keep the upgrade archive if you might roll back
+  ([how](docs/install.md#rolling-back-a-release-that-carried-a-migration)).
 - Writing `retained_copy_encryption:` (and, separately, its `suite:`) into `config.yaml` is a one-way door:
   0.7.2 and older refuse the file as an unknown field. Keep the previous `config.yaml` if you want a way out.
 - If you lose the key and every copy of its recovery bundle, the encrypted copies are gone for good. Export
