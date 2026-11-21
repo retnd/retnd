@@ -24,14 +24,17 @@
 ==> the retirement self-test's planted violations still anchor in the product source (#1528)
 ==> every self-test and guard script is a step of this gate, or an exemption that names an issue (#1530, #1531, #1533)
 ==> the self-tests run every control the host has a lane for and ledger the rest (#1530, #1531)
+==> every agents and encryption self-test control runs on a Linux gate host, in the Chromium lane or where the driver runs, or skips for an allowed reason (#1543)
 ==> the EPIC U closing check refuses a moved canonical deployment, a migration other than 0022 or a BLOCKED row, and can still fail (#1353)
 ==> every retnd_* name, label and Loki field a shipped dashboard or rule names is one retnd emits, and the guard can still fail (#902)
+==> the EPIC O closing check refuses a moved canonical deployment, any migration, a BLOCKED row or an unticked exit-gate box, and can still fail (#903)
 ==> core/ go build
 ==> core/ go vet
 ==> core/ golangci-lint
 ==> core/ go test -race ./... (excluding tests/crashmatrix + tests/sftpintegration + tests/sshexecintegration + tests/miniointegration + tests/conformance + tests/machinegate + tests/containerhooks and cmd/gotestwatch, all run next)
 ==> core/ cmd/gotestwatch -race, reading its own INCOMPLETE (#533)
 ==> core/ tests/crashmatrix + tests/sftpintegration + tests/sshexecintegration + tests/miniointegration + tests/conformance + tests/machinegate + tests/containerhooks under gotestwatch, -race (issue #256: no fixed go test -timeout)
+==> the shipped Promtail and Alloy pipelines label exactly job, instance, level and schema (#903)
 ==> apps/common go build, vet, test -race (Docker-backed: the local-auth recovery test starts a container)
 ==> apps/common golangci-lint
 ==> docs site rendered contrast: every visible text node, both themes (#1054)

@@ -23,4 +23,4 @@ if [ -n "${RETND_OBSERVABILITY_DIR:-}" ]; then
   RETND_OBSERVABILITY_DIR="$(cd "$RETND_OBSERVABILITY_DIR" && pwd)"
   export RETND_OBSERVABILITY_DIR
 fi
-exec go test -count=1 -run '_902$' ./internal/metrics/ "$@"
+exec go test -count=1 -run '_(902|1595)$' ./internal/metrics/ "$@"
