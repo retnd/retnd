@@ -17,7 +17,13 @@ import { measureContrast, open, setTheme } from "./helpers";
  * for the GIF: the walkthrough ends on a beat with the banner on screen.
  */
 const dialog = (page: Page) => page.getByRole("dialog");
-const beat = (p: Page) => (process.env.E2E_VIDEO ? p.waitForTimeout(1200) : Promise.resolve());
+// Moves the pointer off the page first, so a tooltip the last click woke does
+// not sit over the frame the recording ends on.
+const beat = async (p: Page) => {
+  if (!process.env.E2E_VIDEO) return;
+  await p.mouse.move(2, 2);
+  await p.waitForTimeout(1200);
+};
 
 /** How many times the mock has been asked to preview a retirement. */
 const previews = (page: Page) => page.evaluate(() => (window as unknown as { __retndPreviewCalls?: number }).__retndPreviewCalls ?? 0);
