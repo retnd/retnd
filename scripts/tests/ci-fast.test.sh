@@ -111,7 +111,7 @@ STUB
     printf 'x\n' >docs/x.md
 
     # Stubs. They log "<dir>: <tool> <args> [tier=...]" and succeed.
-    for t in go gofmt golangci-lint npm ruff shellcheck; do
+    for t in go gofmt golangci-lint npm ruff mypy shellcheck; do
       cat >"bin/$t" <<'STUB'
 #!/usr/bin/env bash
 tool="$(basename "$0")"
@@ -120,6 +120,7 @@ case "$tool $*" in
 esac
 echo "${PWD#"$FIX_ROOT"/}: $tool $* tier=${CI_LOCAL_TIER:-}" >>"$FIX_LOG"
 if [ "$tool" = gofmt ] && [ "${STUB_GOFMT_BAD:-0}" = 1 ]; then echo "core/internal/a/a.go"; fi
+if [ "$tool" = mypy ] && [ "${STUB_MYPY_BAD:-0}" = 1 ]; then echo "error: planted type error  [no-untyped-def]"; exit 1; fi
 exit 0
 STUB
       chmod +x "bin/$t"
@@ -297,6 +298,33 @@ assert_nonzero "A11 a test file spelling the former name fails the run" "$status
 assert_contains "A11 and the hit is named" 'core/internal/a/a_test.go:3' "$out"
 assert_contains "A11 and the verdict says FAILED" 'ci-local: FAILED' "$out"
 assert_not_contains "A11 no vet ran after it" 'go vet' "$(calls "$fix")"
+
+# A12 (#1647): the typed Python subset is type-checked in the fast tier, not
+# only linted. ruff alone let two mypy --strict errors in
+# scripts/bdtools/e2e/ui_skips.py reach main. The stub mypy fails when it is
+# asked to (STUB_MYPY_BAD), standing in for a planted error; the control is a
+# typed file that passes, and a Python file outside the typed subset, which
+# the full gate's own mypy line does not check either, is left alone.
+fix="$(make_repo)"
+mkdir -p "$fix/scripts/bdtools/e2e" "$fix/scripts/deploy" "$fix/scripts/install"
+for f in scripts/bdtools/e2e/ui_skips.py scripts/deploy/d.py scripts/install/embed_compose.py scripts/install/other.py; do
+  printf 'x = 1\n' >"$fix/$f"
+done
+fast "$fix" -- scripts/bdtools/e2e/ui_skips.py
+assert_eq "A12 a typed Python change passes when mypy is clean" 0 "$status"
+assert_contains "A12 mypy --strict ran on it with the repo's config" \
+  'mypy --strict --config-file scripts/bdtools/pyproject.toml scripts/bdtools/e2e/ui_skips.py' "$(calls "$fix")"
+fast "$fix" STUB_MYPY_BAD=1 -- scripts/bdtools/e2e/ui_skips.py
+assert_nonzero "A12 a type error planted in scripts/bdtools/e2e fails the run" "$status"
+assert_contains "A12 and says FAILED" 'ci-local: FAILED' "$out"
+fast "$fix" -- scripts/deploy/d.py scripts/install/embed_compose.py
+assert_contains "A12 scripts/deploy and embed_compose.py are in the subset" \
+  'mypy --strict --config-file scripts/bdtools/pyproject.toml scripts/deploy/d.py scripts/install/embed_compose.py' "$(calls "$fix")"
+fast "$fix" STUB_MYPY_BAD=1 -- scripts/install/other.py
+assert_eq "A12 a file outside the typed subset is not type-checked" 0 "$status"
+assert_not_contains "A12 so mypy did not run" ': mypy ' "$(calls "$fix")"
+fast "$fix" -- docs/x.md
+assert_not_contains "A12 a docs-only change does not run mypy" ': mypy ' "$(calls "$fix")"
 
 # ------------------------------------------- Group B: the hook, for real
 
