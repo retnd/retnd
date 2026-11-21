@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/retnd/retnd/core/internal/discovery"
 	"github.com/retnd/retnd/core/internal/health"
 	"github.com/retnd/retnd/core/internal/lifecycle"
 	"github.com/retnd/retnd/core/internal/model"
@@ -669,5 +670,104 @@ func TestTheAutomaticPassListsTheSourceOncePerCycle_1528(t *testing.T) {
 	f.cycle()
 	if n := f.tr.listCalls - before; n > 2 {
 		t.Errorf("one cycle listed the source %d times, want at most 2 (discovery and the retirement pass)", n)
+	}
+}
+
+// afterRetireJournal runs hook right after a transition into RETIRED has
+// committed, before RecordTransition returns: the window between an operator
+// retire's journal write and its .partial removal (issue #1616).
+type afterRetireJournal struct {
+	*state.Journal
+	hook func()
+}
+
+func (j *afterRetireJournal) RecordTransition(ctx context.Context, t state.Transition) (state.Outcome, error) {
+	out, err := j.Journal.RecordTransition(ctx, t)
+	if err == nil && t.To == retiredState && j.hook != nil {
+		j.hook()
+	}
+	return out, err
+}
+
+var _ Journal = (*afterRetireJournal)(nil)
+
+// Issue #1616, the window the #1536 review named. An operator retire commits
+// RETIRED and then removes the .partial. If the object reappears and the way
+// back has already started a new transfer for the same artifact in between,
+// the removal deletes the new transfer's file. The way back and the removal
+// have to agree on whose turn it is: whichever order they land in, the new
+// transfer keeps its partial.
+func TestAnOperatorRetiresPartialRemovalNeverTouchesAWayBackTransfer_1616(t *testing.T) {
+	f := newForgeFixture(t)
+	failed := f.failWith("db-20261101.dump", transport.NotFound)
+	f.backUp("db-20261119.dump")
+	f.hostDeletes("db-20261101.dump")
+	final, _ := lifecycle.FinalArtifactPath(f.localDir, failed)
+	partial := final + ".partial"
+	mustWriteFile(t, partial, "the failed attempt's leftover")
+
+	wayBackDone := make(chan struct{})
+	jr := &afterRetireJournal{Journal: f.journal}
+	jr.hook = func() {
+		go func() {
+			defer close(wayBackDone)
+			rec, err := f.journal.Get(context.Background(), failed)
+			if err != nil {
+				t.Errorf("Get: %v", err)
+				return
+			}
+			// The object is listed again and discovery proves it complete: the
+			// way back runs, and the transfer it starts writes its .partial.
+			f.svc.bringBackReappeared(context.Background(), discovery.Result{AlreadyKnown: []state.Record{rec}})
+			mustWriteFile(t, partial, "the new transfer's bytes")
+		}()
+		select {
+		case <-wayBackDone:
+		case <-time.After(300 * time.Millisecond):
+		}
+	}
+	f.svc.Journal = jr
+
+	if _, err := f.svc.RetireArtifact(context.Background(), failed, RetireRequest{}); err != nil {
+		t.Fatalf("RetireArtifact: %v", err)
+	}
+	<-wayBackDone
+
+	if got := f.stateOf(failed); got != string(lifecycle.Discovered) {
+		t.Fatalf("fixture: the way back left the row %s, want DISCOVERED", got)
+	}
+	b, err := os.ReadFile(partial)
+	if err != nil || string(b) != "the new transfer's bytes" {
+		t.Errorf("the new transfer's .partial is gone or changed (err %v, content %q): the retire's removal ran after the way back started", err, b)
+	}
+}
+
+// The cycle's sweep has the same shape: it works from a list read at the top
+// of the pass, so a row that has come back since is still on it as RETIRED.
+func TestTheSweepOfRetiredPartialsSkipsARowThatHasComeBack_1616(t *testing.T) {
+	f := newForgeFixture(t)
+	failed := f.failWith("db-20261101.dump", transport.NotFound)
+	f.backUp("db-20261119.dump")
+	f.hostDeletes("db-20261101.dump")
+	f.cycle()
+	if got := f.stateOf(failed); got != retiredState {
+		t.Fatalf("fixture: %s is %s, want RETIRED", failed, got)
+	}
+	stale, err := f.journal.Get(context.Background(), failed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.svc.bringBackReappeared(context.Background(), discovery.Result{AlreadyKnown: []state.Record{stale}})
+	final, _ := lifecycle.FinalArtifactPath(f.localDir, failed)
+	partial := final + ".partial"
+	mustWriteFile(t, partial, "the new transfer's bytes")
+
+	src, bs, ok := f.svc.backupSetConfigFor(f.set)
+	if !ok {
+		t.Fatal("fixture: the set is not configured")
+	}
+	f.svc.autoRetire(context.Background(), src, bs, []state.Record{stale})
+	if _, err := os.Stat(partial); err != nil {
+		t.Errorf("the sweep removed the .partial of a row that is no longer RETIRED: %v", err)
 	}
 }
