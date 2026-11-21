@@ -32,6 +32,10 @@ import (
 // would have to be read back on exactly the path that cannot afford a
 // second failure, and a journal of lifecycle rows (not of backup bytes)
 // is small enough that holding it costs nothing worth having.
+//
+// After a migration that SUCCEEDED, premigrationcopy.go writes these same
+// bytes to disk for a person to restore by hand (#1584). That is not on the
+// failure path this paragraph is about, and nothing here ever reads it back.
 
 // sqliteSideFileSuffixes are the sidecar files a WAL-mode SQLite database
 // may have alongside its main file (internal/state.Open always runs in

@@ -516,3 +516,60 @@ func checkForeignKeys(ctx context.Context, tx *sql.Tx) error {
 	}
 	return nil
 }
+
+// AppliedSchemaVersion reports the highest migration version recorded in the
+// journal at path, or 0 when there is no journal or no ledger in it yet. It
+// reads and changes nothing, so it is safe to ask under the startup lock before
+// a migration runs. The service layer names the copy it keeps of a journal for
+// the schema that journal holds, which is how an operator picks the right one
+// to put back.
+func AppliedSchemaVersion(ctx context.Context, path string) (int, error) {
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("state: reading the schema version at %s: %w", path, err)
+	}
+	db, err := sql.Open(driverName, path)
+	if err != nil {
+		return 0, fmt.Errorf("state: reading the schema version at %s: %w", path, err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	if _, err := db.ExecContext(ctx, "PRAGMA busy_timeout = 5000"); err != nil {
+		return 0, fmt.Errorf("state: reading the schema version at %s: %w", path, err)
+	}
+	var tracked string
+	err = db.QueryRowContext(ctx,
+		"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'").Scan(&tracked)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return 0, nil
+	case err != nil:
+		return 0, fmt.Errorf("state: reading the schema version at %s: %w", path, err)
+	}
+	applied, err := appliedMigrations(ctx, db)
+	if err != nil {
+		return 0, err
+	}
+	highest := 0
+	for v := range applied {
+		highest = max(highest, v)
+	}
+	return highest, nil
+}
+
+// LatestSchemaVersion is the highest migration this binary carries. A retained
+// copy of a journal whose schema is above it was made by a newer build, and
+// this one must not guess that it is safe to delete.
+func LatestSchemaVersion() (int, error) {
+	known, err := loadMigrations()
+	if err != nil {
+		return 0, err
+	}
+	highest := 0
+	for _, m := range known {
+		highest = max(highest, m.version)
+	}
+	return highest, nil
+}
