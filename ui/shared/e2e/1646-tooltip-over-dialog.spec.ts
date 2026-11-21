@@ -86,7 +86,8 @@ test.describe("#1646 no tooltip over the dialog its trigger opens", () => {
       await c.go(page);
       await c.trigger(page).click();
       await expect(c.dialog(page)).toBeVisible();
-      await c.trigger(page).evaluate((el) => (el as HTMLElement).focus());
+      // first(): the dialog has a button of the same name (Create token, Rotate key).
+      await c.trigger(page).first().evaluate((el) => (el as HTMLElement).focus());
       await page.waitForTimeout(300);
       await expect(tip(page)).toHaveCount(0);
     });
