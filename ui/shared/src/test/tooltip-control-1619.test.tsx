@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 // The real stylesheet: a pop-up's hidden state is `.tooltip__pop[hidden]`.
@@ -133,6 +133,44 @@ describe("#1619 a label tooltip, in the host", () => {
     await user.tab();
     expect(screen.getByRole("radio")).toHaveFocus();
     expect(popOf("encryption.suite")).toBeVisible();
+  });
+
+  it("a touch tap on the label pins it, and the click the label forwards to the control does not close it", async () => {
+    const user = userEvent.setup();
+    render(<Labelled />);
+    const label = screen.getByText("Log level");
+
+    // jsdom has no PointerEvent, so the touch pointerdown is built by hand.
+    const down = new Event("pointerdown", { bubbles: true, cancelable: true });
+    Object.defineProperty(down, "pointerType", { value: "touch" });
+    act(() => { label.dispatchEvent(down); });
+    await user.click(label);
+
+    expect(popOf("observability.logs.level")).toBeVisible();
+  });
+
+  it("a mouse click on the control puts the tooltip away, as a click on a wrapped control does", async () => {
+    const user = userEvent.setup();
+    render(<Labelled />);
+
+    await user.click(screen.getByRole("combobox"));
+
+    expect(popOf("observability.logs.level")).not.toBeVisible();
+  });
+
+  it("describes a fieldset by the tooltip on its legend, and opens it when focus enters a radio inside", async () => {
+    const user = userEvent.setup();
+    render(
+      <fieldset aria-label="Scope">
+        <legend><InfoTooltip id="agents.mint.scope"><span>Scope</span></InfoTooltip></legend>
+        <input type="radio" name="s" aria-label="read" />
+      </fieldset>
+    );
+    expect(describedBy(screen.getByRole("group", { name: "Scope" })).some((n) => n.innerHTML === copyOf("agents.mint.scope"))).toBe(true);
+
+    await user.tab();
+    expect(screen.getByRole("radio")).toHaveFocus();
+    expect(popOf("agents.mint.scope")).toBeVisible();
   });
 
   it("stops describing the control when the tooltip unmounts", () => {

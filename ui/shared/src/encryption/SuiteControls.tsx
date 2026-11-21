@@ -28,7 +28,7 @@
  * client to an id, a status and a suite, and the bundle step is the same
  * download the card uses, whose bytes live only in the client function.
  */
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import { describeFailure } from "@shared/api/failure";
@@ -63,15 +63,16 @@ export function SuiteChoice({
   disabled: boolean;
   onChoose(id: string): void;
 }) {
+  const groupId = useId();
   if (suites.length === 0) return null;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <InfoTooltip id="encryption.suite">
+      <InfoTooltip id="encryption.suite" controlId={groupId}>
         <span className="esuites__legend">Suite</span>
       </InfoTooltip>
       <FieldHelp label="Suite" help={FIELD_HELP.encryptionSuite}>
         {(helpId) => (
-          <div role="radiogroup" aria-label="Suite" aria-describedby={helpId} className="esuites" data-suite-group="">
+          <div id={groupId} role="radiogroup" aria-label="Suite" aria-describedby={helpId} className="esuites" data-suite-group="">
             {suites.map((s) => {
               const retired = s.status === "retired";
               const selected = current === s.id;
