@@ -31,6 +31,7 @@ type gatedSink struct {
 	gate  chan struct{} // refreshes block here until it is closed, when set
 
 	started atomic.Int32
+	begun   []string // scopes whose refresh has begun, under mu
 
 	mu       sync.Mutex
 	events   []seen
@@ -54,6 +55,9 @@ func (s *gatedSink) RefreshInterval() time.Duration { return s.every }
 
 func (s *gatedSink) Refresh(ctx context.Context, a alert.Alert, _ time.Time) error {
 	s.started.Add(1)
+	s.mu.Lock()
+	s.begun = append(s.begun, a.Scope)
+	s.mu.Unlock()
 	s.mu.Lock()
 	s.attempts = append(s.attempts, time.Now())
 	gate, failFor := s.gate, s.failFor
@@ -154,12 +158,36 @@ func TestRefreshQueuedPastTheCapNeverFollowsAResolve_1607(t *testing.T) {
 	startLoop(t, d)
 	waitFor(t, "16 refreshes held at the gate", 5*time.Second, func() bool { return sink.started.Load() >= 16 })
 
+	// First resolve only the 4 that are queued: their resolve goes out now,
+	// while the gate still holds, so the order is the same on every run
+	// instead of depending on which scope the resolve loop reaches first.
+	sink.mu.Lock()
+	out := map[string]bool{}
+	var still []alert.Condition
+	for _, sc := range sink.begun {
+		out[sc] = true
+	}
+	for _, c := range all {
+		if out[c.Scope] {
+			still = append(still, c)
+		}
+	}
+	sink.mu.Unlock()
+	if len(still) != 16 {
+		t.Fatalf("%d refreshes were out, want 16", len(still))
+	}
+	d.Observe(context.Background(), still, nil, time.Now())
+	for _, c := range all {
+		if want := map[bool]int{true: 0, false: 1}[out[c.Scope]]; sink.count("resolve", c.Scope) != want {
+			t.Fatalf("%s has %d resolves with the gate shut, want %d", c.Scope, sink.count("resolve", c.Scope), want)
+		}
+	}
 	resolved := make(chan struct{})
 	go func() {
 		defer close(resolved)
 		d.Observe(context.Background(), nil, nil, time.Now())
 	}()
-	time.Sleep(200 * time.Millisecond) // let the resolve go out while the gate holds
+	time.Sleep(200 * time.Millisecond) // the in-flight ones' resolves wait on the gate
 	close(sink.gate)
 	select {
 	case <-resolved:

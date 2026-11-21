@@ -222,6 +222,9 @@ func (d *Dispatcher) refreshAndResolve(ctx context.Context, now time.Time, resol
 			select {
 			case <-flight:
 			case <-ctx.Done():
+				// Skipped, not lost: the receiver expires the alert on its own.
+				d.logger.Error(ctx, "alert-delivery",
+					fmt.Errorf("not closing the %s alert for %s: stopped while its refresh was still in flight (it expires on its own): %w", a.Kind, a.Scope, ctx.Err()))
 				continue
 			}
 		}
