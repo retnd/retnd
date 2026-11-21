@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/retnd/retnd/core/internal/copycrypt"
@@ -191,9 +192,10 @@ func TestFromLocalDoesNotNeedTheOldKey_1545(t *testing.T) {
 	}
 }
 
-// An artifact with no local copy takes the ordinary route even when the mode
-// is asked for: the old copy is streamed through its own key.
-func TestFromLocalWithNoLocalCopyFallsBackToTheOrdinaryRun_1545(t *testing.T) {
+// A FRESH plan for an artifact with no local copy takes the ordinary route even
+// when the mode is asked for (the lenient-plan guard; the dry run printed the
+// path): the old copy is streamed through its own key.
+func TestAFreshFromLocalPlanForAnArtifactWithNoLocalCopyIsTheOrdinaryRun_1545(t *testing.T) {
 	w := newReencWorld(t)
 	opensBefore := w.store.opensOf(w.key)
 	p := w.plan(mediumB)
@@ -218,6 +220,7 @@ func TestFromLocalWithNoLocalCopyFallsBackToTheOrdinaryRun_1545(t *testing.T) {
 func TestFromLocalWithAChangedLocalCopyChangesNothing_1545(t *testing.T) {
 	w := newFromLocalWorld(t)
 	opensBefore := w.store.opensOf(w.key)
+	uploadsBefore := w.medium.uploadCount()
 	bad := append([]byte(nil), w.content...)
 	bad[len(bad)/2] ^= 0xff
 	if err := os.WriteFile(w.localPath(), bad, 0o600); err != nil {
@@ -227,6 +230,9 @@ func TestFromLocalWithAChangedLocalCopyChangesNothing_1545(t *testing.T) {
 	w.guard.fail()
 	if report.Completed != 0 {
 		t.Fatalf("a run over a changed local copy completed: %+v", report)
+	}
+	if n := w.medium.uploadCount() - uploadsBefore; n != 0 {
+		t.Errorf("%d upload(s) reached the medium; a changed local copy is never uploaded", n)
 	}
 	w.sourceIntact("after a changed local copy")
 	if row, ok := w.placement(mediumB); ok && row.Status == state.PlacementActive {
@@ -295,5 +301,85 @@ func TestFromLocalWithoutReencryptIsRefused_1545(t *testing.T) {
 	p := placement.Plan{Artifact: w.artifact, DestinationMedium: mediumB, FromLocal: true}
 	if err := w.engine.CheckEncryptExisting(w.ctx, p); err == nil {
 		t.Fatal("the check accepted FromLocal without Reencrypt")
+	}
+}
+
+// expireLocal is the local copy's retention ending: the file goes and the
+// placement is GONE.
+func (w *fromLocalWorld) expireLocal() {
+	w.t.Helper()
+	if err := os.Remove(w.localPath()); err != nil {
+		w.t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(w.root, "journal.db"))
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE placements SET status = 'GONE' WHERE medium = 'local'`); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// plannedAndConsented is a from-local run killed after the opt-in, before
+// the upload: a live, consented move at PLANNED.
+func (w *fromLocalWorld) plannedAndConsented() state.Move {
+	w.t.Helper()
+	mv, err := w.journal.PlanMove(w.ctx, state.MovePlan{
+		Artifact: w.artifact, SourceMedium: testMedium,
+		DestinationMedium: mediumB, DestinationKey: w.keyB, OccurredAt: w.clock,
+	})
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	if err := w.journal.RecordEncryptExisting(w.ctx, mv.ID, w.clock); err != nil {
+		w.t.Fatal(err)
+	}
+	return mv
+}
+
+// D4: a run that asked for --from-local and resumes a consented move that has
+// uploaded nothing yet, whose artifact has lost its local copy, abandons it by
+// name instead of quietly reading the old copy (egress the dry run did not
+// show). Red until the rule exists.
+func TestAResumedFromLocalMoveWhoseLocalCopyIsGoneIsAbandonedNotReadFromTheOldCopy_1545(t *testing.T) {
+	w := newFromLocalWorld(t)
+	mv := w.plannedAndConsented()
+	w.expireLocal()
+	opensBefore, uploadsBefore := w.store.opensOf(w.key), w.medium.uploadCount()
+
+	report := w.run(w.fromLocalPlan(mediumB))
+	w.guard.fail()
+	if report.Abandoned != 1 || report.Completed != 0 || len(report.Outcomes) != 1 ||
+		!errors.Is(report.Outcomes[0].Err, placement.ErrReencryptLocalCopyGone) {
+		t.Fatalf("report %+v, want the one move abandoned with ErrReencryptLocalCopyGone", report)
+	}
+	if got, _ := w.journal.GetMove(w.ctx, mv.ID); got.Phase != string(placement.Abandoned) || !strings.Contains(got.Error, "run without --from-local") {
+		t.Fatalf("the move row is %+v, want ABANDONED with the sentence", got)
+	}
+	if n := w.store.opensOf(w.key) - opensBefore; n != 0 {
+		t.Errorf("the old copy was read %d time(s)", n)
+	}
+	if n := w.medium.uploadCount() - uploadsBefore; n != 0 {
+		t.Errorf("%d upload(s)", n)
+	}
+	w.sourceIntact("after the abandon")
+	if left := w.stagingLeftovers(); len(left) != 0 {
+		t.Errorf("the staging area holds %v", left)
+	}
+}
+
+// The way out the sentence names: a run without --from-local resumes the same
+// move as an ordinary re-encryption and reads the old copy, which is the
+// explicit choice to pay for it. Green today and has to stay.
+func TestAResumedMoveWhoseLocalCopyIsGoneStillFinishesWithoutFromLocal_1545(t *testing.T) {
+	w := newFromLocalWorld(t)
+	w.plannedAndConsented()
+	w.expireLocal()
+	opensBefore := w.store.opensOf(w.key)
+	report := w.run(w.plan(mediumB))
+	w.guard.fail()
+	if report.Completed != 1 || w.store.opensOf(w.key)-opensBefore == 0 {
+		t.Fatalf("report %+v, want it finished by reading the old copy", report)
 	}
 }

@@ -2,6 +2,7 @@ package movecrash_test
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"errors"
 	"os"
@@ -247,4 +248,114 @@ func TestTheFromLocalCrashCellsReallyUploadFromTheLocalCopy_1545(t *testing.T) {
 		t.Fatal("the old object survived a completed run")
 	}
 	w.localCopyIntact(j, "after an uninterrupted run")
+}
+
+// expireLocalCopy is the local copy's retention ending between the crash and
+// the re-run: the file goes and the placement is GONE.
+func (w *world) expireLocalCopy() {
+	w.t.Helper()
+	if err := os.Remove(w.localPath()); err != nil {
+		w.t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", w.journal)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE placements SET status = 'GONE' WHERE medium = 'local'`); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// resolvedKeys counts every key custody was asked to resolve, so a cell can say
+// the old key was never touched.
+type resolvedKeys struct {
+	placement.Keys
+	asked map[string]int
+}
+
+func (k *resolvedKeys) WithKey(ctx context.Context, id string, fn func([]byte) error) error {
+	k.asked[id]++
+	return k.Keys.WithKey(ctx, id, fn)
+}
+
+// D4 (#1545): the local copy expires between a kill and the re-run. Before
+// anything was uploaded, a --from-local re-run abandons the move by name rather
+// than reading the old copy; the old copy stays ACTIVE and is never opened.
+func TestCrashCellLocalCopyExpiresBeforeTheUploadAbandonsByName_1545(t *testing.T) {
+	w, oldKey, oldBytes := reencWorld(t)
+	w.keepLocalCopy()
+	res := w.crashTo(crashSecondMedium, "-plan", "-encrypt-existing", "-reencrypt", "-from-local", "-kill-after-consent")
+	if !res.killed() || !strings.Contains(res.stderr, "the operator's opt-in for a move committed") {
+		t.Fatalf("the harness was not killed at the opt-in:\n%s", res.stderr)
+	}
+	w.expireLocalCopy()
+
+	j := w.journalNow()
+	keys := &resolvedKeys{Keys: w.keysOver(j), asked: map[string]int{}}
+	engine, guard := w.encryptedRestart(j, w.keysOver(j))
+	engine.Keys = keys
+	report, err := engine.EncryptExisting(w.ctx, w.fromLocalPlans())
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard.fail()
+	if report.Abandoned != 1 || report.Completed != 0 || len(report.Outcomes) != 1 ||
+		!errors.Is(report.Outcomes[0].Err, placement.ErrReencryptLocalCopyGone) {
+		t.Fatalf("report %+v, want the move abandoned with ErrReencryptLocalCopyGone", report)
+	}
+	moves, err := j.MovesForArtifact(w.ctx, w.artifact)
+	last := moves[len(moves)-1]
+	if err != nil || placement.Phase(last.Phase) != placement.Abandoned || !strings.Contains(last.Error, "run without --from-local") {
+		t.Fatalf("the last move is %+v (err=%v), want ABANDONED with the sentence", last, err)
+	}
+	w.oldCopyIntact(j, oldKey, oldBytes, "after the abandon")
+	if n := w.store.opensOf(crashMedium, w.key); n != 0 {
+		t.Errorf("the old copy was opened %d time(s)", n)
+	}
+	if keys.asked[oldKey] != 0 {
+		t.Errorf("the old key was resolved %d time(s)", keys.asked[oldKey])
+	}
+	if len(w.ciphertextObject()) != 0 {
+		t.Error("an object is on the second medium")
+	}
+	if left := w.stagingLeftovers(); len(left) != 0 {
+		t.Errorf("the staging area holds %v", left)
+	}
+	w.checkInvariantNow(j, "after the abandon")
+}
+
+// Its control: the same expiry after COPIED. The upload from the local copy
+// already happened, so the re-run finishes it, reads the old copy zero times
+// and never resolves the old key.
+func TestCrashCellLocalCopyExpiresAfterCopiedStillFinishes_1545(t *testing.T) {
+	w, oldKey, _ := reencWorld(t)
+	w.keepLocalCopy()
+	res := w.crashTo(crashSecondMedium, "-plan", "-encrypt-existing", "-reencrypt", "-from-local", "-kill-after-phase=COPIED")
+	if !res.killed() {
+		t.Fatalf("the harness was not killed:\n%s", res.stderr)
+	}
+	w.expireLocalCopy()
+
+	j := w.journalNow()
+	keys := &resolvedKeys{Keys: w.keysOver(j), asked: map[string]int{}}
+	engine, guard := w.encryptedRestart(j, w.keysOver(j))
+	engine.Keys = keys
+	report, err := engine.EncryptExisting(w.ctx, w.fromLocalPlans())
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard.fail()
+	if report.Completed != 1 {
+		t.Fatalf("report %+v, want the move finished", report)
+	}
+	if n := w.store.opensOf(crashMedium, w.key); n != 0 {
+		t.Errorf("the old copy was opened %d time(s)", n)
+	}
+	if keys.asked[oldKey] != 0 {
+		t.Errorf("the old key was resolved %d time(s)", keys.asked[oldKey])
+	}
+	if len(w.plaintextObject()) != 0 || len(w.ciphertextObject()) == 0 {
+		t.Error("the old object should be gone and the new one present")
+	}
 }
