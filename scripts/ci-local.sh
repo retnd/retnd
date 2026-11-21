@@ -589,6 +589,12 @@ bash scripts/tests/first-run-report.test.sh
 gate_step "a tests pin must be on retnd-tests main (#1074)"
 bash scripts/tests/pin-on-main.test.sh
 
+# The pinned retnd-tests checkout the encryption self-test shard hands its
+# three retnd-tests controls (#1548): the pin, the cache and the refusals, over
+# fixture repositories (no network).
+gate_step "the pinned retnd-tests checkout for the self-test shards (#1548)"
+bash scripts/tests/tests-checkout.test.sh
+
 # The web-ui ratchet's judge (#1260). The browser lane is judged by its
 # Playwright report against scripts/e2e/known-red.txt rather than by its
 # exit status, so the judge is the whole gate for the specs on that list.
