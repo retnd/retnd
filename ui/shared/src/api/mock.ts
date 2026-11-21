@@ -5627,6 +5627,9 @@ export function createMockApi(
     // backup in the same set received after it is the successor, and the
     // source answers "gone" unless the scenario says it is still there.
     previewRetirement: (id, ack) => {
+      // Counted so a browser spec can tell a second ask really went out (#1616).
+      const w = globalThis as unknown as { __retndPreviewCalls?: number };
+      w.__retndPreviewCalls = (w.__retndPreviewCalls ?? 0) + 1;
       const found = artifacts.find((a) => a.id === id);
       if (!found) {
         return delay(null).then(() => {

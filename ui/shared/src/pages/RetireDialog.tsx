@@ -195,12 +195,28 @@ export function RetireDialog({
     };
   }, [api, artifactId, ackKey, preview, askRound]);
   const asking = ackKey !== "{}" && asked?.key !== ackKey;
+  const askAgainRef = useRef<HTMLButtonElement>(null);
+  const refocusAsk = useRef(false);
   const askAgain = () => {
+    // The banner and its button go while the host is asked, which would drop
+    // focus to the page behind and leave Escape deaf; the panel holds it, and
+    // the button takes it back if the answer is another failure.
+    dialogRef.current?.focus();
+    refocusAsk.current = true;
     setAsked(null);
     setAskRound((n) => n + 1);
   };
   const current = ackKey === "{}" ? preview : asked?.key === ackKey ? asked.preview : null;
   const reaskError = ackKey !== "{}" && asked?.key === ackKey ? asked.error : "";
+
+  useEffect(() => {
+    if (reaskError && refocusAsk.current) {
+      refocusAsk.current = false;
+      askAgainRef.current?.focus();
+    } else if (asked?.key === ackKey && !asked.error) {
+      refocusAsk.current = false;
+    }
+  }, [reaskError, asked, ackKey]);
 
   useEffect(() => {
     if (outcome) resultRef.current?.focus();
@@ -430,16 +446,18 @@ export function RetireDialog({
                 </Banner>
               ) : null}
 
+              <div role="status" aria-live="polite">
               {reaskError ? (
                 <Banner tone="danger" dismissible={false} style={{ display: "grid", gap: 8 }}>
                   <span data-testid="retire-reask-error">
                     {"Asking the host again with this choice failed, so Retire is off. " + sentence(reaskError)}
                   </span>
                   <span>
-                    <button className="btn btn--strong-edge" style={TARGET} onClick={askAgain}>Ask again</button>
+                    <button ref={askAgainRef} className="btn btn--strong-edge" style={TARGET} onClick={askAgain}>Ask again</button>
                   </span>
                 </Banner>
               ) : null}
+              </div>
 
               {ready && current && current.effects.length > 0 ? (
                 <section aria-label="What happens">
