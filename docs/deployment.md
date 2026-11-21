@@ -903,9 +903,12 @@ receiver that takes close to 30 seconds to answer, add another 30 seconds to
 `resolve_ttl` for each further 16; the defaults leave six minutes, which is plenty.
 A refresh that is still waiting for a send slot, or on its way, when its alert clears never
 reaches the receiver after the close: the close goes out after it, so a cleared alert is
-not fired again. A refresh the receiver rejects or times out on is retried after a quarter
-of `refresh_interval`, then half, then a full interval for every failure after that, counted
-from when the failed attempt ended and reset by the next success. That ladder does not stretch
+not fired again. The same goes for a first delivery that is still on its way when its alert
+clears: the close waits for it and goes out after it (and is not sent at all if that delivery
+failed, since the receiver never saw the alert). A refresh the receiver rejects or times out
+on is retried after a quarter of `refresh_interval`, then half, then a full interval for
+every failure after that, counted from when the failed attempt ended and reset by the next
+success. That ladder does not stretch
 the margin above: `resolve_ttl` covers one delivery attempt, so a receiver that is down for
 longer than that loses the alert from Alertmanager whatever the retry spacing, and the next
 refresh that gets through fires it again.
