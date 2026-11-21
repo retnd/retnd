@@ -3245,6 +3245,20 @@ assert_contains "Z11 a Linux host runs the specs" "$UI_BROWSER_STUB specs" "$out
 assert_not_contains "Z11 bare, with no lock to take" 'PW-LOCK-HELD' "$out"
 assert_eq "Z11 and the shard ends ok" "==> ci-local: ok (shard ui-browser)" "$(printf '%s\n' "$out" | tail -n 1)"
 
+# Z12: a by-hand ci-docker.sh on a Mac runs the gate in a Linux container, where
+# uname says Linux; ci-docker hands it RETND_GATE_HOST_OS=Darwin and the Mac
+# rule keys on that (#1588), with or without the opt-in's lock to hand.
+tree="$(make_full_tree)"
+printf '#!/usr/bin/env bash\necho "PW-LOCK-HELD $*"\n"$@"\n' >"$tree/bin/pw-lock"
+chmod +x "$tree/bin/pw-lock"
+run_gate "$tree" STUB_UNAME_S=Linux RETND_GATE_HOST_OS=Darwin RETND_PW_LOCK="$tree/bin/pw-lock" -- --shard ui-browser
+assert_not_contains "Z12 a gate that started on a Mac runs neither step, though uname says Linux" "$UI_BROWSER_STUB" "$out"
+assert_contains "Z12 it ends INCOMPLETE" '==> ci-local: INCOMPLETE (shard ui-browser)' "$out"
+assert_contains "Z12 and names the way to run it on MARS" 'run-gate-shard.sh ui-browser --host mars' "$out"
+tree="$(make_full_tree)"
+run_gate "$tree" STUB_UNAME_S=Linux RETND_GATE_HOST_OS=Linux -- --shard ui-browser
+assert_contains "Z12 control: RETND_GATE_HOST_OS=Linux runs the specs" "$UI_BROWSER_STUB specs" "$out"
+
 # ------------------------------------------------------------------ result
 
 echo

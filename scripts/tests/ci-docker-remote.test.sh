@@ -82,6 +82,12 @@ case "$cmd" in
 esac
 exit 0
 SH
+# `uname -s` answers FAKE_UNAME_S, so a Mac's local mode can be told from a Linux box's.
+cat > "$bin/uname" <<'SH'
+#!/bin/sh
+if [ "$*" = "-s" ] && [ -n "${FAKE_UNAME_S:-}" ]; then echo "$FAKE_UNAME_S"; exit 0; fi
+exec /usr/bin/uname "$@"
+SH
 chmod +x "$bin"/*
 
 # Runs the real script with the stand-ins first on PATH. $1.. are the
@@ -103,6 +109,30 @@ if [ "$(rc)" = 0 ] && [ -z "$(cat "$log/ssh" "$log/rsync" "$log/tar")" ] \
   pass "R0 without a host the gate runs locally, mounts the repo at its own path, and touches no ssh or rsync"
 else
   fail "R0 local mode is unchanged" "rc=$(rc) $(head -c 400 "$work/out")"
+fi
+
+# --- R0b the gate learns which OS the run started on (#1588) -----------------
+# Inside the container `uname -s` is always Linux, so the Mac rule for the
+# Chromium lane (heavy steps stay off the Mac) has to be told. Local mode
+# says what this machine is; a remote run is on the daemon's machine, never
+# this one, so it says Linux whatever this machine is.
+run_script env FAKE_UNAME_S=Darwin bash "$script" --fast
+if [ "$(rc)" = 0 ] && gate_line | grep -q -- ' RETND_GATE_HOST_OS=Darwin '; then
+  pass "R0b a local run on a Mac hands the gate RETND_GATE_HOST_OS=Darwin"
+else
+  fail "R0b a local run on a Mac names Darwin" "rc=$(rc) $(gate_line)"
+fi
+run_script env FAKE_UNAME_S=Linux bash "$script" --fast
+if [ "$(rc)" = 0 ] && gate_line | grep -q -- ' RETND_GATE_HOST_OS=Linux '; then
+  pass "R0b control: a local run on Linux says Linux"
+else
+  fail "R0b control: Linux says Linux" "rc=$(rc) $(gate_line)"
+fi
+run_script env FAKE_UNAME_S=Darwin bash "$script" --host "ssh://runner@builder.example" --fast
+if [ "$(rc)" = 0 ] && gate_line | grep -q -- ' RETND_GATE_HOST_OS=Linux ' && ! gate_line | grep -q 'RETND_GATE_HOST_OS=Darwin'; then
+  pass "R0b a remote run from a Mac says Linux: the gate is not on the Mac"
+else
+  fail "R0b a remote run says Linux" "rc=$(rc) $(gate_line)"
 fi
 
 # --- R1 remote: daemon, mounts, platform, arguments --------------------------
