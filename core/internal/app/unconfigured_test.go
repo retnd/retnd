@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -581,16 +580,10 @@ func TestUnconfiguredSets_CountsEveryRowIntoExactlyOneColumn(t *testing.T) {
 	if u.Artifacts != 5 {
 		t.Fatalf("Artifacts = %d, want 5", u.Artifacts)
 	}
-	// By reflection only until the column exists; the fix replaces this with
-	// u.Retired.
-	retired := 0
-	if f := reflect.ValueOf(u).FieldByName("Retired"); f.IsValid() {
-		retired = int(f.Int())
+	if u.Retired != 1 {
+		t.Errorf("Retired = %d, want 1", u.Retired)
 	}
-	if retired != 1 {
-		t.Errorf("Retired = %d, want 1", retired)
-	}
-	if got := u.Retained + u.Stranded + u.Quarantined + u.Failed + retired; got != u.Artifacts {
+	if got := u.Retained + u.Stranded + u.Quarantined + u.Failed + u.Retired; got != u.Artifacts {
 		t.Errorf("the columns add to %d over %d artifact(s) (%+v); every row has to land in exactly one, or the report has lost some", got, u.Artifacts, u)
 	}
 	if u.Failed != 1 {

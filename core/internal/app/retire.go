@@ -519,6 +519,10 @@ func (s *Service) commitRetirement(ctx context.Context, p retirePlan, keyPrefix 
 	if r.Note != "" {
 		detail += ": " + r.Note
 	}
+	// The write and the removal are one turn: a way back that landed between
+	// them would start a transfer whose .partial the removal then deletes.
+	s.retireMu.Lock()
+	defer s.retireMu.Unlock()
 	if _, err := lifecycle.Advance(ctx, s.lifecycleDeps(), state.Transition{
 		Artifact: id, Key: keyPrefix + id.String() + ":" + now.Format(time.RFC3339Nano),
 		From: string(lifecycle.Failed), To: string(lifecycle.Retired), Detail: detail, Retirement: &r,
@@ -560,6 +564,20 @@ func (s *Service) removePartial(ctx context.Context, partial string) bool {
 	return true
 }
 
+// removeRetiredPartial is the cycle's sweep of one row's leftover .partial.
+// The list it works from was read at the top of the pass, so the row may have
+// come back since: it re-reads the state inside the same turn the way back
+// takes, and removes the file only while the row is still RETIRED (issue
+// #1616). A row it cannot read is left for the next pass.
+func (s *Service) removeRetiredPartial(ctx context.Context, id model.ArtifactID, partial string) {
+	s.retireMu.Lock()
+	defer s.retireMu.Unlock()
+	if now, err := s.Journal.Get(ctx, id); err != nil || lifecycle.State(now.State) != lifecycle.Retired {
+		return
+	}
+	s.removePartial(ctx, partial)
+}
+
 // bringBackReappeared is the way back (issue #1528). A RETIRED artifact that
 // discovery has just listed and proven complete again goes back to
 // DISCOVERED, but only when its retirement recorded the source as confirmed
@@ -583,12 +601,15 @@ func (s *Service) bringBackReappeared(ctx context.Context, res discovery.Result)
 		// the walk's attempt key is built from: left alone, the next transfer
 		// would present the failed attempt's own key, the journal would read
 		// it as a replay, and the row would sit at DISCOVERED for good.
-		if _, err := lifecycle.Advance(ctx, s.lifecycleDeps(), state.Transition{
+		s.retireMu.Lock()
+		_, err = lifecycle.Advance(ctx, s.lifecycleDeps(), state.Transition{
 			Artifact: rec.Artifact, Key: retireKeyPrefixWayBack + rec.Artifact.String() + ":" + s.now().Format(time.RFC3339Nano),
 			From: string(lifecycle.Retired), To: string(lifecycle.Discovered),
 			Detail: "the source object a retirement recorded as gone is listed again, so it re-enters the pipeline",
 			Retry:  &state.RetryUpdate{Count: rec.RetryCount + 1, LastError: r.FailureReason},
-		}); err != nil {
+		})
+		s.retireMu.Unlock()
+		if err != nil {
 			s.logger().Error(ctx, "unretire", fmt.Errorf("bringing %s back: %w", rec.Artifact, err))
 			continue
 		}
@@ -613,7 +634,7 @@ func (s *Service) autoRetire(ctx context.Context, src config.Source, bs config.B
 		switch lifecycle.State(rec.State) {
 		case lifecycle.Retired:
 			if partial, err := lifecycle.PartialArtifactPath(bs.LocalPath, rec.Artifact); err == nil {
-				s.removePartial(ctx, partial)
+				s.removeRetiredPartial(ctx, rec.Artifact, partial)
 			}
 		case lifecycle.Failed:
 			// An own copy at the final name is never retired by the cycle

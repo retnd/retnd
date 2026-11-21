@@ -211,6 +211,13 @@ var DefaultRetryPolicy = retry.Policy{
 // nothing at construction time; New only fills in the documented defaults
 // for whichever fields are left at their zero value.
 type Service struct {
+	// retireMu makes a retirement's journal write and its .partial removal,
+	// the way back out of RETIRED, and the sweep of a RETIRED row's .partial
+	// take turns (issue #1616). Without it a way back could start a new
+	// transfer between a retire's commit and its removal, and the removal
+	// would delete the new transfer's file. A transfer itself never takes it.
+	retireMu sync.Mutex
+
 	// Config is the manager's already-validated runtime configuration
 	// (config.LoadAndValidate). Service never mutates it.
 	Config *config.Config

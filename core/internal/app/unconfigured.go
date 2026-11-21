@@ -154,6 +154,12 @@ type UnconfiguredSet struct {
 	// was.
 	Failed int
 
+	// Retired is how many are in RETIRED (issue #1528): a failed backup
+	// somebody, or the engine, decided nobody needs to act on any more.
+	// Counted on its own for the reason Failed is, so the columns add up
+	// to Artifacts (issue #1616).
+	Retired int
+
 	// Bytes is the recorded size of every row that holds local bytes
 	// (internal/lifecycle.HoldsLocalCopy), which is the answer to "how
 	// much disk is this costing me and nothing is managing".
@@ -284,7 +290,7 @@ func (s *Service) UnconfiguredSets(ctx context.Context) ([]UnconfiguredSet, erro
 
 // summariseUnconfigured is the arithmetic of one report row, kept apart
 // from the read so the classification can be read in one screen and so the
-// three counts cannot drift from the vocabulary they borrow (durable,
+// counts cannot drift from the vocabulary they borrow (durable,
 // acquiring and lifecycle's own quarantine predicate).
 func summariseUnconfigured(id model.BackupSetID, records []state.Record) UnconfiguredSet {
 	u := UnconfiguredSet{Set: id, Artifacts: len(records)}
@@ -299,6 +305,8 @@ func summariseUnconfigured(id model.BackupSetID, records []state.Record) Unconfi
 			u.Quarantined++
 		case st == lifecycle.Failed:
 			u.Failed++
+		case st == lifecycle.Retired:
+			u.Retired++
 		}
 		if lifecycle.HoldsLocalCopy(st) && rec.Remote.Size != nil {
 			u.Bytes += *rec.Remote.Size
