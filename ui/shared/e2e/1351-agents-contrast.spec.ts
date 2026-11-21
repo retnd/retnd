@@ -12,7 +12,7 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { measureBorders, measureContrast, setTheme } from "./helpers";
-import { PASSWORD, card, openAgents, openMint, pending, region, tokenRow } from "./1351-agents";
+import { PASSWORD, card, openAgents, openAgentsWithAudit, openMint, pending, region, tokenRow } from "./1351-agents";
 
 const EDGES = ".agchip, .ag-row, .ag-strip, .input--strong-edge, .btn--strong-edge, .ag-input-error";
 
@@ -57,7 +57,7 @@ test.describe("#1351 contrast, light and dark", () => {
   });
 
   test("#1351 the audit, its details and its filter refusal", async ({ page }) => {
-    await openAgents(page);
+    await openAgentsWithAudit(page);
     await region(page, "audit").getByRole("button", { name: /^Details of activity/ }).click();
     const since = region(page, "audit").getByLabel("Since", { exact: true });
     await since.fill("yesterday");

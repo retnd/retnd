@@ -637,6 +637,47 @@ if (disagreement.length) {
   process.exit(2);
 }
 
+// The screenshot surface's permanent negative control (EPIC N, N2.6 / NC-17).
+// A scan that finds nothing proves nothing unless it can find something, so on
+// every run, before a browser starts, the scanner is handed one planted value
+// per kind it exists to catch and has to name each, and a clean line has to
+// pass. A scanner that has gone blind to one kind stops the run here instead
+// of passing every picture. `--scanner-control` runs only this and exits,
+// which needs no browser and no Playwright.
+const SCANNER_PLANTS = [
+  ["an X25519 identity", "AGE-SECRET-KEY-1QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"],
+  ["a post-quantum identity", "AGE-SECRET-KEY-PQ-1QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"],
+  ["a plugin identity", "AGE-PLUGIN-YUBIKEY-1QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ"],
+  ["a PEM private key", "-----BEGIN OPENSSH PRIVATE KEY-----"],
+  ["a planted canary", "retnd-canary-CANARY-0b7c1e"],
+  ["an X25519 recipient", "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"],
+  ["a post-quantum recipient clipped to 80 characters", "age1pq1" + "q".repeat(73) + "…"],
+  ["a host name that is not reserved", "backups.acme-storage.com"]
+];
+const SCANNER_CLEAN = "Encrypted. Key k3f9a1c0d2e4b6a8 (age/v1). Verified recoverable on 2026-11-13 from backups.example.com.";
+
+function scannerControl() {
+  const blind = SCANNER_PLANTS.filter(([, v]) => corpusProblems("Settings\n" + v + "\nSave").length === 0).map(([what]) => what);
+  const noisy = corpusProblems(SCANNER_CLEAN);
+  return { blind, noisy };
+}
+
+{
+  const { blind, noisy } = scannerControl();
+  if (blind.length || noisy.length) {
+    console.error(
+      "capture-encryption: the scanner control failed, so a clean scan would prove nothing." +
+        (blind.length ? "\n  the scanner did not name: " + blind.join(", ") : "") +
+        (noisy.length ? "\n  the scanner flagged a clean line: " + noisy.join("; ") : "")
+    );
+    process.exit(2);
+  }
+  if (args.includes("--scanner-control")) {
+    console.log("capture-encryption: scanner control ok (" + SCANNER_PLANTS.length + " planted values named, the clean line passed)");
+    process.exit(0);
+  }
+}
+
 // No pinned retnd-tests checkout to borrow Playwright from: say so and stop,
 // before a dev server is started or anything is guessed.
 try {

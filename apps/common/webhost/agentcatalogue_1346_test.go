@@ -27,8 +27,8 @@ func uncovered(registered map[string]bool, rows []agenttools.Row) []string {
 	}
 	var out []string
 	for route := range registered {
-		if strings.Contains(route, " /health/") {
-			continue
+		if m, p, _ := strings.Cut(route, " "); isListedRootRoute(m, p) && p != "/metrics" {
+			continue // answered by the list (the scrape endpoint also has a named refusal row)
 		}
 		if !have[route] {
 			out = append(out, route)
@@ -221,6 +221,7 @@ func TestAChangeThatHasAToolStillAsksForAPerson(t *testing.T) {
 		{http.MethodPatch, "/api/v1/backup-sets/src/set-1/assurance"},
 		{http.MethodPost, "/api/v1/operations"},
 		{http.MethodPost, "/api/v1/backups/src/set-1/dump.tar/retry"},
+		{http.MethodPost, "/api/v1/backups/src/set-1/dump.tar/retire"},
 	} {
 		router, _ := agentRouter()
 		body := "{}"

@@ -15,6 +15,7 @@
  * needs it keeps the shared-with-whom question answerable by looking.
  */
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { Link } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { apiErrorOf, describeFailure } from "@shared/api/failure";
@@ -83,6 +84,7 @@ function SignInForm({ onSignedIn }: { onSignedIn(): void }) {
   const [password, setPassword] = useState("");
   const [failure, setFailure] = useState<OperatorFailure | null>(null);
   const [busy, setBusy] = useState(false);
+  const mountedRef = useMounted();
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,8 +93,13 @@ function SignInForm({ onSignedIn }: { onSignedIn(): void }) {
     api
       .login(username, password)
       .then(onSignedIn)
-      .catch((e: unknown) => setFailure(describeLoginFailure(e)))
-      .finally(() => setBusy(false));
+      .catch((e: unknown) => {
+        if (!mountedRef.current) return;
+        setFailure(describeLoginFailure(e));
+      })
+      .finally(() => {
+        if (mountedRef.current) setBusy(false);
+      });
   };
 
   return (

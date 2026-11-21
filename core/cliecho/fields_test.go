@@ -290,6 +290,15 @@ func containsString(list []string, want string) bool {
 // connection details beside a saved set's id) is never here: the corpus
 // sends each mode on its own (canary_test.go's bodyModes).
 var fieldsNotEchoed = map[string]map[string]string{
+	// #1606's holder token. --token is on the line, with a placeholder:
+	// the lease it names lapses ninety seconds after nobody renews it, so a
+	// copied value would be refused by the time anybody ran it.
+	"POST /backup-sets/{source}/{set}/edit-hold": {
+		"token": "printed as a placeholder after --token: the hold it names lapses within ninety seconds, so the value is useless on a copied line",
+	},
+	"POST /backup-sets/{source}/{set}/edit-hold/release": {
+		"token": "printed as a placeholder after --token, for the same reason as the renewal",
+	},
 	"PATCH /auth/recovery": {
 		"currentPassword": "material: the verb reads it on stdin (--current-password-stdin)",
 		"smtp.password":   "material: the verb reads it on stdin",

@@ -43,6 +43,13 @@ type Row struct {
 	Description string
 	Untrusted   []string
 	Why         string
+
+	// AgentMayNotSet names top-level body fields an agent may not send on
+	// this tool's request (issue #1528). The proposer refuses a request
+	// carrying any of them with AGENT_RETIRE_ACK_REFUSED before a person is
+	// asked, so an agent can propose only the conservative form of the act
+	// and a person's acknowledgement stays a person's.
+	AgentMayNotSet []string
 }
 
 // Key is "METHOD /route", the string cliecho keys its table by.
@@ -54,6 +61,7 @@ func Rows() []Row {
 	out := make([]Row, len(rows))
 	for i, r := range rows {
 		r.Untrusted = slices.Clone(r.Untrusted)
+		r.AgentMayNotSet = slices.Clone(r.AgentMayNotSet)
 		out[i] = r
 	}
 	return out
@@ -165,6 +173,8 @@ const (
 
 	whyConfirmDecide = "a person lists and decides confirmations; an agent only proposes one and reads its own by id"
 
+	whyScrape = "the Prometheus scrape endpoint answers a scraper holding the scrape credential, in the exposition text format; an agent reads this deployment through the catalogue's tools, and no token of either kind opens it"
+
 	whyAudit = "the audit trail is read by an operator from a terminal or the browser; an agent's own calls are in it and it never reads it back"
 
 	whyOperationAction = "this action on the operations route is a restore, a hold or a snapshot check, each a person's decision about data, and no tool starts it"
@@ -196,7 +206,7 @@ var toolRows = []Row{
 	{
 		Tool: "status", Method: "GET", Route: "/system/health", Scope: ScopeRead,
 		Description: "Read the health of every backup set: its state and the reason for it, the newest good backup, quarantined and stale counts, free space and copies away from home.",
-		Untrusted:   []string{"backup_sets[].reason", "backup_sets[].halt_reason", "backup_sets[].failed_move_reason"},
+		Untrusted:   []string{"backup_sets[].reason", "backup_sets[].halt_reason", "backup_sets[].failed_move_reason", "backup_sets[].pending_unreadable_oldest_path", "backup_sets[].pending_unreadable_warning"},
 	},
 	{
 		Tool: "backup_sets_list", Method: "GET", Route: "/backup-sets", Scope: ScopeRead,
@@ -215,6 +225,22 @@ var toolRows = []Row{
 			"artifacts[].id", "artifacts[].name", "artifacts[].remote_path", "artifacts[].local_path", "artifacts[].validation_detail",
 			"artifacts[].quarantine_reason", "artifacts[].placements[].location",
 			"artifacts[].placements[].last_failure_reason", "artifacts[].placements[].recovery_failure_reason",
+			// Issue #1528: a RETIRED row carries its retirement record. The
+			// successor is a file name the source chose, the failure reason a
+			// remote error's text, and the note and actor are typed by people.
+			"artifacts[].retirement.superseded_by", "artifacts[].retirement.failure_reason",
+			"artifacts[].retirement.note", "artifacts[].retirement.actor",
+		},
+	},
+	{
+		Tool: "backup_retirement_show", Method: "GET", Route: "/backups/{source}/{set}/{name}/retire", Scope: ScopeRead,
+		Description: "Read what retiring one failed backup would do: whether its source object is still there, which newer backup would replace it, and the refusal or effects. It changes nothing.",
+		Untrusted: []string{
+			"artifact", "failure_reason", "proposed_successor.name", "successor_candidates[].name", "retirement.superseded_by", "retirement.note",
+			"retirement.failure_reason", "retirement.actor", "command",
+			// Issue #1594: an effect line may name the kept own copy's path, and
+			// that path ends in the file name the source chose.
+			"effects[]",
 		},
 	},
 	{
@@ -223,6 +249,7 @@ var toolRows = []Row{
 		Untrusted: []string{
 			"id", "name", "remote_path", "local_path", "validation_detail", "quarantine_reason",
 			"placements[].location", "placements[].last_failure_reason", "placements[].recovery_failure_reason",
+			"retirement.superseded_by", "retirement.failure_reason", "retirement.note", "retirement.actor",
 		},
 	},
 	{
@@ -346,6 +373,12 @@ var toolRows = []Row{
 		Untrusted:   []string{},
 	},
 	{
+		Tool: "retire_backup", Method: "POST", Route: "/backups/{source}/{set}/{name}/retire", Scope: ScopeOperate,
+		Description:    "Propose retiring one failed backup whose source object is gone and that a newer good backup replaces. A person confirms it before anything changes.",
+		Untrusted:      []string{"artifact", "retirement.superseded_by", "retirement.note", "retirement.failure_reason", "retirement.actor"},
+		AgentMayNotSet: []string{"accept_source_present", "no_successor", "accept_unverified_copy"},
+	},
+	{
 		Tool: "quarantine_revalidate", Method: "POST", Route: "/quarantine/{source}/{set}/{name}/revalidate", Scope: ScopeOperate,
 		Description: "Propose validating a quarantined backup again. A person confirms it before anything starts.",
 		Untrusted:   []string{},
@@ -390,7 +423,8 @@ var refusalRows = join(
 		"POST /auth/verify-email/resend", "GET /auth/recovery", "PATCH /auth/recovery", "POST /auth/recovery/test"),
 	no(whyFirstRun, "GET /system/first-run", "POST /system/first-run", "POST /system/first-run/skip"),
 	no(whyGrant, "POST /recoveries", "GET /recoveries/{grant}", "POST /backups/{source}/{set}/{name}/recovery"),
-	no(whyTokens, "GET /agent/tokens", "POST /agent/tokens", "POST /agent/tokens/{id}/revoke"),
+	no(whyTokens, "GET /agent/tokens", "POST /agent/tokens", "POST /agent/tokens/{id}/revoke",
+		"POST /settings/observability/scrape-token"),
 	no(whyKeys,
 		"GET /encryption/keys", "POST /encryption/keys", "POST /encryption/keys/rotate",
 		"POST /encryption/keys/{id}/retire", "POST /encryption/keys/{id}/export", "POST /encryption/keys/{id}/confirm"),
@@ -421,6 +455,7 @@ var refusalRows = join(
 		"PUT /storage-mediums/{id}", "PUT /storage-mediums/{id}/default",
 		"PATCH /settings", "PATCH /settings/workflow", "PATCH /backup-sets/{source}/{set}/workflow",
 		"PATCH /settings/assurance", "DELETE /backup-sets/{source}/{set}/assurance",
+		"PATCH /settings/observability",
 		"PATCH /encryption/policy", "POST /encryption/policy/reset",
 		"PUT /backup-sets/{source}/{set}/encryption", "DELETE /backup-sets/{source}/{set}/encryption",
 		"POST /assurance/validators", "PUT /assurance/validators/{name}", "DELETE /assurance/validators/{name}"),
@@ -432,6 +467,7 @@ var refusalRows = join(
 		"POST /repositories", "POST /workflow-recovery/{run}/resume-cleanup", "POST /workflow-recovery/{run}/acknowledge"),
 	no(whyCatalogue, "GET /agent/tools"),
 	no(whyAudit, "GET /agent/audit"),
+	no(whyScrape, "GET /metrics"),
 	no(whyConfirmDecide, "GET /agent/confirmations", "POST /agent/confirmations/{id}/approve", "POST /agent/confirmations/{id}/deny"),
 	no(whyTransport, "POST /agent/mcp", "GET /agent/mcp", "DELETE /agent/mcp"),
 	no(whyRead,
@@ -443,7 +479,7 @@ var refusalRows = join(
 		"GET /backup-sets/{source}/{set}/source-host", "GET /storage-mediums/{id}",
 		"GET /validators", "GET /backends", "GET /settings", "GET /settings/workflow",
 		"GET /backup-sets/{source}/{set}/workflow", "GET /backup-sets/{source}/{set}/workflow/validation",
-		"GET /settings/assurance", "GET /backup-sets/{source}/{set}/recovery-test/output",
+		"GET /settings/assurance", "GET /settings/observability", "GET /backup-sets/{source}/{set}/recovery-test/output",
 		"GET /encryption/suites", "GET /encryption/encrypt-existing", "GET /encryption/reencrypt",
 		"GET /assurance/validators", "GET /assurance/validator-patterns", "GET /assurance/default-validator-script",
 		"GET /assurance/operations/{op}", "GET /workflow-runs/{run}/steps", "GET /workflow-recovery"),

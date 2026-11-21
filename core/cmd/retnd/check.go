@@ -31,6 +31,12 @@ func cmdCheck(args []string) int {
 		return 2
 	}
 
+	// #1558: before anything is read, or the first-run notice below is what
+	// an upgraded deployment still mounted at its pre-0.5.0 path is told.
+	if refusedAtPreRenamePath(*cfgPath) {
+		return exitFailure
+	}
+
 	// A fresh install has no configuration yet, and the engine writes a
 	// default on its first start (retnd#1049). So the question check
 	// answers here is whether that write can happen: a writable

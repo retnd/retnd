@@ -124,6 +124,12 @@ type Journal interface {
 	RecordBackupSetHalt(ctx context.Context, set model.BackupSetID, reason string, observedAt time.Time) error
 	ClearBackupSetHalt(ctx context.Context, set model.BackupSetID) error
 	ListBackupSetHalts(ctx context.Context) ([]state.BackupSetHalt, error)
+
+	// LatestRetirement is issue #1528's record of the most recent
+	// retirement of one artifact: who, why, the source check and the
+	// successor. Discovery's way back reads its source check, and the
+	// preview reports it for an artifact that is already RETIRED.
+	LatestRetirement(ctx context.Context, id model.ArtifactID) (state.Retirement, bool, error)
 }
 
 var _ Journal = (*state.Journal)(nil)
@@ -379,6 +385,13 @@ type Service struct {
 	// this one is not a plain map beside the two above: they describe
 	// what happened, and this decides what happens next.
 	schedule *pollSchedule
+
+	// unreadable is every source file discovery proved complete and could
+	// not open, per set, with when this process first saw it (issue
+	// #1541). Shared across a configuration reload the way schedule is
+	// (AdoptUnreadableSources), and for the same reason: a settings save
+	// must not reset how long a producer has been failing to publish.
+	unreadable *unreadableSources
 
 	lastRetention map[model.BackupSetID]time.Time
 }

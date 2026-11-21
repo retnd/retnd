@@ -17,6 +17,7 @@ import (
 	"github.com/retnd/retnd/core/internal/obs"
 	"github.com/retnd/retnd/core/internal/transport"
 	"github.com/retnd/retnd/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/prerename"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -52,6 +53,40 @@ import (
 // because config.Load decodes with KnownFields(true) and a new key is a
 // one-way door out of a rollback.
 const defaultConfigPath = "/etc/retnd/config/config.yaml"
+
+// checkPreRenamePath is #1546's refusal, for a deployment still mounted at
+// the path it had before the 0.5.0 rename: a non-nil error is the
+// diagnostic, which names both paths and the fix. Otherwise a command reads
+// this release's empty path and answers as if it were a fresh install, and
+// the operator gets "no backup set configured yet" with no word about where
+// the catalogue is, or `backup-set create` writes a second catalogue beside
+// the first. See core/prerename.
+//
+// Every way this binary reaches the local configuration or journal asks it
+// first (#1558, #1609): the shared doors (openService, openBackupService,
+// openConfigWriteRoute, openBackupDataPlane), the engine-only verbs'
+// "is there a deployment here at all" question (engineOnlyRemote,
+// anonymousAuthClient), the fresh-install branches that build a first-run
+// surface when no config.yaml is there (backup-set create, ssh-key,
+// test-connection --candidate), and the few reads that load the
+// configuration or open the journal themselves. --help never reaches it,
+// because every flag set is parsed first. prerename_everycommand_1609_test.go
+// holds the list, and fails when a verb is added without saying where it
+// stands.
+func checkPreRenamePath(cfgPath string) error {
+	return prerename.Check(cfgPath, service.StateDatabaseDefault())
+}
+
+// refusedAtPreRenamePath is checkPreRenamePath for the commands that answer
+// with an exit code rather than an error (daemon, check): it prints the
+// diagnostic and reports whether it refused.
+func refusedAtPreRenamePath(cfgPath string) bool {
+	if err := checkPreRenamePath(cfgPath); err != nil {
+		fmt.Fprintln(os.Stderr, cliecho.Binary+":", err)
+		return true
+	}
+	return false
+}
 
 // newFlagSet builds a flag.FlagSet every subcommand but `version` shares:
 // a name (for its own usage/error output) and the one flag they all take,
@@ -117,6 +152,9 @@ func parseFlagsAroundOperands(fs *flag.FlagSet, args []string) ([]string, error)
 // The returned cleanup func closes the journal; callers should always
 // `defer cleanup()` immediately.
 func openService(ctx context.Context, configPath string, withTransport bool) (*app.Service, *config.Config, func(), error) {
+	if err := checkPreRenamePath(configPath); err != nil {
+		return nil, nil, func() {}, err
+	}
 	// Issue #665: same refusal Open (core/service/service.go) makes for
 	// the web host, applied to every CLI subcommand that opens a
 	// service. Nothing reads the result yet; the whole effect today is
@@ -278,6 +316,9 @@ func openBackupServiceLoggingTo(ctx context.Context, configPath string, intent c
 		// command would silently reacquire #535.
 		return nil, func() {}, fmt.Errorf("internal: openBackupService was given no intent for %s; a command has to say whether it writes the configuration", configPath)
 	}
+	if err := checkPreRenamePath(configPath); err != nil {
+		return nil, func() {}, err
+	}
 
 	svc, closeFn, err := service.OpenWith(ctx, configPath, service.OpenOptions{LogTo: logTo, WorkflowRoot: workflowRootDefault()})
 	if err != nil {
@@ -372,6 +413,9 @@ func openConfigWriteRoute(ctx context.Context, configPath string) (configWriteRo
 // standard output (#1152); everything else passes standard output, which is
 // what openConfigWriteRoute has always meant.
 func openConfigWriteRouteTo(ctx context.Context, configPath string, out io.Writer) (configWriteRoute, func(), error) {
+	if err := checkPreRenamePath(configPath); err != nil {
+		return nil, func() {}, err
+	}
 	svc, closeFn, err := service.OpenWith(ctx, configPath, service.OpenOptions{LogTo: out, WorkflowRoot: workflowRootDefault()})
 	if err != nil {
 		return nil, func() {}, err

@@ -2,6 +2,7 @@ status	read	Read the health of every backup set: its state and the reason for it
 backup_sets_list	read	List the configured backup sets with their source, schedule, completion strategy, retention flags and whether each is disabled or read only.
 backup_set_show	read	Read one backup set by its source and name: where it comes from, how it is checked and how long it is kept.
 backups_list	read	List the backups this deployment holds, each with its state, size, validation result, quarantine flag and the placements that hold a copy.
+backup_retirement_show	read	Read what retiring one failed backup would do: whether its source object is still there, which newer backup would replace it, and the refusal or effects. It changes nothing.
 backup_show	read	Read one backup by source, set and name: its state, validation, checksum, retention tier and every placement that holds a copy.
 copies_show	read	Read how each stored copy of one backup is encrypted: the format, whether the key resolves and the stored size. Never a key.
 encryption_state	read	Read the encryption policy: the mode, the suite, each set's effective mode and whether a rotation is due. Never a key or a recipient.
@@ -24,6 +25,7 @@ recovery_test_start	operate	Propose a recovery test of a backup set's newest kno
 verify_copy	operate	Propose decrypt-verifying one backup's encrypted copy against its recorded digest. A person confirms it before anything starts.
 scrub_start	operate	Propose scrubbing a backup set's copies for corruption. A person confirms it before anything starts.
 retry_backup	operate	Propose retrying one backup that failed. A person confirms it before anything starts.
+retire_backup	operate	Propose retiring one failed backup whose source object is gone and that a newer good backup replaces. A person confirms it before anything changes.
 quarantine_revalidate	operate	Propose validating a quarantined backup again. A person confirms it before anything starts.
 backup_set_enabled	configure	Propose enabling or disabling one backup set. A person confirms it before it changes.
 backup_set_retention_set	configure	Propose a retention override for one backup set. A person confirms it before it changes.

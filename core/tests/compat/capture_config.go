@@ -99,6 +99,25 @@ func captureConfigValidation(fixtureDir string) (Cell, error) {
 			lines = append(lines, fmt.Sprintf("%s   deployment agents: http_transport=%s rate_limit_per_minute=%d confirmation_ttl=%s audit_retention_days=%d max_pending_confirmations=%d",
 				base, a.HTTPTransport, a.RateLimitPerMinute, a.ConfirmationTTL, a.AuditRetentionDays, a.MaxPendingConfirmations))
 		}
+		// The observability block (EPIC O, #903), same rule: only the
+		// fixtures named for it print it, and 14 prints it for a config that
+		// never wrote the block, so the all-off defaults an upgrade lands on
+		// are a captured line rather than an assumption.
+		if strings.Contains(base, "observability") {
+			o := cfg.Observability
+			w := o.Alerts.Webhook
+			ref := "none"
+			switch {
+			case w.URLRef.File != "":
+				ref = "file"
+			case w.URLRef.Env != "":
+				ref = "env"
+			case len(w.URLRef.Command) > 0:
+				ref = "command"
+			}
+			lines = append(lines, fmt.Sprintf("%s   deployment observability: metrics.enabled=%v min_rebuild_interval=%s logs.level=%s alerts.delivery=%s webhook.dialect=%s url_ref=%s allow_insecure_http=%v refresh_interval=%s resolve_ttl=%s",
+				base, o.Metrics.Enabled, o.Metrics.MinRebuildInterval, o.Logs.Level, o.Alerts.Delivery, w.Dialect, ref, w.AllowInsecureHTTP, w.RefreshInterval, w.ResolveTTL))
+		}
 		// Assurance (EPIC Q, #982) is printed only for the fixtures that are
 		// about it, so every earlier fixture's lines stay exactly as they
 		// were captured.

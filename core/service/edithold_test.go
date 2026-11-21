@@ -102,7 +102,7 @@ func TestEndBackupSetEdit_ReleasesTheHoldSoBackupsResume(t *testing.T) {
 	if _, err := svc.BeginBackupSetEdit(ctx, fixtureSetID); err != nil {
 		t.Fatalf("BeginBackupSetEdit: %v", err)
 	}
-	if err := svc.EndBackupSetEdit(ctx, fixtureSetID); err != nil {
+	if err := svc.EndBackupSetEdit(ctx, fixtureSetID, ""); err != nil {
 		t.Fatalf("EndBackupSetEdit: %v", err)
 	}
 
@@ -129,7 +129,7 @@ func TestEndBackupSetEdit_IsSafeToCallTwice(t *testing.T) {
 		t.Fatalf("BeginBackupSetEdit: %v", err)
 	}
 	for i := 0; i < 2; i++ {
-		if err := svc.EndBackupSetEdit(ctx, fixtureSetID); err != nil {
+		if err := svc.EndBackupSetEdit(ctx, fixtureSetID, ""); err != nil {
 			t.Fatalf("EndBackupSetEdit call %d: %v", i+1, err)
 		}
 	}
@@ -187,7 +187,7 @@ func TestRenewBackupSetEdit_KeepsAHoldAlivePastItsOriginalLease(t *testing.T) {
 	}
 
 	clock = clock.Add(editHoldLease / 2)
-	renewed, err := svc.RenewBackupSetEdit(ctx, fixtureSetID)
+	renewed, err := svc.RenewBackupSetEdit(ctx, fixtureSetID, first.Token)
 	if err != nil {
 		t.Fatalf("RenewBackupSetEdit: %v", err)
 	}
@@ -339,7 +339,7 @@ func TestBackupSetEditHold_UnknownSetIsNotFound(t *testing.T) {
 		if _, err := svc.BackupSetEditState(ctx, id); !errors.Is(err, ErrBackupSetNotFound) {
 			t.Errorf("BackupSetEditState(%q) error = %v, want ErrBackupSetNotFound", id, err)
 		}
-		if err := svc.EndBackupSetEdit(ctx, id); !errors.Is(err, ErrBackupSetNotFound) {
+		if err := svc.EndBackupSetEdit(ctx, id, ""); !errors.Is(err, ErrBackupSetNotFound) {
 			t.Errorf("EndBackupSetEdit(%q) error = %v, want ErrBackupSetNotFound", id, err)
 		}
 	}

@@ -473,6 +473,21 @@ of this is unchanged either way: the shipped package asks for no Docker socket, 
       reported success with the hook skipped
 
 
+## Scraping `/metrics` on Unraid (EPIC O, #902)
+
+The answer differs here from the compose providers in one name. Unraid's templates put the
+engine and `retnd-ui` on the user-defined network `retnd` (step 0.2), not on a compose
+project's `retnd_internal`, so a Prometheus on this server reaches the engine's `/metrics`
+by joining `retnd` and scraping `retnd:8080`, the engine container's name and its
+`LISTEN_ADDR`. The example bundle in `container/observability/` does that with
+`RETND_NETWORK=retnd`. The published `retnd-ui` port still does not forward `/metrics`,
+and nothing in either template changes for it: no port, no variable, no mapping.
+
+- [ ] With metrics enabled and a token minted, a container on the `retnd` network gets
+      `200` from `retnd:8080/metrics` with the token and `401` without it
+- [ ] The `retnd-ui` published port answers `404` for `/metrics` (the Web UI answers that
+      path itself), not the exposition
+
 ## Evidence (§68)
 
 Fill this in in the same commit that flips Unraid from uncertified to certified.

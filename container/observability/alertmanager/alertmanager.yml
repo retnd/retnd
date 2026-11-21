@@ -1,0 +1,23 @@
+# Alertmanager for the retnd example observability bundle (EPIC O, FR-102).
+#
+# This is an example, not a supported deployment. See ../README.md.
+#
+# It receives the alerts prometheus/rules/retnd.rules.yml fires and, as
+# shipped, delivers them nowhere: the one receiver has no notifier on purpose,
+# because any real one (email, a chat webhook, a pager) needs an address or a
+# credential this repository must never carry. The alerts are still visible
+# in Alertmanager itself and in Grafana's alerting view through the
+# provisioned Alertmanager datasource. Add your notifier to the `operator`
+# receiver, with its secret read from a file (most notifiers take a
+# *_file field for this), never typed into this file.
+route:
+  receiver: operator
+  group_by:
+    - alertname
+    - backup_set
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: operator

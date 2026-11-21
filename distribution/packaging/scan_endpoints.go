@@ -52,7 +52,26 @@ const (
 	// RuleRoutableSSHEndpoint is a routable host with a port next to
 	// something that says SSH.
 	RuleRoutableSSHEndpoint = "routable-ssh-endpoint"
+
+	// RuleCommittedCredential is a credential-named setting given a
+	// literal value: Grafana's admin password anywhere in the tree, and
+	// any password, secret, token or API key setting inside the example
+	// observability bundle (#902). The bundle's credentials come from the
+	// operator at `up` time, through `${VAR:?}` interpolation or a file,
+	// and never from the repository.
+	RuleCommittedCredential = "committed-credential"
+
+	// RuleExampleBundleEndpoint is a routable host anywhere in the example
+	// observability bundle (#902), SSH or not. Every host in an example
+	// is a compose service name or a reserved literal, because a real
+	// hostname pasted into an example is copied into every deployment
+	// that starts from it.
+	RuleExampleBundleEndpoint = "example-bundle-endpoint"
 )
+
+// exampleBundleDir is the example observability bundle, the one directory
+// whose every host must be a placeholder (#902).
+const exampleBundleDir = "container/observability/"
 
 var (
 	// The header alone is not enough: apps/synology/spk/secrets.go and
@@ -85,6 +104,33 @@ var (
 	// to a registry, an S3 endpoint and a Web UI, all of which are
 	// host-and-port and none of which is what #264 is about.
 	sshContextRe = regexp.MustCompile(`(?i)\b(ssh|sftp|scp|known_hosts|knownhosts|authorized_keys|id_ed25519|id_rsa|IdentityFile|ssh-keyscan|host_key|hostkey)\b`)
+
+	// Grafana's admin password set to a literal, in a compose file, an
+	// env file or a doc. The value has to start with a character a
+	// password could start with: `${...}` interpolation, a `__FILE`
+	// variant, a path and a backtick-quoted mention in prose are not
+	// literals, and a guard that fired on them would be switched off.
+	grafanaPasswordRe = regexp.MustCompile(`\bGF_SECURITY_ADMIN_PASSWORD["']?[ \t]*[:=][ \t]*["']?[A-Za-z0-9][^\s"']{3,}`)
+
+	// Any credential-named setting given a literal, which is only applied
+	// inside the example bundle: across the whole tree the same shape is
+	// every test fixture's made-up token.
+	credentialSettingRe = regexp.MustCompile(`(?i)\b[A-Za-z0-9_]*(?:password|passwd|secret|token|api_?key)[A-Za-z0-9_]*["']?[ \t]*[:=][ \t]*["']?[A-Za-z0-9][^\s"']{3,}`)
+
+	// An inline Bearer or Basic credential in an Authorization header (#1595), in YAML,
+	// JSON or a curl line. It has to sit in a header, because "Bearer" next to
+	// an ordinary word is prose and `type: Bearer` is how Prometheus is told
+	// the scheme; a value that is an interpolation or a file starts with
+	// something outside the class and is not a literal.
+	bearerHeaderRe = regexp.MustCompile(`(?i)\bauthorization["']?[ \t]*[:=][ \t]*["']?(?:Bearer|Basic)[ \t]+[A-Za-z0-9][A-Za-z0-9._~+/=-]{7,}`)
+
+	// A retnd scrape token written out (#1595): rsc_ and the body the mint
+	// prints. Whatever key it sits under, the value is the credential. Prose
+	// naming the prefix ("a rsc_ token") has no body after it.
+	scrapeTokenRe = regexp.MustCompile(`\brsc_[A-Za-z0-9_-]{16,}`)
+
+	// The host of a URL, any scheme.
+	urlHostRe = regexp.MustCompile(`\b[a-zA-Z][a-zA-Z0-9+.-]*://(?:[^/\s@]+@)?([^/\s:'"<>()\[\]{},]+)`)
 )
 
 // sshContextWindow is how far either side of a candidate endpoint the
@@ -267,6 +313,49 @@ func scanOneForEndpoints(name, text string) []Violation {
 		}
 		out = append(out, Violation{name, RuleRoutableSSHEndpoint,
 			"names a routable host and a port next to something that says SSH"})
+	}
+
+	if grafanaPasswordRe.MatchString(text) {
+		out = append(out, Violation{name, RuleCommittedCredential,
+			"sets GF_SECURITY_ADMIN_PASSWORD to a literal; it is a required variable the operator supplies, with no default"})
+	}
+
+	if strings.HasPrefix(filepath.ToSlash(name), exampleBundleDir) {
+		out = append(out, scanExampleBundle(name, text)...)
+	}
+	return out
+}
+
+// scanExampleBundle is the stricter pass over container/observability/
+// (#902): no credential-named setting with a literal value, and no routable
+// host at all, SSH context or not.
+func scanExampleBundle(name, text string) []Violation {
+	var out []Violation
+	if (credentialSettingRe.MatchString(text) && !grafanaPasswordRe.MatchString(text)) ||
+		bearerHeaderRe.MatchString(text) || scrapeTokenRe.MatchString(text) {
+		out = append(out, Violation{name, RuleCommittedCredential,
+			"gives a password, secret, token or API key setting, an inline Bearer header or an rsc_ token a literal value inside the example bundle; read it from the environment or a file the operator supplies"})
+	}
+	for _, m := range urlHostRe.FindAllStringSubmatch(text, -1) {
+		if routableHost(m[1]) {
+			out = append(out, Violation{name, RuleExampleBundleEndpoint,
+				"names a routable host in a URL inside the example bundle; use a compose service name or a reserved literal"})
+			break
+		}
+	}
+	for _, m := range hostPortRe.FindAllStringSubmatch(text, -1) {
+		trailing := m[3]
+		if trailing != "" && (trailing[0] >= '0' && trailing[0] <= '9' || trailing[0] == '.') {
+			continue
+		}
+		if port, err := strconv.Atoi(m[2]); err != nil || port < 1 || port > 65535 {
+			continue
+		}
+		if routableHost(m[1]) {
+			out = append(out, Violation{name, RuleExampleBundleEndpoint,
+				"names a routable host and port inside the example bundle; use a compose service name or a reserved literal"})
+			break
+		}
 	}
 	return out
 }

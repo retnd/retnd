@@ -133,7 +133,11 @@ var contractBindings = map[string]contractBinding{
 	// response type: the note is the only thing a caller can send, and a
 	// 204 leaves no resource to describe.
 	"retryFailedIngestion": {retryFailedIngestionRequest{}, nil, "/api/v1/backups/src/set-1/backup.dump/retry"},
-	"reinstateArtifact":    {nil, artifactReinstateResponse{}, "/api/v1/quarantine/src/set-1/backup.dump/reinstate"},
+	// Issue #1528's second way out of FAILED, and the preview the retire
+	// dialog reads before anybody acts.
+	"previewRetirement": {nil, retirementPreviewResponse{}, "/api/v1/backups/src/set-1/backup.dump/retire"},
+	"retireArtifact":    {retireRequest{}, retireArtifactResponse{}, "/api/v1/backups/src/set-1/backup.dump/retire"},
+	"reinstateArtifact": {nil, artifactReinstateResponse{}, "/api/v1/quarantine/src/set-1/backup.dump/reinstate"},
 	// EPIC Q (#976): the recovery pair. The redeem's contract names two
 	// success shapes (the verified bytes, or the placement for a
 	// server-side target); the JSON one is the one with fields to hold.
@@ -196,8 +200,8 @@ var contractBindings = map[string]contractBinding{
 	// (204), so it binds no response type; the contract declares no
 	// response schema for it either, which is what keeps the two in step.
 	"getBackupSetEditHold":     {nil, editHoldStateResponse{}, "/api/v1/backup-sets/src/set-1/edit-hold"},
-	"takeBackupSetEditHold":    {nil, editHoldResponse{}, "/api/v1/backup-sets/src/set-1/edit-hold"},
-	"releaseBackupSetEditHold": {nil, nil, "/api/v1/backup-sets/src/set-1/edit-hold/release"},
+	"takeBackupSetEditHold":    {editHoldBody{}, editHoldResponse{}, "/api/v1/backup-sets/src/set-1/edit-hold"},
+	"releaseBackupSetEditHold": {editHoldBody{}, nil, "/api/v1/backup-sets/src/set-1/edit-hold/release"},
 	"scanCatalog":              {nil, catalogReportResponse{}, "/api/v1/catalog/scan"},
 	"rebuildCatalog":           {nil, catalogReportResponse{}, "/api/v1/catalog/rebuild"},
 	// EPIC K's snapshot and repository reads (#788). Every one of them
@@ -278,6 +282,10 @@ var contractBindings = map[string]contractBinding{
 	"listAgentTokens":  {nil, apicontract.ListAgentTokensResponse{}, "/api/v1/agent/tokens"},
 	"mintAgentToken":   {apicontract.MintAgentTokenRequest{}, apicontract.MintedAgentToken{}, "/api/v1/agent/tokens"},
 	"revokeAgentToken": {nil, apicontract.AgentToken{}, "/api/v1/agent/tokens/agt_1/revoke"},
+	// EPIC O (#898): the observability block and the scrape credential's mint.
+	"getObservabilitySettings":    {nil, apicontract.ObservabilitySettingsResponse{}, "/api/v1/settings/observability"},
+	"updateObservabilitySettings": {apicontract.UpdateObservabilitySettingsRequest{}, apicontract.ObservabilitySettingsResponse{}, "/api/v1/settings/observability"},
+	"mintScrapeToken":             {nil, apicontract.MintedScrapeToken{}, "/api/v1/settings/observability/scrape-token"},
 	// EPIC U (#1348): the audit trail.
 	"listAgentAudit": {nil, apicontract.ListAgentAuditResponse{}, "/api/v1/agent/audit"},
 	"listAgentTools": {nil, apicontract.AgentToolsResponse{}, "/api/v1/agent/tools"},
@@ -575,10 +583,9 @@ func TestContract_RouterAndContractDeclareTheSameOperations(t *testing.T) {
 	// What chi actually serves, as method+pattern.
 	registered := map[string]bool{}
 	err := chi.Walk(routable, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
-		if route == "/health/live" || route == "/health/ready" {
-			// Deliberately outside /api/v1 and outside this contract: they
-			// are unauthenticated infrastructure probes for an
-			// orchestrator, not operations a client of this API calls.
+		if isListedRootRoute(method, route) {
+			// Outside /api/v1 and outside this contract: the probes and the
+			// scrape endpoint, each with its reason in the one list.
 			return nil
 		}
 		registered[method+" "+route] = true
@@ -1461,6 +1468,28 @@ func TestContract_APathBuiltFromTheContractReachesTheResourceItNames(t *testing.
 			reached: func(t *testing.T, b *backupSetFakeBackend, rec *httptest.ResponseRecorder) {
 				if got := b.lastRecoveryMint.ArtifactID; got != artifactID {
 					t.Errorf("the mint reached the backend for artifact %q, want %q (response %d %q)", got, artifactID, rec.Code, rec.Body.String())
+				}
+			},
+		},
+		{
+			operation: "retireArtifact",
+			identity:  artifactID,
+			body:      "{}",
+			csrf:      true,
+			arrange:   func(*backupSetFakeBackend) {},
+			reached: func(t *testing.T, b *backupSetFakeBackend, rec *httptest.ResponseRecorder) {
+				if got := b.lastRetired; got != artifactID {
+					t.Errorf("the retirement reached the backend for %q, want %q (response %d %q)", got, artifactID, rec.Code, rec.Body.String())
+				}
+			},
+		},
+		{
+			operation: "previewRetirement",
+			identity:  artifactID,
+			arrange:   func(*backupSetFakeBackend) {},
+			reached: func(t *testing.T, _ *backupSetFakeBackend, rec *httptest.ResponseRecorder) {
+				if !strings.Contains(rec.Body.String(), `"artifact":"`+artifactID+`"`) {
+					t.Errorf("the preview did not answer for %q (response %d %q)", artifactID, rec.Code, rec.Body.String())
 				}
 			},
 		},

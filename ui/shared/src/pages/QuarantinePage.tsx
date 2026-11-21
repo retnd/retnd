@@ -15,6 +15,7 @@
  * correctly.
  */
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import type { AsyncState } from "@shared/hooks/useAsync";
 import { PageHeader } from "@shared/components/PageHeader";
@@ -124,13 +125,14 @@ export function QuarantinePage({
   // until the answer arrives rather than closing onto a page that shows
   // nothing yet.
   const [running, setRunning] = useState(false);
+  const mountedRef = useMounted();
 
   const revalidate = (a: BackupArtifact) => {
     setOutcome(null);
     api
       .revalidate(a.id)
       .then(quarantine.reload)
-      .catch((e: unknown) => setOutcome(actionFailed("Could not revalidate", a.filename, e)));
+      .catch((e: unknown) => { if (mountedRef.current) setOutcome(actionFailed("Could not revalidate", a.filename, e)); });
   };
 
   const retryIngestion = (a: BackupArtifact) => {
@@ -138,7 +140,7 @@ export function QuarantinePage({
     api
       .retryIngestion(a.id)
       .then(quarantine.reload)
-      .catch((e: unknown) => setOutcome(actionFailed("Could not retry ingestion for", a.filename, e)));
+      .catch((e: unknown) => { if (mountedRef.current) setOutcome(actionFailed("Could not retry ingestion for", a.filename, e)); });
   };
 
   const reinstate = (a: BackupArtifact) => {
@@ -147,6 +149,7 @@ export function QuarantinePage({
     api
       .reinstate(a.id)
       .then((result) => {
+        if (!mountedRef.current) return;
         setConfirming(null);
         if (!result.reinstated) {
           setOutcome({ kind: "refused", filename: a.filename, reason: result.reason });
@@ -156,10 +159,11 @@ export function QuarantinePage({
         quarantine.reload();
       })
       .catch((e: unknown) => {
+        if (!mountedRef.current) return;
         setConfirming(null);
         setOutcome(actionFailed("Could not reinstate", a.filename, e));
       })
-      .finally(() => setRunning(false));
+      .finally(() => { if (mountedRef.current) setRunning(false); });
   };
 
   // #275: quarantine holds what failed validation. Nothing has been

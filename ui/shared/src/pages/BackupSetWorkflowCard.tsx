@@ -36,6 +36,7 @@
  * runner exists precisely because that container has no shell for a hook.
  */
 import { Fragment, useCallback, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useNavigate } from "react-router-dom";
 
 import { useApi } from "@shared/api/ApiContext";
@@ -369,6 +370,7 @@ export function SetWorkflowCard({
   const [validation, setValidation] = useState<WorkflowValidation | null>(null);
   const [validatedAt, setValidatedAt] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
+  const mountedRef = useMounted();
   const [validationError, setValidationError] = useState<string | null>(null);
   const validate = useCallback(() => {
     setValidating(true);
@@ -376,15 +378,17 @@ export function SetWorkflowCard({
     api
       .getBackupSetWorkflowValidation(source, set)
       .then((report) => {
+        if (!mountedRef.current) return;
         setValidation(report);
         setValidatedAt(new Date().toISOString());
         setValidating(false);
       })
       .catch((e: unknown) => {
+        if (!mountedRef.current) return;
         setValidating(false);
         setValidationError(describeFailure(e, "this set's hooks could not be checked").message);
       });
-  }, [api, source, set]);
+  }, [api, source, set, mountedRef]);
 
   const heading = (
     <InfoTooltip id="sets.detail.workflow">
@@ -954,6 +958,7 @@ function ExecConnectionPicker({
 }) {
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const mountedRef = useMounted();
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <InfoTooltip id="workflow.set.exec-picker" block>
@@ -970,8 +975,9 @@ function ExecConnectionPicker({
           setSaving(true);
           setFailure(null);
           onChoose(next)
-            .then(() => setSaving(false))
+            .then(() => { if (mountedRef.current) setSaving(false); })
             .catch((err: unknown) => {
+              if (!mountedRef.current) return;
               setSaving(false);
               // The save gate's refusal is drawn in full by the card's
               // own banner, which names every blocking script, its stage

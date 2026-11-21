@@ -72,6 +72,7 @@ cat > "$bin/ssh" <<'SH'
 cmd="${*: -1}"
 echo "ssh $*" >> "$FAKE_LOG/ssh"
 case "$cmd" in
+  *"stat -f -c %T /tmp"*) [ "${FAKE_TMP_FS:-ext4}" != tmpfs ] || echo tmpfs ;;
   *"command -v docker"*) echo "${FAKE_REMOTE_DOCKER:-docker}" ;;
   *"id -u"*) echo "${FAKE_UID:-1000}" ;;
   *"id -g"*) echo "${FAKE_GID:-1000}" ;;
@@ -80,6 +81,12 @@ case "$cmd" in
   *"cat >"*) { echo "--- stdin for: $cmd"; cat; } >> "$FAKE_LOG/ssh-stdin" ;;
 esac
 exit 0
+SH
+# `uname -s` answers FAKE_UNAME_S, so a Mac's local mode can be told from a Linux box's.
+cat > "$bin/uname" <<'SH'
+#!/bin/sh
+if [ "$*" = "-s" ] && [ -n "${FAKE_UNAME_S:-}" ]; then echo "$FAKE_UNAME_S"; exit 0; fi
+exec /usr/bin/uname "$@"
 SH
 chmod +x "$bin"/*
 
@@ -102,6 +109,30 @@ if [ "$(rc)" = 0 ] && [ -z "$(cat "$log/ssh" "$log/rsync" "$log/tar")" ] \
   pass "R0 without a host the gate runs locally, mounts the repo at its own path, and touches no ssh or rsync"
 else
   fail "R0 local mode is unchanged" "rc=$(rc) $(head -c 400 "$work/out")"
+fi
+
+# --- R0b the gate learns which OS the run started on (#1588) -----------------
+# Inside the container `uname -s` is always Linux, so the Mac rule for the
+# Chromium lane (heavy steps stay off the Mac) has to be told. Local mode
+# says what this machine is; a remote run is on the daemon's machine, never
+# this one, so it says Linux whatever this machine is.
+run_script env FAKE_UNAME_S=Darwin bash "$script" --fast
+if [ "$(rc)" = 0 ] && gate_line | grep -q -- ' RETND_GATE_HOST_OS=Darwin '; then
+  pass "R0b a local run on a Mac hands the gate RETND_GATE_HOST_OS=Darwin"
+else
+  fail "R0b a local run on a Mac names Darwin" "rc=$(rc) $(gate_line)"
+fi
+run_script env FAKE_UNAME_S=Linux bash "$script" --fast
+if [ "$(rc)" = 0 ] && gate_line | grep -q -- ' RETND_GATE_HOST_OS=Linux '; then
+  pass "R0b control: a local run on Linux says Linux"
+else
+  fail "R0b control: Linux says Linux" "rc=$(rc) $(gate_line)"
+fi
+run_script env FAKE_UNAME_S=Darwin bash "$script" --host "ssh://runner@builder.example" --fast
+if [ "$(rc)" = 0 ] && gate_line | grep -q -- ' RETND_GATE_HOST_OS=Linux ' && ! gate_line | grep -q 'RETND_GATE_HOST_OS=Darwin'; then
+  pass "R0b a remote run from a Mac says Linux: the gate is not on the Mac"
+else
+  fail "R0b a remote run says Linux" "rc=$(rc) $(gate_line)"
 fi
 
 # --- R1 remote: daemon, mounts, platform, arguments --------------------------
@@ -573,6 +604,84 @@ if gate_line | grep -q -- '-xdg:/ci/.cache/retnd-tests-gate' && ! gate_line | gr
   pass "R16c local mode keeps the named cache volume"
 else
   fail "R16c local mode keeps the named cache volume" "$(gate_line)"
+fi
+
+# --- R17 the gate container is named for its host (#1540) --------------------
+# The stall watchdog records step durations under the hostname, and a
+# container's own hostname is its id, new every run.
+run_script bash "$script" --host "$host" --fast
+if gate_line | grep -q -- '--hostname ci-docker-builder.example '; then
+  pass "R17a a remote gate container is named for the remote host"
+else
+  fail "R17a a remote gate container is named for the remote host" "$(gate_line)"
+fi
+if grep -q "cat '/home/fake/workspace/nas-work/ci-docker-[0-9-]*/git/ci-local-step-durations.ci-docker-builder.example'" "$log/ssh"; then
+  pass "R17b and its step durations are fetched back before the copy goes"
+else
+  fail "R17b and its step durations are fetched back before the copy goes" "$(grep durations "$log/ssh" || true)"
+fi
+run_script bash "$script" --fast
+r17_want="ci-docker-$(printf '%s' "$(hostname -s 2>/dev/null || hostname)" | tr -c 'A-Za-z0-9.-' '-')"
+if gate_line | grep -qF -- "--hostname $r17_want "; then
+  pass "R17c a local gate container is named for this machine"
+else
+  fail "R17c a local gate container is named for this machine ($r17_want)" "$(gate_line)"
+fi
+
+# --- R18 scratch goes to disk, not to the host's tmpfs /tmp (#1580) ---------
+# On a Linux daemon the container shares the host's /tmp (R11b), and MARS's
+# /tmp is tmpfs: every byte a self-test writes there is memory charged to the
+# container's fence, which cannot be swapped out. The architecture self-test's
+# tree copies took the gate past 7g that way. When the remote host's /tmp is
+# tmpfs, remote mode points TMPDIR at a directory inside the shipped scratch
+# copy, on disk, mounted at the same path inside and out (so a test that
+# bind-mounts a temp directory into a sibling container still names a path the
+# daemon can find), and keeps /tmp shared for the tests that need a short /tmp
+# root. Anywhere else TMPDIR is left alone: on colima the scratch copy sits on
+# the VM's file share, where a test that makes a named pipe would skip.
+linux_tmpfs=(env FAKE_TMP_FS=tmpfs FAKE_SOCK_GID=116 "FAKE_DAEMON_OS=Debian GNU/Linux 13 (trixie)")
+run_script "${linux_tmpfs[@]}" bash "$script" --host "$host" --fast
+gl="$(gate_line)"
+tmp_src="$(printf '%s' "$gl" | grep -oE -- '-v [^ ]*/ci-docker-[^ ]*/tmp:[^ ]*' | head -1)"
+tmp_dir="${tmp_src#-v }"; tmp_dir="${tmp_dir%%:*}"
+if [ "$(rc)" = 0 ] && [ -n "$tmp_dir" ] && [ "$(printf '%s' "$tmp_src" | cut -d: -f2)" = "$tmp_dir" ] \
+   && printf '%s' "$gl" | grep -q -- " TMPDIR=$tmp_dir " \
+   && printf '%s' "$gl" | grep -q -- '-v /tmp:/tmp'; then
+  pass "R18a a remote Linux host with a tmpfs /tmp gets TMPDIR in the scratch copy on disk, same path inside and out, and still shares /tmp"
+else
+  fail "R18a remote TMPDIR is a same-path bind mount of the scratch copy" "rc=$(rc) $gl"
+fi
+if grep -q "mkdir -p .*ci-docker-[^ ]*/tmp'" "$log/ssh"; then
+  pass "R18b the TMPDIR directory is made by the remote account, so the remote uid owns it"
+else
+  fail "R18b the TMPDIR directory is made over ssh" "$(head -5 "$log/ssh")"
+fi
+run_script env FAKE_TMP_FS=tmpfs FAKE_SOCK_GID=121 "FAKE_DAEMON_OS=Debian GNU/Linux 12 (bookworm)" bash "$script" --host "$host" --exec true
+el="$(grep -E 'docker run .* true$' "$log/docker" | grep -v -- '--user 0:0' || true)"
+if [ "$(rc)" = 0 ] && printf '%s' "$el" | grep -qE -- ' TMPDIR=[^ ]*/ci-docker-[^ ]*/tmp '; then
+  pass "R18c --exec gets the same TMPDIR as the gate"
+else
+  fail "R18c --exec gets the same TMPDIR" "rc=$(rc) $el"
+fi
+run_script bash "$script" --fast
+if ! gate_line | grep -q TMPDIR; then
+  pass "R18d local mode leaves TMPDIR alone"
+else
+  fail "R18d local mode leaves TMPDIR alone" "$(gate_line)"
+fi
+run_script env FAKE_TMP_FS=ext4 FAKE_SOCK_GID=116 "FAKE_DAEMON_OS=Debian GNU/Linux 13 (trixie)" bash "$script" --host "$host" --fast
+gl="$(gate_line)"
+if [ "$(rc)" = 0 ] && ! printf '%s' "$gl" | grep -q TMPDIR && ! printf '%s' "$gl" | grep -qE -- '/ci-docker-[^ ]*/tmp:' \
+   && printf '%s' "$gl" | grep -q -- '-v /tmp:/tmp'; then
+  pass "R18e a remote host whose /tmp is on disk (colima's VM, a NAS) keeps TMPDIR as it was"
+else
+  fail "R18e a remote host whose /tmp is not tmpfs keeps TMPDIR as it was" "rc=$(rc) $gl"
+fi
+run_script env FAKE_TMP_FS=tmpfs FAKE_SOCK_GID=0 "FAKE_DAEMON_OS=Docker Desktop" bash "$script" --host "$host" --fast
+if [ "$(rc)" = 0 ] && ! gate_line | grep -q TMPDIR; then
+  pass "R18f a remote Docker Desktop, whose container /tmp is its own, keeps TMPDIR as it was"
+else
+  fail "R18f a remote Docker Desktop keeps TMPDIR as it was" "rc=$(rc) $(gate_line)"
 fi
 
 # --- R10 the page documents the knobs ---------------------------------------

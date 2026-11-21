@@ -55,14 +55,15 @@ GET /activity/live
 GET /agent/audit
 	example: command
 	example ?before=120&limit=50&since=7d&token=agt_0123456789abcdef: command
-GET /agent/mcp
-	no command: an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `retnd agent serve --stdio` serves the same tools without this route
 
 GET /agent/confirmations
 	example: command
 
 GET /agent/confirmations/{id}
 	example: command
+
+GET /agent/mcp
+	no command: an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `retnd agent serve --stdio` serves the same tools without this route
 
 GET /agent/tokens
 	example: command
@@ -151,9 +152,15 @@ GET /backup-sets/{source}/{set}/workflow/validation
 GET /backups
 	example: command
 	example ?setId=api-server%2Fvar-backups: command
+	example ?limit=50&setId=api-server%2Fvar-backups&state=FAILED: command
 
 GET /backups/{source}/{set}/{name}
 	example: command
+
+GET /backups/{source}/{set}/{name}/retire
+	example: command
+	example ?accept_source_present=true: command
+	example ?accept_unverified_copy=true: command
 
 GET /encryption/copies
 	example ?artifact=api-server%2Fvar-backups%2FMANIFEST-20260902T153521Z.txt: command
@@ -184,6 +191,7 @@ GET /operations/{id}
 
 GET /quarantine
 	example: command
+	example ?limit=20&setId=api-server%2Fvar-backups: command
 
 GET /recoveries/{grant}
 	no command: a grant is minted and redeemed in one step by `retnd recover`, in your own shell, so there is no verb that redeems a grant somebody else minted: the token belongs to the browser session that asked for it
@@ -198,6 +206,9 @@ GET /settings
 	example: command
 
 GET /settings/assurance
+	example: command
+
+GET /settings/observability
 	example: command
 
 GET /settings/workflow
@@ -322,6 +333,15 @@ PATCH /settings/assurance
 	example {"recovery_test_builtin_check":"off"}: command
 	body that isn't JSON: malformed: there is no verb that patches the deployment's assurance policy from a request body
 
+PATCH /settings/observability
+	corpus: command
+	example {"metrics_enabled":true}: command
+	example {"metrics_enabled":false,"metrics_min_rebuild_interval_seconds":30}: command
+	example {"logs_level":"warn"}: command
+	example {"alerts_delivery":"webhook","webhook_dialect":"alertmanager","webhook_allow_insecure_http":true}: command
+	example {"webhook_refresh_interval_seconds":180,"webhook_resolve_ttl_seconds":540}: command
+	body that isn't JSON: malformed: there is no verb that patches the deployment's observability block from a request body
+
 PATCH /settings/workflow
 	corpus: command
 	example {"root":"/workflows"}: command
@@ -338,6 +358,7 @@ POST /agent/confirmations/{id}/approve
 POST /agent/confirmations/{id}/deny
 	example: command
 	body that isn't JSON: command
+
 POST /agent/mcp
 	no command: an MCP session is a protocol stream between an agent and the engine, not an act an operator types; `retnd agent serve --stdio` serves the same tools without this route
 
@@ -424,11 +445,15 @@ POST /backup-sets/test-connection
 	body that isn't JSON: malformed: there is no verb that checks a source connection from a request body
 
 POST /backup-sets/{source}/{set}/edit-hold
+	corpus: command
 	example: command
+	example {"token":"3f9c0d2a"}: command
 	body that isn't JSON: command
 
 POST /backup-sets/{source}/{set}/edit-hold/release
+	corpus: command
 	example: command
+	example {"token":"3f9c0d2a"}: command
 	body that isn't JSON: command
 
 POST /backup-sets/{source}/{set}/enabled
@@ -476,6 +501,14 @@ POST /backups/{source}/{set}/{name}/recovery
 	example {"target":{"kind":"source","path":"retnd-recovered-20261015-101500-a1b2","acknowledged_destination":"sh1-0123456789abcdef0123456789abcdef"}}: command
 	example {"target":{"kind":"staging","path":"source:old"}}: command
 	body that isn't JSON: malformed: the request body would not decode, so there is no recovery to name a destination for
+
+POST /backups/{source}/{set}/{name}/retire
+	corpus: command
+	example: command
+	example {"superseded_by":"gitea-dump-20261119T033012Z.tar.gz","note":"the host deleted it"}: command
+	example {"accept_source_present":true,"no_successor":true}: command
+	example {"accept_unverified_copy":true}: command
+	body that isn't JSON: command
 
 POST /backups/{source}/{set}/{name}/retry
 	corpus: command
@@ -608,6 +641,10 @@ POST /repositories
 	example {"id":"offsite-b2","isolation":"isolated","description":"Second copy, off site","passphrase":{"file":"/etc/retnd/offsite-b2.passphrase"}}: command
 	example {"id":"production","isolation":"shared","maintenance_owner":"another-instance","passphrase":{"env":"RETND_PRODUCTION_PASSPHRASE"}}: command
 	body that isn't JSON: malformed: there is no verb that declares a repository domain from a request body
+
+POST /settings/observability/scrape-token
+	example: command
+	body that isn't JSON: command
 
 POST /ssh-keys
 	corpus: command

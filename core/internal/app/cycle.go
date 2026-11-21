@@ -321,6 +321,9 @@ sourcesLoop:
 			// `sources`/GET /backup-sets) without ever being acted on,
 			// until an operator re-enables it.
 			if bs.Disabled {
+				// Issue #1541: nothing is looking at its source, so
+				// what was unreadable there is no longer known.
+				s.unreadableState().forget(bs.ID)
 				continue
 			}
 			// A backup set held for editing (issue #350) is skipped for
@@ -331,6 +334,7 @@ sourcesLoop:
 			// would be the same race with extra steps. Unlike Disabled
 			// this is not persisted anywhere; see holds.go.
 			if holds := BackupSetHoldsFrom(ctx); holds != nil && holds.Held(bs.ID.String()) {
+				s.unreadableState().forget(bs.ID) // #1541, as for a disabled set
 				continue
 			}
 			// Issue #845's per-set cadence. On a SCHEDULED wake a set
@@ -348,7 +352,13 @@ sourcesLoop:
 				continue
 			}
 			s.recordPollAttempt(bs.ID, s.now())
+			// Issue #1541: bracketed here, outside the workflow and every
+			// early return inside the pass, so a pass that never ran
+			// discovery drops the set's unreadable record whatever stopped
+			// it (see unreadable.go).
+			since := s.unreadableState().startPass(bs.ID)
 			report.Sets = append(report.Sets, s.runBackupSetInWorkflow(ctx, src, bs))
+			s.unreadableState().endPass(bs.ID, since)
 		}
 	}
 
@@ -595,6 +605,11 @@ func (s *Service) processBackupSet(ctx context.Context, src config.Source, bs co
 		return result
 	}
 
+	// Issue #1528's way back, before the journal is listed for the walk,
+	// so an artifact whose retired source object is listed again is
+	// walked in this same cycle.
+	s.bringBackReappeared(ctx, discRes)
+
 	records, err := s.Journal.ListByBackupSet(ctx, bs.ID)
 	if err != nil {
 		s.logger().Error(ctx, "list-artifacts", err)
@@ -606,6 +621,18 @@ func (s *Service) processBackupSet(ctx context.Context, src config.Source, bs co
 	result.Progress = foldDiscoveryErrors(walk, discRes)
 	if err := stopReason(); err != nil {
 		result.Err = err
+	}
+
+	// Issue #1528's automatic retirement, after the walk so nothing it
+	// looks at is in flight, and only while the set is still live (P7).
+	if result.Err == nil && ctx.Err() == nil {
+		if after, err := s.Journal.ListByBackupSet(ctx, bs.ID); err != nil {
+			s.logger().Error(ctx, "auto-retire", err)
+		} else {
+			if n := s.autoRetire(ctx, src, bs, after); n > 0 && result.FailedArtifacts >= n {
+				result.FailedArtifacts -= n
+			}
+		}
 	}
 
 	if ctx.Err() == nil {

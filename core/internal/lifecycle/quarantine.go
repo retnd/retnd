@@ -511,6 +511,43 @@ func reinstatementTargetForArtifact(ctx context.Context, d Deps, artifact model.
 	return target, nil
 }
 
+// CheckReinstatementEvidence applies rules 2 to 4 of ReinstateFromQuarantine
+// to evidence gathered about rec, and returns the *InsufficientEvidenceError
+// that call would refuse with, or nil. It writes nothing and reads nothing
+// beyond its arguments.
+//
+// It is exported so a caller that has to move an artifact before the
+// reinstatement itself (internal/app holds a FAILED artifact at QUARANTINED
+// first) can refuse before that first write, rather than leave the artifact
+// half-moved when the evidence was never going to be enough. Both calls run
+// the same rule, so they cannot drift apart.
+func CheckReinstatementEvidence(rec state.Record, e ReinstatementEvidence) error {
+	if e.AnyCheckFailed {
+		return &InsufficientEvidenceError{
+			Artifact: rec.Artifact,
+			Reason: "at least one check that ran did not pass, and a mixed verdict is a failing verdict: whatever else was proved, something about this durable local copy is not what it was when this manager verified it" +
+				summarySuffix(e.Summary),
+		}
+	}
+
+	if !e.conclusive() {
+		return &InsufficientEvidenceError{
+			Artifact: rec.Artifact,
+			Reason: "nothing that could have failed was actually checked. Re-trusting a backup needs either a hash recorded at verification that the durable local copy still matches, or the backup set's application validator running and passing now; the local file merely still being present is not evidence" +
+				summarySuffix(e.Summary),
+		}
+	}
+
+	if rec.ValidationPassed != nil && !*rec.ValidationPassed && !e.ValidatorPassed {
+		return &InsufficientEvidenceError{
+			Artifact: rec.Artifact,
+			Reason: "this artifact's recorded validator verdict is a rejection, and the validator did not run and pass in this call. A matching hash proves the bytes are unchanged, and the unchanged bytes are exactly what the validator refused, so the evidence has to include the validator itself" +
+				summarySuffix(e.Summary),
+		}
+	}
+	return nil
+}
+
 // ReinstateFromQuarantine returns a quarantined artifact to the durable
 // state it already held (QUARANTINED -> COMMITTED, QUARANTINED_LOST ->
 // COMPLETE), on evidence the caller gathered in this same call.
@@ -596,28 +633,8 @@ func ReinstateFromQuarantine(ctx context.Context, d Deps, p QuarantineReinstateP
 		return state.Outcome{}, &NotQuarantinedError{Artifact: p.Artifact, Current: current}
 	}
 
-	if p.Evidence.AnyCheckFailed {
-		return state.Outcome{}, &InsufficientEvidenceError{
-			Artifact: p.Artifact,
-			Reason: "at least one check that ran did not pass, and a mixed verdict is a failing verdict: whatever else was proved, something about this durable local copy is not what it was when this manager verified it" +
-				summarySuffix(p.Evidence.Summary),
-		}
-	}
-
-	if !p.Evidence.conclusive() {
-		return state.Outcome{}, &InsufficientEvidenceError{
-			Artifact: p.Artifact,
-			Reason: "nothing that could have failed was actually checked. Re-trusting a backup needs either a hash recorded at verification that the durable local copy still matches, or the backup set's application validator running and passing now; the local file merely still being present is not evidence" +
-				summarySuffix(p.Evidence.Summary),
-		}
-	}
-
-	if rec.ValidationPassed != nil && !*rec.ValidationPassed && !p.Evidence.ValidatorPassed {
-		return state.Outcome{}, &InsufficientEvidenceError{
-			Artifact: p.Artifact,
-			Reason: "this artifact's recorded validator verdict is a rejection, and the validator did not run and pass in this call. A matching hash proves the bytes are unchanged, and the unchanged bytes are exactly what the validator refused, so the evidence has to include the validator itself" +
-				summarySuffix(p.Evidence.Summary),
-		}
+	if err := CheckReinstatementEvidence(rec, p.Evidence); err != nil {
+		return state.Outcome{}, err
 	}
 
 	// Issue #315: which durable state THIS artifact is returned to depends

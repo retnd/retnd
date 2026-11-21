@@ -162,6 +162,10 @@ COPY core/cmd/ ./cmd/
 COPY core/internal/ ./internal/
 COPY core/service/ ./service/
 COPY core/migrations/ ./migrations/
+# core/prerename is the startup refusal for a deployment still mounted at
+# its pre-0.5.0 path (#1546): retnd daemon and retnd-web serve both call
+# it, so both stages need it for the reason above.
+COPY core/prerename/ ./prerename/
 
 # Cross-compiled for the target platform requested by `docker buildx build
 # --platform`, without emulating the builder itself: TARGETOS/TARGETARCH
@@ -316,6 +320,7 @@ COPY core/cmd/ ./core/cmd/
 COPY core/internal/ ./core/internal/
 COPY core/service/ ./core/service/
 COPY core/migrations/ ./core/migrations/
+COPY core/prerename/ ./core/prerename/
 COPY apps/common/ ./apps/common/
 COPY apps/generic/ ./apps/generic/
 

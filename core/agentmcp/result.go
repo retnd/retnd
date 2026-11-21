@@ -116,6 +116,12 @@ func invalidArguments(message string) Result {
 	return Result{Code: CodeInvalidRequest, Message: message, ExitCode: ExitUsage}
 }
 
+// staleCursor is the result for a server cursor sent back to an answer it did
+// not come from: the list moved, so the offset in it points somewhere else.
+func staleCursor(correlation, command string) Result {
+	return Result{Code: CodeInvalidRequest, Message: "query.before: that cursor is not for this answer, because the list has changed since it was issued; ask again without it", CorrelationID: correlation, Command: command, ExitCode: ExitUsage}
+}
+
 // routeParams lists the {name} placeholders of a route pattern, in order.
 func routeParams(route string) []string {
 	var out []string

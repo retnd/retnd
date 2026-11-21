@@ -27,3 +27,15 @@ export async function openMint(page: Page) {
   await region(page, "tokens").getByRole("button", { name: "Create token" }).click();
   return page.getByRole("dialog", { name: "Create token" });
 }
+
+/** #1525: the audit is collapsed until asked for, so a spec that reads its rows opens it first. */
+export async function expandAudit(page: Page) {
+  const toggle = region(page, "audit").getByRole("button", { name: /^Audit/ });
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+}
+
+/** openAgents, then the audit expanded. */
+export async function openAgentsWithAudit(page: Page, scenario = "agents-tokens") {
+  await openAgents(page, scenario);
+  await expandAudit(page);
+}

@@ -163,6 +163,12 @@ func hasLocalConfig(cfgPath string) bool {
 // keeps the path it always had. starts is true for a verb that starts or
 // stops work, which wants the deployment pinned.
 func engineOnlyRemote(ctx context.Context, cfgPath string, starts bool) (*remoteRoute, error) {
+	// Before hasLocalConfig: a deployment still mounted at its pre-0.5.0
+	// path has nothing at the new one, and "this host has no deployment of
+	// its own" would be the wrong answer to build a route on (#1609).
+	if err := checkPreRenamePath(cfgPath); err != nil {
+		return nil, err
+	}
 	if hasLocalConfig(cfgPath) {
 		return nil, nil
 	}

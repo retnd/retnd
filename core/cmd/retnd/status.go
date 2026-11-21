@@ -7,8 +7,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/health"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -35,6 +37,9 @@ func cmdStatus(args []string) int {
 		return 2
 	}
 
+	// openService refuses a deployment still mounted at its pre-0.5.0 path
+	// before it opens anything (#1558, #1609), so that is never reported as
+	// the fresh install below.
 	ctx := context.Background()
 	svc, cfg, cleanup, err := openService(ctx, *cfgPath, false)
 	if err != nil {
@@ -70,9 +75,11 @@ func cmdStatus(args []string) int {
 	for _, bs := range report.BackupSets {
 		mine = append(mine, bs.Set.String()+" "+string(bs.State))
 	}
-	if err := mode.agreeOnHealth(ctx, mine); err != nil {
+	engine, err := mode.agreeOnHealth(ctx, mine)
+	if err != nil {
 		return fail(err)
 	}
+	adoptEnginePendingUnreadable(&report, engine)
 
 	if *asJSON {
 		return printStatusJSON(report)
@@ -152,7 +159,21 @@ func cmdStatus(args []string) int {
 			fmt.Printf("    nothing in this set is being deleted, and nothing will be until a reconciliation settles what it holds.\n")
 			fmt.Printf("    the backups themselves are fine; what is wrong is that this manager cannot confirm the newest one.\n")
 		}
+		// Issue #1541. Beside the retention hold for the same reason: it is
+		// a condition next to the verdict that nothing else on this screen
+		// would mention, and it never changes the exit code, because a
+		// file waiting for its producer is not a failed backup.
+		for _, line := range pendingUnreadableLines(bs) {
+			fmt.Println(line)
+		}
 		fmt.Printf("  quarantined: %d (of which unrecoverable: %d)\n", bs.QuarantinedCount, bs.QuarantinedLostCount)
+		// Issue #1528. Only when there are any, like the counts below: a
+		// retired backup is a failure nobody needs to act on, and saying how
+		// many there are is what keeps retiring one from hiding it.
+		if bs.RetiredCount > 0 {
+			fmt.Printf("  retired: %d (failed backups whose source is gone, kept on record; `%s artifacts --state RETIRED` lists them)\n",
+				bs.RetiredCount, cliecho.Binary)
+		}
 		// Issue #227. Printed only when there are any, because for most
 		// deployments this is permanently zero and a line that always
 		// reads zero is a line an operator stops seeing. When it is not
@@ -274,4 +295,48 @@ func ageOrNever(age *time.Duration) string {
 		return "never"
 	}
 	return age.String()
+}
+
+// pendingUnreadableLines is what `status` prints under a set about source
+// files that are complete and not readable yet (issue #1541): nothing when
+// there are none, a quiet count while the oldest is inside stale_after, and
+// health's warning once it is not.
+func pendingUnreadableLines(bs health.BackupSetHealth) []string {
+	switch {
+	case bs.PendingUnreadableCount == 0:
+		return nil
+	case bs.PendingUnreadableWarning != "":
+		return []string{
+			"  warning: " + bs.PendingUnreadableWarning,
+			"    they wait and are checked again every pass; none of them is a failed backup, and each is taken the first time it can be read.",
+		}
+	default:
+		return []string{fmt.Sprintf("  waiting to be published: %d complete source file(s) not readable yet, the oldest %s for %s",
+			bs.PendingUnreadableCount, bs.PendingUnreadableOldestPath, ageOrUnknown(bs.PendingUnreadableOldestAge))}
+	}
+}
+
+// adoptEnginePendingUnreadable copies the running engine's count of
+// complete but unreadable source files onto this process's report (issue
+// #1541). The engine keeps it in memory from its own discovery passes, so
+// a `status` that has not run discovery would otherwise always say none.
+// Only those four fields are taken: every other figure this process read
+// from the shared journal itself, and agreeOnHealth has already checked
+// the two agree on every verdict.
+func adoptEnginePendingUnreadable(report *health.Report, engine apicontract.HealthResponse) {
+	byID := make(map[string]apicontract.BackupSetHealth, len(engine.BackupSets))
+	for _, bs := range engine.BackupSets {
+		byID[bs.BackupSetID] = bs
+	}
+	for i := range report.BackupSets {
+		theirs, ok := byID[report.BackupSets[i].Set.String()]
+		if !ok || theirs.PendingUnreadable == 0 {
+			continue
+		}
+		age := time.Duration(theirs.PendingUnreadableOldestAgeSeconds) * time.Second
+		report.BackupSets[i].PendingUnreadableCount = theirs.PendingUnreadable
+		report.BackupSets[i].PendingUnreadableOldestAge = &age
+		report.BackupSets[i].PendingUnreadableOldestPath = theirs.PendingUnreadableOldestPath
+		report.BackupSets[i].PendingUnreadableWarning = theirs.PendingUnreadableWarning
+	}
 }

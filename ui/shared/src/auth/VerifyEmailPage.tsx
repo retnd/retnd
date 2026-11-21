@@ -34,6 +34,7 @@
  * account in order to prove you can read its recovery address.
  */
 import { useEffect, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { Link, useSearchParams } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { apiErrorOf, describeFailure } from "@shared/api/failure";
@@ -79,6 +80,11 @@ export function VerifyEmailPage() {
   // the operator's own successful verification back to them as an
   // already-used link.
   const submitted = useRef(false);
+  // The answer can land after the page has gone. The graph writes below
+  // still have to happen (the banner outlives this page), but this page's
+  // own state does not, and setting it then throws once a test's window
+  // has been torn down, which also skipped those graph writes (#1589).
+  const mountedRef = useMounted();
 
   useEffect(() => {
     if (token === "" || submitted.current) return;
@@ -86,7 +92,7 @@ export function VerifyEmailPage() {
     api
       .verifyRecoveryEmail(token)
       .then(() => {
-        setDone(true);
+        if (mountedRef.current) setDone(true);
         // The banner above this page (RecoveryVerificationBanner) sits
         // above the router and is never unmounted by arriving here, so
         // without the two writes below it would go on saying the account
@@ -121,9 +127,9 @@ export function VerifyEmailPage() {
           .then(publishRecoverySettings)
           .catch(() => undefined);
       })
-      .catch((e: unknown) => setFailure(describeVerifyFailure(e)))
-      .finally(() => setBusy(false));
-  }, [api, token]);
+      .catch((e: unknown) => { if (mountedRef.current) setFailure(describeVerifyFailure(e)); })
+      .finally(() => { if (mountedRef.current) setBusy(false); });
+  }, [api, token, mountedRef]);
 
   return (
     <AuthFrame>

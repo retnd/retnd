@@ -34,6 +34,7 @@
  * list.
  */
 import { useCallback, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 
 import { useApi } from "@shared/api/ApiContext";
 import { Banner } from "@shared/components/Banner";
@@ -68,6 +69,7 @@ export function WorkflowSettingsCard({ readOnly }: { readOnly: boolean }) {
   const [draft, setDraft] = useState<Record<Box, string> | null>(null);
   const [saving, setSaving] = useState<Box | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  const mountedRef = useMounted();
   /** The scripts the last save was refused over, if it was. Separate from
    *  `failure` above because it is not a sentence: a refusal names several
    *  scripts, each with its own directory and its own blocking findings,
@@ -124,6 +126,7 @@ export function WorkflowSettingsCard({ readOnly }: { readOnly: boolean }) {
       api
         .patchWorkflowSettings(patch)
         .then(() => {
+          if (!mountedRef.current) return;
           setSaving(null);
           // Re-read rather than trust the echo: the response is the
           // RESOLVED block, and a cleared directory changes which stages
@@ -131,6 +134,7 @@ export function WorkflowSettingsCard({ readOnly }: { readOnly: boolean }) {
           settings.reload();
         })
         .catch((e: unknown) => {
+          if (!mountedRef.current) return;
           setSaving(null);
           const message = describeFailure(e, "that setting was not saved").message;
           // The save gate's own refusal, kept structured. It is NOT put
@@ -144,7 +148,7 @@ export function WorkflowSettingsCard({ readOnly }: { readOnly: boolean }) {
           }
         });
     },
-    [api, draft, settings]
+    [api, draft, settings, mountedRef]
   );
 
   const heading = (

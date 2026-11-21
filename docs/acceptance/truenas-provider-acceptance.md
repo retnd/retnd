@@ -486,6 +486,19 @@ of this is unchanged either way: the shipped package asks for no Docker socket, 
       reported success with the hook skipped
 
 
+## Scraping `/metrics` on TrueNAS (EPIC O, #902)
+
+The answer differs here in one name. TrueNAS runs a catalog app as a compose project
+under its own project name rather than `retnd`, so the engine's network is not called
+`retnd_internal`. Find it with `docker network ls` (it ends in `_internal`) and give
+that name to the example bundle in `container/observability/` as `RETND_NETWORK`; the
+scrape target is still `retnd:8080`. The app's published Web UI port does not forward
+`/metrics`, and nothing in the catalog template changes for it.
+
+- [ ] The engine's network name is recorded here, read from `docker network ls`
+- [ ] With metrics enabled and a token minted, a container joined to that network gets
+      `200` from `retnd:8080/metrics` with the token and `401` without it
+
 ## Evidence (§68)
 
 Fill this in in the same commit that flips TrueNAS from uncertified to certified.

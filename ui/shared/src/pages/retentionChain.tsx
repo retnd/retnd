@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import type { ReactNode } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import { RetndError, LOCAL_DESTINATION_ID } from "@shared/api/contracts";
@@ -532,7 +533,7 @@ export function localDriveDescription(m: StorageMedium): string {
  * the one that reproduces the click, so somebody who moved one tier by
  * clicking has read the command that moves the next fifty.
  */
-function TierDestinationActions({
+export function TierDestinationActions({
   tier,
   readOnly,
   onDestinationsChanged,
@@ -571,6 +572,7 @@ function TierDestinationActions({
   const [report, setReport] = useState<MediumPreflight | null>(null);
   const [error, setError] = useState<{ medium: string; message: string } | null>(null);
   const [adding, setAdding] = useState(false);
+  const mountedRef = useMounted();
 
   const shown = report && report.medium === tier.medium ? report : null;
   const shownError = error && error.medium === tier.medium ? error.message : null;
@@ -582,12 +584,12 @@ function TierDestinationActions({
     setError(null);
     api
       .preflightStorageMedium(asked)
-      .then(setReport)
+      .then((r) => { if (mountedRef.current) setReport(r); })
       .catch((e: unknown) =>
         // The failure is tagged with what was ASKED, because a rejection
         // carries no report to read an id off. Same rule either way: an
         // answer is shown under the destination it is about.
-        setError({
+        mountedRef.current && setError({
           medium: asked,
           message:
             e instanceof RetndError
@@ -595,7 +597,7 @@ function TierDestinationActions({
               : "retnd could not test the connection to this destination."
         })
       )
-      .finally(() => setBusy(false));
+      .finally(() => { if (mountedRef.current) setBusy(false); });
   }
 
   return (
@@ -647,6 +649,8 @@ function TierDestinationActions({
         <S3DestinationWizard
           onClose={() => setAdding(false)}
           onSaved={(created) => {
+            // Called after the wizard's save answers; this tier can have gone (#1599).
+            if (!mountedRef.current) return;
             setAdding(false);
             // Picked immediately, because choosing it is why they made
             // it. A wizard that saved and left the tier on its old
@@ -962,6 +966,7 @@ function MediumPreflightRow({ mediumId, disabled }: { mediumId: string; disabled
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<MediumPreflight | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const mountedRef = useMounted();
 
   function run() {
     setBusy(true);
@@ -969,15 +974,15 @@ function MediumPreflightRow({ mediumId, disabled }: { mediumId: string; disabled
     setError(null);
     api
       .preflightStorageMedium(mediumId)
-      .then(setReport)
+      .then((r) => { if (mountedRef.current) setReport(r); })
       .catch((e: unknown) =>
-        setError(
+        mountedRef.current && setError(
           e instanceof RetndError
             ? e.api.message
             : "retnd could not check this storage medium."
         )
       )
-      .finally(() => setBusy(false));
+      .finally(() => { if (mountedRef.current) setBusy(false); });
   }
 
   // Every check is rendered, passed ones included, and that is the point

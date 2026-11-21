@@ -24,11 +24,14 @@ core-docker
 apps
 js
 e2e
+ui-browser
 two-machine
 selftest-gate
 selftest-compat
 selftest-conformance
 selftest-recovery
 selftest-assurance
+selftest-encryption
+selftest-agents
 structure
 gh-rows

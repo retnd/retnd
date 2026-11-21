@@ -70,10 +70,10 @@ func TestNoAPIRouteBypassesAuthentication(t *testing.T) {
 
 	var checked int
 	err := chi.Walk(routableFor(t, router), func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
-		if route == "/health/live" || route == "/health/ready" {
-			// Deliberately public (§17: "require UGOS authentication on
-			// /api/", not on infra health checks); see the dedicated
-			// health tests below for that claim.
+		if isListedRootRoute(method, route) {
+			// The probes are deliberately public (§17) and /metrics has a
+			// credential of its own; their own tests (health tests below and
+			// handlers_metrics_test.go) drive every answer they give.
 			return nil
 		}
 
@@ -165,6 +165,12 @@ var destructiveGateExemptRoutes = map[string]bool{
 	// (internal/lifecycle's Transitions table, and
 	// TestOnlyCommittedPrecedesRemoteDeletePending).
 	"POST /api/v1/backups/{source}/{set}/{name}/retry": true,
+
+	// Issue #1528: retiring a FAILED backup moves its row to RETIRED and
+	// removes only the leftover .partial a failed transfer left. No backup
+	// copy and nothing on the source is touched, and FAILED is reachable
+	// only before COMMITTED, so no delete is reachable from it either.
+	"POST /api/v1/backups/{source}/{set}/{name}/retire": true,
 
 	// Issue #443: the storage medium's equivalent of test-connection,
 	// and exempt for the same reason with one extra sentence, because
@@ -473,7 +479,14 @@ var destructiveGateExemptRoutes = map[string]bool{
 	// PATCH /settings already settles for turning FR-19's protection off:
 	// the posture is visible in the response and on the feed, and nothing
 	// here can cause an unattended deletion.
-	"PATCH /api/v1/settings/assurance":                    true,
+	"PATCH /api/v1/settings/assurance": true,
+	// EPIC O (#898): the observability block is one block of config.yaml,
+	// rewritten and hot-reloaded like the two above it. A scrape endpoint, a
+	// log floor and an alert channel reach no backup datum, and the mint
+	// changes who may read the exposition and touches nothing else. Both are
+	// session-only: a bearer is refused AGENT_ROUTE_DENIED before the gate.
+	"PATCH /api/v1/settings/observability":                true,
+	"POST /api/v1/settings/observability/scrape-token":    true,
 	"PATCH /api/v1/backup-sets/{source}/{set}/assurance":  true,
 	"DELETE /api/v1/backup-sets/{source}/{set}/assurance": true,
 
@@ -636,7 +649,7 @@ func TestEveryMutatingAPIRouteRefusesARequestWithNoCSRFPair(t *testing.T) {
 			// deliberately exempt from this gate.
 			return nil
 		}
-		if route == "/health/live" || route == "/health/ready" {
+		if isListedRootRoute(method, route) {
 			return nil
 		}
 		if destructiveGateExemptRoutes[method+" "+route] || destructiveGateTargetKindRoutes[method+" "+route] != nil {
